@@ -1487,12 +1487,20 @@ fn ReviewModule<'a>(
                         // link, and the read model gives the previous and the next.
                         <nav class={Row} aria-label={t.wb_review_pager_label()}>
                             if let Some(href) = &previous {
-                                <a class={Button { variant: ButtonVariant::Outline, size: ButtonSize::Sm }} href={href} rel="prev">
+                                <a
+                                    class={Button { variant: ButtonVariant::Outline, size: ButtonSize::Sm }}
+                                    href={href}
+                                    rel="prev"
+                                >
                                     {t.wb_review_pager_previous()}
                                 </a>
                             }
                             if let Some(href) = &next {
-                                <a class={Button { variant: ButtonVariant::Outline, size: ButtonSize::Sm }} href={href} rel="next">
+                                <a
+                                    class={Button { variant: ButtonVariant::Outline, size: ButtonSize::Sm }}
+                                    href={href}
+                                    rel="next"
+                                >
                                     {t.wb_review_pager_next()}
                                 </a>
                             }
