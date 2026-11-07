@@ -39,6 +39,7 @@ import {
   preserveMetadata,
   readAuthority,
   retainedPath,
+  serializeIdentity,
 } from "./inventory.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -1086,7 +1087,7 @@ async function measure() {
   const actualIdentity = observeIdentity(path.join(privateDir, "prepayload-identity"), config.tools);
   preserveMetadata(path.join(privateDir, "prepayload-identity"), capture, "prepayload-identity-");
   enforceIdentityPins(config, actualIdentity);
-  json(path.join(capture, "prepayload-identity.json"), { authority: authority.identity, actualIdentity });
+  writeFileSync(path.join(capture, "prepayload-identity.json"), serializeIdentity(actualIdentity, authority.identity), { mode: 0o600 });
   const head = await command("git", ["rev-parse", "HEAD"], "prepayload-disk-head");
   invariant(head.value.trim() === config.head, "PREPAYLOAD_DISK_HEAD_MISMATCH");
   mark("protocolStart");

@@ -4,7 +4,7 @@ import { lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, writeFil
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { invariant, isHash, isRef, scanExposure, sha256 } from "./helpers.mjs";
+import { classifyExposure, exposureRuleIds, invariant, isHash, isRef, scanExposure, sha256 } from "./helpers.mjs";
 
 export const supportPath = "scripts/test-support/10678-ingress-nosend";
 export const decisionSha256 = "cd40037db2909c89980c8fdb365a2583cf5ca276122ebcdcda2e7456b30888b5";
@@ -211,6 +211,49 @@ const registerOperations = (value) => {
   else for (const entry of Object.values(value)) registerOperations(entry);
 };
 registerOperations(inventoryOperations);
+
+export const inventoryPublicationFiles = Object.freeze([
+  ["authority-envelope.json", "AUTHORITY_ENVELOPE"],
+  ["authority-payload.json", "AUTHORITY_PAYLOAD"],
+  ["authority-review.txt", "AUTHORITY_REVIEW"],
+  ["authority-subject.json", "AUTHORITY_SUBJECT"],
+  ["authority-dispatch.json", "AUTHORITY_DISPATCH"],
+  ["authority-completion.json", "AUTHORITY_COMPLETION"],
+  ["preparation-receipt.json", "RECEIPT"],
+  ["metadata-command-ledger.json", "LEDGER"],
+  ["observed-process-identities.json", "PROCESS_IDENTITIES"],
+  ["observed-identity.json", "IDENTITY"],
+  ["inventory-manifest.json", "MANIFEST"],
+  ["inventory-publication-gate.json", "GATE"],
+].map((entry) => Object.freeze(entry)));
+export const inventoryPublicationQueries = Object.freeze(
+  [...registeredOperations].filter((site) => Object.hasOwn(site, "incomplete")).map((site) => {
+    const role = site.raw.slice("INVENTORY_".length, -"_RAW_FAILED".length);
+    return Object.freeze({ site, stdout: `${role}_STDOUT`, stderr: `${role}_STDERR` });
+  }),
+);
+const queryPublicationRoles = new Map(inventoryPublicationQueries.map((entry) => [entry.site, entry]));
+const identityPublicationRoles = new WeakMap();
+const publicationRoles = new Set([
+  ...inventoryPublicationFiles.map(([, role]) => role),
+  ...inventoryPublicationQueries.flatMap(({ stdout, stderr }) => [stdout, stderr]),
+]);
+
+export function inventoryPublicationHitClasses(hits, classified, roles) {
+  invariant(
+    hits.length > 0 && hits.length === classified.length &&
+      hits.every(({ file, line }, i) => file === classified[i].file && line === classified[i].line),
+    "PRIVATE_INVENTORY_PUBLICATION_REFUSED",
+  );
+  const tokens = new Set();
+  for (const { file, rules } of classified) {
+    const role = roles.get(file);
+    invariant(publicationRoles.has(role) && rules.length > 0 && rules.every((rule) => exposureRuleIds.includes(rule)),
+      "PRIVATE_INVENTORY_PUBLICATION_REFUSED");
+    for (const rule of rules) tokens.add(`${role}:${rule}`);
+  }
+  return `INVENTORY_PUBLICATION_HIT_CLASSES total=${hits.length} classes=${[...tokens].sort().join(",")}`;
+}
 
 export function inventoryCategory(error) {
   try {
@@ -811,6 +854,11 @@ export function validateInventoryPublication(receipt, gate) {
 
 const writeJson = (file, value) =>
   writeFileSync(file, `${JSON.stringify(value, null, 2)}\n`, { flag: "wx", mode: 0o600 });
+
+export function serializeIdentity(identity, authority) {
+  const serialized = { ...identity, versions: Object.entries(identity.versions).map(([tool, banner]) => ({ tool, banner })) };
+  return `${JSON.stringify(authority === undefined ? serialized : { authority, actualIdentity: serialized }, null, 2)}\n`;
+}
 const cleanEnvironment = (home) => ({
   PATH: "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
   HOME: home,
@@ -835,6 +883,7 @@ const resolveTool = (site, name) => {
 
 // All subprocess queries below are fixed read-only local metadata queries, never arbitrary caller argv.
 export function observeIdentity(directory, pins) {
+  const publicationFiles = new Map(inventoryPublicationFiles);
   const home = inventoryAt(inventoryOperations.identitySetup, () => {
     mkdirSync(directory, { mode: 0o700 });
     const home = path.join(directory, "empty-home");
@@ -854,6 +903,8 @@ export function observeIdentity(directory, pins) {
         shell: false,
       });
       const name = `${String(++sequence).padStart(4, "0")}-${tool}`;
+      publicationFiles.set(`${name}.stdout`, queryPublicationRoles.get(site).stdout);
+      publicationFiles.set(`${name}.stderr`, queryPublicationRoles.get(site).stderr);
       writeFileSync(path.join(directory, `${name}.stdout`), result.stdout ?? Buffer.alloc(0), {
         flag: "wx",
         mode: 0o600,
@@ -1054,8 +1105,9 @@ export function observeIdentity(directory, pins) {
     daemon,
   }));
   inventoryAt(inventoryOperations.identityWrite, () =>
-    writeJson(path.join(directory, "observed-identity.json"), identity),
+    writeFileSync(path.join(directory, "observed-identity.json"), serializeIdentity(identity), { flag: "wx", mode: 0o600 }),
   );
+  identityPublicationRoles.set(identity, publicationFiles);
   return identity;
 }
 
@@ -1320,7 +1372,15 @@ async function collect() {
   inventoryAt(inventoryOperations.gateWrite, () =>
     writeJson(path.join(capture, "inventory-publication-gate.json"), gate),
   );
-  validateInventoryPublication(receipt, gate);
+  try {
+    validateInventoryPublication(receipt, gate);
+  } catch (error) {
+    if (inventoryCategory(error) === "PRIVATE_INVENTORY_PUBLICATION_REFUSED")
+      console.log(inventoryAt(inventoryOperations.captureScan, () =>
+        inventoryPublicationHitClasses(hits, classifyExposure(files), identityPublicationRoles.get(identity)),
+      ));
+    throw error;
+  }
   console.log("INVENTORY_CAPTURE_COMPLETE_MEASUREMENT_NOT_EXECUTED");
 }
 

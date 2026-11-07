@@ -3,6 +3,8 @@ import { readFileSync } from "node:fs";
 import {
   assembleReceipt,
   classifyRow,
+  classifyExposure,
+  exposureRuleIds,
   isImage,
   matrix,
   parseAccess,
@@ -129,5 +131,35 @@ check("bundle closure rejects non-builtin externals and image tags without diges
   assert.equal(isImage("node:24-bookworm-slim"), false);
   assert.equal(isImage(`node:24-bookworm-slim@sha256:${"a".repeat(64)}`), true);
   assert.equal(sha256("synthetic").length, 64);
+});
+check("classifier evaluates the unchanged scanner predicates and every matching rule", () => {
+  const corpus = [
+    "neutral synthetic text",
+    "\ufffd",
+    "Bearer syntheticMarker123",
+    "token: syntheticMarker123",
+    '["cookie", "syntheticMarker123"]',
+    "https://example.invalid/path?neutral=value",
+    "?state=syntheticMarker123",
+    JSON.stringify({ bodyBase64: Buffer.from("token: syntheticMarker123").toString("base64") }),
+    "token: https://example.invalid/path?state=syntheticMarker123",
+  ].map((text, i) => ({ file: `synthetic-${i}`, text: `neutral\n${text}\nneutral` }));
+  const verify = (classify, depth = 0) => {
+    const classified = classify(corpus, depth);
+    assert.deepEqual(classified.map(({ file, line }) => ({ file, line })), scanExposure(corpus, depth));
+    return classified;
+  };
+  const classified = verify(classifyExposure);
+  const deep = verify(classifyExposure, 9);
+  assert.deepEqual(new Set([...classified, ...deep].flatMap(({ rules }) => rules)), new Set(exposureRuleIds));
+  assert.deepEqual(classified.at(-1).rules, ["LABELED_FIELD", "URL_QUERY", "QUERY_PARAMETER"]);
+  for (const rule of exposureRuleIds) {
+    const dropping = (files, depth) => classifyExposure(files, depth)
+      .map((hit) => ({ ...hit, rules: hit.rules.filter((entry) => entry !== rule) }))
+      .filter(({ rules }) => rules.length);
+    assert.throws(() => verify(dropping, rule === "DEPTH" ? 9 : 0), undefined, `dropping ${rule} must go red`);
+  }
+  // The fixed scanner body remains exactly H1'''; the classifier contains no regex literals.
+  assert.equal(sha256(scanExposure.toString().replaceAll("\r\n", "\n")), "2c5519d273b0e86622983f767c430ec9427b1b24bcb57ba185ccac77ff55232b");
 });
 console.log(`PASS ${checks} focused pure-helper groups; no processes, containers, network or harness execution`);

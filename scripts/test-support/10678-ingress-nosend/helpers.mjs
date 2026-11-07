@@ -190,3 +190,32 @@ export function scanExposure(files, depth = 0) {
   }
   return hits;
 }
+
+export const exposureRuleIds = Object.freeze([
+  "DEPTH",
+  "REPLACEMENT_CHAR",
+  "TOKEN_OR_PRIVATE_KEY",
+  "LABELED_FIELD",
+  "COOKIE_ARRAY",
+  "URL_QUERY",
+  "QUERY_PARAMETER",
+  "ENCODED_BODY",
+]);
+
+// Compile only this module's fixed scanner source, not capture text. Keep the scanner
+// byte-identical while evaluating every original OR term instead of short-circuiting.
+const classifiedScanner = (() => {
+  const source = scanExposure.toString().replaceAll("\r\n", "\n");
+  const start = source.indexOf("      if (\n");
+  const end = source.indexOf("        hits.push({ file, line: i + 1 });", start);
+  const predicates = source.slice(start + "      if (\n".length, end).trim().slice(0, -1).trim().split(" ||\n");
+  invariant(predicates.length === exposureRuleIds.length, "EXPOSURE_CLASSIFIER_SOURCE_MISMATCH");
+  const classified = `${source.slice(0, start)}
+      const rules = [${predicates.map((predicate, i) => `((${predicate}) ? ${JSON.stringify(exposureRuleIds[i])} : null)`).join(",")}].filter(Boolean);
+      if (rules.length) hits.push({ file, line: i + 1, rules });${source.slice(end + "        hits.push({ file, line: i + 1 });".length)}`;
+  return new Function("scanExposure", `return (${classified});`)(scanExposure);
+})();
+
+export function classifyExposure(files, depth = 0) {
+  return classifiedScanner(files, depth);
+}
