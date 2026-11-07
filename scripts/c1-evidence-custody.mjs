@@ -2,6 +2,7 @@ import { verify, createPublicKey } from "node:crypto";
 import { closeSync, existsSync, fsyncSync, lstatSync, mkdirSync, openSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import { instant, readTerminalEvidence, sha256 } from "./census-terminal-evidence.mjs";
+import { unzipJsonEntries } from "./release-health-delivery-health.mjs";
 
 const clockKinds = Object.freeze([
   "capture-start",
@@ -269,6 +270,17 @@ function admission(plan, authority, backup, now) {
       [binding.census, binding.verification].some((b) => b && o.runId === b.id && o.attempt === b.attempt),
       `SOURCE_ATTEMPT:${f.id}`,
     );
+    if (f.scope === "lifecycle" && f.log)
+      need(
+        o.containerUid === f.log.ownerUid &&
+          o.runId === binding.verification.id &&
+          o.attempt === binding.verification.attempt &&
+          Number.isSafeInteger(f.log.generation) &&
+          f.log.generation >= 0 &&
+          Number.isSafeInteger(f.log.rotation) &&
+          f.log.rotation >= 0,
+        `OWNING_LOG_PROVENANCE:${f.id}`,
+      );
   }
   const normalized = paths.map(key);
   need(
@@ -371,11 +383,7 @@ function history(plan, sources, now) {
     previousVersion = segment.resourceVersion;
     previousTime = segment.completedAt;
   }
-  need(
-    previousTime === h.end && records.length === get(h.segments[0]).totalCount && records.length <= 1000,
-    "HISTORY_TOTAL",
-  );
-  need(records.filter((r) => r.kind === "Event").length === inventory.eventCount, "EVENT_COVERAGE");
+  need(previousTime === h.end && records.length <= 1000, "HISTORY_TOTAL");
   const unique = new Map();
   for (const r of records) {
     need(
@@ -398,6 +406,9 @@ function history(plan, sources, now) {
         `OMITTED_RESOURCE:${r.uid}`,
       );
   }
+  const deliveries = [...unique.values()];
+  need(deliveries.filter((r) => r.kind === "Event").length === inventory.eventCount, "EVENT_COVERAGE");
+  need(unique.size === get(h.segments[0]).totalCount, "HISTORY_TOTAL");
   const logs = [];
   for (const r of inventory.resources) {
     need(time(r.createdAt) >= time(h.start) && time(r.finalizedAt) <= time(h.end), `EARLY_HISTORY:${r.uid}`);
@@ -417,7 +428,7 @@ function history(plan, sources, now) {
       ["finalized", r.finalizedAt],
     ])
       need(
-        records.some(
+        deliveries.some(
           (v) =>
             v.kind === r.kind && v.uid === r.uid && v.action === action && v.at === at && equal(v.identity, r.identity),
         ),
@@ -564,6 +575,17 @@ function artifacts(plan, sources) {
         r.size_in_bytes === archive.length,
     );
     need(matches.length === 1, "ARTIFACT_CANONICAL_IDENTITY");
+    let members;
+    try {
+      members = unzipJsonEntries(archive, {
+        include: (name) => name.split("/").at(-1).toLowerCase() === a.payloadName.toLowerCase(),
+        maxEntryBytes: Math.max(1, payload.length),
+      });
+    } catch {
+      need(false, "ARTIFACT_ARCHIVE");
+    }
+    need(members.size === 1 && members.has(a.payloadName), "ARTIFACT_CANONICAL_MEMBER");
+    need(members.get(a.payloadName).equals(payload), "ARTIFACT_MEMBER_BYTES");
     const value = json(payload);
     if (a.role === "verification")
       need(
