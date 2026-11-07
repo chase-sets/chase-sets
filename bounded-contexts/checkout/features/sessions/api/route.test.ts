@@ -269,6 +269,7 @@ function createServices(overrides: Partial<CheckoutSessionServices> = {}): Check
     selectOptimizationGoal: vi.fn(async ({ sessionId }) => mutationResult(sessionId)),
     recordFulfillmentPreview: vi.fn(async ({ sessionId }) => mutationResult(sessionId)),
     selectShippingOption: vi.fn(async ({ sessionId }) => mutationResult(sessionId)),
+    firstPreviewShippingAddress: vi.fn(async () => null),
     verifyShippingAddress: vi.fn(async (address) => ({ status: "accepted", shippingAddress: address }) as const),
     setShippingAddress: vi.fn(async ({ sessionId }) => mutationResult(sessionId)),
     selectAuthenticityCheckOptIn: vi.fn(async ({ sessionId }) => mutationResult(sessionId)),
@@ -2616,6 +2617,95 @@ describe("checkout session routes", () => {
     expect(services.recordPaymentStarted).not.toHaveBeenCalled();
   });
 
+  // #10785: Payments starts a payment only for orders.manage or guest-checkout.manage, so confirm
+  // refuses before it reserves stock or creates orders the buyer could not pay for.
+  it.each([
+    ["an owner whose email is unverified", "owner", "email_verification_required", "Verify your email before you pay."],
+    ["a role without order management", "viewer", "authorization_forbidden", "This account cannot pay for purchases."],
+  ])("refuses Pay now for %s before any reservation or order", async (_label, roleKey, code, message) => {
+    const services = createServices({ getSession: vi.fn(async () => createSession()) });
+    const app = buildApp(services, createBuyerActor({ roleKey, permissions: ["orders.view"] }));
+
+    const response = await app.fetch(
+      new Request("http://checkout.test/account/checkout-sessions/chk_1/confirm", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          paymentMethodCategory: "card",
+          shippingAddress,
+          marketplaceCheckoutFeeQuoteFingerprint: "marketplace-checkout-fee-v1|card|6.81|0.00|6.81|0.52|7.33|7.33",
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(403);
+    await expect(response.json()).resolves.toEqual({
+      error: { code, message: expect.stringContaining(message) },
+    });
+    expect(services.setShippingAddress).not.toHaveBeenCalled();
+    expect(mockCreateCheckoutInventoryReservations).not.toHaveBeenCalled();
+    expect(mockCreateCheckoutOrdersThroughOrdering).not.toHaveBeenCalled();
+    expect(mockCreateCheckoutPaymentThroughPayments).not.toHaveBeenCalled();
+  });
+
+  it("answers a repeat Pay now on orders the buyer cannot pay for with the reason, not a 400", async () => {
+    const services = createServices({
+      getSession: vi.fn(async () => createSession({ order_ids: ["ord_1"] })),
+      resumeOrderCartCleanup: vi.fn(async ({ sessionId }) => ({
+        sessionId,
+        session: createSession({ order_ids: ["ord_1"] }),
+      })),
+    });
+    const app = buildApp(services, createBuyerActor({ roleKey: "owner", permissions: ["orders.view"] }));
+
+    const response = await app.fetch(
+      new Request("http://checkout.test/account/checkout-sessions/chk_1/confirm", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          paymentMethodCategory: "card",
+          shippingAddress,
+          marketplaceCheckoutFeeQuoteFingerprint: "marketplace-checkout-fee-v1|card|6.81|0.00|6.81|0.52|7.33|7.33",
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(403);
+    await expect(response.json()).resolves.toMatchObject({ error: { code: "email_verification_required" } });
+    expect(mockCreateCheckoutPaymentThroughPayments).not.toHaveBeenCalled();
+  });
+
+  it("still lets a guest buyer pay", async () => {
+    mockCreateCheckoutOrdersThroughOrdering.mockResolvedValue({
+      orderIds: ["ord_1"],
+      readyLineKeys: ["cli_1"],
+      writeResult: orderingWriteResult,
+    });
+    const services = createServices({
+      getSession: vi.fn(async () => createSession({ buyer_account_id: "acc_guest" })),
+      recordOrdersCreated: vi.fn(async ({ sessionId }) => ({
+        sessionId,
+        session: createSession({ buyer_account_id: "acc_guest", order_ids: ["ord_1"] }),
+      })),
+    });
+    const app = buildApp(services, createGuestBuyerActor());
+
+    const response = await app.fetch(
+      new Request("http://checkout.test/account/checkout-sessions/chk_1/confirm", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          paymentMethodCategory: "card",
+          shippingAddress,
+          marketplaceCheckoutFeeQuoteFingerprint: "marketplace-checkout-fee-v1|card|6.81|0.00|6.81|0.52|7.33|7.33",
+        }),
+      }),
+    );
+
+    expect(response.status).not.toBe(403);
+    expect(mockCreateCheckoutPaymentThroughPayments).toHaveBeenCalledTimes(1);
+  });
+
   it("asks checkout review to retry when Payments has not observed newly created orders", async () => {
     mockCreateCheckoutOrdersThroughOrdering.mockResolvedValue({
       orderIds: ["ord_1"],
@@ -4661,5 +4751,110 @@ describe("cancel checkout", () => {
     expect(retried.status).toBe(200);
     expect(inventory.available()).toEqual({ inv_a: 3, inv_b: 1 });
     expect(cancelledEvents()).toHaveLength(1);
+  });
+});
+
+// #10798: Pay now sends the address the page preselects, and Ordering recomputes the preview for it,
+// so a session's first preview must already be computed for that address.
+describe("a session's first preview is computed for the buyer's saved address", () => {
+  const savedAddress = {
+    shippingAddressId: "adr_home" as never,
+    name: "Demo Collector",
+    company: null,
+    line1: "42 Binder Lane",
+    line2: null,
+    city: "Evanston",
+    state: "IL",
+    postalCode: "60201",
+    country: "US",
+    phone: null,
+    email: "collector@chasesets.test",
+  };
+
+  beforeEach(() => {
+    mockPreviewBuyNowCheckoutSupplyThroughOrdering.mockResolvedValue(readyBuyNowSupplyPreview());
+    mockPreviewCheckoutFulfillmentThroughOrdering.mockResolvedValue(readyBuyNowSupplyPreview());
+  });
+
+  function start(services: CheckoutSessionServices, source: Record<string, unknown>) {
+    return buildApp(services).fetch(
+      new Request("http://checkout.test/account/checkout-sessions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ entryAttemptKey: ENTRY_ATTEMPT_KEY, source }),
+      }),
+    );
+  }
+
+  const buyNow = {
+    type: "buy-now",
+    listingId: "lst_1",
+    catalogItemId: "cat_1",
+    productId: "cat_1::form:raw",
+    itemTitle: "Charizard",
+    itemSubtitle: null,
+    selectedOptions: [{ dimensionId: "form", optionId: "raw" }],
+    productSummary: "Raw",
+    quantity: 1,
+  };
+
+  it("previews a buy now for the buyer's saved address", async () => {
+    const services = createServices({ firstPreviewShippingAddress: vi.fn(async () => savedAddress) });
+
+    expect((await start(services, buyNow)).status).toBe(201);
+
+    expect(services.firstPreviewShippingAddress).toHaveBeenCalledWith("acc_buyer");
+    expect(mockPreviewBuyNowCheckoutSupplyThroughOrdering).toHaveBeenCalledWith(
+      expect.any(Request),
+      expect.objectContaining({ shippingAddress: savedAddress }),
+    );
+  });
+
+  it("previews a buy now without a destination when the buyer has no saved address", async () => {
+    const services = createServices();
+
+    expect((await start(services, buyNow)).status).toBe(201);
+
+    expect(mockPreviewBuyNowCheckoutSupplyThroughOrdering).toHaveBeenCalledWith(
+      expect.any(Request),
+      expect.objectContaining({ shippingAddress: null }),
+    );
+  });
+
+  it("records a cart session's first preview for the buyer's saved address when the session has none", async () => {
+    const services = createServices({
+      getSession: vi.fn(async () => createSession({ session_id: "chk_cart", shipping_address: null })),
+      firstPreviewShippingAddress: vi.fn(async () => savedAddress),
+    });
+
+    expect(
+      (await start(services, { type: "cart", readinessSnapshotId: "cr_1", readinessSourceRevision: "rev_1" })).status,
+    ).toBe(201);
+
+    expect(mockPreviewCheckoutFulfillmentThroughOrdering).toHaveBeenCalledWith(
+      expect.any(Request),
+      expect.objectContaining({ session_id: "chk_cart" }),
+      expect.objectContaining({ shippingAddress: savedAddress }),
+    );
+    expect(services.recordFulfillmentPreview).toHaveBeenCalled();
+  });
+
+  it("keeps a cart session's own address for its first preview", async () => {
+    const own = { ...savedAddress, shippingAddressId: "adr_session" as never, line1: "7 Session Street" };
+    const services = createServices({
+      getSession: vi.fn(async () => createSession({ session_id: "chk_cart", shipping_address: own })),
+      firstPreviewShippingAddress: vi.fn(async () => savedAddress),
+    });
+
+    expect(
+      (await start(services, { type: "cart", readinessSnapshotId: "cr_1", readinessSourceRevision: "rev_1" })).status,
+    ).toBe(201);
+
+    expect(services.firstPreviewShippingAddress).not.toHaveBeenCalled();
+    expect(mockPreviewCheckoutFulfillmentThroughOrdering).toHaveBeenCalledWith(
+      expect.any(Request),
+      expect.objectContaining({ session_id: "chk_cart" }),
+      expect.objectContaining({ shippingAddress: own }),
+    );
   });
 });

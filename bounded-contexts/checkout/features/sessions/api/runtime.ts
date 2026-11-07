@@ -9,6 +9,10 @@ import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { PostageLabelProvider } from "@chase-sets/postage-labels";
 import type { AccountId, CheckoutSessionId, PaymentId } from "@chase-sets/primitives/typed-ids";
 import type { CheckoutCartServices } from "../../cart/api/runtime";
+import {
+  checkoutShippingAddressFromSavedAddress,
+  listCheckoutShipFromAddresses,
+} from "../../cart/integrations/identity/identity-queries";
 import type { CartReadinessDecisionInput } from "../../cart/domain/readiness";
 import { CheckoutDomainError, normalizeShippingOption } from "../../../support/runtime-support/common";
 import {
@@ -186,6 +190,12 @@ export type CheckoutSessionServices = Readonly<{
     }>,
     context: EventStoreContext,
   ) => Promise<CheckoutSessionMutationResult>;
+  /**
+   * The address a session's first preview is computed for while the session has none: the buyer's
+   * default saved address, else their most recently updated one (the address book's order), which is
+   * the address the checkout page preselects. Null when the buyer has no saved address.
+   */
+  firstPreviewShippingAddress: (accountId: AccountId) => Promise<CheckoutShippingAddress | null>;
   verifyShippingAddress: (
     address: CheckoutShippingAddress,
     decision?: AddressVerificationDecision,
@@ -379,6 +389,10 @@ export function createCheckoutSessionRuntime(deps: CheckoutSessionRuntimeDeps): 
         },
         context,
       );
+    },
+    firstPreviewShippingAddress: async (accountId) => {
+      const [address] = await listCheckoutShipFromAddresses(deps.db, accountId);
+      return address ? checkoutShippingAddressFromSavedAddress(address) : null;
     },
     verifyShippingAddress: (address, decision) =>
       verifyCheckoutShippingAddress(deps.addressVerificationProvider, address, decision ?? null),

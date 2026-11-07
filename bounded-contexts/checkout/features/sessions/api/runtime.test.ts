@@ -2326,6 +2326,51 @@ describe("checkout session runtime", () => {
 });
 
 describe("Checkout session entry and read relocation parity", () => {
+  it("previews a session without an address for the buyer's first saved address, as the page preselects it (#10798)", async () => {
+    const row = {
+      shipping_address_id: "adr_home",
+      account_id: "acc_buyer",
+      label: "Home",
+      recipient_name: "Demo Collector",
+      company: null,
+      line1: "42 Binder Lane",
+      line2: null,
+      city: "Evanston",
+      state: "IL",
+      postal_code: "60201",
+      country: "US",
+      phone: null,
+      email: "collector@chasesets.test",
+      is_default: true,
+      updated_at: "2026-03-01 10:05:00+00",
+    };
+    const query = vi.fn(async () => ({ rows: [row, { ...row, shipping_address_id: "adr_work", is_default: false }] }));
+    const services = createCheckoutSessionRuntime({
+      eventStore: createInMemoryEventStore().eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: { query },
+      cart: createCartServices() as never,
+    });
+
+    await expect(services.firstPreviewShippingAddress("acc_buyer" as never)).resolves.toEqual({
+      shippingAddressId: "adr_home",
+      name: "Demo Collector",
+      company: null,
+      line1: "42 Binder Lane",
+      line2: null,
+      city: "Evanston",
+      state: "IL",
+      postalCode: "60201",
+      country: "US",
+      phone: null,
+      email: "collector@chasesets.test",
+    });
+    expect(query).toHaveBeenCalledWith(expect.stringContaining("ORDER BY is_default DESC"), ["acc_buyer"]);
+
+    query.mockResolvedValueOnce({ rows: [] });
+    await expect(services.firstPreviewShippingAddress("acc_guest" as never)).resolves.toBeNull();
+  });
+
   it("complete Checkout session behavior ownership", () => {
     const db = { query: vi.fn(async () => ({ rows: [] })) };
     const cart = createCartServices() as never;
@@ -2367,6 +2412,7 @@ describe("Checkout session entry and read relocation parity", () => {
       [
         "cancelSession",
         "commandHandler",
+        "firstPreviewShippingAddress",
         "getConfirmationBinding",
         "getPaymentConfirmation",
         "getPaymentSummary",
