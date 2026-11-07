@@ -19,6 +19,7 @@ import {
   inventoryPublicationQueries,
   inventoryPublicationHitClasses,
   serializeIdentity,
+  projectIdentity,
   decodeAuthority,
   validateInventoryPublication,
   normalizePushEvent,
@@ -563,23 +564,33 @@ assert.deepEqual(successService(inventoryOperations.services.docker, "docker"), 
 function syntheticIdentity() {
   const written = new Map();
   const writeFileSync = (file, value) => written.set(file, Buffer.from(value));
-  const declarations = (name) => descendants(identityTree, (node) =>
-    ts.isVariableDeclaration(node) && node.name.getText(identityTree) === name);
+  const declarations = (name) =>
+    descendants(identityTree, (node) => ts.isVariableDeclaration(node) && node.name.getText(identityTree) === name);
   const bindings = {
     directory: "/synthetic/private",
     pins: Object.fromEntries(stockTools.map((name) => [name, { path: `/synthetic/${name}` }])),
-    stockTools, inventoryAt, inventoryOperations, inventoryQueryResult, invariant, sha256,
-    inventoryPublicationFiles, serializeIdentity,
+    stockTools,
+    inventoryAt,
+    inventoryOperations,
+    inventoryQueryResult,
+    invariant,
+    sha256,
+    inventoryPublicationFiles,
+    serializeIdentity,
     queryPublicationRoles: new Map(inventoryPublicationQueries.map((entry) => [entry.site, entry])),
     identityPublicationRoles: new WeakMap(),
     path: path.posix,
     os: { arch: () => "x64", release: () => "synthetic-kernel" },
     process: { env: { ImageVersion: "20000101.1.0", ImageOS: "ubuntu24" }, execPath: "/synthetic/node" },
-    Date: class extends Date { constructor() { super("2000-01-01T00:00:00.000Z"); } },
+    Date: class extends Date {
+      constructor() {
+        super("2000-01-01T00:00:00.000Z");
+      }
+    },
     mkdirSync: () => {},
     lstatSync: () => ({ isFile: () => true, isSymbolicLink: () => false }),
     realpathSync: (file) => file,
-    readFileSync: (file) => file === "/etc/os-release" ? "NAME=Synthetic\n" : bytes,
+    readFileSync: (file) => (file === "/etc/os-release" ? "NAME=Synthetic\n" : bytes),
     writeFileSync,
     spawnSync: (executable, args) => {
       const tool = path.posix.basename(executable);
@@ -597,9 +608,10 @@ function syntheticIdentity() {
       else if (tool === "docker" && args.includes("{{json .Runtimes}}"))
         stdout = '{"synthetic":{"path":"/synthetic/runtime"}}';
       else if (tool === "docker" && args.includes("{{.DefaultRuntime}}")) stdout = "synthetic";
-      else if (tool === "sudo" && args[0] === "-n") stdout = args[1].endsWith("readlink")
-        ? `/synthetic/daemon-${args.at(-1).split("/")[2]}\n`
-        : `${"a".repeat(64)}  ${args.at(-1)}\n`;
+      else if (tool === "sudo" && args[0] === "-n")
+        stdout = args[1].endsWith("readlink")
+          ? `/synthetic/daemon-${args.at(-1).split("/")[2]}\n`
+          : `${"a".repeat(64)}  ${args.at(-1)}\n`;
       return { status: 0, signal: null, stdout: Buffer.from(stdout), stderr: Buffer.alloc(0) };
     },
   };
@@ -608,9 +620,16 @@ function syntheticIdentity() {
   bindings.cleanEnvironment = expression(declarations("cleanEnvironment")[0].initializer, bindings);
   bindings.resolveTool = expression(declarations("resolveTool")[0].initializer, bindings);
   bindings.writeJson = expression(declarations("writeJson")[0].initializer, bindings);
-  bindings.canonical = new Function("record", `const canonical = ${declarations("canonical")[0].initializer.getText(identityTree)}; return canonical;`)(bindings.record);
-  const observer = identityTree.statements.find((node) => ts.isFunctionDeclaration(node) && node.name.text === "observeIdentity");
-  const construct = new Function(...Object.keys(bindings), `return () => ${observer.body.getText(identityTree)}`)(...Object.values(bindings));
+  bindings.canonical = new Function(
+    "record",
+    `const canonical = ${declarations("canonical")[0].initializer.getText(identityTree)}; return canonical;`,
+  )(bindings.record);
+  const observer = identityTree.statements.find(
+    (node) => ts.isFunctionDeclaration(node) && node.name.text === "observeIdentity",
+  );
+  const construct = new Function(...Object.keys(bindings), `return () => ${observer.body.getText(identityTree)}`)(
+    ...Object.values(bindings),
+  );
   const actual = construct();
   assert.equal(Object.keys(actual.tools).length, 25);
   assert.equal(Object.keys(actual.versions).length, 25);
@@ -624,21 +643,48 @@ const identityFile = "/synthetic/private/observed-identity.json";
 const identityText = productionShape.written.get(identityFile).toString("utf8");
 const keyedText = `${JSON.stringify(productionShape.actual, null, 2)}\n`;
 const keyedHits = scanExposure([{ file: "synthetic-identity", text: keyedText }]);
-assert.deepEqual(keyedHits, [{ file: "synthetic-identity", line: keyedText.split("\n").findIndex((line) => line.includes('"dpkg-query": "')) + 1 }]);
+assert.deepEqual(keyedHits, [
+  { file: "synthetic-identity", line: keyedText.split("\n").findIndex((line) => line.includes('"dpkg-query": "')) + 1 },
+]);
 console.log("P5(a) H1''' keyed form: exactly one dpkg-query LABELED_FIELD hit; all other synthetic inputs frozen");
-assert.deepEqual(scanExposure([{ file: "synthetic-identity", text: identityText }]), [], "P5 production identity must scan clean");
+assert.deepEqual(
+  scanExposure([{ file: "synthetic-identity", text: identityText }]),
+  [],
+  "P5 production identity must scan clean",
+);
 const memoryBefore = JSON.stringify(productionShape.actual);
 const fingerprintBefore = JSON.stringify(identityFingerprint(productionShape.actual));
 const serialized = JSON.parse(serializeIdentity(productionShape.actual));
-const restored = { ...serialized, versions: Object.fromEntries(serialized.versions.map(({ tool, banner }) => [tool, banner])) };
+const restored = {
+  ...serialized,
+  versions: Object.fromEntries(serialized.versions.map(({ tool, banner }) => [tool, banner])),
+};
 assert.equal(JSON.stringify(identityFingerprint(restored)), fingerprintBefore);
 const wrapped = JSON.parse(serializeIdentity(productionShape.actual, { synthetic: true }));
 assert.deepEqual(wrapped.authority, { synthetic: true });
 assert.deepEqual(wrapped.actualIdentity, serialized);
 assert.equal(JSON.stringify(productionShape.actual), memoryBefore);
 assert.equal(JSON.stringify(identityFingerprint(productionShape.actual)), fingerprintBefore);
+assert.equal(
+  serializeIdentity(productionShape.actual),
+  `${JSON.stringify(
+    {
+      ...productionShape.actual,
+      versions: Object.entries(productionShape.actual.versions).map(([tool, banner]) => ({ tool, banner })),
+    },
+    null,
+    2,
+  )}\n`,
+  "projection refactor preserves serializer bytes",
+);
 for (const [role, text] of [
-  ["IDENTITY", serializeIdentity({ ...productionShape.actual, versions: { ...productionShape.actual.versions, curl: `token: ${secret}` } })],
+  [
+    "IDENTITY",
+    serializeIdentity({
+      ...productionShape.actual,
+      versions: { ...productionShape.actual.versions, curl: `token: ${secret}` },
+    }),
+  ],
   ["VERSION_CURL_STDOUT", `token: ${secret}`],
 ]) {
   const files = [{ file: "synthetic-opaque-file", text }];
@@ -646,9 +692,15 @@ for (const [role, text] of [
   const classes = inventoryPublicationHitClasses(hits, classifyExposure(files), new Map([[files[0].file, role]]));
   assert.equal(classes, `INVENTORY_PUBLICATION_HIT_CLASSES total=1 classes=${role}:LABELED_FIELD`);
   assert(!classes.includes(secret));
-  assert.throws(() => assert.equal(
-    inventoryPublicationHitClasses(hits, classifyExposure(files), new Map([[files[0].file, "LEDGER"]])), classes,
-  ), undefined, "mis-mapping only the role must go red");
+  assert.throws(
+    () =>
+      assert.equal(
+        inventoryPublicationHitClasses(hits, classifyExposure(files), new Map([[files[0].file, "LEDGER"]])),
+        classes,
+      ),
+    undefined,
+    "mis-mapping only the role must go red",
+  );
 }
 console.log("PASS P5 identity production shape; fingerprint equality and frozen banner/stdout role-marker controls");
 
@@ -657,7 +709,11 @@ const evaluateFunction = (name, bindings) => {
   return expression(node, bindings, node.getText(identityTree).replace(/^export /, ""));
 };
 const syntheticEnvelopeBytes = Buffer.from(JSON.stringify(fixtureAuthority().envelope));
-const syntheticAuthority = decodeAuthority(syntheticEnvelopeBytes, sha256(syntheticEnvelopeBytes), { head, phase: "inventory", protocol });
+const syntheticAuthority = decodeAuthority(syntheticEnvelopeBytes, sha256(syntheticEnvelopeBytes), {
+  head,
+  phase: "inventory",
+  protocol,
+});
 const captureDirectory = "/synthetic/capture";
 const memoryIO = {
   ...productionShape.bindings,
@@ -665,20 +721,35 @@ const memoryIO = {
     assert(productionShape.written.has(file), "synthetic read must be registered");
     return productionShape.written.get(file);
   },
-  readdirSync: (directory) => [...productionShape.written.keys()]
-    .filter((file) => path.posix.dirname(file) === directory).map((file) => path.posix.basename(file)),
+  readdirSync: (directory) =>
+    [...productionShape.written.keys()]
+      .filter((file) => path.posix.dirname(file) === directory)
+      .map((file) => path.posix.basename(file)),
 };
 evaluateFunction("preserveMetadata", memoryIO)("/synthetic/private", captureDirectory);
 for (const prefix of ["identity-", "prepayload-identity-", "seal-identity-"]) {
   evaluateFunction("preserveMetadata", memoryIO)("/synthetic/private", "/synthetic/copy", prefix);
-  assert.deepEqual(productionShape.written.get(`/synthetic/copy/${prefix}observed-identity.json`), productionShape.written.get(identityFile));
+  assert.deepEqual(
+    productionShape.written.get(`/synthetic/copy/${prefix}observed-identity.json`),
+    productionShape.written.get(identityFile),
+  );
 }
 evaluateFunction("preserveAuthority", memoryIO)(captureDirectory, syntheticAuthority, syntheticEnvelopeBytes);
-const collectNode = identityTree.statements.find((node) => ts.isFunctionDeclaration(node) && node.name.text === "collect");
-const collectInitializer = (name) => descendants(collectNode, (node) => ts.isVariableDeclaration(node) && node.name.getText(identityTree) === name)[0].initializer;
+const collectNode = identityTree.statements.find(
+  (node) => ts.isFunctionDeclaration(node) && node.name.text === "collect",
+);
+const collectInitializer = (name) =>
+  descendants(collectNode, (node) => ts.isVariableDeclaration(node) && node.name.getText(identityTree) === name)[0]
+    .initializer;
 const artifactBindings = {
-  ...memoryIO, startedAt: "2000-01-01T00:00:00.000Z", run: "1", attempt: "1", protocol,
-  event: normalized, authority: syntheticAuthority, identity: productionShape.actual,
+  ...memoryIO,
+  startedAt: "2000-01-01T00:00:00.000Z",
+  run: "1",
+  attempt: "1",
+  protocol,
+  event: normalized,
+  authority: syntheticAuthority,
+  identity: productionShape.actual,
   capture: captureDirectory,
 };
 const productionReceipt = expression(collectInitializer("receipt"), artifactBindings);
@@ -686,18 +757,30 @@ memoryIO.writeJson(`${captureDirectory}/preparation-receipt.json`, productionRec
 const publicationFiles = expression(collectInitializer("files"), artifactBindings);
 const publicationHits = scanExposure(publicationFiles);
 assert.deepEqual(publicationHits, [], "complete neutral production capture must scan clean");
-const manifestObject = descendants(collectNode, (node) => ts.isObjectLiteralExpression(node) && node.properties.some((property) => property.initializer?.getText(identityTree) === '"10678-inventory-manifest/v1"'));
+const manifestObject = descendants(
+  collectNode,
+  (node) =>
+    ts.isObjectLiteralExpression(node) &&
+    node.properties.some((property) => property.initializer?.getText(identityTree) === '"10678-inventory-manifest/v1"'),
+);
 assert.equal(manifestObject.length, 1);
 const productionManifest = expression(manifestObject[0], { ...artifactBindings, files: publicationFiles });
 memoryIO.writeJson(`${captureDirectory}/inventory-manifest.json`, productionManifest);
 const productionGate = expression(collectInitializer("gate"), { ...artifactBindings, hits: publicationHits });
 validateInventoryPublication(productionReceipt, productionGate);
-assert.deepEqual(scanExposure([
-  ...publicationFiles,
-  { file: "synthetic-manifest", text: JSON.stringify(productionManifest, null, 2) },
-  { file: "synthetic-gate", text: JSON.stringify(productionGate, null, 2) },
-]), []);
-assert.equal(productionShape.roles.size, publicationFiles.length + 2, "every scanned file has an in-memory role; manifest/gate are written after scan");
+assert.deepEqual(
+  scanExposure([
+    ...publicationFiles,
+    { file: "synthetic-manifest", text: JSON.stringify(productionManifest, null, 2) },
+    { file: "synthetic-gate", text: JSON.stringify(productionGate, null, 2) },
+  ]),
+  [],
+);
+assert.equal(
+  productionShape.roles.size,
+  publicationFiles.length + 2,
+  "every scanned file has an in-memory role; manifest/gate are written after scan",
+);
 for (const file of publicationFiles) assert(productionShape.roles.has(file.file));
 const ledger = JSON.parse(productionShape.written.get("/synthetic/private/metadata-command-ledger.json"));
 assert.equal(publicationFiles.length, ledger.length * 2 + 10);
@@ -705,16 +788,30 @@ for (const entry of ledger) {
   assert(productionShape.roles.get(entry.output).endsWith("_STDOUT"));
   assert(productionShape.roles.get(entry.error).endsWith("_STDERR"));
 }
-const publicationTry = descendants(collectNode, (node) => ts.isTryStatement(node) && node.tryBlock.statements[0]?.getText(identityTree) === "validateInventoryPublication(receipt, gate);");
+const publicationTry = descendants(
+  collectNode,
+  (node) =>
+    ts.isTryStatement(node) &&
+    node.tryBlock.statements[0]?.getText(identityTree) === "validateInventoryPublication(receipt, gate);",
+);
 assert.equal(publicationTry.length, 1);
 const printedFor = (files, receipt = productionReceipt) => {
   const hits = scanExposure(files);
   const gate = { ...productionGate, hits, publish: hits.length === 0, scan: hits.length ? "HITS" : "NO_HITS" };
   const printed = [];
   const bindings = {
-    receipt, gate, hits, files, identity: productionShape.actual,
+    receipt,
+    gate,
+    hits,
+    files,
+    identity: productionShape.actual,
     identityPublicationRoles: new WeakMap([[productionShape.actual, productionShape.roles]]),
-    inventoryAt, inventoryOperations, inventoryCategory, inventoryPublicationHitClasses, classifyExposure, validateInventoryPublication,
+    inventoryAt,
+    inventoryOperations,
+    inventoryCategory,
+    inventoryPublicationHitClasses,
+    classifyExposure,
+    validateInventoryPublication,
     console: { log: (line) => printed.push(line) },
   };
   try {
@@ -726,10 +823,21 @@ const printedFor = (files, receipt = productionReceipt) => {
 };
 assert.deepEqual(printedFor(publicationFiles), []);
 for (const [file, role, text] of [
-  ["observed-identity.json", "IDENTITY", serializeIdentity({ ...productionShape.actual, versions: { ...productionShape.actual.versions, curl: `token: ${secret}` } })],
-  [ledger.find((entry) => productionShape.roles.get(entry.output) === "VERSION_CURL_STDOUT").output, "VERSION_CURL_STDOUT", `token: ${secret}`],
+  [
+    "observed-identity.json",
+    "IDENTITY",
+    serializeIdentity({
+      ...productionShape.actual,
+      versions: { ...productionShape.actual.versions, curl: `token: ${secret}` },
+    }),
+  ],
+  [
+    ledger.find((entry) => productionShape.roles.get(entry.output) === "VERSION_CURL_STDOUT").output,
+    "VERSION_CURL_STDOUT",
+    `token: ${secret}`,
+  ],
 ]) {
-  const changedFiles = publicationFiles.map((entry) => entry.file === file ? { ...entry, text } : entry);
+  const changedFiles = publicationFiles.map((entry) => (entry.file === file ? { ...entry, text } : entry));
   const printed = printedFor(changedFiles);
   assert.deepEqual(printed, [
     `INVENTORY_PUBLICATION_HIT_CLASSES total=1 classes=${role}:LABELED_FIELD`,
@@ -737,8 +845,325 @@ for (const [file, role, text] of [
   ]);
   assert(!printed.join("\n").includes(secret));
 }
-assert.deepEqual(printedFor(publicationFiles, { ...productionReceipt, complete: false }), [terminal("ZERO_ROW_INVENTORY_REQUIRED")]);
-console.log(`PASS P5 complete production receipt/ledger/process/identity/authority/manifest/gate shapes; ${ledger.length} synthetic query records, ${publicationFiles.length} files; exact refusal-only output and preserveMetadata copies`);
+assert.deepEqual(printedFor(publicationFiles, { ...productionReceipt, complete: false }), [
+  terminal("ZERO_ROW_INVENTORY_REQUIRED"),
+]);
+console.log(
+  `PASS P5 complete production receipt/ledger/process/identity/authority/manifest/gate shapes; ${ledger.length} synthetic query records, ${publicationFiles.length} files; exact refusal-only output and preserveMetadata copies`,
+);
+
+// Extract only the writer expression and helper, never import or execute the runner.
+const runnerSource = readFileSync(new URL("./runner.mjs", import.meta.url), "utf8");
+const runnerTree = ts.createSourceFile("runner.mjs", runnerSource, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
+assert.equal(runnerTree.parseDiagnostics.length, 0);
+const exactSink = descendants(
+  runnerTree,
+  (node) =>
+    ts.isCallExpression(node) &&
+    node.expression.getText(runnerTree) === "json" &&
+    node.arguments[0]?.getText(runnerTree).includes('"exact-run-inputs.json"'),
+);
+assert.equal(exactSink.length, 1);
+const runnerJson = descendants(
+  runnerTree,
+  (node) => ts.isVariableDeclaration(node) && node.name.getText(runnerTree) === "json",
+);
+assert.equal(runnerJson.length, 1);
+const freeze = (value) => {
+  if (value && typeof value === "object") {
+    Object.values(value).forEach(freeze);
+    Object.freeze(value);
+  }
+  return value;
+};
+const frozenIdentity = freeze(productionShape.actual);
+const frozenSinkBindings = freeze({
+  path: { join: path.posix.join },
+  capture: "/synthetic/capture",
+  config: { head, tools: {}, bootstrapTools: {}, daemonTools: {}, expectedIdentity: {} },
+  event: normalized,
+  run: "1",
+  attempt: "1",
+  jobIdentity: { key: "synthetic" },
+  protocol: { job: "synthetic" },
+  sha256,
+  readFileSync: () => Buffer.from("{}"),
+  configPath: "/synthetic/config",
+  authority: { identity: { synthetic: true } },
+  process: { version: "SYNTHETIC_NODE" },
+  childEnv: { LANG: "C.UTF-8" },
+});
+function evaluateIdentitySink(text, actualIdentity = frozenIdentity) {
+  const writes = [];
+  const json = new Function("writeFileSync", `return (${runnerJson[0].initializer.getText(runnerTree)});`)(
+    (file, text, options) => writes.push({ file, text, options }),
+  );
+  const bindings = { ...frozenSinkBindings, json, actualIdentity, projectIdentity };
+  new Function(...Object.keys(bindings), text)(...Object.values(bindings));
+  assert.equal(writes.length, 1);
+  assert.deepEqual(writes[0].options, { mode: 0o600 });
+  assert(writes[0].text.endsWith("\n"));
+  return writes[0];
+}
+const greenSinkText = exactSink[0].getText(runnerTree);
+const rawSinkText = greenSinkText.replace(/actualIdentity: projectIdentity\(actualIdentity\)/, "actualIdentity");
+assert.equal(sha256(rawSinkText), "518271325430499d899f2748ea49333748c406f24dcb5de0372f06e855586a6c");
+const sinkMemoryBefore = JSON.stringify(frozenIdentity);
+const sinkFingerprintBefore = JSON.stringify(identityFingerprint(frozenIdentity));
+const rawSink = evaluateIdentitySink(rawSinkText);
+const rawSinkHits = scanExposure([rawSink]);
+assert.equal(rawSinkHits.length, 1);
+assert(rawSink.text.split("\n")[rawSinkHits[0].line - 1].includes('"dpkg-query": "'));
+console.log(
+  `CONTROL 1 RED: H1''' shorthand sink has exactly one dpkg-query LABELED_FIELD hit; reverted sink SHA-256=${sha256(rawSinkText)}`,
+);
+const greenSink = evaluateIdentitySink(greenSinkText);
+assert.deepEqual(scanExposure([greenSink]), [], "CONTROL 1 GREEN: projected actualIdentity must scan clean");
+const rawValue = JSON.parse(rawSink.text);
+const greenValue = JSON.parse(greenSink.text);
+const { actualIdentity: rawIdentity, ...rawOther } = rawValue;
+const { actualIdentity: greenIdentity, ...greenOther } = greenValue;
+assert.deepEqual(greenOther, rawOther);
+assert.deepEqual(Object.keys(greenValue), Object.keys(rawValue));
+const { versions: rawVersions, ...rawMembers } = rawIdentity;
+const { versions: greenVersions, ...greenMembers } = greenIdentity;
+assert.deepEqual(greenMembers, rawMembers);
+assert.deepEqual(Object.keys(greenIdentity), Object.keys(rawIdentity));
+assert.deepEqual(
+  greenVersions.map(({ tool, banner }) => [tool, banner]),
+  Object.entries(rawVersions),
+);
+assert.equal(JSON.stringify(frozenIdentity), sinkMemoryBefore);
+assert.equal(JSON.stringify(identityFingerprint(frozenIdentity)), sinkFingerprintBefore);
+assert.equal(
+  JSON.stringify(
+    identityFingerprint({
+      ...greenIdentity,
+      versions: Object.fromEntries(greenVersions.map(({ tool, banner }) => [tool, banner])),
+    }),
+  ),
+  sinkFingerprintBefore,
+);
+console.log(
+  "CONTROL 1 GREEN: zero identity-field hits; other bytes/order, memory and fingerprints unchanged (not whole-artifact measurement proof)",
+);
+const markedIdentity = freeze({
+  ...frozenIdentity,
+  versions: { ...frozenIdentity.versions, curl: `token: ${secret}` },
+});
+const markedSink = evaluateIdentitySink(greenSinkText, markedIdentity);
+const markedHits = scanExposure([markedSink]);
+assert.equal(markedHits.length, 1);
+assert(markedSink.text.split("\n")[markedHits[0].line - 1].includes(secret));
+assert.deepEqual(classifyExposure([markedSink]), [{ ...markedHits[0], rules: ["LABELED_FIELD"] }]);
+const markerOutput = "CONTROL 2 PASS: one planted banner hit, LABELED_FIELD; no marker printed";
+assert(!markerOutput.includes(secret));
+console.log(markerOutput);
+
+const syntaxShape = (node) => {
+  const children = [];
+  ts.forEachChild(node, (child) => {
+    children.push(syntaxShape(child));
+  });
+  return [node.kind, node.text ?? null, children];
+};
+// A closed writer census plus value origins: unknown writes cannot silently escape the trace.
+function identityWriteClosure(inventoryText, runnerText) {
+  const rows = [];
+  const productionTrees = [];
+  for (const [file, text] of [
+    ["inventory.mjs", inventoryText],
+    ["runner.mjs", runnerText],
+  ]) {
+    const tree = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
+    assert.equal(tree.parseDiagnostics.length, 0);
+    productionTrees.push(syntaxShape(tree));
+    const all = descendants(tree, () => true);
+    const declarations = all.filter((node) => ts.isVariableDeclaration(node) || ts.isParameter(node));
+    const scope = (node) => {
+      for (let parent = node.parent; parent; parent = parent.parent)
+        if (ts.isBlock(parent) || ts.isSourceFile(parent) || (ts.isParameter(node) && ts.isFunctionLike(parent)))
+          return parent;
+    };
+    const resolve = (node) => {
+      for (let parent = node.parent; parent; parent = parent.parent) {
+        const match = declarations.find(
+          (declaration) => declaration.name.getText(tree) === node.text && scope(declaration) === parent,
+        );
+        if (match) return match;
+      }
+    };
+    const functionOwner = (node) => {
+      for (let parent = node.parent; parent; parent = parent.parent)
+        if (ts.isFunctionDeclaration(parent)) return parent.name.text;
+    };
+    const traced = new Map();
+    const trace = (node, seen = new Set()) => {
+      if (!node) return [];
+      if (traced.has(node)) return traced.get(node);
+      traced.set(node, []);
+      const origins = traceValue(node, seen);
+      traced.set(node, origins);
+      return origins;
+    };
+    const traceValue = (node, seen) => {
+      if (!node || seen.has(node)) return [];
+      seen = new Set([...seen, node]);
+      if (ts.isPropertyAssignment(node)) return trace(node.initializer, seen);
+      if (ts.isIdentifier(node)) {
+        const declaration = resolve(node);
+        if (!declaration) return [];
+        if (
+          functionOwner(declaration) === "observeIdentity" &&
+          all.some(
+            (entry) =>
+              ts.isReturnStatement(entry) &&
+              entry.expression?.getText(tree) === node.text &&
+              ts.isFunctionDeclaration(entry.parent.parent) &&
+              entry.parent.parent.name.text === "observeIdentity",
+          )
+        )
+          return [{ mode: "raw", path: [] }];
+        const mutations = all.filter(
+          (entry) =>
+            ts.isBinaryExpression(entry) &&
+            entry.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
+            ts.isPropertyAccessExpression(entry.left) &&
+            descendants(entry.left, (child) => ts.isIdentifier(child) && resolve(child) === declaration).length,
+        );
+        return [trace(declaration.initializer, seen), ...mutations.map((entry) => trace(entry.right, seen))].flat();
+      }
+      if (ts.isPropertyAccessExpression(node))
+        return trace(node.expression, seen).map((origin) => ({ ...origin, path: [...origin.path, node.name.text] }));
+      if (ts.isElementAccessExpression(node))
+        return trace(node.expression, seen).map((origin) => ({
+          ...origin,
+          path: [...origin.path, node.argumentExpression.getText(tree)],
+        }));
+      if (ts.isCallExpression(node)) {
+        const name = node.expression.getText(tree);
+        if (name === "observeIdentity") return [{ mode: "raw", path: [] }];
+        const origins = node.arguments.flatMap((argument) => trace(argument, seen));
+        if (["projectIdentity", "serializeIdentity"].includes(name))
+          return origins.map((origin) => ({ ...origin, mode: "projected" }));
+        if (["sha256", "identityFingerprint"].includes(name))
+          return origins.map((origin) => ({ ...origin, mode: "digest" }));
+        return origins;
+      }
+      const children = [];
+      ts.forEachChild(node, (child) => {
+        children.push(...trace(child, seen));
+      });
+      return children;
+    };
+    const writerNames = new Set(["writeFileSync", "writeJson", "json", "openSync"]);
+    for (const declaration of declarations)
+      if (
+        declaration.initializer &&
+        ts.isIdentifier(declaration.initializer) &&
+        writerNames.has(declaration.initializer.text)
+      )
+        writerNames.add(declaration.name.getText(tree));
+    const fsImports = tree.statements.filter(
+      (node) => ts.isImportDeclaration(node) && node.moduleSpecifier.text.startsWith("node:fs"),
+    );
+    assert.equal(fsImports.length, 1);
+    const calls = all.filter((node) => ts.isCallExpression(node) && writerNames.has(node.expression.getText(tree)));
+    for (const call of calls) {
+      const origins = trace(call.arguments[1]);
+      // Receipt imageVersion leaves are unchanged by projection; digest leaves are not identity objects.
+      for (const origin of origins)
+        assert(
+          origin.mode !== "raw" || origin.path.join(".") === "imageVersion",
+          `${file}:${tree.getLineAndCharacterOfPosition(call.getStart(tree)).line + 1}: unprojected identity value`,
+        );
+      rows.push({
+        file,
+        line: tree.getLineAndCharacterOfPosition(call.getStart(tree)).line + 1,
+        writer: call.expression.getText(tree),
+        origins,
+        syntax: syntaxShape(call),
+      });
+    }
+    rows.push({ file, imports: syntaxShape(fsImports[0]) });
+  }
+  const inventoryTree = ts.createSourceFile(
+    "inventory.mjs",
+    inventoryText,
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.JS,
+  );
+  const mappings = descendants(
+    inventoryTree,
+    (node) =>
+      ts.isCallExpression(node) &&
+      ts.isPropertyAccessExpression(node.expression) &&
+      node.expression.name.text === "map" &&
+      node.expression.expression.getText(inventoryTree).replace(/\s/g, "") === "Object.entries(identity.versions)",
+  );
+  assert.equal(mappings.length, 1, "only one versions projection");
+  const projected = rows.filter((row) => row.origins?.some((origin) => origin.mode === "projected"));
+  assert.equal(projected.length, 3, "exactly three identity sinks");
+  assert.equal(rows.filter((row) => row.origins).length, 35, "complete file-write/open census");
+  assert.equal(
+    sha256(JSON.stringify(rows.map(({ line: _line, ...row }) => row))),
+    "89be50566ddf52e5352ec7e91a102433d8afd6a77500c65d6974d1080812c176",
+    "closed write arguments/imports and their value-origin traces",
+  );
+  // This is a closed graph of the inspected production source, not an extensible JavaScript analyzer.
+  assert.equal(
+    sha256(JSON.stringify(productionTrees)),
+    "09fd3812702dc093ead44576aa46bfadc81ef0f9d855a380bc7ca9467c419626",
+    "no untraced alias, writer API, mutation or versions transformation outside the closed graph",
+  );
+  return rows;
+}
+const writerClosure = identityWriteClosure(source, runnerSource);
+console.log(`P1 writer census SHA-256=${sha256(JSON.stringify(writerClosure.map(({ line: _line, ...row }) => row)))}`);
+const prepayloadSink = descendants(
+  runnerTree,
+  (node) =>
+    ts.isCallExpression(node) &&
+    node.expression.getText(runnerTree) === "writeFileSync" &&
+    node.arguments[0]?.getText(runnerTree).includes('"prepayload-identity.json"'),
+);
+assert.equal(prepayloadSink.length, 1);
+for (const [label, inventoryText, runnerText] of [
+  ["site (iii) raw", source, runnerSource.replace("actualIdentity: projectIdentity(actualIdentity)", "actualIdentity")],
+  [
+    "site (ii) raw",
+    source,
+    runnerSource.replace(
+      prepayloadSink[0].getText(runnerTree),
+      'json(path.join(capture, "prepayload-identity.json"), { authority: authority.identity, actualIdentity })',
+    ),
+  ],
+  [
+    "new alias/member write",
+    source,
+    runnerSource.replace(
+      'mark("preparationStart");',
+      'const escaped = actualIdentity.versions; json("synthetic-new-write", { escaped }); mark("preparationStart");',
+    ),
+  ],
+  [
+    "second versions map",
+    source.replace(
+      "const serialized = projectIdentity(identity);",
+      "const duplicate = Object.entries(identity.versions).map(([tool, banner]) => ({ tool, banner })); const serialized = projectIdentity(identity);",
+    ),
+    runnerSource,
+  ],
+]) {
+  assert(inventoryText !== source || runnerText !== runnerSource, `${label}: mutant reached its target`);
+  assert.throws(() => identityWriteClosure(inventoryText, runnerText), undefined, `${label}: closure must go red`);
+  console.log(`CONTROL 3 RED confirmed: ${label}; all other source/inputs frozen`);
+}
+for (const row of writerClosure.filter((row) => row.origins))
+  console.log(`P1 WRITE ${row.file}:${row.line} ${row.writer} origins=${JSON.stringify(row.origins)}`);
+console.log("CONTROL 3 PASS: full writer census and value-origin closure; four discriminating mutants rejected");
+
 function identityBehavior(text) {
   const tree = ts.createSourceFile("inventory.mjs", text, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
   assert.equal(tree.parseDiagnostics.length, 0);
@@ -746,11 +1171,18 @@ function identityBehavior(text) {
     if (ts.isBlock(node)) {
       const statements = node.statements.flatMap((statement) => {
         const text = statement.getText(tree);
-        if (text === "const publicationFiles = new Map(inventoryPublicationFiles);" ||
+        if (
+          text === "const publicationFiles = new Map(inventoryPublicationFiles);" ||
           text === "publicationFiles.set(`${name}.stdout`, queryPublicationRoles.get(site).stdout);" ||
           text === "publicationFiles.set(`${name}.stderr`, queryPublicationRoles.get(site).stderr);" ||
-          text === "identityPublicationRoles.set(identity, publicationFiles);") return [];
-        if (ts.isTryStatement(statement) && statement.tryBlock.getText(tree).replaceAll("\r\n", "\n").trim() === "{\n    validateInventoryPublication(receipt, gate);\n  }")
+          text === "identityPublicationRoles.set(identity, publicationFiles);"
+        )
+          return [];
+        if (
+          ts.isTryStatement(statement) &&
+          statement.tryBlock.getText(tree).replaceAll("\r\n", "\n").trim() ===
+            "{\n    validateInventoryPublication(receipt, gate);\n  }"
+        )
           return statement.tryBlock.statements.map(shape);
         if (
           ts.isExpressionStatement(statement) &&
@@ -774,10 +1206,28 @@ function identityBehavior(text) {
       return [node.kind, statements];
     }
     if (ts.isCallExpression(node) && ts.isIdentifier(node.expression)) {
-      if (node.expression.text === "writeFileSync" && node.arguments[1]?.getText(tree) === "serializeIdentity(identity)") {
+      if (
+        node.expression.text === "writeFileSync" &&
+        node.arguments[1]?.getText(tree) === "serializeIdentity(identity)"
+      ) {
         assert.equal(node.arguments[0].getText(tree), 'path.join(directory, "observed-identity.json")');
-        assert.equal(node.arguments[2].getText(tree).replace(/\s/g, ""), '{flag:"wx",mode:0o600}');
-        const old = ts.createSourceFile("old.mjs", 'writeJson(path.join(directory, "observed-identity.json"), identity)', ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
+        assert.deepEqual(
+          node.arguments[2].properties.map((property) => [
+            property.name.getText(tree),
+            property.initializer.getText(tree),
+          ]),
+          [
+            ["flag", '"wx"'],
+            ["mode", "0o600"],
+          ],
+        );
+        const old = ts.createSourceFile(
+          "old.mjs",
+          'writeJson(path.join(directory, "observed-identity.json"), identity)',
+          ts.ScriptTarget.Latest,
+          true,
+          ts.ScriptKind.JS,
+        );
         return shape(old.statements[0].expression);
       }
       if (node.expression.text === "invariant") return [node.kind, "invariant", shape(node.arguments[0])];

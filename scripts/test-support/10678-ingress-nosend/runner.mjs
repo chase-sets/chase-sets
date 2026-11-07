@@ -37,6 +37,7 @@ import {
   observeIdentity,
   preserveAuthority,
   preserveMetadata,
+  projectIdentity,
   readAuthority,
   retainedPath,
   serializeIdentity,
@@ -951,7 +952,7 @@ async function prepare() {
         expectedIdentity: config.expectedIdentity,
       }),
     ),
-    actualIdentity,
+    actualIdentity: projectIdentity(actualIdentity),
     frozen: config,
     actualNode: process.version,
     historicalNodePatch: "UNKNOWN",
@@ -1087,7 +1088,9 @@ async function measure() {
   const actualIdentity = observeIdentity(path.join(privateDir, "prepayload-identity"), config.tools);
   preserveMetadata(path.join(privateDir, "prepayload-identity"), capture, "prepayload-identity-");
   enforceIdentityPins(config, actualIdentity);
-  writeFileSync(path.join(capture, "prepayload-identity.json"), serializeIdentity(actualIdentity, authority.identity), { mode: 0o600 });
+  writeFileSync(path.join(capture, "prepayload-identity.json"), serializeIdentity(actualIdentity, authority.identity), {
+    mode: 0o600,
+  });
   const head = await command("git", ["rev-parse", "HEAD"], "prepayload-disk-head");
   invariant(head.value.trim() === config.head, "PREPAYLOAD_DISK_HEAD_MISMATCH");
   mark("protocolStart");

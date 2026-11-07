@@ -212,25 +212,29 @@ const registerOperations = (value) => {
 };
 registerOperations(inventoryOperations);
 
-export const inventoryPublicationFiles = Object.freeze([
-  ["authority-envelope.json", "AUTHORITY_ENVELOPE"],
-  ["authority-payload.json", "AUTHORITY_PAYLOAD"],
-  ["authority-review.txt", "AUTHORITY_REVIEW"],
-  ["authority-subject.json", "AUTHORITY_SUBJECT"],
-  ["authority-dispatch.json", "AUTHORITY_DISPATCH"],
-  ["authority-completion.json", "AUTHORITY_COMPLETION"],
-  ["preparation-receipt.json", "RECEIPT"],
-  ["metadata-command-ledger.json", "LEDGER"],
-  ["observed-process-identities.json", "PROCESS_IDENTITIES"],
-  ["observed-identity.json", "IDENTITY"],
-  ["inventory-manifest.json", "MANIFEST"],
-  ["inventory-publication-gate.json", "GATE"],
-].map((entry) => Object.freeze(entry)));
+export const inventoryPublicationFiles = Object.freeze(
+  [
+    ["authority-envelope.json", "AUTHORITY_ENVELOPE"],
+    ["authority-payload.json", "AUTHORITY_PAYLOAD"],
+    ["authority-review.txt", "AUTHORITY_REVIEW"],
+    ["authority-subject.json", "AUTHORITY_SUBJECT"],
+    ["authority-dispatch.json", "AUTHORITY_DISPATCH"],
+    ["authority-completion.json", "AUTHORITY_COMPLETION"],
+    ["preparation-receipt.json", "RECEIPT"],
+    ["metadata-command-ledger.json", "LEDGER"],
+    ["observed-process-identities.json", "PROCESS_IDENTITIES"],
+    ["observed-identity.json", "IDENTITY"],
+    ["inventory-manifest.json", "MANIFEST"],
+    ["inventory-publication-gate.json", "GATE"],
+  ].map((entry) => Object.freeze(entry)),
+);
 export const inventoryPublicationQueries = Object.freeze(
-  [...registeredOperations].filter((site) => Object.hasOwn(site, "incomplete")).map((site) => {
-    const role = site.raw.slice("INVENTORY_".length, -"_RAW_FAILED".length);
-    return Object.freeze({ site, stdout: `${role}_STDOUT`, stderr: `${role}_STDERR` });
-  }),
+  [...registeredOperations]
+    .filter((site) => Object.hasOwn(site, "incomplete"))
+    .map((site) => {
+      const role = site.raw.slice("INVENTORY_".length, -"_RAW_FAILED".length);
+      return Object.freeze({ site, stdout: `${role}_STDOUT`, stderr: `${role}_STDERR` });
+    }),
 );
 const queryPublicationRoles = new Map(inventoryPublicationQueries.map((entry) => [entry.site, entry]));
 const identityPublicationRoles = new WeakMap();
@@ -241,15 +245,18 @@ const publicationRoles = new Set([
 
 export function inventoryPublicationHitClasses(hits, classified, roles) {
   invariant(
-    hits.length > 0 && hits.length === classified.length &&
+    hits.length > 0 &&
+      hits.length === classified.length &&
       hits.every(({ file, line }, i) => file === classified[i].file && line === classified[i].line),
     "PRIVATE_INVENTORY_PUBLICATION_REFUSED",
   );
   const tokens = new Set();
   for (const { file, rules } of classified) {
     const role = roles.get(file);
-    invariant(publicationRoles.has(role) && rules.length > 0 && rules.every((rule) => exposureRuleIds.includes(rule)),
-      "PRIVATE_INVENTORY_PUBLICATION_REFUSED");
+    invariant(
+      publicationRoles.has(role) && rules.length > 0 && rules.every((rule) => exposureRuleIds.includes(rule)),
+      "PRIVATE_INVENTORY_PUBLICATION_REFUSED",
+    );
     for (const rule of rules) tokens.add(`${role}:${rule}`);
   }
   return `INVENTORY_PUBLICATION_HIT_CLASSES total=${hits.length} classes=${[...tokens].sort().join(",")}`;
@@ -855,8 +862,12 @@ export function validateInventoryPublication(receipt, gate) {
 const writeJson = (file, value) =>
   writeFileSync(file, `${JSON.stringify(value, null, 2)}\n`, { flag: "wx", mode: 0o600 });
 
+export function projectIdentity(identity) {
+  return { ...identity, versions: Object.entries(identity.versions).map(([tool, banner]) => ({ tool, banner })) };
+}
+
 export function serializeIdentity(identity, authority) {
-  const serialized = { ...identity, versions: Object.entries(identity.versions).map(([tool, banner]) => ({ tool, banner })) };
+  const serialized = projectIdentity(identity);
   return `${JSON.stringify(authority === undefined ? serialized : { authority, actualIdentity: serialized }, null, 2)}\n`;
 }
 const cleanEnvironment = (home) => ({
@@ -1105,7 +1116,10 @@ export function observeIdentity(directory, pins) {
     daemon,
   }));
   inventoryAt(inventoryOperations.identityWrite, () =>
-    writeFileSync(path.join(directory, "observed-identity.json"), serializeIdentity(identity), { flag: "wx", mode: 0o600 }),
+    writeFileSync(path.join(directory, "observed-identity.json"), serializeIdentity(identity), {
+      flag: "wx",
+      mode: 0o600,
+    }),
   );
   identityPublicationRoles.set(identity, publicationFiles);
   return identity;
@@ -1376,9 +1390,11 @@ async function collect() {
     validateInventoryPublication(receipt, gate);
   } catch (error) {
     if (inventoryCategory(error) === "PRIVATE_INVENTORY_PUBLICATION_REFUSED")
-      console.log(inventoryAt(inventoryOperations.captureScan, () =>
-        inventoryPublicationHitClasses(hits, classifyExposure(files), identityPublicationRoles.get(identity)),
-      ));
+      console.log(
+        inventoryAt(inventoryOperations.captureScan, () =>
+          inventoryPublicationHitClasses(hits, classifyExposure(files), identityPublicationRoles.get(identity)),
+        ),
+      );
     throw error;
   }
   console.log("INVENTORY_CAPTURE_COMPLETE_MEASUREMENT_NOT_EXECUTED");
