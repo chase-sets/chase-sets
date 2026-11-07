@@ -3,12 +3,14 @@ import {
   hasExplicitPromotionScope,
   isStalePromotionPreviewError,
   previewPromotionForContext,
+  promotionConfirmationFromContext,
   promotionScopeFromContext,
   reapplyScopeFromContext,
   type CatalogCommandJobResponse,
 } from "./integrations-command-context";
 import type { CatalogIntegrationsCommandResult } from "./integrations-command-result";
 import { stringValue } from "./integrations-form-values";
+import { projectPromotionReceipt } from "../../../features/source-observations/ui/primary-workbench-source-observation-review";
 
 type Api = ReturnType<typeof createCatalogRequestApiClient>;
 type RouteContext = CatalogIntegrationsCommandResult["context"];
@@ -96,19 +98,44 @@ async function handlePromotion(
     });
   if (phase === "preview") {
     const preview = await previewPromotionForContext(api, context, selectedObservationIds);
-    return observationResult("observation.promote", "success", "preview-ready", {
+    // A first-page preview always carries the Catalog API's token; without
+    // one the execution is refused and asks for a preview again.
+    const previewId = preview.previewToken ?? "";
+    const result = observationResult("observation.promote", "success", "preview-ready", {
       ...context,
       selectedObservationIds,
       promoteAsDraft,
-      promotionPreviewId: preview.previewToken ?? null,
+      promotionPreviewId: previewId,
     });
+    return {
+      ...result,
+      promotionReceipt: projectPromotionReceipt({
+        schemaVersion: "source-observation-promotion-receipt/v1",
+        previewId,
+        selection: {
+          providerKey: context.providerKey,
+          unitKey: context.unitKey,
+          importScope: context.importScope,
+          profileVersion: context.profileVersion,
+          scopeRecordId: context.scopeRecordId ?? null,
+          observationIds: selectedObservationIds,
+          promoteAsDraft,
+          scope: promotionScopeFromContext(context),
+        },
+        preview,
+      }),
+    };
   }
 
   if (!context.promotionPreviewId) {
     return previewRequired();
   }
 
-  const options = { promoteAsDraft, previewToken: context.promotionPreviewId };
+  const options = {
+    promoteAsDraft,
+    previewToken: context.promotionPreviewId,
+    confirmation: promotionConfirmationFromContext(context),
+  };
   let job: CatalogCommandJobResponse;
   try {
     job =

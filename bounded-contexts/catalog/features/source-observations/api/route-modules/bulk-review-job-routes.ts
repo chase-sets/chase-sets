@@ -13,12 +13,15 @@ import {
   CatalogMergeCandidateBulkJobCursorError,
   isCatalogMergeCandidateBulkJobKind,
 } from "../source-observation-merge-candidate-bulk-job-runtime";
+import { isExplicitBulkJobScope } from "../source-observation-job-serialization";
 import {
+  isIntegrationJobValidationError,
   parseObservationIds,
   parsePromoteAsDraft,
   parsePromotionScope,
+  parseReapplyIntegrationScope,
   parseReapplyProfileMode,
-  promotionScopeToIntegrationScope,
+  readJsonObject,
   streamBulkJobEvents,
 } from "./route-helpers";
 import {
@@ -53,13 +56,16 @@ export function bulkReviewJobRoutes(services: BulkReviewJobRouteServices) {
       try {
         job = await services.enqueueIntegrationJob({
           action: "reapply",
-          scope: promotionScopeToIntegrationScope(parsePromotionScope(body.scope)),
+          scope: parseReapplyIntegrationScope(body.scope),
           reapplyProfileMode,
           context: c.get("context"),
         });
       } catch (error) {
         if (error instanceof CatalogIntegrationRolloutControlError) {
           return c.json(rolloutControlErrorResponse(error), 403);
+        }
+        if (isIntegrationJobValidationError(error)) {
+          return c.json({ error: { code: "invalid_scope", message: error.message } }, 400);
         }
         throw error;
       }
@@ -101,7 +107,10 @@ export function bulkReviewJobRoutes(services: BulkReviewJobRouteServices) {
     if (observationIds.length === 0 && !hasExplicitBulkReviewScope(scope)) {
       return c.json(
         {
-          error: t("catalog.features.sourceObservations.api.route.bulk.deferral.requires.selection.or.scope"),
+          error: {
+            code: "selection_required",
+            message: t("catalog.features.sourceObservations.api.route.bulk.deferral.requires.selection.or.scope"),
+          },
         },
         400,
       );
@@ -184,17 +193,33 @@ export function bulkReviewJobRoutes(services: BulkReviewJobRouteServices) {
       return permissionError;
     }
 
-    const body = (await c.req.json().catch(() => ({}))) as {
-      observationIds?: unknown;
-      scope?: unknown;
-      reason?: unknown;
-    };
+    const body = await readJsonObject(c);
+    if (body instanceof Response) {
+      return body;
+    }
     const reason = String(body.reason ?? "").trim();
 
     if (!reason) {
       return c.json(
         {
-          error: t("catalog.features.sourceObservations.api.route.bulk.rejection.requires.reason"),
+          error: {
+            code: "reason_required",
+            message: t("catalog.features.sourceObservations.api.route.bulk.rejection.requires.reason"),
+          },
+        },
+        400,
+      );
+    }
+    const observationIds = parseObservationIds(body.observationIds);
+    const scope = body.scope ? parsePromotionScope(body.scope) : undefined;
+    // Rejecting is destructive: an empty selection never means every reviewable observation.
+    if (observationIds.length === 0 && !hasExplicitBulkReviewScope(scope)) {
+      return c.json(
+        {
+          error: {
+            code: "selection_required",
+            message: t("catalog.features.sourceObservations.api.route.bulk.rejection.requires.selection.or.scope"),
+          },
         },
         400,
       );
@@ -202,8 +227,8 @@ export function bulkReviewJobRoutes(services: BulkReviewJobRouteServices) {
 
     const job = await services.enqueueBulkReviewJob({
       action: "reject",
-      observationIds: parseObservationIds(body.observationIds),
-      scope: body.scope ? parsePromotionScope(body.scope) : undefined,
+      observationIds,
+      scope,
       reason,
       context: c.get("context"),
     });
@@ -217,17 +242,33 @@ export function bulkReviewJobRoutes(services: BulkReviewJobRouteServices) {
       return permissionError;
     }
 
-    const body = (await c.req.json().catch(() => ({}))) as {
-      observationIds?: unknown;
-      scope?: unknown;
-      reason?: unknown;
-    };
+    const body = await readJsonObject(c);
+    if (body instanceof Response) {
+      return body;
+    }
     const reason = String(body.reason ?? "").trim();
 
     if (!reason) {
       return c.json(
         {
-          error: t("catalog.features.sourceObservations.api.route.bulk.rejection.requires.reason"),
+          error: {
+            code: "reason_required",
+            message: t("catalog.features.sourceObservations.api.route.bulk.rejection.requires.reason"),
+          },
+        },
+        400,
+      );
+    }
+    const observationIds = parseObservationIds(body.observationIds);
+    const scope = body.scope ? parsePromotionScope(body.scope) : undefined;
+    // Rejecting is destructive: an empty selection never means every reviewable observation.
+    if (observationIds.length === 0 && !hasExplicitBulkReviewScope(scope)) {
+      return c.json(
+        {
+          error: {
+            code: "selection_required",
+            message: t("catalog.features.sourceObservations.api.route.bulk.rejection.requires.selection.or.scope"),
+          },
         },
         400,
       );
@@ -235,8 +276,8 @@ export function bulkReviewJobRoutes(services: BulkReviewJobRouteServices) {
 
     const job = await services.enqueueBulkReviewJob({
       action: "reject",
-      observationIds: parseObservationIds(body.observationIds),
-      scope: body.scope ? parsePromotionScope(body.scope) : undefined,
+      observationIds,
+      scope,
       reason,
       context: c.get("context"),
     });
@@ -255,7 +296,12 @@ export function bulkReviewJobRoutes(services: BulkReviewJobRouteServices) {
     const parsed: unknown = await c.req.json().catch(() => null);
     if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
       return c.json(
-        { error: t("catalog.features.sourceObservations.api.route.merge.candidate.bulk.job.invalid") },
+        {
+          error: {
+            code: "invalid_bulk_job_request",
+            message: t("catalog.features.sourceObservations.api.route.merge.candidate.bulk.job.invalid"),
+          },
+        },
         400,
       );
     }
@@ -263,7 +309,12 @@ export function bulkReviewJobRoutes(services: BulkReviewJobRouteServices) {
     const scopeRecordId = typeof body.scopeRecordId === "string" ? body.scopeRecordId.trim() : "";
     if (!isCatalogMergeCandidateBulkJobKind(body.kind) || !scopeRecordId) {
       return c.json(
-        { error: t("catalog.features.sourceObservations.api.route.merge.candidate.bulk.job.invalid") },
+        {
+          error: {
+            code: "invalid_bulk_job_request",
+            message: t("catalog.features.sourceObservations.api.route.merge.candidate.bulk.job.invalid"),
+          },
+        },
         400,
       );
     }
@@ -286,7 +337,12 @@ export function bulkReviewJobRoutes(services: BulkReviewJobRouteServices) {
     const scopeRecordId = c.req.query("scopeRecordId")?.trim();
     if (!scopeRecordId) {
       return c.json(
-        { error: t("catalog.features.sourceObservations.api.route.merge.candidate.bulk.job.failed.scope.required") },
+        {
+          error: {
+            code: "scope_required",
+            message: t("catalog.features.sourceObservations.api.route.merge.candidate.bulk.job.failed.scope.required"),
+          },
+        },
         400,
       );
     }
@@ -309,7 +365,15 @@ export function bulkReviewJobRoutes(services: BulkReviewJobRouteServices) {
 
     const filter = mergeCandidateBulkJobListFilter(c.req.query());
     if (filter === "invalid") {
-      return c.json({ error: t("catalog.features.sourceObservations.api.route.bulk.job.invalid.filter") }, 400);
+      return c.json(
+        {
+          error: {
+            code: "invalid_filter",
+            message: t("catalog.features.sourceObservations.api.route.bulk.job.invalid.filter"),
+          },
+        },
+        400,
+      );
     }
     if (!filter) {
       const items = await services.listActiveBulkReviewJobs({
@@ -330,7 +394,15 @@ export function bulkReviewJobRoutes(services: BulkReviewJobRouteServices) {
         });
       } catch (error) {
         if (error instanceof CatalogMergeCandidateBulkJobCursorError) {
-          return c.json({ error: t("catalog.features.sourceObservations.api.route.bulk.job.invalid.cursor") }, 400);
+          return c.json(
+            {
+              error: {
+                code: "invalid_cursor",
+                message: t("catalog.features.sourceObservations.api.route.bulk.job.invalid.cursor"),
+              },
+            },
+            400,
+          );
         }
         throw error;
       }
@@ -489,5 +561,5 @@ function stalePromotionPreviewResponse() {
 }
 
 function hasExplicitBulkReviewScope(scope: ReturnType<typeof parsePromotionScope> | undefined): boolean {
-  return Boolean(scope && Object.values(scope).some((value) => typeof value === "string" && value.trim().length > 0));
+  return Boolean(scope && isExplicitBulkJobScope(scope));
 }

@@ -34,6 +34,7 @@ export function buildCatalogMergeCandidateProjectionHandlers(db: PgQueryable): P
         createdAt: data.createdAt ?? event.timing.recordedAt,
         updatedAt: event.timing.recordedAt,
         staleAt: null,
+        streamVersion: event.streamVersion,
       });
       await replaceCandidateMembership(db, candidateId, data.snapshot.membership);
     },
@@ -48,6 +49,7 @@ export function buildCatalogMergeCandidateProjectionHandlers(db: PgQueryable): P
         createdAt: null,
         updatedAt: event.timing.recordedAt,
         staleAt: null,
+        streamVersion: event.streamVersion,
       });
       await replaceCandidateMembership(db, candidateId, data.snapshot.membership);
     },
@@ -65,9 +67,10 @@ export function buildCatalogMergeCandidateProjectionHandlers(db: PgQueryable): P
          SET status = 'stale',
              status_reason = $2,
              stale_at = $3,
-             updated_at = $4
+             updated_at = $4,
+             last_stream_version = $5
          WHERE candidate_id = $1`,
-        [candidateId, data.reason, data.staleAt, event.timing.recordedAt],
+        [candidateId, data.reason, data.staleAt, event.timing.recordedAt, event.streamVersion],
       );
     },
     "catalog.merge-candidate.observation-added": async (event) => {
@@ -84,6 +87,7 @@ export function buildCatalogMergeCandidateProjectionHandlers(db: PgQueryable): P
         reason: "Source Observation membership changed; refresh candidate before review.",
         staleAt: data.updatedAt,
         updatedAt: event.timing.recordedAt,
+        streamVersion: event.streamVersion,
       });
     },
     "catalog.merge-candidate.observation-removed": async (event) => {
@@ -106,6 +110,7 @@ export function buildCatalogMergeCandidateProjectionHandlers(db: PgQueryable): P
         reason: `Source Observation membership changed: ${data.reason}`,
         staleAt: data.removedAt,
         updatedAt: event.timing.recordedAt,
+        streamVersion: event.streamVersion,
       });
     },
     "catalog.merge-candidate.promoted": async (event) => {
@@ -122,6 +127,7 @@ export function buildCatalogMergeCandidateProjectionHandlers(db: PgQueryable): P
         reason: `Candidate accepted for Catalog promotion planning: ${data.audit.reason}`,
         actionAt: data.promotedAt,
         updatedAt: event.timing.recordedAt,
+        streamVersion: event.streamVersion,
       });
     },
     "catalog.merge-candidate.split": async (event) => {
@@ -144,6 +150,7 @@ export function buildCatalogMergeCandidateProjectionHandlers(db: PgQueryable): P
         createdAt: null,
         updatedAt: event.timing.recordedAt,
         staleAt: null,
+        streamVersion: event.streamVersion,
       });
       await replaceCandidateMembership(db, candidateId, data.remainingSnapshot.membership);
       await upsertCandidate(db, {
@@ -156,6 +163,8 @@ export function buildCatalogMergeCandidateProjectionHandlers(db: PgQueryable): P
         createdAt: data.splitAt,
         updatedAt: event.timing.recordedAt,
         staleAt: null,
+        // The original's event: the split candidate's version is its own stream's.
+        streamVersion: null,
       });
       await replaceCandidateMembership(db, data.splitCandidateId, data.splitSnapshot.membership);
     },
@@ -177,6 +186,7 @@ export function buildCatalogMergeCandidateProjectionHandlers(db: PgQueryable): P
         createdAt: null,
         updatedAt: event.timing.recordedAt,
         staleAt: null,
+        streamVersion: event.streamVersion,
       });
       await replaceCandidateMembership(db, candidateId, data.snapshot.membership);
     },
@@ -194,6 +204,7 @@ export function buildCatalogMergeCandidateProjectionHandlers(db: PgQueryable): P
         reason: `Candidate ignored: ${data.audit.reason}`,
         actionAt: data.ignoredAt,
         updatedAt: event.timing.recordedAt,
+        streamVersion: event.streamVersion,
       });
     },
     "catalog.merge-candidate.deferred": async (event) => {
@@ -210,6 +221,7 @@ export function buildCatalogMergeCandidateProjectionHandlers(db: PgQueryable): P
         reason: data.audit.reason,
         actionAt: data.deferredAt,
         updatedAt: event.timing.recordedAt,
+        streamVersion: event.streamVersion,
       });
     },
   };
@@ -225,6 +237,8 @@ async function upsertCandidate(
     createdAt: string | null;
     updatedAt: string;
     staleAt: string | null;
+    // The candidate's stream version this event brings it to, or null to keep the row's.
+    streamVersion: number | null;
   }>,
 ): Promise<void> {
   await db.query(
@@ -247,8 +261,9 @@ async function upsertCandidate(
        promotion_intent,
        created_at,
        updated_at,
-       stale_at
-     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, COALESCE($17::timestamptz, now()), $18, $19)
+       stale_at,
+       last_stream_version
+     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, COALESCE($17::timestamptz, now()), $18, $19, COALESCE($20::bigint, 0))
      ON CONFLICT (candidate_id) DO UPDATE SET
        scope_record_id = EXCLUDED.scope_record_id,
        identity_fingerprint = EXCLUDED.identity_fingerprint,
@@ -266,7 +281,8 @@ async function upsertCandidate(
        field_provenance_json = EXCLUDED.field_provenance_json,
        promotion_intent = EXCLUDED.promotion_intent,
        updated_at = EXCLUDED.updated_at,
-       stale_at = EXCLUDED.stale_at`,
+       stale_at = EXCLUDED.stale_at,
+       last_stream_version = COALESCE($20::bigint, catalog_merge_candidates.last_stream_version)`,
     [
       input.candidateId,
       input.snapshot.identity.scopeRecordId,
@@ -287,6 +303,7 @@ async function upsertCandidate(
       input.createdAt,
       input.updatedAt,
       input.staleAt,
+      input.streamVersion,
     ],
   );
 }
@@ -358,6 +375,7 @@ async function markCandidateMembershipChanged(
     reason: string;
     staleAt: string;
     updatedAt: string;
+    streamVersion: number;
   }>,
 ): Promise<void> {
   await db.query(
@@ -365,9 +383,10 @@ async function markCandidateMembershipChanged(
      SET status = 'stale',
          status_reason = $2,
          stale_at = $3,
-         updated_at = $4
+         updated_at = $4,
+         last_stream_version = $5
      WHERE candidate_id = $1`,
-    [input.candidateId, input.reason, input.staleAt, input.updatedAt],
+    [input.candidateId, input.reason, input.staleAt, input.updatedAt, input.streamVersion],
   );
 }
 
@@ -379,6 +398,7 @@ async function updateCandidateReviewStatus(
     reason: string;
     actionAt: string;
     updatedAt: string;
+    streamVersion: number;
   }>,
 ): Promise<void> {
   await db.query(
@@ -386,8 +406,9 @@ async function updateCandidateReviewStatus(
      SET status = $2,
          status_reason = $3,
          stale_at = NULL,
-         updated_at = $4
+         updated_at = $4,
+         last_stream_version = $5
      WHERE candidate_id = $1`,
-    [input.candidateId, input.status, input.reason, input.updatedAt],
+    [input.candidateId, input.status, input.reason, input.updatedAt, input.streamVersion],
   );
 }

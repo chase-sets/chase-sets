@@ -72,7 +72,15 @@ export function providerProfileRoutes(
     }
 
     if (!profileVersions) {
-      return c.json({ error: t("catalog.features.sourceObservations.api.route.profile.review.unavailable") }, 503);
+      return c.json(
+        {
+          error: {
+            code: "profile_review_unavailable",
+            message: t("catalog.features.sourceObservations.api.route.profile.review.unavailable"),
+          },
+        },
+        503,
+      );
     }
 
     const body = await readJsonObject(c);
@@ -95,7 +103,15 @@ export function providerProfileRoutes(
     }
 
     if (!profileVersions) {
-      return c.json({ error: t("catalog.features.sourceObservations.api.route.profile.review.unavailable") }, 503);
+      return c.json(
+        {
+          error: {
+            code: "profile_review_unavailable",
+            message: t("catalog.features.sourceObservations.api.route.profile.review.unavailable"),
+          },
+        },
+        503,
+      );
     }
 
     try {
@@ -124,7 +140,15 @@ export function providerProfileRoutes(
     }
 
     if (!profileVersions) {
-      return c.json({ error: t("catalog.features.sourceObservations.api.route.profile.review.unavailable") }, 503);
+      return c.json(
+        {
+          error: {
+            code: "profile_review_unavailable",
+            message: t("catalog.features.sourceObservations.api.route.profile.review.unavailable"),
+          },
+        },
+        503,
+      );
     }
 
     const body = await readJsonObject(c);
@@ -173,7 +197,15 @@ export function providerProfileRoutes(
     }
 
     if (!profileVersions) {
-      return c.json({ error: t("catalog.features.sourceObservations.api.route.profile.review.unavailable") }, 503);
+      return c.json(
+        {
+          error: {
+            code: "profile_review_unavailable",
+            message: t("catalog.features.sourceObservations.api.route.profile.review.unavailable"),
+          },
+        },
+        503,
+      );
     }
 
     const body = await readJsonObject(c);
@@ -241,7 +273,15 @@ export function providerProfileRoutes(
     }
 
     if (!profileVersions) {
-      return c.json({ error: t("catalog.features.sourceObservations.api.route.profile.review.unavailable") }, 503);
+      return c.json(
+        {
+          error: {
+            code: "profile_review_unavailable",
+            message: t("catalog.features.sourceObservations.api.route.profile.review.unavailable"),
+          },
+        },
+        503,
+      );
     }
 
     let result;
@@ -291,7 +331,15 @@ export function providerProfileRoutes(
     }
 
     if (!profileVersions) {
-      return c.json({ error: t("catalog.features.sourceObservations.api.route.profile.review.unavailable") }, 503);
+      return c.json(
+        {
+          error: {
+            code: "profile_review_unavailable",
+            message: t("catalog.features.sourceObservations.api.route.profile.review.unavailable"),
+          },
+        },
+        503,
+      );
     }
 
     const body = await readJsonObject(c);
@@ -323,7 +371,15 @@ export function providerProfileRoutes(
     }
 
     if (!profileVersions) {
-      return c.json({ error: t("catalog.features.sourceObservations.api.route.profile.review.unavailable") }, 503);
+      return c.json(
+        {
+          error: {
+            code: "profile_review_unavailable",
+            message: t("catalog.features.sourceObservations.api.route.profile.review.unavailable"),
+          },
+        },
+        503,
+      );
     }
 
     let result;
@@ -354,7 +410,15 @@ export function providerProfileRoutes(
     }
 
     if (!profileVersions) {
-      return c.json({ error: t("catalog.features.sourceObservations.api.route.profile.review.unavailable") }, 503);
+      return c.json(
+        {
+          error: {
+            code: "profile_review_unavailable",
+            message: t("catalog.features.sourceObservations.api.route.profile.review.unavailable"),
+          },
+        },
+        503,
+      );
     }
 
     let result;
@@ -386,7 +450,15 @@ export function providerProfileRoutes(
     }
 
     if (!profileVersions) {
-      return c.json({ error: t("catalog.features.sourceObservations.api.route.profile.review.unavailable") }, 503);
+      return c.json(
+        {
+          error: {
+            code: "profile_review_unavailable",
+            message: t("catalog.features.sourceObservations.api.route.profile.review.unavailable"),
+          },
+        },
+        503,
+      );
     }
 
     let result;

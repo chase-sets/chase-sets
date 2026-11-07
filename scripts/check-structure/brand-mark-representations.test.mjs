@@ -756,7 +756,7 @@ describe("lockfile package-entry discipline", () => {
   it("declares the root sharp importer at exactly the version the lockfile already resolves", () => {
     const rootPackage = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
     expect(rootPackage.devDependencies.sharp).toBe("^0.35.5");
-    expect(lock.importers["."].devDependencies.sharp.version).toBe("0.35.5(@types/node@25.6.2)");
+    expect(lock.importers["."].devDependencies.sharp.version).toBe("0.35.5(@types/node@24.19.2)");
     expect(packageKeys).toContain("sharp@0.35.5");
   });
 

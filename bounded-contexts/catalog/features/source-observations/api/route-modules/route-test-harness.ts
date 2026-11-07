@@ -4,6 +4,7 @@ import type { AccountId, TenantId, UserId } from "@chase-sets/primitives/typed-i
 import type { CatalogAuthoringEnv } from "../../../../support/authoring-support/api";
 import { sourceObservationRoutes } from "../route";
 import type { SourceObservationRouteServices } from "../route";
+import type { ProviderScopeDiscoveryServices } from "../../../provider-scope-discovery/api/runtime";
 import type { CatalogProviderIntegrationProfileVersionStore } from "../providers/provider-integration-profile-store";
 import type { SourceObservationPromotionPreview } from "../../read-model/queries";
 import {
@@ -52,6 +53,7 @@ export function buildApp(
   services: SourceObservationRouteServices,
   profileVersions?: CatalogProviderIntegrationProfileVersionStore,
   actor: CatalogAuthoringEnv["Variables"]["actor"] = manageActor,
+  listRefreshSchedules?: ProviderScopeDiscoveryServices["listRefreshSchedules"],
 ) {
   const app = new Hono<CatalogAuthoringEnv>();
 
@@ -60,7 +62,10 @@ export function buildApp(
     c.set("context", context);
     await next();
   });
-  app.route("/source-observations", sourceObservationRoutes(services, profileVersions));
+  app.route(
+    "/source-observations",
+    sourceObservationRoutes(services, profileVersions, undefined, listRefreshSchedules),
+  );
 
   return app;
 }

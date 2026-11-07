@@ -1,4 +1,6 @@
 import type { JsonValue } from "@chase-sets/primitives/json";
+import type { CatalogPrimaryWorkbenchCommandFeedback } from "./primary-workbench-command-feedback";
+import type { CatalogPrimaryWorkbenchRouteContext } from "../api/primary-workbench-admin-contracts";
 import type { ProviderOptionAliasRecord } from "../api/provider-option-aliases";
 import type {
   CatalogMergeCandidateConflict,
@@ -88,6 +90,7 @@ export interface CatalogMergeCandidateListItem {
   created_at: string;
   updated_at: string;
   stale_at: string | null;
+  last_stream_version: number;
   observation_count: number;
 }
 
@@ -698,6 +701,47 @@ export interface SourceObservationPromotionPreview {
    * preview. Null on a continuation page (`validationAfter`).
    */
   previewToken?: string | null;
+}
+
+/** Original action response, never reconstructed from a loader or persisted. */
+export interface SourceObservationPromotionReceipt {
+  schemaVersion: "source-observation-promotion-receipt/v1";
+  previewId: string;
+  selection: {
+    providerKey: string | null;
+    unitKey: string | null;
+    importScope: string | null;
+    profileVersion: string | null;
+    scopeRecordId: string | null;
+    observationIds: readonly string[];
+    promoteAsDraft: boolean;
+    scope: SourceObservationPromotionScope;
+  };
+  preview: SourceObservationPromotionPreview;
+}
+
+/** Ephemeral command outcome; each consuming surface owns its navigation. */
+export type CatalogIntegrationsCommandResult = Readonly<{
+  feedback: CatalogPrimaryWorkbenchCommandFeedback;
+  context: CatalogPrimaryWorkbenchRouteContext;
+  section: string;
+  commandSection?: string;
+  attentionItemKey?: string;
+  promotionReceipt?: SourceObservationPromotionReceipt | null;
+  importJobReceipt?: SourceObservationImportJobReceipt | null;
+}>;
+
+/** The enqueue response identity bound to what this action actually submitted. Never persisted. */
+export interface SourceObservationImportJobReceipt {
+  schemaVersion: "source-observation-import-job-receipt/v1";
+  jobId: string | null;
+  status: string | null;
+  scope: Readonly<SourceObservationIntegrationJobScope>;
+  submitted: {
+    providerKey: string;
+    unitKey: string;
+    profileVersion: string | null;
+  };
 }
 
 export type SourceObservationPromotionDisplayIdentityTemplateReason =
