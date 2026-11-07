@@ -1,11 +1,28 @@
 import { renderToString } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { mockUseLoaderData, mockUseLocation, mockUseRouteError } = vi.hoisted(() => ({
+const {
+  mockUseLoaderData,
+  mockUseLocation,
+  mockUseRouteError,
+  mockAnalyticsCounter,
+  mockAnalyticsLog,
+  mockStartObservability,
+} = vi.hoisted(() => ({
   mockUseLoaderData: vi.fn(),
   mockUseLocation: vi.fn(),
   mockUseRouteError: vi.fn(),
+  mockAnalyticsCounter: vi.fn(),
+  mockAnalyticsLog: vi.fn(),
+  mockStartObservability: vi.fn(),
 }));
+
+vi.mock("@chase-sets/observability", async () => ({
+  ...(await vi.importActual<typeof import("@chase-sets/observability")>("@chase-sets/observability")),
+  recordItemDetailRailAnalytics: mockAnalyticsCounter,
+  startObservability: mockStartObservability,
+}));
+vi.mock("@chase-sets/platform-runtime/web-entry-server", () => ({ default: vi.fn(), streamTimeout: 5000 }));
 
 vi.mock("react-router", async () => {
   const actual = await vi.importActual<typeof import("react-router")>("react-router");
@@ -23,10 +40,13 @@ vi.mock("react-router", async () => {
   };
 });
 
-import {
-  action as itemDetailRailAnalyticsAction,
-  loader as itemDetailRailAnalyticsLoader,
-} from "./routes/item-detail-rail-analytics";
+import { action as itemDetailRailAnalyticsAction } from "@chase-sets/discovery/routes/item-detail-rail-analytics";
+import { registerItemDetailRailAnalyticsRecorder } from "@chase-sets/platform-runtime/analytics-recorder";
+import { resolveMarketplaceRouteConfigRecords } from "./host";
+import routes from "./routes";
+import type { RouteConfigEntry } from "@react-router/dev/routes";
+import { itemDetailRailAnalyticsEventNames } from "@chase-sets/discovery/web";
+import { marketplaceHostRouteInventory } from "./host-route-inventory";
 import { t } from "@chase-sets/localization";
 import { CHASE_SETS_INTERNAL_API_ORIGIN_ENV } from "@chase-sets/platform-runtime/http";
 import { ErrorBoundary, Layout, itemDetailRailAnalyticsBridgeScript, loader } from "./root";
@@ -71,6 +91,7 @@ function requestPath(input: RequestInfo | URL) {
 
 describe("marketplace root layout", () => {
   beforeEach(() => {
+    mockStartObservability.mockReturnValue({ logger: { info: mockAnalyticsLog } });
     vi.stubEnv(CHASE_SETS_INTERNAL_API_ORIGIN_ENV, "https://marketplace.chasesets.com");
     mockUseLocation.mockReturnValue({
       pathname: "/search",
@@ -145,117 +166,133 @@ describe("marketplace root layout", () => {
     expect(itemDetailRailAnalyticsBridgeScript).not.toContain("price_amount");
   });
 
-  it("captures bounded item-detail rail analytics events", async () => {
-    vi.stubEnv("OBSERVABILITY_ENABLED", "false");
-    const response = await itemDetailRailAnalyticsAction({
-      request: new Request("https://marketplace.chasesets.com/analytics/item-detail-rail", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          event: "payout_preview_shown",
-          intent: "sell",
-          workflow: "selected_offer",
-          selection: "explicit",
-          topic: "estimated_payout",
-          outcome: "shown",
-          viewer: "guest",
-          surface: "action_rail",
-        }),
+  it("discovery item-detail-rail analytics route is contributed once at root placement", () => {
+    const records = resolveMarketplaceRouteConfigRecords().filter(
+      (record) => record.routePath === "analytics/item-detail-rail",
+    );
+    expect(records).toHaveLength(1);
+    expect(records[0]).toMatchObject({
+      contextName: "discovery",
+      placement: "root",
+      fileExport: "./routes/item-detail-rail-analytics",
+    });
+    const flatten = (entries: readonly RouteConfigEntry[]): RouteConfigEntry[] =>
+      entries.flatMap((entry) => [entry, ...flatten(entry.children ?? [])]);
+    expect(flatten(routes).filter((entry) => entry.path === "analytics/item-detail-rail")).toEqual([
+      expect.objectContaining({
+        id: "discovery/item-detail-rail-analytics",
+        file: "../../../bounded-contexts/discovery/routes/item-detail-rail-analytics.tsx",
       }),
-      params: {},
-      context: undefined,
-    } as never);
-
-    expect(response.status).toBe(204);
+    ]);
+    expect(routes).toContainEqual(expect.objectContaining({ path: "analytics/item-detail-rail" }));
+    expect(marketplaceHostRouteInventory.some((route) => route.routePath === "analytics/item-detail-rail")).toBe(false);
   });
 
-  it("captures Result Set click hashes and rejects raw query text", async () => {
-    vi.stubEnv("OBSERVABILITY_ENABLED", "false");
-    const accepted = await itemDetailRailAnalyticsAction({
-      request: new Request("https://marketplace.chasesets.com/analytics/item-detail-rail", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          event: "search_result_selected",
-          surface: "search_results",
-          position: 1,
-          queryHash: "a".repeat(64),
-          resultSetKey: "b".repeat(64),
+  it("marketplace registers item-detail-rail analytics recorder at startup", async () => {
+    const restore = registerItemDetailRailAnalyticsRecorder(null);
+    try {
+      await import("./entry.server");
+      const payload = {
+        event: "search_result_selected",
+        intent: "buy",
+        workflow: "selected_listing",
+        selection: "explicit",
+        topic: "listing_buy_cart",
+        outcome: "opened",
+        gate: "buyer_registration",
+        viewer: "guest",
+        surface: "search_results",
+        position: 1,
+        queryHash: "a".repeat(64),
+        resultSetKey: "b".repeat(64),
+      };
+      const response = await itemDetailRailAnalyticsAction({
+        request: new Request("https://marketplace.example/analytics/item-detail-rail", {
+          method: "POST",
+          body: JSON.stringify(payload),
         }),
-      }),
-      params: {},
-      context: undefined,
-    } as never);
-    const rejected = await itemDetailRailAnalyticsAction({
-      request: new Request("https://marketplace.chasesets.com/analytics/item-detail-rail", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          event: "search_result_selected",
-          surface: "search_results",
-          position: 1,
-          queryHash: "private-pikachu-query",
-          resultSetKey: "b".repeat(64),
-        }),
-      }),
-      params: {},
-      context: undefined,
-    } as never);
-    const rejectedStringPosition = await itemDetailRailAnalyticsAction({
-      request: new Request("https://marketplace.chasesets.com/analytics/item-detail-rail", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          event: "search_result_selected",
-          surface: "search_results",
-          position: "1",
-          queryHash: "a".repeat(64),
-          resultSetKey: "b".repeat(64),
-        }),
-      }),
-      params: {},
-      context: undefined,
-    } as never);
-
-    expect(accepted.status).toBe(204);
-    expect(rejected.status).toBe(400);
-    expect(rejectedStringPosition.status).toBe(400);
+      } as Parameters<typeof itemDetailRailAnalyticsAction>[0]);
+      expect(response.status).toBe(204);
+      expect(mockAnalyticsCounter).toHaveBeenCalledExactlyOnceWith(payload);
+      expect(mockAnalyticsLog).toHaveBeenCalledExactlyOnceWith("Item detail rail analytics event captured.", {
+        type: "marketplace.item_detail_rail.analytics_event",
+        event: payload.event,
+        intent: payload.intent,
+        workflow: payload.workflow,
+        selection: payload.selection,
+        topic: payload.topic,
+        outcome: payload.outcome,
+        gate: payload.gate,
+        viewer: payload.viewer,
+        surface: payload.surface,
+      });
+      expect(mockStartObservability.mock.calls[0][0]).toMatchObject({ serviceName: "marketplace-web" });
+    } finally {
+      registerItemDetailRailAnalyticsRecorder(null);
+      restore();
+    }
   });
 
-  it("rejects unsupported or unbounded rail analytics events before logging", async () => {
-    vi.stubEnv("OBSERVABILITY_ENABLED", "false");
-    const unsupported = await itemDetailRailAnalyticsAction({
-      request: new Request("https://marketplace.chasesets.com/analytics/item-detail-rail", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ event: "email_submitted", email: "seller@example.com" }),
+  it("marketplace root bridge emits unchanged payloads", () => {
+    let listener = (_event: Event) => {};
+    const fetch = vi.fn().mockResolvedValue(undefined);
+    new Function("window", "navigator", "fetch", "Blob", "CustomEvent", itemDetailRailAnalyticsBridgeScript)(
+      {
+        addEventListener: (name: string, handler: typeof listener) => {
+          expect(name).toBe("chase-sets:item-detail-rail-analytics");
+          listener = handler;
+        },
+      },
+      {},
+      fetch,
+      Blob,
+      CustomEvent,
+    );
+    const fields = {
+      intent: "buy",
+      workflow: "selected_listing",
+      selection: "explicit",
+      topic: "listing_buy_cart",
+      outcome: "opened",
+      gate: "buyer_registration",
+      viewer: "guest",
+      surface: "search_results",
+      position: 10001,
+      queryHash: "a".repeat(64),
+      resultSetKey: "b".repeat(64),
+    };
+    for (const event of itemDetailRailAnalyticsEventNames) {
+      listener(new CustomEvent("fixture", { detail: { event, ...fields, email: "private@example.test" } }));
+      expect(fetch.mock.lastCall).toEqual([
+        "/analytics/item-detail-rail",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ event, ...fields }),
+          credentials: "same-origin",
+          keepalive: true,
+        },
+      ]);
+    }
+    const count = fetch.mock.calls.length;
+    for (const detail of [null, {}, { event: "unknown" }, { event: " rail_intent_selected " }])
+      listener(new CustomEvent("fixture", { detail }));
+    listener(new Event("fixture"));
+    expect(fetch).toHaveBeenCalledTimes(count);
+    listener(new CustomEvent("fixture", { detail: { event: "rail_intent_selected" } }));
+    expect(JSON.parse(fetch.mock.lastCall?.[1].body)).toEqual({
+      event: "rail_intent_selected",
+      ...Object.fromEntries(Object.keys(fields).map((field) => [field, null])),
+    });
+    listener(
+      new CustomEvent("fixture", {
+        detail: { event: "rail_intent_selected", intent: "a".repeat(81), position: "1", queryHash: "A".repeat(64) },
       }),
-      params: {},
-      context: undefined,
-    } as never);
-    const unbounded = await itemDetailRailAnalyticsAction({
-      request: new Request("https://marketplace.chasesets.com/analytics/item-detail-rail", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          event: "reference_info_opened",
-          topic: "seller@example.com",
-          surface: "action rail",
-        }),
-      }),
-      params: {},
-      context: undefined,
-    } as never);
-
-    expect(unsupported.status).toBe(400);
-    expect(unbounded.status).toBe(400);
-    expect(
-      itemDetailRailAnalyticsLoader({
-        request: new Request("https://marketplace.chasesets.com/analytics/item-detail-rail"),
-        params: {},
-        context: undefined,
-      } as never).status,
-    ).toBe(405);
+    );
+    expect(JSON.parse(fetch.mock.lastCall?.[1].body)).toEqual({
+      event: "rail_intent_selected",
+      ...Object.fromEntries(Object.keys(fields).map((field) => [field, null])),
+    });
   });
 
   it("keeps public marketplace pages reachable without an extra launch gate", async () => {

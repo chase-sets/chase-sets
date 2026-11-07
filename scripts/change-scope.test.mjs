@@ -991,14 +991,24 @@ describe("shared E2E setup selection", () => {
       }),
   );
 
-  it("preserves every product and near-miss input, with only the enumerated setup delta", () => {
+  it("preserves every product and near-miss input, with only the enumerated setup and analytics ownership deltas", () => {
     const captured = JSON.parse(
       execFileSync("git", ["show", `${baseSha}:scripts/fixtures/ci-e2e-selection.json`], { encoding: "utf8" }),
     );
     const candidate = JSON.parse(readFileSync("scripts/fixtures/ci-e2e-selection.json", "utf8"));
     expect(captured.cases).toHaveLength(150);
     expect(candidate.cases).toHaveLength(151);
-    expect(candidate.families).toEqual(captured.families);
+    expect(candidate.families).toEqual(
+      captured.families.map((family) =>
+        family.family === "boundedContextRouteSuiteOwnership:45"
+          ? {
+              ...family,
+              pattern:
+                "/^bounded-contexts\\/discovery\\/routes\\/item-detail(?:\\.|-market-history\\.|-rail-analytics\\.)/",
+            }
+          : family,
+      ),
+    );
     expect(candidate.families).toHaveLength(143);
     for (const entry of captured.cases) {
       const old = baseline.classifyChanges({ changedFiles: entry.changedFiles });
