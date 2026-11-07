@@ -169,12 +169,14 @@ pub const CHECKOUT: &[Component] = &[CheckoutPage, checkout_page::handlers::COMP
 /// Checkout start's components (`/checkout/buy/readiness`).
 pub const CHECKOUT_START: &[Component] = &[CheckoutStartPage];
 
-/// The item page's components (`/items`): its stylesheet, the Sales tab's chart, corten-ui's
-/// handler that makes Add to List's dialog modal when the server draws it open, the analytics, and
-/// checkout start's page, which a guest's Buy now draws when it cannot start (`checkout_start::buy_as_guest`).
+/// The item page's components (`/items`): its stylesheet, the Sales tab's chart and the kit's
+/// Stats for its figures, corten-ui's handler that makes Add to List's dialog modal when the server
+/// draws it open, the analytics, and checkout start's page, which a guest's Buy now draws when it
+/// cannot start (`checkout_start::buy_as_guest`).
 pub const ITEM: &[Component] = &[
     ItemDetail,
     platform::chart::TimeSeries,
+    platform::ui::stats::Stats,
     corten_ui::dialog::COMPONENT,
     item_detail::analytics::COMPONENT,
     CheckoutStartPage,
@@ -271,16 +273,16 @@ pub const PAYMENT_METHODS: &[Component] =
 /// `RequiredWhen` on a partial refund's amount; the handlers check both without a script.
 pub const SUPPORT: &[Component] = &[SupportListPage, SupportPage, corten_ui::CheckboxGroup, corten_ui::RequiredWhen];
 
-/// The Seller Desk's repricing page (`/account/desk/repricing`) and the script that applies an
-/// editor's choice as it changes.
-pub const REPRICING: &[Component] = &[RepricingPage, repricing_page::handlers::COMPONENT];
-/// The pricing recommendations (`/account/repricing`).
-pub const RECOMMENDATIONS: &[Component] = &[RecommendationsPage];
+/// The Seller Desk's repricing page (`/account/desk/repricing`), the script that applies an
+/// editor's choice as it changes, and the kit's Stats for the preview's and activity's counts.
+pub const REPRICING: &[Component] = &[RepricingPage, repricing_page::handlers::COMPONENT, platform::ui::stats::Stats];
+/// The pricing recommendations (`/account/repricing`) and the kit's Stats for its signals.
+pub const RECOMMENDATIONS: &[Component] = &[RecommendationsPage, platform::ui::stats::Stats];
 /// Pricing health (`/account/desk/pricing-health`).
 pub const PRICING_HEALTH: &[Component] = &[PricingHealthPage];
 pub const CHANNELS: &[Component] = &[ChannelsPage];
-/// Bulk reprice (`/account/bulk-reprice`).
-pub const BULK_REPRICE: &[Component] = &[BulkRepricePage];
+/// Bulk reprice (`/account/bulk-reprice`) and the kit's Stats for its job's counts.
+pub const BULK_REPRICE: &[Component] = &[BulkRepricePage, platform::ui::stats::Stats];
 
 /// The seller's offer matches (`/account/offers/matches`), the list and a match's page.
 pub const OFFER_MATCHES: &[Component] = &[OfferMatchesPage];

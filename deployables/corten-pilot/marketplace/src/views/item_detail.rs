@@ -4,7 +4,10 @@
 //! (`ItemDetailMarketBook`). Every choice is a link to the same page with the choice in its
 //! address (`items::Address`); a dimension with more than five options is a GET form.
 use corten::prelude::*;
-use platform::chart::{self, Chart, TimeSeries};
+use platform::{
+    chart::{self, Chart, TimeSeries},
+    ui::stats::{Stat, StatTone, Stats as KitStats, StatsSurface},
+};
 use serde_json::{Value, json};
 
 use super::on_marketplace;
@@ -688,38 +691,33 @@ fn SalesRead<'a>(
         .collect();
     let label = t.panel_chart_label(title).to_string();
     html! {
-        <dl class={Stats}>
-            <div class={Stat}>
-                <dt>{t.panel_spread_label()}</dt>
-                <dd class={StatValue}>{&spread}</dd>
-                if let Some(note) = &spread_note {
-                    <dd class={Muted}>{note}</dd>
-                }
-            </div>
+        <dl class={KitStats { surface: StatsSurface::Cards }}>
+            <Stat label={t.panel_spread_label()} value={spread.as_str()} note={spread_note.as_deref()} tone={StatTone::Neutral} />
         </dl>
         for group in &groups {
             <section class={SalesGroup}>
                 if let Some(heading) = &group.heading {
                     <h3 class={Label}>{heading}</h3>
                 }
-                <dl class={(Stats, Three)}>
-                    <div class={Stat}>
-                        <dt>{t.panel_last_sold_label()}</dt>
-                        <dd class={StatValue}>{&group.sold.0}</dd>
-                        if let Some(note) = &group.sold.1 {
-                            <dd class={Muted}>{note}</dd>
-                        }
-                    </div>
-                    <div class={Stat}>
-                        <dt>{t.panel_median30d_label()}</dt>
-                        <dd class={StatValue}>{&group.m30.0}</dd>
-                        <dd class={Muted}>{&group.m30.1}</dd>
-                    </div>
-                    <div class={Stat}>
-                        <dt>{t.panel_median90d_label()}</dt>
-                        <dd class={StatValue}>{&group.m90.0}</dd>
-                        <dd class={Muted}>{&group.m90.1}</dd>
-                    </div>
+                <dl class={KitStats { surface: StatsSurface::Cards }}>
+                    <Stat
+                        label={t.panel_last_sold_label()}
+                        value={group.sold.0.as_str()}
+                        note={group.sold.1.as_deref()}
+                        tone={StatTone::Neutral}
+                    />
+                    <Stat
+                        label={t.panel_median30d_label()}
+                        value={group.m30.0.as_str()}
+                        note={group.m30.1.as_str()}
+                        tone={StatTone::Neutral}
+                    />
+                    <Stat
+                        label={t.panel_median90d_label()}
+                        value={group.m90.0.as_str()}
+                        note={group.m90.1.as_str()}
+                        tone={StatTone::Neutral}
+                    />
                 </dl>
                 <Ranges t={t} address={address} slug={slug} />
                 match &group.chart.chart {

@@ -13,6 +13,10 @@ use corten::{
     i18n::{Currency, DateStyle, TimeStyle, parse_timestamp},
     prelude::*,
 };
+use platform::ui::{
+    stats::{Stat, StatTone, Stats as KitStats, StatsSurface},
+    visually_hidden::VisuallyHidden,
+};
 
 use crate::{
     api::{
@@ -315,7 +319,7 @@ fn PoliciesPart<'a>(t: RepricingMsg, screen: &'a RepricingScreen) -> impl Render
                 </div>
             } else {
                 <table class={Table} data-repricing-policies="true">
-                    <caption class={Hidden}>{t.list_caption()}</caption>
+                    <caption class={VisuallyHidden {}}>{t.list_caption()}</caption>
                     <thead>
                         <tr>
                             <th scope="col">{t.list_column_name()}</th>
@@ -323,7 +327,7 @@ fn PoliciesPart<'a>(t: RepricingMsg, screen: &'a RepricingScreen) -> impl Render
                             <th scope="col">{t.list_column_scope()}</th>
                             <th scope="col">{t.list_column_budget()}</th>
                             if screen.manage {
-                                <th scope="col"><span class={Hidden}>{t.list_column_actions()}</span></th>
+                                <th scope="col"><span class={VisuallyHidden {}}>{t.list_column_actions()}</span></th>
                             }
                         </tr>
                     </thead>
@@ -403,7 +407,7 @@ fn DryRunsPart<'a>(t: RepricingMsg, runs: &'a [RepricingDryRun]) -> impl Render 
                 </div>
             } else {
                 <table class={Table} data-repricing-dry-runs="true">
-                    <caption class={Hidden}>{t.list_dry_runs_caption()}</caption>
+                    <caption class={VisuallyHidden {}}>{t.list_dry_runs_caption()}</caption>
                     <thead>
                         <tr>
                             <th scope="col">{t.list_dry_runs_column_requested()}</th>
@@ -703,16 +707,10 @@ fn ScopePreview<'a>(t: RepricingMsg, screen: &'a EditorScreen) -> impl Render {
     html! {
         if let Some(preview) = &screen.preview {
             <section class={Card} aria-labelledby="repricing-scope-title" data-repricing-scope="true">
-                <h3 id="repricing-scope-title" class={Hidden}>{t.editor_scope()}</h3>
-                <dl class={Stats}>
-                    <div class={Stat}>
-                        <dt>{t.editor_scope_matching()}</dt>
-                        <dd>{count(t, preview.matching)}</dd>
-                    </div>
-                    <div class={Stat}>
-                        <dt>{t.editor_scope_governed()}</dt>
-                        <dd>{count(t, preview.governed)}</dd>
-                    </div>
+                <h3 id="repricing-scope-title" class={VisuallyHidden {}}>{t.editor_scope()}</h3>
+                <dl class={KitStats { surface: StatsSurface::Plain }}>
+                    <Stat label={t.editor_scope_matching()} value={count(t, preview.matching)} note="" tone={StatTone::Neutral} />
+                    <Stat label={t.editor_scope_governed()} value={count(t, preview.governed)} note="" tone={StatTone::Neutral} />
                 </dl>
                 if !preview.shadowed_by.is_empty() {
                     <p class={Strong}>{t.editor_scope_shadowed()}</p>
@@ -783,19 +781,25 @@ fn DryRunPart<'a>(t: RepricingMsg, p: Pilot, view: &'a DryRunView) -> impl Rende
                         <p>{p.repricing_changed()}</p>
                     </div>
                 }
-                <dl class={Stats}>
-                    <div class={Stat}>
-                        <dt>{t.editor_preview_evaluated()}</dt>
-                        <dd>{count(t, summary.listings_evaluated)}</dd>
-                    </div>
-                    <div class={Stat}>
-                        <dt>{t.editor_preview_changed()}</dt>
-                        <dd data-repricing-changed="true">{count(t, outcome("changed"))}</dd>
-                    </div>
-                    <div class={Stat}>
-                        <dt>{t.editor_preview_tolerance()}</dt>
-                        <dd>{count(t, summary.within_tolerance)}</dd>
-                    </div>
+                <dl class={KitStats { surface: StatsSurface::Plain }}>
+                    <Stat
+                        label={t.editor_preview_evaluated()}
+                        value={count(t, summary.listings_evaluated)}
+                        note=""
+                        tone={StatTone::Neutral}
+                    />
+                    <Stat
+                        label={t.editor_preview_changed()}
+                        value={html! { <span data-repricing-changed="true">{count(t, outcome("changed"))}</span> }}
+                        note=""
+                        tone={StatTone::Neutral}
+                    />
+                    <Stat
+                        label={t.editor_preview_tolerance()}
+                        value={count(t, summary.within_tolerance)}
+                        note=""
+                        tone={StatTone::Neutral}
+                    />
                 </dl>
                 <dl class={Facts}>
                     <div>
@@ -1266,12 +1270,9 @@ fn ActivityPart<'a>(t: RepricingMsg, screen: &'a PolicyScreen) -> impl Render {
                 <p class={Muted}>{t.activity_description()}</p>
             </div>
             if shown {
-                <dl class={Stats} data-repricing-activity-counts="true">
+                <dl class={KitStats { surface: StatsSurface::Cards }} data-repricing-activity-counts="true">
                     for (name, value) in &stats {
-                        <div class={Stat}>
-                            <dt>{name}</dt>
-                            <dd>{value}</dd>
-                        </div>
+                        <Stat label={name.as_str()} value={value.as_str()} note="" tone={StatTone::Neutral} />
                     }
                 </dl>
                 <nav class={Chips} aria-label={t.activity_filters_label()}>
@@ -1301,7 +1302,7 @@ fn ActivityPart<'a>(t: RepricingMsg, screen: &'a PolicyScreen) -> impl Render {
                 </div>
             } else {
                 <table class={Table} data-repricing-activity="true">
-                    <caption class={Hidden}>{t.activity_caption()}</caption>
+                    <caption class={VisuallyHidden {}}>{t.activity_caption()}</caption>
                     <thead>
                         <tr>
                             <th scope="col">{t.activity_column_listing()}</th>

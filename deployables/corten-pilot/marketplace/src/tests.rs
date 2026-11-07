@@ -11553,8 +11553,9 @@ async fn recommendations_are_for_a_seller_with_pricing_view_and_their_actions_ne
         assert!(words.contains(expected), "{expected}: {words}");
     }
     // The signals: 2 recommendations, 4 units on hand, 10 active listings, 2 offers.
+    let value = r#"<dd class="stats__value">"#;
     let stats: Vec<_> =
-        html.match_indices("<dd>").map(|(at, _)| text(&html[at..html[at..].find("</dd>").unwrap() + at])).collect();
+        html.match_indices(value).map(|(at, _)| text(&html[at..html[at..].find("</dd>").unwrap() + at])).collect();
     assert_eq!(stats, ["2", "4", "10", "2"], "{html}");
     assert!(html.contains(r#"value="refresh-recommendations""#) && html.contains(r#"value="apply-recommendations""#));
     assert!(html.contains(r#"name="recommendationId" value="rec_1""#), "a proposed one can be picked");
