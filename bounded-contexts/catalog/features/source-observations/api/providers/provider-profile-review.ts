@@ -88,6 +88,17 @@ export class CatalogProviderProfileVersionNotFoundError extends Error {
   }
 }
 
+export class CatalogProviderProfileVersionImmutableError extends Error {
+  readonly code = "profile_version_immutable";
+  readonly lifecycle: CatalogProviderIntegrationProfileVersionRecord["lifecycle"];
+
+  constructor(lifecycle: CatalogProviderIntegrationProfileVersionRecord["lifecycle"]) {
+    super(`Only draft or test Catalog provider profile versions can be edited; '${lifecycle}' is immutable.`);
+    this.name = "CatalogProviderProfileVersionImmutableError";
+    this.lifecycle = lifecycle;
+  }
+}
+
 export class CatalogProviderProfileActivationValidationError extends Error {
   readonly diagnostics: readonly CatalogProviderProfileActivationDiagnostic[];
 
@@ -1594,7 +1605,7 @@ function profileVersionSelectorFromInput(
 
 function assertMutableLifecycle(lifecycle: CatalogProviderIntegrationProfileVersionRecord["lifecycle"]): void {
   if (lifecycle !== "draft" && lifecycle !== "test") {
-    throw new Error(`Only draft or test Catalog provider profile versions can be edited; '${lifecycle}' is immutable.`);
+    throw new CatalogProviderProfileVersionImmutableError(lifecycle);
   }
 }
 
