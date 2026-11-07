@@ -1,29 +1,7 @@
-import type { CatalogPrimaryWorkbenchCommandFeedback } from "../../../features/source-observations/ui/primary-workbench-command-feedback";
-import {
-  catalogPrimaryWorkbenchHref,
-  type parseCatalogPrimaryWorkbenchRouteContext,
-} from "../../../features/source-observations/ui/primary-workbench-route-context";
+import type { CatalogIntegrationsCommandResult } from "../../../features/source-observations/ui/contracts";
+import { catalogPrimaryWorkbenchHref } from "../../../features/source-observations/ui/primary-workbench-route-context";
 
-type RouteContext = ReturnType<typeof parseCatalogPrimaryWorkbenchRouteContext>;
-
-// The structured outcome every integrations command handler returns. It carries
-// the command-feedback banner state and the post-command route context, but it
-// does NOT decide navigation: the surface that consumes the result owns its own
-// post-command UX. The daily surface stays put and renders the banner; the
-// provider detail resolves a redirect from the same result.
-export type CatalogIntegrationsCommandResult = Readonly<{
-  feedback: CatalogPrimaryWorkbenchCommandFeedback;
-  // The route context the surface should reflect after the command. Surfaces that
-  // redirect serialize this into the destination href; the daily surface keeps it
-  // so the banner and any follow-up command share the fresh context.
-  context: RouteContext;
-  // The workspace section the result belongs to. Names the canonical surface for a
-  // redirect-owning surface; the daily surface ignores it and stays on its route.
-  section: string;
-  // Optional section scoping for command feedback (profile section saves).
-  commandSection?: string;
-  attentionItemKey?: string;
-}>;
+export type { CatalogIntegrationsCommandResult } from "../../../features/source-observations/ui/contracts";
 
 // The post-command navigation a redirect-owning surface performs. The UI decides
 // this from the result rather than hard-coding it in the action. The href routes
@@ -56,10 +34,6 @@ export function commandRedirectHref(result: CatalogIntegrationsCommandResult): s
 
 export function commandResultNeedsRoutableHandoff(result: CatalogIntegrationsCommandResult): boolean {
   return (
-    (result.feedback.status === "success" &&
-      result.feedback.intent === "observation.promote" &&
-      result.feedback.result === "preview-ready" &&
-      Boolean(result.context.promotionPreviewId)) ||
     (result.feedback.status === "success" &&
       result.feedback.intent === "observation.promote" &&
       result.feedback.result === "job-queued" &&

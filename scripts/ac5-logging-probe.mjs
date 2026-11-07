@@ -3,7 +3,7 @@ import { randomBytes } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import process from "node:process";
-import { promisify } from "node:util";
+import { isDeepStrictEqual, promisify } from "node:util";
 import { parse as parseYaml } from "yaml";
 
 const execFileAsync = promisify(execFile);
@@ -16,7 +16,14 @@ export const READ_TOTAL_TIMEOUT_MS = 300_000;
 export const MAX_WINDOW_MS = 120_000;
 export const STAGING_CONTEXT = "do-nyc3-chase-sets-staging-doks";
 export const ROW_NAMES = ["web", "ingressAccess", "ingressError", "controllerDefault", "collector"];
-export const AC5_PROBE_VERSION = "ac5-logging-probe/v2";
+export const AC5_PROBE_VERSION = "ac5-logging-probe/v3";
+const BACKEND_NAME = "ingress-nginx-defaultbackend";
+const MAINTENANCE_NAME = "ingress-nginx-maintenance";
+const MAINTENANCE_ANNOTATION = "chase-sets.com/maintenance-config-sha256";
+
+function rowNames(topology) {
+  return topology === "ratified" ? [...ROW_NAMES, "defaultBackend"] : ROW_NAMES;
+}
 export const EXPECTED_MARKETPLACE_WORKLOAD = "deployment/chase-sets-platform-chase-sets-platform-marketplace";
 export const EXPECTED_COLLECTOR_DAEMONSET = "chase-sets-platform-chase-sets-platform-observability-agent";
 export const EXPECTED_COLLECTOR_CONFIGMAP = "chase-sets-platform-chase-sets-platform-observability";
@@ -96,6 +103,7 @@ export function buildCurlRequestArgs({
   method = "GET",
   userAgent,
   r4 = false,
+  requestId,
 }) {
   const values = typeof sentinels === "object" && sentinels ? sentinels : { query: sentinel, referer: sentinel };
   if (!host || !path.startsWith("/") || !values.query || !values.referer || !resolveIP || !userAgent)
@@ -120,6 +128,7 @@ export function buildCurlRequestArgs({
     `Referer: https://example.test/?code=${values.referer}`,
     "--header",
     `User-Agent: ${userAgent}`,
+    ...(r4 && requestId ? ["--header", `X-Request-ID: ${requestId}`] : []),
     ...(method === "POST" ? ["--request", "POST", "--header", "Content-Length: 1048577"] : []),
     `https://${host}${path}?probe=${values.query}`,
   ];
@@ -167,7 +176,9 @@ export function classifyCollectorConfig(config) {
 export function selectReadyPods(podList, { namespace, role }) {
   if (!Array.isArray(podList?.items) || podList.metadata?.continue) throw new Error("ac5_pod_list_incomplete");
   const expected =
-    role === "controller" ? { name: "ingress-nginx" } : { name: "chase-sets-platform", component: "marketplace" };
+    role === "controller" || role === "defaultBackend"
+      ? { name: "ingress-nginx", component: role === "controller" ? "controller" : "default-backend" }
+      : { name: "chase-sets-platform", component: "marketplace" };
   return podList.items
     .filter((pod) => {
       const labels = pod.metadata?.labels ?? {};
@@ -231,11 +242,14 @@ function controlsFor(entries, method, path, status) {
 export function classifyAc5Rows({
   marketplaceLogs,
   controllerLogs,
+  defaultBackendLogs,
   collector,
   sentinels = [],
   userAgent = "",
   requests = [],
   qualification = {},
+  topology = "absent",
+  r4RequestId = "",
 }) {
   const marketplaceLines = Array.isArray(marketplaceLogs?.lines)
     ? marketplaceLogs.lines
@@ -248,8 +262,12 @@ export function classifyAc5Rows({
         .split(/\r?\n/)
         .filter(Boolean);
   const results = {};
-  if (marketplaceLogs?.complete !== true || controllerLogs?.complete !== true) {
-    for (const name of ROW_NAMES) results[name] = row("INCONCLUSIVE", ["required log read incomplete"]);
+  if (
+    marketplaceLogs?.complete !== true ||
+    controllerLogs?.complete !== true ||
+    (topology === "ratified" && defaultBackendLogs?.complete !== true)
+  ) {
+    for (const name of rowNames(topology)) results[name] = row("INCONCLUSIVE", ["required log read incomplete"]);
     return results;
   }
   const webEntries = marketplaceLines.map(parseWebLine).filter(Boolean);
@@ -366,11 +384,54 @@ export function classifyAc5Rows({
         traceDeletes: collector?.traceCount ?? 0,
         logDeletes: collector?.logCount ?? 0,
       });
+  if (topology === "ratified") {
+    const lines =
+      defaultBackendLogs.lines ??
+      String(defaultBackendLogs.text ?? "")
+        .split(/\r?\n/)
+        .filter(Boolean);
+    const entries = lines.map((line) => {
+      const parsed = parseTimestamp(line);
+      const fields = parsed?.body.split(/\s+/) ?? [];
+      return { ...parsed, fields, raw: line };
+    });
+    const attributedBackend = entries.filter((entry) => r4RequestId && entry.fields.includes(r4RequestId));
+    const controls = attributedBackend.filter(
+      ({ fields }) =>
+        fields.length === 5 &&
+        fields[0] === "GET" &&
+        fields[1] === "/probe" &&
+        fields[2] === "404" &&
+        fields[3] === "-" &&
+        fields[4] === r4RequestId,
+    );
+    const forbidden =
+      lines.some((line) => sentinels.some((sentinel) => sentinel && line.includes(sentinel))) ||
+      attributedBackend.some((entry) => /[?#]|\b(?:referer|referrer)\b|https?:\/\//i.test(entry.raw));
+    const evidence = controls.map(({ timestamp }) => ({ timestamp, method: "GET", path: "/probe", status: 404 }));
+    results.defaultBackend = forbidden
+      ? row(
+          "FAIL",
+          ["sentinel, query, fragment, or referrer found in default-backend log"],
+          { r4: controls.length },
+          evidence,
+        )
+      : requestFailed(requests, "R4", 404)
+        ? row("INCONCLUSIVE", ["R4 request did not return HTTP 404"], { r4: controls.length }, evidence)
+        : controls.length === 1 && attributedBackend.length === 1
+          ? row("PASS", [], { r4: 1 }, evidence)
+          : row(
+              "INCONCLUSIVE",
+              ["missing exactly one attributed default-backend R4 control"],
+              { r4: controls.length },
+              evidence,
+            );
+  }
   return results;
 }
 
-export function overallVerdict(rows) {
-  const statuses = ROW_NAMES.map((name) => rows[name]?.status);
+export function overallVerdict(rows, topology = "absent") {
+  const statuses = rowNames(topology).map((name) => rows[name]?.status);
   if (statuses.some((status) => status === "FAIL")) return "FAIL";
   return statuses.every((status) => status === "PASS") ? "PASS" : "INCONCLUSIVE";
 }
@@ -384,9 +445,18 @@ function redact(value, sentinels = []) {
   return text.replace(/[?&][^\s]*/g, "?[redacted]");
 }
 
-export function serializeEvidence({ qualification, requests, reads, rows, sentinels = [], overall }) {
+export function serializeEvidence({
+  qualification,
+  requests,
+  reads,
+  rows,
+  sentinels = [],
+  overall,
+  topology = "absent",
+}) {
   const evidence = {
     schemaVersion: AC5_PROBE_VERSION,
+    topology,
     qualification,
     requests: (requests ?? []).map(({ name, method, path, status, exit, start, end, stderrBytes, stderrPrefix }) => ({
       name,
@@ -409,8 +479,12 @@ export function serializeEvidence({ qualification, requests, reads, rows, sentin
       stderrBytes,
       stderrPrefix: redact(stderrPrefix, sentinels),
     })),
-    rows: Object.fromEntries(ROW_NAMES.map((name) => [name, rows?.[name] ?? row("INCONCLUSIVE", ["row missing"])])),
-    overall: overall ?? overallVerdict(rows ?? {}),
+    rows: Object.fromEntries(
+      rowNames(topology).map((name) => [name, rows?.[name] ?? row("INCONCLUSIVE", ["row missing"])]),
+    ),
+    overall: rowNames(topology).some((name) => !rows?.[name])
+      ? overallVerdict(rows ?? {}, topology)
+      : (overall ?? overallVerdict(rows ?? {}, topology)),
   };
   const output = `${JSON.stringify(evidence, null, 2)}\n`;
   if (sentinels.some((sentinel) => sentinel && output.includes(sentinel))) throw new Error("ac5_evidence_sentinel");
@@ -581,16 +655,114 @@ function findResourceName(value) {
   return { kind, name };
 }
 
-function chartValues(root = process.cwd()) {
-  const document = parseYaml(
-    readFileSync(resolve(root, "infrastructure/helm/doks-ingress/ingress-nginx-values.yaml"), "utf8"),
-  );
+function nginxStatements(source) {
+  const statements = [];
+  let tokens = [];
+  let token = "";
+  let quote = "";
+  let comment = false;
+  let escaped = false;
+  let depth = 0;
+  const flush = () => {
+    if (token) tokens.push(token);
+    token = "";
+  };
+  for (const char of source) {
+    if (comment) {
+      if (char === "\n") comment = false;
+      continue;
+    }
+    if (escaped) {
+      token += `\\${char}`;
+      escaped = false;
+      continue;
+    }
+    if (char === "\\") {
+      escaped = true;
+      continue;
+    }
+    if (quote) {
+      if (char === quote) quote = "";
+      else token += char;
+      continue;
+    }
+    if (char === "'" || char === '"') {
+      quote = char;
+      continue;
+    }
+    if (char === "#") {
+      if (token === "") comment = true;
+      else token += char;
+      continue;
+    }
+    if (/\s/.test(char)) {
+      flush();
+      continue;
+    }
+    if (char === ";" || char === "{" || char === "}") {
+      flush();
+      if (char === "}" && tokens.length) return null;
+      if (tokens.length) statements.push(tokens);
+      tokens = [];
+      if (char === "{") depth += 1;
+      if (char === "}") depth -= 1;
+      if (depth < 0) return null;
+    } else token += char;
+  }
+  flush();
+  return quote || escaped || depth !== 0 || tokens.length ? null : statements;
+}
+
+function hasKey(value, key, seen = new Set()) {
+  if (value === null || typeof value !== "object" || seen.has(value)) return false;
+  seen.add(value);
+  return Object.hasOwn(value, key) || Object.values(value).some((child) => hasKey(child, key, seen));
+}
+
+export function qualifyChart(source) {
+  let document;
+  try {
+    document = parseYaml(source, { uniqueKeys: true });
+  } catch {
+    throw new Error("ac5_chart_config_invalid");
+  }
   const config = document?.controller?.config ?? {};
-  if (/defaultBackend|enable-access-log-for-default-backend/i.test(JSON.stringify(document)))
+  if (hasKey(document, "enable-access-log-for-default-backend"))
     throw new Error("ac5_chart_default_backend_artifact_present");
   if (typeof config["log-format-upstream"] !== "string" || config["error-log-path"] !== "/dev/null")
     throw new Error("ac5_chart_config_invalid");
-  return { logFormat: config["log-format-upstream"], errorLogPath: config["error-log-path"] };
+  const common = { logFormat: config["log-format-upstream"], errorLogPath: config["error-log-path"] };
+  if (!Object.hasOwn(document, "defaultBackend")) return { ...common, topology: "absent" };
+  const backend = document.defaultBackend;
+  const maps = backend?.extraConfigMaps;
+  const data = Array.isArray(maps) && maps.length === 1 && maps[0]?.name === MAINTENANCE_NAME ? maps[0].data : null;
+  const sourceConfig = data?.["default.conf"];
+  const statements = typeof sourceConfig === "string" ? nginxStatements(sourceConfig) : null;
+  const expected = [
+    ["log_format", "maintenance_pathname", "$request_method $uri $status $http_x_code $http_x_request_id"],
+    ["access_log", "/dev/stdout", "maintenance_pathname"],
+    ["error_log", "/dev/null"],
+  ];
+  const logging = statements?.filter(([name]) => expected.some(([directive]) => name === directive));
+  const unsafe =
+    /\$\{?(?:request|request_uri|args|query_string|is_args|arg_[a-z0-9_]+|http_referer|http_x_original_uri)(?:\}|\b)/i;
+  const annotation = backend?.podAnnotations?.[MAINTENANCE_ANNOTATION];
+  if (
+    backend?.enabled !== true ||
+    !statements ||
+    statements.some((tokens) => tokens.some((token) => unsafe.test(token))) ||
+    logging.length !== expected.length ||
+    !expected.every((tokens) => logging.some((entry) => isDeepStrictEqual(entry, tokens))) ||
+    typeof annotation !== "string" ||
+    !/^[a-f0-9]{64}$/i.test(annotation)
+  )
+    throw new Error("ac5_chart_default_backend_unratified");
+  return { ...common, topology: "ratified", maintenanceData: data, maintenanceAnnotation: annotation };
+}
+function chartValues(root = process.cwd()) {
+  return qualifyChart(
+    readFileSync(resolve(root, "infrastructure/helm/doks-ingress/ingress-nginx-values.yaml"), "utf8"),
+  );
 }
 function wildcardMatches(host, target) {
   if (!host) return true;
@@ -602,10 +774,33 @@ function wildcardMatches(host, target) {
     !target.slice(0, -suffix.length).includes(".")
   );
 }
-function assertNoForbiddenInventory(inventory) {
-  for (const item of inventory?.items ?? [])
-    if (/(?:default-backend|maintenance)/i.test(String(item.metadata?.name ?? "")))
-      throw new Error("ac5_chart_inventory_forbidden_resource");
+function assertBackendInventory(inventory, topology, namespace) {
+  if (!Array.isArray(inventory?.items) || inventory.metadata?.continue)
+    throw new Error("ac5_chart_inventory_incomplete");
+  const backend = inventory.items.filter(
+    (item) =>
+      /default-?backend|maintenance/i.test(String(item.metadata?.name ?? "")) ||
+      item.metadata?.labels?.["app.kubernetes.io/component"] === "default-backend",
+  );
+  if (topology === "absent") {
+    if (backend.length) throw new Error("ac5_chart_inventory_forbidden_resource");
+    return;
+  }
+  const expected = [
+    ["Deployment", BACKEND_NAME],
+    ["Service", BACKEND_NAME],
+    ["ConfigMap", MAINTENANCE_NAME],
+  ];
+  if (
+    backend.length !== expected.length ||
+    !expected.every(
+      ([kind, name]) =>
+        backend.filter(
+          (item) => item.kind === kind && item.metadata?.name === name && item.metadata?.namespace === namespace,
+        ).length === 1,
+    )
+  )
+    throw new Error("ac5_default_backend_inventory_mismatch");
 }
 
 async function main(argv = process.argv.slice(2), dependencies = {}) {
@@ -746,7 +941,7 @@ async function executeProbe(options, dependencies) {
       "-n",
       options.controllerNamespace,
       "-l",
-      "app.kubernetes.io/name=ingress-nginx",
+      "app.kubernetes.io/name=ingress-nginx,app.kubernetes.io/component=controller",
       "-o",
       "json",
     ]),
@@ -773,7 +968,7 @@ async function executeProbe(options, dependencies) {
     await runKubectl(["get", "deployments,daemonsets,statefulsets,services,configmaps", "-A", "-o", "json"]),
     "chart_inventory",
   );
-  assertNoForbiddenInventory(inventory);
+  assertBackendInventory(inventory, chart.topology, options.controllerNamespace);
   workloadReady(marketplaceWorkload, "marketplace_workload");
   daemonSetReady(collectorDaemonSet);
   const marketplaceReady = selectReadyPods(pods, { namespace: options.marketplaceNamespace, role: "marketplace" });
@@ -782,6 +977,49 @@ async function executeProbe(options, dependencies) {
     role: "controller",
   });
   if (!marketplaceReady.length || !controllerReady.length) throw new Error("ac5_ready_pods_missing");
+  let defaultBackendReady = [];
+  if (chart.topology === "ratified") {
+    const backendWorkload = jsonOutput(
+      await runKubectl(["get", "deployment", BACKEND_NAME, "-n", options.controllerNamespace, "-o", "json"]),
+      "default_backend_workload",
+    );
+    workloadReady(backendWorkload, "default_backend_workload");
+    const maintenance = jsonOutput(
+      await runKubectl(["get", "configmap", MAINTENANCE_NAME, "-n", options.controllerNamespace, "-o", "json"]),
+      "default_backend_config",
+    );
+    if (!isDeepStrictEqual(maintenance.data, chart.maintenanceData))
+      throw new Error("ac5_default_backend_config_mismatch");
+    const backendPods = jsonOutput(
+      await runKubectl([
+        "get",
+        "pods",
+        "-n",
+        options.controllerNamespace,
+        "-l",
+        "app.kubernetes.io/name=ingress-nginx,app.kubernetes.io/component=default-backend",
+        "-o",
+        "json",
+      ]),
+      "default_backend_pods",
+    );
+    if (!Array.isArray(backendPods?.items) || backendPods.metadata?.continue)
+      throw new Error("ac5_default_backend_pods_incomplete");
+    defaultBackendReady = selectReadyPods(backendPods, {
+      namespace: options.controllerNamespace,
+      role: "defaultBackend",
+    });
+    if (!defaultBackendReady.length) throw new Error("ac5_default_backend_ready_pods_missing");
+    if (
+      defaultBackendReady.some(
+        (name) =>
+          backendPods.items.find((pod) => pod.metadata?.name === name)?.metadata?.annotations?.[
+            MAINTENANCE_ANNOTATION
+          ] !== chart.maintenanceAnnotation,
+      )
+    )
+      throw new Error("ac5_default_backend_annotation_mismatch");
+  }
   const marketplaceDigests = marketplaceReady
     .map((name) => pods.items.find((pod) => pod.metadata?.name === name)?.status?.containerStatuses ?? [])
     .flat()
@@ -807,6 +1045,7 @@ async function executeProbe(options, dependencies) {
   const collector = classifyCollectorConfig(collectorConfig);
   const nonce = (dependencies.randomBytes ?? randomBytes)(8).toString("hex");
   const userAgent = `ac5-probe/${nonce}`;
+  const r4RequestId = chart.topology === "ratified" ? `ac5-${nonce}-r4` : undefined;
   const sentinels = [];
   const requests = [];
   async function send(name, method, path, host, expectedStatus) {
@@ -815,7 +1054,16 @@ async function executeProbe(options, dependencies) {
     const startMs = now();
     const result = await run(
       "curl",
-      buildCurlRequestArgs({ host, path, sentinels: values, resolveIP: ip, method, userAgent, r4: name === "R4" }),
+      buildCurlRequestArgs({
+        host,
+        path,
+        sentinels: values,
+        resolveIP: ip,
+        method,
+        userAgent,
+        r4: name === "R4",
+        requestId: r4RequestId,
+      }),
       { timeout: 10_000 },
     );
     const endMs = now();
@@ -843,13 +1091,21 @@ async function executeProbe(options, dependencies) {
   const readDeadline = now() + READ_TOTAL_TIMEOUT_MS;
   const reads = [];
   for (const pod of [
-    ...controllerReady.map((name) => ({ namespace: options.controllerNamespace, pod: name })),
-    ...marketplaceReady.map((name) => ({ namespace: options.marketplaceNamespace, pod: name })),
+    ...controllerReady.map((name) => ({ namespace: options.controllerNamespace, pod: name, role: "controller" })),
+    ...marketplaceReady.map((name) => ({ namespace: options.marketplaceNamespace, pod: name, role: "marketplace" })),
+    ...defaultBackendReady.map((name) => ({
+      namespace: options.controllerNamespace,
+      pod: name,
+      role: "defaultBackend",
+    })),
   ]) {
-    const remaining = Math.max(1, Math.min(READ_TIMEOUT_MS, readDeadline - now()));
-    const result = await runKubectl(buildKubectlLogsArgs({ ...pod, since: window.t0, context: options.context }), {
-      timeout: remaining,
-    });
+    const remaining = Math.min(READ_TIMEOUT_MS, readDeadline - now());
+    const result =
+      remaining > 0
+        ? await runKubectl(buildKubectlLogsArgs({ ...pod, since: window.t0, context: options.context }), {
+            timeout: remaining,
+          })
+        : { exit: 1, stdout: "", bytes: 0, complete: false, timedOut: true, stderrBytes: 0, stderrPrefix: "" };
     const filtered = result.complete
       ? filterLogWindow(result.stdout, window)
       : { complete: false, text: "", lines: [] };
@@ -861,8 +1117,9 @@ async function executeProbe(options, dependencies) {
       complete: result.complete && filtered.complete,
     });
   }
-  const controllerReads = reads.filter((read) => read.namespace === options.controllerNamespace);
-  const marketplaceReads = reads.filter((read) => read.namespace === options.marketplaceNamespace);
+  const controllerReads = reads.filter((read) => read.role === "controller");
+  const marketplaceReads = reads.filter((read) => read.role === "marketplace");
+  const backendReads = reads.filter((read) => read.role === "defaultBackend");
   const rows = classifyAc5Rows({
     marketplaceLogs: {
       complete: marketplaceReads.length > 0 && marketplaceReads.every((read) => read.complete),
@@ -872,22 +1129,30 @@ async function executeProbe(options, dependencies) {
       complete: controllerReads.length > 0 && controllerReads.every((read) => read.complete),
       lines: controllerReads.flatMap((read) => read.lines),
     },
+    defaultBackendLogs: {
+      complete: backendReads.length > 0 && backendReads.every((read) => read.complete),
+      lines: backendReads.flatMap((read) => read.lines),
+    },
+    topology: chart.topology,
+    r4RequestId,
     collector,
     sentinels,
     userAgent,
     requests,
     qualification: { defaultBackendLoggingDisabled: true },
   });
-  let overall = overallVerdict(rows);
+  let overall = overallVerdict(rows, chart.topology);
   let output;
   try {
     output = serializeEvidence({
+      topology: chart.topology,
       qualification: {
         deployRunId: options.deployRunId,
         mergeSha: options.mergeSha,
         fixMergeSha: fixSha,
         marketplaceReady,
         controllerReady,
+        defaultBackendReady,
         t0: window.t0,
         t1: window.t1,
       },
@@ -905,7 +1170,11 @@ async function executeProbe(options, dependencies) {
   mkdirSync(dirname(options.output), { recursive: true });
   writeFileSync(options.output, output, "utf8");
   process.exitCode = verdictExitCode(overall);
-  console.log(`AC5 ${overall} ${ROW_NAMES.map((name) => `${name}=${rows[name].status}`).join(" ")}`);
+  console.log(
+    `AC5 ${overall} ${rowNames(chart.topology)
+      .map((name) => `${name}=${rows[name].status}`)
+      .join(" ")}`,
+  );
   return { rows, overall, exitCode: process.exitCode };
 }
 

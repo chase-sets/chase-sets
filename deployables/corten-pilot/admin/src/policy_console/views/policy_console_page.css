@@ -1,0 +1,145 @@
+/* Policy Console: a card per part; each table scrolls on its own on a phone, the schema column
+   wrapping so a policy's row stays readable. */
+.page {
+  display: grid;
+  gap: var(--space-4);
+  min-width: 0;
+}
+.header {
+  display: grid;
+  gap: var(--space-3);
+}
+.header h1 {
+  margin: 0;
+  font: 600 1.75rem/1.25 var(--font-display);
+}
+.eyebrow {
+  margin: 0;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-text-secondary);
+}
+.muted {
+  margin: 0;
+  font-size: 0.875rem;
+  font-weight: 400;
+  color: var(--color-text-secondary);
+}
+.words {
+  overflow-wrap: anywhere;
+}
+.card {
+  display: grid;
+  gap: var(--space-3);
+  align-content: start;
+  min-width: 0;
+  padding: var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+}
+.heading {
+  margin: 0;
+  font: 600 1.25rem/1.3 var(--font-display);
+}
+.alert {
+  margin: 0;
+  padding: var(--space-3);
+  border: 1px solid var(--color-danger);
+  border-radius: var(--radius-md);
+  background: var(--color-danger-soft);
+  color: var(--color-danger);
+}
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  justify-self: start;
+  min-height: 2.75rem;
+  padding: 0 var(--space-4);
+  border: 1px solid var(--color-primary);
+  border-radius: var(--radius-md);
+  background: var(--color-primary);
+  color: var(--color-primary-foreground);
+  font: inherit;
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+}
+.secondary {
+  border-color: var(--color-border-strong);
+  background: var(--color-secondary);
+  color: var(--color-secondary-foreground);
+}
+.tag {
+  display: inline-flex;
+  align-items: center;
+  justify-self: start;
+  padding: 0.125rem 0.5rem;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+.scroll {
+  overflow-x: auto;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-background);
+}
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+}
+.table th,
+.table td {
+  padding: var(--space-3);
+  text-align: start;
+  vertical-align: top;
+  border-bottom: 1px solid var(--color-border);
+}
+.table th {
+  font-weight: 600;
+  white-space: nowrap;
+}
+.table tr:last-child td {
+  border-bottom: 0;
+}
+.tag[data-tone="good"] {
+  border-color: var(--color-success);
+  background: var(--color-success-soft);
+  color: var(--color-success);
+}
+.tag[data-tone="warn"] {
+  border-color: var(--color-warning);
+  background: var(--color-warning-soft);
+  color: var(--color-warning);
+}
+.tag[data-tone="neutral"] {
+  background: var(--color-surface);
+  color: var(--color-text-secondary);
+}
+.key {
+  min-inline-size: 12rem;
+  overflow-wrap: anywhere;
+  font-weight: 600;
+}
+.schema {
+  min-inline-size: 16rem;
+  overflow-wrap: anywhere;
+  color: var(--color-text-secondary);
+}
+.when {
+  white-space: nowrap;
+}
+.table form {
+  margin: 0;
+}
+.table .button {
+  min-height: 2.25rem;
+  padding: 0 var(--space-3);
+  white-space: nowrap;
+}

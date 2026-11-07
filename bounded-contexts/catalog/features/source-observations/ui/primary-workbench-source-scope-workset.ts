@@ -17,6 +17,8 @@ import {
   canSelectStandaloneProductCoordinate,
   emptyCatalogPrimaryWorkbenchScopeContext,
   importScopeFromScopeContext,
+  integrationJobScopeForUnit,
+  reapplyScopeForUnit,
   scopeContextFromProviderScope,
   scopeContextFromRouteContext,
   scopeDisplayLabel,
@@ -426,6 +428,26 @@ function sourceScopeUnitRow(
       "import-to-promotion",
     ),
     commandContext,
+    // What admin-web's handlers post for this row's form: its scope with the page's review filters.
+    commandScopes: importScope
+      ? {
+          import: integrationJobScopeForUnit(
+            routeScope,
+            candidate.unitKey,
+            input.routeContext.sourceObservationFilters,
+          ),
+          reapply: reapplyScopeForUnit(
+            scopeContextFromRouteContext({
+              providerKey: candidate.providerKey,
+              importScope,
+              scope: routeScope,
+              sourceObservationFilters: input.routeContext.sourceObservationFilters,
+            }),
+            candidate.unitKey,
+            input.routeContext.sourceObservationFilters,
+          ),
+        }
+      : null,
     actions: {
       import: action(
         "scope.import",

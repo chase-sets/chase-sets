@@ -10,6 +10,7 @@ import {
 } from "./integrations-command-context";
 import type { CatalogIntegrationsCommandResult } from "./integrations-command-result";
 import { stringValue } from "./integrations-form-values";
+import { projectPromotionReceipt } from "../../../features/source-observations/ui/primary-workbench-source-observation-review";
 
 type Api = ReturnType<typeof createCatalogRequestApiClient>;
 type RouteContext = CatalogIntegrationsCommandResult["context"];
@@ -90,12 +91,31 @@ async function handlePromotion(
   const promoteAsDraft = context.promoteAsDraft === true;
   if (phase === "preview") {
     const preview = await previewPromotionForContext(api, context, selectedObservationIds);
-    return observationResult("observation.promote", "success", "preview-ready", {
+    const previewId = promotionPreviewIdFor(preview, context, selectedObservationIds);
+    const result = observationResult("observation.promote", "success", "preview-ready", {
       ...context,
       selectedObservationIds,
       promoteAsDraft,
-      promotionPreviewId: promotionPreviewIdFor(preview, context, selectedObservationIds),
+      promotionPreviewId: previewId,
     });
+    return {
+      ...result,
+      promotionReceipt: projectPromotionReceipt({
+        schemaVersion: "source-observation-promotion-receipt/v1",
+        previewId,
+        selection: {
+          providerKey: context.providerKey,
+          unitKey: context.unitKey,
+          importScope: context.importScope,
+          profileVersion: context.profileVersion,
+          scopeRecordId: context.scopeRecordId ?? null,
+          observationIds: selectedObservationIds,
+          promoteAsDraft,
+          scope: promotionScopeFromContext(context),
+        },
+        preview,
+      }),
+    };
   }
 
   if (!context.promotionPreviewId || !(await confirmsFreshPromotionPreview(api, context, selectedObservationIds))) {

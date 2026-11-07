@@ -227,6 +227,22 @@ describe("deployment root-cause taxonomy", () => {
     });
   });
 
+  it("maps bounded Playwright install diagnostics to staging-browser-install", () => {
+    expect(
+      classifyDeploymentRootCause({
+        phase: "staging-deploy",
+        diagnostics: [
+          'Playwright Chromium install failed {"site":"platform-production-deploy-staging","attempt":"1","reason":"timeout","cache":"incomplete"}',
+        ],
+      }),
+    ).toMatchObject({
+      rootCauseCode: "staging-browser-install",
+      affectedComponent: "staging-browser-install",
+      phase: "staging-browser-install",
+      blocking: true,
+    });
+  });
+
   it("carries a build-image registry refusal through classify-run", () => {
     expect(
       classifyPlatformDeployRun({

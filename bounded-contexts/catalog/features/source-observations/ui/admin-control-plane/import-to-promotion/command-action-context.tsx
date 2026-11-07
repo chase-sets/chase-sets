@@ -25,6 +25,19 @@ export function useCatalogIntegrationCommandHref(context: CatalogPrimaryWorkbenc
   return useCatalogIntegrationSurfaceHref(context, "import-to-promotion");
 }
 
+// The read model's links are daily paths. Under a page that supplies its own
+// action path (Scope Detail, Provider detail) the same query goes to that path.
+export function useCatalogIntegrationHrefRebase(): (href: string) => string {
+  const actionPath = useContext(CatalogIntegrationCommandActionPathContext);
+  return (href) => {
+    if (!actionPath) {
+      return href;
+    }
+    const query = new URL(href, "https://catalog.invalid").search;
+    return query ? `${actionPath}${query}` : actionPath;
+  };
+}
+
 export function useCatalogIntegrationSurfaceHref(
   context: CatalogPrimaryWorkbenchRouteContext,
   section: NonNullable<CatalogPrimaryWorkbenchRouteContext["section"]>,

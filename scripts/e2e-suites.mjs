@@ -746,6 +746,11 @@ function boundedContextSuiteIdsForChangedFile(filePath, contextName) {
 function ordinaryE2eSuiteIdsForChangedFile(filePath) {
   const normalized = normalizeFilePath(filePath);
 
+  // Any platform-pr.yml edit intentionally runs admin_auth; no hunk parsing.
+  if (normalized === ".github/workflows/platform-pr.yml" || normalized === "scripts/playwright-chromium-install.mjs") {
+    return ["admin_auth"];
+  }
+
   if (
     normalized.startsWith("deployables/tcgplayer-operator-extension/") ||
     normalized.startsWith("bounded-contexts/catalog/features/operator-session/domain/extension/") ||

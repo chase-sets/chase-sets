@@ -174,6 +174,7 @@ export function buildCatalogPrimaryWorkbenchCore(
     sourceObservationReview,
     reviewEvidenceByObservationId,
     promotionValidation: input.promotionValidation ?? null,
+    promotionPreviewFingerprint: input.promotionPreviewFingerprint ?? null,
   });
   const mergeCandidateReview = mergeCandidateReviewFor({
     canManage,

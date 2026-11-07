@@ -515,11 +515,13 @@ function ImportRowResolutionForm({
     : [];
 
   return (
-    <Form spacing="none" method="post">
+    <InventoryMutationForm family="import-resolve-row" targetId={row.row_id} spacing="none" method="post">
       <Stack gap={2}>
         <HiddenInput type="hidden" name="intent" value="resolve-row" />
         <HiddenInput type="hidden" name="batchId" value={row.batch_id} />
         <HiddenInput type="hidden" name="rowId" value={row.row_id} />
+        <HiddenInput type="hidden" name="expectedRowVersion" value={row.row_version} />
+        <HiddenInput type="hidden" name="expectedRowFingerprint" value={row.row_fingerprint} />
         <HiddenInput type="hidden" name="catalogItemId" value={catalogItem?.catalog_item_id ?? ""} />
         <HiddenInput type="hidden" name="selectedOptions" value={JSON.stringify(selectedOptions)} />
         <Combobox
@@ -573,7 +575,7 @@ function ImportRowResolutionForm({
           {t("inventory.features.importBatches.ui.importBatchPage.apply.row.fix")}
         </Button>
       </Stack>
-    </Form>
+    </InventoryMutationForm>
   );
 }
 

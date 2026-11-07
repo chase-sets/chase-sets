@@ -12,7 +12,7 @@
     },
     {
       "path": "scripts/check-structure/run.mjs",
-      "line": 294,
+      "line": 296,
       "operation": "validateLostUpdateWriteGuard({ repoRoot })",
       "deadline": null,
       "owner": "Static Source Checks chain",
@@ -28,7 +28,7 @@
     },
     {
       "path": ".github/workflows/platform-pr.yml",
-      "line": 581,
+      "line": 610,
       "operation": "node ./scripts/prepare-operator-extension-evidence.mjs",
       "deadline": null,
       "owner": "Platform PR operator-extension evidence job",

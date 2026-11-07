@@ -1,6 +1,4 @@
 export const inventoryEnglishTranslations = {
-  "inventory.features.inventoryItems.ui.inventoryItemListPage.graded.details.required":
-    "Choose a grading company and grade before creating a Graded inventory item.",
   "inventory.features.inventoryItems.ui.inventoryItemListPage.certification.number": "Certification number (optional)",
   "inventory.import.resume.title": "Resume an import",
   "inventory.import.resume.description":
@@ -62,6 +60,7 @@ export const inventoryEnglishTranslations = {
   "inventory.features.inventoryItems.ui.inventoryItemDetailPage.adjustment.reason.correction": "Correction",
   "inventory.features.inventoryItems.ui.inventoryItemDetailPage.adjustment.reason.intake": "Intake",
   "inventory.features.inventoryItems.ui.inventoryItemDetailPage.adjustment.reason.return-restocked": "Return restocked",
+  "inventory.features.inventoryItems.ui.inventoryItemDetailPage.adjustment.reason.sale-consumed": "Stock consumed",
   "inventory.features.inventoryItems.ui.inventoryItemDetailPage.adjustment.note": "Note (optional)",
   "inventory.features.inventoryItems.ui.offlineSaleForm.affected.order": "View affected order {orderId}",
   "inventory.features.inventoryItems.ui.offlineSaleForm.channel": "Sale channel",
@@ -124,7 +123,7 @@ export const inventoryEnglishTranslations = {
   "inventory.features.inventoryItems.ui.inventoryItemDetailPage.inventory.item.summary": "Inventory Item Summary",
   "inventory.features.inventoryItems.ui.inventoryItemDetailPage.ledger.adjusted": "Adjusted",
   "inventory.features.inventoryItems.ui.inventoryItemDetailPage.ledger.created": "Created",
-  "inventory.features.inventoryItems.ui.inventoryItemDetailPage.ledger.hold.consumed": "Sale recorded",
+  "inventory.features.inventoryItems.ui.inventoryItemDetailPage.ledger.hold.consumed": "Stock consumed",
   "inventory.features.inventoryItems.ui.inventoryItemDetailPage.ledger.hold.converted": "Hold converted",
   "inventory.features.inventoryItems.ui.inventoryItemDetailPage.ledger.hold.expired": "Hold expired",
   "inventory.features.inventoryItems.ui.inventoryItemDetailPage.ledger.hold.placed": "Hold placed",
