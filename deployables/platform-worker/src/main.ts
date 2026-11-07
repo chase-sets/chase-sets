@@ -26,10 +26,7 @@ import {
   createGoogleMerchantServiceAccountAccessTokenProvider,
   type GoogleMerchantConfig,
 } from "@chase-sets/google-merchant";
-import type {
-  InventoryAccountSellerSkuItemResolution,
-  InventoryDraftListingCreator,
-} from "@chase-sets/inventory/server";
+import type { InventoryAccountSellerSkuItemResolution } from "@chase-sets/inventory/server";
 import { createStorageLocationAuthority } from "@chase-sets/inventory/server";
 import { type MarketplaceListingServices, type MarketplaceServices } from "@chase-sets/marketplace/server";
 import { createPlatformWorkerInventoryDraftListingConsumer } from "./inventory-draft-listing-consumer";
@@ -276,15 +273,6 @@ const checkoutProcessingFeePolicyResolver = pools["commercial-terms"]
   ? createCheckoutProcessingFeePolicyResolver(pools["commercial-terms"])
   : undefined;
 const emailNotificationAdapter = createPlatformEmailNotificationAdapter(config.notificationEmail);
-const draftListingCreator: InventoryDraftListingCreator = async (params, context) => {
-  const marketplaceServices = runtime?.services.marketplace as MarketplaceServices | undefined;
-  const createDraft = marketplaceServices?.listings?.createBatchDraftListingFromInventorySnapshot;
-  if (!createDraft) {
-    throw new Error("Marketplace draft listing service is unavailable.");
-  }
-
-  return createDraft(params, context);
-};
 const inventoryDraftListingConsumer = createPlatformWorkerInventoryDraftListingConsumer(
   () => runtime?.services.marketplace as MarketplaceServices | undefined,
 );
@@ -322,7 +310,6 @@ const constructWorkerRuntime = (marketplaceLabelPostageActivation?: MarketplaceL
         linkedAuthorizations: pools.identity,
         oauthClients: pools.auth,
       }),
-      draftListingCreator,
       // Ordering's cleanup authority is an API-only read surface: the
       // worker runs projectors, subscriptions, and scheduled runners and never
       // serves N8. The variant is stated explicitly rather than omitted, so an

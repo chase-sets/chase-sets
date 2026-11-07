@@ -599,16 +599,13 @@ function runtime(
     },
     (params) => adjustments.push(params),
   ),
+  staleHostPorts: object = {},
 ) {
   const services = createInventoryImportBatchRuntime({
+    ...staleHostPorts,
     db,
     catalogItems,
     items,
-    draftListingCreator: vi.fn(async (params) => ({
-      listingId: params.listingIdOverride,
-      version: 1,
-      feeQuoteFingerprint: "fee_1",
-    })),
   });
   const validateRow = createInventoryImportRowValidator({ db, catalogItems });
   return {
@@ -1203,6 +1200,21 @@ describe("inventory import batch runtime", () => {
       `CREATE INDEX CONCURRENTLY IF NOT EXISTS inventory_import_batch_rows_product_resolution_scan_idx
   ON inventory_import_batch_rows (created_at, row_id)
   WHERE status = 'rejected' AND committed_at IS NULL`,
+    ]);
+  });
+
+  it("issue-10918 creates the draft handoff scan indexes only through the concurrent migration", () => {
+    expect(inventoryImportBatchSchemaSql).not.toContain("inventory_import_batch_rows_handoff_scan_idx");
+    expect(inventoryImportBatchSchemaSql).not.toContain("inventory_import_draft_listing_outbox_lineage_idx");
+    const migration = inventoryImportBatchSchemaMigrations.find(
+      ({ migrationId }) => migrationId === "20261101_inventory_import_draft_handoff_scan",
+    );
+    expect(migration?.dataStep).toBeUndefined();
+    expect(migration?.statements).toEqual([
+      `CREATE INDEX CONCURRENTLY IF NOT EXISTS inventory_import_batch_rows_handoff_scan_idx
+  ON inventory_import_batch_rows (created_at, row_id)`,
+      `CREATE INDEX CONCURRENTLY IF NOT EXISTS inventory_import_draft_listing_outbox_lineage_idx
+  ON inventory_import_draft_listing_outbox (created_at, message_id)`,
     ]);
   });
 
@@ -1927,6 +1939,33 @@ describe("inventory import batch runtime", () => {
     expect(batch.rows[0]?.validation_errors).toContain("Selected options must include Condition.");
   });
 
+  it("issue-10918 commits through the durable outbox only, never a direct draft creator", async () => {
+    const db = dbWithLocations();
+    const directCreator = vi.fn();
+    const services = runtime(db, [], [], [], catalogServices(), undefined, { draftListingCreator: directCreator });
+    const batch = await services.createBatch(
+      {
+        accountId: "acc_1" as AccountId,
+        csvText: [
+          "catalogItemId,storageLocationId,totalQuantity,option:condition,listingPriceAmount,listingPriceCurrencyCode,listingQuantityCap",
+          "cat_active,loc_active,3,near_mint,5.00,USD,2",
+        ].join("\n"),
+      },
+      context,
+    );
+    const committed = await services.commitBatch({ accountId: "acc_1" as AccountId, batchId: batch.batch_id }, context);
+
+    expect(directCreator).not.toHaveBeenCalled();
+    const outboxInserts = db.queries.filter((query) =>
+      query.sql.includes("INSERT INTO inventory_import_draft_listing_outbox"),
+    );
+    expect(committed.rows).toHaveLength(1);
+    expect(outboxInserts.map((query) => query.values[0])).toEqual(committed.rows.map((row) => row.row_id));
+    expect(committed.rows.map((row) => row.committed_listing_id)).toEqual(
+      committed.rows.map((row) => row.row_id.replace(/^imr_/, "lst_")),
+    );
+  });
+
   it("commits accepted rows idempotently without duplicating inventory or draft listings", async () => {
     const itemIds: InventoryItemId[] = [];
     const db = dbWithLocations();
@@ -2309,6 +2348,12 @@ describe("inventory import batch runtime", () => {
       db: {
         query: async <Row = Record<string, unknown>>(sql: string, values: readonly unknown[] = []) => {
           calls.push({ sql, values });
+          if (sql.includes("AS scan_until")) {
+            return {
+              rows: [{ scan_until: "2026-05-03T00:00:00.000000Z", lineage_started_at: null }] as Row[],
+              rowCount: 1,
+            };
+          }
           return { rows: [] as Row[], rowCount: 0 };
         },
       },
@@ -2317,14 +2362,9 @@ describe("inventory import batch runtime", () => {
         () => undefined,
         () => undefined,
       ),
-      draftListingCreator: vi.fn(async (params) => ({
-        listingId: params.listingIdOverride,
-        version: 1,
-        feeQuoteFingerprint: "fee_1",
-      })),
     });
 
-    await services.pruneImportBatchJobRetention({
+    const result = await services.pruneImportBatchJobRetention({
       completedBefore: "2026-05-01T00:00:00.000Z",
       stagedInputCreatedBefore: "2026-05-02T00:00:00.000Z",
       limit: 17,
@@ -2335,6 +2375,16 @@ describe("inventory import batch runtime", () => {
     expect(stagedInputDelete?.sql).toContain("LIMIT $2");
     expect(stagedInputDelete?.sql).toContain("status IN ('queued', 'running')");
     expect(stagedInputDelete?.values[1]).toBe(17);
+    const genericPrune = calls.find((call) => call.sql.includes("job_kind <> ALL($3::text[])"));
+    expect(genericPrune?.values[2]).toContain("commit");
+    const commitPrune = calls.find(
+      (call) => call.sql.includes("DELETE FROM inventory_import_batch_jobs") && call.sql.includes("outbox.receipt"),
+    );
+    expect(commitPrune?.values).toEqual(["2026-05-01T00:00:00.000Z", 17, "commit", null]);
+    expect(result).toMatchObject({
+      commitJobsHeld: false,
+      handoffs: { complete: true, since: "2026-04-30T00:00:00.000Z" },
+    });
   });
 });
 

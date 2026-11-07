@@ -56,7 +56,6 @@ function workerHostPorts(overrides: Readonly<Record<string, unknown>> = {}) {
     moneyMovementGateway: createFakeMoneyMovementGateway(),
     operationsRecorder: { record: () => undefined },
     postageLabelProvider: createSandboxPostageLabelProvider(),
-    draftListingCreator: { createDraftListings: async () => [] },
     notificationAdapter: { send: async () => undefined },
     agentWebhookOrderResolvers: {
       resolveOrderRecipient: async () => null,

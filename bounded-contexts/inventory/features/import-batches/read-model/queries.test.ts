@@ -48,9 +48,11 @@ function normalizedStatus(batch: InventoryImportBatch): InventoryImportBatch["st
     : "uploaded";
 }
 
+type DraftListingState = "none" | "pending" | "sending" | "accepted" | "failed";
+
 class ImportBatchReadModelDb implements PgQueryable {
   private readonly batches = [rejectedBatch, mixedCommittedBatch];
-  private draftListingState: "pending" | "failed" = "pending";
+  private draftListingState: DraftListingState = "pending";
   private readonly rows = [
     {
       row_id: "imr_rejected",
@@ -147,14 +149,17 @@ class ImportBatchReadModelDb implements PgQueryable {
     },
   ] as const;
 
-  setDraftListingState(state: "pending" | "failed") {
+  setDraftListingState(state: DraftListingState) {
     this.draftListingState = state;
   }
+
+  readonly statements: string[] = [];
 
   public async query<Row = Record<string, unknown>>(
     sql: string,
     values: readonly unknown[] = [],
   ): Promise<PgQueryResult<Row>> {
+    this.statements.push(sql);
     if (sql.includes("COUNT(*)")) {
       return { rows: [{ count: String(this.batches.length) } as Row], rowCount: 1 };
     }
@@ -349,6 +354,33 @@ describe("inventory import batch read model queries", () => {
     db.setDraftListingState("failed");
     const failed = await getImportBatch(db, "imb_mixed", "acc_1");
     expect(failed?.rows.find((row) => row.row_id === "imr_mixed_accepted")?.committed_listing_id).toBeNull();
+  });
+
+  it.each(["none", "pending", "sending", "accepted"] as const)(
+    "issue-10918 keeps the deterministic listing identity visible for %s lineage",
+    async (state) => {
+      const db = new ImportBatchReadModelDb();
+      db.setDraftListingState(state);
+      const detail = await getImportBatch(db, "imb_mixed", "acc_1");
+      expect(detail?.rows.find((row) => row.row_id === "imr_mixed_accepted")?.committed_listing_id).toBe(
+        "lst_mixed_pending",
+      );
+    },
+  );
+
+  it("issue-10918 hides only terminal failed delivery through a batch-qualified, read-only outbox join", async () => {
+    const db = new ImportBatchReadModelDb();
+    await getImportBatch(db, "imb_mixed", "acc_1");
+    const rowRead = db.statements.find((sql) => sql.includes("FROM inventory_import_batch_rows"));
+    const join = /LEFT JOIN inventory_import_draft_listing_outbox AS outbox\s+ON ([\s\S]*?)\s+WHERE/.exec(
+      rowRead ?? "",
+    );
+    expect(join?.[1]?.replace(/\s+/g, " ")).toBe(
+      "outbox.message_id = import_row.row_id AND outbox.import_batch_id = import_row.batch_id",
+    );
+    const visibility = /CASE WHEN ([\s\S]*?) THEN NULL\s+ELSE import_row\.committed_listing_id END/.exec(rowRead ?? "");
+    expect(visibility?.[1]?.trim()).toBe("outbox.state = 'failed'");
+    expect(db.statements.some((sql) => /^\s*(INSERT|UPDATE|DELETE)\b/i.test(sql))).toBe(false);
   });
 
   it("proves a valid later-page census and keeps every JSON page bounded", async () => {

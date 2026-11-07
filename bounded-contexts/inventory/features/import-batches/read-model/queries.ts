@@ -432,6 +432,7 @@ export async function getImportBatch(
      FROM inventory_import_batch_rows AS import_row
      LEFT JOIN inventory_import_draft_listing_outbox AS outbox
        ON outbox.message_id = import_row.row_id
+      AND outbox.import_batch_id = import_row.batch_id
      WHERE import_row.batch_id = $1
      ORDER BY import_row.row_number ASC${page ? " LIMIT $2 OFFSET $3" : ""}`,
     page ? [batchId, Math.max(0, Math.min(page.limit, 100)), Math.max(0, page.offset ?? 0)] : [batchId],

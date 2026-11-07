@@ -121,7 +121,6 @@ describe("Offer lifecycle mixed-version rollout", () => {
         moneyMovementGateway: createFakeMoneyMovementGateway(),
         operationsRecorder: { record: () => undefined },
         postageLabelProvider: createSandboxPostageLabelProvider(),
-        draftListingCreator: { createDraftListings: async () => [] },
         inventoryCleanupAuthority: { kind: "not-mounted" },
         channelSaleRecorder: createPlatformChannelSaleRecorder(unusedPool()),
         notificationAdapter: { send: async () => undefined },

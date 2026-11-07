@@ -221,9 +221,9 @@
       "purpose": "Resolves stock account authority from the authenticated buyer's retained Checkout session, never from request seller IDs."
     },
     {
-      "portName": "draftListingCreator",
+      "portName": "draftListingDelivery",
       "providedBy": "platform-api, platform-worker",
-      "purpose": "Creates Marketplace draft listings from committed import batch rows without Inventory depending on Marketplace implementation."
+      "purpose": "Delivers durable inventory-draft-listing/v1 outbox messages to Marketplace's receipt consumer; committed import rows never create Marketplace drafts directly."
     }
   ],
   "apiDeployables": ["platform-api"],

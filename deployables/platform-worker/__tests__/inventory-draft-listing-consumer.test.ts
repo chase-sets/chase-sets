@@ -33,7 +33,6 @@ describe("issue-7169-c4-consumer-rollout platform-worker", () => {
         moneyMovementGateway: createFakeMoneyMovementGateway(),
         operationsRecorder: { record: () => undefined },
         postageLabelProvider: createSandboxPostageLabelProvider(),
-        draftListingCreator: { createDraftListings: async () => [] },
         notificationAdapter: { send: async () => undefined },
         agentWebhookOrderResolvers: {
           resolveOrderRecipient: async () => null,
@@ -92,6 +91,7 @@ describe("issue-7169-c4-consumer-rollout platform-worker", () => {
     expect(/hostPorts:\s*\{\s*inventoryDraftListingConsumer,/.test(source)).toBe(true);
     expect(source).toContain("draftListingDelivery: inventoryDraftListingConsumer");
     expect(source).toContain("runtime?.services.marketplace as MarketplaceServices | undefined");
-    expect(source).toContain("draftListingCreator,");
+    expect(source).not.toContain("draftListingCreator");
+    expect(source).not.toContain("createBatchDraftListingFromInventorySnapshot");
   });
 });

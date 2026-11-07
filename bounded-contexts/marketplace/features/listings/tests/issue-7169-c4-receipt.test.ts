@@ -4,7 +4,7 @@ import {
   canonicalInventoryDraftListingIntent,
   listingIdForInventoryDraftRow,
 } from "@chase-sets/inventory-draft-listing";
-import { directPortInput, draftContext, draftMessage } from "./issue-7169-c4-fixture";
+import { directPortInput, draftContext, draftMessage, type InventorySnapshotDraftInput } from "./issue-7169-c4-fixture";
 import { createInventoryDraftListingConsumer, InventoryDraftListingUnavailable } from "../api/inventory-draft-consumer";
 import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
 import { normalizeAddressSnapshot } from "@chase-sets/primitives/address-snapshot";
@@ -14,7 +14,6 @@ import type { PgPoolClient, PgTransactionalPool, PostgresEventStore } from "@cha
 import { module as marketplaceModule } from "../../../index";
 import { inventoryDraftReceiptMigrations } from "../read-model/inventory-draft-receipt-schema";
 import type { BcSchemaMigrationClient } from "@chase-sets/bounded-context-module";
-import type { InventoryDraftListingCreator } from "@chase-sets/inventory/server";
 import { decideMarketplaceListing, initialMarketplaceListingState, type CreateListingCommand } from "../domain/domain";
 import { MarketplaceListingDomainError } from "../domain/listing-error";
 import { normalizeMarketplaceListingFeeLock } from "../domain/fee-lock";
@@ -274,15 +273,15 @@ describe("issue-7169-c4-draft-receipt transaction", () => {
       snapshot: { ...draftMessage().snapshot, acquisitionCostAmount: "12.34", priceCurrencyCode: "CAD" },
     };
     await h.consumer.accept(message, draftContext);
-    const input = h.createDraft.mock.calls[0]![0] as Parameters<InventoryDraftListingCreator>[0];
+    const input = h.createDraft.mock.calls[0]![0] as InventorySnapshotDraftInput;
     expect(input.acquisitionCostAmount).toBe("12.34");
     expect(input).toHaveProperty("acquisitionCostCurrencyCode", undefined);
   });
 
-  it("pins creator input parity to the Inventory creator parameter type", async () => {
+  it("pins consumer input parity to the Marketplace snapshot-draft parameter type", async () => {
     const h = harness();
     await h.consumer.accept(draftMessage(), draftContext);
-    const keys: Record<keyof Parameters<InventoryDraftListingCreator>[0], true> = {
+    const keys: Record<keyof InventorySnapshotDraftInput, true> = {
       accountId: true,
       importBatchId: true,
       importRowId: true,
