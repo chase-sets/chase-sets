@@ -1,4 +1,5 @@
 import { t } from "@chase-sets/localization";
+import type { ProviderScopeDiscoveryServices } from "../../../provider-scope-discovery/api/runtime";
 import { Hono, type Context } from "hono";
 import type { CatalogAuthoringEnv } from "../../../../support/authoring-support/api";
 import type { CountSpend } from "../../../scope-sync-batches/domain/count-acquisition";
@@ -37,6 +38,7 @@ export type PrimaryWorkbenchSurfaceRouteDeps = Readonly<{
   services: SourceObservationRouteServices;
   profileVersions?: CatalogProviderIntegrationProfileVersionStore;
   readCountSpend?: () => Promise<readonly CountSpend[]>;
+  listRefreshSchedules?: ProviderScopeDiscoveryServices["listRefreshSchedules"];
 }>;
 
 // `GET /workbench-surfaces/:surface?location=<admin path and query>` returns the
@@ -126,10 +128,12 @@ function surfaceSources(
   deps: PrimaryWorkbenchSurfaceRouteDeps,
   c: Context<CatalogAuthoringEnv>,
 ): CatalogPrimaryWorkbenchSurfaceSources {
-  const { services, profileVersions, readCountSpend } = deps;
+  const { services, profileVersions, readCountSpend, listRefreshSchedules } = deps;
   const context = c.get("context");
 
   return {
+    actor: c.get("actor"),
+    listRefreshSchedules: listRefreshSchedules ? async () => wireShape(await listRefreshSchedules()) : undefined,
     canManageCatalog: c.get("actor")?.permissions.includes("catalog.manage") ?? false,
     listIntegrationScopes: async (filter) => {
       const items = await services.listIntegrationScopes({

@@ -6,51 +6,9 @@ import {
   providerImportScopeSecondSegmentIsExpansion,
   providerImportScopeSecondSegmentIsProductLine,
 } from "../api/provider-import-scope-shape";
-import type { CatalogProviderIntegrationProfileVersionRecord } from "../api/providers/profile-types";
-import type {
-  CatalogProviderProfileVersionReview,
-  SourceObservationIntegrationJobScope,
-  SourceObservationIntegrationScope,
-} from "./contracts";
+import type { SourceObservationIntegrationJobScope, SourceObservationIntegrationScope } from "./contracts";
 
-const productCoordinateMappingOutputKinds = new Set([
-  "provider-product",
-  "pokemon-sealed-product",
-  "magic-sealed-product",
-  "yugioh-sealed-product",
-  "one-piece-sealed-product",
-  "lorcana-sealed-product",
-]);
-
-export function canSelectStandaloneProductCoordinate(
-  profileVersion: CatalogProviderIntegrationProfileVersionRecord | CatalogProviderProfileVersionReview | null,
-): boolean {
-  if (!profileVersion?.active) {
-    return false;
-  }
-
-  const isReview = "sourceOptionKinds" in profileVersion;
-  const supportedScopes = isReview ? profileVersion.supportedScopes : profileVersion.profile.supportedScopes;
-  const mappingOutputKind = isReview
-    ? profileVersion.mappingOutputKind
-    : profileVersion.executableMappingContract?.normalizedObservation.outputKind;
-  const hasExecutableMappingContract = isReview
-    ? profileVersion.hasExecutableMappingContract
-    : Boolean(profileVersion.executableMappingContract);
-  const optionQueries = isReview ? profileVersion.sourceOptionKinds : profileVersion.profile.optionQueries;
-
-  return (
-    supportedScopes.includes("product") &&
-    hasExecutableMappingContract &&
-    Boolean(mappingOutputKind && productCoordinateMappingOutputKinds.has(mappingOutputKind)) &&
-    optionQueries.some(
-      (query) =>
-        query.scope === "product" &&
-        query.parentScope === null &&
-        ("parentRequired" in query ? !query.parentRequired : !query.parentValue?.required),
-    )
-  );
-}
+export { canSelectStandaloneProductCoordinate } from "../api/providers/product-coordinate-import";
 
 export type CatalogPrimaryWorkbenchScopeQueryKey =
   | "productId"
@@ -280,6 +238,41 @@ export function scopeContextToIntegrationJobScope(
     productId: scope.productId ?? undefined,
   });
 }
+
+/**
+ * The integration job scope a unit's import posts: the unit's scope with the review filters'
+ * language and set folded in. The Catalog API refuses a product coordinate its active profile
+ * cannot import on its own.
+ */
+export function integrationJobScopeForUnit(
+  scope: CatalogPrimaryWorkbenchScopeContext,
+  unitKey: string | null,
+  filters: Readonly<Record<string, string>> = {},
+): SourceObservationIntegrationJobScope {
+  return scopeContextToIntegrationJobScope({
+    ...scope,
+    ingestionUnitKey: unitKey ?? undefined,
+    languageCode: filters.language ?? scope.languageCode,
+    expansionId: filters.setId ?? filters.expansionId ?? scope.expansionId,
+  });
+}
+
+/**
+ * The scope a unit's reapply or replay posts: the observations in scope and the unit whose
+ * active profile version reapplies them, which a provider with several active units needs.
+ * The Catalog API reapplies only promoted observations, whatever status the review filters name.
+ */
+export function reapplyScopeForUnit(
+  scope: CatalogPrimaryWorkbenchScopeContext,
+  unitKey: string | null,
+  filters: Readonly<Record<string, string>> = {},
+): CatalogPrimaryWorkbenchReapplyScope {
+  const observations = scopeContextToObservationFilterScope(scope, filters);
+  return unitKey ? { ...observations, ingestionUnitKey: unitKey } : observations;
+}
+
+export type CatalogPrimaryWorkbenchReapplyScope = CatalogPrimaryWorkbenchObservationFilterScope &
+  Readonly<{ ingestionUnitKey?: string }>;
 
 export type CatalogPrimaryWorkbenchObservationFilterScope = Readonly<{
   search?: string;

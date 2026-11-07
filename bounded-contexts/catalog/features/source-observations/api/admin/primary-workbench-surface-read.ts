@@ -1,4 +1,8 @@
 import type { ListResponse } from "@chase-sets/http/responses";
+import type { ResolvedActor } from "@chase-sets/auth-context";
+import type { ProviderScopeDiscoveryServices } from "../../../provider-scope-discovery/api/runtime";
+import type { ProviderRefreshSchedulePanelItem } from "../../../provider-scope-discovery/ui/provider-refresh-schedule-panel";
+import { operatorSessionProviderKey } from "../../../operator-session/ui/admin-panel/operator-session-admin-types";
 import type {
   CatalogSyncProviderParticipationPreview,
   CatalogSyncScope,
@@ -35,6 +39,7 @@ import type {
 } from "../../ui/primary-workbench-read-model-input";
 import {
   catalogPrimaryWorkbenchHref,
+  catalogProviderKeyFromPath,
   parseCatalogPrimaryWorkbenchRouteContext,
 } from "../../ui/primary-workbench-route-context";
 import {
@@ -96,6 +101,8 @@ export class CatalogSourceOptionQueryRefusedError extends Error {
 // shape its HTTP route returns (the `ui/contracts` records). Query-string inputs
 // are parsed by the same functions the HTTP routes use.
 export type CatalogPrimaryWorkbenchSurfaceSources = Readonly<{
+  actor?: Partial<Pick<ResolvedActor, "roleKey" | "userId" | "membershipId">> | null;
+  listRefreshSchedules?: ProviderScopeDiscoveryServices["listRefreshSchedules"];
   canManageCatalog: boolean;
   listIntegrationScopes: (
     filter: Readonly<{ source?: string; language?: string; setId?: string }>,
@@ -136,6 +143,9 @@ export type CatalogPrimaryWorkbenchSurfaceRead = Readonly<{
   readModelFailures: readonly CatalogPrimaryWorkbenchReadModelFailure[];
   /** The Catalog sync scope the surface's "Sync scope" action submits, when the selection names one. */
   catalogSyncScope: CatalogSyncScope | null;
+  providerRefreshSchedules: readonly ProviderRefreshSchedulePanelItem[] | null;
+  operatorSession: boolean;
+  operatorSessionActorKey: string | null;
 }>;
 
 // Provider profiles + the control plane overview are the shared baseline every
@@ -164,6 +174,9 @@ export async function readCatalogPrimaryWorkbenchSurface(
   // lifecycle impacts: lifecycle recovery folds in validation readiness (derived
   // from the authoring model) and the audit timeline cites both. The review
   // wave is not fetched.
+  // Start the supplement alongside the baseline, not after composition.
+  const pathProviderKey = surface === "health" ? catalogProviderKeyFromPath(location.pathname) : null;
+  const schedules = readProviderRefreshSchedules(sources, pathProviderKey);
   const baseline = await loadIntegrationsBaseline(location, sources, "full");
   const routeContext = parseCatalogPrimaryWorkbenchRouteContext(location);
   const [profileAuthoringModel, lifecycleImpacts] = await Promise.all([
@@ -171,7 +184,7 @@ export async function readCatalogPrimaryWorkbenchSurface(
     selectedProviderProfileLifecycleImpacts(sources, routeContext),
   ]);
 
-  return finalizeSurfaceRead(sources, {
+  const result = await finalizeSurfaceRead(sources, {
     surface,
     baseline,
     requestUrl: location.toString(),
@@ -185,6 +198,33 @@ export async function readCatalogPrimaryWorkbenchSurface(
     catalogSyncPreview: null,
     canManageCatalog: baseline.canManageCatalog,
   });
+  const actor = sources.actor;
+  const operatorSessionActorKey =
+    pathProviderKey === operatorSessionProviderKey &&
+    actor?.roleKey === "platform-admin" &&
+    actor.userId &&
+    actor.membershipId
+      ? `${actor.userId}:${actor.membershipId}`
+      : null;
+  return {
+    ...result,
+    providerRefreshSchedules: await schedules,
+    operatorSession: operatorSessionActorKey !== null,
+    operatorSessionActorKey,
+  };
+}
+
+async function readProviderRefreshSchedules(
+  sources: CatalogPrimaryWorkbenchSurfaceSources,
+  providerKey: string | null,
+): Promise<readonly ProviderRefreshSchedulePanelItem[] | null> {
+  if (!providerKey) return [];
+  if (!sources.listRefreshSchedules) return null;
+  try {
+    return (await sources.listRefreshSchedules()).filter((schedule) => schedule.providerKey === providerKey);
+  } catch {
+    return null;
+  }
 }
 
 // Daily import-to-promotion surface. Reads the baseline plus the paginated
@@ -340,6 +380,9 @@ async function finalizeSurfaceRead(
     readModel: built.readModel,
     readModelFailures: built.readModelFailures,
     catalogSyncScope: catalogSyncScopeFromReadModel(built.readModel.catalogSync),
+    providerRefreshSchedules: [],
+    operatorSession: false,
+    operatorSessionActorKey: null,
   };
 }
 

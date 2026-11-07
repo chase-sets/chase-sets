@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import type { ProviderScopeDiscoveryServices } from "../../provider-scope-discovery/api/runtime";
 import type { CatalogAuthoringEnv } from "../../../support/authoring-support/api";
 import type { CatalogProviderIntegrationProfileVersionStore } from "./providers/provider-integration-profile-store";
 import type {
@@ -44,6 +45,7 @@ export function sourceObservationRoutes(
   services: SourceObservationRouteServices,
   profileVersions?: CatalogProviderIntegrationProfileVersionStore,
   readCountSpend?: () => Promise<readonly import("../../scope-sync-batches/domain/count-acquisition").CountSpend[]>,
+  listRefreshSchedules?: ProviderScopeDiscoveryServices["listRefreshSchedules"],
 ) {
   const app = new Hono<CatalogAuthoringEnv>();
 
@@ -54,7 +56,7 @@ export function sourceObservationRoutes(
   app.route("/", integrationJobRoutes(services));
   app.route("/", catalogMergeCandidateRoutes(services));
   app.route("/", controlPlaneTelemetryRoutes(services));
-  app.route("/", primaryWorkbenchSurfaceRoutes({ services, profileVersions, readCountSpend }));
+  app.route("/", primaryWorkbenchSurfaceRoutes({ services, profileVersions, readCountSpend, listRefreshSchedules }));
   app.route("/", sourceObservationReadReviewRoutes(services));
   app.get("/integration-control-plane/overview", async (c) => {
     const permissionError = requireCatalogIntegrationControlPlanePermission(c, "integration-control-plane-read");
