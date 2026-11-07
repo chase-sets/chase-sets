@@ -4,6 +4,7 @@ import type {
   CatalogScopeSyncUnitStateReadModel,
   CatalogSyncRun,
   SourceObservationIntegrationImportPreview,
+  SourceObservationImportJobReceipt,
 } from "./contracts";
 import {
   catalogControlPlaneRouteSurface,
@@ -17,6 +18,7 @@ export interface CatalogIntegrationsSurfacePageProps {
   surface: CatalogControlPlaneRouteSurfaceKey;
   readModel: CatalogPrimaryWorkbenchReadModel;
   commandFeedback?: CatalogPrimaryWorkbenchCommandFeedback | null;
+  importJobReceipt?: SourceObservationImportJobReceipt | null;
   // Optional alias-review visibility slot supplied by the composition
   // root for the daily surface so operators see proposed alias equivalents while
   // reviewing Source Observations before promotion.
@@ -42,6 +44,7 @@ export function CatalogIntegrationsSurfacePage({
   surface,
   readModel,
   commandFeedback = null,
+  importJobReceipt = null,
   aliasVisibility = null,
   attentionQueue = null,
   deferredSourceOptions = null,
@@ -55,6 +58,7 @@ export function CatalogIntegrationsSurfacePage({
     <CatalogWorkbenchShell
       readModel={readModel}
       commandFeedback={commandFeedback}
+      importJobReceipt={importJobReceipt}
       surface={surface}
       attentionQueue={attentionQueue}
       deferredSourceOptions={deferredSourceOptions}

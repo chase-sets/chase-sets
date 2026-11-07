@@ -16,7 +16,8 @@ const DAILY_SURFACE_PATH = catalogPrimaryWorkbenchSurfacePathForSection("import-
 // Daily import-to-promotion surface action. Most run-sync / create-update
 // (promote) and observation-review commands stay on this surface as action data,
 // so the daily route retains the original Preview and feedback in place.
-// Queued jobs still use durable routable checkpoints. A result that belongs
+// Queued Promote and Catalog sync jobs use durable routable checkpoints; provider
+// imports retain their original enqueue receipt in action data. A result that belongs
 // to another surface (an operator triggered a profile or lifecycle command from a
 // daily-page control) navigates there through the same redirect helper.
 export async function action(args: ActionFunctionArgs): Promise<Response | CatalogIntegrationsCommandResult> {

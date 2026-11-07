@@ -722,7 +722,21 @@ export type CatalogIntegrationsCommandResult = Readonly<{
   commandSection?: string;
   attentionItemKey?: string;
   promotionReceipt?: SourceObservationPromotionReceipt | null;
+  importJobReceipt?: SourceObservationImportJobReceipt | null;
 }>;
+
+/** The enqueue response identity bound to what this action actually submitted. Never persisted. */
+export interface SourceObservationImportJobReceipt {
+  schemaVersion: "source-observation-import-job-receipt/v1";
+  jobId: string | null;
+  status: string | null;
+  scope: Readonly<SourceObservationIntegrationJobScope>;
+  submitted: {
+    providerKey: string;
+    unitKey: string;
+    profileVersion: string | null;
+  };
+}
 
 export type SourceObservationPromotionDisplayIdentityTemplateReason =
   | "unresolved-title-tokens"
