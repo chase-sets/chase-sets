@@ -280,7 +280,8 @@ pub const PAYMENT_METHODS: &[Component] =
 /// The account's support (`/account/support`) and a Support Request's participant page
 /// (`/account/support/{id}`), with corten-ui's `CheckboxGroup` on the affected items and
 /// `RequiredWhen` on a partial refund's amount; the handlers check both without a script.
-pub const SUPPORT: &[Component] = &[SupportListPage, SupportPage, corten_ui::CheckboxGroup, corten_ui::RequiredWhen];
+pub const SUPPORT: &[Component] =
+    &[SupportListPage, SupportPage, corten_ui::CheckboxGroup, corten_ui::RequiredWhen, platform::ui::checkboxes::Checkboxes];
 
 /// The Seller Desk's repricing page (`/account/desk/repricing`), the script that applies an
 /// editor's choice as it changes, and the kit's Stats for the preview's and activity's counts.

@@ -15,6 +15,7 @@ pub mod breadcrumb;
 pub mod button;
 pub mod card;
 pub mod checkbox;
+pub mod checkboxes;
 pub mod combobox;
 pub mod dialog;
 pub mod dropdown_menu;
@@ -52,6 +53,7 @@ pub const COMPONENTS: &[Component] = &[
     button::Button,
     card::Card,
     checkbox::Checkbox,
+    checkboxes::Checkboxes,
     combobox::Combobox,
     dialog::Dialog,
     dropdown_menu::DropdownMenu,

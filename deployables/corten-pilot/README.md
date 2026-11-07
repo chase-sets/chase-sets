@@ -258,7 +258,10 @@ what changed; the workarounds a move lets go follow it in commits of their own. 
 The kit's copies in `platform/src/ui/` move with the pin. On each move, from `platform/`, run
 `corten ui diff` and take every kit change with `corten ui add --merge <name>`; a copy edited here
 must link the Corten issue that asks the kit to make the edit unnecessary. Then run `corten ui list`
-for components the kit added, and port the screens' local rules to them.
+for components the kit added, and port the screens' local rules to them. Two are not taken because the
+design system has nothing for them: `control_width` (its fields fill their row; it has no control width
+scale) and `tip` (no screen draws a tooltip). The support intake's items take `checkboxes` for the group
+but keep their own bordered choice rows, which are the design system's `Checkbox` look, not a gap in the kit.
 
 ## Layout
 
@@ -295,6 +298,7 @@ for components the kit added, and port the screens' local rules to them.
 | Issue | Workaround |
 | --- | --- |
 | [corten-run/corten#1054 Kit Stats writes its label and figure type as literals, so a theme with a display face or uppercase labels (Chase Sets' design system) edits the copied stats.css](https://github.com/corten-run/corten/issues/1054) | [platform/src/ui/stats.css](platform/src/ui/stats.css) sets the design system's label and value type |
+| [corten-run/corten#1082 Kit RadioGroup and Checkboxes print their fieldset's gap and legend margin as literals kept equal by hand, so a theme with tighter choice lists edits both copies](https://github.com/corten-run/corten/issues/1082) | [platform/src/ui/radio_group.css](platform/src/ui/radio_group.css) and [platform/src/ui/checkboxes.css](platform/src/ui/checkboxes.css) set the design system's .5rem legend gap and choice gap |
 | [corten-run/corten#1059 Kit Progress has no tone, so a finished or failed task's bar cannot be drawn in the theme's success or destructive color](https://github.com/corten-run/corten/issues/1059) | [marketplace/src/views/packing_page.css](marketplace/src/views/packing_page.css) and [public/src/views/welcome_page.css](public/src/views/welcome_page.css) keep their own `<progress>` rules with the success fill |
 | [corten-run/corten#1065 Kit Stack and Cluster always print a literal gap, so an app on its own token spacing scale cannot use them with its gap utility](https://github.com/corten-run/corten/issues/1065) | the page stylesheets keep their own `.stack` and row rules on the `--space-*` scale; the kit's `stack` is not taken |
 | [corten-run/corten#1070 Kit StatusDot has no live form, so a corten-live stream's Live badge keeps its own pulsing dot and reduced-motion rule](https://github.com/corten-run/corten/issues/1070) | [admin/src/views/live_status.css](admin/src/views/live_status.css) keeps its own `.dot` and pulse; the kit's `status_dot` is not taken |

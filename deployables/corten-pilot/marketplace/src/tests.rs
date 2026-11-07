@@ -15328,6 +15328,8 @@ async fn report_a_problem_walks_its_steps_in_the_address() {
     assert!(html.contains(r#"role="alert">Select every item affected by the same problem."#), "Continue with none: {html}");
     // corten-ui's CheckboxGroup stops Continue with none in the browser first (todd-skelton/corten#272).
     assert!(html.contains("ui.checkbox_group.connect(") && html.contains("<legend>Affected items</legend>"), "{html}");
+    // The kit's Checkboxes draws the group: its fieldset is the wrapper's child.
+    assert!(html.contains(r#"<div class="checkboxes__checkboxes"><fieldset"#), "{html}");
     let (_, _, html) = page("/account/support?orderId=ord_two&line=ln_1&step=issue").await;
     assert!(html.contains(r#"<input type="hidden" name="line" value="ln_1">"#), "{html}");
     assert!(html.contains(r#"value="product-damaged" checked required"#) && html.contains("Product not received"), "{html}");

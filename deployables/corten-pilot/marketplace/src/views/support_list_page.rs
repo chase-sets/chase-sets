@@ -13,6 +13,7 @@ use corten::{
     prelude::*,
 };
 use corten_ui::CheckboxGroup;
+use platform::ui::checkboxes::Checkboxes;
 
 use super::{on_marketplace, order_page::display_reference};
 use crate::{
@@ -501,7 +502,7 @@ fn ItemsStep<'a>(t: SupportMsg, intake: &'a Intake) -> impl Render {
             if lines.is_empty() {
                 <div class={Banner} data-tone="info"><p>{t.list_intake_whole_order()}</p></div>
             } else {
-                <div class={Group}>
+                <Checkboxes>
                     <CheckboxGroup legend={t.list_intake_items_label()} missing={t.list_intake_items_description()}>
                         if intake.choose_items {
                             <p id="support-items-hint" class={(Small, Danger)} role="alert">
@@ -529,7 +530,7 @@ fn ItemsStep<'a>(t: SupportMsg, intake: &'a Intake) -> impl Render {
                             </label>
                         }
                     </CheckboxGroup>
-                </div>
+                </Checkboxes>
             }
             <div class={End}>
                 <button type="submit" class={Button} name="step" value="issue">{t.list_intake_continue()}</button>
