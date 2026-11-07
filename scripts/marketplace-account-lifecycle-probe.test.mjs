@@ -13,6 +13,7 @@ import {
   evaluateRepairedHead,
   evaluateRetainedPrecondition,
   evaluateSeedReceipt,
+  evaluateSuiteListing,
   listedTests,
   postgresVolumeName,
   probeBaseline,
@@ -307,6 +308,9 @@ describe("marketplace account lifecycle probe joins", () => {
     "bounded-contexts/channels/features/manual-sync/tests/browser-recovery-fixture.test.ts",
     "bounded-contexts/channels/features/manual-sync/api/seed.db.test.ts",
     "bounded-contexts/channels/support/seed-support/manual-sync-browser.ts",
+    "bounded-contexts/channels/context.json",
+    "deployables/marketplace/e2e/support/manual-sync-recovery.ts",
+    "deployables/marketplace/app/manual-sync-recovery-support.test.ts",
     "scripts/release-qualification-scope.test.mjs",
   ])("admits only the decided retained-suite support path %s", (supportPath) => {
     expect(probeRepairSupportPaths.filter((path) => path === supportPath)).toHaveLength(1);
@@ -317,6 +321,75 @@ describe("marketplace account lifecycle probe joins", () => {
       proven: false,
       reasons: [`product tree changed beyond the bound repair footprint: ${sibling}`],
     });
+  });
+
+  it("accepts only a complete successful 73-identity listing", () => {
+    const complete = report(
+      Array.from({ length: 73 }, (_, i) => ({ title: `account ${i}`, status: "expected", results: [] })),
+    );
+    const input = { status: 0, stdout: JSON.stringify(complete), stderr: "" };
+    expect(evaluateSuiteListing(input)).toEqual({ report: complete, diagnostic: null });
+    expect(evaluateSuiteListing({ ...input, status: 1 })).toEqual({
+      report: null,
+      diagnostic: { code: "LIST_PROCESS_FAILED", status: 1 },
+    });
+    complete.suites[0].suites[0].specs.pop();
+    expect(evaluateSuiteListing({ ...input, stdout: JSON.stringify(complete) }).diagnostic.code).toBe(
+      "LIST_INCOMPLETE",
+    );
+    complete.suites[0].suites[0].specs.push(complete.suites[0].suites[0].specs[0]);
+    expect(evaluateSuiteListing({ ...input, stdout: JSON.stringify(complete) }).diagnostic.code).toBe(
+      "LIST_INCOMPLETE",
+    );
+    const malformed = JSON.parse(input.stdout);
+    malformed.suites[0].suites[0].specs[0].tests = [null];
+    expect(evaluateSuiteListing({ ...input, stdout: JSON.stringify(malformed) }).diagnostic.code).toBe(
+      "LIST_REPORT_INVALID",
+    );
+  });
+  it.each([
+    [0, "", "LIST_REPORT_INVALID"],
+    [0, "{", "LIST_REPORT_INVALID"],
+    [0, "null", "LIST_REPORT_INVALID"],
+    [0, '{"suites":[],"errors":[]}', "LIST_EMPTY"],
+    [0, '{"suites":[{}],"errors":[]}', "LIST_REPORT_INVALID"],
+    [0, '{"suites":[],"errors":[{}]}', "LIST_REPORT_INVALID"],
+    [null, "{}", "LIST_PROCESS_FAILED"],
+    ["1", "{}", "LIST_PROCESS_FAILED"],
+  ])("classifies listing refusal %s/%s without leaking output", (status, stdout, code) => {
+    expect(evaluateSuiteListing({ status, stdout, stderr: "private-marker" })).toEqual({
+      report: null,
+      diagnostic: { code, status: Number.isSafeInteger(status) ? status : null },
+    });
+  });
+  it("extracts only closed safe structured listing locations; serialized artifacts contain no marker", () => {
+    for (const location of [
+      { file: "deployables/marketplace/e2e/manual-sync-recovery.spec.ts", line: 5, column: 1 },
+      { file: "C:/private-marker.ts", line: 1 },
+      { file: "/private-marker.ts", line: 1 },
+      { file: "../private-marker.ts", line: 1 },
+      { file: "a/../private-marker.ts", line: 1 },
+      { file: "\\\\private-marker\\a", line: 1 },
+      { file: "https://private-marker", line: 1 },
+      { file: "a".repeat(241), line: 1 },
+      { file: "valid.ts", line: 0 },
+      { file: "valid.ts", line: 2147483648 },
+      { file: "valid.ts", line: 1.5 },
+    ]) {
+      const input = {
+        status: 1,
+        stdout: JSON.stringify({ errors: [{ message: "private-marker", stack: "private-marker", location }] }),
+        stderr: "private-marker",
+        error: "private-marker",
+      };
+      const result = evaluateSuiteListing(input);
+      expect(result.diagnostic).toEqual({
+        code: "LIST_PROCESS_FAILED",
+        status: 1,
+        ...(location.file.startsWith("deployables/") ? { location: { file: location.file, line: location.line } } : {}),
+      });
+      expect(JSON.stringify(result)).not.toContain("private-marker");
+    }
   });
 
   it("summarizes per-test outcomes, the last result end and sign-in 401 failures", () => {

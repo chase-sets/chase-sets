@@ -73,6 +73,9 @@ export const probeRepairSupportPaths = Object.freeze([
   "bounded-contexts/channels/features/manual-sync/tests/browser-recovery-fixture.test.ts",
   "bounded-contexts/channels/features/manual-sync/api/seed.db.test.ts",
   "bounded-contexts/channels/support/seed-support/manual-sync-browser.ts",
+  "bounded-contexts/channels/context.json",
+  "deployables/marketplace/e2e/support/manual-sync-recovery.ts",
+  "deployables/marketplace/app/manual-sync-recovery-support.test.ts",
   "infrastructure/playwright-evidence/responsive-evidence-manifest.json",
   "scripts/release-qualification-scope.mjs",
   "scripts/release-qualification-scope.test.mjs",
@@ -579,6 +582,68 @@ function captureIdentity(sandbox, phase, sourceHeadSha) {
   };
 }
 
+export function evaluateSuiteListing(result) {
+  const status = Number.isSafeInteger(result?.status) ? result.status : null;
+  let report = null;
+  try {
+    const stdout = typeof result?.stdout === "string" ? result.stdout : "";
+    const reportStart = stdout.indexOf('{\n  "config"');
+    const start = reportStart >= 0 ? reportStart : stdout.indexOf("{");
+    if (start >= 0) report = JSON.parse(stdout.slice(start));
+  } catch {
+    /* Only the closed diagnostic crosses this boundary. */
+  }
+  const failure = (code) => {
+    const diagnostic = { code, status };
+    const candidate = report?.errors?.[0]?.location;
+    if (
+      candidate &&
+      typeof candidate.file === "string" &&
+      candidate.file.length <= 240 &&
+      /^[A-Za-z0-9_.\/-]+$/.test(candidate.file) &&
+      !candidate.file.startsWith("/") &&
+      candidate.file.split("/").every((segment) => segment !== "" && segment !== "." && segment !== "..") &&
+      Number.isSafeInteger(candidate.line) &&
+      candidate.line > 0 &&
+      candidate.line <= 2147483647
+    ) {
+      diagnostic.location = { file: candidate.file, line: candidate.line };
+    }
+    return { report: null, diagnostic };
+  };
+  if (status !== 0) return failure("LIST_PROCESS_FAILED");
+  if (
+    !report ||
+    typeof report !== "object" ||
+    !Array.isArray(report.suites) ||
+    !Array.isArray(report.errors) ||
+    report.errors.length !== 0
+  )
+    return failure("LIST_REPORT_INVALID");
+  const validSuite = (suite) =>
+    suite &&
+    typeof suite === "object" &&
+    (Array.isArray(suite.specs) || Array.isArray(suite.suites)) &&
+    Array.isArray(suite.specs ?? []) &&
+    Array.isArray(suite.suites ?? []) &&
+    (suite.specs ?? []).every(
+      (spec) =>
+        spec &&
+        typeof spec.file === "string" &&
+        typeof spec.title === "string" &&
+        Array.isArray(spec.tests) &&
+        spec.tests.length > 0 &&
+        spec.tests.every((test) => test && typeof test === "object" && typeof test.projectName === "string"),
+    ) &&
+    (suite.suites ?? []).every(validSuite);
+  if (!report.suites.every(validSuite)) return failure("LIST_REPORT_INVALID");
+  const tests = listedTests(report);
+  if (tests.length === 0) return failure("LIST_EMPTY");
+  if (tests.length !== 73 || new Set(tests.map((test) => JSON.stringify(test))).size !== 73)
+    return failure("LIST_INCOMPLETE");
+  return { report, diagnostic: null };
+}
+
 function listSuite(log) {
   const invocation = buildPackageManagerInvocation([
     "exec",
@@ -590,13 +655,9 @@ function listSuite(log) {
     "--reporter=json",
   ]);
   const result = capture(invocation.command, invocation.args);
-  if (result.status !== 0) {
-    log(`suite listing failed: ${result.error ?? result.stderr.slice(0, 2_000)}`);
-    return null;
-  }
-  const reportStart = result.stdout.indexOf('{\n  "config"');
-  const start = reportStart >= 0 ? reportStart : result.stdout.indexOf("{");
-  return start >= 0 ? JSON.parse(result.stdout.slice(start)) : null;
+  const listing = evaluateSuiteListing(result);
+  if (listing.diagnostic) log(`suite listing failed: ${JSON.stringify(listing.diagnostic)}`);
+  return listing;
 }
 
 function playwrightVersion() {
@@ -893,13 +954,14 @@ async function main(outDir) {
   invalidReasons.push(...clean.reasons);
 
   const listing = listSuite(log);
-  const listed = listedTests(listing);
+  const listed = listedTests(listing.report);
   writeJson(path.join(outDir, "suite-listing.json"), {
     count: listed.length,
     digest: canonicalDigest(listed),
     tests: listed,
+    diagnostic: listing.diagnostic,
   });
-  if (listed.length === 0) invalidReasons.push("suite listing found zero tests");
+  if (listing.diagnostic) invalidReasons.push(`suite listing failed: ${listing.diagnostic.code}`);
   log(`suite ${probeSuiteId} lists ${listed.length} tests (digest ${canonicalDigest(listed)})`);
 
   const runs = [];

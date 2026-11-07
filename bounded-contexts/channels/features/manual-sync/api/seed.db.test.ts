@@ -385,7 +385,7 @@ describeDb("invocation-owned browser recovery with the real Marketplace clamp", 
     return { marketplace, channels };
   }
 
-  async function prepare(marketplace: MarketplaceServices): Promise<BrowserRecoveryFixtureInput> {
+  async function prepare(services: ReturnType<typeof runtimes>): Promise<BrowserRecoveryFixtureInput> {
     const ownershipId = randomUUID();
     const input = {
       ownershipId,
@@ -420,7 +420,8 @@ describeDb("invocation-owned browser recovery with the real Marketplace clamp", 
         },
       ],
     });
-    await ownedRecoveryListing(pools.marketplace, marketplace, input);
+    await ownedRecoveryListing(pools.marketplace, services.marketplace, input);
+    await drainLocalProjectionHandlerSets("channels", pools.channels, services.channels.projectors);
     return input;
   }
 
@@ -438,25 +439,32 @@ describeDb("invocation-owned browser recovery with the real Marketplace clamp", 
     await seedManualSyncScenario(pools.channels, services.channels);
     await drainLocalProjectionHandlerSets("channels", pools.channels, services.channels.projectors);
     await seedManualSyncScenario(pools.channels, services.channels);
+    await drainLocalProjectionHandlerSets("channels", pools.channels, services.channels.projectors);
     await services.channels.tcgplayerCsv.claimRun(
       { runId: manualSyncScenarioSeed.runId, expectedRevision: 0 },
       browserRecoveryContext,
     );
+    await drainLocalProjectionHandlerSets("channels", pools.channels, services.channels.projectors);
     await services.channels.tcgplayerCsv.releaseRun(
       { runId: manualSyncScenarioSeed.runId, expectedRevision: 1 },
       browserRecoveryContext,
     );
+    await drainLocalProjectionHandlerSets("channels", pools.channels, services.channels.projectors);
     const events = createPostgresEventStore({ pool: pools.channels });
     const sharedBefore = await events.readStream({
       streamId: `channels.tcgplayer-sync-run-${manualSyncScenarioSeed.runId}`,
     });
-    const unrelated = await prepare(services.marketplace);
+    const unrelated = await prepare(services);
     const unrelatedBefore = await services.marketplace.listings.loadListingState(unrelated.listingId);
 
     for (const phase of ["initial", "day-after"]) {
-      const input = await prepare(services.marketplace);
+      const input = await prepare(services);
       const fixture = await create(input, services);
       await drainLocalProjectionHandlerSets("channels", pools.channels, services.channels.projectors);
+      expect(await services.channels.tcgplayerCsv.readRun(fixture.runId)).toMatchObject({
+        state: "composed",
+        revision: 0,
+      });
       const panelInput = { accountId: demoIdentitySeedIds.accountId, connectionId: input.connectionId };
       expect(await services.channels.manualSync.readPanel(panelInput), phase).toMatchObject({
         attentionReason: "recovery",
@@ -481,6 +489,11 @@ describeDb("invocation-owned browser recovery with the real Marketplace clamp", 
       await expect(
         services.channels.manualSync.release({ ...runInput, expectedRevision: 1 }, browserRecoveryContext),
       ).resolves.toMatchObject({ state: "abandoned", revision: 2 });
+      await drainLocalProjectionHandlerSets("channels", pools.channels, services.channels.projectors);
+      expect(await services.channels.tcgplayerCsv.readRun(fixture.runId)).toMatchObject({
+        state: "abandoned",
+        revision: 2,
+      });
       expect((await services.marketplace.listings.loadListingState(input.listingId)).status).toBe("active");
       await expect(create(input, services)).rejects.toThrow("owned-recovery-run-collision");
       await expect(
@@ -492,7 +505,7 @@ describeDb("invocation-owned browser recovery with the real Marketplace clamp", 
 
   it("refuses an interrupted existing run and an authoritative sibling absent from the read model before authoring work", async () => {
     const services = runtimes();
-    const input = await prepare(services.marketplace);
+    const input = await prepare(services);
     const events = createPostgresEventStore({ pool: pools.marketplace });
     await events.appendToStream({
       streamId: `marketplace.inventory-listing-capacity-${input.inventoryItemId}`,
@@ -513,7 +526,7 @@ describeDb("invocation-owned browser recovery with the real Marketplace clamp", 
         ])
       ).rows,
     ).toEqual([]);
-    const partial = await prepare(services.marketplace);
+    const partial = await prepare(services);
     const channelEvents = createPostgresEventStore({ pool: pools.channels });
     const streamId = `channels.tcgplayer-sync-run-run-browser-recovery-${partial.ownershipId}`;
     await channelEvents.appendToStream({
@@ -536,7 +549,7 @@ describeDb("invocation-owned browser recovery with the real Marketplace clamp", 
 
   it("makes omitted recovery initialization observably different instead of accepting an arbitrary existing panel", async () => {
     const services = runtimes();
-    const input = await prepare(services.marketplace);
+    const input = await prepare(services);
     await drainLocalProjectionHandlerSets("channels", pools.channels, services.channels.projectors);
     const panel = { accountId: demoIdentitySeedIds.accountId, connectionId: input.connectionId };
     expect(await services.channels.manualSync.readPanel(panel)).not.toMatchObject({ attentionReason: "recovery" });

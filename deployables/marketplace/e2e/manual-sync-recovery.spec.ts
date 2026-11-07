@@ -2,7 +2,7 @@ import { expect, test, type APIResponse, type Page } from "@playwright/test";
 import { randomUUID } from "node:crypto";
 import sharp from "sharp";
 import { catalogSeedIds } from "@chase-sets/catalog-seed";
-import { createManualSyncBrowserRecovery } from "@chase-sets/channels/seed-support/manual-sync-browser";
+import { createManualSyncBrowserRecovery } from "./support/manual-sync-recovery";
 import type { MarketplaceListingDetail } from "@chase-sets/marketplace/server";
 import { appendFreshWriteToken, attachResponseMetadata } from "@chase-sets/http/responses";
 import { signInThroughMarketplaceForm } from "./support/auth";
@@ -36,14 +36,15 @@ test.describe("manual TCGplayer clamp recovery", () => {
         listingId = id;
       });
       listingId = owned.listingId;
-      const fixture = await createManualSyncBrowserRecovery({
-        ...owned,
-        ownershipId: randomUUID(),
-        createdAfter,
-        connectionId: routePath.split("/").at(-1)!,
-        channelsDatabaseUrl: testInfo.config.metadata.channelsDatabaseUrl,
-        catalogDatabaseUrl: testInfo.config.metadata.catalogDatabaseUrl,
-      });
+      const fixture = await createManualSyncBrowserRecovery(
+        {
+          ...owned,
+          ownershipId: randomUUID(),
+          createdAfter,
+          connectionId: routePath.split("/").at(-1)!,
+        },
+        testInfo.config.metadata,
+      );
       fixtureCreated = true;
       await page.goto(routePath, { waitUntil: "domcontentloaded" });
       await expect(page).toHaveURL(new RegExp(`${routePath.replaceAll("/", "\\/")}(?:\\?|$)`));

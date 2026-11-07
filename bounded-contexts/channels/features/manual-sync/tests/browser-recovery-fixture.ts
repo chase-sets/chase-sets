@@ -21,15 +21,30 @@ export type BrowserRecoveryFixtureInput = Readonly<{
   createdAfter: string;
 }>;
 
-export function assertBrowserRecoveryFixtureInput(input: BrowserRecoveryFixtureInput): void {
+export function assertBrowserRecoveryFixtureInput(input: unknown): asserts input is BrowserRecoveryFixtureInput {
   if (
-    !/^[a-f0-9-]{36}$/.test(input.ownershipId) ||
-    !/^chn_[a-zA-Z0-9_-]+$/.test(input.connectionId) ||
-    !/^lst_[a-zA-Z0-9_-]+$/.test(input.listingId) ||
-    !/^itm_[a-zA-Z0-9_-]+$/.test(input.inventoryItemId) ||
-    !Number.isFinite(Date.parse(input.createdAfter)) ||
-    input.connectionId === manualSyncScenarioSeed.connectionId ||
-    input.listingId === manualSyncScenarioSeed.listingId
+    !input ||
+    typeof input !== "object" ||
+    Array.isArray(input) ||
+    Object.keys(input).sort().join(",") !== "connectionId,createdAfter,inventoryItemId,listingId,ownershipId"
+  )
+    throw new Error("owned-recovery-input-required");
+  const value = input as Record<string, unknown>;
+  if (
+    typeof value.ownershipId !== "string" ||
+    !/^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/.test(value.ownershipId) ||
+    !["connectionId", "listingId", "inventoryItemId"].every(
+      (key, index) =>
+        typeof value[key] === "string" &&
+        (value[key] as string).length <= 160 &&
+        new RegExp(`^${["chn", "lst", "itm"][index]}_[a-zA-Z0-9_-]+$`).test(value[key] as string),
+    ) ||
+    typeof value.createdAfter !== "string" ||
+    !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(value.createdAfter) ||
+    !Number.isFinite(Date.parse(value.createdAfter)) ||
+    new Date(value.createdAfter).toISOString() !== value.createdAfter ||
+    value.connectionId === manualSyncScenarioSeed.connectionId ||
+    value.listingId === manualSyncScenarioSeed.listingId
   )
     throw new Error("owned-recovery-input-required");
 }

@@ -1,22 +1,37 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { Readable, Writable } from "node:stream";
 import { demoIdentitySeedIds } from "@chase-sets/identity-seed";
 import { assertBrowserRecoveryFixtureInput, createBrowserRecoveryFixture } from "./browser-recovery-fixture";
-import { ownedRecoveryDatabaseUrls } from "../../../support/seed-support/manual-sync-browser";
+import {
+  createManualSyncBrowserRecovery,
+  ownedRecoveryDatabaseUrls,
+  parseOwnedRecoveryRequest,
+  runOwnedRecoveryStdin,
+} from "../../../support/seed-support/manual-sync-browser";
 
-const h = vi.hoisted(() => ({ streams: new Map<string, unknown[]>(), append: vi.fn(), query: vi.fn() }));
+const h = vi.hoisted(() => ({
+  streams: new Map<string, unknown[]>(),
+  append: vi.fn(),
+  query: vi.fn(),
+  pool: vi.fn(),
+  channels: vi.fn(),
+  marketplace: vi.fn(),
+  drain: vi.fn(),
+}));
 vi.mock("@chase-sets/event-core/complete-stream", () => ({
   readCompleteStream: async (_store: unknown, input: { streamId: string }) => h.streams.get(input.streamId) ?? [],
 }));
 vi.mock("@chase-sets/event-core-postgres", () => ({
   createPostgresEventStore: () => ({ appendToStreamInTransaction: h.append }),
   withPgTransaction: async (_pool: unknown, run: (db: unknown) => unknown) => run({ query: h.query }),
-  createPgPool: vi.fn(),
+  createPgPool: h.pool,
 }));
 vi.mock("@chase-sets/bounded-context-runtime", () => ({
   runInProjectionDbContext: (_db: unknown, run: () => unknown) => run(),
+  drainLocalProjectionHandlerSets: h.drain,
 }));
-vi.mock("../../../index", () => ({ module: {} }));
-vi.mock("@chase-sets/marketplace", () => ({ module: {} }));
+vi.mock("../../../index", () => ({ module: { createServices: h.channels } }));
+vi.mock("@chase-sets/marketplace", () => ({ module: { createServices: h.marketplace } }));
 vi.mock("@chase-sets/inventory/server", () => ({ createInventoryExternalChannelSaleRecorderForPool: vi.fn() }));
 
 const input = {
@@ -103,6 +118,213 @@ beforeEach(() => {
   vi.clearAllMocks();
   h.streams.clear();
   h.query.mockResolvedValue({ rows: [] });
+  h.append.mockImplementation(async (_db, value) => {
+    h.streams.set(value.streamId, value.events);
+  });
+  h.drain.mockResolvedValue(undefined);
+});
+
+describe("finite recovery Node entry", () => {
+  const databases = {
+    channels: "postgresql://cs_owned_channels:cs_owned_channels@localhost:5432/cs_owned_channels",
+    catalog: "postgresql://cs_owned_catalog:cs_owned_catalog@localhost:5432/cs_owned_catalog",
+  };
+  const request = () => ({ version: 1, fixture: { ...input }, databases: { ...databases } });
+  const parse = (value: unknown) => parseOwnedRecoveryRequest(Buffer.from(JSON.stringify(value)));
+  function composition() {
+    const fixture = setup();
+    const ends = [vi.fn(async () => {}), vi.fn(async () => {}), vi.fn(async () => {})];
+    let index = 0;
+    h.pool.mockImplementation(() => ({ end: ends[index++] }));
+    h.marketplace.mockReturnValue({ listings: fixture.marketplace.listings });
+    h.channels.mockReturnValue({
+      ...fixture.services,
+      projectors: [],
+      manualSync: {
+        readPanel: vi.fn(async () => ({ run: { runId, revision: 0, state: "composed" }, attentionReason: "recovery" })),
+      },
+    });
+    return ends;
+  }
+  it("accepts only the complete closed request and producer roles", () => {
+    expect(parse(request())).toEqual({ fixture: input, databases });
+    expect(h.pool).not.toHaveBeenCalled();
+  });
+  it.each([
+    null,
+    [],
+    {},
+    { ...request(), version: 2 },
+    { ...request(), extra: true },
+    { ...request(), fixture: null },
+    { ...request(), fixture: [] },
+    { ...request(), fixture: { ...input, extra: true } },
+    { ...request(), fixture: { ...input, ownershipId: "12345678-1234-4123-8123-123456789ABC" } },
+    { ...request(), fixture: { ...input, ownershipId: "------------------------------------" } },
+    { ...request(), fixture: { ...input, createdAfter: "2026-02-30T00:00:00.000Z" } },
+    { ...request(), fixture: { ...input, createdAfter: "2026-11-06T10:00:00Z" } },
+    { ...request(), fixture: { ...input, connectionId: "chn_" + "x".repeat(157) } },
+    { ...request(), fixture: { ...input, listingId: "lst_" + "x".repeat(157) } },
+    { ...request(), fixture: { ...input, inventoryItemId: "itm_" + "x".repeat(157) } },
+    { ...request(), databases: null },
+    { ...request(), databases: [] },
+    { ...request(), databases: { ...databases, extra: true } },
+    { ...request(), databases: { channels: databases.channels } },
+    { ...request(), databases: { ...databases, channels: databases.catalog } },
+    { ...request(), databases: { ...databases, channels: databases.channels + "?options=private-marker" } },
+    { ...request(), databases: { ...databases, catalog: databases.catalog + "#private-marker" } },
+  ])("refuses incomplete, malformed or unknown nested authority %#", (value) => {
+    expect(() => parse(value)).toThrow(/owned-recovery-/);
+    expect(h.pool).not.toHaveBeenCalled();
+  });
+  it("accepts largest IDs and exact input/URL caps, rejecting cap+1 and malformed UTF-8/trailing JSON", () => {
+    const value = request();
+    value.fixture.connectionId = "chn_" + "x".repeat(156);
+    value.fixture.listingId = "lst_" + "x".repeat(156);
+    value.fixture.inventoryItemId = "itm_" + "x".repeat(156);
+    const bytes = Buffer.from(JSON.stringify(value));
+    expect(parseOwnedRecoveryRequest(Buffer.concat([bytes, Buffer.alloc(8192 - bytes.length, 32)]))).toEqual({
+      fixture: value.fixture,
+      databases,
+    });
+    expect(() => parseOwnedRecoveryRequest(Buffer.concat([bytes, Buffer.alloc(8193 - bytes.length, 32)]))).toThrow();
+    expect(() => parseOwnedRecoveryRequest(Buffer.from([255]))).toThrow();
+    expect(() => parseOwnedRecoveryRequest(Buffer.from(JSON.stringify(value) + "{}"))).toThrow();
+    expect(() => parseOwnedRecoveryRequest(Buffer.from("{"))).toThrow();
+    expect(() => ownedRecoveryDatabaseUrls("x".repeat(2049), databases.catalog)).toThrow();
+    const role = "cs_" + "x".repeat(640) + "_catalog";
+    const base = `postgresql://${role}:${role}@localhost:5432/${role}`;
+    const url = base.replace(":5432", ":" + "0".repeat(2048 - base.length) + "5432");
+    expect(Buffer.byteLength(url)).toBe(2048);
+    const channels = base.replaceAll("_catalog", "_channels");
+    expect(ownedRecoveryDatabaseUrls(channels, url).channels.pathname).toBe(new URL(channels).pathname);
+    expect(() => ownedRecoveryDatabaseUrls(channels, url + " ")).toThrow();
+  });
+  it("closes all owned pools before the exact initial receipt", async () => {
+    const ends = composition();
+    await expect(createManualSyncBrowserRecovery(input, databases)).resolves.toEqual({
+      version: 1,
+      ownershipId: input.ownershipId,
+      connectionId: input.connectionId,
+      listingId: input.listingId,
+      runId,
+      runRevision: 0,
+    });
+    for (const end of ends) expect(end).toHaveBeenCalledOnce();
+    expect(h.drain).toHaveBeenCalledTimes(2);
+  });
+  it("requires matching local origins and each context's own role, including both query/hash refusals", () => {
+    for (const host of ["localhost", "127.0.0.1", "[::1]"]) {
+      for (const protocol of ["postgres:", "postgresql:"]) {
+        const channel = new URL(databases.channels);
+        const catalog = new URL(databases.catalog);
+        channel.hostname = catalog.hostname = host;
+        channel.protocol = catalog.protocol = protocol;
+        expect(ownedRecoveryDatabaseUrls(channel.toString(), catalog.toString()).marketplace.username).toBe(
+          "cs_owned_marketplace",
+        );
+      }
+    }
+    for (const [key, replacement] of [
+      ["channels", databases.channels.replace(":5432", ":5433")],
+      ["channels", databases.channels.replace("postgresql:", "http:")],
+      ["channels", databases.channels.replace("localhost", "remote.invalid")],
+      ["catalog", databases.catalog.replace("cs_owned_catalog:cs_owned_catalog", "shared:shared")],
+      ["channels", databases.channels + "?options=private-marker"],
+      ["catalog", databases.catalog + "?options=private-marker"],
+      ["channels", databases.channels + "#private-marker"],
+      ["catalog", databases.catalog + "#private-marker"],
+    ]) {
+      const value = { ...databases, [key!]: replacement };
+      expect(() => ownedRecoveryDatabaseUrls(value.channels, value.catalog)).toThrow(/owned-recovery-database/);
+    }
+  });
+  it("closes partial construction and rejects any closure or noninitial authoritative state", async () => {
+    const ends = composition();
+    h.pool
+      .mockImplementationOnce(() => ({ end: ends[0] }))
+      .mockImplementationOnce(() => {
+        throw new Error("private-marker");
+      });
+    await expect(createManualSyncBrowserRecovery(input, databases)).rejects.toThrow();
+    expect(ends[0]).toHaveBeenCalledOnce();
+    composition();
+    h.append.mockImplementationOnce(async () => {});
+    await expect(createManualSyncBrowserRecovery(input, databases)).rejects.toThrow(
+      "owned-recovery-initial-state-required",
+    );
+    const close = composition();
+    h.streams.delete(`channels.tcgplayer-sync-run-${runId}`);
+    close[0]!.mockRejectedValueOnce(new Error("private-marker") as never);
+    await expect(createManualSyncBrowserRecovery(input, databases)).rejects.toThrow("owned-recovery-close-failed");
+    for (const end of close) expect(end).toHaveBeenCalledOnce();
+  });
+  it("bounds repeated/endless-shaped finite input and serializes only a fixed failure code", async () => {
+    const out: string[] = [];
+    const err: string[] = [];
+    const sink = (target: string[]) =>
+      new Writable({
+        write(chunk, _encoding, done) {
+          target.push(chunk.toString());
+          done();
+        },
+      });
+    let yielded = 0;
+    const stream = Readable.from(
+      (function* () {
+        for (let i = 0; i < 20; i++) {
+          yielded++;
+          yield Buffer.alloc(1024, 120);
+        }
+      })(),
+    );
+    await expect(runOwnedRecoveryStdin(stream, sink(out), sink(err))).resolves.toBe(1);
+    expect(out).toEqual([]);
+    expect(err.join("")).toBe("OWNED_RECOVERY_FAILED\n");
+    expect(stream.destroyed).toBe(true);
+    expect(h.pool).not.toHaveBeenCalled();
+    expect(yielded).toBeLessThan(20);
+    composition();
+    h.marketplace.mockImplementationOnce(() => {
+      throw new Error("private-marker postgresql://private-marker");
+    });
+    await expect(
+      runOwnedRecoveryStdin(Readable.from([Buffer.from(JSON.stringify(request()))]), sink(out), sink(err)),
+    ).resolves.toBe(1);
+    expect(JSON.stringify({ out, err })).not.toContain("private-marker");
+  });
+  it("emits the bound receipt only after EOF and all pool closures at the input cap", async () => {
+    const ends = composition();
+    const out: string[] = [];
+    const err: string[] = [];
+    const sink = (target: string[]) =>
+      new Writable({
+        write(chunk, _encoding, done) {
+          target.push(chunk.toString());
+          done();
+        },
+      });
+    const bytes = Buffer.from(JSON.stringify(request()));
+    const inputStream = new Readable({ read() {} });
+    const result = runOwnedRecoveryStdin(inputStream, sink(out), sink(err));
+    inputStream.push(Buffer.concat([bytes, Buffer.alloc(8192 - bytes.length, 32)]));
+    await Promise.resolve();
+    expect(out).toEqual([]);
+    expect(h.pool).not.toHaveBeenCalled();
+    inputStream.push(null);
+    await expect(result).resolves.toBe(0);
+    expect(JSON.parse(out.join(""))).toEqual({
+      version: 1,
+      ownershipId: input.ownershipId,
+      connectionId: input.connectionId,
+      listingId: input.listingId,
+      runId,
+      runRevision: 0,
+    });
+    expect(err).toEqual([]);
+    expect(inputStream.destroyed).toBe(true);
+    for (const end of ends) expect(end).toHaveBeenCalledOnce();
+  });
 });
 
 describe("owned browser recovery fixture", () => {
@@ -194,14 +416,25 @@ describe("owned browser recovery fixture", () => {
     await expect(f.run()).rejects.toThrow("interrupted append");
   });
   it("requires exact local worktree database siblings without exposing connection values", () => {
-    const catalog = "postgresql://test:test@127.0.0.1:5432/cs_owned_catalog";
-    const channels = catalog.replace("_catalog", "_channels");
-    expect(ownedRecoveryDatabaseUrls(channels, catalog).marketplace.pathname).toBe("/cs_owned_marketplace");
+    const catalog = "postgresql://cs_owned_catalog:cs_owned_catalog@127.0.0.1:5432/cs_owned_catalog";
+    const channels = catalog.replaceAll("_catalog", "_channels");
+    const urls = ownedRecoveryDatabaseUrls(channels, catalog);
+    expect(urls.marketplace.pathname).toBe("/cs_owned_marketplace");
+    expect(urls.marketplace.username).toBe("cs_owned_marketplace");
+    expect(urls.marketplace.password).toBe("cs_owned_marketplace");
+    expect(urls.inventory.pathname).toBe("/cs_owned_inventory");
+    expect(urls.inventory.username).toBe("cs_owned_inventory");
+    expect(urls.inventory.password).toBe("cs_owned_inventory");
     for (const bad of [
       undefined,
       "malformed",
       channels.replace("127.0.0.1", "remote.invalid"),
       channels.replace("cs_owned", "cs_foreign"),
+      catalog,
+      channels.replaceAll("cs_owned_channels:", "cs_owned_catalog:"),
+      channels.replace("cs_owned_channels@", "cs_owned_catalog@"),
+      channels + "?options=secret-marker",
+      channels + "#secret-marker",
     ])
       expect(() => ownedRecoveryDatabaseUrls(bad, catalog)).toThrow(/owned-recovery-database/);
   });
