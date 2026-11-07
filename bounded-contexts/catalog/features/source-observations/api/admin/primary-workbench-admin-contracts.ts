@@ -2,6 +2,7 @@
 export type {
   CatalogPrimaryWorkbenchReadModel,
   CatalogPrimaryWorkbenchActionReadModel,
+  CatalogPrimaryWorkbenchPromotionCommandPreview,
   CatalogPrimaryWorkbenchFlowStageKey,
   CatalogPrimaryWorkbenchFlowStageState,
   CatalogPrimaryWorkbenchFlowReadModel,
