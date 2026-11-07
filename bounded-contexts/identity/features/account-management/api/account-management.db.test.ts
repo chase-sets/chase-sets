@@ -365,60 +365,165 @@ describeDb("issue-7168 PostgreSQL authority", () => {
 
   it("issue-7168-ac5-history: all fifteen intents retain their no-op and terminal decisions", async () => {
     let ordinal = 0;
-    async function submit(action: string, target: string | null, body: unknown = {}) {
-      await sync();
-      return runtime.submit({
-        ...profile,
-        action,
-        target,
-        body,
-        key: `9230f01b-7871-420b-9c32-${String(++ordinal).padStart(12, "0")}`,
-      });
-    }
-    async function noOp(action: string, target: string, body: unknown = {}) {
-      const result = await submit(action, target, body);
+    const nextKey = () => `9230f01b-7871-420b-9c32-${String(++ordinal).padStart(12, "0")}`;
+    function noOp(result: Awaited<ReturnType<typeof runtime.submit>>) {
       expect(result).toMatchObject({ outcome: "committed", receipt: { events: [], result: { changed: false } } });
     }
-    await noOp("update-profile", actor.accountId, { name: "Old", displayName: "Old" });
-    await noOp("update-user", actor.userId, { displayName: "Old", givenName: "Old", familyName: "User" });
-    const added = await submit("create", null, address);
+    await sync();
+    noOp(
+      await runtime.submit({
+        ...profile,
+        key: nextKey(),
+        action: "update-profile",
+        target: actor.accountId,
+        body: { name: "Old", displayName: "Old" },
+      }),
+    );
+    await sync();
+    noOp(
+      await runtime.submit({
+        ...profile,
+        key: nextKey(),
+        action: "update-user",
+        target: actor.userId,
+        body: { displayName: "Old", givenName: "Old", familyName: "User" },
+      }),
+    );
+    await sync();
+    const added = await runtime.submit({ ...profile, key: nextKey(), action: "create", target: null, body: address });
     if (added.outcome !== "committed") throw new Error("Expected address commit");
     const adr = added.receipt.result.id;
-    await noOp("update", adr, address);
-    await noOp("default", adr);
-    expect(await submit("archive", adr)).toMatchObject({ outcome: "committed" });
-    await noOp("archive", adr);
-    expect(await submit("default", adr)).toMatchObject({ outcome: "conflict" });
-    expect(await submit("withdraw", "cns_synthetic7168")).toMatchObject({ outcome: "committed" });
-    await noOp("withdraw", "cns_synthetic7168");
-    const created = await submit("create-api-key", null, { userId: actor.userId, name: "Synthetic" });
+    await sync();
+    noOp(await runtime.submit({ ...profile, key: nextKey(), action: "update", target: adr, body: address }));
+    await sync();
+    noOp(await runtime.submit({ ...profile, key: nextKey(), action: "default", target: adr, body: {} }));
+    await sync();
+    expect(
+      await runtime.submit({ ...profile, key: nextKey(), action: "archive", target: adr, body: {} }),
+    ).toMatchObject({ outcome: "committed" });
+    await sync();
+    noOp(await runtime.submit({ ...profile, key: nextKey(), action: "archive", target: adr, body: {} }));
+    await sync();
+    expect(
+      await runtime.submit({ ...profile, key: nextKey(), action: "default", target: adr, body: {} }),
+    ).toMatchObject({ outcome: "conflict" });
+    await sync();
+    expect(
+      await runtime.submit({ ...profile, key: nextKey(), action: "withdraw", target: "cns_synthetic7168", body: {} }),
+    ).toMatchObject({ outcome: "committed" });
+    await sync();
+    noOp(
+      await runtime.submit({ ...profile, key: nextKey(), action: "withdraw", target: "cns_synthetic7168", body: {} }),
+    );
+    await sync();
+    const created = await runtime.submit({
+      ...profile,
+      key: nextKey(),
+      action: "create-api-key",
+      target: null,
+      body: { userId: actor.userId, name: "Synthetic" },
+    });
     if (created.outcome !== "committed") throw new Error("Expected key commit");
     const keyId = created.receipt.result.id;
-    expect(await submit("rotate-api-key", keyId)).toMatchObject({ outcome: "committed" });
-    expect(await submit("revoke-api-key", keyId)).toMatchObject({ outcome: "committed" });
-    await noOp("revoke-api-key", keyId);
-    expect(await submit("rotate-api-key", keyId)).toMatchObject({ outcome: "conflict" });
-    const invitation = await submit("create-invitation", null, {
-      accountId: actor.accountId,
-      invitationId: "ivt_synthetic7168",
-      email: "invitee@example.test",
-      roleKey: "viewer",
-      expiresAt: "2099-01-01T00:00:00Z",
+    await sync();
+    expect(
+      await runtime.submit({ ...profile, key: nextKey(), action: "rotate-api-key", target: keyId, body: {} }),
+    ).toMatchObject({ outcome: "committed" });
+    await sync();
+    expect(
+      await runtime.submit({ ...profile, key: nextKey(), action: "revoke-api-key", target: keyId, body: {} }),
+    ).toMatchObject({ outcome: "committed" });
+    await sync();
+    noOp(await runtime.submit({ ...profile, key: nextKey(), action: "revoke-api-key", target: keyId, body: {} }));
+    await sync();
+    expect(
+      await runtime.submit({ ...profile, key: nextKey(), action: "rotate-api-key", target: keyId, body: {} }),
+    ).toMatchObject({ outcome: "conflict" });
+    await sync();
+    const invitation = await runtime.submit({
+      ...profile,
+      key: nextKey(),
+      action: "create-invitation",
+      target: null,
+      body: {
+        accountId: actor.accountId,
+        invitationId: "ivt_synthetic7168",
+        email: "invitee@example.test",
+        roleKey: "viewer",
+        expiresAt: "2099-01-01T00:00:00Z",
+      },
     });
     if (invitation.outcome !== "committed") throw new Error("Expected invitation commit");
-    expect(await submit("cancel-invitation", invitation.receipt.result.id)).toMatchObject({ outcome: "committed" });
-    await noOp("cancel-invitation", invitation.receipt.result.id);
-    await noOp("change-role", "mbr_second7168", { roleKey: "owner" });
-    expect(await submit("reinstate", "mbr_second7168")).toMatchObject({ outcome: "conflict" });
-    expect(await submit("change-role", "mbr_second7168", { roleKey: "viewer" })).toMatchObject({
+    await sync();
+    expect(
+      await runtime.submit({
+        ...profile,
+        key: nextKey(),
+        action: "cancel-invitation",
+        target: invitation.receipt.result.id,
+        body: {},
+      }),
+    ).toMatchObject({ outcome: "committed" });
+    await sync();
+    noOp(
+      await runtime.submit({
+        ...profile,
+        key: nextKey(),
+        action: "cancel-invitation",
+        target: invitation.receipt.result.id,
+        body: {},
+      }),
+    );
+    await sync();
+    noOp(
+      await runtime.submit({
+        ...profile,
+        key: nextKey(),
+        action: "change-role",
+        target: "mbr_second7168",
+        body: { roleKey: "owner" },
+      }),
+    );
+    await sync();
+    expect(
+      await runtime.submit({ ...profile, key: nextKey(), action: "reinstate", target: "mbr_second7168", body: {} }),
+    ).toMatchObject({ outcome: "conflict" });
+    await sync();
+    expect(
+      await runtime.submit({
+        ...profile,
+        key: nextKey(),
+        action: "change-role",
+        target: "mbr_second7168",
+        body: { roleKey: "viewer" },
+      }),
+    ).toMatchObject({
       outcome: "committed",
     });
-    expect(await submit("revoke", "mbr_second7168")).toMatchObject({ outcome: "committed" });
-    await noOp("revoke", "mbr_second7168");
-    expect(await submit("reinstate", "mbr_second7168")).toMatchObject({ outcome: "committed" });
-    await noOp("reinstate", "mbr_second7168");
-    expect(await submit("change-role", "mbr_second7168", { roleKey: "owner" })).toMatchObject({ outcome: "committed" });
-    await noOp("reinstate", "mbr_second7168");
+    await sync();
+    expect(
+      await runtime.submit({ ...profile, key: nextKey(), action: "revoke", target: "mbr_second7168", body: {} }),
+    ).toMatchObject({ outcome: "committed" });
+    await sync();
+    noOp(await runtime.submit({ ...profile, key: nextKey(), action: "revoke", target: "mbr_second7168", body: {} }));
+    await sync();
+    expect(
+      await runtime.submit({ ...profile, key: nextKey(), action: "reinstate", target: "mbr_second7168", body: {} }),
+    ).toMatchObject({ outcome: "committed" });
+    await sync();
+    noOp(await runtime.submit({ ...profile, key: nextKey(), action: "reinstate", target: "mbr_second7168", body: {} }));
+    await sync();
+    expect(
+      await runtime.submit({
+        ...profile,
+        key: nextKey(),
+        action: "change-role",
+        target: "mbr_second7168",
+        body: { roleKey: "owner" },
+      }),
+    ).toMatchObject({ outcome: "committed" });
+    await sync();
+    noOp(await runtime.submit({ ...profile, key: nextKey(), action: "reinstate", target: "mbr_second7168", body: {} }));
     for (const terminal of ["accepted", "declined", "expired"] as const) {
       const id = `ivt_${terminal}7168`;
       await seed(`identity.invitation-${id}`, "identity.invitation.created", {
@@ -439,7 +544,10 @@ describeDb("issue-7168 PostgreSQL authority", () => {
           },
         ],
       });
-      expect(await submit("cancel-invitation", id)).toMatchObject({ outcome: "conflict" });
+      await sync();
+      expect(
+        await runtime.submit({ ...profile, key: nextKey(), action: "cancel-invitation", target: id, body: {} }),
+      ).toMatchObject({ outcome: "conflict" });
     }
   });
 
