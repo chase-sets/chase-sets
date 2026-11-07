@@ -327,6 +327,16 @@ describe("Catalog integrations route", () => {
         productLineName: "Pokemon",
         expansionName: "Base Set",
       },
+      // The bodies the row's import and reapply post, as admin-web's handlers build them.
+      commandScopes: {
+        import: {
+          provider: "tcgplayer",
+          ingestionUnitKey: pokemonUnit,
+          productLineId: "3",
+          setName: "Base Set",
+        },
+        reapply: { provider: "tcgplayer", ingestionUnitKey: pokemonUnit, productLineId: "3" },
+      },
     });
     expect(routeData.readModel.catalogSync.preview.units).toEqual([
       expect.objectContaining({
