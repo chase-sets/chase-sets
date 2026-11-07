@@ -9,8 +9,7 @@ import {
 } from "@chase-sets/bounded-context-runtime/test-support";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { module as catalogModule } from "../../../index";
-import { integrationScopeToObservationScope } from "../api/source-observation-job-serialization";
-import { listSourceObservationIdsForReapply } from "./queries";
+import { listSourceObservationIdsForReapply, type SourceObservationFilterScope } from "./queries";
 import { buildSourceObservationProjectionHandlers } from "./projection";
 
 const databaseBaseUrl = process.env.TEST_DATABASE_URL;
@@ -22,6 +21,13 @@ const describeDb = databaseBaseUrl ? describe : describe.skip;
 // Two units of one provider share a coordinate: Scrydex's One Piece single cards and sealed
 // products, promoted from the same synthetic set. All IDs are synthetic.
 const coordinate = { provider: "scrydex", language: "en", setId: "synthetic-op-set" } as const;
+// The query scope the integration-job runtime builds for that coordinate's reapply.
+const coordinateScope: SourceObservationFilterScope = {
+  provider: coordinate.provider,
+  language: coordinate.language,
+  expansionId: coordinate.setId,
+  setId: coordinate.setId,
+};
 const observations = [
   { observationId: "obs-synthetic-card", kind: "one-piece-card-print", name: "Synthetic Card" },
   { observationId: "obs-synthetic-sealed", kind: "one-piece-sealed-product", name: "Synthetic Booster Box" },
@@ -79,16 +85,16 @@ describeDb("A unit's reapply selects only its own kind of Source Observation", (
   afterAll(async () => closeMultiContextTestPools({ catalog: pool }));
 
   it.each(observations)("selects only the $kind unit's observation on the shared coordinate", async (observation) => {
-    const ids = await listSourceObservationIdsForReapply(
-      pool,
-      integrationScopeToObservationScope(coordinate, observation.kind),
-    );
+    const ids = await listSourceObservationIdsForReapply(pool, {
+      ...coordinateScope,
+      normalizedKind: observation.kind,
+    });
 
     expect(ids).toEqual([observation.observationId]);
   });
 
   it("still selects every promoted observation on the coordinate without a unit", async () => {
-    const ids = await listSourceObservationIdsForReapply(pool, integrationScopeToObservationScope(coordinate));
+    const ids = await listSourceObservationIdsForReapply(pool, coordinateScope);
 
     expect([...ids].sort()).toEqual(observations.map((observation) => observation.observationId).sort());
   });

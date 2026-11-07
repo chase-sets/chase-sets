@@ -960,7 +960,6 @@ function isJsonRecord(value: unknown): value is Record<string, JsonValue> {
 export const {
   requireCatalogImportProfileVersion,
   requireCatalogImportProfileVersionForJob,
-  requireCatalogProfileVersionForJobSnapshot,
   requireCatalogReapplyActiveProfileVersion,
   requireCatalogPromotionProfileVersionForReapply,
   requireReferenceDataPromotionProfileVersionForReapply,

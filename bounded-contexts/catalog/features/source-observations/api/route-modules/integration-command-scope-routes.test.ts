@@ -14,9 +14,12 @@ import { integrationJobScopeForUnit, scopeContextFromFields } from "../../ui/pri
 import { sourceScopeWorksetFor } from "../../ui/primary-workbench-source-scope-workset";
 import { profileReview, sourceObservationScope } from "../../ui/primary-workbench-test-fixtures";
 
-// The Catalog API's import and reapply routes over the real runtime, with only the
-// provider adapter and persistence stubbed: what a client's body reaches, and what the API
-// refuses before either boundary. All product IDs are synthetic.
+// The Catalog API's import and reapply routes and the integration-job runtime are real; they run
+// over an in-memory harness that stands in for the database queries, the profile reader, the
+// rollout policy, the job and work-unit stores and the provider adapter. It shows what a client's
+// body reaches and what the API refuses before those boundaries. Which observations a unit's
+// reapply selects is proven against Postgres in read-model/reapply-unit-selection.db.test.ts.
+// All product IDs are synthetic.
 
 const profiles = listCatalogProviderIntegrationProfileVersions();
 const activeProfiles = (provider: string) =>

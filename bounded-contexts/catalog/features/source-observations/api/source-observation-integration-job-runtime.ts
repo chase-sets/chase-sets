@@ -9,7 +9,7 @@ import { type DurableJobWorkUnitRecord } from "@chase-sets/platform-runtime/dura
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import type { CatalogRuntimeDeps } from "../../../support/authoring-support/runtime-support";
-import { listSourceObservationIdsForReapply } from "../read-model/queries";
+import { listSourceObservationIdsForReapply, type SourceObservationFilterScope } from "../read-model/queries";
 import { assertProductCoordinateImportAllowed } from "./providers/product-coordinate-import-guard";
 import {
   type CatalogProviderIntegrationProfile,
@@ -46,7 +46,10 @@ import {
   sourceObservationIntegrationJobTelemetryResult,
   recordIntegrationJobControlPlaneTelemetry,
 } from "./providers/provider-option-queries";
-import { normalizeReapplyProfileMode } from "./governance/catalog-integration-control-plane-readiness";
+import {
+  findCatalogProfileVersionFromSnapshot,
+  normalizeReapplyProfileMode,
+} from "./governance/catalog-integration-control-plane-readiness";
 import {
   normalizeOptionalKey,
   profileSelectorFromScope,
@@ -62,7 +65,6 @@ import {
   formatDateLike,
   normalizeIntegrationJobScope,
   reusableActiveIntegrationJobOperatorStatuses,
-  integrationScopeToObservationScope,
   isDurableJobClaimExpired,
   integrationJobOperatorStatus,
   retryableIntegrationJobResult,
@@ -79,7 +81,6 @@ import {
   integrationProfileSnapshotKey,
   requireCatalogImportProfileVersion,
   requireCatalogImportProfileVersionForJob,
-  requireCatalogProfileVersionForJobSnapshot,
   requireCatalogReapplyActiveProfileVersion,
   requireIntegrationJobReapplyProfileMode,
   snapshotCatalogProfileVersion,
@@ -102,6 +103,24 @@ function unitObservationKind(
   return scope.ingestionUnitKey?.trim() && profileVersion
     ? profileVersion.profile.normalizedObservationMapping.kind
     : null;
+}
+
+// The observations an integration job's scope selects. A job for one ingestion unit passes the
+// normalized kind its profile maps, so a sibling unit's observations on the same coordinate (a
+// provider's sealed products beside its single cards) are not selected.
+function integrationScopeToObservationScope(
+  scope: SourceObservationIntegrationJobScope,
+  normalizedKind?: string | null,
+): SourceObservationFilterScope {
+  return {
+    provider: scope.provider?.trim() || undefined,
+    language: scope.language?.trim() || undefined,
+    productLineId: scope.productLineId?.trim() || undefined,
+    seriesId: scope.seriesId?.trim() || undefined,
+    expansionId: scope.setId?.trim() || undefined,
+    setId: scope.setId?.trim() || undefined,
+    normalizedKind: normalizedKind?.trim() || undefined,
+  };
 }
 
 function assertProviderTransportNotRetired(providerKey: string): void {
@@ -853,12 +872,17 @@ export function createSourceObservationIntegrationJobRuntime({
   > {
     throwIfJobRunCancelled(input.context);
     rolloutControlPolicy.assertAllowed({ capability: "reapply", providerKey: input.job.scope.provider });
-    const unitProfileVersion =
-      input.job.scope.ingestionUnitKey &&
-      input.job.reapplyProfileMode === "current-active-profile" &&
-      input.job.profileSnapshot
-        ? await requireCatalogProfileVersionForJobSnapshot(profileVersions, input.job.profileSnapshot)
+    // A unit's refill selects by the kind its queued profile version maps, whatever is active now.
+    const queued =
+      input.job.scope.ingestionUnitKey && input.job.reapplyProfileMode === "current-active-profile"
+        ? input.job.profileSnapshot
         : null;
+    const unitProfileVersion = queued ? await findCatalogProfileVersionFromSnapshot(profileVersions, queued) : null;
+    if (queued && !unitProfileVersion) {
+      throw new Error(
+        `Catalog provider profile version ${queued.providerKey}@${queued.profileVersion} from the integration job snapshot was not found.`,
+      );
+    }
     const scope = integrationScopeToObservationScope(
       input.job.scope,
       unitObservationKind(input.job.scope, unitProfileVersion),

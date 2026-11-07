@@ -721,26 +721,6 @@ export function profileSelectorFromScope(
     : null;
 }
 
-/**
- * The observations an integration job's scope selects. A job for one ingestion unit passes the
- * normalized kind its profile maps, so a sibling unit's observations on the same coordinate (a
- * provider's sealed products beside its single cards) are not selected.
- */
-export function integrationScopeToObservationScope(
-  scope: SourceObservationIntegrationJobScope,
-  normalizedKind?: string | null,
-): SourceObservationFilterScope {
-  return {
-    provider: scope.provider?.trim() || undefined,
-    language: scope.language?.trim() || undefined,
-    productLineId: scope.productLineId?.trim() || undefined,
-    seriesId: scope.seriesId?.trim() || undefined,
-    expansionId: scope.setId?.trim() || undefined,
-    setId: scope.setId?.trim() || undefined,
-    normalizedKind: normalizedKind?.trim() || undefined,
-  };
-}
-
 export function uniqueObservationIds(observationIds: readonly string[]): string[] {
   return Array.from(
     new Set(
