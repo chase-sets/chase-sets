@@ -330,6 +330,26 @@ fn written(status: StatusCode, id: &str) -> Response {
     (status, headers, Json(json!({ "storage_location_id": id }))).into_response()
 }
 
+/// The Listing commands Marketplace takes only with an attempt (its routes' `listingAttemptInput`).
+fn listing_attempt_required(method: &Method, path: &str) -> bool {
+    let Some(rest) = path.strip_prefix("/api/marketplace/account/") else { return false };
+    match (method.as_str(), rest) {
+        (
+            "POST",
+            "listings"
+            | "listing-availability/disable"
+            | "listing-availability/enable"
+            | "listing-availability/away-window"
+            | "order-capacity",
+        )
+        | ("DELETE", "listing-availability/away-window" | "order-capacity") => true,
+        ("POST", rest) => rest.strip_prefix("listings/").and_then(|r| r.split_once('/')).is_some_and(|(_, command)| {
+            matches!(command, "price" | "quantity-cap" | "purchase-limits" | "publish" | "pause" | "withdraw")
+        }),
+        _ => false,
+    }
+}
+
 /// The commit position a read waits for, if it sends a receipt.
 fn waits_for(headers: &HeaderMap) -> Option<String> {
     let sent = headers.get("chase-sets-read-after-write")?.to_str().ok()?;
@@ -351,6 +371,11 @@ async fn platform(State(stand): State<Stand>, method: Method, uri: Uri, headers:
         headers: headers.clone(),
         body: body.clone(),
     });
+    // Marketplace refuses a Listing command sent without its attempt (`listingAttemptInput`).
+    let attempt = headers.get("idempotency-key").and_then(|v| v.to_str().ok());
+    if listing_attempt_required(&method, uri.path()) && !attempt.is_some_and(crate::api::valid_listing_attempt) {
+        return refusal(StatusCode::BAD_REQUEST, "invalid_attempt", "A valid Listing attempt identity is required.");
+    }
     let cookie = headers.get(header::COOKIE).and_then(|v| v.to_str().ok()).unwrap_or_default();
     let session = cookie.split(';').find_map(|pair| pair.trim().strip_prefix("chase_sets_session=")).unwrap_or_default();
     // A guest checkout as the browser has one: its cookie and no session (`resolveGuestCheckoutActor`).
@@ -4650,6 +4675,16 @@ async fn a_seller_lists_the_product_once_however_often_the_form_is_sent() {
     assert!(again.starts_with(&format!("/items/charizard?market=sell&listing={LISTED}&after_write=%7B")), "{again}");
     let publishes = listing_calls(&pilot).iter().filter(|(p, _)| p.ends_with("/publish")).count();
     assert_eq!(publishes, 1, "{:?}", listing_calls(&pilot));
+    let creates: Vec<String> = pilot
+        .stand
+        .calls
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|c| c.path == CREATE_LISTING)
+        .map(|c| c.headers["idempotency-key"].to_str().unwrap().to_owned())
+        .collect();
+    assert_eq!(creates, [format!("{LISTED}_create"), format!("{LISTED}_create")], "a resent form is the same create attempt");
     assert_eq!(pilot.stand.listings.lock().unwrap().len(), 1);
     assert_eq!(pilot.stand.ensured.lock().unwrap().len(), 1);
 }

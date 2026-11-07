@@ -2950,14 +2950,18 @@ impl Listings for Caller<'_> {
     }
 
     async fn create_listing(&self, body: &serde_json::Value) -> Result<(CreatedListing, Option<Receipt>), ApiError> {
-        let req = self.request(Method::POST, "/api/marketplace/account/listings", MARKETPLACE).json(body);
+        let attempt = listing_attempt(body["listingIdOverride"].as_str());
+        let req = self
+            .request(Method::POST, "/api/marketplace/account/listings", MARKETPLACE)
+            .header(IDEMPOTENCY_KEY, attempt)
+            .json(body);
         self.write(req).await
     }
 
     async fn publish_listing(&self, id: &str, fee_quote_fingerprint: Option<&str>) -> Result<Option<Receipt>, ApiError> {
         let body = serde_json::json!({ "feeQuoteFingerprint": fee_quote_fingerprint });
         let path = format!("/api/marketplace/account/listings/{}/publish", segment(id));
-        let req = self.request(Method::POST, &path, MARKETPLACE).json(&body);
+        let req = self.request(Method::POST, &path, MARKETPLACE).header(IDEMPOTENCY_KEY, listing_attempt(None)).json(&body);
         Ok(self.write::<serde::de::IgnoredAny>(req).await?.1)
     }
 
@@ -3272,8 +3276,12 @@ impl ListingCreate for Caller<'_> {
                 .mime_str(&photo.content_type)?;
             form = form.part("evidence", part);
         }
-        let req =
-            self.request(Method::POST, "/api/marketplace/account/listings", MARKETPLACE).timeout(UPLOAD_TIMEOUT).multipart(form);
+        let id = fields.iter().find(|(name, _)| *name == "listingIdOverride").map(|(_, id)| id.as_str());
+        let req = self
+            .request(Method::POST, "/api/marketplace/account/listings", MARKETPLACE)
+            .header(IDEMPOTENCY_KEY, listing_attempt(id))
+            .timeout(UPLOAD_TIMEOUT)
+            .multipart(form);
         self.write(req).await
     }
 }
@@ -3717,6 +3725,24 @@ pub struct PackingSlipBatch {
 /// The header that names a Fulfillment write's attempt (`Idempotency-Key`, a UUID v4): the API
 /// applies an attempt once, answers a repeat with its first result, and says later what came of it.
 const IDEMPOTENCY_KEY: &str = "idempotency-key";
+
+/// A Listing command's attempt (Marketplace's `listingAttemptInput`, sent as `Idempotency-Key`):
+/// Marketplace applies a key once and answers it again with its first result, and refuses a
+/// command without one. A create's key is made from the listing id it names
+/// (`listingIdOverride`), so the same form sent again is the same attempt; any other command is
+/// its own attempt, as marketplace's are (`derivedListingAttemptKey`).
+pub fn listing_attempt(listing_id: Option<&str>) -> String {
+    match listing_id.map(|id| format!("{id}_create")) {
+        Some(key) if valid_listing_attempt(&key) => key,
+        _ => format!("browser_{}", uuid::Uuid::new_v4().simple()),
+    }
+}
+
+/// A key Marketplace takes as a Listing attempt (`marketplaceAttemptIdSchema`): 22 to 128 letters,
+/// digits, `_` and `-`.
+pub fn valid_listing_attempt(key: &str) -> bool {
+    (22..=128).contains(&key.len()) && key.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+}
 
 /// The seller's packing commands on a shipment (Fulfillment's `account/sales/shipments/{id}/..`),
 /// each sent as `attempt`.
@@ -5516,6 +5542,13 @@ impl SellerListings for Caller<'_> {
             ListingCommand::Withdraw => (Method::POST, format!("{base}/withdraw"), json!({})),
         };
         let mut req = self.request(method, &path, MARKETPLACE);
+        // The photo commands take no attempt.
+        if !matches!(
+            command,
+            ListingCommand::Classify { .. } | ListingCommand::RemovePhoto { .. } | ListingCommand::Reorder { .. }
+        ) {
+            req = req.header(IDEMPOTENCY_KEY, listing_attempt(None));
+        }
         if !body.is_null() {
             req = req.json(&body);
         }
@@ -5771,7 +5804,7 @@ impl SellerListingList for Caller<'_> {
             SellerSetting::Capacity(max) => (Method::POST, capacity, json!({ "maxOpenOrders": max })),
             SellerSetting::ClearCapacity => (Method::DELETE, capacity, serde_json::Value::Null),
         };
-        let mut req = self.request(method, &path, MARKETPLACE);
+        let mut req = self.request(method, &path, MARKETPLACE).header(IDEMPOTENCY_KEY, listing_attempt(None));
         if !body.is_null() {
             req = req.json(&body);
         }
