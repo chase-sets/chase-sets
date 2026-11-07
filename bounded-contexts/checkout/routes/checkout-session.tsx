@@ -50,7 +50,11 @@ import {
   isCheckoutRecovery,
 } from "../features/sessions/api/checkout-recovery";
 import { createIdentityRequestApiClient } from "@chase-sets/identity/server";
-import { type PaymentElementDefaultValues, type PaymentsSavedCheckoutInstrument } from "@chase-sets/payments/server";
+import {
+  createPaymentsRequestApiClient,
+  type PaymentElementDefaultValues,
+  type PaymentsSavedCheckoutInstrument,
+} from "@chase-sets/payments/server";
 import { StripeConfirmationCard } from "@chase-sets/payments/web";
 import { checkoutSessionSourceCreatesOrders } from "@chase-sets/checkout-order-source";
 import { normalizeRequestedBalanceCreditAmount } from "../support/request-support/balance-credit";
@@ -730,6 +734,35 @@ function loadPaymentPreview(
   });
 }
 
+/**
+ * Once confirm has created the orders, Checkout clears the session's fulfillment
+ * preview, so the payment is quoted by Payments for those orders, as the order's
+ * own Pay now page quotes it. A repeat confirm then starts the payment at that
+ * quote. Null while Payments cannot quote them yet, which keeps the totals notice.
+ */
+async function loadCommittedOrderPaymentPreview(
+  request: Request,
+  actor: Awaited<ReturnType<typeof resolveActorFromAuthApi>>,
+  session: Readonly<{ payment_id: string | null; order_ids: readonly string[] }>,
+  wallet: WalletRead | null,
+  paymentMethodCategory: string,
+): Promise<CheckoutPaymentPreviewStatus | null> {
+  if (!actor || session.payment_id || session.order_ids.length === 0 || wallet?.status === "unavailable") {
+    return null;
+  }
+
+  try {
+    return await createPaymentsRequestApiClient(request).getCheckoutStatus({
+      orderIds: session.order_ids,
+      currencyCode: wallet?.status === "available" ? wallet.balance.currency_code : "usd",
+      requestedBalanceCreditAmount: wallet?.status === "available" ? wallet.balance.available_balance_amount : "0.00",
+      paymentMethodCategory,
+    });
+  } catch {
+    return null;
+  }
+}
+
 function reloadForRealtimeSync() {
   if (typeof window !== "undefined") {
     window.location.reload();
@@ -799,9 +832,10 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
     : guestCheckoutContact?.contactEmail
       ? { billingDetails: { email: guestCheckoutContact.contactEmail } }
       : null;
-  const { fulfillmentPreview, previewError } = expiredCheckout
+  const loadedFulfillmentPreview = expiredCheckout
     ? { fulfillmentPreview: null, previewError: null }
     : await loadFulfillmentPreview(session);
+  const { fulfillmentPreview } = loadedFulfillmentPreview;
   const searchParams = new URL(resolvedRequest.url).searchParams;
   const defaultSavedPaymentMethodCategory =
     savedCheckoutInstruments.find((instrument) => instrument.is_default && instrument.readiness === "ready")
@@ -809,9 +843,21 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
     savedCheckoutInstruments.find((instrument) => instrument.readiness === "ready")?.payment_method_category;
   const selectedPaymentMethodCategory =
     searchParams.get("paymentMethodCategory") ?? defaultSavedPaymentMethodCategory ?? "card";
+  const committedOrderPaymentPreview =
+    expiredCheckout || fulfillmentPreview
+      ? null
+      : await loadCommittedOrderPaymentPreview(
+          ancillaryRequest,
+          actor,
+          session,
+          wallet,
+          selectedPaymentMethodCategory,
+        );
+  const previewError = committedOrderPaymentPreview ? null : loadedFulfillmentPreview.previewError;
   const paymentPreview = expiredCheckout
     ? null
-    : loadPaymentPreview(actor, fulfillmentPreview, wallet, selectedPaymentMethodCategory, session.order_ids);
+    : (committedOrderPaymentPreview ??
+      loadPaymentPreview(actor, fulfillmentPreview, wallet, selectedPaymentMethodCategory, session.order_ids));
   const reservationUnavailableLines = loadReservationUnavailableLines(searchParams, session, fulfillmentPreview);
 
   return {
