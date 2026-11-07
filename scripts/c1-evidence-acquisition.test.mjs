@@ -869,6 +869,75 @@ function cli(plan) {
 }
 
 describe("five-read projection production entrypoint", () => {
+  it.each(
+    ["initContainerStatuses", "containerStatuses", "ephemeralContainerStatuses"].flatMap((statuses) =>
+      ["chase-sets-verify-synthetic", "synthetic-unselected"].flatMap((namespace) =>
+        [
+          ["absent history", undefined],
+          ["malformed string", "synthetic-invalid-last-state"],
+          ["malformed array", []],
+          ["explicit null", null],
+          ["empty history", {}],
+          [
+            "terminated history",
+            {
+              terminated: {
+                reason: "OOMKilled",
+                exitCode: 137,
+                startedAt: "2030-01-01T00:00:10Z",
+                finishedAt: "2030-01-01T00:00:20Z",
+              },
+            },
+          ],
+        ].map(([label, history]) => ({ statuses, namespace, label, history })),
+      ),
+    ),
+  )(
+    "validates $label in $statuses for $namespace before the next read",
+    async ({ statuses, namespace, label, history }) => {
+      const f = admissionFixture();
+      const container = { name: "api", image: "synthetic/image:fixed" };
+      const declaration = {
+        initContainerStatuses: "initContainers",
+        containerStatuses: "containers",
+        ephemeralContainerStatuses: "ephemeralContainers",
+      }[statuses];
+      f.bodies.pods.items.push({
+        apiVersion: "v1",
+        kind: "Pod",
+        metadata: meta("pod", { namespace }),
+        spec: {
+          nodeName: "node",
+          containers: declaration === "containers" ? [container] : [{ name: "main", image: "synthetic/image:fixed" }],
+          [declaration]: [container],
+        },
+        status: {
+          phase: "Running",
+          [statuses]: [
+            {
+              ...container,
+              ready: true,
+              restartCount: 1,
+              state: { running: { startedAt: "2030-01-01T00:01:00Z" } },
+              lastState: history,
+            },
+          ],
+        },
+      });
+      const result = await f.run();
+      if (label.startsWith("malformed")) {
+        expect(result.state).toBe("STOP");
+        expect(result.reasons).toEqual(["STOP_CONTAINER_STATE"]);
+        expect(f.trace.map((request) => request.resource)).toEqual(["nodes", "namespaces", "pods"]);
+      } else {
+        expect(result.state).toBe("ADMITTED");
+        expect(f.trace.slice(0, 5).map((request) => request.resource)).toEqual(READS.map((read) => read.resource));
+        const projected = result.snapshot.reads[2].records[0].containers.find((status) => status.name === "api");
+        if (label === "absent history") expect(projected).not.toHaveProperty("lastState");
+        else expect(projected).toHaveProperty("lastState", history);
+      }
+    },
+  );
   it("preserves optional absence and explicit null rather than inventing observations", async () => {
     const f = admissionFixture();
     f.bodies.nodes.items[0].metadata.deletionTimestamp = null;

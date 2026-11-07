@@ -190,7 +190,10 @@ function pod(record) {
       ...optional(c, "containerID", (v) => (v === "" ? "" : text(v))),
       restartCount: integer(c.restartCount),
       state: containerState(c.state),
-      ...(object(c.lastState) && Object.keys(c.lastState).length ? { lastState: containerState(c.lastState) } : {}),
+      ...optional(c, "lastState", (value) => {
+        need(object(value), "STOP_CONTAINER_STATE");
+        return Object.keys(value).length ? containerState(value) : {};
+      }),
     };
   });
   const containers = declared.map(
