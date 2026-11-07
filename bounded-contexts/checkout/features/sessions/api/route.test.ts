@@ -4412,9 +4412,12 @@ describe("confirmation bound-hash conflict", () => {
    * chase-sets/chase-sets#10785: the first confirm bound its orders to a preview revision, then its own address
    * write cleared it. The orders keep that revision, which the page posts back to resume their payment.
    */
-  async function ordersBoundToRevision() {
+  async function ordersBoundToRevision(acknowledgedMaterialChanges = false) {
     const first = createServices();
-    expect((await confirm(first, { ...confirmBody, fulfillmentPreviewRevision: "rev_1" })).status).toBe(200);
+    expect(
+      (await confirm(first, { ...confirmBody, fulfillmentPreviewRevision: "rev_1", acknowledgedMaterialChanges }))
+        .status,
+    ).toBe(200);
     const recorded = vi.mocked(first.recordOrdersCreated).mock.calls[0]?.[0];
     for (const mock of [
       mockCreateCheckoutInventoryReservations,
@@ -4423,27 +4426,43 @@ describe("confirmation bound-hash conflict", () => {
     ]) {
       mock.mockClear();
     }
-    return { orderHash: recorded?.orderHash ?? null, keptRevision: recorded?.fulfillmentPreviewRevision ?? null };
+    return {
+      orderHash: recorded?.orderHash ?? null,
+      keptRevision: recorded?.fulfillmentPreviewRevision ?? null,
+      keptAcknowledgement: recorded?.acknowledgedMaterialChanges ?? null,
+    };
   }
 
-  it("confirmation bound-hash conflict: a repeat confirm after orders resumes their payment with the revision they kept", async () => {
-    const { orderHash, keptRevision } = await ordersBoundToRevision();
-    expect(keptRevision).toBe("rev_1");
-    const services = createServices({
-      getSession: vi.fn(async () =>
-        createSession({ order_ids: ["ord_1"], fulfillment_preview_revision: keptRevision }),
-      ),
-      getConfirmationBinding: vi.fn(async () => ({ orderHash, paymentHash: null })),
-    });
+  it.each([false, true])(
+    "confirmation bound-hash conflict: a repeat confirm after orders resumes their payment with the revision and acknowledgement %s they kept",
+    async (acknowledged) => {
+      const { orderHash, keptRevision, keptAcknowledgement } = await ordersBoundToRevision(acknowledged);
+      expect(keptRevision).toBe("rev_1");
+      expect(keptAcknowledgement).toBe(acknowledged);
+      const services = createServices({
+        getSession: vi.fn(async () =>
+          createSession({
+            order_ids: ["ord_1"],
+            fulfillment_preview_revision: keptRevision,
+            order_acknowledged_material_changes: keptAcknowledgement,
+          }),
+        ),
+        getConfirmationBinding: vi.fn(async () => ({ orderHash, paymentHash: null })),
+      });
 
-    const response = await confirm(services, { ...confirmBody, fulfillmentPreviewRevision: keptRevision });
+      const response = await confirm(services, {
+        ...confirmBody,
+        fulfillmentPreviewRevision: keptRevision,
+        acknowledgedMaterialChanges: keptAcknowledgement,
+      });
 
-    expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toMatchObject({ payment_id: "pay_1", order_ids: ["ord_1"] });
-    expect(mockCreateCheckoutOrdersThroughOrdering).not.toHaveBeenCalled();
-    expect(services.recordOrdersCreated).not.toHaveBeenCalled();
-    expect(mockCreateCheckoutPaymentThroughPayments).toHaveBeenCalledTimes(1);
-  });
+      expect(response.status).toBe(200);
+      await expect(response.json()).resolves.toMatchObject({ payment_id: "pay_1", order_ids: ["ord_1"] });
+      expect(mockCreateCheckoutOrdersThroughOrdering).not.toHaveBeenCalled();
+      expect(services.recordOrdersCreated).not.toHaveBeenCalled();
+      expect(mockCreateCheckoutPaymentThroughPayments).toHaveBeenCalledTimes(1);
+    },
+  );
 
   it("confirmation bound-hash conflict: a Session whose orders kept no revision is refused as before", async () => {
     const { orderHash } = await ordersBoundToRevision();
@@ -4463,6 +4482,7 @@ describe("confirmation bound-hash conflict", () => {
 
   it.each([
     ["revision", { fulfillmentPreviewRevision: "rev_2" }],
+    ["acknowledgement", { fulfillmentPreviewRevision: "rev_1", acknowledgedMaterialChanges: true }],
     [
       "shipping address",
       { fulfillmentPreviewRevision: "rev_1", shippingAddress: { ...shippingAddress, line1: "200 Changed Street" } },

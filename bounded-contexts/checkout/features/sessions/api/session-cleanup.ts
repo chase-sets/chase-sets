@@ -149,6 +149,7 @@ export function createCheckoutSessionCleanupService(
             orderWriteCommitPositions: params.orderWriteCommitPositions,
             orderHash: params.orderHash,
             fulfillmentPreviewRevision: params.fulfillmentPreviewRevision,
+            acknowledgedMaterialChanges: params.acknowledgedMaterialChanges,
             recordedAt: new Date().toISOString(),
           },
         },

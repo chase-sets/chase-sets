@@ -443,6 +443,33 @@ describe("union cleanup retained state replay", () => {
     expect("fulfillmentPreviewRevision" in blank.data).toBe(false);
   });
 
+  // chase-sets/chase-sets#11151: the order hash also binds the acknowledgement, which no later read can rebuild.
+  it.each([true, false])(
+    "keeps the material-change acknowledgement %s the orders were bound to, and an older event keeps none",
+    (acknowledgedMaterialChanges) => {
+      const state: CheckoutSessionState = { ...started(), shippingAddress, lines: [line, line] };
+      const event = decideCheckoutSession(state, {
+        type: "RecordOrdersCreated",
+        orderIds: ["ord_1" as never],
+        orderHash: "hash_1",
+        acknowledgedMaterialChanges,
+        recordedAt: "2026-09-01T01:00:00Z",
+      })[0]!;
+      if (event.type !== "checkout.session.orders-created") throw new Error("Expected order event");
+      expect(event.data.acknowledgedMaterialChanges).toBe(acknowledgedMaterialChanges);
+      expect(evolveCheckoutSession(state, event).orderAcknowledgedMaterialChanges).toBe(acknowledgedMaterialChanges);
+
+      const { acknowledgedMaterialChanges: _omitted, ...legacy } = event.data;
+      expect(evolveCheckoutSession(state, { ...event, data: legacy }).orderAcknowledgedMaterialChanges).toBeNull();
+      const unsupplied = decideCheckoutSession(state, {
+        type: "RecordOrdersCreated",
+        orderIds: ["ord_1" as never],
+        recordedAt: "2026-09-01T01:00:00Z",
+      })[0]!;
+      expect("acknowledgedMaterialChanges" in unsupplied.data).toBe(false);
+    },
+  );
+
   it("retains deduplicated immutable intent and explicit pending/complete day-after states", () => {
     const { state } = pending();
     expect(state.orderCartCleanup).toEqual({

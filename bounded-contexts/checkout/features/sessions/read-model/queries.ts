@@ -40,6 +40,12 @@ export type CheckoutSessionRow = Readonly<{
    * the orders kept.
    */
   last_recorded_quote?: CheckoutFulfillmentPreview | null;
+  /**
+   * The material-change acknowledgement the orders' hash was bound to, read
+   * from the aggregate in the same window as `last_recorded_quote`; null for
+   * orders recorded before it was kept.
+   */
+  order_acknowledged_material_changes?: boolean | null;
 }>;
 
 type CheckoutSessionPageRow = Omit<

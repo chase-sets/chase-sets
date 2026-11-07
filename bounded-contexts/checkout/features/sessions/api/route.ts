@@ -1385,6 +1385,7 @@ export function createAccountCheckoutSessionRoutes(
               orderWriteCommitPositions: orderingCommitPositionsFromSource(orderCreationWriteResult),
               orderHash: checkoutConfirmationBinding(confirmationInput, readySession).orderHash,
               fulfillmentPreviewRevision,
+              acknowledgedMaterialChanges,
             },
             context,
           );

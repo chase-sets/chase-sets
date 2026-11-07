@@ -3885,12 +3885,15 @@ describe("checkout session last recorded quote", () => {
         orderIds: ["ord_1"] as never,
         orderWriteCommitPositions: [],
         fulfillmentPreviewRevision: "rev_q1",
+        acknowledgedMaterialChanges: true,
         recordedAt: "2026-10-16T00:01:30.000Z",
       },
     } satisfies CheckoutSessionEvent;
-    const orderedStream = [...recordedStream.slice(0, 2), ordersCreated];
 
-    async function runtimeWithProjectedOrders(projected: Partial<CheckoutSessionRow>) {
+    async function runtimeWithProjectedOrders(
+      projected: Partial<CheckoutSessionRow>,
+      orderedStream: readonly CheckoutSessionEvent[] = [...recordedStream.slice(0, 2), ordersCreated],
+    ) {
       const { eventStore } = createInMemoryEventStore();
       await eventStore.appendToStream({
         streamId: `checkout.session-${orderedSessionId}`,
@@ -3938,8 +3941,24 @@ describe("checkout session last recorded quote", () => {
         payment_id: null,
         fulfillment_preview_revision: "rev_q1",
         last_recorded_quote: q1,
+        order_acknowledged_material_changes: true,
       });
       expect(sessionStreamReads()).toBe(1);
+    });
+
+    // chase-sets/chase-sets#11151: the read is one aggregate load; a long history spans more stream pages.
+    it("carries the acknowledgement and quote across a history longer than one stream page", async () => {
+      const { services, sessionStreamReads } = await runtimeWithProjectedOrders({}, [
+        ...recordedStream.slice(0, 2),
+        ...Array.from({ length: 500 }, () => recordedStream[1]!),
+        { ...ordersCreated, data: { ...ordersCreated.data, acknowledgedMaterialChanges: false } },
+      ]);
+
+      await expect(services.getSession(orderedSessionId, "acc_buyer")).resolves.toMatchObject({
+        last_recorded_quote: q1,
+        order_acknowledged_material_changes: false,
+      });
+      expect(sessionStreamReads()).toBe(2);
     });
 
     it("carries no quote and reads no stream once its payment has started", async () => {

@@ -155,7 +155,7 @@ export function CheckoutSessionPage(props: CheckoutSessionPageProps) {
               sourceType={model.session.source_type}
               shippingOption={model.session.shipping_option}
               addressDefaults={model.addressDefaults}
-              hasAcknowledgedVisibleFulfillmentPreview={model.hasAcknowledgedVisibleFulfillmentPreview}
+              acknowledgedMaterialChanges={model.confirmationAcknowledgedMaterialChanges}
             />
 
             <CheckoutSavedInfoSection

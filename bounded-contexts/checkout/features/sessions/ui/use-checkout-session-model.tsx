@@ -67,6 +67,11 @@ export function useCheckoutSessionModel({
   const hasAcknowledgedVisibleFulfillmentPreview = Boolean(
     preview?.materialChangeReasons.length || fulfillmentPreviewChanged,
   );
+  // While orders wait for payment, confirm posts the acknowledgement their hash was bound to, as the Session kept it.
+  const confirmationAcknowledgedMaterialChanges =
+    !hasPayment && session.order_ids.length > 0 && typeof session.order_acknowledged_material_changes === "boolean"
+      ? session.order_acknowledged_material_changes
+      : hasAcknowledgedVisibleFulfillmentPreview;
   const [hasPendingReviewChanges, setHasPendingReviewChanges] = useState(false);
   const [editingSection, setEditingSection] = useState<CheckoutEditSection | null>(initialEditSection);
   const [reservationClock, setReservationClock] = useState(() => Date.now());
@@ -300,6 +305,7 @@ export function useCheckoutSessionModel({
     preview,
     payment,
     confirmationPreviewRevision,
+    confirmationAcknowledgedMaterialChanges,
     hasAcknowledgedVisibleFulfillmentPreview,
     canConfirm,
     reservationExpired,

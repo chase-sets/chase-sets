@@ -82,8 +82,9 @@ function sessionPageIsBehindCommittedAggregate(
 
 /**
  * Confirm's address write clears the live preview, so a Session whose orders wait
- * for payment carries the quote it last recorded, read from its own aggregate. This
- * costs one stream load in that window and reads no other context.
+ * for payment carries the quote it last recorded and the acknowledgement its orders
+ * were bound to, read from its own aggregate. This costs one aggregate load in that
+ * window, whose stream pages grow with the Session's history, and reads no other context.
  */
 async function withCommittedOrderQuote(
   session: CheckoutSessionRow,
@@ -91,7 +92,11 @@ async function withCommittedOrderQuote(
 ): Promise<CheckoutSessionRow> {
   if (session.order_ids.length === 0 || session.payment_id || session.submitted_offer_id) return session;
   const state = await loadState();
-  return { ...session, last_recorded_quote: state?.lastRecordedQuote ?? null };
+  return {
+    ...session,
+    last_recorded_quote: state?.lastRecordedQuote ?? null,
+    order_acknowledged_material_changes: state?.orderAcknowledgedMaterialChanges ?? null,
+  };
 }
 
 function readinessStaleError(code = "readiness_snapshot_stale") {

@@ -139,6 +139,12 @@ export type CheckoutSessionState = Readonly<{
    */
   orderHash?: string | null;
   paymentHash?: string | null;
+  /**
+   * The material-change acknowledgement the order hash was bound to, kept so a
+   * confirm that resumes the orders' payment posts it again. Absent on Sessions
+   * whose orders were recorded before it was kept.
+   */
+  orderAcknowledgedMaterialChanges?: boolean | null;
   submittedOfferId: string | null;
   cancelledAt: string | null;
   createdAt: string | null;
@@ -228,6 +234,8 @@ export type RecordOrdersCreatedCommand = Readonly<{
   orderHash?: string | null;
   /** The fulfillment preview revision the order hash was bound to; the Session keeps it once the preview is gone. */
   fulfillmentPreviewRevision?: string | null;
+  /** The material-change acknowledgement the order hash was bound to, exactly as confirm received it. */
+  acknowledgedMaterialChanges?: boolean | null;
   recordedAt: string;
 }>;
 
@@ -349,6 +357,7 @@ export type CheckoutOrdersCreatedEvent = DomainEvent<
     orderWriteCommitPositions: CheckoutSourceCommitPosition[];
     orderHash?: string;
     fulfillmentPreviewRevision?: string;
+    acknowledgedMaterialChanges?: boolean;
     recordedAt: string;
   }>
 >;
@@ -866,6 +875,9 @@ export const decideCheckoutSession: AggregateDecider<
             orderWriteCommitPositions: normalizeCommitPositions(command.orderWriteCommitPositions),
             ...(orderHash ? { orderHash } : {}),
             ...(fulfillmentPreviewRevision ? { fulfillmentPreviewRevision } : {}),
+            ...(typeof command.acknowledgedMaterialChanges === "boolean"
+              ? { acknowledgedMaterialChanges: command.acknowledgedMaterialChanges }
+              : {}),
             recordedAt: normalizeRequiredText(command.recordedAt, "Order recording must include a timestamp."),
           },
         },
@@ -1059,6 +1071,7 @@ export const evolveCheckoutSession: AggregateEvolver<CheckoutSessionState, Check
         })),
         orderWriteCommitPositions: event.data.orderWriteCommitPositions ?? [],
         orderHash: event.data.orderHash ?? null,
+        orderAcknowledgedMaterialChanges: event.data.acknowledgedMaterialChanges ?? null,
         // Confirm's shipping-address write cleared the preview; the orders keep the revision they were bound to.
         fulfillmentPreviewRevision: event.data.fulfillmentPreviewRevision ?? state.fulfillmentPreviewRevision,
         updatedAt: event.data.recordedAt,
