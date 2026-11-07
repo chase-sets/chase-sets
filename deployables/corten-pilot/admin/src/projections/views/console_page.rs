@@ -227,7 +227,7 @@ fn Health<'a>(t: Ops, screen: &'a Screen) -> impl Render {
             }
             <dl class={KitStats { surface: StatsSurface::Cards }}>
                 for (name, value) in &stats {
-                    <Stat label={*name} value={value.as_str()} note="" tone={StatTone::Neutral} />
+                    <Stat label={name} value={value.as_str()} note="" tone={StatTone::Neutral} />
                 }
             </dl>
             <p class={Muted}>

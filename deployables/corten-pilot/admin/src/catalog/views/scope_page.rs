@@ -242,7 +242,7 @@ fn Counts<'a>(items: &'a [(&'a str, usize)]) -> impl Render {
     html! {
         <dl class={KitStats { surface: StatsSurface::Cards }}>
             for (label, value) in items {
-                <Stat label={*label} value={*value} note="" tone={StatTone::Neutral} />
+                <Stat label={label} value={*value} note="" tone={StatTone::Neutral} />
             }
         </dl>
     }

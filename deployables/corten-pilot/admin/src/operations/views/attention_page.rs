@@ -108,7 +108,7 @@ fn QueueParts<'a>(t: Ops, queue: &'a Queue) -> impl Render {
     html! {
         <dl class={(KitStats { surface: StatsSurface::Cards }, Counts)}>
             for (label, value) in &stats {
-                <Stat label={*label} value={*value} note="" tone={StatTone::Neutral} />
+                <Stat label={label} value={*value} note="" tone={StatTone::Neutral} />
             }
         </dl>
         if !unavailable.is_empty() {
