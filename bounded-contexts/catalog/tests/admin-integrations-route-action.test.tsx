@@ -80,6 +80,7 @@ vi.mock("react-router", async () => {
     useRouteLoaderData: mockUseRouteLoaderData,
     useActionData: mockUseActionData,
     useNavigation: mockUseNavigation,
+    useLocation: () => ({ pathname: "/catalog/integrations", search: "", hash: "", key: "synthetic-daily" }),
     useFetcher: () => ({ state: "idle", data: undefined, load: () => undefined }),
     // The import-jobs module polls live progress via useRevalidator and the daily
     // import-context form submits context changes via useSubmit; outside a data
@@ -821,6 +822,9 @@ describe("Catalog integrations route", () => {
     expect(mockUseNavigate).not.toHaveBeenCalled();
     expect(enqueueSourceObservationIntegrationJob).toHaveBeenCalledTimes(1);
     const clientCalls = mockCreateCatalogRequestApiClient.mock.calls.length;
+    mockUseActionData.mockReturnValue(null);
+    rerender(<IntegrationsRoute />);
+    expect(readOriginalReceiptDom(document.querySelector("[data-catalog-import-job-receipt]")!)).toEqual(expected);
     mockUseNavigation.mockReturnValue({ state: "submitting" });
     rerender(<IntegrationsRoute />);
     expect(document.querySelector("[data-catalog-import-job-receipt]")).toBeNull();
