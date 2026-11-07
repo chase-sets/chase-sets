@@ -720,7 +720,8 @@
       "expectedConsumers": [
         "provider-scope-mapping",
         "Internal catalog module composition",
-        "Platform worker scheduled runners"
+        "Platform worker scheduled runners",
+        "source-observations"
       ]
     },
     "source-observations": {
