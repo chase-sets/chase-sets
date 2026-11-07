@@ -245,11 +245,15 @@ describe("cohort-evaluation-runtime", () => {
       ],
     ],
   ] as const)("rejects poison %s without a cohort write", async (_, records) => {
-    await run(records());
+    expect(await run(records())).toBe(false);
     expect(writeSellerComplianceCohort).not.toHaveBeenCalled();
     expect(recordCohortEvaluationFailure).toHaveBeenCalledWith(
       pool,
-      expect.objectContaining({ failureKind: "policy-history", policyVersion: null }),
+      expect.objectContaining({
+        failureKind: "policy-history",
+        policyVersion: null,
+        detail: "policy-history-invalid",
+      }),
     );
   });
 
@@ -286,11 +290,15 @@ describe("cohort-evaluation-runtime", () => {
     await run([]);
     expect(writeSellerComplianceCohort).not.toHaveBeenCalled();
     expect(recordCohortEvaluationFailure).not.toHaveBeenCalled();
-    await run([record()], false);
+    expect(await run([record()], false)).toBe(false);
     expect(writeSellerComplianceCohort).not.toHaveBeenCalled();
     expect(recordCohortEvaluationFailure).toHaveBeenCalledWith(
       pool,
-      expect.objectContaining({ failureKind: "policy-history" }),
+      expect.objectContaining({
+        failureKind: "policy-history",
+        policyVersion: null,
+        detail: "policy-history-invalid",
+      }),
     );
   });
 
@@ -432,6 +440,98 @@ describe("cohort-evaluation-runtime", () => {
     expect(vi.mocked(writeSellerComplianceCohort).mock.lastCall?.[1].evaluation.exitEffectiveAt).toBe(
       "2025-04-02T00:00:00.001Z",
     );
+  });
+
+  it("causal envelopes fixture requires the two frozen effective instants in its one-month lookback", async () => {
+    const selected = record({ value: { ...policy, disclosureGrossCents: "300", lookbackMonths: 1 } });
+    vi.mocked(listSellerCompletedSalesPage).mockResolvedValue({
+      sales: [
+        sale("2025-05-10T00:00:00.000Z"),
+        {
+          ...sale("2025-05-12T00:00:00.000Z"),
+          paymentId: "synthetic-band",
+          orderId: "synthetic-band",
+          itemGrossCents: "200",
+          sellerItemNetCents: "200",
+          orderTotalCents: "200",
+          sellerPayoutCents: "200",
+        },
+      ],
+      nextCursor: null,
+    });
+    expect(
+      await createCohortEvaluationRuntime({ pool, historyReader: reader([selected]) }).evaluateSeller({
+        sellerAccountId: "synthetic-seller",
+        tick: "2025-05-13T00:00:00.000Z",
+      }),
+    ).toBe(true);
+    expect(recordCohortEvaluationFailure).not.toHaveBeenCalled();
+    expect(vi.mocked(writeSellerComplianceCohort).mock.lastCall?.[1].evaluation).toMatchObject({
+      state: "member",
+      band: "disclosure",
+      entryEffectiveAt: "2025-05-10T00:00:00.000Z",
+      bandEffectiveAt: "2025-05-12T00:00:00.000Z",
+      observedAt: "2025-05-13T00:00:00.000Z",
+    });
+  });
+
+  it.each(["combined inert history", "isolated raise history"])("complete prior timeline: %s", async (scenario) => {
+    const first = record({
+      recordedAt: "2027-01-01T00:00:00.000Z",
+      effectiveFrom: "2027-01-01T00:00:00.000Z",
+    });
+    const history = [first];
+    const revise = (recordedAt: string, overrides: Partial<PolicyHistoryRecord> = {}) => {
+      const streamVersion = history.length + 1;
+      history.push({
+        ...first,
+        eventId: `synthetic-timeline-${streamVersion}`,
+        eventType: "platform-policy.document.revised",
+        streamVersion,
+        globalPosition: String(streamVersion + 1) as GlobalPosition,
+        recordedAt,
+        ...overrides,
+      });
+    };
+    if (scenario === "combined inert history") {
+      for (const [index, overrides] of [
+        { status: "inactive" as const },
+        { value: { ...policy, activated: false } },
+        { effectiveUntil: "2027-03-21T00:00:00.000Z" },
+      ].entries()) {
+        const day = `2027-03-${22 + index}`;
+        revise(`${day}T00:00:00.000Z`, overrides);
+        revise(`${day}T12:00:00.000Z`);
+      }
+    }
+    revise("2027-03-25T00:00:00.000Z", { value: { ...policy, qualifyingGrossCents: "500" } });
+    const retained = {
+      ...previous,
+      policyVersion: JSON.stringify(identity(first)),
+      entryEffectiveAt: "2027-03-20T00:00:00.000Z",
+    };
+    vi.mocked(readSellerComplianceCohort).mockResolvedValue(retained);
+    vi.mocked(readSellerComplianceCohortLedgerHead).mockResolvedValue({
+      ...retained,
+      effectiveAt: retained.entryEffectiveAt,
+      observedAt: "2027-03-21T00:00:00.000Z",
+    });
+    vi.mocked(listSellerCompletedSalesPage).mockResolvedValue({
+      sales: [sale("2027-03-20T00:00:00.000Z")],
+      nextCursor: null,
+    });
+    expect(
+      await createCohortEvaluationRuntime({ pool, historyReader: reader(history) }).evaluateSeller({
+        sellerAccountId: "synthetic-seller",
+        tick: "2027-03-26T00:00:00.000Z",
+      }),
+    ).toBe(true);
+    expect(recordCohortEvaluationFailure).not.toHaveBeenCalled();
+    expect(vi.mocked(writeSellerComplianceCohort).mock.lastCall?.[1].evaluation).toMatchObject({
+      state: "outside",
+      exitEffectiveAt: scenario === "combined inert history" ? "2027-03-22T00:00:00.000Z" : "2027-03-25T00:00:00.000Z",
+      observedAt: "2027-03-26T00:00:00.000Z",
+    });
   });
 
   it.each(["close without successor", "inactive value", "backdated end"])("inert/null gate binds: %s", async (kind) => {

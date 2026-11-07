@@ -310,7 +310,7 @@ export function createCohortEvaluationRuntime(
         evaluationAt: tick,
         failureKind: "policy-history",
         policyVersion: null,
-        detail: "Policy history is incomplete or malformed.",
+        detail: "policy-history-invalid",
       });
       return false;
     }

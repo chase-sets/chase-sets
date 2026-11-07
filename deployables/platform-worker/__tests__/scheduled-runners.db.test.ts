@@ -241,7 +241,7 @@ describeDatabase("registered platform-worker scheduled runners", () => {
       qualifyingGrossCents: "100",
       disclosureGrossCents: "300",
       windowMonths: 1,
-      lookbackMonths: 12,
+      lookbackMonths: 1,
       comparisonIsInclusive: true,
       saleUnit: "captured-order",
       qualifyingGrossBasis: "item-gross",
@@ -539,128 +539,164 @@ describeDatabase("registered platform-worker scheduled runners", () => {
     });
   });
 
-  it("seller compliance mounted command controls: inert boundaries, prospective starts and reactivation", async () => {
-    const services = runtime.services["platform-operations"] as PlatformOperationsServices;
-    const entry = services.policyConsoleEntries.find(
-      (entry) => entry.policyKey === "platform-operations.seller-compliance-cohort",
-    )!;
-    const db = pools["platform-operations"];
-    const context = {
-      tenantId: "synthetic-cohort-tenant" as never,
-      audit: {
-        performedByUserId: "synthetic-cohort-operator" as never,
-        forAccountId: "synthetic-cohort-account" as never,
-      },
-    };
-    const value = {
-      activated: true,
-      currencyCode: "USD",
-      qualifyingTransactionCount: 1,
-      qualifyingGrossCents: "100",
-      disclosureGrossCents: "1000",
-      windowMonths: 1,
-      lookbackMonths: 12,
-      comparisonIsInclusive: true,
-      saleUnit: "captured-order",
-      qualifyingGrossBasis: "item-gross",
-      refundTreatment: "exclude-refunded",
-      postCaptureCancellationTreatment: "exclude-cancelled",
-      mixedLineTreatment: "exclude-mixed",
-      unclassifiableTreatment: "exclude-unclassifiable",
-      classificationRules: [{ source: "productId", value: "synthetic-cohort-card" }],
-    };
-    const params = {
-      value,
-      status: "active" as "active" | "inactive",
-      effectiveFrom: "2027-01-01T00:00:00.000Z",
-      effectiveUntil: null as string | null,
-      actorUserId: "synthetic-cohort-operator",
-    };
-    const seller = "synthetic-mounted-controls";
-    const document = "synthetic-mounted-controls-policy";
-    const evaluateAt = async (tick: string) => {
-      vi.setSystemTime(new Date(tick));
-      expect(await services.sellerComplianceCohorts.evaluateSeller({ sellerAccountId: seller, tick })).toBe(true);
-    };
-    const stored = async () =>
-      (
-        await db.query("SELECT * FROM platform_operations_seller_compliance_cohorts WHERE seller_account_id=$1", [
-          seller,
-        ])
-      ).rows;
-    const transitions = async () =>
-      (
+  it.each(["combined inert history", "isolated raise history"])(
+    "seller compliance mounted command controls: %s",
+    async (scenario) => {
+      const databaseUrls = createMultiContextTestDatabaseUrls(
+        adminDatabaseUrl!,
+        ["platform-operations"],
+        "cohort_command_controls",
+      );
+      await ensureMultiContextTestDatabases(adminDatabaseUrl!, databaseUrls);
+      const scenarioPools = createMultiContextTestPools(databaseUrls);
+      const scenarioRuntime = createWorkerHost(workerContextRegistry, "platform-worker", {
+        pools: { ...pools, ...scenarioPools },
+        runtimeProfile,
+        hostPorts: workerHostPorts(),
+      });
+      const mounted = scenarioRuntime.mountedContexts.find((context) => context.contextName === "platform-operations")!;
+      await bootstrapContextDatabase(mounted.module, mounted.pool);
+      const services = scenarioRuntime.services["platform-operations"] as PlatformOperationsServices;
+      const entry = services.policyConsoleEntries.find(
+        (entry) => entry.policyKey === "platform-operations.seller-compliance-cohort",
+      )!;
+      const db = scenarioPools["platform-operations"];
+      const context = {
+        tenantId: "synthetic-cohort-tenant" as never,
+        audit: {
+          performedByUserId: "synthetic-cohort-operator" as never,
+          forAccountId: "synthetic-cohort-account" as never,
+        },
+      };
+      const value = {
+        activated: true,
+        currencyCode: "USD",
+        qualifyingTransactionCount: 1,
+        qualifyingGrossCents: "100",
+        disclosureGrossCents: "1000",
+        windowMonths: 1,
+        lookbackMonths: 12,
+        comparisonIsInclusive: true,
+        saleUnit: "captured-order",
+        qualifyingGrossBasis: "item-gross",
+        refundTreatment: "exclude-refunded",
+        postCaptureCancellationTreatment: "exclude-cancelled",
+        mixedLineTreatment: "exclude-mixed",
+        unclassifiableTreatment: "exclude-unclassifiable",
+        classificationRules: [{ source: "productId", value: "synthetic-cohort-card" }],
+      };
+      const params = {
+        value,
+        status: "active" as "active" | "inactive",
+        effectiveFrom: "2027-01-01T00:00:00.000Z",
+        effectiveUntil: null as string | null,
+        actorUserId: "synthetic-cohort-operator",
+      };
+      const seller = "synthetic-mounted-controls";
+      const document = "synthetic-mounted-controls-policy";
+      const evaluateAt = async (tick: string) => {
+        vi.setSystemTime(new Date(tick));
+        expect(await services.sellerComplianceCohorts.evaluateSeller({ sellerAccountId: seller, tick })).toBe(true);
+      };
+      const stored = async () =>
+        (
+          await db.query("SELECT * FROM platform_operations_seller_compliance_cohorts WHERE seller_account_id=$1", [
+            seller,
+          ])
+        ).rows;
+      const transitions = async () =>
+        (
+          await db.query(
+            "SELECT * FROM platform_operations_seller_compliance_cohort_transitions WHERE seller_account_id=$1 ORDER BY transition_version",
+            [seller],
+          )
+        ).rows;
+      const revise = async (at: string, overrides: Partial<typeof params> = {}) => {
+        vi.setSystemTime(new Date(at));
+        await services.policies.revisePolicyDocument(entry.definition, document, { ...params, ...overrides }, context);
+      };
+      vi.useFakeTimers({ toFake: ["Date"] });
+      try {
+        vi.setSystemTime(new Date("2027-01-01T00:00:00.000Z"));
+        // Each mounted scenario has its own complete policy history, with no fallback documents.
+        await services.policies.createPolicyDocumentWithId(entry.definition, document, params, context);
         await db.query(
-          "SELECT * FROM platform_operations_seller_compliance_cohort_transitions WHERE seller_account_id=$1 ORDER BY transition_version",
-          [seller],
-        )
-      ).rows;
-    const revise = async (at: string, overrides: Partial<typeof params> = {}) => {
-      vi.setSystemTime(new Date(at));
-      await services.policies.revisePolicyDocument(entry.definition, document, { ...params, ...overrides }, context);
-    };
-    vi.useFakeTimers({ toFake: ["Date"] });
-    try {
-      vi.setSystemTime(new Date("2027-01-01T00:00:00.000Z"));
-      // Remove other documents as fallback authority for the close-without-successor control.
-      for (const old of ["synthetic-cohort-causal-policy", "synthetic-prospective-policy"])
-        await services.policies.revisePolicyDocument(entry.definition, old, { ...params, status: "inactive" }, context);
-      await services.policies.createPolicyDocumentWithId(entry.definition, document, params, context);
-      await db.query(
-        `INSERT INTO platform_operations_seller_compliance_sales
+          `INSERT INTO platform_operations_seller_compliance_sales
         (payment_id,order_id,seller_account_id,sale_state,occurred_at,currency_code,item_gross_cents,marketplace_sales_fee_cents,seller_item_net_cents,classification_inputs,change_sequence,recorded_at,changed_at)
         VALUES ('synthetic-controls-old','synthetic-controls-old',$1,'captured','2023-01-01','USD',100,0,100,$2,910001,'2023-01-01','2023-01-01')`,
-        [seller, JSON.stringify([{ productId: "synthetic-cohort-card" }])],
-      );
-      await evaluateAt("2027-01-02T00:00:00.000Z");
-      expect((await stored())[0]).toMatchObject({ state: "outside" });
-      expect(await transitions()).toEqual([]);
-      await db.query(
-        `INSERT INTO platform_operations_seller_compliance_sales
+          [seller, JSON.stringify([{ productId: "synthetic-cohort-card" }])],
+        );
+        await evaluateAt("2027-01-02T00:00:00.000Z");
+        expect((await stored())[0]).toMatchObject({ state: "outside" });
+        expect(await transitions()).toEqual([]);
+        await db.query(
+          `INSERT INTO platform_operations_seller_compliance_sales
         (payment_id,order_id,seller_account_id,sale_state,occurred_at,currency_code,item_gross_cents,marketplace_sales_fee_cents,seller_item_net_cents,classification_inputs,change_sequence,recorded_at,changed_at)
         VALUES ('synthetic-controls-current','synthetic-controls-current',$1,'captured','2027-03-20','USD',100,0,100,$2,910002,'2027-03-20','2027-03-20')`,
-        [seller, JSON.stringify([{ productId: "synthetic-cohort-card" }])],
-      );
-      await evaluateAt("2027-03-21T00:00:00.000Z");
-      const member = await stored();
-      const entered = await transitions();
-      expect(entered).toHaveLength(1);
-      for (const [index, overrides] of [
-        { status: "inactive" as const },
-        { value: { ...value, activated: false } },
-        { effectiveUntil: "2027-03-21T00:00:00.000Z" },
-      ].entries()) {
-        const day = `2027-03-${22 + index}`;
-        await revise(`${day}T00:00:00.000Z`, overrides);
-        await evaluateAt(`${day}T01:00:00.000Z`);
-        expect(await stored()).toEqual(member);
+          [seller, JSON.stringify([{ productId: "synthetic-cohort-card" }])],
+        );
+        await evaluateAt("2027-03-21T00:00:00.000Z");
+        const member = await stored();
+        const entered = await transitions();
+        expect(entered).toHaveLength(1);
+        for (const [index, overrides] of (scenario === "combined inert history"
+          ? [
+              { status: "inactive" as const },
+              { value: { ...value, activated: false } },
+              { effectiveUntil: "2027-03-21T00:00:00.000Z" },
+            ]
+          : []
+        ).entries()) {
+          const day = `2027-03-${22 + index}`;
+          await revise(`${day}T00:00:00.000Z`, overrides);
+          await evaluateAt(`${day}T01:00:00.000Z`);
+          expect(await stored()).toEqual(member);
+          expect(await transitions()).toEqual(entered);
+          await revise(`${day}T12:00:00.000Z`);
+        }
+        // Same recorded time and value, varying only requested start: future is not authority yet.
+        await revise("2027-03-25T00:00:00.000Z", {
+          effectiveFrom: "2027-04-01T00:00:00.000Z",
+          value: { ...value, qualifyingGrossCents: "500" },
+        });
+        await evaluateAt("2027-03-26T00:00:00.000Z");
         expect(await transitions()).toEqual(entered);
-        await revise(`${day}T12:00:00.000Z`);
+        await revise("2027-03-25T00:00:00.000Z", { value: { ...value, qualifyingGrossCents: "500" } });
+        await evaluateAt("2027-03-26T00:00:00.000Z");
+        const exited = await transitions();
+        expect(exited).toHaveLength(2);
+        expect(exited[0]).toEqual(entered[0]);
+        expect(exited[1]).toMatchObject({
+          kind: "exited",
+          effective_at: new Date(
+            scenario === "combined inert history" ? "2027-03-22T00:00:00.000Z" : "2027-03-25T00:00:00.000Z",
+          ),
+          observed_at: new Date("2027-03-26T00:00:00.000Z"),
+        });
+        const outside = await stored();
+        await revise("2027-03-27T00:00:00.000Z", { value: { ...value, activated: false } });
+        await evaluateAt("2027-03-28T00:00:00.000Z");
+        expect(await stored()).toEqual(outside);
+        expect(await transitions()).toEqual(exited);
+        await revise("2027-04-01T00:00:00.000Z");
+        await evaluateAt("2027-04-02T00:00:00.000Z");
+        const reentered = await transitions();
+        expect(reentered).toHaveLength(3);
+        expect(reentered.slice(0, 2)).toEqual(exited);
+        expect(reentered[2]).toMatchObject({
+          kind: "entered",
+          effective_at: new Date(
+            scenario === "combined inert history" ? "2027-03-22T12:00:00.000Z" : "2027-04-01T00:00:00.000Z",
+          ),
+          observed_at: new Date("2027-04-02T00:00:00.000Z"),
+        });
+      } finally {
+        vi.useRealTimers();
+        await closeMultiContextTestPools(scenarioPools);
       }
-      // Same recorded time and value, varying only requested start: future is not authority yet.
-      await revise("2027-03-25T00:00:00.000Z", {
-        effectiveFrom: "2027-04-01T00:00:00.000Z",
-        value: { ...value, qualifyingGrossCents: "500" },
-      });
-      await evaluateAt("2027-03-26T00:00:00.000Z");
-      expect(await transitions()).toEqual(entered);
-      await revise("2027-03-25T00:00:00.000Z", { value: { ...value, qualifyingGrossCents: "500" } });
-      await evaluateAt("2027-03-26T00:00:00.000Z");
-      const exited = await transitions();
-      expect(exited).toHaveLength(2);
-      expect(exited[1]).toMatchObject({ kind: "exited", effective_at: new Date("2027-03-25T00:00:00.000Z") });
-      await revise("2027-03-27T00:00:00.000Z", { value: { ...value, activated: false } });
-      await evaluateAt("2027-03-28T00:00:00.000Z");
-      expect(await transitions()).toEqual(exited);
-      await revise("2027-04-01T00:00:00.000Z");
-      await evaluateAt("2027-04-02T00:00:00.000Z");
-      const reentered = await transitions();
-      expect(reentered).toHaveLength(3);
-      expect(reentered[2]).toMatchObject({ kind: "entered", effective_at: new Date("2027-04-01T00:00:00.000Z") });
-    } finally {
-      vi.useRealTimers();
-    }
-  });
+      expect(externalFetch).not.toHaveBeenCalled();
+    },
+  );
 
   it("drains 1001 expired eBay receipts through the actual registered runner; omission leaves all expired rows", async () => {
     await pools.channels.query(`INSERT INTO channels_ebay_account_deletion_receipts
