@@ -1,0 +1,1472 @@
+import { readFileSync, mkdtempSync, writeFileSync, existsSync, rmSync, mkdirSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import { afterEach, describe, expect, it } from "vitest";
+import {
+  acquireC1Evidence,
+  recheckC1Evidence,
+  consumeCompleteEnvelope,
+  CONTEXT,
+  READS,
+} from "./c1-evidence-acquisition.mjs";
+import { parse, stringify } from "yaml";
+import {
+  CERTIFY,
+  DELETE,
+  METHOD,
+  RECEIPT,
+  readTerminalEvidence,
+  responseRecord,
+  sha256,
+} from "./census-terminal-evidence.mjs";
+
+const repository = "synthetic-owner/h6-clock-fixtures";
+const headers = { "x-github-request-id": "synthetic-request", "content-type": "application/json" };
+const raw = (url, value, extra = {}) =>
+  responseRecord(url, JSON.stringify(value), { ...headers, ...extra }, 200, {
+    captureStartedAt: "2030-01-01T01:00:10Z",
+    captureCompletedAt: "2030-01-01T01:00:11Z",
+  });
+const runUrl = (b) => `https://api.github.com/repos/${repository}/actions/runs/${b.id}`;
+const copy = (value) => structuredClone(value);
+const generatedHash = (label) => sha256(`synthetic:${label}`);
+const step = (name, number, conclusion = "success") => ({
+  name,
+  number,
+  status: "completed",
+  conclusion,
+  started_at: "2030-01-01T00:59:00Z",
+  completed_at: "2030-01-01T01:00:00Z",
+});
+
+function runs(binding, conclusion = "success") {
+  const body = {
+    id: binding.id,
+    run_attempt: binding.attempt,
+    repository: { full_name: repository },
+    workflow_id: binding.workflowId,
+    path: binding.path,
+    head_sha: binding.head,
+    event: "workflow_dispatch",
+    status: "completed",
+    conclusion,
+    created_at: "2030-01-01T00:00:00Z",
+    run_started_at: "2030-01-01T00:00:01Z",
+    updated_at: "2030-01-01T01:05:00Z",
+  };
+  const base = runUrl(binding);
+  return [raw(base, body), raw(`${base}/attempts/${binding.attempt}`, body), raw(base, body)];
+}
+
+function sealRuns(binding, conclusion = "success") {
+  return runs(binding, conclusion).map((record, index) => ({
+    ...record,
+    captureStartedAt: `2030-01-01T00:58:00.${index}00Z`,
+    captureCompletedAt: `2030-01-01T00:58:00.${index + 1}00Z`,
+  }));
+}
+
+function jobSet(binding, jobs) {
+  const pages = [];
+  const base = `${runUrl(binding)}/attempts/${binding.attempt}/jobs?per_page=100&page=`;
+  const totalPages = Math.max(1, Math.ceil(jobs.length / 100));
+  for (let page = 1; page <= totalPages; page++)
+    pages.push(
+      raw(
+        `${base}${page}`,
+        { total_count: jobs.length, jobs: jobs.slice((page - 1) * 100, page * 100) },
+        page < totalPages ? { link: `<${base}${page + 1}>; rel="next", <${base}${totalPages}>; rel="last"` } : {},
+      ),
+    );
+  return {
+    pages,
+    details: jobs.map((job) => raw(`https://api.github.com/repos/${repository}/actions/jobs/${job.id}`, job)),
+  };
+}
+
+function syntheticJob(binding, id, name, steps) {
+  return {
+    id,
+    run_id: binding.id,
+    run_attempt: binding.attempt,
+    head_sha: binding.head,
+    name,
+    status: "completed",
+    conclusion: "success",
+    started_at: "2030-01-01T00:01:00Z",
+    completed_at: "2030-01-01T01:00:09Z",
+    steps,
+  };
+}
+
+const setupAction = `synthetic-owner/setup@${"4".repeat(40)}`;
+const actionSource = stringify({
+  name: "Synthetic runtime setup",
+  runs: { using: "node24", pre: "dist/pre.mjs", main: "dist/main.mjs", post: "dist/post.mjs" },
+});
+
+// Trusted source expansion is constructed from source, never from the observed REST jobs/actions.
+function sourceGraphs(sources) {
+  const graphs = { actions: [], actionSources: [{ path: "source-action", sha256: sha256(sources.action) }] };
+  for (const [role, key] of [
+    ["census", "censusWorkflow"],
+    ["verification", "workflow"],
+  ]) {
+    const workflow = parse(sources[key]);
+    graphs[role] = {
+      sourcePath: `source-${key}`,
+      sourceHash: sha256(sources[key]),
+      jobs: Object.entries(workflow.jobs).map(([jobKey, job]) => {
+        if (job.if === false) return { name: job.name, skipped: true, steps: [] };
+        const pre = [];
+        const main = [];
+        const post = [];
+        for (const declaration of job.steps) {
+          if (!declaration.uses) {
+            main.push(declaration.name);
+            continue;
+          }
+          expect(declaration.uses).toBe(setupAction);
+          const action = parse(sources.action);
+          for (const phase of ["pre", "main", "post"]) {
+            const name =
+              phase === "main" ? declaration.name : `${phase === "pre" ? "Pre" : "Post"} ${declaration.name}`;
+            ({ pre, main, post })[phase].push(name);
+            graphs.actions.push({
+              role,
+              jobKey,
+              name,
+              uses: declaration.uses,
+              phase,
+              entrypoint: action.runs[phase],
+              sourceHash: sha256(sources.action),
+            });
+          }
+        }
+        return {
+          name: job.name,
+          skipped: false,
+          steps: ["Set up job", ...pre, ...main, ...post.reverse(), "Complete job"].map((name) => ({ name })),
+        };
+      }),
+    };
+  }
+  return graphs;
+}
+
+function fixture({ pageTwo = false } = {}) {
+  const source = stringify({
+    name: "Synthetic verification",
+    on: "workflow_dispatch",
+    jobs: {
+      ...(pageTwo
+        ? Object.fromEntries(
+            Array.from({ length: 99 }, (_, i) => [
+              `extra-${i}`,
+              { name: `Synthetic extra job ${i}`, steps: [{ name: "Synthetic work", run: "synthetic-work" }] },
+            ]),
+          )
+        : {}),
+      "synthetic-skipped": {
+        name: "Synthetic inapplicable route",
+        if: false,
+        steps: [{ name: "Inapplicable", run: "synthetic-unused" }],
+      },
+      "verify-release": {
+        name: "Verify Release in Ephemeral Namespace",
+        steps: [
+          { name: "Set up synthetic runtime", uses: setupAction },
+          { name: "Reset verification namespace", run: "synthetic-create" },
+          { name: "Delete verification provider webhooks", if: "always()", run: "synthetic-finalize" },
+          { name: "Hold for preview census", if: "always()", run: "synthetic-hold" },
+          {
+            name: CERTIFY,
+            if: "always()",
+            run: "node scripts/census-terminal-evidence.mjs",
+            "working-directory": "$RUNNER_TEMP/census-terminal-source",
+          },
+          { name: DELETE, if: "always()", run: "synthetic-delete" },
+        ],
+      },
+    },
+  });
+  const helper = readFileSync(new URL("./census-terminal-evidence.mjs", import.meta.url), "utf8").replaceAll(
+    "\r\n",
+    "\n",
+  );
+  const sources = {
+    body: "synthetic:admitted issue body",
+    method: "synthetic:admitted v3 method",
+    helper,
+    workflow: source,
+    censusWorkflow: stringify({
+      name: "Synthetic census",
+      on: "workflow_dispatch",
+      jobs: {
+        census: {
+          name: "Read preview-pool census",
+          steps: [
+            { name: "Set up synthetic runtime", uses: setupAction },
+            { name: "Capture preview-pool census", run: "synthetic-capture" },
+            { name: "Upload preview-pool census", if: "always()", run: "synthetic-upload" },
+          ],
+        },
+        "synthetic-skipped": {
+          name: "Synthetic census inapplicable route",
+          if: false,
+          steps: [{ name: "Inapplicable", run: "synthetic-unused" }],
+        },
+      },
+    }),
+    action: actionSource,
+    review: "synthetic:independent complete review",
+    decision: "synthetic:prospective ACCEPT_A",
+  };
+  const census = {
+    repository,
+    id: 900000000000001,
+    attempt: 1,
+    workflowId: 900000001,
+    path: ".github/workflows/platform-preview-pool-census.yml",
+    head: "1".repeat(40),
+  };
+  const verification = {
+    repository,
+    id: 900000000000002,
+    attempt: 1,
+    workflowId: 900000002,
+    path: ".github/workflows/platform-ephemeral-verification.yml",
+    head: "2".repeat(40),
+  };
+  const binding = {
+    census,
+    verification,
+    workflowHead: verification.head,
+    namespace: `chase-sets-verify-${verification.id}-1`,
+    uid: "synthetic-created-uid",
+    release: "3".repeat(40),
+    digest: `sha256:${generatedHash("image")}`,
+    ...Object.fromEntries(Object.entries(sources).map(([key, value]) => [`${key}Hash`, sha256(value)])),
+  };
+  const vSteps = [
+    step("Set up job", 1),
+    step("Pre Set up synthetic runtime", 2),
+    step("Set up synthetic runtime", 3),
+    step("Reset verification namespace", 12),
+    step("Delete verification provider webhooks", 24),
+    step("Hold for preview census", 40),
+    { ...step(CERTIFY, 51), completed_at: "2030-01-01T00:59:00Z" },
+    step(DELETE, 52),
+    step("Post Set up synthetic runtime", 81),
+    step("Complete job", 90),
+  ];
+  const bounds = [
+    ["00:01:00", "00:01:01"],
+    ["00:01:01", "00:01:02"],
+    ["00:01:02", "00:01:03"],
+    ["00:02:00", "00:02:01"],
+    ["00:57:00", "00:57:01"],
+    ["00:57:01", "00:58:00"],
+    ["00:58:00", "00:59:00"],
+    ["00:59:00", "01:00:00"],
+    ["01:00:00", "01:00:08"],
+    ["01:00:08", "01:00:09"],
+  ];
+  for (const [index, s] of vSteps.entries()) {
+    s.started_at = `2030-01-01T${bounds[index][0]}Z`;
+    s.completed_at = `2030-01-01T${bounds[index][1]}Z`;
+  }
+  const vJob = syntheticJob(verification, 900000000000202, "Verify Release in Ephemeral Namespace", vSteps);
+  const cJob = syntheticJob(census, 900000000000201, "Read preview-pool census", [
+    step("Set up job", 1),
+    step("Pre Set up synthetic runtime", 2),
+    step("Set up synthetic runtime", 3),
+    step("Capture preview-pool census", 24),
+    step("Upload preview-pool census", 51),
+    step("Post Set up synthetic runtime", 81),
+    step("Complete job", 90),
+  ]);
+  cJob.started_at = "2030-01-01T00:00:01Z";
+  cJob.completed_at = "2030-01-01T00:57:00Z";
+  for (const [index, s] of cJob.steps.entries()) {
+    s.started_at = `2030-01-01T00:${String(index + 1).padStart(2, "0")}:00Z`;
+    s.completed_at = `2030-01-01T00:${String(index + 1).padStart(2, "0")}:01Z`;
+  }
+  const skipped = {
+    ...syntheticJob(verification, 900000000000203, "Synthetic inapplicable route", []),
+    conclusion: "skipped",
+    started_at: null,
+    completed_at: null,
+  };
+  const vJobs = pageTwo
+    ? [
+        ...Array.from({ length: 99 }, (_, i) =>
+          syntheticJob(verification, 900000001000000 + i, `Synthetic extra job ${i}`, [
+            { ...step("Set up job", 1), started_at: "2030-01-01T00:01:00Z", completed_at: "2030-01-01T00:01:01Z" },
+            { ...step("Synthetic work", 24), started_at: "2030-01-01T00:01:01Z", completed_at: "2030-01-01T00:01:02Z" },
+            { ...step("Complete job", 51), started_at: "2030-01-01T00:01:02Z", completed_at: "2030-01-01T00:01:03Z" },
+          ]),
+        ),
+        skipped,
+        vJob,
+      ]
+    : [vJob, skipped];
+  // Independent observed action expansion, with the same generated synthetic identities as the source.
+  const actions = ["census", "verification"].flatMap((role) =>
+    ["pre", "main", "post"].map((phase) => ({
+      role,
+      jobKey: role === "census" ? "census" : "verify-release",
+      name:
+        phase === "main" ? "Set up synthetic runtime" : `${phase === "pre" ? "Pre" : "Post"} Set up synthetic runtime`,
+      uses: setupAction,
+      phase,
+      entrypoint: `dist/${phase}.mjs`,
+      sourceHash: sha256(actionSource),
+    })),
+  );
+  const envelope = {
+    synthetic: true,
+    repository,
+    caseId: "synthetic:complete-positive",
+    method: METHOD,
+    schemaVersion: RECEIPT,
+    binding,
+    admission: {
+      method: METHOD,
+      decision: "ACCEPT_A",
+      receiptId: "synthetic:admitted-receipt",
+      implementationCommit: verification.head,
+      dispatchHash: generatedHash("admission-dispatch"),
+      controlReceiptHash: generatedHash("controls"),
+      sourceGraphsHash: sha256(JSON.stringify(sourceGraphs(sources))),
+    },
+    custodians: {
+      timestamp: "synthetic-session-timestamp",
+      schedule: "synthetic-session-schedule",
+      executor: "synthetic-session-executor",
+    },
+    dispatch: {
+      verificationDispatched: true,
+      verificationRunExists: true,
+      bracketStarted: true,
+      inputHash: generatedHash("dispatch-input"),
+    },
+    namespace: {
+      state: "CREATED",
+      name: binding.namespace,
+      uid: binding.uid,
+      release: binding.release,
+      digest: binding.digest,
+      runId: verification.id,
+      attempt: 1,
+      createdAt: "2030-01-01T00:02:00Z",
+      deleted: true,
+    },
+    sourceMap: {
+      jobId: vJob.id,
+      jobKey: "verify-release",
+      synchronous: true,
+      deleteDependsOnSeal: false,
+      workflowHash: binding.workflowHash,
+      helperHash: binding.helperHash,
+      expandedActionsHash: sha256(JSON.stringify(actions)),
+      steps: vSteps.map(({ name }) => ({ name })),
+    },
+    seal: { schemaVersion: "h6-pre-delete-seal/v1", binding: copy(binding), responses: sealRuns(census) },
+    capture: { census: runs(census), verification: runs(verification) },
+    consumption: { census: runs(census), verification: runs(verification) },
+    jobs: {
+      census: jobSet(census, [
+        cJob,
+        {
+          ...syntheticJob(census, 900000000000204, "Synthetic census inapplicable route", []),
+          conclusion: "skipped",
+          started_at: null,
+          completed_at: null,
+        },
+      ]),
+      verification: jobSet(verification, vJobs),
+    },
+    coverage: [
+      "dispatch",
+      "sources",
+      "actions",
+      "logs",
+      "events",
+      "namespace",
+      "finalizers",
+      "capture",
+      "consumption",
+    ].map((role) => ({ role, complete: true, paths: [`synthetic-${role}.json`] })),
+    ack: {
+      at: "2030-01-01T01:00:15Z",
+      scheduleHash: generatedHash("schedule"),
+      custodian: "synthetic-session-schedule",
+      receiptHash: "",
+    },
+    schedule: {
+      t0Utc: "2030-01-01T01:00:00Z",
+      deadlineUtc: "2030-01-01T02:30:00Z",
+      persistedAt: "2030-01-01T01:00:00Z",
+      windows: [0, 1, 2].map((i) => ({
+        ordinal: i + 1,
+        startSlot: i === 0 ? 0 : null,
+        slotLimit: 60,
+        intervalSeconds: 30,
+        reads: [],
+        ended: false,
+      })),
+    },
+    histories: Object.fromEntries(
+      ["opportunity", "oneFreshArm", "sizingWindows", "lifetimeAttempts", "consumedHeads", "blockingRounds"].map(
+        (key) => [key, generatedHash(`history-${key}`)],
+      ),
+    ),
+  };
+  return retain({ envelope, sources, actions, expectedGraphs: sourceGraphs(sources) });
+}
+
+function retain(f) {
+  const e = f.envelope;
+  const file = (path, value) => ({
+    path,
+    backupPath: `synthetic-independent-backup/${path}`,
+    originalCustodian: "synthetic-original-custodian",
+    backupCustodian: "synthetic-backup-custodian",
+    encoding: "utf8",
+    original: typeof value === "string" ? value : JSON.stringify(value),
+    backup: typeof value === "string" ? value : JSON.stringify(value),
+  });
+  const owner = e.jobs.verification.details
+    .map((record) => JSON.parse(record.body))
+    .find((job) => job.name === "Verify Release in Ephemeral Namespace");
+  e.ack.scheduleHash = sha256(JSON.stringify(e.schedule));
+  e.ack.receiptHash = sha256(
+    JSON.stringify({
+      binding: e.binding,
+      seal: e.seal,
+      endpoint: owner?.steps?.find((s) => s.name === DELETE)?.completed_at,
+    }),
+  );
+  e.files = Object.entries(f.sources).map(([name, value]) => file(`source-${name}`, value));
+  const lifecycle = {
+    dispatch: e.dispatch,
+    sources: e.sourceMap,
+    actions: { expanded: copy(f.actions) },
+    logs: {
+      safe: true,
+      entire: true,
+      jobId: e.sourceMap.jobId,
+      text: `${e.sourceMap.steps.map((s) => `synthetic executed step ${s.name}`).join("\n")}\nnode scripts/census-terminal-evidence.mjs`,
+      certification: {
+        command: "node scripts/census-terminal-evidence.mjs",
+        workingDirectory: "$RUNNER_TEMP/census-terminal-source",
+        workflowHead: e.binding.workflowHead,
+        helperHash: e.binding.helperHash,
+        namespaceCreationPath: "$GITHUB_WORKSPACE/artifacts/ephemeral-verification/namespace-created.json",
+        sealPath: "$GITHUB_WORKSPACE/artifacts/ephemeral-verification/census-terminal-seal.json",
+      },
+      checkedAt: "2030-01-01T01:00:10Z",
+      emittedAtUtc: "2030-01-01T01:00:11Z",
+      hold_end: "2030-01-01T00:58:00Z",
+      jobs: ["census", "verification"].flatMap((role) =>
+        e.jobs[role].details.map((record) => {
+          const job = JSON.parse(record.body);
+          return {
+            role,
+            jobId: job.id,
+            safe: true,
+            entire: true,
+            steps: job.steps,
+            text: job.steps?.map((s) => s.name).join("\n") ?? "",
+          };
+        }),
+      ),
+    },
+    events: [
+      "capture-start",
+      "verification-dispatched",
+      "namespace-created",
+      "provider-finalized",
+      "seal-written",
+      "delete-started",
+      "delete-completed",
+    ].map((kind) => ({
+      delivery: `synthetic-${kind}`,
+      deliveredAt: "2030-01-01T01:00:10Z",
+      receivedAt: "2030-01-01T01:00:11Z",
+      polledAt: "2030-01-01T01:00:12Z",
+      kind,
+      uid: e.namespace.uid,
+      runId: kind === "capture-start" ? e.binding.census.id : e.binding.verification.id,
+      attempt: kind === "capture-start" ? e.binding.census.attempt : e.binding.verification.attempt,
+    })),
+    namespace: {
+      creation: {
+        kind: "Namespace",
+        metadata: { name: e.namespace.name, uid: e.namespace.uid, creationTimestamp: e.namespace.createdAt },
+      },
+    },
+    finalizers: { provider: "success", delete: e.namespace.deleted ? "success" : "failure" },
+    capture: e.capture,
+    consumption: e.consumption,
+    ...f.lifecycleOverrides,
+  };
+  for (const [name, value] of Object.entries(lifecycle)) e.files.push(file(`synthetic-${name}.json`, value));
+  e.files.push(file("seal.json", e.seal));
+  for (const phase of ["capture", "consumption"])
+    for (const role of ["census", "verification"])
+      for (const [i, record] of e[phase][role].entries()) e.files.push(file(`${phase}-${role}-${i}`, record));
+  for (const role of ["census", "verification"])
+    for (const kind of ["pages", "details"])
+      for (const [i, record] of e.jobs[role][kind].entries()) e.files.push(file(`${role}-${kind}-${i}`, record));
+  e.files.push(
+    file("facts.json", {
+      binding: e.binding,
+      admission: e.admission,
+      dispatch: e.dispatch,
+      namespace: e.namespace,
+      sourceMap: e.sourceMap,
+      custodians: e.custodians,
+      ack: e.ack,
+      coverage: e.coverage,
+      schedule: e.schedule,
+      histories: e.histories,
+    }),
+  );
+  return admitFiles(f);
+}
+
+function admitFiles(f) {
+  const e = f.envelope;
+  const manifest = e.files.map((file) => ({
+    path: file.path,
+    backupPath: file.backupPath,
+    originalCustodian: file.originalCustodian,
+    backupCustodian: file.backupCustodian,
+    bytes: Buffer.byteLength(file.original),
+    sha256: sha256(file.original),
+  }));
+  e.externalManifestHash = sha256(JSON.stringify(manifest));
+  f.admitted = copy({
+    binding: e.binding,
+    admission: e.admission,
+    manifest,
+    externalManifestHash: e.externalManifestHash,
+    coverage: e.coverage,
+    dispatch: e.dispatch,
+    custodians: e.custodians,
+    sourceMap: e.sourceMap,
+    sourceGraphs: f.expectedGraphs,
+    scheduleHash: e.ack?.scheduleHash,
+    histories: e.histories,
+  });
+  return f;
+}
+
+function mutateRecord(record, mutate) {
+  const value = JSON.parse(record.body);
+  mutate(value);
+  return raw(record.url, value, record.headers);
+}
+
+function changeDelete(f, mutate) {
+  const set = f.envelope.jobs.verification;
+  set.details[0] = mutateRecord(set.details[0], (job) =>
+    mutate(
+      job.steps.find((s) => s.name === DELETE),
+      job,
+    ),
+  );
+  set.pages[0] = mutateRecord(set.pages[0], (page) => {
+    page.jobs[0] = JSON.parse(set.details[0].body);
+  });
+  return retain(f);
+}
+
+const read = (f) => readTerminalEvidence(f.envelope, f.admitted);
+
+function withoutVerification(f) {
+  const e = f.envelope;
+  Object.assign(e.dispatch, { verificationDispatched: false, verificationRunExists: false, bracketStarted: false });
+  for (const key of ["verification", "namespace", "uid"]) delete e.binding[key];
+  for (const key of ["namespace", "sourceMap", "seal", "ack", "schedule"]) e[key] = null;
+  for (const phase of ["capture", "consumption", "jobs"]) delete e[phase].verification;
+  e.coverage = e.coverage.map((entry) =>
+    ["actions", "logs", "events", "namespace", "finalizers"].includes(entry.role)
+      ? { role: entry.role, complete: true, notApplicable: true, reason: "NO_VERIFICATION_RUN", paths: [] }
+      : entry.role === "sources"
+        ? { ...entry, paths: ["source-workflow"] }
+        : entry,
+  );
+  const facts = Object.fromEntries(
+    [
+      "binding",
+      "admission",
+      "dispatch",
+      "namespace",
+      "sourceMap",
+      "custodians",
+      "ack",
+      "coverage",
+      "schedule",
+      "histories",
+    ].map((key) => [key, e[key]]),
+  );
+  const replacement = {
+    "facts.json": facts,
+    "synthetic-dispatch.json": e.dispatch,
+    "synthetic-capture.json": e.capture,
+    "synthetic-consumption.json": e.consumption,
+  };
+  for (const phase of ["capture", "consumption"])
+    for (const [i, record] of (e[phase]?.census ?? []).entries()) replacement[`${phase}-census-${i}`] = record;
+  for (const kind of ["pages", "details"])
+    for (const [i, record] of (e.jobs?.census?.[kind] ?? []).entries()) replacement[`census-${kind}-${i}`] = record;
+  e.files = e.files
+    .filter((file) => file.path.startsWith("source-") || Object.hasOwn(replacement, file.path))
+    .map((file) =>
+      Object.hasOwn(replacement, file.path)
+        ? { ...file, original: JSON.stringify(replacement[file.path]), backup: JSON.stringify(replacement[file.path]) }
+        : file,
+    );
+  return admitFiles(f);
+}
+
+const temporary = [];
+afterEach(() => {
+  for (const path of temporary.splice(0)) rmSync(path, { recursive: true, force: true });
+});
+const sandbox = () => {
+  const path = mkdtempSync(join(tmpdir(), "c1-acquisition-synthetic-"));
+  temporary.push(path);
+  return path;
+};
+const meta = (name, extra = {}) => ({
+  name,
+  uid: `synthetic-${name}`,
+  creationTimestamp: "2030-01-01T00:00:00Z",
+  resourceVersion: "123",
+  ...extra,
+});
+function admissionFixture() {
+  const roles = {
+    pr: ["platform-pr.yml", "preview-deploy-smoke"],
+    gate: ["platform-merge-gate-verification.yml", "verify"],
+    stranded: ["platform-merge-gate-verification.yml", "stranded-fixture-drill"],
+    ephemeral: ["platform-ephemeral-verification.yml", "verify-release"],
+    automatic: ["platform-production.yml", "dispatch-ephemeral-verification"],
+    observer: ["platform-merge-qualification-observer.yml", "cleanup"],
+    cleanup: ["platform-preview-cleanup.yml", "destroy-preview"],
+    indirect: ["synthetic-indirect.yml", "synthetic-create"],
+  };
+  const owners = Object.entries(roles).map(([role, [file, job]], i) => ({
+    id: role,
+    role,
+    path: `.github/workflows/${file}`,
+    job,
+    workflowId: i + 100,
+    url: `https://api.github.com/repos/synthetic-owner/c1-fixture/actions/workflows/${i + 100}/runs`,
+  }));
+  const files = [...new Set(owners.map((o) => o.path))].map((path) => {
+    const bytes = stringify({
+      name: `Synthetic ${path}`,
+      on: "workflow_dispatch",
+      jobs: Object.fromEntries(
+        owners.filter((o) => o.path === path).map((o) => [o.job, { steps: [{ run: "synthetic-inert" }] }]),
+      ),
+    });
+    return { path, bytes, sha256: sha256(bytes) };
+  });
+  const source = {
+    repository: "synthetic-owner/c1-fixture",
+    head: "a".repeat(40),
+    owners,
+    files,
+    indirectOwners: ["indirect"],
+  };
+  const capability = {
+    hostAdmission: "synthetic-host-admission",
+    mode: "read-only",
+    context: CONTEXT,
+    reviewHash: generatedHash("review"),
+    ownerIds: owners.map((o) => o.id),
+  };
+  const input = {
+    source,
+    capability,
+    admitted: { sourceHash: sha256(JSON.stringify(source)), capabilityHash: sha256(JSON.stringify(capability)) },
+    slot: { startedAt: 0, deadline: 30000 },
+  };
+  const list = (kind, items) => ({
+    apiVersion: "v1",
+    kind: `${kind}List`,
+    metadata: { resourceVersion: "123" },
+    items,
+  });
+  const node = {
+    apiVersion: "v1",
+    kind: "Node",
+    metadata: meta("node", {
+      labels: { "chase-sets.com/pool": "preview", "node.kubernetes.io/instance-type": "s-4vcpu-8gb" },
+    }),
+    spec: { taints: [{ key: "chase-sets.com/preview-only", value: "true", effect: "NoSchedule" }] },
+    status: {
+      allocatable: { cpu: "4", memory: "8Gi", pods: "110" },
+      conditions: ["Ready", "MemoryPressure", "DiskPressure", "PIDPressure"].map((type) => ({
+        type,
+        status: type === "Ready" ? "True" : "False",
+        lastTransitionTime: "2030-01-01T00:00:00Z",
+      })),
+    },
+  };
+  const bodies = {
+    nodes: list("Node", [node]),
+    namespaces: list("Namespace", []),
+    pods: list("Pod", []),
+    events: list("Event", []),
+    configmap: {
+      apiVersion: "v1",
+      kind: "ConfigMap",
+      metadata: meta("cluster-autoscaler-status", { namespace: "kube-system" }),
+      data: { status: "Cluster-autoscaler status\nScaleDown: NoCandidates\n" },
+    },
+  };
+  let elapsed = 0;
+  const f = {
+    input,
+    bodies,
+    runs: {},
+    trace: [],
+    variable: { present: false, value: null },
+    durations: {},
+    clock: () => elapsed,
+    now: () => "2030-01-01T00:00:00Z",
+  };
+  f.producers = {
+    binding: capability,
+    async clusterRead(request) {
+      f.trace.push(request);
+      elapsed += f.durations[request.resource] ?? 1;
+      return { exitCode: 0, stdout: JSON.stringify(bodies[request.resource]), stderr: "SYNTHETIC_PRIVATE_STDERR" };
+    },
+    async automaticVariableRead(request) {
+      f.trace.push(request);
+      return f.variable;
+    },
+    async previewGateRead(request) {
+      f.trace.push(request);
+      const gate = f.runs.pr?.find((run) => run.id === request.runId)?.previewGate;
+      return gate ? { ...gate, runId: request.runId, attempt: request.attempt, sourceHash: request.sourceHash } : null;
+    },
+    async inventoryRead(request) {
+      f.trace.push(request);
+      const owner = owners.find((o) => o.id === request.owner),
+        ordinal = Number(new URL(request.url).searchParams.get("page"));
+      const runs = f.runs[owner.id] ?? [],
+        pages = Math.max(1, Math.ceil(runs.length / 100));
+      let record = raw(
+        request.url,
+        {
+          total_count: runs.length,
+          workflow_runs: runs.slice((ordinal - 1) * 100, ordinal * 100).map(({ previewGate: _gate, ...run }) => run),
+        },
+        ordinal < pages
+          ? {
+              link: `<${owner.url}?per_page=100&page=${ordinal + 1}>; rel="next", <${owner.url}?per_page=100&page=${pages}>; rel="last"`,
+            }
+          : {},
+      );
+      if (f.mutatePage) record = f.mutatePage(record, request, ordinal);
+      return record;
+    },
+  };
+  f.run = () => acquireC1Evidence(input, f.producers, f);
+  f.record = (role, id, status = "completed") => {
+    const owner = owners.find((o) => o.id === role);
+    return {
+      id,
+      status,
+      conclusion: status === "completed" ? "success" : null,
+      workflow_id: owner.workflowId,
+      path: owner.path,
+      head_sha: source.head,
+      event: "workflow_dispatch",
+      run_attempt: 1,
+      previewGate: {
+        head: source.head,
+        labelPreview: false,
+        clusterPreview: false,
+        evidenceHash: generatedHash("gate-output"),
+      },
+    };
+  };
+  return f;
+}
+
+function filesFor(f, root = sandbox()) {
+  const envelopeFile = join(root, "input-envelope.json"),
+    admittedFile = join(root, "input-admitted.json"),
+    custodyFile = join(root, "input-custody.json");
+  const bytes = [Buffer.from(JSON.stringify(f.envelope)), Buffer.from(JSON.stringify(f.admitted))];
+  writeFileSync(envelopeFile, bytes[0]);
+  writeFileSync(admittedFile, bytes[1]);
+  writeFileSync(
+    custodyFile,
+    JSON.stringify({
+      inputs: [envelopeFile, admittedFile].map((path, i) => ({
+        path,
+        bytes: bytes[i].length,
+        sha256: sha256(bytes[i]),
+      })),
+      manifest: f.admitted.manifest,
+      externalManifestHash: f.admitted.externalManifestHash,
+    }),
+  );
+  return {
+    envelopeFile,
+    admittedFile,
+    custodyFile,
+    outputs: {
+      envelope: join(root, "envelope.json"),
+      manifest: join(root, "manifest.json"),
+      receipt: join(root, "receipt.json"),
+    },
+  };
+}
+function cli(plan) {
+  const args = [
+    fileURLToPath(new URL("./c1-evidence-acquisition.mjs", import.meta.url)),
+    "--envelope-file",
+    plan.envelopeFile,
+    "--admitted-file",
+    plan.admittedFile,
+    "--custody-file",
+    plan.custodyFile,
+    "--out-envelope",
+    plan.outputs.envelope,
+    "--out-manifest",
+    plan.outputs.manifest,
+    "--out-receipt",
+    plan.outputs.receipt,
+  ];
+  // Absolute native Node, no shell/PATH substitution and no inherited credential environment.
+  try {
+    return {
+      exit: 0,
+      result: JSON.parse(
+        execFileSync(process.execPath, args, {
+          encoding: "utf8",
+          env: { SystemRoot: process.env.SystemRoot ?? "", PATH: "", SYNTHETIC_ISOLATION_SENTINEL: "fixture-only" },
+        }),
+      ),
+    };
+  } catch (error) {
+    return { exit: error.status, result: JSON.parse(error.stdout) };
+  }
+}
+
+describe("five-read projection production entrypoint", () => {
+  it.each(
+    ["initContainerStatuses", "containerStatuses", "ephemeralContainerStatuses"].flatMap((statuses) =>
+      ["chase-sets-verify-synthetic", "synthetic-unselected"].flatMap((namespace) =>
+        [
+          ["absent history", undefined],
+          ["malformed string", "synthetic-invalid-last-state"],
+          ["malformed array", []],
+          ["explicit null", null],
+          ["empty history", {}],
+          [
+            "terminated history",
+            {
+              terminated: {
+                reason: "OOMKilled",
+                exitCode: 137,
+                startedAt: "2030-01-01T00:00:10Z",
+                finishedAt: "2030-01-01T00:00:20Z",
+              },
+            },
+          ],
+        ].map(([label, history]) => ({ statuses, namespace, label, history })),
+      ),
+    ),
+  )(
+    "validates $label in $statuses for $namespace before the next read",
+    async ({ statuses, namespace, label, history }) => {
+      const f = admissionFixture();
+      const container = { name: "api", image: "synthetic/image:fixed" };
+      const declaration = {
+        initContainerStatuses: "initContainers",
+        containerStatuses: "containers",
+        ephemeralContainerStatuses: "ephemeralContainers",
+      }[statuses];
+      f.bodies.pods.items.push({
+        apiVersion: "v1",
+        kind: "Pod",
+        metadata: meta("pod", { namespace }),
+        spec: {
+          nodeName: "node",
+          containers: declaration === "containers" ? [container] : [{ name: "main", image: "synthetic/image:fixed" }],
+          [declaration]: [container],
+        },
+        status: {
+          phase: "Running",
+          [statuses]: [
+            {
+              ...container,
+              ready: true,
+              restartCount: 1,
+              state: { running: { startedAt: "2030-01-01T00:01:00Z" } },
+              lastState: history,
+            },
+          ],
+        },
+      });
+      const result = await f.run();
+      if (label.startsWith("malformed")) {
+        expect(result.state).toBe("STOP");
+        expect(result.reasons).toEqual(["STOP_CONTAINER_STATE"]);
+        expect(f.trace.map((request) => request.resource)).toEqual(["nodes", "namespaces", "pods"]);
+      } else {
+        expect(result.state).toBe("ADMITTED");
+        expect(f.trace.slice(0, 5).map((request) => request.resource)).toEqual(READS.map((read) => read.resource));
+        const projected = result.snapshot.reads[2].records[0].containers.find((status) => status.name === "api");
+        if (label === "absent history") expect(projected).not.toHaveProperty("lastState");
+        else expect(projected).toHaveProperty("lastState", history);
+      }
+    },
+  );
+  it("preserves optional absence and explicit null rather than inventing observations", async () => {
+    const f = admissionFixture();
+    f.bodies.nodes.items[0].metadata.deletionTimestamp = null;
+    const result = await f.run();
+    expect(result.snapshot.reads[0].records[0]).not.toHaveProperty("unschedulable");
+    expect(result.snapshot.reads[0].records[0]).toHaveProperty("deletionTimestamp", null);
+  });
+  it("performs only the fixed serial reads with explicit context and request bounds", async () => {
+    const f = admissionFixture(),
+      result = await f.run();
+    expect(result.state).toBe("ADMITTED");
+    expect(f.trace.slice(0, 5).map((r) => r.resource)).toEqual(READS.map((r) => r.resource));
+    for (const request of f.trace.slice(0, 5)) {
+      expect(request.args.slice(0, 4)).toEqual(["--context", CONTEXT, "--request-timeout=20s", "get"]);
+      expect(request.args.at(-1)).toBe("--output=json");
+    }
+    expect(f.trace[4].args).toContain("cluster-autoscaler-status");
+    expect(f.trace[4].args).toContain("kube-system");
+    expect(JSON.stringify(result)).not.toContain("SYNTHETIC_PRIVATE_STDERR");
+  });
+  it.each([20000, 20001])("measures the individual %i ms boundary", async (duration) => {
+    const f = admissionFixture();
+    f.durations.nodes = duration;
+    expect((await f.run()).state).toBe(duration === 20000 ? "ADMITTED" : "STOP");
+    if (duration > 20000) expect(f.trace).toHaveLength(1);
+  });
+  it("refuses a full acquisition slot overrun despite individually bounded reads", async () => {
+    const f = admissionFixture();
+    f.durations.nodes = 16000;
+    f.durations.namespaces = 14001;
+    expect((await f.run()).reasons).toEqual(["STOP_SLOT_OVERRUN"]);
+    expect(f.trace).toHaveLength(2);
+  });
+  it("includes final inventory/admission processing in the original slot bound", async () => {
+    const f = admissionFixture();
+    let closing = false,
+      tail = 29998,
+      variables = 0;
+    f.clock = () => (closing ? ++tail : 0);
+    f.producers.automaticVariableRead = async () => {
+      if (++variables === 2) closing = true;
+      return f.variable;
+    };
+    expect((await f.run()).reasons).toEqual(["STOP_SLOT_OVERRUN"]);
+  });
+  it.each([
+    [
+      "null",
+      (b) => {
+        b.nodes = null;
+      },
+    ],
+    [
+      "invalid date",
+      (b) => {
+        b.nodes.items[0].metadata.creationTimestamp = "2030-02-30T00:00:00Z";
+      },
+    ],
+    [
+      "missing items",
+      (b) => {
+        delete b.nodes.items;
+      },
+    ],
+    [
+      "wrong kind",
+      (b) => {
+        b.nodes.items[0].kind = "Pod";
+      },
+    ],
+    [
+      "duplicate UID",
+      (b) => {
+        b.nodes.items.push(copy(b.nodes.items[0]));
+      },
+    ],
+    [
+      "continuation",
+      (b) => {
+        b.nodes.metadata.continue = "next";
+      },
+    ],
+    [
+      "remaining",
+      (b) => {
+        b.nodes.metadata.remainingItemCount = 1;
+      },
+    ],
+    [
+      "unselected malformed record",
+      (b) => {
+        const n = copy(b.nodes.items[0]);
+        n.metadata.labels["chase-sets.com/pool"] = "other";
+        delete n.status;
+        b.nodes.items.push(n);
+      },
+    ],
+    [
+      "missing pressure",
+      (b) => {
+        b.nodes.items[0].status.conditions.pop();
+      },
+    ],
+    [
+      "null taints",
+      (b) => {
+        b.nodes.items[0].spec.taints = null;
+      },
+    ],
+  ])("validates %s before filtering or the next read", async (_name, mutate) => {
+    const f = admissionFixture();
+    mutate(f.bodies);
+    expect((await f.run()).state).toBe("STOP");
+    expect(f.trace).toHaveLength(1);
+  });
+  it("drops planted env/free-text/config markers and retains all relevant event reasons", async () => {
+    const f = admissionFixture();
+    f.bodies.pods.items.push({
+      apiVersion: "v1",
+      kind: "Pod",
+      metadata: meta("pod", { namespace: "chase-sets-verify-synthetic" }),
+      spec: {
+        nodeName: "node",
+        containers: [
+          {
+            name: "api",
+            image: "synthetic/image:fixed",
+            env: [{ name: "SYNTHETIC_PRIVATE_ENV", value: "SYNTHETIC_PRIVATE_VALUE" }],
+          },
+        ],
+      },
+      status: { phase: "Pending", containerStatuses: [] },
+    });
+    f.bodies.events.items.push(
+      ...["NodeNotReady", "Killing", "FailedScheduling", "NamespaceDeleted"].map((reason, i) => ({
+        apiVersion: "v1",
+        kind: "Event",
+        metadata: meta(`event-${i}`, { namespace: "chase-sets-verify-synthetic" }),
+        reason,
+        count: 1,
+        involvedObject: { uid: "synthetic-pod", name: "pod", kind: "Pod", namespace: "chase-sets-verify-synthetic" },
+        message: "SYNTHETIC_PRIVATE_EVENT",
+      })),
+    );
+    f.bodies.configmap.data.other = "SYNTHETIC_PRIVATE_CONFIG";
+    const result = await f.run();
+    expect(result.state).toBe("ADMITTED");
+    expect(JSON.stringify(result)).not.toMatch(/SYNTHETIC_PRIVATE/);
+    expect(result.snapshot.reads[3].records.map((e) => e.reason)).toEqual([
+      "NodeNotReady",
+      "Killing",
+      "FailedScheduling",
+      "NamespaceDeleted",
+    ]);
+  });
+});
+
+describe("producer inventory", () => {
+  it("retains complete safe HTTP bodies, allowlisted headers and opening/closing byte custody", async () => {
+    const f = admissionFixture();
+    f.runs.gate = [f.record("gate", 1)];
+    const result = await f.run();
+    for (const collection of result.snapshot.inventory) {
+      expect(collection.openingPages).toHaveLength(collection.pageHashes.length);
+      expect(collection.closingPages).toHaveLength(collection.pageHashes.length);
+      for (const [i, record] of collection.openingPages.entries()) {
+        expect(record.sha256).toBe(sha256(record.body));
+        expect(record.bytes).toBe(Buffer.byteLength(record.body));
+        expect(collection.closingPages[i].body).toBe(record.body);
+        expect(record.headers["content-type"]).toBe("application/json");
+      }
+    }
+    expect(
+      JSON.parse(result.snapshot.inventory.find((c) => c.owner === "gate").openingPages[0].body).workflow_runs[0],
+    ).toMatchObject({ id: 1, status: "completed" });
+  });
+  it("validates the whole page before a gate read and detects gate-only closing races", async () => {
+    const f = admissionFixture();
+    f.runs.pr = [f.record("pr", 1, "queued"), f.record("pr", 2, "queued")];
+    f.runs.pr[1].head_sha = "malformed";
+    expect((await f.run()).state).toBe("STOP");
+    expect(f.trace.some((r) => r.runId)).toBe(false);
+    f.runs.pr.pop();
+    let reads = 0;
+    const original = f.producers.previewGateRead;
+    f.producers.previewGateRead = async (r) => ({ ...(await original(r)), clusterPreview: reads++ > 0 });
+    expect((await f.run()).reasons).toEqual(["STOP_PRODUCER_GATE_RACE"]);
+  });
+  it("finds the decisive page-2 and last-page owner and reconciles every closing page", async () => {
+    const f = admissionFixture();
+    f.runs.indirect = Array.from({ length: 101 }, (_, i) =>
+      f.record("indirect", i + 1, i === 100 ? "waiting" : "completed"),
+    );
+    const result = await f.run();
+    expect(result.reasons).toContain("COMPETING_PRODUCER");
+    expect(result.snapshot.inventory.at(-1)).toMatchObject({ total: 101, unique: 101 });
+    expect(f.trace.filter((r) => r.owner === "indirect").map((r) => new URL(r.url).searchParams.get("page"))).toEqual([
+      "1",
+      "2",
+      "1",
+      "2",
+    ]);
+  });
+  it.each(["queued", "requested", "waiting", "pending", "in_progress", "future_nonterminal"])(
+    "does not discard nonterminal %s",
+    async (status) => {
+      const f = admissionFixture();
+      f.runs.gate = [f.record("gate", 1, status)];
+      expect((await f.run()).reasons).toContain("COMPETING_PRODUCER");
+    },
+  );
+  it.each(["gate", "stranded", "ephemeral", "observer", "cleanup", "indirect"])(
+    "reconciles the %s owner",
+    async (role) => {
+      const f = admissionFixture();
+      f.runs[role] = [f.record(role, 1, "queued")];
+      expect((await f.run()).state).toBe("REFUSED");
+    },
+  );
+  it("absent/false automatic enable disables only automatic, never manual", async () => {
+    for (const variable of [
+      { present: false, value: null },
+      { present: true, value: "false" },
+      { present: true, value: "true" },
+    ]) {
+      const f = admissionFixture();
+      f.variable = variable;
+      f.runs.automatic = [f.record("automatic", 1, "pending")];
+      expect((await f.run()).state).toBe(variable.value === "true" ? "REFUSED" : "ADMITTED");
+      f.runs.ephemeral = [f.record("ephemeral", 2, "queued")];
+      expect((await f.run()).state).toBe("REFUSED");
+    }
+  });
+  it("ordinary non-preview push is not automatically a competitor; unknown gating is not inactive", async () => {
+    const f = admissionFixture();
+    const run = f.record("pr", 1, "in_progress");
+    run.event = "push";
+    f.runs.pr = [run];
+    expect((await f.run()).state).toBe("ADMITTED");
+    run.previewGate.clusterPreview = true;
+    expect((await f.run()).state).toBe("REFUSED");
+    delete run.previewGate;
+    expect((await f.run()).state).toBe("STOP");
+  });
+  it.each([
+    "missing next",
+    "unsafe link",
+    "extra query",
+    "cycle",
+    "empty page",
+    "duplicate",
+    "changed total",
+    "missing total",
+    "cap",
+    "stale hash",
+    "tail race",
+  ])("refuses pagination failure: %s", async (attack) => {
+    const f = admissionFixture();
+    f.runs.pr = Array.from({ length: 101 }, (_, i) => f.record("pr", i + 1));
+    let seen = 0;
+    f.mutatePage = (record, request, ordinal) => {
+      if (request.owner !== "pr") return record;
+      seen++;
+      const body = JSON.parse(record.body),
+        headers = { ...record.headers };
+      if (attack === "missing next") delete headers.link;
+      if (attack === "unsafe link") headers.link = '<https://evil.invalid/next>; rel="next"';
+      if (attack === "extra query" && headers.link) headers.link = headers.link.replace("page=2", "page=2&extra=1");
+      if (attack === "cycle" && headers.link) headers.link = headers.link.replaceAll("page=2", "page=1");
+      if (attack === "empty page" && ordinal === 2) body.workflow_runs = [];
+      if (attack === "duplicate" && ordinal === 2) body.workflow_runs[0].id = 1;
+      if (attack === "changed total" && ordinal === 2) body.total_count = 102;
+      if (attack === "missing total") delete body.total_count;
+      if (attack === "cap") body.total_count = 1000;
+      if (attack === "tail race" && seen === 4) body.workflow_runs[0].head_sha = "b".repeat(40);
+      const output = raw(record.url, body, headers);
+      if (attack === "stale hash") output.sha256 = "0".repeat(64);
+      return output;
+    };
+    expect((await f.run()).state).toBe("STOP");
+  });
+});
+
+describe("admission recheck", () => {
+  it("retains admitted input bytes and the original UID across mutable producer references", async () => {
+    const f = admissionFixture(),
+      originalHash = f.input.admitted.sourceHash,
+      producer = f.producers.clusterRead;
+    f.producers.clusterRead = async (request) => {
+      const result = await producer(request);
+      f.input.admitted.sourceHash = generatedHash("substitution");
+      return result;
+    };
+    const observation = await f.run();
+    expect(observation.state).toBe("ADMITTED");
+    expect(observation.snapshot.sourceHash).toBe(originalHash);
+    const g = admissionFixture(),
+      prior = await g.run(),
+      original = g.producers.clusterRead;
+    g.producers.clusterRead = async (request) => {
+      prior.nodeUid = "synthetic-race-replacement";
+      g.bodies.nodes.items[0].metadata.uid = prior.nodeUid;
+      return original(request);
+    };
+    expect((await recheckC1Evidence(g.input, prior, g.producers, g)).reasons).toEqual(["NODE_UID_REPLACED"]);
+  });
+  it("cross-binds the prior node UID to the retained snapshot before any I/O", async () => {
+    const f = admissionFixture(),
+      prior = await f.run();
+    prior.nodeUid = "synthetic-substituted";
+    f.trace.length = 0;
+    expect((await recheckC1Evidence(f.input, prior, f.producers, f)).reasons).toEqual(["STOP_RECHECK_BINDING"]);
+    expect(f.trace).toHaveLength(0);
+  });
+  it.each([
+    "zero",
+    "two",
+    "wrong size",
+    "cordoned",
+    "pressure",
+    "unknown pressure",
+    "extra taint",
+    "terminating namespace",
+  ])("refuses %s with complete safe observations", async (attack) => {
+    const f = admissionFixture(),
+      n = f.bodies.nodes.items[0];
+    if (attack === "zero") f.bodies.nodes.items = [];
+    if (attack === "two") {
+      const extra = copy(n);
+      extra.metadata.uid += "-second";
+      f.bodies.nodes.items.push(extra);
+    }
+    if (attack === "wrong size") n.metadata.labels["node.kubernetes.io/instance-type"] = "s-2vcpu-4gb";
+    if (attack === "cordoned") n.spec.unschedulable = true;
+    if (attack === "pressure" || attack === "unknown pressure")
+      n.status.conditions[1].status = attack === "pressure" ? "True" : "Unknown";
+    if (attack === "extra taint") n.spec.taints.push({ key: "other", effect: "NoSchedule" });
+    if (attack === "terminating namespace")
+      f.bodies.namespaces.items.push({
+        kind: "Namespace",
+        apiVersion: "v1",
+        metadata: meta("chase-sets-pr-999", { deletionTimestamp: "2030-01-01T00:01:00Z" }),
+        status: { phase: "Terminating" },
+      });
+    expect((await f.run()).state).toBe("REFUSED");
+  });
+  it("repeats inventory and all reads, refuses UID replacement, and never dispatches", async () => {
+    const f = admissionFixture(),
+      prior = await f.run();
+    f.trace.length = 0;
+    expect((await recheckC1Evidence(f.input, prior, f.producers, f)).state).toBe("ADMITTED");
+    expect(f.trace.filter((r) => r.resource)).toHaveLength(5);
+    expect(f.trace.filter((r) => r.owner)).toHaveLength(16);
+    f.bodies.nodes.items[0].metadata.uid = "synthetic-replaced";
+    expect((await recheckC1Evidence(f.input, prior, f.producers, f)).reasons).toEqual(["NODE_UID_REPLACED"]);
+    expect(f.trace.every((r) => !Object.hasOwn(r, "dispatch"))).toBe(true);
+  });
+  it("refuses an original-slot recheck overrun and a last-page new competitor", async () => {
+    const f = admissionFixture(),
+      prior = await f.run();
+    f.runs.stranded = Array.from({ length: 101 }, (_, i) =>
+      f.record("stranded", i + 1, i === 100 ? "pending" : "completed"),
+    );
+    expect((await recheckC1Evidence(f.input, prior, f.producers, f)).state).toBe("REFUSED");
+    f.durations.nodes = 15000;
+    f.durations.namespaces = 15000;
+    expect((await recheckC1Evidence(f.input, prior, f.producers, f)).state).toBe("STOP");
+  });
+});
+
+describe("entrypoint refusal", () => {
+  it("uses absolute native fixture doubles with an isolated sentinel, never a PATH substitute", async () => {
+    const f = admissionFixture();
+    const binary = resolve(process.execPath);
+    const script = join(sandbox(), "synthetic-native-reader.mjs");
+    writeFileSync(
+      script,
+      `if (process.env.SYNTHETIC_ISOLATION_SENTINEL !== "fixture-only" || process.env.PATH !== "") process.exit(7);\nconst request=JSON.parse(process.argv[2]);\nif (request.context !== ${JSON.stringify(CONTEXT)} || request.requestTimeoutMs !== 20000) process.exit(8);\nconst bodies=JSON.parse(process.argv[3]);\nprocess.stdout.write(JSON.stringify({exitCode:0,stdout:JSON.stringify(bodies[request.resource])}));\n`,
+    );
+    f.producers.clusterRead = async (request) =>
+      JSON.parse(
+        execFileSync(binary, [script, JSON.stringify(request), JSON.stringify(f.bodies)], {
+          encoding: "utf8",
+          env: { SystemRoot: process.env.SystemRoot ?? "", PATH: "", SYNTHETIC_ISOLATION_SENTINEL: "fixture-only" },
+        }),
+      );
+    expect((await f.run()).state).toBe("ADMITTED");
+  });
+  it("does not move the original slot at recheck or accept a variable closing race", async () => {
+    const f = admissionFixture(),
+      prior = await f.run();
+    f.input.slot = { startedAt: 1, deadline: 30001 };
+    expect((await recheckC1Evidence(f.input, prior, f.producers, f)).reasons).toEqual(["STOP_RECHECK_BINDING"]);
+    f.input.slot = { startedAt: 0, deadline: 30000 };
+    let reads = 0;
+    f.producers.automaticVariableRead = async () => ({ present: true, value: reads++ ? "true" : "false" });
+    expect((await f.run()).reasons).toEqual(["STOP_AUTOMATIC_VARIABLE_RACE"]);
+  });
+  it.each(["withheld", "wrong capability", "stale source", "owner omission", "capability gap"])(
+    "refuses %s before any external I/O",
+    async (attack) => {
+      const f = admissionFixture();
+      if (attack === "withheld") delete f.input.admitted;
+      if (attack === "wrong capability") f.producers.binding = {};
+      if (attack === "stale source") f.input.source.head = "b".repeat(40);
+      if (attack === "owner omission") {
+        f.input.source.owners.pop();
+      }
+      if (attack === "capability gap") delete f.producers.inventoryRead;
+      expect((await f.run()).state).toBe("STOP");
+      expect(f.trace).toHaveLength(0);
+    },
+  );
+  it("does not retry/fallback, leak a thrown producer error or invoke the reader", async () => {
+    const f = admissionFixture();
+    let calls = 0;
+    f.producers.clusterRead = async () => {
+      calls++;
+      throw new Error("STOP_SYNTHETIC_PRIVATE_CRASH");
+    };
+    expect(await f.run()).toEqual({ state: "STOP", reasons: ["STOP_ACQUISITION"], nodeUid: null });
+    expect(calls).toBe(1);
+  });
+  it("refuses supplied capability gaps or extra authority fields before I/O", async () => {
+    for (const name of ["db", "events", "custody", "schedule", "extraAuthority"]) {
+      const f = admissionFixture();
+      f.input.capability[name] = "synthetic-withheld";
+      f.input.admitted.capabilityHash = sha256(JSON.stringify(f.input.capability));
+      expect((await f.run()).reasons).toEqual(["STOP_CAPABILITY_GAP"]);
+      expect(f.trace).toHaveLength(0);
+    }
+  });
+});
+
+describe("complete envelope entrypoint actual CLI", () => {
+  it("materializes complete synthetic v3/v2 proof and exact-byte manifests through absolute native Node", () => {
+    const f = fixture({ pageTwo: true }),
+      plan = filesFor(f),
+      expected = read(f),
+      result = cli(plan);
+    expect(f.envelope.jobs.verification.pages).toHaveLength(2);
+    expect(JSON.parse(f.envelope.jobs.verification.pages[0].body).total_count).toBe(101);
+    expect(JSON.parse(f.envelope.jobs.verification.pages[1].body).jobs.map(({ id }) => id)).toEqual([
+      f.envelope.sourceMap.jobId,
+    ]);
+    expect(expected.bracketState).toBe("TERMINAL_BEFORE_DELETE");
+    expect(result.exit).toBe(0);
+    expect(result.result.receipt).toEqual(expected);
+    expect(readFileSync(plan.outputs.envelope).equals(readFileSync(plan.envelopeFile))).toBe(true);
+    for (const [key, path] of Object.entries(plan.outputs))
+      expect(sha256(readFileSync(path))).toBe(result.result.outputHashes[key]);
+    const manifest = JSON.parse(readFileSync(plan.outputs.manifest, "utf8"));
+    for (const output of manifest.outputs) expect(sha256(readFileSync(output.path))).toBe(output.sha256);
+    expect(expected.cRunTerminal.utc).toBe(null);
+    expect(expected.t0Utc).toBe(expected.vDeleteTerminal.utc);
+  });
+  it.each([
+    "admission",
+    "coverage",
+    "sourceMap",
+    "seal",
+    "ack",
+    "histories",
+    "capture",
+    "consumption",
+    "jobs",
+    "files",
+  ])("governing-only %s omission mutant cannot bypass the production CLI", (key) => {
+    const f = fixture();
+    delete f.envelope[key];
+    const result = cli(filesFor(f));
+    expect(result.exit).toBe(1);
+    expect(result.result.receipt).toEqual(read(f));
+    expect(result.result.receipt.t0Utc).toBe(null);
+  });
+  it("keeps historical envelopes unchanged and reader STOP/null T0, rather than fabricating completeness", () => {
+    const f = fixture();
+    f.envelope.method = "historical/v2";
+    const before = JSON.stringify(f.envelope),
+      plan = filesFor(f);
+    const result = cli(plan);
+    expect(result.exit).toBe(1);
+    expect(result.result.receipt).toEqual(read(f));
+    expect(JSON.stringify(f.envelope)).toBe(before);
+    expect(JSON.parse(readFileSync(plan.outputs.envelope))).toEqual(f.envelope);
+  });
+  it("preserves affirmative no-V without granting c1 admission", () => {
+    const noV = withoutVerification(fixture());
+    expect(cli(filesFor(noV)).result.receipt).toEqual(read(noV));
+  });
+  it("preserves coherent failed cleanup without granting c1 admission", () => {
+    const failed = changeDelete(fixture(), (step) => {
+      step.conclusion = "failure";
+    });
+    failed.envelope.namespace.deleted = false;
+    retain(failed);
+    const result = cli(filesFor(failed));
+    expect(result.result.receipt).toEqual(read(failed));
+    expect(result.result.receipt.cleanupSucceeded).toBe(false);
+    expect(result.result.receipt.c1Admission).toBe(false);
+  });
+  it.each([
+    "existing",
+    "stale bytes",
+    "custody omission",
+    "relative input",
+    "network input",
+    "network destination",
+    "destination directory",
+  ])("refuses %s without overwriting or reporting partial success", (attack) => {
+    const plan = filesFor(fixture());
+    if (attack === "existing") writeFileSync(plan.outputs.receipt, "synthetic-existing");
+    if (attack === "stale bytes") writeFileSync(plan.envelopeFile, "{}");
+    if (attack === "custody omission") writeFileSync(plan.custodyFile, "{}");
+    if (attack === "relative input") plan.envelopeFile = "relative.json";
+    if (attack === "network input") plan.envelopeFile = "\\\\synthetic-invalid\\unreachable\\envelope.json";
+    if (attack === "network destination") plan.outputs.manifest = "\\\\synthetic-invalid\\unreachable\\manifest.json";
+    if (attack === "destination directory") mkdirSync(plan.outputs.manifest);
+    const result = consumeCompleteEnvelope(plan);
+    expect(result.state).toBe("STOP");
+    expect(result.partial).toBe(false);
+    expect(existsSync(plan.outputs.envelope)).toBe(false);
+    if (attack === "existing") expect(readFileSync(plan.outputs.receipt, "utf8")).toBe("synthetic-existing");
+  });
+  it("reports a partial write truthfully and never emits a success receipt", () => {
+    const plan = filesFor(fixture());
+    plan.outputs.manifest = join(sandbox(), "missing-parent", "manifest.json");
+    const result = consumeCompleteEnvelope(plan);
+    expect(result).toEqual({ state: "STOP", reasons: ["STOP_PARTIAL_MATERIALIZATION"], partial: true });
+    expect(existsSync(plan.outputs.receipt)).toBe(false);
+  });
+});
