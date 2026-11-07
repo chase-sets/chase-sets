@@ -24,13 +24,10 @@ export function apply(event) {
 /**
  * The form is being sent: leave out the fields that ask for nothing (an empty price, any
  * language, relevance), so the address is the one the page's links write.
- * Workaround (https://github.com/corten-run/corten/issues/1072): Corten checks a formdata
- * listener's event only as an `Event`, so the handler takes that and reads it as the
- * `FormDataEvent` it is.
- * @param {Event} event
+ * @param {FormDataEvent} event
  */
 export function tidy(event) {
-  const data = /** @type {FormDataEvent} */ (event).formData;
+  const data = event.formData;
   for (const [key, value] of Array.from(data.entries())) {
     if (value === "" || (key === "sort" && value === "relevance")) data.delete(key);
   }

@@ -290,15 +290,12 @@ export function submitted(event, root) {
 
 /**
  * The hero's form adds the first priority the visitor chose in the full form.
- * Workaround (https://github.com/corten-run/corten/issues/1072): Corten checks a formdata
- * listener's event only as an `Event`, so the handler takes that and reads it as the
- * `FormDataEvent` it is.
- * @param {Event} event
+ * @param {FormDataEvent} event
  * @param {HTMLFormElement} form
  */
 export function fill(event, form) {
   const root = form.closest("[data-variant]");
-  const data = /** @type {FormDataEvent} */ (event).formData;
+  const data = event.formData;
   if (!(root instanceof HTMLElement) || data.has("interests")) return;
   data.append("interests", state(root).interest);
 }
