@@ -25,6 +25,7 @@ import {
   MAX_PAGE_LIMIT,
 } from "./queries";
 import { sellerComplianceSalesSchemaMigrations, sellerComplianceSalesSchemaStatements } from "./schema";
+import { sellerComplianceRuntimeSchemaMigrations, sellerComplianceRuntimeSchemaStatements } from "../../seller-compliance-cohorts/read-model/runtime-schema";
 
 // Unmistakably synthetic identities throughout: no fixture here is paired with a real
 // account, order, or payment.
@@ -600,7 +601,10 @@ describe("seller compliance production registration", () => {
       expect(platformOperationsModule.schemaSql).toContain(statement);
     }
 
-    // No worker, scheduled runner, checkpoint table, or policy surface belongs to this slice.
-    expect(platformOperationsModule.schemaSql).not.toContain("seller_compliance_sweep_checkpoints");
+    expect(platformOperationsModule.schemaMigrations).toEqual(expect.arrayContaining([...sellerComplianceRuntimeSchemaMigrations]));
+    for (const statement of sellerComplianceRuntimeSchemaStatements) {
+      expect(platformOperationsModule.schemaSql).toContain(statement);
+    }
+    expect(services.sellerComplianceCohorts.runTick).toBeTypeOf("function");
   });
 });
