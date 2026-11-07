@@ -328,10 +328,21 @@ describe("Catalog primary workbench route context", () => {
 
   it("round-trips the durable review pager cursor (reviewOffset/reviewLimit) through the URL", () => {
     const context = parseCatalogPrimaryWorkbenchRouteContext(
-      "https://admin.example/catalog/integrations?providerKey=tcgdex&filter.status=changed&selectedObservationIds=obs_1&reviewOffset=50&reviewLimit=25",
+      "https://admin.example/catalog/integrations?section=promotion-preview&providerKey=tcgdex&filter.status=changed&selectedObservationIds=obs_1&reviewOffset=50&reviewLimit=25&jobId=job_1&promotionPreviewId=preview_1",
     );
     expect(context.reviewOffset).toBe(50);
     expect(context.reviewLimit).toBe(25);
+    expect(catalogPrimaryWorkbenchHref({ ...context, reviewOffset: 75 }, "source-observation-review")).toBe(
+      "/catalog/integrations?section=source-observation-review&providerKey=tcgdex&selectedObservationIds=obs_1&reviewOffset=75&reviewLimit=25&jobId=job_1&promotionPreviewId=preview_1&filter.status=changed",
+    );
+    expect(
+      catalogPrimaryWorkbenchHref(
+        { ...context, reviewOffset: null, sourceObservationFilters: { status: "eligible" } },
+        "import-to-promotion",
+      ),
+    ).toBe(
+      "/catalog/integrations?providerKey=tcgdex&selectedObservationIds=obs_1&reviewLimit=25&jobId=job_1&promotionPreviewId=preview_1&filter.status=eligible",
+    );
 
     // The pager href keeps provider/filters/selection and only moves the offset; the
     // first page drops the offset so the canonical URL stays clean.

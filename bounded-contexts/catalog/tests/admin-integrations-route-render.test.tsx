@@ -4,6 +4,7 @@ import { waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError as CatalogApiError } from "../support/shell-support/api/client";
 import IntegrationsRoute, { action, loader } from "../routes/admin/integrations";
+import ScopeDetailRoute from "../routes/admin/scope-detail";
 import { loader as providersLoader, action as providerDetailAction } from "../routes/admin/catalog-provider-detail";
 import { action as governanceAction } from "../routes/admin/integrations-governance";
 import type { CatalogIntegrationsCommandResult } from "../support/route-support/admin-integrations/integrations-command-result";
@@ -201,6 +202,99 @@ describe("Catalog integrations route", () => {
     expect(screen.getByText("Catalog sync needs attention")).toBeTruthy();
     expect(screen.getByText(/Catalog sync could not start for the selected provider scope/i)).toBeTruthy();
   });
+
+  it.each(["daily", "scope-detail"] as const)(
+    "renders the held API sentinel and token-free three-page links on %s",
+    (route) => {
+      const requestUrl =
+        "https://admin.example/catalog/integrations?providerKey=tcgdex&promotionPreviewId=sentinel-token&reviewOffset=25";
+      const data = loaderData({ requestUrl });
+      const base = data.readModel;
+      const heldStages = base.flow.stages.map((stage) => ({
+        ...stage,
+        state: stage.key === "run-sync" ? ("current" as const) : ("blocked" as const),
+      }));
+      const readModel = {
+        ...base,
+        flow: {
+          ...base.flow,
+          openStage: "run-sync" as const,
+          openStageWithHeldPreview: "review-changes" as const,
+          stagesByOpenStage: { ...base.flow.stagesByOpenStage, "review-changes": heldStages },
+        },
+        sourceObservationReview: {
+          ...base.sourceObservationReview,
+          pagination: {
+            ...base.sourceObservationReview.pagination,
+            limit: 25,
+            offset: 25,
+            total: 75,
+            previousCursor: "offset:0",
+            nextCursor: "offset:50",
+            previousHref:
+              "/catalog/integrations?section=source-observation-review&sentinel=previous&promotionPreviewId=sentinel-token",
+            nextHref:
+              "/catalog/integrations?section=source-observation-review&sentinel=next&promotionPreviewId=sentinel-token",
+          },
+          statusFilters: base.sourceObservationReview.statusFilters.map((filter) => ({
+            ...filter,
+            href: `${filter.href}&promotionPreviewId=sentinel-token`,
+          })),
+        },
+      };
+      const journey = { ...data, readModel };
+      mockUseLoaderData.mockReturnValue(
+        route === "daily"
+          ? journey
+          : {
+              scope: {
+                scopeRecordId: "sentinel",
+                productDomain: "pokemon",
+                scopeKind: "expansion",
+                name: "Synthetic scope",
+                referenceTypeKey: "expansion",
+                referenceRecordId: "sentinel",
+                referenceRecordKey: "sentinel",
+                parentScopeRecordId: null,
+                productLineScopeRecordId: null,
+                seriesScopeRecordId: null,
+                releaseDate: null,
+                officialSetCode: null,
+                languageEditions: [],
+                lifecycleStatus: "active",
+                updatedAt: "2026-07-14T12:00:00Z",
+                promotionReadiness: "ready",
+                syncFreshness: "fresh",
+              },
+              journey,
+              languageEditionAliasReview: null,
+              coverageMatrix: null,
+              candidateReviewJobs: null,
+            },
+      );
+      mockUseRouteLoaderData.mockReturnValue({ actor: { permissions: ["catalog.view", "catalog.manage"] } });
+      mockUseActionData.mockReturnValue({
+        feedback: { status: "success", intent: "observation.promote", result: "preview-ready" },
+        context: parseCatalogPrimaryWorkbenchRouteContext(requestUrl),
+        section: "import-to-promotion",
+        promotionReceipt: syntheticPromotionReceipt(),
+      });
+      render(route === "daily" ? <IntegrationsRoute /> : <ScopeDetailRoute />);
+      const progress = screen.getAllByRole("list", { name: "Progress" }).at(-1)!;
+      expect(progress.querySelector('[aria-current="step"]')?.textContent).toContain("Run sync");
+      const previous = document.querySelector<HTMLAnchorElement>('a[rel="prev"]');
+      const next = document.querySelector<HTMLAnchorElement>('a[rel="next"]');
+      expect(previous).not.toBeNull();
+      expect(next).not.toBeNull();
+      for (const link of [previous!, next!]) {
+        const url = new URL(link.href);
+        expect(url.searchParams.has("promotionPreviewId")).toBe(false);
+        expect(url.searchParams.has("sentinel")).toBe(true);
+        expect(url.pathname).toBe(route === "daily" ? "/catalog/integrations" : "/catalog/scopes/sentinel");
+      }
+      expect(mockUseNavigate).not.toHaveBeenCalled();
+    },
+  );
 
   it("retains Preview evidence in place without navigating or putting its token in links", () => {
     const scopes = { items: [sourceObservationScope()], total: 1, count: 1 };

@@ -262,6 +262,13 @@ export function sourceObservationReviewCompositionFor(input: {
         observed: effectiveObserved,
         rejected: input.rejected,
       }),
+      statusFilters: reviewStatusFiltersFor(input.routeContext, {
+        observed: effectiveObserved,
+        changed: input.changed,
+        promoted: input.promoted,
+        rejected: input.rejected,
+        eligible: effectiveEligible,
+      }),
       pagination: {
         mode: "offset",
         limit,
@@ -269,6 +276,20 @@ export function sourceObservationReviewCompositionFor(input: {
         total,
         nextCursor: offset + limit < total ? `offset:${offset + limit}` : null,
         previousCursor: offset > 0 ? `offset:${Math.max(0, offset - limit)}` : null,
+        previousHref:
+          offset > 0
+            ? catalogPrimaryWorkbenchHref(
+                { ...input.routeContext, reviewOffset: Math.max(offset - limit, 0) || null },
+                "source-observation-review",
+              )
+            : null,
+        nextHref:
+          offset + limit < total
+            ? catalogPrimaryWorkbenchHref(
+                { ...input.routeContext, reviewOffset: offset + limit },
+                "source-observation-review",
+              )
+            : null,
       },
       bulkSelection: {
         selectedCount: selectedObservationIds.length,
@@ -954,6 +975,33 @@ function reviewFiltersFor(
       false,
     ),
   ];
+}
+
+// The status filter's options. "All" counts every status; each link keeps the
+// daily working set, drops the review page and sets (or clears) filter.status.
+function reviewStatusFiltersFor(
+  routeContext: CatalogPrimaryWorkbenchRouteContext,
+  counts: Readonly<Record<"observed" | "changed" | "promoted" | "rejected" | "eligible", number>>,
+): CatalogPrimaryWorkbenchReadModel["sourceObservationReview"]["statusFilters"] {
+  const options = [
+    { value: "all", count: counts.observed + counts.changed + counts.promoted + counts.rejected },
+    { value: "observed", count: counts.observed },
+    { value: "eligible", count: counts.eligible },
+    { value: "promoted", count: counts.promoted },
+    { value: "rejected", count: counts.rejected },
+  ] as const;
+
+  return options.map((option) => {
+    const { status: _status, ...otherFilters } = routeContext.sourceObservationFilters;
+    const sourceObservationFilters = option.value === "all" ? otherFilters : { ...otherFilters, status: option.value };
+    return {
+      ...option,
+      href: catalogPrimaryWorkbenchHref(
+        { ...routeContext, reviewOffset: null, sourceObservationFilters },
+        "import-to-promotion",
+      ),
+    };
+  });
 }
 
 function savedReviewFiltersFor(
