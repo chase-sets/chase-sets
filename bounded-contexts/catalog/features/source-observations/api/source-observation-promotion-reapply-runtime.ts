@@ -1,6 +1,6 @@
 import { ProviderSendStoppedError } from "./providers/provider-send-admission";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
-import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import { createPostgresEventStore, type PgQueryable } from "@chase-sets/event-core-postgres";
 import { isDurableJobHandoffError } from "@chase-sets/platform-runtime/durable-job-store";
 import { createHash } from "node:crypto";
 import { acquireSourceObservationTarget, promotionCurrentItem } from "./promotion/source-observation-target-exclusion";
@@ -42,6 +42,7 @@ import {
   type CatalogIntegrationRolloutControlPolicy,
 } from "./governance/catalog-integration-rollout-controls";
 import { resolveCatalogProviderDuplicatePrevention } from "./promotion/provider-duplicate-prevention-resolver";
+import { createCatalogProviderIntegrationProfileVersionStore } from "./providers/provider-integration-profile-store";
 import type {
   CatalogProviderIntegrationProfileVersionReader,
   SourceObservationAliasPromotion,
@@ -97,6 +98,34 @@ function boundedPreflightDiagnostic(
   diagnosticText: string,
 ): SourceObservationPromotionPreviewDiagnostic {
   return { observationId, code: "runtime-preflight-failed", path: "observation", diagnosticText, blocking: true };
+}
+
+type PromotionPreviewReads = Readonly<{
+  deps: CatalogRuntimeDeps;
+  profileVersions: CatalogProviderIntegrationProfileVersionReader;
+}>;
+
+/**
+ * A promotion preview's reads on one transaction's client: Catalog rows, event
+ * streams and provider profile versions. Profile versions come from the
+ * canonical store on that client, as the promotion target exclusion validates
+ * them. The event store's pool refuses a connection, so a read that would leave
+ * the client fails instead of waiting behind the transaction that holds it.
+ */
+function promotionPreviewReadsOn(deps: CatalogRuntimeDeps, client: PgQueryable): PromotionPreviewReads {
+  return {
+    deps: {
+      ...deps,
+      db: client,
+      eventStore: createPostgresEventStore({
+        pool: {
+          query: client.query.bind(client),
+          connect: () => Promise.reject(new Error("promotion-preview-reads-on-its-transaction")),
+        },
+      }),
+    },
+    profileVersions: createCatalogProviderIntegrationProfileVersionStore(client),
+  };
 }
 
 export type SourceObservationPromotionReapplyRuntimeDeps = Readonly<{
@@ -891,10 +920,10 @@ export function createSourceObservationPromotionReapplyRuntime({
   async function validatePromotionSelection(
     selection: Readonly<{ scope: SourceObservationFilterScope } | { observationIds: readonly string[] }>,
     options: Readonly<{ promoteAsDraft?: boolean; validationAfter?: string | null }>,
-    reads: CatalogRuntimeDeps,
+    reads: PromotionPreviewReads,
   ): Promise<SourceObservationPromotionValidation> {
     const promoteAsDraft = options.promoteAsDraft === true;
-    const page = await listSourceObservationIdsForPromotionValidation(reads.db, selection, {
+    const page = await listSourceObservationIdsForPromotionValidation(reads.deps.db, selection, {
       limit: PROMOTION_VALIDATION_PAGE_LIMIT,
       after: options.validationAfter ?? null,
     });
@@ -918,7 +947,7 @@ export function createSourceObservationPromotionReapplyRuntime({
   async function previewObservationDiagnostics(
     observationId: string,
     promoteAsDraft: boolean,
-    reads: CatalogRuntimeDeps,
+    { deps: reads, profileVersions: profiles }: PromotionPreviewReads,
   ): Promise<readonly SourceObservationPromotionPreviewDiagnostic[]> {
     try {
       const observation = await getSourceObservationDetail(reads.db, observationId);
@@ -936,7 +965,7 @@ export function createSourceObservationPromotionReapplyRuntime({
       }
       const normalized = requireCatalogItemPromotionObservation(observation.normalized, observation.provider_key);
       const providerProfileVersion = await requireCatalogPromotionProfileVersion(
-        profileVersions,
+        profiles,
         observation.provider_key,
         normalized,
       );
@@ -1005,9 +1034,11 @@ export function createSourceObservationPromotionReapplyRuntime({
     options: Readonly<{ promoteAsDraft?: boolean; validationAfter?: string | null }>,
     db: PgQueryable = deps.db,
   ): Promise<SourceObservationPromotionPreview> {
-    // Every read goes through `db`: a promotion admission passes its
-    // transaction's client, so the preview it checks is one snapshot.
-    const reads: CatalogRuntimeDeps = db === deps.db ? deps : { ...deps, db };
+    // An admission passes its transaction's client, and then every read the
+    // preview makes goes through that client: the preview it checks is one
+    // snapshot, and it never waits on the pool for a second connection while
+    // the admission holds the first. Ordinary previews keep the pooled readers.
+    const reads = db === deps.db ? { deps, profileVersions } : promotionPreviewReadsOn(deps, db);
     const scopePreview =
       "observationIds" in selection
         ? await previewSourceObservationPromotionIds(db, selection.observationIds)
