@@ -1241,7 +1241,12 @@ fn CandidateEdit<'a>(
                 </RadioGroup>
                 <label class={Field}>
                     <span>{t.wb_merge_edit_catalog_item_id()}</span>
-                    <input type="text" name={f.catalog_item_id} value={form.catalog_item_id.as_deref().unwrap_or_default()} class={Input {}}>
+                    <input
+                        type="text"
+                        name={f.catalog_item_id}
+                        value={form.catalog_item_id.as_deref().unwrap_or_default()}
+                        class={Input {}}
+                    >
                 </label>
                 <label class={Field}>
                     <span>{t.wb_merge_edit_product_ids()}</span>
