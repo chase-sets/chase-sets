@@ -17,6 +17,7 @@ export async function seedSyntheticOfferMarketPrice(
     productId: string;
     estimateVersion: string;
     amount: string;
+    previousEstimateVersion?: string;
   },
 ) {
   const streamId = "pricing.market-price-synthetic-e2e-offer-controls";
@@ -35,7 +36,7 @@ export async function seedSyntheticOfferMarketPrice(
     estimatedAt: now.toISOString(),
     freshUntil: new Date(now.getTime() + 3600000).toISOString(),
     disclosure: "internal",
-    previousAmount: null,
+    previousAmount: null as string | null,
     inputs: { platformVerifiedTradeCount: 0, platformTradeCount: 0, externalCompCount: 0 },
     syntheticFixture: "8346-browser-only",
   };
@@ -43,14 +44,29 @@ export async function seedSyntheticOfferMarketPrice(
     tenantId: "tnt_synthetic_e2e" as never,
     audit: { forAccountId: "acc_synthetic_e2e" as never, performedByUserId: "usr_synthetic_e2e" as never },
   };
-  const existing = await pool.query(
-    "SELECT 1 FROM pricing_market_price_estimates WHERE catalog_catalog_item_id=$1 AND product_id=$2",
+  const existing = await pool.query<{ estimate_version: string }>(
+    "SELECT estimate_version::text FROM pricing_market_price_estimates WHERE catalog_catalog_item_id=$1 AND product_id=$2",
     [fixture.catalogItemId, fixture.productId],
   );
-  if (existing.rows.length) throw new Error("Synthetic fixture refuses to replace an existing estimate.");
+  const history = await eventStore.readStream({ streamId });
+  const previous = history.at(-1);
+  if (fixture.previousEstimateVersion) {
+    if (
+      existing.rows[0]?.estimate_version !== fixture.previousEstimateVersion ||
+      previous?.payload.syntheticFixture !== data.syntheticFixture ||
+      previous.payload.catalogItemId !== fixture.catalogItemId ||
+      previous.payload.productId !== fixture.productId ||
+      previous.payload.estimateVersion !== fixture.previousEstimateVersion ||
+      BigInt(fixture.estimateVersion) <= BigInt(fixture.previousEstimateVersion)
+    )
+      throw new Error("Synthetic update requires the exact previous owned estimate.");
+    data.previousAmount = String(previous.payload.amount);
+  } else if (existing.rows.length || history.length) {
+    throw new Error("Synthetic fixture refuses to replace an existing estimate.");
+  }
   const [stored] = await eventStore.appendToStream({
     streamId,
-    expectedVersion: 0,
+    expectedVersion: previous?.streamVersion ?? 0,
     context,
     events: [{ eventType: marketPriceEstimatedEventType, payload: data }],
   });
