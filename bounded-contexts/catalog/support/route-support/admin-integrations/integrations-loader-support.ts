@@ -111,6 +111,9 @@ export async function loadHealthSurface({ request }: LoaderFunctionArgs) {
 function surfaceRouteData(request: Request, surfaceRead: CatalogPrimaryWorkbenchSurfaceRead) {
   return {
     readModel: surfaceRead.readModel,
+    providerRefreshSchedules: surfaceRead.providerRefreshSchedules,
+    operatorSession: surfaceRead.operatorSession,
+    operatorSessionActorKey: surfaceRead.operatorSessionActorKey,
     requestUrl: request.url,
     commandFeedback: commandFeedbackFromUrl(request.url),
   };
