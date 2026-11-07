@@ -43,7 +43,6 @@ export async function loader({ request }: LoaderFunctionArgs): Promise<CatalogSc
   const query = readCatalogListQuery(request);
   const url = new URL(request.url);
   const productDomain = url.searchParams.get("productDomain")?.trim() ?? "";
-  const generatedAt = new Date().toISOString();
   const api = createCatalogRequestApiClient(request);
 
   const [result, attentionQueue, generalAliasReview, actor] = await Promise.all([
@@ -62,7 +61,8 @@ export async function loader({ request }: LoaderFunctionArgs): Promise<CatalogSc
         languageEdition: query.language,
         lifecycleStatus: query.status,
       },
-      generatedAt,
+      // The API's generation time, the clock its row freshness was measured against.
+      generatedAt: result.scopes.generatedAt ?? new Date().toISOString(),
     }),
     query,
     productDomain,

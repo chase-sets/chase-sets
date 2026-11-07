@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { MarketplaceApiEnv } from "../../../api";
 import { createMarketplaceApiClient } from "../../../client";
 import { hashMarketplaceRequest } from "../../mutation-recovery/api/attempt";
@@ -40,6 +40,59 @@ const post = (body: unknown): RequestInit => ({
 });
 
 describe("Buyer Offer Policy real account routes", () => {
+  it.each([
+    { offers: Array.from({ length: 101 }, () => ({ offerId: null })) },
+    { offers: [{ ...terms.offers[0]!, selectedOptions: Array.from({ length: 101 }, () => null) }] },
+  ])("rejects oversized malformed collections before executing Marketplace (case %#)", async (collections) => {
+    const { runtime, store } = await fixture();
+    const execute = vi.spyOn(runtime, "execute");
+    const before = await store.readAll();
+    const response = await app(runtime).request(
+      "/policies/bop_one/commands",
+      post({
+        attemptId: "bounded_rejection_test",
+        type: "PreviewBuyerOfferPolicy",
+        expectedVersion: 1,
+        operationId: "bounded_rejection",
+        terms: { ...terms, ...collections },
+      }),
+    );
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ error: { code: "invalid_authority" } });
+    expect(execute).not.toHaveBeenCalled();
+    expect(await store.readAll()).toEqual(before);
+  });
+
+  it.each([
+    { offers: Array.from({ length: 100 }, (_, index) => ({ ...terms.offers[0]!, offerId: `off_${index}` })) },
+    {
+      offers: [
+        {
+          ...terms.offers[0]!,
+          selectedOptions: Array.from({ length: 100 }, (_, index) => ({
+            dimensionId: `dim_${index}`,
+            optionId: "opt_one",
+          })),
+        },
+      ],
+    },
+  ])("forwards valid limit collections unchanged (case %#)", async (collections) => {
+    const { runtime } = await fixture();
+    const policy = await runtime.get("bop_one", "acc_buyer");
+    const execute = vi.spyOn(runtime, "execute").mockResolvedValue(policy);
+    const command = {
+      attemptId: "bounded_acceptance_test",
+      type: "PreviewBuyerOfferPolicy",
+      expectedVersion: 1,
+      operationId: "bounded_acceptance",
+      terms: { ...terms, ...collections },
+    };
+    const response = await app(runtime).request("/policies/bop_one/commands", post(command));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual(policy);
+    expect(execute).toHaveBeenCalledExactlyOnceWith("bop_one", command, context);
+  });
+
   it("reads a recorded historical authorized and consumed stream without retired keys", async () => {
     const { runtime, store } = await fixture();
     const created = (await store.readStream({ streamId: "marketplace.offer-policy-bop_one" }))[0]!;

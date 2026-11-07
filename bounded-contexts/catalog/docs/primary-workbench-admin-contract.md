@@ -108,6 +108,31 @@ The workbench contract pins command routes under the Source Observations admin A
 
 Admin page routes may wrap these API routes, but no implementation may preserve retired admin module structure, hidden compatibility redirects, support-only legacy routes, or raw JSON escape hatches.
 
+## Provider Profile Lifecycle Confirmation
+
+The existing lifecycle HTTP commands require `catalog.manage` before reading confirmation input. Each accepts `Content-Type: application/json` with the following body (substitute the requested decoded provider key and profile version):
+
+| Method and route | JSON body |
+| --- | --- |
+| `POST /api/catalog/source-observations/provider-profiles/:providerKey/:profileVersion/rollback` | `{"lifecycleConfirmation":"confirm:provider-profile.rollback:<providerKey>:<profileVersion>"}` |
+| `POST /api/catalog/source-observations/provider-profiles/:providerKey/:profileVersion/deprecate` | `{"lifecycleConfirmation":"confirm:provider-profile.deprecate:<providerKey>:<profileVersion>"}` |
+| `POST /api/catalog/source-observations/provider-profiles/:providerKey/:profileVersion/retire` | `{"lifecycleConfirmation":"confirm:provider-profile.retire:<providerKey>:<profileVersion>"}` |
+
+Catalog compares the raw string with the operation and decoded path parameters. Missing or empty bodies/fields, malformed or non-object JSON, non-string fields, and mismatched values all return HTTP 400 before lifecycle mutation:
+
+```json
+{
+  "error": {
+    "code": "lifecycle_confirmation_required",
+    "message": "Confirm the destructive action before continuing."
+  }
+}
+```
+
+The code is stable; the non-empty message is localized. No trimming, coercion or inferred consent is allowed. This is operator intent, not authorization, replay protection or proof of a fresh impact preview. Existing permission refusal, active-job conflicts (409), retirement active/reference constraints and all lifecycle transitions remain unchanged. A matching request returns HTTP 200 with the existing provider profile version review: rollback activates the selected version, deprecate marks it deprecated, and retire retains it as inactive/retired. Activation remains bodyless.
+
+This intentionally tightens the contract: old bodyless calls fail closed, with no compatibility fallback. Shared Catalog clients and UI wrappers forward caller-supplied `lifecycleConfirmation` unchanged; an absent checkbox is forwarded as `null`, not synthesized consent. The admin action maps only HTTP 400 with this code to existing `confirmation-required` feedback, preserving success, 409 `lifecycle-conflict` and other failure feedback. Independently owned clients must forward this JSON before consuming the enforcing API. This HTTP guard does not secure direct service calls or imply lifecycle MCP tool availability.
+
 ## Admin Route Command Bridge
 
 The rebuilt `/catalog/integrations` route may expose native form submits for the default workbench as a progressive-enhancement bridge while the clean admin API route patterns above are completed. That bridge must keep the primary-workbench command names (`start-provider-import`, `retry-import-job`, `resume-import-job`, `cancel-import-job`, `clone-provider-profile`, `preview-promotion`, `execute-promotion`, `reject-source-observations`, `defer-source-observations`, `start-reapply`, `start-replay`) in the UI payload, preserve provider/unit/scope/profile/filter/selection/job/preview context, and redirect back to the rebuilt workbench with sanitized success or fail-closed feedback. Promotion execution must re-check the live preview against a context-bound preview checkpoint before enqueueing work; profile, provider unit, import scope, filters, and selected observation ids are part of that checkpoint, and mutating commands clear the checkpoint after enqueueing. Selected-observation previews must count the exact selected IDs instead of broadening to the current filter scope.

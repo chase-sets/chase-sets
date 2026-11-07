@@ -1,6 +1,42 @@
 import { describe, expect, it, vi } from "vitest";
 import { ApiError, CatalogItemPublicationApiError, createCatalogApiClient } from "./client";
 
+describe("provider profile lifecycle confirmation serialization", () => {
+  it.each([
+    ["rollback", "rollbackSourceObservationProviderProfile"],
+    ["deprecate", "deprecateSourceObservationProviderProfile"],
+    ["retire", "retireSourceObservationProviderProfile"],
+  ] as const)("forwards caller input unchanged for %s", async (operation, method) => {
+    const result = { providerKey: "synthetic provider", profileVersion: "synthetic/version" };
+    const fetch = vi.fn<typeof globalThis.fetch>().mockImplementation(async () => Response.json(result));
+    const client = createCatalogApiClient({
+      baseUrl: "/api/catalog/",
+      fetch,
+      headers: { "x-test": "synthetic" },
+      credentials: "same-origin",
+    });
+    for (const lifecycleConfirmation of [
+      null,
+      "",
+      " mismatched caller input ",
+      `confirm:provider-profile.${operation}:synthetic provider:synthetic/version`,
+    ]) {
+      await expect(client[method](result.providerKey, result.profileVersion, lifecycleConfirmation)).resolves.toEqual(
+        result,
+      );
+      expect(fetch).toHaveBeenLastCalledWith(
+        `/api/catalog/source-observations/provider-profiles/synthetic%20provider/synthetic%2Fversion/${operation}`,
+        {
+          method: "POST",
+          headers: { "x-test": "synthetic", "content-type": "application/json" },
+          credentials: "same-origin",
+          body: JSON.stringify({ lifecycleConfirmation }),
+        },
+      );
+    }
+  });
+});
+
 describe("catalog API durable job client", () => {
   it.each(["merge-candidate-promote", "merge-candidate-defer"] as const)(
     "posts %s with the scope, headers and configured credentials",
