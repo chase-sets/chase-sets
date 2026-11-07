@@ -1,19 +1,15 @@
 import { describe, expect, it, vi } from "vitest";
+import { ApiError as CatalogApiError } from "../../shell-support/api/client";
 import { handleCandidateCommand } from "./candidate-command-handler";
 import type { CatalogIntegrationsCommandResult } from "./integrations-command-result";
 
 describe("merge-candidate entity command handler", () => {
-  it("submits typed update merge-candidate bodies when the workbench preview generated them", async () => {
+  it("updates a candidate with the version the page read and an empty edit from the row's update button", async () => {
     const updateCatalogMergeCandidate = vi.fn(async () => ({ ok: true }));
     const formData = new FormData();
     formData.set("candidateId", "cand_1");
-    formData.set(
-      "mergeCandidateCommandBody",
-      JSON.stringify({
-        reason: "Update Product mapping from the scope-first Catalog sync workbench.",
-        snapshot: { identityFingerprint: "sha256:cand_1" },
-      }),
-    );
+    formData.set("candidateVersion", "4");
+    formData.set("reason", "Update Product mapping from the scope-first Catalog sync workbench.");
 
     const result = await handleCandidateCommand({
       api: { updateCatalogMergeCandidate } as never,
@@ -25,24 +21,23 @@ describe("merge-candidate entity command handler", () => {
 
     expect(updateCatalogMergeCandidate).toHaveBeenCalledWith("cand_1", {
       reason: "Update Product mapping from the scope-first Catalog sync workbench.",
-      snapshot: { identityFingerprint: "sha256:cand_1" },
+      expectedVersion: 4,
+      edit: {
+        factOverrides: [],
+        droppedExternalCatalogItemReferenceIndexes: [],
+        droppedExternalProductReferenceIndexes: [],
+      },
     });
     expect(result.feedback).toMatchObject({ status: "success", intent: "candidate.edit" });
   });
 
-  it("submits typed split merge-candidate bodies when the workbench preview generated them", async () => {
+  it("splits off the named Source Observations at the version the page read", async () => {
     const splitCatalogMergeCandidate = vi.fn(async () => ({ ok: true }));
     const formData = new FormData();
     formData.set("candidateId", "cand_1");
-    formData.set(
-      "mergeCandidateCommandBody",
-      JSON.stringify({
-        reason: "Split candidate from the scope-first Catalog sync workbench.",
-        remainingSnapshot: { identityFingerprint: "sha256:cand_1:remaining" },
-        splitCandidateId: "cand_1__split__obs_2",
-        splitSnapshot: { identityFingerprint: "sha256:cand_1:split" },
-      }),
-    );
+    formData.set("candidateVersion", "4");
+    formData.set("splitObservationIds", "obs_2");
+    formData.set("reason", "Split candidate from the scope-first Catalog sync workbench.");
 
     const result = await handleCandidateCommand({
       api: { splitCatalogMergeCandidate } as never,
@@ -54,37 +49,56 @@ describe("merge-candidate entity command handler", () => {
 
     expect(splitCatalogMergeCandidate).toHaveBeenCalledWith("cand_1", {
       reason: "Split candidate from the scope-first Catalog sync workbench.",
-      remainingSnapshot: { identityFingerprint: "sha256:cand_1:remaining" },
-      splitCandidateId: "cand_1__split__obs_2",
-      splitSnapshot: { identityFingerprint: "sha256:cand_1:split" },
+      expectedVersion: 4,
+      splitObservationIds: ["obs_2"],
     });
     expect(result.feedback).toMatchObject({ status: "success", intent: "candidate.split" });
   });
 
-  it("fails split/update closed when no typed body is posted", async () => {
+  it("fails split/update closed without the candidate version, or a split without observations", async () => {
     const updateCatalogMergeCandidate = vi.fn();
-    const formData = new FormData();
-    formData.set("candidateId", "cand_1");
+    const splitCatalogMergeCandidate = vi.fn();
+    const unversioned = new FormData();
+    unversioned.set("candidateId", "cand_1");
+    unversioned.set("reason", "Correct it.");
+    const unnamedSplit = new FormData();
+    unnamedSplit.set("candidateId", "cand_1");
+    unnamedSplit.set("candidateVersion", "4");
+    unnamedSplit.set("reason", "Split it.");
 
-    const result = await handleCandidateCommand({
+    const update = await handleCandidateCommand({
       api: { updateCatalogMergeCandidate } as never,
       intent: "candidate.edit",
       context: commandContext(),
-      formData,
+      formData: unversioned,
+      selectedObservationIds: [],
+    });
+    const split = await handleCandidateCommand({
+      api: { splitCatalogMergeCandidate } as never,
+      intent: "candidate.split",
+      context: commandContext(),
+      formData: unnamedSplit,
       selectedObservationIds: [],
     });
 
     expect(updateCatalogMergeCandidate).not.toHaveBeenCalled();
-    expect(result.feedback).toMatchObject({ status: "error", intent: "candidate.edit" });
+    expect(splitCatalogMergeCandidate).not.toHaveBeenCalled();
+    expect(update.feedback).toMatchObject({ status: "error", intent: "candidate.edit", result: "command-failed" });
+    expect(split.feedback).toMatchObject({ status: "error", intent: "candidate.split", result: "command-failed" });
   });
 
-  it("applies a typed candidate edit onto the base snapshot with manual provenance", async () => {
+  it("sends the operator's typed edit, with only the facts changed from what the page showed", async () => {
     const updateCatalogMergeCandidate = vi.fn(async () => ({ ok: true }));
     const formData = new FormData();
     formData.set("candidateId", "cand_1");
-    formData.set("candidateEditBaseSnapshot", JSON.stringify(editBaseSnapshot()));
+    formData.set("candidateVersion", "4");
     formData.set("candidateEditPromotionIntent", "create-catalog-item");
+    formData.set("candidateEditCatalogItemId", "");
+    formData.set("candidateEditProductIds", "");
     formData.set("candidateEditFact.name", "Charmander - corrected");
+    formData.set("candidateEditFactShown.name", "Charmander");
+    formData.set("candidateEditFact.rarity", "Common");
+    formData.set("candidateEditFactShown.rarity", "Common");
     formData.set("reason", "Operator corrected the printed name.");
 
     const result = await handleCandidateCommand({
@@ -95,25 +109,48 @@ describe("merge-candidate entity command handler", () => {
       selectedObservationIds: [],
     });
 
-    expect(updateCatalogMergeCandidate).toHaveBeenCalledTimes(1);
-    const [candidateId, body] = updateCatalogMergeCandidate.mock.calls[0] as unknown as [
-      string,
-      { reason: string; snapshot: { proposedCatalogItemFacts: Record<string, unknown>; fieldProvenance: unknown[] } },
-    ];
-    expect(candidateId).toBe("cand_1");
-    expect(body.reason).toBe("Operator corrected the printed name.");
-    expect(body.snapshot.proposedCatalogItemFacts.name).toBe("Charmander - corrected");
-    expect(body.snapshot.fieldProvenance).toEqual(
-      expect.arrayContaining([expect.objectContaining({ fieldPath: "catalogItem.name", confidence: "manual" })]),
-    );
+    expect(updateCatalogMergeCandidate).toHaveBeenCalledWith("cand_1", {
+      reason: "Operator corrected the printed name.",
+      expectedVersion: 4,
+      edit: {
+        promotionIntent: "create-catalog-item",
+        catalogItemId: null,
+        productIds: [],
+        factOverrides: [{ key: "name", value: "Charmander - corrected" }],
+        droppedExternalCatalogItemReferenceIndexes: [],
+        droppedExternalProductReferenceIndexes: [],
+      },
+    });
     expect(result.feedback).toMatchObject({ status: "success", intent: "candidate.edit" });
+  });
+
+  it("says the candidate changed when the Catalog API refuses a stale version", async () => {
+    const updateCatalogMergeCandidate = vi.fn(async () => {
+      throw new CatalogApiError(409, {
+        error: { code: "stale_merge_candidate", message: "The candidate changed after this page read it." },
+      });
+    });
+    const formData = new FormData();
+    formData.set("candidateId", "cand_1");
+    formData.set("candidateVersion", "4");
+    formData.set("reason", "Correct it.");
+
+    const result = await handleCandidateCommand({
+      api: { updateCatalogMergeCandidate } as never,
+      intent: "candidate.edit",
+      context: commandContext(),
+      formData,
+      selectedObservationIds: [],
+    });
+
+    expect(result.feedback).toMatchObject({ status: "error", intent: "candidate.edit", result: "candidate-stale" });
   });
 
   it("requires a reason for a candidate edit", async () => {
     const updateCatalogMergeCandidate = vi.fn();
     const formData = new FormData();
     formData.set("candidateId", "cand_1");
-    formData.set("candidateEditBaseSnapshot", JSON.stringify(editBaseSnapshot()));
+    formData.set("candidateVersion", "4");
 
     const result = await handleCandidateCommand({
       api: { updateCatalogMergeCandidate } as never,
@@ -249,46 +286,6 @@ describe("merge-candidate entity command handler", () => {
     expect(result.feedback).toMatchObject({ status: "error", result: "invalid-intent" });
   });
 });
-
-function editBaseSnapshot() {
-  return {
-    identityFingerprint: "sha256:cand",
-    syncRunIds: ["run_1"],
-    identity: {
-      tcg: "pokemon",
-      productLineName: "Pokemon",
-      setName: "Base Set",
-      printedProductName: "Charmander",
-      collectorNumber: "004",
-      languageCode: "en",
-      productForm: "card",
-      variantKey: null,
-      barcode: null,
-    },
-    membership: [
-      {
-        observationId: "obs_1",
-        syncRunId: "run_1",
-        providerKey: "tcgplayer",
-        externalKey: "tcgplayer:base1-004",
-        sourceRecordHash: "sha256:record",
-        sourceProfileKey: "tcgplayer-pokemon-card",
-        sourceProfileVersion: "2026.06.24",
-        sourceMappingFingerprint: "sha256:mapping",
-        observedAt: "2026-06-24T09:00:00.000Z",
-        addedAt: "2026-06-24T09:30:00.000Z",
-      },
-    ],
-    matches: { catalogItemId: null, productIds: [] },
-    proposedCatalogItemFacts: { name: "Charmander" },
-    proposedExternalCatalogItemReferences: [],
-    proposedExternalProductReferences: [],
-    conflicts: [],
-    warnings: [],
-    fieldProvenance: [],
-    promotionIntent: "create-catalog-item" as const,
-  };
-}
 
 function commandContext(): CatalogIntegrationsCommandResult["context"] {
   return {

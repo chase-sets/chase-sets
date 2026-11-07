@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { createHash } from "node:crypto";
 import {
   addUtcMonths,
   evaluateSellerComplianceCohort as evaluateDomain,
@@ -377,7 +378,437 @@ function evaluatorLifecycle(
   });
 }
 
+type ReviewRow = readonly [
+  window: number,
+  lookback: number,
+  count: number,
+  anchor: number,
+  gross: string,
+  disclosure: string,
+  sales: readonly (readonly [number, string])[],
+  ticks: readonly number[],
+];
+
+/** Synthetic, source-free reproduction of the review's floating-point LCG and draw order. */
+function generateReviewBaselineRows(): ReviewRow[] {
+  let state = 1090;
+  const draw = (n: number) => {
+    state = (state * 1103515245 + 12345) & 0x7fffffff;
+    return Math.floor((state / 2147483647) * n);
+  };
+  const anchors = ["2023-12-20", "2024-01-20", "2025-01-20", "2025-07-20", "2024-10-25"].map(Date.parse);
+  return Array.from({ length: 700 }, () => {
+    const w = 1 + draw(3);
+    const l = w + draw(3);
+    const c = 1 + draw(3);
+    const anchor = anchors[draw(5)]!;
+    const n = 1 + draw(6);
+    const sales = Array.from(
+      { length: n },
+      () => [anchor + draw(480) * 21600000, String(100 * (1 + draw(4)))] as const,
+    );
+    const g = 100 * (c + draw(3));
+    const d = g + 100 * draw(4);
+    const latest = Math.max(...sales.map(([at]) => at));
+    const ticks = Array.from({ length: 6 }, () => latest + 21600000 * draw(124 * (l + 1)) + [-1, 0, 1, 2][draw(4)]!);
+    return [w, l, c, anchor, String(g), String(d), sales, ticks] as const;
+  });
+}
+
+/** Direct grid census, independent calendar arithmetic and sums; no evaluator helpers. */
+function bruteReviewVerdict(
+  sales: readonly (readonly [number, string])[],
+  p: SellerComplianceCohortPolicyValue,
+  tau: number,
+) {
+  const visible = sales.filter(([at]) => at < tau);
+  const h = 21600000;
+  const w = p.windowMonths!;
+  const l = p.lookbackMonths!;
+  let winner: { start: number; count: number; gross: bigint } | null = null;
+  let lastExpiry = -Infinity;
+  const meets = (count: number, gross: bigint, threshold: string) =>
+    p.comparisonIsInclusive
+      ? count >= p.qualifyingTransactionCount! && gross >= BigInt(threshold)
+      : count > p.qualifyingTransactionCount! && gross > BigInt(threshold);
+  for (let grid = Math.floor((tau - (31 * l + 4) * 86400000) / h) * h; grid <= tau + h; grid += h) {
+    for (const delta of [-1, 0, 1, 2]) {
+      const start = grid + delta;
+      if (start >= tau) continue;
+      const end = addMonthsMs(start, w);
+      let count = 0;
+      let gross = 0n;
+      for (const [at, amount] of visible) {
+        if (at >= start && at < end) {
+          count++;
+          gross += BigInt(amount);
+        }
+      }
+      if (!meets(count, gross, p.qualifyingGrossCents!)) continue;
+      const expiry = addMonthsMs(start, l);
+      if (expiry < tau) continue;
+      lastExpiry = Math.max(lastExpiry, expiry);
+      winner ??= { start, count, gross };
+    }
+  }
+  return {
+    state: winner === null ? "outside" : "member",
+    band: winner !== null && meets(winner.count, winner.gross, p.disclosureGrossCents!) ? "disclosure" : "none",
+    windowStart: winner === null ? null : new Date(winner.start).toISOString(),
+    qualifyingCount: winner?.count ?? 0,
+    qualifyingGrossCents: String(winner?.gross ?? 0n),
+    exit: lastExpiry + 1,
+  };
+}
+
 describe("seller compliance cohort window", () => {
+  it("brute-force equivalence reproduces the review baseline", () => {
+    const rows = generateReviewBaselineRows();
+    expect(createHash("sha256").update(JSON.stringify(rows), "utf8").digest("hex")).toBe(
+      "6514991a0edbb05226fb5b25c3a3761711a94d8fb2c63dc51215258f1b092889",
+    );
+    let verdicts = 0;
+    let members = 0;
+    let exits = 0;
+    let dues = 0;
+    let mismatches = 0;
+    for (const [w, l, c, , g, d, pairs, ticks] of rows) {
+      const p = {
+        ...policy,
+        windowMonths: w,
+        lookbackMonths: l,
+        qualifyingTransactionCount: c,
+        qualifyingGrossCents: g,
+        disclosureGrossCents: d,
+      };
+      const sales = pairs.map(([at, gross], j) =>
+        sale(String(j), new Date(at).toISOString(), gross, {
+          paymentId: `p-${j}`,
+          orderId: `o-${j}`,
+          sellerAccountId: "s",
+        }),
+      );
+      for (const tau of ticks) {
+        const expected = bruteReviewVerdict(pairs, p, tau);
+        const at = new Date(tau).toISOString();
+        const actual = evaluateSellerComplianceCohort({ sales, policy: p, evaluationAt: at });
+        const { exit, ...verdict } = expected;
+        for (const key of ["state", "band", "windowStart", "qualifyingCount", "qualifyingGrossCents"] as const)
+          if (actual[key] !== verdict[key]) mismatches++;
+        expect(actual).toMatchObject(verdict);
+        verdicts++;
+        if (expected.state !== "member") continue;
+        members++;
+        // Only dating/due census requires all sales visible. Verdicts above never do.
+        if (Math.max(...pairs.map(([time]) => time)) >= tau) continue;
+        const dated = evaluateSellerComplianceCohort({
+          sales,
+          policy: p,
+          evaluationAt: new Date(exit + 40 * 86400000).toISOString(),
+          previous: {
+            state: "member",
+            band: expected.band as "none" | "disclosure",
+            entryEffectiveAt: at,
+            transitionEffectiveAt: at,
+          },
+        });
+        expect(dated.state).toBe("outside");
+        expect(dated.exitEffectiveAt).toBe(new Date(exit).toISOString());
+        exits++;
+        const due = Date.parse(actual.nextReevaluationAt!);
+        expect(due).toBeGreaterThan(tau);
+        expect(due).toBeLessThanOrEqual(exit);
+        for (const tick of [due - 1, Math.floor((tau + due) / 2)]) {
+          expect(bruteReviewVerdict(pairs, p, tick)).toMatchObject({ state: expected.state, band: expected.band });
+          dues++;
+        }
+      }
+    }
+    expect({ verdicts, members, exits, dues, mismatches }).toEqual({
+      verdicts: 4200,
+      members: 1625,
+      exits: 1619,
+      dues: 3238,
+      mismatches: 0,
+    });
+    console.info("synthetic review baseline census", { verdicts, members, exits, dues, mismatches });
+  });
+
+  it("brute-force dating across sale and policy boundaries", () => {
+    const random = mulberry32(11022);
+    const totals = { exit: 0, reentry: 0, band: 0, policyBoundary: 0 };
+    let mismatches = 0;
+    for (let i = 0; i < 320; i++) {
+      const month = Math.floor(random() * 24);
+      const base = Date.UTC(2024, month, 1);
+      const at = (day: number) => new Date(base + (day - 1) * 86400000).toISOString();
+      const strict = i % 2 === 0;
+      const needed = strict ? 2 : 1;
+      const keepRefund = i % 4 === 0;
+      const keepCancellation = i % 5 === 0;
+      const p: SellerComplianceCohortPolicyValue = {
+        ...policy,
+        windowMonths: 1,
+        lookbackMonths: 1,
+        qualifyingTransactionCount: 1,
+        qualifyingGrossCents: "100",
+        disclosureGrossCents: "500",
+        comparisonIsInclusive: !strict,
+        refundTreatment: keepRefund ? "count-refunded" : policy.refundTreatment,
+        postCaptureCancellationTreatment: keepCancellation
+          ? "count-cancelled"
+          : policy.postCaptureCancellationTreatment,
+      };
+      for (const family of ["exit", "reentry", "band"] as const) {
+        const scan: ScanSale[] = [];
+        const append = (id: string, day: number, amount: string, qualifying = true, overrides = {}) => {
+          const s = sale(id, at(day), amount, overrides);
+          scan.push({ sale: s, at: Date.parse(s.occurredAt), gross: BigInt(amount), qualifying });
+        };
+        if (family !== "reentry") for (let n = 0; n < needed; n++) append(`initial-${n}`, 10, "200");
+        append("refund", 12, "0", keepRefund, { refundedOrderTotalCents: "0", orderRefundCapCents: "0" });
+        append("cancelled", 13, "0", keepCancellation, { cancelledAt: at(13) });
+        for (let n = 0; n < needed; n++) append(`later-${n}`, 15, family === "exit" ? "0" : "400");
+        const lower = Date.parse(at(11));
+        const upperAt = family === "exit" ? addMonthsMs(base, 2) : Date.parse(at(20));
+        const oracle = oracleLifecycle(
+          scan,
+          {
+            count: needed,
+            gross: strict ? 101n : 100n,
+            disclosure: strict ? 501n : 500n,
+            windowMonths: 1,
+            lookbackMonths: 1,
+          },
+          [lower, upperAt],
+        );
+        const expected = oracle[1]!;
+        const previous = {
+          state: family === "reentry" ? ("outside" as const) : ("member" as const),
+          band: "none" as const,
+          entryEffectiveAt: family === "reentry" ? null : at(10),
+          exitEffectiveAt: family === "reentry" ? at(11) : null,
+          transitionEffectiveAt: at(11),
+        };
+        const actual = evaluateSellerComplianceCohort({
+          sales: scan.map((row) => row.sale),
+          policy: p,
+          evaluationAt: new Date(upperAt).toISOString(),
+          previous,
+          revisionEffectiveAt: at(18),
+          priorPolicies: [
+            { effectiveFrom: at(1), policy: { ...p, qualifyingGrossCents: "99" } },
+            { effectiveFrom: at(14), policy: p },
+          ],
+        });
+        const expectedDate = expected.transitions.find(
+          ([kind]) => kind === (family === "exit" ? "exited" : family === "reentry" ? "entered" : "band:disclosure"),
+        )?.[1];
+        expect(expectedDate).toBeTruthy();
+        const actualDate =
+          family === "exit"
+            ? actual.exitEffectiveAt
+            : family === "reentry"
+              ? actual.entryEffectiveAt
+              : actual.bandEffectiveAt;
+        if (actualDate !== expectedDate) mismatches++;
+        expect(actualDate).toBe(expectedDate);
+        expect(actual).toMatchObject({ state: expected.state, band: expected.band });
+        totals[family]++;
+
+        // A changed PRIOR segment, not the evaluated revision, causes this transition.
+        const before =
+          family === "reentry"
+            ? { ...p, qualifyingTransactionCount: 999 }
+            : family === "band"
+              ? { ...p, disclosureGrossCents: "2000000" }
+              : p;
+        const after = family === "exit" ? { ...p, qualifyingTransactionCount: 999 } : p;
+        const qualifiedPairs = scan.filter((row) => row.qualifying).map((row) => [row.at, String(row.gross)] as const);
+        const boundary = Date.parse(at(16));
+        const beforeBoundary = bruteReviewVerdict(qualifiedPairs, before, boundary - 1);
+        const afterBoundary = bruteReviewVerdict(qualifiedPairs, after, boundary);
+        expect(beforeBoundary).toMatchObject({ state: previous.state, band: previous.band });
+        expect(afterBoundary).toMatchObject({ state: expected.state, band: expected.band });
+        const policyCaused = evaluateSellerComplianceCohort({
+          sales: scan.map((row) => row.sale),
+          policy: after,
+          evaluationAt: at(20),
+          previous,
+          revisionEffectiveAt: at(18),
+          priorPolicies: [
+            { effectiveFrom: at(1), policy: before },
+            { effectiveFrom: at(16), policy: after },
+          ],
+        });
+        const policyDate =
+          family === "exit"
+            ? policyCaused.exitEffectiveAt
+            : family === "reentry"
+              ? policyCaused.entryEffectiveAt
+              : policyCaused.bandEffectiveAt;
+        if (policyDate !== at(16)) mismatches++;
+        expect(policyDate).toBe(at(16));
+        totals.policyBoundary++;
+      }
+    }
+    expect(totals).toEqual({ exit: 320, reentry: 320, band: 320, policyBoundary: 960 });
+    expect(mismatches).toBe(0);
+    console.info("synthetic crossing census", { ...totals, mismatches });
+  });
+  it.each(["deactivation", "count", "disclosure", "re-entry"] as const)(
+    "transition dating stays within twenty single evaluations at 2,000 sales: %s",
+    (kind) => {
+      // Synthetic cost controls, not production or provider evidence.
+      const start = Date.UTC(2024, 0, 1);
+      const span = Date.UTC(2025, 0, 1) - start;
+      const sales = Array.from({ length: 2000 }, (_, i) =>
+        sale(String(i), new Date(start + Math.floor((i * span) / 2000) + 3600000).toISOString(), "5000"),
+      );
+      const p = {
+        ...policy,
+        windowMonths: 12,
+        lookbackMonths: 24,
+        qualifyingTransactionCount: 200,
+        disclosureGrossCents: "2000000000",
+      };
+      const t = "2025-01-02T00:00:00.000Z";
+      const revisionEffectiveAt = "2025-01-02T01:00:00.000Z";
+      const evaluationAt = "2025-01-03T00:00:00.000Z";
+      const entry = evaluateSellerComplianceCohort({ sales, policy: p, evaluationAt: t }).entryEffectiveAt;
+      const datedInput = {
+        sales,
+        evaluationAt,
+        revisionEffectiveAt,
+        policy:
+          kind === "deactivation"
+            ? { ...p, activated: false }
+            : kind === "count"
+              ? { ...p, qualifyingTransactionCount: 2001 }
+              : kind === "disclosure"
+                ? { ...p, disclosureGrossCents: "500000" }
+                : p,
+        previous:
+          kind === "re-entry"
+            ? {
+                state: "outside" as const,
+                band: "none" as const,
+                entryEffectiveAt: null,
+                exitEffectiveAt: "2024-01-01T00:00:00.000Z",
+                transitionEffectiveAt: "2024-01-01T00:00:00.000Z",
+              }
+            : {
+                state: "member" as const,
+                band: "none" as const,
+                entryEffectiveAt: entry,
+                transitionEffectiveAt: entry,
+              },
+        priorPolicies: [
+          {
+            effectiveFrom: kind === "re-entry" ? "2023-01-01T00:00:00.000Z" : "2024-01-01T00:00:00.000Z",
+            policy: kind === "re-entry" ? { ...p, qualifyingTransactionCount: 2001 } : p,
+          },
+        ],
+      };
+      const dated = () => {
+        const result = evaluateSellerComplianceCohort(datedInput);
+        const date =
+          kind === "re-entry"
+            ? result.entryEffectiveAt
+            : kind === "disclosure"
+              ? result.bandEffectiveAt
+              : result.exitEffectiveAt;
+        expect(date, kind).toBe(revisionEffectiveAt);
+      };
+      const undated = () => evaluateSellerComplianceCohort({ sales, policy: p, evaluationAt });
+      dated();
+      undated();
+      const measure = (run: () => unknown) => {
+        const before = performance.now();
+        run();
+        return performance.now() - before;
+      };
+      const datedTimes: number[] = [];
+      const undatedTimes: number[] = [];
+      for (let i = 0; i < 3; i++) {
+        datedTimes.push(measure(dated));
+        undatedTimes.push(measure(undated));
+      }
+      const median = (times: number[]) => [...times].sort((a, b) => a - b)[1]!;
+      const ratio = median(datedTimes) / median(undatedTimes);
+      console.info("transition dating synthetic timing", { kind, datedTimes, undatedTimes, ratio });
+      expect(ratio).toBeLessThanOrEqual(20);
+    },
+  );
+
+  it("negative qualifying amounts fall back to the boundary walk", () => {
+    const result = evaluateSellerComplianceCohort({
+      sales: [sale("a", "2025-01-10T00:00:00.000Z", "100"), sale("c", "2025-01-15T00:00:00.000Z", "-1")],
+      policy: {
+        ...policy,
+        windowMonths: 1,
+        lookbackMonths: 1,
+        qualifyingTransactionCount: 1,
+        qualifyingGrossCents: "100",
+        disclosureGrossCents: "1000",
+      },
+      evaluationAt: "2025-03-01T00:00:00.000Z",
+      previous: {
+        state: "member",
+        band: "none",
+        entryEffectiveAt: "2025-01-10T00:00:00.000Z",
+        transitionEffectiveAt: "2025-01-10T00:00:00.000Z",
+      },
+    });
+    expect(result.exitEffectiveAt).toBe("2025-01-15T00:00:00.000Z");
+  });
+
+  it("fails closed when an inert or changed policy has no revision instant", () => {
+    const sales = [sale("guard", "2025-01-10T00:00:00.000Z", "500000")];
+    const active = { ...policy, qualifyingTransactionCount: 1 };
+    const previous = { state: "member" as const, band: "none" as const, entryEffectiveAt: "2025-01-10T00:00:00.000Z" };
+    const input = { sales, policy: active, previous, evaluationAt: "2025-01-20T00:00:00.000Z" };
+    expect(() => evaluateSellerComplianceCohort({ ...input, policy: { ...active, activated: false } })).toThrow();
+    expect(
+      evaluateSellerComplianceCohort({
+        ...input,
+        policy: { ...active, activated: false },
+        revisionEffectiveAt: "2025-01-15T00:00:00.000Z",
+        priorPolicies: [{ effectiveFrom: "2025-01-01T00:00:00.000Z", policy: active }],
+      }).exitEffectiveAt,
+    ).toBe("2025-01-15T00:00:00.000Z");
+    const unchanged = evaluateSellerComplianceCohort(input);
+    expect(evaluateSellerComplianceCohort({ ...input, previous: { ...previous, policyIdentity: identity } })).toEqual(
+      unchanged,
+    );
+    for (const differing of [
+      null,
+      { ...identity, policyKey: "another" },
+      { ...identity, documentId: "another" },
+      { ...identity, eventId: "another" },
+      { ...identity, streamVersion: 2 },
+    ]) {
+      for (const state of ["member", "outside"] as const)
+        expect(() =>
+          evaluateSellerComplianceCohort({ ...input, previous: { ...previous, state, policyIdentity: differing } }),
+        ).toThrow();
+    }
+    expect(
+      evaluateSellerComplianceCohort({
+        ...input,
+        policyIdentity: null,
+        previous: { ...previous, policyIdentity: null },
+      }).state,
+    ).toBe("member");
+    expect(() =>
+      evaluateSellerComplianceCohort({
+        ...input,
+        policyIdentity: null,
+        previous: { ...previous, policyIdentity: identity },
+      }),
+    ).toThrow();
+  });
+
   it("continuous oracle pins every clamp-piece row, exact exit and omission mutants", () => {
     const sales = [
       sale("jan", "2025-01-31T00:00:00.000Z", "250000"),

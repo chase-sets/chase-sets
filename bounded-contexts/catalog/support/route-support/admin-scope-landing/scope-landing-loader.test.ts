@@ -44,6 +44,8 @@ function scopeRow(overrides: Record<string, unknown> = {}) {
     languageEditions: ["en", "ja"],
     lifecycleStatus: "active",
     updatedAt: "2026-07-03T12:00:00.000Z",
+    promotionReadiness: "live",
+    syncFreshness: "fresh",
     ...overrides,
   };
 }
@@ -80,6 +82,42 @@ describe("Catalog scope-landing route loader", () => {
     expect(query.get("limit")).toBe("50");
     // page 2 (1-based in the URL) → zero-based offset of one page.
     expect(query.get("offset")).toBe("50");
+  });
+
+  it("passes the API's promotion readiness, sync freshness and generation time through unchanged", async () => {
+    // The verdicts deliberately disagree with lifecycleStatus and updatedAt: the
+    // Catalog API derives both row facts, and the loader must not re-derive them.
+    const listCatalogScopeRecords = vi.fn().mockResolvedValue({
+      generatedAt: "2026-07-14T12:00:00.000Z",
+      items: [
+        scopeRow({
+          scopeRecordId: "a",
+          lifecycleStatus: "active",
+          promotionReadiness: "archived",
+          syncFreshness: "stale",
+        }),
+        scopeRow({
+          scopeRecordId: "b",
+          lifecycleStatus: "draft",
+          updatedAt: "2020-01-01T00:00:00.000Z",
+          promotionReadiness: "live",
+          syncFreshness: "fresh",
+        }),
+      ],
+      total: 2,
+      count: 2,
+    });
+    mockCreateCatalogRequestApiClient.mockReturnValue({ listCatalogScopeRecords });
+
+    const routeData = await runLoader("https://admin.example/catalog/scopes");
+
+    expect(
+      routeData.readModel.rows.map((row) => [row.scopeRecordId, row.promotionReadiness, row.syncFreshness]),
+    ).toEqual([
+      ["a", "archived", "stale"],
+      ["b", "live", "fresh"],
+    ]);
+    expect(routeData.readModel.generatedAt).toBe("2026-07-14T12:00:00.000Z");
   });
 
   it("forwards the language edition to the API as the authoritative filter", async () => {
@@ -170,7 +208,13 @@ describe("Catalog scope-landing route loader", () => {
     expect(getCatalogAttentionQueueReadModel).toHaveBeenCalledOnce();
     expect(getCatalogAliasReviewReadModel).toHaveBeenCalledOnce();
     expect(routeData.readModel.rows).toHaveLength(3);
-    expect(routeData.attentionQueue).toEqual({ status: "ready", readModel: queue });
+    expect(routeData.attentionQueue).toEqual({
+      status: "ready",
+      readModel: queue,
+      navigation: { pathname: "/catalog/scopes", search: "page=2" },
+    });
+    // No attention parameters: the default twenty-per-kind summary.
+    expect(getCatalogAttentionQueueReadModel).toHaveBeenCalledWith("");
     expect(routeData.generalAliasReview).toEqual(aliases);
     expect(routeData.generalAliasReviewFailed).toBe(false);
     expect(getCatalogAliasReviewReadModel).toHaveBeenCalledWith("limit=200");
@@ -200,7 +244,7 @@ describe("Catalog scope-landing route loader", () => {
     const data = await runLoader("https://admin.example/catalog/scopes?page=2");
     expect(data.error).toBeNull();
     expect(data.readModel.rows).toHaveLength(2);
-    expect(data.attentionQueue.status).toBe("unavailable");
+    expect(data.attentionQueue).toEqual({ status: "unavailable" });
     expect(data.generalAliasReview).toEqual(aliases);
     expect(data.generalAliasReviewFailed).toBe(false);
     expect(listCatalogScopeRecords).toHaveBeenCalledOnce();
@@ -209,6 +253,56 @@ describe("Catalog scope-landing route loader", () => {
     const query = new URLSearchParams(listCatalogScopeRecords.mock.calls[0]?.[0]);
     expect(query.get("limit")).toBe("50");
     expect(query.get("offset")).toBe("50");
+  });
+
+  it("pages the queue from its own parameters and keeps Scope Record filters and pager out of it", async () => {
+    const listCatalogScopeRecords = vi.fn().mockResolvedValue({ items: [scopeRow()], total: 103, count: 1 });
+    const window = { kind: "unmapped-scope", offset: 40, limit: 20 } as const;
+    const queue = catalogAttentionQueueReadModelFixture([], undefined, {
+      window,
+      cohorts: { "unmapped-scope": { total: 40 } },
+    });
+    const getCatalogAttentionQueueReadModel = vi.fn().mockResolvedValue(queue);
+    mockCreateCatalogRequestApiClient.mockReturnValue({ listCatalogScopeRecords, getCatalogAttentionQueueReadModel });
+
+    const routeData = await runLoader(
+      "https://admin.example/catalog/scopes?productDomain=pokemon&status=active&search=paldean&page=2&attentionKind=unmapped-scope&attentionOffset=40",
+    );
+
+    expect(getCatalogAttentionQueueReadModel).toHaveBeenCalledWith("kind=unmapped-scope&offset=40");
+    expect(routeData.attentionQueue).toEqual({
+      status: "ready",
+      readModel: queue,
+      navigation: {
+        pathname: "/catalog/scopes",
+        search: "productDomain=pokemon&status=active&search=paldean&page=2",
+      },
+    });
+
+    // The Scope Record list keeps its own filters and pager and never sees the queue window.
+    const query = new URLSearchParams(listCatalogScopeRecords.mock.calls[0]?.[0] ?? "");
+    expect(query.get("productDomain")).toBe("pokemon");
+    expect(query.get("status")).toBe("active");
+    expect(query.get("search")).toBe("paldean");
+    expect(query.get("offset")).toBe("50");
+    expect([...query.keys()].some((key) => key.startsWith("attention") || key === "kind")).toBe(false);
+  });
+
+  it("falls back to the summary for an unknown attention kind instead of failing the page", async () => {
+    const listCatalogScopeRecords = vi.fn().mockResolvedValue({ items: [scopeRow()], total: 1, count: 1 });
+    const getCatalogAttentionQueueReadModel = vi.fn().mockResolvedValue(catalogAttentionQueueReadModelFixture());
+    mockCreateCatalogRequestApiClient.mockReturnValue({ listCatalogScopeRecords, getCatalogAttentionQueueReadModel });
+
+    const routeData = await runLoader(
+      "https://admin.example/catalog/scopes?productDomain=pokemon&attentionKind=everything&attentionOffset=40",
+    );
+
+    expect(getCatalogAttentionQueueReadModel).toHaveBeenCalledWith("");
+    expect(routeData.attentionQueue).toMatchObject({
+      status: "ready",
+      navigation: { pathname: "/catalog/scopes", search: "productDomain=pokemon" },
+    });
+    expect(routeData.readModel.rows).toHaveLength(1);
   });
 
   it("keeps scopes when the supplementary alias read fails", async () => {

@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { SourceObservationRouteServices } from "../route";
+import { CatalogMergeCandidateReviewCommandError } from "../runtime";
 import type { CatalogProviderIntegrationProfileVersionStore } from "../providers/provider-integration-profile-store";
 import { buildApp, context, profileVersion, viewOnlyActor } from "./route-test-harness";
 import {
@@ -8,6 +9,9 @@ import {
   listSourceObservationIdsForPromotion,
 } from "../../read-model/queries";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import { localizedTextMapFromEnglish } from "@chase-sets/localization";
+import { sourceObservationListItem } from "../../ui/primary-workbench-test-fixtures";
+import { sourceObservationEvidenceFor } from "../admin/source-observation-evidence-read";
 
 describe("source observation routes: review and control-plane reads", () => {
   it("passes Eligible through the authorized list route to the bounded query and preserves promotion-scope parity", async () => {
@@ -235,7 +239,7 @@ describe("source observation routes: review and control-plane reads", () => {
 
     expect(response.status).toBe(400);
     await expect(response.json()).resolves.toEqual({
-      error: "Rejection requires a reason.",
+      error: { code: "reason_required", message: "Rejection requires a reason." },
     });
     expect(services.rejectObservation).not.toHaveBeenCalled();
   });
@@ -313,41 +317,130 @@ describe("source observation routes: review and control-plane reads", () => {
     });
   });
 
-  it("requires candidate action reasons and snapshots where needed", async () => {
+  it("requires candidate action reasons, the version the page read, and a typed edit or split", async () => {
     const services = {
       promoteCatalogMergeCandidate: vi.fn(),
       updateCatalogMergeCandidate: vi.fn(),
       splitCatalogMergeCandidate: vi.fn(),
     } as unknown as SourceObservationRouteServices;
     const app = buildApp(services);
+    const post = (action: string, body: unknown) =>
+      app.request(`/source-observations/admin/merge-candidates/cand_1/${action}`, {
+        method: "POST",
+        body: JSON.stringify(body),
+        headers: { "content-type": "application/json" },
+      });
 
-    const promoteResponse = await app.request("/source-observations/admin/merge-candidates/cand_1/promote", {
-      method: "POST",
-      body: JSON.stringify({ reason: " " }),
-      headers: { "content-type": "application/json" },
-    });
-    const updateResponse = await app.request("/source-observations/admin/merge-candidates/cand_1/update", {
-      method: "POST",
-      body: JSON.stringify({ reason: "Correct identity." }),
-      headers: { "content-type": "application/json" },
-    });
-    const splitResponse = await app.request("/source-observations/admin/merge-candidates/cand_1/split", {
-      method: "POST",
-      body: JSON.stringify({ reason: "Separate variants." }),
-      headers: { "content-type": "application/json" },
-    });
-
+    const promoteResponse = await post("promote", { reason: " " });
     expect(promoteResponse.status).toBe(400);
-    await expect(promoteResponse.json()).resolves.toEqual({ error: "Promotion requires a reason." });
-    expect(updateResponse.status).toBe(400);
-    await expect(updateResponse.json()).resolves.toEqual({ error: "Update requires a candidate snapshot." });
-    expect(splitResponse.status).toBe(400);
-    await expect(splitResponse.json()).resolves.toEqual({
-      error: "Split requires remainingSnapshot, splitCandidateId, and splitSnapshot.",
+    await expect(promoteResponse.json()).resolves.toEqual({
+      error: { code: "reason_required", message: "Promotion requires a reason." },
     });
+
+    const unversioned = await post("update", { reason: "Correct identity.", edit: {} });
+    expect(unversioned.status).toBe(400);
+    await expect(unversioned.json()).resolves.toEqual({
+      error: {
+        code: "expected_version_required",
+        message: "Update and split require expectedVersion: the candidate version the page read.",
+      },
+    });
+
+    // A whole snapshot is no longer an update: the Catalog API applies a typed edit to its own.
+    const snapshotUpdate = await post("update", { reason: "Correct identity.", expectedVersion: 2, snapshot: {} });
+    expect(snapshotUpdate.status).toBe(400);
+    await expect(snapshotUpdate.json()).resolves.toMatchObject({ error: { code: "edit_required" } });
+
+    for (const edit of [
+      null,
+      { productIds: 4 },
+      { productIds: "prod_a" },
+      { promotionIntent: "delete-everything" },
+      { catalogItemId: 7 },
+      { factOverrides: [{ key: "name" }] },
+      { droppedExternalCatalogItemReferenceIndexes: [-1] },
+      { droppedExternalProductReferenceIndexes: [0.5] },
+    ]) {
+      const badEdit = await post("update", { reason: "Correct identity.", expectedVersion: 2, edit });
+      expect(badEdit.status).toBe(400);
+      await expect(badEdit.json()).resolves.toMatchObject({ error: { code: "edit_required" } });
+    }
+
+    const snapshotSplit = await post("split", {
+      reason: "Separate variants.",
+      expectedVersion: 2,
+      remainingSnapshot: {},
+      splitCandidateId: "cand_2",
+      splitSnapshot: {},
+    });
+    expect(snapshotSplit.status).toBe(400);
+    await expect(snapshotSplit.json()).resolves.toEqual({
+      error: {
+        code: "split_observations_required",
+        message: "Split requires splitObservationIds: the Source Observations to split off.",
+      },
+    });
+
     expect(services.promoteCatalogMergeCandidate).not.toHaveBeenCalled();
     expect(services.updateCatalogMergeCandidate).not.toHaveBeenCalled();
     expect(services.splitCatalogMergeCandidate).not.toHaveBeenCalled();
+  });
+
+  it("passes a typed edit and split through and answers a stale candidate with a 409", async () => {
+    const services = {
+      updateCatalogMergeCandidate: vi.fn(async () => ({ candidateId: "cand_1", action: "update" })),
+      splitCatalogMergeCandidate: vi.fn(async () => {
+        throw new CatalogMergeCandidateReviewCommandError("stale_merge_candidate", "stale");
+      }),
+    } as unknown as SourceObservationRouteServices;
+    const app = buildApp(services);
+    const post = (action: string, body: unknown) =>
+      app.request(`/source-observations/admin/merge-candidates/cand_1/${action}`, {
+        method: "POST",
+        body: JSON.stringify(body),
+        headers: { "content-type": "application/json" },
+      });
+
+    const update = await post("update", {
+      reason: "Correct identity.",
+      expectedVersion: 3,
+      edit: {
+        catalogItemId: null,
+        factOverrides: [{ key: "name", value: "Charizard", ignored: true }],
+        droppedExternalProductReferenceIndexes: [0],
+        unknownField: "dropped",
+      },
+    });
+    expect(update.status).toBe(200);
+    // Only the edit's known fields reach the Catalog API, as sent; the rest keep stored values.
+    expect(services.updateCatalogMergeCandidate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        candidateId: "cand_1",
+        expectedVersion: 3,
+        edit: {
+          catalogItemId: null,
+          factOverrides: [{ key: "name", value: "Charizard" }],
+          droppedExternalProductReferenceIndexes: [0],
+        },
+        reason: "Correct identity.",
+      }),
+    );
+
+    const split = await post("split", {
+      reason: "Separate variants.",
+      expectedVersion: 3,
+      splitObservationIds: ["obs_2"],
+    });
+    expect(split.status).toBe(409);
+    await expect(split.json()).resolves.toEqual({
+      error: {
+        code: "stale_merge_candidate",
+        message: "The candidate changed after this page read it. Read it again before acting on it.",
+      },
+    });
+    expect(services.splitCatalogMergeCandidate).toHaveBeenCalledWith(
+      expect.objectContaining({ candidateId: "cand_1", expectedVersion: 3, splitObservationIds: ["obs_2"] }),
+    );
   });
 
   it("lists observations using the shared source query param as provider scope", async () => {
@@ -426,6 +519,55 @@ describe("source observation routes: review and control-plane reads", () => {
       },
     });
     expect(getSourceObservationDetail).toHaveBeenCalledWith("obs_1");
+  });
+
+  it("composes a Source Observation's evidence sheet for the actor and answers 404 for an unknown one", async () => {
+    const observation = sourceObservationListItem({ observation_id: "obs_evidence", status: "changed" });
+    const labels = {
+      contentTypes: [
+        {
+          content_type_id: "pct_booster",
+          key: "booster-pack",
+          display_name: localizedTextMapFromEnglish("Booster pack"),
+        },
+      ],
+      inclusionPolicies: [
+        { inclusion_policy_id: "pip_sealed", key: "sealed", display_name: localizedTextMapFromEnglish("") },
+      ],
+    };
+    const services = {
+      getSourceObservationDetail: vi.fn(async (id: string) => (id === "obs_evidence" ? observation : null)),
+      listProductContentsEvidenceLabels: vi.fn(async () => labels),
+    } as unknown as SourceObservationRouteServices;
+
+    const managed = await buildApp(services).request("/source-observations/obs_evidence/evidence");
+    expect(managed.status).toBe(200);
+    expect(await managed.json()).toEqual(
+      JSON.parse(
+        JSON.stringify({
+          observationId: "obs_evidence",
+          detail: sourceObservationEvidenceFor({ observation, canManage: true, labels }),
+        }),
+      ),
+    );
+
+    // Promotion readiness is the actor's: a viewer is not offered the commands.
+    const viewed = await buildApp(services, undefined, viewOnlyActor).request(
+      "/source-observations/obs_evidence/evidence",
+    );
+    expect(viewed.status).toBe(200);
+    expect(await viewed.json()).toEqual(
+      JSON.parse(
+        JSON.stringify({
+          observationId: "obs_evidence",
+          detail: sourceObservationEvidenceFor({ observation, canManage: false, labels }),
+        }),
+      ),
+    );
+
+    const missing = await buildApp(services).request("/source-observations/obs_gone/evidence");
+    expect(missing.status).toBe(404);
+    await expect(missing.json()).resolves.toMatchObject({ error: { code: "not_found" } });
   });
 
   it("returns replay/reapply impact previews from the control-plane impact service", async () => {

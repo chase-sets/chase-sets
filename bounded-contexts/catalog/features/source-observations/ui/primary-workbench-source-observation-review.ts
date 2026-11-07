@@ -16,12 +16,130 @@ import type {
   SourceObservationIntegrationScope,
   SourceObservationListItem,
   SourceObservationPromotionValidation,
+  SourceObservationPromotionReceipt,
+  SourceObservationPromotionScope,
+  SourceObservationPromotionPreviewDiagnostic,
 } from "./contracts";
 import { catalogPrimaryWorkbenchHref } from "./primary-workbench-route-context";
 import { actionStateForBlockers, setQueryParam } from "./primary-workbench-read-model-support";
 import { scopeContextFromRouteContext, scopeContextToObservationFilterScope } from "./primary-workbench-scope-context";
 
 const defaultReviewPageSize = 25;
+
+function projectPromotionScope(scope: SourceObservationPromotionScope): SourceObservationPromotionScope {
+  return {
+    search: scope.search,
+    status: scope.status,
+    provider: scope.provider,
+    language: scope.language,
+    productLineId: scope.productLineId,
+    seriesId: scope.seriesId,
+    expansionId: scope.expansionId,
+    setId: scope.setId,
+  };
+}
+
+// Allowlist at the action-to-browser boundary, including every nested object.
+// Diagnostic text originates in Catalog's validation resolver, not exceptions.
+export function projectPromotionReceipt(receipt: SourceObservationPromotionReceipt): SourceObservationPromotionReceipt {
+  const { selection, preview } = receipt;
+  return {
+    schemaVersion: "source-observation-promotion-receipt/v1",
+    previewId: receipt.previewId,
+    selection: {
+      providerKey: selection.providerKey,
+      unitKey: selection.unitKey,
+      importScope: selection.importScope,
+      profileVersion: selection.profileVersion,
+      scopeRecordId: selection.scopeRecordId,
+      observationIds: selection.observationIds.map((id) => id),
+      promoteAsDraft: selection.promoteAsDraft,
+      scope: projectPromotionScope(selection.scope),
+    },
+    preview: {
+      matched: preview.matched,
+      eligible: preview.eligible,
+      terminal: preview.terminal,
+      scope: {
+        search: preview.scope.search,
+        status: preview.scope.status,
+        provider: preview.scope.provider,
+        language: preview.scope.language,
+        productLineId: preview.scope.productLineId,
+        seriesId: preview.scope.seriesId,
+        expansionId: preview.scope.expansionId,
+        setId: preview.scope.setId,
+      },
+      fingerprint: preview.fingerprint,
+      validation: {
+        promoteAsDraft: preview.validation.promoteAsDraft,
+        pageLimit: preview.validation.pageLimit,
+        coveredObservationIds: preview.validation.coveredObservationIds.map((id) => id),
+        coverage: preview.validation.coverage,
+        continuation: preview.validation.continuation,
+        diagnostics: preview.validation.diagnostics.map((diagnostic) => {
+          const projected: SourceObservationPromotionPreviewDiagnostic = {
+            observationId: diagnostic.observationId,
+            code: diagnostic.code,
+            path: diagnostic.path,
+            diagnosticText: diagnostic.diagnosticText,
+            blocking: diagnostic.blocking,
+          };
+          if (diagnostic.displayIdentity) {
+            projected.displayIdentity = {
+              missingTokens: diagnostic.displayIdentity.missingTokens.map((token) => token),
+              templateKey: diagnostic.displayIdentity.templateKey,
+              templateTargetKind: diagnostic.displayIdentity.templateTargetKind,
+              templateTargetId: diagnostic.displayIdentity.templateTargetId,
+              templateReason: diagnostic.displayIdentity.templateReason,
+            };
+          }
+          return projected;
+        }),
+      },
+    },
+  };
+}
+
+export function promotionReceiptMatchesContext(
+  receipt: SourceObservationPromotionReceipt,
+  context: CatalogPrimaryWorkbenchRouteContext,
+): boolean {
+  const selection = receipt.selection;
+  const scope = scopeContextToObservationFilterScope(
+    scopeContextFromRouteContext(context),
+    context.sourceObservationFilters,
+  );
+  return (
+    selection.providerKey === context.providerKey &&
+    selection.unitKey === context.unitKey &&
+    selection.importScope === context.importScope &&
+    selection.profileVersion === context.profileVersion &&
+    selection.scopeRecordId === (context.scopeRecordId ?? null) &&
+    JSON.stringify(projectPromotionScope(selection.scope)) === JSON.stringify(projectPromotionScope(scope))
+  );
+}
+
+export function promotionReceiptHasCompleteCoverage(receipt: SourceObservationPromotionReceipt): boolean {
+  const { validation } = receipt.preview;
+  const selected = receipt.selection.observationIds;
+  const covered = new Set(validation.coveredObservationIds);
+  return (
+    Boolean(receipt.previewId && receipt.preview.fingerprint) &&
+    validation.promoteAsDraft === receipt.selection.promoteAsDraft &&
+    validation.coverage === "complete" &&
+    validation.continuation === null &&
+    validation.pageLimit > 0 &&
+    receipt.preview.eligible > 0 &&
+    covered.size <= validation.pageLimit &&
+    new Set(selected).size === selected.length &&
+    covered.size === validation.coveredObservationIds.length &&
+    covered.size === receipt.preview.eligible &&
+    (selected.length === 0 ||
+      (selected.length === receipt.preview.matched && [...covered].every((id) => selected.includes(id)))) &&
+    !validation.diagnostics.some((diagnostic) => diagnostic.blocking)
+  );
+}
 
 // How many normalized fact summaries the dense review cell renders as badges. The
 // slim row ships only this preview slice; the full list rides the lazily-fetched
@@ -144,6 +262,13 @@ export function sourceObservationReviewCompositionFor(input: {
         observed: effectiveObserved,
         rejected: input.rejected,
       }),
+      statusFilters: reviewStatusFiltersFor(input.routeContext, {
+        observed: effectiveObserved,
+        changed: input.changed,
+        promoted: input.promoted,
+        rejected: input.rejected,
+        eligible: effectiveEligible,
+      }),
       pagination: {
         mode: "offset",
         limit,
@@ -151,6 +276,20 @@ export function sourceObservationReviewCompositionFor(input: {
         total,
         nextCursor: offset + limit < total ? `offset:${offset + limit}` : null,
         previousCursor: offset > 0 ? `offset:${Math.max(0, offset - limit)}` : null,
+        previousHref:
+          offset > 0
+            ? catalogPrimaryWorkbenchHref(
+                { ...input.routeContext, reviewOffset: Math.max(offset - limit, 0) || null },
+                "source-observation-review",
+              )
+            : null,
+        nextHref:
+          offset + limit < total
+            ? catalogPrimaryWorkbenchHref(
+                { ...input.routeContext, reviewOffset: offset + limit },
+                "source-observation-review",
+              )
+            : null,
       },
       bulkSelection: {
         selectedCount: selectedObservationIds.length,
@@ -438,6 +577,7 @@ export function promotionPreviewFor(input: {
   // The read-only pre-write validation the loader fetched for the route's
   // preview token; null when no preview is in play or the preview call failed.
   promotionValidation: SourceObservationPromotionValidation | null;
+  promotionPreviewFingerprint?: string | null;
 }): CatalogPrimaryWorkbenchReadModel["promotionPreview"] {
   const validation = promotionValidationFor(input.routeContext, input.promotionValidation);
   const selectedObservationIds = input.routeContext.selectedObservationIds;
@@ -531,6 +671,8 @@ export function promotionPreviewFor(input: {
 
   return {
     previewId: input.routeContext.promotionPreviewId,
+    receipt: null,
+    currentFingerprint: input.promotionPreviewFingerprint ?? null,
     validation,
     freshness: staleReasons.length > 0 ? "stale" : eligibleCount > 0 ? "fresh" : "partial",
     scope,
@@ -609,7 +751,7 @@ function promotionFilterSummaryFor(
 // Project the preview's read-only validation page into the operator read
 // model. Only structured resolver evidence crosses: template reason, missing
 // token names, template key. No title, field value, or provider text.
-function promotionValidationFor(
+export function promotionValidationFor(
   routeContext: CatalogPrimaryWorkbenchRouteContext,
   validation: SourceObservationPromotionValidation | null,
 ): CatalogPrimaryWorkbenchReadModel["promotionPreview"]["validation"] {
@@ -833,6 +975,33 @@ function reviewFiltersFor(
       false,
     ),
   ];
+}
+
+// The status filter's options. "All" counts every status; each link keeps the
+// daily working set, drops the review page and sets (or clears) filter.status.
+function reviewStatusFiltersFor(
+  routeContext: CatalogPrimaryWorkbenchRouteContext,
+  counts: Readonly<Record<"observed" | "changed" | "promoted" | "rejected" | "eligible", number>>,
+): CatalogPrimaryWorkbenchReadModel["sourceObservationReview"]["statusFilters"] {
+  const options = [
+    { value: "all", count: counts.observed + counts.changed + counts.promoted + counts.rejected },
+    { value: "observed", count: counts.observed },
+    { value: "eligible", count: counts.eligible },
+    { value: "promoted", count: counts.promoted },
+    { value: "rejected", count: counts.rejected },
+  ] as const;
+
+  return options.map((option) => {
+    const { status: _status, ...otherFilters } = routeContext.sourceObservationFilters;
+    const sourceObservationFilters = option.value === "all" ? otherFilters : { ...otherFilters, status: option.value };
+    return {
+      ...option,
+      href: catalogPrimaryWorkbenchHref(
+        { ...routeContext, reviewOffset: null, sourceObservationFilters },
+        "import-to-promotion",
+      ),
+    };
+  });
 }
 
 function savedReviewFiltersFor(

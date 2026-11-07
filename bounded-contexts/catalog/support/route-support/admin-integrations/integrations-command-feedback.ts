@@ -70,6 +70,7 @@ function isCommandFeedbackResult(value: string | null): value is CatalogPrimaryW
     value === "section-conflict" ||
     value === "section-invalid" ||
     value === "lifecycle-conflict" ||
+    value === "candidate-stale" ||
     value === "confirmation-required" ||
     value === "preview-required" ||
     value === "job-required" ||

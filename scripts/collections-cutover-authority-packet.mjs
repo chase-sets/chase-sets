@@ -5,9 +5,11 @@
 // `{ status: "unknown", missingAuthority, hostAction }` is a governed bounded unknown; anything else, a
 // secret-shaped value, an extra target or a recovery-commit floor is invalid.
 // Completeness only: it never proves retirement. `applyProviderCapture` folds one read-only CI capture in.
-import { readFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
+import { containsFloor, deriveFloor } from "./collections-anonymous-owner-redaction.mjs";
 
 export const TARGETS = Object.freeze(["staging", "production"]);
 export const WRITER_KINDS = Object.freeze(["serving", "suspended", "dormant", "rollback", "job", "cronjob", "session"]);
@@ -449,17 +451,698 @@ function captureResult(packet, state) {
   return { packet, verdict, missing: state.missing, errors: state.errors };
 }
 
+const ASSEMBLY_FORMAT = "collections-cutover-authority-assembly/v1";
+const ACTIVATION_MIGRATION = "20261016_collections_anonymous_owner_activation";
+const INPUT_LIMIT = 2 * 1024 * 1024;
+const WINDOW_MS = 30 * 60_000;
+const sha256 = (value) => createHash("sha256").update(value).digest("hex");
+const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+const exactKeys = (value, names) => isObject(value) && same(Object.keys(value).sort(), [...names].sort());
+const sortedUnique = (values) => [...new Set(values)].sort();
+const utc = (value) =>
+  typeof value === "string" &&
+  /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(value) &&
+  Number.isFinite(instant(value));
+const safeId = (value) => typeof value === "string" && /^[A-Za-z0-9_.:/-]{1,200}$/.test(value);
+const requireProof = (condition, code) => {
+  if (!condition) throw new Error(code);
+};
+const boundJson = (value, code) => {
+  requireProof(
+    isObject(value) &&
+      typeof value.text === "string" &&
+      digest64(value.sha256) &&
+      Buffer.byteLength(value.text, "utf8") <= 512 * 1024 &&
+      sha256(value.text) === value.sha256,
+    code,
+  );
+  try {
+    const parsed = JSON.parse(value.text);
+    const secretErrors = [];
+    scanSecrets(parsed, "evidence", secretErrors);
+    requireProof(secretErrors.length === 0, code);
+    return parsed;
+  } catch {
+    throw new Error(code);
+  }
+};
+const shownValue = (value) => {
+  requireProof(evidenceShown(value) && "value" in value, "capture-incomplete");
+  return value.value;
+};
+
+// These are the capture's closed source sets, not caller-selected coverage keys.
+const WRITER_SOURCES = Object.freeze({
+  serving: ["rollouts", "deployments", "replicasets", "pods"],
+  suspended: ["jobs", "cronjobs"],
+  dormant: ["rollouts", "deployments", "replicasets"],
+  rollback: ["replicasets", "helm"],
+  job: ["jobs"],
+  cronjob: ["cronjobs"],
+  session: ["sessions"],
+});
+
+function completeSet(set, code) {
+  requireProof(
+    evidenceShown(set) &&
+      Array.isArray(set.items) &&
+      integer(set.collected) &&
+      set.collected <= 8192 &&
+      set.collected === set.authoritativeTotal &&
+      set.items.length === set.collected,
+    code,
+  );
+  const ids = set.items.map((item) => item?.id);
+  requireProof(
+    ids.every((id) => typeof id === "string" && /^[A-Za-z0-9_.:/#-]{1,240}$/.test(id)) &&
+      new Set(ids).size === ids.length,
+    code,
+  );
+  return set.items;
+}
+
+function captureInventory(capture) {
+  const totals = new Map();
+  const ids = new Set();
+  for (const kind of WRITER_KINDS) {
+    const set = capture.fields[`writers.${kind}`];
+    const items = completeSet(set, "inventory-incomplete");
+    requireProof(exactKeys(set.coverage, WRITER_SOURCES[kind]), "inventory-incomplete");
+    for (const [source, coverage] of Object.entries(set.coverage)) {
+      requireProof(
+        (coverage?.status === "notServed" && source === "rollouts" && exactKeys(coverage, ["status"])) ||
+          (coverage?.status === "complete" && integer(coverage.listed) && coverage.listed <= 100_000),
+        "inventory-incomplete",
+      );
+      if (totals.has(source)) requireProof(same(totals.get(source), coverage), "inventory-incomplete");
+      totals.set(source, coverage);
+    }
+    for (const item of items) {
+      requireProof(!ids.has(item.id), "inventory-incomplete");
+      ids.add(item.id);
+      const source = item.id.split(":")[0];
+      requireProof(safeId(item.id), "writer-source");
+      requireProof(
+        WRITER_SOURCES[kind].includes(source) || (kind === "session" && ["backend", "session"].includes(source)),
+        "writer-source",
+      );
+    }
+  }
+  for (const [source, coverage] of totals) {
+    const count = [...ids].filter((id) =>
+      source === "sessions" ? /^(backend|session):/.test(id) : id.startsWith(`${source}:`),
+    ).length;
+    requireProof(coverage.status === "notServed" ? count === 0 : count <= coverage.listed, "inventory-incomplete");
+    if (source === "sessions") requireProof(count === coverage.listed && count <= 256, "inventory-incomplete");
+    if (source === "helm") requireProof(coverage.listed < 256 && count + 1 === coverage.listed, "inventory-incomplete");
+  }
+}
+
+// A successful enclosing workflow is not evidence that its owning step executed.
+function executedEvidence(evidence, head, code, packetless = false) {
+  requireProof(
+    integer(evidence?.jobId) && evidence.jobId > 0 && integer(evidence.stepNumber) && evidence.stepNumber > 0,
+    code,
+  );
+  const record = boundJson(evidence?.execution, code);
+  const conclusion = packetless ? "failure" : "success";
+  requireProof(
+    sha40(record.headSha) &&
+      record.headSha === head &&
+      integer(record.databaseId) &&
+      record.databaseId > 0 &&
+      record.status === "completed" &&
+      record.conclusion === conclusion &&
+      Array.isArray(record.jobs),
+    code,
+  );
+  const jobs = record.jobs.filter((job) => job.databaseId === evidence.jobId);
+  requireProof(jobs.length === 1, code);
+  const job = jobs[0];
+  requireProof(job.status === "completed" && job.conclusion === conclusion && Array.isArray(job.steps), code);
+  const steps = job.steps.filter((step) => step.number === evidence.stepNumber);
+  requireProof(steps.length === 1, code);
+  const step = steps[0];
+  const start = instant(step.startedAt),
+    end = instant(step.completedAt);
+  requireProof(
+    step.status === "completed" &&
+      step.conclusion === conclusion &&
+      Number.isFinite(start) &&
+      end >= start &&
+      start >= instant(job.startedAt) &&
+      end <= instant(job.completedAt),
+    code,
+  );
+  if (code === "schema-source")
+    requireProof(
+      step.name === "Run protected Collections cutover" &&
+        job.steps.filter((entry) => entry.conclusion === "failure").length === (packetless ? 1 : 0),
+      code,
+    );
+  return { start, end };
+}
+
+function provenImages(item, capture, captureSha256, supplementary, floor, ancestry) {
+  requireProof(Array.isArray(item.revisions) && item.revisions.every(sha40), "image-provenance");
+  if (item.id.startsWith("helm:")) {
+    requireProof(item.revisions.length === 1, "image-provenance");
+    const recorded = shownValue(capture.fields.deployedCommitAncestry).revisions;
+    const match = recorded.filter((entry) => `helm:chase-sets-platform/${entry.revision}` === item.id);
+    requireProof(
+      match.length === 1 && match[0].commit === item.revisions[0] && match[0].containsFloor === item.containsFloor,
+      "image-provenance",
+    );
+    return item.revisions;
+  }
+  requireProof(
+    Array.isArray(item.images) &&
+      item.images.length > 0 &&
+      item.images.length <= 64 &&
+      sortedUnique(item.images).length === item.images.length,
+    "image-provenance",
+  );
+  const revisions = item.images.map((image) => {
+    requireProof(
+      typeof image === "string" && image.length <= 512 && /^[a-zA-Z0-9._/:@-]+$/.test(image),
+      "image-provenance",
+    );
+    const tag = /:([a-f0-9]{40})(?:@sha256:[a-f0-9]{64})?$/.exec(image)?.[1];
+    if (tag && item.revisions.includes(tag)) {
+      const digest = /@(sha256:[a-f0-9]{64})$/.exec(image)?.[1];
+      const conflicts = shownValue(capture.fields.deployedCommitAncestry).revisions.filter(
+        (entry) => digest && entry.digest === digest && entry.commit !== tag,
+      );
+      requireProof(
+        conflicts.length === 0 &&
+          supplementary.images.every(
+            (proof) => proof.sourceId !== item.id || proof.image !== image || proof.commit === tag,
+          ),
+        "image-provenance",
+      );
+      return tag;
+    }
+    requireProof(/@sha256:[a-f0-9]{64}$/.test(image), "image-provenance");
+    const captured = shownValue(capture.fields.deployedCommitAncestry).revisions.filter(
+      (entry) => entry.digest === image.slice(image.lastIndexOf("@") + 1),
+    );
+    if (captured.length > 0 && item.revisions.length > 0) {
+      const commits = sortedUnique(captured.map((entry) => entry.commit));
+      requireProof(
+        commits.length === 1 && sha40(commits[0]) && item.revisions.includes(commits[0]),
+        "image-provenance",
+      );
+      return commits[0];
+    }
+    const proofs = supplementary.images.filter((proof) => proof.sourceId === item.id && proof.image === image);
+    requireProof(proofs.length === 1, "image-provenance");
+    const proof = proofs[0];
+    requireProof(
+      proof.captureSha256 === captureSha256 && sha40(proof.commit) && (!tag || proof.commit === tag),
+      "image-provenance",
+    );
+    const window = executedEvidence(proof, proof.commit, "image-provenance");
+    requireProof(window.end <= instant(capture.capturedAt), "image-provenance");
+    requireProof(Array.isArray(proof.lines) && proof.lines.length === 2, "image-provenance");
+    const digest = image.slice(image.lastIndexOf("@") + 1);
+    for (const [index, binding] of [`RELEASE_COMMIT: ${proof.commit}`, `RELEASE_IMAGE_DIGEST: ${digest}`].entries()) {
+      const line = proof.lines[index];
+      requireProof(
+        integer(line?.number) &&
+          line.number > 0 &&
+          typeof line.text === "string" &&
+          line.text.length <= 2048 &&
+          sha256(line.text) === line.sha256 &&
+          line.text.endsWith(binding),
+        "image-provenance",
+      );
+      const time = /\t(\d{4}-\d{2}-\d{2}T[^ ]+Z) /.exec(line.text)?.[1];
+      requireProof(instant(time) >= window.start && instant(time) <= window.end, "image-provenance");
+    }
+    const compare = proof.compare;
+    requireProof(
+      exactKeys(compare, ["artifactSha256", "status", "ahead_by", "behind_by", "base", "mergeBase", "head"]) &&
+        digest64(compare.artifactSha256) &&
+        ["ahead", "identical"].includes(compare.status) &&
+        integer(compare.ahead_by) &&
+        compare.behind_by === 0 &&
+        compare.base === floor &&
+        compare.mergeBase === floor &&
+        compare.head === proof.commit &&
+        (compare.status === "ahead"
+          ? compare.ahead_by > 0 && proof.commit !== floor
+          : compare.ahead_by === 0 && proof.commit === floor) &&
+        ancestry(proof.commit),
+      "image-provenance",
+    );
+    return proof.commit;
+  });
+  requireProof(
+    item.revisions.every((revision) => revisions.includes(revision)),
+    "image-provenance",
+  );
+  return sortedUnique(revisions);
+}
+
+function exactReceipt(kind, item, context) {
+  const { supplementary, capture, captureSha256, floor } = context;
+  const code = kind === "session" ? "session-proof" : "writer-authority";
+  const receipts = supplementary[kind === "session" ? "terminations" : "retirements"];
+  const matches = receipts.filter((entry) => entry.sourceId === item.id);
+  requireProof(matches.length === 1, code);
+  const evidence = matches[0];
+  const receipt = boundJson(evidence.receipt, code);
+  const window = executedEvidence(evidence, evidence.head, code);
+  requireProof(
+    receipt.format ===
+      (kind === "session" ? "collections-session-termination/v1" : "collections-writer-retirement/v1") &&
+      receipt.captureSha256 === captureSha256 &&
+      receipt.sourceId === item.id &&
+      receipt.target === capture.target &&
+      receipt.dbIdentityDigest === shownValue(capture.fields.databaseIdentityDigest) &&
+      receipt.floorCommit === floor &&
+      text(receipt.authorizedBy) &&
+      receipt.recreationPrevented === true &&
+      utc(receipt.executedAt) &&
+      instant(receipt.executedAt) >= window.start &&
+      instant(receipt.executedAt) <= window.end &&
+      instant(receipt.executedAt) >= instant(capture.capturedAt) &&
+      window.end <= instant(context.startedAt),
+    code,
+  );
+  if (kind === "session") {
+    const set = capture.fields["writers.session"];
+    requireProof(
+      !(
+        set.pooledRead?.value?.pid === item.pid &&
+        set.pooledRead?.value?.backendStart === item.backendStart &&
+        set.pool?.value?.userDigest === item.roleDigest
+      ),
+      code,
+    );
+    requireProof(
+      item.classification === "unknown" &&
+        BACKEND_ID.test(item.id) &&
+        item.id === `backend:${item.pid}` &&
+        utc(item.backendStart) &&
+        digest64(item.roleDigest) &&
+        receipt.pid === item.pid &&
+        receipt.backendStart === item.backendStart &&
+        receipt.roleDigest === item.roleDigest &&
+        receipt.reconnectionPrevented === true,
+      code,
+    );
+  } else {
+    const owner = boundJson(evidence.owner, code);
+    requireProof(
+      owner.format === "collections-writer-owner/v1" &&
+        owner.captureSha256 === captureSha256 &&
+        owner.sourceId === item.id &&
+        safeId(owner.objectUid) &&
+        owner.objectUid === receipt.objectUid &&
+        owner.target === capture.target &&
+        owner.dbIdentityDigest === receipt.dbIdentityDigest &&
+        utc(owner.observedAt) &&
+        instant(owner.observedAt) >= window.start &&
+        instant(owner.observedAt) <= instant(receipt.executedAt) &&
+        same(owner.images, item.images ?? []) &&
+        (item.uid === undefined || item.uid === owner.objectUid),
+      code,
+    );
+  }
+  return [{ id: item.id, state: kind === "session" ? "terminated" : "retired", revision: null }];
+}
+
+function deployedWriters(id, revisions) {
+  return revisions.map((revision, index) => ({
+    id: index === 0 ? id : `${id}/revision/${revision}`,
+    state: "deployed",
+    revision,
+  }));
+}
+
+function sessionRevisions(set, context) {
+  const state = { errors: [], missing: [] };
+  requireProof(
+    sessionEvidence(state, context.capture.target, set) === set &&
+      state.errors.length === 0 &&
+      state.missing.length === 0,
+    "session-proof",
+  );
+  requireProof(
+    SESSION_EVIDENCE.every((key) => evidenceShown(set[key]) && EVIDENCE_SHAPE[key](set[key])),
+    "session-proof",
+  );
+  const holders = completeSet(set.holders, "session-proof");
+  requireProof(
+    holders.length > 0 && exactKeys(set.holders.coverage, ["workflows", "runs", "kubernetes"]),
+    "session-proof",
+  );
+  const coverage = set.holders.coverage;
+  requireProof(
+    coverage.workflows?.status === "complete" &&
+      integer(coverage.workflows.listed) &&
+      integer(coverage.workflows.pooledSteps) &&
+      coverage.kubernetes?.status === "complete" &&
+      integer(coverage.kubernetes.listed) &&
+      isObject(coverage.runs) &&
+      Array.isArray(set.holders.exclusions),
+    "session-proof",
+  );
+  const exclusions = set.holders.exclusions;
+  requireProof(
+    exclusions.every((entry) =>
+      ["contexts-exclude-collections", "target-mismatch", "direct-bootstrap-credential"].includes(entry.reason),
+    ),
+    "session-proof",
+  );
+  requireProof(
+    holders.filter((holder) => holder.source === "kubernetes").length +
+      exclusions.filter((entry) => entry.reason === "direct-bootstrap-credential").length ===
+      coverage.kubernetes.listed,
+    "session-proof",
+  );
+  const steps = [...holders, ...exclusions].filter((holder) => holder.id?.startsWith("workflow:"));
+  const workflows = sortedUnique(steps.map((holder) => holder.workflow));
+  requireProof(
+    steps.length === coverage.workflows.pooledSteps &&
+      workflows.length <= coverage.workflows.listed &&
+      holders.filter((holder) => holder.source === "capture").length === 1 &&
+      same(
+        Object.keys(coverage.runs).sort(),
+        sortedUnique(holders.filter((holder) => holder.source === "workflow-step").map((holder) => holder.workflow)),
+      ),
+    "session-proof",
+  );
+  for (const [workflow, runCoverage] of Object.entries(coverage.runs)) {
+    const executing = [...holders, ...exclusions].filter(
+      (holder) => holder.workflow === workflow && integer(holder.runId),
+    ).length;
+    requireProof(
+      runCoverage?.status === "complete" &&
+        integer(runCoverage.listed) &&
+        integer(runCoverage.executing) &&
+        executing === runCoverage.executing &&
+        executing <= runCoverage.listed,
+      "session-proof",
+    );
+  }
+  for (const holder of holders) {
+    requireProof(
+      ["capture", "workflow-step", "workflow-run", "kubernetes"].includes(holder.source) &&
+        holder.credentialSource === "DATABASE_URL_COLLECTIONS" &&
+        holder.containsFloor === true &&
+        Array.isArray(holder.revisions) &&
+        holder.revisions.length > 0 &&
+        holder.revisions.every((revision) => sha40(revision) && context.ancestry(revision)),
+      "session-proof",
+    );
+    if (["capture", "workflow-step"].includes(holder.source))
+      requireProof(same(holder.revisions, [context.capture.head]), "session-proof");
+    if (holder.source === "capture")
+      requireProof(/^capture:[1-9][0-9]*\/[1-9][0-9]*$/.test(holder.id), "session-proof");
+    if (holder.source === "workflow-run")
+      requireProof(
+        holder.id === `run:${holder.runId}/${holder.attempt}` &&
+          holder.revisions.length === 1 &&
+          integer(holder.runId) &&
+          holder.runId > 0 &&
+          integer(holder.attempt) &&
+          holder.attempt > 0 &&
+          coverage.runs[holder.workflow]?.status === "complete" &&
+          Array.isArray(holder.jobIds) &&
+          holder.jobIds.length > 0 &&
+          holder.jobIds.every((id) => integer(id) && id > 0),
+        "session-proof",
+      );
+    if (holder.source === "kubernetes") {
+      const matches = WRITER_KINDS.filter((kind) => kind !== "session")
+        .flatMap((kind) => context.capture.fields[`writers.${kind}`].items)
+        .filter((writer) => writer.id === holder.id);
+      requireProof(
+        matches.length === 1 && same(sortedUnique(matches[0].revisions), sortedUnique(holder.revisions)),
+        "session-proof",
+      );
+    }
+  }
+  return sortedUnique(holders.flatMap((holder) => holder.revisions));
+}
+
+function schemaLedger(supplementary, context) {
+  const evidence = supplementary.schemaObservation;
+  const receipt = boundJson(evidence?.receipt, "schema-source");
+  const packetless = same(receipt.codes, ["packet-digest"]);
+  const window = executedEvidence(evidence, context.capture.head, "schema-source", packetless);
+  requireProof(
+    evidence.captureSha256 === context.captureSha256 &&
+      evidence.artifactJobId === evidence.jobId &&
+      safeId(evidence.artifactName) &&
+      receipt.format === "collections-privacy-cutover-receipt/v1" &&
+      receipt.mode === "dry-run" &&
+      receipt.target === context.capture.target &&
+      receipt.dbIdentityDigest === shownValue(context.capture.fields.databaseIdentityDigest) &&
+      receipt.floorCommit === context.floor &&
+      utc(receipt.startedAt) &&
+      utc(receipt.endedAt) &&
+      instant(receipt.startedAt) >= instant(context.capture.capturedAt) &&
+      instant(receipt.startedAt) >= window.start &&
+      instant(receipt.endedAt) >= instant(receipt.startedAt) &&
+      instant(receipt.endedAt) <= window.end &&
+      window.end <= instant(context.startedAt) &&
+      instant(context.startedAt) - instant(receipt.startedAt) <= WINDOW_MS,
+    "schema-source",
+  );
+  requireProof(
+    Array.isArray(receipt.codes) &&
+      (same(receipt.codes, []) || same(receipt.codes, ["packet-digest"])) &&
+      receipt.fencePresent === true &&
+      Array.isArray(receipt.schemaLedger) &&
+      receipt.schemaLedger.length > 0 &&
+      receipt.schemaLedger.length <= 512 &&
+      receipt.schemaLedger.every((id) => typeof id === "string" && /^[a-z0-9_]{1,200}$/.test(id)) &&
+      same(receipt.schemaLedger, sortedUnique(receipt.schemaLedger)) &&
+      receipt.schemaLedger.includes(ACTIVATION_MIGRATION) &&
+      receipt.schemaVersion === sha256(JSON.stringify(receipt.schemaLedger)),
+    "schema-source",
+  );
+  if (same(receipt.codes, ["packet-digest"]))
+    requireProof(
+      receipt.packet === null &&
+        receipt.packetText === null &&
+        receipt.packetSha256 === null &&
+        isObject(receipt.gates) &&
+        Object.values(receipt.gates).length > 0 &&
+        Object.values(receipt.gates).every((value) => value === false),
+      "schema-source",
+    );
+  else {
+    const packet = boundJson({ text: receipt.packetText, sha256: receipt.packetSha256 }, "schema-source");
+    requireProof(
+      same(packet, receipt.packet) &&
+        packet.target === receipt.target &&
+        packet.floorCommit === receipt.floorCommit &&
+        packet.dbIdentityDigest === receipt.dbIdentityDigest &&
+        same(packet.schemaLedger, receipt.schemaLedger) &&
+        receipt.gates?.packet === true &&
+        receipt.gates?.schema === true,
+      "schema-source",
+    );
+  }
+  return receipt.schemaLedger;
+}
+
+/** Offline evidence derivation only. A separate packet-bearing dry-run remains mandatory before mutation. */
+export function assembleAuthorityPacket(input, dependencies = {}) {
+  const mapped = Object.fromEntries(WRITER_KINDS.map((kind) => [kind, { deployed: 0, retired: 0, terminated: 0 }]));
+  const codes = new Set();
+  try {
+    requireProof(isObject(input) && Buffer.byteLength(JSON.stringify(input), "utf8") <= INPUT_LIMIT, "assembly-input");
+    const capture = boundJson(input.capture, "capture-binding");
+    requireProof(
+      exactKeys(capture, CAPTURE_ENVELOPE) &&
+        capture.schemaVersion === PROVIDER_CAPTURE_SCHEMA_VERSION &&
+        TARGETS.includes(input.target) &&
+        capture.target === input.target &&
+        sha40(capture.head) &&
+        same(capture.codes, []) &&
+        exactKeys(capture.fields, PROVIDER_CAPTURE_FIELDS),
+      "capture-incomplete",
+    );
+    requireProof(
+      utc(capture.capturedAt) &&
+        utc(input.startedAt) &&
+        utc(input.activationMergedAt) &&
+        instant(capture.capturedAt) > instant(input.activationMergedAt) &&
+        instant(input.startedAt) >= instant(capture.capturedAt) &&
+        instant(input.startedAt) - instant(capture.capturedAt) <= WINDOW_MS,
+      "capture-stale",
+    );
+    requireProof(sha40(input.floorCommit), "floor-mismatch");
+    const floor = (dependencies.deriveFloor ?? deriveFloor)(input.root);
+    requireProof(floor === input.floorCommit, "floor-mismatch");
+    const ancestryCache = new Map();
+    const ancestry = (revision) => {
+      if (!ancestryCache.has(revision))
+        ancestryCache.set(revision, (dependencies.containsFloor ?? containsFloor)(input.root, floor, revision));
+      return ancestryCache.get(revision);
+    };
+    const supplementary = input.supplementary;
+    requireProof(
+      exactKeys(supplementary, ["images", "retirements", "terminations", "schemaObservation"]) &&
+        [supplementary.images, supplementary.retirements, supplementary.terminations].every(
+          (set) => Array.isArray(set) && set.length <= 8192,
+        ),
+      "assembly-input",
+    );
+    const secretErrors = [];
+    scanSecrets(input, "input", secretErrors);
+    requireProof(secretErrors.length === 0, "assembly-input");
+    for (const name of PROVIDER_CAPTURE_FIELDS.filter((name) => !name.startsWith("writers.")))
+      shownValue(capture.fields[name]);
+    requireProof(
+      shownValue(capture.fields.environment) === input.target &&
+        digest64(shownValue(capture.fields.databaseIdentityDigest)) &&
+        shownValue(capture.fields.deployedCommitAncestry).floor === floor &&
+        Array.isArray(shownValue(capture.fields.deployedCommitAncestry).revisions) &&
+        PROVIDER_GATES.every((gate) => shownValue(capture.fields[`gates.${gate}.observeAuthority`]) === "demonstrated"),
+      "capture-incomplete",
+    );
+    captureInventory(capture);
+    const context = {
+      capture,
+      captureSha256: input.capture.sha256,
+      supplementary,
+      floor,
+      ancestry,
+      startedAt: input.startedAt,
+    };
+    const writers = {};
+    for (const kind of WRITER_KINDS) {
+      const set = capture.fields[`writers.${kind}`];
+      let pooledRevisions;
+      if (kind === "session" && set.items.some((item) => item.classification === "pooler")) {
+        try {
+          pooledRevisions = sessionRevisions(set, context);
+        } catch {
+          codes.add("session-proof");
+        }
+      }
+      writers[kind] = [];
+      for (const item of set.items) {
+        try {
+          let derived;
+          if (kind === "session") {
+            if (item.classification === "pooler") {
+              requireProof(
+                pooledRevisions && item.containsFloor === true && same(sortedUnique(item.revisions), pooledRevisions),
+                "session-proof",
+              );
+              derived = deployedWriters(item.id, pooledRevisions);
+            } else {
+              requireProof(item.containsFloor !== true, "session-proof");
+              derived = exactReceipt(kind, item, context);
+            }
+          } else {
+            const revisions = provenImages(item, capture, input.capture.sha256, supplementary, floor, ancestry);
+            if (revisions.every(ancestry)) {
+              requireProof(item.containsFloor !== false, "writer-authority");
+              derived = deployedWriters(item.id, revisions);
+            } else {
+              requireProof(item.containsFloor !== true, "writer-authority");
+              derived = exactReceipt(kind, item, context);
+            }
+          }
+          for (const writer of derived) {
+            requireProof(safeId(writer.id), "writer-authority");
+            mapped[kind][writer.state]++;
+          }
+          writers[kind].push(...derived);
+        } catch (error) {
+          codes.add(
+            ["image-provenance", "session-proof", "writer-authority"].includes(error.message)
+              ? error.message
+              : "writer-authority",
+          );
+        }
+      }
+      writers[kind].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+    }
+    let ledger;
+    try {
+      ledger = schemaLedger(supplementary, context);
+    } catch {
+      codes.add("schema-source");
+    }
+    if (codes.size) return { format: ASSEMBLY_FORMAT, verdict: "refused", codes: [...codes].sort(), mapped };
+    const ids = Object.values(writers)
+      .flat()
+      .map((writer) => writer.id);
+    requireProof(ids.length === new Set(ids).size, "inventory-incomplete");
+    const packet = {
+      schemaVersion: "collections-cutover-gate/v1",
+      target: capture.target,
+      capturedAt: capture.capturedAt,
+      floorCommit: floor,
+      dbIdentityDigest: shownValue(capture.fields.databaseIdentityDigest),
+      schemaLedger: ledger,
+      inventory: { collected: ids.length, authoritativeTotal: ids.length },
+      writers,
+    };
+    const packetText = `${JSON.stringify(packet)}\n`;
+    requireProof(Buffer.byteLength(packetText, "utf8") <= 16 * 1024, "packet-size");
+    return {
+      format: ASSEMBLY_FORMAT,
+      verdict: "complete",
+      codes: [],
+      packet,
+      packetText,
+      packetSha256: sha256(packetText),
+      mapped,
+    };
+  } catch (error) {
+    const allowed = [
+      "assembly-input",
+      "capture-binding",
+      "capture-incomplete",
+      "capture-stale",
+      "floor-ambiguous",
+      "floor-mismatch",
+      "inventory-incomplete",
+      "writer-source",
+      "packet-size",
+    ];
+    return {
+      format: ASSEMBLY_FORMAT,
+      verdict: "refused",
+      codes: [allowed.includes(error.message) ? error.message : "assembly-input"],
+      mapped,
+    };
+  }
+}
+
 // Host route: `node scripts/collections-cutover-authority-packet.mjs <packet-dir> [capture.json ...]`.
 if (process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url) {
   const [directory, ...capturePaths] = process.argv.slice(2);
-  let packet = readPacket(directory);
-  const applied = capturePaths.map((path) => {
-    const result = applyProviderCapture(packet, JSON.parse(readFileSync(path, "utf8")));
-    packet = result.packet;
-    return { capture: path, verdict: result.verdict, missing: result.missing.length, errors: result.errors };
-  });
-  const result = verifyAuthorityPacket(packet);
-  console.log(JSON.stringify({ applied, verification: result }, null, 2));
-  const refused = applied.some((entry) => entry.errors.length > 0);
-  process.exitCode = refused || result.verdict === "invalid" ? 2 : result.verdict === "bounded-unknown" ? 3 : 0;
+  if (directory === "--assemble") {
+    let result;
+    try {
+      requireProof(capturePaths.length === 1 && statSync(capturePaths[0]).size <= INPUT_LIMIT, "assembly-input");
+      result = assembleAuthorityPacket(JSON.parse(readFileSync(capturePaths[0], "utf8")));
+    } catch {
+      result = { format: ASSEMBLY_FORMAT, verdict: "refused", codes: ["assembly-input"] };
+    }
+    console.log(JSON.stringify(result, null, 2));
+    process.exitCode = result.verdict === "complete" ? 0 : 2;
+  } else {
+    let packet = readPacket(directory);
+    const applied = capturePaths.map((path) => {
+      const result = applyProviderCapture(packet, JSON.parse(readFileSync(path, "utf8")));
+      packet = result.packet;
+      return { capture: path, verdict: result.verdict, missing: result.missing.length, errors: result.errors };
+    });
+    const result = verifyAuthorityPacket(packet);
+    console.log(JSON.stringify({ applied, verification: result }, null, 2));
+    const refused = applied.some((entry) => entry.errors.length > 0);
+    process.exitCode = refused || result.verdict === "invalid" ? 2 : result.verdict === "bounded-unknown" ? 3 : 0;
+  }
 }

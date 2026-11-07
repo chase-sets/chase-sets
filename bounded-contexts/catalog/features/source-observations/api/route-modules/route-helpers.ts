@@ -49,6 +49,9 @@ export function parseIntegrationJobScope(input: unknown): SourceObservationInteg
   const seriesId = stringField(record.seriesId);
   const setId = stringField(record.expansionId) ?? stringField(record.setId);
   const setName = stringField(record.setName) ?? stringField(record.cleanSetName) ?? stringField(record.expansionName);
+  // Every provider's product coordinate reaches the runtime, which refuses one its
+  // active profile cannot import on its own.
+  const productId = stringField(record.productId);
   const scope = {
     ...(provider ? { provider } : {}),
     ...(profileKey ? { profileKey } : {}),
@@ -58,6 +61,7 @@ export function parseIntegrationJobScope(input: unknown): SourceObservationInteg
     ...(seriesId ? { seriesId } : {}),
     ...(setId ? { setId } : {}),
     ...(setName ? { setName } : {}),
+    ...(productId ? { productId } : {}),
   };
 
   if (provider?.toLowerCase() !== "tcgplayer") {
@@ -66,13 +70,30 @@ export function parseIntegrationJobScope(input: unknown): SourceObservationInteg
 
   const tcgplayerProductLineId = productLineId ?? stringField(record.seriesId);
   const tcgplayerSetName = setName ?? stringField(record.setId);
-  const productId = stringField(record.productId) ?? stringField(record.tcgplayerProductId);
+  const tcgplayerProductId = productId ?? stringField(record.tcgplayerProductId);
 
   return {
     ...scope,
     ...(tcgplayerProductLineId ? { productLineId: tcgplayerProductLineId } : {}),
     ...(tcgplayerSetName ? { setName: tcgplayerSetName } : {}),
-    ...(productId ? { productId } : {}),
+    ...(tcgplayerProductId ? { productId: tcgplayerProductId } : {}),
+  };
+}
+
+// A scope reapply's body: the observations it reapplies, and the profile unit whose
+// active version reapplies them. A provider with several active units needs the unit.
+export function parseReapplyIntegrationScope(input: unknown): SourceObservationIntegrationJobScope {
+  const scope = promotionScopeToIntegrationScope(parsePromotionScope(input));
+  if (!isRecord(input)) {
+    return scope;
+  }
+
+  const profileKey = stringField(input.profileKey);
+  const ingestionUnitKey = stringField(input.ingestionUnitKey) ?? stringField(input.unitKey);
+  return {
+    ...scope,
+    ...(profileKey ? { profileKey } : {}),
+    ...(ingestionUnitKey ? { ingestionUnitKey } : {}),
   };
 }
 
@@ -126,6 +147,7 @@ export function isIntegrationJobValidationError(error: unknown): error is Error 
     (error.message.includes("does not support background import") ||
       error.message.includes("No active Catalog source observation import provider is configured") ||
       error.message.includes("multiple active profile units") ||
+      error.message.includes("does not support Catalog Item promotion") ||
       error.message.includes("import requires") ||
       error.message.includes("import planning requires"))
   );

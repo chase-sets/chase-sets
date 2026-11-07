@@ -72,7 +72,15 @@ export function providerProfileRoutes(
     }
 
     if (!profileVersions) {
-      return c.json({ error: t("catalog.features.sourceObservations.api.route.profile.review.unavailable") }, 503);
+      return c.json(
+        {
+          error: {
+            code: "profile_review_unavailable",
+            message: t("catalog.features.sourceObservations.api.route.profile.review.unavailable"),
+          },
+        },
+        503,
+      );
     }
 
     const body = await readJsonObject(c);
@@ -95,7 +103,15 @@ export function providerProfileRoutes(
     }
 
     if (!profileVersions) {
-      return c.json({ error: t("catalog.features.sourceObservations.api.route.profile.review.unavailable") }, 503);
+      return c.json(
+        {
+          error: {
+            code: "profile_review_unavailable",
+            message: t("catalog.features.sourceObservations.api.route.profile.review.unavailable"),
+          },
+        },
+        503,
+      );
     }
 
     try {
@@ -124,7 +140,15 @@ export function providerProfileRoutes(
     }
 
     if (!profileVersions) {
-      return c.json({ error: t("catalog.features.sourceObservations.api.route.profile.review.unavailable") }, 503);
+      return c.json(
+        {
+          error: {
+            code: "profile_review_unavailable",
+            message: t("catalog.features.sourceObservations.api.route.profile.review.unavailable"),
+          },
+        },
+        503,
+      );
     }
 
     const body = await readJsonObject(c);
@@ -173,7 +197,15 @@ export function providerProfileRoutes(
     }
 
     if (!profileVersions) {
-      return c.json({ error: t("catalog.features.sourceObservations.api.route.profile.review.unavailable") }, 503);
+      return c.json(
+        {
+          error: {
+            code: "profile_review_unavailable",
+            message: t("catalog.features.sourceObservations.api.route.profile.review.unavailable"),
+          },
+        },
+        503,
+      );
     }
 
     const body = await readJsonObject(c);
@@ -241,7 +273,15 @@ export function providerProfileRoutes(
     }
 
     if (!profileVersions) {
-      return c.json({ error: t("catalog.features.sourceObservations.api.route.profile.review.unavailable") }, 503);
+      return c.json(
+        {
+          error: {
+            code: "profile_review_unavailable",
+            message: t("catalog.features.sourceObservations.api.route.profile.review.unavailable"),
+          },
+        },
+        503,
+      );
     }
 
     let result;
@@ -291,7 +331,15 @@ export function providerProfileRoutes(
     }
 
     if (!profileVersions) {
-      return c.json({ error: t("catalog.features.sourceObservations.api.route.profile.review.unavailable") }, 503);
+      return c.json(
+        {
+          error: {
+            code: "profile_review_unavailable",
+            message: t("catalog.features.sourceObservations.api.route.profile.review.unavailable"),
+          },
+        },
+        503,
+      );
     }
 
     const body = await readJsonObject(c);
@@ -317,8 +365,21 @@ export function providerProfileRoutes(
       return permissionError;
     }
 
+    const confirmationError = await requireLifecycleConfirmation(c, "rollback");
+    if (confirmationError) {
+      return confirmationError;
+    }
+
     if (!profileVersions) {
-      return c.json({ error: t("catalog.features.sourceObservations.api.route.profile.review.unavailable") }, 503);
+      return c.json(
+        {
+          error: {
+            code: "profile_review_unavailable",
+            message: t("catalog.features.sourceObservations.api.route.profile.review.unavailable"),
+          },
+        },
+        503,
+      );
     }
 
     let result;
@@ -343,8 +404,21 @@ export function providerProfileRoutes(
       return permissionError;
     }
 
+    const confirmationError = await requireLifecycleConfirmation(c, "retire");
+    if (confirmationError) {
+      return confirmationError;
+    }
+
     if (!profileVersions) {
-      return c.json({ error: t("catalog.features.sourceObservations.api.route.profile.review.unavailable") }, 503);
+      return c.json(
+        {
+          error: {
+            code: "profile_review_unavailable",
+            message: t("catalog.features.sourceObservations.api.route.profile.review.unavailable"),
+          },
+        },
+        503,
+      );
     }
 
     let result;
@@ -370,8 +444,21 @@ export function providerProfileRoutes(
       return permissionError;
     }
 
+    const confirmationError = await requireLifecycleConfirmation(c, "deprecate");
+    if (confirmationError) {
+      return confirmationError;
+    }
+
     if (!profileVersions) {
-      return c.json({ error: t("catalog.features.sourceObservations.api.route.profile.review.unavailable") }, 503);
+      return c.json(
+        {
+          error: {
+            code: "profile_review_unavailable",
+            message: t("catalog.features.sourceObservations.api.route.profile.review.unavailable"),
+          },
+        },
+        503,
+      );
     }
 
     let result;
@@ -391,6 +478,27 @@ export function providerProfileRoutes(
   });
 
   return app;
+}
+
+async function requireLifecycleConfirmation(
+  c: Context<CatalogAuthoringEnv>,
+  operation: "rollback" | "deprecate" | "retire",
+): Promise<Response | null> {
+  const body: unknown = await c.req.json().catch(() => null);
+  const expected = `confirm:provider-profile.${operation}:${c.req.param("providerKey")}:${c.req.param("profileVersion")}`;
+  if (isRecord(body) && body.lifecycleConfirmation === expected) {
+    return null;
+  }
+
+  return c.json(
+    {
+      error: {
+        code: "lifecycle_confirmation_required",
+        message: t("catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.confirmation.required"),
+      },
+    },
+    400,
+  );
 }
 
 function parseLifecycleImpactOperation(value: string | undefined) {
