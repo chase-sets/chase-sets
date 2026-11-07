@@ -30,7 +30,10 @@ export function withCatalogSurfaceReads<T>(client: T, request?: Request): T {
     return client;
   }
   const stub = client as StubClient;
-  const sources = async (location: URL) => stubSurfaceSources(stub, await canManageCatalog(request ?? location));
+  const sources = async (location: URL) => {
+    const actor = await resolveActor(request ?? location);
+    return { ...stubSurfaceSources(stub, actor?.permissions.includes("catalog.manage") ?? false), actor };
+  };
 
   return {
     ...stub,
@@ -67,13 +70,12 @@ export function withCatalogSurfaceReads<T>(client: T, request?: Request): T {
 
 // The API reads catalog.manage from its own actor; under test that actor is the
 // one the (mocked) auth resolver returns for the request.
-async function canManageCatalog(source: Request | URL): Promise<boolean> {
+async function resolveActor(source: Request | URL) {
   try {
     const request = source instanceof Request ? source : new Request(source);
-    const actor = await resolveActorFromAuthApi({ request });
-    return actor?.permissions.includes("catalog.manage") ?? false;
+    return await resolveActorFromAuthApi({ request });
   } catch {
-    return false;
+    return null;
   }
 }
 
@@ -89,6 +91,12 @@ function stubSurfaceSources(stub: StubClient, canManage: boolean): CatalogPrimar
   const call = <R>(name: string, ...args: readonly unknown[]): Promise<R> => callStub<R>(stub, name, ...args);
 
   return {
+    listRefreshSchedules: async () =>
+      (
+        await call<{
+          items: Awaited<ReturnType<NonNullable<CatalogPrimaryWorkbenchSurfaceSources["listRefreshSchedules"]>>>;
+        }>("listCatalogProviderRefreshSchedules")
+      ).items,
     canManageCatalog: canManage,
     listIntegrationScopes: (filter) =>
       call("listSourceObservationIntegrationScopes", new URLSearchParams(filter).toString()),

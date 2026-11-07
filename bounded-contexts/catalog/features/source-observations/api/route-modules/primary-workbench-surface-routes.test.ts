@@ -1,5 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { SourceObservationRouteServices } from "../route";
+import { ProviderAdapterRegistry } from "../provider-adapters/registry";
+import type { CatalogAuthoringEnv } from "../../../../support/authoring-support/api";
+import { buildCatalogAuthoringTestApp } from "../../../../support/authoring-support/test-support";
+import type { CatalogServices } from "../../../../support/authoring-support/services";
+import { context } from "./route-test-harness";
+import type { ProviderRefreshScheduleRecord } from "../../../provider-scope-discovery/api/refresh-schedule-store";
 import { buildApp, mutableProfileStore, viewOnlyActor } from "./route-test-harness";
 import {
   buildDailyMergeCandidateQuery,
@@ -17,6 +23,31 @@ import {
 const NOW = "2026-07-14T12:00:00.000Z";
 const TCGDEX_UNIT = "tcgdex:pokemon:single-card:source-observation-import";
 const POKEMON_UNIT = "tcgplayer:pokemon:single-card:source-observation-import";
+
+function providerActor(): NonNullable<CatalogAuthoringEnv["Variables"]["actor"]> {
+  return { permissions: ["catalog.view"], roleKey: "platform-admin", userId: "user-a", membershipId: "membership-a" };
+}
+
+function refreshSchedule(providerKey: string): ProviderRefreshScheduleRecord {
+  return {
+    providerKey,
+    scheduleEnabled: true,
+    manualOnly: false,
+    creditAware: false,
+    intervalMs: 60000,
+    paused: false,
+    pausedBy: null,
+    pausedReason: null,
+    pausedAt: null,
+    nextRunAt: NOW,
+    lastRunStartedAt: NOW,
+    lastRunCompletedAt: NOW,
+    lastRunStatus: "succeeded",
+    lastRunObservationCount: 2,
+    lastRunError: null,
+    lastRunTriggeredBy: "synthetic",
+  };
+}
 
 function readinessUnit(unitKey: string, providerKey: string, profileVersion: string) {
   return {
@@ -88,6 +119,220 @@ afterEach(() => {
 });
 
 describe("Catalog primary workbench surface routes", () => {
+  // Issue #11050: provider detail composes from its own path, not the first scope/profile.
+  it("matches explicit provider selection while preserving profile, unit, job and selected observations", async () => {
+    const services = surfaceServices({
+      getSelectedOptionAuthoringSchema: vi.fn(async () => ({ dimensions: [] })),
+      getPromotionTargetAuthoringSchema: vi.fn(async () => ({ blueprints: [], categories: [], fields: [] })),
+      listIntegrationScopes: vi.fn(async () => [sourceObservationScope({ provider_key: "tcgplayer" })]),
+    });
+    const app = buildApp(services, mutableProfileStore());
+    const selection = `profileVersion=2026.06.03&unitKey=${TCGDEX_UNIT}&jobId=selected-job&selectedObservationIds=obs-a,obs-b&section=triage`;
+    const implicit = await getJson(app, surfacePath("health", `/catalog/providers/tcgdex?${selection}`));
+    const explicit = await getJson(
+      app,
+      surfacePath("health", `/catalog/providers/tcgdex?providerKey=tcgdex&${selection}`),
+    );
+    expect(implicit.readModel).toEqual(explicit.readModel);
+    const empty = await getJson(app, surfacePath("health", `/catalog/providers/tcgdex?providerKey=&${selection}`));
+    expect(empty.readModel).toEqual(explicit.readModel);
+    expect(implicit.readModel.routeContext).toMatchObject({
+      providerKey: "tcgdex",
+      unitKey: TCGDEX_UNIT,
+      profileVersion: "2026.06.03",
+      jobId: "selected-job",
+      selectedObservationIds: ["obs-a", "obs-b"],
+    });
+    const conflict = await getJson(app, surfacePath("health", "/catalog/providers/tcgdex?providerKey=tcgplayer"));
+    expect(conflict.readModel.routeContext.providerKey).toBe("tcgplayer");
+  });
+
+  it("reads only path-provider schedules once, retaining wire dates and query model precedence", async () => {
+    const list = vi.fn(async () => [refreshSchedule("tcgdex"), refreshSchedule("tcgplayer")]);
+    const app = buildApp(surfaceServices(), mutableProfileStore(), viewOnlyActor, list);
+    const body = await getJson(app, surfacePath("health", "/catalog/providers/tcgdex?providerKey=tcgplayer"));
+    expect(body.providerRefreshSchedules).toEqual([refreshSchedule("tcgdex")]);
+    expect(body.readModel.routeContext.providerKey).toBe("tcgplayer");
+    expect(list).toHaveBeenCalledTimes(1);
+    expect((await getJson(app, surfacePath("health", "/catalog/providers/scryfall"))).providerRefreshSchedules).toEqual(
+      [],
+    );
+  });
+
+  it("starts the path-provider schedule read while the health baseline is pending", async () => {
+    let release!: () => void;
+    const pending = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const listIntegrationScopes = vi.fn(async () => {
+      await pending;
+      return [];
+    });
+    const list = vi.fn(async () => [refreshSchedule("tcgdex")]);
+    const response = buildApp(
+      surfaceServices({ listIntegrationScopes }),
+      mutableProfileStore(),
+      viewOnlyActor,
+      list,
+    ).request(surfacePath("health", "/catalog/providers/tcgdex"));
+    try {
+      await vi.waitFor(() => expect(listIntegrationScopes).toHaveBeenCalledTimes(1));
+      expect(list).toHaveBeenCalledTimes(1);
+    } finally {
+      release();
+    }
+    expect((await response).status).toBe(200);
+  });
+
+  it("keeps health available on missing or rejected schedule reads without leaking rejection details", async () => {
+    const marker = "synthetic-private-schedule-rejection";
+    const errorLog = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const warnLog = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    try {
+      for (const list of [
+        undefined,
+        vi.fn(async () => {
+          throw new Error(marker);
+        }),
+      ]) {
+        const body = await getJson(
+          buildApp(surfaceServices(), mutableProfileStore(), viewOnlyActor, list),
+          surfacePath("health", "/catalog/providers/tcgdex"),
+        );
+        expect(body.providerRefreshSchedules).toBeNull();
+        expect(body.readModel.schemaVersion).toBeTruthy();
+        expect(JSON.stringify(body)).not.toContain(marker);
+      }
+      expect(JSON.stringify([...errorLog.mock.calls, ...warnLog.mock.calls])).not.toContain(marker);
+    } finally {
+      errorLog.mockRestore();
+      warnLog.mockRestore();
+    }
+  });
+
+  it.each([
+    ["health", "/catalog/integrations/health"],
+    ["daily", "/catalog/providers/tcgplayer"],
+    ["governance", "/catalog/providers/tcgplayer"],
+  ])("does not read schedules on %s outside provider health", async (surface, location) => {
+    const list = vi.fn(async () => [refreshSchedule("tcgplayer")]);
+    const body = await getJson(
+      buildApp(surfaceServices(), mutableProfileStore(), providerActor(), list),
+      surfacePath(surface, location),
+    );
+    expect(body).toMatchObject({ providerRefreshSchedules: [], operatorSession: false, operatorSessionActorKey: null });
+    expect(list).not.toHaveBeenCalled();
+  });
+
+  it("admits the platform admin with view alone and keys actor changes without grant data", async () => {
+    for (const [userId, membershipId, permissions] of [
+      ["user-a", "membership-a", ["catalog.view"]],
+      ["user-b", "membership-a", ["catalog.view", "catalog.manage"]],
+      ["user-a", "membership-b", ["catalog.view"]],
+    ] as const) {
+      const body = await getJson(
+        buildApp(surfaceServices(), mutableProfileStore(), { ...providerActor(), userId, membershipId, permissions }),
+        surfacePath("health", "/catalog/providers/tcgplayer?providerKey=tcgdex"),
+      );
+      expect(body).toMatchObject({ operatorSession: true, operatorSessionActorKey: `${userId}:${membershipId}` });
+      expect(JSON.stringify(body)).not.toContain("synthetic-grant-secret");
+    }
+  });
+
+  it.each([
+    [
+      "non-admin with manage",
+      { ...providerActor(), roleKey: "catalog-admin", permissions: ["catalog.view", "catalog.manage"] },
+      "tcgplayer",
+    ],
+    ["missing role", { permissions: ["catalog.view"], userId: "user-a", membershipId: "membership-a" }, "tcgplayer"],
+    ["missing user", { ...providerActor(), userId: undefined }, "tcgplayer"],
+    ["missing membership", { ...providerActor(), membershipId: undefined }, "tcgplayer"],
+    ["empty user", { ...providerActor(), userId: "" }, "tcgplayer"],
+    ["empty membership", { ...providerActor(), membershipId: "" }, "tcgplayer"],
+    ["another provider", providerActor(), "tcgdex"],
+  ] as const)("fails closed for %s despite forged location identity", async (_label, actor, provider) => {
+    const body = await getJson(
+      buildApp(surfaceServices(), mutableProfileStore(), actor),
+      surfacePath(
+        "health",
+        `/catalog/providers/${provider}?roleKey=platform-admin&userId=forged&membershipId=forged&providerKey=tcgplayer`,
+      ),
+    );
+    expect(body).toMatchObject({ operatorSession: false, operatorSessionActorKey: null });
+  });
+
+  it.each([
+    [null, 401],
+    [{ permissions: [] }, 403],
+  ] as const)("keeps outer refusals separate from eligibility", async (actor, status) => {
+    const list = vi.fn(async () => []);
+    const response = await buildApp(surfaceServices(), mutableProfileStore(), actor, list).request(
+      surfacePath("health", "/catalog/providers/tcgplayer"),
+    );
+    expect(response.status).toBe(status);
+    expect(list).not.toHaveBeenCalled();
+  });
+
+  it("binds the real schedule service through buildCatalogAuthoringApi exactly once", async () => {
+    const listRefreshSchedules = vi.fn(async () => [refreshSchedule("tcgdex"), refreshSchedule("tcgplayer")]);
+    const services = {
+      operatorSession: {} as never,
+      dimensions: {} as never,
+      displayTemplates: {} as never,
+      fields: {} as never,
+      referenceData: {} as never,
+      components: {} as never,
+      blueprints: {} as never,
+      categories: {} as never,
+      items: {} as never,
+      productContents: {} as never,
+      productMeasures: {} as never,
+      scopeRegistry: {} as never,
+      providerScopeMappings: {} as never,
+      countCapture: null,
+      providerScopeDiscovery: {
+        listRefreshSchedules,
+        processScheduledRefresh: async () => {
+          throw new Error("Unexpected refresh");
+        },
+        runProviderRefreshNow: async () => {
+          throw new Error("Unexpected refresh");
+        },
+        setRefreshPaused: async () => {
+          throw new Error("Unexpected command");
+        },
+        listScopeObservations: async () => [],
+        listCanonicalScopeRecordProposals: async () => [],
+      },
+      providerIntegrationProfiles: mutableProfileStore(),
+      sourceObservations: {
+        ...surfaceServices(),
+        getProviderSendWindow: async () => ({ state: "unarmed" as const }),
+        commandHandler: async () => {
+          throw new Error("Unexpected source observation command");
+        },
+        providerAdapterRegistry: new ProviderAdapterRegistry([]),
+        pruneSourceObservationJobRetention: async () => {
+          throw new Error("Unexpected retention command");
+        },
+        projectors: [],
+      },
+      scopeSyncBatches: {} as never,
+      catalogAliases: {} as never,
+      attentionQueue: {} as never,
+      authoringBulkJobs: {} as never,
+      projectors: [],
+      pool: {} as never,
+      db: {} as never,
+    } satisfies CatalogServices;
+    const app = buildCatalogAuthoringTestApp(services, context, providerActor());
+    const response = await app.request(`/api/catalog${surfacePath("health", "/catalog/providers/tcgdex")}`);
+    expect(response.status).toBe(200);
+    expect((await response.json()).providerRefreshSchedules).toEqual([refreshSchedule("tcgdex")]);
+    expect(listRefreshSchedules).toHaveBeenCalledTimes(1);
+  });
+
   it.each([
     ["governance", "/catalog/integrations/governance"],
     ["health", "/catalog/integrations/health"],
@@ -148,6 +393,39 @@ describe("Catalog primary workbench surface routes", () => {
     expect(body.readModelFailures).toEqual([]);
     expect(body.readModel).toEqual(JSON.parse(JSON.stringify(expected)));
     expect(services.listSourceObservations).not.toHaveBeenCalled();
+  });
+
+  it("carries the current promotion preview's validation and evidence fingerprint into the daily surface", async () => {
+    const validation = {
+      promoteAsDraft: false,
+      pageLimit: 25,
+      coveredObservationIds: ["obs-1"],
+      coverage: "complete",
+      continuation: null,
+      diagnostics: [],
+    };
+    const previewPromoteObservations = vi.fn(async () => ({
+      matched: 1,
+      eligible: 1,
+      terminal: 0,
+      scope: { kind: "selected", observationIds: ["obs-1"] },
+      fingerprint: "sha256:current-evidence",
+      validation,
+    }));
+    const app = buildApp(surfaceServices({ previewPromoteObservations }), mutableProfileStore());
+    const location = `/catalog/integrations?${new URLSearchParams({
+      providerKey: "tcgdex",
+      unitKey: TCGDEX_UNIT,
+      selectedObservationIds: "obs-1",
+      promotionPreviewId: "preview-1",
+    })}`;
+
+    const body = await getJson(app, surfacePath("daily", location));
+
+    expect(previewPromoteObservations).toHaveBeenCalledWith(
+      expect.objectContaining({ observationIds: ["obs-1"], promoteAsDraft: false }),
+    );
+    expect(JSON.stringify(body.readModel)).toContain('"currentFingerprint":"sha256:current-evidence"');
   });
 
   it("reads catalog.manage from the API actor and refuses actors without integration read access", async () => {
@@ -232,13 +510,15 @@ describe("Catalog primary workbench deferred source options pagination", () => {
     nextCursor: string | null;
     hasMore: boolean;
     value?: string;
+    // The whole list's option count; each page carries one option.
     total?: number;
+    count?: number;
     cacheKey?: string;
   }) {
     return {
       items: [{ value: input.value ?? `option-${input.query.cursor ?? "first"}`, label: "Option", metadata: {} }],
-      total: input.total ?? 2,
-      count: 1,
+      total: input.total ?? 1,
+      count: input.count ?? 1,
       page: { cursor: input.query.cursor ?? null, nextCursor: input.nextCursor, limit: 25, hasMore: input.hasMore },
       cache: {
         status: "fresh",
@@ -255,15 +535,22 @@ describe("Catalog primary workbench deferred source options pagination", () => {
     };
   }
 
-  async function groupPage(queryIntegrationOptions: (query: OptionQuery) => Promise<unknown>) {
+  async function surfacePages(
+    queryIntegrationOptions: (query: OptionQuery) => Promise<unknown>,
+    surfacePath: string = path,
+  ) {
     const services = surfaceServices({
       getCatalogIntegrationControlPlaneReadiness: async () =>
         readiness([readinessUnit(POKEMON_UNIT, "tcgplayer", "2026.06.05")]),
       listIntegrationScopes: async () => [],
       queryIntegrationOptions,
     });
-    const body = await getJson(buildApp(services, mutableProfileStore()), path);
-    return body.pages.find((page: { queryKind: string }) => page.queryKind === GROUP);
+    const body = await getJson(buildApp(services, mutableProfileStore()), surfacePath);
+    return body.pages as { queryKind: string; state: string; items: { value: string }[] }[];
+  }
+
+  async function groupPage(queryIntegrationOptions: (query: OptionQuery) => Promise<unknown>) {
+    return (await surfacePages(queryIntegrationOptions)).find((page) => page.queryKind === GROUP);
   }
 
   function expectPaginationFailure(page: unknown) {
@@ -288,6 +575,7 @@ describe("Catalog primary workbench deferred source options pagination", () => {
         nextCursor: `page-${pageNumber + 1}`,
         hasMore: true,
         value: pageNumber === MAX_SOURCE_OPTION_CONTINUATION_PAGES + 1 ? "decisive-option" : undefined,
+        total: MAX_SOURCE_OPTION_CONTINUATION_PAGES + 2,
       });
     });
 
@@ -298,8 +586,8 @@ describe("Catalog primary workbench deferred source options pagination", () => {
   it("fails the group closed when the option cache changes between pages", async () => {
     const page = await groupPage(async (query) =>
       query.queryKind === GROUP && !query.cursor
-        ? optionPage({ query, nextCursor: "page-1", hasMore: true })
-        : optionPage({ query, nextCursor: null, hasMore: false, cacheKey: "sha256:replaced" }),
+        ? optionPage({ query, nextCursor: "page-1", hasMore: true, total: 2 })
+        : optionPage({ query, nextCursor: null, hasMore: false, total: 2, cacheKey: "sha256:replaced" }),
     );
 
     expectPaginationFailure(page);
@@ -308,21 +596,72 @@ describe("Catalog primary workbench deferred source options pagination", () => {
   it("fails the group closed when the option count changes between pages", async () => {
     const page = await groupPage(async (query) =>
       query.queryKind === GROUP && !query.cursor
-        ? optionPage({ query, nextCursor: "page-1", hasMore: true })
+        ? optionPage({ query, nextCursor: "page-1", hasMore: true, total: 2 })
         : optionPage({ query, nextCursor: null, hasMore: false, total: 3 }),
     );
 
     expectPaginationFailure(page);
   });
 
-  it("returns every option when the continuation pages agree", async () => {
+  it("returns every option when the continuation pages agree with their total", async () => {
     const page = await groupPage(async (query) =>
-      query.queryKind === GROUP && !query.cursor
-        ? optionPage({ query, nextCursor: "page-1", hasMore: true })
-        : optionPage({ query, nextCursor: null, hasMore: false }),
+      query.queryKind !== GROUP
+        ? optionPage({ query, nextCursor: null, hasMore: false })
+        : !query.cursor
+          ? optionPage({ query, nextCursor: "page-1", hasMore: true, total: 2 })
+          : optionPage({ query, nextCursor: null, hasMore: false, total: 2 }),
     );
 
-    expect(page.items.map((item: { value: string }) => item.value)).toEqual(["option-first", "option-page-1"]);
+    expect(page!.items.map((item) => item.value)).toEqual(["option-first", "option-page-1"]);
+  });
+
+  // Each case answers the group's query with pages that end before, or past, the total they
+  // report; every other group gets one complete page.
+  it.each([
+    [
+      "a single last page carries fewer options than its total",
+      (query: OptionQuery) => optionPage({ query, nextCursor: null, hasMore: false, total: 3 }),
+    ],
+    [
+      "the continuation pages end, at a stable total, before every option",
+      (query: OptionQuery) =>
+        query.cursor
+          ? optionPage({ query, nextCursor: null, hasMore: false, total: 3 })
+          : optionPage({ query, nextCursor: "page-1", hasMore: true, total: 3 }),
+    ],
+    [
+      "the pages carry more options than their total",
+      (query: OptionQuery) =>
+        query.cursor
+          ? optionPage({ query, nextCursor: null, hasMore: false, total: 1 })
+          : optionPage({ query, nextCursor: "page-1", hasMore: true, total: 1 }),
+    ],
+    [
+      "a page's count disagrees with the options it carries",
+      (query: OptionQuery) => optionPage({ query, nextCursor: null, hasMore: false, total: 1, count: 2 }),
+    ],
+    [
+      "the total is not a count",
+      (query: OptionQuery) => optionPage({ query, nextCursor: null, hasMore: false, total: 1.5 }),
+    ],
+  ])("fails only the group closed when %s", async (_case, groupResponse) => {
+    // With a product line selected, its set names load beside the failing group.
+    const withProductLine = `/source-observations/workbench-surfaces/daily/source-options?${new URLSearchParams({
+      location: `${location}&productLineId=3&productLineName=Pokemon`,
+    })}`;
+    const pages = await surfacePages(
+      async (query) =>
+        query.queryKind === GROUP ? groupResponse(query) : optionPage({ query, nextCursor: null, hasMore: false }),
+      withProductLine,
+    );
+
+    expectPaginationFailure(pages.find((page) => page.queryKind === GROUP));
+    const others = pages.filter((page) => page.queryKind !== GROUP && page.state !== "not-requested");
+    expect(others.length).toBeGreaterThan(0);
+    for (const other of others) {
+      expect(other.state).not.toBe("unavailable");
+      expect(other.items.length).toBe(1);
+    }
   });
 });
 

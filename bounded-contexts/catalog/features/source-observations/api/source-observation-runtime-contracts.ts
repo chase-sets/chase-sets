@@ -47,6 +47,7 @@ import {
   type TcgdexSeriesOption,
 } from "./providers/tcgdex-client";
 import type { CatalogAliasCandidate } from "../../alias-equivalence/domain/alias";
+import type { CatalogMergeCandidateEditRequest } from "./promotion/catalog-merge-candidate-edit";
 import { type PromotionAliasServices } from "./promotion/provider-promotion-alias-writer";
 import {
   getActiveCatalogProviderIntegrationProfileVersion,
@@ -580,6 +581,33 @@ export function isSourceObservationIntegrationJobLifecycleCommandError(
   error: unknown,
 ): error is SourceObservationIntegrationJobLifecycleCommandError {
   return error instanceof SourceObservationIntegrationJobLifecycleCommandError;
+}
+
+// Why the Catalog API refused a merge candidate's update or split: the candidate moved on from the
+// version the operator saw (`stale_merge_candidate`), the edit corrects a fact that is not one of
+// the candidate's text facts, or the split names Source Observations that are not members, would
+// leave none, or would leave a side with no reference of its own.
+export type CatalogMergeCandidateReviewCommandErrorCode =
+  | "stale_merge_candidate"
+  | "edit_fact_not_editable"
+  | "split_selection_invalid"
+  | "split_requires_two_members"
+  | "split_requires_separable_reference_provenance";
+
+export class CatalogMergeCandidateReviewCommandError extends Error {
+  public readonly code: CatalogMergeCandidateReviewCommandErrorCode;
+
+  constructor(code: CatalogMergeCandidateReviewCommandErrorCode, message: string) {
+    super(message);
+    this.name = "CatalogMergeCandidateReviewCommandError";
+    this.code = code;
+  }
+}
+
+export function isCatalogMergeCandidateReviewCommandError(
+  error: unknown,
+): error is CatalogMergeCandidateReviewCommandError {
+  return error instanceof CatalogMergeCandidateReviewCommandError;
 }
 
 export const OPERATOR_CANCELLED_INTEGRATION_IMPORT_MESSAGE = "Operator cancelled provider import job.";
@@ -1192,18 +1220,21 @@ export type CatalogMergeCandidateServices = Readonly<{
     conflictResolutions?: readonly CatalogMergeCandidateConflictResolution[];
     context: EventStoreContext;
   }) => Promise<CatalogMergeCandidateActionResult>;
+  // Split the named Source Observations off the candidate. The runtime builds both snapshots and
+  // the split candidate's id from the snapshot it holds, at `expectedVersion`.
   splitCatalogMergeCandidate: (input: {
     candidateId: string;
-    remainingSnapshot: CatalogMergeCandidateReviewSnapshot;
-    splitCandidateId: string;
-    splitSnapshot: CatalogMergeCandidateReviewSnapshot;
+    expectedVersion: number;
+    splitObservationIds: readonly string[];
     reason: string;
     conflictResolutions?: readonly CatalogMergeCandidateConflictResolution[];
     context: EventStoreContext;
   }) => Promise<CatalogMergeCandidateActionResult>;
+  // Apply the operator's typed edit to the candidate's stored snapshot, at `expectedVersion`.
   updateCatalogMergeCandidate: (input: {
     candidateId: string;
-    snapshot: CatalogMergeCandidateReviewSnapshot;
+    expectedVersion: number;
+    edit: CatalogMergeCandidateEditRequest;
     reason: string;
     conflictResolutions?: readonly CatalogMergeCandidateConflictResolution[];
     context: EventStoreContext;

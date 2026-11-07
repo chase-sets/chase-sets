@@ -26,6 +26,120 @@ type RouteControlPlaneOverview = CatalogIntegrationControlPlaneOverview & {
 };
 
 describe("source observation routes: integration discovery and profile administration", () => {
+  describe.each(["rollback", "deprecate", "retire"] as const)("%s confirmation boundary", (operation) => {
+    const providerKey = "tcgdex";
+    const version = "synthetic version:1";
+    const confirmation = `confirm:provider-profile.${operation}:${providerKey}:${version}`;
+    const path = `/source-observations/provider-profiles/${providerKey}/${encodeURIComponent(version)}/${operation}`;
+
+    it.each([
+      ["missing body", undefined],
+      ["empty body", ""],
+      ["missing field", "{}"],
+      ["empty field", JSON.stringify({ lifecycleConfirmation: "" })],
+      ["null field", JSON.stringify({ lifecycleConfirmation: null })],
+      ["number field", JSON.stringify({ lifecycleConfirmation: 1 })],
+      ["boolean field", JSON.stringify({ lifecycleConfirmation: true })],
+      ["object field", JSON.stringify({ lifecycleConfirmation: {} })],
+      ["array field", JSON.stringify({ lifecycleConfirmation: [confirmation] })],
+      ["malformed JSON", "{"],
+      ["null body", "null"],
+      ["array body", JSON.stringify([confirmation])],
+      ["string body", JSON.stringify(confirmation)],
+      ["number body", "1"],
+      ["boolean body", "true"],
+      [
+        "different operation",
+        JSON.stringify({
+          lifecycleConfirmation: `confirm:provider-profile.${operation === "rollback" ? "retire" : "rollback"}:${providerKey}:${version}`,
+        }),
+      ],
+      [
+        "different provider",
+        JSON.stringify({ lifecycleConfirmation: `confirm:provider-profile.${operation}:other-provider:${version}` }),
+      ],
+      [
+        "different version",
+        JSON.stringify({ lifecycleConfirmation: `confirm:provider-profile.${operation}:${providerKey}:other-version` }),
+      ],
+      ["padded confirmation", JSON.stringify({ lifecycleConfirmation: ` ${confirmation} ` })],
+    ])("rejects %s without lifecycle mutation", async (_name, body) => {
+      const store = mutableProfileStore([
+        profileVersion(providerKey, { profileVersion: version, lifecycle: "deprecated", active: false }),
+      ]);
+      const mutations = [
+        "rollbackProfileVersion",
+        "deprecateProfileVersion",
+        "upsertProfileVersion",
+        "activateProfileVersion",
+      ] as const;
+      const spies = mutations.map((method) => vi.spyOn(store, method));
+      const app = buildApp({} as SourceObservationRouteServices, store);
+      const before = await store.listProfileVersions();
+
+      const response = await app.request(path, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body,
+      });
+
+      expect(response.status).toBe(400);
+      await expect(response.json()).resolves.toEqual({
+        error: { code: "lifecycle_confirmation_required", message: expect.stringMatching(/\S/) },
+      });
+      expect(await store.listProfileVersions()).toEqual(before);
+      for (const spy of spies) expect(spy).not.toHaveBeenCalled();
+    });
+
+    it("performs the existing transition with exact confirmation and decoded path parameters", async () => {
+      const store = mutableProfileStore([
+        profileVersion(providerKey, {
+          profileVersion: version,
+          lifecycle: operation === "deprecate" ? "active" : "deprecated",
+          active: operation === "deprecate",
+        }),
+      ]);
+      const app = buildApp({} as SourceObservationRouteServices, store);
+      const response = await app.request(path, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ lifecycleConfirmation: confirmation }),
+      });
+      const lifecycle = operation === "rollback" ? "active" : operation === "deprecate" ? "deprecated" : "retired";
+
+      expect(response.status).toBe(200);
+      await expect(response.json()).resolves.toMatchObject({
+        providerKey,
+        profileVersion: version,
+        lifecycle,
+        active: operation === "rollback",
+      });
+      await expect(store.getProfileVersion(providerKey, version)).resolves.toMatchObject({
+        lifecycle,
+        active: operation === "rollback",
+      });
+    });
+
+    it("retains active-job refusal after exact confirmation", async () => {
+      const store = mutableProfileStore([
+        profileVersion(providerKey, { profileVersion: version, lifecycle: "deprecated", active: false }),
+      ]);
+      const before = await store.listProfileVersions();
+      const listActiveIntegrationJobs = vi.fn(async () => [
+        integrationJobFixture({ jobId: "job_synthetic_blocker", status: "running", scope: { provider: providerKey } }),
+      ]);
+      const app = buildApp({ listActiveIntegrationJobs } as unknown as SourceObservationRouteServices, store);
+      const response = await app.request(path, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ lifecycleConfirmation: confirmation }),
+      });
+      expect(response.status).toBe(409);
+      await expect(response.json()).resolves.toMatchObject({ error: { code: "profile_lifecycle_job_conflict" } });
+      expect(await store.listProfileVersions()).toEqual(before);
+    });
+  });
+
   it("lists integration scopes using provider language and expansion filters", async () => {
     const listIntegrationScopes = vi.fn(async () => [
       {
@@ -1237,5 +1351,25 @@ describe("source observation routes: integration discovery and profile administr
         profileLifecycle: "active",
       }),
     );
+  });
+});
+
+describe("source observation routes: provider profile review without a profile store", () => {
+  it.each([
+    ["/source-observations/provider-profiles", "{}"],
+    ["/source-observations/provider-profiles/tcgdex/v1/dry-run", "{}"],
+  ])("answers %s with the error envelope", async (path, body) => {
+    const app = buildApp({} as SourceObservationRouteServices);
+
+    const response = await app.request(path, {
+      method: "POST",
+      body,
+      headers: { "content-type": "application/json" },
+    });
+
+    expect(response.status).toBe(503);
+    await expect(response.json()).resolves.toMatchObject({
+      error: { code: "profile_review_unavailable", message: expect.any(String) },
+    });
   });
 });

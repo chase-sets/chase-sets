@@ -149,7 +149,10 @@ export function sourceObservationReadReviewRoutes(services: SourceObservationRea
     if (!reason) {
       return c.json(
         {
-          error: t("catalog.features.sourceObservations.api.route.rejection.requires.reason"),
+          error: {
+            code: "reason_required",
+            message: t("catalog.features.sourceObservations.api.route.rejection.requires.reason"),
+          },
         },
         400,
       );

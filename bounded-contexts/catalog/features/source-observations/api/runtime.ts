@@ -180,9 +180,12 @@ export type {
   SourceObservationAliasCandidateSink,
   SourceObservationAliasPromotion,
 } from "./source-observation-runtime-contracts";
+export type { CatalogMergeCandidateReviewCommandErrorCode } from "./source-observation-runtime-contracts";
 export {
+  CatalogMergeCandidateReviewCommandError,
   SourceObservationIntegrationJobLifecycleCommandError,
   catalogMergeCandidateBulkJobKinds,
+  isCatalogMergeCandidateReviewCommandError,
   isSourceObservationIntegrationJobLifecycleCommandError,
 } from "./source-observation-runtime-contracts";
 

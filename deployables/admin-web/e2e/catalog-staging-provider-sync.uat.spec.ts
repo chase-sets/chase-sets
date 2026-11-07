@@ -4931,7 +4931,7 @@ async function promoteSelectedScopeFromSharedImporter(
   const promotionPreviewId = await tryPromotionPreviewReady(page, 15_000);
   if (!promotionPreviewId) {
     console.log(
-      `[catalog-staging-provider-uat] ${lorcanaDownstreamCatalogItemsJourney.unitKey} source-scope promotion preview did not produce a routable preview id for ${selectedScope.displayLabel}; trying to execute any fresh visible preview before row-level or reapply fallback.`,
+      `[catalog-staging-provider-uat] ${lorcanaDownstreamCatalogItemsJourney.unitKey} source-scope promotion preview did not produce an action-bound preview id for ${selectedScope.displayLabel}; trying to execute any fresh visible preview before row-level or reapply fallback.`,
     );
   }
   const freshPreview = await executePromotionFromFreshPreview(page, selectedScope, {
@@ -4948,7 +4948,7 @@ async function promoteSelectedScopeFromSharedImporter(
     unitKey: lorcanaDownstreamCatalogItemsJourney.unitKey,
     selectedScope: selectedScope.displayLabel,
     selectedObservationIds: [],
-    promotionPreviewId: promotionPreviewId ?? currentSearchParam(page, "promotionPreviewId"),
+    promotionPreviewId,
     jobId,
   };
 }
@@ -5089,7 +5089,9 @@ async function clickCommandFormButtonIfEnabled(form: Locator): Promise<boolean> 
 async function expectPromotionPreviewReady(page: Page): Promise<string> {
   const promotionPreviewId = await tryPromotionPreviewReady(page, syncTimeoutMs);
   if (!promotionPreviewId) {
-    throw new Error("Expected promotion preview to be ready with a routable promotionPreviewId before the timeout.");
+    throw new Error(
+      "Expected promotion preview to be ready with an action-bound promotionPreviewId before the timeout.",
+    );
   }
 
   return promotionPreviewId;
@@ -5111,7 +5113,16 @@ async function tryPromotionPreviewReady(page: Page, timeout: number): Promise<st
       .first(),
   ).toBeVisible({ timeout });
 
-  return waitForSearchParamOrNull(page, "promotionPreviewId", timeout);
+  const executeForm = page
+    .locator('form[data-catalog-primary-workbench-command="observation.promote"]')
+    .filter({
+      has: page.locator('input[name="promotionPhase"][value="execute"]'),
+    })
+    .first();
+  await expect
+    .poll(() => hiddenInputValue(executeForm, "promotionPreviewId").then(emptyToNull), { timeout })
+    .not.toBeNull();
+  return hiddenInputValue(executeForm, "promotionPreviewId").then(emptyToNull);
 }
 
 async function waitForFreshPromotionPreviewOrOperatorBlocker(
