@@ -1,25 +1,12 @@
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router";
-import { itemDetailRailAnalyticsEventNames } from "@chase-sets/discovery/web";
-import { recordItemDetailRailAnalytics } from "@chase-sets/observability";
-import { getMarketplaceObservability } from "../observability.server";
+import { itemDetailRailAnalyticsEventNames } from "../../../features/item-detail/ui/item-detail-rail-analytics";
+import {
+  recordPlatformItemDetailRailAnalytics,
+  type ItemDetailRailAnalyticsEvent,
+} from "@chase-sets/platform-runtime/analytics-recorder";
 
 const allowedEvents = new Set<string>(itemDetailRailAnalyticsEventNames);
 const invalidAnalyticsLabel = Symbol("invalid analytics label");
-
-type ItemDetailRailAnalyticsPayload = Readonly<{
-  event: string;
-  intent?: string | null;
-  workflow?: string | null;
-  selection?: string | null;
-  topic?: string | null;
-  outcome?: string | null;
-  gate?: string | null;
-  viewer?: string | null;
-  surface?: string | null;
-  position?: number | null;
-  queryHash?: string | null;
-  resultSetKey?: string | null;
-}>;
 
 export function loader(_args: LoaderFunctionArgs) {
   return new Response(null, {
@@ -41,27 +28,12 @@ export async function action({ request }: ActionFunctionArgs) {
     return new Response("Invalid item detail rail analytics event.", { status: 400 });
   }
 
-  const observability = getMarketplaceObservability();
-
-  recordItemDetailRailAnalytics(payload);
-
-  observability.logger.info("Item detail rail analytics event captured.", {
-    type: "marketplace.item_detail_rail.analytics_event",
-    event: payload.event,
-    intent: payload.intent,
-    workflow: payload.workflow,
-    selection: payload.selection,
-    topic: payload.topic,
-    outcome: payload.outcome,
-    gate: payload.gate,
-    viewer: payload.viewer,
-    surface: payload.surface,
-  });
+  recordPlatformItemDetailRailAnalytics(payload);
 
   return new Response(null, { status: 204 });
 }
 
-function parsePayload(text: string): ItemDetailRailAnalyticsPayload | null {
+function parsePayload(text: string): ItemDetailRailAnalyticsEvent | null {
   let body: unknown;
   try {
     body = JSON.parse(text);
