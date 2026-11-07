@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { createHash } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { ResolvedActor } from "@chase-sets/platform-runtime/auth";
@@ -313,7 +314,12 @@ describe("Identity API mutation snapshots", () => {
     expect(db.query).toHaveBeenCalledWith(expect.not.stringContaining("SELECT *"), ["acc_1"]);
   });
 
-  it("returns command-local snapshots for internal Auth mutation routes", async () => {
+  it("returns command-local snapshots for internal Auth mutation routes", async ({ onTestFinished }) => {
+    const recordedAt = "2026-06-15T12:00:00.000Z";
+    vi.useFakeTimers({ toFake: ["Date"], now: new Date(recordedAt) });
+    onTestFinished(() => {
+      vi.useRealTimers();
+    });
     const services = createServices();
     const app = buildApp(services);
 
@@ -359,10 +365,16 @@ describe("Identity API mutation snapshots", () => {
       }),
     );
     const lifecycleEvents = await (services.eventStore as InMemoryEventStore).readAll();
-    expect(lifecycleEvents.find((event) => event.eventType === "identity.onboarding.completed")).toMatchObject({
+    const guestEvent = lifecycleEvents.find((event) => event.eventType === "identity.onboarding.completed");
+    const guestDigest = createHash("sha256")
+      .update("identity:onboarding:guest-account:acc_guest:usr_1", "utf8")
+      .digest("hex");
+    expect(guestEvent?.payload).toEqual({ accountId: "acc_guest", userId: "usr_1", onboardingPath: "guest-account" });
+    expect(guestEvent).toMatchObject({
       eventType: "identity.onboarding.completed",
-      payload: { accountId: "acc_guest", userId: "usr_1", onboardingPath: "guest-account" },
-      streamId: expect.stringMatching(/^identity\.onboarding-/),
+      streamId: `identity.onboarding-${guestDigest}`,
+      eventId: `evt_lifecycle_${guestDigest}`,
+      recordedAt,
       tenantId: "tnt_identity",
       performedByUserId: "usr_1",
       forAccountId: "acc_1",
@@ -400,14 +412,19 @@ describe("Identity API mutation snapshots", () => {
       expect.arrayContaining([expect.objectContaining({ aggregate: "consent" })]),
     );
     expect((services.eventStore as InMemoryEventStore).streamIdsWithPrefix("identity.consent-")).toEqual([]);
-    expect(
-      (await (services.eventStore as InMemoryEventStore).readAll()).find(
-        (event) => event.eventType === "identity.registration.completed",
-      ),
-    ).toMatchObject({
+    const registrationKey = `identity:registration:${personalIdentity.body.accountId}`;
+    const registrationEvent = (await (services.eventStore as InMemoryEventStore).readAll()).find(
+      (event) => event.eventType === "identity.registration.completed",
+    );
+    expect(registrationEvent?.payload).toEqual({
+      accountId: personalIdentity.body.accountId,
+      userId: personalIdentity.body.userId,
+    });
+    expect(registrationEvent).toMatchObject({
       eventType: "identity.registration.completed",
-      payload: { accountId: expect.stringMatching(/^acc_/), userId: expect.stringMatching(/^usr_/) },
-      streamId: expect.stringMatching(/^identity\.registration-/),
+      streamId: `identity.registration-${personalIdentity.body.accountId}`,
+      eventId: `evt_lifecycle_${createHash("sha256").update(registrationKey, "utf8").digest("hex")}`,
+      recordedAt,
       tenantId: "tnt_identity",
       performedByUserId: "usr_1",
       forAccountId: "acc_1",
@@ -443,6 +460,43 @@ describe("Identity API mutation snapshots", () => {
         expect.objectContaining({ aggregate: "invitation", id: "ivt_1", version: 41, status: "accepted" }),
       ]),
     );
+  });
+
+  it("emits identity.onboarding.completed (invitation via internal Auth accept) event with exact payload and envelope identity", async ({
+    onTestFinished,
+  }) => {
+    const recordedAt = "2026-06-15T12:00:00.000Z";
+    vi.useFakeTimers({ toFake: ["Date"], now: new Date(recordedAt) });
+    onTestFinished(() => {
+      vi.useRealTimers();
+    });
+    const services = createServices();
+    const app = buildApp(services);
+    const result = await requestJson(app, "/internal/auth/invitations/ivt_1/accept", {
+      method: "POST",
+      body: JSON.stringify({ userId: "usr_1", acceptanceTokenHash: "hashed:invite_token" }),
+    });
+    expect(result.response.status).toBe(200);
+    const events = (await (services.eventStore as InMemoryEventStore).readAll()).filter(
+      (event) => event.eventType === "identity.onboarding.completed",
+    );
+    expect(events).toHaveLength(1);
+    const digest = createHash("sha256").update("identity:onboarding:invitation:ivt_1:usr_1", "utf8").digest("hex");
+    expect(events[0]?.payload).toEqual({
+      accountId: "acc_1",
+      userId: "usr_1",
+      onboardingPath: "invitation",
+      invitationId: "ivt_1",
+    });
+    expect(events[0]).toMatchObject({
+      eventType: "identity.onboarding.completed",
+      streamId: `identity.onboarding-${digest}`,
+      eventId: `evt_lifecycle_${digest}`,
+      recordedAt,
+      tenantId: "tnt_identity",
+      performedByUserId: "usr_1",
+      forAccountId: "acc_1",
+    });
   });
 
   it("returns id, version, and status receipts for account, user, membership, invitation, and shipping-address routes", async () => {
