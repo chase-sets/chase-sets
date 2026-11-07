@@ -4,7 +4,10 @@ use corten::{
     i18n::{DateStyle, TimeStyle, parse_timestamp},
     prelude::*,
 };
-use platform::ui::table::{CellLabel, Table as KitTable, TableLayout};
+use platform::ui::{
+    stats::{Stat, StatTone, Stats as KitStats, StatsSurface},
+    table::{CellLabel, Table as KitTable, TableLayout},
+};
 
 use crate::{
     support::attention::{AttentionScreen, Item, duration},
@@ -70,23 +73,16 @@ pub fn FeedbackAttentionPage<'a>(t: Sup, screen: &'a AttentionScreen) -> impl Re
             <h1>{t.cfa_title()}</h1>
             <p class={Muted}>{t.cfa_description()}</p>
         </header>
-        <dl class={Stats}>
-            <div class={Stat}>
-                <dt>{t.cfa_metrics_active()}</dt>
-                <dd>{m.active_count}</dd>
-            </div>
-            <div class={Stat}>
-                <dt>{t.cfa_metrics_overdue()}</dt>
-                <dd>{m.overdue_count}</dd>
-            </div>
-            <div class={Stat}>
-                <dt>{t.cfa_metrics_time_to_triage()}</dt>
-                <dd>{duration(t, m.median_time_to_triage_ms)}</dd>
-            </div>
-            <div class={Stat}>
-                <dt>{t.cfa_metrics_delivery_failures()}</dt>
-                <dd>{m.delivery_failures}</dd>
-            </div>
+        <dl class={(KitStats { surface: StatsSurface::Cards }, Counts)}>
+            <Stat label={t.cfa_metrics_active()} value={m.active_count} note="" tone={StatTone::Neutral} />
+            <Stat label={t.cfa_metrics_overdue()} value={m.overdue_count} note="" tone={StatTone::Neutral} />
+            <Stat
+                label={t.cfa_metrics_time_to_triage()}
+                value={duration(t, m.median_time_to_triage_ms)}
+                note=""
+                tone={StatTone::Neutral}
+            />
+            <Stat label={t.cfa_metrics_delivery_failures()} value={m.delivery_failures} note="" tone={StatTone::Neutral} />
         </dl>
         <section class={Part}>
             <h2 class={Heading}>{t.cfa_queue()}</h2>

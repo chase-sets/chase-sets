@@ -7,7 +7,10 @@ use corten::{
     i18n::{DateStyle, TimeStyle, parse_timestamp},
     prelude::*,
 };
-use platform::ui::table::{CellLabel, Table as KitTable, TableLayout};
+use platform::ui::{
+    stats::{Stat, StatTone, Stats as KitStats, StatsSurface},
+    table::{CellLabel, Table as KitTable, TableLayout},
+};
 
 use crate::{
     support::feedback::{BulkForm, Entry, ItemForm, ItemScreen, ListScreen, STATUSES, TOPICS, WORKFLOWS, url},
@@ -108,23 +111,16 @@ pub fn FeedbackPage<'a>(t: Sup, p: Pilot, screen: &'a ListScreen) -> impl Render
         if screen.catching_up {
             <p class={Note} role="status">{p.error_pending()}</p>
         }
-        <dl class={Stats}>
-            <div class={Stat}>
-                <dt>{t.fb_total()}</dt>
-                <dd>{m.total_count}</dd>
-            </div>
-            <div class={Stat}>
-                <dt>{t.fb_new()}</dt>
-                <dd>{m.new_count}</dd>
-            </div>
-            <div class={Stat}>
-                <dt>{t.fb_reviewed()}</dt>
-                <dd>{m.reviewed_count}</dd>
-            </div>
-            <div class={Stat}>
-                <dt>{t.fb_average_rating()}</dt>
-                <dd>{m.average_rating.as_deref().unwrap_or(t.fb_not_set())}</dd>
-            </div>
+        <dl class={(KitStats { surface: StatsSurface::Cards }, Counts)}>
+            <Stat label={t.fb_total()} value={m.total_count} note="" tone={StatTone::Neutral} />
+            <Stat label={t.fb_new()} value={m.new_count} note="" tone={StatTone::Neutral} />
+            <Stat label={t.fb_reviewed()} value={m.reviewed_count} note="" tone={StatTone::Neutral} />
+            <Stat
+                label={t.fb_average_rating()}
+                value={m.average_rating.as_deref().unwrap_or(t.fb_not_set())}
+                note=""
+                tone={StatTone::Neutral}
+            />
         </dl>
         <section class={Part}>
             <h2 class={Heading}>{t.fb_filters()}</h2>

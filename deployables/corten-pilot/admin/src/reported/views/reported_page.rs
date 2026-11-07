@@ -7,7 +7,10 @@ use corten::{
     i18n::{DateStyle, TimeStyle, parse_timestamp},
     prelude::*,
 };
-use platform::ui::table::{CellLabel, Table as KitTable, TableLayout};
+use platform::ui::{
+    stats::{Stat, StatTone, Stats as KitStats, StatsSurface},
+    table::{CellLabel, Table as KitTable, TableLayout},
+};
 use serde_json::{Map, Value};
 
 use crate::{
@@ -107,19 +110,10 @@ pub fn ReportedPage<'a>(t: Ops, screen: &'a QueueScreen) -> impl Render {
             title={t.reported_title()}
             description={t.reported_description()}
         />
-        <dl class={Stats}>
-            <div class={Stat}>
-                <dt>{t.reported_total()}</dt>
-                <dd>{m.total_count}</dd>
-            </div>
-            <div class={Stat}>
-                <dt>{t.reported_needs_review()}</dt>
-                <dd>{m.needs_review_count}</dd>
-            </div>
-            <div class={Stat}>
-                <dt>{t.reported_auto_unlisted()}</dt>
-                <dd>{m.auto_unlisted_count}</dd>
-            </div>
+        <dl class={(KitStats { surface: StatsSurface::Cards }, Counts)}>
+            <Stat label={t.reported_total()} value={m.total_count} note="" tone={StatTone::Neutral} />
+            <Stat label={t.reported_needs_review()} value={m.needs_review_count} note="" tone={StatTone::Neutral} />
+            <Stat label={t.reported_auto_unlisted()} value={m.auto_unlisted_count} note="" tone={StatTone::Neutral} />
         </dl>
         <section class={Part}>
             <h2 class={Heading}>{t.reported_filters()}</h2>
@@ -386,19 +380,15 @@ pub fn RisksPage<'a>(t: Ops, screen: &'a RisksScreen) -> impl Render {
     let m = &screen.metrics;
     html! {
         <crate::views::PageHeader eyebrow={t.risk_eyebrow()} title={t.risk_title()} description={t.risk_description()} />
-        <dl class={Stats}>
-            <div class={Stat}>
-                <dt>{t.risk_total()}</dt>
-                <dd>{m.total_count}</dd>
-            </div>
-            <div class={Stat}>
-                <dt>{t.risk_needs_review()}</dt>
-                <dd>{m.needs_review_count}</dd>
-            </div>
-            <div class={Stat}>
-                <dt>{t.risk_manual_payout_review_candidates()}</dt>
-                <dd>{m.manual_payout_review_candidate_count}</dd>
-            </div>
+        <dl class={(KitStats { surface: StatsSurface::Cards }, Counts)}>
+            <Stat label={t.risk_total()} value={m.total_count} note="" tone={StatTone::Neutral} />
+            <Stat label={t.risk_needs_review()} value={m.needs_review_count} note="" tone={StatTone::Neutral} />
+            <Stat
+                label={t.risk_manual_payout_review_candidates()}
+                value={m.manual_payout_review_candidate_count}
+                note=""
+                tone={StatTone::Neutral}
+            />
         </dl>
         <section class={Part}>
             <h2 class={Heading}>{t.risk_filters()}</h2>

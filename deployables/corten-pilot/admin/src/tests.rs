@@ -5226,7 +5226,14 @@ async fn reported_content_reads_the_queue_and_its_counts_as_admin_web_does() {
         [format!("{REPORTED}/metrics"), format!("{REPORTED}?limit=100&offset=0&status=needs-review")],
         "an unknown target type is all of them"
     );
-    for text in ["<dd>12</dd>", "<dd>7</dd>", "<dd>3</dd>", "Listing lst_1", "counterfeit (2)", "Showing 2 of 12"] {
+    for text in [
+        r#"<dd class="stats__value">12</dd>"#,
+        r#"<dd class="stats__value">7</dd>"#,
+        r#"<dd class="stats__value">3</dd>"#,
+        "Listing lst_1",
+        "counterfeit (2)",
+        "Showing 2 of 12",
+    ] {
         assert!(html.contains(text), "{text}: {html}");
     }
     assert!(html.contains(r#"<option value="needs-review" selected>Needs review</option>"#), "{html}");
@@ -5466,9 +5473,9 @@ async fn platform_feedback_reads_the_queue_and_its_counts_with_the_filters_admin
         "an unknown topic is all of them"
     );
     for text in [
-        "<dd>5</dd>",
-        "<dd>3</dd>",
-        "<dd>3.80</dd>",
+        r#"<dd class="stats__value">5</dd>"#,
+        r#"<dd class="stats__value">3</dd>"#,
+        r#"<dd class="stats__value">3.80</dd>"#,
         "\u{2605}\u{2605}\u{2605}\u{2605}\u{2606}",
         "4/5",
         "Ease of use",
@@ -5805,10 +5812,10 @@ async fn the_feedback_attention_queue_shows_its_figures_and_each_cases_sla() {
     let (status, _, html) = pilot.send(get(at, Some("support-viewer"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");
     for text in [
-        "<dd>4</dd>",
-        "<dd>1</dd>",
-        "<dd>2 hours</dd>",
-        "<dd>3</dd>",
+        r#"<dd class="stats__value">4</dd>"#,
+        r#"<dd class="stats__value">1</dd>"#,
+        r#"<dd class="stats__value">2 hours</dd>"#,
+        r#"<dd class="stats__value">3</dd>"#,
         "fbcase_1",
         "1/5",
         "SLA breached",

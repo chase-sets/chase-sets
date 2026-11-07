@@ -20,27 +20,9 @@
   font-size: 0.875rem;
   color: var(--color-text-secondary);
 }
-.stats {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: var(--space-3);
+/* The counts are the kit's Stats; the page sets only their place. */
+.counts {
   margin: 0 0 var(--space-6);
-}
-.stat {
-  margin: 0;
-  padding: var(--space-4);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-lg);
-  background: var(--color-surface);
-}
-.stat dt {
-  font-size: 0.875rem;
-  font-weight: 600;
-  color: var(--color-text-secondary);
-}
-.stat dd {
-  margin: var(--space-1) 0 0;
-  font: 600 1.75rem/1.2 var(--font-display);
 }
 .part {
   display: grid;
@@ -115,11 +97,6 @@
   background: var(--color-surface);
   color: var(--color-text-secondary);
   border-color: var(--color-border-strong);
-}
-@media (--md) {
-  .stats {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-  }
 }
 
 /* Stacked on a phone, a row is one block: a line between rows, not under each of its cells. */
