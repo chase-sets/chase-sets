@@ -11,12 +11,14 @@ import {
   CatalogMergeCandidateBulkJobCursorError,
   isCatalogMergeCandidateBulkJobKind,
 } from "../source-observation-merge-candidate-bulk-job-runtime";
+import { isExplicitBulkJobScope } from "../source-observation-job-serialization";
 import {
   parseObservationIds,
   parsePromoteAsDraft,
   parsePromotionScope,
   parseReapplyProfileMode,
   promotionScopeToIntegrationScope,
+  readJsonObject,
   streamBulkJobEvents,
 } from "./route-helpers";
 import {
@@ -186,11 +188,10 @@ export function bulkReviewJobRoutes(services: BulkReviewJobRouteServices) {
       return permissionError;
     }
 
-    const body = (await c.req.json().catch(() => ({}))) as {
-      observationIds?: unknown;
-      scope?: unknown;
-      reason?: unknown;
-    };
+    const body = await readJsonObject(c);
+    if (body instanceof Response) {
+      return body;
+    }
     const reason = String(body.reason ?? "").trim();
 
     if (!reason) {
@@ -236,11 +237,10 @@ export function bulkReviewJobRoutes(services: BulkReviewJobRouteServices) {
       return permissionError;
     }
 
-    const body = (await c.req.json().catch(() => ({}))) as {
-      observationIds?: unknown;
-      scope?: unknown;
-      reason?: unknown;
-    };
+    const body = await readJsonObject(c);
+    if (body instanceof Response) {
+      return body;
+    }
     const reason = String(body.reason ?? "").trim();
 
     if (!reason) {
@@ -517,5 +517,5 @@ function mergeCandidateBulkJobListFilter(
 }
 
 function hasExplicitBulkReviewScope(scope: ReturnType<typeof parsePromotionScope> | undefined): boolean {
-  return Boolean(scope && Object.values(scope).some((value) => typeof value === "string" && value.trim().length > 0));
+  return Boolean(scope && isExplicitBulkJobScope(scope));
 }
