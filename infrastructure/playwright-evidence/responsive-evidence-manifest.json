@@ -4,12 +4,106 @@
   "claims": [
     {
       "kind": "claim",
+      "id": "checkout-cart-lines-390",
+      "file": "deployables/marketplace/e2e/buy-funnel-redesign.spec.ts",
+      "testTitle": "captures populated cart lines and actions at 390px @marketplace-checkout @browser-e2e-seed",
+      "route": {
+        "name": "Marketplace account cart",
+        "path": "/account/cart"
+      },
+      "fixture": {
+        "identity": "marketplace-browser-e2e-seed:populated-cart"
+      },
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "target": {
+        "identity": "populated-cart-main",
+        "selector": "main",
+        "populatedSelector": "[data-marketplace-cart-line]"
+      },
+      "measurements": [
+        {
+          "identity": "cart-main-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": {
+            "minimum": 1,
+            "maximum": 390
+          }
+        },
+        {
+          "identity": "no-cart-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 1
+          }
+        }
+      ],
+      "artifact": "checkout-cart-lines-390"
+    },
+    {
+      "kind": "claim",
+      "id": "checkout-cart-lines-1024",
+      "file": "deployables/marketplace/e2e/buy-funnel-redesign.spec.ts",
+      "testTitle": "captures populated cart lines and actions at 1024px @marketplace-checkout @browser-e2e-seed",
+      "route": {
+        "name": "Marketplace account cart",
+        "path": "/account/cart"
+      },
+      "fixture": {
+        "identity": "marketplace-browser-e2e-seed:populated-cart"
+      },
+      "viewport": {
+        "width": 1024,
+        "height": 900
+      },
+      "target": {
+        "identity": "populated-cart-main",
+        "selector": "main",
+        "populatedSelector": "[data-marketplace-cart-line]"
+      },
+      "measurements": [
+        {
+          "identity": "cart-main-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": {
+            "minimum": 1,
+            "maximum": 1024
+          }
+        },
+        {
+          "identity": "no-cart-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 1
+          }
+        }
+      ],
+      "artifact": "checkout-cart-lines-1024"
+    },
+    {
+      "kind": "claim",
       "id": "checkout-recovery-390",
       "file": "deployables/marketplace/e2e/buy-funnel-redesign.spec.ts",
       "testTitle": "authenticated buy checkout session satisfies redesign contracts @marketplace-checkout @browser-e2e-seed",
-      "route": { "name": "seeded checkout recovery", "path": "/checkout/buy/session/chk_seed_started_cart" },
-      "fixture": { "identity": "authenticated-checkout-recovery:seeded-started-cart:v1" },
-      "viewport": { "width": 390, "height": 844 },
+      "route": {
+        "name": "seeded checkout recovery",
+        "path": "/checkout/buy/session/chk_seed_started_cart"
+      },
+      "fixture": {
+        "identity": "authenticated-checkout-recovery:seeded-started-cart:v1"
+      },
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
       "target": {
         "identity": "checkout-recovery-panel",
         "selector": "section.grid.rounded-tokenLg:has(> div > div.m-0.mx-auto.max-w-xl.text-sm.leading-6.text-secondary)",
@@ -21,14 +115,19 @@
           "scope": "target",
           "selector": ":scope",
           "property": "visible",
-          "assertion": { "equals": true }
+          "assertion": {
+            "equals": true
+          }
         },
         {
           "identity": "recovery-panel-width",
           "scope": "target",
           "selector": ":scope",
           "property": "width",
-          "assertion": { "minimum": 1, "maximum": 390 }
+          "assertion": {
+            "minimum": 1,
+            "maximum": 390
+          }
         }
       ],
       "artifact": "checkout-recovery-390"
@@ -38,9 +137,17 @@
       "id": "checkout-recovery-1024",
       "file": "deployables/marketplace/e2e/buy-funnel-redesign.spec.ts",
       "testTitle": "authenticated buy checkout session satisfies redesign contracts @marketplace-checkout @browser-e2e-seed",
-      "route": { "name": "seeded checkout recovery", "path": "/checkout/buy/session/chk_seed_started_cart" },
-      "fixture": { "identity": "authenticated-checkout-recovery:seeded-started-cart:v1" },
-      "viewport": { "width": 1024, "height": 768 },
+      "route": {
+        "name": "seeded checkout recovery",
+        "path": "/checkout/buy/session/chk_seed_started_cart"
+      },
+      "fixture": {
+        "identity": "authenticated-checkout-recovery:seeded-started-cart:v1"
+      },
+      "viewport": {
+        "width": 1024,
+        "height": 768
+      },
       "target": {
         "identity": "checkout-recovery-panel",
         "selector": "section.grid.rounded-tokenLg:has(> div > div.m-0.mx-auto.max-w-xl.text-sm.leading-6.text-secondary)",
@@ -52,14 +159,19 @@
           "scope": "target",
           "selector": ":scope",
           "property": "visible",
-          "assertion": { "equals": true }
+          "assertion": {
+            "equals": true
+          }
         },
         {
           "identity": "recovery-panel-width",
           "scope": "target",
           "selector": ":scope",
           "property": "width",
-          "assertion": { "minimum": 1, "maximum": 1024 }
+          "assertion": {
+            "minimum": 1,
+            "maximum": 1024
+          }
         }
       ],
       "artifact": "checkout-recovery-1024"
