@@ -490,6 +490,7 @@ describe("CatalogPrimaryWorkbenchPage", () => {
     expect(promoteForm?.querySelector<HTMLInputElement>('input[name="reason"]')?.value).toBe(
       "Promote from the scope-first Catalog sync workbench.",
     );
+    expect(promoteForm?.querySelector<HTMLInputElement>('input[name="candidateVersion"]')?.value).toBe("2");
     const splitForm = document.querySelector<HTMLFormElement>(
       'form[data-catalog-primary-workbench-command="candidate.split"]',
     );
@@ -522,6 +523,53 @@ describe("CatalogPrimaryWorkbenchPage", () => {
     expect(screen.getByText(/Update: update-catalog-merge-candidate-product-mapping/)).toBeTruthy();
     expect(screen.getByText(/Split: split-catalog-merge-candidate-by-source-membership/)).toBeTruthy();
     expect(screen.queryByText(/raw JSON/i)).toBeNull();
+  });
+
+  it("posts the read version from the conflict-resolution promote form without opening edit", () => {
+    const readModel = buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
+      requestUrl:
+        "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&languageCode=en&seriesId=base&expansionId=base1&profileVersion=2026.06.04",
+      scopes: { items: [sourceObservationScope()], total: 1, count: 1 },
+      profileReviews: { items: [profileReview({ active: true, lifecycle: "active" })], total: 1, count: 1 },
+      controlPlaneOverview: controlPlaneOverview(),
+      reviewObservations: { items: [sourceObservationListItem()], total: 1, count: 1 },
+      canManageCatalog: true,
+      mergeCandidates: {
+        items: [
+          catalogMergeCandidateListItem({
+            status: "has-conflicts",
+            conflicts_json: [
+              {
+                code: "name-conflict",
+                severity: "blocking",
+                message: "Choose the printed name",
+                fieldPath: "name",
+                observationIds: ["obs_001"],
+                existingValue: "Old",
+                proposedValue: "New",
+              },
+            ],
+          }),
+        ],
+        total: 1,
+        count: 1,
+      },
+    });
+    render(<CatalogIntegrationsSurfacePage surface="daily" readModel={readModel} />);
+    fireEvent.click(screen.getAllByRole("button", { name: "Evidence" }).at(0)!);
+    const form = document.querySelector<HTMLFormElement>(
+      'form[data-catalog-merge-candidate-conflict-resolution-form="true"]',
+    );
+    expect(form).toBeTruthy();
+    const data = new FormData(form!);
+    expect(data.get("candidateVersion")).toBe("2");
+    expect(data.get("candidateId")).toBe("cand_pokemon_base1_004_standard");
+    expect(data.get("_intent")).toBe("candidate.promote");
+    expect(JSON.parse(String(data.get("blockingConflictsJson")))).toMatchObject([
+      { code: "name-conflict", existingValueJson: '"Old"', proposedValueJson: '"New"' },
+    ]);
+    expect(form?.querySelector('textarea[name="reason"]')).toBeTruthy();
+    expect(form?.querySelector('[name="resolution.name-conflict"]')).toBeTruthy();
   });
 
   it("keeps scoped TCGplayer Pokemon merge candidates visible when candidate identity uses TCG wording", () => {
@@ -636,7 +684,7 @@ describe("CatalogPrimaryWorkbenchPage", () => {
 
     fireEvent.click(within(reviewModule!).getAllByRole("button", { name: "Evidence" }).at(0)!);
 
-    expect(screen.getByText(/Promote: direct-catalog-merge-candidate-promotion from \d+ source/)).toBeTruthy();
+    expect(screen.getByText(/Promote: promote-catalog-merge-candidate from \d+ source/)).toBeTruthy();
   });
 
   it("keeps split and update merge-candidate actions blocked without typed command payload provenance", () => {
