@@ -13,6 +13,7 @@ import ShipmentsRoute from "../../../routes/marketplace/account-sale-shipments";
 import ShipmentRoute from "../../../routes/marketplace/account-sale-shipment";
 import PackingRoute from "../../../routes/marketplace/account-sale-shipment-packing";
 import { buildFulfillmentCommandCenter } from "./command-center-route-adapter";
+import { resolveShipmentActionPlan } from "../domain/shipment-action";
 
 const submit = vi.hoisted(() => vi.fn<(data: FormData, options: unknown) => Promise<void>>(async () => undefined));
 const loaderData = vi.hoisted(() => vi.fn());
@@ -158,6 +159,8 @@ function shipment(): FulfillmentShipmentDetail {
     address_override_audits: [],
     postage_label_operations: [],
     postage_provider_events: [],
+    // The seller's detail read carries the plan the API resolves for a packing shipment.
+    action_plan: resolveShipmentActionPlan({ status: "packing", labelStatus: "not-purchased", conflicts: [] }),
   };
 }
 
