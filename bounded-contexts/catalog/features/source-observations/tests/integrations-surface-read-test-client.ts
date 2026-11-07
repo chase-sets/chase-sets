@@ -62,7 +62,8 @@ export function withCatalogSurfaceReads<T>(client: T, request?: Request): T {
         ])
           .then(([types, policies]) => ({ contentTypes: types.items, inclusionPolicies: policies.items }))
           .catch(() => null);
-        const canManage = await canManageCatalog(request ?? new URL("/catalog/integrations", LOCATION_ORIGIN));
+        const actor = await resolveActor(request ?? new URL("/catalog/integrations", LOCATION_ORIGIN));
+        const canManage = actor?.permissions.includes("catalog.manage") ?? false;
         return wireShape({ observationId, detail: sourceObservationEvidenceFor({ observation, canManage, labels }) });
       }),
   } as T;
