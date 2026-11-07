@@ -30,6 +30,8 @@ import {
   validateRequiredProofPaths,
 } from "./lib/context-proof-sets.mjs";
 
+const REPOSITORY_SCAN_TEST_TIMEOUT_MS = 120_000;
+
 const settlementProofPaths = [
   "bounded-contexts/marketplace/features/offers/api/route.test.ts",
   "bounded-contexts/marketplace/features/offers/api/runtime.test.ts",
@@ -772,7 +774,7 @@ it("enables first-parent scope for both hosted PR merge events", () => {
   expect(workflow).toContain('github-output --base="${base}" --head="${head}" $first_parent');
 });
 
-async function importChangeScopeVariant(source) {
+async function importChangeScopeVariant(source, e2eSpecifier) {
   const directory = mkdtempSync(path.join(tmpdir(), "change-scope-mutant-"));
   for (const specifier of [
     "./e2e-suites.mjs",
@@ -782,7 +784,14 @@ async function importChangeScopeVariant(source) {
   ]) {
     const quoted = JSON.stringify(specifier);
     if (!source.includes(quoted)) throw new Error(`Mutant source no longer imports ${specifier}`);
-    source = source.replace(quoted, JSON.stringify(pathToFileURL(path.join(repoRoot, "scripts", specifier)).href));
+    source = source.replace(
+      quoted,
+      JSON.stringify(
+        specifier === "./e2e-suites.mjs" && e2eSpecifier
+          ? e2eSpecifier
+          : pathToFileURL(path.join(repoRoot, "scripts", specifier)).href,
+      ),
+    );
   }
   const file = path.join(directory, "change-scope.mjs");
   writeFileSync(file, source);
@@ -866,6 +875,197 @@ it("kills a source mutant that sends the fallback notice to json stdout", () => 
   } finally {
     rmSync(mutantPath, { force: true });
   }
+});
+
+describe("shared E2E setup selection", () => {
+  const baseSha = "4e22cd5906069f661bc129e7e15f4b43b3cdf780";
+  const workspaces = listWorkspacePackages({ repoRoot });
+  const setupPaths = [".github/workflows/platform-pr.yml", "scripts/playwright-chromium-install.mjs"];
+  const nearMisses = [
+    "scripts/playwright-chromium-install.test.mjs",
+    ".github/workflows/platform-pr.yaml",
+    ".github/workflows/platform-pr-scope.yml",
+    "scripts/install-playwright-chromium.sh",
+    "scripts/install-playwright-chromium.test.mjs",
+    "scripts/provider-browser-install-timeout.mjs",
+    ".github/workflows/playwright-chromium-install-diagnostics.yml",
+    "README.md",
+    "scripts/clean-logs.mjs",
+    ".github/workflows/platform-coverage.yml",
+  ];
+  let baseline;
+  const classifierSource = readFileSync("scripts/change-scope.mjs", "utf8");
+  const selectorSource = readFileSync("scripts/e2e-suites.mjs", "utf8");
+  async function loadSelectorClassifier(source) {
+    const directory = mkdtempSync(path.join(tmpdir(), "setup-e2e-selector-"));
+    const file = path.join(directory, "e2e-suites.mjs");
+    writeFileSync(
+      file,
+      source.replace(
+        '"./lib/risk-policy-v1.mjs"',
+        JSON.stringify(pathToFileURL(path.join(repoRoot, "scripts/lib/risk-policy-v1.mjs")).href),
+      ),
+    );
+    try {
+      const variant = await importChangeScopeVariant(
+        classifierSource.replace(
+          'const rootDir = fileURLToPath(new URL("../", import.meta.url));',
+          `const rootDir = ${JSON.stringify(repoRoot)};`,
+        ),
+        pathToFileURL(file).href,
+      );
+      return { ...variant, classifyChanges: (options) => variant.classifyChanges({ workspaces, ...options }) };
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  }
+  beforeAll(async () => {
+    baseline = await loadSelectorClassifier(
+      execFileSync("git", ["show", `${baseSha}:scripts/e2e-suites.mjs`], { encoding: "utf8" }),
+    );
+  });
+  const inputs = [[setupPaths[0]], [setupPaths[1]], setupPaths];
+  function assertSelected(classifier, changedFiles, options = {}) {
+    const scope = classifier.classifyChanges({ changedFiles, workspaces, ...options });
+    expect(scope.e2eSuiteIds).toEqual(["admin_auth"]);
+    expect(scope.e2eTestsRequired).toBe(true);
+    expect(classifier.toOutputMap(scope)).toMatchObject({
+      e2e_tests: "true",
+      e2e_suites: "admin_auth",
+      e2e_suites_json: '["admin_auth"]',
+      e2e_suite_batches_json: '["admin_auth"]',
+    });
+    for (const mode of ["pull-request", "merge-group"]) {
+      const plan = createCiGatePlan({ mode, labels: [], provenance: "same-repository", scope });
+      expect(plan.gates.find(({ id }) => id === "e2e-tests")).toMatchObject({
+        selection: "REQUIRED",
+        e2eBatches: ["admin_auth"],
+      });
+      expect(ciGatePlanOutputMap(plan).e2e_tests_required).toBe("true");
+    }
+  }
+
+  it("selects each setup path and their union once, independent of order and duplicates", () => {
+    for (const paths of [...inputs, [...setupPaths].reverse(), [...setupPaths, ...setupPaths]]) {
+      expect(baseline.classifyChanges({ changedFiles: paths }).e2eSuiteIds).toEqual([]);
+      assertSelected({ classifyChanges, toOutputMap }, paths);
+    }
+  });
+
+  it.each(
+    inputs.flatMap((paths) =>
+      ["add", "modify", "delete", "rename-away", "rename-to"].map((operation) => ({ paths, operation })),
+    ),
+  )(
+    "discovers $operation $paths through real Git and first-parent synthetic merges",
+    { timeout: REPOSITORY_SCAN_TEST_TIMEOUT_MS },
+    ({ paths, operation }) =>
+      withEnrollmentRepository(({ baseDir, git, write, commit, workspaces }) => {
+        const destinations = paths.map((file) => `${file}.unowned`);
+        if (operation === "rename-to") destinations.forEach((file) => write(file, "Synthetic setup baseline\n"));
+        else if (operation !== "add") paths.forEach((file) => write(file, "Synthetic setup baseline\n"));
+        const eventBase = commit();
+        git("branch", "pr");
+        write("deployables/marketplace/app/root.tsx", "Synthetic unrelated main advance\n");
+        commit();
+        git("switch", "pr");
+        for (const [index, file] of paths.entries()) {
+          if (operation === "delete") git("rm", file);
+          else if (operation === "rename-away") git("mv", file, destinations[index]);
+          else if (operation === "rename-to") {
+            mkdirSync(path.dirname(path.join(baseDir, file)), { recursive: true });
+            git("mv", destinations[index], file);
+          } else write(file, "Synthetic setup changed\n");
+        }
+        const head = commit();
+        const expected = [...paths, ...(operation.startsWith("rename") ? destinations : [])].sort();
+        expect(listChangedFiles(eventBase, head, { cwd: baseDir })).toEqual(expected);
+        git("switch", "main");
+        git("-c", "commit.gpgsign=false", "merge", "--no-ff", "--quiet", "--no-edit", "pr");
+        const merge = git("rev-parse", "HEAD");
+        expect(git("rev-list", "--parents", "-n", "1", merge).split(/\s+/)).toHaveLength(3);
+        const discovered = listChangedFiles(eventBase, merge, { cwd: baseDir, firstParent: true });
+        expect(discovered).toEqual(expected);
+        assertSelected({ classifyChanges, toOutputMap }, discovered, { baseDir, workspaces });
+        expect(baseline.classifyChanges({ changedFiles: discovered, baseDir, workspaces }).e2eSuiteIds).toEqual([]);
+      }),
+  );
+
+  it("preserves every product and near-miss input, with only the enumerated setup delta", () => {
+    const captured = JSON.parse(
+      execFileSync("git", ["show", `${baseSha}:scripts/fixtures/ci-e2e-selection.json`], { encoding: "utf8" }),
+    );
+    const candidate = JSON.parse(readFileSync("scripts/fixtures/ci-e2e-selection.json", "utf8"));
+    expect(captured.cases).toHaveLength(150);
+    expect(candidate.cases).toHaveLength(151);
+    expect(candidate.families).toEqual(captured.families);
+    expect(candidate.families).toHaveLength(143);
+    for (const entry of captured.cases) {
+      const old = baseline.classifyChanges({ changedFiles: entry.changedFiles });
+      const next = classifyChanges({ changedFiles: entry.changedFiles, workspaces });
+      const ownsSetup = entry.changedFiles.some((file) => setupPaths.includes(file));
+      expect(next).toEqual(ownsSetup ? { ...old, e2eSuiteIds: ["admin_auth"], e2eTestsRequired: true } : old);
+      expect(
+        candidate.cases.find((item) => JSON.stringify(item.changedFiles) === JSON.stringify(entry.changedFiles)),
+      ).toEqual(ownsSetup ? { ...entry, suiteIds: ["admin_auth"], batches: ["admin_auth"] } : entry);
+    }
+    for (const file of nearMisses) {
+      const scope = classifyChanges({ changedFiles: [file], workspaces });
+      expect(scope).toEqual(baseline.classifyChanges({ changedFiles: [file] }));
+      expect(scope.e2eSuiteIds).toEqual([]);
+    }
+    expect(
+      candidate.cases.find(({ changedFiles }) => JSON.stringify(changedFiles) === JSON.stringify([setupPaths[1]])),
+    ).toEqual({
+      changedFiles: [setupPaths[1]],
+      suiteIds: ["admin_auth"],
+      batches: ["admin_auth"],
+    });
+    const mixed = ["bounded-contexts/catalog/features/operator-session/api/route.ts"];
+    expect(
+      JSON.parse(baseline.toOutputMap(baseline.classifyChanges({ changedFiles: mixed })).e2e_suite_batches_json),
+    ).toEqual(["marketplace_browse,catalog_admin_integrations", "rendered_copy"]);
+    expect(
+      JSON.parse(
+        toOutputMap(classifyChanges({ changedFiles: [...mixed, ...setupPaths, ...setupPaths], workspaces }))
+          .e2e_suite_batches_json,
+      ),
+    ).toEqual(["catalog_admin_integrations", "marketplace_browse,admin_auth", "rendered_copy"]);
+    const auth = ["bounded-contexts/auth/features/auth/api/route.ts"];
+    const authScope = classifyChanges({ changedFiles: auth, workspaces });
+    expect(authScope.e2eSuiteIds).toEqual(["marketplace_account", "admin_auth"]);
+    expect(classifyChanges({ changedFiles: [...auth, ...setupPaths], workspaces }).e2eSuiteIds).toEqual(
+      authScope.e2eSuiteIds,
+    );
+  });
+
+  it("kills removal of either setup mapping with all other inputs frozen", async () => {
+    const captured = JSON.parse(
+      execFileSync("git", ["show", `${baseSha}:scripts/fixtures/ci-e2e-selection.json`], { encoding: "utf8" }),
+    );
+    for (const removed of setupPaths) {
+      const mutantSource = selectorSource.replace(`normalized === "${removed}"`, "false");
+      expect(mutantSource).not.toBe(selectorSource);
+      const mutant = await loadSelectorClassifier(mutantSource);
+      expect(() => assertSelected(mutant, [removed])).toThrow();
+      expect(mutant.classifyChanges({ changedFiles: [removed] }).e2eSuiteIds).toEqual([]);
+      assertSelected(
+        mutant,
+        setupPaths.filter((file) => file !== removed),
+      );
+      for (const entry of captured.cases.filter(
+        ({ changedFiles }) => !changedFiles.some((file) => setupPaths.includes(file)),
+      )) {
+        expect(mutant.classifyChanges({ changedFiles: entry.changedFiles })).toEqual(
+          classifyChanges({ changedFiles: entry.changedFiles, workspaces }),
+        );
+      }
+      for (const file of nearMisses)
+        expect(mutant.classifyChanges({ changedFiles: [file] })).toEqual(
+          classifyChanges({ changedFiles: [file], workspaces }),
+        );
+    }
+  });
 });
 
 describe("rendered-copy real-provider selection corpus", () => {
@@ -1858,6 +2058,19 @@ function withRenderedCopyOutput(output) {
       ...(batches.some((batch) => batch.split(",").some((id) => owners.has(id))) ? ["rendered_copy"] : []),
     ]),
   };
+}
+
+function withSetupE2eOutput(output) {
+  const setupPaths = [".github/workflows/platform-pr.yml", "scripts/playwright-chromium-install.mjs"];
+  return JSON.parse(output.changed_files_json).some((file) => setupPaths.includes(file))
+    ? {
+        ...output,
+        e2e_tests: "true",
+        e2e_suites: "admin_auth",
+        e2e_suites_json: '["admin_auth"]',
+        e2e_suite_batches_json: '["admin_auth"]',
+      }
+    : output;
 }
 
 function withPublicPresenceEnrollmentOutputs(baseOutputMap) {
@@ -3064,7 +3277,7 @@ describe("change-scope", () => {
     },
   );
 
-  it("keeps every output except db_tests and Public Presence enrollment byte-identical to the base commit for every corpus case", () => {
+  it("keeps every output except the enumerated DB, Public Presence and setup E2E deltas byte-identical to the base commit", () => {
     for (const testCase of dbTestsOldVersusNewCorpus) {
       const scope = classifyChanges({ changedFiles: testCase.changedFiles });
       const outputs = toOutputMap(scope);
@@ -3072,7 +3285,9 @@ describe("change-scope", () => {
       expect(Object.keys(outputs)).toEqual(currentOutputMapKeyOrder);
       expect(outputs.db_tests).toBe(testCase.expectedDbTests);
       expect(outputs).toEqual(
-        withPublicPresenceEnrollmentOutputs({ ...testCase.baseOutputMap, db_tests: testCase.expectedDbTests }),
+        withSetupE2eOutput(
+          withPublicPresenceEnrollmentOutputs({ ...testCase.baseOutputMap, db_tests: testCase.expectedDbTests }),
+        ),
       );
       expect(String(scope.dbTestsRequired)).toBe(testCase.expectedDbTests);
     }
@@ -3088,10 +3303,12 @@ describe("change-scope", () => {
     expect(scope.dbTestsRequired).toBe(true);
     expect(scope.affectedWorkspaces).toEqual(baseCapturedSchedulerFanoutWorkspaces);
     expect(outputs).toEqual(
-      withPublicPresenceEnrollmentOutputs({
-        ...dependentSliceBaseCapture.baseOutputMap,
-        db_tests: dependentSliceBaseCapture.expectedDbTests,
-      }),
+      withSetupE2eOutput(
+        withPublicPresenceEnrollmentOutputs({
+          ...dependentSliceBaseCapture.baseOutputMap,
+          db_tests: dependentSliceBaseCapture.expectedDbTests,
+        }),
+      ),
     );
   });
 
