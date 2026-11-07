@@ -172,7 +172,7 @@ describe("portable marketplace route composition", () => {
   });
 
   it("inventories every host-local route as explicitly unsupported on mobile", () => {
-    expect(marketplaceHostRouteInventory).toHaveLength(15);
+    expect(marketplaceHostRouteInventory).toHaveLength(14);
     expect(marketplaceHostRouteInventory).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ routePath: "/", owner: "marketplace-web", followUp: "#5238" }),
