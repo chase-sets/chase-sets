@@ -26,7 +26,7 @@ use corten::{
     prelude::*,
 };
 use platform::receipt::Receipt;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use serde_json::json;
 use time::{Duration, OffsetDateTime, format_description::well_known::Rfc3339};
 
@@ -57,7 +57,7 @@ fn instant(at: OffsetDateTime) -> String {
 /// What the page's address carries: the last write's receipt (`after_write`), the attempt that
 /// answer settles (`saved`), and an attempt to ask the API about (`check`, its `action` and
 /// `target`).
-#[derive(Clone, Debug, Default, Deserialize, Fields, Route)]
+#[derive(Clone, Debug, Default, Fields, Route)]
 #[route(query)]
 pub struct Place {
     pub after_write: Option<String>,
@@ -69,7 +69,7 @@ pub struct Place {
 
 /// Every form's fields: which write (`intent`, marketplace's), the attempt it was drawn with, an
 /// invitation's email, the role, and the member or invitation a write is for.
-#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[derive(Clone, Debug, Default, Fields)]
 #[serde(default)]
 pub struct TeamInput {
     pub intent: String,

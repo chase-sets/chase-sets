@@ -209,7 +209,7 @@ async fn revoke(config: &Shared, headers: &HeaderMap) -> Answer {
 }
 
 /// The box Disconnect's form carries.
-#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[derive(Clone, Debug, Default, Fields)]
 #[serde(default)]
 pub struct DisconnectInput {
     pub confirmed: String,

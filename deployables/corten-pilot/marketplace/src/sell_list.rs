@@ -24,7 +24,7 @@ use corten::{
     security::cookie,
 };
 use platform::{api::segment, money, receipt::Receipt};
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
 use crate::{
     api::{
@@ -87,7 +87,7 @@ impl Surface {
 /// handoff it waits on (`afterWrite`, `postWriteHandoff`), back from registration
 /// (`registrationReturn=seller-checkout`), and a seller confirmation still being saved
 /// (`confirmation=preparing`, `pendingConfirmationId`).
-#[derive(Clone, Debug, Default, Deserialize, Fields, Route)]
+#[derive(Clone, Debug, Default, Fields, Route)]
 #[serde(rename_all = "camelCase")]
 #[route(query)]
 pub struct Place {

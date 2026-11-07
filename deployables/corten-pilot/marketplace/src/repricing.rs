@@ -33,7 +33,6 @@ use corten::{
 };
 use futures_util::StreamExt;
 use platform::receipt::Receipt;
-use serde::Deserialize;
 use serde_json::{Value, json};
 
 use crate::{
@@ -288,7 +287,7 @@ fn distinct(values: impl Iterator<Item = String>) -> Vec<String> {
 
 /// The page's address: the editor (open, its controls and the dry run that previews them), the
 /// receipt of the write the list waits for, and where the dry run's samples start.
-#[derive(Clone, Debug, Default, Deserialize, Fields, Route)]
+#[derive(Clone, Debug, Default, Fields, Route)]
 #[route(query)]
 #[serde(rename_all = "camelCase")]
 pub struct Place {
@@ -368,7 +367,7 @@ impl Place {
 
 /// A write: Pause, Resume, the halt, Preview and Activate. The editor's posts carry its controls,
 /// named as the address names them.
-#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[derive(Clone, Debug, Default, Fields)]
 #[serde(rename_all = "camelCase", default)]
 pub struct WriteForm {
     pub intent: String,

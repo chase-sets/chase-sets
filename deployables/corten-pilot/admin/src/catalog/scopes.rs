@@ -44,7 +44,7 @@ pub mod url {
     /// window apart from them (admin-web's `attentionKind` and `attentionOffset`), so paging one
     /// never moves the other. The window is read as admin-web reads it: an unknown kind is the
     /// summary and an offset that is not a number is 0, rather than a refused page.
-    #[derive(Clone, Debug, Default, Deserialize, Fields, Route)]
+    #[derive(Clone, Debug, Default, Fields, Route)]
     #[route(query)]
     pub struct ScopeQuery {
         pub search: Option<String>,
@@ -58,7 +58,7 @@ pub mod url {
     }
 
     /// What an attention queue command did: admin-web's banner (queued, or the command failed).
-    #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, corten::UrlValue)]
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, corten::UrlValue)]
     #[serde(rename_all = "snake_case")]
     pub enum AttentionDone {
         Queued,

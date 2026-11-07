@@ -25,7 +25,7 @@ use corten::{
     prelude::*,
 };
 use platform::receipt::Receipt;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
 use crate::{
     api::{ApiError, Caller as Api, Packing as _, PackingAttempt, ShipmentDetail, ShipmentLine, Shipments as _, Side},
@@ -38,7 +38,7 @@ use crate::{
 /// What the packing page's address carries: the last write's receipt (`after_write`), the attempt
 /// that answer settles (`done`), an attempt to ask the API about (`check`), and what the last scan
 /// matched (`scan`, `line`).
-#[derive(Clone, Debug, Default, Deserialize, Fields, Route)]
+#[derive(Clone, Debug, Default, Fields, Route)]
 #[route(query)]
 pub struct Place {
     pub after_write: Option<String>,
@@ -50,7 +50,7 @@ pub struct Place {
 
 /// What a scan found (`handleScanSubmit`), written in the address as the word serde reads
 /// (`UrlValue`).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize, corten::UrlValue)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, corten::UrlValue)]
 #[serde(rename_all = "kebab-case")]
 pub enum Scanned {
     /// One more of the line is packed.
@@ -64,14 +64,14 @@ pub enum Scanned {
 }
 
 /// A write's form: its attempt.
-#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[derive(Clone, Debug, Default, Fields)]
 #[serde(default)]
 pub struct AttemptInput {
     pub attempt: Option<SubmitKey>,
 }
 
 /// A line's form: its attempt and how many are packed after it (the button pressed).
-#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[derive(Clone, Debug, Default, Fields)]
 #[serde(default)]
 pub struct LineInput {
     pub attempt: Option<SubmitKey>,
@@ -80,7 +80,7 @@ pub struct LineInput {
 
 /// The scan's form: its attempt, what was scanned or typed, and the receipt of the page's last
 /// write, so the line's count is read after it.
-#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[derive(Clone, Debug, Default, Fields)]
 #[serde(default)]
 pub struct ScanInput {
     pub attempt: Option<SubmitKey>,
@@ -89,7 +89,7 @@ pub struct ScanInput {
 }
 
 /// Finish's form: its attempt and the package count.
-#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[derive(Clone, Debug, Default, Fields)]
 #[serde(default)]
 pub struct PackInput {
     pub attempt: Option<SubmitKey>,

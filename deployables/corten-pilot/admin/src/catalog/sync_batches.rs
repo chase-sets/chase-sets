@@ -45,10 +45,9 @@ const FRAMING_BYTES: usize = 65_536;
 
 #[corten::routes(state = crate::app::Shared, area = crate::catalog::url::Catalog, caller = crate::auth::Staff<crate::auth::CatalogAccess>)]
 pub mod url {
-    use serde::Deserialize;
 
     /// The batch and the count quote the page shows.
-    #[derive(Clone, Debug, Default, Deserialize, corten::Fields, corten::Route)]
+    #[derive(Clone, Debug, Default, corten::Fields, corten::Route)]
     #[route(query)]
     pub struct BatchQuery {
         pub batch_id: Option<String>,
@@ -80,7 +79,7 @@ impl url::SyncBatches {
 
 /// The batch form, and every command's fields, in admin-web's names (snake case). Each is the text
 /// sent; numbers are read as admin-web's `numberValue` reads them.
-#[derive(Clone, Debug, Default, Deserialize, Serialize, Fields, ToJson)]
+#[derive(Clone, Debug, Default, Serialize, Fields, ToJson)]
 #[serde(default)]
 pub struct BatchInput {
     pub intent: String,
@@ -735,7 +734,7 @@ pub(crate) async fn held_sets(
 }
 
 /// The held-set form: its one file.
-#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[derive(Clone, Debug, Default, Fields)]
 #[serde(default)]
 pub struct HeldSetForm {
     pub file: Files,

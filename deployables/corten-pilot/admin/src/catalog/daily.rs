@@ -1138,7 +1138,7 @@ async fn answer(
 
 /// The sync form: the scope as the read model has it, every unit the preview lists, and the
 /// checked ones.
-#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[derive(Clone, Debug, Default, Fields)]
 #[serde(default, rename_all = "camelCase")]
 pub struct SyncInput {
     pub product_domain: String,
@@ -1203,7 +1203,7 @@ pub(crate) async fn sync(
 }
 
 /// A job's command: `retry`, `resume` or `cancel`.
-#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[derive(Clone, Debug, Default, Fields)]
 #[serde(default)]
 pub struct JobInput {
     pub command: String,
@@ -1231,7 +1231,7 @@ pub(crate) async fn job(
 }
 
 /// The review form: `defer` or `reject`, the checked observations, and the reason a reject needs.
-#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[derive(Clone, Debug, Default, Fields)]
 #[serde(default)]
 pub struct ReviewInput {
     pub action: String,
@@ -1284,7 +1284,7 @@ pub(crate) async fn review(
 /// A merge candidate's command: `ignore`, `defer`, `split` or `update` (its edit). A split
 /// and an edit name the candidate version the page read; the API applies them to the snapshot it
 /// holds and refuses a version it has moved on from.
-#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[derive(Clone, Debug, Default, Fields)]
 #[serde(default)]
 pub struct CandidateInput {
     pub command: String,
@@ -1366,7 +1366,7 @@ impl CandidateInput {
         };
         let mut edit = json!({
             "catalogItemId": Some(self.catalog_item_id.trim()).filter(|id| !id.is_empty()),
-            "productIds": ids(&[self.product_ids.clone()]),
+            "productIds": ids(std::slice::from_ref(&self.product_ids)),
             "factOverrides": overrides,
             "droppedExternalCatalogItemReferenceIndexes": indexes(&self.drop_catalog_ref),
             "droppedExternalProductReferenceIndexes": indexes(&self.drop_product_ref),
@@ -1425,7 +1425,7 @@ pub(crate) async fn candidate(
 
 /// A source options control: `reload` (from the cache), `force-refresh` (one kind, live) or
 /// `force-refresh-all`.
-#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[derive(Clone, Debug, Default, Fields)]
 #[serde(default, rename_all = "camelCase")]
 pub struct OptionsInput {
     pub action: String,

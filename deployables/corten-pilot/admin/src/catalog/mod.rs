@@ -42,7 +42,6 @@
 use corten::{Fragment, LiveResponse, LiveSince, http::HeaderMap, prelude::*};
 use futures_util::StreamExt;
 use platform::{jobs::Update, receipt::Receipt};
-use serde::Deserialize;
 use serde_json::{Map, Value};
 
 pub mod api;
@@ -113,7 +112,7 @@ pub mod url {
 
     /// The dimensions list's filters (the filter form's fields) and page (from 1): what the list,
     /// its live rows, its bulk preview and the preview's confirm all carry.
-    #[derive(Clone, Debug, Default, Deserialize, Fields, Route)]
+    #[derive(Clone, Debug, Default, Fields, Route)]
     #[route(query)]
     pub struct DimensionQuery {
         pub search: Option<String>,
@@ -200,7 +199,7 @@ pub mod url {
     }
 
     /// The fields list's filters and page; the flags are `true` or `false`.
-    #[derive(Clone, Debug, Default, Deserialize, Fields, Route)]
+    #[derive(Clone, Debug, Default, Fields, Route)]
     #[route(query)]
     pub struct FieldQuery {
         pub search: Option<String>,
@@ -280,7 +279,7 @@ pub mod url {
 }
 
 /// What a write did, for the page it redirects to: admin-web's success toasts.
-#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, corten::UrlValue)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, corten::UrlValue)]
 #[serde(rename_all = "snake_case")]
 pub enum Done {
     Created,

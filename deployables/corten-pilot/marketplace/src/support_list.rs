@@ -115,7 +115,7 @@ impl Step {
 
 /// The last step's form: what it does (`intent`), the account it was drawn for, the open's
 /// attempt, the photo batch and what is already done, Check status's attempt, and the photos.
-#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[derive(Clone, Debug, Default, Fields)]
 #[serde(default)]
 pub struct OpenInput {
     pub intent: String,

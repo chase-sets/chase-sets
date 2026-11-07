@@ -33,12 +33,11 @@ use crate::{
 
 #[corten::routes(state = crate::app::Shared, area = crate::catalog::url::Catalog, caller = crate::auth::Staff<crate::auth::CatalogAccess>)]
 pub mod url {
-    use serde::Deserialize;
 
     use crate::catalog::scope::url::ScopeAt;
 
     /// The inbox's filter (its form's field).
-    #[derive(Clone, Debug, Default, Deserialize, corten::Fields, corten::Route)]
+    #[derive(Clone, Debug, Default, corten::Fields, corten::Route)]
     #[route(query)]
     pub struct InboxQuery {
         pub product_domain: Option<String>,

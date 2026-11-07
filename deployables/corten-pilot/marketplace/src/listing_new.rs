@@ -27,7 +27,6 @@ use corten::{
     prelude::*,
     security::cookie,
 };
-use serde::Deserialize;
 
 use crate::{
     api::{
@@ -56,7 +55,7 @@ pub const LIMITS: Limits = Limits { file: 10 * 1024 * 1024, files: 24, whole: 60
 pub const DEADLINE: Duration = Duration::from_secs(150);
 
 /// The form's fields, for their names: marketplace's, so its links and the form agree.
-#[derive(Deserialize, Fields)]
+#[derive(Fields)]
 #[serde(rename_all = "camelCase")]
 #[allow(dead_code)]
 pub struct ListingFields {

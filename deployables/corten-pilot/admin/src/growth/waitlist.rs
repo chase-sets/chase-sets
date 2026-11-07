@@ -37,10 +37,9 @@ pub const SORTS: [&str; 2] = ["updated", "referrals"];
 #[corten::routes(state = crate::app::Shared, area = crate::growth::waitlist::url::Waitlist, caller = crate::auth::Staff<crate::auth::GrowthView>)]
 pub mod url {
     use corten::prelude::*;
-    use serde::Deserialize;
 
     /// The filters: what the list and the export ask for.
-    #[derive(Clone, Debug, Default, Deserialize, Fields, Route)]
+    #[derive(Clone, Debug, Default, Fields, Route)]
     #[route(query)]
     pub struct Filters {
         pub search: Option<String>,

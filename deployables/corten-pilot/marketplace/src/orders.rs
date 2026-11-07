@@ -18,7 +18,7 @@ use corten::{
     prelude::*,
 };
 use platform::receipt::Receipt;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
 use crate::{
     api::{ApiError, OrderDetail, OrderList, Orders as _, Side},
@@ -36,7 +36,7 @@ const MAX_LIMIT: u32 = 250;
 
 /// Which page of the list the address asks for (`orderListPageQuery`): `limit` from 1 to 250, 100
 /// when it is missing, zero or not a number; `offset` from 0.
-#[derive(Clone, Debug, Default, Deserialize, Fields, Route)]
+#[derive(Clone, Debug, Default, Fields, Route)]
 #[route(query)]
 pub struct Paging {
     pub limit: Option<String>,

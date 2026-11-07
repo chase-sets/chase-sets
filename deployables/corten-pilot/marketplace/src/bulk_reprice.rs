@@ -61,7 +61,7 @@ impl Place {
 }
 
 /// The upload form's fields, in marketplace's names.
-#[derive(Deserialize, Fields)]
+#[derive(Fields)]
 #[serde(rename_all = "camelCase")]
 #[allow(dead_code)]
 pub struct UploadForm {

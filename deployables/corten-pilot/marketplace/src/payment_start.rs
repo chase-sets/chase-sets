@@ -21,7 +21,7 @@ use corten::{
     prelude::*,
 };
 use platform::{money::cents, receipt::Receipt};
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
 use crate::{
     api::{ApiError, CheckoutSessions as _, PaymentCalls as _, PaymentOrder, PaymentPreview, Wallet},
@@ -33,7 +33,7 @@ use crate::{
 };
 
 /// The page's address: the orders to pay, comma separated, as marketplace's links write them.
-#[derive(Clone, Debug, Default, Deserialize, Fields, Route)]
+#[derive(Clone, Debug, Default, Fields, Route)]
 #[route(query)]
 #[serde(rename_all = "camelCase")]
 pub struct StartPlace {
@@ -49,7 +49,7 @@ impl StartPlace {
 
 /// Continue to payment's form: the orders, the payment method, and how much of the wallet to use
 /// (`none`, `max` or `custom` with its amount), in marketplace's names.
-#[derive(Clone, Debug, Default, Deserialize, Serialize, Fields)]
+#[derive(Clone, Debug, Default, Serialize, Fields)]
 #[serde(default)]
 pub struct StartForm {
     pub order_ids: String,

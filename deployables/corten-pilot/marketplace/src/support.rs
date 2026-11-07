@@ -34,7 +34,7 @@ use corten::{
     prelude::*,
 };
 use platform::receipt::Receipt;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use serde_json::json;
 use sha2::{Digest, Sha256};
 
@@ -49,7 +49,7 @@ use crate::{
 
 /// What the page's address carries: what the last write did (marketplace's `?action=`:
 /// `evidence`, `response`, `offerAccepted`, `offerDeclined`, `escalated`, `cancelled`) and its receipt.
-#[derive(Clone, Debug, Default, Deserialize, Fields, Route)]
+#[derive(Clone, Debug, Default, Fields, Route)]
 #[route(query)]
 pub struct Place {
     pub action: Option<String>,
@@ -58,7 +58,7 @@ pub struct Place {
 
 /// The page's forms: the write (`intent`), its attempt and the account it was drawn for, what
 /// each write takes, and Check status's attempt.
-#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[derive(Clone, Debug, Default, Fields)]
 #[serde(default)]
 pub struct SupportInput {
     pub intent: String,

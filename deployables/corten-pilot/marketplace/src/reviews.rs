@@ -19,7 +19,7 @@ use corten::{
     http::{HeaderMap, StatusCode},
     prelude::*,
 };
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
 use crate::{
     accounts::{MOST_DETAILS, REASONS, ReviewNotice, Role},
@@ -50,7 +50,7 @@ impl Which {
 }
 
 /// What the address carries: the lists' role, and the review a report was just received for.
-#[derive(Clone, Debug, Default, Deserialize, Fields, Route)]
+#[derive(Clone, Debug, Default, Fields, Route)]
 #[route(query)]
 pub struct Place {
     pub role: Option<String>,
@@ -59,7 +59,7 @@ pub struct Place {
 
 /// Report review's fields: what the form is for (the review's own page also posts its reply), the
 /// review (marketplace's `reviewId`), the reason and the explanation; and the reply's words.
-#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[derive(Clone, Debug, Default, Fields)]
 #[serde(default)]
 pub struct ReportInput {
     pub intent: String,

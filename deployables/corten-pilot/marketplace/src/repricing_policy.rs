@@ -79,7 +79,7 @@ impl Place {
 }
 
 /// A write: Pause, Resume, Delete and the halt.
-#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[derive(Clone, Debug, Default, Fields)]
 #[serde(default)]
 pub struct PolicyForm {
     pub intent: String,

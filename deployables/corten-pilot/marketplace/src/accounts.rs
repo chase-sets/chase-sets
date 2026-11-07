@@ -19,7 +19,6 @@ use corten::{
     http::{HeaderMap, StatusCode, Uri},
     prelude::*,
 };
-use serde::Deserialize;
 
 use crate::{
     api::{Caller, Discovery as _, ListingReport, Marketplace as _, MetricsChips, PublicAccount},
@@ -40,7 +39,7 @@ pub const MOST_DETAILS: usize = 1000;
 
 /// The address's parameters: the reviews' role and page, and the review a report was just
 /// received for.
-#[derive(Clone, Debug, Default, Deserialize, Fields, Route)]
+#[derive(Clone, Debug, Default, Fields, Route)]
 #[route(query)]
 pub struct AccountQuery {
     pub role: Option<String>,

@@ -58,13 +58,12 @@ fn api_query(query: &url::BlueprintQuery, page: u32) -> String {
 #[corten::routes(state = crate::app::Shared, area = crate::catalog::url::Catalog, caller = crate::auth::Staff<crate::auth::CatalogAccess>)]
 pub mod url {
     use corten::{Fields, Route};
-    use serde::Deserialize;
 
     pub use crate::catalog::url::ListNotice;
 
     /// The list's filters (the filter form's fields) and page (from 1); the `has_` filters are
     /// `true` or `false`.
-    #[derive(Clone, Debug, Default, Deserialize, Fields, Route)]
+    #[derive(Clone, Debug, Default, Fields, Route)]
     #[route(query)]
     pub struct BlueprintQuery {
         pub search: Option<String>,
@@ -83,7 +82,7 @@ pub mod url {
     }
 
     /// What opening a Set dialog carries: the receipt of the write the page shows.
-    #[derive(Clone, Debug, Default, Deserialize, Fields, Route)]
+    #[derive(Clone, Debug, Default, Fields, Route)]
     #[route(query)]
     pub struct Opened {
         pub after_write: Option<String>,

@@ -24,7 +24,7 @@ use corten::{
     prelude::*,
 };
 use platform::receipt::Receipt;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
 use crate::{
     api::{ApiError, SessionCalls as _, SessionRecord, SessionWrite},
@@ -42,7 +42,7 @@ const MAX_LIMIT: u32 = 250;
 pub const STATUSES: [&str; 3] = ["active", "revoked", "expired"];
 
 /// What the list's address asks for: a status (`all` or none for every one), and the page.
-#[derive(Clone, Debug, Default, Deserialize, Fields, Route)]
+#[derive(Clone, Debug, Default, Fields, Route)]
 #[route(query)]
 pub struct Filters {
     pub status: Option<String>,
@@ -105,7 +105,7 @@ impl ListScreen {
 }
 
 /// What came of the last write, in the session page's address.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize, corten::UrlValue)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, corten::UrlValue)]
 #[serde(rename_all = "kebab-case")]
 pub enum Said {
     /// Auth signed it out.
@@ -121,7 +121,7 @@ pub enum Said {
 }
 
 /// What a session's address carries: the last write's receipt, and what came of it.
-#[derive(Clone, Debug, Default, Deserialize, Fields, Route)]
+#[derive(Clone, Debug, Default, Fields, Route)]
 #[route(query)]
 pub struct Place {
     pub after_write: Option<String>,
@@ -138,7 +138,7 @@ pub struct SessionScreen {
 }
 
 /// Switch Account's field.
-#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[derive(Clone, Debug, Default, Fields)]
 #[serde(default)]
 pub struct SwitchInput {
     pub account_id: String,

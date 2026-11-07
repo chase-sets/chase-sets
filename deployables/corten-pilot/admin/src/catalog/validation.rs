@@ -306,7 +306,7 @@ pub struct SelectedScope {
 
 /// The evidence form: the version it is for, the text and fixture run typed, and (workaround,
 /// chase-sets/chase-sets#11068) the fingerprints and time admin-web's form carries.
-#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[derive(Clone, Debug, Default, Fields)]
 #[serde(default, rename_all = "camelCase")]
 pub struct EvidenceInput {
     pub profile_version: String,
@@ -341,7 +341,7 @@ impl EvidenceInput {
 }
 
 /// The activate form: the version it activates.
-#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[derive(Clone, Debug, Default, Fields)]
 #[serde(default, rename_all = "camelCase")]
 pub struct ActivateInput {
     pub profile_version: String,

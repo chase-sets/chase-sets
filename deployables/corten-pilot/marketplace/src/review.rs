@@ -20,7 +20,7 @@ use corten::{
     prelude::*,
 };
 use platform::receipt::Receipt;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
 use crate::{
     accounts::{ReviewNotice, Role},
@@ -36,7 +36,7 @@ use crate::{
 pub const MOST_REPLY: usize = 1000;
 
 /// What the address carries: the reply's receipt, and the review a report was just received for.
-#[derive(Clone, Debug, Default, Deserialize, Fields, Route)]
+#[derive(Clone, Debug, Default, Fields, Route)]
 #[route(query)]
 pub struct ReviewPlace {
     pub after_write: Option<String>,

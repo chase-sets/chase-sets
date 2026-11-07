@@ -104,7 +104,7 @@ pub struct ConnectionPlace {
 
 /// A manual sync write: its intent, the run and revision it was made at, and Upload attempt's
 /// and Verify's fields, in marketplace's names.
-#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[derive(Clone, Debug, Default, Fields)]
 #[serde(default)]
 pub struct ManualSyncForm {
     pub intent: String,
@@ -132,7 +132,7 @@ impl ManualSyncForm {
 }
 
 /// An export's ingest form: its surface (`live` or `staged`) and the file (`export`).
-#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[derive(Clone, Debug, Default, Fields)]
 #[serde(default)]
 pub struct IngestForm {
     pub surface: String,
@@ -160,7 +160,7 @@ pub enum ManualSaid {
 }
 
 /// Connect a channel.
-#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[derive(Clone, Debug, Default, Fields)]
 #[serde(default)]
 pub struct ConnectForm {
     #[serde(rename = "providerKey")]
@@ -168,7 +168,7 @@ pub struct ConnectForm {
 }
 
 /// A connection's write: `pause`, `resume`, `disconnect`, or `activate` on the locations checked.
-#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[derive(Clone, Debug, Default, Fields)]
 #[serde(default)]
 pub struct ConnectionForm {
     pub intent: String,
@@ -689,7 +689,7 @@ impl PublicationPlace {
 
 /// A publication write, in marketplace's names: `replace-settings` with the settings, or
 /// `decide-mapping` with the mapping and its decision; each made at `expectedStreamVersion`.
-#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[derive(Clone, Debug, Default, Fields)]
 #[serde(rename_all = "camelCase", default)]
 pub struct PublicationForm {
     pub intent: String,

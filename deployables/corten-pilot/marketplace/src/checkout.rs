@@ -38,7 +38,7 @@ use corten::{
     prelude::*,
 };
 use platform::receipt::Receipt;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
 use crate::{
     api::{
@@ -61,7 +61,7 @@ pub const SHIPPING: [&str; 3] = ["standard", "expedited", "priority"];
 
 /// The page's address: the write it reads after, the payment method on screen, what the last
 /// write did (`review=updated`, `quote=required`) and the step opened for editing.
-#[derive(Clone, Debug, Default, Deserialize, Fields, Route)]
+#[derive(Clone, Debug, Default, Fields, Route)]
 #[route(query)]
 #[serde(rename_all = "camelCase")]
 pub struct Place {
@@ -130,7 +130,7 @@ impl Edit {
 }
 
 /// The form's fields, named as marketplace's form names them.
-#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[derive(Clone, Debug, Default, Fields)]
 #[serde(rename_all = "camelCase", default)]
 pub struct CheckoutForm {
     pub intent: String,
@@ -728,7 +728,7 @@ async fn render(
 }
 
 /// Checkout received's address: the receipt of the Pay now it reads after.
-#[derive(Clone, Debug, Default, Deserialize, Fields, Route)]
+#[derive(Clone, Debug, Default, Fields, Route)]
 #[route(query)]
 #[serde(rename_all = "camelCase")]
 pub struct ConfirmationPlace {

@@ -34,10 +34,9 @@ const RUNS: u32 = 12;
 #[corten::routes(state = crate::app::Shared, area = crate::insights::ops::url::OpsDashboard, caller = crate::auth::Staff<crate::auth::InsightsView>)]
 pub mod url {
     use corten::{Fields, Route};
-    use serde::Deserialize;
 
     /// The range and granularity, as admin-web's form sends them.
-    #[derive(Clone, Debug, Default, Deserialize, Fields, Route)]
+    #[derive(Clone, Debug, Default, Fields, Route)]
     #[serde(rename_all = "camelCase")]
     #[route(query)]
     pub struct View {

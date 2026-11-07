@@ -275,7 +275,7 @@ pub struct Home {
 }
 
 /// The fee fields as a form shows them: what an item has, what was sent, or the defaults.
-#[derive(Clone, Debug, Default, Deserialize, Serialize, Fields, ToJson)]
+#[derive(Clone, Debug, Default, Serialize, Fields, ToJson)]
 #[serde(default, rename_all = "camelCase")]
 pub struct TermsForm {
     pub intent: String,

@@ -19,7 +19,7 @@ use corten::{
     prelude::*,
 };
 use platform::receipt::Receipt;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
 use crate::{
     addresses::Said,
@@ -34,7 +34,7 @@ use crate::{
 /// What the page's address carries: the last withdrawal's receipt (`after_write`), the attempt
 /// that answer settles (`saved`), and an attempt to ask the API about (`check`, the consent it
 /// was for in `target`).
-#[derive(Clone, Debug, Default, Deserialize, Fields, Route)]
+#[derive(Clone, Debug, Default, Fields, Route)]
 #[route(query)]
 pub struct Place {
     pub after_write: Option<String>,
@@ -45,7 +45,7 @@ pub struct Place {
 
 /// Withdraw's fields: the write (`intent`, marketplace's), the attempt it was drawn with, and the
 /// consent.
-#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[derive(Clone, Debug, Default, Fields)]
 #[serde(default)]
 pub struct ConsentInput {
     pub intent: String,

@@ -24,7 +24,6 @@ use corten::{
     i18n::{Args, Found},
     prelude::*,
 };
-use serde::Deserialize;
 use serde_json::{Map, Value, json};
 
 use super::{
@@ -105,7 +104,7 @@ pub mod url {
 }
 
 /// Dismiss or defer: the item, its kind (the API keys the parking by both) and why.
-#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[derive(Clone, Debug, Default, Fields)]
 #[serde(default)]
 pub struct ParkInput {
     pub item_key: String,
@@ -120,7 +119,7 @@ impl ParkInput {
 }
 
 /// Restore: the item a park took out of the queue.
-#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[derive(Clone, Debug, Default, Fields)]
 #[serde(default)]
 pub struct RestoreInput {
     pub item_key: String,
@@ -128,7 +127,7 @@ pub struct RestoreInput {
 
 /// An alias candidate's command: its hashes (comma separated, as the API takes them) and, for a
 /// reject, the reason admin-web sends (the button's label).
-#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[derive(Clone, Debug, Default, Fields)]
 #[serde(default)]
 pub struct AliasInput {
     pub alias_hashes: String,

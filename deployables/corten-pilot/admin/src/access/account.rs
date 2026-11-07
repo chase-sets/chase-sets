@@ -15,7 +15,7 @@ use corten::{
     prelude::*,
 };
 use platform::receipt::Receipt;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use serde_json::{Value, json};
 use time::{Duration, OffsetDateTime, format_description::well_known::Rfc3339};
 
@@ -84,7 +84,7 @@ pub fn manages_user(viewer: &Viewer, user: &str) -> bool {
 }
 
 /// Every form of the workspace: its intent and the fields some intents send.
-#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[derive(Clone, Debug, Default, Fields)]
 #[serde(rename_all = "camelCase", default)]
 pub struct HubForm {
     pub intent: String,

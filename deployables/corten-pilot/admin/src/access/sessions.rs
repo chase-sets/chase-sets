@@ -135,7 +135,7 @@ pub struct SessionScreen {
 }
 
 /// The page's forms: their intent and the account a switch picks.
-#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[derive(Clone, Debug, Default, Fields)]
 #[serde(rename_all = "camelCase", default)]
 pub struct SessionForm {
     pub intent: String,

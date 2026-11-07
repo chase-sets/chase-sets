@@ -28,7 +28,6 @@ use corten::{
     prelude::*,
 };
 use platform::{money, receipt::Receipt};
-use serde::Deserialize;
 use serde_json::{Value, json};
 
 use crate::{
@@ -49,7 +48,7 @@ use crate::{
 
 /// The address the Sell List's Continue writes: the snapshot, the decisions and the review plan
 /// it was built with, and the readiness write's receipt.
-#[derive(Clone, Debug, Default, Deserialize, Fields, Route)]
+#[derive(Clone, Debug, Default, Fields, Route)]
 #[serde(rename_all = "camelCase")]
 #[route(query)]
 pub struct Place {
@@ -61,7 +60,7 @@ pub struct Place {
 }
 
 /// The confirmation's address: the confirm's receipt.
-#[derive(Clone, Debug, Default, Deserialize, Fields, Route)]
+#[derive(Clone, Debug, Default, Fields, Route)]
 #[serde(rename_all = "camelCase")]
 #[route(query)]
 pub struct ConfirmationPlace {

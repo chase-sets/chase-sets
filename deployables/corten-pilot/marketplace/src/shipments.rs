@@ -21,7 +21,7 @@ use corten::{
     http::{HeaderMap, StatusCode},
     prelude::*,
 };
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
 use platform::receipt::Receipt;
 
@@ -40,7 +40,7 @@ use crate::{
 
 /// What a seller's shipment page's address carries: the last write's receipt (`after_write`),
 /// the attempt that answer settles (`done`) and an attempt to ask the API about (`check`).
-#[derive(Clone, Debug, Default, Deserialize, Fields, Route)]
+#[derive(Clone, Debug, Default, Fields, Route)]
 #[route(query)]
 pub struct SalePlace {
     pub after_write: Option<String>,
@@ -52,7 +52,7 @@ pub struct SalePlace {
 /// exception's type and notes, Record return's reason, and Buy label's fields. An address or the
 /// package is sent only when its fields are in the form, as marketplace's `hasAddressInput` reads
 /// it; a letter's form has neither.
-#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[derive(Clone, Debug, Default, Fields)]
 #[serde(default)]
 pub struct ActionInput {
     pub attempt: Option<SubmitKey>,

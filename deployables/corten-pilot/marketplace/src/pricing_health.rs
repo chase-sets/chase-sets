@@ -47,7 +47,7 @@ impl Place {
 
 /// A write: Compute verdict, Compare goals, or Apply goal with the candidate the page showed
 /// (marketplace's hidden fields).
-#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[derive(Clone, Debug, Default, Fields)]
 #[serde(default)]
 pub struct HealthForm {
     pub intent: String,

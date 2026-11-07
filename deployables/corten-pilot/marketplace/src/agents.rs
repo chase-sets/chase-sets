@@ -66,7 +66,7 @@ pub struct ListScreen {
 
 /// What a revoke the server settled says (`AgentGrantRevocationState`, without the states a page
 /// is in only while its form is sending).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize, corten::UrlValue)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, corten::UrlValue)]
 #[serde(rename_all = "kebab-case")]
 pub enum Revocation {
     Succeeded,
@@ -125,7 +125,7 @@ impl Revocation {
 }
 
 /// What came of a mandate or webhook write, in the grant page's address.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize, corten::UrlValue)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, corten::UrlValue)]
 #[serde(rename_all = "kebab-case")]
 pub enum Said {
     MandateSaved,
@@ -141,7 +141,7 @@ pub enum Said {
 
 /// What a grant's address carries: what the last write did, and a revoke the server could not
 /// settle, with its attempt.
-#[derive(Clone, Debug, Default, Deserialize, Fields, Route)]
+#[derive(Clone, Debug, Default, Fields, Route)]
 #[route(query)]
 pub struct Place {
     pub said: Option<Said>,
@@ -151,7 +151,7 @@ pub struct Place {
 
 /// The spending mandate's form (`MandateForm`): each cap as money (empty for no cap), whether a
 /// person must be present (a hidden `false` and the switch's `true`), and the rails allowed.
-#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[derive(Clone, Debug, Default, Fields)]
 #[serde(default)]
 pub struct MandateInput {
     pub max_per_order_amount: String,
@@ -187,14 +187,14 @@ impl MandateInput {
 }
 
 /// The webhook's form: its callback address (empty disables it, as marketplace's save does).
-#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[derive(Clone, Debug, Default, Fields)]
 #[serde(default)]
 pub struct WebhookInput {
     pub callback_url: String,
 }
 
 /// Revoke access's form: the attempt it was drawn with.
-#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[derive(Clone, Debug, Default, Fields)]
 #[serde(default)]
 pub struct RevokeInput {
     pub attempt_id: String,
@@ -250,7 +250,7 @@ pub struct ConsentScreen {
 }
 
 /// Approve's and Deny's form, as the API reads it.
-#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[derive(Clone, Debug, Default, Fields)]
 #[serde(default)]
 pub struct DecideInput {
     pub consent_token: String,
@@ -287,7 +287,7 @@ pub fn granted(scopes: &[String]) -> Vec<(&'static ScopeFamily, Vec<&'static Sco
 }
 
 /// Use another account's form.
-#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[derive(Clone, Debug, Default, Fields)]
 #[serde(default)]
 pub struct SwitchInput {
     pub consent_token: String,
@@ -295,7 +295,7 @@ pub struct SwitchInput {
 }
 
 /// The consent's address: its token.
-#[derive(Clone, Debug, Default, Deserialize, Fields, Route)]
+#[derive(Clone, Debug, Default, Fields, Route)]
 #[route(query)]
 pub struct ConsentAsk {
     pub consent_token: Option<String>,

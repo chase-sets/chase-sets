@@ -26,7 +26,6 @@ use corten::{
 };
 use futures_util::StreamExt;
 use platform::{realtime::Tick, receipt::Receipt};
-use serde::Deserialize;
 
 use crate::{
     api::{AcceptanceTerms, ApiError, CommandError, OfferMatch, OfferMatchCalls as _, SellList as _},
@@ -38,7 +37,7 @@ use crate::{
 };
 
 /// The list's address: the write it is read after.
-#[derive(Clone, Debug, Default, Deserialize, Fields, Route)]
+#[derive(Clone, Debug, Default, Fields, Route)]
 #[serde(rename_all = "camelCase")]
 #[route(query)]
 pub struct Place {
@@ -46,7 +45,7 @@ pub struct Place {
 }
 
 /// An offer match's forms: the intent and, for a decline, its attempt (a `SubmitKey`).
-#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[derive(Clone, Debug, Default, Fields)]
 #[serde(rename_all = "camelCase", default)]
 pub struct OfferForm {
     pub intent: String,

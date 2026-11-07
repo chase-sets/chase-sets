@@ -29,7 +29,7 @@ use corten::{
     prelude::*,
 };
 use platform::receipt::Receipt;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
 use crate::{
     api::{AccountCalls as _, ApiError, ConnectSession, MoneyCalls as _, PayoutReadiness, PayoutSetupProgress, RequirementGroup},
@@ -46,7 +46,7 @@ pub const PATH: &str = "/account/desk/settings";
 /// What the page's address carries, named as marketplace's: `mode=manage` for account management,
 /// `setup=updated` after a refresh, the account page to go back to once setup is ready, and the
 /// refresh's receipt.
-#[derive(Clone, Debug, Default, Deserialize, Fields, Route)]
+#[derive(Clone, Debug, Default, Fields, Route)]
 #[route(query)]
 #[serde(rename_all = "camelCase")]
 pub struct Place {
@@ -239,7 +239,7 @@ pub(crate) async fn page(
 }
 
 /// The page's form: the intent, and the mode it was in.
-#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[derive(Clone, Debug, Default, Fields)]
 #[serde(default)]
 pub struct SetupForm {
     pub intent: String,
@@ -291,7 +291,7 @@ pub(crate) async fn write(
 }
 
 /// Which session the script asks for.
-#[derive(Clone, Debug, Default, Deserialize, Fields, Route)]
+#[derive(Clone, Debug, Default, Fields, Route)]
 #[route(query)]
 pub struct Which {
     pub which: Option<String>,

@@ -25,7 +25,7 @@ use corten::{
     prelude::*,
 };
 use platform::receipt::Receipt;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
 use crate::{
     addresses::Said,
@@ -40,7 +40,7 @@ use crate::{
 /// What the page's address carries: the last write's receipt (`after_write`), the attempt that
 /// answer settles (`saved`), and an attempt to ask the API about (`check`, its `action` and
 /// `target`).
-#[derive(Clone, Debug, Default, Deserialize, Fields, Route)]
+#[derive(Clone, Debug, Default, Fields, Route)]
 #[route(query)]
 pub struct Place {
     pub after_write: Option<String>,
@@ -52,7 +52,7 @@ pub struct Place {
 
 /// Every form's fields: which write (`intent`, marketplace's), the attempt it was drawn with, the
 /// user's names, a new key's name and purpose, and the key a rotate or revoke is for.
-#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[derive(Clone, Debug, Default, Fields)]
 #[serde(default)]
 pub struct SecurityInput {
     pub intent: String,

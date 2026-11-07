@@ -37,7 +37,7 @@ use corten::{
     prelude::*,
 };
 use platform::receipt::Receipt;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
 use crate::{
     api::{
@@ -53,7 +53,7 @@ use crate::{
 
 /// What the page's address carries: the wallet adjustment whose breakdown is open
 /// (marketplace's `drawer=wallet-adjustment&entity=<reference>`).
-#[derive(Clone, Debug, Default, Deserialize, Fields, Route)]
+#[derive(Clone, Debug, Default, Fields, Route)]
 #[route(query)]
 pub struct Place {
     pub drawer: Option<String>,
@@ -79,7 +79,7 @@ const ADJUSTMENT_DRAWER: &str = "wallet-adjustment";
 
 /// The page's forms, in marketplace's names: the write (`intent`), a quick amount or a typed one,
 /// the note, and Confirm's attempt.
-#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[derive(Clone, Debug, Default, Fields)]
 #[serde(rename_all = "camelCase", default)]
 pub struct MoneyInput {
     pub intent: String,
@@ -281,7 +281,7 @@ pub(crate) async fn write(
 
 /// A payout page's address: `requested=1` after Request a payout, and the receipt of the request
 /// the read waits for.
-#[derive(Clone, Debug, Default, Deserialize, Fields, Route)]
+#[derive(Clone, Debug, Default, Fields, Route)]
 #[route(query)]
 #[serde(rename_all = "camelCase")]
 pub struct PayoutPlace {

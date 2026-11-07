@@ -46,7 +46,7 @@ use crate::{
 const AUTH: &str = "auth";
 
 /// The page's address: the invitation's token, as the email writes it, and the method shown.
-#[derive(Clone, Debug, Default, Deserialize, Fields, Route)]
+#[derive(Clone, Debug, Default, Fields, Route)]
 #[route(query)]
 #[serde(rename_all = "camelCase")]
 pub struct Invited {
@@ -116,7 +116,7 @@ pub enum Invitation {
 }
 
 /// The acceptance form's fields: the attempt (`SubmitKey`), and the password.
-#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[derive(Clone, Debug, Default, Fields)]
 #[serde(rename_all = "camelCase", default)]
 pub struct AcceptForm {
     pub intent: String,

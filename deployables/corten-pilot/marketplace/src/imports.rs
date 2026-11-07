@@ -95,7 +95,7 @@ pub fn resolve_href(batch: &str, offset: u64, row: Option<&str>) -> String {
 /// (`q`, `choose`, `change`, `redraw`, `catalogItemId` and `option.<dimension>`), the storage
 /// location, the row page to come back to, the row's facts as the drawer read them, and the
 /// form's `SubmitKey` (the fix's attempt).
-#[derive(Deserialize, Fields)]
+#[derive(Fields)]
 #[serde(rename_all = "camelCase")]
 #[allow(dead_code)]
 pub struct FixFields {
@@ -176,7 +176,7 @@ async fn fixing(
 }
 
 /// The upload form's fields, in marketplace's names.
-#[derive(Deserialize, Fields)]
+#[derive(Fields)]
 #[serde(rename_all = "camelCase")]
 #[allow(dead_code)]
 pub struct ImportFields {
@@ -190,7 +190,7 @@ pub struct ImportFields {
 }
 
 /// The Commit form's one field: its `SubmitKey`, the commit's attempt.
-#[derive(Deserialize, Fields)]
+#[derive(Fields)]
 pub struct CommitFields {
     pub attempt: Option<SubmitKey>,
 }

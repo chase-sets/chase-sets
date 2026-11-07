@@ -19,7 +19,6 @@ use corten::{
     prelude::*,
     security::cookie,
 };
-use serde::Deserialize;
 use serde_json::json;
 
 use crate::{
@@ -56,7 +55,7 @@ const REASON: &str = ListingFields::FIELDS.reason.as_str();
 const DETAILS: &str = ListingFields::FIELDS.details.as_str();
 
 /// The page's own parameter: `reported`, after a report was received.
-#[derive(Clone, Debug, Default, Deserialize, Fields, Route)]
+#[derive(Clone, Debug, Default, Fields, Route)]
 #[route(query)]
 pub struct Reported {
     pub reported: Option<String>,

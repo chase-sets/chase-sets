@@ -42,7 +42,7 @@ pub mod url {
 }
 
 /// What a review did, for the page it redirects to (admin-web's toasts).
-#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, corten::UrlValue)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, corten::UrlValue)]
 #[serde(rename_all = "snake_case")]
 pub enum Reviewed {
     Promoted,
@@ -123,7 +123,7 @@ pub fn rejectable(status: &str) -> bool {
 
 /// The review form: the button's action, the reason a reject sends, and the status the form was
 /// drawn for (only to draw it again after a refusal; the API decides what the status allows).
-#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[derive(Clone, Debug, Default, Fields)]
 #[serde(default)]
 pub struct ReviewInput {
     pub action: String,

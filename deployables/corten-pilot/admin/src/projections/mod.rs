@@ -27,7 +27,7 @@ use std::collections::HashMap;
 use corten::{Fragment, LiveResponse, http::HeaderMap, prelude::*};
 use futures_util::{StreamExt, stream};
 use platform::jobs::Update;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
 pub mod api;
 pub mod views;
@@ -49,11 +49,10 @@ pub const REBUILD: &str = "projection-operations.rebuild";
 #[corten::routes(state = Shared, area = Projections, caller = Staff<OperationsView>)]
 pub mod url {
     use corten::prelude::*;
-    use serde::Deserialize;
 
     /// The console's filters and the record whose details are open: what the console, its live
     /// part and each write carry, so a write comes back to the console as it was.
-    #[derive(Clone, Debug, Default, Deserialize, Fields, Route)]
+    #[derive(Clone, Debug, Default, Fields, Route)]
     #[route(query)]
     pub struct Filters {
         pub search: Option<String>,
@@ -66,7 +65,7 @@ pub mod url {
     }
 
     /// The page a link or a write leads to: the console, or settings and reference.
-    #[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Eq, corten::UrlValue)]
+    #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, corten::UrlValue)]
     #[serde(rename_all = "snake_case")]
     pub enum Via {
         #[default]
@@ -351,24 +350,24 @@ fn write_failed(req: &Req, error: api::ApiError) -> HtmlResult {
     read_failed(req, error, false)
 }
 
-#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[derive(Clone, Debug, Default, Fields)]
 pub struct RetryInput {
     pub projection_key: String,
     pub stream_id: String,
 }
 
-#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[derive(Clone, Debug, Default, Fields)]
 pub struct RebuildInput {
     pub context_name: String,
     pub projection_name: String,
 }
 
-#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[derive(Clone, Debug, Default, Fields)]
 pub struct ContextInput {
     pub context_name: String,
 }
 
-#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[derive(Clone, Debug, Default, Fields)]
 pub struct CancelInput {
     pub operation_id: String,
 }

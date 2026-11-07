@@ -662,7 +662,7 @@ fn sent_of(error: crate::api::ApiError) -> Sent {
 }
 
 /// The refresh form: `pause`, `resume` or `run`.
-#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[derive(Clone, Debug, Default, Fields)]
 #[serde(default)]
 pub struct RefreshInput {
     pub command: String,
@@ -702,7 +702,7 @@ pub(crate) async fn refresh(
 }
 
 /// The draft form: the version it is made from and the one it is called.
-#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[derive(Clone, Debug, Default, Fields)]
 #[serde(default, rename_all = "camelCase")]
 pub struct DraftInput {
     pub source_profile_version: String,
@@ -738,7 +738,7 @@ pub(crate) async fn draft(
 }
 
 /// A lifecycle form: the operation, the version it acts on, and the box that confirms it.
-#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[derive(Clone, Debug, Default, Fields)]
 #[serde(default, rename_all = "camelCase")]
 pub struct LifecycleInput {
     pub operation: String,

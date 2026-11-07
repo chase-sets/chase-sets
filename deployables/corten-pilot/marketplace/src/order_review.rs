@@ -25,7 +25,7 @@ use corten::{
     http::{HeaderMap, StatusCode},
     prelude::*,
 };
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
 use crate::{
     api::{ApiError, Caller as ApiCaller, ReviewCalls as _, ReviewOpportunity},
@@ -54,7 +54,7 @@ pub const PROBLEMS: [(&str, &str); 6] = [
 
 /// What the address carries: `resolution=intake-unavailable` when the support page sent the
 /// buyer back because an issue cannot be opened.
-#[derive(Clone, Debug, Default, Deserialize, Fields, Route)]
+#[derive(Clone, Debug, Default, Fields, Route)]
 #[route(query)]
 pub struct ReviewAsk {
     pub resolution: Option<String>,
@@ -62,7 +62,7 @@ pub struct ReviewAsk {
 
 /// The form: what the button was for, the rating, the words, the problems ticked and whether
 /// feedback only was acknowledged.
-#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[derive(Clone, Debug, Default, Fields)]
 #[serde(rename_all = "camelCase", default)]
 pub struct ReviewInput {
     pub intent: String,

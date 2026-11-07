@@ -22,7 +22,7 @@ use corten::{
     prelude::*,
 };
 use platform::receipt::Receipt;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
 use crate::{
     api::{AccountAction, AccountAnswer, AddressCommand, Addresses as _, ApiError, ShippingAddress, SuggestedAddress},
@@ -36,7 +36,7 @@ use crate::{
 /// What the page's address carries: the last write's receipt (`after_write`), the attempt that
 /// answer settles (`saved`), and an attempt to ask the API about (`check`, its `action` and
 /// `target`).
-#[derive(Clone, Debug, Default, Deserialize, Fields, Route)]
+#[derive(Clone, Debug, Default, Fields, Route)]
 #[route(query)]
 pub struct Place {
     pub after_write: Option<String>,
@@ -73,7 +73,7 @@ impl Said {
 
 /// A create or update form's fields, the attempt it was drawn with (its `SubmitKey`), and the
 /// choice made between the address and the one the API suggested (the button pressed).
-#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[derive(Clone, Debug, Default, Fields)]
 #[serde(default)]
 pub struct AddressInput {
     pub attempt: Option<SubmitKey>,

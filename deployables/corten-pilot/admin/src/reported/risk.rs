@@ -39,7 +39,6 @@ pub fn area(area: Area<url::Risks>, shared: Shared) -> Area<url::Risks> {
 #[corten::routes(state = crate::app::Shared, area = crate::reported::risk::url::Risks, caller = crate::auth::Staff<crate::auth::ReportedContentView>)]
 pub mod url {
     use corten::{Fields, Route};
-    use serde::Deserialize;
 
     /// The alert queue, filtered.
     #[derive(Clone, Debug, Default)]
@@ -50,7 +49,7 @@ pub mod url {
     }
 
     /// The queue's filters, as admin-web names them.
-    #[derive(Clone, Debug, Default, Deserialize, Fields, Route)]
+    #[derive(Clone, Debug, Default, Fields, Route)]
     #[serde(rename_all = "camelCase")]
     #[route(query)]
     pub struct Filters {

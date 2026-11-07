@@ -44,7 +44,7 @@ use corten::{
     prelude::*,
 };
 use platform::receipt::Receipt;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
 use crate::{
     api::{AccountPayment, PaymentCalls as _, PaymentOrder},
@@ -60,7 +60,7 @@ const WATCH_FOR: Duration = Duration::from_secs(5 * 60);
 const WATCH_EVERY: Duration = Duration::from_secs(2);
 
 /// A payment's address: the receipt of the write it reads after (Pay now's).
-#[derive(Clone, Debug, Default, Deserialize, Fields, Route)]
+#[derive(Clone, Debug, Default, Fields, Route)]
 #[route(query)]
 #[serde(rename_all = "camelCase")]
 pub struct Place {
@@ -69,7 +69,7 @@ pub struct Place {
 
 /// A guest's payment's address: the receipt of the write it reads after, and a claim link's
 /// continuation, which marketplace's page consumes.
-#[derive(Clone, Debug, Default, Deserialize, Fields, Route)]
+#[derive(Clone, Debug, Default, Fields, Route)]
 #[route(query)]
 #[serde(rename_all = "camelCase")]
 pub struct GuestPlace {
@@ -78,7 +78,7 @@ pub struct GuestPlace {
 }
 
 /// Retry payment's form (`intent=retry-payment`, as marketplace's form names it).
-#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[derive(Clone, Debug, Default, Fields)]
 #[serde(default)]
 pub struct RetryForm {
     pub intent: String,
@@ -86,7 +86,7 @@ pub struct RetryForm {
 
 /// The status part's address: the status the page was drawn with and when the watch ends (Unix
 /// seconds).
-#[derive(Clone, Debug, Default, Deserialize, Fields, Route)]
+#[derive(Clone, Debug, Default, Fields, Route)]
 #[route(query)]
 pub struct Watch {
     pub since: Option<String>,

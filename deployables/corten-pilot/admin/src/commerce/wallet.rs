@@ -249,7 +249,7 @@ struct Reversed {
 
 /// Every command's fields (admin-web's form names). The related references are one comma-separated
 /// field, where admin-web's tag input sends one field each.
-#[derive(Clone, Debug, Deserialize, Serialize, Fields, ToJson)]
+#[derive(Clone, Debug, Serialize, Fields, ToJson)]
 #[serde(default, rename_all = "camelCase")]
 pub struct CommandForm {
     pub intent: String,

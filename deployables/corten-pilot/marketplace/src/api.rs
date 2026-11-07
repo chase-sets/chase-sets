@@ -4264,7 +4264,7 @@ pub struct SuggestedAddress {
 /// An Identity account-management write the pilot sends (`MutationAction`): the address book's
 /// four, the account's profile, the security page's user profile and API key writes, the team
 /// page's invitation and membership writes, and a consent's withdrawal.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize, corten::UrlValue)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, corten::UrlValue)]
 #[serde(rename_all = "kebab-case")]
 pub enum AccountAction {
     Create,

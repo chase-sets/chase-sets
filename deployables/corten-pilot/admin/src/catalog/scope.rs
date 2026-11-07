@@ -53,7 +53,7 @@ pub mod url {
     use serde::Deserialize;
 
     /// What a write did: the page's toast.
-    #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, corten::UrlValue)]
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, corten::UrlValue)]
     #[serde(rename_all = "snake_case")]
     pub enum ScopeDone {
         MappingAccepted,
@@ -99,7 +99,7 @@ pub mod url {
 
     /// A coverage row's mapping: accept, reject or revoke (`intent`), one mapping or every
     /// available one (`all`); a reject or revoke needs its reason.
-    #[derive(Clone, Debug, Default, Deserialize, Fields)]
+    #[derive(Clone, Debug, Default, Fields)]
     #[serde(default)]
     pub struct MappingInput {
         pub intent: String,
@@ -110,7 +110,7 @@ pub mod url {
 
     /// Which page a coverage write answers with: the scope's page, or (`coverage`) the scope's
     /// coverage page, `/catalog/scope-coverage/{id}`, which posts to the same routes.
-    #[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Eq, corten::UrlValue)]
+    #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, corten::UrlValue)]
     #[serde(rename_all = "snake_case")]
     pub enum Via {
         #[default]
@@ -133,7 +133,7 @@ pub mod url {
     }
 
     /// Propose mapping's fields; `accept` is set by Propose & accept.
-    #[derive(Clone, Debug, Default, Deserialize, Fields)]
+    #[derive(Clone, Debug, Default, Fields)]
     #[serde(default)]
     pub struct ProposeInput {
         pub provider_key: String,
@@ -161,7 +161,7 @@ pub mod url {
     /// An alias candidate's command (`alias.accept`, `alias.reject`, `alias.revoke`,
     /// `alias.defer`), its hash, and the reason a reject or revoke needs. `picked` are the boxes
     /// checked in the all-scopes review's bulk bar, one hash each, read with `alias_hashes`.
-    #[derive(Clone, Debug, Default, Deserialize, Fields)]
+    #[derive(Clone, Debug, Default, Fields)]
     #[serde(default)]
     pub struct AliasCommand {
         pub intent: String,

@@ -48,7 +48,7 @@ pub mod url {
     use serde::Deserialize;
 
     /// What a write did, for the page it redirects to: the toast, and the part it opens.
-    #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, corten::UrlValue)]
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, corten::UrlValue)]
     #[serde(rename_all = "snake_case")]
     pub enum Change {
         Published,

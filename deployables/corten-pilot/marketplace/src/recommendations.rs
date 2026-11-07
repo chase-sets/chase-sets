@@ -48,7 +48,7 @@ impl Place {
 }
 
 /// A write: Refresh, Apply selected or Dismiss selected, and the recommendations picked.
-#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[derive(Clone, Debug, Default, Fields)]
 #[serde(default)]
 pub struct RecommendationsForm {
     pub intent: String,

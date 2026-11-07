@@ -51,7 +51,7 @@ pub mod url {
     use serde::Deserialize;
 
     /// The filters and the row whose detail is open ([`super::CLOSED`]: none).
-    #[derive(Clone, Debug, Default, Deserialize, Fields, Route)]
+    #[derive(Clone, Debug, Default, Fields, Route)]
     #[route(query)]
     pub struct View {
         pub search: Option<String>,

@@ -15,7 +15,6 @@ use corten::{
     prelude::*,
 };
 use platform::receipt::Receipt;
-use serde::Deserialize;
 
 use crate::{
     api::{
@@ -36,7 +35,7 @@ pub const DEADLINE: Duration = Duration::from_secs(150);
 
 /// What the page's address carries, in marketplace's names so its links and the pilot's agree:
 /// the last write's receipt, what came of the evidence, and a price to preview.
-#[derive(Clone, Debug, Default, Deserialize, Fields, Route)]
+#[derive(Clone, Debug, Default, Fields, Route)]
 #[serde(rename_all = "camelCase")]
 #[route(query)]
 pub struct Place {
@@ -49,7 +48,7 @@ pub struct Place {
 }
 
 /// The forms' fields, for their names: marketplace's.
-#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[derive(Clone, Debug, Default, Fields)]
 #[serde(rename_all = "camelCase", default)]
 pub struct ListingForm {
     pub intent: String,

@@ -235,7 +235,7 @@ impl Row {
 }
 
 /// Every write's and every redraw's fields, as admin-web's forms name them; a rule's are lists.
-#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[derive(Clone, Debug, Default, Fields)]
 #[serde(default, rename_all = "camelCase")]
 pub struct Posted {
     pub intent: String,

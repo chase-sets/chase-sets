@@ -50,7 +50,6 @@ pub const API_KEY_STATUSES: &[&str] = &["active", "revoked"];
 #[corten::routes(state = crate::app::Shared, area = crate::access::url::Access, caller = crate::auth::Staff<crate::auth::AccountsView>)]
 pub mod url {
     use corten::{Fields, Route};
-    use serde::Deserialize;
 
     pub use super::people::{ApiKeys, Users};
     pub use super::teams::{Invitations, Memberships};
@@ -63,14 +62,14 @@ pub mod url {
         pub search: HomeQuery,
     }
 
-    #[derive(Clone, Debug, Default, Deserialize, Fields, Route)]
+    #[derive(Clone, Debug, Default, Fields, Route)]
     #[route(query)]
     pub struct HomeQuery {
         pub search: Option<String>,
     }
 
     /// A list's filters (the filter form's fields) and page (`limit`, `offset`, as admin-web's).
-    #[derive(Clone, Debug, Default, Deserialize, Fields, Route)]
+    #[derive(Clone, Debug, Default, Fields, Route)]
     #[route(query)]
     pub struct ListQuery {
         pub search: Option<String>,

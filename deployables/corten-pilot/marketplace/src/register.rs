@@ -46,7 +46,7 @@ const AUTH: &str = "auth";
 
 /// The page's address, named as marketplace's (`returnTo`, `socialLoginError`), and the method
 /// shown, the pilot's own.
-#[derive(Clone, Debug, Default, Deserialize, Fields, Route)]
+#[derive(Clone, Debug, Default, Fields, Route)]
 #[route(query)]
 #[serde(rename_all = "camelCase")]
 pub struct Join {
@@ -113,7 +113,7 @@ impl Method {
 }
 
 /// The page's forms (marketplace's register action's fields).
-#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[derive(Clone, Debug, Default, Fields)]
 #[serde(rename_all = "camelCase", default)]
 pub struct RegisterForm {
     pub intent: String,

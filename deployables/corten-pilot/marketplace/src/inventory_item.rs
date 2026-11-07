@@ -15,7 +15,7 @@ use corten::{
     prelude::*,
 };
 use platform::receipt::Receipt;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
 use crate::{
     api::{AdjustCommand, ApiError, HoldCommand, InventoryItemCalls as _, InventoryItemDetail, InventoryList as _, SaleResult},
@@ -33,7 +33,7 @@ pub const REASONS: [&str; 4] = ["damaged", "lost", "found", "correction"];
 /// What the item page's address carries besides a write to confirm: the ledger's filter and what
 /// the last sale did (marketplace keeps that in the history's state; the pilot keeps it in the
 /// address, as the list does).
-#[derive(Clone, Debug, Default, Deserialize, Fields, Route)]
+#[derive(Clone, Debug, Default, Fields, Route)]
 #[serde(rename_all = "camelCase")]
 #[route(query)]
 pub struct ItemPlace {
@@ -69,7 +69,7 @@ impl ItemPlace {
 }
 
 /// Adjust Quantity's fields, in marketplace's names.
-#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[derive(Clone, Debug, Default, Fields)]
 #[serde(rename_all = "camelCase", default)]
 pub struct AdjustInput {
     pub inventory_mutation_attempt_id: Option<SubmitKey>,
@@ -109,7 +109,7 @@ impl AdjustInput {
 }
 
 /// Create Hold's fields, in marketplace's names.
-#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[derive(Clone, Debug, Default, Fields)]
 #[serde(rename_all = "camelCase", default)]
 pub struct HoldInput {
     pub inventory_mutation_attempt_id: Option<SubmitKey>,
@@ -142,7 +142,7 @@ impl HoldInput {
 }
 
 /// Release hold's one field.
-#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[derive(Clone, Debug, Default, Fields)]
 #[serde(rename_all = "camelCase", default)]
 pub struct ReleaseInput {
     pub inventory_mutation_attempt_id: Option<SubmitKey>,

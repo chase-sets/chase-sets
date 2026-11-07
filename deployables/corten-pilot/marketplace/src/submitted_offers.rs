@@ -51,7 +51,7 @@ pub const STATUSES: [&str; 4] = ["submitted", "paused", "withdrawn", "accepted"]
 pub const ACTIONS: [&str; 3] = ["pause", "resume", "withdraw"];
 
 /// The list's address: the status it shows.
-#[derive(Clone, Debug, Default, Deserialize, Fields, Route)]
+#[derive(Clone, Debug, Default, Fields, Route)]
 #[route(query)]
 pub struct Place {
     pub status: Option<String>,
@@ -84,7 +84,7 @@ pub struct OfferScreen {
 }
 
 /// A lifecycle change: one row's (`row`), or the checked offers' (`lifecycleAction`, `offerIds`).
-#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[derive(Clone, Debug, Default, Fields)]
 #[serde(rename_all = "camelCase", default)]
 pub struct LifecycleForm {
     pub lifecycle_action: String,

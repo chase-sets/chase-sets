@@ -24,7 +24,7 @@ use corten::{
     security::cookie,
 };
 use platform::{money, receipt::Receipt};
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
 use crate::chrome::CartCount;
 use crate::{
@@ -50,7 +50,7 @@ pub fn anonymous_cart(headers: &HeaderMap) -> Option<&str> {
 
 /// What the cart's address carries after a write: its receipt, which the cart read waits for
 /// (marketplace's `afterWrite`).
-#[derive(Clone, Debug, Default, Deserialize, Fields, Route)]
+#[derive(Clone, Debug, Default, Fields, Route)]
 #[route(query)]
 pub struct AfterWrite {
     pub after_write: Option<String>,
@@ -60,7 +60,7 @@ pub struct AfterWrite {
 /// merged into the one shown, and for a quantity the quantity drawn and the step pressed (`delta`),
 /// for a lock the preferred listing. Read as `Number()` reads them: a missing quantity is 1 and a
 /// missing step 0.
-#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[derive(Clone, Debug, Default, Fields)]
 #[serde(default)]
 pub struct LineInput {
     pub attempt: Option<SubmitKey>,
@@ -212,7 +212,7 @@ impl CartScreen {
 /// What Check out and Use lower price post: the lower-price offer's decision as the snapshot the
 /// page drew was read with (`offer` `declined` or `accepted`, for `line` and `listing`), or
 /// none. Checkout reads the cart's readiness again with it, so the page's snapshot is not sent.
-#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[derive(Clone, Debug, Default, Fields)]
 #[serde(default)]
 pub struct CheckoutInput {
     pub offer: String,

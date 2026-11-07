@@ -30,7 +30,6 @@ use corten::{
     prelude::*,
 };
 use platform::receipt::Receipt;
-use serde::Deserialize;
 
 use crate::{
     api::{AlertChange, ApiError, Caller as Api, Feed, Notifications as _, Preference, ProductAlert},
@@ -47,7 +46,7 @@ pub(crate) async fn product_alerts(req: Req) -> HtmlResult {
 
 /// The address's parameters: the view, the settings' section, and the receipt of the write the
 /// read waits for.
-#[derive(Clone, Debug, Default, Deserialize, Fields, Route)]
+#[derive(Clone, Debug, Default, Fields, Route)]
 #[route(query)]
 #[serde(rename_all = "camelCase")]
 pub struct Place {
@@ -168,21 +167,21 @@ fn served_here(href: &str) -> bool {
 }
 
 /// The feed's form: the notification's delivery.
-#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[derive(Clone, Debug, Default, Fields)]
 #[serde(default)]
 pub struct ReadInput {
     pub delivery: String,
 }
 
 /// A channel's form: what to turn it to.
-#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[derive(Clone, Debug, Default, Fields)]
 #[serde(default)]
 pub struct PreferenceInput {
     pub enabled: String,
 }
 
 /// An alert's form: what to do with it.
-#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[derive(Clone, Debug, Default, Fields)]
 #[serde(default)]
 pub struct AlertInput {
     pub action: String,

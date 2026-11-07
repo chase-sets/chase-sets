@@ -15,7 +15,7 @@
 use crate::recovery::attempt_text;
 use corten::{http::HeaderMap, prelude::*};
 use platform::receipt::Receipt;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
 use crate::{
     api::{ApiError, Inventory as _, InventoryItems, InventoryList as _, ItemCommand, Location, SaleCommand, SaleResult},
@@ -41,7 +41,7 @@ pub const CHANNELS: [&str; 3] = ["in-store", "card-show", "other"];
 /// What the list's address carries besides a write to confirm: the page, the item whose Record
 /// sale is open, and what the last sale did (marketplace keeps that in the history's state; the
 /// pilot keeps it in the address, so a reload still says it).
-#[derive(Clone, Debug, Default, Deserialize, Fields, Route)]
+#[derive(Clone, Debug, Default, Fields, Route)]
 #[serde(rename_all = "camelCase")]
 #[route(query)]
 pub struct Place {
@@ -117,7 +117,7 @@ pub enum Verified {
 /// Create inventory item's fields, in marketplace's names (the picker's are Create listing's:
 /// `q`, `choose`, `change`, `catalogItemId`, `selectedOptions` and `option.<dimension>`). The attempt is not
 /// named `attempt`, which the address keeps for a write to confirm.
-#[derive(Deserialize, Fields)]
+#[derive(Fields)]
 #[serde(rename_all = "camelCase")]
 #[allow(dead_code)]
 pub struct ItemFields {
@@ -198,7 +198,7 @@ pub fn safe_return_to(text: &str) -> Option<String> {
 }
 
 /// Record sale's fields (`OfflineSaleForm`), in marketplace's names.
-#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[derive(Clone, Debug, Default, Fields)]
 #[serde(rename_all = "camelCase", default)]
 pub struct SaleInput {
     pub idempotency_key: Option<SubmitKey>,

@@ -68,7 +68,7 @@ struct Matches {
 }
 
 /// The lookup's field (admin-web's form name).
-#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[derive(Clone, Debug, Default, Fields)]
 #[serde(default, rename_all = "camelCase")]
 pub struct LookupForm {
     pub user_id: String,

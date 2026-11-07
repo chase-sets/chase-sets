@@ -26,7 +26,6 @@ use corten::{
 };
 use futures_util::{StreamExt, future::join_all};
 use platform::{realtime::Tick, receipt::Receipt};
-use serde::Deserialize;
 
 use crate::{
     api::{
@@ -48,7 +47,7 @@ const MAX_LIMIT: u64 = 250;
 
 /// What the page's address carries, in marketplace's names: the filters and the page, the last
 /// write's receipt, and what that write set, for while it is not readable yet.
-#[derive(Clone, Debug, Default, Deserialize, Fields, Route)]
+#[derive(Clone, Debug, Default, Fields, Route)]
 #[serde(rename_all = "camelCase")]
 #[route(query)]
 pub struct Place {
@@ -129,7 +128,7 @@ impl Filters {
 }
 
 /// The forms' fields, for their names: marketplace's.
-#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[derive(Clone, Debug, Default, Fields)]
 #[serde(rename_all = "camelCase", default)]
 pub struct ListingsForm {
     pub intent: String,

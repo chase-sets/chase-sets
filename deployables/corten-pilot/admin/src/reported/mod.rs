@@ -44,7 +44,6 @@ const BASE: &str = "/api/experience/reported-content";
 #[corten::routes(state = crate::app::Shared, area = crate::reported::url::Reported, caller = crate::auth::Staff<crate::auth::ReportedContentView>)]
 pub mod url {
     use corten::{Fields, Route};
-    use serde::Deserialize;
 
     /// The queue, filtered.
     #[derive(Clone, Debug, Default)]
@@ -55,7 +54,7 @@ pub mod url {
     }
 
     /// The queue's filters, as admin-web names them.
-    #[derive(Clone, Debug, Default, Deserialize, Fields, Route)]
+    #[derive(Clone, Debug, Default, Fields, Route)]
     #[serde(rename_all = "camelCase")]
     #[route(query)]
     pub struct Filters {
@@ -333,7 +332,7 @@ async fn draw(
 }
 
 /// A moderation action: which, and the note an action may need.
-#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[derive(Clone, Debug, Default, Fields)]
 #[serde(default)]
 pub struct ActionForm {
     pub action: String,

@@ -36,7 +36,6 @@ use corten::{
 pub(crate) use platform::auth::{Authenticated, call, call_written, safe_return_to};
 pub use platform::auth::{GUEST_CHECKOUT_COOKIE, Kind, Membership, Method, SELECTION_COOKIE};
 use platform::auth::{PhoneCodeSent, Refusal, selection_token};
-use serde::Deserialize;
 use serde_json::{Value, json};
 
 use crate::email_verification::{Purpose, RETURN_PARAMETER};
@@ -51,7 +50,7 @@ use crate::{
 pub const DEFAULT_SUCCESS: &str = "/account";
 
 /// The page's address, named as marketplace's.
-#[derive(Clone, Debug, Default, Deserialize, Fields, Route)]
+#[derive(Clone, Debug, Default, Fields, Route)]
 #[route(query)]
 #[serde(rename_all = "camelCase")]
 pub struct Ask {
@@ -84,7 +83,7 @@ impl Ask {
 }
 
 /// The account selection's address: where the sign-in goes once an account is chosen.
-#[derive(Clone, Debug, Default, Deserialize, Fields, Route)]
+#[derive(Clone, Debug, Default, Fields, Route)]
 #[route(query)]
 #[serde(rename_all = "camelCase")]
 pub struct Back {
@@ -92,7 +91,7 @@ pub struct Back {
 }
 
 /// The magic link's address, as the API writes it.
-#[derive(Clone, Debug, Default, Deserialize, Fields, Route)]
+#[derive(Clone, Debug, Default, Fields, Route)]
 #[route(query)]
 #[serde(rename_all = "camelCase")]
 pub struct Link {
@@ -180,7 +179,7 @@ pub fn social_error(t: SignInMsg, code: &str) -> &'static str {
 }
 
 /// The form's fields, named as marketplace's forms name them.
-#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[derive(Clone, Debug, Default, Fields)]
 #[serde(rename_all = "camelCase", default)]
 pub struct SignInForm {
     pub intent: String,
@@ -192,7 +191,7 @@ pub struct SignInForm {
 }
 
 /// Account selection's form.
-#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[derive(Clone, Debug, Default, Fields)]
 #[serde(rename_all = "camelCase", default)]
 pub struct SelectForm {
     pub account_id: String,

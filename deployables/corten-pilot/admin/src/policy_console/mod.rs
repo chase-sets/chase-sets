@@ -201,7 +201,7 @@ async fn draw_console(
 }
 
 /// A review's confirmation, as admin-web's form names it.
-#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[derive(Clone, Debug, Default, Fields)]
 #[serde(default, rename_all = "camelCase")]
 pub struct ConfirmForm {
     pub locale: String,
@@ -294,7 +294,7 @@ struct Document {
 }
 
 /// A revision as the form sends it (admin-web's names).
-#[derive(Clone, Debug, Default, Deserialize, Serialize, Fields, ToJson)]
+#[derive(Clone, Debug, Default, Serialize, Fields, ToJson)]
 #[serde(default, rename_all = "camelCase")]
 pub struct RevisionForm {
     pub value: String,

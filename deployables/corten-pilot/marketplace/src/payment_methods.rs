@@ -33,7 +33,7 @@ use corten::{
     prelude::*,
 };
 use platform::receipt::Receipt;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
 use crate::{
     api::{ApiError, MethodChange, PaymentMethod, PaymentMethodCalls as _, SetupSession},
@@ -55,7 +55,7 @@ pub const RETURN_PATH: &str = "/account/payment-methods";
 /// What the page's address carries: the setup it comes back from (`setupReferenceId`, Payments'
 /// name) and until when (Unix seconds) to read it again, or the last change's receipt and the
 /// form it was (`default:{id}`, `remove:{id}`).
-#[derive(Clone, Debug, Default, Deserialize, Fields, Route)]
+#[derive(Clone, Debug, Default, Fields, Route)]
 #[route(query)]
 #[serde(rename_all = "camelCase")]
 pub struct Place {
@@ -67,7 +67,7 @@ pub struct Place {
 
 /// A form's fields: the write (`intent`, marketplace's), the account the page was drawn for,
 /// the attempt and the payment method.
-#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[derive(Clone, Debug, Default, Fields)]
 #[serde(default)]
 pub struct MethodInput {
     pub intent: String,
