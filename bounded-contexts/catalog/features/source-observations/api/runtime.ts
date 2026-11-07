@@ -265,8 +265,11 @@ export function createSourceObservationRuntime(
   );
   // The same stores over one transaction's client: a bulk promotion admission
   // enqueues inside the transaction whose reads it checked. Waiters and the
-  // retention sweeps stay on the pooled stores above.
-  const bulkReviewStoresIn = (db: PgQueryable) => ({
+  // retention sweeps stay on the pooled stores above. The stores get only the
+  // client's query: a pg client also has connect(), which they would take for a
+  // pool's and call to open a transaction of their own on it.
+  const bulkReviewStoresIn = (client: PgQueryable) => bulkReviewStoresOn({ query: client.query.bind(client) });
+  const bulkReviewStoresOn = (db: PgQueryable) => ({
     jobStore: createPostgresDurableJobStore<
       SourceObservationBulkJobPayload,
       BulkSourceObservationProgress,

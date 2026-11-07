@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   createMultiContextTestDatabaseUrls,
   createMultiContextTestPools,
@@ -67,6 +67,21 @@ async function expectOneAdmittedJob(db: PgQueryable, before: Writes, jobId: stri
   );
   expect(Number(jobEvents.rows[0]?.count)).toBeGreaterThan(0);
   expect(after.jobEvents - before.jobEvents).toBe(Number(jobEvents.rows[0]?.count));
+}
+
+/**
+ * Catalog services with the provider send window on, so an admission retains its job's send
+ * binding (the window is read once, when the services are made). The admission is not a provider
+ * call, so it binds no window: the binding row records none.
+ */
+function sendingServices(db: PgTransactionalPool): CatalogServices {
+  vi.stubEnv("DEPLOYMENT_ENVIRONMENT", "staging");
+  vi.stubEnv("CATALOG_PROVIDER_SEND_WINDOW_ENABLED", "true");
+  try {
+    return createCatalogServices(db);
+  } finally {
+    vi.unstubAllEnvs();
+  }
 }
 
 async function lockWaiters(db: PgQueryable): Promise<number> {
@@ -152,7 +167,7 @@ describeDb("bulk promotion admission through real Catalog services", () => {
     const before = await writes(pool);
     const oneConnection = createPgPool(catalogUrl, { max: 1, connectionTimeoutMillis: 500 });
     try {
-      const job = await admit(createCatalogServices(oneConnection), "admit-one-client", previewToken);
+      const job = await admit(sendingServices(oneConnection), "admit-one-client", previewToken);
 
       expect(job).not.toBeNull();
       expect(await unitIds(pool, job!.jobId)).toEqual(["admit-one-client"]);
@@ -173,7 +188,7 @@ describeDb("bulk promotion admission through real Catalog services", () => {
         "UPDATE catalog_source_observations SET source_record_hash = 'changed-' || source_record_hash WHERE observation_id = $1",
         ["admit-changed-first"],
       );
-      const admission = admit(services, "admit-changed-first", previewToken);
+      const admission = admit(sendingServices(pool), "admit-changed-first", previewToken);
       // The admission's row lock waits behind the writer; the writer then commits a change its snapshot cannot see.
       await waitFor(async () => (await lockWaiters(pool)) === 1);
       await writer.query("COMMIT");
@@ -197,7 +212,7 @@ describeDb("bulk promotion admission through real Catalog services", () => {
     const released = new Promise<void>((resolve) => {
       release = resolve;
     });
-    const admitting = createCatalogServices(pausingAfterRowLock(pool, locked, released));
+    const admitting = sendingServices(pausingAfterRowLock(pool, locked, released));
     const admission = admit(admitting, "admit-locked-first", previewToken);
     await rowLocked;
     const change = pool.query(
@@ -232,7 +247,9 @@ describeDb("bulk promotion admission through real Catalog services", () => {
        FOR EACH ROW EXECUTE FUNCTION fail_bulk_review_units()`,
     );
     try {
-      await expect(admit(services, "admit-rollback", previewToken)).rejects.toThrow(/synthetic work unit failure/);
+      await expect(admit(sendingServices(pool), "admit-rollback", previewToken)).rejects.toThrow(
+        /synthetic work unit failure/,
+      );
     } finally {
       await pool.query("DROP TRIGGER fail_bulk_review_units ON catalog_source_observation_bulk_review_work_units");
       await pool.query("DROP FUNCTION fail_bulk_review_units()");
