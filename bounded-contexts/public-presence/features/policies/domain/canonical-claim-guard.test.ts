@@ -829,12 +829,13 @@ const citationFencePaths = {
 } as const;
 
 const reviewedCitationFenceDigests: Readonly<Record<string, string>> = {
-  [citationFencePaths.authenticityTerms]: "87965e016a67474e187a17a6f1698f332d964314453ff0946926906388057de9",
+  // Repinned for #11151: the Checkout Session domain's opt-in block citation moved to 815-837.
+  [citationFencePaths.authenticityTerms]: "6e0f3690a3c6f6e424a757681e4774f2576c44e517fb73b27d6b44356a8d026d",
   // Includes #7422 revocation, #9499 Inventory recovery storage, #10610 truthful search failure citations, the #9106 Search Interpretation marker in
   // stored search restoration, #9721 byte-identical citation relocations, and the #9034 rollout, notice-email,
   // and Connector Pairing manifest reconciliation; only C1-C7 digits remain normalized.
   [citationFencePaths.privacyPolicy]: "f7b4ee5417971f9be4ea90aeec0f6c27c005757c4c2b24f6ab6f91eb2d0ac11e",
-  [citationFencePaths.authenticityTest]: "373914b5510020641186b833c170ccd3e9ed072d541573ade9306e1216124873",
+  [citationFencePaths.authenticityTest]: "82e1a19868edd9c939cf0bbee2f764b1e3e08afa93bc7f614456659e42a70096",
   // Repinned for #10066, #8846, the current-main lost-update guard surface merge, and the #10176 JSON import census
   // evidence-citation update and #9878 TCGplayer guard surface.
   [citationFencePaths.staticSurfaces]: "e8f8cb666b6f1cf13c7bc86d21801c0d89bb85187f5ed9e847812d2ad8de11c1",
