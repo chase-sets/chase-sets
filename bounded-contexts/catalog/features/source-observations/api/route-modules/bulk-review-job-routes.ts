@@ -1,5 +1,5 @@
 import { t } from "@chase-sets/localization";
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import type { CatalogAuthoringEnv } from "../../../../support/authoring-support/api";
 import type {
   BulkReviewJobServices,
@@ -14,8 +14,10 @@ import {
 import { isExplicitBulkJobScope } from "../source-observation-job-serialization";
 import {
   isIntegrationJobValidationError,
+  isRecord,
   parseObservationIds,
   parsePromoteAsDraft,
+  parsePromotionConfirmation,
   parsePromotionScope,
   parseReapplyIntegrationScope,
   parseReapplyProfileMode,
@@ -131,28 +133,7 @@ export function bulkReviewJobRoutes(services: BulkReviewJobRouteServices) {
       return permissionError;
     }
 
-    const body = (await c.req.json().catch(() => ({}))) as {
-      observationIds?: unknown;
-      scope?: unknown;
-      promoteAsDraft?: unknown;
-    };
-    let job;
-    try {
-      job = await services.enqueueBulkReviewJob({
-        action: "promote",
-        observationIds: parseObservationIds(body.observationIds),
-        scope: body.scope ? parsePromotionScope(body.scope) : undefined,
-        promoteAsDraft: parsePromoteAsDraft(body.promoteAsDraft),
-        context: c.get("context"),
-      });
-    } catch (error) {
-      if (error instanceof CatalogIntegrationRolloutControlError) {
-        return c.json(rolloutControlErrorResponse(error), 403);
-      }
-      throw error;
-    }
-
-    return c.json(job, 202);
+    return admitPromotion(services, c);
   });
 
   app.post("/bulk-promote", async (c) => {
@@ -161,29 +142,7 @@ export function bulkReviewJobRoutes(services: BulkReviewJobRouteServices) {
       return permissionError;
     }
 
-    const body = (await c.req.json().catch(() => ({}))) as {
-      observationIds?: unknown;
-      scope?: unknown;
-      promoteAsDraft?: unknown;
-    };
-
-    let job;
-    try {
-      job = await services.enqueueBulkReviewJob({
-        action: "promote",
-        observationIds: parseObservationIds(body.observationIds),
-        scope: body.scope ? parsePromotionScope(body.scope) : undefined,
-        promoteAsDraft: parsePromoteAsDraft(body.promoteAsDraft),
-        context: c.get("context"),
-      });
-    } catch (error) {
-      if (error instanceof CatalogIntegrationRolloutControlError) {
-        return c.json(rolloutControlErrorResponse(error), 403);
-      }
-      throw error;
-    }
-
-    return c.json(job, 202);
+    return admitPromotion(services, c);
   });
 
   app.post("/bulk-reject", async (c) => {
@@ -518,6 +477,48 @@ function mergeCandidateBulkJobListFilter(
   }
 
   return { scopeRecordId, kind, status: status === "completed" ? "completed" : "active", cursor };
+}
+
+// A promotion runs only while the preview the operator confirmed still
+// describes it: the submitted token must equal a fresh preview's token for the
+// same selection, draft choice and review page, and the admission checks it and
+// enqueues in one transaction. A body that is not an object, or names no token,
+// is a missing confirmation: refused like a stale one.
+async function admitPromotion(services: BulkReviewJobRouteServices, c: Context<CatalogAuthoringEnv>) {
+  const parsed: unknown = await c.req.json().catch(() => null);
+  const body = isRecord(parsed) ? parsed : {};
+  const previewToken = typeof body.previewToken === "string" ? body.previewToken.trim() : "";
+  if (!previewToken) {
+    return c.json(stalePromotionPreviewResponse(), 409);
+  }
+
+  let job;
+  try {
+    job = await services.admitBulkPromotionJob({
+      observationIds: parseObservationIds(body.observationIds),
+      scope: body.scope ? parsePromotionScope(body.scope) : undefined,
+      promoteAsDraft: parsePromoteAsDraft(body.promoteAsDraft),
+      previewToken,
+      confirmation: parsePromotionConfirmation(body.confirmation),
+      context: c.get("context"),
+    });
+  } catch (error) {
+    if (error instanceof CatalogIntegrationRolloutControlError) {
+      return c.json(rolloutControlErrorResponse(error), 403);
+    }
+    throw error;
+  }
+
+  return job ? c.json(job, 202) : c.json(stalePromotionPreviewResponse(), 409);
+}
+
+function stalePromotionPreviewResponse() {
+  return {
+    error: {
+      code: "stale_promotion_preview",
+      message: t("catalog.features.sourceObservations.api.route.bulk.promotion.stale.preview"),
+    },
+  };
 }
 
 function hasExplicitBulkReviewScope(scope: ReturnType<typeof parsePromotionScope> | undefined): boolean {

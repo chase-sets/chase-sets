@@ -654,6 +654,48 @@ export async function listSourceObservationIdsForPromotion(
 }
 
 /**
+ * Locks, in the caller's transaction, the rows a promotion of `selection`
+ * would take (the selected ids, or the scope's eligible rows), so none can
+ * change before the admission that checked them commits. As the first
+ * statement of a repeatable-read admission it also fixes the snapshot its
+ * preview reads; a row changed by a transaction that committed after that
+ * snapshot fails the lock with a serialization failure instead.
+ */
+export async function lockSourceObservationsForPromotion(
+  db: PgQueryable,
+  selection: Readonly<{ scope: SourceObservationFilterScope } | { observationIds: readonly string[] }>,
+): Promise<void> {
+  if ("observationIds" in selection) {
+    const uniqueIds = [
+      ...new Set(selection.observationIds.map((observationId) => observationId.trim()).filter(Boolean)),
+    ];
+    await db.query(
+      `SELECT observation_id FROM catalog_source_observations
+       WHERE observation_id = ANY($1)
+       ORDER BY observation_id
+       FOR SHARE`,
+      [uniqueIds],
+    );
+    return;
+  }
+
+  const scope = normalizeSourceObservationFilterScope(selection.scope);
+  const eligibleStatuses = reviewableStatusesForScope(scope);
+  if (eligibleStatuses.length === 0) {
+    return;
+  }
+  const filter = buildSourceObservationFilter(scope, {
+    includeListFilters: true,
+    statuses: eligibleStatuses,
+  });
+  const where = filter.conditions.length > 0 ? `WHERE ${filter.conditions.join(" AND ")}` : "";
+  await db.query(
+    `SELECT observation_id FROM catalog_source_observations ${where} ORDER BY observation_id FOR SHARE`,
+    filter.values,
+  );
+}
+
+/**
  * The next bounded page of eligible observation ids for read-only promotion
  * validation, in observation-id order. `after` continues a previous page.
  * Returns one extra id beyond `limit` so callers can disclose continuation
