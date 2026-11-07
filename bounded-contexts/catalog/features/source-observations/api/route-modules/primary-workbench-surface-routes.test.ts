@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { SourceObservationRouteServices } from "../route";
+import { ProviderAdapterRegistry } from "../provider-adapters/registry";
 import type { CatalogAuthoringEnv } from "../../../../support/authoring-support/api";
 import { buildCatalogAuthoringTestApp } from "../../../../support/authoring-support/test-support";
 import type { CatalogServices } from "../../../../support/authoring-support/services";
@@ -224,15 +225,16 @@ describe("Catalog primary workbench surface routes", () => {
   });
 
   it("admits the platform admin with view alone and keys actor changes without grant data", async () => {
-    for (const [userId, permissions] of [
-      ["user-a", ["catalog.view"]],
-      ["user-b", ["catalog.view", "catalog.manage"]],
+    for (const [userId, membershipId, permissions] of [
+      ["user-a", "membership-a", ["catalog.view"]],
+      ["user-b", "membership-a", ["catalog.view", "catalog.manage"]],
+      ["user-a", "membership-b", ["catalog.view"]],
     ] as const) {
       const body = await getJson(
-        buildApp(surfaceServices(), mutableProfileStore(), { ...providerActor(), userId, permissions }),
+        buildApp(surfaceServices(), mutableProfileStore(), { ...providerActor(), userId, membershipId, permissions }),
         surfacePath("health", "/catalog/providers/tcgplayer?providerKey=tcgdex"),
       );
-      expect(body).toMatchObject({ operatorSession: true, operatorSessionActorKey: `${userId}:membership-a` });
+      expect(body).toMatchObject({ operatorSession: true, operatorSessionActorKey: `${userId}:${membershipId}` });
       expect(JSON.stringify(body)).not.toContain("synthetic-grant-secret");
     }
   });
@@ -304,7 +306,18 @@ describe("Catalog primary workbench surface routes", () => {
         listCanonicalScopeRecordProposals: async () => [],
       },
       providerIntegrationProfiles: mutableProfileStore(),
-      sourceObservations: surfaceServices(),
+      sourceObservations: {
+        ...surfaceServices(),
+        getProviderSendWindow: async () => ({ state: "unarmed" as const }),
+        commandHandler: async () => {
+          throw new Error("Unexpected source observation command");
+        },
+        providerAdapterRegistry: new ProviderAdapterRegistry([]),
+        pruneSourceObservationJobRetention: async () => {
+          throw new Error("Unexpected retention command");
+        },
+        projectors: [],
+      },
       scopeSyncBatches: {} as never,
       catalogAliases: {} as never,
       attentionQueue: {} as never,
