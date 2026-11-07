@@ -5,7 +5,10 @@ use corten::{
     i18n::{DateStyle, TimeStyle, parse_timestamp},
     prelude::*,
 };
-use platform::ui::table::{CellLabel, Table as KitTable, TableLayout};
+use platform::ui::{
+    stats::{Stat, StatTone, Stats as KitStats, StatsSurface},
+    table::{CellLabel, Table as KitTable, TableLayout},
+};
 
 use crate::{
     growth::waitlist::{INTERESTS, ROLES, WaitlistScreen, url},
@@ -40,12 +43,7 @@ pub fn interest(t: Gro, value: &str) -> String {
 
 #[component(css = WaitlistPage)]
 fn Figure<'a>(label: &'a str, value: String) -> impl Render {
-    html! {
-        <div class={Stat}>
-            <p class={Muted}>{label}</p>
-            <p class={Value}>{value}</p>
-        </div>
-    }
+    html! { <Stat label={label} value={value.as_str()} note="" tone={StatTone::Neutral} /> }
 }
 
 #[component(css)]
@@ -69,25 +67,25 @@ pub fn WaitlistPage<'a>(t: Gro, screen: &'a WaitlistScreen) -> impl Render {
                     <a class={(Button, Secondary)} href={export}>{t.admin_export()}</a>
                 </div>
             </header>
-            <div class={(Stats, Four)}>
+            <dl class={KitStats { surface: StatsSurface::Cards }}>
                 <Figure label={t.admin_total()} value={t.number(m.total_count).to_string()} />
                 <Figure label={t.role_buy()} value={t.number(m.buy_count).to_string()} />
                 <Figure label={t.role_sell()} value={t.number(m.sell_count).to_string()} />
                 <Figure label={t.role_both()} value={t.number(m.both_count).to_string()} />
-            </div>
+            </dl>
             <section class={Card} aria-labelledby="wl-waves">
                 <div>
                     <h2 class={Heading} id="wl-waves">{t.admin_wave_fill_title()}</h2>
                     <p class={Muted}>{t.admin_wave_fill_description()}</p>
                 </div>
-                <div class={(Stats, Three)}>
+                <dl class={KitStats { surface: StatsSurface::Cards }}>
                     for wave in &m.wave_fill {
                         <Figure
                             label={&t.admin_wave_fill_wave(wave.wave_number).to_string()}
                             value={t.admin_wave_fill_value(crate::text::gro::AdminWaveFillValue { admitted_count: wave.admitted_count, capacity: wave.capacity }).to_string()}
                         />
                     }
-                </div>
+                </dl>
             </section>
             <section class={Card} aria-labelledby="wl-filters">
                 <h2 class={Heading} id="wl-filters">{t.admin_filters()}</h2>

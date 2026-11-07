@@ -4701,7 +4701,7 @@ async fn projection_operations_draws_the_apis_console_and_triage() {
         assert!(html.contains(text), "{text}: {html}");
     }
     // The counts: three attention items, the source lag grouped, the API's worker counts.
-    assert!(html.contains("<dt>Attention</dt><dd>3</dd>"), "{html}");
+    assert!(html.contains(r#"<dt>Attention</dt><dd class="stats__value">3</dd>"#), "{html}");
     assert!(html.contains("12,345"), "grouped as admin-web's formatDecimalCount: {html}");
     assert!(html.contains("1 active · 0 stale"), "{html}");
     assert!(html.contains("16 expired heartbeats in the last 7 days"), "{html}");

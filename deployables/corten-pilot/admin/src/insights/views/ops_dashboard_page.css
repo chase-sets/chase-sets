@@ -1,5 +1,5 @@
-/* Ops Dashboard: the range's fields side by side from 40rem; the figures one column on a phone and
-   three from 40rem; the chart as wide as its card; the tables stack on a phone. */
+/* Ops Dashboard: the range's fields side by side from 40rem; the figures the kit's Stats (two on a
+   phone); the chart as wide as its card; the tables stack on a phone. */
 .page {
   display: grid;
   gap: var(--space-4);
@@ -85,23 +85,6 @@
   font-weight: 600;
   cursor: pointer;
 }
-.stats {
-  display: grid;
-  gap: var(--space-3);
-}
-.stat {
-  display: grid;
-  gap: var(--space-1);
-  padding: var(--space-3) var(--space-4);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-lg);
-  background: var(--color-background);
-}
-.value {
-  margin: 0;
-  font: 600 1.5rem/1.2 var(--font-display);
-  font-variant-numeric: tabular-nums;
-}
 .chart {
   display: block;
   width: 100%;
@@ -177,9 +160,6 @@
 @media (min-width: 40rem) {
   .range {
     grid-template-columns: repeat(2, minmax(0, 1fr)) auto;
-  }
-  .stats {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
 

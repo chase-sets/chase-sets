@@ -2,7 +2,10 @@
 //! its progress, the cohort's figures, game coverage, inventory sizes, channel attribution and the
 //! funnel dashboard's link. The tables stack on a phone, a row a block of labelled lines.
 use corten::prelude::*;
-use platform::ui::table::{CellLabel, Table as KitTable, TableLayout};
+use platform::ui::{
+    stats::{Stat, StatTone, Stats as KitStats, StatsSurface},
+    table::{CellLabel, Table as KitTable, TableLayout},
+};
 
 use crate::{
     growth::campaign::{Analytics, FUNNEL_DASHBOARD, INVENTORY_SIZES, progress},
@@ -56,12 +59,7 @@ fn Progress<'a>(t: Gro, label: &'a str, count: u64, goal: u64, met: bool) -> imp
 
 #[component(css = CampaignPage)]
 fn Figure<'a>(label: &'a str, value: String) -> impl Render {
-    html! {
-        <div class={Stat}>
-            <p class={Muted}>{label}</p>
-            <p class={Value}>{value}</p>
-        </div>
-    }
+    html! { <Stat label={label} value={value.as_str()} note="" tone={StatTone::Neutral} /> }
 }
 
 #[component(css = CampaignPage)]
@@ -113,7 +111,7 @@ pub fn CampaignPage<'a>(t: Gro, analytics: &'a Analytics) -> impl Render {
                     met={bar.qualified_sellers_met}
                 />
             </section>
-            <div class={(Stats, Four)}>
+            <dl class={KitStats { surface: StatsSurface::Cards }}>
                 <Figure label={t.admin_campaign_analytics_stat_total_signups()} value={t.number(q.total_signups).to_string()} />
                 <Figure
                     label={t.admin_campaign_analytics_stat_seller_signups()}
@@ -127,7 +125,7 @@ pub fn CampaignPage<'a>(t: Gro, analytics: &'a Analytics) -> impl Render {
                     label={t.admin_campaign_analytics_stat_store_link_percent()}
                     value={format!("{}%", q.store_link_percent)}
                 />
-            </div>
+            </dl>
             <section class={Card} aria-labelledby="ca-games">
                 <div>
                     <h2 class={Heading} id="ca-games">{t.admin_campaign_analytics_game_coverage_title()}</h2>
@@ -182,14 +180,14 @@ pub fn CampaignPage<'a>(t: Gro, analytics: &'a Analytics) -> impl Render {
             </section>
             <section class={Card} aria-labelledby="ca-sizes">
                 <h2 class={Heading} id="ca-sizes">{t.admin_campaign_analytics_inventory_size_title()}</h2>
-                <div class={(Stats, Sizes)}>
+                <dl class={KitStats { surface: StatsSurface::Cards }}>
                     for key in INVENTORY_SIZES {
                         <Figure
                             label={&size(t, key)}
                             value={t.number(q.inventory_size_distribution.get(key).copied().unwrap_or(0)).to_string()}
                         />
                     }
-                </div>
+                </dl>
             </section>
             <section class={Card} aria-labelledby="ca-channels">
                 <div>

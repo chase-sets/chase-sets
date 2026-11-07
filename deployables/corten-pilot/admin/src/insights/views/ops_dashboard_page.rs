@@ -7,7 +7,10 @@ use corten::{
     i18n::{DateStyle, TimeStyle, parse_timestamp},
     prelude::*,
 };
-use platform::ui::table::{CellLabel, Table as KitTable, TableLayout};
+use platform::ui::{
+    stats::{Stat, StatTone, Stats as KitStats, StatsSurface},
+    table::{CellLabel, Table as KitTable, TableLayout},
+};
 
 use super::{date, usd};
 use crate::{
@@ -75,12 +78,7 @@ fn granularity_label(o: Ops, granularity: &str) -> &'static str {
 
 #[component(css = OpsDashboardPage)]
 fn Figure<'a>(label: &'a str, value: String) -> impl Render {
-    html! {
-        <div class={Stat}>
-            <p class={Muted}>{label}</p>
-            <p class={Value}>{value}</p>
-        </div>
-    }
+    html! { <Stat label={label} value={value.as_str()} note="" tone={StatTone::Neutral} /> }
 }
 
 #[component(css = OpsDashboardPage)]
@@ -173,21 +171,21 @@ pub fn OpsDashboardPage<'a>(o: Ops, p: Pilot, screen: &'a OpsScreen) -> impl Ren
                     {o.oe_window_range(crate::text::ops::OeWindowRange { from: &date(o, &s.from), to: &date(o, &s.to) }).to_string()}
                 </p>
             </section>
-            <div class={Stats}>
+            <dl class={KitStats { surface: StatsSurface::Cards }}>
                 <Figure label={o.od_gmv()} value={usd(o, &s.summary.gmv_amount)} />
                 <Figure label={o.od_trade_count()} value={n(s.summary.trade_count)} />
                 <Figure label={o.od_order_count()} value={n(s.summary.order_count)} />
                 <Figure label={o.od_active_buyers()} value={n(s.summary.active_buyer_count)} />
                 <Figure label={o.od_active_sellers()} value={n(s.summary.active_seller_count)} />
                 <Figure label={o.od_verified_trade_count()} value={n(s.summary.verified_trade_count)} />
-            </div>
+            </dl>
             <section class={Card} aria-labelledby="od-trend">
                 <h2 class={Heading} id="od-trend">{o.od_trend()}</h2>
                 <Trend o={o} p={p} series={&screen.series} />
             </section>
             <section class={Card} aria-labelledby="od-liquidity">
                 <h2 class={Heading} id="od-liquidity">{o.od_liquidity()}</h2>
-                <div class={Stats}>
+                <dl class={KitStats { surface: StatsSurface::Cards }}>
                     <Figure
                         label={o.od_sell_through_rate()}
                         value={ratio_percent(s.liquidity.sell_through_rate.as_deref()).unwrap_or_else(na)}
@@ -197,7 +195,7 @@ pub fn OpsDashboardPage<'a>(o: Ops, p: Pilot, screen: &'a OpsScreen) -> impl Ren
                         value={s.liquidity.median_spread_amount.as_deref().map_or_else(na, |a| usd(o, a))}
                     />
                     <Figure label={o.od_spread_sample_count()} value={n(s.liquidity.spread_sample_count)} />
-                </div>
+                </dl>
                 <p class={Muted}>{o.od_time_to_sale_unavailable()}</p>
             </section>
             <section class={Card} aria-labelledby="od-top">

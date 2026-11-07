@@ -8,6 +8,7 @@ use corten::{
     i18n::{DateStyle, Decimal, TimeStyle, parse_timestamp},
     prelude::*,
 };
+use platform::ui::stats::{Stat, StatTone, Stats as KitStats, StatsSurface};
 
 use super::{detail_sheet, ids};
 use crate::{
@@ -224,12 +225,9 @@ fn Health<'a>(t: Ops, screen: &'a Screen) -> impl Render {
                     }
                 </ul>
             }
-            <dl class={Stats}>
+            <dl class={KitStats { surface: StatsSurface::Cards }}>
                 for (name, value) in &stats {
-                    <div class={Stat}>
-                        <dt>{*name}</dt>
-                        <dd>{value}</dd>
-                    </div>
+                    <Stat label={*name} value={value.as_str()} note="" tone={StatTone::Neutral} />
                 }
             </dl>
             <p class={Muted}>

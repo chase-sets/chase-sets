@@ -1,4 +1,4 @@
-/* Offer Economics: the figures are one column on a phone, two from 40rem and three from 64rem;
+/* Offer Economics: the figures are the kit's Stats, as many to a row as fit and two on a phone;
    the weekly sell-through stacks on a phone. */
 .page {
   display: grid;
@@ -43,23 +43,6 @@
 .heading {
   margin: 0;
   font: 600 1.25rem/1.3 var(--font-display);
-}
-.stats {
-  display: grid;
-  gap: var(--space-3);
-}
-.stat {
-  display: grid;
-  gap: var(--space-1);
-  padding: var(--space-3) var(--space-4);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-lg);
-  background: var(--color-background);
-}
-.value {
-  margin: 0;
-  font: 600 1.5rem/1.2 var(--font-display);
-  font-variant-numeric: tabular-nums;
 }
 .pill {
   display: inline-flex;
@@ -115,16 +98,6 @@
   border: 1px dashed var(--color-border-strong);
   border-radius: var(--radius-lg);
   text-align: center;
-}
-@media (min-width: 40rem) {
-  .stats {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
-@media (min-width: 64rem) {
-  .stats {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
 }
 
 /* Stacked on a phone, a row is one block: a line between rows, not under each of its cells. */

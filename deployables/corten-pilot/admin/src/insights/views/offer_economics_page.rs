@@ -3,7 +3,10 @@
 //! foregone fee is measured against, the weekly sell-through (a table that stacks on a phone, a row a
 //! block of labelled lines) and the order protection reserve.
 use corten::prelude::*;
-use platform::ui::table::{CellLabel, Table as KitTable, TableLayout};
+use platform::ui::{
+    stats::{Stat, StatTone, Stats as KitStats, StatsSurface},
+    table::{CellLabel, Table as KitTable, TableLayout},
+};
 
 use super::{date, usd};
 use crate::{
@@ -13,12 +16,7 @@ use crate::{
 
 #[component(css = OfferEconomicsPage)]
 fn Figure<'a>(label: &'a str, value: String) -> impl Render {
-    html! {
-        <div class={Stat}>
-            <p class={Muted}>{label}</p>
-            <p class={Value}>{value}</p>
-        </div>
-    }
+    html! { <Stat label={label} value={value.as_str()} note="" tone={StatTone::Neutral} /> }
 }
 
 #[component(css)]
@@ -50,14 +48,14 @@ pub fn OfferEconomicsPage<'a>(o: Ops, snapshot: &'a Snapshot) -> impl Render {
                     {o.oe_window_range(crate::text::ops::OeWindowRange { from: &date(o, &s.from), to: &date(o, &s.to) }).to_string()}
                 </p>
             </section>
-            <div class={Stats}>
+            <dl class={KitStats { surface: StatsSurface::Cards }}>
                 <Figure label={o.oe_listings_created()} value={n(s.listings_created_count)} />
                 <Figure label={o.oe_locked_seller_account_count()} value={n(s.locked_seller_account_count)} />
                 <Figure label={o.oe_locked_gmv()} value={usd(o, &s.locked_gmv_amount)} />
                 <Figure label={o.oe_locked_gmv_share()} value={share} />
                 <Figure label={o.oe_foregone_fee_estimate()} value={usd(o, &s.foregone_fee_estimate_amount)} />
                 <Figure label={o.oe_platform_gmv()} value={usd(o, &s.platform_gmv_amount)} />
-            </div>
+            </dl>
             <section class={Card} aria-labelledby="oe-schedule">
                 <h2 class={Heading} id="oe-schedule">{o.oe_standard_schedule()}</h2>
                 <p class={Muted}>{schedule}</p>
@@ -117,13 +115,13 @@ pub fn OfferEconomicsPage<'a>(o: Ops, snapshot: &'a Snapshot) -> impl Render {
                 <h2 class={Heading} id="oe-reserve">{o.oe_protection_reserve()}</h2>
                 if reserve.available {
                     <p><span class={(Pill, Good)}>{o.oe_protection_reserve_available()}</span></p>
-                    <div class={Stats}>
+                    <dl class={KitStats { surface: StatsSurface::Cards }}>
                         <Figure label={o.oe_protection_reserve_contribution()} value={usd(o, &reserve.contribution_amount)} />
                         <Figure label={o.oe_protection_reserve_allowance()} value={usd(o, &reserve.allowance_amount)} />
                         <Figure label={o.oe_protection_reserve_overage()} value={usd(o, &reserve.overage_amount)} />
                         <Figure label={o.oe_protection_reserve_reversals()} value={usd(o, &reserve.reversal_amount)} />
                         <Figure label={o.oe_protection_reserve_covered_orders()} value={n(reserve.covered_order_count)} />
-                    </div>
+                    </dl>
                 } else {
                     <p><span class={(Pill, Neutral)}>{o.oe_protection_reserve_pending()}</span></p>
                     <p class={Muted}>{reserve.reason.as_deref().unwrap_or("")}</p>
