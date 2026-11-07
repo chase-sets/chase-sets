@@ -14347,6 +14347,9 @@ async fn the_review_summary_shows_both_ratings_and_the_newest_reviews() {
     assert!(html.contains("<h1") && html.contains("Chase Seller"), "the account's name: {html}");
     assert!(html.contains("4.5") && html.contains("(2)"), "as a seller: {html}");
     assert!(html.contains("0 ratings included · 1 reviews"), "as a buyer, context only: {html}");
+    // Each star's share is the kit's meter, a measure and not progress: a 5 and a 4 are half each.
+    assert!(html.contains(r#"<meter class="meter__meter" min="0" max="100" value="50">50%</meter>"#), "{html}");
+    assert!(!html.contains("<progress"), "{html}");
     assert!(html.contains("Binder Bob") && html.contains("Thanks for the order!"), "the reply: {html}");
     assert!(html.contains("Shared for context · rating not included"), "{html}");
     assert!(html.contains("Carrier-related issue") && html.contains("Refund issued"), "the scoring context: {html}");

@@ -9,6 +9,8 @@ use corten::{
     prelude::*,
 };
 
+use platform::ui::meter::Meter;
+
 use super::{listing_page::options, on_marketplace};
 use crate::{
     accounts::{AccountScreen, MOST_DETAILS, REASONS, ReviewNotice, ReviewReportFields, Role},
@@ -365,9 +367,9 @@ fn Distribution<'a>(t: AccountMsg, title: &'a str, side: &'a Side) -> impl Rende
                 for (n, stars) in side.counts.iter().zip([5, 4, 3, 2, 1]) {
                     <li>
                         <span>{stars}</span>
-                        <progress max="100" value={percent(*n, side.ratings)}>
+                        <meter class={Meter {}} min="0" max="100" value={percent(*n, side.ratings)}>
                             {format!("{}%", percent(*n, side.ratings))}
-                        </progress>
+                        </meter>
                         <span class={Faint}>{format!("{}%", percent(*n, side.ratings))}</span>
                     </li>
                 }

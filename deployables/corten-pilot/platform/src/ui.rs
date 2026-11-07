@@ -21,6 +21,7 @@ pub mod dropdown_menu;
 pub mod field;
 pub mod icon;
 pub mod input;
+pub mod meter;
 pub mod nav_bar;
 pub mod pagination;
 pub mod popover;
@@ -56,6 +57,7 @@ pub const COMPONENTS: &[Component] = &[
     field::Field,
     icon::Icon,
     input::Input,
+    meter::Meter,
     nav_bar::NavBar,
     pagination::Pagination,
     popover::Popover,

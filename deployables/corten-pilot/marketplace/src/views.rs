@@ -198,7 +198,7 @@ pub const SET: &[Component] = &[SetPage];
 
 /// An account's public page (`/accounts`): its stylesheet, and corten-ui's handler that makes a
 /// refused Report review's dialog modal.
-pub const ACCOUNT: &[Component] = &[AccountPage, corten_ui::dialog::COMPONENT];
+pub const ACCOUNT: &[Component] = &[AccountPage, corten_ui::dialog::COMPONENT, platform::ui::meter::Meter];
 
 /// The account's own page (`/account`). Its prefix holds every other `/account/..` area, and a page
 /// under nested areas links each one's stylesheet, so an area of its own would put this on every
@@ -222,7 +222,7 @@ pub const TEAM: &[Component] = &[TeamPage];
 pub const CONSENTS: &[Component] = &[ConsentsPage];
 /// The account's reviews (`/account/reviews`, `/received`, `/written` and a review's own page):
 /// their stylesheet.
-pub const REVIEWS: &[Component] = &[ReviewsPage];
+pub const REVIEWS: &[Component] = &[ReviewsPage, platform::ui::meter::Meter];
 
 /// The account's connected agents (`/account/agents` and a grant's page) and an agent's consent:
 /// their stylesheet and corten-ui's Copy for the connector URL and a new signing secret. Revoke
