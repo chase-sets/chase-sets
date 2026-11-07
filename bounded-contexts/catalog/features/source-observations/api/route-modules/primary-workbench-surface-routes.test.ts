@@ -119,6 +119,116 @@ afterEach(() => {
 });
 
 describe("Catalog primary workbench surface routes", () => {
+  // Issue #11142: promotion request composition belongs to the daily API answer.
+  it("returns the selected promotion descriptor with exact filters and incomplete-scope ids support", async () => {
+    const app = buildApp(surfaceServices(), mutableProfileStore());
+    const location = `/catalog/integrations?providerKey=tcgdex&unitKey=${TCGDEX_UNIT}&importScope=en:3:base:base1&profileVersion=synthetic-profile&filter.language=fr&filter.productLineId=synthetic-line&filter.seriesId=synthetic-series&filter.setId=synthetic-set&filter.status=changed&filter.search=synthetic-query`;
+    const body = await getJson(app, surfacePath("daily", location));
+    const scope = {
+      search: "synthetic-query",
+      status: "changed",
+      provider: "tcgdex",
+      language: "fr",
+      productLineId: "synthetic-line",
+      seriesId: "synthetic-series",
+      expansionId: "synthetic-set",
+      setId: "synthetic-set",
+    };
+    expect(
+      body.readModel.actions.find((entry: { key: string }) => entry.key === "observation.promote").commandPreview,
+    ).toEqual({
+      scope,
+      confirmation: {
+        unitKey: TCGDEX_UNIT,
+        importScope: "en:3:base:base1",
+        profileVersion: "synthetic-profile",
+        scope,
+      },
+      allowScopeSelection: true,
+    });
+    expect(body.readModel.sourceScopeWorkset.units.length).toBeGreaterThan(0);
+    for (const row of body.readModel.sourceScopeWorkset.units) {
+      const rowScope = { ...scope, provider: row.providerKey };
+      expect(row.actions.previewPromotion.commandPreview).toEqual({
+        scope: rowScope,
+        confirmation: {
+          unitKey: row.unitKey,
+          importScope: row.importScope,
+          profileVersion: row.profileVersion,
+          scope: rowScope,
+        },
+        allowScopeSelection: Boolean(row.importScope),
+      });
+    }
+    const emptyApp = buildApp(
+      surfaceServices({
+        listIntegrationScopes: vi.fn(async () => []),
+        getCatalogIntegrationControlPlaneReadiness: vi.fn(async () => readiness([])),
+      }),
+      mutableProfileStore([]),
+    );
+    const sparse = await getJson(
+      emptyApp,
+      surfacePath("daily", "/catalog/integrations?selectedObservationIds=synthetic-id"),
+    );
+    expect(
+      sparse.readModel.actions.find((entry: { key: string }) => entry.key === "observation.promote").commandPreview,
+    ).toEqual({
+      scope: {},
+      confirmation: { unitKey: null, importScope: null, profileVersion: null, scope: {} },
+      allowScopeSelection: false,
+    });
+    const empty = await getJson(
+      emptyApp,
+      surfacePath(
+        "daily",
+        `/catalog/integrations?providerKey=tcgdex&unitKey=${TCGDEX_UNIT}&importScope=&languageCode=&productLineId=&seriesId=&expansionId=&status=&profileVersion=`,
+      ),
+    );
+    expect(
+      empty.readModel.actions.find((entry: { key: string }) => entry.key === "observation.promote").commandPreview,
+    ).toEqual({
+      scope: { provider: "tcgdex" },
+      confirmation: { unitKey: TCGDEX_UNIT, importScope: null, profileVersion: null, scope: { provider: "tcgdex" } },
+      allowScopeSelection: false,
+    });
+    for (const alias of ["setId", "expansionId"]) {
+      const answer = await getJson(
+        app,
+        surfacePath(
+          "daily",
+          `/catalog/integrations?providerKey=tcgdex&unitKey=${TCGDEX_UNIT}&languageCode=en&productLineId=3&seriesId=base&${alias}=base1&profileVersion=synthetic-profile`,
+        ),
+      );
+      expect(
+        answer.readModel.actions.find((entry: { key: string }) => entry.key === "observation.promote").commandPreview,
+      ).toEqual({
+        scope: {
+          provider: "tcgdex",
+          language: "en",
+          productLineId: "3",
+          seriesId: "base",
+          expansionId: "base1",
+          setId: "base1",
+        },
+        confirmation: {
+          unitKey: TCGDEX_UNIT,
+          importScope: "en:3:base:base1",
+          profileVersion: "synthetic-profile",
+          scope: {
+            provider: "tcgdex",
+            language: "en",
+            productLineId: "3",
+            seriesId: "base",
+            expansionId: "base1",
+            setId: "base1",
+          },
+        },
+        allowScopeSelection: true,
+      });
+    }
+  });
+
   // Issue #11050: provider detail composes from its own path, not the first scope/profile.
   it("matches explicit provider selection while preserving profile, unit, job and selected observations", async () => {
     const services = surfaceServices({

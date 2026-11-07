@@ -19,6 +19,7 @@ import {
   importScopeFromScopeContext,
   integrationJobScopeForUnit,
   reapplyScopeForUnit,
+  promotionCommandPreviewFor,
   scopeContextFromProviderScope,
   scopeContextFromRouteContext,
   scopeDisplayLabel,
@@ -461,18 +462,28 @@ function sourceScopeUnitRow(
           blockers,
         ),
       ),
-      previewPromotion: action(
-        "observation.promote",
-        promotionPreviewBlockers(
-          input.canManage,
-          selectedScope,
-          candidate.profile,
-          candidate.unitKey,
-          importScope,
-          counts.eligible,
-          blockers,
+      previewPromotion: {
+        ...action(
+          "observation.promote",
+          promotionPreviewBlockers(
+            input.canManage,
+            selectedScope,
+            candidate.profile,
+            candidate.unitKey,
+            importScope,
+            counts.eligible,
+            blockers,
+          ),
         ),
-      ),
+        commandPreview: promotionCommandPreviewFor({
+          ...input.routeContext,
+          providerKey: candidate.providerKey,
+          unitKey: candidate.unitKey,
+          scope: routeScope,
+          importScope,
+          profileVersion: candidate.profile?.profileVersion ?? null,
+        }),
+      },
       reapply: action(
         "observation.reapply",
         reapplyBlockers(

@@ -158,12 +158,14 @@ export function useOriginalPromotionReceipt(
 ): CatalogPrimaryWorkbenchReadModel {
   const model = routeData.readModel;
   const activeProfileVersion = model.importJobs.selectedScope?.profileVersion ?? null;
+  const commandPreview = model.actions.find((entry) => entry.key === "observation.promote")?.commandPreview;
   const evidence = JSON.stringify([
     model.routeContext,
     model.sourceObservationReview,
     model.promotionPreview.validation,
     model.promotionPreview.currentFingerprint,
     activeProfileVersion,
+    commandPreview,
   ]);
   const [binding, setBinding] = useState({
     result,
@@ -220,7 +222,7 @@ export function useOriginalPromotionReceipt(
   const sameIds =
     JSON.stringify([...receipt.selection.observationIds].sort()) ===
     JSON.stringify([...result.context.selectedObservationIds].sort());
-  const sameContext = promotionReceiptMatchesContext(receipt, model.routeContext);
+  const sameContext = promotionReceiptMatchesContext(receipt, model.routeContext, commandPreview);
   const sameActiveProfile = activeProfileVersion !== null && receipt.selection.profileVersion === activeProfileVersion;
   const currentFingerprint = model.promotionPreview.currentFingerprint;
   const valid =
@@ -229,7 +231,7 @@ export function useOriginalPromotionReceipt(
     sameIds &&
     receipt.previewId === result.context.promotionPreviewId &&
     receipt.selection.promoteAsDraft === (result.context.promoteAsDraft === true) &&
-    promotionReceiptMatchesContext(receipt, result.context) &&
+    promotionReceiptMatchesContext(receipt, result.context, result.promotionCommandPreview) &&
     sameContext &&
     sameActiveProfile &&
     (!model.promotionPreview.previewId || model.promotionPreview.previewId === receipt.previewId) &&
