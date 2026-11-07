@@ -295,6 +295,7 @@ for components the kit added, and port the screens' local rules to them.
 | Issue | Workaround |
 | --- | --- |
 | [corten-run/corten#1054 Kit Stats writes its label and figure type as literals, so a theme with a display face or uppercase labels (Chase Sets' design system) edits the copied stats.css](https://github.com/corten-run/corten/issues/1054) | [platform/src/ui/stats.css](platform/src/ui/stats.css) sets the design system's label and value type |
+| [corten-run/corten#1059 Kit Progress has no tone, so a finished or failed task's bar cannot be drawn in the theme's success or destructive color](https://github.com/corten-run/corten/issues/1059) | [marketplace/src/views/packing_page.css](marketplace/src/views/packing_page.css) and [public/src/views/welcome_page.css](public/src/views/welcome_page.css) keep their own `<progress>` rules with the success fill |
 
 Every Corten gap the pilot found and how it closed is in the [README before it was cut](https://github.com/chase-sets/chase-sets/blob/5a683c4eb5/deployables/corten-pilot/README.md) ("Corten gaps").
 
