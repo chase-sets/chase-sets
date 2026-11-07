@@ -18539,3 +18539,10 @@ fn plain(html: &str) -> String {
 fn main_of(html: &str) -> &str {
     html.split_once("</main>").map_or(html, |(main, _)| main)
 }
+
+/// The declarations the scripts take Rust values by (`types/app.d.ts`): the payment step's
+/// `Defaults`. Fails, rewriting the file, while it is stale.
+#[test]
+fn script_types_match_the_server() {
+    corten::types::Types::new().add::<crate::payment::Defaults>().sync(concat!(env!("CARGO_MANIFEST_DIR"), "/types/app.d.ts"));
+}

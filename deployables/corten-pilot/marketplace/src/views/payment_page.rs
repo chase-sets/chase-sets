@@ -24,7 +24,8 @@ use super::on_marketplace;
 use crate::{
     api::{AccountPayment, PaymentOrder},
     app::url,
-    payment::{PaymentScreen, RetryForm, WatchRoute},
+    // `Defaults` by its name: payment_entry.js's `mount` takes its generated declaration.
+    payment::{Defaults, PaymentScreen, RetryForm, WatchRoute},
     text::PaymentMsg,
 };
 

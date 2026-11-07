@@ -249,7 +249,7 @@ registered files.
 
 ## Corten pin
 
-`Cargo.toml` pins Corten to `5dba8477` (Corten `main` on 2026-11-07), whose framework package is
+`Cargo.toml` pins Corten to `f686fd88` (Corten `main` on 2026-11-07), whose framework package is
 `corten-run` (the library is still `corten`). No release is tagged. The
 pin follows Corten's latest `main` (Todd, 2026-11-02), and each move is its own commit that says
 what changed; the workarounds a move lets go follow it in commits of their own. The history of every move is in the
@@ -299,6 +299,7 @@ for components the kit added, and port the screens' local rules to them.
 | [corten-run/corten#1065 Kit Stack and Cluster always print a literal gap, so an app on its own token spacing scale cannot use them with its gap utility](https://github.com/corten-run/corten/issues/1065) | the page stylesheets keep their own `.stack` and row rules on the `--space-*` scale; the kit's `stack` is not taken |
 | [corten-run/corten#1070 Kit StatusDot has no live form, so a corten-live stream's Live badge keeps its own pulsing dot and reduced-motion rule](https://github.com/corten-run/corten/issues/1070) | [admin/src/views/live_status.css](admin/src/views/live_status.css) keeps its own `.dot` and pulse; the kit's `status_dot` is not taken |
 | [corten-run/corten#1063 A data-patch form's busy state lands only on the form, so a submit button outside it (form=) and the kit's Button show nothing while a server-drawn sheet loads](https://github.com/corten-run/corten/issues/1063) | none: the review rows' Evidence ([admin/src/catalog/views/daily_page.rs](admin/src/catalog/views/daily_page.rs)) shows nothing while its sheet loads |
+| [corten-run/corten#1072 A formdata handler cannot take its FormDataEvent: the event map types formdata as Event, so since the handler check a lib.dom-typed handler does not compile](https://github.com/corten-run/corten/issues/1072) | [marketplace/src/views/search.js](marketplace/src/views/search.js) `tidy` and [public/src/views/home.js](public/src/views/home.js) `fill` take an `Event` and cast it to `FormDataEvent` |
 | [corten-run/corten#1060 Kit Segmented draws only as wide as its choices, so a phone's full-width choice bar (equal parts across the row) keeps its own segmented rules](https://github.com/corten-run/corten/issues/1060) | [marketplace/src/views/item_detail.css](marketplace/src/views/item_detail.css) keeps its own `.segmented` grid for the rail's side and the chart's ranges |
 
 Every Corten gap the pilot found and how it closed is in the [README before it was cut](https://github.com/chase-sets/chase-sets/blob/5a683c4eb5/deployables/corten-pilot/README.md) ("Corten gaps").
