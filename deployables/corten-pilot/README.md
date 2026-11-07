@@ -249,7 +249,7 @@ registered files.
 
 ## Corten pin
 
-`Cargo.toml` pins Corten to `999c2aae` (Corten `main` on 2026-11-07), whose framework package is
+`Cargo.toml` pins Corten to `dda4c76c` (Corten `main` on 2026-11-07), whose framework package is
 `corten-run` (the library is still `corten`). No release is tagged. The
 pin follows Corten's latest `main` (Todd, 2026-11-02), and each move is its own commit that says
 what changed; the workarounds a move lets go follow it in commits of their own. The history of every move is in the
