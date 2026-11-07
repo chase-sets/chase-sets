@@ -1,7 +1,7 @@
 import { t } from "@chase-sets/localization";
 import { useEffect } from "react";
 import type { MetaFunction } from "react-router";
-import { useActionData, useLoaderData, useNavigate, useNavigation } from "react-router";
+import { useActionData, useLoaderData, useLocation, useNavigate, useNavigation } from "react-router";
 import { CatalogIntegrationsSurfaceRouteView } from "../../features/source-observations/ui/integrations-surface-route-view";
 import { loader } from "../../support/route-support/admin-integrations/integrations-loader";
 import type { action as integrationsAction } from "../../support/route-support/admin-integrations/integrations-action";
@@ -32,6 +32,7 @@ export default function IntegrationsRoute() {
   const actionData = useActionData<typeof integrationsAction>();
   const navigate = useNavigate();
   const navigation = useNavigation();
+  const location = useLocation();
   const commandFeedback = actionData && "feedback" in actionData ? actionData.feedback : undefined;
 
   useEffect(() => {
@@ -47,6 +48,8 @@ export default function IntegrationsRoute() {
       commandFeedback={commandFeedback}
       commandResult={actionData && "feedback" in actionData ? actionData : null}
       actionPending={navigation.state !== "idle"}
+      receiptLocation={location}
+      submissionPending={navigation.state === "submitting"}
     />
   );
 }

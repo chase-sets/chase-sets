@@ -80,6 +80,7 @@ vi.mock("react-router", async () => {
     useRouteLoaderData: mockUseRouteLoaderData,
     useActionData: mockUseActionData,
     useNavigation: mockUseNavigation,
+    useLocation: () => ({ pathname: "/catalog/integrations", search: "", hash: "", key: "synthetic-daily" }),
     useFetcher: () => ({ state: "idle", data: undefined, load: () => undefined }),
     // The import-jobs module polls live progress via useRevalidator and the daily
     // import-context form submits context changes via useSubmit; outside a data
@@ -638,34 +639,48 @@ describe("Catalog integrations route", () => {
     ]);
   });
 
-  it("refuses ineligible units, mixed coordinates and unsupported product languages before enqueue", async () => {
+  // Whether a product coordinate may be imported on its own is the Catalog API's rule
+  // (product-coordinate-import-guard.test.ts); the page sends the unit's scope and says the refusal.
+  it("sends a product import to the Catalog API and says its refusal", async () => {
+    const enqueueSourceObservationIntegrationJob = vi
+      .fn()
+      .mockRejectedValue(new CatalogApiError(400, { error: { code: "invalid_scope" } }));
+    mockCreateCatalogRequestApiClient.mockReturnValue({ enqueueSourceObservationIntegrationJob });
+
+    const result = await runDailyAction({
+      _intent: "scope.import",
+      providerKey: "ygojson",
+      unitKey: "ygojson:yugioh:set:reference-data",
+      languageCode: "en",
+      productId: "synthetic-product",
+      expansionId: "synthetic-set",
+    });
+
+    expect(result.feedback.status).toBe("error");
+    expect(enqueueSourceObservationIntegrationJob).toHaveBeenCalledWith(
+      "import",
+      expect.objectContaining({
+        provider: "ygojson",
+        ingestionUnitKey: "ygojson:yugioh:set:reference-data",
+        language: "en",
+        setId: "synthetic-set",
+        productId: "synthetic-product",
+      }),
+    );
+  });
+
+  it("refuses a product import without a unit or with a contradicting language filter before enqueue", async () => {
     const enqueueSourceObservationIntegrationJob = vi.fn();
     mockCreateCatalogRequestApiClient.mockReturnValue({ enqueueSourceObservationIntegrationJob });
-    const invalidProductScopes: readonly Record<string, string>[] = [
-      { unitKey: "tcgdex:pokemon:card:import" },
-      { unitKey: "" },
-      { unitKey: "ygojson:yugioh:sealed-product:reference-data", expansionId: "synthetic-set" },
-      { unitKey: "ygojson:yugioh:sealed-product:reference-data", productLineName: "synthetic-mixed-name" },
-      { unitKey: "ygojson:yugioh:sealed-product:reference-data", seriesName: "synthetic-mixed-name" },
-      { unitKey: "ygojson:yugioh:sealed-product:reference-data", languageCode: "ja" },
-      { unitKey: "ygojson:yugioh:sealed-product:reference-data", profileVersion: "synthetic-inactive-version" },
-      { unitKey: "ygojson:yugioh:set:reference-data" },
-      {
-        providerKey: "tcgplayer",
-        unitKey: "tcgplayer:pokemon:sealed-product:source-observation-import",
-      },
-    ];
-    for (const fields of invalidProductScopes) {
-      const result = await runDailyAction({
-        _intent: "scope.import",
-        providerKey: "ygojson",
-        languageCode: "en",
-        productId: "synthetic-product",
-        ...fields,
-      });
-      expect(result.feedback.status).toBe("error");
-      expect(enqueueSourceObservationIntegrationJob).not.toHaveBeenCalled();
-    }
+    const missingUnitResult = await runDailyAction({
+      _intent: "scope.import",
+      providerKey: "ygojson",
+      unitKey: "",
+      languageCode: "en",
+      productId: "synthetic-product",
+    });
+    expect(missingUnitResult.feedback.status).toBe("error");
+    expect(enqueueSourceObservationIntegrationJob).not.toHaveBeenCalled();
 
     const conflictingFilterResult = await runDailyAction(
       {
@@ -821,6 +836,9 @@ describe("Catalog integrations route", () => {
     expect(mockUseNavigate).not.toHaveBeenCalled();
     expect(enqueueSourceObservationIntegrationJob).toHaveBeenCalledTimes(1);
     const clientCalls = mockCreateCatalogRequestApiClient.mock.calls.length;
+    mockUseActionData.mockReturnValue(null);
+    rerender(<IntegrationsRoute />);
+    expect(readOriginalReceiptDom(document.querySelector("[data-catalog-import-job-receipt]")!)).toEqual(expected);
     mockUseNavigation.mockReturnValue({ state: "submitting" });
     rerender(<IntegrationsRoute />);
     expect(document.querySelector("[data-catalog-import-job-receipt]")).toBeNull();
