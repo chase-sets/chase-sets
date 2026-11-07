@@ -10,6 +10,21 @@ import {
 import { buildCatalogPrimaryWorkbenchSourceObservationReviewQuery } from "./primary-workbench-source-observation-review";
 
 describe("Catalog primary workbench route context", () => {
+  it.each([
+    ["/catalog/providers/tcgdex", "tcgdex"],
+    ["/catalog/providers/tcgdex/?providerKey=", "tcgdex"],
+    ["/catalog/providers/%74cgdex", "tcgdex"],
+    ["/catalog/providers/tcgdex?providerKey=scryfall", "scryfall"],
+    ["/catalog/providers/tcgdex?providerKey=%20", null],
+    ["/catalog/providers/%E0", null],
+    ["/catalog/providers/%20", null],
+    ["/catalog/providers/tcgdex/extra", null],
+    ["/catalog/providers/tcgdex//", null],
+    ["/catalog/integrations/health", null],
+  ])("resolves provider path fallback without replacing query intent: %s", (path, providerKey) => {
+    expect(parseCatalogPrimaryWorkbenchRouteContext(`https://admin.example${path}`).providerKey).toBe(providerKey);
+  });
+
   it("preserves exact products in URLs, return links and alternate surfaces while legacy compact scopes remain sets", () => {
     const unit = "ygojson:yugioh:sealed-product:reference-data";
     const hrefs = ["synthetic-product-a", "synthetic-product-b"].map((productId) => {
