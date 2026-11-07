@@ -19,7 +19,8 @@ import {
 import { usePromotionTargetExclusionFixture } from "./promotion-target-exclusion-fixture";
 
 const databaseBaseUrl = process.env.TEST_DATABASE_URL;
-if (!databaseBaseUrl && process.env.CI) throw new Error("TEST_DATABASE_URL is required for bulk promotion admission DB proof.");
+if (!databaseBaseUrl && process.env.CI)
+  throw new Error("TEST_DATABASE_URL is required for bulk promotion admission DB proof.");
 const describeDb = databaseBaseUrl ? describe : describe.skip;
 
 const confirmation: SourceObservationPromotionConfirmation = {
@@ -84,7 +85,11 @@ async function waitFor(check: () => Promise<boolean>): Promise<void> {
 }
 
 /** A pool whose transaction clients pause after the admission's row lock until `release` resolves. */
-function pausingAfterRowLock(pool: PgTransactionalPool, locked: () => void, release: Promise<void>): PgTransactionalPool {
+function pausingAfterRowLock(
+  pool: PgTransactionalPool,
+  locked: () => void,
+  release: Promise<void>,
+): PgTransactionalPool {
   return {
     query: pool.query.bind(pool),
     connect: async () => {
