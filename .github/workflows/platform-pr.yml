@@ -28,6 +28,7 @@ jobs:
     env:
       # Host supplies this independently reviewed digest, never a hash accepted from the checkout.
       DIAGNOSTIC_FREEZE_SHA256: ${{ vars.INGRESS_NOSEND_FREEZE_SHA256 }}
+      DIAGNOSTIC_FREEZE_JSON: ${{ vars.INGRESS_NOSEND_FREEZE_JSON }}
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
@@ -35,10 +36,71 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Prepare reviewed public prerequisites
+      - name: Validate external authority and select exactly one phase
+        id: authority
         shell: bash
         run: |
           set -euo pipefail
+          bootstrap_node="$(command -v node)"
+          env -i PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
+            GITHUB_ACTIONS=true RUNNER_ENVIRONMENT=github-hosted GITHUB_JOB=ingress-nosend-diagnostic GITHUB_EVENT_NAME=pull_request \
+            GITHUB_EVENT_PATH="$GITHUB_EVENT_PATH" GITHUB_RUN_ID="$GITHUB_RUN_ID" GITHUB_RUN_ATTEMPT="$GITHUB_RUN_ATTEMPT" \
+            GITHUB_SHA="$GITHUB_SHA" RUNNER_TEMP="$RUNNER_TEMP" ImageVersion="$ImageVersion" ImageOS="$ImageOS" \
+            GITHUB_OUTPUT="$GITHUB_OUTPUT" DIAGNOSTIC_FREEZE_JSON="$DIAGNOSTIC_FREEZE_JSON" DIAGNOSTIC_FREEZE_SHA256="$DIAGNOSTIC_FREEZE_SHA256" \
+            "$bootstrap_node" --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          import { spawnSync } from 'node:child_process';
+          import { appendFileSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
+          import path from 'node:path';
+          import { bootstrapTools, decodeAuthority, enforceExecutables, enforceIdentityPins, hostedContext, maximumEnvelopeBytes, observeIdentity, readAuthority, stockTools } from './scripts/test-support/10678-ingress-nosend/inventory.mjs';
+          try {
+          const protocol = JSON.parse(readFileSync('scripts/test-support/10678-ingress-nosend/protocol.json', 'utf8'));
+          const event = hostedContext(protocol);
+          const raw = Buffer.from(process.env.DIAGNOSTIC_FREEZE_JSON ?? '', 'utf8');
+          assert(raw.length > 0 && raw.length <= maximumEnvelopeBytes, 'ENVELOPE_SIZE_REFUSED');
+          decodeAuthority(raw, process.env.DIAGNOSTIC_FREEZE_SHA256, { head: event.pull_request.head.sha, protocol });
+          const temp = realpathSync(process.env.RUNNER_TEMP);
+          const root = realpathSync('.');
+          assert(temp !== root && !temp.startsWith(`${root}/`), 'EXTERNAL_AUTHORITY_REQUIRED');
+          const dir = path.join(temp, '10678-authority');
+          mkdirSync(dir, { mode: 0o700 });
+          const file = path.join(dir, 'freeze.json');
+          writeFileSync(file, raw, { flag: 'wx', mode: 0o600 });
+          const authority = readAuthority(file, process.env.DIAGNOSTIC_FREEZE_SHA256, { head: event.pull_request.head.sha, protocol });
+          if (authority.config.phase === 'measurement') {
+            enforceExecutables(bootstrapTools(authority.config), stockTools, false);
+            const actual = observeIdentity(path.join(dir, 'bootstrap-identity'), bootstrapTools(authority.config));
+            enforceIdentityPins(authority.config, actual, true);
+          }
+          const head = spawnSync(authority.config.phase === 'measurement' ? bootstrapTools(authority.config).git.path : '/usr/bin/git', ['rev-parse', 'HEAD'], { env: { PATH: '/usr/bin:/bin', HOME: dir }, encoding: 'utf8', shell: false });
+          assert(head.status === 0 && head.stdout.trim() === authority.config.head, 'DISK_HEAD_MISMATCH');
+          appendFileSync(process.env.GITHUB_OUTPUT, `phase=${authority.config.phase}\nnode=${process.execPath}\n`);
+          } catch {
+            console.error('AUTHORITY_BOOTSTRAP_REFUSED');
+            process.exitCode = 1;
+          }
+          NODE
+
+      - name: Collect read-only inventory without measurement
+        id: inventory
+        if: steps.authority.outputs.phase == 'inventory'
+        shell: bash
+        env:
+          BOOTSTRAP_NODE: ${{ steps.authority.outputs.node }}
+        run: |
+          env -i PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
+            GITHUB_ACTIONS=true RUNNER_ENVIRONMENT=github-hosted GITHUB_JOB=ingress-nosend-diagnostic GITHUB_EVENT_NAME=pull_request \
+            GITHUB_EVENT_PATH="$GITHUB_EVENT_PATH" GITHUB_RUN_ID="$GITHUB_RUN_ID" GITHUB_RUN_ATTEMPT="$GITHUB_RUN_ATTEMPT" \
+            GITHUB_SHA="$GITHUB_SHA" RUNNER_TEMP="$RUNNER_TEMP" ImageVersion="$ImageVersion" ImageOS="$ImageOS" \
+            DIAGNOSTIC_FREEZE_SHA256="$DIAGNOSTIC_FREEZE_SHA256" \
+            "$BOOTSTRAP_NODE" scripts/test-support/10678-ingress-nosend/inventory.mjs "$RUNNER_TEMP/10678-authority/freeze.json"
+
+      - name: Prepare reviewed public prerequisites
+        if: steps.authority.outputs.phase == 'measurement'
+        shell: bash
+        run: |
+          set -euo pipefail
+          export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
           cache="$RUNNER_TEMP/10678-public-prefetch"
           mkdir -m 700 "$cache" "$RUNNER_TEMP/10678-bootstrap-home"
           export HOME="$RUNNER_TEMP/10678-bootstrap-home"
@@ -50,22 +112,6 @@ jobs:
           tar -xzf "$cache/node.tgz" -C "$cache" node-v24.22.2-linux-x64/bin/node
           printf '%s  %s\n' 904a6d3484241d466989f9df9ba3aab822b1496191bdb28230eb491a55c32a52 "$cache/node-v24.22.2-linux-x64/bin/node" | sha256sum --check --status
           sudo -n install -m 755 "$cache/node-v24.22.2-linux-x64/bin/node" /usr/local/bin/node
-          env -i PATH=/usr/local/bin:/usr/bin:/bin GITHUB_EVENT_PATH="$GITHUB_EVENT_PATH" DIAGNOSTIC_FREEZE_SHA256="$DIAGNOSTIC_FREEZE_SHA256" /usr/local/bin/node --input-type=module <<'NODE'
-          import assert from 'node:assert/strict';
-          import { createHash } from 'node:crypto';
-          import { readFileSync } from 'node:fs';
-          const raw = readFileSync('scripts/test-support/10678-ingress-nosend/freeze.json');
-          const digest = createHash('sha256').update(raw).digest('hex');
-          assert.match(process.env.DIAGNOSTIC_FREEZE_SHA256, /^[a-f0-9]{64}$/, 'INDEPENDENT_FREEZE_DIGEST_REQUIRED');
-          assert.equal(digest, process.env.DIAGNOSTIC_FREEZE_SHA256, 'REVIEWED_FREEZE_DIGEST_MISMATCH');
-          const freeze = JSON.parse(raw);
-          const event = JSON.parse(readFileSync(process.env.GITHUB_EVENT_PATH, 'utf8'));
-          assert.equal(freeze.head, event.pull_request.head.sha, 'FROZEN_HEAD_MISMATCH');
-          assert.equal(freeze.review.verdict, 'PASS', 'FRESH_REVIEW_REQUIRED');
-          assert.equal(freeze.review.head, freeze.head, 'REVIEW_HEAD_MISMATCH');
-          assert.match(freeze.review.receiptSha256, /^[a-f0-9]{64}$/, 'REVIEW_RECEIPT_REQUIRED');
-          assert(!raw.toString('utf8').includes('UNKNOWN'), 'UNRESOLVED_PREREQUISITE');
-          NODE
           download https://github.com/kubernetes-sigs/kind/releases/download/v0.24.0/kind-linux-amd64 "$cache/kind" b89aada5a39d620da3fcd16435b7f28d858927dd53f92cbac77686b0588b600d
           download https://get.helm.sh/helm-v3.16.2-linux-amd64.tar.gz "$cache/helm.tgz" 9318379b847e333460d33d291d4c088156299a26cd93d570a7f5d0c36e50b5bb
           tar -xzf "$cache/helm.tgz" -C "$cache" linux-amd64/helm
@@ -91,34 +137,36 @@ jobs:
           sudo -n install -m 644 "$cache/ingress-nginx-4.11.3.tgz" /opt/10678-inputs/ingress-nginx-4.11.3.tgz
 
       - name: Prepare isolated diagnostic
+        if: steps.authority.outputs.phase == 'measurement'
         shell: bash
         run: |
           env -i PATH=/usr/local/bin:/usr/bin:/bin \
             GITHUB_ACTIONS=true RUNNER_ENVIRONMENT=github-hosted GITHUB_JOB=ingress-nosend-diagnostic GITHUB_EVENT_NAME=pull_request \
             GITHUB_EVENT_PATH="$GITHUB_EVENT_PATH" GITHUB_RUN_ID="$GITHUB_RUN_ID" GITHUB_RUN_ATTEMPT="$GITHUB_RUN_ATTEMPT" \
-            GITHUB_SHA="$GITHUB_SHA" RUNNER_TEMP="$RUNNER_TEMP" DIAGNOSTIC_FREEZE_SHA256="$DIAGNOSTIC_FREEZE_SHA256" \
-            /usr/local/bin/node scripts/test-support/10678-ingress-nosend/runner.mjs prepare "$GITHUB_WORKSPACE/scripts/test-support/10678-ingress-nosend/freeze.json"
+            GITHUB_SHA="$GITHUB_SHA" RUNNER_TEMP="$RUNNER_TEMP" ImageVersion="$ImageVersion" ImageOS="$ImageOS" DIAGNOSTIC_FREEZE_SHA256="$DIAGNOSTIC_FREEZE_SHA256" \
+            /usr/local/bin/node scripts/test-support/10678-ingress-nosend/runner.mjs prepare "$RUNNER_TEMP/10678-authority/freeze.json"
 
       - name: Measure fixed serial protocol
+        if: steps.authority.outputs.phase == 'measurement'
         timeout-minutes: 10
         shell: bash
         run: |
           env -i PATH=/usr/local/bin:/usr/bin:/bin \
             GITHUB_ACTIONS=true RUNNER_ENVIRONMENT=github-hosted GITHUB_JOB=ingress-nosend-diagnostic GITHUB_EVENT_NAME=pull_request \
             GITHUB_EVENT_PATH="$GITHUB_EVENT_PATH" GITHUB_RUN_ID="$GITHUB_RUN_ID" GITHUB_RUN_ATTEMPT="$GITHUB_RUN_ATTEMPT" \
-            GITHUB_SHA="$GITHUB_SHA" RUNNER_TEMP="$RUNNER_TEMP" DIAGNOSTIC_FREEZE_SHA256="$DIAGNOSTIC_FREEZE_SHA256" \
-            /usr/local/bin/node scripts/test-support/10678-ingress-nosend/runner.mjs measure "$GITHUB_WORKSPACE/scripts/test-support/10678-ingress-nosend/freeze.json"
+            GITHUB_SHA="$GITHUB_SHA" RUNNER_TEMP="$RUNNER_TEMP" ImageVersion="$ImageVersion" ImageOS="$ImageOS" DIAGNOSTIC_FREEZE_SHA256="$DIAGNOSTIC_FREEZE_SHA256" \
+            /usr/local/bin/node scripts/test-support/10678-ingress-nosend/runner.mjs measure "$RUNNER_TEMP/10678-authority/freeze.json"
 
       - name: Seal private capture
         id: seal
-        if: always()
+        if: always() && steps.authority.outcome == 'success' && steps.authority.outputs.phase == 'measurement'
         shell: bash
         run: |
           env -i PATH=/usr/local/bin:/usr/bin:/bin \
             GITHUB_ACTIONS=true RUNNER_ENVIRONMENT=github-hosted GITHUB_JOB=ingress-nosend-diagnostic GITHUB_EVENT_NAME=pull_request \
             GITHUB_EVENT_PATH="$GITHUB_EVENT_PATH" GITHUB_RUN_ID="$GITHUB_RUN_ID" GITHUB_RUN_ATTEMPT="$GITHUB_RUN_ATTEMPT" \
-            GITHUB_SHA="$GITHUB_SHA" RUNNER_TEMP="$RUNNER_TEMP" DIAGNOSTIC_FREEZE_SHA256="$DIAGNOSTIC_FREEZE_SHA256" \
-            /usr/local/bin/node scripts/test-support/10678-ingress-nosend/runner.mjs seal "$GITHUB_WORKSPACE/scripts/test-support/10678-ingress-nosend/freeze.json"
+            GITHUB_SHA="$GITHUB_SHA" RUNNER_TEMP="$RUNNER_TEMP" ImageVersion="$ImageVersion" ImageOS="$ImageOS" DIAGNOSTIC_FREEZE_SHA256="$DIAGNOSTIC_FREEZE_SHA256" \
+            /usr/local/bin/node scripts/test-support/10678-ingress-nosend/runner.mjs seal "$RUNNER_TEMP/10678-authority/freeze.json"
 
       - name: Verify publication gate and complete raw manifest
         id: publication
@@ -163,6 +211,59 @@ jobs:
         with:
           name: ingress-nosend-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/10678-ingress-nosend/${{ github.run_id }}-${{ github.run_attempt }}/diagnostic
+          if-no-files-found: error
+
+      - name: Verify typed inventory manifest and private scan gate
+        id: inventory-publication
+        if: always() && steps.authority.outputs.phase == 'inventory' && steps.inventory.outcome == 'success'
+        shell: bash
+        env:
+          BOOTSTRAP_NODE: ${{ steps.authority.outputs.node }}
+        run: |
+          env -i PATH=/usr/local/bin:/usr/bin:/bin RUNNER_TEMP="$RUNNER_TEMP" GITHUB_RUN_ID="$GITHUB_RUN_ID" GITHUB_RUN_ATTEMPT="$GITHUB_RUN_ATTEMPT" GITHUB_OUTPUT="$GITHUB_OUTPUT" DIAGNOSTIC_FREEZE_SHA256="$DIAGNOSTIC_FREEZE_SHA256" "$BOOTSTRAP_NODE" --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          import { createHash } from 'node:crypto';
+          import { appendFileSync, lstatSync, readFileSync, readdirSync } from 'node:fs';
+          import path from 'node:path';
+          import { validateInventoryPublication } from './scripts/test-support/10678-ingress-nosend/inventory.mjs';
+          const hash = (bytes) => createHash('sha256').update(bytes).digest('hex');
+          const run = process.env.GITHUB_RUN_ID;
+          const attempt = process.env.GITHUB_RUN_ATTEMPT;
+          const dir = path.join(process.env.RUNNER_TEMP, '10678-inventory', `${run}-${attempt}`, 'inventory');
+          assert(lstatSync(dir).isDirectory() && !lstatSync(dir).isSymbolicLink());
+          const names = readdirSync(dir).sort();
+          for (const name of names) assert(lstatSync(path.join(dir, name)).isFile() && !lstatSync(path.join(dir, name)).isSymbolicLink());
+          const receipt = JSON.parse(readFileSync(path.join(dir, 'preparation-receipt.json'), 'utf8'));
+          const gate = JSON.parse(readFileSync(path.join(dir, 'inventory-publication-gate.json'), 'utf8'));
+          validateInventoryPublication(receipt, gate);
+          assert.equal(receipt.run, run);
+          assert.equal(receipt.attempt, attempt);
+          assert.equal(receipt.authority.envelopeSha256, process.env.DIAGNOSTIC_FREEZE_SHA256);
+          const raw = readFileSync(path.join(dir, 'inventory-manifest.json'));
+          assert.equal(hash(raw), gate.manifestSha256);
+          const manifest = JSON.parse(raw);
+          assert.equal(manifest.schema, '10678-inventory-manifest/v1');
+          assert.equal(manifest.phase, 'inventory');
+          assert.equal(manifest.run, run);
+          assert.equal(manifest.attempt, attempt);
+          assert.deepEqual(manifest.files.map((entry) => entry.file).sort(), names.filter((name) => !['inventory-manifest.json', 'inventory-publication-gate.json'].includes(name)));
+          for (const entry of manifest.files) {
+            assert.equal(path.basename(entry.file), entry.file);
+            const bytes = readFileSync(path.join(dir, entry.file));
+            assert.equal(bytes.length, entry.bytes);
+            assert.equal(hash(bytes), entry.sha256);
+          }
+          assert.equal(hash(readFileSync(path.join(dir, 'preparation-receipt.json'))), manifest.receiptSha256);
+          appendFileSync(process.env.GITHUB_OUTPUT, 'publish=true\n');
+          NODE
+
+      - name: Upload read-only inventory only
+        id: inventory-upload
+        if: always() && steps.inventory.outcome == 'success' && steps.inventory-publication.outcome == 'success' && steps.inventory-publication.outputs.publish == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ingress-nosend-inventory-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/10678-inventory/${{ github.run_id }}-${{ github.run_attempt }}/inventory
           if-no-files-found: error
 
   known-failure-guard:

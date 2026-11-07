@@ -1,0 +1,106 @@
+{
+  "schema": "10678-non-executable-inputs/v1",
+  "purpose": "Public constants only. Never runtime authority. H1 inventory has no measurement pins.",
+  "phases": {
+    "inventory": "External schema-2 payload, exact file census and detached canonical review required; zero rows only.",
+    "measurement": "Additionally requires reviewed bootstrapTools, tools, daemonTools, bootstrapIdentity, expectedIdentity and inventoryAuthority from H1 custody. No H2 pins are asserted here."
+  },
+  "briefSha256": "492610de9d989a24627efcacd2ca5043f85f08cdd3858b38c345f7e5811a6a94",
+  "methodSha256": "15a2c4d7678982530a9098f2f9337d0e695e93cb0f746efd4f927b8e80d1d65b",
+  "decisionSha256": "cd40037db2909c89980c8fdb365a2583cf5ca276122ebcdcda2e7456b30888b5",
+  "sources": [
+    {
+      "id": "historical",
+      "ref": "edddac45d0885dbb32432486f48e23968402a50c",
+      "adapter": "1.19.17",
+      "historicalNodePatch": "UNKNOWN"
+    },
+    {
+      "id": "current",
+      "ref": "b3df7dfba984aee859c064cc00211ed83e41bee5",
+      "adapter": "2.1.6",
+      "candidateCommit": "76cf718a845269f521678527bcba37f04d3935ce"
+    }
+  ],
+  "publicDistributions": {
+    "node": {
+      "url": "https://nodejs.org/dist/v24.22.2/node-v24.22.2-linux-x64.tar.gz",
+      "sha256": "361718c444e49af2ca5a110c83ba6a8901143f23ab285ebbef0341f391f482a9"
+    },
+    "kind": {
+      "url": "https://github.com/kubernetes-sigs/kind/releases/download/v0.24.0/kind-linux-amd64",
+      "sha256": "b89aada5a39d620da3fcd16435b7f28d858927dd53f92cbac77686b0588b600d"
+    },
+    "helm": {
+      "url": "https://get.helm.sh/helm-v3.16.2-linux-amd64.tar.gz",
+      "sha256": "9318379b847e333460d33d291d4c088156299a26cd93d570a7f5d0c36e50b5bb"
+    },
+    "kubectl": {
+      "url": "https://dl.k8s.io/release/v1.30.4/bin/linux/amd64/kubectl",
+      "sha256": "2ffd023712bbc1a9390dbd8c0c15201c165a69d394787ef03eda3eccb4b9ac06"
+    },
+    "pnpm": {
+      "url": "https://registry.npmjs.org/pnpm/-/pnpm-11.0.9.tgz",
+      "sha256": "4d84d7b0e31c9054f61658795698070007d03b7238481e2161a562557aa90834"
+    },
+    "esbuild": {
+      "url": "https://registry.npmjs.org/@esbuild/linux-x64/-/linux-x64-0.28.1.tgz",
+      "sha256": "9ed00ab5330c94386f3273eda99a1fb0e8f37cfd6cb5270e4ad2fe3527da3546"
+    },
+    "yq": {
+      "url": "https://github.com/mikefarah/yq/releases/download/v4.54.2/yq_linux_amd64",
+      "sha256": "44c7759059b4910827a0059a2757b22001e59360cdecdb2ef8dedc4b6c7e9f32"
+    },
+    "chart": {
+      "url": "https://github.com/kubernetes/ingress-nginx/releases/download/helm-chart-4.11.3/ingress-nginx-4.11.3.tgz",
+      "sha256": "a9f371489a6c18042508c0b5c2ea669deaad7ccc08f37efc4522e336edda1c20"
+    }
+  },
+  "publicExecutables": {
+    "node": {
+      "path": "/usr/local/bin/node",
+      "sha256": "904a6d3484241d466989f9df9ba3aab822b1496191bdb28230eb491a55c32a52"
+    },
+    "kind": {
+      "path": "/usr/local/bin/kind",
+      "sha256": "b89aada5a39d620da3fcd16435b7f28d858927dd53f92cbac77686b0588b600d"
+    },
+    "helm": {
+      "path": "/usr/local/bin/helm",
+      "sha256": "2eead53d95473a37d72937e8e3aed5d964271685f3dac5b76955867818c040f4"
+    },
+    "kubectl": {
+      "path": "/usr/local/bin/kubectl",
+      "sha256": "2ffd023712bbc1a9390dbd8c0c15201c165a69d394787ef03eda3eccb4b9ac06"
+    },
+    "pnpm": {
+      "path": "/opt/10678-pnpm/bin/pnpm.cjs",
+      "sha256": "67b035e322203961795e8e34ca63a08c37a4386eda94107fb3d28f3246d882ad"
+    },
+    "esbuild": {
+      "path": "/usr/local/bin/esbuild",
+      "sha256": "0c6588b092a2c291a72bab90659f3c9e0e25e0fe59c9ac12b4dae4d945e5548c"
+    },
+    "yq": {
+      "path": "/usr/local/bin/yq",
+      "sha256": "44c7759059b4910827a0059a2757b22001e59360cdecdb2ef8dedc4b6c7e9f32"
+    }
+  },
+  "chart": {
+    "path": "/opt/10678-inputs/ingress-nginx-4.11.3.tgz",
+    "sha256": "a9f371489a6c18042508c0b5c2ea669deaad7ccc08f37efc4522e336edda1c20"
+  },
+  "retainedConfigMap": { "path": "scripts/test-support/10678-ingress-nosend/retained-configmap.yaml" },
+  "images": {
+    "kind": "kindest/node:v1.30.4@sha256:976ea815844d5fa93be213437e3ff5754cd599b040946b5cca43ca45c2047114",
+    "historical": "node:24-bookworm-slim@sha256:01d566e8d94d8c619591d78652babfccd3c6992a3dffa9ed5ab39e11cf6c70e9",
+    "current": "ghcr.io/chase-sets/ci-mirror-node:24-bookworm-slim@sha256:d6aa754f16b3197301076f047b5def2f02ea1dbbc2ca920407d46d7ec7f87b20",
+    "prefetch": [
+      "kindest/node:v1.30.4@sha256:976ea815844d5fa93be213437e3ff5754cd599b040946b5cca43ca45c2047114",
+      "node:24-bookworm-slim@sha256:01d566e8d94d8c619591d78652babfccd3c6992a3dffa9ed5ab39e11cf6c70e9",
+      "ghcr.io/chase-sets/ci-mirror-node:24-bookworm-slim@sha256:d6aa754f16b3197301076f047b5def2f02ea1dbbc2ca920407d46d7ec7f87b20",
+      "registry.k8s.io/ingress-nginx/controller:v1.11.3@sha256:d56f135b6462cfc476447cfe564b83a45e8bb7da2774963b00d12161112270b7",
+      "registry.k8s.io/ingress-nginx/kube-webhook-certgen:v1.4.4@sha256:a9f03b34a3cbfbb26d103a14046ab2c5130a80c3d69d526ff8063d2b37b9fd3f"
+    ]
+  }
+}

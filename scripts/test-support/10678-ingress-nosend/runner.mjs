@@ -28,6 +28,17 @@ import {
   sha256,
   validateBundle,
 } from "./helpers.mjs";
+import {
+  compareConfigMaps,
+  enforceExecutables,
+  enforceIdentityPins,
+  invocation,
+  observeIdentity,
+  preserveAuthority,
+  preserveMetadata,
+  readAuthority,
+  retainedPath,
+} from "./inventory.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repo = path.resolve(here, "../../..");
@@ -55,12 +66,13 @@ invariant(
   "EVENT_NOT_ADMITTED",
 );
 const configPath = realpathSync(process.argv[3]);
-const config = JSON.parse(readFileSync(configPath, "utf8"));
-invariant(
-  isHash(process.env.DIAGNOSTIC_FREEZE_SHA256) &&
-    sha256(readFileSync(configPath)) === process.env.DIAGNOSTIC_FREEZE_SHA256,
-  "REVIEWED_FREEZE_DIGEST_REQUIRED",
-);
+let authority = readAuthority(configPath, process.env.DIAGNOSTIC_FREEZE_SHA256, {
+  head: event.pull_request.head.sha,
+  phase: "measurement",
+  protocol,
+});
+const config = authority.config;
+const retainedConfigMap = path.join(repo, retainedPath);
 invariant(process.getuid() !== 0, "NONROOT_RUNNER_CONTROL_REQUIRED");
 const run = process.env.GITHUB_RUN_ID;
 const attempt = process.env.GITHUB_RUN_ATTEMPT;
@@ -85,9 +97,23 @@ if (phase === "prepare") {
   mkdirSync(root, { mode: 0o700 }); // EEXIST is a no-replay refusal, not permission to reset a run.
   for (const dir of [privateDir, capture, runtime, path.join(privateDir, "home"), path.join(privateDir, "docker")])
     mkdirSync(dir, { mode: 0o700 });
-  state = { id, run, attempt, commands: [], rows: [], phases: {}, resources: [], boundaryInstalled: false };
+  state = {
+    id,
+    run,
+    attempt,
+    authority: authority.identity,
+    commands: [],
+    rows: [],
+    phases: {},
+    resources: [],
+    boundaryInstalled: false,
+  };
 } else state = JSON.parse(text(stateFile));
 invariant(state.id === id, "STATE_IDENTITY_MISMATCH");
+invariant(
+  JSON.stringify(state.authority) === JSON.stringify(authority.identity),
+  "STATE_ENVELOPE_SUBSTITUTION_REFUSED",
+);
 const save = () => json(stateFile, state);
 const mark = (name, fields = {}) => {
   state.phases[name] = new Date().toISOString();
@@ -116,60 +142,18 @@ function pinFile(file, expected) {
 }
 
 function verifyFreeze() {
-  invariant(config.schema === 1 && config.head === event.pull_request.head.sha, "FROZEN_HEAD_MISMATCH");
+  authority = readAuthority(configPath, process.env.DIAGNOSTIC_FREEZE_SHA256, {
+    head: event.pull_request.head.sha,
+    phase: "measurement",
+    protocol,
+  });
   invariant(
-    config.review?.verdict === "PASS" && config.review.head === config.head && isHash(config.review.receiptSha256),
-    "FRESH_REVIEW_REQUIRED",
+    JSON.stringify(state.authority) === JSON.stringify(authority.identity),
+    "STATE_ENVELOPE_SUBSTITUTION_REFUSED",
   );
-  invariant(
-    config.briefSha256 === protocol.briefSha256 && config.methodSha256 === protocol.methodSha256,
-    "AUTHORITY_BINDING_MISMATCH",
-  );
-  const requiredFiles = [
-    ...readdirSync(here).map((f) => `scripts/test-support/10678-ingress-nosend/${f}`),
-    "scripts/render-platform-helm-values.mjs",
-    "scripts/lib/repo.mjs",
-    "infrastructure/helm/doks-ingress/ingress-nginx-values.yaml",
-    "scripts/doks-cluster-addons.mjs",
-    "pnpm-lock.yaml",
-    ".github/workflows/platform-pr.yml",
-  ];
-  invariant(
-    requiredFiles.every((f) => isHash(config.files?.[f])),
-    "INCOMPLETE_FREEZE",
-  );
-  for (const [relative, hash] of Object.entries(config.files)) {
-    const absolute = realpathSync(path.resolve(repo, relative));
-    invariant(absolute.startsWith(`${repo}/`), "FROZEN_PATH_ESCAPE");
-    pinFile(absolute, hash);
-  }
-  for (const tool of [
-    "node",
-    "git",
-    "tar",
-    "docker",
-    "kind",
-    "helm",
-    "kubectl",
-    "pnpm",
-    "esbuild",
-    "yq",
-    "openssl",
-    "sudo",
-    "iptables",
-    "ip6tables",
-    "ip",
-    "systemctl",
-  ]) {
-    const pin = config.tools?.[tool];
-    invariant(pin && path.isAbsolute(pin.path) && pin.path === realpathSync(pin.path), "REAL_TOOL_PATH_REQUIRED");
-    pinFile(pin.path, pin.sha256);
-  }
-  invariant(realpathSync(process.execPath) === config.tools.node.path, "NODE_EXECUTABLE_MISMATCH");
-  const pathNode = ["/usr/local/bin/node", "/usr/bin/node", "/bin/node"].find(existsSync);
-  invariant(pathNode && realpathSync(pathNode) === config.tools.node.path, "TOOL_INTERPRETER_MISMATCH");
+  enforceExecutables(config.tools);
   pinFile(config.chart.path, config.chart.sha256);
-  pinFile(config.retainedConfigMap.path, protocol.retainedConfigMapSha256);
+  pinFile(retainedConfigMap, protocol.retainedConfigMapSha256);
   invariant(config.images?.prefetch?.every(isImage) && isImage(config.images.kind), "IMMUTABLE_IMAGES_REQUIRED");
   invariant(
     protocol.stacks.every((s) => isImage(config.images[s.id])),
@@ -201,8 +185,9 @@ async function command(tool, args, label, { cwd = repo, allowFailure = false, pr
   const outFd = openSync(output, "wx", 0o600);
   const errFd = openSync(error, "wx", 0o600);
   try {
-    const executable = privileged ? config.tools.sudo.path : config.tools[tool].path;
-    const argv = privileged ? ["-n", config.tools[tool].path, ...args] : args;
+    const target = invocation(config.tools, tool, args);
+    const executable = privileged ? config.tools.sudo.path : target.executable;
+    const argv = privileged ? ["-n", target.executable, ...target.args] : target.args;
     entry.exit = await new Promise((resolve, reject) => {
       const child = spawn(executable, argv, { cwd, env: childEnv, stdio: ["ignore", outFd, errFd], shell: false });
       child.once("error", reject);
@@ -357,13 +342,12 @@ async function prepareController() {
       values.controller.config["custom-http-errors"] === "502,503,504",
     "CONFIGURATION_INCOMPLETE",
   );
-  const retained = (await documents(config.retainedConfigMap.path, "retained-configmap-json"))[0];
-  const normalized = { ...expected.data, "error-log-path": "/dev/null" };
-  delete normalized["error-log-level"];
-  invariant(
-    JSON.stringify(Object.entries(normalized).sort()) === JSON.stringify(Object.entries(retained.data ?? {}).sort()),
-    "RETAINED_CONFIGMAP_MISMATCH",
+  const retained = await command(
+    "yq",
+    ["eval-all", "-o=json", "-I=0", "[.]", retainedConfigMap],
+    "retained-configmap-json",
   );
+  compareConfigMaps(JSON.parse(retained.value), expected.data);
   state.expectedConfigMap = expected.data;
   state.chartImages = images;
   await command(
@@ -930,8 +914,13 @@ async function client(mode, row, label, allowFailure = false) {
 }
 
 async function prepare() {
-  mark("preparationStart");
   verifyFreeze();
+  preserveAuthority(capture, authority, readFileSync(configPath));
+  preserveMetadata(path.join(temp, "10678-authority", "bootstrap-identity"), capture, "bootstrap-");
+  const actualIdentity = observeIdentity(path.join(privateDir, "preparation-identity"), config.tools);
+  preserveMetadata(path.join(privateDir, "preparation-identity"), capture, "preparation-identity-");
+  enforceIdentityPins(config, actualIdentity);
+  mark("preparationStart");
   const head = await command("git", ["rev-parse", "HEAD"], "disk-head");
   invariant(head.value.trim() === config.head, "DISK_HEAD_MISMATCH");
   const daemon = await docker(["version", "--format", "{{json .}}"], "linux-docker-daemon");
@@ -964,6 +953,16 @@ async function prepare() {
     jobIdentity,
     job: protocol.job,
     configSha256: sha256(readFileSync(configPath)),
+    authority: authority.identity,
+    pinSetSha256: sha256(
+      JSON.stringify({
+        tools: config.tools,
+        bootstrapTools: config.bootstrapTools,
+        daemonTools: config.daemonTools,
+        expectedIdentity: config.expectedIdentity,
+      }),
+    ),
+    actualIdentity,
     frozen: config,
     actualNode: process.version,
     historicalNodePatch: "UNKNOWN",
@@ -1096,6 +1095,10 @@ async function measure() {
     "MEASUREMENT_NOT_ADMITTED",
   );
   verifyFreeze();
+  const actualIdentity = observeIdentity(path.join(privateDir, "prepayload-identity"), config.tools);
+  preserveMetadata(path.join(privateDir, "prepayload-identity"), capture, "prepayload-identity-");
+  enforceIdentityPins(config, actualIdentity);
+  json(path.join(capture, "prepayload-identity.json"), { authority: authority.identity, actualIdentity });
   const head = await command("git", ["rev-parse", "HEAD"], "prepayload-disk-head");
   invariant(head.value.trim() === config.head, "PREPAYLOAD_DISK_HEAD_MISMATCH");
   mark("protocolStart");
@@ -1212,6 +1215,12 @@ function captureFiles() {
 }
 
 async function seal() {
+  verifyFreeze();
+  const actualIdentity = observeIdentity(path.join(privateDir, "seal-identity"), config.tools);
+  preserveMetadata(path.join(privateDir, "seal-identity"), capture, "seal-identity-");
+  enforceIdentityPins(config, actualIdentity);
+  const head = await command("git", ["rev-parse", "HEAD"], "seal-disk-head");
+  invariant(head.value.trim() === config.head, "SEAL_DISK_HEAD_MISMATCH");
   invariant(!state.phases.sealed, "ALREADY_SEALED_NO_REPLAY");
   mark("captureStart");
   let captureComplete = true;
@@ -1235,6 +1244,15 @@ async function seal() {
     base: event.pull_request.base.sha,
     merge: process.env.GITHUB_SHA,
     frozenInputSha256: sha256(readFileSync(configPath)),
+    authority: authority.identity,
+    pinSetSha256: sha256(
+      JSON.stringify({
+        tools: config.tools,
+        bootstrapTools: config.bootstrapTools,
+        daemonTools: config.daemonTools,
+        expectedIdentity: config.expectedIdentity,
+      }),
+    ),
   };
   receipt.failure = state.failure;
   receipt.captureComplete =
