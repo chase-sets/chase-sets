@@ -153,9 +153,12 @@ force-refreshes them; which field each option kind drives is copied from admin-w
 returns it
 ([chase-sets/chase-sets#11080 [catalog] Work out the daily workbench's import scope selects in the Catalog API: admin-web maps option kinds to fields, narrows their options and parses importScope itself](https://github.com/chase-sets/chase-sets/issues/11080)).
 Below the bar the selected source scope's workset lists each provider unit with its state, counts and
-scope link; a unit's sync, preview and reapply run on admin-web until the API builds their scope
-([chase-sets/chase-sets#11082 [catalog] Accept the daily workset unit's import and reapply in the Catalog API: admin-web builds their job and reapply scope from the unit's commandContext with its own rules](https://github.com/chase-sets/chase-sets/issues/11082)), and so does the jobs stage's import preview, whose scope admin-web's loader builds the
-same way. The review stage folds the alias review of the provider and profile version the surface
+scope link. A unit's Sync and Reapply post the scopes the API builds for it (`commandScopes`,
+[chase-sets/chase-sets#11082 [catalog] Accept the daily workset unit's import and reapply in the Catalog API: admin-web builds their job and reapply scope from the unit's commandContext with its own rules](https://github.com/chase-sets/chase-sets/issues/11082)),
+read again for the working set when the form posts, and land on the unit's working set with the job
+they queued; its Preview opens on admin-web with the other promotion previews. The jobs stage's
+import preview still opens on admin-web; the pilot has not yet drawn it from the selected unit's
+import scope. The review stage folds the alias review of the provider and profile version the surface
 names, with the same candidate commands and bulk bar as the scopes list's.
 Provider detail,
 `/catalog/providers/{providerKey}` ([admin/src/catalog/provider.rs](admin/src/catalog/provider.rs)),
@@ -305,7 +308,6 @@ instead. Remove the workaround when the issue closes.
 | [chase-sets/chase-sets#11047 [catalog] Return the daily workbench's stage states, status banners and review pager links from the surface read](https://github.com/chase-sets/chase-sets/issues/11047) | [admin/src/catalog/daily.rs](admin/src/catalog/daily.rs), [admin/src/catalog/views/daily_page.rs](admin/src/catalog/views/daily_page.rs) |
 | [chase-sets/chase-sets#11079 [catalog] Serve a Source Observation's evidence detail from the Catalog API: admin-web's loader works out its promotion readiness and Product contents states](https://github.com/chase-sets/chase-sets/issues/11079) | [admin/src/catalog/daily.rs](admin/src/catalog/daily.rs) |
 | [chase-sets/chase-sets#11080 [catalog] Work out the daily workbench's import scope selects in the Catalog API: admin-web maps option kinds to fields, narrows their options and parses importScope itself](https://github.com/chase-sets/chase-sets/issues/11080) | [admin/src/catalog/import_context.rs](admin/src/catalog/import_context.rs) |
-| [chase-sets/chase-sets#11082 [catalog] Accept the daily workset unit's import and reapply in the Catalog API: admin-web builds their job and reapply scope from the unit's commandContext with its own rules](https://github.com/chase-sets/chase-sets/issues/11082) | [admin/src/catalog/views/daily_page.rs](admin/src/catalog/views/daily_page.rs) |
 | [chase-sets/chase-sets#11090 [catalog] A bulk reject with no observations and no scope rejects every reviewable Source Observation](https://github.com/chase-sets/chase-sets/issues/11090) | [admin/src/catalog/daily.rs](admin/src/catalog/daily.rs) |
 | [chase-sets/chase-sets#11091 [catalog] Source Observation bulk and review refusals answer { error: string }, not the { error: { code, message } } envelope](https://github.com/chase-sets/chase-sets/issues/11091) | [platform/src/api.rs](platform/src/api.rs) |
 | [chase-sets/chase-sets#11049 [catalog] Require the confirmation for provider profile rollback, deprecate and retire in the Catalog API, not only in admin-web's action](https://github.com/chase-sets/chase-sets/issues/11049) | [admin/src/catalog/provider.rs](admin/src/catalog/provider.rs) |

@@ -28,8 +28,8 @@ use crate::{
         api::AliasReview,
         daily::{
             self, CANDIDATE_COMMANDS, Candidate, CandidateInput, Daily, DailyScreen, EditForm, Governance, Health, ImportJob,
-            JobInput, PROMOTION_INTENTS, Ran, ReviewInput, ReviewRow, Said, Stage, StageState, SyncInput, SyncRun, UnitState,
-            WorksetUnit, at, with_query,
+            JobInput, PROMOTION_INTENTS, Ran, ReviewInput, ReviewRow, Said, Stage, StageState, SyncInput, SyncRun, UnitInput,
+            UnitState, WorksetUnit, at, with_query,
         },
         integrations,
         views::AliasReviewPart,
@@ -149,7 +149,7 @@ pub fn DailyPage<'a>(
                 options={screen.source_options()}
                 context={context}
             />
-            <WorksetModule t={t} p={p} req={req} model={model} manage={screen.manage} />
+            <WorksetModule t={t} p={p} req={req} model={model} context={context} manage={screen.manage} />
             <Stages t={t} p={p} req={req} screen={screen} context={context} />
         </Shell>
     }
@@ -307,11 +307,12 @@ fn workset_unit_tone(state: &str) -> &'static str {
 }
 
 /// The selected source scope (`CatalogSourceScopeWorksetModule`): the scope and its counts, then each
-/// provider unit with its state and the way to open its scope. A unit's sync, preview and reapply are
-/// named with the API's state for each; they run on admin-web, which builds their scope from the
-/// unit (chase-sets/chase-sets#11082). Nothing draws without a unit, as there.
+/// provider unit with its state, the way to open its scope, and its Sync, Preview and Reapply. Sync
+/// and Reapply post the scopes the API built for the unit; Preview opens on admin-web until the API
+/// checks a promotion preview itself (chase-sets/chase-sets#11045). Nothing draws without a unit, as
+/// there.
 #[component(css = DailyPage)]
-fn WorksetModule<'a>(t: Cat, p: Pilot, req: &'a Req, model: &'a Daily, manage: bool) -> impl Render {
+fn WorksetModule<'a>(t: Cat, p: Pilot, req: &'a Req, model: &'a Daily, context: &'a str, manage: bool) -> impl Render {
     let workset = &model.source_scope_workset;
     let summary = &workset.summary;
     let items = [
@@ -343,7 +344,7 @@ fn WorksetModule<'a>(t: Cat, p: Pilot, req: &'a Req, model: &'a Daily, manage: b
                             </thead>
                             <tbody>
                                 for unit in &workset.units {
-                                    <WorksetRow t={t} p={p} req={req} unit={unit} manage={manage} />
+                                    <WorksetRow t={t} p={p} req={req} unit={unit} context={context} manage={manage} />
                                 }
                             </tbody>
                         </table>
@@ -357,11 +358,13 @@ fn WorksetModule<'a>(t: Cat, p: Pilot, req: &'a Req, model: &'a Daily, manage: b
     }
 }
 
-/// A unit's row: who it is, its state and counts, and its scope's working set, with its commands'
-/// states and, when one may run, the way to run it on admin-web.
+/// A unit's row: who it is, its state and counts, and its scope's working set, with its commands.
+/// For a viewer who manages the catalog, Sync and Reapply are buttons, off unless the API offers
+/// them (as admin-web's are), and an offered Preview links to admin-web; for anyone else each is its
+/// state.
 #[component(css = DailyPage)]
-fn WorksetRow<'a>(t: Cat, p: Pilot, req: &'a Req, unit: &'a WorksetUnit, manage: bool) -> impl Render {
-    let key = unit.unit_key.as_deref().unwrap_or(&unit.provider_key);
+fn WorksetRow<'a>(t: Cat, p: Pilot, req: &'a Req, unit: &'a WorksetUnit, context: &'a str, manage: bool) -> impl Render {
+    let key = unit.key();
     let detail = match &unit.profile_version {
         Some(version) => t.wb_workset_profile_version(version).to_string(),
         None => t.wb_workset_no_active_profile().to_owned(),
@@ -376,10 +379,12 @@ fn WorksetRow<'a>(t: Cat, p: Pilot, req: &'a Req, unit: &'a WorksetUnit, manage:
     let state = state_label(&unit.state);
     let scope = (!unit.current_workbench_href.is_empty()).then(|| link_to(req, &unit.current_workbench_href)).flatten();
     let commands = [
-        (t.wb_workset_sync_unit(&unit.display_name).to_string(), &unit.actions.import),
-        (t.wb_workset_preview_unit(&unit.display_name).to_string(), &unit.actions.preview_promotion),
-        (t.wb_workset_reapply_unit(&unit.display_name).to_string(), &unit.actions.reapply),
+        ("import", t.wb_workset_sync_unit(&unit.display_name).to_string(), &unit.actions.import),
+        ("preview", t.wb_workset_preview_unit(&unit.display_name).to_string(), &unit.actions.preview_promotion),
+        ("reapply", t.wb_workset_reapply_unit(&unit.display_name).to_string(), &unit.actions.reapply),
     ];
+    let action = at(&daily::url::Unit.href(), context);
+    let sendable = manage && unit.command_scopes.is_some();
     let mut blocked: Vec<String> = Vec::new();
     for action in unit.actions.all() {
         for blocker in &action.blockers {
@@ -388,8 +393,8 @@ fn WorksetRow<'a>(t: Cat, p: Pilot, req: &'a Req, unit: &'a WorksetUnit, manage:
             }
         }
     }
-    let runnable = manage && unit.actions.all().iter().any(|a| a.open());
-    let elsewhere = runnable.then(|| admin_web(&unit.current_workbench_href).map(|u| u.to_string())).flatten();
+    let preview = manage && unit.actions.preview_promotion.open();
+    let elsewhere = preview.then(|| admin_web(&unit.current_workbench_href).map(|u| u.to_string())).flatten();
     let run = p.integrations_workset_open(&unit.display_name).to_string();
     html! {
         <tr data-catalog-source-scope-unit={key}>
@@ -417,10 +422,31 @@ fn WorksetRow<'a>(t: Cat, p: Pilot, req: &'a Req, unit: &'a WorksetUnit, manage:
                         </a>
                     }
                     <span class={Badges}>
-                        for (label, action) in &commands {
-                            <span data-catalog-primary-workbench-command={&action.key} data-state={&action.state}>
-                                <Pill text={label} tone={if action.open() { "success" } else { "neutral" }} />
-                            </span>
+                        for (command, label, state) in &commands {
+                            if sendable && *command != "preview" {
+                                <form
+                                    method="post"
+                                    action={&action}
+                                    data-patch
+                                    data-catalog-primary-workbench-command={&state.key}
+                                    data-state={&state.state}
+                                >
+                                    <input type="hidden" name={UnitInput::FIELDS.unit} value={key}>
+                                    <button
+                                        type="submit"
+                                        class={Button { variant: ButtonVariant::Ghost, size: ButtonSize::Sm }}
+                                        name={UnitInput::FIELDS.command}
+                                        value={*command}
+                                        disabled={!state.open()}
+                                    >
+                                        {label}
+                                    </button>
+                                </form>
+                            } else {
+                                <span data-catalog-primary-workbench-command={&state.key} data-state={&state.state}>
+                                    <Pill text={label} tone={if state.open() { "success" } else { "neutral" }} />
+                                </span>
+                            }
                         }
                     </span>
                     if !blocked.is_empty() {

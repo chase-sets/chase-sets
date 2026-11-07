@@ -57,6 +57,13 @@ fn refusal(status: StatusCode, code: &str, message: &str) -> Response {
     (status, Json(json!({ "error": { "code": code, "message": message } }))).into_response()
 }
 
+/// An integration job the API queued (`202` with its `jobId`) and the write's receipt.
+fn queued(id: &str) -> Response {
+    let receipt = percent_encoding::utf8_percent_encode(RECEIPT, percent_encoding::NON_ALPHANUMERIC).to_string();
+    let headers = [("chase-sets-commit-position", "42".to_owned()), ("chase-sets-commit-receipt", receipt)];
+    (StatusCode::ACCEPTED, headers, Json(json!({ "jobId": id, "status": "queued" }))).into_response()
+}
+
 fn written(status: StatusCode, id: &str) -> Response {
     let receipt = percent_encoding::utf8_percent_encode(RECEIPT, percent_encoding::NON_ALPHANUMERIC).to_string();
     let headers = [("chase-sets-commit-position", "42".to_owned()), ("chase-sets-commit-receipt", receipt)];
@@ -7793,6 +7800,9 @@ fn daily_command(method: &Method, path: &str, body: &str) -> Option<Response> {
         }
         "/catalog-sync-scope/state" => scope_sync_state(&sent),
         "/bulk-defer/jobs" => written(StatusCode::ACCEPTED, "bulk_1"),
+        // A workset unit's import and reapply.
+        "/integration-jobs" => queued("job_9"),
+        "/reapply" => queued("job_10"),
         "/admin/merge-candidates/cand_1/ignore" | "/admin/merge-candidates/cand_1/defer" => written(StatusCode::OK, "cand_1"),
         "/admin/merge-candidates/cand_1/split" | "/admin/merge-candidates/cand_1/update" => {
             if sent["expectedVersion"] == json!(4) {
@@ -8487,7 +8497,8 @@ async fn an_unreadable_projection_says_so_in_its_panel_and_a_failed_read_is_the_
 }
 
 /// The daily surface's source scope workset: the selected scope with one unit whose import and
-/// reapply are open and one blocked until a scope is chosen; none under the kill switch.
+/// reapply are open, with the scopes they post, and one blocked until a scope is chosen; none under
+/// the kill switch.
 fn workset(stopped: bool) -> Value {
     let open = json!({ "key": "scope.import", "state": "available", "blockers": [] });
     let blocked = |key: &str| json!({ "key": key, "state": "disabled", "blockers": ["import-scope-required"] });
@@ -8502,12 +8513,15 @@ fn workset(stopped: bool) -> Value {
               "counts": { "observed": 9, "changed": 4, "promoted": 7, "rejected": 0, "eligible": 2 },
               "currentWorkbenchHref": "/catalog/integrations?providerKey=tcgplayer&unitKey=tcgplayer%3Apokemon%3Acard&importScope=en%3Asv1",
               "commandContext": { "providerKey": "tcgplayer", "unitKey": "tcgplayer:pokemon:card", "importScope": "en:sv1" },
+              "commandScopes": {
+                  "import": { "provider": "tcgplayer", "ingestionUnitKey": "tcgplayer:pokemon:card", "language": "en", "setId": "sv1" },
+                  "reapply": { "provider": "tcgplayer", "language": "en", "setId": "sv1", "ingestionUnitKey": "tcgplayer:pokemon:card" } },
               "actions": { "import": open,
                   "previewPromotion": { "key": "observation.promote", "state": "disabled", "blockers": ["no-promotion-eligible-observations"] },
                   "reapply": { "key": "observation.reapply", "state": "available", "blockers": [] } } },
             { "providerKey": "lorcast", "displayName": "Lorcast cards", "unitKey": null, "profileVersion": null,
               "state": "blocked", "counts": { "observed": 0, "changed": 0, "promoted": 0 },
-              "currentWorkbenchHref": "/catalog/integrations?providerKey=lorcast",
+              "currentWorkbenchHref": "/catalog/integrations?providerKey=lorcast", "commandScopes": null,
               "actions": { "import": blocked("scope.import"), "previewPromotion": blocked("observation.promote"),
                   "reapply": blocked("observation.reapply") } }
         ]) }
@@ -8554,8 +8568,8 @@ async fn the_daily_workbench_draws_the_apis_read_with_its_stages_and_commands() 
     // Each command's form patches the page with JavaScript and posts without it.
     assert_eq!(
         html.matches("data-patch").count(),
-        6,
-        "the sync's, a failed unit's retry, the job's, the candidate's, its split and the review's: {html}"
+        8,
+        "the sync's, a failed unit's retry, the job's, the candidate's, its split, the review's and a unit's Sync and Reapply: {html}"
     );
     // The sync's form carries the working set, the scope and every unit, the eligible one checked.
     assert!(html.contains(r#"action="/catalog/integrations/catalog-sync?providerKey=tcgplayer&amp;unitKey=pokemon""#), "{html}");
@@ -8607,7 +8621,7 @@ async fn the_daily_workbench_draws_the_apis_read_with_its_stages_and_commands() 
 }
 
 #[tokio::test]
-async fn the_workset_draws_each_units_state_and_opens_its_scope_without_sending_its_commands() {
+async fn the_workset_draws_each_units_state_and_its_sync_and_reapply_and_opens_its_scope() {
     let pilot = Pilot::new().await;
     let (status, _, html) = pilot.send(get("/catalog/integrations?providerKey=tcgplayer&unitKey=pokemon", Some("staff"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");
@@ -8625,25 +8639,30 @@ async fn the_workset_draws_each_units_state_and_opens_its_scope_without_sending_
         panel.contains(r#"href="/catalog/integrations?providerKey=tcgplayer&amp;unitKey=tcgplayer%3Apokemon%3Acard&amp;importScope=en%3Asv1""#),
         "the unit's scope opens on the pilot: {panel}"
     );
-    assert!(panel.contains(r#"data-catalog-primary-workbench-command="scope.import" data-state="available""#), "{panel}");
-    assert!(panel.contains("Sync TCGplayer singles") && panel.contains("Reapply TCGplayer singles"), "{panel}");
-    // A unit without a key or profile says so, and why its commands are closed.
-    assert!(panel.contains(r#"data-catalog-source-scope-unit="lorcast""#) && panel.contains("No active unit"), "{panel}");
-    assert!(panel.contains("No active profile"), "{panel}");
-    // The commands are not sent from the pilot (chase-sets/chase-sets#11082): the open unit runs them on admin-web.
-    assert!(!panel.contains("<form"), "{panel}");
+    // Sync and Reapply are the unit's own forms, posting the working set and naming the unit.
+    assert_eq!(panel.matches("<form").count(), 2, "{panel}");
     assert!(
-        panel.contains(r#"href="http://localhost:7752/catalog/integrations?providerKey=tcgplayer&amp;unitKey=tcgplayer%3Apokemon%3Acard&amp;importScope=en%3Asv1">Run TCGplayer singles on admin-web</a>"#),
+        panel.contains(r#"<form method="post" action="/catalog/integrations/units?providerKey=tcgplayer&amp;unitKey=pokemon" data-patch data-catalog-primary-workbench-command="scope.import" data-state="available">"#),
         "{panel}"
     );
-    assert!(!panel.contains("Run Lorcast cards on admin-web"), "a unit with nothing to run: {panel}");
+    assert!(panel.contains(r#"<input type="hidden" name="unit" value="tcgplayer:pokemon:card">"#), "{panel}");
+    assert!(panel.contains(r#"name="command" value="import">Sync TCGplayer singles</button>"#), "{panel}");
+    assert!(panel.contains(r#"name="command" value="reapply">Reapply TCGplayer singles</button>"#), "{panel}");
+    // Preview is closed here, so it is its state, with no way to it on admin-web
+    // (chase-sets/chase-sets#11045).
+    assert!(panel.contains(r#"data-catalog-primary-workbench-command="observation.promote" data-state="disabled""#), "{panel}");
+    assert!(!panel.contains("on admin-web</a>"), "{panel}");
+    // A unit without a key or profile says so, and why its commands are closed; with no scopes it
+    // has no form.
+    assert!(panel.contains(r#"data-catalog-source-scope-unit="lorcast""#) && panel.contains("No active unit"), "{panel}");
+    assert!(panel.contains("No active profile") && !panel.contains(r#"value="lorcast""#), "{panel}");
 
     // A reader sees the workset without the way to run it.
     let (_, _, html) =
         pilot.send(get("/catalog/integrations?providerKey=tcgplayer&unitKey=pokemon", Some("catalog-reader"))).await;
     let start = html.find("data-catalog-source-scope-workset=").unwrap();
     let panel = &html[start..html.find(r#"name="wb-stage""#).unwrap()];
-    assert!(panel.contains("Open source scope") && !panel.contains("on admin-web</a>"), "{panel}");
+    assert!(panel.contains("Open source scope") && !panel.contains("<form"), "{panel}");
 
     // Without units nothing draws.
     let (_, _, html) = pilot.send(get("/catalog/integrations?providerKey=stopped", Some("staff"))).await;
@@ -9080,6 +9099,49 @@ async fn a_candidate_splits_and_is_edited_with_the_version_the_page_read_and_a_m
     let (status, _, _) = pilot.send(post("/catalog/integrations/candidates/cand_1", "command=split&split=obs_2", false)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "a split without the version it read");
     assert_eq!(daily_writes(&pilot).len(), before, "it does not reach the API");
+}
+
+#[tokio::test]
+async fn a_units_sync_and_reapply_post_the_scopes_the_api_built_and_land_on_its_working_set() {
+    let pilot = Pilot::new().await;
+    let at = "/catalog/integrations/units?providerKey=tcgplayer&unitKey=pokemon";
+    let (status, headers, _) = pilot.send(post(at, "unit=tcgplayer%3Apokemon%3Acard&command=import", false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let landed = headers[header::LOCATION].to_str().unwrap().to_owned();
+    assert!(
+        landed.starts_with(
+            "/catalog/integrations?providerKey=tcgplayer&unitKey=tcgplayer%3Apokemon%3Acard&importScope=en%3Asv1&jobId=job_9&done=queued&after_write="
+        ),
+        "the unit's working set, with the job it queued: {landed}"
+    );
+    let (status, headers, _) = pilot.send(post(at, "unit=tcgplayer%3Apokemon%3Acard&command=reapply", false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert!(headers[header::LOCATION].to_str().unwrap().contains("&jobId=job_10&done=queued"));
+    let writes = daily_writes(&pilot);
+    let paths: Vec<&str> = writes.iter().map(|c| c.path.as_str()).collect();
+    assert_eq!(paths, ["/api/catalog/source-observations/integration-jobs", "/api/catalog/source-observations/reapply"]);
+    let import: Value = serde_json::from_str(&writes[0].body).unwrap();
+    assert_eq!(
+        import,
+        json!({ "action": "import", "scope": { "provider": "tcgplayer", "ingestionUnitKey": "tcgplayer:pokemon:card", "language": "en", "setId": "sv1" } }),
+        "the read model's import scope, as it is"
+    );
+    let reapply: Value = serde_json::from_str(&writes[1].body).unwrap();
+    assert_eq!(
+        reapply,
+        json!({ "scope": { "provider": "tcgplayer", "language": "en", "setId": "sv1", "ingestionUnitKey": "tcgplayer:pokemon:card" } })
+    );
+    // The scope comes from the surface read for the page's working set, not from the form.
+    let reads = pilot.calls.lock().unwrap().iter().filter(|c| c.path.contains("/workbench-surfaces/daily?location=")).count();
+    assert_eq!(reads, 2, "one read per command");
+
+    // A unit without scopes, an unknown unit and a command the row does not offer reach nothing.
+    for body in ["unit=lorcast&command=import", "unit=nobody&command=reapply", "unit=tcgplayer%3Apokemon%3Acard&command=promote"]
+    {
+        let (status, _, html) = pilot.send(post(at, body, false)).await;
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}: {html}");
+    }
+    assert_eq!(daily_writes(&pilot).len(), 2, "none of them reaches the API");
 }
 
 #[tokio::test]

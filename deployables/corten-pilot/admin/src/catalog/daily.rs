@@ -9,6 +9,7 @@
 //! | `GET /catalog/integrations?<context>&after_write&done` | the workbench for the context, after the command the address names |
 //! | `POST /catalog/integrations/catalog-sync?<context>` | starts a Catalog sync of the scope with the checked provider units, and lands on its run |
 //! | `POST /catalog/integrations/jobs/{id}?<context>` | retries, resumes or cancels an import job |
+//! | `POST /catalog/integrations/units?<context>` | imports or reapplies a workset unit's scope |
 //! | `POST /catalog/integrations/review?<context>` | defers or rejects the checked Source Observations |
 //! | `POST /catalog/integrations/candidates/{id}?<context>` | ignores or defers a merge candidate |
 //! | `POST /catalog/integrations/aliases?<context>` | accepts, rejects, revokes or defers alias candidates |
@@ -22,10 +23,13 @@
 //! the API decides what each allows. A merge candidate's split and edit name the candidate version
 //! the page read, and the API applies them to the snapshot it holds.
 //!
+//! A workset unit's Sync and Reapply post the bodies the read model built for the unit
+//! (`commandScopes`, chase-sets/chase-sets#11082), to `POST .../integration-jobs` and
+//! `POST .../reapply`; the API refuses a scope it cannot import or reapply.
+//!
 //! Preview and promote stay on admin-web: the API does not yet refuse a stale preview itself
 //! (chase-sets/chase-sets#11045), so the pilot does not send a promotion. The evidence sheets open on
-//! admin-web until the API serves their detail (chase-sets/chase-sets#11079), and the import preview
-//! until the API builds its scope (chase-sets/chase-sets#11082).
+//! admin-web until the API serves their detail (chase-sets/chase-sets#11079).
 //!
 //! A scope's page draws the same stages for its scope (`crate::catalog::scope`), its forms carrying
 //! the working set's `home` (the pilot's own key, never sent to the API), so the redirect after a
@@ -91,6 +95,10 @@ pub mod url {
     pub struct Job<'a> {
         pub id: &'a str,
     }
+
+    /// Imports or reapplies a workset unit's scope.
+    #[route("/catalog/integrations/units", post = crate::catalog::daily::unit)]
+    pub struct Unit;
 
     /// Defers or rejects the checked Source Observations.
     #[route("/catalog/integrations/review", post = crate::catalog::daily::review)]
@@ -266,8 +274,7 @@ pub struct WorksetSummary {
 }
 
 /// A provider unit of the workset. Its `currentWorkbenchHref` is the working set the unit's scope
-/// opens, as admin-web's path; its `commandContext` is left unread, since the pilot does not send
-/// its commands (chase-sets/chase-sets#11082).
+/// opens, as admin-web's path, and its `commandScopes` the bodies its import and reapply post.
 #[derive(Clone, Debug, Default, Deserialize, Serialize, ToJson)]
 #[serde(default, rename_all = "camelCase")]
 pub struct WorksetUnit {
@@ -279,6 +286,24 @@ pub struct WorksetUnit {
     pub counts: WorksetCounts,
     pub current_workbench_href: String,
     pub actions: WorksetActions,
+    pub command_scopes: Option<CommandScopes>,
+}
+
+impl WorksetUnit {
+    /// The key the row and its forms name the unit by: its unit, or its provider without one
+    /// (admin-web's `data-catalog-source-scope-unit`).
+    pub fn key(&self) -> &str {
+        self.unit_key.as_deref().unwrap_or(&self.provider_key)
+    }
+}
+
+/// The scopes a unit's commands post (`commandScopes`), as the API built them; passed back as they
+/// are. Null while the unit has no scope.
+#[derive(Clone, Debug, Default, Deserialize, Serialize, ToJson)]
+#[serde(default)]
+pub struct CommandScopes {
+    pub import: Value,
+    pub reapply: Value,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize, ToJson)]
@@ -1228,6 +1253,71 @@ pub(crate) async fn job(
     let sent = command(&caller, Method::POST, Kind::SourceObservations, &rest, None).await;
     let ran = if command_word == "cancel" { Ran::Cancelled } else { Ran::Queued };
     answer(&req, &staff, &config, &headers, &context, sent, ran).await
+}
+
+/// A workset unit's command: `import` (its Sync) or `reapply`, and the unit it runs for.
+#[derive(Clone, Debug, Default, Fields)]
+#[serde(default)]
+pub struct UnitInput {
+    pub unit: String,
+    pub command: String,
+}
+
+impl UnitInput {
+    /// The API's path and body for the unit's command, from the scopes the read model gave it;
+    /// `None` for a command the row does not offer or a unit without scopes.
+    pub fn command(&self, scopes: Option<&CommandScopes>) -> Option<(&'static str, Value)> {
+        let scopes = scopes?;
+        match self.command.as_str() {
+            "import" => Some(("/integration-jobs", json!({ "action": "import", "scope": scopes.import }))),
+            "reapply" => Some(("/reapply", json!({ "scope": scopes.reapply }))),
+            _ => None,
+        }
+    }
+}
+
+/// The working set a unit's command lands on: the unit's own (its `currentWorkbenchHref`'s query,
+/// where admin-web's row posts), keeping the page's `home`.
+fn unit_landing(context: &str, href: &str) -> String {
+    let query = href.split_once('?').map_or("", |(_, query)| query);
+    let home = context_value(context, HOME);
+    with_query(query, &[(HOME, home.as_deref().filter(|id| !id.is_empty()))])
+}
+
+pub(crate) async fn unit(
+    req: Req,
+    corten::Caller(staff): corten::Caller<Staff<CatalogAccess>>,
+    State(config): State<Shared>,
+    headers: HeaderMap,
+    uri: Uri,
+    Form(input): Form<UnitInput>,
+) -> HtmlResult {
+    let context = context_of(&uri);
+    let caller = config.platform.caller(&headers, config.proto, None);
+    // The body is the one the API built for the unit on this working set, read again rather than
+    // taken from the form, so the pilot posts nothing it composed itself.
+    let read = match read_with(&caller, &location(&context)).await {
+        Ok(read) => read,
+        Err(error) => return read_failed(&req, error, false),
+    };
+    let unit = read.read_model.source_scope_workset.units.iter().find(|unit| unit.key() == input.unit);
+    let Some((rest, body)) = unit.and_then(|unit| input.command(unit.command_scopes.as_ref())) else {
+        let errors = super::not_offered(req.t());
+        return answer(&req, &staff, &config, &headers, &context, Sent::Refused(errors), Ran::Queued).await;
+    };
+    let landing = unit.map(|unit| unit_landing(&context, &unit.current_workbench_href)).unwrap_or_default();
+    // Each answers the job it queued; the working set names it as its `jobId`, as admin-web's does.
+    let sent = match caller.post_written::<Value>(Kind::SourceObservations, rest, &body).await {
+        Ok((job, written)) => {
+            let id = job.get("jobId").and_then(Value::as_str);
+            return landed(&req, &landing, &[("jobId", id)], &written, Ran::Queued);
+        }
+        Err(error) => match crate::app::refused(error) {
+            Ok(errors) => Sent::Refused(errors),
+            Err(denied) => Sent::Denied(denied),
+        },
+    };
+    answer(&req, &staff, &config, &headers, &context, sent, Ran::Queued).await
 }
 
 /// The review form: `defer` or `reject`, the checked observations, and the reason a reject needs.
