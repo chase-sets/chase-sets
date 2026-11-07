@@ -7,7 +7,10 @@ use corten::{
     i18n::{DateStyle, TimeStyle, parse_timestamp},
     prelude::*,
 };
-use platform::ui::table::{CellLabel, Table as KitTable, TableLayout};
+use platform::ui::{
+    stats::{Stat, StatTone, Stats as KitStats, StatsSurface},
+    table::{CellLabel, Table as KitTable, TableLayout},
+};
 use serde_json::Value;
 
 use crate::{
@@ -120,12 +123,7 @@ fn Choice<'a>(
 
 #[component(css = CsatPage)]
 fn Rate<'a>(label: &'a str, value: &'a str) -> impl Render {
-    html! {
-        <div class={Stat}>
-            <dt>{label}</dt>
-            <dd>{value}</dd>
-        </div>
-    }
+    html! { <Stat label={label} value={value} note="" tone={StatTone::Neutral} /> }
 }
 
 #[component(css)]
@@ -146,13 +144,13 @@ pub fn CsatPage<'a>(t: Sup, p: Pilot, screen: &'a CsatScreen) -> impl Render {
         </header>
         if let Some(data) = &screen.dashboard {
             let (seven, thirty) = (&data.analytics.windows.seven, &data.analytics.windows.thirty);
-            <dl class={Rates}>
+            <dl class={(KitStats { surface: StatsSurface::Cards }, Rates)}>
                 <Rate label={t.csat_csat7()} value={&rate(t, seven.csat, &seven.csat_availability)} />
                 <Rate label={t.csat_csat30()} value={&rate(t, thirty.csat, &thirty.csat_availability)} />
                 <Rate label={t.csat_response7()} value={&rate(t, seven.response_rate, &seven.response_rate_availability)} />
                 <Rate label={t.csat_response30()} value={&rate(t, thirty.response_rate, &thirty.response_rate_availability)} />
             </dl>
-            <dl class={Volumes}>
+            <dl class={(KitStats { surface: StatsSurface::Cards }, Rates)}>
                 <Rate label={t.csat_submitted()} value={&thirty.volume.submitted.to_string()} />
                 <Rate label={t.csat_presented()} value={&thirty.volume.presented.to_string()} />
             </dl>

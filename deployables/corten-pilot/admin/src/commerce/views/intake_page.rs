@@ -8,6 +8,7 @@ use corten::{
     i18n::{DateStyle, TimeStyle, parse_timestamp},
     prelude::*,
 };
+use platform::ui::stats::{Stat, StatTone, Stats as KitStats, StatsSurface};
 
 use crate::{
     commerce::intake::{IntakeForm, Shipment, StationScreen, duration, url},
@@ -256,31 +257,43 @@ pub fn IntakePage<'a>(t: Com, p: Pilot, screen: &'a StationScreen) -> impl Rende
                 </label>
                 <button type="submit" class={Button} disabled={!open}>{t.ri_resolve_package()}</button>
             </form>
-            <dl class={Stats}>
-                <div class={Stat}>
-                    <dt>{t.ri_metric_delivered_not_intaken()}</dt>
-                    <dd>{screen.metrics.delivered_not_intaken_count}</dd>
-                </div>
-                <div class={Stat}>
-                    <dt>{t.ri_metric_oldest_waiting()}</dt>
-                    <dd>{duration(screen.metrics.oldest_delivered_not_intaken_age_seconds)}</dd>
-                </div>
-                <div class={Stat}>
-                    <dt>{t.ri_metric_discrepancy_rate()}</dt>
-                    <dd>{format!("{}%", (screen.metrics.discrepancy_rate * 100.0).round())}</dd>
-                </div>
-                <div class={Stat}>
-                    <dt>{t.ri_metric_unidentified()}</dt>
-                    <dd>{screen.metrics.unidentified_package_count}</dd>
-                </div>
-                <div class={Stat}>
-                    <dt>{t.ri_metric_duplicate_scans()}</dt>
-                    <dd>{screen.metrics.duplicate_scan_count}</dd>
-                </div>
-                <div class={Stat}>
-                    <dt>{t.ri_metric_average_latency()}</dt>
-                    <dd>{duration(screen.metrics.average_intake_latency_seconds)}</dd>
-                </div>
+            <dl class={KitStats { surface: StatsSurface::Cards }}>
+                <Stat
+                    label={t.ri_metric_delivered_not_intaken()}
+                    value={screen.metrics.delivered_not_intaken_count}
+                    note=""
+                    tone={StatTone::Neutral}
+                />
+                <Stat
+                    label={t.ri_metric_oldest_waiting()}
+                    value={duration(screen.metrics.oldest_delivered_not_intaken_age_seconds)}
+                    note=""
+                    tone={StatTone::Neutral}
+                />
+                <Stat
+                    label={t.ri_metric_discrepancy_rate()}
+                    value={format!("{}%", (screen.metrics.discrepancy_rate * 100.0).round())}
+                    note=""
+                    tone={StatTone::Neutral}
+                />
+                <Stat
+                    label={t.ri_metric_unidentified()}
+                    value={screen.metrics.unidentified_package_count}
+                    note=""
+                    tone={StatTone::Neutral}
+                />
+                <Stat
+                    label={t.ri_metric_duplicate_scans()}
+                    value={screen.metrics.duplicate_scan_count}
+                    note=""
+                    tone={StatTone::Neutral}
+                />
+                <Stat
+                    label={t.ri_metric_average_latency()}
+                    value={duration(screen.metrics.average_intake_latency_seconds)}
+                    note=""
+                    tone={StatTone::Neutral}
+                />
             </dl>
             if let Some(shipment) = &screen.resolved {
                 <div class={Workstation}>

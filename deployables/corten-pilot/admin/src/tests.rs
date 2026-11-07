@@ -3830,7 +3830,10 @@ async fn the_all_scopes_alias_review_is_folded_under_the_queue_and_its_commands_
     assert!(!part[..200].contains(" open"), "folded at first, as admin-web's is: {part}");
     assert!(part.contains("All-scopes alias review") && part.contains("1 pending alias candidates"), "{part}");
     assert!(part.contains("2 candidates") && part.contains("Cards with accepted English alias"), "{part}");
-    assert!(part.contains("<dd>3</dd>") && part.contains("<dd>2</dd>"), "the API's coverage counts: {part}");
+    assert!(
+        part.contains(r#"<dd class="stats__value">3</dd>"#) && part.contains(r#"<dd class="stats__value">2</dd>"#),
+        "the API's coverage counts: {part}"
+    );
     assert!(part.contains("Generated translation") && part.contains("Low-confidence evidence"), "its warnings: {part}");
     assert!(part.contains("cardmarket · machine-translation"), "its source: {part}");
     assert!(part.contains("Evidence") && part.contains("<dt>Provider</dt><dd>cardmarket</dd>"), "its evidence: {part}");
@@ -5425,11 +5428,11 @@ async fn the_csat_dashboard_reads_customer_feedback_with_the_filters_admin_web_o
         "admin-web's v1 is the registered version; what admin-web does not offer is left out"
     );
     for text in [
-        "<dd>Insufficient sample</dd>",
-        "<dd>86%</dd>",
-        "<dd>25%</dd>",
-        "<dd>7</dd>",
-        "<dd>28</dd>",
+        r#"<dd class="stats__value">Insufficient sample</dd>"#,
+        r#"<dd class="stats__value">86%</dd>"#,
+        r#"<dd class="stats__value">25%</dd>"#,
+        r#"<dd class="stats__value">7</dd>"#,
+        r#"<dd class="stats__value">28</dd>"#,
         "csi_1",
         "Order delivered",
         "Transactional CSAT v1",
@@ -6255,9 +6258,17 @@ async fn the_return_intake_station_opens_a_facility_and_resolves_a_scan() {
 
     let (status, _, html) = pilot.send(get("/commerce/return-intake?facilityId=fac_1", Some("intake-viewer"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");
-    for text in
-        ["<dd>4</dd>", "<dd>2h</dd>", "<dd>25%</dd>", "<dd>3</dd>", "<dd>3m</dd>", "rsh_1", "9400TRACK1", "CUST-UNK-1", "rsh_old"]
-    {
+    for text in [
+        r#"<dd class="stats__value">4</dd>"#,
+        r#"<dd class="stats__value">2h</dd>"#,
+        r#"<dd class="stats__value">25%</dd>"#,
+        r#"<dd class="stats__value">3</dd>"#,
+        r#"<dd class="stats__value">3m</dd>"#,
+        "rsh_1",
+        "9400TRACK1",
+        "CUST-UNK-1",
+        "rsh_old",
+    ] {
         assert!(html.contains(text), "{text}: {html}");
     }
     assert!(html.contains("Record unidentified package"), "an open facility offers the unidentified form: {html}");

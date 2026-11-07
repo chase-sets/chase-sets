@@ -8,7 +8,10 @@ use corten::{
     i18n::{DateStyle, TimeStyle, parse_timestamp},
     prelude::*,
 };
-use platform::ui::table::{CellLabel, Table as KitTable, TableLayout};
+use platform::ui::{
+    stats::{Stat, StatTone, Stats as KitStats, StatsSurface},
+    table::{CellLabel, Table as KitTable, TableLayout},
+};
 
 use crate::{
     growth::google_shopping::{FILTERS, Job, LIMITS, REFRESH_DAYS, Row, ShoppingScreen, url},
@@ -145,12 +148,7 @@ fn Badge<'a>(words: &'a str, tone: &'static str) -> impl Render {
 
 #[component(css = GoogleShoppingPage)]
 fn Figure<'a>(label: &'a str, value: String) -> impl Render {
-    html! {
-        <div class={Stat}>
-            <p class={Muted}>{label}</p>
-            <p class={Value}>{value}</p>
-        </div>
-    }
+    html! { <Stat label={label} value={value.as_str()} note="" tone={StatTone::Neutral} /> }
 }
 
 /// The dry run, as `job_part` draws it.
@@ -193,7 +191,7 @@ fn JobPart<'a>(t: Gro, id: &'a str, job: Option<&'a Job>) -> impl Render {
                     <dd>{when(t, job.and_then(|j| j.updated_at.as_deref()))}</dd>
                 </div>
             </dl>
-            <div class={(Stats, Six)}>
+            <dl class={KitStats { surface: StatsSurface::Cards }}>
                 <Figure
                     label={t.gs_job_processed()}
                     value={t.gs_job_processed_value(crate::text::gro::GsJobProcessedValue { completed: progress.completed, total: progress.total }).to_string()}
@@ -203,7 +201,7 @@ fn JobPart<'a>(t: Gro, id: &'a str, job: Option<&'a Job>) -> impl Render {
                 <Figure label={t.gs_job_deleted()} value={n(progress.deleted)} />
                 <Figure label={t.gs_job_failed()} value={n(progress.failed)} />
                 <Figure label={t.gs_job_excluded()} value={n(progress.excluded)} />
-            </div>
+            </dl>
             if let Some(message) = job.and_then(|j| j.error_message.as_deref()) {
                 <p class={(Alert, Words)} role="alert">{message}</p>
             }
@@ -517,7 +515,7 @@ pub fn GoogleShoppingPage<'a>(t: Gro, o: Ops, screen: &'a ShoppingScreen) -> imp
                     <Badge words={&t.gs_generated_at(&when(t, Some(&screen.feed.generated_at))).to_string()} tone="info" />
                 </span>
                 <p class={Muted}>{t.gs_refresh_cutoff(&when(t, Some(&screen.feed.refresh_cutoff))).to_string()}</p>
-                <div class={(Stats, Four)}>
+                <dl class={KitStats { surface: StatsSurface::Cards }}>
                     <Figure label={t.gs_total_rows()} value={n(s.total_rows)} />
                     <Figure label={t.gs_eligible_rows()} value={n(s.eligible_rows)} />
                     <Figure label={t.gs_failed_rows()} value={n(s.failed_rows)} />
@@ -526,7 +524,7 @@ pub fn GoogleShoppingPage<'a>(t: Gro, o: Ops, screen: &'a ShoppingScreen) -> imp
                     <Figure label={t.gs_pending_delete_rows()} value={n(s.pending_delete_rows)} />
                     <Figure label={t.gs_stale_rows()} value={n(s.stale_rows)} />
                     <Figure label={t.gs_pending_diagnostics_rows()} value={n(s.pending_diagnostics_rows)} />
-                </div>
+                </dl>
             </section>
             <section class={Card} aria-labelledby="gs-filters">
                 <h2 class={Heading} id="gs-filters">{t.gs_filters()}</h2>

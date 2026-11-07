@@ -4,6 +4,7 @@
 //! jobs and the language editions. Every write is a plain form; a reject or revoke's reason is folded under its
 //! button (`<details>`), and Propose mapping is a dialog, so the page works without JavaScript.
 use corten::prelude::*;
+use platform::ui::stats::{Stat, StatTone, Stats as KitStats, StatsSurface};
 
 use super::{CatalogDialog, DetailPage, Empty, Toasts, Tone, TonePill, Trigger};
 use crate::{
@@ -225,7 +226,7 @@ fn JourneyPart<'a>(t: Cat, p: Pilot, journey: &'a Journey) -> impl Render {
                 <p class={BannerTitle}>{title}</p>
                 <p>{description}</p>
             </div>
-            <Stats items={&stats} />
+            <Counts items={&stats} />
             <ol class={Stages} aria-label={p.scope_stages()}>
                 for stage in &journey.stages {
                     <StageItem t={t} p={p} stage={stage} journey={journey} />
@@ -235,16 +236,13 @@ fn JourneyPart<'a>(t: Cat, p: Pilot, journey: &'a Journey) -> impl Render {
     }
 }
 
-/// Counts, as `StatGrid` shows them.
+/// Counts, as `StatGrid` shows them: the kit's `Stats`.
 #[component(css = ScopePage)]
-fn Stats<'a>(items: &'a [(&'a str, usize)]) -> impl Render {
+fn Counts<'a>(items: &'a [(&'a str, usize)]) -> impl Render {
     html! {
-        <dl class={Stats}>
+        <dl class={KitStats { surface: StatsSurface::Cards }}>
             for (label, value) in items {
-                <div class={Stat}>
-                    <dt>{*label}</dt>
-                    <dd>{value.to_string()}</dd>
-                </div>
+                <Stat label={*label} value={*value} note="" tone={StatTone::Neutral} />
             }
         </dl>
     }
@@ -717,7 +715,7 @@ fn EditionsPart<'a>(t: Cat, action: &'a str, editions: &'a [Edition], manage: bo
                 <TonePill text={&status} tone={if pending > 0 { Tone::Warning } else { Tone::Success }} />
             </div>
             <p class={Muted}>{t.scope_detail_language_editions_description()}</p>
-            <Stats items={&stats} />
+            <Counts items={&stats} />
             for edition in editions {
                 <EditionView t={t} action={action} edition={edition} manage={manage} />
             }
@@ -825,11 +823,11 @@ pub fn AliasReviewPart<'a>(
                             <TonePill text={&count} tone={status} />
                         </div>
                         <p class={Muted}>{t.alias_review_description()}</p>
-                        <Stats items={&metrics} />
+                        <Counts items={&metrics} />
                         <h3 class={SubTitle}>{t.alias_coverage_title()}</h3>
                         <p class={Muted}>{t.alias_coverage_description()}</p>
                         if counts.total > 0 {
-                            <Stats items={&covered} />
+                            <Counts items={&covered} />
                         } else {
                             <p class={Muted}>{t.alias_coverage_empty()}</p>
                         }
