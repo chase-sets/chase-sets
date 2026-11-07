@@ -1,11 +1,8 @@
 import { createHash } from "node:crypto";
-import { execFileSync, spawn } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { createServer } from "node:net";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { acquireHeavySlot } from "../../../../../scripts/lib/heavy-slot.mjs";
-import { AUTHORITY, prepare, verifyPackage, verifyExport } from "../integrations/order-authority-probe/package.mjs";
 
 const driver = fileURLToPath(import.meta.url);
 const seat = path.resolve(path.dirname(driver), "../../../../..");
@@ -31,6 +28,39 @@ const git = (...args) =>
   execFileSync("git", args, { cwd: seat, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
 const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+export const historicalSource = path.join(seat, "artifacts", "9514", `historical-${LANDED_HEAD}`);
+function historicalBytes(name) {
+  try {
+    return gitBytes(`${LANDED_HEAD}:${corePath}/${name}`);
+  } catch {
+    throw new Error("historical_source_unavailable");
+  }
+}
+let historicalPackage;
+export async function loadHistoricalPackage() {
+  // Read every immutable blob before creating anything. Shallow advisory
+  // checkouts fail closed, without a candidate fallback or rebaselined oracle.
+  const historicalCore = Object.fromEntries(Object.keys(LANDED_DIGESTS).map((name) => [name, historicalBytes(name)]));
+  realPath(historicalSource);
+  for (const [name, bytes] of Object.entries(historicalCore)) {
+    check(hash(bytes) === LANDED_DIGESTS[name], "wrong_landed_source");
+    const file = path.join(historicalSource, corePath, name);
+    mkdirSync(path.dirname(file), { recursive: true });
+    if (!existsSync(file)) writeFileSync(file, bytes, { flag: "wx" });
+  }
+  // The historical package reads its own real historical HEAD, not the
+  // candidate's HEAD relabeled as the source of these immutable bytes.
+  if (!existsSync(path.join(historicalSource, ".git"))) {
+    execFileSync("git", ["init", "--initial-branch=historical"], { cwd: historicalSource, stdio: "ignore" });
+    const common = path.resolve(seat, git("rev-parse", "--git-common-dir"), "objects");
+    writeFileSync(path.join(historicalSource, ".git", "objects", "info", "alternates"), `${common}\n`, { flag: "wx" });
+  }
+  execFileSync("git", ["update-ref", "HEAD", LANDED_HEAD], { cwd: historicalSource, stdio: "ignore" });
+  assertSource();
+  historicalPackage = await import(pathToFileURL(path.join(historicalSource, corePath, "package.mjs")).href);
+  return historicalPackage;
+}
+
 function realPath(candidate) {
   check(
     typeof candidate === "string" && path.isAbsolute(candidate) && path.resolve(candidate) === candidate,
@@ -44,19 +74,15 @@ function realPath(candidate) {
 
 export function assertSource() {
   check(path.resolve(git("rev-parse", "--show-toplevel")) === seat, "wrong_seat");
-  check(!git("status", "--porcelain", "--untracked-files=all"), "dirty_source_refused");
   for (const [name, digest] of Object.entries(LANDED_DIGESTS)) {
-    const relative = `${corePath}/${name}`;
     check(
-      hash(readFileSync(path.join(seat, relative))) === digest && hash(gitBytes(`HEAD:${relative}`)) === digest,
+      !lstatSync(path.join(historicalSource, corePath, name)).isSymbolicLink() &&
+        hash(readFileSync(path.join(historicalSource, corePath, name))) === digest &&
+        hash(historicalBytes(name)) === digest,
       "wrong_landed_source",
     );
   }
-  check(
-    hash(gitBytes(`HEAD:${path.relative(seat, driver).split(path.sep).join("/")}`)) === hash(readFileSync(driver)),
-    "driver_identity_refused",
-  );
-  return git("rev-parse", "HEAD");
+  return LANDED_HEAD;
 }
 
 function gitBytes(reference) {
@@ -147,87 +173,18 @@ export function chromeArguments(profile, proxyPort) {
   ];
 }
 
-export function humanInstructions(metadata) {
-  const { out, preparation: p } = metadata;
-  const cli = path.join(seat, corePath, "package.mjs");
-  return `# SYNTHETIC HUMAN route rehearsal for #9155 / #9115
-
-PENDING_HOST_REVIEW. Software/CI PASS is NOT HUMAN acceptance, provider qualification,
-selector-live authority, #9115 closure or #8612 release. #9115 remains HOLD.
-Run once AFTER landing, from a clean host-registered seat at the actual merge head
-or a descendant with identical driver/core digests. Host binds the actual HEAD,
-driver digest, six landed core digests, package digests and independent review/CI links.
-Never reuse an old root/profile, move T0, replace observations or retry a failed run.
-Ignore the live sign-in/launch language in run/RUNBOOK.md: this synthetic relay
-launches Chrome ONLY through the driver with startup isolation. NEVER sign in,
-open a provider page, import cookies/credentials, or launch preparation.launchCommand.
-Host exact-head offline Chrome sentinel proof uses unchanged exclusive heavy admission;
-it is AC evidence, not a lane publication/landing gate. Hosted CI owns product proof.
-
-1. Host runs from this bound seat in the foreground:
-   node "${driver}" --out "${out}"
-   Keep that terminal running. The driver refuses before HANDOFF unless source,
-   executable, startup network deny, worker-only seam and HTTPS sentinel bind.
-   T0: ${p.t0}; deadline: ${new Date(Date.parse(p.t0) + 900000).toISOString()}.
-   Real UTC and 30000 ms cadence only. Delay/expiry/cancel/isolation failure: HOLD.
-2. HUMAN sets Chrome Downloads to "${p.receiptDirectory}"; permits exactly the
-   two selector JSON downloads. No Playwright download/dialog owner is attached.
-   HUMAN opens chrome://extensions > Developer mode > Load unpacked:
-   ${p.packageDirectory}
-   Confirms exact ID ${p.extensionId}. Wait for terminal HANDOFF before opening
-   ${p.captureUrl}
-   HUMAN opens the local Orders fixture in this SAME isolated Chrome:
-   ${metadata.ordersUrl}
-   The page is labelled SYNTHETIC, has a static Ready to Ship quick-filter count 1,
-   no account/order data, and resets range on every fresh load. No provider page.
-3. HUMAN selects Last 2 years in the fixture BEFORE helper begin. In ONLY the
-   helper console invoke: await orderAuthorityCapture.run()
-   No arguments. HUMAN alone answers every native prompt/confirm. During the
-   real cadence wait, do not take a retrospective count. Follow range -> adjacent
-   label transcription -> settled -> unchanged -> read that count ONCE. No label
-   prefill/echo, all-orders/pagination/search totals or replacement observations.
-   Before count observedAt <= request start, gap <=30000 ms.
-4. After the response, HUMAN accepts the fresh-Orders-load prompt only after
-   actually reloading the local Orders tab. The fixture resets to Last 90 days.
-   Report that range to the helper; when correction is requested restore Last
-   2 years ONCE, wait for settled, then confirm range. Transcribe the adjacent
-   label, attest this fresh load settled and unchanged except that restoration,
-   read the count ONCE and confirm same synthetic session. Response end <= after
-   observedAt, gap <=120000 ms. Worker total stays hidden until both brackets seal.
-   Host records actual UTC chronology, reload/reset and the single restoration.
-5. Retain exactly selector-receipt.json + selector-inventory.json in receipt.
-   Host verifies BEFORE publication, retains pair hashes and complete timing:
-   node "${cli}" --verify-export --out "${path.join(out, "run")}"
-   Nonqualified/unknown/failure/missing/late phase: HOLD, no automatic rerun.
-6. HUMAN removes exact ID ${p.extensionId} through this profile's
-   chrome://extensions, confirms UI absence and records ACTUAL UTC within
-   [receipt.finishedAt, receipt.deadlineAt]. No CDP uninstall/offline substitute.
-   HUMAN closes this exact profile, then manually deletes ONLY the checked
-   absolute directory "${p.profileDirectory}" OUTSIDE agent tools.
-   Host independently observes that exact path absent, zero exact-profile Chrome
-   processes, and NO unknown/unreadable command lines; accepts full chronology.
-   Disposal/host observations may finish later; late UI absence never qualifies.
-7. Host exercises the landed synthetic removal recorder AFTER those observations
-   (replace the time with the HUMAN's actual observed UTC, not disposal time):
-   node "${cli}" --record-removal --extension-absent --extension-absent-at "<actual UI absence UTC>" --out "${path.join(out, "run")}"
-   node "${cli}" --verify-export --out "${path.join(out, "run")}"
-   Retain before/after pair hashes. The validator is NOT UI/process absence proof.
-   Host publishes exact landed driver/package digests, runnable bound commands,
-   scrubbed chronology, path/process observations and independent acceptance links
-   as selector-successor-human-route-rehearsal. #9115 stays HOLD until accepted.
-
-Driver never handles dialogs, reloads/corrects Orders, installs/removes an extension,
-closes Chrome or deletes profiles. Ctrl+C detaches monitoring only; HUMAN still owns
-closure/disposal. Any terminal HOLD requires retained evidence and host disposition.
-`;
+function historicalInstructions() {
+  return "# Historical #9121 fixture only\nNo prospective human launch or acceptance authority.\n";
 }
 
 export function prepareRehearsal(out) {
   const head = assertSource();
+  check(historicalPackage, "historical_package_not_loaded");
+  const { AUTHORITY, prepare, verifyPackage } = historicalPackage;
   realPath(out);
   check(
     path.dirname(out) === path.join(seat, "artifacts", "9115") &&
-      /^human-route-rehearsal-[A-Za-z0-9-]+$/.test(path.basename(out)),
+      /^historical-route-rehearsal-[A-Za-z0-9-]+$/.test(path.basename(out)),
     "unsafe_destination",
   );
   check(!existsSync(out), "existing_destination_refused");
@@ -260,12 +217,13 @@ export function prepareRehearsal(out) {
     isolation: "owned-loopback-deny-proxy+dns-deny+worker-only-seam",
   };
   writeFileSync(path.join(out, "handoff.json"), json(metadata), { flag: "wx" });
-  writeFileSync(path.join(out, "HUMAN.md"), humanInstructions(metadata), { flag: "wx" });
+  writeFileSync(path.join(out, "HISTORICAL.md"), historicalInstructions(), { flag: "wx" });
   return metadata;
 }
 
 export function verifySyntheticExport(run) {
-  const index = verifyExport(run);
+  check(historicalPackage, "historical_package_not_loaded");
+  const index = historicalPackage.verifyExport(run);
   check(index.evidence === "synthetic", "live_export_refused");
   for (const name of ["selector-receipt.json", "selector-inventory.json"]) {
     const text = readFileSync(path.join(run, "receipt", name), "utf8");
@@ -429,7 +387,7 @@ export class WorkerIsolation {
   detached({ sessionId }) {
     if (sessionId !== this.session) return;
     this.ready = false;
-    if (this.exportSealed) this.report("PENDING_HOST_REVIEW", "worker_absent_human_ui_observation_required");
+    if (this.exportSealed) this.report("PENDING_HOST_REVIEW", "worker_absent_ui_observation_required");
     else this.hold("worker_detached_no_restart");
   }
   // After the export seals, Chrome closing tears down the monitor before the process exits.
@@ -438,7 +396,7 @@ export class WorkerIsolation {
   }
 }
 
-// The T0+15 min window bounds capture and UI removal; HUMAN close/disposal may finish later.
+// The C window bounds capture and UI removal; disposal acceptance remains separate.
 export function monitoring({ exited, exportVerified, now, t0 }) {
   return !exited && (exportVerified || now <= Date.parse(t0) + 900000);
 }
@@ -511,137 +469,7 @@ export class WorkerCdp {
   }
 }
 
-async function run(out) {
-  check(process.platform === "win32" && path.resolve(process.cwd()) === seat, "registered_windows_seat_required");
-  realPath(CHROME);
-  check(
-    existsSync(CHROME) && lstatSync(CHROME).isFile() && realpathSync(CHROME) === CHROME,
-    "absolute_chrome_identity_refused",
-  );
-  check(acquireHeavySlot("playwright"), "registered_heavy_admission_required");
-  const metadata = prepareRehearsal(out);
-  const evidence = path.join(out, "transport.json");
-  const events = [];
-  const report = (phase, code) => {
-    events.push({ phase, code, at: new Date().toISOString() });
-    writeFileSync(evidence, json({ evidence: "synthetic", qualification: "PENDING_HOST_REVIEW", events }));
-    console.log(`selector-human-rehearsal: ${phase} ${code}`);
-  };
-  report("WAITING", "human_install_required_no_begin");
-  const deny = createServer((connection) => connection.destroy());
-  await new Promise((resolve, reject) => {
-    deny.once("error", reject);
-    deny.listen(0, "127.0.0.1", resolve);
-  });
-  const args = chromeArguments(metadata.preparation.profileDirectory, deny.address().port);
-  writeFileSync(
-    path.join(out, "launch.json"),
-    json({ chromeExecutable: CHROME, arguments: args, evidence: "synthetic" }),
-    { flag: "wx" },
-  );
-  const child = spawn(CHROME, args, { stdio: "ignore", windowsHide: false });
-  let exited = false;
-  child.on("exit", () => {
-    exited = true;
-  });
-  child.on("error", () => {
-    exited = true;
-    report("HOLD", "chrome_startup_refused");
-  });
-  const portFile = path.join(metadata.preparation.profileDirectory, "DevToolsActivePort");
-  let socket;
-  let isolation;
-  try {
-    const start = Date.now();
-    while (!existsSync(portFile) && !exited && Date.now() - start < 15000) await pause(100);
-    check(!exited && existsSync(portFile), "chrome_startup_refused");
-    const [port, endpoint] = readFileSync(portFile, "utf8").trim().split(/\r?\n/);
-    check(
-      /^\d{1,5}$/.test(port) &&
-        Number(port) > 0 &&
-        Number(port) <= 65535 &&
-        /^\/devtools\/browser\/[a-f0-9-]+$/.test(endpoint),
-      "debug_identity_refused",
-    );
-    socket = new WebSocket(`ws://127.0.0.1:${port}${endpoint}`);
-    await new Promise((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error("debug_startup_timeout")), 10000);
-      socket.addEventListener(
-        "open",
-        () => {
-          clearTimeout(timer);
-          resolve();
-        },
-        { once: true },
-      );
-      socket.addEventListener(
-        "error",
-        () => {
-          clearTimeout(timer);
-          reject(new Error("debug_startup_refused"));
-        },
-        { once: true },
-      );
-    });
-    const cdp = new WorkerCdp(
-      socket,
-      (event) => {
-        if (event.method === "Target.attachedToTarget") void isolation.attached(event.params);
-        if (event.method === "Target.detachedFromTarget") isolation.detached(event.params);
-      },
-      () => isolation.monitorClosed(exited),
-    );
-    isolation = new WorkerIsolation(cdp.send.bind(cdp), metadata, report);
-    await isolation.start();
-    console.log(`HUMAN instructions: ${path.join(out, "HUMAN.md")}`);
-    let exportVerified = false;
-    while (monitoring({ exited, exportVerified, now: Date.now(), t0: metadata.preparation.t0 })) {
-      if (isolation.held) throw new Error("isolation_hold");
-      if (
-        isolation.ready &&
-        !exportVerified &&
-        ["selector-receipt.json", "selector-inventory.json"].every((name) =>
-          existsSync(path.join(out, "run", "receipt", name)),
-        )
-      ) {
-        verifySyntheticExport(path.join(out, "run"));
-        const receipt = JSON.parse(readFileSync(path.join(out, "run", "receipt", "selector-receipt.json"), "utf8"));
-        check(
-          receipt.failures.length === 0 &&
-            receipt.selector.searches.length === 1 &&
-            receipt.selector.searches[0].qualification === "qualified",
-          "synthetic_capture_unknown",
-        );
-        exportVerified = true;
-        isolation.exportSealed = true;
-        report("EXPORT_VERIFIED", "synthetic_only_human_removal_still_pending");
-      }
-      await pause(250);
-    }
-    check(exportVerified && exited, "expiry_or_missing_export_hold");
-    report("PENDING_HOST_REVIEW", "human_closed_profile_host_disposal_observations_required");
-  } catch {
-    report("HOLD", "startup_isolation_or_lifecycle_refused");
-    process.exitCode = 1;
-  } finally {
-    socket?.close();
-    // Keep the deny proxy alive on HOLD until HUMAN closes this exact Chrome.
-    while (!exited) await pause(250);
-    await new Promise((resolve) => deny.close(resolve));
-    child.unref();
-    // Never kill Chrome or dispose its profile, including on failure.
-  }
-}
-
 if (process.argv[1] && path.resolve(process.argv[1]) === driver) {
-  try {
-    const args = process.argv.slice(2);
-    check(args.length === 2 && args[0] === "--out" && args[1], "invalid_arguments");
-    await run(args[1]);
-  } catch {
-    console.error(
-      "selector-human-rehearsal: HOLD; source, destination, admission or startup refused; no human acceptance",
-    );
-    process.exitCode = 1;
-  }
+  console.error("selector-historical-rehearsal: prospective launch authority withdrawn");
+  process.exitCode = 1;
 }
