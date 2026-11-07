@@ -846,13 +846,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
   const committedOrderPaymentPreview =
     expiredCheckout || fulfillmentPreview
       ? null
-      : await loadCommittedOrderPaymentPreview(
-          ancillaryRequest,
-          actor,
-          session,
-          wallet,
-          selectedPaymentMethodCategory,
-        );
+      : await loadCommittedOrderPaymentPreview(ancillaryRequest, actor, session, wallet, selectedPaymentMethodCategory);
   const previewError = committedOrderPaymentPreview ? null : loadedFulfillmentPreview.previewError;
   const paymentPreview = expiredCheckout
     ? null
