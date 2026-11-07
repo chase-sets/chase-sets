@@ -1269,7 +1269,7 @@ async function loadNameMap(
     return new Map();
   }
 
-  const result = await db.query<Record<string, string>>(
+  const result = await db.query<Readonly<{ id: string; name: string }>>(
     `SELECT ${idColumn} AS id, ${nameColumn} AS name FROM ${table} WHERE ${idColumn} = ANY($1::text[])`,
     [ids],
   );
@@ -1325,8 +1325,9 @@ function normalizeSelectedOptionsForSchema(
       continue;
     }
 
-    if (dimension.required && allowedOptionIds.length > 0) {
-      nextSelections[dimension.dimensionId] = allowedOptionIds[0];
+    const [firstAllowedOptionId] = allowedOptionIds;
+    if (dimension.required && firstAllowedOptionId !== undefined) {
+      nextSelections[dimension.dimensionId] = firstAllowedOptionId;
       continue;
     }
 
