@@ -1164,6 +1164,27 @@ export function createCatalogApiClient({
         job: await parseJsonResponse<CatalogAuthoringBulkJob<T>>(response),
       });
     },
+    async previewBulkRemoveDrafts<T>(selection: unknown): Promise<T> {
+      const response = await client.items["bulk-remove-drafts"].preview.$post({
+        json: { selection },
+        header: headers,
+      });
+      return parseJsonResponse<T>(response);
+    },
+    async confirmBulkRemoveDrafts<T>(selection: unknown, options: CatalogBulkActionProgressOptions = {}): Promise<T> {
+      const response = await client.items["bulk-remove-drafts"].confirm.$post({
+        json: { selection },
+        header: headers,
+      });
+      return waitForAuthoringBulkJobResult<T>({
+        baseUrl,
+        fetch: configuredFetch,
+        headers,
+        onProgress: options.onProgress,
+        signal: options.signal,
+        job: await parseJsonResponse<CatalogAuthoringBulkJob<T>>(response),
+      });
+    },
     async setTags<T>(id: string, tags: string[]): Promise<T> {
       const response = await client.items[":id"].tags.$put({
         param: { id },

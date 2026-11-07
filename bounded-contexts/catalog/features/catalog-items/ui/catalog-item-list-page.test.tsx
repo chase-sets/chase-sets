@@ -2,6 +2,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { t } from "@chase-sets/localization";
 import { CatalogRealtimeReloadActionBar } from "./realtime-reload-action-bar";
 import { CatalogItemListPage } from "./catalog-item-list-page";
 import type { CatalogListQuery } from "../../../support/shell-support/list-query-state";
@@ -15,7 +16,8 @@ const {
   mockPreviewBulkCatalogItemEdit,
   mockPreviewBulkCatalogItemLifecycle,
   mockPreviewBulkPublishCatalogItems,
-  mockRemoveDraftCatalogItem,
+  mockPreviewBulkRemoveDrafts,
+  mockConfirmBulkRemoveDrafts,
   mockUseNavigation,
   mockUseRevalidator,
   mockUseSearchParams,
@@ -27,7 +29,8 @@ const {
   mockPreviewBulkCatalogItemEdit: vi.fn(),
   mockPreviewBulkCatalogItemLifecycle: vi.fn(),
   mockPreviewBulkPublishCatalogItems: vi.fn(),
-  mockRemoveDraftCatalogItem: vi.fn(),
+  mockPreviewBulkRemoveDrafts: vi.fn(),
+  mockConfirmBulkRemoveDrafts: vi.fn(),
   mockUseNavigation: vi.fn(),
   mockUseRevalidator: vi.fn(),
   mockUseSearchParams: vi.fn(),
@@ -49,7 +52,8 @@ vi.mock("./use-catalog-items", () => ({
   previewBulkCatalogItemEdit: mockPreviewBulkCatalogItemEdit,
   previewBulkCatalogItemLifecycle: mockPreviewBulkCatalogItemLifecycle,
   previewBulkPublishCatalogItems: mockPreviewBulkPublishCatalogItems,
-  removeDraftCatalogItem: mockRemoveDraftCatalogItem,
+  previewBulkRemoveDrafts: mockPreviewBulkRemoveDrafts,
+  confirmBulkRemoveDrafts: mockConfirmBulkRemoveDrafts,
 }));
 
 const catalogItem: CatalogItemListItem = {
@@ -794,7 +798,39 @@ describe("CatalogItemListPage", () => {
     const revalidate = vi.fn();
     mockUseRevalidator.mockReturnValue({ revalidate });
     mockUseSearchParams.mockReturnValue([new URLSearchParams(), vi.fn()]);
-    mockRemoveDraftCatalogItem.mockResolvedValue({ id: "cat_1", version: 2, status: "removed" });
+    mockPreviewBulkRemoveDrafts.mockResolvedValue({
+      mode: "ids",
+      item_ids: ["cat_1"],
+      total: 1,
+      ready_count: 1,
+      blocked_count: 0,
+      candidates: [
+        {
+          catalog_item_id: "cat_1",
+          title: "Charizard",
+          status: "draft",
+          outcome: "ready",
+          reason: null,
+        },
+      ],
+    });
+    mockConfirmBulkRemoveDrafts.mockResolvedValue({
+      mode: "ids",
+      item_ids: ["cat_1"],
+      total: 1,
+      succeeded_count: 1,
+      skipped_count: 0,
+      failed_count: 0,
+      candidates: [
+        {
+          catalog_item_id: "cat_1",
+          title: "Charizard",
+          status: "removed",
+          outcome: "succeeded",
+          reason: null,
+        },
+      ],
+    });
 
     render(
       <CatalogItemListPage
@@ -805,13 +841,24 @@ describe("CatalogItemListPage", () => {
 
     const [selectRow] = screen.getAllByLabelText("Select row cat_1");
     fireEvent.click(selectRow!);
-    fireEvent.click(screen.getByRole("button", { name: "Remove drafts from selected" }));
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: t("catalog.features.catalogItems.ui.catalogItemListPage.remove.drafts.from.selected"),
+      }),
+    );
 
-    const confirmButtons = await screen.findAllByRole("button", { name: "Remove drafts from selected" });
-    fireEvent.click(confirmButtons[confirmButtons.length - 1]!);
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: t("catalog.features.catalogItems.ui.catalogItemListPage.remove.drafts"),
+      }),
+    );
 
     await waitFor(() => {
-      expect(mockRemoveDraftCatalogItem).toHaveBeenCalledWith("cat_1");
+      expect(mockPreviewBulkRemoveDrafts).toHaveBeenCalledWith({ mode: "ids", ids: ["cat_1"] });
+      expect(mockConfirmBulkRemoveDrafts).toHaveBeenCalledWith(
+        { mode: "ids", ids: ["cat_1"] },
+        expect.objectContaining({ onProgress: expect.any(Function) }),
+      );
       expect(revalidate).toHaveBeenCalled();
     });
   });
