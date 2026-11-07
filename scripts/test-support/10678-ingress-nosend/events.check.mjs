@@ -308,9 +308,24 @@ function sourceClosure(text) {
   const wrapped = new Set(wrapperArgs.flatMap(resolve));
   assert.deepEqual(wrapped, new Set(sites));
   for (const site of wrapped) assert(sites.includes(site));
-  return [...queryArgs, ...wrapperArgs].map((node) => ({ start: node.getStart(tree), end: node.end }));
+  const spawns = calls.filter((call) => call.expression.text === "spawnSync");
+  assert.equal(spawns.length, 2, "all subprocesses must use the registered metadata/disk paths");
+  const spawnSites = new Set();
+  for (const spawn of spawns) {
+    let parent = spawn.parent;
+    while (parent && !(ts.isCallExpression(parent) && parent.expression.getText(tree) === "inventoryAt"))
+      parent = parent.parent;
+    assert(parent, "subprocess reporting wrapper required");
+    for (const site of resolve(parent.arguments[0])) if (Object.hasOwn(site, "incomplete")) spawnSites.add(site);
+  }
+  assert.deepEqual(spawnSites, new Set(queries));
+  const span = (node) => ({ start: node.getStart(tree), end: node.end });
+  return {
+    registrations: [...queryArgs, ...wrapperArgs].map(span),
+    spawns: spawns.map((node) => span(node.expression)),
+  };
 }
-const registrations = sourceClosure(source);
+const { registrations, spawns } = sourceClosure(source);
 for (const { start, end } of registrations) {
   const bypass = `${source.slice(0, start)}unregisteredSite${source.slice(end)}`;
   assert.throws(() => sourceClosure(bypass), /unregistered expression/);
@@ -318,6 +333,15 @@ for (const { start, end } of registrations) {
   assert.throws(() => sourceClosure(missingProperty), /unregistered operation property/);
 }
 assert.throws(() => sourceClosure(source.replace("inventoryDiskHead(disk)", "unclassifiedDiskHead(disk)")));
+for (const { start, end } of spawns)
+  assert.throws(
+    () => sourceClosure(`${source.slice(0, start)}unregisteredSpawn${source.slice(end)}`),
+    /all subprocesses must use/,
+  );
+assert.throws(
+  () => sourceClosure(`${source}\nspawnSync("SYNTHETIC_NEVER_EXECUTED", []);\n`),
+  /all subprocesses must use/,
+);
 console.log(
-  `PASS pure push/branch-creation matrix; ${expectedCodes.length} exact categories, ${sites.length} operation wrappers, ${queries.length} query sites and ${registrations.length * 2 + 1} source-registration bypass controls; no collector or subprocess execution`,
+  `PASS pure push/branch-creation matrix; ${expectedCodes.length} exact categories, ${sites.length} operation wrappers, ${queries.length} query sites and ${registrations.length * 2 + spawns.length + 2} source-registration bypass controls; no collector or subprocess execution`,
 );
