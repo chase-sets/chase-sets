@@ -4,6 +4,7 @@
 //! Filters button opens. The words box and the sort are in the form by its id, so changing any
 //! of them sends every choice.
 use corten::prelude::*;
+use platform::ui::visually_hidden::VisuallyHidden;
 
 use super::{
     item_detail::{analytics, similar_image},
@@ -233,11 +234,11 @@ pub fn SearchPage<'a>(t: SearchMsg, p: Pilot, screen: &'a SearchScreen, failed: 
     html! {
         <div class={Page} on:change={handlers::apply(event)}>
             if focused {
-                <h1 class={VisuallyHidden}>{&heading}</h1>
+                <h1 class={VisuallyHidden {}}>{&heading}</h1>
                 <div class={Controls}>
                     <WordsBox t={t} terms={terms} placeholder={t.page_search_catalog_items()} />
                     <label class={Sort}>
-                        <span class={VisuallyHidden}>{t.page_sort()}</span>
+                        <span class={VisuallyHidden {}}>{t.page_sort()}</span>
                         <select name={f.sort} form={form}>
                             for (value, label) in sorts(t) {
                                 <option value={value} selected={terms.sort == value}>{label}</option>
@@ -311,7 +312,7 @@ fn WordsBox<'a>(t: SearchMsg, terms: &'a Terms, placeholder: &'a str) -> impl Re
     html! {
         <search class={Words}>
             <label>
-                <span class={VisuallyHidden}>{t.page_marketplace_search()}</span>
+                <span class={VisuallyHidden {}}>{t.page_marketplace_search()}</span>
                 <input
                     type="search"
                     name={f.q}
@@ -490,7 +491,7 @@ fn Filters<'a>(t: SearchMsg, screen: &'a SearchScreen, facets: &'a [Facet], summ
                         }
                     </summary>
                     <fieldset class={Choices}>
-                        <legend class={VisuallyHidden}>{t.page_language()}</legend>
+                        <legend class={VisuallyHidden {}}>{t.page_language()}</legend>
                         <p class={Muted}>{t.page_mobile_language_description()}</p>
                         <label class={Check}>
                             <input type="radio" name={f.language} value="" checked={terms.language.is_empty()}>
@@ -508,7 +509,7 @@ fn Filters<'a>(t: SearchMsg, screen: &'a SearchScreen, facets: &'a [Facet], summ
                         <span class={FacetTitle}>{t.page_market_activity()}</span>
                     </summary>
                     <fieldset class={Choices}>
-                        <legend class={VisuallyHidden}>{t.page_market_activity()}</legend>
+                        <legend class={VisuallyHidden {}}>{t.page_market_activity()}</legend>
                         <p class={Muted}>{t.page_market_activity_description()}</p>
                         <label class={Check}>
                             <input type="radio" name={f.market_activity} value="" checked={terms.activity == Activity::Any}>
@@ -573,7 +574,7 @@ fn FacetChoices<'a>(t: SearchMsg, facet: &'a Facet) -> impl Render {
                 }
             </summary>
             <fieldset class={Choices}>
-                <legend class={VisuallyHidden}>{&t.page_facet_choices(&facet.label).to_string()}</legend>
+                <legend class={VisuallyHidden {}}>{&t.page_facet_choices(&facet.label).to_string()}</legend>
                 <p class={Muted}>{description}</p>
                 for value in &facet.values {
                     <label class={Check}>

@@ -9,7 +9,10 @@
 //! Buy, the two forms' choices kept in step, the promo bar's turns, the sticky bars, the referrer
 //! in the forms, and the analytics events.
 use corten::prelude::*;
-use platform::{glyphs, ui::icon::Icon as KitIcon};
+use platform::{
+    glyphs,
+    ui::{icon::Icon as KitIcon, visually_hidden::VisuallyHidden},
+};
 
 use crate::{
     home::{Game, Interest, Panel, Role, Screen, Variant},
@@ -213,7 +216,7 @@ fn SignupPanel<'a>(t: HomeMsg, screen: &'a Screen, panel: Panel) -> impl Render 
                 <input type="hidden" name="panel" value={panel.as_str()}>
                 if hero {
                     <fieldset class={Segments}>
-                        <legend class={VisuallyHidden}>{t.waitlist_hero_intent_label()}</legend>
+                        <legend class={VisuallyHidden {}}>{t.waitlist_hero_intent_label()}</legend>
                         for role in Role::HERO {
                             <label class={Segment}>
                                 <input type="radio" name="role" value={role.as_str()} checked={screen.role == role}>

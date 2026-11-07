@@ -37,6 +37,7 @@ pub mod table;
 pub mod tabs;
 pub mod textarea;
 pub mod toasts;
+pub mod visually_hidden;
 
 /// Each component with a stylesheet, after [`crate::theme::TOKENS`]: `App::components(ui::COMPONENTS)`.
 pub const COMPONENTS: &[Component] = &[
@@ -70,4 +71,5 @@ pub const COMPONENTS: &[Component] = &[
     tabs::Tabs,
     textarea::Textarea,
     toasts::Toasts,
+    visually_hidden::VisuallyHidden,
 ];

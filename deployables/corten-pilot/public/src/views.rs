@@ -29,10 +29,12 @@ pub use welcome_page::{WaveStatus, WelcomePage};
 /// visitors open first, so its stylesheet is in `components.css`; the policy pages are seven
 /// addresses at the root, which no area's prefix can cover (todd-skelton/corten#93), and their
 /// stylesheet is small (README decision 79). The welcome page is where Join lands, so most of
-/// the home page's visitors who act open it next.
+/// the home page's visitors who act open it next. The kit's `VisuallyHidden` is the home page's
+/// hidden legend and the market chart's summary.
 pub const COMPONENTS: &[Component] = &[
     theme::TOKENS,
     platform::ui::icon::Icon,
+    platform::ui::visually_hidden::VisuallyHidden,
     NotFound,
     HomeLayout,
     HomePage,
