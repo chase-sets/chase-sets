@@ -11,6 +11,7 @@
 //! | `POST /catalog/integrations/jobs/{id}?<context>` | retries, resumes or cancels an import job |
 //! | `POST /catalog/integrations/units?<context>` | imports or reapplies a workset unit's scope |
 //! | `POST /catalog/integrations/review?<context>` | defers or rejects the checked Source Observations |
+//! | `GET /catalog/integrations/evidence/{id}?<context>` | a Source Observation's evidence sheet, or without the script the page with it open |
 //! | `POST /catalog/integrations/candidates/{id}?<context>` | ignores or defers a merge candidate |
 //! | `POST /catalog/integrations/aliases?<context>` | accepts, rejects, revokes or defers alias candidates |
 //!
@@ -28,9 +29,13 @@
 //! `POST .../reapply`; the API refuses a scope it cannot import or reapply.
 //!
 //! Preview and promote stay on admin-web: the API does not yet refuse a stale preview itself
-//! (chase-sets/chase-sets#11045), so the pilot does not send a promotion. The evidence sheets open on
-//! admin-web until the API serves their detail (chase-sets/chase-sets#11079), and the jobs stage's
-//! import preview until the API composes it for the working set (chase-sets/chase-sets#11130).
+//! (chase-sets/chase-sets#11045), so the pilot does not send a promotion, and the jobs stage's import
+//! preview opens there until the API composes it for the working set (chase-sets/chase-sets#11130).
+//!
+//! A review row's Evidence opens the observation's evidence sheet from the API's detail
+//! (`GET /api/catalog/source-observations/{id}/evidence`, admin-web's lazy `SourceObservationEvidenceSheet`
+//! fetch): a GET form on the page carries the working set, so with the script the answer is the sheet
+//! alone, and without it the page the stages are drawn on, with the sheet open.
 //!
 //! A scope's page draws the same stages for its scope (`crate::catalog::scope`), its forms carrying
 //! the working set's `home` (the pilot's own key, never sent to the API), so the redirect after a
@@ -104,6 +109,12 @@ pub mod url {
     /// Defers or rejects the checked Source Observations.
     #[route("/catalog/integrations/review", post = crate::catalog::daily::review)]
     pub struct Review;
+
+    /// A Source Observation's evidence sheet, for the working set the address carries.
+    #[route("/catalog/integrations/evidence/{id}", get = crate::catalog::daily::evidence)]
+    pub struct Evidence<'a> {
+        pub id: &'a str,
+    }
 
     /// Ignores or defers a merge candidate.
     #[route("/catalog/integrations/candidates/{id}", post = crate::catalog::daily::candidate)]
@@ -632,6 +643,71 @@ pub struct Readied {
     pub blockers: Vec<String>,
 }
 
+/// A Source Observation's evidence (`CatalogPrimaryWorkbenchSourceObservationEvidenceRouteData`):
+/// none when the API has no detail for it, or the read failed, where the sheet says so.
+#[derive(Clone, Debug, Default, Deserialize, Serialize, ToJson)]
+#[serde(default, rename_all = "camelCase")]
+pub struct ObservationEvidence {
+    pub observation_id: String,
+    pub detail: Option<EvidenceDetail>,
+}
+
+/// `CatalogPrimaryWorkbenchSourceObservationEvidenceDetail`: the fields the sheet shows.
+#[derive(Clone, Debug, Default, Deserialize, Serialize, ToJson)]
+#[serde(default, rename_all = "camelCase")]
+pub struct EvidenceDetail {
+    pub observation_id: String,
+    pub provider_key: String,
+    pub external_key: String,
+    pub display_name: String,
+    pub source_url: String,
+    pub source_record_hash: String,
+    pub source_updated_at: Option<String>,
+    pub observed_at: String,
+    pub changed_at: String,
+    pub source_profile_version: String,
+    pub promotion_profile_version: Option<String>,
+    pub payload_summary: String,
+    pub redaction_summary: String,
+    pub normalized_fact_summaries: Vec<String>,
+    pub product_contents_evidence: ContentsEvidence,
+    pub duplicate_evidence: Vec<String>,
+    pub conflict_evidence: Vec<String>,
+    pub audit_trail: Vec<String>,
+    pub promotion_readiness: Readied,
+    pub command_preview: EvidencePreview,
+}
+
+/// `CatalogPrimaryWorkbenchProductContentsEvidenceReview`.
+#[derive(Clone, Debug, Default, Deserialize, Serialize, ToJson)]
+#[serde(default, rename_all = "camelCase")]
+pub struct ContentsEvidence {
+    pub state: String,
+    pub summary: String,
+    pub rows: Vec<ContentsLine>,
+}
+
+/// `CatalogPrimaryWorkbenchProductContentsEvidenceLine`.
+#[derive(Clone, Debug, Default, Deserialize, Serialize, ToJson)]
+#[serde(default, rename_all = "camelCase")]
+pub struct ContentsLine {
+    pub line_number: u64,
+    pub state: String,
+    pub content_type_label: String,
+    pub inclusion_policy_label: Option<String>,
+    pub quantity: Option<f64>,
+    pub target_summary: String,
+    pub contained_selected_option_labels: Vec<String>,
+    pub provenance_summary: Vec<String>,
+}
+
+/// The evidence's command preview: the plan hash, once a preview made one.
+#[derive(Clone, Debug, Default, Deserialize, Serialize, ToJson)]
+#[serde(default, rename_all = "camelCase")]
+pub struct EvidencePreview {
+    pub promotion_plan_hash: Option<String>,
+}
+
 /// `CatalogPrimaryWorkbenchMergeCandidateReviewReadModel`.
 #[derive(Clone, Debug, Default, Deserialize, Serialize, ToJson)]
 #[serde(default)]
@@ -945,6 +1021,20 @@ pub fn context_value(context: &str, key: &str) -> Option<String> {
     Some(percent_encoding::percent_decode_str(raw).decode_utf8_lossy().into_owned())
 }
 
+/// The working set's query as names and values, decoded as a form's are (`+` a space): the hidden
+/// fields of a GET form that lands on the same working set, as its submit replaces its action's query.
+pub fn context_fields(context: &str) -> Vec<(String, String)> {
+    let decode = |text: &str| percent_encoding::percent_decode_str(&text.replace('+', " ")).decode_utf8_lossy().into_owned();
+    context
+        .split('&')
+        .filter(|pair| !pair.is_empty())
+        .map(|pair| {
+            let (name, value) = pair.split_once('=').unwrap_or((pair, ""));
+            (decode(name), decode(value))
+        })
+        .collect()
+}
+
 /// What the page draws: the read model, what the last command did or the refusal of the one just
 /// sent, and whether the viewer may run the commands.
 #[derive(Clone, Debug, Serialize, ToJson)]
@@ -960,6 +1050,8 @@ pub struct DailyScreen {
     pub options: Option<SourceOptions>,
     /// The alias review of the surface's provider and profile version; none when it does not read.
     pub aliases: Option<super::api::AliasReview>,
+    /// The evidence sheet drawn open, without the script; none otherwise.
+    pub evidence: Option<ObservationEvidence>,
 }
 
 impl DailyScreen {
@@ -998,7 +1090,7 @@ pub(crate) async fn workspace(caller: &Caller<'_>, context: &str, manage: bool) 
     let (read, run) = tokio::join!(read_with(caller, &location), sync_run(caller, context));
     let read = read.inspect_err(|error| tracing::warn!("a scope's daily surface could not be read: {error}")).ok()?;
     let units = unit_states(caller, &read).await;
-    Some(DailyScreen { read, manage, run, units, options: None, aliases: None })
+    Some(DailyScreen { read, manage, run, units, options: None, aliases: None, evidence: None })
 }
 
 /// The Catalog sync run the address's `jobId` names (admin-web's `selectedCatalogSyncRun`): none
@@ -1075,6 +1167,7 @@ async fn render(
     receipt: Option<Receipt>,
     said: Option<Said<'_>>,
     refused: bool,
+    evidence: Option<ObservationEvidence>,
 ) -> HtmlResult {
     let location = location(context);
     let caller = config.platform.caller(headers, config.proto, receipt.as_ref());
@@ -1090,7 +1183,7 @@ async fn render(
         Err(error) => return read_failed(req, error, receipt.is_some()),
     };
     let (units, aliases) = tokio::join!(unit_states(&caller, &read), alias_review(&caller, &read.read_model.route_context));
-    let screen = DailyScreen { read, manage: manages(viewer), run, units, options, aliases };
+    let screen = DailyScreen { read, manage: manages(viewer), run, units, options, aliases, evidence };
     let t: Cat = req.t();
     let p: Pilot = req.t();
     let view = html! {
@@ -1111,7 +1204,44 @@ pub(crate) async fn page(
 ) -> HtmlResult {
     let receipt = Receipt::from_param(param(&uri, "after_write").as_deref());
     let said = param(&uri, "done").as_deref().and_then(Ran::of).map(Said::Ran);
-    render(&req, &staff.viewer, &config, &headers, &context_of(&uri), receipt, said, false).await
+    render(&req, &staff.viewer, &config, &headers, &context_of(&uri), receipt, said, false, None).await
+}
+
+/// A Source Observation's evidence sheet (admin-web's `SourceObservationEvidenceSheet`, which reads
+/// it when the sheet opens): with the script, the sheet alone; without, the page the working set's
+/// stages are drawn on (the scope's page its `home` names, or the daily workbench) with it open.
+pub(crate) async fn evidence(
+    req: Req,
+    corten::Caller(staff): corten::Caller<Staff<CatalogAccess>>,
+    State(config): State<Shared>,
+    headers: HeaderMap,
+    uri: Uri,
+    Params(route): Params<url::Evidence<'_>>,
+) -> HtmlResult {
+    let context = context_of(&uri);
+    let caller = config.platform.caller(&headers, config.proto, None);
+    let shown = read_evidence(&caller, &route.id).await;
+    if req.mode == Mode::Action {
+        let (t, p): (Cat, Pilot) = (req.t(), req.t());
+        return req.patch(super::views::EvidenceSheet { t, p, evidence: Some(&shown), context: &context });
+    }
+    match context_value(&context, HOME).filter(|id| !id.is_empty()) {
+        Some(id) => super::scope::with_evidence(&req, &staff.viewer, &config, &headers, &id, &context, shown).await,
+        None => render(&req, &staff.viewer, &config, &headers, &context, None, None, false, Some(shown)).await,
+    }
+}
+
+/// The observation's evidence, or none when the API has none for it or does not answer (admin-web's
+/// sheet draws its error then, as here).
+async fn read_evidence(caller: &Caller<'_>, id: &str) -> ObservationEvidence {
+    let rest = format!("/{}/evidence", segment(id));
+    match caller.read_at::<ObservationEvidence>(Kind::SourceObservations, &rest).await {
+        Ok(evidence) => evidence,
+        Err(error) => {
+            tracing::warn!("a Source Observation's evidence could not be read: {error}");
+            ObservationEvidence { observation_id: id.to_owned(), detail: None }
+        }
+    }
 }
 
 /// The redirect after a command the API accepted: the working set again with `set` changed, the
@@ -1155,7 +1285,7 @@ async fn answer(
             Some(id) => super::scope::refused_in_workspace(req, &staff.viewer, config, headers, id, context, &errors).await,
             None => {
                 let daily = with_query(context, &[(HOME, None)]);
-                render(req, &staff.viewer, config, headers, &daily, None, Some(Said::Refused(&errors)), true).await
+                render(req, &staff.viewer, config, headers, &daily, None, Some(Said::Refused(&errors)), true, None).await
             }
         }
     })

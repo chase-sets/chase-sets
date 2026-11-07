@@ -15,6 +15,7 @@ use platform::ui::{
     input::Input,
     pagination::Pagination,
     radio_group::{Radio, RadioGroup},
+    sheet::{Sheet, SheetHeader, SheetWidth, Side},
     steps::{Step, StepState, Steps, StepsLayout},
     table::{CellLabel, Table, TableLayout},
     textarea::Textarea,
@@ -28,9 +29,9 @@ use crate::{
     catalog::{
         api::AliasReview,
         daily::{
-            self, CANDIDATE_COMMANDS, Candidate, CandidateInput, Daily, DailyScreen, EditForm, Governance, Health, ImportJob,
-            JobInput, PROMOTION_INTENTS, Ran, ReviewInput, ReviewRow, Said, Stage, StageState, SyncInput, SyncRun, UnitInput,
-            UnitState, WorksetUnit, at, with_query,
+            self, CANDIDATE_COMMANDS, Candidate, CandidateInput, ContentsLine, Daily, DailyScreen, EditForm, EvidenceDetail,
+            Governance, Health, ImportJob, JobInput, ObservationEvidence, PROMOTION_INTENTS, Ran, ReviewInput, ReviewRow, Said,
+            Stage, StageState, SyncInput, SyncRun, UnitInput, UnitState, WorksetUnit, at, with_query,
         },
         integrations,
         views::AliasReviewPart,
@@ -285,6 +286,7 @@ pub fn Stages<'a>(t: Cat, p: Pilot, req: &'a Req, screen: &'a DailyScreen, conte
                 </details>
             }
         </div>
+        <EvidenceSheet t={t} p={p} evidence={screen.evidence.as_ref()} context={context} />
     }
 }
 
@@ -1342,8 +1344,8 @@ fn observation_tone(status: &str) -> &'static str {
 }
 
 /// Source Observation review (`CatalogIntegrationSourceObservationReviewModule`): the filters, the
-/// status choice as links, the page of rows with a box for each reviewable one, the pager, and
-/// Defer and Reject for the checked ones. Preview promotion opens on admin-web
+/// status choice as links, the page of rows with a box for each reviewable one and its Evidence
+/// sheet, the pager, and Defer and Reject for the checked ones. Preview promotion opens on admin-web
 /// (chase-sets/chase-sets#11045).
 #[component(css = DailyPage)]
 fn ReviewModule<'a>(
@@ -1368,6 +1370,7 @@ fn ReviewModule<'a>(
         ("rejected", t.wb_review_status_rejected(), c.rejected),
     ];
     let daily_path = daily::home(context);
+    let kept = daily::context_fields(context);
     // Workaround (chase-sets/chase-sets#11047): the status links, as admin-web's `selectStatus`
     // builds them.
     let choices: Vec<(String, String, bool)> = options
@@ -1433,6 +1436,11 @@ fn ReviewModule<'a>(
                 }
             </nav>
             <AliasReviewPart t={t} p={p} action={&alias_action} review={aliases} failed={false} manage={manage} />
+            <form id={EVIDENCE_OPEN} method="get" action={&daily_path} data-patch>
+                for (name, value) in &kept {
+                    <input type="hidden" name={name.as_str()} value={value.as_str()}>
+                }
+            </form>
             <form
                 method="post"
                 action={&action}
@@ -1537,6 +1545,169 @@ fn review_page(context: &str, limit: u64, n: usize) -> Box<dyn Href> {
     }
 }
 
+/// The evidence sheet, and the GET form a review row's Evidence submits (its action the row's sheet,
+/// its fields the working set).
+#[derive(Id, Clone, Copy)]
+pub struct EvidenceSheetId;
+const EVIDENCE_OPEN: &str = "wb-evidence-open";
+
+/// A Source Observation's evidence (admin-web's `SourceObservationEvidenceSheet`) in the kit's sheet
+/// from the right, a record's width beside its list and never more than most of a phone's: drawn
+/// open by the server and made modal when it joins the page, or the empty dialog a row's Evidence
+/// answer replaces. A detail the API does not have is the sheet's error, as there. Its footer's
+/// Preview promotion opens on admin-web (chase-sets/chase-sets#11045), where the button does nothing.
+#[component(css = DailyPage)]
+pub fn EvidenceSheet<'a>(t: Cat, p: Pilot, evidence: Option<&'a ObservationEvidence>, context: &'a str) -> impl Patch {
+    let heading = super::id_with(&EvidenceSheetId, "-title");
+    let _ = p;
+    html! {
+        match evidence {
+            None => <dialog id={EvidenceSheetId}></dialog>,
+            Some(evidence) => {
+                let detail = evidence.detail.as_ref();
+                let name = detail.map_or(evidence.observation_id.as_str(), |d| d.display_name.as_str());
+                let title = t.wb_review_evidence_title(name).to_string();
+                let eligible = detail.is_some_and(|d| d.promotion_readiness.state == "eligible");
+                let preview = admin_web(&daily::location(&with_query(context, &[("section", Some("promotion-preview"))])))
+                    .map(|u| u.to_string())
+                    .filter(|_| eligible);
+                <dialog
+                    class={Sheet { side: Side::Right(SheetWidth::Lg) }}
+                    id={EvidenceSheetId}
+                    aria-labelledby={&heading}
+                    closedby="any"
+                    open
+                    on:connect={corten_ui::dialog::modal(target)}
+                >
+                    <div class={SheetHeader {}}>
+                        <h2 id={&heading} class={Words}>{title}</h2>
+                        <button
+                            type="button"
+                            class={Button { variant: ButtonVariant::Ghost, size: ButtonSize::Sm }}
+                            command="close"
+                            commandfor={EvidenceSheetId}
+                        >
+                            {t.wb_evidence_close()}
+                        </button>
+                    </div>
+                    <p>{t.wb_review_evidence_description()}</p>
+                    match detail {
+                        None => {
+                            <div data-catalog-observation-evidence="error">
+                                <Banner
+                                    tone="danger"
+                                    title={t.wb_review_evidence_error_title()}
+                                    description={t.wb_review_evidence_error_description()}
+                                />
+                            </div>
+                        }
+                        Some(detail) => { <EvidenceBody t={t} detail={detail} /> }
+                    }
+                    <div class={EvidenceFooter}>
+                        match &preview {
+                            Some(href) => {
+                                <a class={Button { variant: ButtonVariant::Primary, size: ButtonSize::Sm }} href={href}>
+                                    {t.wb_preview_promotion()}
+                                </a>
+                            }
+                            None => {
+                                <button type="button" class={Button { variant: ButtonVariant::Primary, size: ButtonSize::Sm }} disabled>
+                                    {t.wb_blocked()}
+                                </button>
+                            }
+                        }
+                    </div>
+                </dialog>
+            }
+        }
+    }
+}
+
+/// The evidence's facts (admin-web's `KeyValueList`, in its order), then its lists and the blockers.
+#[component(css = DailyPage)]
+fn EvidenceBody<'a>(t: Cat, detail: &'a EvidenceDetail) -> impl Render {
+    let contents = &detail.product_contents_evidence;
+    let items = [
+        (t.wb_key_provider(), detail.provider_key.clone()),
+        (t.wb_review_key_external(), detail.external_key.clone()),
+        (t.wb_review_key_source_url(), detail.source_url.clone()),
+        (t.wb_review_key_hash(), detail.source_record_hash.clone()),
+        (t.wb_review_key_observed(), detail.observed_at.clone()),
+        (t.wb_review_key_changed(), detail.source_updated_at.clone().unwrap_or_else(|| detail.changed_at.clone())),
+        (t.wb_key_profile(), detail.source_profile_version.clone()),
+        (
+            t.wb_review_key_promotion_profile(),
+            detail.promotion_profile_version.clone().unwrap_or_else(|| t.wb_not_selected().to_owned()),
+        ),
+        (t.wb_review_key_payload(), detail.payload_summary.clone()),
+        (t.wb_review_key_redaction(), detail.redaction_summary.clone()),
+        (
+            t.wb_review_key_command_preview(),
+            detail.command_preview.promotion_plan_hash.clone().unwrap_or_else(|| t.wb_review_preview_required().to_owned()),
+        ),
+        (t.wb_review_evidence_product_contents(), contents.summary.clone()),
+    ];
+    let lines: Vec<String> = contents.rows.iter().map(|row| contents_line(t, row)).collect();
+    html! {
+        <div class={Stack} data-catalog-observation-evidence="loaded">
+            <Pairs items={&items} />
+            <EvidenceList title={t.wb_review_evidence_normalized()} items={&detail.normalized_fact_summaries} empty={t.wb_none()} />
+            <EvidenceList title={t.wb_review_evidence_product_contents()} items={&lines} empty={&contents.summary} />
+            <EvidenceList
+                title={t.wb_review_evidence_duplicates()}
+                items={&detail.duplicate_evidence}
+                empty={t.wb_review_evidence_no_duplicates()}
+            />
+            <EvidenceList
+                title={t.wb_review_evidence_conflicts()}
+                items={&detail.conflict_evidence}
+                empty={t.wb_review_evidence_no_conflicts()}
+            />
+            <EvidenceList title={t.wb_review_evidence_audit()} items={&detail.audit_trail} empty={t.wb_none()} />
+            <Blockers t={t} blockers={&detail.promotion_readiness.blockers} />
+        </div>
+    }
+}
+
+/// A titled list of the evidence's lines (admin-web's `EvidenceStringList`), or what it says for none.
+#[component(css = DailyPage)]
+fn EvidenceList<'a>(title: &'a str, items: &'a [String], empty: &'a str) -> impl Render {
+    html! {
+        <section class={EvidenceList}>
+            <h3>{title}</h3>
+            if items.is_empty() {
+                <p class={Muted}>{empty}</p>
+            } else {
+                <ul>
+                    for item in items {
+                        <li class={Words}>{item}</li>
+                    }
+                </ul>
+            }
+        </section>
+    }
+}
+
+/// A Product Contents line as the sheet says it (`productContentsEvidenceItems`).
+fn contents_line(t: Cat, row: &ContentsLine) -> String {
+    let join = |labels: &[String], none: &str| if labels.is_empty() { none.to_owned() } else { labels.join(", ") };
+    let quantity = row.quantity.map_or_else(|| t.wb_review_product_contents_quantity_variable().to_owned(), |q| q.to_string());
+    let options = join(&row.contained_selected_option_labels, t.wb_review_product_contents_selected_options_none());
+    let provenance = join(&row.provenance_summary, t.wb_review_product_contents_provenance_none());
+    let state = state_label(&row.state);
+    t.wb_review_product_contents_line(crate::text::cat::WbReviewProductContentsLine {
+        line_number: row.line_number,
+        state: &state,
+        content_type: &row.content_type_label,
+        policy: row.inclusion_policy_label.as_deref().unwrap_or(t.wb_review_product_contents_policy_none()),
+        quantity: &quantity,
+        target: &row.target_summary,
+        options: &options,
+        provenance: &provenance,
+    })
+    .to_string()
+}
+
 #[component(css = DailyPage)]
 fn ReviewRowView<'a>(t: Cat, p: Pilot, req: &'a Req, row: &'a ReviewRow, manage: bool) -> impl Render {
     let external = t
@@ -1554,6 +1725,7 @@ fn ReviewRowView<'a>(t: Cat, p: Pilot, req: &'a Req, row: &'a ReviewRow, manage:
         &crate::catalog::observation::url::Observation { id: &row.observation_id, after_write: None, done: None }.href(),
     );
     let choose = p.integrations_review_choose(&row.display_name).to_string();
+    let evidence = daily::url::Evidence { id: &row.observation_id }.href().to_string();
     html! {
         <tr data-catalog-observation-row={&row.observation_id}>
             <td>
@@ -1594,6 +1766,15 @@ fn ReviewRowView<'a>(t: Cat, p: Pilot, req: &'a Req, row: &'a ReviewRow, manage:
                     if row.duplicate_count > 0 {
                         <Pill text={&duplicates} tone="warning" />
                     }
+                    <button
+                        type="submit"
+                        class={Button { variant: ButtonVariant::Secondary, size: ButtonSize::Sm }}
+                        form={EVIDENCE_OPEN}
+                        formaction={&evidence}
+                        data-catalog-observation-evidence-open={&row.observation_id}
+                    >
+                        {t.wb_evidence()}
+                    </button>
                 </span>
             </td>
             <td>

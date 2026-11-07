@@ -348,6 +348,9 @@ async fn platform(State(calls): State<Calls>, method: Method, uri: Uri, headers:
     if let Some(surface) = uri.path().strip_prefix("/api/catalog/source-observations/workbench-surfaces/") {
         return workbench_surface(surface, uri.query().unwrap_or_default(), cookie);
     }
+    if let Some(id) = uri.path().strip_prefix("/api/catalog/source-observations/").and_then(|r| r.strip_suffix("/evidence")) {
+        return observation_evidence(id);
+    }
     if let Some(answer) = daily_command(&method, uri.path(), &body) {
         return answer;
     }
@@ -8584,6 +8587,82 @@ fn workset(stopped: bool) -> Value {
     })
 }
 
+/// The Catalog API's evidence for a Source Observation (`source-observations/{id}/evidence`): the
+/// eligible `obs_1` with one product contents line, and none for any other.
+fn observation_evidence(id: &str) -> Response {
+    if id != "obs_1" {
+        return refusal(StatusCode::NOT_FOUND, "not_found", "No evidence for that observation.");
+    }
+    Json(json!({
+        "observationId": "obs_1",
+        "detail": {
+            "observationId": "obs_1", "providerKey": "tcgplayer", "externalKey": "tcgplayer:sv1-001", "displayName": "Sprigatito",
+            "sourceUrl": "https://example.test/sv1-001", "sourceRecordHash": "sha256:abc", "sourceUpdatedAt": null,
+            "observedAt": "2026-11-04T09:00:00.000Z", "changedAt": "2026-11-04T08:00:00.000Z", "sourceProfileVersion": "v3",
+            "promotionProfileVersion": null, "payloadSummary": "12 fields", "redactionSummary": "Prices redacted",
+            "normalizedFactSummaries": ["Rarity: Double Rare"],
+            "productContentsEvidence": { "state": "matched", "summary": "One line matched.", "rows": [{
+                "lineNumber": 1, "state": "matched", "contentTypeLabel": "Booster pack", "inclusionPolicyLabel": null,
+                "quantity": 3.0, "targetSummary": "Paldean Fates booster", "containedSelectedOptionLabels": [],
+                "provenanceSummary": ["tcgplayer"] }] },
+            "duplicateEvidence": [], "conflictEvidence": ["Name differs from pokemontcgio"],
+            "auditTrail": ["Observed by the nightly import"],
+            "promotionReadiness": { "state": "eligible", "blockers": [] },
+            "commandPreview": { "promotionPlanHash": null }
+        }
+    }))
+    .into_response()
+}
+
+const EVIDENCE: &str = "/catalog/integrations/evidence";
+
+#[tokio::test]
+async fn a_review_rows_evidence_opens_the_apis_evidence_in_a_sheet() {
+    let pilot = Pilot::new().await;
+    let (_, _, page) = pilot.send(get("/catalog/integrations?providerKey=tcgplayer&unitKey=pokemon", Some("staff"))).await;
+    assert!(
+        page.contains(r#"<form id="wb-evidence-open" method="get" action="/catalog/integrations" data-patch><input type="hidden" name="providerKey" value="tcgplayer"><input type="hidden" name="unitKey" value="pokemon"></form>"#),
+        "the rows' GET form: {page}"
+    );
+    assert!(page.contains(r#"formaction="/catalog/integrations/evidence/obs_1""#), "a row's Evidence: {page}");
+    assert!(page.contains(r#"<dialog id="evidence-sheet"></dialog>"#), "the empty sheet an answer replaces: {page}");
+
+    // With JavaScript the answer is the sheet alone, drawn open with the API's facts.
+    let (status, _, html) = pilot.send(opened(&format!("{EVIDENCE}/obs_1?providerKey=tcgplayer&unitKey=pokemon"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(pilot.catalog_calls().iter().any(|c| c.path == "/api/catalog/source-observations/obs_1/evidence"));
+    assert!(!html.contains("<title>"), "only the sheet: {html}");
+    assert!(html.contains(r#"id="evidence-sheet""#) && html.contains(" open"), "{html}");
+    assert!(html.contains(r#"data-catalog-observation-evidence="loaded""#) && html.contains("Sprigatito"), "{html}");
+    assert!(html.contains("https://example.test/sv1-001") && html.contains("Rarity: Double Rare") && html.contains("Paldean Fates booster"), "{html}");
+    assert!(html.contains("Name differs from pokemontcgio") && html.contains("Observed by the nightly import"), "{html}");
+    assert!(html.contains("section=promotion-preview"), "an eligible row's Preview promotion: {html}");
+    assert!(!html.contains("disabled"), "{html}");
+
+    // An observation the API has no evidence for is the sheet's error, its footer blocked.
+    let (status, _, html) = pilot.send(opened(&format!("{EVIDENCE}/obs_missing?providerKey=tcgplayer&unitKey=pokemon"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains(r#"data-catalog-observation-evidence="error""#), "{html}");
+    assert!(html.contains("disabled") && !html.contains("section=promotion-preview"), "{html}");
+}
+
+#[tokio::test]
+async fn without_javascript_a_rows_evidence_is_its_page_with_the_sheet_open() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get(&format!("{EVIDENCE}/obs_1?providerKey=tcgplayer&unitKey=pokemon"), Some("staff"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains("<title>Catalog Integrations") && html.contains(r#"name="wb-stage""#), "the daily page: {html}");
+    assert!(html.contains(r#"data-catalog-observation-evidence="loaded""#), "with the sheet open: {html}");
+
+    // From a scope's workspace the page is the scope's.
+    let context = "productLineName=pokemon&productLineId=scp_pokemon&seriesId=scp_sv&expansionId=scp_paf\
+                   &expansionName=Paldean%20Fates&scopeRecordId=scp_paf&languageCode=en&home=scp_paf";
+    let (status, _, html) = pilot.send(get(&format!("{EVIDENCE}/obs_1?{context}"), Some("staff"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains("data-scope-workspace") && html.contains("Paldean Fates"), "the scope's page: {html}");
+    assert!(html.contains(r#"data-catalog-observation-evidence="loaded""#), "{html}");
+}
+
 fn daily_writes(pilot: &Pilot) -> Vec<Call> {
     let calls = pilot.calls.lock().unwrap();
     calls
@@ -8624,8 +8703,8 @@ async fn the_daily_workbench_draws_the_apis_read_with_its_stages_and_commands() 
     // Each command's form patches the page with JavaScript and posts without it.
     assert_eq!(
         html.matches("data-patch").count(),
-        8,
-        "the sync's, a failed unit's retry, the job's, the candidate's, its split, the review's and a unit's Sync and Reapply: {html}"
+        9,
+        "the sync's, a failed unit's retry, the job's, the candidate's, its split, the review's, its Evidence and a unit's Sync and Reapply: {html}"
     );
     // The sync's form carries the working set, the scope and every unit, the eligible one checked.
     assert!(html.contains(r#"action="/catalog/integrations/catalog-sync?providerKey=tcgplayer&amp;unitKey=pokemon""#), "{html}");

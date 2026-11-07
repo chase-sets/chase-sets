@@ -134,8 +134,10 @@ What each screen covers and leaves out, screen by screen, is in the
 
 Every page route marketplace-web, admin-web and public-web declare is served here (compared with
 each host's route records on 2026-11-01). admin-web's
-`/catalog/integrations/observation-evidence/{id}` is a JSON resource for its evidence sheet, which
-opens on admin-web. The Catalog API composes the integrations surfaces
+`/catalog/integrations/observation-evidence/{id}` is a JSON resource for its evidence sheet; the
+pilot draws that sheet on the server at `/catalog/integrations/evidence/{id}` from the Catalog API's
+evidence read, a review row's Evidence opening it in place with JavaScript and as the page with the
+sheet open without. The Catalog API composes the integrations surfaces
 ([chase-sets/chase-sets#11038 [catalog] Compose the Catalog integrations surfaces in the Catalog API](https://github.com/chase-sets/chase-sets/pull/11038)),
 and the pilot draws Integration health, Settings and Settings' older `governance` address from it
 ([admin/src/catalog/integrations.rs](admin/src/catalog/integrations.rs)), and the daily
@@ -145,9 +147,7 @@ and cancels import jobs, defers or rejects Source Observations, and ignores, def
 merge candidate, each a form that works without JavaScript. It draws the sync run a sync lands on and the
 scope's durable sync state, with Retry provider for a failed or stale unit. Previewing and promoting
 open on admin-web until the Catalog API refuses a stale preview itself
-([chase-sets/chase-sets#11045 [catalog] Refuse a Source Observation promotion whose preview is stale in the Catalog API, not only in admin-web's action](https://github.com/chase-sets/chase-sets/issues/11045)),
-and the evidence sheets until it serves their detail
-([chase-sets/chase-sets#11079 [catalog] Serve a Source Observation's evidence detail from the Catalog API: admin-web's loader works out its promotion readiness and Product contents states](https://github.com/chase-sets/chase-sets/issues/11079)). Its import context
+([chase-sets/chase-sets#11045 [catalog] Refuse a Source Observation promotion whose preview is stale in the Catalog API, not only in admin-web's action](https://github.com/chase-sets/chase-sets/issues/11045)). Its import context
 bar chooses the provider, unit, scope and profile version from synced source options and reloads or
 force-refreshes them; which field each option kind drives is copied from admin-web until the API
 returns it
@@ -315,7 +315,6 @@ instead. Remove the workaround when the issue closes.
 | [chase-sets/chase-sets#11131 [catalog] Compose Scope Detail's import-to-promotion section from its own path in the Catalog API: admin-web rewrites the scope into a daily workbench location itself](https://github.com/chase-sets/chase-sets/issues/11131) | [admin/src/catalog/scope.rs](admin/src/catalog/scope.rs) |
 | [chase-sets/chase-sets#11045 [catalog] Refuse a Source Observation promotion whose preview is stale in the Catalog API, not only in admin-web's action](https://github.com/chase-sets/chase-sets/issues/11045) | [admin/src/catalog/daily.rs](admin/src/catalog/daily.rs), [admin/src/catalog/views/daily_page.rs](admin/src/catalog/views/daily_page.rs) |
 | [chase-sets/chase-sets#11047 [catalog] Return the daily workbench's stage states, status banners and review pager links from the surface read](https://github.com/chase-sets/chase-sets/issues/11047) | [admin/src/catalog/daily.rs](admin/src/catalog/daily.rs), [admin/src/catalog/views/daily_page.rs](admin/src/catalog/views/daily_page.rs) |
-| [chase-sets/chase-sets#11079 [catalog] Serve a Source Observation's evidence detail from the Catalog API: admin-web's loader works out its promotion readiness and Product contents states](https://github.com/chase-sets/chase-sets/issues/11079) | [admin/src/catalog/daily.rs](admin/src/catalog/daily.rs) |
 | [chase-sets/chase-sets#11080 [catalog] Work out the daily workbench's import scope selects in the Catalog API: admin-web maps option kinds to fields, narrows their options and parses importScope itself](https://github.com/chase-sets/chase-sets/issues/11080) | [admin/src/catalog/import_context.rs](admin/src/catalog/import_context.rs) |
 | [chase-sets/chase-sets#11130 [catalog] Serve the daily workbench's selected import preview from the Catalog API: admin-web builds its scope, bounds it, matches it to the route and summarizes target usage itself](https://github.com/chase-sets/chase-sets/issues/11130) | [admin/src/catalog/daily.rs](admin/src/catalog/daily.rs) |
 | [chase-sets/chase-sets#11090 [catalog] A bulk reject with no observations and no scope rejects every reviewable Source Observation](https://github.com/chase-sets/chase-sets/issues/11090) | [admin/src/catalog/daily.rs](admin/src/catalog/daily.rs) |

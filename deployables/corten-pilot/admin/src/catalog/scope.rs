@@ -517,7 +517,7 @@ pub(crate) async fn page(
     Params(route): Params<crate::catalog::scope::url::ScopePage<'_>>,
 ) -> HtmlResult {
     let (id, at) = (route.id, route.at);
-    render(&req, &staff.viewer, &config, &headers, &id, &at, uri.query().unwrap_or_default(), ScopeBack::Nothing).await
+    render(&req, &staff.viewer, &config, &headers, &id, &at, uri.query().unwrap_or_default(), ScopeBack::Nothing, None).await
 }
 
 /// The page a write came from, again: with a `back` other than nothing, a refused write's answer
@@ -537,7 +537,7 @@ async fn again(
     from: Via,
 ) -> HtmlResult {
     match from {
-        Via::Scope => render(req, viewer, config, headers, id, at, "", back).await,
+        Via::Scope => render(req, viewer, config, headers, id, at, "", back, None).await,
         Via::Coverage => crate::catalog::coverage::render(req, viewer, config, headers, id, at, back).await,
     }
 }
@@ -557,13 +557,17 @@ async fn render(
     at: &ScopeAt,
     query: &str,
     back: ScopeBack,
+    evidence: Option<crate::catalog::daily::ObservationEvidence>,
 ) -> HtmlResult {
     let receipt = Receipt::from_param(at.after_write.as_deref());
     let caller = caller(config, headers, receipt.as_ref());
-    let view = match screen(&caller, id, at.jobs.as_deref(), query, manages(viewer)).await {
+    let mut view = match screen(&caller, id, at.jobs.as_deref(), query, manages(viewer)).await {
         Ok(view) => view,
         Err(error) => return read_failed(req, error, receipt.is_some()),
     };
+    if let Some(workspace) = view.workspace.as_mut() {
+        workspace.evidence = evidence;
+    }
     let (t, p): (Cat, Pilot) = (req.t(), req.t());
     let notice = at.done.map(|done| done.notice(t, p, at.count.unwrap_or(0)));
     let status = if matches!(back, ScopeBack::Nothing) { StatusCode::OK } else { StatusCode::UNPROCESSABLE_ENTITY };
@@ -589,7 +593,21 @@ pub(crate) async fn refused_in_workspace(
     errors: &corten::Errors,
 ) -> HtmlResult {
     let message = errors.form().map(str::to_owned).unwrap_or_default();
-    render(req, viewer, config, headers, id, &ScopeAt::default(), context, ScopeBack::Refused(message)).await
+    render(req, viewer, config, headers, id, &ScopeAt::default(), context, ScopeBack::Refused(message), None).await
+}
+
+/// A review row's evidence sheet on the scope's page, without the runtime: the page for the same
+/// working set (`context`, whose `home` is `id`) with the sheet open.
+pub(crate) async fn with_evidence(
+    req: &Req,
+    viewer: &Viewer,
+    config: &Shared,
+    headers: &HeaderMap,
+    id: &str,
+    context: &str,
+    evidence: crate::catalog::daily::ObservationEvidence,
+) -> HtmlResult {
+    render(req, viewer, config, headers, id, &ScopeAt::default(), context, ScopeBack::Nothing, Some(evidence)).await
 }
 
 /// After a write: the page it came from, waiting for it, with its toast.

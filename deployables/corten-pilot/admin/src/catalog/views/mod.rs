@@ -56,7 +56,7 @@ pub use bulk_rows::{Bar, BulkRows, SelectAll, SelectRow};
 pub use categories::{CategoryForms, category_actions, category_list, category_page, category_rows, category_transitions};
 pub use components::{ComponentForms, component_list, component_page, component_rows};
 pub use coverage::{coverage_inbox, coverage_page};
-pub use daily_page::{DailyPage, DailyRefusal, DailyRefusalId, Signals, Stages};
+pub use daily_page::{DailyPage, DailyRefusal, DailyRefusalId, EvidenceSheet, Signals, Stages};
 pub use detail_page::{
     ActionBar, DetailPage, KeyValues, LifecycleForm, OptionLifecycleForm, OptionTable, Part, RemoveForm, Transition,
 };
@@ -130,6 +130,7 @@ pub const COMPONENTS: &[Component] = &[
     platform::ui::pagination::Pagination,
     platform::ui::radio_group::RadioGroup,
     platform::ui::select::Select,
+    platform::ui::sheet::Sheet,
     platform::ui::steps::Steps,
     platform::ui::textarea::Textarea,
     corten_ui::ComboBox,
