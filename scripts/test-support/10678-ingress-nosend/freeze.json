@@ -1,0 +1,90 @@
+{
+  "schema": 1,
+  "head": "UNKNOWN_COMMITTED_FREEZE_CANNOT_BIND_ITS_OWN_FUTURE_HEAD",
+  "briefSha256": "492610de9d989a24627efcacd2ca5043f85f08cdd3858b38c345f7e5811a6a94",
+  "methodSha256": "15a2c4d7678982530a9098f2f9337d0e695e93cb0f746efd4f927b8e80d1d65b",
+  "review": {
+    "verdict": "PENDING_HOST_REVIEW",
+    "head": "UNKNOWN_EXACT_REVIEWED_HEAD",
+    "receiptSha256": "UNKNOWN_CANONICAL_INDEPENDENT_REVIEW_RECEIPT"
+  },
+  "files": {
+    "scripts/test-support/10678-ingress-nosend/README.md": "ed08646736a54446391103ebb4438306dbe3ddbad2b62a051646f26e34b6e7d8",
+    "scripts/test-support/10678-ingress-nosend/client.mjs": "984cc4b6e6ca9c7f833ef8428734900d908e2a48da595e636bd527b628bdc5ac",
+    "scripts/test-support/10678-ingress-nosend/freeze.json": "UNKNOWN_IN_DIRECTORY_FREEZE_CANNOT_CONTAIN_ITS_OWN_SHA256",
+    "scripts/test-support/10678-ingress-nosend/helpers.check.mjs": "50b8b93c2ec2e6539d321e0b3f7da1ccec2f6f8390d5f3ce41e01127629f9520",
+    "scripts/test-support/10678-ingress-nosend/helpers.mjs": "1d1f71bac768c7dadc7b5de7c72c3445a15b97a5a5de4e81d708fef29020754d",
+    "scripts/test-support/10678-ingress-nosend/local-control.mjs": "8727144a21653c24728d0d79b5caa7cee49d903c3dcf1804560a702777495353",
+    "scripts/test-support/10678-ingress-nosend/protocol.json": "d12280ca29b96ded41595ef2125bdbbb6049404843944b54542fed67a39892bb",
+    "scripts/test-support/10678-ingress-nosend/runner.mjs": "d94a12fa18d4b81fb5e1f0acc63903812772e4392d3e8ce9cc9848046df0624c",
+    "scripts/test-support/10678-ingress-nosend/synthetic-handler.mjs": "239ec89e20826547d1f37ccfe2d6d3c317da3cba0e437aa25f26a341001cdb24",
+    "scripts/render-platform-helm-values.mjs": "28de15611a2c71dce13a0e8b4e7fe1cd872d58524c7f8125fc513acafa8ef7be",
+    "scripts/lib/repo.mjs": "2ecda3c2f027ad1200167b0bcca49be2ad38e016779c8771d72cafdd1bb74f97",
+    "scripts/doks-cluster-addons.mjs": "bf29d99449cba3509ca06f95a558572b9f7703f72a7ab00d15404e8e2dc91b4a",
+    "infrastructure/helm/doks-ingress/ingress-nginx-values.yaml": "287e8c8677e5e5ff5141d89f4bcf4cc0697081a1bee845bf4dd3201aa13f1cf9",
+    "pnpm-lock.yaml": "9fca1c1ff36835b3c98a6ac4862c3d13b7a2d03554a62cedcc593a3448bd1cf8",
+    ".github/workflows/platform-pr.yml": "0251f7d23af13e6025b1cae65bae7ffdce65c7836b5b6107585c25a06ae39b0d"
+  },
+  "tools": {
+    "node": {
+      "path": "/usr/local/bin/node",
+      "sha256": "904a6d3484241d466989f9df9ba3aab822b1496191bdb28230eb491a55c32a52"
+    },
+    "git": { "path": "UNKNOWN_RUNNER_REAL_GIT_PATH", "sha256": "UNKNOWN_RUNNER_GIT_DISTRIBUTION" },
+    "tar": { "path": "UNKNOWN_RUNNER_REAL_TAR_PATH", "sha256": "UNKNOWN_RUNNER_TAR_DISTRIBUTION" },
+    "docker": { "path": "UNKNOWN_RUNNER_REAL_DOCKER_PATH", "sha256": "UNKNOWN_RUNNER_DOCKER_DISTRIBUTION" },
+    "kind": {
+      "path": "/usr/local/bin/kind",
+      "sha256": "b89aada5a39d620da3fcd16435b7f28d858927dd53f92cbac77686b0588b600d"
+    },
+    "helm": {
+      "path": "/usr/local/bin/helm",
+      "sha256": "2eead53d95473a37d72937e8e3aed5d964271685f3dac5b76955867818c040f4"
+    },
+    "kubectl": {
+      "path": "/usr/local/bin/kubectl",
+      "sha256": "2ffd023712bbc1a9390dbd8c0c15201c165a69d394787ef03eda3eccb4b9ac06"
+    },
+    "pnpm": {
+      "path": "/opt/10678-pnpm/bin/pnpm.cjs",
+      "sha256": "67b035e322203961795e8e34ca63a08c37a4386eda94107fb3d28f3246d882ad"
+    },
+    "esbuild": {
+      "path": "/usr/local/bin/esbuild",
+      "sha256": "0c6588b092a2c291a72bab90659f3c9e0e25e0fe59c9ac12b4dae4d945e5548c"
+    },
+    "yq": {
+      "path": "/usr/local/bin/yq",
+      "sha256": "44c7759059b4910827a0059a2757b22001e59360cdecdb2ef8dedc4b6c7e9f32"
+    },
+    "openssl": { "path": "UNKNOWN_RUNNER_REAL_OPENSSL_PATH", "sha256": "UNKNOWN_RUNNER_OPENSSL_DISTRIBUTION" },
+    "sudo": { "path": "UNKNOWN_RUNNER_REAL_SUDO_PATH", "sha256": "UNKNOWN_RUNNER_SUDO_DISTRIBUTION" },
+    "iptables": {
+      "path": "UNKNOWN_RUNNER_REAL_IPTABLES_PATH",
+      "sha256": "UNKNOWN_RUNNER_IPTABLES_DISTRIBUTION"
+    },
+    "ip6tables": {
+      "path": "UNKNOWN_RUNNER_REAL_IP6TABLES_PATH",
+      "sha256": "UNKNOWN_RUNNER_IP6TABLES_DISTRIBUTION"
+    },
+    "ip": { "path": "UNKNOWN_RUNNER_REAL_IP_PATH", "sha256": "UNKNOWN_RUNNER_IPROUTE2_DISTRIBUTION" },
+    "systemctl": { "path": "UNKNOWN_RUNNER_REAL_SYSTEMCTL_PATH", "sha256": "UNKNOWN_RUNNER_SYSTEMD_DISTRIBUTION" }
+  },
+  "chart": {
+    "path": "/opt/10678-inputs/ingress-nginx-4.11.3.tgz",
+    "sha256": "a9f371489a6c18042508c0b5c2ea669deaad7ccc08f37efc4522e336edda1c20"
+  },
+  "retainedConfigMap": { "path": "UNKNOWN_HOST_SUPPLIES_RAW_CONFIGMAP_WITH_PROTOCOL_SHA256" },
+  "images": {
+    "kind": "kindest/node:v1.30.4@sha256:976ea815844d5fa93be213437e3ff5754cd599b040946b5cca43ca45c2047114",
+    "historical": "node:24-bookworm-slim@sha256:01d566e8d94d8c619591d78652babfccd3c6992a3dffa9ed5ab39e11cf6c70e9",
+    "current": "ghcr.io/chase-sets/ci-mirror-node:24-bookworm-slim@sha256:d6aa754f16b3197301076f047b5def2f02ea1dbbc2ca920407d46d7ec7f87b20",
+    "prefetch": [
+      "kindest/node:v1.30.4@sha256:976ea815844d5fa93be213437e3ff5754cd599b040946b5cca43ca45c2047114",
+      "node:24-bookworm-slim@sha256:01d566e8d94d8c619591d78652babfccd3c6992a3dffa9ed5ab39e11cf6c70e9",
+      "ghcr.io/chase-sets/ci-mirror-node:24-bookworm-slim@sha256:d6aa754f16b3197301076f047b5def2f02ea1dbbc2ca920407d46d7ec7f87b20",
+      "registry.k8s.io/ingress-nginx/controller:v1.11.3@sha256:d56f135b6462cfc476447cfe564b83a45e8bb7da2774963b00d12161112270b7",
+      "registry.k8s.io/ingress-nginx/kube-webhook-certgen:v1.4.4@sha256:a9f03b34a3cbfbb26d103a14046ab2c5130a80c3d69d526ff8063d2b37b9fd3f"
+    ]
+  }
+}
