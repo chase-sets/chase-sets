@@ -8,6 +8,7 @@ import { invariant, isHash, isRef, scanExposure, sha256 } from "./helpers.mjs";
 
 export const supportPath = "scripts/test-support/10678-ingress-nosend";
 export const decisionSha256 = "cd40037db2909c89980c8fdb365a2583cf5ca276122ebcdcda2e7456b30888b5";
+export const repairDecisionSha256 = "57f78a21e92c1bcbc8305986d8a868ff32341145bdca2422f0faa4537b93f3ad";
 export const retainedPath = `${supportPath}/retained-configmap.yaml`;
 export const maximumEnvelopeBytes = 48000;
 export const closurePaths = [
@@ -17,6 +18,8 @@ export const closurePaths = [
   "infrastructure/helm/doks-ingress/ingress-nginx-values.yaml",
   "pnpm-lock.yaml",
   ".github/workflows/platform-pr.yml",
+  ".github/workflows/ingress-nosend-diagnostic.yml",
+  "scripts/release-qualification-scope.mjs",
 ];
 export const stockTools = [
   "node",
@@ -78,25 +81,89 @@ const decode = (encoded, hash) => {
   return bytes;
 };
 const parseAuthorityJson = (bytes) => {
+  let value;
   try {
-    return JSON.parse(utf8(bytes));
+    value = JSON.parse(utf8(bytes));
   } catch {
     throw new Error("MALFORMED_AUTHORITY_JSON");
   }
+  // JSON.parse accepts duplicate keys. Reject them at every object depth.
+  const tokens = utf8(bytes).match(/"(?:\\.|[^"\\])*"|[{}\[\]:,]|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?|true|false|null/g);
+  let i = 0;
+  const visit = () => {
+    const token = tokens[i++];
+    if (token === "{") {
+      const keys = new Set();
+      while (tokens[i] !== "}") {
+        const key = JSON.parse(tokens[i++]);
+        invariant(!keys.has(key), "DUPLICATE_AUTHORITY_FIELD");
+        keys.add(key);
+        i++; // colon; syntax already validated by JSON.parse
+        visit();
+        if (tokens[i] !== ",") break;
+        i++;
+      }
+      i++;
+    } else if (token === "[") {
+      while (tokens[i] !== "]") {
+        visit();
+        if (tokens[i] !== ",") break;
+        i++;
+      }
+      i++;
+    }
+  };
+  visit();
+  return value;
 };
 const exactKeys = (v, keys, code) => invariant(record(v) && equal(Object.keys(v).sort(), [...keys].sort()), code);
 
-// JSON pointers project existing canonical records without changing their schema.
-export function pointer(value, ref) {
-  invariant(typeof ref === "string" && /^\/(?:[^~]|~[01])*$/.test(ref), "INVALID_CANONICAL_POINTER");
-  for (const key of ref
-    .slice(1)
-    .split("/")
-    .map((k) => k.replaceAll("~1", "/").replaceAll("~0", "~"))) {
-    invariant(record(value) && Object.hasOwn(value, key), "MISSING_CANONICAL_BINDING");
-    value = value[key];
-  }
-  return value;
+const nonempty = (v) => typeof v === "string" && v.trim().length > 0;
+export function validateDispatch(dispatch, head) {
+  invariant(
+    record(dispatch) &&
+      dispatch.kind === "dispatch" &&
+      dispatch.issue === 10678 &&
+      dispatch.laneRole === "review" &&
+      dispatch.head === head &&
+      [
+        "attemptId",
+        "label",
+        "lane",
+        "transcript",
+        "harness",
+        "model",
+        "effort",
+        "row",
+        "placement",
+        "family",
+        "slot",
+        "capacityForecastStatus",
+      ].every((k) => nonempty(dispatch[k])) &&
+      dispatch.dispatchRoutingSchema === "watchdog-dispatch-routing/v3" &&
+      Number.isSafeInteger(dispatch.policyGeneration) &&
+      dispatch.policyGeneration > 0 &&
+      /^[0-9a-f]{16}$/.test(dispatch.registryAuthorityDigest) &&
+      /^[0-9a-f]{16}$/.test(dispatch.capacityDecisionDigest) &&
+      typeof dispatch.usedLastKnownGood === "boolean" &&
+      typeof dispatch.ts === "string" &&
+      Number.isFinite(Date.parse(dispatch.ts)),
+    "CANONICAL_DISPATCH_REQUIRED",
+  );
+  return dispatch.attemptId;
+}
+
+// The host checks full F before transport; E carries compact reviewer-authored R only.
+export function validateReviewReport(reportBytes, review) {
+  invariant(sha256(reportBytes) === review.reportSha256, "FULL_REPORT_DIGEST_MISMATCH");
+  const footers = utf8(reportBytes)
+    .split(/\r?\n/)
+    .filter((line) => line.startsWith("10678_REVIEW_SUBJECT_V1: "));
+  invariant(footers.length === 1, "ONE_REVIEW_REPORT_FOOTER_REQUIRED");
+  const footer = parseAuthorityJson(Buffer.from(footers[0].slice("10678_REVIEW_SUBJECT_V1: ".length)));
+  const { schema: _schema, reportSha256: _report, ...tuple } = review;
+  exactKeys(footer, Object.keys(tuple), "FIXED_REPORT_FOOTER_REQUIRED");
+  invariant(equal(footer, tuple), "REPORT_FOOTER_BINDING_MISMATCH");
 }
 
 export function decodeAuthority(raw, expectedHash, { head, phase, protocol }) {
@@ -138,46 +205,146 @@ export function decodeAuthority(raw, expectedHash, { head, phase, protocol }) {
   invariant(
     config.briefSha256 === protocol.briefSha256 &&
       config.methodSha256 === protocol.methodSha256 &&
-      config.decisionSha256 === decisionSha256,
+      config.decisionSha256 === decisionSha256 &&
+      config.repairDecisionSha256 === repairDecisionSha256,
     "AUTHORITY_BINDING_MISMATCH",
   );
   invariant(config.retainedConfigMap?.path === retainedPath, "FIXED_RETAINED_PATH_REQUIRED");
+  if (config.phase === "inventory")
+    exactKeys(
+      config,
+      [
+        "schema",
+        "head",
+        "phase",
+        "briefSha256",
+        "methodSha256",
+        "decisionSha256",
+        "repairDecisionSha256",
+        "files",
+        "sources",
+        "publicInputs",
+        "retainedConfigMap",
+      ],
+      "FIXED_INVENTORY_PAYLOAD_REQUIRED",
+    );
   const binding = parseAuthorityJson(subjectBytes);
-  invariant(binding.schema === "10678-review-subject/v1", "CANONICAL_SUBJECT_REQUIRED");
+  exactKeys(
+    binding,
+    [
+      "schema",
+      "issue",
+      "head",
+      "phase",
+      "payloadSha256",
+      "verdict",
+      "reviewSha256",
+      "reportSha256",
+      "dispatch",
+      "completion",
+    ],
+    "FIXED_SUBJECT_KEYS_REQUIRED",
+  );
+  invariant(binding.schema === "10678-review-subject/v2" && binding.issue === 10678, "CANONICAL_SUBJECT_REQUIRED");
   invariant(
     binding.head === head &&
       binding.phase === config.phase &&
       binding.payloadSha256 === envelope.payloadSha256 &&
       binding.verdict === "PASS" &&
-      binding.reviewSha256 === envelope.reviewSha256,
+      binding.reviewSha256 === envelope.reviewSha256 &&
+      isHash(binding.reportSha256),
     "STALE_OR_CONTRADICTORY_REVIEW",
   );
-  const subject = `10678:${head}:${config.phase}:${envelope.payloadSha256}`;
+  for (const key of ["dispatch", "completion"])
+    exactKeys(binding[key], ["utf8Base64", "sha256"], "FIXED_CANONICAL_RECORD_REQUIRED");
   const dispatchBytes = decode(binding.dispatch?.utf8Base64, binding.dispatch?.sha256);
   const completionBytes = decode(binding.completion?.utf8Base64, binding.completion?.sha256);
   const dispatch = parseAuthorityJson(dispatchBytes);
   const completion = parseAuthorityJson(completionBytes);
-  const d = binding.dispatch.pointers;
-  const c = binding.completion.pointers;
-  const dispatchIdentity = pointer(dispatch, d.identity);
-  const completionIdentity = pointer(completion, c.identity);
+  const dispatchIdentity = validateDispatch(dispatch, head);
+  const completionIdentity = binding.completion.sha256;
+  const review = parseAuthorityJson(reviewBytes);
+  const reviewKeys = [
+    "issue",
+    "head",
+    "phase",
+    "payloadSha256",
+    "dispatchRawSha256",
+    "reviewerAttempt",
+    "authorAttempt",
+    "verdict",
+    "reviewScope",
+    "blocking",
+    "candidates",
+    "nonBlocking",
+  ];
+  exactKeys(review, ["schema", ...reviewKeys, "reportSha256"], "FIXED_REVIEW_KEYS_REQUIRED");
   invariant(
-    typeof dispatchIdentity === "string" &&
-      dispatchIdentity.length > 0 &&
-      typeof completionIdentity === "string" &&
-      completionIdentity.length > 0 &&
-      dispatchIdentity !== completionIdentity,
-    "CANONICAL_IDENTITIES_REQUIRED",
+    review.schema === "10678-detached-review/v1" &&
+      review.issue === 10678 &&
+      review.head === head &&
+      review.phase === config.phase &&
+      review.payloadSha256 === envelope.payloadSha256 &&
+      review.dispatchRawSha256 === binding.dispatch.sha256 &&
+      review.reviewerAttempt === dispatchIdentity &&
+      nonempty(review.authorAttempt) &&
+      review.authorAttempt !== review.reviewerAttempt &&
+      review.verdict === "PASS" &&
+      review.reviewScope === "COMPLETE" &&
+      review.blocking === 0 &&
+      review.candidates === 0 &&
+      Number.isSafeInteger(review.nonBlocking) &&
+      review.nonBlocking >= 0 &&
+      review.reportSha256 === binding.reportSha256,
+    "COMPLETE_DETACHED_REVIEW_REQUIRED",
   );
   invariant(
-    pointer(dispatch, d.head) === head &&
-      pointer(dispatch, d.subject) === subject &&
-      pointer(completion, c.head) === head &&
-      pointer(completion, c.subject) === subject &&
-      pointer(completion, c.dispatchIdentity) === dispatchIdentity &&
-      pointer(completion, c.verdict) === "PASS" &&
-      pointer(completion, c.reviewSha256) === envelope.reviewSha256,
+    binding.dispatch.sha256 !== completionIdentity &&
+      !/[\r\n]/.test(utf8(dispatchBytes)) &&
+      !/[\r\n]/.test(utf8(completionBytes)) &&
+      completion.kind === "lane-complete" &&
+      completion.issue === 10678 &&
+      typeof completion.ts === "string" &&
+      Date.parse(completion.ts) >= Date.parse(dispatch.ts) &&
+      completion.lane === dispatchIdentity &&
+      completion.laneRole === "review" &&
+      completion.outcome === review.verdict &&
+      ["harness", "model", "effort", "row", "placement", "transcript"].every((k) => completion[k] === dispatch[k]),
     "CANONICAL_REVIEW_BINDING_MISMATCH",
+  );
+  invariant(typeof completion.note === "string", "COMPLETION_NOTE_REQUIRED");
+  const note = parseAuthorityJson(Buffer.from(completion.note));
+  exactKeys(
+    note,
+    [
+      "schema",
+      "dispatchRawSha256",
+      "head",
+      "phase",
+      "payloadSha256",
+      "reviewSha256",
+      "reportSha256",
+      "reviewerAttempt",
+      "authorAttempt",
+      "reviewScope",
+    ],
+    "FIXED_COMPLETION_NOTE_REQUIRED",
+  );
+  invariant(
+    completion.note === JSON.stringify(note) &&
+      note.schema === "10678-review-completion/v1" &&
+      note.reviewSha256 === envelope.reviewSha256 &&
+      [
+        "dispatchRawSha256",
+        "head",
+        "phase",
+        "payloadSha256",
+        "reportSha256",
+        "reviewerAttempt",
+        "authorAttempt",
+        "reviewScope",
+      ].every((k) => note[k] === review[k]),
+    "COMPLETION_NOTE_BINDING_MISMATCH",
   );
   invariant(equal(config.sources, protocol.stacks), "SOURCE_PINS_CHANGED");
   if (config.phase === "measurement") validateMeasurementPins(config);
@@ -196,6 +363,10 @@ export function decodeAuthority(raw, expectedHash, { head, phase, protocol }) {
       subjectBindingSha256: envelope.subjectBindingSha256,
       dispatchIdentity,
       completionIdentity,
+      dispatchRawSha256: binding.dispatch.sha256,
+      reportSha256: binding.reportSha256,
+      reviewerAttempt: review.reviewerAttempt,
+      authorAttempt: review.authorAttempt,
       head,
       phase: config.phase,
     },
@@ -703,25 +874,53 @@ export function hostedContext(protocol) {
       process.env.GITHUB_ACTIONS === "true" &&
       process.env.RUNNER_ENVIRONMENT === "github-hosted" &&
       process.env.GITHUB_JOB === protocol.job &&
-      process.env.GITHUB_EVENT_NAME === "pull_request" &&
       process.getuid() !== 0,
     "HOSTED_INVENTORY_ONLY",
   );
   const event = JSON.parse(readFileSync(process.env.GITHUB_EVENT_PATH, "utf8"));
   invariant(
-    event.repository?.full_name === "chase-sets/chase-sets" &&
-      event.pull_request?.draft === true &&
-      event.pull_request.head.repo.full_name === "chase-sets/chase-sets" &&
-      event.pull_request.head.ref === protocol.branch &&
-      isRef(event.pull_request.head.sha) &&
-      isRef(event.pull_request.base.sha),
-    "EVENT_NOT_ADMITTED",
-  );
-  invariant(
     /^\d+$/.test(process.env.GITHUB_RUN_ID) && /^\d+$/.test(process.env.GITHUB_RUN_ATTEMPT),
     "INVALID_RUN_IDENTITY",
   );
-  return event;
+  return normalizePushEvent(
+    event,
+    {
+      eventName: process.env.GITHUB_EVENT_NAME,
+      ref: process.env.GITHUB_REF,
+      sha: process.env.GITHUB_SHA,
+    },
+    protocol,
+  );
+}
+
+export function normalizePushEvent(event, identity, protocol) {
+  const ref = `refs/heads/${protocol.branch}`;
+  invariant(
+    identity.eventName === "push" &&
+      identity.ref === ref &&
+      event.repository?.full_name === "chase-sets/chase-sets" &&
+      event.ref === ref &&
+      event.deleted === false &&
+      !Object.hasOwn(event, "pull_request") &&
+      isRef(event.before) &&
+      isRef(event.after) &&
+      event.after !== "0".repeat(40) &&
+      event.after === identity.sha,
+    "EVENT_NOT_ADMITTED",
+  );
+  return Object.freeze({
+    eventName: "push",
+    ref,
+    before: event.before,
+    after: event.after,
+    head: event.after,
+    base: null,
+    merge: null,
+  });
+}
+
+export function validateExecutionHead(event, diskHead, payloadHead) {
+  invariant(event.head === diskHead && event.head === payloadHead, "DISK_EVENT_PAYLOAD_HEAD_MISMATCH");
 }
 
 async function collect() {
@@ -729,7 +928,7 @@ async function collect() {
   const protocol = JSON.parse(readFileSync(path.join(here, "protocol.json"), "utf8"));
   const event = hostedContext(protocol);
   const authority = readAuthority(process.argv[2], process.env.DIAGNOSTIC_FREEZE_SHA256, {
-    head: event.pull_request.head.sha,
+    head: event.head,
     phase: "inventory",
     protocol,
   });
@@ -746,7 +945,8 @@ async function collect() {
     encoding: "utf8",
     shell: false,
   });
-  invariant(disk.status === 0 && disk.stdout.trim() === authority.config.head, "DISK_HEAD_MISMATCH");
+  invariant(disk.status === 0, "DISK_HEAD_MISMATCH");
+  validateExecutionHead(event, disk.stdout.trim(), authority.config.head);
   const identity = observeIdentity(path.join(root, "private"));
   // Raw metadata stays flat in this exact upload directory; empty credential homes never do.
   preserveMetadata(path.join(root, "private"), capture);
@@ -768,9 +968,7 @@ async function collect() {
       numericId: "PENDING_HOST_ATTEMPT_SPECIFIC_JOB_AUTHORITY",
       steps: "PENDING_HOST_COMPLETE_JOB_STEP_AND_SETUP_IMAGE_LOG_CUSTODY",
     },
-    head: authority.config.head,
-    base: event.pull_request.base.sha,
-    merge: process.env.GITHUB_SHA,
+    ...event,
     authority: authority.identity,
     identitySha256: sha256(Buffer.from(canonical(identity))),
     setupJob: {
@@ -810,11 +1008,27 @@ async function collect() {
   console.log("INVENTORY_CAPTURE_COMPLETE_MEASUREMENT_NOT_EXECUTED");
 }
 
+export function inventoryRefusal(error) {
+  const categories = [
+    "EVENT_NOT_ADMITTED",
+    "DISK_EVENT_PAYLOAD_HEAD_MISMATCH",
+    "FILE_DIGEST_MISMATCH",
+    "INCOMPLETE_FILE_CENSUS",
+    "REVIEWED_FREEZE_DIGEST_REQUIRED",
+    "ENVELOPE_SIZE_REFUSED",
+    "COMPLETE_DETACHED_REVIEW_REQUIRED",
+    "CANONICAL_REVIEW_BINDING_MISMATCH",
+    "COMPLETION_NOTE_BINDING_MISMATCH",
+    "METADATA_QUERY_FAILED",
+  ];
+  return `INVENTORY_REFUSED_MEASUREMENT_NOT_EXECUTED category=${categories.includes(error?.message) ? error.message : "OTHER"}`;
+}
+
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   try {
     await collect();
-  } catch {
-    console.log("INVENTORY_REFUSED_MEASUREMENT_NOT_EXECUTED");
+  } catch (error) {
+    console.log(inventoryRefusal(error));
     process.exitCode = 1;
   }
 }

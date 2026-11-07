@@ -32,6 +32,7 @@ import {
   compareConfigMaps,
   enforceExecutables,
   enforceIdentityPins,
+  hostedContext,
   invocation,
   observeIdentity,
   preserveAuthority,
@@ -51,23 +52,10 @@ invariant(
     process.env.RUNNER_ENVIRONMENT === "github-hosted",
   "HOSTED_LINUX_ONLY",
 );
-invariant(
-  process.env.GITHUB_JOB === protocol.job && process.env.GITHUB_EVENT_NAME === "pull_request",
-  "WRONG_JOB_OR_EVENT",
-);
-const event = JSON.parse(readFileSync(process.env.GITHUB_EVENT_PATH, "utf8"));
-invariant(
-  event.pull_request?.draft === true &&
-    event.pull_request.head.repo.full_name === "chase-sets/chase-sets" &&
-    event.repository.full_name === "chase-sets/chase-sets" &&
-    event.pull_request.head.ref === protocol.branch &&
-    isRef(event.pull_request.head.sha) &&
-    isRef(event.pull_request.base.sha),
-  "EVENT_NOT_ADMITTED",
-);
+const event = hostedContext(protocol);
 const configPath = realpathSync(process.argv[3]);
 let authority = readAuthority(configPath, process.env.DIAGNOSTIC_FREEZE_SHA256, {
-  head: event.pull_request.head.sha,
+  head: event.head,
   phase: "measurement",
   protocol,
 });
@@ -142,8 +130,9 @@ function pinFile(file, expected) {
 }
 
 function verifyFreeze() {
+  invariant(JSON.stringify(hostedContext(protocol)) === JSON.stringify(event), "EXECUTION_EVENT_DRIFT");
   authority = readAuthority(configPath, process.env.DIAGNOSTIC_FREEZE_SHA256, {
-    head: event.pull_request.head.sha,
+    head: event.head,
     phase: "measurement",
     protocol,
   });
@@ -946,8 +935,7 @@ async function prepare() {
   json(path.join(capture, "exact-run-inputs.json"), {
     synthetic: true,
     head: config.head,
-    base: event.pull_request.base.sha,
-    merge: process.env.GITHUB_SHA,
+    ...event,
     run,
     attempt,
     jobIdentity,
@@ -1241,8 +1229,7 @@ async function seal() {
     attempt,
     jobIdentity,
     head: config.head,
-    base: event.pull_request.base.sha,
-    merge: process.env.GITHUB_SHA,
+    ...event,
     frozenInputSha256: sha256(readFileSync(configPath)),
     authority: authority.identity,
     pinSetSha256: sha256(

@@ -5,14 +5,11 @@ import path from "node:path";
 import {
   compareConfigMaps,
   compareIdentity,
-  decisionSha256,
   decodeAuthority,
   identityFingerprint,
   invocation,
   maximumEnvelopeBytes,
   measurementTools,
-  pointer,
-  retainedPath,
   stockTools,
   validateAuthorityPath,
   validateCensus,
@@ -21,6 +18,7 @@ import {
   validateToolObservation,
 } from "./inventory.mjs";
 import { parseProtocol, scanExposure, sha256 } from "./helpers.mjs";
+import { fixturePayload as payload, fixtureAuthority } from "./authority-fixtures.mjs";
 
 const p = parseProtocol(readFileSync(new URL("./protocol.json", import.meta.url), "utf8"));
 const template = JSON.parse(readFileSync(new URL("./inputs.template.json", import.meta.url), "utf8"));
@@ -29,69 +27,7 @@ const hash = "b".repeat(64);
 const clone = (v) => structuredClone(v);
 const bytes = (v) => Buffer.from(JSON.stringify(v));
 const encoded = (v) => ({ utf8Base64: bytes(v).toString("base64"), sha256: sha256(bytes(v)) });
-const payload = () => ({
-  schema: 2,
-  head,
-  phase: "inventory",
-  briefSha256: p.briefSha256,
-  methodSha256: p.methodSha256,
-  decisionSha256,
-  retainedConfigMap: { path: retainedPath },
-  sources: p.stacks,
-  publicInputs: template,
-  files: { "synthetic.txt": sha256("synthetic") },
-});
-// These are unmistakably synthetic canonical records, not real external review authority.
-const envelope = (config = payload(), patch = {}) => {
-  const payloadBytes = bytes(config);
-  const payloadSha256 = sha256(payloadBytes);
-  const subject = `10678:${head}:${config.phase}:${payloadSha256}`;
-  const review = Buffer.from("SYNTHETIC ONLY: detached immutable review report bytes\n");
-  const reviewSha256 = sha256(review);
-  const dispatch = { identity: "synthetic-dispatch", head, subject };
-  const completion = {
-    identity: "synthetic-completion",
-    dispatch: dispatch.identity,
-    head,
-    subject,
-    verdict: "PASS",
-    report: reviewSha256,
-  };
-  const binding = {
-    schema: "10678-review-subject/v1",
-    head,
-    phase: config.phase,
-    payloadSha256,
-    verdict: "PASS",
-    reviewSha256,
-    dispatch: { ...encoded(dispatch), pointers: { identity: "/identity", head: "/head", subject: "/subject" } },
-    completion: {
-      ...encoded(completion),
-      pointers: {
-        identity: "/identity",
-        dispatchIdentity: "/dispatch",
-        head: "/head",
-        subject: "/subject",
-        verdict: "/verdict",
-        reviewSha256: "/report",
-      },
-    },
-  };
-  const value = {
-    schema: 2,
-    head,
-    phase: config.phase,
-    verdict: "PASS",
-    payloadUtf8Base64: payloadBytes.toString("base64"),
-    payloadSha256,
-    reviewUtf8Base64: review.toString("base64"),
-    reviewSha256,
-    subjectBindingUtf8Base64: bytes(binding).toString("base64"),
-    subjectBindingSha256: sha256(bytes(binding)),
-    ...patch,
-  };
-  return value;
-};
+const envelope = (config = payload(), patch = {}) => fixtureAuthority(config, patch).envelope;
 const accept = (e, phase = "inventory") => decodeAuthority(bytes(e), sha256(bytes(e)), { head, phase, protocol: p });
 let groups = 0;
 const check = (name, run) => {
@@ -166,19 +102,16 @@ check("missing stale wrong-head wrong-phase or tampered P R E cannot authorize",
       /STALE_OR_CONTRADICTORY/,
     );
   }
-  for (const field of ["identity", "dispatch", "head", "subject", "verdict", "report"]) {
+  for (const field of ["lane", "kind", "issue", "outcome", "model", "note"]) {
     const binding = clone(b);
     const completion = JSON.parse(Buffer.from(binding.completion.utf8Base64, "base64"));
     completion[field] = "synthetic-wrong";
-    if (field === "identity") completion[field] = "";
     Object.assign(binding.completion, encoded(completion));
     const changed = bytes(binding);
     assert.throws(() =>
       accept({ ...e, subjectBindingUtf8Base64: changed.toString("base64"), subjectBindingSha256: sha256(changed) }),
     );
   }
-  assert.throws(() => pointer({}, "/missing"), /MISSING_CANONICAL/);
-  assert.throws(() => pointer({}, "not-a-pointer"), /INVALID_CANONICAL/);
 });
 
 check("exact complete external file census refuses omission addition escape or tamper", () => {
@@ -254,7 +187,11 @@ const syntheticIdentity = (tools) => ({
 check("measurement requires full reviewed pins and prior inventory custody", () => {
   const config = { ...payload(), phase: "measurement", ...pins() };
   validateMeasurementPins(config);
-  accept(envelope(config), "measurement");
+  const e = envelope(config);
+  accept(e, "measurement");
+  console.log(
+    `SYNTHETIC full-census measurement E=${bytes(e).length} bytes, limit=${maximumEnvelopeBytes}; no actual measurement pins`,
+  );
   assert.throws(() => accept(envelope({ ...payload(), phase: "measurement" }), "measurement"), /PINS_REQUIRED/);
   for (const field of [
     "bootstrapTools",
@@ -409,7 +346,10 @@ check("collector imports no runner or network client; workflow phase paths are e
   const source = readFileSync(new URL("./inventory.mjs", import.meta.url), "utf8");
   assert(!/from\s+["'][^"']*(?:runner|https?|net|tls)[^"']*["']/.test(source));
   assert(!/\b(?:fetch|https?\.request|import\()\s*\(/.test(source));
-  const workflow = readFileSync(new URL("../../../.github/workflows/platform-pr.yml", import.meta.url), "utf8");
+  const workflow = readFileSync(
+    new URL("../../../.github/workflows/ingress-nosend-diagnostic.yml", import.meta.url),
+    "utf8",
+  );
   assert(!workflow.includes("$GITHUB_WORKSPACE/scripts/test-support/10678-ingress-nosend/freeze.json"));
   for (const name of [
     "Prepare reviewed public prerequisites",

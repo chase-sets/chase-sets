@@ -8,6 +8,7 @@
   "briefSha256": "492610de9d989a24627efcacd2ca5043f85f08cdd3858b38c345f7e5811a6a94",
   "methodSha256": "15a2c4d7678982530a9098f2f9337d0e695e93cb0f746efd4f927b8e80d1d65b",
   "decisionSha256": "cd40037db2909c89980c8fdb365a2583cf5ca276122ebcdcda2e7456b30888b5",
+  "repairDecisionSha256": "57f78a21e92c1bcbc8305986d8a868ff32341145bdca2422f0faa4537b93f3ad",
   "sources": [
     {
       "id": "historical",
