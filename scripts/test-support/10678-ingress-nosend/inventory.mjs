@@ -51,25 +51,30 @@ export const stockTools = [
 export const measurementTools = [...new Set([...stockTools, "kind", "helm", "kubectl", "pnpm", "esbuild", "yq"])];
 
 // Categories are made only from this module's fixed roles, never observed names or values.
-const operation = (role) => Object.freeze({ raw: `INVENTORY_${role}_RAW_FAILED` });
-const statusOperation = (role) =>
+const operation = (role, invariants = {}) =>
   Object.freeze({
-    ...operation(role),
+    raw: `INVENTORY_${role}_RAW_FAILED`,
+    unavailable: `INVENTORY_${role}_STOCK_TOOL_UNAVAILABLE`,
+    ...Object.fromEntries(Object.entries(invariants).map(([field, code]) => [field, `INVENTORY_${role}_${code}`])),
+  });
+const statusOperation = (role, invariants) =>
+  Object.freeze({
+    ...operation(role, invariants),
     incomplete: `INVENTORY_${role}_INCOMPLETE`,
     failed: `INVENTORY_${role}_QUERY_FAILED`,
   });
-const queryOperation = (role) =>
+const queryOperation = (role, invariants) =>
   Object.freeze({
-    ...statusOperation(role),
+    ...statusOperation(role, invariants),
     decode: `INVENTORY_${role}_DECODE_FAILED`,
   });
 const executableOperations = (role, rootProcess = false) =>
   Object.freeze({
-    process: operation(`${role}_PROCESS`),
+    process: operation(`${role}_PROCESS`, { realTarget: "REAL_TARGET_UNAVAILABLE" }),
     target: (rootProcess ? queryOperation : operation)(`${role}_TARGET`),
     hash: (rootProcess ? queryOperation : operation)(`${role}_HASH`),
     read: operation(`${role}_READ`),
-    package: operation(`${role}_PACKAGE`),
+    package: operation(`${role}_PACKAGE`, { packageIdentity: "PACKAGE_IDENTITY_UNAVAILABLE" }),
     owner: queryOperation(`${role}_PACKAGE_OWNER`),
     packageVersion: queryOperation(`${role}_PACKAGE_VERSION`),
     packageMetadata: queryOperation(`${role}_PACKAGE_METADATA`),
@@ -115,8 +120,8 @@ export const inventoryOperations = Object.freeze({
         .map((name) => [name, queryOperation(`VERSION_${name.replaceAll("-", "_").toUpperCase()}`)]),
     ),
   ),
-  dockerPid: queryOperation("DOCKER_PID"),
-  containerdPid: queryOperation("CONTAINERD_PID"),
+  dockerPid: queryOperation("DOCKER_PID", { daemonIdentity: "ACTIVE_DAEMON_IDENTITY_REQUIRED" }),
+  containerdPid: queryOperation("CONTAINERD_PID", { daemonIdentity: "ACTIVE_DAEMON_IDENTITY_REQUIRED" }),
   dockerUnit: queryOperation("DOCKER_UNIT"),
   containerdUnit: queryOperation("CONTAINERD_UNIT"),
   services: Object.freeze(
@@ -127,7 +132,7 @@ export const inventoryOperations = Object.freeze({
           process: operation(`SERVICE_${name.toUpperCase()}_PROCESS`),
           fragment: queryOperation(`SERVICE_${name.toUpperCase()}_FRAGMENT`),
           dropIns: queryOperation(`SERVICE_${name.toUpperCase()}_DROP_INS`),
-          read: operation(`SERVICE_${name.toUpperCase()}_READ`),
+          read: operation(`SERVICE_${name.toUpperCase()}_READ`, { serviceFile: "SERVICE_FILE_IDENTITY_UNAVAILABLE" }),
         }),
       ]),
     ),
@@ -181,13 +186,8 @@ export const inventoryInvariantCodes = Object.freeze([
   "RETAINED_RAW_HASH_MISMATCH",
   "ZERO_ROW_INVENTORY_REQUIRED",
   "PRIVATE_INVENTORY_PUBLICATION_REFUSED",
-  "STOCK_TOOL_UNAVAILABLE",
   "INVENTORY_METADATA_INCOMPLETE",
   "INVENTORY_METADATA_QUERY_FAILED",
-  "PACKAGE_IDENTITY_UNAVAILABLE",
-  "REAL_TARGET_UNAVAILABLE",
-  "ACTIVE_DAEMON_IDENTITY_REQUIRED",
-  "SERVICE_FILE_IDENTITY_UNAVAILABLE",
   "ACTIVE_RUNTIME_METADATA_REQUIRED",
   "INVALID_METADATA_PREFIX",
   "METADATA_SYMLINK_REFUSED",
@@ -818,7 +818,7 @@ const cleanEnvironment = (home) => ({
   LANG: "C.UTF-8",
   TZ: "UTC",
 });
-const resolveTool = (name) => {
+const resolveTool = (site, name) => {
   const candidates = cleanEnvironment("")
     .PATH.split(":")
     .map((dir) => path.join(dir, name));
@@ -829,7 +829,7 @@ const resolveTool = (name) => {
       return false;
     }
   });
-  invariant(found, "STOCK_TOOL_UNAVAILABLE");
+  invariant(found, site.unavailable);
   return found;
 };
 
@@ -846,7 +846,7 @@ export function observeIdentity(directory, pins) {
   const commands = [];
   const query = (site, tool, args, allowFailure = false) =>
     inventoryAt(site, () => {
-      const executable = pins?.[tool]?.path ?? resolveTool(tool);
+      const executable = pins?.[tool]?.path ?? resolveTool(site, tool);
       const startedAt = new Date().toISOString();
       const result = spawnSync(executable, args, {
         env: cleanEnvironment(home),
@@ -891,7 +891,7 @@ export function observeIdentity(directory, pins) {
         name,
       ]);
       const fields = version.trim().split("\t");
-      invariant(fields.length === 3 && fields.every(Boolean), "PACKAGE_IDENTITY_UNAVAILABLE");
+      invariant(fields.length === 3 && fields.every(Boolean), executableSite.package.packageIdentity);
       const metadata = query(executableSite.packageMetadata, "apt-cache", ["show", `${name}=${fields[1]}`], true);
       const policy = query(executableSite.packagePolicy, "apt-cache", ["policy", name], true);
       return {
@@ -906,13 +906,15 @@ export function observeIdentity(directory, pins) {
     inventoryAt(executableSite.process, () => {
       const target = inventoryAt(executableSite.target, () =>
         rootProcess
-          ? query(executableSite.target, "sudo", ["-n", resolveTool("readlink"), "-f", logical])
+          ? query(executableSite.target, "sudo", ["-n", resolveTool(executableSite.target, "readlink"), "-f", logical])
           : realpathSync(logical),
       );
-      invariant(target && path.isAbsolute(target), "REAL_TARGET_UNAVAILABLE");
+      invariant(target && path.isAbsolute(target), executableSite.process.realTarget);
       const hash = inventoryAt(executableSite.hash, () =>
         rootProcess
-          ? query(executableSite.hash, "sudo", ["-n", resolveTool("sha256sum"), target]).split(/\s+/)[0]
+          ? query(executableSite.hash, "sudo", ["-n", resolveTool(executableSite.hash, "sha256sum"), target]).split(
+              /\s+/,
+            )[0]
           : sha256(readFileSync(target)),
       );
       const bytes = inventoryAt(executableSite.read, () => readFileSync(target));
@@ -932,7 +934,8 @@ export function observeIdentity(directory, pins) {
       inventoryAt(inventoryOperations.tools[name].process, () =>
         executable(
           inventoryOperations.tools[name],
-          pins?.[name]?.path ?? (name === "node" ? process.execPath : resolveTool(name)),
+          pins?.[name]?.path ??
+            (name === "node" ? process.execPath : resolveTool(inventoryOperations.tools[name].process, name)),
         ),
       ),
     ]),
@@ -963,7 +966,8 @@ export function observeIdentity(directory, pins) {
     "MainPID",
     "--value",
   ]);
-  invariant(/^[1-9]\d*$/.test(pid) && /^[1-9]\d*$/.test(containerdPid), "ACTIVE_DAEMON_IDENTITY_REQUIRED");
+  invariant(/^[1-9]\d*$/.test(pid), inventoryOperations.dockerPid.daemonIdentity);
+  invariant(/^[1-9]\d*$/.test(containerdPid), inventoryOperations.containerdPid.daemonIdentity);
   const unit = query(inventoryOperations.dockerUnit, "systemctl", [
     "show",
     "docker",
@@ -992,10 +996,7 @@ export function observeIdentity(directory, pins) {
       ]);
       return [fragment, ...dropIns.split(/\s+/).filter(Boolean)].map((file) =>
         inventoryAt(serviceSite.read, () => {
-          invariant(
-            path.isAbsolute(file) && lstatSync(realpathSync(file)).isFile(),
-            "SERVICE_FILE_IDENTITY_UNAVAILABLE",
-          );
+          invariant(path.isAbsolute(file) && lstatSync(realpathSync(file)).isFile(), serviceSite.read.serviceFile);
           return { path: file, realTarget: realpathSync(file), sha256: sha256(readFileSync(file)) };
         }),
       );
@@ -1018,7 +1019,7 @@ export function observeIdentity(directory, pins) {
       ? inventoryAt(inventoryOperations.runtime.process, () =>
           executable(
             inventoryOperations.runtime,
-            path.isAbsolute(runtimePath) ? runtimePath : resolveTool(runtimePath),
+            path.isAbsolute(runtimePath) ? runtimePath : resolveTool(inventoryOperations.runtime.process, runtimePath),
           ),
         )
       : null;
@@ -1073,7 +1074,7 @@ export function enforceExecutables(tools, names = measurementTools, verifyPathNo
     const pin = tools?.[name];
     validateToolPin(pin);
     if (stockTools.includes(name) && name !== "node")
-      invariant(resolveTool(name) === pin.path, "STOCK_INVOCATION_PATH_DRIFT");
+      invariant(resolveTool(inventoryOperations.tools[name].process, name) === pin.path, "STOCK_INVOCATION_PATH_DRIFT");
     const target = realpathSync(pin.path);
     const bytes = readFileSync(target);
     const script = bytes.subarray(0, 2).toString() === "#!";
@@ -1240,7 +1241,7 @@ async function collect() {
   });
   const startedAt = new Date().toISOString();
   const disk = inventoryAt(inventoryOperations.diskHead, () =>
-    spawnSync(resolveTool("git"), ["rev-parse", "HEAD"], {
+    spawnSync(resolveTool(inventoryOperations.diskHead, "git"), ["rev-parse", "HEAD"], {
       env: cleanEnvironment(path.join(root, "private", "empty-home")),
       encoding: "utf8",
       shell: false,
