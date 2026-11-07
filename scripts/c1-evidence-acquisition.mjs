@@ -4,6 +4,7 @@ import { pathToFileURL } from "node:url";
 import { performance } from "node:perf_hooks";
 import { parse } from "yaml";
 import { instant, readTerminalEvidence, sha256 } from "./census-terminal-evidence.mjs";
+import { retainC1Evidence } from "./c1-evidence-custody.mjs";
 
 export const CONTEXT = "do-nyc3-chase-sets-staging-doks";
 export const READS = Object.freeze(
@@ -784,7 +785,10 @@ function writeNew(path, bytes, opened) {
   need(readFileSync(path).equals(bytes), "STOP_OUTPUT_REREAD");
 }
 
-export function consumeCompleteEnvelope({ envelopeFile, admittedFile, custodyFile, outputs }) {
+export function consumeCompleteEnvelope(
+  { envelopeFile, admittedFile, custodyFile, outputs },
+  { idempotent = false } = {},
+) {
   let written = 0;
   try {
     const envelope = inputFile(envelopeFile),
@@ -811,7 +815,7 @@ export function consumeCompleteEnvelope({ envelopeFile, admittedFile, custodyFil
     need(
       paths.every(localPath) &&
         new Set(paths.map((p) => resolve(p))).size === 3 &&
-        paths.every((p) => !existsSync(p)) &&
+        (paths.every((p) => !existsSync(p)) || (idempotent && paths.every((p) => existsSync(p)))) &&
         paths.every((p) => ![envelope.path, admitted.path, custody.path].includes(resolve(p))),
       "STOP_OUTPUT_EXISTS",
     );
@@ -838,9 +842,11 @@ export function consumeCompleteEnvelope({ envelopeFile, admittedFile, custodyFil
       [outputs.manifest, manifestBytes],
       [outputs.receipt, receiptBytes],
     ]) {
-      writeNew(path, bytes, () => {
-        written++;
-      });
+      if (idempotent && existsSync(path)) need(readFileSync(path).equals(bytes), "STOP_EXISTING_OUTPUT_BYTES");
+      else
+        writeNew(path, bytes, () => {
+          written++;
+        });
     }
     return {
       state: receipt.bracketState === "STOP" ? "STOP" : "MATERIALIZED",
@@ -856,7 +862,50 @@ export function consumeCompleteEnvelope({ envelopeFile, admittedFile, custodyFil
   }
 }
 
-export function main(args) {
+export async function acquireRetainedC1Evidence(input, capabilities) {
+  const custody = await retainC1Evidence(input, { ...capabilities, requireConsumption: true });
+  if (custody.state === "STOP") return custody;
+  if (!custody.manifest.consumption)
+    return {
+      state: "STOP",
+      reasons: ["STOP_CUSTODY_OR_AUTHORITY"],
+      missing: ["TERMINAL_CONSUMPTION_PLAN"],
+      partial: true,
+      manifestPath: custody.manifestPath,
+    };
+  const result = consumeCompleteEnvelope(custody.manifest.consumption, { idempotent: true });
+  return { ...result, custodyManifestPath: custody.manifestPath, custodyPlanHash: custody.planHash };
+}
+
+export function main(args, { now } = {}) {
+  if (
+    args.length === 6 &&
+    args[0] === "--retained-plan-file" &&
+    args[2] === "--approved-plan-hash" &&
+    args[4] === "--performer"
+  ) {
+    try {
+      const plan = inputFile(args[1]);
+      need(
+        sha256(plan.bytes) === args[3] && localPath(plan.value.manifestPath) && existsSync(plan.value.manifestPath),
+        "STOP_RETAINED_PLAN",
+      );
+      return acquireRetainedC1Evidence(
+        { planFile: args[1], authority: { approvedPlanHash: args[3], performer: args[5] } },
+        {
+          now,
+          backup: {
+            custodian: plan.value.backup?.custodian,
+            retain: () => {
+              throw new AcquisitionRefusal("STOP_MISSING_INDEPENDENT_BACKUP");
+            },
+          },
+        },
+      );
+    } catch {
+      return { state: "STOP", reasons: ["STOP_CUSTODY_OR_AUTHORITY"], missing: ["RETAINED_PLAN_AUTHORITY"] };
+    }
+  }
   const names = [
     "--envelope-file",
     "--admitted-file",
@@ -875,7 +924,7 @@ export function main(args) {
   });
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
-  const result = main(process.argv.slice(2));
+  const result = await main(process.argv.slice(2));
   process.stdout.write(`${JSON.stringify(result)}\n`);
   process.exitCode = result.state === "STOP" ? 1 : 0;
 }
