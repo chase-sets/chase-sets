@@ -75,6 +75,7 @@ export const probeRepairSupportPaths = Object.freeze([
   "bounded-contexts/channels/support/seed-support/manual-sync-browser.ts",
   "infrastructure/playwright-evidence/responsive-evidence-manifest.json",
   "scripts/release-qualification-scope.mjs",
+  "scripts/release-qualification-scope.test.mjs",
 ]);
 export const probeRuns = Object.freeze([
   Object.freeze({ index: 1, mode: "clean", directory: "run-1-clean" }),

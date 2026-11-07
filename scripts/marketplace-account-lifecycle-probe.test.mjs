@@ -307,6 +307,7 @@ describe("marketplace account lifecycle probe joins", () => {
     "bounded-contexts/channels/features/manual-sync/tests/browser-recovery-fixture.test.ts",
     "bounded-contexts/channels/features/manual-sync/api/seed.db.test.ts",
     "bounded-contexts/channels/support/seed-support/manual-sync-browser.ts",
+    "scripts/release-qualification-scope.test.mjs",
   ])("admits only the decided retained-suite support path %s", (supportPath) => {
     expect(probeRepairSupportPaths.filter((path) => path === supportPath)).toHaveLength(1);
     const input = { head: "1".repeat(40), baselineIsAncestor: true, changedPaths: [probeRepairPaths[2], supportPath] };
