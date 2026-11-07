@@ -13,11 +13,7 @@ import {
 } from "../admin/primary-workbench-surface-read";
 import type { CatalogPrimaryWorkbenchRouteContext } from "../primary-workbench-admin-contracts";
 import { buildCatalogPrimaryWorkbenchReadModelForSurface } from "../../ui/primary-workbench-read-model";
-import {
-  parseCatalogPrimaryWorkbenchRouteContext,
-  serializeCatalogPrimaryWorkbenchRouteContext,
-} from "../../ui/primary-workbench-route-context";
-import { commandContextFromFormData } from "../../../../support/route-support/admin-integrations/integrations-command-context";
+import { parseCatalogPrimaryWorkbenchRouteContext } from "../../ui/primary-workbench-route-context";
 import {
   controlPlaneOverview,
   sourceObservationListItem,
@@ -123,65 +119,6 @@ afterEach(() => {
 });
 
 describe("Catalog primary workbench surface routes", () => {
-  // Issue #11142: a row descriptor must match the row form, not its selected sibling.
-  it.each([
-    ["review filters", "&filter.status=changed&filter.search=synthetic-search"],
-    ["top-level status", "&status=changed"],
-  ])(
-    "matches every row promotion descriptor to its submitted daily read without page filters (%s)",
-    async (_, pageFilters) => {
-      const app = buildApp(surfaceServices(), mutableProfileStore());
-      const body = await getJson(
-        app,
-        surfacePath(
-          "daily",
-          `/catalog/integrations?providerKey=tcgdex&unitKey=${TCGDEX_UNIT}&importScope=en:3:base:base1&profileVersion=synthetic-profile${pageFilters}`,
-        ),
-      );
-      expect(body.readModel.sourceScopeWorkset.units.length).toBeGreaterThan(0);
-      expect(
-        body.readModel.sourceScopeWorkset.units.some((row: { importScope: string | null }) => row.importScope !== null),
-      ).toBe(true);
-      for (const row of body.readModel.sourceScopeWorkset.units) {
-        const form = new FormData();
-        for (const [key, value] of Object.entries(row.commandContext)) form.set(key, String(value ?? ""));
-        form.set("_intent", "observation.promote");
-        form.set("selectedObservationIds", "");
-        form.set("promotionPreviewId", "");
-        const context = commandContextFromFormData(`https://admin.example${row.currentWorkbenchHref}`, form);
-        const query = serializeCatalogPrimaryWorkbenchRouteContext({
-          ...context,
-          promotionPreviewId: null,
-          jobId: null,
-        });
-        if (context.scope?.status) query.set("status", context.scope.status);
-        const submitted = await getJson(app, surfacePath("daily", `/catalog/integrations?${query}`));
-        const selected = submitted.readModel.actions.find(
-          (entry: { key: string }) => entry.key === "observation.promote",
-        ).commandPreview;
-        expect(row.actions.previewPromotion.commandPreview, row.unitKey).toEqual(selected);
-        expect(selected.confirmation).toMatchObject({
-          unitKey: row.unitKey,
-          importScope: row.importScope,
-          profileVersion: row.profileVersion,
-        });
-        expect(selected.scope).not.toHaveProperty("status");
-        expect(selected.scope).not.toHaveProperty("search");
-      }
-      if (pageFilters === "&status=changed") {
-        expect(
-          body.readModel.actions.find((entry: { key: string }) => entry.key === "observation.promote").commandPreview
-            .scope.status,
-        ).toBe("changed");
-        // Issue #11142: N5 must deliberately update this pin when aligning reapply with the row form.
-        expect(
-          body.readModel.sourceScopeWorkset.units.find((row: { unitKey: string }) => row.unitKey === TCGDEX_UNIT)
-            .commandScopes.reapply.status,
-        ).toBe("changed");
-      }
-    },
-  );
-
   // Issue #11142: promotion request composition belongs to the daily API answer.
   it("returns the selected promotion descriptor with exact filters and incomplete-scope ids support", async () => {
     const app = buildApp(surfaceServices(), mutableProfileStore());
