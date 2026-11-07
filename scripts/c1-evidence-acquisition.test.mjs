@@ -1309,10 +1309,15 @@ describe("complete envelope entrypoint actual CLI", () => {
       plan = filesFor(f),
       expected = read(f),
       result = cli(plan);
+    expect(f.envelope.jobs.verification.pages).toHaveLength(2);
+    expect(JSON.parse(f.envelope.jobs.verification.pages[0].body).total_count).toBe(101);
+    expect(JSON.parse(f.envelope.jobs.verification.pages[1].body).jobs.map(({ id }) => id)).toEqual([
+      f.envelope.sourceMap.jobId,
+    ]);
     expect(expected.bracketState).toBe("TERMINAL_BEFORE_DELETE");
     expect(result.exit).toBe(0);
     expect(result.result.receipt).toEqual(expected);
-    expect(readFileSync(plan.outputs.envelope)).toEqual(readFileSync(plan.envelopeFile));
+    expect(readFileSync(plan.outputs.envelope).equals(readFileSync(plan.envelopeFile))).toBe(true);
     for (const [key, path] of Object.entries(plan.outputs))
       expect(sha256(readFileSync(path))).toBe(result.result.outputHashes[key]);
     const manifest = JSON.parse(readFileSync(plan.outputs.manifest, "utf8"));
@@ -1350,9 +1355,11 @@ describe("complete envelope entrypoint actual CLI", () => {
     expect(JSON.stringify(f.envelope)).toBe(before);
     expect(JSON.parse(readFileSync(plan.outputs.envelope))).toEqual(f.envelope);
   });
-  it("preserves affirmative no-V and coherent failed cleanup without granting c1 admission", () => {
+  it("preserves affirmative no-V without granting c1 admission", () => {
     const noV = withoutVerification(fixture());
     expect(cli(filesFor(noV)).result.receipt).toEqual(read(noV));
+  });
+  it("preserves coherent failed cleanup without granting c1 admission", () => {
     const failed = changeDelete(fixture(), (step) => {
       step.conclusion = "failure";
     });
