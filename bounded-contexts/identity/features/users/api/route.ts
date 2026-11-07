@@ -6,6 +6,41 @@ import { parseTypedIdBoundary } from "@chase-sets/http/typed-id";
 import type { IdentityApiEnv } from "../../../api";
 import type { UserServices } from "./runtime";
 import { PLATFORM_ADMIN_ROLE_KEY, type AuthMethodKey } from "../../../support/runtime-support/common";
+import { socialLoginLinkKey } from "../domain/social-login-link";
+import { isSocialLoginProviderKey } from "@chase-sets/auth-context";
+import { closedObject, isInstant } from "../../account-management/domain/contract";
+import type { UserRow } from "../read-model/queries";
+
+function userResponse(user: UserRow) {
+  return {
+    ...user,
+    social_login_links: (user.social_login_links ?? []).map((value) => {
+      const link = closedObject(value, [
+        "providerName",
+        "providerSubject",
+        "email",
+        "linkedAt",
+        "state",
+        "requestedAt",
+        "revokedAt",
+      ]);
+      if (
+        !isSocialLoginProviderKey(link.providerName) ||
+        typeof link.providerSubject !== "string" ||
+        link.providerSubject.length > 512 ||
+        !isInstant(link.linkedAt) ||
+        (link.state !== undefined && !["active", "revocation-requested", "revoked"].includes(String(link.state)))
+      )
+        throw new Error("INDETERMINATE");
+      return {
+        providerName: link.providerName,
+        linkKey: socialLoginLinkKey(link.providerName, link.providerSubject),
+        state: link.state ?? "active",
+        linkedAt: link.linkedAt,
+      };
+    }),
+  };
+}
 
 function canManageUser(actor: IdentityApiEnv["Variables"]["actor"], userId: string) {
   return !actor || actor.roleKey === PLATFORM_ADMIN_ROLE_KEY || actor.userId === userId;
@@ -41,6 +76,27 @@ function isAuthMethodKey(value: string): value is AuthMethodKey {
 
 export function userRoutes(services: UserServices, accountManagement?: AccountManagementServices) {
   const app = new Hono<IdentityApiEnv>();
+
+  app.post("/:id/social-login/unlink", async (c) => {
+    const actor = c.var.actor;
+    if (!actor) return c.json({ error: { code: "authentication_required" } }, 401);
+    const userId = parseTypedIdBoundary(c.req.param("id"), "usr", "userId");
+    if (userId !== actor.userId) return c.json(forbidden(), 403);
+    const body: unknown = await c.req.json().catch(() => null);
+    if (
+      !body ||
+      typeof body !== "object" ||
+      Array.isArray(body) ||
+      Object.keys(body).length !== 1 ||
+      !("linkKey" in body) ||
+      typeof body.linkKey !== "string" ||
+      !/^[a-f0-9]{64}$/.test(body.linkKey)
+    )
+      return c.json({ outcome: "not-recorded", code: "validation-failed" }, 400);
+    if (!c.req.header("Idempotency-Key"))
+      return c.json({ outcome: "not-recorded", code: "interruption-safe-client-required" }, 400);
+    return (await submitAccountManagement(c, accountManagement, "unlink-social-login", body.linkKey, {}))!;
+  });
 
   app.post("/", async (c) => {
     const body = await c.req.json();
@@ -182,7 +238,7 @@ export function userRoutes(services: UserServices, accountManagement?: AccountMa
     const { search, status, limit, offset } = c.req.query();
     if (actor && actor.roleKey !== PLATFORM_ADMIN_ROLE_KEY) {
       const user = await services.getUser(actor.userId);
-      const items = user ? [user] : [];
+      const items = user ? [userResponse(user)] : [];
       return c.json({ items, total: items.length, count: items.length });
     }
 
@@ -192,7 +248,7 @@ export function userRoutes(services: UserServices, accountManagement?: AccountMa
       limit: Number(limit) || undefined,
       offset: Number(offset) || undefined,
     });
-    return c.json({ items: result.items, total: result.total, count: result.items.length });
+    return c.json({ items: result.items.map(userResponse), total: result.total, count: result.items.length });
   });
 
   app.get("/:id", async (c) => {
@@ -209,7 +265,7 @@ export function userRoutes(services: UserServices, accountManagement?: AccountMa
         404,
       );
     }
-    return c.json(user);
+    return c.json(userResponse(user));
   });
 
   return app;

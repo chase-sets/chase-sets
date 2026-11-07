@@ -224,6 +224,11 @@ export function createIdentityApiClient({
     async updateUser<T>(id: string, body: Record<string, unknown>): Promise<T> {
       return ownerResponse<T>(await client.users[":id"].$put({ param: { id }, json: body, header: headers }));
     },
+    async unlinkSocialLogin<T>(id: string, linkKey: string): Promise<T> {
+      return ownerResponse<T>(
+        await client.users[":id"]["social-login"].unlink.$post({ param: { id }, json: { linkKey }, header: headers }),
+      );
+    },
     async suspendUser<T>(id: string): Promise<T> {
       return parseJsonResponse<T>(
         await client.users[":id"].suspend.$post({ param: { id }, json: {}, header: headers }),

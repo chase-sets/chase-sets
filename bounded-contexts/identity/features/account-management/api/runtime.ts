@@ -26,10 +26,12 @@ import {
   validateOwnerHistory,
   type Owner,
   type OwnerKind,
+  type OwnerSummary,
 } from "./owners";
 import { IdentityDomainError } from "../../../support/runtime-support/common";
 import { ShippingAddressFieldError, ShippingAddressUndeliverableError } from "../../shipping-addresses/domain/errors";
 import type { ShippingAddressSnapshot } from "../../shipping-addresses/domain/domain";
+import { SocialLoginUnlinkRefusal } from "../../users/domain/social-login-link";
 
 const RECEIPT_EVENT = "identity.account-management-mutation-attempt.committed";
 type SafeOwner = Readonly<{ id: string; version: number; status: string }>;
@@ -94,7 +96,7 @@ export function assertMutationPermission(actor: ResolvedActor, action: MutationA
       ? null
       : ["update-profile", "create", "update", "default", "archive"].includes(action)
         ? "accounts.manage"
-        : ["update-user", "create-api-key", "rotate-api-key", "revoke-api-key"].includes(action)
+        : ["update-user", "create-api-key", "rotate-api-key", "revoke-api-key", "unlink-social-login"].includes(action)
           ? "security.manage"
           : "memberships.manage";
   if (permission && !hasPermission(actor, permission)) throw new Error("authorization_forbidden");
@@ -112,8 +114,95 @@ function generatedId(action: MutationAction, selector: string): string {
   return `${prefix}_${suffix}`;
 }
 
-function safeOwner(owner: Owner, id: string, version: number): SafeOwner {
-  return { id, version, status: "status" in owner.state ? owner.state.status : "active" };
+function safeOwner(summary: OwnerSummary, id: string, version: number): SafeOwner {
+  return { id, version, status: summary.status };
+}
+
+function stageOwnerEvents(
+  domainEvents: readonly DomainEvent[],
+  history: readonly StoredEvent[],
+  streamId: string,
+  context: EventStoreContext,
+) {
+  const events: EventRecordToStore[] = [];
+  const proposedHistory: StoredEvent[] = [...history];
+  for (const event of domainEvents) {
+    const eventId = createId("evt");
+    events.push({ eventId, eventType: event.type, payload: event.data });
+    proposedHistory.push({
+      ...history[0],
+      eventId,
+      streamId,
+      streamVersion: proposedHistory.length + 1,
+      tenantId: context.tenantId,
+      eventType: event.type,
+      payload: event.data,
+    });
+  }
+  return { events, proposedHistory };
+}
+
+function buildMutationReceipt(
+  request: CanonicalRequest,
+  binding: AttemptBinding,
+  target: Readonly<{ streamId: string; kind: OwnerKind }>,
+  priorVersion: number,
+  current: SafeOwner,
+  events: readonly EventRecordToStore[],
+): Receipt {
+  const proofs: Receipt["events"][number][] = [];
+  for (const event of events) proofs.push({ id: event.eventId!, type: event.eventType, digest: digest(event.payload) });
+  return {
+    schemaVersion: 1,
+    binding,
+    action: request.action,
+    target: request.target,
+    owner: target.streamId,
+    category: target.kind,
+    hash: request.hash,
+    priorVersion,
+    committedVersion: current.version,
+    events: proofs,
+    result: { ...current, changed: events.length > 0 },
+  };
+}
+
+type ApiKeyDelivery = Readonly<{ secret: string }>;
+
+async function persistApiKeyDelivery(
+  tx: IdentityMutationTransaction,
+  action: MutationAction,
+  id: string,
+  userId: string,
+  version: number,
+  delivery: ApiKeyDelivery | undefined,
+  auth: IdentityServices["auth"],
+) {
+  if (delivery) {
+    await upsertApiKeySecret(tx.db, {
+      apiKeyId: id,
+      userId,
+      keyPrefix: delivery.secret.slice(0, 12),
+      secretHash: auth.hashSecret(delivery.secret),
+      expectedVersion: version,
+    });
+  } else if (action === "revoke-api-key") await deleteApiKeySecret(tx.db, id);
+}
+
+function firstCommitResult(
+  receipt: Receipt,
+  current: SafeOwner,
+  destination: string | undefined,
+  delivery: ApiKeyDelivery | undefined,
+): MutationResult {
+  return {
+    outcome: "committed",
+    newlyCommitted: true,
+    receipt,
+    current,
+    destination,
+    ...(delivery ? { secret: delivery.secret } : {}),
+  };
 }
 
 function ownerReadDestination(action: MutationAction, category: OwnerKind, history: readonly StoredEvent[]) {
@@ -170,6 +259,16 @@ export function createAccountManagementRuntime(
     )
       throw new Error("INDETERMINATE");
     const committedEvents = ownerHistory.slice(receipt.priorVersion, receipt.committedVersion);
+    if (request.action === "unlink-social-login") {
+      const prior = validateOwnerHistory("user", ownerHistory.slice(0, receipt.priorVersion), binding.tenantId);
+      if (
+        prior.kind !== "user" ||
+        committedEvents.length !==
+          (prior.state.socialLoginLinks.filter((link) => (link.state ?? "active") === "active").length === 1 ? 3 : 2) ||
+        (committedEvents.length === 3 && committedEvents[2].payload.authMethod !== "social-login")
+      )
+        throw new Error("INDETERMINATE");
+    }
     for (let index = 0; index < committedEvents.length; index++) {
       const event = committedEvents[index];
       const proof = receipt.events[index];
@@ -181,14 +280,14 @@ export function createAccountManagementRuntime(
       ownerHistory.slice(0, receipt.committedVersion),
       binding.tenantId,
     );
-    const expected = safeOwner(historicalOwner, receipt.result.id, receipt.committedVersion);
+    const expected = safeOwner(historicalOwner.summary, receipt.result.id, receipt.committedVersion);
     if (
       digest(expected) !==
         digest({ id: receipt.result.id, version: receipt.result.version, status: receipt.result.status }) ||
       receipt.result.changed !== receipt.events.length > 0
     )
       throw new Error("INDETERMINATE");
-    const current = safeOwner(owner, receipt.result.id, ownerHistory.length);
+    const current = safeOwner(owner.summary, receipt.result.id, ownerHistory.length);
     if (hash !== undefined && receipt.hash !== hash)
       return { outcome: "conflict", code: "attempt-hash-conflict", current };
     return {
@@ -244,7 +343,7 @@ export function createAccountManagementRuntime(
           const history = await tx.read(target.streamId);
           const owner = validateOwnerHistory(target.kind, history, binding.tenantId);
           assertOwnerAuthorization(owner, request, input.actor);
-          return { outcome: "conflict", code, current: safeOwner(owner, id, history.length) };
+          return { outcome: "conflict", code, current: safeOwner(owner.summary, id, history.length) };
         });
       } catch {
         return { outcome: "indeterminate", code: "INDETERMINATE" };
@@ -277,7 +376,7 @@ export function createAccountManagementRuntime(
             return {
               outcome: "conflict" as const,
               code: "owner-version-conflict",
-              current: safeOwner(owner, id, history.length),
+              current: safeOwner(owner.summary, id, history.length),
             };
           const accountGuard = await assertNewEligibility(tx, owner, request, input.actor, input.context);
           const plan = await planOwnerMutation({
@@ -289,42 +388,15 @@ export function createAccountManagementRuntime(
             id,
             services,
           });
-          const events: readonly EventRecordToStore[] = plan.events.map((event: DomainEvent) => ({
-            eventId: createId("evt"),
-            eventType: event.type,
-            payload: event.data,
-          }));
-          const proposedHistory = [
-            ...history,
-            ...events.map((event, index) => ({
-              ...history[0],
-              eventId: event.eventId!,
-              streamId: target.streamId,
-              streamVersion: history.length + index + 1,
-              tenantId: input.context.tenantId,
-              eventType: event.eventType,
-              payload: event.payload,
-            })),
-          ] as readonly StoredEvent[];
+          const { events, proposedHistory } = stageOwnerEvents(
+            plan.kind === "api-key" ? plan.apiKeyEvents : plan.events,
+            history,
+            target.streamId,
+            input.context,
+          );
           const nextOwner = validateOwnerHistory(target.kind, proposedHistory, binding.tenantId);
-          const result = { ...safeOwner(nextOwner, id, history.length + events.length), changed: events.length > 0 };
-          const receipt: Receipt = {
-            schemaVersion: 1,
-            binding,
-            action: request.action,
-            target: request.target,
-            owner: target.streamId,
-            category: target.kind,
-            hash: request.hash,
-            priorVersion: history.length,
-            committedVersion: result.version,
-            events: events.map((event) => ({
-              id: event.eventId!,
-              type: event.eventType,
-              digest: digest(event.payload),
-            })),
-            result,
-          };
+          const current = safeOwner(nextOwner.summary, id, history.length + events.length);
+          const receipt = buildMutationReceipt(request, binding, target, history.length, current, events);
           const appended = await tx.append!([
             {
               streamId: selector,
@@ -340,35 +412,36 @@ export function createAccountManagementRuntime(
             },
             ...(accountGuard && accountGuard.streamId !== target.streamId ? [accountGuard] : []),
           ]);
-          if (target.kind === "api-key") {
-            if (plan.secret)
-              await upsertApiKeySecret(tx.db, {
-                apiKeyId: id,
-                userId: input.actor.userId,
-                keyPrefix: plan.secret.slice(0, 12),
-                secretHash: services.auth.hashSecret(plan.secret),
-                expectedVersion: result.version,
-              });
-            else if (request.action === "revoke-api-key") await deleteApiKeySecret(tx.db, id);
+          if (plan.kind === "api-key") {
+            await persistApiKeyDelivery(
+              tx,
+              request.action,
+              id,
+              input.actor.userId,
+              current.version,
+              plan.delivery,
+              services.auth,
+            );
           }
+          const committedEvents: StoredEvent[] = [];
+          let ownerEvents: readonly StoredEvent[] | undefined;
+          for (const entry of appended) {
+            if (entry.streamId === target.streamId) ownerEvents = entry.storedEvents;
+            for (const event of entry.storedEvents) committedEvents.push(event);
+          }
+          if (!ownerEvents) throw new Error("INDETERMINATE");
           return {
-            outcome: "committed" as const,
-            newlyCommitted: true,
             receipt,
-            current: safeOwner(nextOwner, id, result.version),
-            destination: ownerReadDestination(request.action, target.kind, [
-              ...history,
-              ...appended.find((entry) => entry.streamId === target.streamId)!.storedEvents,
-            ]),
-            ...(plan.secret ? { secret: plan.secret } : {}),
-            committedEvents: appended.flatMap((entry) => entry.storedEvents),
+            current: safeOwner(nextOwner.summary, id, current.version),
+            destination: ownerReadDestination(request.action, target.kind, [...history, ...ownerEvents]),
+            delivery: plan.kind === "api-key" ? plan.delivery : undefined,
+            committedEvents,
           };
         })
         .then((result) => {
           if ("committedEvents" in result) {
             recordCommittedEvents(result.committedEvents, "identity");
-            const { committedEvents: _events, ...safe } = result;
-            return safe;
+            return firstCommitResult(result.receipt, result.current, result.destination, result.delivery);
           }
           return result;
         });
@@ -383,6 +456,7 @@ export function createAccountManagementRuntime(
             : { outcome: "conflict", code: "attempt-hash-conflict", current: recovered.current };
         return conflictResult("owner-version-conflict");
       }
+      if (error instanceof SocialLoginUnlinkRefusal) return { outcome: "conflict", code: error.code };
       if (error instanceof Error && ["conflict", "last-active-owner", "current-consent"].includes(error.message))
         return conflictResult(error.message);
       if (error instanceof Error && error.message === "authorization_forbidden") throw error;
@@ -497,7 +571,7 @@ export function validateReceiptHistory(
     Number(raw.committedVersion) < Number(raw.priorVersion) ||
     Number(raw.committedVersion) > 10000 ||
     !Array.isArray(raw.events) ||
-    raw.events.length > 2
+    raw.events.length > (request.action === "unlink-social-login" ? 3 : 2)
   )
     throw new Error("INDETERMINATE");
   validateEventProofs(request.action, raw.events);

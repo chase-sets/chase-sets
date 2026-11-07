@@ -1,4 +1,10 @@
 export const identityEnglishTranslations = {
+  "identity.features.apiKeys.ui.accountSecurityPage.social.login.link": "Social Login Link",
+  "identity.features.apiKeys.ui.accountSecurityPage.unlink": "Remove link",
+  "identity.features.apiKeys.ui.accountSecurityPage.unlink.confirm.title": "Remove Social Login Link?",
+  "identity.features.apiKeys.ui.accountSecurityPage.unlink.confirm.description":
+    "You will no longer be able to sign in using this link. Your other sign-in methods are unchanged.",
+  "identity.features.apiKeys.ui.accountSecurityPage.unlink.confirm.action": "Confirm removal",
   "identity.accountManagement.addressChoice": "Choose which address to save in a new attempt.",
   "identity.accountManagement.acceptSuggested": "Use suggested address",
   "identity.accountManagement.keepOriginal": "Keep original address",

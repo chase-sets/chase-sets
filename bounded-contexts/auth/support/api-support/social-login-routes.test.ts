@@ -29,7 +29,7 @@ import type {
   SignedRegistrationConsentResolution,
   SocialLoginSubjectResolution,
 } from "@chase-sets/identity/server";
-import { buildIdentityApi } from "../../../identity/api";
+import { buildIdentityApi, createBootstrapContext } from "../../../identity/api";
 import { identityConsentPolicyHref } from "../../../identity/features/consents/domain/consent-bundle";
 import {
   SOCIAL_LOGIN_OWNERSHIP_CATCH_UP_STREAM,
@@ -496,7 +496,7 @@ describe("social login routes", () => {
     const services = createServices({
       existingUser: null,
       providerName: "facebook",
-      ownership: { status: "owned", userId: "usr_existing" },
+      ownership: { status: "owned", userId: "usr_existing", linkState: "active" },
       profile: {
         email: "buyer@example.com",
         emailVerified: false,
@@ -548,7 +548,7 @@ describe("social login routes", () => {
     const services = createServices({
       existingUser: null,
       providerName: "facebook",
-      ownership: { status: "owned", userId: "usr_link_owner" },
+      ownership: { status: "owned", userId: "usr_link_owner", linkState: "active" },
       profile: {
         email: "buyer@example.com",
         emailVerified: false,
@@ -572,7 +572,7 @@ describe("social login routes", () => {
     async (journey) => {
       const services = createServices({
         existingUser: { user_id: "usr_email_candidate", status: "active" },
-        ownership: { status: "owned", userId: "usr_claim_owner" },
+        ownership: { status: "owned", userId: "usr_claim_owner", linkState: "active" },
       });
       mockCreateIdentityAuthRequestClient.mockReturnValue(mockIdentityMutations);
       const app = buildApp(services);
@@ -600,7 +600,10 @@ describe("social login routes", () => {
   );
 
   it("refuses another owner's claimed subject on the link journey with provider_already_linked", async () => {
-    const services = createServices({ existingUser: null, ownership: { status: "owned", userId: "usr_claim_owner" } });
+    const services = createServices({
+      existingUser: null,
+      ownership: { status: "owned", userId: "usr_claim_owner", linkState: "active" },
+    });
     mockCreateIdentityAuthRequestClient.mockReturnValue(mockIdentityMutations);
     const app = buildApp(services, createAccountUserTestActor({ userId: "usr_authenticated" }));
 
@@ -642,6 +645,42 @@ describe("social login routes", () => {
     },
   );
 
+  it.each(["revocation-requested", "revoked"] as const)(
+    "refuses retained %s links on every journey now and the next day before email lookup or writes",
+    async (linkState) => {
+      for (const day of ["2026-11-05T12:00:00Z", "2026-11-06T12:00:00Z"]) {
+        vi.useFakeTimers();
+        vi.setSystemTime(day);
+        for (const journey of ["sign-in", "registration", "link", "admin"] as const) {
+          const services = createServices({
+            existingUser: { user_id: "usr_claim_owner", status: "active" },
+            ownership: { status: "owned", userId: "usr_claim_owner", linkState },
+            profile: { email: "buyer@chasesets.com", emailVerified: true, hostedDomain: "chasesets.com" },
+          });
+          mockCreateIdentityAuthRequestClient.mockReturnValue(mockIdentityMutations);
+          const app = buildApp(
+            services,
+            journey === "link" ? createAccountUserTestActor({ userId: "usr_claim_owner" }) : null,
+          );
+          await app.request(`/social/google/start?journey=${journey}&returnTo=/account`);
+          const response = await app.request("/social/google/callback?state=social_token&code=provider-code");
+          const fallback =
+            journey === "registration" ? "/register" : journey === "admin" ? "/access/sign-in" : "/sign-in";
+          expect(response.headers.get("Location")).toBe(`${fallback}?socialLoginError=provider_link_revoked`);
+          expect(services.identity.getUserByEmail).not.toHaveBeenCalled();
+          expect(services.identity.getUser).not.toHaveBeenCalled();
+          expect(mockIdentityMutations.createPersonalIdentity).not.toHaveBeenCalled();
+          expect(mockIdentityMutations.linkSocialLogin).not.toHaveBeenCalled();
+          expect(services.sessions.commandHandler).not.toHaveBeenCalled();
+        }
+        vi.useRealTimers();
+      }
+      expect(socialLoginErrorMessage("provider_link_revoked")).toBe(
+        "This Social Login Link has been removed. Use another sign-in method.",
+      );
+    },
+  );
+
   it("maps Identity's link-time repair-required refusal to provider_link_repair_required", async () => {
     const services = createServices({ existingUser: { user_id: "usr_existing", status: "active" } });
     mockIdentityMutations.linkSocialLogin.mockRejectedValue(
@@ -657,6 +696,22 @@ describe("social login routes", () => {
     const response = await app.request("/social/google/callback?state=social_token&code=provider-code");
 
     expect(response.headers.get("Location")).toBe("/sign-in?socialLoginError=provider_link_repair_required");
+    expect(services.sessions.commandHandler).not.toHaveBeenCalled();
+  });
+  it("maps a concurrent Identity relink revocation to the bounded removed-link fallback", async () => {
+    const services = createServices({ existingUser: { user_id: "usr_existing", status: "active" } });
+    mockIdentityMutations.linkSocialLogin.mockRejectedValue(
+      Object.assign(new Error("ADVERSARIAL-RELINK-MARKER"), {
+        status: 409,
+        body: { error: { code: "social_login_revoked", message: "ADVERSARIAL-RELINK-MARKER" } },
+      }),
+    );
+    mockCreateIdentityAuthRequestClient.mockReturnValue(mockIdentityMutations);
+    const app = buildApp(services);
+    await app.request("/social/google/start");
+    const response = await app.request("/social/google/callback?state=social_token&code=provider-code");
+    expect(response.headers.get("Location")).toBe("/sign-in?socialLoginError=provider_link_revoked");
+    expect(await response.text()).not.toContain("ADVERSARIAL-RELINK-MARKER");
     expect(services.sessions.commandHandler).not.toHaveBeenCalled();
   });
 
@@ -1339,11 +1394,21 @@ describe("social login routes against real Identity consent and ownership author
 
     // The owner's existing link fact, its immutable claim, and a catch-up horizon that already covers the link.
     const linkKey = socialLoginLinkKey("google", SUBJECT);
-    const [link] = await identity.eventStore.appendToStream({
+    const [, link] = await identity.eventStore.appendToStream({
       streamId: `identity.user-${CLAIM_OWNER}`,
       expectedVersion: "no_stream",
-      context: identity.context,
+      context: createBootstrapContext(),
       events: [
+        {
+          eventType: "identity.user.created",
+          payload: {
+            userId: CLAIM_OWNER,
+            displayName: "Synthetic owner",
+            givenName: "",
+            familyName: "",
+            primaryEmail: EMAIL,
+          },
+        },
         {
           eventType: "identity.user.social-login-linked",
           payload: {
@@ -1399,7 +1464,7 @@ describe("social login routes against real Identity consent and ownership author
         internalAuth: true,
         requestBody: { providerName: "google", providerSubject: SUBJECT },
         status: 200,
-        responseBody: { status: "owned", userId: CLAIM_OWNER },
+        responseBody: { status: "owned", userId: CLAIM_OWNER, linkState: "active" },
       },
     ]);
     expect(services.identity.getUser).toHaveBeenCalledWith(CLAIM_OWNER);

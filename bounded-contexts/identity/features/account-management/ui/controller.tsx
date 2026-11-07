@@ -246,14 +246,7 @@ export function AccountMutationBoundary({
         ? actor.accountId
         : action === "update-user"
           ? actor.userId
-          : String(
-              data.get("shippingAddressId") ??
-                data.get("consentId") ??
-                data.get("apiKeyId") ??
-                data.get("invitationId") ??
-                data.get("membershipId") ??
-                "",
-            ) || null;
+          : String(data.get(actionTargetField[action as MutationDescriptor["action"]] ?? "") ?? "") || null;
     setActiveForm(form);
     setSecret(null);
     setSecretLost(false);

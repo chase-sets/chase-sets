@@ -237,8 +237,22 @@ describe("resolveActorFromSessionId on a session-projection miss", () => {
 
     expect(readAuthenticatedSession).toHaveBeenCalledWith(SYNTHETIC_SESSION_ID);
     expect(actor?.authenticatedAt).toBe(SYNTHETIC_OLD_RECORDED_AT);
+    expect(actor?.authenticationMethod).toBe("password");
     expect(recentlyAuthenticated(actor?.authenticatedAt)).toBe(false);
   });
+  it.each(["password", "magic-link", "passkey", "sms-code", "google", "facebook"] as const)(
+    "carries only the authoritative Session method %s",
+    async (authenticationMethod) => {
+      const { services, readAuthenticatedSession } = createServicesWithProjectionMiss(SYNTHETIC_FRESH_RECORDED_AT);
+      readAuthenticatedSession.mockResolvedValue({
+        state: { ...syntheticSessionState(), authenticationMethod },
+        authenticatedAt: SYNTHETIC_FRESH_RECORDED_AT,
+      });
+      expect((await resolveActorFromSessionId(services, SYNTHETIC_SESSION_ID))?.authenticationMethod).toBe(
+        authenticationMethod,
+      );
+    },
+  );
 
   it("preserves the exact fresh authoritative recordedAt", async () => {
     const { services } = createServicesWithProjectionMiss(SYNTHETIC_FRESH_RECORDED_AT);

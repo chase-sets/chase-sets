@@ -15,6 +15,7 @@ Providers are composed into Auth through provider-neutral ports. Deployables sup
 2. Auth consumes the state token exactly once on callback.
 3. Auth exchanges the callback code through the configured provider adapter.
 4. Auth first resolves by provider subject. An existing provider-subject link can authenticate without relying on the provider's current email claim.
+   Identity returns the owner's explicit link state, including `active` for legacy links. A `revocation-requested` or `revoked` link returns `provider_link_revoked` before any email lookup, identity creation, link write or Session start. Its ownership claim is retained, and relinking is refused.
 5. Auth requires a provider-verified email before resolving by email or creating a user.
 6. If the verified email matches an existing user, Identity links the provider identity to that user and Auth starts the normal session journey.
 7. If no matching user exists, Auth asks Identity to create a personal user/account/membership and then links the provider identity.
@@ -39,6 +40,8 @@ Identity stores:
 - linked timestamp
 
 Provider access tokens, refresh tokens, raw profile payloads, and provider secrets are not stored as domain facts.
+
+Account security can remove an active link through Identity's authenticated, idempotent User mutation. This is local revocation only: no provider call and no existing Session revocation. Apple lifecycle and provider revocation workers are not implemented by this flow.
 
 ## Failure Policy
 

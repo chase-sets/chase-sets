@@ -22,6 +22,7 @@ export function isChannelConnectorScope(value: unknown): value is ChannelConnect
 export const SOCIAL_LOGIN_PROVIDERS = ["google", "facebook"] as const;
 
 export type SocialLoginProviderKey = (typeof SOCIAL_LOGIN_PROVIDERS)[number];
+export type AuthenticationMethod = "password" | "magic-link" | "passkey" | "sms-code" | SocialLoginProviderKey;
 
 const SOCIAL_LOGIN_PROVIDER_SET = new Set<string>(SOCIAL_LOGIN_PROVIDERS);
 
@@ -49,6 +50,7 @@ export type ResolvedActor = Readonly<{
    * this is missing rather than treat an unknown moment as recent.
    */
   authenticatedAt?: string | null;
+  authenticationMethod?: AuthenticationMethod;
   /**
    * Current Capability Grants Identity holds for this actor's Account, as
    * projected by Auth when it resolved this Session-backed actor. Auth reads

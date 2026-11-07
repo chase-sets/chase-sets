@@ -133,6 +133,10 @@ export function resolveClientState(value: unknown, status: number): ClientState 
         "conflict",
         "attempt-hash-conflict",
         "owner-version-conflict",
+        "social-login-link-not-active",
+        "recent-authentication-required",
+        "authentication-method-not-different",
+        "last-authentication-method",
         "last-active-owner",
         "current-consent",
         "owner-state-conflict",
@@ -283,7 +287,8 @@ function validateCommittedResult(result: Record<string, unknown>) {
     typeof recorded.changed !== "boolean"
   )
     throw new Error("INDETERMINATE");
-  if (!Array.isArray(receipt.events) || receipt.events.length > 2) throw new Error("INDETERMINATE");
+  if (!Array.isArray(receipt.events) || receipt.events.length > (receipt.action === "unlink-social-login" ? 3 : 2))
+    throw new Error("INDETERMINATE");
   validateEventProofs(receipt.action as MutationAction, receipt.events);
   if (
     receipt.events.length !== Number(receipt.committedVersion) - Number(receipt.priorVersion) ||

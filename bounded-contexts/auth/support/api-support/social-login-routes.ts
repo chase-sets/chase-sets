@@ -176,7 +176,11 @@ function socialLoginLinkFailureCode(error: unknown): SocialLoginErrorCode {
   if (getErrorStatus(error) !== 409) return "provider_failed";
   const body = error && typeof error === "object" && "body" in error ? (error as { body: unknown }).body : null;
   const code = (body as { error?: { code?: unknown } } | null)?.error?.code;
-  return code === "social_login_repair_required" ? "provider_link_repair_required" : "provider_already_linked";
+  return code === "social_login_revoked"
+    ? "provider_link_revoked"
+    : code === "social_login_repair_required"
+      ? "provider_link_repair_required"
+      : "provider_already_linked";
 }
 
 function normalizeHostedDomain(value: string) {
@@ -362,6 +366,8 @@ export function registerSocialLoginRoutes(app: AuthApiApp, services: AuthService
     if (ownership.status === "repair-required") {
       return redirectToFallback("provider_link_repair_required", journey);
     }
+    if (ownership.status === "owned" && ownership.linkState !== "active")
+      return redirectToFallback("provider_link_revoked", journey);
     const ownerUserId = ownership.status === "owned" ? ownership.userId : null;
     if (linkActor && ownerUserId && ownerUserId !== linkActor.userId) {
       return redirectToFallback("provider_already_linked");

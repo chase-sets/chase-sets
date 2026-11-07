@@ -285,6 +285,34 @@ describe("Identity mutation consistency route actions", () => {
     }
   });
 
+  it("forwards the actor-owned closed unlink body and attempt through the real User client", async () => {
+    const linkKey = "c".repeat(64);
+    const writes: Request[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const request = new Request(input, init);
+        if (request.url.includes("/api/auth/session")) return jsonResponse({ actor });
+        writes.push(request);
+        return jsonResponse(syntheticMutationResult("unlink-social-login", actor, { target: linkKey }));
+      }),
+    );
+    const response = (await accountSecurityAction({
+      request: formRequest("/account/security", { intent: "unlink-social-login", linkKey }),
+      params: {},
+      context: undefined,
+    })) as Response;
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      outcome: "committed",
+      receipt: { action: "unlink-social-login", target: linkKey },
+    });
+    expect(writes).toHaveLength(1);
+    expect(new URL(writes[0].url).pathname).toBe(`/api/identity/users/${actor.userId}/social-login/unlink`);
+    expect(writes[0].headers.get("Idempotency-Key")).toBe("9230f01b-7871-420b-9c32-37139f80f749");
+    expect(await writes[0].json()).toEqual({ linkKey });
+  });
+
   it("reports committed delivery-unknown after one write even for admitted API lookalikes", async () => {
     const failures = [
       ...[400, 422].flatMap((status) =>

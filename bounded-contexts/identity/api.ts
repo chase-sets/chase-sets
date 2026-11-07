@@ -56,6 +56,7 @@ import {
 } from "./features/accounts/domain/domain";
 import {
   decideUser,
+  assertUserSocialLoginEventSequence,
   evolveUser,
   initialUserState,
   type UserEvent,
@@ -399,6 +400,8 @@ const userRegistrationHistory: RegistrationParticipantHistory = {
     "identity.user.password-credential-attached",
     "identity.user.passkey-registered",
     "identity.user.social-login-linked",
+    "identity.user.social-login-revocation-requested",
+    "identity.user.social-login-revoked",
     "identity.user.suspended",
     "identity.user.reactivated",
   ]),
@@ -436,6 +439,7 @@ async function readRegistrationParticipant<State, Event extends DomainEvent>(
   evolve: (state: Readonly<State>, event: Readonly<Event>) => State,
   history: RegistrationParticipantHistory,
   disagreement: () => Error,
+  validateTransition?: (state: State, event: Event, previous?: Event, next?: Event) => void,
 ): Promise<RegistrationParticipant<State>> {
   const storedEvents = await readCompleteRegistrationStreamHistory(eventStore, streamId);
   if (storedEvents.length > 0) {
@@ -457,10 +461,18 @@ async function readRegistrationParticipant<State, Event extends DomainEvent>(
       streamId,
       version: storedEvents.length === 0 ? 0 : storedEvents[storedEvents.length - 1].streamVersion,
       storedEvents,
-      state: storedEvents.reduce(
-        (folded, storedEvent) => evolve(folded, { type: storedEvent.eventType, data: storedEvent.payload } as Event),
-        initialState,
-      ),
+      state: storedEvents.reduce((folded, storedEvent, index) => {
+        const event = { type: storedEvent.eventType, data: storedEvent.payload } as Event;
+        const previous = storedEvents[index - 1];
+        const next = storedEvents[index + 1];
+        validateTransition?.(
+          folded,
+          event,
+          previous && ({ type: previous.eventType, data: previous.payload } as Event),
+          next && ({ type: next.eventType, data: next.payload } as Event),
+        );
+        return evolve(folded, event);
+      }, initialState),
     };
   } catch {
     throw disagreement();
@@ -788,6 +800,7 @@ async function planPersonalIdentityRegistration(
     evolveUser,
     userRegistrationHistory,
     participantDisagreement,
+    assertUserSocialLoginEventSequence,
   );
   const membership = await readRegistrationParticipant<MembershipState, MembershipEvent>(
     eventStore,
@@ -1708,6 +1721,8 @@ export function buildIdentityApi(
 
     const userId = c.req.param("id");
     const link = await linkSocialLogin(services, { userId, ...input }, getBootstrapContext(c));
+    if (link.outcome === "revoked")
+      return c.json({ error: { code: "social_login_revoked", message: "Social login link is revoked." } }, 409);
     if (link.outcome === "already-linked") {
       return c.json(
         { error: { code: "social_login_already_linked", message: "Social login is already linked to another user." } },

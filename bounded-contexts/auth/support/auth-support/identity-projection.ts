@@ -13,6 +13,7 @@ import {
 } from "@chase-sets/event-core-postgres";
 import { type AccountId, type UserId, type TenantId } from "@chase-sets/primitives/typed-ids";
 import { ROLE_PERMISSIONS } from "@chase-sets/auth-context";
+import type { BcSchemaMigration } from "@chase-sets/bounded-context-module";
 import { AUTH_BOOTSTRAP_ACCOUNT_ID, AUTH_BOOTSTRAP_TENANT_ID, AUTH_BOOTSTRAP_USER_ID } from "./constants";
 
 export const authIdentityProjectionSchemaSql = `
@@ -68,9 +69,17 @@ CREATE TABLE IF NOT EXISTS auth_identity_user_social_login_links (
   user_id text NOT NULL,
   email text NOT NULL,
   linked_at timestamptz NOT NULL,
+  link_key text NOT NULL,
+  state text NOT NULL DEFAULT 'active' CONSTRAINT auth_social_login_link_state CHECK (state IN ('active', 'revocation-requested', 'revoked')),
+  revoked_at timestamptz NULL,
   updated_at timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (provider_name, provider_subject)
 );
+
+ALTER TABLE auth_identity_user_social_login_links
+  ADD COLUMN IF NOT EXISTS link_key text,
+  ADD COLUMN IF NOT EXISTS state text NOT NULL DEFAULT 'active',
+  ADD COLUMN IF NOT EXISTS revoked_at timestamptz NULL;
 
 CREATE TABLE IF NOT EXISTS auth_identity_memberships (
   membership_id text PRIMARY KEY,
@@ -129,6 +138,26 @@ CREATE TABLE IF NOT EXISTS auth_identity_account_capabilities (
   updated_at timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (tenant_id, account_id, capability_key)
 );`;
+
+export const authSocialLoginSchemaMigrations: readonly BcSchemaMigration[] = [
+  {
+    migrationId: "20261105_auth_social_login_link_lifecycle",
+    description: "Retain Social Login Link revocation state and backfill legacy active links.",
+    statements: [
+      "SET lock_timeout = '5s';",
+      "ALTER TABLE auth_identity_user_social_login_links ADD COLUMN IF NOT EXISTS link_key text, ADD COLUMN IF NOT EXISTS state text NOT NULL DEFAULT 'active', ADD COLUMN IF NOT EXISTS revoked_at timestamptz NULL;",
+      "UPDATE auth_identity_user_social_login_links SET link_key = encode(sha256(convert_to(provider_name || ':' || btrim(provider_subject), 'UTF8')), 'hex') WHERE link_key IS NULL;",
+      "DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = 'auth_identity_user_social_login_links'::regclass AND conname = 'auth_social_login_link_key_required') THEN ALTER TABLE auth_identity_user_social_login_links ADD CONSTRAINT auth_social_login_link_key_required CHECK (link_key IS NOT NULL) NOT VALID; END IF; END $$;",
+      "ALTER TABLE auth_identity_user_social_login_links VALIDATE CONSTRAINT auth_social_login_link_key_required;",
+      "ALTER TABLE auth_identity_user_social_login_links ALTER COLUMN link_key SET NOT NULL;",
+      "ALTER TABLE auth_identity_user_social_login_links DROP CONSTRAINT IF EXISTS auth_social_login_link_key_required;",
+      "DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = 'auth_identity_user_social_login_links'::regclass AND conname = 'auth_social_login_link_state') THEN ALTER TABLE auth_identity_user_social_login_links ADD CONSTRAINT auth_social_login_link_state CHECK (state IN ('active', 'revocation-requested', 'revoked')) NOT VALID; END IF; END $$;",
+      "ALTER TABLE auth_identity_user_social_login_links VALIDATE CONSTRAINT auth_social_login_link_state;",
+      "UPDATE auth_identity_users SET social_login_links = COALESCE((SELECT jsonb_agg(link || jsonb_build_object('state', COALESCE(link->>'state', 'active'))) FROM jsonb_array_elements(social_login_links) AS link), '[]'::jsonb);",
+      "RESET lock_timeout;",
+    ],
+  },
+];
 
 export type AuthIdentityUserRow = Readonly<{
   user_id: string;
@@ -217,6 +246,9 @@ type SocialLoginLinkRow = Readonly<{
   providerSubject: string;
   email: string;
   linkedAt: string;
+  state?: string;
+  requestedAt?: string;
+  revokedAt?: string;
 }>;
 
 type ContactMethodLookupRow = Readonly<{
@@ -590,7 +622,32 @@ function reportSocialLoginLinkConflict(providerName: string, providerSubject: st
 }
 
 export function buildAuthIdentityUserProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
+  const transition =
+    (state: "revocation-requested" | "revoked"): ProjectorHandler =>
+    async (event) => {
+      const userId = extractIdFromStreamId(event.streamId, "identity.user-");
+      const { providerName, linkKey } = event.data as { providerName: string; linkKey: string };
+      const at = String(event.data[state === "revoked" ? "revokedAt" : "requestedAt"]);
+      const changed = await db.query(
+        `UPDATE auth_identity_user_social_login_links SET state = $4, revoked_at = CASE WHEN $4 = 'revoked' THEN $5::timestamptz ELSE revoked_at END, updated_at = $5 WHERE user_id = $1 AND provider_name = $2 AND link_key = $3 AND state = $6 RETURNING link_key`,
+        [userId, providerName, linkKey, state, at, state === "revoked" ? "revocation-requested" : "active"],
+      );
+      if (!changed.rows.length) return;
+      await db.query(
+        `UPDATE auth_identity_users SET social_login_links = (SELECT jsonb_agg(CASE WHEN encode(sha256(convert_to(link->>'providerName' || ':' || btrim(link->>'providerSubject'), 'UTF8')), 'hex') = $2 THEN link || jsonb_build_object('state', $3::text, $4::text, $5::text) ELSE link END) FROM jsonb_array_elements(social_login_links) AS link), updated_at = $5::timestamptz WHERE user_id = $1`,
+        [userId, linkKey, state, state === "revoked" ? "revokedAt" : "requestedAt", at],
+      );
+    };
   return {
+    "identity.user.social-login-revocation-requested": transition("revocation-requested"),
+    "identity.user.social-login-revoked": transition("revoked"),
+    "identity.user.auth-method-disabled": async (event) => {
+      const userId = extractIdFromStreamId(event.streamId, "identity.user-");
+      await db.query(
+        `UPDATE auth_identity_users SET auth_methods = auth_methods - $2::text, updated_at = $3 WHERE user_id = $1`,
+        [userId, String(event.data.authMethod), event.timing.recordedAt],
+      );
+    },
     "identity.user.created": async (event) => {
       const { userId, displayName, givenName, familyName, primaryEmail, primaryContactMethod } = event.data as {
         userId: string;
@@ -770,6 +827,16 @@ export function buildAuthIdentityUserProjectionHandlers(db: PgQueryable): Projec
         email: string;
         linkedAt: string;
       };
+      const linkKey = createHash("sha256")
+        .update(`${link.providerName}:${link.providerSubject.trim()}`, "utf8")
+        .digest("hex");
+      const prior = await db.query<{
+        social_login_links: readonly SocialLoginLinkRow[];
+      }>(`SELECT social_login_links FROM auth_identity_users WHERE user_id = $1`, [userId]);
+      const retained = prior.rows[0]?.social_login_links.find(
+        (candidate) =>
+          candidate.providerName === link.providerName && candidate.providerSubject === link.providerSubject,
+      );
       await replaceJsonbArrayElement(db, {
         table: "auth_identity_users",
         key: { column: "user_id", value: userId },
@@ -781,7 +848,12 @@ export function buildAuthIdentityUserProjectionHandlers(db: PgQueryable): Projec
             { kind: "pathText", path: ["providerSubject"], value: link.providerSubject },
           ],
         },
-        element: link satisfies SocialLoginLinkRow,
+        element: {
+          ...link,
+          state: retained?.state ?? "active",
+          ...(retained?.requestedAt ? { requestedAt: retained.requestedAt } : {}),
+          ...(retained?.revokedAt ? { revokedAt: retained.revokedAt } : {}),
+        },
         orderBy: [
           { kind: "pathText", path: ["providerName"] },
           { kind: "pathText", path: ["providerSubject"] },
@@ -791,8 +863,8 @@ export function buildAuthIdentityUserProjectionHandlers(db: PgQueryable): Projec
       // A view, never an authority: Identity's ownership claim decides; a second User keeps the first row.
       const kept = await db.query<{ user_id: string }>(
         `INSERT INTO auth_identity_user_social_login_links
-           (provider_name, provider_subject, user_id, email, linked_at, updated_at)
-         VALUES ($1, $2, $3, $4, $5, $6)
+           (provider_name, provider_subject, user_id, email, linked_at, updated_at, link_key)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)
          ON CONFLICT (provider_name, provider_subject) DO UPDATE
          SET email = EXCLUDED.email, linked_at = EXCLUDED.linked_at, updated_at = EXCLUDED.updated_at
          WHERE auth_identity_user_social_login_links.user_id = EXCLUDED.user_id
@@ -804,6 +876,7 @@ export function buildAuthIdentityUserProjectionHandlers(db: PgQueryable): Projec
           normalizeAuthEmail(link.email),
           link.linkedAt,
           event.timing.recordedAt,
+          linkKey,
         ],
       );
       if (kept.rows.length === 0) {

@@ -16,6 +16,24 @@ describe("issue-7168-ac12-descriptor-day-after", () => {
     sentAt: "2026-10-12T00:00:01Z",
     observedAt: "2026-10-12T00:00:02Z",
   } as const;
+  it("admits only lowercase hexadecimal unlink targets without changing other target categories", () => {
+    const unlink = { ...descriptor, route: "/account/security", action: "unlink-social-login", target: "c".repeat(64) };
+    expect(validateDescriptor(unlink)).toEqual(unlink);
+    for (const target of [null, "C".repeat(64), "c".repeat(63), "usr_test", "g".repeat(64)])
+      expect(() => validateDescriptor({ ...unlink, target })).toThrow("INDETERMINATE");
+    expect(
+      validateDescriptor({ ...descriptor, route: "/account", action: "update-profile", target: descriptor.accountId })
+        .target,
+    ).toBe(descriptor.accountId);
+    expect(
+      validateDescriptor({
+        ...descriptor,
+        route: "/account/security",
+        action: "update-user",
+        target: descriptor.userId,
+      }).target,
+    ).toBe(descriptor.userId);
+  });
   it("retains only inert same-actor ambiguity or reauthentication, never secret-bearing extras", () => {
     expect(validateDescriptor(descriptor)).toEqual(descriptor);
     for (const extra of ["secret", "body", "url", "token", "result", "retry"])

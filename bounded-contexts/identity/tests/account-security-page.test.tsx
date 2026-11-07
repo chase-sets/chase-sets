@@ -29,6 +29,27 @@ const apiKeys = [
 ];
 
 describe("Marketplace account security page", () => {
+  it("renders one localized confirmed active-link action without a subject/email and no inactive control", () => {
+    const link = {
+      providerName: "google",
+      linkKey: "c".repeat(64),
+      state: "active" as const,
+      linkedAt: user.updated_at,
+    };
+    const html = renderToString(<SecurityPage user={{ ...user, social_login_links: [link] }} apiKeys={[]} />);
+    expect(html).toContain("Remove link");
+    expect(html).toContain("Social Login Link");
+    expect(html).not.toContain("providerSubject");
+    for (const social_login_links of [
+      undefined,
+      [],
+      [{ ...link, state: "revocation-requested" as const }],
+      [{ ...link, state: "revoked" as const }],
+    ])
+      expect(renderToString(<SecurityPage user={{ ...user, social_login_links }} apiKeys={[]} />)).not.toContain(
+        "Remove link",
+      );
+  });
   it("renders a secret supplied from controller memory", () => {
     const html = renderToString(
       <SecurityPage
