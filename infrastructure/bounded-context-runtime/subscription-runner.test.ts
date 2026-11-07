@@ -1099,7 +1099,11 @@ describe("bounded context subscription runner", () => {
     decisionSourceHead.release();
     const decisionStatus = await decisionRefresh;
 
-    expect(olderStatus).toMatchObject({ lastGlobalPosition: "0", sourceHeadGlobalPosition: "9", outstandingEventCount: "9" });
+    expect(olderStatus).toMatchObject({
+      lastGlobalPosition: "0",
+      sourceHeadGlobalPosition: "9",
+      outstandingEventCount: "9",
+    });
     expect(decisionStatus).toMatchObject({
       checkpointKey,
       initialized: true,

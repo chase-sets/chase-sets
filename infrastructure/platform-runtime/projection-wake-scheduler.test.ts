@@ -465,7 +465,10 @@ describe("projection wake scheduler", () => {
     expect(store.readiness).toEqual([]);
     expect(store.deferrals).toEqual([]);
     expect(store.failures).toMatchObject([
-      { retryAfterMs: 1_000, error: { reason: "checkpoint-not-ready", checkpointPosition: "0", requiredPosition: "4" } },
+      {
+        retryAfterMs: 1_000,
+        error: { reason: "checkpoint-not-ready", checkpointPosition: "0", requiredPosition: "4" },
+      },
     ]);
     expect(unrelated.refreshStatus).not.toHaveBeenCalled();
   });
