@@ -29,7 +29,8 @@
 //!
 //! Preview and promote stay on admin-web: the API does not yet refuse a stale preview itself
 //! (chase-sets/chase-sets#11045), so the pilot does not send a promotion. The evidence sheets open on
-//! admin-web until the API serves their detail (chase-sets/chase-sets#11079).
+//! admin-web until the API serves their detail (chase-sets/chase-sets#11079), and the jobs stage's
+//! import preview until the API composes it for the working set (chase-sets/chase-sets#11130).
 //!
 //! A scope's page draws the same stages for its scope (`crate::catalog::scope`), its forms carrying
 //! the working set's `home` (the pilot's own key, never sent to the API), so the redirect after a
