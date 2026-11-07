@@ -8634,7 +8634,12 @@ async fn a_review_rows_evidence_opens_the_apis_evidence_in_a_sheet() {
     assert!(!html.contains("<title>"), "only the sheet: {html}");
     assert!(html.contains(r#"id="evidence-sheet""#) && html.contains(" open"), "{html}");
     assert!(html.contains(r#"data-catalog-observation-evidence="loaded""#) && html.contains("Sprigatito"), "{html}");
-    assert!(html.contains("https://example.test/sv1-001") && html.contains("Rarity: Double Rare") && html.contains("Paldean Fates booster"), "{html}");
+    assert!(
+        html.contains("https://example.test/sv1-001")
+            && html.contains("Rarity: Double Rare")
+            && html.contains("Paldean Fates booster"),
+        "{html}"
+    );
     assert!(html.contains("Name differs from pokemontcgio") && html.contains("Observed by the nightly import"), "{html}");
     assert!(html.contains("section=promotion-preview"), "an eligible row's Preview promotion: {html}");
     assert!(!html.contains("disabled"), "{html}");
@@ -8649,7 +8654,8 @@ async fn a_review_rows_evidence_opens_the_apis_evidence_in_a_sheet() {
 #[tokio::test]
 async fn without_javascript_a_rows_evidence_is_its_page_with_the_sheet_open() {
     let pilot = Pilot::new().await;
-    let (status, _, html) = pilot.send(get(&format!("{EVIDENCE}/obs_1?providerKey=tcgplayer&unitKey=pokemon"), Some("staff"))).await;
+    let (status, _, html) =
+        pilot.send(get(&format!("{EVIDENCE}/obs_1?providerKey=tcgplayer&unitKey=pokemon"), Some("staff"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");
     assert!(html.contains("<title>Catalog Integrations") && html.contains(r#"name="wb-stage""#), "the daily page: {html}");
     assert!(html.contains(r#"data-catalog-observation-evidence="loaded""#), "with the sheet open: {html}");

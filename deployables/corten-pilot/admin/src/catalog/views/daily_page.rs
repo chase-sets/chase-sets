@@ -1611,7 +1611,11 @@ pub fn EvidenceSheet<'a>(t: Cat, p: Pilot, evidence: Option<&'a ObservationEvide
                                 </a>
                             }
                             None => {
-                                <button type="button" class={Button { variant: ButtonVariant::Primary, size: ButtonSize::Sm }} disabled>
+                                <button
+                                    type="button"
+                                    class={Button { variant: ButtonVariant::Primary, size: ButtonSize::Sm }}
+                                    disabled
+                                >
                                     {t.wb_blocked()}
                                 </button>
                             }
@@ -1651,7 +1655,11 @@ fn EvidenceBody<'a>(t: Cat, detail: &'a EvidenceDetail) -> impl Render {
     html! {
         <div class={Stack} data-catalog-observation-evidence="loaded">
             <Pairs items={&items} />
-            <EvidenceList title={t.wb_review_evidence_normalized()} items={&detail.normalized_fact_summaries} empty={t.wb_none()} />
+            <EvidenceList
+                title={t.wb_review_evidence_normalized()}
+                items={&detail.normalized_fact_summaries}
+                empty={t.wb_none()}
+            />
             <EvidenceList title={t.wb_review_evidence_product_contents()} items={&lines} empty={&contents.summary} />
             <EvidenceList
                 title={t.wb_review_evidence_duplicates()}
