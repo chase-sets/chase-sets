@@ -721,19 +721,6 @@ export function profileSelectorFromScope(
     : null;
 }
 
-export function integrationScopeToObservationScope(
-  scope: SourceObservationIntegrationJobScope,
-): SourceObservationFilterScope {
-  return {
-    provider: scope.provider?.trim() || undefined,
-    language: scope.language?.trim() || undefined,
-    productLineId: scope.productLineId?.trim() || undefined,
-    seriesId: scope.seriesId?.trim() || undefined,
-    expansionId: scope.setId?.trim() || undefined,
-    setId: scope.setId?.trim() || undefined,
-  };
-}
-
 export function uniqueObservationIds(observationIds: readonly string[]): string[] {
   return Array.from(
     new Set(
