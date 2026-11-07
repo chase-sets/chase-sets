@@ -1444,7 +1444,7 @@ export function assignAuthoritativeSeedResumeState(state: PlatformApiBootstrapTe
  * asserts this, which is what proves the opt-in handoff did not leak.
  */
 export async function expectZeroRelationCaseEntry(caseLabel: string): Promise<void> {
-  expect(platformApiContextNames).toHaveLength(20);
+  expect(platformApiContextNames).toHaveLength(21);
   const relations = await activeContextRelationCounts();
   expect(relations, `case entry for '${caseLabel}': ${JSON.stringify(relations)}`).toEqual(
     Object.fromEntries(platformApiContextNames.map((contextName) => [contextName, 0])),

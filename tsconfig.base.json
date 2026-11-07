@@ -987,6 +987,12 @@
       "@chase-sets/review-eligibility": [
         "./contracts/review-eligibility/index.ts"
       ],
+      "@chase-sets/scanning": [
+        "./bounded-contexts/scanning/index.ts"
+      ],
+      "@chase-sets/scanning/context": [
+        "./bounded-contexts/scanning/context.json"
+      ],
       "@chase-sets/seller-attention-queue": [
         "./contracts/seller-attention-queue/index.ts"
       ],
