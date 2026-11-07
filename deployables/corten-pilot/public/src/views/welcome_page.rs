@@ -98,13 +98,12 @@ pub fn WelcomePage<'a>(t: HomeMsg, p: Pilot, screen: &'a Screen, saved: Option<S
                                 value={&screen.link}
                                 on:focus={handlers::selected(target)}
                             >
-                            <span class={CopyLink}>
-                                <CopyButton
-                                    text={WelcomeReferralLinkId}
-                                    label={t.welcome_referral_copy_action()}
-                                    copied={t.welcome_referral_copied_action()}
-                                />
-                            </span>
+                            <CopyButton
+                                text={WelcomeReferralLinkId}
+                                label={t.welcome_referral_copy_action()}
+                                copied={t.welcome_referral_copied_action()}
+                                class={CopyLink}
+                            />
                         </div>
                         <div class={Progress}>
                             <div class={ProgressHead}>

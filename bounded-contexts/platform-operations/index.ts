@@ -45,6 +45,7 @@ import { platformOperationsSchemaSql } from "./support/runtime-support/schema";
 import { supportRequestSchemaMigrations } from "./features/support-requests/read-model/schema";
 import { riskAlertsSchemaMigrations } from "./features/risk-alerts/read-model/schema";
 import { sellerComplianceSalesSchemaMigrations } from "./features/seller-compliance-sales/read-model/schema";
+import { sellerComplianceCohortSchemaMigrations } from "./features/seller-compliance-cohorts/read-model/cohort-schema";
 import { accountAppealSchemaMigrations } from "./features/account-appeals/read-model/schema";
 import {
   buildAccountAppealInterestProjectionHandlers,
@@ -72,6 +73,7 @@ export const module = defineBoundedContextModule<
     ...riskAlertsSchemaMigrations,
     ...supportRequestSchemaMigrations,
     ...sellerComplianceSalesSchemaMigrations,
+    ...sellerComplianceCohortSchemaMigrations,
     ...accountAppealSchemaMigrations,
   ],
   createServices: (pool, ports) => createPlatformOperationsServices(pool, ports),

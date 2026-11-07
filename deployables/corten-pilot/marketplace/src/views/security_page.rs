@@ -221,9 +221,7 @@ fn SecretReveal<'a>(t: SecurityMsg, secret: &'a str, rotated: bool) -> impl Rend
             <p class={Label} id="secret-label">{t.reveal_full_secret()}</p>
             <pre class={Secret} aria-labelledby="secret-label"><code id={SecretId}>{secret}</code></pre>
             <div class={Links}>
-                <span class={CopyPrimary}>
-                    <CopyButton text={SecretId} label={t.reveal_copy()} copied={t.reveal_copied()} />
-                </span>
+                <CopyButton text={SecretId} label={t.reveal_copy()} copied={t.reveal_copied()} class={(Button, Primary)} />
                 <a class={(Button, Secondary)} href={url::Security::default()}>{t.manage_acknowledge_secret()}</a>
             </div>
         </section>

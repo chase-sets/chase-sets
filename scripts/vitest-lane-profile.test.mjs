@@ -1,5 +1,5 @@
 import { strict as assert } from "node:assert";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { afterEach, test } from "vitest";
@@ -18,6 +18,80 @@ import { scriptBatteryTempCensusGlobalSetupPath } from "./lib/script-battery-tem
 import { repoRoot } from "./lib/repo.mjs";
 
 const originalLaneMode = process.env.CHASE_SETS_LANE_MODE;
+const canonicalRecordTest = "scripts/canonical-record.test.mjs";
+
+function trackedScriptsTestFiles() {
+  return execFileSync("git", ["ls-files", "--", "scripts/*.test.mjs", "scripts/**/*.test.mjs"], {
+    cwd: repoRoot,
+    encoding: "utf8",
+    maxBuffer: GIT_LISTING_MAX_BUFFER,
+  })
+    .split(/\r?\n/)
+    .filter(Boolean)
+    .sort();
+}
+
+function assertExactScriptsPartition({ canonicalFiles, remainderFiles, completeFiles }) {
+  const expected = new Set(completeFiles);
+  const first = [...canonicalFiles];
+  const remainder = [...remainderFiles];
+  assert.deepEqual(first, [canonicalRecordTest], "canonical phase must contain only the canonical file");
+  assert.equal(new Set(first).size, first.length, "canonical phase must not duplicate a file");
+  assert.equal(new Set(remainder).size, remainder.length, "remainder phase must not duplicate a file");
+  assert.equal(first.filter((file) => remainder.includes(file)).length, 0, "phases must be disjoint");
+  assert.deepEqual(new Set([...first, ...remainder]), expected, "phases must cover complete enrollment");
+  assert.equal(first.filter((file) => file === canonicalRecordTest).length, 1);
+}
+
+function scriptsCommandPartition(command) {
+  const packageJson = JSON.parse(readFileSync(path.join(repoRoot, "package.json"), "utf8"));
+  command ??= packageJson.scripts["test:scripts"];
+  const phases = command.split(" && ");
+  assert.equal(phases.length, 2, "scripts command must contain exactly two complete phase invocations");
+  const [canonicalPhase, remainderPhase] = phases;
+  const canonicalCommand = packageJson.scripts["test:canonical-record"];
+  const completeFiles = trackedScriptsTestFiles();
+  const include = defineScriptsTestConfig().test.include;
+  const includesScripts = completeFiles.filter((file) => /^scripts\/.*\.test\.mjs$/.test(file));
+  const excludes = [...remainderPhase.matchAll(/--exclude\s+(\S+)/g)].map(([, file]) => file);
+
+  assert.equal(canonicalPhase, `pnpm run test:canonical-record`);
+  assert.equal(
+    canonicalCommand,
+    "vitest run --config ./vitest.scripts.config.mjs scripts/canonical-record.test.mjs --maxWorkers=1 --fileParallelism=false --silent=false",
+  );
+  assert.match(
+    remainderPhase,
+    /^vitest run --config \.\/vitest\.scripts\.config\.mjs --exclude scripts\/canonical-record\.test\.mjs$/,
+  );
+  assert.deepEqual(include, ["scripts/**/*.test.mjs"]);
+  assert.deepEqual(excludes, [canonicalRecordTest]);
+
+  return {
+    canonicalFiles: [canonicalRecordTest],
+    remainderFiles: includesScripts.filter((file) => !excludes.includes(file)),
+    completeFiles: includesScripts,
+  };
+}
+
+function runInertScriptsPhases(canonicalExit, remainderExit) {
+  const packageJson = JSON.parse(readFileSync(path.join(repoRoot, "package.json"), "utf8"));
+  const command = packageJson.scripts["test:scripts"];
+  const canonicalPhase = "pnpm run test:canonical-record";
+  const remainderPhase = command.match(
+    /vitest run --config \.\/vitest\.scripts\.config\.mjs --exclude scripts\/canonical-record\.test\.mjs/,
+  )?.[0];
+  assert.ok(remainderPhase, "scripts command must contain the complement invocation");
+  const syntheticPhase = (name, exit) =>
+    `"${process.execPath}" -e "console.log('synthetic-${name}');process.exit(${exit})"`;
+  const inertCommand = command
+    .replace(canonicalPhase, syntheticPhase("canonical", canonicalExit))
+    .replace(remainderPhase, syntheticPhase("complement", remainderExit));
+  const result = spawnSync(inertCommand, { cwd: repoRoot, encoding: "utf8", shell: true });
+  assert.ifError(result.error);
+  assert.equal(result.stderr, "");
+  return { status: result.status, trace: result.stdout.trim().split(/\r?\n/) };
+}
 
 afterEach(() => {
   if (originalLaneMode === undefined) delete process.env.CHASE_SETS_LANE_MODE;
@@ -52,6 +126,65 @@ test("keeps the default and hosted scripts profile byte-semantically strict", ()
       include: ["scripts/**/*.test.mjs"],
     });
   }
+});
+
+test("runs canonical scripts first and enrolls the exact remaining test complement", () => {
+  assertExactScriptsPartition(scriptsCommandPartition());
+});
+
+test("rejects canonical omission, duplication, and a second-file exclusion", () => {
+  const partition = scriptsCommandPartition();
+  const secondFile = partition.remainderFiles[0];
+  const packageJson = JSON.parse(readFileSync(path.join(repoRoot, "package.json"), "utf8"));
+  const command = packageJson.scripts["test:scripts"];
+
+  for (const changedCommand of [
+    command.replace("pnpm run test:canonical-record && ", ""),
+    `${command} && pnpm run test:canonical-record`,
+    `${command} --exclude ${secondFile}`,
+  ]) {
+    assert.throws(() => assertExactScriptsPartition(scriptsCommandPartition(changedCommand)));
+  }
+
+  assert.throws(() =>
+    assertExactScriptsPartition({
+      ...partition,
+      canonicalFiles: [],
+    }),
+  );
+  assert.throws(() =>
+    assertExactScriptsPartition({
+      ...partition,
+      canonicalFiles: [canonicalRecordTest, canonicalRecordTest],
+    }),
+  );
+  assert.throws(() =>
+    assertExactScriptsPartition({
+      ...partition,
+      remainderFiles: partition.remainderFiles.filter((file) => file !== secondFile),
+    }),
+  );
+});
+
+test("runs both inert scripts phases in order and preserves success", () => {
+  assert.deepEqual(runInertScriptsPhases(0, 0), {
+    status: 0,
+    trace: ["synthetic-canonical", "synthetic-complement"],
+  });
+});
+
+test("preserves inert canonical failure without running the complement", () => {
+  assert.deepEqual(runInertScriptsPhases(17, 0), {
+    status: 17,
+    trace: ["synthetic-canonical"],
+  });
+});
+
+test("preserves inert complement failure after canonical success", () => {
+  assert.deepEqual(runInertScriptsPhases(0, 19), {
+    status: 19,
+    trace: ["synthetic-canonical", "synthetic-complement"],
+  });
 });
 
 test("applies the lane profile once to every shared-config consumer and the scripts battery", () => {

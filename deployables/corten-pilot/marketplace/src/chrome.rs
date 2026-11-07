@@ -11,15 +11,15 @@ use std::{convert::Infallible, sync::Mutex};
 use corten::{
     Ahead, Mode,
     axum::{
-        extract::FromRequestParts,
-        http::{HeaderMap, Uri, request::Parts},
+        extract::{FromRequestParts, Request},
+        http::request::Parts,
     },
 };
 
 use crate::{
     api::Checkout as _,
     app::Shared,
-    auth::{Found, Lookup, after_write},
+    auth::{Found, after_write},
     cart::anonymous_cart,
 };
 
@@ -64,8 +64,13 @@ impl FromRequestParts<Shared> for Chrome {
         if Mode::of(&parts.headers).swaps() {
             return Ok(Chrome::new(Ahead::ready(None)));
         }
-        let (lookup, headers, uri, config) = (Lookup::kept(parts), parts.headers.clone(), parts.uri.clone(), config.clone());
-        Ok(Chrome::new(Ahead::start(async move { Some(count(&lookup, &headers, &uri, &config).await) })))
+        // The request's head, with its extensions: Corten keeps the request's one lookup of who is
+        // asking there (on its `Signal`), which the handler and the error page share.
+        let mut head = Request::new(()).into_parts().0;
+        (head.method, head.uri, head.headers, head.extensions) =
+            (parts.method.clone(), parts.uri.clone(), parts.headers.clone(), parts.extensions.clone());
+        let config = config.clone();
+        Ok(Chrome::new(Ahead::start(async move { Some(count(&head, &config).await) })))
     }
 }
 
@@ -74,8 +79,9 @@ impl FromRequestParts<Shared> for Chrome {
 /// after the write the address names, as the page is, and as it stands if that read fails: a
 /// page's own write (`after_write`), or the item page's Add to cart (`added`), so the count after
 /// an add has the line the add put in.
-async fn count(lookup: &Lookup, headers: &HeaderMap, uri: &Uri, config: &Shared) -> u64 {
-    let account = matches!(lookup.found(headers, uri, config).await, Found::Account(viewer) if !viewer.guest());
+async fn count(head: &Parts, config: &Shared) -> u64 {
+    let (headers, uri) = (&head.headers, &head.uri);
+    let account = matches!(crate::auth::find(head, config).await, Found::Account(viewer) if !viewer.guest());
     let read = |receipt| async move {
         let caller = config.platform.caller(headers, config.proto, receipt);
         if account { caller.cart().await } else { caller.guest_cart(anonymous_cart(headers)).await }

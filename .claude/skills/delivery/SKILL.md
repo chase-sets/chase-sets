@@ -185,6 +185,14 @@ repair brief rather than rediscovering the PR:
 
 ## PR & Readiness
 
+For issue registration, use `gh api --method POST repos/chase-sets/chase-sets/issues -f type=<Slice|Bug|Decision|Probe> ... --jq .type.name`.
+Replace the type placeholder with the accepted work form and `...` with the
+title, body, labels and milestone fields. `gh issue create` cannot set type.
+Capture the create response and fail registration unless its native type
+matches the requested name and `is_enabled` is true; never repair by PATCH.
+Machine alerts use native `Bug`, including incidents in Operations.
+Guard: `scripts/check-structure/issue-creation-type-contract.test.mjs`.
+
 Keep PR bodies compact. The validated snippet below is the canonical section shape; replace its concrete claims with evidence from the exact head:
 
 ```markdown
