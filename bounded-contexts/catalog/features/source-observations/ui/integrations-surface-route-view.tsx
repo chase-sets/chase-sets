@@ -1,5 +1,5 @@
 import { Suspense, useMemo, useState, type ReactElement } from "react";
-import { Await } from "react-router";
+import { Await, type Location } from "react-router";
 import { OperationalStatusBanner, ProgressiveDisclosure } from "@chase-sets/design-system";
 import { t } from "@chase-sets/localization";
 import type { CatalogControlPlaneRouteSurfaceKey } from "./admin-control-plane/information-architecture";
@@ -9,6 +9,7 @@ import type {
   CatalogSyncRun,
   SourceObservationIntegrationImportPreview,
   CatalogIntegrationsCommandResult,
+  SourceObservationImportJobReceipt,
 } from "./contracts";
 import type { CatalogAliasReviewReadModel } from "../../alias-equivalence/api/alias-review-admin-contracts";
 import type { CatalogDeferredAttentionQueueResult } from "../../attention-queue/api/contracts";
@@ -62,6 +63,8 @@ export function CatalogIntegrationsSurfaceRouteView({
   commandFeedback,
   commandResult = null,
   actionPending = false,
+  receiptLocation,
+  submissionPending = actionPending,
 }: Readonly<{
   surface: CatalogControlPlaneRouteSurfaceKey;
   routeData: CatalogIntegrationsRouteData;
@@ -72,8 +75,16 @@ export function CatalogIntegrationsSurfaceRouteView({
   commandFeedback?: CatalogPrimaryWorkbenchCommandFeedback | null;
   commandResult?: CatalogIntegrationsCommandResult | null;
   actionPending?: boolean;
+  receiptLocation?: Pick<Location, "pathname" | "search" | "hash" | "key">;
+  submissionPending?: boolean;
 }>) {
   const readModel = useOriginalPromotionReceipt(routeData, surface === "daily" ? commandResult : null, actionPending);
+  const importJobReceipt = useOriginalImportJobReceipt(
+    surface === "daily" ? commandResult : null,
+    receiptLocation,
+    actionPending,
+    submissionPending,
+  );
   // The alias-review workspace POSTs its accept/reject/revoke forms to the daily
   // integrations route action (the composition root supplies this href), which
   // dispatches the aggregate commands. Only the daily loader streams the
@@ -93,15 +104,7 @@ export function CatalogIntegrationsSurfaceRouteView({
       surface={surface}
       readModel={readModel}
       commandFeedback={commandFeedback ?? routeData.commandFeedback}
-      importJobReceipt={
-        surface === "daily" &&
-        !actionPending &&
-        commandResult?.feedback.status === "success" &&
-        commandResult.feedback.intent === "scope.import" &&
-        commandResult.feedback.result === "job-queued"
-          ? (commandResult.importJobReceipt ?? null)
-          : null
-      }
+      importJobReceipt={importJobReceipt}
       aliasVisibility={aliasVisibility}
       attentionQueue={attentionQueue}
       deferredSourceOptions={routeData.deferredSourceOptions ?? null}
@@ -110,6 +113,42 @@ export function CatalogIntegrationsSurfaceRouteView({
       deferredScopeSyncState={routeData.deferredScopeSyncState ?? null}
     />
   );
+}
+
+function useOriginalImportJobReceipt(
+  result: CatalogIntegrationsCommandResult | null,
+  location: Pick<Location, "pathname" | "search" | "hash" | "key"> | undefined,
+  pending: boolean,
+  submitting: boolean,
+): SourceObservationImportJobReceipt | null {
+  const source =
+    result?.feedback.status === "success" &&
+    result.feedback.intent === "scope.import" &&
+    result.feedback.result === "job-queued"
+      ? (result.importJobReceipt ?? null)
+      : null;
+  const locationKey = location
+    ? JSON.stringify([location.pathname, location.search, location.hash, location.key])
+    : null;
+  const [snapshot, setSnapshot] = useState({
+    locationKey,
+    source,
+    submitting,
+    receipt: pending ? null : source,
+  });
+  const reset = snapshot.locationKey !== locationKey || (submitting && !snapshot.submitting);
+  const settledSource = pending && !reset ? snapshot.source : source;
+  // A settled POST commits a new location key together with its own receipt.
+  const receipt = !pending && source && source !== snapshot.source ? source : reset ? null : snapshot.receipt;
+  if (
+    snapshot.locationKey !== locationKey ||
+    snapshot.submitting !== submitting ||
+    snapshot.source !== settledSource ||
+    snapshot.receipt !== receipt
+  ) {
+    setSnapshot({ locationKey, source: settledSource, submitting, receipt });
+  }
+  return receipt;
 }
 
 export function useOriginalPromotionReceipt(

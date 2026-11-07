@@ -74,6 +74,7 @@ vi.mock("react-router", async () => {
     useRouteLoaderData: mockUseRouteLoaderData,
     useActionData: mockUseActionData,
     useNavigation: mockUseNavigation,
+    useLocation: () => ({ pathname: "/catalog/integrations", search: "", hash: "", key: "synthetic-daily" }),
     // The import-jobs module polls live progress via useRevalidator and the daily
     // import-context form submits context changes via useSubmit; outside a data
     // router (this bare render) both need a stub so the workbench still renders.
