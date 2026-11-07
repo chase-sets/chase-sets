@@ -25,6 +25,9 @@ import type {
   UnidentifiedReturnPackageView,
 } from "./features/return-shipments/read-model/queries";
 import type { ReturnIntakeEvidenceAttachment } from "./features/return-shipments/domain/facility-intake";
+import type { FulfillmentCommandCenter } from "./features/shipments/read-model/command-center";
+
+export type { FulfillmentCommandCenter } from "./features/shipments/read-model/command-center";
 
 export type FulfillmentReturnIntakeQueue = Readonly<{
   items: readonly OperatorReturnShipmentView[];
@@ -127,6 +130,13 @@ export function createFulfillmentApiClient({
       return parseJsonResponse(
         await client.account.sales.shipments[":id"].$get({
           param: { id: shipmentId },
+          header: headers,
+        }),
+      );
+    },
+    async getSellerCommandCenter(): Promise<FulfillmentCommandCenter> {
+      return parseJsonResponse(
+        await client.account.sales.shipments["command-center"].$get({
           header: headers,
         }),
       );
