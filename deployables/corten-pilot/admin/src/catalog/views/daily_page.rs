@@ -18,6 +18,7 @@ use platform::ui::{
     steps::{Step, StepState, Steps, StepsLayout},
     table::{CellLabel, Table, TableLayout},
     textarea::Textarea,
+    visually_hidden::VisuallyHidden,
 };
 
 use super::integrations_page::{
@@ -334,7 +335,7 @@ fn WorksetModule<'a>(t: Cat, p: Pilot, req: &'a Req, model: &'a Daily, context: 
                     <Pairs items={&items} />
                     <Table layout={TableLayout::Stack}>
                         <table>
-                            <caption class={Hidden}>{p.integrations_workset_caption()}</caption>
+                            <caption class={VisuallyHidden {}}>{p.integrations_workset_caption()}</caption>
                             <thead>
                                 <tr>
                                     <th scope="col">{t.wb_workset_unit()}</th>
@@ -564,7 +565,7 @@ fn SyncModule<'a>(
                 } else {
                     <Table layout={TableLayout::Stack}>
                         <table>
-                            <caption class={Hidden}>{t.wb_sync_title()}</caption>
+                            <caption class={VisuallyHidden {}}>{t.wb_sync_title()}</caption>
                             <thead>
                                 <tr>
                                     <th scope="col">{t.wb_sync_table_sync()}</th>
@@ -674,7 +675,7 @@ fn RunProgress<'a>(t: Cat, p: Pilot, run: &'a SyncRun) -> impl Render {
             <Pairs items={&pairs} />
             <Table layout={TableLayout::Stack}>
                 <table>
-                    <caption class={Hidden}>{p.integrations_sync_run_caption()}</caption>
+                    <caption class={VisuallyHidden {}}>{p.integrations_sync_run_caption()}</caption>
                     <thead>
                         <tr>
                             <th scope="col">{t.wb_sync_progress_provider_child()}</th>
@@ -738,7 +739,7 @@ fn UnitStates<'a>(t: Cat, units: &'a [UnitState], context: &'a str, manage: bool
             <p class={Muted}>{t.wb_sync_state_description()}</p>
             <Table layout={TableLayout::Stack}>
                 <table>
-                    <caption class={Hidden}>{t.wb_sync_state_title()}</caption>
+                    <caption class={VisuallyHidden {}}>{t.wb_sync_state_title()}</caption>
                     <thead>
                         <tr>
                             <th scope="col">{t.wb_sync_table_provider_unit()}</th>
@@ -869,7 +870,7 @@ fn JobsModule<'a>(t: Cat, req: &'a Req, model: &'a Daily, context: &'a str, mana
             } else {
                 <Table layout={TableLayout::Stack}>
                     <table>
-                        <caption class={Hidden}>{t.wb_stage_supporting_jobs()}</caption>
+                        <caption class={VisuallyHidden {}}>{t.wb_stage_supporting_jobs()}</caption>
                         <thead>
                             <tr>
                                 <th scope="col">{t.wb_jobs_table_job()}</th>
@@ -1046,7 +1047,7 @@ fn CandidatesModule<'a>(t: Cat, p: Pilot, model: &'a Daily, context: &'a str, ma
             } else {
                 <Table layout={TableLayout::Stack}>
                     <table>
-                        <caption class={Hidden}>{t.wb_merge_title()}</caption>
+                        <caption class={VisuallyHidden {}}>{t.wb_merge_title()}</caption>
                         <thead>
                             <tr>
                                 <th scope="col">{t.wb_merge_table_identity()}</th>
@@ -1451,10 +1452,10 @@ fn ReviewModule<'a>(
                 } else {
                     <Table layout={TableLayout::Stack}>
                         <table>
-                            <caption class={Hidden}>{t.wb_review_title()}</caption>
+                            <caption class={VisuallyHidden {}}>{t.wb_review_title()}</caption>
                             <thead>
                                 <tr>
-                                    <th scope="col"><span class={Hidden}>{p.integrations_review_select()}</span></th>
+                                    <th scope="col"><span class={VisuallyHidden {}}>{p.integrations_review_select()}</span></th>
                                     <th scope="col">{t.wb_review_table_observation()}</th>
                                     <th scope="col">{t.wb_review_table_status()}</th>
                                     <th scope="col">{t.wb_review_table_evidence()}</th>
@@ -1619,7 +1620,7 @@ fn CreateModule<'a>(t: Cat, p: Pilot, model: &'a Daily, context: &'a str) -> imp
         admin_web(&daily::location(&with_query(context, &[("section", Some("promotion-preview"))]))).map(|u| u.to_string());
     html! {
         <section class={Stack} aria-labelledby="wb-create">
-            <h2 id="wb-create" class={Hidden}>{t.wb_stage_create_label()}</h2>
+            <h2 id="wb-create" class={VisuallyHidden {}}>{t.wb_stage_create_label()}</h2>
             <p class={Lead}>{t.wb_stage_create_description()}</p>
             if let Some(result) = &model.promotion_result {
                 let items = [

@@ -49,14 +49,6 @@
   border-radius: var(--radius-md);
   background: var(--color-surface-2);
 }
-.hidden {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  clip-path: inset(50%);
-  white-space: nowrap;
-}
 .sheet {
   min-width: 0;
 }

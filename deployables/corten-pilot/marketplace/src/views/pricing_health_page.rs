@@ -11,6 +11,7 @@ use corten::{
     i18n::{Currency, DateStyle, Decimal, TimeStyle, parse_timestamp},
     prelude::*,
 };
+use platform::ui::visually_hidden::VisuallyHidden;
 
 use super::account_home_page::humanized;
 use crate::{
@@ -561,7 +562,7 @@ fn Comparison<'a>(
             } else {
                 <div class={Scroll} role="region" aria-labelledby="pricing-health-compare" tabindex="0">
                     <table class={Table}>
-                        <caption class={Hidden}>{t.health_goals_comparison()}</caption>
+                        <caption class={VisuallyHidden {}}>{t.health_goals_comparison()}</caption>
                         <thead>
                             <tr>
                                 <th scope="col">{t.health_goals_goal()}</th>

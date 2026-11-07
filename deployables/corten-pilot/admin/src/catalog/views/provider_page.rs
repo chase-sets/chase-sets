@@ -15,6 +15,7 @@ use platform::ui::{
     checkbox::Checkbox,
     input::Input,
     table::{CellLabel, Table, TableLayout},
+    visually_hidden::VisuallyHidden,
 };
 
 use super::{
@@ -575,7 +576,7 @@ fn History<'a>(t: Cat, p: Pilot, req: &'a Req, model: &'a Model, key: &'a str, c
             } else {
                 <Table layout={TableLayout::Stack}>
                     <table>
-                        <caption class={Hidden}>{t.recovery_profile_candidates_title()}</caption>
+                        <caption class={VisuallyHidden {}}>{t.recovery_profile_candidates_title()}</caption>
                         <thead>
                             <tr>
                                 <th scope="col">{t.recovery_table_profile()}</th>
@@ -814,7 +815,7 @@ fn Jobs<'a>(t: Cat, p: Pilot, req: &'a Req, model: &'a Model, key: &'a str, cont
             } else {
                 <Table layout={TableLayout::Stack}>
                     <table data-catalog-provider-recent-jobs="true">
-                        <caption class={Hidden}>{t.pd_jobs_title()}</caption>
+                        <caption class={VisuallyHidden {}}>{t.pd_jobs_title()}</caption>
                         <thead>
                             <tr>
                                 <th scope="col">{t.wb_health_table_job()}</th>

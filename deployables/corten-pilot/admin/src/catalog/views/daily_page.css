@@ -100,14 +100,6 @@
   gap: var(--space-4);
   min-width: 0;
 }
-.hidden {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  clip-path: inset(50%);
-  white-space: nowrap;
-}
 .row {
   display: flex;
   flex-wrap: wrap;

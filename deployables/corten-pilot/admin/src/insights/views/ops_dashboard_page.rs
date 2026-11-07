@@ -10,6 +10,7 @@ use corten::{
 use platform::ui::{
     stats::{Stat, StatTone, Stats as KitStats, StatsSurface},
     table::{CellLabel, Table as KitTable, TableLayout},
+    visually_hidden::VisuallyHidden,
 };
 
 use super::{date, usd};
@@ -117,7 +118,7 @@ fn Trend<'a>(o: Ops, p: Pilot, series: &'a [Point]) -> impl Render {
                     stroke-linejoin="round"
                 />
             </svg>
-            <ul class={Hidden} id="od-trend-points">
+            <ul class={VisuallyHidden {}} id="od-trend-points">
                 for point in series {
                     <li>
                         {o.od_chart_point_label(crate::text::ops::OdChartPointLabel { date: &date(o, &point.day), amount: &usd(o, &point.gmv_amount) }).to_string()}

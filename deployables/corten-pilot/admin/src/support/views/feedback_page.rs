@@ -10,6 +10,7 @@ use corten::{
 use platform::ui::{
     stats::{Stat, StatTone, Stats as KitStats, StatsSurface},
     table::{CellLabel, Table as KitTable, TableLayout},
+    visually_hidden::VisuallyHidden,
 };
 
 use crate::{
@@ -183,7 +184,7 @@ pub fn FeedbackPage<'a>(t: Sup, p: Pilot, screen: &'a ListScreen) -> impl Render
                                 <thead>
                                     <tr>
                                         if screen.can_manage {
-                                            <th scope="col"><span class={Hidden}>{p.bulk_select_all()}</span></th>
+                                            <th scope="col"><span class={VisuallyHidden {}}>{p.bulk_select_all()}</span></th>
                                         }
                                         <th scope="col">{t.fb_submitted()}</th>
                                         <th scope="col">{t.fb_rating()}</th>

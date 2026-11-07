@@ -11,6 +11,7 @@ use platform::ui::{
     input::Input,
     table::{CellLabel, Table, TableLayout},
     textarea::Textarea,
+    visually_hidden::VisuallyHidden,
 };
 
 use super::integrations_page::{Banner, Blockers, Cell, Empty, Evidence, Metric, Module, Pairs, Pill, blocker, transport};
@@ -162,7 +163,7 @@ fn Fixtures<'a>(t: Cat, p: Pilot, model: &'a Model) -> impl Render {
             } else {
                 <Table layout={TableLayout::Stack}>
                     <table data-catalog-validation-fixtures="true">
-                        <caption class={Hidden}>{t.wb_validation_fixture_title()}</caption>
+                        <caption class={VisuallyHidden {}}>{t.wb_validation_fixture_title()}</caption>
                         <thead>
                             <tr>
                                 <th scope="col">{t.wb_validation_fixture_table_flow()}</th>
@@ -338,7 +339,7 @@ fn DryRuns<'a>(t: Cat, p: Pilot, model: &'a Model) -> impl Render {
             } else {
                 <Table layout={TableLayout::Stack}>
                     <table data-catalog-validation-dry-runs="true">
-                        <caption class={Hidden}>{t.wb_validation_dry_run_title()}</caption>
+                        <caption class={VisuallyHidden {}}>{t.wb_validation_dry_run_title()}</caption>
                         <thead>
                             <tr>
                                 <th scope="col">{t.wb_validation_dry_run_table_source()}</th>
@@ -516,7 +517,7 @@ fn Compare<'a>(t: Cat, p: Pilot, model: &'a Model) -> impl Render {
             } else {
                 <Table layout={TableLayout::Stack}>
                     <table data-catalog-validation-compare="true">
-                        <caption class={Hidden}>{t.wb_validation_compare_title()}</caption>
+                        <caption class={VisuallyHidden {}}>{t.wb_validation_compare_title()}</caption>
                         <thead>
                             <tr>
                                 <th scope="col">{t.wb_validation_compare_table_section()}</th>
