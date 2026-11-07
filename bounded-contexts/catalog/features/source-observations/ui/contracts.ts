@@ -695,6 +695,12 @@ export interface SourceObservationPromotionPreview {
    * never validation: only `coveredObservationIds` were validated.
    */
   validation: SourceObservationPromotionValidation;
+  /**
+   * The checkpoint a bulk promotion presents as `previewToken`. The Catalog
+   * API refuses the promotion when it is missing or no longer matches a fresh
+   * preview. Null on a continuation page (`validationAfter`).
+   */
+  previewToken?: string | null;
 }
 
 /** Original action response, never reconstructed from a loader or persisted. */

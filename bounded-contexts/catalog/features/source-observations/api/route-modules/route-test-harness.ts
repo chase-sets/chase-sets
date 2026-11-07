@@ -6,6 +6,7 @@ import { sourceObservationRoutes } from "../route";
 import type { SourceObservationRouteServices } from "../route";
 import type { ProviderScopeDiscoveryServices } from "../../../provider-scope-discovery/api/runtime";
 import type { CatalogProviderIntegrationProfileVersionStore } from "../providers/provider-integration-profile-store";
+import type { SourceObservationPromotionPreview } from "../../read-model/queries";
 import {
   catalogProviderIntegrationProfileVersions,
   type CatalogProviderIntegrationProfileVersionRecord,
@@ -242,6 +243,45 @@ export function baseIntegrationJob() {
     completedAt: null as string | null,
     updatedAt: "2026-05-23T00:00:02.000Z",
   };
+}
+
+/** A promotion preview as the runtime returns it: counts, fingerprint and a complete, unblocked validation page. */
+export function promotionPreviewFixture(
+  overrides: Partial<Omit<SourceObservationPromotionPreview, "scope" | "validation">> &
+    Readonly<{
+      scope?: Partial<SourceObservationPromotionPreview["scope"]>;
+      validation?: Partial<SourceObservationPromotionPreview["validation"]>;
+    }> = {},
+): SourceObservationPromotionPreview {
+  const { scope, validation, ...rest } = overrides;
+  return {
+    matched: 1,
+    eligible: 1,
+    terminal: 0,
+    fingerprint: "content-a",
+    ...rest,
+    scope: {
+      search: "",
+      status: "",
+      syncRunId: "",
+      provider: "",
+      language: "",
+      productLineId: "",
+      seriesId: "",
+      expansionId: "",
+      setId: "",
+      ...scope,
+    },
+    validation: {
+      promoteAsDraft: false,
+      pageLimit: 100,
+      coveredObservationIds: [],
+      coverage: "complete",
+      continuation: null,
+      diagnostics: [],
+      ...validation,
+    },
+  } as SourceObservationPromotionPreview;
 }
 
 export function bulkJobFixture(
