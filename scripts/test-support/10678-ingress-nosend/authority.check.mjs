@@ -7,6 +7,7 @@ import {
   compareIdentity,
   decodeAuthority,
   identityFingerprint,
+  inventoryRefusal,
   invocation,
   maximumEnvelopeBytes,
   measurementTools,
@@ -335,8 +336,19 @@ check("typed zero-row inventory and private exposure gate cannot forge diagnosti
     { complete: false },
     { scan: "HITS" },
     { hits: [{ file: "synthetic", line: 1 }] },
-  ])
-    assert.throws(() => validateInventoryPublication(receipt, { ...gate, ...patch }));
+  ]) {
+    validateInventoryPublication(receipt, gate);
+    assert.throws(
+      () => validateInventoryPublication(receipt, { ...gate, ...patch }),
+      (error) => {
+        assert.equal(
+          inventoryRefusal(error),
+          "INVENTORY_REFUSED_MEASUREMENT_NOT_EXECUTED category=PRIVATE_INVENTORY_PUBLICATION_REFUSED",
+        );
+        return true;
+      },
+    );
+  }
   assert.deepEqual(scanExposure([{ file: "synthetic.log", text: "cookie: synthetic-sensitive-value" }]), [
     { file: "synthetic.log", line: 1 },
   ]);

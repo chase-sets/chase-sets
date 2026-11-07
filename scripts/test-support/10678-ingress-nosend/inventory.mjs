@@ -49,6 +49,210 @@ export const stockTools = [
   "sh",
 ];
 export const measurementTools = [...new Set([...stockTools, "kind", "helm", "kubectl", "pnpm", "esbuild", "yq"])];
+
+// Categories are made only from this module's fixed roles, never observed names or values.
+const operation = (role) => Object.freeze({ raw: `INVENTORY_${role}_RAW_FAILED` });
+const statusOperation = (role) =>
+  Object.freeze({
+    ...operation(role),
+    incomplete: `INVENTORY_${role}_INCOMPLETE`,
+    failed: `INVENTORY_${role}_QUERY_FAILED`,
+  });
+const queryOperation = (role) =>
+  Object.freeze({
+    ...statusOperation(role),
+    decode: `INVENTORY_${role}_DECODE_FAILED`,
+  });
+const executableOperations = (role, rootProcess = false) =>
+  Object.freeze({
+    process: operation(`${role}_PROCESS`),
+    target: (rootProcess ? queryOperation : operation)(`${role}_TARGET`),
+    hash: (rootProcess ? queryOperation : operation)(`${role}_HASH`),
+    read: operation(`${role}_READ`),
+    package: operation(`${role}_PACKAGE`),
+    owner: queryOperation(`${role}_PACKAGE_OWNER`),
+    packageVersion: queryOperation(`${role}_PACKAGE_VERSION`),
+    packageMetadata: queryOperation(`${role}_PACKAGE_METADATA`),
+    packagePolicy: queryOperation(`${role}_PACKAGE_POLICY`),
+  });
+export const inventoryOperations = Object.freeze({
+  protocolRead: operation("PROTOCOL_READ"),
+  protocolParse: operation("PROTOCOL_PARSE"),
+  eventRead: operation("EVENT_READ"),
+  eventParse: operation("EVENT_PARSE"),
+  eventProcess: operation("EVENT_PROCESS"),
+  authorityResolve: operation("AUTHORITY_RESOLVE"),
+  authorityRead: operation("AUTHORITY_READ"),
+  authorityDecode: operation("AUTHORITY_DECODE"),
+  templateRead: operation("TEMPLATE_READ"),
+  templateParse: operation("TEMPLATE_PARSE"),
+  census: operation("CENSUS"),
+  retainedRead: operation("RETAINED_READ"),
+  rootSetup: operation("ROOT_SETUP"),
+  captureSetup: operation("CAPTURE_SETUP"),
+  identitySetup: operation("IDENTITY_SETUP"),
+  diskHead: statusOperation("DISK_HEAD"),
+  metadataCopy: operation("METADATA_COPY"),
+  authorityCopy: operation("AUTHORITY_COPY"),
+  processWrite: operation("PROCESS_WRITE"),
+  identityRead: operation("IDENTITY_READ"),
+  identityWrite: operation("IDENTITY_WRITE"),
+  receiptWrite: operation("RECEIPT_WRITE"),
+  captureRead: operation("CAPTURE_READ"),
+  captureDecode: operation("CAPTURE_DECODE"),
+  captureScan: operation("CAPTURE_SCAN"),
+  manifestWrite: operation("MANIFEST_WRITE"),
+  gateWrite: operation("GATE_WRITE"),
+  tools: Object.freeze(
+    Object.fromEntries(
+      stockTools.map((name) => [name, executableOperations(`TOOL_${name.replaceAll("-", "_").toUpperCase()}`)]),
+    ),
+  ),
+  versions: Object.freeze(
+    Object.fromEntries(
+      stockTools
+        .filter((name) => name !== "sh")
+        .map((name) => [name, queryOperation(`VERSION_${name.replaceAll("-", "_").toUpperCase()}`)]),
+    ),
+  ),
+  dockerPid: queryOperation("DOCKER_PID"),
+  containerdPid: queryOperation("CONTAINERD_PID"),
+  dockerUnit: queryOperation("DOCKER_UNIT"),
+  containerdUnit: queryOperation("CONTAINERD_UNIT"),
+  services: Object.freeze(
+    Object.fromEntries(
+      ["docker", "containerd"].map((name) => [
+        name,
+        Object.freeze({
+          process: operation(`SERVICE_${name.toUpperCase()}_PROCESS`),
+          fragment: queryOperation(`SERVICE_${name.toUpperCase()}_FRAGMENT`),
+          dropIns: queryOperation(`SERVICE_${name.toUpperCase()}_DROP_INS`),
+          read: operation(`SERVICE_${name.toUpperCase()}_READ`),
+        }),
+      ]),
+    ),
+  ),
+  server: queryOperation("DOCKER_SERVER"),
+  serverParse: operation("DOCKER_SERVER_PARSE"),
+  runtimes: queryOperation("DOCKER_RUNTIMES"),
+  runtimesParse: operation("DOCKER_RUNTIMES_PARSE"),
+  defaultRuntime: queryOperation("DOCKER_DEFAULT_RUNTIME"),
+  runtime: executableOperations("ACTIVE_RUNTIME"),
+  dockerDaemon: executableOperations("DOCKER_DAEMON", true),
+  containerdDaemon: executableOperations("CONTAINERD_DAEMON", true),
+  containerdVersion: queryOperation("DAEMON_CONTAINERD_VERSION"),
+  runcVersion: queryOperation("DAEMON_RUNC_VERSION"),
+});
+export const inventoryInvariantCodes = Object.freeze([
+  "CANONICAL_UTF8_REQUIRED",
+  "MISSING_ENCODED_AUTHORITY",
+  "AUTHORITY_BYTES_MISMATCH",
+  "MALFORMED_AUTHORITY_JSON",
+  "DUPLICATE_AUTHORITY_FIELD",
+  "CANONICAL_DISPATCH_REQUIRED",
+  "ENVELOPE_SIZE_REFUSED",
+  "REVIEWED_FREEZE_DIGEST_REQUIRED",
+  "SCHEMA_2_EXTERNAL_ENVELOPE_REQUIRED",
+  "FROZEN_HEAD_MISMATCH",
+  "AUTHORITY_PHASE_MISMATCH",
+  "FRESH_REVIEW_REQUIRED",
+  "PAYLOAD_SUBJECT_MISMATCH",
+  "CIRCULAR_PAYLOAD_FIELD",
+  "AUTHORITY_BINDING_MISMATCH",
+  "FIXED_RETAINED_PATH_REQUIRED",
+  "FIXED_INVENTORY_PAYLOAD_REQUIRED",
+  "FIXED_SUBJECT_KEYS_REQUIRED",
+  "CANONICAL_SUBJECT_REQUIRED",
+  "STALE_OR_CONTRADICTORY_REVIEW",
+  "FIXED_CANONICAL_RECORD_REQUIRED",
+  "FIXED_REVIEW_KEYS_REQUIRED",
+  "COMPLETE_DETACHED_REVIEW_REQUIRED",
+  "CANONICAL_REVIEW_BINDING_MISMATCH",
+  "COMPLETION_NOTE_REQUIRED",
+  "FIXED_COMPLETION_NOTE_REQUIRED",
+  "COMPLETION_NOTE_BINDING_MISMATCH",
+  "SOURCE_PINS_CHANGED",
+  "INCOMPLETE_FILE_CENSUS",
+  "FROZEN_PATH_ESCAPE",
+  "FILE_DIGEST_MISMATCH",
+  "EXTERNAL_AUTHORITY_REQUIRED",
+  "FIXED_EXTERNAL_AUTHORITY_PATH_REQUIRED",
+  "PUBLIC_INPUT_CONSTANTS_CHANGED",
+  "RETAINED_RAW_HASH_MISMATCH",
+  "ZERO_ROW_INVENTORY_REQUIRED",
+  "PRIVATE_INVENTORY_PUBLICATION_REFUSED",
+  "STOCK_TOOL_UNAVAILABLE",
+  "INVENTORY_METADATA_INCOMPLETE",
+  "INVENTORY_METADATA_QUERY_FAILED",
+  "PACKAGE_IDENTITY_UNAVAILABLE",
+  "REAL_TARGET_UNAVAILABLE",
+  "ACTIVE_DAEMON_IDENTITY_REQUIRED",
+  "SERVICE_FILE_IDENTITY_UNAVAILABLE",
+  "ACTIVE_RUNTIME_METADATA_REQUIRED",
+  "INVALID_METADATA_PREFIX",
+  "METADATA_SYMLINK_REFUSED",
+  "HOSTED_INVENTORY_ONLY",
+  "INVALID_RUN_IDENTITY",
+  "EVENT_NOT_ADMITTED",
+  "DISK_EVENT_PAYLOAD_HEAD_MISMATCH",
+  "CLOSED_INVENTORY_ARGV_REQUIRED",
+  "DISK_HEAD_MISMATCH",
+]);
+const operationCodes = (value) =>
+  Object.values(value).flatMap((entry) => (typeof entry === "string" ? [entry] : operationCodes(entry)));
+export const inventoryRefusalCodes = Object.freeze([
+  ...inventoryInvariantCodes,
+  ...operationCodes(inventoryOperations),
+]);
+const refusalCodes = new Map(inventoryRefusalCodes.map((code) => [code, code]));
+const registeredOperations = new Set();
+const registerOperations = (value) => {
+  if (Object.hasOwn(value, "raw")) registeredOperations.add(value);
+  else for (const entry of Object.values(value)) registerOperations(entry);
+};
+registerOperations(inventoryOperations);
+
+export function inventoryCategory(error) {
+  try {
+    return refusalCodes.get(error?.message) ?? "OTHER";
+  } catch {
+    return "OTHER";
+  }
+}
+
+export function inventoryAt(site, run) {
+  try {
+    return run();
+  } catch (error) {
+    const recognized = inventoryCategory(error);
+    throw new Error(recognized !== "OTHER" ? recognized : registeredOperations.has(site) ? site.raw : "OTHER");
+  }
+}
+
+export function inventoryQueryResult(site, result, allowFailure = false) {
+  const registered = registeredOperations.has(site) && Object.hasOwn(site, "incomplete");
+  invariant(!result.error && !result.signal && Number.isInteger(result.status), registered ? site.incomplete : "OTHER");
+  invariant(allowFailure || result.status === 0, registered ? site.failed : "OTHER");
+  if (result.status !== 0) return null;
+  try {
+    return utf8(result.stdout).trimEnd();
+  } catch {
+    // Strict decoding still refuses; the query site, not its private output, is reported.
+    throw new Error(registered ? site.decode : "OTHER");
+  }
+}
+
+export function inventoryDiskHead(result) {
+  return inventoryAt(inventoryOperations.diskHead, () => {
+    invariant(
+      result.status === 0,
+      result.error || result.signal || !Number.isInteger(result.status)
+        ? inventoryOperations.diskHead.incomplete
+        : inventoryOperations.diskHead.failed,
+    );
+    return result.stdout.trim();
+  });
+}
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repo = path.resolve(here, "../../..");
 const record = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
@@ -394,13 +598,25 @@ export function validateAuthorityPath(actual, realRepo, temp) {
 }
 
 export function readAuthority(file, expectedHash, { head, phase, protocol, root = repo }) {
-  const realRepo = realpathSync(root);
-  const actual = realpathSync(file);
+  const realRepo = inventoryAt(inventoryOperations.authorityResolve, () => realpathSync(root));
+  const actual = inventoryAt(inventoryOperations.authorityResolve, () => realpathSync(file));
   invariant(path.isAbsolute(file), "EXTERNAL_AUTHORITY_REQUIRED");
-  const temp = realpathSync(process.env.RUNNER_TEMP);
+  const temp = inventoryAt(inventoryOperations.authorityResolve, () => realpathSync(process.env.RUNNER_TEMP));
   validateAuthorityPath(actual, realRepo, temp);
-  const result = decodeAuthority(readFileSync(actual), expectedHash, { head, phase, protocol });
-  const template = JSON.parse(readFileSync(path.join(root, supportPath, "inputs.template.json"), "utf8"));
+  const result = inventoryAt(inventoryOperations.authorityDecode, () =>
+    decodeAuthority(
+      inventoryAt(inventoryOperations.authorityRead, () => readFileSync(actual)),
+      expectedHash,
+      { head, phase, protocol },
+    ),
+  );
+  const template = inventoryAt(inventoryOperations.templateParse, () =>
+    JSON.parse(
+      inventoryAt(inventoryOperations.templateRead, () =>
+        readFileSync(path.join(root, supportPath, "inputs.template.json"), "utf8"),
+      ),
+    ),
+  );
   invariant(equal(result.config.publicInputs, template), "PUBLIC_INPUT_CONSTANTS_CHANGED");
   if (result.config.phase === "measurement") {
     invariant(
@@ -413,20 +629,23 @@ export function readAuthority(file, expectedHash, { head, phase, protocol, root 
         "PUBLIC_EXECUTABLE_PIN_CHANGED",
       );
   }
-  const names = readdirSync(path.join(root, supportPath));
+  const names = inventoryAt(inventoryOperations.census, () => readdirSync(path.join(root, supportPath)));
   const required = [...names.map((name) => `${supportPath}/${name}`), ...closurePaths];
-  validateCensus(result.config.files, required, (relative) => {
-    const target = path.join(root, relative);
-    invariant(
-      lstatSync(target).isFile() &&
-        !lstatSync(target).isSymbolicLink() &&
-        realpathSync(target).startsWith(`${realRepo}${path.sep}`),
-      "FROZEN_PATH_ESCAPE",
-    );
-    return readFileSync(target);
-  });
+  inventoryAt(inventoryOperations.census, () =>
+    validateCensus(result.config.files, required, (relative) => {
+      const target = path.join(root, relative);
+      invariant(
+        lstatSync(target).isFile() &&
+          !lstatSync(target).isSymbolicLink() &&
+          realpathSync(target).startsWith(`${realRepo}${path.sep}`),
+        "FROZEN_PATH_ESCAPE",
+      );
+      return readFileSync(target);
+    }),
+  );
   invariant(
-    sha256(readFileSync(path.join(root, retainedPath))) === protocol.retainedConfigMapSha256,
+    inventoryAt(inventoryOperations.retainedRead, () => sha256(readFileSync(path.join(root, retainedPath)))) ===
+      protocol.retainedConfigMapSha256,
     "RETAINED_RAW_HASH_MISMATCH",
   );
   return result;
@@ -616,87 +835,106 @@ const resolveTool = (name) => {
 
 // All subprocess queries below are fixed read-only local metadata queries, never arbitrary caller argv.
 export function observeIdentity(directory, pins) {
-  mkdirSync(directory, { mode: 0o700 });
-  const home = path.join(directory, "empty-home");
-  mkdirSync(home, { mode: 0o700 });
-  mkdirSync(path.join(home, "docker"), { mode: 0o700 });
+  const home = inventoryAt(inventoryOperations.identitySetup, () => {
+    mkdirSync(directory, { mode: 0o700 });
+    const home = path.join(directory, "empty-home");
+    mkdirSync(home, { mode: 0o700 });
+    mkdirSync(path.join(home, "docker"), { mode: 0o700 });
+    return home;
+  });
   let sequence = 0;
   const commands = [];
-  const query = (tool, args, allowFailure = false) => {
-    const executable = pins?.[tool]?.path ?? resolveTool(tool);
-    const startedAt = new Date().toISOString();
-    const result = spawnSync(executable, args, {
-      env: cleanEnvironment(home),
-      maxBuffer: 16 * 1024 * 1024,
-      shell: false,
+  const query = (site, tool, args, allowFailure = false) =>
+    inventoryAt(site, () => {
+      const executable = pins?.[tool]?.path ?? resolveTool(tool);
+      const startedAt = new Date().toISOString();
+      const result = spawnSync(executable, args, {
+        env: cleanEnvironment(home),
+        maxBuffer: 16 * 1024 * 1024,
+        shell: false,
+      });
+      const name = `${String(++sequence).padStart(4, "0")}-${tool}`;
+      writeFileSync(path.join(directory, `${name}.stdout`), result.stdout ?? Buffer.alloc(0), {
+        flag: "wx",
+        mode: 0o600,
+      });
+      writeFileSync(path.join(directory, `${name}.stderr`), result.stderr ?? Buffer.alloc(0), {
+        flag: "wx",
+        mode: 0o600,
+      });
+      commands.push({
+        tool,
+        executable,
+        args,
+        startedAt,
+        completedAt: new Date().toISOString(),
+        status: result.status,
+        signal: result.signal,
+        output: `${name}.stdout`,
+        error: `${name}.stderr`,
+      });
+      writeFileSync(path.join(directory, "metadata-command-ledger.json"), `${JSON.stringify(commands, null, 2)}\n`, {
+        mode: 0o600,
+      });
+      return inventoryQueryResult(site, result, allowFailure);
     });
-    const name = `${String(++sequence).padStart(4, "0")}-${tool}`;
-    writeFileSync(path.join(directory, `${name}.stdout`), result.stdout ?? Buffer.alloc(0), {
-      flag: "wx",
-      mode: 0o600,
+  const owningPackage = (executableSite, file) =>
+    inventoryAt(executableSite.package, () => {
+      const owner = query(executableSite.owner, "dpkg-query", ["-S", file], true);
+      if (!owner) return { disposition: "UNOWNED_PUBLIC_DISTRIBUTION_RECONCILIATION_REQUIRED" };
+      const owners = owner.split("\n").filter((line) => line.endsWith(`: ${file}`));
+      if (owners.length !== 1) return { disposition: "AMBIGUOUS_PACKAGE_OWNER" };
+      const name = owners[0].slice(0, -(file.length + 2));
+      const version = query(executableSite.packageVersion, "dpkg-query", [
+        "-W",
+        "-f=${Package}\t${Version}\t${Architecture}\n",
+        name,
+      ]);
+      const fields = version.trim().split("\t");
+      invariant(fields.length === 3 && fields.every(Boolean), "PACKAGE_IDENTITY_UNAVAILABLE");
+      const metadata = query(executableSite.packageMetadata, "apt-cache", ["show", `${name}=${fields[1]}`], true);
+      const policy = query(executableSite.packagePolicy, "apt-cache", ["policy", name], true);
+      return {
+        name: fields[0],
+        version: fields[1],
+        architecture: fields[2],
+        metadataSha256: metadata === null ? null : sha256(metadata),
+        policySha256: policy === null ? null : sha256(policy),
+      };
     });
-    writeFileSync(path.join(directory, `${name}.stderr`), result.stderr ?? Buffer.alloc(0), {
-      flag: "wx",
-      mode: 0o600,
+  const executable = (executableSite, logical, rootProcess = false) =>
+    inventoryAt(executableSite.process, () => {
+      const target = inventoryAt(executableSite.target, () =>
+        rootProcess
+          ? query(executableSite.target, "sudo", ["-n", resolveTool("readlink"), "-f", logical])
+          : realpathSync(logical),
+      );
+      invariant(target && path.isAbsolute(target), "REAL_TARGET_UNAVAILABLE");
+      const hash = inventoryAt(executableSite.hash, () =>
+        rootProcess
+          ? query(executableSite.hash, "sudo", ["-n", resolveTool("sha256sum"), target]).split(/\s+/)[0]
+          : sha256(readFileSync(target)),
+      );
+      const bytes = inventoryAt(executableSite.read, () => readFileSync(target));
+      const script = bytes.subarray(0, 2).toString() === "#!";
+      return {
+        path: rootProcess ? target : logical,
+        realTarget: target,
+        sha256: hash,
+        format: script ? "script" : "native",
+        ...(script ? { shebang: bytes.toString("utf8").split("\n")[0] } : {}),
+        package: owningPackage(executableSite, target),
+      };
     });
-    commands.push({
-      tool,
-      executable,
-      args,
-      startedAt,
-      completedAt: new Date().toISOString(),
-      status: result.status,
-      signal: result.signal,
-      output: `${name}.stdout`,
-      error: `${name}.stderr`,
-    });
-    writeFileSync(path.join(directory, "metadata-command-ledger.json"), `${JSON.stringify(commands, null, 2)}\n`, {
-      mode: 0o600,
-    });
-    invariant(!result.error && !result.signal && Number.isInteger(result.status), "INVENTORY_METADATA_INCOMPLETE");
-    invariant(allowFailure || result.status === 0, "INVENTORY_METADATA_QUERY_FAILED");
-    return result.status === 0 ? utf8(result.stdout).trimEnd() : null;
-  };
-  const owningPackage = (file) => {
-    const owner = query("dpkg-query", ["-S", file], true);
-    if (!owner) return { disposition: "UNOWNED_PUBLIC_DISTRIBUTION_RECONCILIATION_REQUIRED" };
-    const owners = owner.split("\n").filter((line) => line.endsWith(`: ${file}`));
-    if (owners.length !== 1) return { disposition: "AMBIGUOUS_PACKAGE_OWNER" };
-    const name = owners[0].slice(0, -(file.length + 2));
-    const version = query("dpkg-query", ["-W", "-f=${Package}\t${Version}\t${Architecture}\n", name]);
-    const fields = version.trim().split("\t");
-    invariant(fields.length === 3 && fields.every(Boolean), "PACKAGE_IDENTITY_UNAVAILABLE");
-    const metadata = query("apt-cache", ["show", `${name}=${fields[1]}`], true);
-    const policy = query("apt-cache", ["policy", name], true);
-    return {
-      name: fields[0],
-      version: fields[1],
-      architecture: fields[2],
-      metadataSha256: metadata === null ? null : sha256(metadata),
-      policySha256: policy === null ? null : sha256(policy),
-    };
-  };
-  const executable = (logical, rootProcess = false) => {
-    const target = rootProcess ? query("sudo", ["-n", resolveTool("readlink"), "-f", logical]) : realpathSync(logical);
-    invariant(target && path.isAbsolute(target), "REAL_TARGET_UNAVAILABLE");
-    const hash = rootProcess
-      ? query("sudo", ["-n", resolveTool("sha256sum"), target]).split(/\s+/)[0]
-      : sha256(readFileSync(target));
-    const bytes = readFileSync(target);
-    const script = bytes.subarray(0, 2).toString() === "#!";
-    return {
-      path: rootProcess ? target : logical,
-      realTarget: target,
-      sha256: hash,
-      format: script ? "script" : "native",
-      ...(script ? { shebang: bytes.toString("utf8").split("\n")[0] } : {}),
-      package: owningPackage(target),
-    };
-  };
   const tools = Object.fromEntries(
     stockTools.map((name) => [
       name,
-      executable(pins?.[name]?.path ?? (name === "node" ? process.execPath : resolveTool(name))),
+      inventoryAt(inventoryOperations.tools[name].process, () =>
+        executable(
+          inventoryOperations.tools[name],
+          pins?.[name]?.path ?? (name === "node" ? process.execPath : resolveTool(name)),
+        ),
+      ),
     ]),
   );
   const versions = {};
@@ -705,41 +943,84 @@ export function observeIdentity(directory, pins) {
       versions.sh = "NO_VERSION_SWITCH_PACKAGE_VERSION_CAPTURED";
       continue;
     }
-    const args =
-      name === "openssl"
-        ? ["version", "-a"]
-        : name === "ip"
-          ? ["-Version"]
-          : name === "containerd-shim-runc-v2"
-            ? ["-v"]
-            : ["--version"];
-    versions[name] = query(name, args);
+    versions[name] = inventoryAt(inventoryOperations.versions[name], () => {
+      const args =
+        name === "openssl"
+          ? ["version", "-a"]
+          : name === "ip"
+            ? ["-Version"]
+            : name === "containerd-shim-runc-v2"
+              ? ["-v"]
+              : ["--version"];
+      return query(inventoryOperations.versions[name], name, args);
+    });
   }
-  const pid = query("systemctl", ["show", "docker", "--property", "MainPID", "--value"]);
-  const containerdPid = query("systemctl", ["show", "containerd", "--property", "MainPID", "--value"]);
+  const pid = query(inventoryOperations.dockerPid, "systemctl", ["show", "docker", "--property", "MainPID", "--value"]);
+  const containerdPid = query(inventoryOperations.containerdPid, "systemctl", [
+    "show",
+    "containerd",
+    "--property",
+    "MainPID",
+    "--value",
+  ]);
   invariant(/^[1-9]\d*$/.test(pid) && /^[1-9]\d*$/.test(containerdPid), "ACTIVE_DAEMON_IDENTITY_REQUIRED");
-  const unit = query("systemctl", ["show", "docker", "--property=Id,LoadState,FragmentPath,UnitFileState"]);
-  const containerdUnit = query("systemctl", [
+  const unit = query(inventoryOperations.dockerUnit, "systemctl", [
+    "show",
+    "docker",
+    "--property=Id,LoadState,FragmentPath,UnitFileState",
+  ]);
+  const containerdUnit = query(inventoryOperations.containerdUnit, "systemctl", [
     "show",
     "containerd",
     "--property=Id,LoadState,FragmentPath,UnitFileState",
   ]);
-  const unitFiles = (service) => {
-    const fragment = query("systemctl", ["show", service, "--property", "FragmentPath", "--value"]);
-    const dropIns = query("systemctl", ["show", service, "--property", "DropInPaths", "--value"]);
-    return [fragment, ...dropIns.split(/\s+/).filter(Boolean)].map((file) => {
-      invariant(path.isAbsolute(file) && lstatSync(realpathSync(file)).isFile(), "SERVICE_FILE_IDENTITY_UNAVAILABLE");
-      return { path: file, realTarget: realpathSync(file), sha256: sha256(readFileSync(file)) };
+  const unitFiles = (serviceSite, service) =>
+    inventoryAt(serviceSite.process, () => {
+      const fragment = query(serviceSite.fragment, "systemctl", [
+        "show",
+        service,
+        "--property",
+        "FragmentPath",
+        "--value",
+      ]);
+      const dropIns = query(serviceSite.dropIns, "systemctl", [
+        "show",
+        service,
+        "--property",
+        "DropInPaths",
+        "--value",
+      ]);
+      return [fragment, ...dropIns.split(/\s+/).filter(Boolean)].map((file) =>
+        inventoryAt(serviceSite.read, () => {
+          invariant(
+            path.isAbsolute(file) && lstatSync(realpathSync(file)).isFile(),
+            "SERVICE_FILE_IDENTITY_UNAVAILABLE",
+          );
+          return { path: file, realTarget: realpathSync(file), sha256: sha256(readFileSync(file)) };
+        }),
+      );
     });
-  };
-  const server = JSON.parse(query("docker", ["version", "--format", "{{json .Server}}"]));
-  const runtimes = JSON.parse(query("docker", ["info", "--format", "{{json .Runtimes}}"]));
-  const defaultRuntime = query("docker", ["info", "--format", "{{.DefaultRuntime}}"]);
+  const server = inventoryAt(inventoryOperations.serverParse, () =>
+    JSON.parse(query(inventoryOperations.server, "docker", ["version", "--format", "{{json .Server}}"])),
+  );
+  const runtimes = inventoryAt(inventoryOperations.runtimesParse, () =>
+    JSON.parse(query(inventoryOperations.runtimes, "docker", ["info", "--format", "{{json .Runtimes}}"])),
+  );
+  const defaultRuntime = query(inventoryOperations.defaultRuntime, "docker", [
+    "info",
+    "--format",
+    "{{.DefaultRuntime}}",
+  ]);
   invariant(record(runtimes) && record(runtimes[defaultRuntime]), "ACTIVE_RUNTIME_METADATA_REQUIRED");
   const runtimePath = runtimes[defaultRuntime].path;
   const activeRuntime =
     typeof runtimePath === "string" && runtimePath.length > 0
-      ? executable(path.isAbsolute(runtimePath) ? runtimePath : resolveTool(runtimePath))
+      ? inventoryAt(inventoryOperations.runtime.process, () =>
+          executable(
+            inventoryOperations.runtime,
+            path.isAbsolute(runtimePath) ? runtimePath : resolveTool(runtimePath),
+          ),
+        )
       : null;
   const daemon = {
     unit,
@@ -748,18 +1029,20 @@ export function observeIdentity(directory, pins) {
     runtimes,
     defaultRuntime,
     activeRuntime,
-    unitFiles: unitFiles("docker"),
-    containerdUnitFiles: unitFiles("containerd"),
-    executable: executable(`/proc/${pid}/exe`, true),
-    containerdExecutable: executable(`/proc/${containerdPid}/exe`, true),
-    containerdVersion: query("containerd", ["--version"]),
-    runcVersion: query("runc", ["--version"]),
+    unitFiles: unitFiles(inventoryOperations.services.docker, "docker"),
+    containerdUnitFiles: unitFiles(inventoryOperations.services.containerd, "containerd"),
+    executable: executable(inventoryOperations.dockerDaemon, `/proc/${pid}/exe`, true),
+    containerdExecutable: executable(inventoryOperations.containerdDaemon, `/proc/${containerdPid}/exe`, true),
+    containerdVersion: query(inventoryOperations.containerdVersion, "containerd", ["--version"]),
+    runcVersion: query(inventoryOperations.runcVersion, "runc", ["--version"]),
   };
-  writeJson(path.join(directory, "observed-process-identities.json"), {
-    dockerMainPID: pid,
-    containerdMainPID: containerdPid,
-  });
-  const identity = {
+  inventoryAt(inventoryOperations.processWrite, () =>
+    writeJson(path.join(directory, "observed-process-identities.json"), {
+      dockerMainPID: pid,
+      containerdMainPID: containerdPid,
+    }),
+  );
+  const identity = inventoryAt(inventoryOperations.identityRead, () => ({
     imageVersion: process.env.ImageVersion ?? "UNKNOWN",
     imageOS: process.env.ImageOS ?? "UNKNOWN",
     architecture: os.arch(),
@@ -768,8 +1051,10 @@ export function observeIdentity(directory, pins) {
     tools,
     versions,
     daemon,
-  };
-  writeJson(path.join(directory, "observed-identity.json"), identity);
+  }));
+  inventoryAt(inventoryOperations.identityWrite, () =>
+    writeJson(path.join(directory, "observed-identity.json"), identity),
+  );
   return identity;
 }
 
@@ -877,19 +1162,23 @@ export function hostedContext(protocol) {
       process.getuid() !== 0,
     "HOSTED_INVENTORY_ONLY",
   );
-  const event = JSON.parse(readFileSync(process.env.GITHUB_EVENT_PATH, "utf8"));
+  const event = inventoryAt(inventoryOperations.eventParse, () =>
+    JSON.parse(inventoryAt(inventoryOperations.eventRead, () => readFileSync(process.env.GITHUB_EVENT_PATH, "utf8"))),
+  );
   invariant(
     /^\d+$/.test(process.env.GITHUB_RUN_ID) && /^\d+$/.test(process.env.GITHUB_RUN_ATTEMPT),
     "INVALID_RUN_IDENTITY",
   );
-  return normalizePushEvent(
-    event,
-    {
-      eventName: process.env.GITHUB_EVENT_NAME,
-      ref: process.env.GITHUB_REF,
-      sha: process.env.GITHUB_SHA,
-    },
-    protocol,
+  return inventoryAt(inventoryOperations.eventProcess, () =>
+    normalizePushEvent(
+      event,
+      {
+        eventName: process.env.GITHUB_EVENT_NAME,
+        ref: process.env.GITHUB_REF,
+        sha: process.env.GITHUB_SHA,
+      },
+      protocol,
+    ),
   );
 }
 
@@ -925,8 +1214,12 @@ export function validateExecutionHead(event, diskHead, payloadHead) {
 
 async function collect() {
   invariant(process.argv.length === 3, "CLOSED_INVENTORY_ARGV_REQUIRED");
-  const protocol = JSON.parse(readFileSync(path.join(here, "protocol.json"), "utf8"));
-  const event = hostedContext(protocol);
+  const protocol = inventoryAt(inventoryOperations.protocolParse, () =>
+    JSON.parse(
+      inventoryAt(inventoryOperations.protocolRead, () => readFileSync(path.join(here, "protocol.json"), "utf8")),
+    ),
+  );
+  const event = inventoryAt(inventoryOperations.eventProcess, () => hostedContext(protocol));
   const authority = readAuthority(process.argv[2], process.env.DIAGNOSTIC_FREEZE_SHA256, {
     head: event.head,
     phase: "inventory",
@@ -934,24 +1227,33 @@ async function collect() {
   });
   const run = process.env.GITHUB_RUN_ID;
   const attempt = process.env.GITHUB_RUN_ATTEMPT;
-  const root = path.join(realpathSync(process.env.RUNNER_TEMP), "10678-inventory", `${run}-${attempt}`);
-  mkdirSync(path.dirname(root), { recursive: true, mode: 0o700 });
-  mkdirSync(root, { mode: 0o700 });
-  const capture = path.join(root, "inventory");
-  mkdirSync(capture, { mode: 0o700 });
-  const startedAt = new Date().toISOString();
-  const disk = spawnSync(resolveTool("git"), ["rev-parse", "HEAD"], {
-    env: cleanEnvironment(path.join(root, "private", "empty-home")),
-    encoding: "utf8",
-    shell: false,
+  const root = inventoryAt(inventoryOperations.rootSetup, () => {
+    const root = path.join(realpathSync(process.env.RUNNER_TEMP), "10678-inventory", `${run}-${attempt}`);
+    mkdirSync(path.dirname(root), { recursive: true, mode: 0o700 });
+    mkdirSync(root, { mode: 0o700 });
+    return root;
   });
-  invariant(disk.status === 0, "DISK_HEAD_MISMATCH");
-  validateExecutionHead(event, disk.stdout.trim(), authority.config.head);
+  const capture = inventoryAt(inventoryOperations.captureSetup, () => {
+    const capture = path.join(root, "inventory");
+    mkdirSync(capture, { mode: 0o700 });
+    return capture;
+  });
+  const startedAt = new Date().toISOString();
+  const disk = inventoryAt(inventoryOperations.diskHead, () =>
+    spawnSync(resolveTool("git"), ["rev-parse", "HEAD"], {
+      env: cleanEnvironment(path.join(root, "private", "empty-home")),
+      encoding: "utf8",
+      shell: false,
+    }),
+  );
+  validateExecutionHead(event, inventoryDiskHead(disk), authority.config.head);
   const identity = observeIdentity(path.join(root, "private"));
   // Raw metadata stays flat in this exact upload directory; empty credential homes never do.
-  preserveMetadata(path.join(root, "private"), capture);
-  preserveAuthority(capture, authority, readFileSync(process.argv[2]));
-  const receipt = {
+  inventoryAt(inventoryOperations.metadataCopy, () => preserveMetadata(path.join(root, "private"), capture));
+  inventoryAt(inventoryOperations.authorityCopy, () =>
+    preserveAuthority(capture, authority, readFileSync(process.argv[2])),
+  );
+  const receipt = inventoryAt(inventoryOperations.receiptWrite, () => ({
     schema: "10678-inventory-receipt/v1",
     phase: "inventory",
     measurementDisposition: "NOT_EXECUTED",
@@ -977,24 +1279,35 @@ async function collect() {
       authority: "PENDING_HOST_SETUP_JOB_LOG_RECONCILIATION",
     },
     disposal: "PENDING_HOST_RUNNER_COMPLETION",
-  };
-  writeJson(path.join(capture, "preparation-receipt.json"), receipt);
-  const files = readdirSync(capture)
-    .sort()
-    .map((file) => {
-      const bytes = readFileSync(path.join(capture, file));
-      return { file, bytes: bytes.length, sha256: sha256(bytes), text: utf8(bytes) };
-    });
-  const hits = scanExposure(files);
-  writeJson(path.join(capture, "inventory-manifest.json"), {
-    schema: "10678-inventory-manifest/v1",
-    phase: "inventory",
-    run,
-    attempt,
-    files: files.map(({ text: _text, ...entry }) => entry),
-    receiptSha256: sha256(readFileSync(path.join(capture, "preparation-receipt.json"))),
-  });
-  const gate = {
+  }));
+  inventoryAt(inventoryOperations.receiptWrite, () =>
+    writeJson(path.join(capture, "preparation-receipt.json"), receipt),
+  );
+  const files = inventoryAt(inventoryOperations.captureRead, () =>
+    readdirSync(capture)
+      .sort()
+      .map((file) => {
+        const bytes = readFileSync(path.join(capture, file));
+        return {
+          file,
+          bytes: bytes.length,
+          sha256: sha256(bytes),
+          text: inventoryAt(inventoryOperations.captureDecode, () => utf8(bytes)),
+        };
+      }),
+  );
+  const hits = inventoryAt(inventoryOperations.captureScan, () => scanExposure(files));
+  inventoryAt(inventoryOperations.manifestWrite, () =>
+    writeJson(path.join(capture, "inventory-manifest.json"), {
+      schema: "10678-inventory-manifest/v1",
+      phase: "inventory",
+      run,
+      attempt,
+      files: files.map(({ text: _text, ...entry }) => entry),
+      receiptSha256: sha256(readFileSync(path.join(capture, "preparation-receipt.json"))),
+    }),
+  );
+  const gate = inventoryAt(inventoryOperations.gateWrite, () => ({
     schema: "10678-inventory-publication/v1",
     phase: "inventory",
     complete: true,
@@ -1002,26 +1315,16 @@ async function collect() {
     scan: hits.length ? "HITS" : "NO_HITS",
     hits,
     manifestSha256: sha256(readFileSync(path.join(capture, "inventory-manifest.json"))),
-  };
-  writeJson(path.join(capture, "inventory-publication-gate.json"), gate);
+  }));
+  inventoryAt(inventoryOperations.gateWrite, () =>
+    writeJson(path.join(capture, "inventory-publication-gate.json"), gate),
+  );
   validateInventoryPublication(receipt, gate);
   console.log("INVENTORY_CAPTURE_COMPLETE_MEASUREMENT_NOT_EXECUTED");
 }
 
 export function inventoryRefusal(error) {
-  const categories = [
-    "EVENT_NOT_ADMITTED",
-    "DISK_EVENT_PAYLOAD_HEAD_MISMATCH",
-    "FILE_DIGEST_MISMATCH",
-    "INCOMPLETE_FILE_CENSUS",
-    "REVIEWED_FREEZE_DIGEST_REQUIRED",
-    "ENVELOPE_SIZE_REFUSED",
-    "COMPLETE_DETACHED_REVIEW_REQUIRED",
-    "CANONICAL_REVIEW_BINDING_MISMATCH",
-    "COMPLETION_NOTE_BINDING_MISMATCH",
-    "METADATA_QUERY_FAILED",
-  ];
-  return `INVENTORY_REFUSED_MEASUREMENT_NOT_EXECUTED category=${categories.includes(error?.message) ? error.message : "OTHER"}`;
+  return `INVENTORY_REFUSED_MEASUREMENT_NOT_EXECUTED category=${inventoryCategory(error)}`;
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
