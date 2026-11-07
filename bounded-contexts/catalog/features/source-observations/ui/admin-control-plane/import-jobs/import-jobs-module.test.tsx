@@ -29,6 +29,34 @@ afterEach(() => {
 });
 
 describe("CatalogIntegrationImportJobsModule", () => {
+  it("keeps newer recent jobs as rows, never reconstructing an action receipt", () => {
+    const base = controlPlaneOverview();
+    const unitKey = "tcgdex:pokemon:card:import";
+    const readModel = buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
+      requestUrl:
+        "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&importScope=en:3:base:base1",
+      scopes: { items: [sourceObservationScope()], total: 1, count: 1 },
+      profileReviews: { items: [profileReview({ active: true, lifecycle: "active" })], total: 1, count: 1 },
+      controlPlaneOverview: controlPlaneOverview({
+        unitActivity: {
+          ...base.unitActivity,
+          units: [
+            {
+              unitKey,
+              recentJobs: [
+                integrationJobSummary({ jobId: "synthetic-newer-job-B", startedAt: "2026-11-06T20:00:00Z" }),
+              ],
+            },
+          ],
+        },
+      }),
+      canManageCatalog: true,
+    });
+    render(<CatalogIntegrationImportJobsModule readModel={readModel} />);
+    expect(document.querySelector('[data-catalog-import-job-id="synthetic-newer-job-B"]')).not.toBeNull();
+    expect(document.querySelector("[data-catalog-import-job-receipt]")).toBeNull();
+  });
+
   it("contains a rejected import preview and keeps import operations mounted", async () => {
     const readModel = buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
       requestUrl:
