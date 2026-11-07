@@ -7,6 +7,7 @@ export default {
     "^bounded-contexts/pricing/routes/marketplace/market-price-history\\.tsx$",
     "^bounded-contexts/auth/routes/marketplace/(sign-in|sign-in-magic|register|invite|sign-out|guest-checkout-exit)\\.tsx$",
     "^deployables/(marketplace|public-web)/app/routes/",
+    "^bounded-contexts/discovery/routes/item-detail-rail-analytics\\.tsx$",
   ],
   goals: [
     {
@@ -316,6 +317,11 @@ export default {
     },
   ],
   excludedRoutes: [
+    {
+      path: "bounded-contexts/discovery/routes/item-detail-rail-analytics.tsx",
+      reason:
+        "fixture-gap: no participant-observable analytics receipt in the usability fixture; Discovery POST-only ingestion is proven by route and bridge tests, not a standalone page goal",
+    },
     { path: "bounded-contexts/public-presence/routes/marketplace/faq.tsx", reason: "redirect-only" },
     { path: "bounded-contexts/public-presence/routes/marketplace/order-protection.tsx", reason: "redirect-only" },
     { path: "bounded-contexts/public-presence/routes/marketplace/refunds-and-returns.tsx", reason: "redirect-only" },

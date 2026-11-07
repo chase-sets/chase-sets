@@ -28,6 +28,7 @@ import {
 } from "@chase-sets/design-system";
 import { createCheckoutRequestApiClient, readAnonymousCartId } from "@chase-sets/checkout/server";
 import { itemDetailRailAnalyticsEventNames } from "@chase-sets/discovery/web";
+import { buildAnalyticsBridgeScript } from "@chase-sets/platform-runtime/analytics-bridge";
 import {
   createIdentityRequestApiClient,
   createUserPreferencesColorModeCookieSeedHeaders,
@@ -53,61 +54,24 @@ type MarketplaceRootLoaderData = Readonly<{
   viewer: IdentityShellViewer | null;
 }>;
 
-export const itemDetailRailAnalyticsBridgeScript = `
-(() => {
-  const endpoint = "/analytics/item-detail-rail";
-  const allowedEvents = new Set(${JSON.stringify(itemDetailRailAnalyticsEventNames)});
-
-  function readBounded(value) {
-    if (typeof value !== "string") {
-      return null;
-    }
-    const text = value.trim();
-    return text.length > 0 && text.length <= 80 && /^[a-zA-Z0-9_.-]+$/.test(text) ? text : null;
-  }
-
-  function readSha256(value) {
-    const text = readBounded(value);
-    return text && /^[a-f0-9]{64}$/.test(text) ? text : null;
-  }
-
-  window.addEventListener("chase-sets:item-detail-rail-analytics", (event) => {
-    const detail = event instanceof CustomEvent ? event.detail : null;
-    if (!detail || typeof detail.event !== "string" || !allowedEvents.has(detail.event)) {
-      return;
-    }
-
-    const payload = {
-      event: detail.event,
-      intent: readBounded(detail.intent),
-      workflow: readBounded(detail.workflow),
-      selection: readBounded(detail.selection),
-      topic: readBounded(detail.topic),
-      outcome: readBounded(detail.outcome),
-      gate: readBounded(detail.gate),
-      viewer: readBounded(detail.viewer),
-      surface: readBounded(detail.surface),
-      position: Number.isInteger(detail.position) && detail.position > 0 ? detail.position : null,
-      queryHash: readSha256(detail.queryHash),
-      resultSetKey: readSha256(detail.resultSetKey),
-    };
-    const body = JSON.stringify(payload);
-
-    if (navigator.sendBeacon) {
-      navigator.sendBeacon(endpoint, new Blob([body], { type: "application/json" }));
-      return;
-    }
-
-    fetch(endpoint, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body,
-      credentials: "same-origin",
-      keepalive: true,
-    }).catch(() => undefined);
-  });
-})();
-`.trim();
+export const itemDetailRailAnalyticsBridgeScript = buildAnalyticsBridgeScript({
+  endpoint: "/analytics/item-detail-rail",
+  eventName: "chase-sets:item-detail-rail-analytics",
+  allowedEvents: itemDetailRailAnalyticsEventNames,
+  fields: {
+    intent: "bounded",
+    workflow: "bounded",
+    selection: "bounded",
+    topic: "bounded",
+    outcome: "bounded",
+    gate: "bounded",
+    viewer: "bounded",
+    surface: "bounded",
+    position: "positive-integer",
+    queryHash: "sha256",
+    resultSetKey: "sha256",
+  },
+});
 
 async function resolveCartCount(request: Request, actor: MarketplaceRootActor) {
   try {
