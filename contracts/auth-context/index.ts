@@ -161,7 +161,7 @@ export const PERMISSION_KEYS = [
   "commercial-terms.agreements.manage",
   "commercial-terms.manage",
   "commercial-terms.view",
-  // Customer Feedback attention checks this; no role grants it.
+  // Sensitive Customer Feedback exports require this distinct staff capability.
   "customer-feedback.privacy.export-sensitive-feedback",
   "fulfillment.manage",
   "fulfillment.view",
@@ -271,6 +271,7 @@ export const ROLE_PERMISSIONS = {
     "commercial-terms.agreements.manage",
     "commercial-terms.manage",
     "commercial-terms.view",
+    "customer-feedback.privacy.export-sensitive-feedback",
     "google-shopping.manage",
     "google-shopping.view",
     "listing-evidence-policy.activate",
