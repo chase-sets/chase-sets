@@ -255,6 +255,11 @@ pin follows Corten's latest `main` (Todd, 2026-11-02), and each move is its own 
 what changed; the workarounds a move lets go follow it in commits of their own. The history of every move is in the
 [README before it was cut](https://github.com/chase-sets/chase-sets/blob/5a683c4eb5/deployables/corten-pilot/README.md) ("Corten pin") and in `git log -- deployables/corten-pilot/Cargo.toml`.
 
+The kit's copies in `platform/src/ui/` move with the pin. On each move, from `platform/`, run
+`corten ui diff` and take every kit change with `corten ui add --merge <name>`; a copy edited here
+must link the Corten issue that asks the kit to make the edit unnecessary. Then run `corten ui list`
+for components the kit added, and port the screens' local rules to them.
+
 ## Layout
 
 1. `platform/` is the library the apps share: the API caller and its errors (`api.rs`), write
@@ -287,7 +292,9 @@ what changed; the workarounds a move lets go follow it in commits of their own. 
 
 ### Corten
 
-None open. The pilot has no Corten workaround in its code at this pin.
+| Issue | Workaround |
+| --- | --- |
+| [corten-run/corten#1054 Kit Stats writes its label and figure type as literals, so a theme with a display face or uppercase labels (Chase Sets' design system) edits the copied stats.css](https://github.com/corten-run/corten/issues/1054) | [platform/src/ui/stats.css](platform/src/ui/stats.css) sets the design system's label and value type |
 
 Every Corten gap the pilot found and how it closed is in the [README before it was cut](https://github.com/chase-sets/chase-sets/blob/5a683c4eb5/deployables/corten-pilot/README.md) ("Corten gaps").
 
