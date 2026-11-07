@@ -1053,6 +1053,68 @@ describe("bounded context subscription runner", () => {
     expect(getBlockedStreamStore(targetPool).get(`${projectionKey}:${streamId}`)?.state).toBe("resolved");
   });
 
+  it("window B: returns its own durable checkpoint when an older refresh finishes during its source-head read", async () => {
+    const sourcePool = createMockPool();
+    const targetPool = createMockPool();
+    const subscription = {
+      subscriptionName: "synthetic.target-projection",
+      sourceContextName: "synthetic-source",
+      projectionName: "synthetic-target-projection",
+      subscriptionVersion: 1,
+      handlers: {},
+      eventTypes: ["synthetic.event"],
+    };
+    const checkpointKey = createCheckpointKey(subscription);
+    getCheckpointStore(targetPool).set(checkpointKey, "0");
+    sourceHeadByPool.set(sourcePool, "9");
+    const olderErrorSummary = createPassBarrier();
+    const decisionSourceHead = createPassBarrier();
+    const targetQuery = targetPool.query.bind(targetPool);
+    let summaryReads = 0;
+    vi.spyOn(targetPool, "query").mockImplementation(async (sql, params) => {
+      const result = await targetQuery(sql, params);
+      if (sql.includes("AS blocked_stream_count") && ++summaryReads === 1) {
+        await olderErrorSummary.wait();
+      }
+      return result;
+    });
+    const sourceQuery = sourcePool.query.bind(sourcePool);
+    let headReads = 0;
+    vi.spyOn(sourcePool, "query").mockImplementation(async (sql, params) => {
+      const result = await sourceQuery(sql, params);
+      if (sql.includes("pg_sequence_last_value") && ++headReads === 1) {
+        await decisionSourceHead.wait();
+      }
+      return result;
+    });
+    const runner = createSubscriptionRunner("synthetic-target", targetPool as never, sourcePool as never, subscription);
+
+    const olderRefresh = runner.refreshStatus();
+    await olderErrorSummary.entered;
+    getCheckpointStore(targetPool).set(checkpointKey, "4");
+    const decisionRefresh = runner.refreshStatus();
+    await decisionSourceHead.entered;
+    olderErrorSummary.release();
+    const olderStatus = await olderRefresh;
+    decisionSourceHead.release();
+    const decisionStatus = await decisionRefresh;
+
+    expect(olderStatus).toMatchObject({ lastGlobalPosition: "0", sourceHeadGlobalPosition: "9", outstandingEventCount: "9" });
+    expect(decisionStatus).toMatchObject({
+      checkpointKey,
+      initialized: true,
+      recoveryRequired: false,
+      lastGlobalPosition: "4",
+      sourceHeadGlobalPosition: "9",
+      outstandingEventCount: "5",
+      sourceLagEventCount: "5",
+      blockedStreamCount: 0,
+      poisonEventCount: 0,
+    });
+    expect(summaryReads).toBe(2);
+    expect(headReads).toBe(2);
+  });
+
   it("refreshes source lag without scanning applicable event lag", async () => {
     const sourcePool = createMockPool();
     const targetPool = createMockPool();
