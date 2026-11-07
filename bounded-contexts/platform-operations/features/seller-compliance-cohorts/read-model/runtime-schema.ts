@@ -26,8 +26,10 @@ export const sellerComplianceRuntimeSchemaStatements: readonly string[] = [
 ];
 
 export const sellerComplianceRuntimeSchemaSql = `${sellerComplianceRuntimeSchemaStatements.join(";\n\n")};\n`;
-export const sellerComplianceRuntimeSchemaMigrations: readonly BcSchemaMigration[] = [{
-  migrationId: "20261107_platform_operations_seller_compliance_runtime",
-  description: "Create durable seller compliance replay checkpoint and deduplicated evaluation failures.",
-  statements: sellerComplianceRuntimeSchemaStatements,
-}];
+export const sellerComplianceRuntimeSchemaMigrations: readonly BcSchemaMigration[] = [
+  {
+    migrationId: "20261107_platform_operations_seller_compliance_runtime",
+    description: "Create durable seller compliance replay checkpoint and deduplicated evaluation failures.",
+    statements: sellerComplianceRuntimeSchemaStatements,
+  },
+];

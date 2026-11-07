@@ -326,13 +326,13 @@ export function createRegisteredScheduledRunners({
 
   const sweepSupportRequestDeadlines = platformOperations?.supportRequests?.sweepSupportRequestDeadlines;
   if (platformOperations?.sellerComplianceCohorts) {
-    runners.push(createScheduledJobRunner(
-      "platform-operations.seller-compliance-cohort-sweep", 60_000, controlPlane, async () => {
+    runners.push(
+      createScheduledJobRunner("platform-operations.seller-compliance-cohort-sweep", 60_000, controlPlane, async () => {
         const result = await platformOperations.sellerComplianceCohorts.runTick({ limit: 100 });
         if (result.failed) logger.warn("Seller compliance cohort evaluations failed.", { result });
         return result.processed;
-      },
-    ));
+      }),
+    );
   }
   if (sweepSupportRequestDeadlines && input.supportRequestDeadlineSweepIntervalMs) {
     runners.push(

@@ -252,7 +252,10 @@ export function createPlatformOperationsServices(
       buildAccountAppealProjectionHandlerSet(db),
     ],
     accountAppeals,
-    sellerComplianceCohorts: createCohortEvaluationRuntime({ pool, historyReader: createPolicyHistoryReader({ pool, eventStore }) }),
+    sellerComplianceCohorts: createCohortEvaluationRuntime({
+      pool,
+      historyReader: createPolicyHistoryReader({ pool, eventStore }),
+    }),
     operationsAttentionRuntimeReads: ports.operationsAttentionRuntimeReads,
   };
 }

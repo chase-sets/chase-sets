@@ -25,7 +25,10 @@ import {
   MAX_PAGE_LIMIT,
 } from "./queries";
 import { sellerComplianceSalesSchemaMigrations, sellerComplianceSalesSchemaStatements } from "./schema";
-import { sellerComplianceRuntimeSchemaMigrations, sellerComplianceRuntimeSchemaStatements } from "../../seller-compliance-cohorts/read-model/runtime-schema";
+import {
+  sellerComplianceRuntimeSchemaMigrations,
+  sellerComplianceRuntimeSchemaStatements,
+} from "../../seller-compliance-cohorts/read-model/runtime-schema";
 
 // Unmistakably synthetic identities throughout: no fixture here is paired with a real
 // account, order, or payment.
@@ -601,7 +604,9 @@ describe("seller compliance production registration", () => {
       expect(platformOperationsModule.schemaSql).toContain(statement);
     }
 
-    expect(platformOperationsModule.schemaMigrations).toEqual(expect.arrayContaining([...sellerComplianceRuntimeSchemaMigrations]));
+    expect(platformOperationsModule.schemaMigrations).toEqual(
+      expect.arrayContaining([...sellerComplianceRuntimeSchemaMigrations]),
+    );
     for (const statement of sellerComplianceRuntimeSchemaStatements) {
       expect(platformOperationsModule.schemaSql).toContain(statement);
     }
