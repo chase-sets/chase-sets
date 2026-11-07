@@ -230,6 +230,11 @@ pub async fn error_page(failure: Failure, req: Req, viewer: Option<Caller<Viewer
             (p.error_failed_title(), p.error_pending())
         }
         Failure::Failed { status, .. } if *status == StatusCode::FORBIDDEN => (p.error_forbidden_title(), p.error_forbidden()),
+        // The request did not arrive whole before the deadline (a 408 under `corten::serve`): an
+        // upload whose connection stopped sending.
+        Failure::Failed { status, .. } if *status == StatusCode::REQUEST_TIMEOUT => {
+            (p.error_not_received_title(), p.error_not_received())
+        }
         // The platform API could not say whose the session is (`Refused::unavailable`).
         Failure::Unidentified { .. } => (p.error_unidentified_title(), p.error_unidentified()),
         Failure::WrongMethod

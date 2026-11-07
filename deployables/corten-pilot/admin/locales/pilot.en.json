@@ -38,6 +38,8 @@
     "failed_title": "Something went wrong",
     "failed": "The platform API did not answer. Try again in a moment.",
     "pending": "We are preparing your change. Refresh in a moment and it should appear.",
+    "not_received_title": "Not received",
+    "not_received": "Check your connection and try again.",
     "unidentified_title": "Not available",
     "unidentified": "We could not check who you are. Try again in a moment."
   },
