@@ -6223,6 +6223,15 @@ fn post_multipart(
 }
 
 /// A complete intake's fields for `rsh_1` at `version`, received at `received_at`.
+/// Whether the input `marker` names is a search field: the kit's input group, with the search glyph before it.
+fn in_search_group(html: &str, marker: &str) -> bool {
+    let Some(input) = html.find(marker) else { return false };
+    html[..input].rfind(r#"<span class="input-group__input-group">"#).is_some_and(|group| {
+        html[group..input].contains(r#"<span class="input-group__adornment" aria-hidden="true"><svg"#)
+            && !html[group..input].contains("</span></span>")
+    })
+}
+
 fn intake_fields<'a>(version: &'a str, received_at: &'a str, custody: &'a str) -> Vec<(&'a str, &'a str)> {
     vec![
         ("intent", "complete"),
@@ -6275,6 +6284,7 @@ async fn the_return_intake_station_opens_a_facility_and_resolves_a_scan() {
         assert!(html.contains(text), "{text}: {html}");
     }
     assert!(html.contains("Record unidentified package"), "an open facility offers the unidentified form: {html}");
+    assert!(in_search_group(&html, r#"name="identifier""#), "the scan is the design system's SearchInput: {html}");
     assert_eq!(html.matches(r#"value="reconcile""#).count(), 1, "only the unreconciled package takes Reconcile: {html}");
     assert!(html.contains(r#"enctype="multipart/form-data""#), "{html}");
 
@@ -7168,6 +7178,7 @@ async fn the_waitlist_forwards_admin_webs_filters_and_shows_the_figures_and_sign
     );
     assert!(html.contains("<title>Waitlist | Experience Admin"), "{html}");
     assert!(html.contains(r#"<option value="sell" selected>List cards</option>"#), "{html}");
+    assert!(in_search_group(&html, r#"name="search" value="seller""#), "the search is the design system's SearchInput: {html}");
     assert!(html.contains("Wave 1") && html.contains("3 of 100 admitted"), "{html}");
     assert!(html.contains("seller@example.test") && html.contains("Bulk listing") && html.contains(">discord<"), "{html}");
     assert!(html.contains(">Yes<") && html.contains("Showing 1 of 7"), "{html}");

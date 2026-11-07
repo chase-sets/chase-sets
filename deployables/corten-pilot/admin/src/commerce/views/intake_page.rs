@@ -8,7 +8,13 @@ use corten::{
     i18n::{DateStyle, TimeStyle, parse_timestamp},
     prelude::*,
 };
-use platform::ui::stats::{Stat, StatTone, Stats as KitStats, StatsSurface};
+use platform::{
+    search::SearchGlyph,
+    ui::{
+        input_group::InputGroup,
+        stats::{Stat, StatTone, Stats as KitStats, StatsSurface},
+    },
+};
 
 use crate::{
     commerce::intake::{IntakeForm, Shipment, StationScreen, duration, url},
@@ -243,17 +249,20 @@ pub fn IntakePage<'a>(t: Com, p: Pilot, screen: &'a StationScreen) -> impl Rende
                 <label class={Field}>
                     <span>{t.ri_scan_label()}</span>
                     <small class={Muted}>{t.ri_scan_description()}</small>
-                    <input
-                        type="search"
-                        name="identifier"
-                        value={&screen.identifier}
-                        placeholder={t.ri_scan_placeholder()}
-                        autocomplete="off"
-                        spellcheck="false"
-                        required
-                        autofocus={open}
-                        disabled={!open}
-                    >
+                    <span class={InputGroup {}}>
+                        <SearchGlyph />
+                        <input
+                            type="search"
+                            name="identifier"
+                            value={&screen.identifier}
+                            placeholder={t.ri_scan_placeholder()}
+                            autocomplete="off"
+                            spellcheck="false"
+                            required
+                            autofocus={open}
+                            disabled={!open}
+                        >
+                    </span>
                 </label>
                 <button type="submit" class={Button} disabled={!open}>{t.ri_resolve_package()}</button>
             </form>

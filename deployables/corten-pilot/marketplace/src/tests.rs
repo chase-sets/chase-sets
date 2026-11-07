@@ -7290,6 +7290,10 @@ async fn the_packing_page_shows_the_lock_progress_lines_and_finish_only_once_eve
     let finish = html.find("Finish packing").unwrap();
     assert!(html[..finish].rfind("<button").is_some_and(|at| html[at..finish].contains("disabled")), "Finish is off: {html}");
     assert!(shown.contains("Ship to Collector Zero 1 Test Way Austin, TX 78701 US"), "{shown}");
+    // The scan box is the design system's SearchInput: the kit's input group with the search glyph.
+    let scan = html.find(r#"id="packing-scan-code""#).expect("the scan box");
+    let group = html[..scan].rfind(r#"<span class="input-group__input-group "#).expect("the scan's group");
+    assert!(html[group..scan].contains(r#"<span class="input-group__adornment" aria-hidden="true"><svg"#), "{html}");
     // Copy is corten-ui's: each copies a hidden element with the whole value, by the line's id.
     assert!(html.contains(r#"<span id="line-reference-spl_2" hidden>spl_2</span>"#), "{html}");
     assert!(html.contains("ui.copy_button.copy($t,&quot;line-reference-spl_2&quot;"), "{html}");

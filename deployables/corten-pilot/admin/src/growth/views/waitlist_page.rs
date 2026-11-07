@@ -5,9 +5,13 @@ use corten::{
     i18n::{DateStyle, TimeStyle, parse_timestamp},
     prelude::*,
 };
-use platform::ui::{
-    stats::{Stat, StatTone, Stats as KitStats, StatsSurface},
-    table::{CellLabel, Table as KitTable, TableLayout},
+use platform::{
+    search::SearchGlyph,
+    ui::{
+        input_group::InputGroup,
+        stats::{Stat, StatTone, Stats as KitStats, StatsSurface},
+        table::{CellLabel, Table as KitTable, TableLayout},
+    },
 };
 
 use crate::{
@@ -92,7 +96,10 @@ pub fn WaitlistPage<'a>(t: Gro, screen: &'a WaitlistScreen) -> impl Render {
                 <form class={Filters} method="get" action={url::Waitlist::default()}>
                     <label class={Field}>
                         <span>{t.admin_search()}</span>
-                        <input type="search" name={f.search} value={&chosen.search}>
+                        <span class={InputGroup {}}>
+                            <SearchGlyph />
+                            <input type="search" name={f.search} value={&chosen.search}>
+                        </span>
                     </label>
                     <label class={Field}>
                         <span>{t.admin_role()}</span>

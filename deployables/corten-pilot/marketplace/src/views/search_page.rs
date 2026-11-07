@@ -5,13 +5,8 @@
 //! of them sends every choice.
 use corten::prelude::*;
 use platform::{
-    glyphs,
-    ui::{
-        icon::Icon as KitIcon,
-        input::Input,
-        input_group::{Adornment, InputGroup},
-        visually_hidden::VisuallyHidden,
-    },
+    search::SearchGlyph,
+    ui::{input::Input, input_group::InputGroup, visually_hidden::VisuallyHidden},
 };
 
 use super::{
@@ -321,7 +316,7 @@ fn WordsBox<'a>(t: SearchMsg, terms: &'a Terms, placeholder: &'a str) -> impl Re
     html! {
         <search class={Words}>
             <label class={InputGroup {}}>
-                <Adornment><KitIcon glyph={glyphs::SEARCH} /></Adornment>
+                <SearchGlyph />
                 <input
                     class={Input {}}
                     type="search"

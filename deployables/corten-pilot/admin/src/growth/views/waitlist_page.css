@@ -65,7 +65,8 @@
   font-size: 0.875rem;
   font-weight: 600;
 }
-.field input,
+/* Its own controls; a search field is the kit's input group, which draws its box. */
+.field input:not([type="search"]),
 .field select {
   min-height: 2.75rem;
   max-inline-size: 100%;
@@ -75,6 +76,10 @@
   background: var(--color-background);
   color: var(--color-text);
   font: inherit;
+  font-weight: 400;
+}
+/* The search field's text, inside the group, is the field's own, not its label's weight. */
+.field input[type="search"] {
   font-weight: 400;
 }
 .button {

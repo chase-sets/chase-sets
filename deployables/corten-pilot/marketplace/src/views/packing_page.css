@@ -240,8 +240,13 @@
   flex-wrap: wrap;
   gap: var(--space-2);
 }
-.scan-row .input {
+/* The scan's box (the kit's input group, with the search glyph) takes the row's room. */
+.scan-box {
   flex: 1 1 12rem;
+}
+/* Inside the group, the box is the group's height; the input fills it. */
+.scan-box .input {
+  min-height: 0;
 }
 .input {
   min-width: 0;

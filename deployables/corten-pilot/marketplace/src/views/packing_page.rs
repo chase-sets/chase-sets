@@ -21,7 +21,13 @@ use crate::{
     packing::{AttemptInput, LineInput, LineState, Outcome, PackInput, PackingScreen, ScanInput, Scanned, short_reference},
     text::{Pilot, ShipmentsMsg},
 };
-use platform::ui::steps::{Step as KitStep, StepState, Steps as KitSteps, StepsLayout};
+use platform::{
+    search::SearchGlyph,
+    ui::{
+        input_group::InputGroup,
+        steps::{Step as KitStep, StepState, Steps as KitSteps, StepsLayout},
+    },
+};
 
 corten::script::script!(pub mod handlers = "packing.js");
 
@@ -429,15 +435,18 @@ fn Scan<'a>(t: ShipmentsMsg, p: Pilot, viewer: &'a Viewer, id: &'a str, screen: 
                 <label class={Label} for="packing-scan-code">{t.packing_scan_label()}</label>
                 <p class={Muted} id="packing-scan-note">{t.packing_scan_description()}</p>
                 <div class={ScanRow}>
-                    <input
-                        class={Input}
-                        id="packing-scan-code"
-                        name={f.code}
-                        type="search"
-                        autocomplete="off"
-                        placeholder={t.packing_scan_placeholder()}
-                        aria-describedby="packing-scan-note packing-scan-feedback"
-                    >
+                    <span class={(InputGroup {}, ScanBox)}>
+                        <SearchGlyph />
+                        <input
+                            class={Input}
+                            id="packing-scan-code"
+                            name={f.code}
+                            type="search"
+                            autocomplete="off"
+                            placeholder={t.packing_scan_placeholder()}
+                            aria-describedby="packing-scan-note packing-scan-feedback"
+                        >
+                    </span>
                     <button type="submit" class={Primary}>{t.packing_scan_confirm()}</button>
                 </div>
             </WriteForm>

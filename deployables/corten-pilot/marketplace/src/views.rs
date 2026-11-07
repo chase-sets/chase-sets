@@ -136,7 +136,16 @@ pub use support_page::SupportPage;
 pub use team_page::TeamPage;
 
 /// Every component with a stylesheet or a script that pages in both areas render, tokens first.
-pub const COMPONENTS: &[Component] = &[theme::TOKENS, platform::ui::icon::Icon, MarketNav, Section, Toasts, Toaster];
+pub const COMPONENTS: &[Component] = &[
+    theme::TOKENS,
+    platform::ui::icon::Icon,
+    platform::ui::input::Input,
+    platform::ui::input_group::InputGroup,
+    MarketNav,
+    Section,
+    Toasts,
+    Toaster,
+];
 
 /// The inventory screens' components (`/account/inventory`), the import page's too.
 /// The inventory list uses Create listing's catalog picker script, and corten-ui's handler that
@@ -184,15 +193,13 @@ pub const ITEM: &[Component] = &[
 
 /// Search's components (the home page, `/search`, `/categories`, and `/sets` for its cards): its
 /// stylesheet, the script that applies a filter as it changes, the analytics a result's click
-/// sends, the kit's `VisuallyHidden` (search's hidden heading and legends, and the item
-/// page's chart summary) and the words box's `Input` in an `InputGroup`. In `App::components`, since the home page is outside every area.
+/// sends and the kit's `VisuallyHidden` (search's hidden heading and legends, and the item
+/// page's chart summary). In `App::components`, since the home page is outside every area.
 pub const SEARCH: &[Component] = &[
     SearchPage,
     search_page::handlers::COMPONENT,
     item_detail::analytics::COMPONENT,
     platform::ui::visually_hidden::VisuallyHidden,
-    platform::ui::input::Input,
-    platform::ui::input_group::InputGroup,
 ];
 
 /// A set's page (`/sets`). Its cards are search's (`ItemCards`), in `App::components`.
