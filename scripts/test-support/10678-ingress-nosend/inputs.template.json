@@ -1,9 +1,9 @@
 {
   "schema": "10678-non-executable-inputs/v1",
-  "purpose": "Public constants only. Never runtime authority. H1 inventory has no measurement pins.",
+  "purpose": "Reviewed public constants only. Never runtime authority; exact H2/P2 detached review is required.",
   "phases": {
     "inventory": "External schema-2 payload, exact file census and detached canonical review required; zero rows only.",
-    "measurement": "Additionally requires reviewed bootstrapTools, tools, daemonTools, bootstrapIdentity, expectedIdentity and inventoryAuthority from H1 custody. No H2 pins are asserted here."
+    "measurement": "Eleven-key external payload. Losslessly derive reviewed measurement requirements from publicInputs.measurement; prior H1 custody is mandatory."
   },
   "briefSha256": "492610de9d989a24627efcacd2ca5043f85f08cdd3858b38c345f7e5811a6a94",
   "methodSha256": "15a2c4d7678982530a9098f2f9337d0e695e93cb0f746efd4f927b8e80d1d65b",
@@ -60,38 +60,76 @@
   "publicExecutables": {
     "node": {
       "path": "/usr/local/bin/node",
-      "sha256": "904a6d3484241d466989f9df9ba3aab822b1496191bdb28230eb491a55c32a52"
+      "sha256": "904a6d3484241d466989f9df9ba3aab822b1496191bdb28230eb491a55c32a52",
+      "realTarget": "/usr/local/bin/node",
+      "format": "native",
+      "version": "24.22.2",
+      "architecture": "linux-x64"
     },
     "kind": {
       "path": "/usr/local/bin/kind",
-      "sha256": "b89aada5a39d620da3fcd16435b7f28d858927dd53f92cbac77686b0588b600d"
+      "sha256": "b89aada5a39d620da3fcd16435b7f28d858927dd53f92cbac77686b0588b600d",
+      "realTarget": "/usr/local/bin/kind",
+      "format": "native",
+      "version": "0.24.0",
+      "architecture": "linux-x64"
     },
     "helm": {
       "path": "/usr/local/bin/helm",
-      "sha256": "2eead53d95473a37d72937e8e3aed5d964271685f3dac5b76955867818c040f4"
+      "sha256": "2eead53d95473a37d72937e8e3aed5d964271685f3dac5b76955867818c040f4",
+      "realTarget": "/usr/local/bin/helm",
+      "format": "native",
+      "version": "3.16.2",
+      "architecture": "linux-x64"
     },
     "kubectl": {
       "path": "/usr/local/bin/kubectl",
-      "sha256": "2ffd023712bbc1a9390dbd8c0c15201c165a69d394787ef03eda3eccb4b9ac06"
+      "sha256": "2ffd023712bbc1a9390dbd8c0c15201c165a69d394787ef03eda3eccb4b9ac06",
+      "realTarget": "/usr/local/bin/kubectl",
+      "format": "native",
+      "version": "1.30.4",
+      "architecture": "linux-x64"
     },
     "pnpm": {
       "path": "/opt/10678-pnpm/bin/pnpm.cjs",
-      "sha256": "67b035e322203961795e8e34ca63a08c37a4386eda94107fb3d28f3246d882ad"
+      "sha256": "67b035e322203961795e8e34ca63a08c37a4386eda94107fb3d28f3246d882ad",
+      "closure": {
+        "schema": "10678-script-closure/v1",
+        "algorithm": "sha256",
+        "canonicalization": "posix-path-sha256-pairs-json-v1",
+        "fileCount": 448,
+        "sha256": "99aa5fa37093261917e32dfdaee917eafa784011e116e2d707ba55f33e0c15d5",
+        "path": "scripts/test-support/10678-ingress-nosend/pnpm-11.0.9.closure.json"
+      },
+      "realTarget": "/opt/10678-pnpm/bin/pnpm.cjs",
+      "format": "script",
+      "version": "11.0.9",
+      "architecture": "linux-x64"
     },
     "esbuild": {
       "path": "/usr/local/bin/esbuild",
-      "sha256": "0c6588b092a2c291a72bab90659f3c9e0e25e0fe59c9ac12b4dae4d945e5548c"
+      "sha256": "0c6588b092a2c291a72bab90659f3c9e0e25e0fe59c9ac12b4dae4d945e5548c",
+      "realTarget": "/usr/local/bin/esbuild",
+      "format": "native",
+      "version": "0.28.1",
+      "architecture": "linux-x64"
     },
     "yq": {
       "path": "/usr/local/bin/yq",
-      "sha256": "44c7759059b4910827a0059a2757b22001e59360cdecdb2ef8dedc4b6c7e9f32"
+      "sha256": "44c7759059b4910827a0059a2757b22001e59360cdecdb2ef8dedc4b6c7e9f32",
+      "realTarget": "/usr/local/bin/yq",
+      "format": "native",
+      "version": "4.54.2",
+      "architecture": "linux-x64"
     }
   },
   "chart": {
     "path": "/opt/10678-inputs/ingress-nginx-4.11.3.tgz",
     "sha256": "a9f371489a6c18042508c0b5c2ea669deaad7ccc08f37efc4522e336edda1c20"
   },
-  "retainedConfigMap": { "path": "scripts/test-support/10678-ingress-nosend/retained-configmap.yaml" },
+  "retainedConfigMap": {
+    "path": "scripts/test-support/10678-ingress-nosend/retained-configmap.yaml"
+  },
   "images": {
     "kind": "kindest/node:v1.30.4@sha256:976ea815844d5fa93be213437e3ff5754cd599b040946b5cca43ca45c2047114",
     "historical": "node:24-bookworm-slim@sha256:01d566e8d94d8c619591d78652babfccd3c6992a3dffa9ed5ab39e11cf6c70e9",
@@ -103,5 +141,628 @@
       "registry.k8s.io/ingress-nginx/controller:v1.11.3@sha256:d56f135b6462cfc476447cfe564b83a45e8bb7da2774963b00d12161112270b7",
       "registry.k8s.io/ingress-nginx/kube-webhook-certgen:v1.4.4@sha256:a9f03b34a3cbfbb26d103a14046ab2c5130a80c3d69d526ff8063d2b37b9fd3f"
     ]
+  },
+  "measurement": {
+    "schema": "10678-reviewed-measurement/v1",
+    "distributions": {
+      "stock-node": {
+        "version": "22.23.4",
+        "architecture": "linux-x64",
+        "publicReference": "https://nodejs.org/dist/v22.23.4/node-v22.23.4-linux-x64.tar.xz",
+        "archiveSha256": "1805bcd35e6815559bd2eb97db438d3fdb0eb3a5e6a977b7c1badca76337e9ce",
+        "signatureStatus": "SIGNATURE_VERIFIED"
+      },
+      "bash": {
+        "version": "5.2.21-2ubuntu4",
+        "architecture": "amd64",
+        "publicReference": "https://archive.ubuntu.com/ubuntu/pool/main/b/bash/bash_5.2.21-2ubuntu4_amd64.deb",
+        "archiveSha256": "73de311a21e094e29ac01527d2b52226cc87fde0a5b57032902251b426d92c66",
+        "signatureStatus": "SIGNATURE_VERIFIED",
+        "package": {
+          "name": "bash",
+          "version": "5.2.21-2ubuntu4",
+          "architecture": "amd64"
+        }
+      },
+      "coreutils": {
+        "version": "9.4-3ubuntu6.3",
+        "architecture": "amd64",
+        "publicReference": "https://archive.ubuntu.com/ubuntu/pool/main/c/coreutils/coreutils_9.4-3ubuntu6.3_amd64.deb",
+        "archiveSha256": "e1e9a17892be0cc83b7cea747edf331ffeb6d6c010b4db296e60d888e8e9274c",
+        "signatureStatus": "SIGNATURE_VERIFIED",
+        "package": {
+          "name": "coreutils",
+          "version": "9.4-3ubuntu6.3",
+          "architecture": "amd64"
+        }
+      },
+      "curl": {
+        "version": "8.5.0-2ubuntu10.16",
+        "architecture": "amd64",
+        "publicReference": "https://archive.ubuntu.com/ubuntu/pool/main/c/curl/curl_8.5.0-2ubuntu10.16_amd64.deb",
+        "archiveSha256": "3c5ca6af64370cfb0fac85876d8025563005cbd399fcaf7e34bbde9051058ae0",
+        "signatureStatus": "SIGNATURE_VERIFIED",
+        "package": {
+          "name": "curl",
+          "version": "8.5.0-2ubuntu10.16",
+          "architecture": "amd64"
+        }
+      },
+      "tar": {
+        "version": "1.35+dfsg-3ubuntu0.4",
+        "architecture": "amd64",
+        "publicReference": "https://archive.ubuntu.com/ubuntu/pool/main/t/tar/tar_1.35+dfsg-3ubuntu0.4_amd64.deb",
+        "archiveSha256": "fdf41a87936824e50c8ac11b0b22d1395aeb0754feef2dae5575b5d5a93793ec",
+        "signatureStatus": "SIGNATURE_VERIFIED",
+        "package": {
+          "name": "tar",
+          "version": "1.35+dfsg-3ubuntu0.4",
+          "architecture": "amd64"
+        }
+      },
+      "dpkg": {
+        "version": "1.22.6ubuntu6.6",
+        "architecture": "amd64",
+        "publicReference": "https://archive.ubuntu.com/ubuntu/pool/main/d/dpkg/dpkg_1.22.6ubuntu6.6_amd64.deb",
+        "archiveSha256": "ceb6aa4da59fbcb8a3b0549b4280c60b7d849b519859797c8668bdfbe378fb3b",
+        "signatureStatus": "SIGNATURE_VERIFIED",
+        "package": {
+          "name": "dpkg",
+          "version": "1.22.6ubuntu6.6",
+          "architecture": "amd64"
+        }
+      },
+      "git": {
+        "version": "1:2.56.0-0ppa1~ubuntu24.04.2",
+        "architecture": "amd64",
+        "publicReference": "https://ppa.launchpadcontent.net/git-core/ppa/ubuntu/pool/main/g/git/git_2.56.0-0ppa1~ubuntu24.04.2_amd64.deb",
+        "archiveSha256": "8681013502ef3b3ab4131c94e43ca89dd133934d0f5dc143cd456a7896b0ba81",
+        "signatureStatus": "SIGNATURE_VERIFIED",
+        "package": {
+          "name": "git",
+          "version": "1:2.56.0-0ppa1~ubuntu24.04.2",
+          "architecture": "amd64"
+        }
+      },
+      "docker-ce-cli": {
+        "version": "5:28.0.4-1~ubuntu.24.04~noble",
+        "architecture": "amd64",
+        "publicReference": "https://download.docker.com/linux/ubuntu/dists/noble/pool/stable/amd64/docker-ce-cli_28.0.4-1~ubuntu.24.04~noble_amd64.deb",
+        "archiveSha256": "b1069d84a0b4d9ecb196df7890e0aa872a738c227403507d0e9cb5aa7ce1568f",
+        "signatureStatus": "SIGNATURE_VERIFIED",
+        "package": {
+          "name": "docker-ce-cli",
+          "version": "5:28.0.4-1~ubuntu.24.04~noble",
+          "architecture": "amd64"
+        }
+      },
+      "openssl": {
+        "version": "3.0.13-0ubuntu3.16",
+        "architecture": "amd64",
+        "publicReference": "https://archive.ubuntu.com/ubuntu/pool/main/o/openssl/openssl_3.0.13-0ubuntu3.16_amd64.deb",
+        "archiveSha256": "675b84971ffd4467707008c25ef7520f90ea7c23ef27b7a76b0dccf1d7c4dc3f",
+        "signatureStatus": "SIGNATURE_VERIFIED",
+        "package": {
+          "name": "openssl",
+          "version": "3.0.13-0ubuntu3.16",
+          "architecture": "amd64"
+        }
+      },
+      "sudo": {
+        "version": "1.9.15p5-3ubuntu5.24.04.4",
+        "architecture": "amd64",
+        "publicReference": "https://archive.ubuntu.com/ubuntu/pool/main/s/sudo/sudo_1.9.15p5-3ubuntu5.24.04.4_amd64.deb",
+        "archiveSha256": "deaf622cdfa623d3efca7b797e38ceae461769b2ec427e8ecd8e6c0fcb745f3c",
+        "signatureStatus": "SIGNATURE_VERIFIED",
+        "package": {
+          "name": "sudo",
+          "version": "1.9.15p5-3ubuntu5.24.04.4",
+          "architecture": "amd64"
+        }
+      },
+      "iptables": {
+        "version": "1.8.10-3ubuntu2",
+        "architecture": "amd64",
+        "publicReference": "https://archive.ubuntu.com/ubuntu/pool/main/i/iptables/iptables_1.8.10-3ubuntu2_amd64.deb",
+        "archiveSha256": "d341e8ffc42ca035f5aa0fd9a798c8d2b2edb019225dc11f4dac16edf9c57840",
+        "signatureStatus": "SIGNATURE_VERIFIED",
+        "package": {
+          "name": "iptables",
+          "version": "1.8.10-3ubuntu2",
+          "architecture": "amd64"
+        }
+      },
+      "iproute2": {
+        "version": "6.1.0-1ubuntu6.4",
+        "architecture": "amd64",
+        "publicReference": "https://archive.ubuntu.com/ubuntu/pool/main/i/iproute2/iproute2_6.1.0-1ubuntu6.4_amd64.deb",
+        "archiveSha256": "f6c91ec6dba02f8965c88f901205c7db72bc8bf38ef1fdfaaee51030dfa145ea",
+        "signatureStatus": "SIGNATURE_VERIFIED",
+        "package": {
+          "name": "iproute2",
+          "version": "6.1.0-1ubuntu6.4",
+          "architecture": "amd64"
+        }
+      },
+      "systemd": {
+        "version": "255.4-1ubuntu8.18",
+        "architecture": "amd64",
+        "publicReference": "https://archive.ubuntu.com/ubuntu/pool/main/s/systemd/systemd_255.4-1ubuntu8.18_amd64.deb",
+        "archiveSha256": "ba37e7dc1e33690d94a1063543d27f9b17c013a20791c3315b2423fbf9e7ae7b",
+        "signatureStatus": "SIGNATURE_VERIFIED",
+        "package": {
+          "name": "systemd",
+          "version": "255.4-1ubuntu8.18",
+          "architecture": "amd64"
+        }
+      },
+      "containerd.io": {
+        "version": "2.4.2-3~ubuntu.24.04~noble",
+        "architecture": "amd64",
+        "publicReference": "https://download.docker.com/linux/ubuntu/dists/noble/pool/stable/amd64/containerd.io_2.4.2-3~ubuntu.24.04~noble_amd64.deb",
+        "archiveSha256": "f811ab57d1f4bb0cce19df7d526da8c711d8ebea0447cc83da1999188e664122",
+        "signatureStatus": "SIGNATURE_VERIFIED",
+        "package": {
+          "name": "containerd.io",
+          "version": "2.4.2-3~ubuntu.24.04~noble",
+          "architecture": "amd64"
+        }
+      },
+      "dash": {
+        "version": "0.5.12-6ubuntu5",
+        "architecture": "amd64",
+        "publicReference": "https://archive.ubuntu.com/ubuntu/pool/main/d/dash/dash_0.5.12-6ubuntu5_amd64.deb",
+        "archiveSha256": "e97728d8deaa51300255f0572bbd68b9549e0894a184c056dc420fc4e0ba0781",
+        "signatureStatus": "SIGNATURE_VERIFIED",
+        "package": {
+          "name": "dash",
+          "version": "0.5.12-6ubuntu5",
+          "architecture": "amd64"
+        }
+      },
+      "docker-ce": {
+        "version": "5:28.0.4-1~ubuntu.24.04~noble",
+        "architecture": "amd64",
+        "publicReference": "https://download.docker.com/linux/ubuntu/dists/noble/pool/stable/amd64/docker-ce_28.0.4-1~ubuntu.24.04~noble_amd64.deb",
+        "archiveSha256": "fd13d5ecb1e6019ed7ecb6c10b9df67e21ccac7c99906fc95111e8c43e9f2113",
+        "signatureStatus": "SIGNATURE_VERIFIED",
+        "package": {
+          "name": "docker-ce",
+          "version": "5:28.0.4-1~ubuntu.24.04~noble",
+          "architecture": "amd64"
+        }
+      },
+      "apt": {
+        "version": "2.8.3",
+        "architecture": "amd64",
+        "publicReference": "https://snapshot.ubuntu.com/ubuntu/20261101T000000Z/pool/main/a/apt/apt_2.8.3_amd64.deb",
+        "archiveSha256": "c9ace99efc7726fe0035f921a9acf262a9723bbf35b861aab4f9075a0be67442",
+        "signatureStatus": "SIGNATURE_VERIFIED",
+        "package": {
+          "name": "apt",
+          "version": "2.8.3",
+          "architecture": "amd64"
+        }
+      }
+    },
+    "packages": {
+      "stock-node": {
+        "disposition": "UNOWNED_PUBLIC_DISTRIBUTION_RECONCILIATION_REQUIRED"
+      },
+      "bash": {
+        "name": "bash",
+        "version": "5.2.21-2ubuntu4",
+        "architecture": "amd64",
+        "metadataSha256": "75664f3216c1963483f8e3c4edbd8624f5a0e2b78506480f2de384302303fe98",
+        "policySha256": "a5f2d6758ded0d5bc845c6f4ddb3b4a729bd7daa02415b328ada9e37dd97219a"
+      },
+      "coreutils": {
+        "name": "coreutils",
+        "version": "9.4-3ubuntu6.3",
+        "architecture": "amd64",
+        "metadataSha256": "5191affe61a40a3fe772799d5815773227d2664e7ba2bd60cce9bbada217a048",
+        "policySha256": "754fc8c67152080f0a6c54e1aef42386b994e5d486b3be3781b23ba08a5ea7d1"
+      },
+      "curl": {
+        "name": "curl",
+        "version": "8.5.0-2ubuntu10.16",
+        "architecture": "amd64",
+        "metadataSha256": "07ce0515a02ef8c848ee32a418236608a2f047b91b687d3d7697f8b4bce64212",
+        "policySha256": "73216bdff8410058d5b4a8dc90ca40056085411330376f4cafa09294f5a6ce90"
+      },
+      "tar": {
+        "name": "tar",
+        "version": "1.35+dfsg-3ubuntu0.4",
+        "architecture": "amd64",
+        "metadataSha256": "5842cf2aadd541d212db5801472c6c30d5cce9a372834764f5e6a1f9c40ecc61",
+        "policySha256": "da75b66caaecd3eb397d5d9c06175b99f7223be7beb5e3805809b2132862a225"
+      },
+      "dpkg": {
+        "name": "dpkg",
+        "version": "1.22.6ubuntu6.6",
+        "architecture": "amd64",
+        "metadataSha256": "0b81dacdcd22a42fa2d242b7e33306f5c05f99c557f75366ca48adfe6ce2634b",
+        "policySha256": "af4cfbe8f6abc6bf8ab88110af4348bee19ae8ff8b972460c9847a3fe3ffb52b"
+      },
+      "git": {
+        "name": "git",
+        "version": "1:2.56.0-0ppa1~ubuntu24.04.2",
+        "architecture": "amd64",
+        "metadataSha256": "8606357ce61435c9aa30ca3cdde803a9ae88bede0469418fe8bac5e6ff0e5d32",
+        "policySha256": "a10ffca7c9ec01e987467938410b3ca0057187458b89cdf1ecc958431cd0b5cf"
+      },
+      "docker-ce-cli": {
+        "name": "docker-ce-cli",
+        "version": "5:28.0.4-1~ubuntu.24.04~noble",
+        "architecture": "amd64",
+        "metadataSha256": "8b6faf331e6957422236e0da5b267dba5e0f26be037c64118f210df6014152f1",
+        "policySha256": "fca53699143f99ab1675931cc3863879d57f72e825a450d807351724717da0e1"
+      },
+      "openssl": {
+        "name": "openssl",
+        "version": "3.0.13-0ubuntu3.16",
+        "architecture": "amd64",
+        "metadataSha256": "2b186980bbe2686fc82c7875de4223326920a425b8326d3bc884861047216fc0",
+        "policySha256": "d626f6883eff7872531f95b9a76264a4b8d2fc9a34b23130f84653666a4def5f"
+      },
+      "sudo": {
+        "name": "sudo",
+        "version": "1.9.15p5-3ubuntu5.24.04.4",
+        "architecture": "amd64",
+        "metadataSha256": "41c388108e654d346110ff6df6837d418bc76d9a1f1d5032dd1daa87e32fb5ae",
+        "policySha256": "0135e4acd156b0f779662521f372c173d3b9ea621412736e997ea4d5fdd7a209"
+      },
+      "iptables": {
+        "name": "iptables",
+        "version": "1.8.10-3ubuntu2",
+        "architecture": "amd64",
+        "metadataSha256": "dedfcf905c52db96514b0e5587b61b23ac1f70f0699ee193837788a5d427392c",
+        "policySha256": "d2448f6c8a9d3c663e169affc011d39dc3c1a813d651e04fbf5f412175031c25"
+      },
+      "iproute2": {
+        "disposition": "UNOWNED_PUBLIC_DISTRIBUTION_RECONCILIATION_REQUIRED"
+      },
+      "systemd": {
+        "name": "systemd",
+        "version": "255.4-1ubuntu8.18",
+        "architecture": "amd64",
+        "metadataSha256": "e495c73b6d76464e5647eca4edb89ff11bf83d6dbea98742e7fba6acb8edba35",
+        "policySha256": "563a1f056ad01fe124115766196f8b14db84ab4d09f0c588703727c260cc8e66"
+      },
+      "containerd.io": {
+        "name": "containerd.io",
+        "version": "2.4.2-3~ubuntu.24.04~noble",
+        "architecture": "amd64",
+        "metadataSha256": "ce92a7df86fe74a36e7f0dfaff4f539fa0e957dc303886d51aacbb1476cebf7c",
+        "policySha256": "846f695118ec1f1d7679cf3c796f1a2f7ca22a682853b59edc8068d7edae18b6"
+      },
+      "dash": {
+        "name": "dash",
+        "version": "0.5.12-6ubuntu5",
+        "architecture": "amd64",
+        "metadataSha256": "b14dcb5886d889393fa6ec606b254406736d650808537bbc6d98b10816a6aae1",
+        "policySha256": "2ba3807948f83776e8aa7cd3ac297c3beb49a871dcaca1a91c379f56334e0917"
+      },
+      "docker-ce": {
+        "name": "docker-ce",
+        "version": "5:28.0.4-1~ubuntu.24.04~noble",
+        "architecture": "amd64",
+        "metadataSha256": "5b91701bb74a56fc50f5773010ab052a9274e1ac5a37f816ecb4f86e7f06dd3d",
+        "policySha256": "c10aab56a81d8d7f8d0f2dc26d3ab3def8d59c0a70d1827fc039fabc459c2f4b"
+      },
+      "apt": {
+        "name": "apt",
+        "version": "2.8.3",
+        "architecture": "amd64",
+        "metadataSha256": "0d908c38005ea06e4f65c755cd5f73eab802f952d6b7e48c2ec814636796e33d",
+        "policySha256": "c24dfd3e99d3fd6c820f2ae63f4a530e6e85670bcf7def4737afbc8f70fc063d"
+      }
+    },
+    "pins": {
+      "tools.node": {
+        "path": "/usr/local/bin/node",
+        "realTarget": "/usr/local/bin/node",
+        "sha256": "94efd062ed066c1a0b332e18249859c905e920eeada5df55d24c99b919629a90",
+        "distribution": "stock-node",
+        "format": "native",
+        "package": "stock-node"
+      },
+      "tools.bash": {
+        "path": "/usr/bin/bash",
+        "realTarget": "/usr/bin/bash",
+        "sha256": "bc5945feb8bd26203ebfafea5ce1878bb2e32cb8fb50ab7ae395cfb1e1aaaef1",
+        "distribution": "bash",
+        "format": "native",
+        "package": "bash"
+      },
+      "tools.env": {
+        "path": "/usr/bin/env",
+        "realTarget": "/usr/bin/env",
+        "sha256": "886e5fa8be716b03eeda48856e0f04493f2969fc148fb7812594ffac647fa050",
+        "distribution": "coreutils",
+        "format": "native",
+        "package": "coreutils"
+      },
+      "tools.curl": {
+        "path": "/usr/bin/curl",
+        "realTarget": "/usr/bin/curl",
+        "sha256": "1ccbd3dae948374ba8eef1ebda26c64b783ede50b463196e53666e0880bdac60",
+        "distribution": "curl",
+        "format": "native",
+        "package": "curl"
+      },
+      "tools.sha256sum": {
+        "path": "/usr/bin/sha256sum",
+        "realTarget": "/usr/bin/sha256sum",
+        "sha256": "4d2db56c867e5324e0084c9e897f6360d37517de77ac96f2bd31494223d69a60",
+        "distribution": "coreutils",
+        "format": "native",
+        "package": "coreutils"
+      },
+      "tools.tar": {
+        "path": "/usr/bin/tar",
+        "realTarget": "/usr/bin/tar",
+        "sha256": "3ee2c3c0b4dd9aacebfd2f0fbae44bad36348203acff78a44888dd58c05f811c",
+        "distribution": "tar",
+        "format": "native",
+        "package": "tar"
+      },
+      "tools.install": {
+        "path": "/usr/bin/install",
+        "realTarget": "/usr/bin/install",
+        "sha256": "14e9088c53f771fea828d81866a22c7817177504d1f993a1f5ed2f70373ebe17",
+        "distribution": "coreutils",
+        "format": "native",
+        "package": "coreutils"
+      },
+      "tools.cp": {
+        "path": "/usr/bin/cp",
+        "realTarget": "/usr/bin/cp",
+        "sha256": "95cdd604fdf0a292e349d27d1a80170ca0913bd3bbd9d2c0fcfc6c8adaebe2f0",
+        "distribution": "coreutils",
+        "format": "native",
+        "package": "coreutils"
+      },
+      "tools.chmod": {
+        "path": "/usr/bin/chmod",
+        "realTarget": "/usr/bin/chmod",
+        "sha256": "636dc2e0792244a537121ec10b6e140797cb8d27d231f5c1d025148d1b0c6fc8",
+        "distribution": "coreutils",
+        "format": "native",
+        "package": "coreutils"
+      },
+      "tools.mkdir": {
+        "path": "/usr/bin/mkdir",
+        "realTarget": "/usr/bin/mkdir",
+        "sha256": "430c3f949d7d328cd835722f5bbddeac0956fbdfbbb6a197e0abb1def3ed27e2",
+        "distribution": "coreutils",
+        "format": "native",
+        "package": "coreutils"
+      },
+      "tools.readlink": {
+        "path": "/usr/bin/readlink",
+        "realTarget": "/usr/bin/readlink",
+        "sha256": "4c6117ae99adf14e90ee49c860ca6f827db657423d0d0b3e4f6eb29d39daebe0",
+        "distribution": "coreutils",
+        "format": "native",
+        "package": "coreutils"
+      },
+      "tools.dpkg-query": {
+        "path": "/usr/bin/dpkg-query",
+        "realTarget": "/usr/bin/dpkg-query",
+        "sha256": "cc2a19017c37132e4ad46c1fbddea6472262d0a62a0b8585c383706c20005ea1",
+        "distribution": "dpkg",
+        "format": "native",
+        "package": "dpkg"
+      },
+      "tools.git": {
+        "path": "/usr/bin/git",
+        "realTarget": "/usr/bin/git",
+        "sha256": "824d5b2fffef332ec7ba053e579659bb12f26a0b4747da6f9c6dc0e71d36f235",
+        "distribution": "git",
+        "format": "native",
+        "package": "git"
+      },
+      "tools.docker": {
+        "path": "/usr/bin/docker",
+        "realTarget": "/usr/bin/docker",
+        "sha256": "6435ff9214bf8e0931078fb0980809728cac0a54a526d4f28a26d3e48132b58d",
+        "distribution": "docker-ce-cli",
+        "format": "native",
+        "package": "docker-ce-cli"
+      },
+      "tools.openssl": {
+        "path": "/usr/bin/openssl",
+        "realTarget": "/usr/bin/openssl",
+        "sha256": "b4f547c0f16272d1cc7f870330a6f2c243710c335e7a99c734ff7a0c6fdb2503",
+        "distribution": "openssl",
+        "format": "native",
+        "package": "openssl"
+      },
+      "tools.sudo": {
+        "path": "/usr/bin/sudo",
+        "realTarget": "/usr/bin/sudo",
+        "sha256": "6ae6665cc51295ea8aaba94a3377dafa563f950aafc6296c0704fb33401a31ff",
+        "distribution": "sudo",
+        "format": "native",
+        "package": "sudo"
+      },
+      "tools.iptables": {
+        "path": "/usr/sbin/iptables",
+        "realTarget": "/usr/sbin/xtables-nft-multi",
+        "sha256": "a1610dd70bb5ab04180671280df65b0077b680b627c0b6c51480b327732a762d",
+        "distribution": "iptables",
+        "format": "native",
+        "package": "iptables",
+        "multicall": true,
+        "invocation": "iptables"
+      },
+      "tools.ip6tables": {
+        "path": "/usr/sbin/ip6tables",
+        "realTarget": "/usr/sbin/xtables-nft-multi",
+        "sha256": "a1610dd70bb5ab04180671280df65b0077b680b627c0b6c51480b327732a762d",
+        "distribution": "iptables",
+        "format": "native",
+        "package": "iptables",
+        "multicall": true,
+        "invocation": "ip6tables"
+      },
+      "tools.ip": {
+        "path": "/usr/sbin/ip",
+        "realTarget": "/usr/bin/ip",
+        "sha256": "ea200fcc3a7bf723a8e0e2a21ceb3805324812fef36f6ba0552362a9a9e65f92",
+        "distribution": "iproute2",
+        "format": "native",
+        "package": "iproute2",
+        "multicall": true,
+        "invocation": "ip"
+      },
+      "tools.systemctl": {
+        "path": "/usr/bin/systemctl",
+        "realTarget": "/usr/bin/systemctl",
+        "sha256": "37ec607113f55f1b385b4fa75588a43402aec0de57927500763b267713f10f63",
+        "distribution": "systemd",
+        "format": "native",
+        "package": "systemd"
+      },
+      "tools.containerd": {
+        "path": "/usr/bin/containerd",
+        "realTarget": "/usr/bin/containerd",
+        "sha256": "fc185d75979d92a4f8de99b76293dca7fe81142e9c5fd01d7da59f786f0fc8d1",
+        "distribution": "containerd.io",
+        "format": "native",
+        "package": "containerd.io"
+      },
+      "tools.containerd-shim-runc-v2": {
+        "path": "/usr/bin/containerd-shim-runc-v2",
+        "realTarget": "/usr/bin/containerd-shim-runc-v2",
+        "sha256": "ca4c4b5919655332666dda634338b826d73a12cdd3b6633627e95d1ab4bc138a",
+        "distribution": "containerd.io",
+        "format": "native",
+        "package": "containerd.io"
+      },
+      "tools.runc": {
+        "path": "/usr/bin/runc",
+        "realTarget": "/usr/bin/runc",
+        "sha256": "1248fee8f9a0dc5382f888990d669e2bd225045869b9246f848a1681161abc96",
+        "distribution": "containerd.io",
+        "format": "native",
+        "package": "containerd.io"
+      },
+      "tools.sh": {
+        "path": "/usr/bin/sh",
+        "realTarget": "/usr/bin/dash",
+        "sha256": "86d31f6fb799e91fa21bad341484564510ca287703a16e9e46c53338776f4f42",
+        "distribution": "dash",
+        "format": "native",
+        "package": "dash",
+        "multicall": true,
+        "invocation": "sh"
+      },
+      "daemon.executable": {
+        "path": "/usr/bin/dockerd",
+        "realTarget": "/usr/bin/dockerd",
+        "sha256": "b8644399e73e2c9b32ea3983daf3a9856a483a79196bea10c01977d2b021fe71",
+        "distribution": "docker-ce",
+        "format": "native",
+        "package": "docker-ce"
+      },
+      "daemon.containerdExecutable": {
+        "path": "/usr/bin/containerd",
+        "realTarget": "/usr/bin/containerd",
+        "sha256": "fc185d75979d92a4f8de99b76293dca7fe81142e9c5fd01d7da59f786f0fc8d1",
+        "distribution": "containerd.io",
+        "format": "native",
+        "package": "containerd.io"
+      },
+      "daemon.activeRuntime": {
+        "path": "/usr/bin/runc",
+        "realTarget": "/usr/bin/runc",
+        "sha256": "1248fee8f9a0dc5382f888990d669e2bd225045869b9246f848a1681161abc96",
+        "distribution": "containerd.io",
+        "format": "native",
+        "package": "containerd.io"
+      },
+      "daemon.unitFiles.0": {
+        "path": "/usr/lib/systemd/system/docker.service",
+        "realTarget": "/usr/lib/systemd/system/docker.service",
+        "sha256": "f5323634ccd7a1743ec9f344e0c85d837be964cd62bf25dd5cb16a730092e709",
+        "distribution": "docker-ce"
+      },
+      "daemon.containerdUnitFiles.0": {
+        "path": "/usr/lib/systemd/system/containerd.service",
+        "realTarget": "/usr/lib/systemd/system/containerd.service",
+        "sha256": "bd1effcf6d9cd564c232b631b353b2758f174160e3d8c078a792363b59f113d0",
+        "distribution": "containerd.io"
+      },
+      "tools.apt-cache": {
+        "path": "/usr/bin/apt-cache",
+        "realTarget": "/usr/bin/apt-cache",
+        "sha256": "7b9f8a0a1c6d6e547df46b8401b5fa521d324d959dc29f84927910af64a9401f",
+        "format": "native",
+        "package": "apt",
+        "distribution": "apt"
+      }
+    },
+    "runnerIdentity": {
+      "image": "ubuntu-24.04",
+      "imageVersion": "20261101.360.1",
+      "imageOS": "ubuntu24",
+      "architecture": "x64",
+      "os": "Ubuntu 24.04.5 LTS",
+      "codename": "noble",
+      "kernel": "7.0.0-1017-azure",
+      "engine": {
+        "version": "28.0.4",
+        "apiVersion": "1.48",
+        "gitCommit": "6430e49"
+      },
+      "containerd": {
+        "version": "v2.4.2",
+        "gitCommit": "b7a25261e029d68978bbf290df0a62fc819b3c51"
+      },
+      "runc": {
+        "version": "1.5.2",
+        "gitCommit": "v1.5.2-0-g29dd3dc2"
+      },
+      "dockerInit": {
+        "version": "0.19.0",
+        "gitCommit": "de40ad0",
+        "bytePin": false
+      }
+    },
+    "bootstrapIdentity": {
+      "imageVersion": "20261101.360.1",
+      "imageOS": "ubuntu24",
+      "architecture": "x64",
+      "kernel": "7.0.0-1017-azure",
+      "osReleaseSha256": "c6549a19609dc60a2cb42dc6056e13f48877d5cac85c5d3646a7bd315a2d3e22",
+      "toolsSha256": "8f6e1e0456e4de0439d9b0b89bfc3ccc56f743686ec01f225d3a54f6d670f5bb",
+      "versionsSha256": "b445508be790259c9dbacaf98aa38c30256dd4425b593004a67621809daddc68",
+      "daemonSha256": "b14a8b0ed68606380521c3ce4100397bc8f16b6825520ab9453b04d6df0b29d8",
+      "identitySha256": "7b1d67643016e5eaf8c497dee8e9fc4f285442ece69ec5a598fd493548408613"
+    },
+    "expectedIdentity": {
+      "imageVersion": "20261101.360.1",
+      "imageOS": "ubuntu24",
+      "architecture": "x64",
+      "kernel": "7.0.0-1017-azure",
+      "osReleaseSha256": "c6549a19609dc60a2cb42dc6056e13f48877d5cac85c5d3646a7bd315a2d3e22",
+      "toolsSha256": "ff81a151d0073dd2a068beb5bd0a74ca592e4708066e1833a367085e51b365cc",
+      "versionsSha256": "b48f3a6fb25139c3c36222491385c84245baf9d2803848c8a69ffa98d84fa4d6",
+      "daemonSha256": "b14a8b0ed68606380521c3ce4100397bc8f16b6825520ab9453b04d6df0b29d8",
+      "identitySha256": "26e4d51d030cf4ec5e53da545bcd4221cd918c2307b823aca99a2de5e0caa87c"
+    },
+    "inventoryAuthority": {
+      "head": "9c976fd91dc7c75d7e129859eb54bdde3651e26f",
+      "run": "42412487859",
+      "attempt": "1",
+      "job": "128523423088",
+      "artifactId": "13590540322",
+      "artifactSha256": "f863b349d27356c1d5fd074ad15f4b55d0ed924dfa0a462f988b98f8f35748a1",
+      "receiptSha256": "6cb0608f0c9fbb7ddb256f6bda67c6c5b304c36fe268c3f1567a257750ab8e79",
+      "envelopeSha256": "ddd16e3792d1d0503f8d9a8fe783ec5a9dd7684098e0d234a8440b92fb9c5837",
+      "manifestSha256": "2ec26c98082884431b205cccba4d3be639443feae7bf940387ac72d000dfc26c"
+    }
   }
 }

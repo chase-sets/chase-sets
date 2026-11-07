@@ -31,6 +31,8 @@ export function fixturePayload() {
   };
 }
 
+export const fixtureMeasurementPayload = () => ({ ...fixturePayload(), phase: "measurement" });
+
 // Same supported generic lane-complete producer fields, not review-complete or a controller receipt.
 export function syntheticCompletion(dispatch, note, outcome = "PASS") {
   return {

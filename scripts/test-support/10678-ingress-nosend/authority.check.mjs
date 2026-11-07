@@ -11,6 +11,13 @@ import {
   invocation,
   maximumEnvelopeBytes,
   measurementTools,
+  measurementConfig,
+  scriptClosureDescriptor,
+  scriptClosureFingerprint,
+  scriptDistribution,
+  validateClosureDescriptor,
+  validateScriptAuthority,
+  validateScriptClosure,
   stockTools,
   validateAuthorityPath,
   validateCensus,
@@ -19,7 +26,7 @@ import {
   validateToolObservation,
 } from "./inventory.mjs";
 import { parseProtocol, scanExposure, sha256 } from "./helpers.mjs";
-import { fixturePayload as payload, fixtureAuthority } from "./authority-fixtures.mjs";
+import { fixturePayload as payload, fixtureMeasurementPayload, fixtureAuthority } from "./authority-fixtures.mjs";
 
 const p = parseProtocol(readFileSync(new URL("./protocol.json", import.meta.url), "utf8"));
 const template = JSON.parse(readFileSync(new URL("./inputs.template.json", import.meta.url), "utf8"));
@@ -148,27 +155,7 @@ const observed = (pin) => ({
   format: pin.format,
   package: pin.package,
 });
-const pins = () => {
-  const tools = Object.fromEntries(measurementTools.map((name) => [name, native(name)]));
-  const identity = syntheticIdentity(tools);
-  return {
-    tools,
-    bootstrapTools: { node: tools.node },
-    bootstrapIdentity: identityFingerprint(identity),
-    expectedIdentity: identityFingerprint(identity),
-    daemonTools: { docker: native("dockerd"), containerd: native("containerd") },
-    inventoryAuthority: {
-      run: "1",
-      attempt: "1",
-      job: "1",
-      artifactId: "1",
-      artifactSha256: hash,
-      receiptSha256: hash,
-      envelopeSha256: hash,
-      head,
-    },
-  };
-};
+const pins = () => measurementConfig(fixtureMeasurementPayload());
 const syntheticIdentity = (tools) => ({
   imageVersion: "20261107.1.0",
   imageOS: "ubuntu24",
@@ -186,14 +173,16 @@ const syntheticIdentity = (tools) => ({
 });
 
 check("measurement requires full reviewed pins and prior inventory custody", () => {
-  const config = { ...payload(), phase: "measurement", ...pins() };
+  const config = pins();
   validateMeasurementPins(config);
-  const e = envelope(config);
+  const e = envelope(fixtureMeasurementPayload());
   accept(e, "measurement");
   console.log(
-    `SYNTHETIC full-census measurement E=${bytes(e).length} bytes, limit=${maximumEnvelopeBytes}; no actual measurement pins`,
+    `SYNTHETIC D/F/R/C/S with complete reviewed measurement constants, real 448-file descriptor/census E=${bytes(e).length} bytes, limit=${maximumEnvelopeBytes}; no execution authority`,
   );
-  assert.throws(() => accept(envelope({ ...payload(), phase: "measurement" }), "measurement"), /PINS_REQUIRED/);
+  const missing = fixtureMeasurementPayload();
+  delete missing.publicInputs.measurement;
+  assert.throws(() => accept(envelope(missing), "measurement"), /PINS_REQUIRED/);
   for (const field of [
     "bootstrapTools",
     "bootstrapIdentity",
@@ -201,6 +190,8 @@ check("measurement requires full reviewed pins and prior inventory custody", () 
     "daemonTools",
     "inventoryAuthority",
     "tools",
+    "runnerIdentity",
+    "servicePins",
   ]) {
     const changed = clone(config);
     delete changed[field];
@@ -217,12 +208,21 @@ check("measurement requires full reviewed pins and prior inventory custody", () 
   const custody = clone(config);
   custody.inventoryAuthority.receiptSha256 = "UNKNOWN";
   assert.throws(() => validateMeasurementPins(custody));
+  for (const name of ["engine", "containerd", "runc", "dockerInit"]) {
+    const changed = clone(config);
+    delete changed.runnerIdentity[name].version;
+    assert.throws(() => validateMeasurementPins(changed), /IDENTITY_REQUIRED/);
+  }
+  const missingService = clone(config);
+  delete missingService.servicePins.docker.sha256;
+  assert.throws(() => validateMeasurementPins(missingService), /SERVICE_PINS_REQUIRED/);
 });
 
 check("OS daemon service package and tool drift fail before preparation", () => {
   const config = pins();
   const actual = syntheticIdentity(config.tools);
-  compareIdentity(config.expectedIdentity, actual);
+  const expected = identityFingerprint(actual);
+  compareIdentity(expected, actual);
   for (const mutate of [
     (v) => (v.kernel = "drift"),
     (v) => (v.imageVersion = "drift"),
@@ -235,7 +235,7 @@ check("OS daemon service package and tool drift fail before preparation", () => 
   ]) {
     const changed = clone(actual);
     mutate(changed);
-    assert.throws(() => compareIdentity(config.expectedIdentity, changed), /DRIFT/);
+    assert.throws(() => compareIdentity(expected, changed), /DRIFT/);
   }
 });
 
@@ -259,13 +259,133 @@ check("genuine multicall invocation preserved; shims and interpreter drift refus
     format: "script",
     interpreter: { tool: "node", shebang: "#!/usr/bin/env node" },
     distributionRoot: "/opt/synthetic-pnpm",
-    closure: { "bin/pnpm.cjs": hash, "dist/pnpm.cjs": hash },
+    closure: scriptClosureDescriptor,
   };
-  const actual = { ...observed(script), shebang: script.interpreter.shebang, closure: script.closure };
+  const complete = JSON.parse(readFileSync(new URL("./pnpm-11.0.9.closure.json", import.meta.url)));
+  const actual = { ...observed(script), shebang: script.interpreter.shebang, closure: complete };
   validateToolObservation(script, actual);
   assert.equal(invocation({ pnpm: script, node: native("node") }, "pnpm", ["--version"]).executable, "/usr/bin/node");
-  for (const patch of [{ shebang: "#!/bin/sh" }, { closure: { "bin/pnpm.cjs": hash } }])
+  for (const patch of [{ shebang: "#!/bin/sh" }, { closure: complete.slice(1) }])
     assert.throws(() => validateToolObservation(script, { ...actual, ...patch }), /DRIFT/);
+});
+
+check("complete canonical script closure, strict descriptor and census-bound sidecar", () => {
+  const complete = JSON.parse(readFileSync(new URL("./pnpm-11.0.9.closure.json", import.meta.url)));
+  assert.deepEqual(validateScriptClosure(complete, scriptClosureDescriptor, true), {
+    fileCount: 448,
+    sha256: "99aa5fa37093261917e32dfdaee917eafa784011e116e2d707ba55f33e0c15d5",
+  });
+  assert.deepEqual(scriptClosureFingerprint([...complete].reverse()), scriptClosureFingerprint(complete));
+  assert.throws(() => validateScriptClosure([...complete].reverse(), scriptClosureDescriptor, true), /ORDER/);
+  for (const change of [
+    (v) => v.slice(1),
+    (v) => [...v, ["extra-file", hash]],
+    (v) => v.map((pair, i) => (i === 1 ? [pair[0], hash] : pair)),
+    (v) => v.map((pair, i) => (i === 1 ? [`renamed-${pair[0]}`, pair[1]] : pair)),
+  ])
+    assert.throws(() => validateScriptClosure(change(clone(complete)), scriptClosureDescriptor), /DRIFT/);
+  for (const pair of [
+    ["../escape", hash],
+    ["/absolute", hash],
+    ["a//b", hash],
+    ["a/./b", hash],
+    ["a/../b", hash],
+    ["a\\b", hash],
+    ["a\u0000b", hash],
+    ["a\nb", hash],
+    ["a\u007fb", hash],
+    ["", hash],
+    ["valid", hash.toUpperCase()],
+    ["valid", 7],
+    ["valid"],
+    ["valid", hash, "extra"],
+  ])
+    assert.throws(() => scriptClosureFingerprint([pair]));
+  assert.throws(() => scriptClosureFingerprint([complete[0], complete[0]]), /PATH_OR_HASH/);
+  for (const [key, value] of [
+    ["algorithm", "sha512"],
+    ["algorithm", "SHA-256"],
+    ["algorithm", "unknown"],
+    ["schema", "unknown"],
+    ["canonicalization", "unknown"],
+    ["fileCount", 447],
+    ["fileCount", "448"],
+    ["sha256", hash],
+    ["path", "elsewhere.json"],
+    ["extra", true],
+  ])
+    assert.throws(() => validateClosureDescriptor({ ...scriptClosureDescriptor, [key]: value }), /DESCRIPTOR/);
+  for (const key of Object.keys(scriptClosureDescriptor)) {
+    const changed = { ...scriptClosureDescriptor };
+    delete changed[key];
+    assert.throws(() => validateClosureDescriptor(changed), /DESCRIPTOR/);
+  }
+  const config = pins();
+  const relative = scriptClosureDescriptor.path;
+  const raw = readFileSync(new URL("./pnpm-11.0.9.closure.json", import.meta.url));
+  validateScriptAuthority(config, () => raw);
+  assert.throws(() => validateScriptAuthority(config, () => Buffer.concat([raw, Buffer.from(" ")])), /DIGEST/);
+  const noCensus = clone(config);
+  delete noCensus.files[relative];
+  assert.throws(() => validateScriptAuthority(noCensus, () => raw), /CENSUS/);
+  assert.throws(() =>
+    validateScriptAuthority(config, () => {
+      throw new Error("SYNTHETIC_UNREADABLE");
+    }),
+  );
+  for (const list of [
+    complete.slice(1),
+    [...complete, ["extra", hash]],
+    complete.map((pair, i) => (i === 1 ? [pair[0], hash] : pair)),
+    [...complete].reverse(),
+  ]) {
+    const changedRaw = bytes(list);
+    const changed = clone(config);
+    changed.files[relative] = sha256(changedRaw);
+    assert.throws(() => validateScriptAuthority(changed, () => changedRaw));
+  }
+  const changedTemplate = clone(config);
+  changedTemplate.publicInputs.publicExecutables.pnpm.closure.algorithm = "sha512";
+  assert.throws(() => validateScriptAuthority(changedTemplate, () => raw), /DESCRIPTOR/);
+  const emptyIO = {
+    realpathSync: (file) => file,
+    lstatSync: () => ({ isDirectory: () => true, isSymbolicLink: () => false }),
+    readdirSync: () => [],
+    readFileSync: () => {
+      throw new Error("UNREACHABLE");
+    },
+  };
+  assert.deepEqual(scriptDistribution("/synthetic", emptyIO), []);
+  assert.throws(() => scriptDistribution("/synthetic", { ...emptyIO, realpathSync: () => "/elsewhere" }), /ESCAPE/);
+  for (const type of ["symlink", "special", "escape", "unreadable"]) {
+    const io = {
+      ...emptyIO,
+      readdirSync: () => [{ name: "member" }],
+      realpathSync: (file) => (type === "escape" && file.endsWith("member") ? "/escape" : file),
+      lstatSync: (file) => ({
+        isDirectory: () => file === "/synthetic",
+        isSymbolicLink: () => type === "symlink" && file !== "/synthetic",
+        isFile: () => type !== "special",
+      }),
+      readFileSync: () => {
+        throw new Error("SYNTHETIC_UNREADABLE");
+      },
+    };
+    assert.throws(() => scriptDistribution("/synthetic", io));
+  }
+  assert.deepEqual(
+    scanExposure([
+      { file: "descriptor", text: JSON.stringify(scriptClosureDescriptor) },
+      { file: "sidecar", text: raw.toString("utf8") },
+    ]),
+    [],
+  );
+  for (const value of [scriptClosureDescriptor, complete]) {
+    assert(
+      scanExposure([{ file: "synthetic", text: JSON.stringify([value, { token: "synthetic-marker-value" }]) }]).length >
+        0,
+    );
+  }
 });
 
 check("one exact retained ConfigMap and complete approved-only normalization", () => {

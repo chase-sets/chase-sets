@@ -3,8 +3,16 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import ts from "@chase-sets/typescript-compiler-api";
-import { fixtureAuthority } from "./authority-fixtures.mjs";
-import { classifyExposure, invariant, scanExposure, sha256 } from "./helpers.mjs";
+import { fixtureAuthority, fixtureMeasurementPayload } from "./authority-fixtures.mjs";
+import {
+  assembleReceipt,
+  classifyExposure,
+  exposureRuleIds,
+  invariant,
+  matrix,
+  scanExposure,
+  sha256,
+} from "./helpers.mjs";
 import {
   inventoryAt,
   inventoryCategory,
@@ -24,6 +32,9 @@ import {
   validateInventoryPublication,
   normalizePushEvent,
   stockTools,
+  measurementConfig,
+  measurementPublicationRehearsal,
+  measurementPublicationRoles,
   validateExecutionHead,
 } from "./inventory.mjs";
 const protocol = JSON.parse(readFileSync(new URL("./protocol.json", import.meta.url)));
@@ -878,7 +889,7 @@ const freeze = (value) => {
 };
 const frozenIdentity = freeze(productionShape.actual);
 const frozenSinkBindings = freeze({
-  path: { join: path.posix.join },
+  path: { join: path.posix.join, dirname: path.posix.dirname, basename: path.posix.basename },
   capture: "/synthetic/capture",
   config: { head, tools: {}, bootstrapTools: {}, daemonTools: {}, expectedIdentity: {} },
   event: normalized,
@@ -895,8 +906,17 @@ const frozenSinkBindings = freeze({
 });
 function evaluateIdentitySink(text, actualIdentity = frozenIdentity) {
   const writes = [];
-  const json = new Function("writeFileSync", `return (${runnerJson[0].initializer.getText(runnerTree)});`)(
+  const json = new Function(
+    "writeFileSync",
+    "path",
+    "capture",
+    "publicationFiles",
+    `return (${runnerJson[0].initializer.getText(runnerTree)});`,
+  )(
     (file, text, options) => writes.push({ file, text, options }),
+    frozenSinkBindings.path,
+    frozenSinkBindings.capture,
+    new Map(),
   );
   const bindings = { ...frozenSinkBindings, json, actualIdentity, projectIdentity };
   new Function(...Object.keys(bindings), text)(...Object.values(bindings));
@@ -960,6 +980,321 @@ const markerOutput = "CONTROL 2 PASS: one planted banner hit, LABELED_FIELD; no 
 assert(!markerOutput.includes(secret));
 console.log(markerOutput);
 
+// Evaluate the real artifact writers with full reviewed constants and synthetic I/O.
+// No runner entry point, tool, observer or filesystem writer is executed.
+const runnerFunction = (name) =>
+  runnerTree.statements.find((node) => ts.isFunctionDeclaration(node) && node.name.text === name);
+const runnerDeclaration = (name) =>
+  descendants(runnerTree, (node) => ts.isVariableDeclaration(node) && node.name.getText(runnerTree) === name);
+const execute = (text, bindings) => new Function(...Object.keys(bindings), text)(...Object.values(bindings));
+const measurementFixture = fixtureAuthority(fixtureMeasurementPayload());
+const measurementBytes = Buffer.from(JSON.stringify(measurementFixture.envelope));
+const measurementAuthority = decodeAuthority(measurementBytes, sha256(measurementBytes), {
+  head,
+  phase: "measurement",
+  protocol,
+});
+const completeConfig = freeze(measurementConfig(fixtureMeasurementPayload()));
+const completedRows = matrix(protocol).map((row) => ({
+  ...row,
+  startedAt: "2000-01-01T00:00:00.000Z",
+  completedAt: "2000-01-01T00:00:13.000Z",
+  app: { status: 202, durationMs: row.durationMs, appTrace: "synthetic-app" },
+  client: { status: 202, complete: true, contentType: "application/json", bytes: 4, bodySha256: sha256("null") },
+  socket: { finished: true, bodyBytes: 4, bodySha256: sha256("null") },
+  access: { nginxId: "synthetic-nginx", endpoint: "172.29.0.2:8080", status: 202, statuses: ["202"], lengths: ["4"] },
+  captureComplete: true,
+}));
+const commandNode = descendants(
+  runnerFunction("command"),
+  (node) => ts.isVariableDeclaration(node) && node.name.getText(runnerTree) === "entry",
+)[0];
+const measurementCommands = Object.keys(completeConfig.tools).map((tool, i) => ({
+  ...expression(
+    commandNode.initializer,
+    {
+      tool,
+      args: ["--version"],
+      cwd: "/synthetic/repo",
+      path: path.posix,
+      output: `/synthetic/capture/${i}.stdout`,
+      error: `/synthetic/capture/${i}.stderr`,
+      Date: productionShape.bindings.Date,
+    },
+    commandNode.initializer.getText(runnerTree),
+  ),
+  exit: 0,
+  signal: null,
+  completedAt: "2000-01-01T00:00:01.000Z",
+}));
+const completeState = freeze({
+  id: "nosend-1-1",
+  run: "1",
+  attempt: "1",
+  authority: measurementAuthority.identity,
+  commands: measurementCommands,
+  rows: completedRows,
+  phases: { protocolStart: "2000-01-01T00:00:00.000Z", protocolComplete: true },
+  resources: [{ kind: "network", name: "nosend-1-1", networkId: "synthetic-network" }],
+  boundaryInstalled: true,
+  activeStack: "current",
+  apiService: "synthetic-api",
+  bridge: "br-synthetic",
+  chartImages: completeConfig.images.prefetch,
+  expectedConfigMap: { "ssl-redirect": "true", "custom-http-errors": "502,503,504" },
+  nodeAddress: "172.29.0.2",
+  nodeImageIds: [completeConfig.images.kind],
+  servicePorts: { api: 8080 },
+  stacks: Object.fromEntries(
+    protocol.stacks.map((stack) => [
+      stack.id,
+      {
+        sourceRef: stack.ref,
+        declaredNodeImage: completeConfig.images[stack.id],
+        adapter: stack.adapter,
+        historicalNodePatch: stack.historicalNodePatch ?? "NOT_APPLICABLE",
+        bundle: `/synthetic/${stack.id}.cjs`,
+        bundleSha256: sha256("synthetic-bundle"),
+        lockfileSha256: completeConfig.files["pnpm-lock.yaml"],
+        closure: [{ file: "synthetic-entry.mjs", sha256: sha256("synthetic-entry") }],
+        address: "172.29.0.3",
+      },
+    ]),
+  ),
+  failure: { phase: "synthetic", utc: "2000-01-01T00:00:00.000Z", reason: "SYNTHETIC_REASON" },
+});
+const measurementBindings = {
+  ...frozenSinkBindings,
+  authority: measurementAuthority,
+  config: completeConfig,
+  protocol,
+  stateFile: "/synthetic/private/state.json",
+  state: completeState,
+  actualIdentity: frozenIdentity,
+  assembleReceipt,
+  projectIdentity,
+  serializeIdentity,
+  existsSync: () => true,
+  captureComplete: true,
+  files: publicationFiles,
+  publicationFiles: new Map(),
+};
+const sealStatements = runnerFunction("seal").body.statements;
+const receiptStart = sealStatements.findIndex(
+  (node) =>
+    ts.isVariableStatement(node) &&
+    node.declarationList.declarations.some((declaration) => declaration.name.getText(runnerTree) === "receipt"),
+);
+const receiptEnd = sealStatements.findIndex((node) =>
+  node.getText(runnerTree).startsWith('json(path.join(capture, "receipt.json")'),
+);
+assert(receiptStart >= 0 && receiptEnd > receiptStart);
+const receiptWriter = sealStatements
+  .slice(receiptStart, receiptEnd + 1)
+  .map((node) => node.getText(runnerTree))
+  .join("\n");
+const rawManifestSink = descendants(
+  runnerTree,
+  (node) =>
+    ts.isCallExpression(node) &&
+    node.expression.getText(runnerTree) === "json" &&
+    node.arguments[0]?.getText(runnerTree).includes('"raw-manifest.json"'),
+);
+assert.equal(rawManifestSink.length, 1);
+const ledgerSinks = descendants(
+  runnerTree,
+  (node) =>
+    ts.isCallExpression(node) &&
+    node.expression.getText(runnerTree) === "json" &&
+    node.arguments[0]?.getText(runnerTree).includes('"command-ledger.json"'),
+);
+assert.equal(ledgerSinks.length, 2);
+assert.equal(ledgerSinks[0].getText(runnerTree), ledgerSinks[1].getText(runnerTree));
+const saveDeclaration = runnerDeclaration("save");
+assert.equal(saveDeclaration.length, 1);
+const stateWriter = `(${saveDeclaration[0].initializer.getText(runnerTree)})();`;
+const artifactCases = [
+  [
+    "receipt.json",
+    receiptWriter,
+    (b) => ({ ...b, state: { ...b.state, failure: { ...b.state.failure, reason: `token: ${secret}` } } }),
+  ],
+  [
+    "raw-manifest.json",
+    rawManifestSink[0].getText(runnerTree),
+    (b) => ({ ...b, files: [...b.files, { file: `token: ${secret}`, bytes: 0, sha256: sha256("") }] }),
+  ],
+  ["exact-run-inputs.json", greenSinkText, (b) => ({ ...b, actualIdentity: markedIdentity })],
+  [
+    "prepayload-identity.json",
+    descendants(
+      runnerTree,
+      (node) =>
+        ts.isCallExpression(node) &&
+        node.expression.getText(runnerTree) === "writeFileSync" &&
+        node.arguments[0]?.getText(runnerTree).includes('"prepayload-identity.json"'),
+    )[0].getText(runnerTree),
+    (b) => ({ ...b, actualIdentity: markedIdentity }),
+  ],
+  [
+    "command-ledger.json",
+    ledgerSinks[0].getText(runnerTree),
+    (b) => ({
+      ...b,
+      state: {
+        ...b.state,
+        commands: b.state.commands.map((entry, i) => (i ? entry : { ...entry, args: [`token: ${secret}`] })),
+      },
+    }),
+  ],
+  [
+    "state.json",
+    stateWriter,
+    (b) => ({ ...b, state: { ...b.state, failure: { ...b.state.failure, reason: `token: ${secret}` } } }),
+  ],
+];
+const renderArtifact = (writer, bindings) => {
+  const writes = [];
+  const mutable = {
+    ...bindings,
+    state: structuredClone(bindings.state),
+    publicationFiles: new Map(bindings.publicationFiles),
+  };
+  mutable.writeFileSync = (file, text) => writes.push({ file: path.posix.basename(file), text });
+  mutable.json = expression(runnerJson[0].initializer, mutable, runnerJson[0].initializer.getText(runnerTree));
+  execute(writer, mutable);
+  assert.equal(writes.length, 1);
+  return writes[0];
+};
+const neutralArtifacts = [];
+for (const [name, writer, plant] of artifactCases) {
+  const neutral = renderArtifact(writer, measurementBindings);
+  assert.equal(neutral.file, name);
+  assert.deepEqual(scanExposure([neutral]), [], `${name}: complete production shape must be clean`);
+  const marked = renderArtifact(writer, plant(measurementBindings));
+  assert.deepEqual(
+    classifyExposure([marked]).map(({ rules }) => rules),
+    [["LABELED_FIELD"]],
+    `${name}: planted marker must be detected`,
+  );
+  assert.throws(
+    () => assert.deepEqual(scanExposure([marked]), []),
+    undefined,
+    `${name}: bypassed scanner assertion is RED`,
+  );
+  neutralArtifacts.push(neutral);
+  console.log(`H2-C1 RED/GREEN ${name}: full writer shape clean; frozen planted marker detected`);
+}
+assert(JSON.parse(neutralArtifacts.find((file) => file.file === "receipt.json").text).complete);
+assert.deepEqual(
+  JSON.parse(neutralArtifacts.find((file) => file.file === "exact-run-inputs.json").text).frozen,
+  completeConfig,
+);
+
+const soloRules = [
+  ["neutral", 9, ["DEPTH"]],
+  ["\ufffd", 0, ["REPLACEMENT_CHAR"]],
+  ["Bearer syntheticMarker123", 0, ["TOKEN_OR_PRIVATE_KEY"]],
+  ["token: syntheticMarker123", 0, ["LABELED_FIELD"]],
+  ['["cookie", "syntheticMarker123"]', 0, ["COOKIE_ARRAY"]],
+  ["https://example.invalid/path?neutral=value", 0, ["URL_QUERY"]],
+  ["?state=syntheticMarker123", 0, ["QUERY_PARAMETER"]],
+  [JSON.stringify({ bodyBase64: Buffer.from("token: syntheticMarker123").toString("base64") }), 0, ["ENCODED_BODY"]],
+];
+const verifyRuleMapping = (classify) => {
+  for (const [text, depth, rules] of soloRules)
+    assert.deepEqual(classify([{ file: "synthetic-solo", text }], depth), [{ file: "synthetic-solo", line: 1, rules }]);
+};
+verifyRuleMapping(classifyExposure);
+assert.throws(() =>
+  verifyRuleMapping((files, depth) =>
+    classifyExposure(files, depth).map((hit) => ({
+      ...hit,
+      rules: hit.rules.map((rule) =>
+        rule === "REPLACEMENT_CHAR"
+          ? "TOKEN_OR_PRIVATE_KEY"
+          : rule === "TOKEN_OR_PRIVATE_KEY"
+            ? "REPLACEMENT_CHAR"
+            : rule,
+      ),
+    })),
+  ),
+);
+const rehearsalNode = descendants(
+  runnerFunction("measure"),
+  (node) => ts.isIfStatement(node) && node.expression.getText(runnerTree) === "state.rows.length === 0",
+);
+assert.equal(rehearsalNode.length, 1);
+const rowBlock = rehearsalNode[0].parent;
+const rehearsalIndex = rowBlock.statements.indexOf(rehearsalNode[0]);
+assert.equal(rowBlock.statements[rehearsalIndex + 1].getText(runnerTree), "state.rows.push(row);");
+assert.equal(rowBlock.statements[rehearsalIndex + 2].getText(runnerTree), "save();");
+assert(rowBlock.statements[rehearsalIndex + 3].getText(runnerTree).includes('await client("row", rung.id'));
+const captureNode = runnerFunction("captureFiles");
+const captureMemory = [
+  ...neutralArtifacts,
+  { file: "publication-gate.json", text: "neutral" },
+  { file: "raw-manifest.json", text: "neutral" },
+];
+const collectCapture = expression(
+  captureNode,
+  {
+    capture: captureDirectory,
+    path: path.posix,
+    invariant,
+    sha256,
+    readdirSync: () => captureMemory.map((file) => file.file),
+    statSync: () => ({ isFile: () => true }),
+    readFileSync: (file) => Buffer.from(captureMemory.find((entry) => entry.file === path.posix.basename(file)).text),
+  },
+  captureNode.getText(runnerTree),
+);
+assert.equal(collectCapture(true).length, captureMemory.length, "rehearsal has no file exemption");
+const rehearse = (files, roles, enforce = measurementPublicationRehearsal) => {
+  const state = { rows: [], commands: measurementCommands };
+  const printed = [];
+  try {
+    execute(`${rehearsalNode[0].getText(runnerTree)}\nstate.rows.push({synthetic:true});`, {
+      state,
+      json: () => {},
+      path: path.posix,
+      capture: captureDirectory,
+      captureFiles: (includeGate) => {
+        assert.equal(includeGate, true);
+        return files;
+      },
+      publicationFiles: roles,
+      measurementPublicationRehearsal: enforce,
+      console: { log: (line) => printed.push(line) },
+    });
+  } catch (error) {
+    printed.push(
+      JSON.stringify({ result: state.rows.length ? "PARTIAL_UNKNOWN" : "NOT_EXECUTED", reason: error.message }),
+    );
+  }
+  return { rows: state.rows.length, printed };
+};
+assert.equal(
+  rehearse(neutralArtifacts, new Map(neutralArtifacts.map((file) => [file.file, "MEASUREMENT_JSON"]))).rows,
+  1,
+);
+for (const role of measurementPublicationRoles) {
+  const files = [{ file: "synthetic-fixed-file", text: `token: ${secret}` }];
+  const roles = new Map([[files[0].file, role]]);
+  assert.equal(rehearse(files, roles, () => {}).rows, 1, "H2-C2 bypass RED wrongly starts a row");
+  const result = rehearse(files, roles);
+  assert.equal(result.rows, 0);
+  assert.deepEqual(result.printed, [
+    `MEASUREMENT_PUBLICATION_HIT_CLASSES total=1 classes=${role}:LABELED_FIELD`,
+    JSON.stringify({ result: "NOT_EXECUTED", reason: "PRIVATE_MEASUREMENT_PUBLICATION_REFUSED" }),
+  ]);
+  assert(!result.printed.join("\n").includes(secret));
+}
+assert.equal(rehearse([{ file: "unregistered", text: `token: ${secret}` }], new Map()).rows, 0);
+console.log(
+  "H2-C2 RED/GREEN: all files, fixed role/rule mapping, zero rows on refusal; unchanged final seal scan retained",
+);
+
 const syntaxShape = (node) => {
   const children = [];
   ts.forEachChild(node, (child) => {
@@ -968,7 +1303,7 @@ const syntaxShape = (node) => {
   return [node.kind, node.text ?? null, children];
 };
 // A closed writer census plus value origins: unknown writes cannot silently escape the trace.
-function identityWriteClosure(inventoryText, runnerText) {
+function identityWriteClosure(inventoryText, runnerText, pinSource = true) {
   const rows = [];
   const productionTrees = [];
   for (const [file, text] of [
@@ -980,29 +1315,40 @@ function identityWriteClosure(inventoryText, runnerText) {
     productionTrees.push(syntaxShape(tree));
     const all = descendants(tree, () => true);
     const declarations = all.filter((node) => ts.isVariableDeclaration(node) || ts.isParameter(node));
+    const scopes = new Map();
     const scope = (node) => {
+      if (scopes.has(node)) return scopes.get(node);
       for (let parent = node.parent; parent; parent = parent.parent)
-        if (ts.isBlock(parent) || ts.isSourceFile(parent) || (ts.isParameter(node) && ts.isFunctionLike(parent)))
+        if (ts.isBlock(parent) || ts.isSourceFile(parent) || (ts.isParameter(node) && ts.isFunctionLike(parent))) {
+          scopes.set(node, parent);
           return parent;
+        }
     };
+    const resolutions = new Map();
     const resolve = (node) => {
+      if (resolutions.has(node)) return resolutions.get(node);
       for (let parent = node.parent; parent; parent = parent.parent) {
         const match = declarations.find(
           (declaration) => declaration.name.getText(tree) === node.text && scope(declaration) === parent,
         );
-        if (match) return match;
+        if (match) {
+          resolutions.set(node, match);
+          return match;
+        }
       }
+      resolutions.set(node, undefined);
     };
     const functionOwner = (node) => {
       for (let parent = node.parent; parent; parent = parent.parent)
         if (ts.isFunctionDeclaration(parent)) return parent.name.text;
     };
     const traced = new Map();
+    const mutationInputs = new Map();
     const trace = (node, seen = new Set()) => {
       if (!node) return [];
       if (traced.has(node)) return traced.get(node);
       traced.set(node, []);
-      const origins = traceValue(node, seen);
+      const origins = [...new Map(traceValue(node, seen).map((origin) => [JSON.stringify(origin), origin])).values()];
       traced.set(node, origins);
       return origins;
     };
@@ -1024,14 +1370,32 @@ function identityWriteClosure(inventoryText, runnerText) {
           )
         )
           return [{ mode: "raw", path: [] }];
-        const mutations = all.filter(
-          (entry) =>
-            ts.isBinaryExpression(entry) &&
-            entry.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
-            ts.isPropertyAccessExpression(entry.left) &&
-            descendants(entry.left, (child) => ts.isIdentifier(child) && resolve(child) === declaration).length,
-        );
-        return [trace(declaration.initializer, seen), ...mutations.map((entry) => trace(entry.right, seen))].flat();
+        if (!mutationInputs.has(declaration)) {
+          const mutations = all.filter(
+            (entry) =>
+              ts.isBinaryExpression(entry) &&
+              entry.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
+              ts.isPropertyAccessExpression(entry.left) &&
+              descendants(entry.left, (child) => ts.isIdentifier(child) && resolve(child) === declaration).length,
+          );
+          const methodMutations = all.filter((entry) => {
+            if (!ts.isCallExpression(entry) || !ts.isPropertyAccessExpression(entry.expression)) return false;
+            const receiver =
+              entry.expression.getText(tree) === "Object.assign" ? entry.arguments[0] : entry.expression.expression;
+            return (
+              ["push", "unshift", "splice", "set", "assign"].includes(entry.expression.name.text) &&
+              descendants(receiver, (child) => ts.isIdentifier(child) && resolve(child) === declaration).length > 0
+            );
+          });
+          mutationInputs.set(declaration, [
+            declaration.initializer,
+            ...mutations.map((entry) => entry.right),
+            ...methodMutations.flatMap((entry) =>
+              entry.arguments.slice(entry.expression.getText(tree) === "Object.assign" ? 1 : 0),
+            ),
+          ]);
+        }
+        return mutationInputs.get(declaration).flatMap((input) => trace(input, seen));
       }
       if (ts.isPropertyAccessExpression(node))
         return trace(node.expression, seen).map((origin) => ({ ...origin, path: [...origin.path, node.name.text] }));
@@ -1105,18 +1469,20 @@ function identityWriteClosure(inventoryText, runnerText) {
   assert.equal(mappings.length, 1, "only one versions projection");
   const projected = rows.filter((row) => row.origins?.some((origin) => origin.mode === "projected"));
   assert.equal(projected.length, 3, "exactly three identity sinks");
-  assert.equal(rows.filter((row) => row.origins).length, 35, "complete file-write/open census");
-  assert.equal(
-    sha256(JSON.stringify(rows.map(({ line: _line, ...row }) => row))),
-    "89be50566ddf52e5352ec7e91a102433d8afd6a77500c65d6974d1080812c176",
-    "closed write arguments/imports and their value-origin traces",
-  );
+  assert.equal(rows.filter((row) => row.origins).length, 36, "complete file-write/open census");
+  if (pinSource)
+    assert.equal(
+      sha256(JSON.stringify(rows.map(({ line: _line, ...row }) => row))),
+      "b7d7a1c6f4ee5a8f6168c130b897a60dde99dbc53f795b4e7be1a83eeb7d1be9",
+      "closed write arguments/imports and their value-origin traces",
+    );
   // This is a closed graph of the inspected production source, not an extensible JavaScript analyzer.
-  assert.equal(
-    sha256(JSON.stringify(productionTrees)),
-    "09fd3812702dc093ead44576aa46bfadc81ef0f9d855a380bc7ca9467c419626",
-    "no untraced alias, writer API, mutation or versions transformation outside the closed graph",
-  );
+  if (pinSource)
+    assert.equal(
+      sha256(JSON.stringify(productionTrees)),
+      "1e560752bc7310f2146e926b420f5d08ddfee1173bc47544eef6cb0a715c1bdd",
+      "no untraced alias, writer API, mutation or versions transformation outside the closed graph",
+    );
   return rows;
 }
 const writerClosure = identityWriteClosure(source, runnerSource);
@@ -1148,6 +1514,14 @@ for (const [label, inventoryText, runnerText] of [
     ),
   ],
   [
+    "container method mutation",
+    source,
+    runnerSource.replace(
+      'mark("preparationStart");',
+      'state.commands.push(actualIdentity); save(); mark("preparationStart");',
+    ),
+  ],
+  [
     "second versions map",
     source.replace(
       "const serialized = projectIdentity(identity);",
@@ -1158,11 +1532,17 @@ for (const [label, inventoryText, runnerText] of [
 ]) {
   assert(inventoryText !== source || runnerText !== runnerSource, `${label}: mutant reached its target`);
   assert.throws(() => identityWriteClosure(inventoryText, runnerText), undefined, `${label}: closure must go red`);
+  if (label === "container method mutation")
+    assert.throws(
+      () => identityWriteClosure(inventoryText, runnerText, false),
+      /unprojected identity value/,
+      "N2: trace itself refuses, independent of source pins",
+    );
   console.log(`CONTROL 3 RED confirmed: ${label}; all other source/inputs frozen`);
 }
 for (const row of writerClosure.filter((row) => row.origins))
   console.log(`P1 WRITE ${row.file}:${row.line} ${row.writer} origins=${JSON.stringify(row.origins)}`);
-console.log("CONTROL 3 PASS: full writer census and value-origin closure; four discriminating mutants rejected");
+console.log("CONTROL 3 PASS: full writer census and value-origin closure; five discriminating mutants rejected");
 
 function identityBehavior(text) {
   const tree = ts.createSourceFile("inventory.mjs", text, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
@@ -1175,7 +1555,8 @@ function identityBehavior(text) {
           text === "const publicationFiles = new Map(inventoryPublicationFiles);" ||
           text === "publicationFiles.set(`${name}.stdout`, queryPublicationRoles.get(site).stdout);" ||
           text === "publicationFiles.set(`${name}.stderr`, queryPublicationRoles.get(site).stderr);" ||
-          text === "identityPublicationRoles.set(identity, publicationFiles);"
+          text === "identityPublicationRoles.set(identity, publicationFiles);" ||
+          text === 'invariant(root === pin.distributionRoot, "SCRIPT_DISTRIBUTION_ESCAPE");'
         )
           return [];
         if (
@@ -1206,6 +1587,17 @@ function identityBehavior(text) {
       return [node.kind, statements];
     }
     if (ts.isCallExpression(node) && ts.isIdentifier(node.expression)) {
+      if (node.expression.text === "scriptDistribution") {
+        assert.equal(node.getText(tree), "scriptDistribution(root)");
+        const old = ts.createSourceFile(
+          "old.mjs",
+          "Object.fromEntries(distributionFiles(root).map((file) => [path.relative(root, file), sha256(readFileSync(file))]))",
+          ts.ScriptTarget.Latest,
+          true,
+          ts.ScriptKind.JS,
+        );
+        return shape(old.statements[0].expression);
+      }
       if (
         node.expression.text === "writeFileSync" &&
         node.arguments[1]?.getText(tree) === "serializeIdentity(identity)"

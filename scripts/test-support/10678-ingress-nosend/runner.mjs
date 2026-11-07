@@ -34,6 +34,8 @@ import {
   enforceIdentityPins,
   hostedContext,
   invocation,
+  inventoryPublicationFiles,
+  measurementPublicationRehearsal,
   observeIdentity,
   preserveAuthority,
   preserveMetadata,
@@ -79,7 +81,11 @@ const stateFile = path.join(privateDir, "state.json");
 const runtime = path.join(privateDir, "runtime");
 const kubeconfig = path.join(privateDir, "kubeconfig");
 const context = `kind-${id}`;
-const json = (file, data) => writeFileSync(file, `${JSON.stringify(data, null, 2)}\n`, { mode: 0o600 });
+const publicationFiles = new Map();
+const json = (file, data) => {
+  if (path.dirname(file) === capture) publicationFiles.set(path.basename(file), "MEASUREMENT_JSON");
+  writeFileSync(file, `${JSON.stringify(data, null, 2)}\n`, { mode: 0o600 });
+};
 const text = (file) => readFileSync(file, "utf8");
 let state;
 if (phase === "prepare") {
@@ -99,12 +105,21 @@ if (phase === "prepare") {
     boundaryInstalled: false,
   };
 } else state = JSON.parse(text(stateFile));
+for (const [file, role] of Object.entries(state.publicationRoles ?? {})) publicationFiles.set(file, role);
 invariant(state.id === id, "STATE_IDENTITY_MISMATCH");
 invariant(
   JSON.stringify(state.authority) === JSON.stringify(authority.identity),
   "STATE_ENVELOPE_SUBSTITUTION_REFUSED",
 );
-const save = () => json(stateFile, state);
+const save = () => {
+  state.publicationRoles = Object.fromEntries(publicationFiles);
+  json(stateFile, state);
+};
+const preserveMeasurementMetadata = (directory, prefix, role) => {
+  preserveMetadata(directory, capture, prefix);
+  for (const name of readdirSync(directory))
+    if (statSync(path.join(directory, name)).isFile()) publicationFiles.set(`${prefix}${name}`, role);
+};
 const mark = (name, fields = {}) => {
   state.phases[name] = new Date().toISOString();
   json(path.join(capture, `phase-${name}.json`), { name, utc: state.phases[name], run, attempt, ...fields });
@@ -172,6 +187,8 @@ async function command(tool, args, label, { cwd = repo, allowFailure = false, pr
     startedAt: new Date().toISOString(),
   };
   state.commands.push(entry);
+  publicationFiles.set(path.basename(output), "MEASUREMENT_STDOUT");
+  publicationFiles.set(path.basename(error), "MEASUREMENT_STDERR");
   save();
   const outFd = openSync(output, "wx", 0o600);
   const errFd = openSync(error, "wx", 0o600);
@@ -253,6 +270,7 @@ async function prepareStacks() {
     writeFileSync(entry, readFileSync(path.join(here, "synthetic-handler.mjs")));
     const bundle = path.join(privateDir, `${stack.id}.cjs`);
     const metafile = path.join(capture, `bundle-${stack.id}.json`);
+    publicationFiles.set(path.basename(metafile), "MEASUREMENT_BUNDLE_METADATA");
     await command(
       "esbuild",
       [
@@ -907,9 +925,18 @@ async function client(mode, row, label, allowFailure = false) {
 async function prepare() {
   verifyFreeze();
   preserveAuthority(capture, authority, readFileSync(configPath));
-  preserveMetadata(path.join(temp, "10678-authority", "bootstrap-identity"), capture, "bootstrap-");
+  for (const [file, role] of inventoryPublicationFiles.slice(0, 6)) publicationFiles.set(file, role);
+  preserveMeasurementMetadata(
+    path.join(temp, "10678-authority", "bootstrap-identity"),
+    "bootstrap-",
+    "BOOTSTRAP_METADATA",
+  );
   const actualIdentity = observeIdentity(path.join(privateDir, "preparation-identity"), config.tools);
-  preserveMetadata(path.join(privateDir, "preparation-identity"), capture, "preparation-identity-");
+  preserveMeasurementMetadata(
+    path.join(privateDir, "preparation-identity"),
+    "preparation-identity-",
+    "PREPARATION_METADATA",
+  );
   enforceIdentityPins(config, actualIdentity);
   mark("preparationStart");
   const head = await command("git", ["rev-parse", "HEAD"], "disk-head");
@@ -1086,11 +1113,16 @@ async function measure() {
   );
   verifyFreeze();
   const actualIdentity = observeIdentity(path.join(privateDir, "prepayload-identity"), config.tools);
-  preserveMetadata(path.join(privateDir, "prepayload-identity"), capture, "prepayload-identity-");
+  preserveMeasurementMetadata(
+    path.join(privateDir, "prepayload-identity"),
+    "prepayload-identity-",
+    "PREPAYLOAD_METADATA",
+  );
   enforceIdentityPins(config, actualIdentity);
   writeFileSync(path.join(capture, "prepayload-identity.json"), serializeIdentity(actualIdentity, authority.identity), {
     mode: 0o600,
   });
+  publicationFiles.set("prepayload-identity.json", "MEASUREMENT_IDENTITY");
   const head = await command("git", ["rev-parse", "HEAD"], "prepayload-disk-head");
   invariant(head.value.trim() === config.head, "PREPAYLOAD_DISK_HEAD_MISMATCH");
   mark("protocolStart");
@@ -1113,6 +1145,10 @@ async function measure() {
     for (const rung of matrix(protocol).filter((r) => r.stack === stack.id)) {
       invariant(Date.now() - began < 600000, "PROTOCOL_CEILING_PARTIAL_UNKNOWN");
       const row = { ...rung, startedAt: new Date().toISOString() };
+      if (state.rows.length === 0) {
+        json(path.join(capture, "command-ledger.json"), state.commands);
+        measurementPublicationRehearsal(captureFiles(true), publicationFiles, (line) => console.log(line));
+      }
       state.rows.push(row); // Persist BEFORE dispatch: an interrupted send is never silently repeated.
       save();
       const result = await client("row", rung.id, `client-${rung.id}`, true);
@@ -1194,10 +1230,10 @@ function deriveRows() {
   }
 }
 
-function captureFiles() {
+function captureFiles(includeGate = false) {
   // Only this exact flat diagnostic directory is inspected, never another lane or arbitrary tree.
   return readdirSync(capture)
-    .filter((file) => !["raw-manifest.json", "publication-gate.json"].includes(file))
+    .filter((file) => includeGate || !["raw-manifest.json", "publication-gate.json"].includes(file))
     .sort()
     .map((file) => {
       invariant(statSync(path.join(capture, file)).isFile(), "UNEXPECTED_CAPTURE_DIRECTORY");

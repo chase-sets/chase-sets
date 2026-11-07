@@ -244,6 +244,22 @@ const publicationRoles = new Set([
 ]);
 
 export function inventoryPublicationHitClasses(hits, classified, roles) {
+  return publicationHitClasses(hits, classified, roles, publicationRoles, "INVENTORY");
+}
+
+export const measurementPublicationRoles = Object.freeze([
+  ...inventoryPublicationFiles.slice(0, 6).map(([, role]) => role),
+  "MEASUREMENT_JSON",
+  "MEASUREMENT_IDENTITY",
+  "MEASUREMENT_STDOUT",
+  "MEASUREMENT_STDERR",
+  "MEASUREMENT_BUNDLE_METADATA",
+  "BOOTSTRAP_METADATA",
+  "PREPARATION_METADATA",
+  "PREPAYLOAD_METADATA",
+]);
+
+function publicationHitClasses(hits, classified, roles, allowed, phase) {
   invariant(
     hits.length > 0 &&
       hits.length === classified.length &&
@@ -254,12 +270,22 @@ export function inventoryPublicationHitClasses(hits, classified, roles) {
   for (const { file, rules } of classified) {
     const role = roles.get(file);
     invariant(
-      publicationRoles.has(role) && rules.length > 0 && rules.every((rule) => exposureRuleIds.includes(rule)),
+      allowed.has(role) && rules.length > 0 && rules.every((rule) => exposureRuleIds.includes(rule)),
       "PRIVATE_INVENTORY_PUBLICATION_REFUSED",
     );
     for (const rule of rules) tokens.add(`${role}:${rule}`);
   }
-  return `INVENTORY_PUBLICATION_HIT_CLASSES total=${hits.length} classes=${[...tokens].sort().join(",")}`;
+  return `${phase}_PUBLICATION_HIT_CLASSES total=${hits.length} classes=${[...tokens].sort().join(",")}`;
+}
+
+export function measurementPublicationRehearsal(files, roles, report) {
+  const hits = scanExposure(files);
+  if (hits.length) {
+    report(
+      publicationHitClasses(hits, classifyExposure(files), roles, new Set(measurementPublicationRoles), "MEASUREMENT"),
+    );
+    invariant(false, "PRIVATE_MEASUREMENT_PUBLICATION_REFUSED");
+  }
 }
 
 export function inventoryCategory(error) {
@@ -601,9 +627,9 @@ export function decodeAuthority(raw, expectedHash, { head, phase, protocol }) {
     "COMPLETION_NOTE_BINDING_MISMATCH",
   );
   invariant(equal(config.sources, protocol.stacks), "SOURCE_PINS_CHANGED");
-  if (config.phase === "measurement") validateMeasurementPins(config);
+  const runtimeConfig = config.phase === "measurement" ? measurementConfig(config) : config;
   return {
-    config,
+    config: runtimeConfig,
     envelope,
     payloadBytes,
     reviewBytes,
@@ -693,6 +719,7 @@ export function readAuthority(file, expectedHash, { head, phase, protocol, root 
       return readFileSync(target);
     }),
   );
+  validateScriptAuthority(result.config, (relative) => readFileSync(path.join(root, relative)));
   invariant(
     inventoryAt(inventoryOperations.retainedRead, () => sha256(readFileSync(path.join(root, retainedPath)))) ===
       protocol.retainedConfigMapSha256,
@@ -714,9 +741,236 @@ function distribution(pin) {
   );
 }
 
+export const scriptClosureDescriptor = Object.freeze({
+  schema: "10678-script-closure/v1",
+  algorithm: "sha256",
+  canonicalization: "posix-path-sha256-pairs-json-v1",
+  fileCount: 448,
+  sha256: "99aa5fa37093261917e32dfdaee917eafa784011e116e2d707ba55f33e0c15d5",
+  path: `${supportPath}/pnpm-11.0.9.closure.json`,
+});
+
+export function validateClosureDescriptor(descriptor) {
+  invariant(equal(descriptor, scriptClosureDescriptor), "FIXED_SCRIPT_CLOSURE_DESCRIPTOR_REQUIRED");
+}
+
+const compareClosurePaths = (a, b) => Buffer.compare(Buffer.from(a[0], "utf8"), Buffer.from(b[0], "utf8"));
+
+export function scriptClosureFingerprint(pairs, stored = false) {
+  invariant(Array.isArray(pairs), "SCRIPT_CLOSURE_PAIRS_REQUIRED");
+  const names = new Set();
+  for (const pair of pairs) {
+    invariant(
+      Array.isArray(pair) && pair.length === 2 && typeof pair[0] === "string" && typeof pair[1] === "string",
+      "SCRIPT_CLOSURE_PAIR_REQUIRED",
+    );
+    const [relative, hash] = pair;
+    invariant(
+      relative.length > 0 &&
+        !/[\\\x00-\x1f\x7f]/.test(relative) &&
+        Buffer.from(relative, "utf8").toString("utf8") === relative &&
+        relative.split("/").every((part) => part.length > 0 && part !== "." && part !== "..") &&
+        !names.has(relative) &&
+        /^[a-f0-9]{64}$/.test(hash),
+      "SCRIPT_CLOSURE_PATH_OR_HASH_REFUSED",
+    );
+    names.add(relative);
+  }
+  if (stored)
+    invariant(
+      pairs.every((pair, i) => i === 0 || compareClosurePaths(pairs[i - 1], pair) < 0),
+      "SCRIPT_CLOSURE_ORDER_REFUSED",
+    );
+  const ordered = [...pairs].sort(compareClosurePaths);
+  return { fileCount: ordered.length, sha256: sha256(JSON.stringify(ordered)) };
+}
+
+export function validateScriptClosure(pairs, descriptor, stored = false) {
+  validateClosureDescriptor(descriptor);
+  const actual = scriptClosureFingerprint(pairs, stored);
+  invariant(
+    actual.fileCount === descriptor.fileCount && actual.sha256 === descriptor.sha256,
+    "SCRIPT_DISTRIBUTION_DRIFT",
+  );
+  return actual;
+}
+
+export function validateScriptAuthority(config, read) {
+  const descriptor = config.publicInputs.publicExecutables.pnpm.closure;
+  validateClosureDescriptor(descriptor);
+  invariant(isHash(config.files[descriptor.path]), "SCRIPT_CLOSURE_CENSUS_REQUIRED");
+  const raw = read(descriptor.path);
+  invariant(sha256(raw) === config.files[descriptor.path], "FILE_DIGEST_MISMATCH");
+  validateScriptClosure(parseAuthorityJson(raw), descriptor, true);
+  if (config.phase === "measurement")
+    invariant(equal(config.tools.pnpm.closure, descriptor), "SCRIPT_CLOSURE_AUTHORITY_CHANGED");
+}
+
+// P carries each reviewed value once, under publicInputs. These are references, not fallback pins.
+export function measurementConfig(payload) {
+  exactKeys(
+    payload,
+    [
+      "schema",
+      "head",
+      "phase",
+      "briefSha256",
+      "methodSha256",
+      "decisionSha256",
+      "repairDecisionSha256",
+      "files",
+      "sources",
+      "publicInputs",
+      "retainedConfigMap",
+    ],
+    "FIXED_MEASUREMENT_PAYLOAD_REQUIRED",
+  );
+  const input = payload.publicInputs;
+  const m = input?.measurement;
+  invariant(record(m) && m.schema === "10678-reviewed-measurement/v1", "MEASUREMENT_PINS_REQUIRED");
+  exactKeys(
+    m,
+    [
+      "schema",
+      "distributions",
+      "packages",
+      "pins",
+      "runnerIdentity",
+      "bootstrapIdentity",
+      "expectedIdentity",
+      "inventoryAuthority",
+    ],
+    "FIXED_MEASUREMENT_CONSTANTS_REQUIRED",
+  );
+  const ids = [
+    ...stockTools.map((name) => `tools.${name}`),
+    "daemon.executable",
+    "daemon.containerdExecutable",
+    "daemon.activeRuntime",
+    "daemon.unitFiles.0",
+    "daemon.containerdUnitFiles.0",
+  ];
+  exactKeys(m.pins, ids, "COMPLETE_REVIEWED_PUBLIC_PINS_REQUIRED");
+  const expand = (id) => {
+    const pin = m.pins[id];
+    const source = m.distributions?.[pin.distribution];
+    distribution(source);
+    invariant(source.signatureStatus === "SIGNATURE_VERIFIED", "PUBLIC_PIN_PROVENANCE_REQUIRED");
+    const owner = pin.package === undefined ? undefined : m.packages?.[pin.package];
+    invariant(pin.package === undefined || record(owner), "REVIEWED_PACKAGE_REFERENCE_REQUIRED");
+    return { ...pin, distribution: source, ...(owner ? { package: owner } : {}) };
+  };
+  const all = Object.fromEntries(ids.map((id) => [id, expand(id)]));
+  const tools = Object.fromEntries(stockTools.map((name) => [name, all[`tools.${name}`]]));
+  const stockNode = tools.node;
+  exactKeys(
+    input.publicExecutables,
+    ["node", "kind", "helm", "kubectl", "pnpm", "esbuild", "yq"],
+    "COMPLETE_PUBLIC_EXECUTABLES_REQUIRED",
+  );
+  for (const [name, pin] of Object.entries(input.publicExecutables)) {
+    const source = input.publicDistributions[name];
+    invariant(record(source), "REVIEWED_DISTRIBUTION_REQUIRED");
+    tools[name] = {
+      ...pin,
+      package: m.packages["stock-node"],
+      distribution: {
+        version: pin.version,
+        architecture: pin.architecture,
+        publicReference: source.url,
+        archiveSha256: source.sha256,
+      },
+      ...(name === "pnpm"
+        ? { interpreter: { tool: "node", shebang: "#!/usr/bin/env node" }, distributionRoot: "/opt/10678-pnpm" }
+        : {}),
+    };
+  }
+  invariant(equal(all["daemon.activeRuntime"], all["tools.runc"]), "ACTIVE_RUNTIME_PIN_CHANGED");
+  const config = {
+    ...payload,
+    tools,
+    bootstrapTools: { node: stockNode },
+    daemonTools: { docker: all["daemon.executable"], containerd: all["daemon.containerdExecutable"] },
+    bootstrapIdentity: m.bootstrapIdentity,
+    expectedIdentity: m.expectedIdentity,
+    inventoryAuthority: m.inventoryAuthority,
+    chart: input.chart,
+    images: input.images,
+    runnerIdentity: m.runnerIdentity,
+    servicePins: { docker: all["daemon.unitFiles.0"], containerd: all["daemon.containerdUnitFiles.0"] },
+  };
+  validateMeasurementPins(config);
+  return config;
+}
+
 export function validateMeasurementPins(config) {
-  for (const field of ["bootstrapIdentity", "expectedIdentity", "inventoryAuthority", "bootstrapTools", "daemonTools"])
+  for (const field of [
+    "bootstrapIdentity",
+    "expectedIdentity",
+    "inventoryAuthority",
+    "bootstrapTools",
+    "daemonTools",
+    "runnerIdentity",
+    "servicePins",
+  ])
     invariant(record(config[field]), "MEASUREMENT_PINS_REQUIRED");
+  const runner = config.runnerIdentity;
+  exactKeys(
+    runner,
+    [
+      "image",
+      "imageVersion",
+      "imageOS",
+      "architecture",
+      "os",
+      "codename",
+      "kernel",
+      "engine",
+      "containerd",
+      "runc",
+      "dockerInit",
+    ],
+    "RUNNER_IDENTITY_REQUIRED",
+  );
+  invariant(
+    runner.image === "ubuntu-24.04" &&
+      runner.imageOS === "ubuntu24" &&
+      runner.architecture === "x64" &&
+      ["imageVersion", "os", "codename", "kernel"].every(
+        (key) => typeof runner[key] === "string" && runner[key].length > 0 && runner[key] !== "UNKNOWN",
+      ),
+    "RUNNER_IDENTITY_REQUIRED",
+  );
+  for (const name of ["engine", "containerd", "runc", "dockerInit"]) {
+    const component = runner[name];
+    exactKeys(
+      component,
+      name === "engine"
+        ? ["version", "apiVersion", "gitCommit"]
+        : name === "dockerInit"
+          ? ["version", "gitCommit", "bytePin"]
+          : ["version", "gitCommit"],
+      "DAEMON_IDENTITY_REQUIRED",
+    );
+    invariant(
+      Object.entries(component).every(([key, value]) =>
+        key === "bytePin" ? value === false : typeof value === "string" && value.length > 0 && value !== "UNKNOWN",
+      ),
+      "DAEMON_IDENTITY_REQUIRED",
+    );
+  }
+  exactKeys(config.servicePins, ["docker", "containerd"], "SERVICE_PINS_REQUIRED");
+  for (const pin of Object.values(config.servicePins)) {
+    invariant(
+      record(pin) &&
+        path.posix.isAbsolute(pin.path ?? "") &&
+        path.posix.isAbsolute(pin.realTarget ?? "") &&
+        isHash(pin.sha256),
+      "SERVICE_PINS_REQUIRED",
+    );
+    distribution(pin.distribution);
+    invariant(pin.distribution.signatureStatus === "SIGNATURE_VERIFIED", "PUBLIC_PIN_PROVENANCE_REQUIRED");
+  }
   for (const identity of [config.bootstrapIdentity, config.expectedIdentity]) {
     invariant(
       typeof identity.imageVersion === "string" &&
@@ -742,7 +996,7 @@ export function validateMeasurementPins(config) {
   const a = config.inventoryAuthority;
   invariant(
     ["run", "attempt", "job", "artifactId"].every((k) => /^\d+$/.test(a[k])) &&
-      ["artifactSha256", "receiptSha256", "envelopeSha256"].every((k) => isHash(a[k])) &&
+      ["artifactSha256", "receiptSha256", "envelopeSha256", "manifestSha256"].every((k) => isHash(a[k])) &&
       isRef(a.head),
     "INVENTORY_CUSTODY_REQUIRED",
   );
@@ -764,16 +1018,15 @@ export function validateToolPin(pin) {
       pin.format === "native" && pin.invocation === path.posix.basename(pin.path) && pin.multicall === true,
       "AUTHENTICATED_INVOCATION_REQUIRED",
     );
-  if (pin.format === "script")
+  if (pin.format === "script") {
+    validateClosureDescriptor(pin.closure);
     invariant(
       pin.interpreter?.tool === "node" &&
         pin.interpreter.shebang === "#!/usr/bin/env node" &&
-        record(pin.closure) &&
-        Object.keys(pin.closure).length > 1 &&
-        Object.values(pin.closure).every(isHash) &&
         path.posix.isAbsolute(pin.distributionRoot ?? ""),
       "SCRIPT_INTERPRETER_CLOSURE_REQUIRED",
     );
+  }
 }
 
 export function validateToolObservation(pin, actual) {
@@ -786,11 +1039,10 @@ export function validateToolObservation(pin, actual) {
     "EXECUTABLE_DRIFT_OR_SHIM",
   );
   invariant(equal(actual.package, pin.package), "TOOL_PACKAGE_DRIFT");
-  if (pin.format === "script")
-    invariant(
-      actual.shebang === pin.interpreter.shebang && equal(actual.closure, pin.closure),
-      "INTERPRETER_OR_DISTRIBUTION_DRIFT",
-    );
+  if (pin.format === "script") {
+    invariant(actual.shebang === pin.interpreter.shebang, "INTERPRETER_OR_DISTRIBUTION_DRIFT");
+    validateScriptClosure(actual.closure, pin.closure);
+  }
 }
 
 export function compareIdentity(expected, actual) {
@@ -1125,14 +1377,36 @@ export function observeIdentity(directory, pins) {
   return identity;
 }
 
-function distributionFiles(root) {
-  return readdirSync(root, { withFileTypes: true })
-    .sort((a, b) => a.name.localeCompare(b.name))
-    .flatMap((entry) => {
-      const file = path.join(root, entry.name);
-      invariant(!entry.isSymbolicLink(), "SCRIPT_DISTRIBUTION_SYMLINK_REFUSED");
-      return entry.isDirectory() ? distributionFiles(file) : [file];
-    });
+export function scriptDistribution(root, io = { readdirSync, lstatSync, realpathSync, readFileSync }) {
+  const base = io.realpathSync(root);
+  invariant(
+    base === root && io.lstatSync(root).isDirectory() && !io.lstatSync(root).isSymbolicLink(),
+    "SCRIPT_DISTRIBUTION_ESCAPE",
+  );
+  const pairs = [];
+  const visit = (directory) => {
+    for (const entry of io.readdirSync(directory, { withFileTypes: true })) {
+      invariant(
+        typeof entry.name === "string" &&
+          entry.name.length > 0 &&
+          !/[\/\\\x00-\x1f\x7f]/.test(entry.name) &&
+          ![".", ".."].includes(entry.name),
+        "SCRIPT_DISTRIBUTION_ESCAPE",
+      );
+      const file = path.posix.join(directory, entry.name);
+      const stat = io.lstatSync(file);
+      invariant(!stat.isSymbolicLink(), "SCRIPT_DISTRIBUTION_SYMLINK_REFUSED");
+      invariant(io.realpathSync(file) === file && file.startsWith(`${base}/`), "SCRIPT_DISTRIBUTION_ESCAPE");
+      if (stat.isDirectory()) visit(file);
+      else {
+        invariant(stat.isFile(), "SCRIPT_DISTRIBUTION_SPECIAL_FILE_REFUSED");
+        pairs.push([path.posix.relative(base, file), sha256(io.readFileSync(file))]);
+      }
+    }
+  };
+  visit(base);
+  scriptClosureFingerprint(pairs);
+  return pairs;
 }
 
 export function enforceExecutables(tools, names = measurementTools, verifyPathNode = true) {
@@ -1158,10 +1432,9 @@ export function enforceExecutables(tools, names = measurementTools, verifyPathNo
     if (script) {
       actual.shebang = bytes.toString("utf8").split("\n")[0];
       const root = realpathSync(pin.distributionRoot);
+      invariant(root === pin.distributionRoot, "SCRIPT_DISTRIBUTION_ESCAPE");
       invariant(target.startsWith(`${root}/`), "SCRIPT_DISTRIBUTION_ESCAPE");
-      actual.closure = Object.fromEntries(
-        distributionFiles(root).map((file) => [path.relative(root, file), sha256(readFileSync(file))]),
-      );
+      actual.closure = scriptDistribution(root);
     }
     validateToolObservation(pin, actual);
   }
@@ -1188,6 +1461,37 @@ export function enforceIdentityPins(config, actual, bootstrap = false) {
   validateToolObservation(config.daemonTools.containerd, actual.daemon.containerdExecutable);
   invariant(actual.daemon.defaultRuntime === "runc" && actual.daemon.activeRuntime, "ACTIVE_RUNC_IDENTITY_REQUIRED");
   validateToolObservation(tools.runc, actual.daemon.activeRuntime);
+  const r = config.runnerIdentity;
+  invariant(
+    r.image === "ubuntu-24.04" &&
+      ["imageVersion", "imageOS", "architecture", "kernel"].every((key) => actual[key] === r[key]) &&
+      actual.osRelease.includes(`PRETTY_NAME="${r.os}"\n`) &&
+      actual.osRelease.includes(`VERSION_CODENAME=${r.codename}\n`) &&
+      actual.daemon.server.Version === r.engine.version &&
+      actual.daemon.server.ApiVersion === r.engine.apiVersion &&
+      actual.daemon.server.GitCommit === r.engine.gitCommit,
+    "REVIEWED_RUNNER_IDENTITY_DRIFT",
+  );
+  for (const [name, expected] of [
+    ["containerd", r.containerd],
+    ["runc", r.runc],
+    ["docker-init", r.dockerInit],
+  ]) {
+    const components = actual.daemon.server.Components.filter((component) => component.Name === name);
+    invariant(
+      components.length === 1 &&
+        components[0].Version === expected.version &&
+        components[0].Details.GitCommit === expected.gitCommit,
+      "REVIEWED_DAEMON_IDENTITY_DRIFT",
+    );
+  }
+  for (const [name, files] of [
+    ["docker", actual.daemon.unitFiles],
+    ["containerd", actual.daemon.containerdUnitFiles],
+  ]) {
+    const { path: logical, realTarget, sha256: hash } = config.servicePins[name];
+    invariant(equal(files, [{ path: logical, realTarget, sha256: hash }]), "REVIEWED_SERVICE_FILE_DRIFT");
+  }
 }
 
 export function invocation(tools, name, args) {

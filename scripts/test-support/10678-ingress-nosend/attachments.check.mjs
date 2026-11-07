@@ -8,6 +8,7 @@ import {
   fixtureBytes as bytes,
   fixtureEncoded as encoded,
   fixtureHead as head,
+  fixtureMeasurementPayload,
 } from "./authority-fixtures.mjs";
 const protocol = JSON.parse(readFileSync(new URL("./protocol.json", import.meta.url)));
 const accept = (e) => decodeAuthority(bytes(e), sha256(bytes(e)), { head, protocol });
@@ -54,6 +55,20 @@ const padded = Buffer.from(`${JSON.stringify(positive.envelope)}${" ".repeat(max
 decodeAuthority(padded, sha256(padded), { head, protocol });
 const over = Buffer.concat([padded, Buffer.from(" ")]);
 assert.throws(() => decodeAuthority(over, sha256(over), { head, protocol }), /ENVELOPE_SIZE/);
+
+const measurement = fixtureAuthority(fixtureMeasurementPayload());
+const measuredBytes = bytes(measurement.envelope);
+const decodedMeasurement = accept(measurement.envelope);
+assert.equal(decodedMeasurement.config.tools.pnpm.closure.fileCount, 448);
+assert.equal(decodedMeasurement.config.inventoryAuthority.job, "128523423088");
+assert(measuredBytes.length <= maximumEnvelopeBytes);
+const fullBoundary = Buffer.concat([measuredBytes, Buffer.alloc(maximumEnvelopeBytes - measuredBytes.length, 32)]);
+decodeAuthority(fullBoundary, sha256(fullBoundary), { head, protocol });
+const fullOver = Buffer.concat([fullBoundary, Buffer.from(" ")]);
+assert.throws(() => decodeAuthority(fullOver, sha256(fullOver), { head, protocol }), /ENVELOPE_SIZE/);
+console.log(
+  `SYNTHETIC complete prospective measurement E=${measuredBytes.length}; real 448-pair descriptor/sidecar and all D/F-digest/R/C/S/E fields; 48000 accepted, 48001 refused`,
+);
 
 let negatives = 0;
 const reject = (mutate) => {
