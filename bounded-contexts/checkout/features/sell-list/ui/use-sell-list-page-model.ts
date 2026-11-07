@@ -51,9 +51,15 @@ export function useSellListPageModel({
     (sum, line) => sum + moneyNumber(line.offer_price_amount) * line.quantity,
     0,
   );
+  const hasUnquotedOffers =
+    selectedOfferLines.some((line) => !offerReviewsByLineId.get(line.line_id)?.terms) ||
+    productLines.some((line) => {
+      const review = productOfferReviewsByLineId.get(line.line_id);
+      return !review?.offers.length;
+    });
   const selectedOfferSellerNet = selectedOfferLines.reduce((sum, line) => {
     const review = offerReviewsByLineId.get(line.line_id);
-    return sum + moneyNumber(review?.terms?.seller_net_unit_amount ?? line.offer_price_amount) * line.quantity;
+    return sum + moneyNumber(review?.terms?.seller_net_unit_amount) * line.quantity;
   }, 0);
   const smartMatchSellerNet = productLines.reduce((sum, line) => {
     const review = productOfferReviewsByLineId.get(line.line_id);
@@ -74,7 +80,7 @@ export function useSellListPageModel({
     const fallbackQuantity = line.fallback_mode === "create-listing" ? Math.max(0, line.quantity - matchedQuantity) : 0;
     return sum + moneyNumber(line.minimum_listing_price_amount) * fallbackQuantity;
   }, 0);
-  const estimatedSalesFees =
+  const quotedSalesFees =
     selectedOfferLines.reduce((sum, line) => {
       const review = offerReviewsByLineId.get(line.line_id);
       return sum + moneyNumber(review?.terms?.marketplace_sales_fee_unit_amount) * line.quantity;
@@ -90,7 +96,8 @@ export function useSellListPageModel({
         )
       );
     }, 0);
-  const expectedSellerPayout = selectedOfferSellerNet + smartMatchSellerNet;
+  const estimatedSalesFees = hasUnquotedOffers ? null : quotedSalesFees;
+  const expectedSellerPayout = hasUnquotedOffers ? null : selectedOfferSellerNet + smartMatchSellerNet;
   const lineReadiness = sellListLines.map((line) =>
     line.line_type === "selected-offer"
       ? selectedOfferReadiness(offerReviewsByLineId.get(line.line_id))
@@ -134,6 +141,23 @@ export function useSellListPageModel({
     blockedLineCount > 0
       ? t("checkout.features.sellList.ui.sellListPage.readiness.needs.action", { count: blockedLineCount })
       : t("checkout.features.sellList.ui.sellListPage.readiness.ready", { count: readyLineCount });
+  const payoutRequirements = [
+    ...new Set(
+      (payoutReadiness?.missing_requirements ?? []).map((requirement) => {
+        switch (requirement) {
+          case "provider-onboarding":
+            return t("checkout.features.sellList.ui.sellListPage.requirement.payout.setup");
+          case "seller-agreement":
+            return t("checkout.features.sellList.ui.sellListPage.requirement.seller.agreement");
+          case "external_account":
+          case "bank account":
+            return t("checkout.features.sellList.ui.sellListPage.requirement.payout.account");
+          default:
+            return t("checkout.features.sellList.ui.sellListPage.requirement.review");
+        }
+      }),
+    ),
+  ];
 
   return {
     selectedOfferLines,
@@ -153,5 +177,17 @@ export function useSellListPageModel({
     primarySellerCheckoutLabel,
     readinessSummary,
     payoutSetupHref,
+    payoutIsReady,
+    payoutRequirements,
+    readinessNoticeTitle:
+      blockedLineCount > 0
+        ? t("checkout.features.sellList.ui.sellListPage.some.items.need.action")
+        : !payoutIsReady
+          ? t("checkout.features.sellList.ui.sellListPage.payout.setup.required")
+          : t("checkout.features.sellList.ui.sellListPage.ready.for.seller.checkout"),
+    acceptanceMessage:
+      canContinue && isSignedIn
+        ? t("checkout.features.sellList.ui.sellListPage.acceptance.ready")
+        : t("checkout.features.sellList.ui.sellListPage.acceptance.blocked"),
   };
 }

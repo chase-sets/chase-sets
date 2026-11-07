@@ -1,4 +1,4 @@
-import { expect, test, type Page, type TestInfo } from "@playwright/test";
+import { expect, test as baseTest, type Page, type Request, type TestInfo } from "@playwright/test";
 import {
   mountSellListRecoveryBrowserFixture,
   sellListRecoveryBrowserData,
@@ -14,6 +14,52 @@ import { marketplaceBrowserE2eSeedContract, marketplaceBrowserE2eSellerCredentia
 import { settleSearchResults } from "./support/search-settle";
 import { hasIdentifierSubmitHandler } from "./support/sign-in-readiness";
 
+type CheckoutSellListLineRow = Readonly<{
+  line_id: string;
+  line_type: "selected-offer" | "product";
+  product_id: string;
+  catalog_catalog_item_id: string;
+  fallback_mode: "none" | "create-listing";
+  minimum_listing_price_amount: string | null;
+  quantity: number;
+}>;
+
+type SellOfferMatchSnapshot = Readonly<{
+  offer_id: string;
+  product_id: string;
+  listing_id: string;
+  listing_visible_quantity: number;
+  quantity_requested: number;
+  offer_stream_version: number;
+  listing_stream_version: number;
+  updated_at: string;
+}>;
+
+type SellListCompositeReviewSnapshot = Readonly<{
+  offerReviews: readonly Readonly<{
+    lineId: string;
+    status: string;
+    terms: Readonly<{
+      basis_amount: string;
+      marketplace_sales_fee_unit_amount: string;
+      seller_net_unit_amount: string;
+    }> | null;
+  }>[];
+  productOfferReviews: readonly Readonly<{
+    lineId: string;
+    status: string;
+    message: string | null;
+    offers: readonly Readonly<{
+      offer: SellOfferMatchSnapshot;
+      terms: Readonly<{
+        basis_amount?: string;
+        marketplace_sales_fee_unit_amount: string;
+        seller_net_unit_amount: string;
+      }>;
+    }>[];
+  }>[];
+}>;
+
 const configuredMarketplaceAccount = {
   email: process.env.MARKETPLACE_E2E_EMAIL?.trim() ?? "",
   password: process.env.MARKETPLACE_E2E_PASSWORD?.trim() ?? "",
@@ -22,6 +68,30 @@ const configuredMarketplaceAccount = {
 const searchQuery = process.env.MARKETPLACE_E2E_SEARCH_QUERY ?? "charizard";
 const browseSearchQuery = marketplaceBrowserE2eSeedContract.browse.searchQuery;
 const authProjectionTimeoutMs = 90_000;
+
+const test = baseTest.extend<{ restoreDeskReview: (restore: () => Promise<void>) => void }>({
+  restoreDeskReview: async ({ page }, use, testInfo) => {
+    let restore: (() => Promise<void>) | undefined;
+    // Fixture teardown has its own Playwright phase, including when the test times out.
+    // Depending on page keeps its authenticated request context alive until restoration.
+    void page;
+    await use((callback) => {
+      restore = callback;
+    });
+    if (restore) {
+      try {
+        await restore();
+      } catch (error) {
+        await testInfo.attach("desk-review-restoration-failure", {
+          body: error instanceof Error ? (error.stack ?? error.message) : String(error),
+          contentType: "text/plain",
+        });
+        // Playwright retains the original test error separately from this teardown error.
+        throw error;
+      }
+    }
+  },
+});
 
 const accountCriticalRoutes = [
   { path: "/account/cart", heading: /^Your cart$/i, flow: "buy cart" },
@@ -804,6 +874,395 @@ test.describe("marketplace critical flows", () => {
           .join("\n")}`,
       );
     }
+  });
+
+  test("demo seller reviews populated Desk offers responsively without mutation @marketplace-checkout", async ({
+    page,
+    restoreDeskReview,
+  }, testInfo) => {
+    test.setTimeout(120_000);
+    expect(testInfo.config.workers, "the shared demo seller requires the isolated one-worker hosted journey").toBe(1);
+    await page.goto("/sign-in?returnTo=%2Faccount%2Fdesk%2Foffers");
+    await signInWithPassword(page, new URL(page.url()).origin, marketplaceBrowserE2eSellerCredentials());
+    await expectPageOk(page, "/account/desk/offers");
+    const readJson = async (path: string) => {
+      const response = await page.request.get(path);
+      expect(response.status(), path).toBe(200);
+      return response.json();
+    };
+    const readSellList = async (): Promise<{
+      items: CheckoutSellListLineRow[];
+      count: number;
+      latestConfirmation: unknown;
+    }> => readJson("/api/marketplace/account/sell-list");
+    const before = await readSellList();
+    const offerPath = "/api/marketplace/account/sell-list/offer-matches/off_seed_charizard_base_set_high_roller";
+    const offerBefore = await readJson(offerPath);
+    expect(offerBefore.offer_id).toBe("off_seed_charizard_base_set_high_roller");
+    const payoutPath = "/api/marketplace/account/sell-list/payout-readiness";
+    const payoutBefore = await readJson(payoutPath);
+    expect(payoutBefore.status).toBe("not-started");
+    const salesPath = "/api/marketplace/account/sales";
+    const salesBefore = await readJson(salesPath);
+    const itemPath = marketplaceBrowserE2eSeedContract.itemDetail.selectedProductRoutePath;
+    const itemUrl = new URL(itemPath, page.url());
+    const commerceMutations: Request[] = [];
+    const analyticsPosts: Request[] = [];
+    const analyticsPayloads: Array<{ path: string; origin: string; payload: unknown }> = [];
+    await page.exposeFunction(
+      "captureDeskReviewBeacon",
+      (entry: { path: string; origin: string; body: string | null }) => {
+        let payload: unknown = null;
+        if (entry.body !== null) {
+          try {
+            payload = JSON.parse(entry.body);
+          } catch {
+            payload = null;
+          }
+        }
+        analyticsPayloads.push({ path: entry.path, origin: entry.origin, payload });
+      },
+    );
+    await page.addInitScript(() => {
+      const sendBeacon = navigator.sendBeacon.bind(navigator);
+      const capture = (
+        window as typeof window & {
+          captureDeskReviewBeacon: (entry: { path: string; origin: string; body: string | null }) => Promise<void>;
+        }
+      ).captureDeskReviewBeacon;
+      navigator.sendBeacon = (url, data) => {
+        const target = new URL(url, window.location.href);
+        if (target.origin === window.location.origin && target.pathname === "/analytics/item-detail-rail") {
+          const body = data instanceof Blob ? data.text() : Promise.resolve(typeof data === "string" ? data : null);
+          void body.then(
+            (text) => capture({ path: target.pathname, origin: target.origin, body: text }),
+            () => capture({ path: target.pathname, origin: target.origin, body: null }),
+          );
+        }
+        return sendBeacon(url, data);
+      };
+    });
+    const unexpectedPosts: Request[] = [];
+    const boundary: Array<{ event: string; path: string; detail?: string | number }> = [];
+    const errors: string[] = [];
+    page.on("request", (request) => {
+      const path = new URL(request.url()).pathname;
+      if (request.method() === "POST") {
+        const url = new URL(request.url());
+        if (url.origin === itemUrl.origin && path === "/analytics/item-detail-rail") {
+          analyticsPosts.push(request);
+        } else {
+          commerceMutations.push(request);
+          if (url.origin !== itemUrl.origin || path.startsWith("/analytics/")) unexpectedPosts.push(request);
+        }
+      }
+      if (request.isNavigationRequest() || path === "/__manifest") {
+        boundary.push({ event: request.method(), path });
+      }
+    });
+    page.on("requestfailed", (request) => {
+      boundary.push({
+        event: "requestfailed",
+        path: new URL(request.url()).pathname,
+        detail: request.failure()?.errorText,
+      });
+    });
+    page.on("response", (response) => {
+      if (new URL(response.url()).pathname === "/__manifest") {
+        boundary.push({ event: "manifest-response", path: "/__manifest", detail: response.status() });
+      }
+    });
+    page.on("pageerror", (error) => errors.push(error.message));
+    page.on("console", (message) => {
+      if (message.type() === "error") errors.push(message.text());
+    });
+    let productId: string | undefined;
+    let additionArmed = false;
+    const isAddedProduct = (line: CheckoutSellListLineRow) =>
+      line.line_type === "product" &&
+      line.product_id === productId &&
+      line.fallback_mode === "none" &&
+      line.minimum_listing_price_amount === null;
+    restoreDeskReview(async () => {
+      try {
+        if (additionArmed) {
+          const adds = commerceMutations.filter(
+            (request) =>
+              new URL(request.url()).pathname.replace(/\.data$/, "") === itemUrl.pathname &&
+              new URLSearchParams(request.postData() ?? "").get("intent") === "add-product-to-sell-list",
+          );
+          expect(adds.length, "at most one public Add submission owns this fixture").toBeLessThanOrEqual(1);
+          if (adds.length === 1) {
+            // Settle the submitted command even when the test failed before assigning its line ID.
+            const response = await adds[0].response();
+            if (response) await response.finished();
+            let receiptFailure: unknown;
+            try {
+              if (response?.status() === 302) {
+                const destination = new URL(response.headers().location, response.url());
+                expect(destination.origin).toBe(itemUrl.origin);
+                expect(destination.pathname).toBe("/account/sell-list");
+                expect(destination.searchParams.get("postWriteToken")).not.toBeNull();
+                const settled = await page.request.get(destination.href);
+                expect(settled.status(), "settle the receipt before reading the added line").toBe(200);
+              }
+            } catch (error) {
+              receiptFailure = error;
+              throw error;
+            } finally {
+              // A failed destination must not prevent reconciliation of a uniquely owned committed line.
+              try {
+                const current = await readSellList();
+                const candidates = current.items.filter(
+                  (line) => isAddedProduct(line) && !before.items.some((old) => old.line_id === line.line_id),
+                );
+                expect(candidates.length, "never guess among multiple new lines").toBeLessThanOrEqual(1);
+                if (candidates.length === 1) {
+                  const owned = candidates[0];
+                  expect(owned.quantity, "do not remove a line changed by another writer").toBe(1);
+                  expect(owned.catalog_catalog_item_id).toBe(
+                    marketplaceBrowserE2eSeedContract.itemDetail.catalogItemId,
+                  );
+                  expect(current.items.filter((line) => line.line_id !== owned.line_id)).toEqual(before.items);
+                  const removed = await page.request.post("/account/desk/offers", {
+                    form: { intent: "remove-sell-list-line", lineId: owned.line_id },
+                  });
+                  expect(removed.status(), "remove only the new test-owned line").toBe(200);
+                } else {
+                  expect(
+                    response,
+                    "an aborted Add with no visible line has an unknown outcome, not proven restoration",
+                  ).not.toBeNull();
+                  expect(
+                    response!.status(),
+                    "a successful Add must have a visible owned line before restoration",
+                  ).toBeGreaterThanOrEqual(400);
+                }
+                expect(await readSellList(), "restore state even when receipt navigation failed").toEqual(before);
+              } catch (cleanupError) {
+                if (receiptFailure)
+                  throw new AggregateError(
+                    [receiptFailure, cleanupError],
+                    "Add receipt navigation and restoration both failed",
+                  );
+                throw cleanupError;
+              }
+            }
+          }
+        }
+        expect(await readSellList(), "restore every original field, quantity and confirmation").toEqual(before);
+        expect(await readJson(offerPath), "review must not change the Offer").toEqual(offerBefore);
+        expect(await readJson(payoutPath), "preserve the not-started payout oracle").toEqual(payoutBefore);
+        expect(await readJson(salesPath), "review must not create a sale").toEqual(salesBefore);
+        expect(
+          commerceMutations.map((request) => ({
+            path: new URL(request.url()).pathname.replace(/\.data$/, ""),
+            intent: new URLSearchParams(request.postData() ?? "").get("intent"),
+          })),
+          "review must not submit Accept, Decline, seller checkout or a session-creating command",
+        ).toEqual(
+          additionArmed && commerceMutations.length > 0
+            ? [{ path: itemUrl.pathname, intent: "add-product-to-sell-list" }]
+            : [],
+        );
+        expect(unexpectedPosts, "unexpected analytics or cross-origin POSTs must fail closed").toEqual([]);
+        expect(
+          analyticsPosts.length,
+          "the public item flow must retain a server-recorded analytics event",
+        ).toBeGreaterThan(0);
+        await expect
+          .poll(() => analyticsPayloads.length, { message: "retain each actual sendBeacon JSON payload" })
+          .toBe(analyticsPosts.length);
+        for (const [index, request] of analyticsPosts.entries()) {
+          const captured = analyticsPayloads[index];
+          expect(captured).toMatchObject({ path: "/analytics/item-detail-rail", origin: itemUrl.origin });
+          expect(captured.payload).toMatchObject({ event: expect.any(String) });
+          const response = await request.response();
+          expect(response?.status(), "the server must accept and record the actual analytics event").toBe(204);
+        }
+        expect(
+          boundary.filter((entry) => entry.path.startsWith("/checkout/")),
+          "review must not enter a checkout session",
+        ).toEqual([]);
+        expect(errors).toEqual([]);
+      } finally {
+        await testInfo.attach("desk-review-request-boundary", {
+          body: JSON.stringify({ boundary, errors, analyticsPayloads, analyticsPostCount: analyticsPosts.length }),
+          contentType: "application/json",
+        });
+      }
+    });
+    await expectPageOk(page, `${itemPath}&market=sell`);
+    const selectedProduct = page.getByRole("button", {
+      name: /Selected product.*Save the selected product for Sell List review/,
+    });
+    await expect
+      .poll(
+        () =>
+          selectedProduct.evaluate((element) =>
+            Object.entries(element).some(
+              ([key, props]) =>
+                key.startsWith("__reactProps$") &&
+                typeof props === "object" &&
+                props !== null &&
+                "onClick" in props &&
+                typeof props.onClick === "function",
+            ),
+          ),
+        { message: "Selected product accordion must have its hydrated click handler before activation" },
+      )
+      .toBe(true);
+    await selectedProduct.click();
+    const add = page.getByRole("button", { name: "Add product to Sell List", exact: true });
+    await expect(add).toBeVisible();
+    const productForm = page.locator("form").filter({ has: add });
+    productId = await productForm.locator('input[name="productId"]').inputValue();
+    expect(productId).toBe(offerBefore.product_id);
+    expect(
+      before.items.filter(isAddedProduct),
+      "public Add must create a new line, never increment a pre-existing product",
+    ).toEqual([]);
+    expect(await readSellList(), "the fixture must remain unchanged before its only mutation").toEqual(before);
+    additionArmed = true;
+    await add.click();
+    await expect(page).toHaveURL(/\/account\/sell-list/);
+    await expect(page.getByRole("button", { name: "Review Charizard offers and terms", exact: true })).toHaveCount(1);
+    const addedItems = await readSellList();
+    expect(addedItems.items).toHaveLength(before.items.length + 1);
+    const addedLine = addedItems.items.find(
+      (item) => !before.items.some((existing) => existing.line_id === item.line_id),
+    );
+    expect(addedLine, "the public Add to Sell List journey must create one identifiable line").toBeDefined();
+    expect(isAddedProduct(addedLine!)).toBe(true);
+    expect(addedLine!.quantity).toBe(1);
+    const compositeReadAt = new Date().toISOString();
+    const composite = (await readJson(
+      "/api/marketplace/account/sell-list/composite-review",
+    )) as SellListCompositeReviewSnapshot;
+    const productReview = composite.productOfferReviews.find((review) => review.lineId === addedLine!.line_id);
+    const requiredOffer = productReview?.offers.find(
+      (entry) => entry.offer.offer_id === offerBefore.offer_id && entry.offer.product_id === addedLine!.product_id,
+    );
+    const matchReadAt = new Date().toISOString();
+    const matchResponse = await page.request.get(offerPath);
+    const matchReadStatus = matchResponse.status();
+    const matchedOffer = matchReadStatus === 200 ? ((await matchResponse.json()) as SellOfferMatchSnapshot) : null;
+    const payoutAfterAdd = await readJson(payoutPath);
+    const diagnosticJson = JSON.stringify({
+      account: "demo-seller",
+      lineId: addedLine!.line_id,
+      lineQuantity: addedLine!.quantity,
+      productId: addedLine!.product_id,
+      requiredOfferId: offerBefore.offer_id,
+      reviewStatus: productReview?.status ?? "missing",
+      compositeReadAt,
+      compositeOffers:
+        productReview?.offers.map(({ offer, terms }) => ({
+          offerId: offer.offer_id,
+          listingId: offer.listing_id,
+          listingVisibleQuantity: offer.listing_visible_quantity,
+          quantityRequested: offer.quantity_requested,
+          basis: terms.basis_amount ?? null,
+          fee: terms.marketplace_sales_fee_unit_amount,
+          net: terms.seller_net_unit_amount,
+        })) ?? null,
+      quote: requiredOffer
+        ? {
+            basis: requiredOffer.terms.basis_amount ?? null,
+            fee: requiredOffer.terms.marketplace_sales_fee_unit_amount,
+            net: requiredOffer.terms.seller_net_unit_amount,
+          }
+        : null,
+      payoutReadiness: {
+        status: payoutAfterAdd.status,
+        reason: payoutAfterAdd.missing_requirements,
+        updatedAt: payoutAfterAdd.updated_at,
+      },
+      matchReadAt,
+      matchReadStatus,
+      matchedOffer: matchedOffer
+        ? {
+            offerId: matchedOffer.offer_id,
+            productId: matchedOffer.product_id,
+            listingId: matchedOffer.listing_id,
+            listingVisibleQuantity: matchedOffer.listing_visible_quantity,
+            quantityRequested: matchedOffer.quantity_requested,
+            offerStreamVersion: matchedOffer.offer_stream_version,
+            listingStreamVersion: matchedOffer.listing_stream_version,
+            updatedAt: matchedOffer.updated_at,
+          }
+        : null,
+    });
+    await testInfo.attach("desk-review-composite-diagnostic.json", {
+      body: diagnosticJson,
+      contentType: "application/json",
+    });
+    console.info("desk-review-composite-diagnostic.json", diagnosticJson);
+    expect([200, 404], "the diagnostic match read must be an actual match or authoritative absence").toContain(
+      matchReadStatus,
+    );
+    expect(payoutAfterAdd, "the public Add must preserve the not-started payout oracle").toEqual(payoutBefore);
+    expect(productReview, "the added line must be present in the composite review").toBeDefined();
+    expect(productReview!.status, "the required offer must resolve through the public review").toBe("ready");
+    expect(requiredOffer, "the required offer and terms must resolve through the public review").toBeDefined();
+    await page.goto("/account/desk/offers");
+    const review = page.getByRole("button", { name: "Review Charizard offers and terms", exact: true });
+    await expect(review).toHaveCount(1);
+    const grid = page.getByTestId("sell-list-review-grid");
+    const assertGrid = async () => {
+      await expect(grid).toBeVisible();
+      await expect(grid.getByRole("button", { name: "Review Charizard offers and terms", exact: true })).toBeVisible();
+      const scrollWidth = await page.locator("html").evaluate((element) => element.scrollWidth);
+      expect(typeof scrollWidth).toBe("number");
+      expect(Number.isFinite(scrollWidth)).toBe(true);
+      const overflow = await page.evaluate(
+        () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+      );
+      expect(overflow).toBeLessThanOrEqual(0);
+    };
+    await page.setViewportSize({ width: 390, height: 844 });
+    await assertGrid();
+    await captureResponsiveEvidence({ page, testInfo, claimId: "desk-offers-grid-390" });
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await assertGrid();
+    await captureResponsiveEvidence({ page, testInfo, claimId: "desk-offers-grid-1280" });
+
+    await review.click();
+    const dialog = page.getByRole("dialog", { name: "Charizard offers and terms", exact: true });
+    await expect(dialog).toBeVisible();
+    await expect(dialog.getByText("Charizard", { exact: false }).first()).toBeVisible();
+    await expect(dialog).toContainText(`$${requiredOffer!.terms.seller_net_unit_amount}`);
+    await expect(dialog.getByText("Offers cannot be accepted yet.")).toHaveCount(0);
+    await expect(dialog.getByRole("button", { name: "Continue to seller checkout" })).toBeDisabled();
+    await expect(page.getByText("Payout setup required", { exact: true })).toBeVisible();
+    const selectedOffer = dialog.getByRole("checkbox");
+    await selectedOffer.check();
+    await expect(dialog.getByRole("button", { name: "Accept selected" })).toBeDisabled();
+    await expect(dialog.getByRole("button", { name: "Decline selected" })).toHaveAttribute(
+      "form",
+      "sell-list-checkout-form",
+    );
+    expect(dialog.getByRole("button", { name: "Remove" }).closest("form")).not.toBeNull();
+    await captureResponsiveEvidence({ page, testInfo, claimId: "desk-offers-sheet-1280" });
+    await dialog.getByRole("button", { name: "Close", exact: true }).click();
+    await review.focus();
+    await page.keyboard.press("Enter");
+    await expect(dialog).toBeVisible();
+    await dialog.getByRole("button", { name: "Close", exact: true }).click();
+    await review.focus();
+    await page.keyboard.press("Space");
+    await expect(dialog).toBeVisible();
+    await dialog.getByRole("button", { name: "Close", exact: true }).click();
+
+    await page.setViewportSize({ width: 390, height: 844 });
+    await review.click();
+    await expect(dialog).toBeVisible();
+    await captureResponsiveEvidence({ page, testInfo, claimId: "desk-offers-sheet-390" });
+    await dialog.getByRole("button", { name: "Close", exact: true }).click();
+
+    const lines = await readSellList();
+    expect(lines.items.some((item) => item.line_id === addedLine?.line_id)).toBe(true);
+    expect(errors).toEqual([]);
   });
 
   test("compact Sell List recovery revalidates through the browser data router @marketplace-checkout", async ({
