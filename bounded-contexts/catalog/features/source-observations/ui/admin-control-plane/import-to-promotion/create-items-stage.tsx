@@ -15,9 +15,153 @@ import {
 import { t } from "@chase-sets/localization";
 import { catalogItemsBySourceProviderHref } from "../../../../catalog-items/ui/catalog-item-provenance-links";
 import type { CatalogPrimaryWorkbenchReadModel } from "../../../api/primary-workbench-admin-contracts";
+import type { SourceObservationPromotionReceipt, SourceObservationPromotionScope } from "../../contracts";
 import { CommandFormButton } from "./command-controls";
 import { CatalogIntegrationCommandPlanDetail } from "./command-plan-module";
 import { BlockerList, stateLabel } from "./workbench-formatting";
+import { promotionReceiptHasCompleteCoverage } from "../../primary-workbench-source-observation-review";
+
+type ReceiptScalar = string | number | boolean | null | undefined;
+
+function ReceiptFields({ fields }: { fields: readonly (readonly [string, ReceiptScalar])[] }) {
+  return (
+    <KeyValueList
+      items={fields.map(([path, value]) => ({
+        key: path,
+        value: (
+          <WorkbenchText
+            size="xs"
+            mono
+            wrap="anywhere"
+            data-catalog-receipt-field={path}
+            data-catalog-receipt-kind={value === null ? "null" : value === "" ? "empty-string" : typeof value}
+          >
+            {value === undefined
+              ? t("catalog.features.sourceObservations.ui.primaryWorkbench.stage.create.receipt.notReturned")
+              : value === null
+                ? "null"
+                : value === ""
+                  ? t("catalog.features.sourceObservations.ui.primaryWorkbench.stage.create.receipt.emptyString")
+                  : String(value)}
+          </WorkbenchText>
+        ),
+      }))}
+    />
+  );
+}
+
+function ReceiptStringList({ path, values }: { path: string; values: readonly string[] }) {
+  return (
+    <WorkbenchStack gap="sm" data-catalog-receipt-array={path}>
+      <WorkbenchText size="xs" weight="semibold">
+        {path}
+      </WorkbenchText>
+      {values.length === 0 ? (
+        <WorkbenchText size="xs">{t("catalog.features.sourceObservations.ui.primaryWorkbench.none")}</WorkbenchText>
+      ) : (
+        <ReceiptFields fields={values.map((value, index) => [`${path}.${index}`, value])} />
+      )}
+    </WorkbenchStack>
+  );
+}
+
+function ReceiptScope({ path, scope }: { path: string; scope: SourceObservationPromotionScope }) {
+  return (
+    <ReceiptFields
+      fields={[
+        [`${path}.search`, scope.search],
+        [`${path}.status`, scope.status],
+        [`${path}.provider`, scope.provider],
+        [`${path}.language`, scope.language],
+        [`${path}.productLineId`, scope.productLineId],
+        [`${path}.seriesId`, scope.seriesId],
+        [`${path}.expansionId`, scope.expansionId],
+        [`${path}.setId`, scope.setId],
+      ]}
+    />
+  );
+}
+
+function OriginalPromotionReceipt({ receipt }: { receipt: SourceObservationPromotionReceipt }) {
+  const { selection, preview } = receipt;
+  const { validation } = preview;
+  return (
+    <WorkbenchStack data-catalog-promotion-receipt={receipt.schemaVersion}>
+      <ReceiptFields
+        fields={[
+          ["schemaVersion", receipt.schemaVersion],
+          ["previewId", receipt.previewId],
+          ["selection.providerKey", selection.providerKey],
+          ["selection.unitKey", selection.unitKey],
+          ["selection.importScope", selection.importScope],
+          ["selection.profileVersion", selection.profileVersion],
+          ["selection.scopeRecordId", selection.scopeRecordId],
+          ["selection.promoteAsDraft", selection.promoteAsDraft],
+        ]}
+      />
+      <ReceiptStringList path="selection.observationIds" values={selection.observationIds} />
+      <ReceiptScope path="selection.scope" scope={selection.scope} />
+      <ReceiptFields
+        fields={[
+          ["preview.matched", preview.matched],
+          ["preview.eligible", preview.eligible],
+          ["preview.terminal", preview.terminal],
+          ["preview.fingerprint", preview.fingerprint],
+        ]}
+      />
+      <ReceiptScope path="preview.scope" scope={preview.scope} />
+      <ReceiptFields
+        fields={[
+          ["preview.validation.promoteAsDraft", validation.promoteAsDraft],
+          ["preview.validation.pageLimit", validation.pageLimit],
+          ["preview.validation.coverage", validation.coverage],
+          ["preview.validation.continuation", validation.continuation],
+        ]}
+      />
+      <ReceiptStringList path="preview.validation.coveredObservationIds" values={validation.coveredObservationIds} />
+      <WorkbenchStack gap="sm" data-catalog-receipt-array="preview.validation.diagnostics">
+        <WorkbenchText size="xs" weight="semibold">
+          preview.validation.diagnostics
+        </WorkbenchText>
+        {validation.diagnostics.length === 0 ? (
+          <WorkbenchText size="xs">{t("catalog.features.sourceObservations.ui.primaryWorkbench.none")}</WorkbenchText>
+        ) : null}
+        {validation.diagnostics.map((diagnostic, index) => {
+          const path = `preview.validation.diagnostics.${index}`;
+          const identity = diagnostic.displayIdentity;
+          return (
+            <WorkbenchStack key={index} gap="sm">
+              <ReceiptFields
+                fields={[
+                  [`${path}.observationId`, diagnostic.observationId],
+                  [`${path}.code`, diagnostic.code],
+                  [`${path}.path`, diagnostic.path],
+                  [`${path}.diagnosticText`, diagnostic.diagnosticText],
+                  [`${path}.blocking`, diagnostic.blocking],
+                ]}
+              />
+              {identity ? (
+                <>
+                  <ReceiptStringList path={`${path}.displayIdentity.missingTokens`} values={identity.missingTokens} />
+                  <ReceiptFields
+                    fields={[
+                      [`${path}.displayIdentity.templateKey`, identity.templateKey],
+                      [`${path}.displayIdentity.templateTargetKind`, identity.templateTargetKind],
+                      [`${path}.displayIdentity.templateTargetId`, identity.templateTargetId],
+                      [`${path}.displayIdentity.templateReason`, identity.templateReason],
+                    ]}
+                  />
+                </>
+              ) : (
+                <ReceiptFields fields={[[`${path}.displayIdentity`, undefined]]} />
+              )}
+            </WorkbenchStack>
+          );
+        })}
+      </WorkbenchStack>
+    </WorkbenchStack>
+  );
+}
 
 // Stage 3: create / update Catalog Items. The promotion preview is folded into an
 // INLINE confirmation of this single action instead of a separate top-level
@@ -25,17 +169,50 @@ import { BlockerList, stateLabel } from "./workbench-formatting";
 // previewed impact, confirms it inline, then commits the create/update in place.
 export function CatalogIntegrationCreateItemsStage({
   readModel,
+  selectedObservationIds = readModel.routeContext.selectedObservationIds,
 }: Readonly<{
   readModel: CatalogPrimaryWorkbenchReadModel;
+  selectedObservationIds?: readonly string[];
 }>) {
-  const [confirmed, setConfirmed] = useState(false);
   const preview = readModel.promotionPreview;
   // The explicit review choice. It defaults off; the previewed choice comes back
   // through the route context, and toggling it here makes the saved preview
   // stale locally (commit disabled) until a fresh preview binds the new choice.
-  const [promoteAsDraft, setPromoteAsDraft] = useState(preview.validation.promoteAsDraft);
+  const receipt = preview.receipt;
+  const [review, setReview] = useState({
+    receipt,
+    confirmed: false,
+    promoteAsDraft: preview.validation.promoteAsDraft,
+    invalidated: false,
+  });
+  let currentReview = review;
+  if (review.receipt !== receipt) {
+    currentReview = {
+      receipt,
+      confirmed: false,
+      promoteAsDraft: preview.validation.promoteAsDraft,
+      invalidated: false,
+    };
+    setReview(currentReview);
+  }
+  const { confirmed, promoteAsDraft } = currentReview;
   const choiceChanged = preview.previewId !== null && promoteAsDraft !== preview.validation.promoteAsDraft;
-  const previewFresh = preview.executionSafeguards.previewFresh && preview.previewId !== null && !choiceChanged;
+  const receiptIds = [...(receipt?.selection.observationIds ?? [])].sort();
+  const selectionChanged =
+    Boolean(receipt) &&
+    (selectedObservationIds.length !== receiptIds.length ||
+      [...selectedObservationIds].sort().some((id, index) => id !== receiptIds[index]));
+  if ((selectionChanged || choiceChanged) && receipt && !currentReview.invalidated) {
+    currentReview = { ...currentReview, invalidated: true, confirmed: false };
+    setReview(currentReview);
+  }
+  const previewFresh =
+    Boolean(receipt && promotionReceiptHasCompleteCoverage(receipt)) &&
+    preview.executionSafeguards.previewFresh &&
+    preview.previewId !== null &&
+    !choiceChanged &&
+    !selectionChanged &&
+    !currentReview.invalidated;
   const identityBlocked = preview.blockers.includes("display-identity-unresolvable");
   const scopeSummary = preview.scope.filterSummary.join(", ");
 
@@ -132,8 +309,7 @@ export function CatalogIntegrationCreateItemsStage({
           name="promote-as-draft-choice"
           checked={promoteAsDraft}
           onCheckedChange={(checked) => {
-            setPromoteAsDraft(checked === true);
-            setConfirmed(false);
+            setReview({ ...currentReview, promoteAsDraft: checked === true, confirmed: false, invalidated: true });
           }}
           label={t("catalog.features.sourceObservations.ui.primaryWorkbench.stage.create.promoteAsDraft.label")}
           description={t(
@@ -153,6 +329,7 @@ export function CatalogIntegrationCreateItemsStage({
             readModel={readModel}
             intent="observation.promote"
             promotionPhase="preview"
+            selectedObservationIds={selectedObservationIds}
             promoteAsDraft={promoteAsDraft}
             size="sm"
             tone="secondary"
@@ -163,11 +340,21 @@ export function CatalogIntegrationCreateItemsStage({
 
         <CatalogIntegrationPromotionValidation validation={preview.validation} />
 
+        <ProgressiveDisclosure title={t("catalog.features.sourceObservations.ui.primaryWorkbench.preview.promotion")}>
+          <WorkbenchText
+            size="xs"
+            data-catalog-promotion-receipt-state={receipt ? (previewFresh ? "fresh" : "stale") : "unavailable"}
+          >
+            {stateLabel(receipt ? (previewFresh ? "fresh" : "stale") : "unavailable")}
+          </WorkbenchText>
+          {receipt ? <OriginalPromotionReceipt receipt={receipt} /> : null}
+        </ProgressiveDisclosure>
+
         <Checkbox
           name="confirm-create-items"
           checked={confirmed}
           disabled={!previewFresh || identityBlocked}
-          onCheckedChange={(checked) => setConfirmed(checked === true)}
+          onCheckedChange={(checked) => setReview({ ...currentReview, confirmed: checked === true })}
           label={t("catalog.features.sourceObservations.ui.primaryWorkbench.stage.create.confirm", {
             count: preview.scope.eligibleCount,
             scope: preview.scope.label,
@@ -179,6 +366,7 @@ export function CatalogIntegrationCreateItemsStage({
             readModel={readModel}
             intent="observation.promote"
             promotionPhase="execute"
+            selectedObservationIds={selectedObservationIds}
             promoteAsDraft={promoteAsDraft}
             leadingIcon="check"
             disabled={!previewFresh || !confirmed || identityBlocked}

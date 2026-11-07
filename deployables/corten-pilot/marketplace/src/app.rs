@@ -1794,11 +1794,9 @@ fn pwa() -> corten::pwa::Pwa {
 
 /// The pilot: each screen is an area whose routes module says who may use it (`caller = ..`):
 /// sellers on the inventory screens, buyers on the cart, anyone on an item or a search.
-pub fn app(config: Config) -> App<crate::auth::OneLookup> {
+pub fn app(config: Config) -> App {
     let shared: Shared = Arc::new(config);
     App::new(url::home::router(shared.clone()))
-        // One look at whose the request is, for every caller type and the layout's cart count.
-        .middleware(crate::auth::OneLookup)
         .assets(Static)
         .pwa(pwa())
         // The cart's fallback picture is on marketplace's origin and a listing's photos on the API's,

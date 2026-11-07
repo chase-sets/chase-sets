@@ -9,9 +9,26 @@ import type { CheckoutFulfillmentPreview } from "../../../support/request-suppor
 import type { CheckoutSessionRow } from "../../../support/request-support/api-client";
 
 import { CheckoutSessionPage } from "./checkout-page";
+import { CheckoutEmptyCartState } from "./checkout-commit-actions";
 
 afterEach(() => {
   cleanup();
+});
+
+describe("CheckoutEmptyCartState", () => {
+  it("keeps the canonical empty-cart title, action, and description presentation", () => {
+    const markup = renderToString(<CheckoutEmptyCartState />);
+    const container = document.createElement("div");
+    container.innerHTML = markup;
+    const description = container.querySelector("section div.m-0.mx-auto.max-w-xl");
+    expect(container.querySelector("h2")?.textContent).toBe(
+      t("checkout.features.sessions.ui.checkoutPage.your.cart.is.empty"),
+    );
+    expect(container.querySelector("a")?.getAttribute("href")).toBe("/search");
+    expect(description).not.toBeNull();
+    expect(description?.className).toContain("m-0 mx-auto max-w-xl text-sm leading-6 text-secondary");
+    expect(description?.textContent).toContain("Add a product");
+  });
 });
 
 const session: CheckoutSessionRow = {

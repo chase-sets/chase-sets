@@ -1416,8 +1416,13 @@
     },
     {
       "changedFiles": [".github/workflows/platform-pr.yml"],
-      "suiteIds": [],
-      "batches": []
+      "suiteIds": ["admin_auth"],
+      "batches": ["admin_auth"]
+    },
+    {
+      "changedFiles": ["scripts/playwright-chromium-install.mjs"],
+      "suiteIds": ["admin_auth"],
+      "batches": ["admin_auth"]
     },
     {
       "changedFiles": [".npmrc"],

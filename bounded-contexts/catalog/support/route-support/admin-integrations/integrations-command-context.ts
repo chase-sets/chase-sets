@@ -13,19 +13,16 @@ import type { SourceObservationIntegrationJobScope } from "../../../features/sou
 import type { createCatalogRequestApiClient } from "../../../support/request-support/api-client";
 import { parseCatalogPrimaryWorkbenchRouteContext } from "../../../features/source-observations/ui/primary-workbench-route-context";
 import {
-  canSelectStandaloneProductCoordinate,
   importScopeFromScopeContext,
+  integrationJobScopeForUnit,
+  reapplyScopeForUnit,
+  type CatalogPrimaryWorkbenchReapplyScope,
   scopeContextFromFormData,
   scopeContextFromRouteContext,
-  scopeContextToIntegrationJobScope,
   scopeContextToObservationFilterScope,
 } from "../../../features/source-observations/ui/primary-workbench-scope-context";
 import type { CatalogPrimaryWorkbenchCommandFeedback } from "../../../features/source-observations/ui/primary-workbench-command-feedback";
-import { stringValue } from "./integrations-form-values";
-import {
-  getActiveCatalogProviderIntegrationProfileVersion,
-  catalogProviderProfileVersionIngestionUnitKey,
-} from "../../../features/source-observations/api/providers/registry";
+import { recordValue, stringValue } from "./integrations-form-values";
 
 export type CatalogPrimaryWorkbenchFormIntent = CatalogControlPlaneActionId;
 
@@ -111,44 +108,16 @@ export function observationIdsFromFormData(formData: FormData, fallback: readonl
   return values.length > 0 ? [...new Set(values)] : fallback;
 }
 
+// Whether the product coordinate may be imported on its own is the Catalog API's rule
+// (assertProductCoordinateImportAllowed). The page only refuses a review filter whose
+// language contradicts the product coordinate it was asked to import.
 export function integrationScopeFromContext(context: RouteContext): SourceObservationIntegrationJobScope {
   const scope = context.scope ?? scopeContextFromRouteContext(context);
   const filterLanguage = context.sourceObservationFilters.language;
-  const languageCode = filterLanguage ?? scope.languageCode;
-  if (scope.productId) {
-    const profile =
-      context.providerKey && context.unitKey
-        ? getActiveCatalogProviderIntegrationProfileVersion(context.providerKey, { ingestionUnitKey: context.unitKey })
-        : null;
-    if (
-      !profile?.active ||
-      catalogProviderProfileVersionIngestionUnitKey(profile) !== context.unitKey ||
-      !canSelectStandaloneProductCoordinate(profile) ||
-      (context.profileVersion && context.profileVersion !== profile.profileVersion) ||
-      Boolean(filterLanguage && scope.languageCode && filterLanguage !== scope.languageCode) ||
-      (profile.profile.languageOptions.length > 0 &&
-        (!languageCode || !profile.profile.languageOptions.includes(languageCode))) ||
-      scope.expansionId ||
-      scope.expansionName ||
-      scope.seriesId ||
-      scope.seriesName ||
-      scope.productLineId ||
-      scope.productLineName ||
-      context.sourceObservationFilters.setId ||
-      context.sourceObservationFilters.expansionId
-    ) {
-      throw new Error(
-        "Product import requires the selected active product-scope unit and an unmixed product coordinate.",
-      );
-    }
+  if (scope.productId && filterLanguage && scope.languageCode && filterLanguage !== scope.languageCode) {
+    throw new Error("Product import requires an unmixed product coordinate.");
   }
-  return scopeContextToIntegrationJobScope({
-    ...scope,
-    ingestionUnitKey: context.unitKey ?? undefined,
-    languageCode,
-    expansionId:
-      context.sourceObservationFilters.setId ?? context.sourceObservationFilters.expansionId ?? scope.expansionId,
-  });
+  return integrationJobScopeForUnit(scope, context.unitKey, context.sourceObservationFilters);
 }
 
 export function catalogSyncScopeFromContext(context: RouteContext, formData: FormData): CatalogSyncScope | null {
@@ -194,11 +163,8 @@ export function hasExplicitPromotionScope(context: RouteContext): boolean {
   return Boolean(context.providerKey && context.unitKey && importScopeFromScopeContext(scope));
 }
 
-export function reapplyScopeFromContext(context: RouteContext): SourceObservationPromotionScope {
-  return {
-    ...promotionScopeFromContext(context),
-    status: context.sourceObservationFilters.status ?? "promoted",
-  };
+export function reapplyScopeFromContext(context: RouteContext): CatalogPrimaryWorkbenchReapplyScope {
+  return reapplyScopeForUnit(scopeContextFromRouteContext(context), context.unitKey, context.sourceObservationFilters);
 }
 
 // The promotion preview checkpoint token. It carries a genuine content
@@ -282,41 +248,28 @@ export async function runProviderProfileLifecycleCommand(
   intent: ProviderProfileLifecycleIntent,
   providerKey: string,
   profileVersion: string,
+  lifecycleConfirmation: string | null,
 ): Promise<CatalogProviderProfileVersionReview> {
   if (intent === "provider-profile.rollback") {
     return api.rollbackSourceObservationProviderProfile<CatalogProviderProfileVersionReview>(
       providerKey,
       profileVersion,
+      lifecycleConfirmation,
     );
   }
   if (intent === "provider-profile.deprecate") {
     return api.deprecateSourceObservationProviderProfile<CatalogProviderProfileVersionReview>(
       providerKey,
       profileVersion,
+      lifecycleConfirmation,
     );
   }
 
-  return api.retireSourceObservationProviderProfile<CatalogProviderProfileVersionReview>(providerKey, profileVersion);
-}
-
-export function lifecycleConfirmationAccepted(
-  formData: FormData,
-  intent: ProviderProfileLifecycleIntent,
-  providerKey: string,
-  profileVersion: string,
-): boolean {
-  return (
-    stringValue(formData.get("lifecycleConfirmation")) ===
-    lifecycleConfirmationValue(intent, providerKey, profileVersion)
+  return api.retireSourceObservationProviderProfile<CatalogProviderProfileVersionReview>(
+    providerKey,
+    profileVersion,
+    lifecycleConfirmation,
   );
-}
-
-function lifecycleConfirmationValue(
-  intent: ProviderProfileLifecycleIntent,
-  providerKey: string,
-  profileVersion: string,
-): string {
-  return `confirm:${intent}:${providerKey}:${profileVersion}`;
 }
 
 export function lifecycleSuccessResult(
@@ -337,7 +290,16 @@ export function lifecycleSuccessResult(
 
 export function lifecycleFailureResult(
   error: unknown,
-): Extract<CatalogPrimaryWorkbenchCommandFeedback["result"], "lifecycle-conflict" | "command-failed"> {
+): Extract<
+  CatalogPrimaryWorkbenchCommandFeedback["result"],
+  "confirmation-required" | "lifecycle-conflict" | "command-failed"
+> {
+  if (error instanceof CatalogApiError && error.status === 400) {
+    const detail = recordValue(recordValue(error.body)?.error);
+    if (detail?.code === "lifecycle_confirmation_required") {
+      return "confirmation-required";
+    }
+  }
   if (error instanceof CatalogApiError && error.status === 409) {
     return "lifecycle-conflict";
   }

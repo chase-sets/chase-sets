@@ -1,48 +1,61 @@
 // Slice-local route adapter for the fulfillment command center. Keeps the marketplace
-// route module composition-only: it owns the loader view assembly and the single
-// shipment-action dispatch so the route never imports domain / read-model internals
-// directly. The web command center and the MCP seller tools both reach the shipment
-// state machine through the same `executeShipmentAction` module wrapped here.
+// route module composition-only: it names the command center the Fulfillment API returns and
+// sends each shipment action to the API, which decides its legality against the shipment's
+// stored state. The page posts only the shipment and the action, so no state the page was
+// drawn with can admit or refuse an action.
 
 import type { createFulfillmentRequestApiClient } from "../../../support/request-support/api-client";
-import type { PostageLabelStatus, ShipmentStatus } from "../domain/common";
-import {
-  assertShipmentActionAllowed,
-  executeShipmentAction,
-  type ShipmentActionLegalityInput,
-  type ShipmentActionName,
-  type ShipmentLifecycleDispatcher,
-} from "../domain/shipment-action";
+import type { ShipmentActionName } from "../domain/shipment-action";
 
-export {
-  buildFulfillmentCommandCenter,
-  type FulfillmentCommandCenter,
-  type FulfillmentCommandCenterShipmentInput,
-} from "../read-model/command-center";
+export type { FulfillmentCommandCenter } from "../read-model/command-center";
 export type { ShipmentActionName } from "../domain/shipment-action";
 
 type FulfillmentRequestApi = ReturnType<typeof createFulfillmentRequestApiClient>;
 
 export type ShipmentCommandCenterActionOutcome = Readonly<{ ok: true } | { ok: false; error: string }>;
 
-function currentStateFrom(formData: FormData): ShipmentActionLegalityInput {
-  return {
-    status: String(formData.get("status") ?? "") as ShipmentStatus,
-    labelStatus: (String(formData.get("labelStatus") ?? "") || null) as PostageLabelStatus | null,
-    conflicts:
-      String(formData.get("hasOrderCancellationConflict") ?? "") === "true"
-        ? [{ conflict_kind: "cancellation", origin: "order-cancelled" }]
-        : [],
-  };
+async function sendShipmentAction(
+  api: FulfillmentRequestApi,
+  action: ShipmentActionName,
+  shipmentId: string,
+  mutationAttemptId: string,
+  formData: FormData,
+): Promise<unknown> {
+  switch (action) {
+    case "start-packing":
+      return api.startPackingShipment(shipmentId, mutationAttemptId);
+    case "complete-packing":
+      return api.packShipment(shipmentId, { packageCount: 1 }, mutationAttemptId);
+    case "buy-label":
+      return api.purchaseUspsLabel(shipmentId, { serviceLevel: "USPS_GROUND_ADVANTAGE" }, mutationAttemptId);
+    case "void-label":
+      return api.voidLabel(shipmentId, mutationAttemptId);
+    case "cancel-shipment":
+      return api.cancelShipment(shipmentId, mutationAttemptId);
+    case "dispatch":
+      return api.dispatchShipment(shipmentId, mutationAttemptId);
+    case "record-delivery":
+      return api.deliverShipment(shipmentId, mutationAttemptId);
+    case "return":
+      return api.returnShipment(
+        shipmentId,
+        { reason: String(formData.get("reason") ?? "") || null },
+        mutationAttemptId,
+      );
+    case "raise-exception":
+      return api.raiseShipmentException(
+        shipmentId,
+        {
+          exceptionType: String(formData.get("exceptionType") ?? "") || "other",
+          notes: String(formData.get("notes") ?? "") || null,
+        },
+        mutationAttemptId,
+      );
+  }
 }
 
-function shipmentResult(response: unknown, shipmentId: string) {
-  return { shipmentId, version: Number((response as { version?: number }).version ?? 0) };
-}
-
-// Dispatches one named shipment action for the web command center. Label purchase/void
-// keep their dedicated postage path; every action is gated by the module's legality
-// check first, so an illegal transition is rejected here rather than in the UI.
+// Sends one named shipment action for the web command center. The Fulfillment API refuses an
+// action the shipment's stored state does not allow; that refusal is the outcome's error.
 export async function runShipmentCommandCenterAction(
   api: FulfillmentRequestApi,
   action: ShipmentActionName,
@@ -51,51 +64,9 @@ export async function runShipmentCommandCenterAction(
   const shipmentId = String(formData.get("shipmentId") ?? "");
   const mutationAttemptId = String(formData.get("mutationAttemptId") ?? "");
   formData.delete("mutationAttemptId");
-  const current = currentStateFrom(formData);
 
   try {
-    if (action === "buy-label" || action === "void-label") {
-      assertShipmentActionAllowed(action, current);
-      if (action === "buy-label") {
-        await api.purchaseUspsLabel(shipmentId, { serviceLevel: "USPS_GROUND_ADVANTAGE" }, mutationAttemptId);
-      } else {
-        await api.voidLabel(shipmentId, mutationAttemptId);
-      }
-      return { ok: true };
-    }
-
-    const dispatcher: ShipmentLifecycleDispatcher = {
-      startPacking: async () =>
-        shipmentResult(await api.startPackingShipment(shipmentId, mutationAttemptId), shipmentId),
-      completePacking: async () =>
-        shipmentResult(await api.packShipment(shipmentId, { packageCount: 1 }, mutationAttemptId), shipmentId),
-      cancelShipment: async () => shipmentResult(await api.cancelShipment(shipmentId, mutationAttemptId), shipmentId),
-      dispatch: async () => shipmentResult(await api.dispatchShipment(shipmentId, mutationAttemptId), shipmentId),
-      recordDelivery: async () => shipmentResult(await api.deliverShipment(shipmentId, mutationAttemptId), shipmentId),
-      returnShipment: async () =>
-        shipmentResult(
-          await api.returnShipment(
-            shipmentId,
-            { reason: String(formData.get("reason") ?? "") || null },
-            mutationAttemptId,
-          ),
-          shipmentId,
-        ),
-      raiseException: async () =>
-        shipmentResult(
-          await api.raiseShipmentException(
-            shipmentId,
-            {
-              exceptionType: String(formData.get("exceptionType") ?? "") || "other",
-              notes: String(formData.get("notes") ?? "") || null,
-            },
-            mutationAttemptId,
-          ),
-          shipmentId,
-        ),
-    };
-
-    await executeShipmentAction(dispatcher, { action, current });
+    await sendShipmentAction(api, action, shipmentId, mutationAttemptId, formData);
     return { ok: true };
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : "Shipment action failed." };

@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { syntheticPromotionReceipt } from "../../ui/primary-workbench-test-fixtures";
+import type { SourceObservationPromotionReceipt } from "../../ui/contracts";
 import { CATALOG_CONTROL_PLANE_ACTIONS } from "../../ui/admin-control-plane/information-architecture-v2";
 import {
   assertCatalogPrimaryWorkbenchActionState,
@@ -29,6 +31,10 @@ import type {
   CatalogPrimaryWorkbenchCommandKey,
   CatalogPrimaryWorkbenchCopyKey,
   CatalogPrimaryWorkbenchActionContract,
+  CatalogPrimaryWorkbenchFlowStageKey,
+  CatalogPrimaryWorkbenchFlowStageState,
+  CatalogPrimaryWorkbenchFlowReadModel,
+  CatalogPrimaryWorkbenchDailyStatusReadModel,
   CatalogPrimaryWorkbenchInstrumentationDimension,
   CatalogPrimaryWorkbenchSectionContract,
   CatalogPrimaryWorkbenchBlockerContract,
@@ -821,6 +827,7 @@ describe("Catalog primary workbench admin contracts", () => {
               expansionId: null,
               expansionName: null,
             },
+            commandScopes: null,
             actions: {
               import: {
                 key: "scope.import",
@@ -1281,6 +1288,11 @@ describe("Catalog primary workbench admin contracts", () => {
           { key: "status", label: "Status", value: "changed", serverApplied: true },
         ],
         savedFilters,
+        statusFilters: (["all", "observed", "eligible", "promoted", "rejected"] as const).map((value) => ({
+          value,
+          count: 1,
+          href: "/catalog/integrations?providerKey=tcgdex",
+        })),
         pagination: {
           mode: "offset",
           limit: 25,
@@ -1288,6 +1300,8 @@ describe("Catalog primary workbench admin contracts", () => {
           total: 1,
           nextCursor: null,
           previousCursor: null,
+          previousHref: null,
+          nextHref: null,
         },
         bulkSelection: {
           selectedCount: 1,
@@ -1453,7 +1467,7 @@ describe("Catalog primary workbench admin contracts", () => {
             editForm: {
               state: "available",
               blockers: [],
-              baseSnapshotJson: "{}",
+              candidateVersion: 2,
               promotionIntent: "create-catalog-item",
               catalogItemId: null,
               productIds: [],
@@ -1564,6 +1578,16 @@ describe("Catalog primary workbench admin contracts", () => {
           copyKey: null,
         },
       ],
+      flow: {
+        ...dailyFlowFixture(),
+        openStage: "review-changes",
+        stages: [
+          { key: "run-sync", state: "complete" },
+          { key: "review-changes", state: "current" },
+          { key: "create-items", state: "upcoming" },
+        ],
+      },
+      dailyStatus: { governance: null, health: "degraded" },
       deploySkew: catalogPrimaryWorkbenchDeploySkewPolicies[0],
       securityPrivacy: {
         redactionApplied: true,
@@ -1602,11 +1626,90 @@ describe("Catalog primary workbench admin contracts", () => {
     ).toThrow("Primary workbench governance alert and runbook links must target approved observability.");
   });
 
+  it("rejects missing or malformed daily answers and unsafe review links without fallback", () => {
+    const base = minimalWorkbenchComposite();
+    for (const flow of [
+      undefined,
+      { ...base.flow, openStage: "legacy" },
+      { ...base.flow, stagesByOpenStage: {} },
+      { ...base.flow, stages: [{ key: "run-sync", state: "legacy" }] },
+    ]) {
+      expect(() =>
+        validateCatalogPrimaryWorkbenchReadModelContract({
+          ...base,
+          flow,
+        } as unknown as CatalogPrimaryWorkbenchReadModel),
+      ).toThrow("Primary workbench daily flow answers must be complete and valid.");
+    }
+    for (const dailyStatus of [
+      undefined,
+      { governance: "allowed", health: null },
+      { governance: null, health: "fresh" },
+    ]) {
+      expect(() =>
+        validateCatalogPrimaryWorkbenchReadModelContract({
+          ...base,
+          dailyStatus,
+        } as unknown as CatalogPrimaryWorkbenchReadModel),
+      ).toThrow("Primary workbench daily status answers must be complete and valid.");
+    }
+    for (const href of [
+      "//evil.example/catalog/integrations",
+      "https://evil.example/catalog/integrations",
+      "javascript:alert(1)",
+    ]) {
+      const sourceObservationReview = {
+        ...base.sourceObservationReview,
+        statusFilters: base.sourceObservationReview!.statusFilters.map((filter) => ({ ...filter, href })),
+      };
+      expect(() =>
+        validateCatalogPrimaryWorkbenchReadModelContract({
+          ...base,
+          sourceObservationReview,
+        } as CatalogPrimaryWorkbenchReadModel),
+      ).toThrow("Primary workbench review navigation answers must be complete and safe.");
+    }
+    for (const sourceObservationReview of [
+      undefined,
+      { ...base.sourceObservationReview, statusFilters: [] },
+      {
+        ...base.sourceObservationReview,
+        statusFilters: base.sourceObservationReview!.statusFilters.map((filter) => ({ ...filter, value: "legacy" })),
+      },
+      {
+        ...base.sourceObservationReview,
+        pagination: { ...base.sourceObservationReview!.pagination, nextCursor: "offset:25", nextHref: null },
+      },
+      {
+        ...base.sourceObservationReview,
+        pagination: {
+          ...base.sourceObservationReview!.pagination,
+          nextCursor: "offset:25",
+          nextHref: "//evil.example/catalog/integrations",
+        },
+      },
+    ]) {
+      expect(() =>
+        validateCatalogPrimaryWorkbenchReadModelContract({
+          ...base,
+          sourceObservationReview,
+        } as unknown as CatalogPrimaryWorkbenchReadModel),
+      ).toThrow("Primary workbench review navigation answers must be complete and safe.");
+    }
+  });
+
   it("workbench exported symbol and validator ownership is complete", () => {
     const adminFiles = readdirSync(adminDirectory).filter((file) => file.startsWith("primary-workbench-"));
     expect(adminFiles.filter((file) => file.endsWith("-implementation.ts"))).toEqual([]);
     expect(adminFiles.sort()).toEqual(
-      [...workbenchOwners().map(ownerFile), facadeFile, "primary-workbench-admin-contracts.test.ts"].sort(),
+      [
+        ...workbenchOwners().map(ownerFile),
+        facadeFile,
+        "primary-workbench-admin-contracts.test.ts",
+        // The API's composition of the workbench for one surface; it builds the read model the
+        // contracts above validate rather than owning any of them.
+        "primary-workbench-surface-read.ts",
+      ].sort(),
     );
 
     const functionOwners = new Map<string, WorkbenchOwner[]>();
@@ -1642,7 +1745,7 @@ describe("Catalog primary workbench admin contracts", () => {
     ).toBe("");
     const reexports = facadeReexports(facadeSource);
     expect(reexports.filter((entry) => !entry.typeOnly).flatMap((entry) => entry.names)).toHaveLength(13);
-    expect(reexports.filter((entry) => entry.typeOnly).flatMap((entry) => entry.names)).toHaveLength(107);
+    expect(reexports.filter((entry) => entry.typeOnly).flatMap((entry) => entry.names)).toHaveLength(111);
     expect(
       reexports
         .flatMap(({ typeOnly, names, from }) => names.map((name) => `${typeOnly ? "type " : ""}${name} <- ${from}`))
@@ -1666,7 +1769,7 @@ describe("Catalog primary workbench admin contracts", () => {
       }
     }
     expect(thrownMessages).toEqual(baselineThrownMessages);
-    expect(Object.values(baselineThrownMessages).flat()).toHaveLength(173);
+    expect(Object.values(baselineThrownMessages).flat()).toHaveLength(177);
     expect(Object.values(baselineThrownMessages).filter((messages) => messages.length > 0)).toHaveLength(19);
 
     // The base composite omits only the optional promotion result, which the composer accepts.
@@ -1690,6 +1793,91 @@ describe("Catalog primary workbench admin contracts", () => {
         .filter((name) => name !== "assertPrimaryWorkbenchBlockers"),
     );
     expect([...composedFamilies].sort()).toEqual(omittedFamilyControls.map((control) => control.validator).sort());
+  });
+
+  it("accepts original receipt fields and preserves absent/null compatibility without inventing authority", () => {
+    const composite = minimalWorkbenchComposite();
+    const receipt = syntheticPromotionReceipt();
+    for (const original of [undefined, null, receipt]) {
+      const candidate = {
+        ...composite,
+        promotionPreview: { ...composite.promotionPreview!, previewId: receipt.previewId, receipt: original },
+      };
+      expect(() => validateCatalogPrimaryWorkbenchReadModelContract(candidate)).not.toThrow();
+      expect(candidate.promotionPreview.receipt).toBe(original);
+      expect(candidate.promotionPreview.executionSafeguards.previewFresh).not.toBe(true);
+    }
+    const empty = syntheticPromotionReceipt();
+    empty.preview.validation.coveredObservationIds = [];
+    empty.preview.validation.diagnostics = [];
+    expect(() =>
+      validateCatalogPrimaryWorkbenchReadModelContract({
+        ...composite,
+        promotionPreview: { ...composite.promotionPreview!, previewId: empty.previewId, receipt: empty },
+      }),
+    ).not.toThrow();
+  });
+
+  it.each<{ name: string; mutate: (receipt: SourceObservationPromotionReceipt) => void }>([
+    {
+      name: "schema",
+      mutate: (receipt) => {
+        Object.assign(receipt, { schemaVersion: "synthetic-invalid" });
+      },
+    },
+    {
+      name: "empty token",
+      mutate: (receipt) => {
+        receipt.previewId = "";
+      },
+    },
+    {
+      name: "mismatched token",
+      mutate: (receipt) => {
+        receipt.previewId = "synthetic-other-token";
+      },
+    },
+    {
+      name: "fingerprint",
+      mutate: (receipt) => {
+        receipt.preview.fingerprint = "";
+      },
+    },
+    {
+      name: "missing covered IDs",
+      mutate: (receipt) => {
+        Reflect.deleteProperty(receipt.preview.validation, "coveredObservationIds");
+      },
+    },
+    {
+      name: "non-array covered IDs",
+      mutate: (receipt) => {
+        Object.assign(receipt.preview.validation, { coveredObservationIds: "synthetic-not-an-array" });
+      },
+    },
+    {
+      name: "missing diagnostics",
+      mutate: (receipt) => {
+        Reflect.deleteProperty(receipt.preview.validation, "diagnostics");
+      },
+    },
+    {
+      name: "non-array diagnostics",
+      mutate: (receipt) => {
+        Object.assign(receipt.preview.validation, { diagnostics: "synthetic-not-an-array" });
+      },
+    },
+  ])("rejects an independently malformed original receipt: $name", ({ mutate }) => {
+    const composite = minimalWorkbenchComposite();
+    const receipt = syntheticPromotionReceipt();
+    const previewId = receipt.previewId;
+    mutate(receipt);
+    expect(() =>
+      validateCatalogPrimaryWorkbenchReadModelContract({
+        ...composite,
+        promotionPreview: { ...composite.promotionPreview!, previewId, receipt },
+      }),
+    ).toThrow("Primary workbench original promotion receipt must preserve its token, fingerprint and validation page.");
   });
 
   it("workbench facade preserves real consumer types", () => {
@@ -2767,9 +2955,34 @@ const omittedFamilyControls: readonly OmissionControl[] = [
 ];
 
 // The smallest composite every family validator accepts: fixtures where they exist, empty collections elsewhere.
+function dailyFlowFixture(): CatalogPrimaryWorkbenchReadModel["flow"] {
+  const stages: CatalogPrimaryWorkbenchReadModel["flow"]["stages"] = [
+    { key: "run-sync", state: "complete" },
+    { key: "review-changes", state: "current" },
+    { key: "create-items", state: "upcoming" },
+  ];
+  return {
+    openStage: "review-changes",
+    openStageWithHeldPreview: "create-items",
+    stages,
+    stagesByOpenStage: { "run-sync": stages, "review-changes": stages, "create-items": stages },
+  };
+}
+
 function minimalWorkbenchComposite(): Partial<CatalogPrimaryWorkbenchReadModel> {
   const composite = {
     schemaVersion: catalogPrimaryWorkbenchContractVersion,
+    flow: dailyFlowFixture(),
+    dailyStatus: { governance: null, health: null },
+    sourceObservationReview: {
+      rows: [],
+      statusFilters: ["all", "observed", "eligible", "promoted", "rejected"].map((value) => ({
+        value,
+        count: 0,
+        href: "/catalog/integrations",
+      })),
+      pagination: { previousCursor: null, nextCursor: null, previousHref: null, nextHref: null },
+    },
     routeContext: {
       section: "import-to-promotion",
       selectedObservationIds: [],
@@ -2855,6 +3068,10 @@ const workbenchOwnerCensus: Readonly<Record<WorkbenchOwner, WorkbenchOwnerCensus
     types: [
       "CatalogPrimaryWorkbenchReadModel",
       "CatalogPrimaryWorkbenchActionReadModel",
+      "CatalogPrimaryWorkbenchFlowStageKey",
+      "CatalogPrimaryWorkbenchFlowStageState",
+      "CatalogPrimaryWorkbenchFlowReadModel",
+      "CatalogPrimaryWorkbenchDailyStatusReadModel",
       "CatalogPrimaryWorkbenchSecurityPrivacyReadModel",
       "CatalogPrimaryWorkbenchInstrumentationReadModel",
       "CatalogPrimaryWorkbenchActionState",
@@ -3062,7 +3279,7 @@ const workbenchOwnerCensus: Readonly<Record<WorkbenchOwner, WorkbenchOwnerCensus
   },
 };
 
-// Ordered thrown-message literals of every census function at ab95c339ef: 173 across 19 functions.
+// Ordered thrown-message literals of every census function: 174 across 19 functions.
 const baselineThrownMessages: Readonly<Record<string, readonly string[]>> = {
   action: [],
   assertCatalogPrimaryWorkbenchActionState: ["Unknown primary workbench action state '${value}' must fail closed."],
@@ -3193,6 +3410,7 @@ const baselineThrownMessages: Readonly<Record<string, readonly string[]>> = {
   assertPrimaryWorkbenchPromotionPreview: [
     "Primary workbench promotion preview contract is required.",
     "Primary workbench promotion preview scope is required.",
+    "Primary workbench original promotion receipt must preserve its token, fingerprint and validation page.",
     "Primary workbench promotion preview must preserve per-observation partial failure scope.",
     "Primary workbench promotion preview validation coverage must be explicit.",
     "Primary workbench promotion preview must state the explicit promote-as-draft choice.",
@@ -3269,6 +3487,9 @@ const baselineThrownMessages: Readonly<Record<string, readonly string[]>> = {
     "Primary workbench deploy-skew policy is required.",
     "Primary workbench deploy-skew policy is unsupported and must fail closed.",
     "Primary workbench instrumentation must be redaction-safe.",
+    "Primary workbench daily flow answers must be complete and valid.",
+    "Primary workbench daily status answers must be complete and valid.",
+    "Primary workbench review navigation answers must be complete and safe.",
   ],
   validatePrimaryWorkbenchRouteContext: [
     "Primary workbench route context section must be a rebuilt workspace or primary section key.",

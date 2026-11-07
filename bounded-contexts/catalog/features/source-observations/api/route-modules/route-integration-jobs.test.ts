@@ -1060,6 +1060,76 @@ describe("source observation routes: integration and bulk review jobs", () => {
     expect(services.rejectObservations).not.toHaveBeenCalled();
   });
 
+  it.each(["/source-observations/bulk-reject", "/source-observations/bulk-reject/jobs"])(
+    "refuses %s without explicit Source Observation ids or review scope",
+    async (path) => {
+      const enqueueBulkReviewJob = vi.fn();
+      const services = {
+        enqueueBulkReviewJob,
+      } as unknown as SourceObservationRouteServices;
+      const app = buildApp(services);
+
+      for (const body of [{ reason: "Duplicate provider row." }, { observationIds: [], scope: {}, reason: "x" }]) {
+        const response = await app.request(path, {
+          method: "POST",
+          body: JSON.stringify(body),
+          headers: { "content-type": "application/json" },
+        });
+
+        expect(response.status).toBe(400);
+        await expect(response.json()).resolves.toEqual({
+          error: {
+            code: "selection_required",
+            message: "Bulk rejection requires selected observations or an explicit review scope.",
+          },
+        });
+      }
+      expect(enqueueBulkReviewJob).not.toHaveBeenCalled();
+    },
+  );
+  it.each(["/source-observations/bulk-reject", "/source-observations/bulk-reject/jobs"])(
+    "refuses %s with a body that is not a JSON object",
+    async (path) => {
+      const enqueueBulkReviewJob = vi.fn();
+      const app = buildApp({ enqueueBulkReviewJob } as unknown as SourceObservationRouteServices);
+
+      for (const body of ["null", "[]", "false", '"synthetic-body"', "{not json"]) {
+        const response = await app.request(path, {
+          method: "POST",
+          body,
+          headers: { "content-type": "application/json" },
+        });
+
+        expect(response.status).toBe(400);
+        await expect(response.json()).resolves.toMatchObject({ error: { code: "invalid_json_body" } });
+      }
+      expect(enqueueBulkReviewJob).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(
+    ["/source-observations/bulk-reject", "/source-observations/bulk-reject/jobs"].flatMap((path) => [
+      [path, { seriesId: "synthetic-series" }] as const,
+      [path, { productLineId: "synthetic-line" }] as const,
+    ]),
+  )("enqueues %s for a coordinate-only scope %j", async (path, scope) => {
+    const enqueueBulkReviewJob = vi.fn(async () =>
+      bulkJobFixture({ jobId: "job_reject_coordinate", action: "reject" }),
+    );
+    const app = buildApp({ enqueueBulkReviewJob } as unknown as SourceObservationRouteServices);
+
+    const response = await app.request(path, {
+      method: "POST",
+      body: JSON.stringify({ scope, reason: "Out of scope." }),
+      headers: { "content-type": "application/json" },
+    });
+
+    expect(response.status).toBe(202);
+    expect(enqueueBulkReviewJob).toHaveBeenCalledWith(
+      expect.objectContaining({ action: "reject", observationIds: [], scope: expect.objectContaining(scope) }),
+    );
+  });
+
   it("enqueues bulk rejection jobs for explicit observation ids with the shared reason", async () => {
     const job = bulkJobFixture({
       jobId: "job_reject_ids",
@@ -1198,7 +1268,10 @@ describe("source observation routes: integration and bulk review jobs", () => {
 
     expect(response.status).toBe(400);
     await expect(response.json()).resolves.toEqual({
-      error: "Bulk deferral requires selected observations or an explicit review scope.",
+      error: {
+        code: "selection_required",
+        message: "Bulk deferral requires selected observations or an explicit review scope.",
+      },
     });
     expect(enqueueBulkReviewJob).not.toHaveBeenCalled();
   });
