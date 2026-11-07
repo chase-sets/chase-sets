@@ -104,7 +104,9 @@ export function CatalogIntegrationImportToPromotionWorkspace({
         </ProgressiveDisclosure>
       </WorkbenchStack>
     ),
-    "create-items": <CatalogIntegrationCreateItemsStage readModel={readModel} />,
+    "create-items": (
+      <CatalogIntegrationCreateItemsStage readModel={readModel} selectedObservationIds={[...selectedObservationKeys]} />
+    ),
   };
 
   const workspace = (

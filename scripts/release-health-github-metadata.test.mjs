@@ -1,13 +1,384 @@
 import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
 import {
   buildReleaseHealthGithubMetadata,
   collectReleaseHealthGithubMetadata,
   formatGithubOutput,
+  isStagingLineageInstant,
+  joinQualificationStaging,
+  validateStagingAdvisorySummary,
+  validateStagingLineageMapping,
 } from "./release-health-github-metadata.mjs";
+import { buildMergeQualificationCandidate, buildMergeQualificationEvent } from "./merge-qualification.mjs";
 
 const releaseCommit = "225e00cb6e3772770b3ae764c30b5d9e6d03aa42";
 
+function stagingLineageControl() {
+  const fixture = JSON.parse(
+    readFileSync(new URL("./fixtures/release-health/synthetic-staging-lineage.json", import.meta.url), "utf8"),
+  );
+  const built = buildMergeQualificationCandidate(fixture.candidateInput);
+  expect(built.errors).toEqual([]);
+  const candidate = built.record;
+  const terminal = buildMergeQualificationEvent({
+    repository: fixture.repository,
+    workflowId: "77",
+    workflowPath: ".github/workflows/platform-merge-qualification.yml",
+    runId: "5000",
+    runAttempt: "1",
+    parentWorkflowId: candidate.workflowId,
+    parentWorkflowPath: candidate.workflowPath,
+    parentRunId: candidate.runId,
+    parentRunAttempt: candidate.runAttempt,
+    candidateSha: candidate.candidateSha,
+    candidateTreeSha: candidate.candidateTreeSha,
+    builtImageDigest: candidate.builtImageDigest,
+    imageDigest: candidate.builtImageDigest,
+    gateCandidateSha: candidate.candidateSha,
+    gateCandidateTreeSha: candidate.candidateTreeSha,
+    classifierClass: "isolated",
+    terminalState: "passed",
+    reasonCodes: ["gate_passed"],
+    provisioned: true,
+    startedAt: candidate.capturedAt,
+    completedAt: "2026-07-21T10:10:00.000Z",
+    evidenceLinks: ["https://example.invalid/synthetic-qualification/5000/1"],
+    providerHeadroom: null,
+  });
+  expect(terminal.errors).toEqual([]);
+  const image = {
+    releaseCommit: fixture.releaseCommit,
+    platformImage: `registry.example.invalid/synthetic-platform:${fixture.releaseCommit}`,
+    platformImageDigest: candidate.builtImageDigest,
+  };
+  const summary = {
+    schemaVersion: "staging-advisory-evidence/v2",
+    checkedAt: fixture.checkedAt,
+    ...image,
+    admission: { outcome: "admitted", error: "" },
+    freshness: {
+      status: "fresh",
+      reason: "synthetic complete window",
+      requested: { ...image },
+      observed: { ...image, supersedingIdentity: false },
+      publicationAt: fixture.checkedAt,
+      windowCensus: { admissionAt: "2026-07-21T10:30:00.000Z", publicationAt: fixture.checkedAt, overlaps: [] },
+    },
+    postWindow: { outcome: "success", error: "" },
+    scenarioSeed: { outcome: "success" },
+    marketplaceE2e: { outcome: "success" },
+    failedPhases: [],
+  };
+  const mapping = {
+    schemaVersion: "staging-lineage-mapping/v1",
+    repository: fixture.repository,
+    candidate: {
+      workflowId: candidate.workflowId,
+      workflowPath: candidate.workflowPath,
+      runId: candidate.runId,
+      runAttempt: candidate.runAttempt,
+      sha: candidate.candidateSha,
+      treeSha: candidate.candidateTreeSha,
+      baseSha: candidate.queueBaseSha,
+    },
+    release: {
+      commit: fixture.releaseCommit,
+      treeSha: candidate.candidateTreeSha,
+      baseSha: candidate.queueBaseSha,
+      mergeSha: fixture.releaseCommit,
+      pullRequests: candidate.pullRequests.map((pull) => ({
+        ...pull,
+        queuedAt: fixture.queuedAt,
+        mergedAt: fixture.mergedAt,
+        dequeuedAt: null,
+      })),
+    },
+  };
+  const deployment = {
+    repository: fixture.repository,
+    workflowId: fixture.deployWorkflowId,
+    workflowPath: ".github/workflows/platform-production.yml",
+    runId: fixture.deployRunId,
+    runAttempt: fixture.deployRunAttempt,
+    jobId: fixture.deployJobId,
+    startedAt: fixture.deployStartedAt,
+    completedAt: fixture.deployCompletedAt,
+    appliedAt: fixture.deployAppliedAt,
+    releaseCommit: fixture.releaseCommit,
+    imageDigest: candidate.builtImageDigest,
+    result: "success",
+    mapping,
+  };
+  return {
+    repository: fixture.repository,
+    events: [terminal.event],
+    candidates: [candidate],
+    staging: [
+      {
+        repository: fixture.repository,
+        workflowId: fixture.evidenceWorkflowId,
+        workflowPath: ".github/workflows/platform-staging-advisory-evidence.yml",
+        runId: fixture.evidenceRunId,
+        runAttempt: fixture.evidenceRunAttempt,
+        artifactId: fixture.artifactId,
+        summarySha256: "1".repeat(64),
+        summary,
+        deployment,
+      },
+    ],
+  };
+}
+
 describe("release health GitHub metadata", () => {
+  it("joins timed evidence by commit and immutable image digest", () => {
+    const control = stagingLineageControl();
+    const [joined] = joinQualificationStaging(control);
+    expect(joined).toEqual({
+      runId: "5000",
+      runAttempt: "1",
+      status: "joined",
+      reason: "staging-lineage-joined",
+      stagingRunId: "6000",
+      stagingRunAttempt: "1",
+      evidenceRunId: "7000",
+      evidenceRunAttempt: "1",
+      candidateSha: "b".repeat(40),
+      mergeSha: "1".repeat(40),
+      imageDigest: `sha256:${"d".repeat(64)}`,
+    });
+    expect(joined.candidateSha).not.toBe(joined.mergeSha);
+    const mutations = [
+      [
+        "same-tree different candidate commit",
+        (value) => {
+          value.staging[0].deployment.mapping.candidate.sha = "2".repeat(40);
+        },
+      ],
+      [
+        "unrelated same-tree release",
+        (value) => {
+          value.staging[0].deployment.releaseCommit = "2".repeat(40);
+        },
+      ],
+      [
+        "revert or reland base",
+        (value) => {
+          value.staging[0].deployment.mapping.release.baseSha = "2".repeat(40);
+        },
+      ],
+      [
+        "superseded PR head",
+        (value) => {
+          value.staging[0].deployment.mapping.release.pullRequests[0].headSha = "2".repeat(40);
+        },
+      ],
+      [
+        "different PR",
+        (value) => {
+          value.staging[0].deployment.mapping.release.pullRequests[0].number = 2;
+        },
+      ],
+      [
+        "missing digest",
+        (value) => {
+          value.staging[0].summary.platformImageDigest = null;
+        },
+      ],
+      [
+        "wrong digest",
+        (value) => {
+          value.staging[0].deployment.imageDigest = `sha256:${"2".repeat(64)}`;
+        },
+      ],
+      [
+        "equal time",
+        (value) => {
+          value.staging[0].deployment.startedAt = value.events[0].completedAt;
+        },
+      ],
+      [
+        "earlier time",
+        (value) => {
+          value.staging[0].deployment.startedAt = value.events[0].startedAt;
+        },
+      ],
+      [
+        "final SHA substituted for candidate",
+        (value) => {
+          value.staging[0].deployment.mapping.candidate.sha = value.staging[0].deployment.mapping.release.mergeSha;
+        },
+      ],
+      [
+        "candidate substituted for final SHA",
+        (value) => {
+          value.staging[0].deployment.mapping.release.mergeSha = value.candidates[0].candidateSha;
+        },
+      ],
+      [
+        "merged removal",
+        (value) => {
+          value.staging[0].deployment.mapping.release.pullRequests[0].dequeuedAt = "2026-07-21T10:11:00Z";
+        },
+      ],
+      [
+        "requeued candidate",
+        (value) => {
+          value.staging[0].deployment.mapping.release.pullRequests[0].queuedAt = "2026-07-21T10:11:00Z";
+        },
+      ],
+      [
+        "repository mismatch",
+        (value) => {
+          value.staging[0].deployment.repository = "synthetic-other/fixture";
+        },
+      ],
+      [
+        "workflow mismatch",
+        (value) => {
+          value.staging[0].deployment.mapping.candidate.workflowId = "12";
+        },
+      ],
+      [
+        "run mismatch",
+        (value) => {
+          value.staging[0].deployment.mapping.candidate.runId = "4001";
+        },
+      ],
+      [
+        "attempt mismatch",
+        (value) => {
+          value.staging[0].deployment.mapping.candidate.runAttempt = "2";
+        },
+      ],
+      [
+        "tree mismatch",
+        (value) => {
+          value.staging[0].deployment.mapping.candidate.treeSha = "2".repeat(40);
+        },
+      ],
+      [
+        "unknown freshness",
+        (value) => {
+          value.staging[0].summary.freshness.status = "unknown";
+        },
+      ],
+      [
+        "superseded identity",
+        (value) => {
+          value.staging[0].summary.freshness.observed.supersedingIdentity = true;
+        },
+      ],
+      [
+        "orphan",
+        (value) => {
+          value.staging[0].deployment = null;
+        },
+      ],
+      [
+        "missing S candidate",
+        (value) => {
+          value.candidates = [];
+        },
+      ],
+      [
+        "future mapping",
+        (value) => {
+          value.staging[0].deployment.mapping.schemaVersion = "staging-lineage-mapping/v999";
+        },
+      ],
+      [
+        "nested open mapping",
+        (value) => {
+          value.staging[0].deployment.mapping.release.pullRequests[0].extra = true;
+        },
+      ],
+    ];
+    for (const [name, mutate] of mutations) {
+      const value = structuredClone(control);
+      mutate(value);
+      expect(joinQualificationStaging(value)[0].status, name).not.toBe("joined");
+      expect(joinQualificationStaging(value)[0].mergeSha, name).toBeNull();
+    }
+    const duplicate = structuredClone(control);
+    duplicate.staging.push(structuredClone(duplicate.staging[0]));
+    expect(joinQualificationStaging(duplicate)[0]).toMatchObject({
+      status: "ambiguous",
+      reason: "staging-lineage-ambiguous",
+    });
+    const twoQualifications = structuredClone(control);
+    const second = buildMergeQualificationEvent({ ...control.events[0], runId: "5001", idempotencyKey: "" });
+    expect(second.errors).toEqual([]);
+    twoQualifications.events.push(second.event);
+    expect(joinQualificationStaging(twoQualifications).map((entry) => entry.status)).toEqual([
+      "ambiguous",
+      "ambiguous",
+    ]);
+    const evicted = structuredClone(control);
+    evicted.events[0] = buildMergeQualificationEvent({
+      ...control.events[0],
+      terminalState: "cancelled_evicted",
+      reasonCodes: ["candidate_evicted"],
+      provisioned: false,
+      builtImageDigest: null,
+      imageDigest: null,
+      gateCandidateSha: null,
+      gateCandidateTreeSha: null,
+    }).event;
+    expect(joinQualificationStaging(evicted)[0]).toMatchObject({
+      status: "not-eligible",
+      reason: "qualification-not-eligible",
+    });
+  });
+
+  it("validates closed producer summary and calendar-valid lineage instants", () => {
+    const control = stagingLineageControl();
+    expect(validateStagingAdvisorySummary(control.staging[0].summary)).toEqual([]);
+    expect(validateStagingLineageMapping(control.staging[0].deployment.mapping)).toEqual([]);
+    for (const instant of [
+      "2026-02-30T12:00:00Z",
+      "2026-07-21T24:00:00Z",
+      "2026-07-21T12:00:00",
+      "2026-07-21",
+      "2026-07-21T12:00:00+24:00",
+    ])
+      expect(isStagingLineageInstant(instant), instant).toBe(false);
+    for (const mutate of [
+      (summary) => {
+        summary.extra = true;
+      },
+      (summary) => {
+        summary.schemaVersion = "staging-advisory-evidence/v999";
+      },
+      (summary) => {
+        summary.freshness.requested.extra = true;
+      },
+      (summary) => {
+        summary.freshness.observed.extra = true;
+      },
+      (summary) => {
+        summary.freshness.windowCensus.overlaps = [
+          {
+            workflow: "synthetic.yml",
+            runId: 1,
+            job: "synthetic",
+            conclusion: "success",
+            status: "completed",
+            extra: true,
+          },
+        ];
+      },
+      (summary) => {
+        summary.freshness.windowCensus = {};
+      },
+      (summary) => {
+        summary.checkedAt = "2026-02-30T12:00:00Z";
+      },
+    ]) {
+      const summary = structuredClone(control.staging[0].summary);
+      mutate(summary);
+      expect(validateStagingAdvisorySummary(summary)).toEqual(["staging-summary-invalid"]);
+    }
+  });
   it("paged collection rejects truncation and exact-payload violations", async () => {
     const execute = async (defect) => {
       const calls = [];

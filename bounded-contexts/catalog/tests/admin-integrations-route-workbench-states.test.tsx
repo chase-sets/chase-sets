@@ -28,9 +28,15 @@ vi.mock("react-router", async () => {
   return { ...actual, useRouteLoaderData: mockUseRouteLoaderData };
 });
 
-vi.mock("../support/request-support/api-client", () => ({
-  createCatalogRequestApiClient: mockCreateCatalogRequestApiClient,
-}));
+vi.mock("../support/request-support/api-client", async () => {
+  const { withCatalogSurfaceReads } = await vi.importActual<
+    typeof import("../features/source-observations/tests/integrations-surface-read-test-client")
+  >("../features/source-observations/tests/integrations-surface-read-test-client");
+  return {
+    createCatalogRequestApiClient: (request: Request) =>
+      withCatalogSurfaceReads(mockCreateCatalogRequestApiClient(request), request),
+  };
+});
 
 vi.mock("@chase-sets/platform-runtime/auth", () => ({
   isTransientAuthResolutionError: mockIsTransientAuthResolutionError,
@@ -242,5 +248,6 @@ describe("Catalog integrations route workbench states", () => {
       ["expansions", "stale", ["provider-transport-stale-cache"]],
     ]);
     await waitFor(() => expect(sourceOptionsStatus()).toBe("degraded"));
-  });
+    // Three full workbench renders; the finds above already allow 30 s each.
+  }, 30_000);
 });

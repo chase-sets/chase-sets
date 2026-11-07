@@ -1028,6 +1028,11 @@ describe("checkout cart page", () => {
       "When you add items, checkout will show final shipping, tax, and payment details before you pay.",
     );
     expect(markup).toContain("Keep shopping");
+    const container = document.createElement("div");
+    container.innerHTML = markup;
+    expect(container.querySelector("section div.m-0.mx-auto.max-w-xl")?.className).toContain(
+      "m-0 mx-auto max-w-xl text-sm leading-6 text-secondary",
+    );
     expect(markup).not.toContain("Estimated total");
     expect(markup).not.toContain("Check out");
   });

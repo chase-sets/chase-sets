@@ -87,7 +87,12 @@ describeDb("catalog attention dismissal projection", () => {
     );
 
     // Dismissed + still-deferred are suppressed; the elapsed deferral ages back in.
-    const active = await listActiveAttentionDismissalKeys(pool, { now });
+    // Only the asked-for keys are read: an unrelated key is never returned.
+    const itemKeys = ["merge-conflict:c1", "import-job:j1", "alias-candidate:h1", "import-job:never-parked"];
+    const active = await listActiveAttentionDismissalKeys(pool, { now, itemKeys });
+    expect([...active].sort()).toEqual(["import-job:j1", "merge-conflict:c1"]);
+    expect((await listActiveAttentionDismissalKeys(pool, { now, itemKeys: ["import-job:j1"] })).size).toBe(1);
+    expect((await listActiveAttentionDismissalKeys(pool, { now, itemKeys: [] })).size).toBe(0);
     expect(active.has("merge-conflict:c1")).toBe(true);
     expect(active.has("import-job:j1")).toBe(true);
     expect(active.has("alias-candidate:h1")).toBe(false);
@@ -97,7 +102,7 @@ describeDb("catalog attention dismissal projection", () => {
     await handlers["catalog.attention-item.restored"]!(
       event("catalog.attention-item.restored", { itemKey: "merge-conflict:c1", actor: "op" }, now),
     );
-    const afterRestore = await listActiveAttentionDismissalKeys(pool, { now });
+    const afterRestore = await listActiveAttentionDismissalKeys(pool, { now, itemKeys });
     expect(afterRestore.has("merge-conflict:c1")).toBe(false);
     expect((await listAttentionDismissals(pool)).length).toBe(2);
   });

@@ -20,6 +20,8 @@ function scope(overrides: Partial<CatalogScopeRecordDetail> = {}): CatalogScopeR
     languageEditions: ["en", "ja"],
     lifecycleStatus: "active",
     updatedAt: "2026-07-03T12:00:00.000Z",
+    promotionReadiness: "live",
+    syncFreshness: "fresh",
     ...overrides,
   };
 }

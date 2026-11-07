@@ -1281,6 +1281,33 @@ export function createCatalogApiClient({
       );
       return parseJsonResponse<T>(response);
     },
+    // The Catalog API composes the integrations workbench for one audience
+    // surface from the admin route location (path and query).
+    async getCatalogPrimaryWorkbenchSurface<T>(
+      surface: "daily" | "governance" | "health",
+      location: string,
+    ): Promise<T> {
+      const query = new URLSearchParams({ location });
+      const response = await configuredFetch(
+        `${baseUrl.replace(/\/$/, "")}/source-observations/workbench-surfaces/${encodeURIComponent(surface)}?${query.toString()}`,
+        {
+          method: "GET",
+          headers: headersToRecord(headers),
+        },
+      );
+      return parseJsonResponse<T>(response);
+    },
+    async getCatalogPrimaryWorkbenchDeferredSourceOptions<T>(location: string): Promise<T> {
+      const query = new URLSearchParams({ location });
+      const response = await configuredFetch(
+        `${baseUrl.replace(/\/$/, "")}/source-observations/workbench-surfaces/daily/source-options?${query.toString()}`,
+        {
+          method: "GET",
+          headers: headersToRecord(headers),
+        },
+      );
+      return parseJsonResponse<T>(response);
+    },
     async recordCatalogControlPlaneEvent<T>(event: unknown): Promise<T> {
       const response = await configuredFetch(`${baseUrl.replace(/\/$/, "")}/source-observations/control-plane-events`, {
         method: "POST",
@@ -1402,32 +1429,47 @@ export function createCatalogApiClient({
       );
       return parseJsonResponse<T>(response);
     },
-    async rollbackSourceObservationProviderProfile<T>(providerKey: string, profileVersion: string): Promise<T> {
+    async rollbackSourceObservationProviderProfile<T>(
+      providerKey: string,
+      profileVersion: string,
+      lifecycleConfirmation: string | null,
+    ): Promise<T> {
       const response = await configuredFetch(
         `${baseUrl.replace(/\/$/, "")}/source-observations/provider-profiles/${encodeURIComponent(providerKey)}/${encodeURIComponent(profileVersion)}/rollback`,
         {
           method: "POST",
-          headers: headersToRecord(headers),
+          headers: { ...headersToRecord(headers), "content-type": "application/json" },
+          body: JSON.stringify({ lifecycleConfirmation }),
         },
       );
       return parseJsonResponse<T>(response);
     },
-    async retireSourceObservationProviderProfile<T>(providerKey: string, profileVersion: string): Promise<T> {
+    async retireSourceObservationProviderProfile<T>(
+      providerKey: string,
+      profileVersion: string,
+      lifecycleConfirmation: string | null,
+    ): Promise<T> {
       const response = await configuredFetch(
         `${baseUrl.replace(/\/$/, "")}/source-observations/provider-profiles/${encodeURIComponent(providerKey)}/${encodeURIComponent(profileVersion)}/retire`,
         {
           method: "POST",
-          headers: headersToRecord(headers),
+          headers: { ...headersToRecord(headers), "content-type": "application/json" },
+          body: JSON.stringify({ lifecycleConfirmation }),
         },
       );
       return parseJsonResponse<T>(response);
     },
-    async deprecateSourceObservationProviderProfile<T>(providerKey: string, profileVersion: string): Promise<T> {
+    async deprecateSourceObservationProviderProfile<T>(
+      providerKey: string,
+      profileVersion: string,
+      lifecycleConfirmation: string | null,
+    ): Promise<T> {
       const response = await configuredFetch(
         `${baseUrl.replace(/\/$/, "")}/source-observations/provider-profiles/${encodeURIComponent(providerKey)}/${encodeURIComponent(profileVersion)}/deprecate`,
         {
           method: "POST",
-          headers: headersToRecord(headers),
+          headers: { ...headersToRecord(headers), "content-type": "application/json" },
+          body: JSON.stringify({ lifecycleConfirmation }),
         },
       );
       return parseJsonResponse<T>(response);
@@ -2235,8 +2277,9 @@ export function createCatalogApiClient({
       });
       return parseJsonResponse<T>(response);
     },
-    async getCatalogAttentionQueueReadModel<T>(): Promise<T> {
-      const response = await configuredFetch(`${baseUrl.replace(/\/$/, "")}/attention-queue`, {
+    async getCatalogAttentionQueueReadModel<T>(query = ""): Promise<T> {
+      const search = query ? `?${query}` : "";
+      const response = await configuredFetch(`${baseUrl.replace(/\/$/, "")}/attention-queue${search}`, {
         method: "GET",
         headers: headersToRecord(headers),
       });

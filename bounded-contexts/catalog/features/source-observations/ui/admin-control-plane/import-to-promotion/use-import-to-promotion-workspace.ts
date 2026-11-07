@@ -185,6 +185,15 @@ function useDurableObservationSelection(readModel: CatalogPrimaryWorkbenchReadMo
     }
     return new Set(readPersistedObservationSelection(scopeKey));
   });
+  const [selectionSource, setSelectionSource] = useState({ scopeKey, urlSelectionKey });
+  let currentSelection = selectedObservationKeys;
+  if (selectionSource.scopeKey !== scopeKey || selectionSource.urlSelectionKey !== urlSelectionKey) {
+    currentSelection = new Set(
+      urlSelectionKey ? urlSelectionKey.split(OBSERVATION_KEY_SEPARATOR) : readPersistedObservationSelection(scopeKey),
+    );
+    setSelectedObservationKeys(currentSelection);
+    setSelectionSource({ scopeKey, urlSelectionKey });
+  }
 
   // Reconcile on scope change or an explicit URL-carried selection (a deep link
   // or a just-completed command's redirect): a non-empty URL selection wins and
@@ -210,5 +219,5 @@ function useDurableObservationSelection(readModel: CatalogPrimaryWorkbenchReadMo
     [scopeKey],
   );
 
-  return { selectedObservationKeys, setSelectedObservationKeys: persistSelection };
+  return { selectedObservationKeys: currentSelection, setSelectedObservationKeys: persistSelection };
 }

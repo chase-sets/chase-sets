@@ -1,4 +1,14 @@
-import { Children, createContext, useContext, useId, useState, type HTMLAttributes, type ReactNode } from "react";
+import {
+  Children,
+  createContext,
+  useContext,
+  useId,
+  useLayoutEffect,
+  useState,
+  useSyncExternalStore,
+  type HTMLAttributes,
+  type ReactNode,
+} from "react";
 import { motion } from "motion/react";
 import { useChaseMotion } from "../../theme/provider";
 import { cx } from "../../utils/cx";
@@ -232,7 +242,8 @@ export interface BulkActionBarProps extends Omit<HTMLAttributes<HTMLDivElement>,
 }
 
 type BulkActionSurfaceRegistration = {
-  ids: Set<string>;
+  mountedIds: Set<string>;
+  serverIds: Set<string> | null;
 };
 
 const BulkActionSurfaceContext = createContext<BulkActionSurfaceRegistration | null>(null);
@@ -241,8 +252,21 @@ export interface BulkActionSurfaceProps {
   children?: ReactNode;
 }
 
+const subscribeToClientRendering = () => () => {};
+
 export function BulkActionSurface({ children }: BulkActionSurfaceProps) {
-  const registration: BulkActionSurfaceRegistration = { ids: new Set() };
+  const [mountedIds] = useState(() => new Set<string>());
+  const isClientRendering = useSyncExternalStore(
+    subscribeToClientRendering,
+    () => true,
+    () => false,
+  );
+  // Server rendering has no commit effects; keep its render-pass guard separate
+  // from client ownership, including the initial hydration render.
+  const registration: BulkActionSurfaceRegistration = {
+    mountedIds,
+    serverIds: isClientRendering ? null : new Set(),
+  };
 
   return <BulkActionSurfaceContext.Provider value={registration}>{children}</BulkActionSurfaceContext.Provider>;
 }
@@ -360,18 +384,28 @@ export function BulkActionPanel({
 function useBulkActionSurfaceRegistration() {
   const registration = useContext(BulkActionSurfaceContext);
   const id = useId();
+  const mountedIds = registration?.mountedIds;
 
-  if (!registration) {
-    return;
+  useLayoutEffect(() => {
+    if (!mountedIds) return;
+    registerBulkActionBar(mountedIds, id);
+    return () => {
+      mountedIds.delete(id);
+    };
+  }, [mountedIds, id]);
+
+  if (registration?.serverIds) {
+    registerBulkActionBar(registration.serverIds, id);
   }
+}
 
-  registration.ids.add(id);
-
-  if (registration.ids.size > 1) {
+function registerBulkActionBar(ids: Set<string>, id: string) {
+  if (ids.size > 0 && !ids.has(id)) {
     throw new Error(
       "BulkActionSurface can render only one BulkActionBar. Combine actions into one bar and move advanced choices into BulkActionPanel or overflowActions.",
     );
   }
+  ids.add(id);
 }
 
 function hasActionContent(node: ReactNode): boolean {

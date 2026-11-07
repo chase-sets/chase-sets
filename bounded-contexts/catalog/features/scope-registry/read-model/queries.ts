@@ -8,6 +8,11 @@ import {
 import type { CatalogLifecycleStatus } from "../../../support/runtime-support/common";
 import type { CatalogScopeProductDomain, CatalogScopeRecordKind } from "../domain/contract";
 import { catalogIsoUtcListSql, catalogIsoUtcTimestamp } from "../../../support/runtime-support/iso-utc-timestamp";
+import type {
+  CatalogAttentionSourcePage,
+  CatalogAttentionSourceWindow,
+} from "../../attention-queue/read-model/attention-item";
+import { catalogAttentionItemParkedSql } from "../../attention-queue/read-model/dismissal-queries";
 
 export type CatalogScopeRecordRow = Readonly<{
   scope_record_id: string;
@@ -111,25 +116,40 @@ function buildScopeRecordQuery(
   );
 }
 
+// The columns an attention-queue stale-scope-sync item needs.
+export type CatalogScopeRecordAttentionRow = Pick<
+  CatalogScopeRecordRow,
+  "scope_record_id" | "name" | "product_domain" | "scope_kind" | "lifecycle_status" | "updated_at"
+>;
+
 // Attention queue: active scope records whose projection has not been
 // refreshed since `before` — the freshness proxy for a stale provider sync until
-// the dedicated scope-sync-state read model lands.
-export async function listStaleActiveCatalogScopeRecords(
+// the dedicated scope-sync-state read model lands. Counts the whole unparked
+// cohort and reads one window, least recently refreshed first.
+export async function readStaleActiveCatalogScopeRecordAttentionWindow(
   db: PgQueryable,
-  options: Readonly<{ before: string; limit?: number }>,
-): Promise<readonly CatalogScopeRecordRow[]> {
-  const limit = Math.min(1000, Math.max(1, Math.trunc(options.limit ?? 200)));
-  const result = await db.query<CatalogScopeRecordRow>(
-    `SELECT *, ${catalogIsoUtcTimestamp("updated_at")}
-     FROM catalog_scope_records
-     WHERE lifecycle_status = 'active'
-       AND updated_at < $1
-     ORDER BY catalog_scope_records.updated_at ASC, scope_record_id ASC
-     LIMIT ${limit}`,
-    [options.before],
-  );
+  window: CatalogAttentionSourceWindow & Readonly<{ before: string }>,
+): Promise<CatalogAttentionSourcePage<CatalogScopeRecordAttentionRow>> {
+  const cohort = `FROM catalog_scope_records scope_record
+     WHERE scope_record.lifecycle_status = 'active'
+       AND scope_record.updated_at < $2
+       AND NOT ${catalogAttentionItemParkedSql("'stale-scope-sync:' || scope_record.scope_record_id", "$1")}`;
+  const [count, page] = await Promise.all([
+    db.query<{ total: number }>(`SELECT COUNT(*)::integer AS total ${cohort}`, [window.now, window.before]),
+    window.limit > 0
+      ? db.query<CatalogScopeRecordAttentionRow>(
+          `SELECT scope_record.scope_record_id, scope_record.name, scope_record.product_domain,
+                  scope_record.scope_kind, scope_record.lifecycle_status,
+                  ${catalogIsoUtcTimestamp("scope_record.updated_at", "updated_at")}
+           ${cohort}
+           ORDER BY scope_record.updated_at ASC, scope_record.scope_record_id ASC
+           LIMIT $3 OFFSET $4`,
+          [window.now, window.before, window.limit, window.offset],
+        )
+      : Promise.resolve({ rows: [] }),
+  ]);
 
-  return result.rows;
+  return { total: count.rows[0]?.total ?? 0, rows: page.rows };
 }
 
 export async function getCatalogScopeRecord(
