@@ -129,7 +129,7 @@ function writeNew(path, bytes, written) {
   }
   need(read(path).equals(bytes), "ORIGINAL_REREAD");
 }
-function admission(plan, authority, backup, now) {
+function admission(plan, authority, backup, now, noV) {
   need(plan.version === "c1-evidence-custody/v1" && plan.performer === authority.performer, "PERFORMER");
   need(
     time(plan.validFrom) <= time(now) &&
@@ -178,7 +178,10 @@ function admission(plan, authority, backup, now) {
       equal(Object.keys(plan.consumption.outputs).sort(), ["envelope", "manifest", "receipt"]),
       "CONSUMPTION_OUTPUTS",
     );
-    need(equal(plan.artifacts?.map((a) => a.role).sort(), ["census", "verification"]), "TERMINAL_ARTIFACT_COVERAGE");
+    need(
+      equal(plan.artifacts?.map((a) => a.role).sort(), noV ? [] : ["census", "verification"]),
+      "TERMINAL_ARTIFACT_COVERAGE",
+    );
     paths.push(plan.consumption.custodyPath, ...Object.values(plan.consumption.outputs));
   }
   for (const f of plan.files) {
@@ -258,12 +261,19 @@ function admission(plan, authority, backup, now) {
       o.workflowHead === binding.workflowHead &&
         o.release === binding.release &&
         o.digest === binding.digest &&
-        o.namespaceUid === binding.uid &&
-        o.nodeUid === (f.scope === "lifecycle" ? binding.nodeUid : (plan.nodeUid ?? binding.nodeUid)) &&
-        typeof o.containerUid === "string" &&
-        o.containerUid.length > 0 &&
-        o.jobId &&
-        o.step,
+        (noV
+          ? o.namespaceUid === null &&
+            o.nodeUid === null &&
+            o.containerUid === null &&
+            o.jobId === null &&
+            o.step === null &&
+            !Object.hasOwn(plan, "nodeUid")
+          : o.namespaceUid === binding.uid &&
+            o.nodeUid === (f.scope === "lifecycle" ? binding.nodeUid : (plan.nodeUid ?? binding.nodeUid)) &&
+            typeof o.containerUid === "string" &&
+            o.containerUid.length > 0 &&
+            o.jobId &&
+            o.step),
       `CAUSAL_SOURCE:${f.id}`,
     );
     need(
@@ -290,7 +300,11 @@ function admission(plan, authority, backup, now) {
   return paths;
 }
 
-function clocks(plan, sources) {
+function clocks(plan, sources, noV) {
+  if (noV) {
+    need(equal(plan.clockMappings, []), "NO_V_CLOCK_SOURCES");
+    return;
+  }
   need(
     equal(
       plan.clockMappings?.map((m) => m.kind),
@@ -315,6 +329,56 @@ function clocks(plan, sources) {
       `CLOCK_DELIVERY:${m.kind}`,
     );
   }
+}
+
+function handoff(plan, envelope, now) {
+  const h = plan.handoff;
+  need(
+    h && equal(Object.keys(h).sort(), ["initialHash", "initialPath", "readinessHash", "readinessPath"]),
+    "HANDOFF_BINDING",
+  );
+  const initialBytes = read(h.initialPath),
+    readinessBytes = read(h.readinessPath);
+  need(sha256(initialBytes) === h.initialHash && sha256(readinessBytes) === h.readinessHash, "HANDOFF_SNAPSHOT_BYTES");
+  const initial = json(initialBytes),
+    readiness = json(readinessBytes);
+  need(
+    equal(Object.keys(initial).sort(), [
+      "armDispatch",
+      "at",
+      "histories",
+      "oneFreshArm",
+      "readinessHash",
+      "version",
+      "windows",
+    ]) &&
+      initial.version === "c1-schedule-initial/v1" &&
+      initial.readinessHash === h.readinessHash &&
+      readiness.planHash === sha256(JSON.stringify(readiness.plan)) &&
+      initial.at === readiness.admittedAt &&
+      time(initial.at) <= time(now) &&
+      equal(initial.histories, envelope.histories) &&
+      equal(initial.histories, readiness.plan.histories) &&
+      equal(Object.keys(initial.histories).sort(), [
+        "blockingRounds",
+        "consumedHeads",
+        "lifetimeAttempts",
+        "oneFreshArm",
+        "opportunity",
+        "sizingWindows",
+      ]) &&
+      Object.values(initial.histories).every((v) => hash.test(v)) &&
+      equal(initial.oneFreshArm, { consumed: false }) &&
+      initial.armDispatch === null &&
+      equal(readiness.plan.oneFreshArm, { consumed: false, dispatch: null }) &&
+      local(readiness.plan.root) === dirname(h.initialPath) &&
+      equal(
+        initial.windows,
+        [1, 2, 3].map((ordinal) => ({ ordinal, slotLimit: 60, intervalSeconds: 30 })),
+      ),
+    "HANDOFF_MOMENT",
+  );
+  need(!Object.hasOwn(plan, "history") && plan.files.every((f) => f.scope === "terminal"), "HANDOFF_HISTORY");
 }
 
 function history(plan, sources, now) {
@@ -712,7 +776,26 @@ export async function retainC1Evidence(
     const existingManifest = existsSync(plan.manifestPath) ? json(read(plan.manifestPath)) : null;
     const startedAt = existingManifest?.startedAt ?? now();
     need(time(now()) <= time(plan.retainUntil), "RETENTION_ENDED");
-    const paths = admission(plan, authority, backup, startedAt);
+    const terminalSource = (id) => {
+      const file = plan.files.find((f) => f.id === id);
+      need(file?.scope === "terminal", "TERMINAL_SOURCE_SCOPE");
+      const path = existingManifest ? file.originalPath : file.sourcePath;
+      need(existsSync(path), `SOURCE_UNAVAILABLE:${id}`);
+      return json(checked(read(path), file));
+    };
+    const terminalEnvelope = terminalSource(plan.envelopeId),
+      terminalAdmission = terminalSource(plan.admittedId);
+    const terminalFacts = readTerminalEvidence(terminalEnvelope, terminalAdmission);
+    const noV = terminalFacts.bracketState === "NO_BRACKET_NO_T0";
+    const dispatch = terminalEnvelope.dispatch;
+    if (
+      !plan.binding.verification ||
+      (dispatch?.verificationDispatched === false &&
+        dispatch?.verificationRunExists === false &&
+        dispatch?.bracketStarted === false)
+    )
+      need(noV, `TERMINAL_APPLICABILITY:${terminalFacts.reasons?.[0]}`);
+    const paths = admission(plan, authority, backup, startedAt, noV);
     need(
       !paths.some((p) => key(p) === key(planFile)) ||
         (existingManifest && key(planFile) === key(plan.planOriginalPath)),
@@ -745,8 +828,13 @@ export async function retainC1Evidence(
         return [f.id, bytes];
       }),
     );
-    clocks(plan, sources);
-    const historyFacts = history(plan, sources, startedAt);
+    clocks(plan, sources, noV);
+    let historyFacts;
+    if (Object.hasOwn(plan, "handoff")) handoff(plan, terminalEnvelope, startedAt);
+    else {
+      need(!noV, "HANDOFF_BINDING");
+      historyFacts = history(plan, sources, startedAt);
+    }
     artifacts(plan, sources);
     const envelope = json(sources.get(plan.envelopeId)),
       admitted = json(sources.get(plan.admittedId));
@@ -803,7 +891,7 @@ export async function retainC1Evidence(
             "files",
             "acknowledgement",
             "clocks",
-            "history",
+            ...(historyFacts ? ["history"] : []),
             "terminal",
             ...(plan.consumption ? ["consumption"] : []),
           ].sort(),
@@ -866,7 +954,10 @@ export async function retainC1Evidence(
       const terminalFacts = readTerminalEvidence(envelope, admitted);
       let consumption;
       if (plan.consumption) {
-        need(equal(plan.artifacts.map((a) => a.role).sort(), ["census", "verification"]), "TERMINAL_ARTIFACT_COVERAGE");
+        need(
+          equal(plan.artifacts.map((a) => a.role).sort(), noV ? [] : ["census", "verification"]),
+          "TERMINAL_ARTIFACT_COVERAGE",
+        );
         const input = (id) => plan.files.find((f) => f.id === id);
         const envelopeFile = input(plan.envelopeId).originalPath,
           admittedFile = input(plan.admittedId).originalPath;
@@ -902,7 +993,7 @@ export async function retainC1Evidence(
           sha256: sha256(read(plan.acknowledgementPath)),
         },
         clocks: plan.clockMappings,
-        history: historyFacts,
+        ...(historyFacts ? { history: historyFacts } : {}),
         terminal: {
           envelopeId: plan.envelopeId,
           admittedId: plan.admittedId,

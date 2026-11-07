@@ -304,6 +304,19 @@ describe("source custody admission", () => {
 });
 
 describe("whole lifecycle custody", () => {
+  it("does not select initial handoff from a flag or absent lifecycle history", async () => {
+    const f = fixture();
+    f.plan.handoff = {};
+    f.save();
+    expect((await f.run()).missing).toEqual(["HANDOFF_BINDING"]);
+    expect(f.calls).toBe(0);
+    delete f.plan.handoff;
+    delete f.plan.history;
+    f.plan.files = f.plan.files.filter((file) => file.scope === "terminal");
+    f.save();
+    expect((await f.run()).missing).toEqual(["C1_HISTORY_BINDING"]);
+    expect(f.calls).toBe(0);
+  });
   it.each([
     "transient competitor",
     "missing generation",

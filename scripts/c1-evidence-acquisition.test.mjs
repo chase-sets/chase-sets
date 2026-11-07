@@ -3,7 +3,7 @@ import { execFileSync } from "node:child_process";
 import { generateKeyPairSync, sign } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { crc32, deflateRawSync } from "node:zlib";
 import { afterEach, describe, expect, it } from "vitest";
 import {
@@ -11,6 +11,8 @@ import {
   recheckC1Evidence,
   consumeCompleteEnvelope,
   acquireRetainedC1Evidence,
+  acquireScheduledC1Evidence,
+  observeC1Schedule,
   main as acquisitionMain,
   CONTEXT,
   READS,
@@ -25,6 +27,12 @@ import {
   responseRecord,
   sha256,
 } from "./census-terminal-evidence.mjs";
+import {
+  admitScheduleRoles,
+  prepareScheduleSnapshot,
+  appendScheduleTransition,
+  reconstructScheduleBridge,
+} from "./c1-schedule-bridge.mjs";
 
 const repository = "synthetic-owner/h6-clock-fixtures";
 const headers = { "x-github-request-id": "synthetic-request", "content-type": "application/json" };
@@ -917,6 +925,7 @@ function custodyFor(f) {
   mkdirSync(join(root, "sources"));
   const keys = generateKeyPairSync("ed25519"),
     binding = f.envelope.binding;
+  const noV = read(f).bracketState === "NO_BRACKET_NO_T0";
   const historyBinding = {
     release: "4".repeat(40),
     digest: `sha256:${generatedHash("synthetic-c1-image")}`,
@@ -995,13 +1004,13 @@ function custodyFor(f) {
         workflowHead: sourceBinding.workflowHead,
         release: sourceBinding.release,
         digest: sourceBinding.digest,
-        runId: sourceBinding.verification.id,
-        attempt: sourceBinding.verification.attempt,
-        jobId: f.envelope.sourceMap.jobId,
-        step: "Synthetic retained owning source",
-        namespaceUid: sourceBinding.uid,
-        nodeUid: extra.scope === "lifecycle" ? historyBinding.nodeUid : plan.nodeUid,
-        containerUid: "synthetic-api",
+        runId: noV ? binding.census.id : sourceBinding.verification.id,
+        attempt: noV ? binding.census.attempt : sourceBinding.verification.attempt,
+        jobId: noV ? null : f.envelope.sourceMap.jobId,
+        step: noV ? null : "Synthetic retained owning source",
+        namespaceUid: noV ? null : sourceBinding.uid,
+        nodeUid: noV ? null : extra.scope === "lifecycle" ? historyBinding.nodeUid : plan.nodeUid,
+        containerUid: noV ? null : "synthetic-api",
         evidencePointer: "",
       },
       ...extra,
@@ -1043,7 +1052,7 @@ function custodyFor(f) {
   }
   add("envelope", f.envelope);
   add("admitted", f.admitted);
-  const events = JSON.parse(f.envelope.files.find((file) => file.path === "synthetic-events.json").original);
+  const events = noV ? [] : JSON.parse(f.envelope.files.find((file) => file.path === "synthetic-events.json").original);
   const eventFile = plan.files.find((file) => file.readerPath === "synthetic-events.json");
   for (const [i, event] of events.entries())
     plan.clockMappings.push({
@@ -1053,78 +1062,84 @@ function custodyFor(f) {
       sourcePointer: `/${i}`,
       delivery: sha256(`${eventFile.sha256}:/${i}:${event.kind}`),
     });
-  const resources = [
-    { kind: "Namespace", uid: historyBinding.uid, createdAt: start, finalizedAt: end },
-    { kind: "Node", uid: historyBinding.nodeUid, createdAt: start, finalizedAt: end },
-    { kind: "Pod", uid: "synthetic-pod", createdAt: start, finalizedAt: end },
-    ...["api", "worker"].map((role) => {
-      const log = add(`${role}-log`, Buffer.from(`synthetic whole ${role} log\n`), {
-        scope: "lifecycle",
-        log: { ownerUid: `synthetic-${role}`, generation: 0, rotation: 0 },
-      });
-      log.origin.containerUid = log.log.ownerUid;
-      return {
-        kind: "Container",
-        uid: `synthetic-${role}`,
-        createdAt: start,
-        finalizedAt: end,
-        generations: [{ number: 0, rotations: [{ number: 0, bytes: log.bytes, sha256: log.sha256 }] }],
-      };
-    }),
-    { kind: "Producer", uid: "synthetic-owning-producer", createdAt: start, finalizedAt: end },
-  ];
-  for (const resource of resources)
-    if (["Pod", "Container", "Producer"].includes(resource.kind))
-      resource.identity = {
-        runId: historyBinding.verification.id,
-        attempt: historyBinding.verification.attempt,
-        namespaceUid: historyBinding.uid,
-        nodeUid: historyBinding.nodeUid,
-        digest: historyBinding.digest,
-      };
-  const lifecycleEvents = [
-    "NamespaceCreated",
-    "NodeReady",
-    "Scheduled",
-    "Pulling",
-    "Pulled",
-    "Started",
-    "PodReady",
-    "NamespaceDeleting",
-    "NamespaceDeleted",
-  ];
-  add("inventory", { binding: historyBinding, resources, eventCount: lifecycleEvents.length }, { scope: "lifecycle" });
-  const records = [
-    ...resources.flatMap((r) => [
-      { kind: r.kind, uid: r.uid, identity: r.identity, action: "created", at: start },
-      { kind: r.kind, uid: r.uid, identity: r.identity, action: "finalized", at: end },
-    ]),
-    ...lifecycleEvents.map((reason, index) => ({
-      kind: "Event",
-      uid: `synthetic-c1-event-${index}`,
-      action: "observed",
-      at: end,
-      reason,
-    })),
-  ];
-  add(
-    "history",
-    {
-      binding: historyBinding,
-      startedAt: start,
-      completedAt: end,
-      retainedFrom: start,
-      expiresAt: "2030-01-02T00:00:00Z",
-      fromResourceVersion: "synthetic-rv-start",
-      resourceVersion: "synthetic-rv-end",
-      page: 1,
-      totalPages: 1,
-      totalCount: records.length,
-      records,
-    },
-    { scope: "lifecycle" },
-  );
-  for (const role of ["census", "verification"]) {
+  if (!noV) {
+    const resources = [
+      { kind: "Namespace", uid: historyBinding.uid, createdAt: start, finalizedAt: end },
+      { kind: "Node", uid: historyBinding.nodeUid, createdAt: start, finalizedAt: end },
+      { kind: "Pod", uid: "synthetic-pod", createdAt: start, finalizedAt: end },
+      ...["api", "worker"].map((role) => {
+        const log = add(`${role}-log`, Buffer.from(`synthetic whole ${role} log\n`), {
+          scope: "lifecycle",
+          log: { ownerUid: `synthetic-${role}`, generation: 0, rotation: 0 },
+        });
+        log.origin.containerUid = log.log.ownerUid;
+        return {
+          kind: "Container",
+          uid: `synthetic-${role}`,
+          createdAt: start,
+          finalizedAt: end,
+          generations: [{ number: 0, rotations: [{ number: 0, bytes: log.bytes, sha256: log.sha256 }] }],
+        };
+      }),
+      { kind: "Producer", uid: "synthetic-owning-producer", createdAt: start, finalizedAt: end },
+    ];
+    for (const resource of resources)
+      if (["Pod", "Container", "Producer"].includes(resource.kind))
+        resource.identity = {
+          runId: historyBinding.verification.id,
+          attempt: historyBinding.verification.attempt,
+          namespaceUid: historyBinding.uid,
+          nodeUid: historyBinding.nodeUid,
+          digest: historyBinding.digest,
+        };
+    const lifecycleEvents = [
+      "NamespaceCreated",
+      "NodeReady",
+      "Scheduled",
+      "Pulling",
+      "Pulled",
+      "Started",
+      "PodReady",
+      "NamespaceDeleting",
+      "NamespaceDeleted",
+    ];
+    add(
+      "inventory",
+      { binding: historyBinding, resources, eventCount: lifecycleEvents.length },
+      { scope: "lifecycle" },
+    );
+    const records = [
+      ...resources.flatMap((r) => [
+        { kind: r.kind, uid: r.uid, identity: r.identity, action: "created", at: start },
+        { kind: r.kind, uid: r.uid, identity: r.identity, action: "finalized", at: end },
+      ]),
+      ...lifecycleEvents.map((reason, index) => ({
+        kind: "Event",
+        uid: `synthetic-c1-event-${index}`,
+        action: "observed",
+        at: end,
+        reason,
+      })),
+    ];
+    add(
+      "history",
+      {
+        binding: historyBinding,
+        startedAt: start,
+        completedAt: end,
+        retainedFrom: start,
+        expiresAt: "2030-01-02T00:00:00Z",
+        fromResourceVersion: "synthetic-rv-start",
+        resourceVersion: "synthetic-rv-end",
+        page: 1,
+        totalPages: 1,
+        totalCount: records.length,
+        records,
+      },
+      { scope: "lifecycle" },
+    );
+  }
+  for (const role of noV ? [] : ["census", "verification"]) {
     const owner = binding[role];
     const name =
       role === "census"
@@ -1205,6 +1220,10 @@ function custodyFor(f) {
       payloadName,
     });
   }
+  if (noV) {
+    delete plan.nodeUid;
+    delete plan.history;
+  }
   const planFile = join(root, "plan.json");
   const save = () => writeFileSync(planFile, JSON.stringify(plan));
   const replace = (id, value) => {
@@ -1277,6 +1296,536 @@ function custodyFor(f) {
     run: () => acquireRetainedC1Evidence(input(), { backup, now: () => now }),
   };
 }
+
+async function scheduledFixture(change = () => {}, noV = false) {
+  const f = fixture();
+  f.envelope.ack.at = "2030-01-01T01:00:20Z";
+  f.envelope.schedule.deadlineUtc = "2030-01-01T02:30:00.000Z";
+  change(f);
+  if (noV) withoutVerification(f);
+  else retain(f);
+  const custody = custodyFor(f),
+    observation = admissionFixture(),
+    root = sandbox();
+  const plan = {
+    root,
+    oneFreshArm: { consumed: false, dispatch: null },
+    roles: Object.fromEntries(
+      Object.entries(f.envelope.custodians).map(([role, identity]) => [
+        role,
+        {
+          identity,
+          capabilityHash: generatedHash(`ready-${role}`),
+        },
+      ]),
+    ),
+    original: { custodian: custody.plan.original.custodian, destination: custody.plan.original.prefix },
+    backup: { custodian: custody.plan.backup.custodian, destination: custody.plan.backup.prefix },
+    histories: copy(f.envelope.histories),
+    observationBinding: copy(observation.input.admitted),
+    validFrom: "2030-01-01T00:00:00Z",
+    expiresAt: "2030-01-02T00:00:00Z",
+  };
+  const authority = { approvedPlanHash: sha256(JSON.stringify(plan)) },
+    bridge = { root, authority };
+  const capability = (value) => ({
+    ...value,
+    acknowledge: ({ planHash }) => ({ ...value, planHash, at: plan.validFrom, expiresAt: plan.expiresAt }),
+  });
+  expect(
+    (
+      await admitScheduleRoles(
+        { ...bridge, plan },
+        {
+          roles: Object.fromEntries(Object.entries(plan.roles).map(([key, value]) => [key, capability(value)])),
+          custody: { original: capability(plan.original), backup: capability(plan.backup) },
+          now: () => plan.validFrom,
+        },
+      )
+    ).state,
+  ).toBe("READY");
+  delete custody.plan.history;
+  custody.plan.files = custody.plan.files.filter((file) => file.scope === "terminal");
+  custody.plan.handoff = {
+    initialPath: join(root, "initial-snapshot.json"),
+    initialHash: sha256(readFileSync(join(root, "initial-snapshot.json"))),
+    readinessPath: join(root, "readiness.json"),
+    readinessHash: sha256(readFileSync(join(root, "readiness.json"))),
+  };
+  custody.save();
+  if (!noV) {
+    const prepared = prepareScheduleSnapshot(
+      { ...bridge, binding: f.envelope.binding, seal: f.envelope.seal, rawD: "2030-01-01T01:00:00Z" },
+      { now: () => "2030-01-01T01:00:00Z" },
+    );
+    expect(prepared.state).toBe("PREPARED");
+  }
+  let at = "2030-01-01T01:00:20Z";
+  return {
+    f,
+    custody,
+    observation,
+    bridge,
+    plan,
+    setAt: (value) => {
+      at = value;
+    },
+    run: () => acquireScheduledC1Evidence(custody.input(), bridge, { ...custody.capabilities, now: () => at }),
+    append(kind, payload, id, time = at, expectedPrevious) {
+      at = time;
+      const previous = reconstructScheduleBridge(bridge).previous;
+      return appendScheduleTransition(
+        { ...bridge, expectedPrevious: expectedPrevious ?? previous, event: { id, kind, at, payload } },
+        { now: () => at },
+      );
+    },
+    payload(slot, state = "REFUSED", nodeUid = "synthetic-node") {
+      const at = new Date(Date.parse("2030-01-01T01:00:00Z") + slot * 30000 + 21000).toISOString();
+      const snapshot = {
+        ...plan.observationBinding,
+        slot: { index: slot, startedAt: slot * 30000, deadline: (slot + 1) * 30000 },
+        elapsedMs: 0,
+        reads: ["nodes", "namespaces", "pods", "events", "configmap"].map((resource) => ({
+          resource,
+          startedAt: at,
+          completedAt: at,
+        })),
+        inventory: [{ synthetic: true }],
+      };
+      return {
+        state,
+        reasons: state === "ADMITTED" ? [] : ["SYNTHETIC_NEGATIVE"],
+        nodeUid,
+        snapshot,
+        snapshotHash: sha256(JSON.stringify(snapshot)),
+      };
+    },
+  };
+}
+
+describe("qualified handoff state", () => {
+  function oldCustody(input, custodian, mutation) {
+    let source = readFileSync(new URL("./c1-evidence-custody.mjs", import.meta.url), "utf8");
+    const change = mutation === "origin" ? "(noV" : 'if (Object.hasOwn(plan, "handoff"))';
+    expect(source.includes(change)).toBe(true);
+    source = source.replace(change, mutation === "origin" ? "(false" : "if (false)");
+    for (const name of ["census-terminal-evidence.mjs", "release-health-delivery-health.mjs"])
+      source = source.replace(`"./${name}"`, JSON.stringify(new URL(`./${name}`, import.meta.url).href));
+    const path = join(sandbox(), "synthetic-reverted-custody.mjs");
+    writeFileSync(path, source, { flag: "wx" });
+    const script = `import {retainC1Evidence} from ${JSON.stringify(pathToFileURL(path).href)};
+      if(process.env.SYNTHETIC_ISOLATION_SENTINEL!=="custody-mutant-only")throw Error("synthetic-isolation");
+      const input=JSON.parse(process.argv[1]);
+      const result=await retainC1Evidence(input,{requireConsumption:true,now:()=>"2030-01-01T01:00:20Z",
+        backup:{custodian:process.argv[2],retain(){throw Error("synthetic-not-reached")}}});
+      process.stdout.write(JSON.stringify(result));`;
+    return JSON.parse(
+      execFileSync(process.execPath, ["--input-type=module", "-e", script, JSON.stringify(input), custodian], {
+        encoding: "utf8",
+        env: {
+          SystemRoot: process.env.SystemRoot ?? "",
+          PATH: "",
+          SYNTHETIC_ISOLATION_SENTINEL: "custody-mutant-only",
+        },
+      }),
+    );
+  }
+  it.each([false, true])("custody repair reverted is governing-predicate red for handoff no-V=%s", async (noV) => {
+    const s = await scheduledFixture(() => {}, noV);
+    const old = oldCustody(s.custody.input(), s.custody.plan.backup.custodian, noV ? "origin" : "history");
+    expect(old.state).toBe("STOP");
+    expect(old.missing).toEqual([noV ? `CAUSAL_SOURCE:${s.custody.plan.files[0].id}` : "C1_HISTORY_BINDING"]);
+    expect(old.partial).toBe(false);
+    console.info("CUSTODY_REPAIR_REVERTED_RED", JSON.stringify({ noV, missing: old.missing }));
+    expect((await s.run()).state).toBe(noV ? "NO_BRACKET_NO_T0" : "WAITING");
+  });
+  function refreshTerminal(s) {
+    const e = s.f.envelope,
+      facts = e.files.find((f) => f.path === "facts.json");
+    const value = JSON.parse(facts.original);
+    for (const key of Object.keys(value)) value[key] = e[key];
+    facts.original = facts.backup = JSON.stringify(value);
+    const dispatch = e.files.find((f) => f.path === "synthetic-dispatch.json");
+    dispatch.original = dispatch.backup = JSON.stringify(e.dispatch);
+    admitFiles(s.f);
+    for (const file of s.custody.plan.files.filter((f) => f.readerPath !== undefined))
+      s.custody.replace(file.id, Buffer.from(e.files.find((f) => f.path === file.readerPath).original));
+    s.custody.replace("envelope", e);
+    s.custody.replace("admitted", s.f.admitted);
+    s.custody.save();
+  }
+  it.each(["completed", "c-never-captured", "admission-refused", "nonterminal"])(
+    "retains affirmative no-V %s through acquisition and bridge without inventing V or C producers",
+    async (shape) => {
+      const s = await scheduledFixture((f) => {
+        if (shape === "c-never-captured") {
+          for (const phase of ["capture", "consumption"]) delete f.envelope[phase].census;
+          delete f.envelope.jobs.census;
+        } else if (shape !== "completed") {
+          for (const phase of ["capture", "consumption"])
+            f.envelope[phase].census = f.envelope[phase].census.map((record) =>
+              mutateRecord(record, (body) => {
+                body.status = shape === "admission-refused" ? "queued" : "in_progress";
+                body.conclusion = null;
+              }),
+            );
+          if (shape === "admission-refused") {
+            f.envelope.dispatch.admissionRefused = true;
+            delete f.envelope.consumption.census;
+            f.envelope.jobs.census = jobSet(f.envelope.binding.census, []);
+          } else {
+            const jobs = f.envelope.jobs.census.details.map((record) => JSON.parse(record.body));
+            Object.assign(jobs[0], { status: "in_progress", conclusion: null, completed_at: null });
+            jobs[0].steps = jobs[0].steps.slice(0, 4);
+            Object.assign(jobs[0].steps.at(-1), { status: "in_progress", conclusion: null, completed_at: null });
+            f.envelope.jobs.census = jobSet(f.envelope.binding.census, jobs);
+          }
+        }
+      }, true);
+      const acquired = await s.custody.run();
+      expect(acquired.state, JSON.stringify(acquired)).toBe("MATERIALIZED");
+      expect(acquired.receipt).toEqual(read(s.f));
+      const manifest = JSON.parse(readFileSync(acquired.custodyManifestPath));
+      expect(Object.hasOwn(manifest, "history")).toBe(false);
+      expect(manifest.clocks).toEqual([]);
+      for (const f of s.custody.plan.files) {
+        expect(f.origin).toMatchObject({
+          namespaceUid: null,
+          nodeUid: null,
+          containerUid: null,
+          jobId: null,
+          step: null,
+          runId: s.f.envelope.binding.census.id,
+          attempt: s.f.envelope.binding.census.attempt,
+        });
+      }
+      for (const file of manifest.files) {
+        expect(sha256(readFileSync(file.originalPath))).toBe(file.sha256);
+        expect(sha256(readFileSync(file.backupPath))).toBe(file.sha256);
+      }
+      const result = await s.run();
+      expect(result).toMatchObject({
+        state: "NO_BRACKET_NO_T0",
+        t0Utc: null,
+        c1Schedule: "NOT_STARTED",
+        newOpportunities: 0,
+      });
+      expect(result.receipt.c1Admission).not.toBe(true);
+      expect(await s.run()).toEqual(result);
+      expect(await s.custody.run()).toEqual(acquired);
+    },
+  );
+
+  it.each(["namespaceUid", "nodeUid", "containerUid", "jobId", "step", "plan.nodeUid", "runId", "attempt"])(
+    "no-V governing-only origin mutant %s",
+    async (field) => {
+      const s = await scheduledFixture(() => {}, true),
+        file = s.custody.plan.files[0];
+      if (field === "plan.nodeUid") s.custody.plan.nodeUid = "synthetic-invented";
+      else file.origin[field] = ["runId", "attempt"].includes(field) ? 900000000000999 : "synthetic-invented";
+      s.custody.save();
+      const result = await s.custody.run();
+      expect(result.state).toBe("STOP");
+      expect(result.missing).toEqual([
+        `${["runId", "attempt"].includes(field) ? "SOURCE_ATTEMPT" : "CAUSAL_SOURCE"}:${file.id}`,
+      ]);
+      expect(result.partial).toBe(false);
+      expect((await s.run()).reasons).toEqual(["STOP_COMPLETE_CUSTODY"]);
+    },
+  );
+  it.each(["capture-start", "verification-dispatched"])(
+    "no-V invented clock %s refuses at applicability",
+    async (kind) => {
+      const s = await scheduledFixture(() => {}, true);
+      s.custody.plan.clockMappings = [
+        { kind, fileId: "envelope", pointer: "", sourcePointer: "", delivery: generatedHash(kind) },
+      ];
+      s.custody.save();
+      expect((await s.custody.run()).missing).toEqual(["NO_V_CLOCK_SOURCES"]);
+      expect((await s.run()).reasons).toEqual(["STOP_COMPLETE_CUSTODY"]);
+    },
+  );
+  it.each(["census", "verification"])("no-V %s artifact refuses even with completed C", async (role) => {
+    const s = await scheduledFixture(() => {}, true);
+    s.custody.plan.artifacts = [{ role }];
+    s.custody.save();
+    expect((await s.custody.run()).missing).toEqual(["TERMINAL_ARTIFACT_COVERAGE"]);
+    expect((await s.run()).reasons).toEqual(["STOP_COMPLETE_CUSTODY"]);
+  });
+  it.each([false, true])("handoff real/no-V=%s refuses any c1 history", async (noV) => {
+    const s = await scheduledFixture(() => {}, noV);
+    s.custody.plan.history = {};
+    s.custody.save();
+    expect((await s.custody.run()).missing).toEqual(["HANDOFF_HISTORY"]);
+    expect((await s.run()).reasons).toEqual(["STOP_COMPLETE_CUSTODY"]);
+  });
+  it.each(["unbound", "consumed", "dispatch", "changed bytes"])(
+    "handoff cannot be selected by absence or flag: %s",
+    async (attack) => {
+      const s = await scheduledFixture();
+      if (attack === "unbound") delete s.custody.plan.handoff;
+      else {
+        const path = s.custody.plan.handoff.initialPath,
+          initial = JSON.parse(readFileSync(path));
+        if (attack === "consumed") initial.oneFreshArm.consumed = true;
+        else if (attack === "dispatch") initial.armDispatch = { runId: 900000000000999, attempt: 1 };
+        else initial.at = "2030-01-01T00:00:01Z";
+        writeFileSync(path, JSON.stringify(initial));
+        if (attack !== "changed bytes") s.custody.plan.handoff.initialHash = sha256(readFileSync(path));
+      }
+      s.custody.save();
+      expect((await s.custody.run()).missing).toEqual([
+        attack === "unbound"
+          ? "C1_HISTORY_BINDING"
+          : attack === "changed bytes"
+            ? "HANDOFF_SNAPSHOT_BYTES"
+            : "HANDOFF_MOMENT",
+      ]);
+    },
+  );
+  it.each(["original", "backup", "substitution", "replay"])(
+    "no-V stale/conflicting custody %s is not N7",
+    async (attack) => {
+      const s = await scheduledFixture(() => {}, true);
+      expect((await s.run()).state).toBe("NO_BRACKET_NO_T0");
+      const file = s.custody.plan.files[0];
+      if (attack === "original") rmSync(file.originalPath);
+      else if (attack === "backup") rmSync(file.backupPath);
+      else if (attack === "substitution") writeFileSync(file.originalPath, "synthetic-substitution");
+      else {
+        const manifest = JSON.parse(readFileSync(s.custody.plan.manifestPath));
+        manifest.terminal.facts.reasons = ["synthetic-conflict"];
+        writeFileSync(s.custody.plan.manifestPath, JSON.stringify(manifest));
+      }
+      expect((await s.run()).state).toBe("STOP");
+      expect((await s.custody.run()).state).toBe("STOP");
+    },
+  );
+  it("no-V withheld backup capability refuses before any write", async () => {
+    const s = await scheduledFixture(() => {}, true);
+    delete s.custody.capabilities.backup;
+    expect((await s.run()).state).toBe("STOP");
+    expect(existsSync(s.custody.plan.original.prefix)).toBe(false);
+  });
+  it.each(["unknown dispatch", "contradictory dispatch", "inserted V identity"])(
+    "no-V %s refuses at reader applicability, not a missing artifact",
+    async (attack) => {
+      const s = await scheduledFixture(() => {}, true);
+      if (attack === "unknown dispatch") s.f.envelope.dispatch.verificationDispatched = null;
+      if (attack === "contradictory dispatch") s.f.envelope.dispatch.verificationDispatched = true;
+      if (attack === "inserted V identity")
+        s.f.envelope.binding.verification = copy(fixture().envelope.binding.verification);
+      refreshTerminal(s);
+      const expected = read(s.f);
+      expect(expected.bracketState).toBe("STOP");
+      expect((await s.custody.run()).missing).toEqual([`TERMINAL_APPLICABILITY:${expected.reasons[0]}`]);
+      expect((await s.run()).reasons).toEqual(["STOP_COMPLETE_CUSTODY"]);
+    },
+  );
+  it("each no-V eligible source omission refuses with every other input valid", async () => {
+    const s = await scheduledFixture(() => {}, true);
+    for (const file of s.custody.plan.files) {
+      const bytes = readFileSync(file.sourcePath);
+      rmSync(file.sourcePath);
+      const result = await s.custody.run();
+      expect(result.state, file.id).toBe("STOP");
+      expect(result.partial, file.id).toBe(false);
+      expect(existsSync(s.custody.plan.original.prefix)).toBe(false);
+      writeFileSync(file.sourcePath, bytes, { flag: "wx" });
+    }
+    expect((await s.run()).state).toBe("NO_BRACKET_NO_T0");
+  });
+  it("each no-V independent backup omission refuses on replay without rewriting it", async () => {
+    const s = await scheduledFixture(() => {}, true);
+    expect((await s.run()).state).toBe("NO_BRACKET_NO_T0");
+    const manifest = JSON.parse(readFileSync(s.custody.plan.manifestPath));
+    for (const file of manifest.files) {
+      const bytes = readFileSync(file.backupPath);
+      rmSync(file.backupPath);
+      expect((await s.run()).state, file.id).toBe("STOP");
+      expect(existsSync(file.backupPath)).toBe(false);
+      writeFileSync(file.backupPath, bytes, { flag: "wx" });
+    }
+    expect((await s.run()).state).toBe("NO_BRACKET_NO_T0");
+  });
+  it.each(["source", "artifact", "clock", "history"])(
+    "real-V post-arm governing-only %s refusal stays",
+    async (attack) => {
+      const c = custodyFor(fixture());
+      let reason;
+      if (attack === "source") {
+        c.plan.files[0].origin.nodeUid = "synthetic-wrong";
+        reason = `CAUSAL_SOURCE:${c.plan.files[0].id}`;
+      }
+      if (attack === "artifact") {
+        c.plan.artifacts.pop();
+        reason = "TERMINAL_ARTIFACT_COVERAGE";
+      }
+      if (attack === "clock") {
+        c.plan.clockMappings[0].pointer = "/1";
+        reason = "CLOCK_CAUSALITY:capture-start";
+      }
+      if (attack === "history") {
+        delete c.plan.history;
+        c.plan.files = c.plan.files.filter((f) => f.scope === "terminal");
+        reason = "C1_HISTORY_BINDING";
+      }
+      c.save();
+      expect((await c.run()).missing).toEqual([reason]);
+    },
+  );
+});
+
+describe("D-bound receipt bridge", () => {
+  it("consumes full production custody and reader at actual ack, preserves exact D and null C", async () => {
+    const s = await scheduledFixture(),
+      result = await s.run();
+    expect(result.state, JSON.stringify(result)).toBe("WAITING");
+    expect(result.receipt.cRunTerminal.utc).toBe(null);
+    expect(result.t0Utc).toBe("2030-01-01T01:00:00Z");
+    expect(result.receipt.c1Admission).toBe(null);
+    expect((await s.run()).state).toBe("WAITING");
+  });
+  it.each(["2030-01-01T00:59:59Z", "2030-01-01T01:00:30Z", "2030-01-01T01:00:31Z"])(
+    "refuses actual consumption at %s without shifting D",
+    async (at) => {
+      const s = await scheduledFixture();
+      s.setAt(at);
+      const result = await s.run();
+      expect(result.state).toBe("STOP");
+      expect(result.t0Utc).toBe(null);
+      expect(result.c1Schedule).toBe("NOT_STARTED");
+    },
+  );
+  it("refuses provisional ack before independently delayed final evidence", async () => {
+    const s = await scheduledFixture((f) => {
+      f.envelope.ack.at = "2030-01-01T01:00:15Z";
+    });
+    expect((await s.run()).reasons).toContain("STOP_ACTUAL_ACK_TIME");
+  });
+  it.each(["wrong custodian", "wrong schedule", "missing final backup"])(
+    "governing-only omission: %s",
+    async (attack) => {
+      const s = await scheduledFixture();
+      if (attack === "wrong custodian") s.custody.capabilities.backup.custodian = "synthetic-impostor";
+      if (attack === "wrong schedule") {
+        const path = join(s.bridge.root, "snapshot.json"),
+          snapshot = JSON.parse(readFileSync(path));
+        snapshot.schedule.persistedAt = "2030-01-01T01:00:01Z";
+        writeFileSync(path, JSON.stringify(snapshot));
+      }
+      if (attack === "missing final backup") {
+        expect((await s.run()).state).toBe("WAITING");
+        rmSync(s.custody.plan.files.at(-1).backupPath);
+      }
+      expect((await s.run()).state).toBe("STOP");
+    },
+  );
+  it("qualified failed sizing and failed delete still hand off, without positive c1 admission", async () => {
+    const s = await scheduledFixture((f) => {
+      changeDelete(f, (step) => {
+        step.conclusion = "failure";
+      });
+      f.envelope.namespace.deleted = false;
+    });
+    const result = await s.run();
+    expect(result.state, JSON.stringify(result)).toBe("WAITING");
+    expect(result.receipt.cleanupSucceeded).toBe(false);
+    expect(result.c1Admission).toBe(false);
+    const p = s.payload(0, "ADMITTED");
+    expect(s.append("READ", p, "read-0", p.snapshot.reads[0].completedAt).pending).toBe(null);
+  });
+});
+
+describe("window transition", () => {
+  it("retains 180 actual complete negatives on the original grid and refuses further reads", async () => {
+    const s = await scheduledFixture();
+    expect((await s.run()).state).toBe("WAITING");
+    let result;
+    for (let slot = 0; slot < 180; slot++) {
+      const p = s.payload(slot);
+      result = s.append("READ", p, `read-${slot}`, p.snapshot.reads[0].completedAt);
+      expect(result.state, `slot ${slot}: ${JSON.stringify(result.reasons)}`).toBe(
+        slot === 179 ? "REFUSED_THREE_WINDOWS_RETURN_TO_PLANNING_C" : "WAITING",
+      );
+    }
+    expect(result.schedule.windows.map((w) => w.startSlot)).toEqual([0, 60, 120]);
+    expect(result.schedule.windows.map((w) => w.reads.length)).toEqual([60, 60, 60]);
+    const p = s.payload(180);
+    expect(s.append("READ", p, "too-late", p.snapshot.reads[0].completedAt).state).toBe("STOP");
+  });
+  it("first incomplete ends each actual window; next begins on the next original slot", async () => {
+    const s = await scheduledFixture();
+    await s.run();
+    for (let slot = 0; slot < 3; slot++) {
+      const result = s.append(
+        "READ",
+        { state: "STOP", reasons: ["SYNTHETIC_INCOMPLETE"], nodeUid: null },
+        `error-${slot}`,
+        new Date(Date.parse("2030-01-01T01:00:21Z") + slot * 30000).toISOString(),
+      );
+      expect(result.schedule.windows[slot].ended).toBe(true);
+      expect(result.state).toBe(slot === 2 ? "REFUSED_THREE_WINDOWS_RETURN_TO_PLANNING_C" : "WAITING");
+    }
+  });
+  it("missed slot cannot be backfilled, and stale predecessor cannot consume a slot", async () => {
+    const s = await scheduledFixture();
+    const initial = await s.run(),
+      p = s.payload(1);
+    expect(s.append("READ", p, "missed", p.snapshot.reads[0].completedAt).state).toBe("STOP");
+    const zero = s.payload(0);
+    s.append("READ", zero, "read-0", zero.snapshot.reads[0].completedAt);
+    expect(s.append("READ", p, "stale", p.snapshot.reads[0].completedAt, initial.previous).state).toBe("STOP");
+    expect(reconstructScheduleBridge(s.bridge).events).toHaveLength(1);
+  });
+  it("same-UID recheck failure stays on the grid; incomplete recheck ends the window", async () => {
+    const s = await scheduledFixture();
+    await s.run();
+    let p = s.payload(0, "ADMITTED");
+    s.append("READ", p, "read-0", p.snapshot.reads[0].completedAt);
+    let result = s.append("RECHECK", s.payload(0, "ADMITTED", "synthetic-replaced"), "recheck-0");
+    expect(result.qualified).toBe(null);
+    p = s.payload(1, "ADMITTED");
+    s.append("READ", p, "read-1", p.snapshot.reads[0].completedAt);
+    result = s.append("RECHECK", { state: "STOP", nodeUid: null, reasons: ["SYNTHETIC_INCOMPLETE"] }, "recheck-1");
+    expect(result.schedule.windows[0].ended).toBe(true);
+    expect(result.schedule.windows[1].startSlot).toBe(2);
+  });
+  it("deduplicates identical delivery, refuses conflict, reconstructs restart and consumes only one arm", async () => {
+    const s = await scheduledFixture();
+    await s.run();
+    const p = s.payload(0, "ADMITTED");
+    const first = s.append("READ", p, "read-0", p.snapshot.reads[0].completedAt);
+    expect(s.append("READ", p, "read-0").events).toHaveLength(1);
+    expect(s.append("READ", { ...p, nodeUid: "synthetic-conflict" }, "read-0").state).toBe("STOP");
+    expect(reconstructScheduleBridge(s.bridge).previous).toBe(first.previous);
+    const rechecked = s.append("RECHECK", p, "recheck-0");
+    const claim = { executor: s.plan.roles.executor.identity, recheckHash: rechecked.qualified.recheckHash };
+    expect(s.append("ARM_CLAIM", claim, "claim").state).toBe("ARM_UNCERTAIN");
+    expect(s.append("READ", p, "read-again").state).toBe("STOP");
+    expect(
+      s.append(
+        "ARM_CONFIRMED",
+        { claimId: "claim", executor: claim.executor, runId: 900000000000200, attempt: 1 },
+        "confirmed",
+      ).state,
+    ).toBe("CONSUMED");
+    expect(reconstructScheduleBridge(s.bridge).state).toBe("CONSUMED");
+    expect(s.append("ARM_CLAIM", claim, "second-claim").state).toBe("STOP");
+  });
+  it("whole production five-read observation immediately rechecks before any arm claim", async () => {
+    const s = await scheduledFixture();
+    await s.run();
+    s.observation.input.slot.index = 0;
+    const result = await observeC1Schedule(s.observation.input, s.bridge, s.observation.producers, {
+      clock: s.observation.clock,
+      now: () => "2030-01-01T01:00:21.000Z",
+    });
+    expect(result.state, JSON.stringify(result)).toBe("WAITING");
+    expect(result.events.map((e) => e.kind)).toEqual(["READ", "RECHECK"]);
+    expect(result.qualified.nodeUid).toBe("synthetic-node");
+  });
+});
 
 describe("five-read projection production entrypoint", () => {
   it.each(

@@ -5,6 +5,7 @@ import { performance } from "node:perf_hooks";
 import { parse } from "yaml";
 import { instant, readTerminalEvidence, sha256 } from "./census-terminal-evidence.mjs";
 import { retainC1Evidence } from "./c1-evidence-custody.mjs";
+import { acquireScheduleBridge, appendScheduleTransition, reconstructScheduleBridge } from "./c1-schedule-bridge.mjs";
 
 export const CONTEXT = "do-nyc3-chase-sets-staging-doks";
 export const READS = Object.freeze(
@@ -875,6 +876,35 @@ export async function acquireRetainedC1Evidence(input, capabilities) {
     };
   const result = consumeCompleteEnvelope(custody.manifest.consumption, { idempotent: true });
   return { ...result, custodyManifestPath: custody.manifestPath, custodyPlanHash: custody.planHash };
+}
+
+export async function acquireScheduledC1Evidence(input, bridge, capabilities) {
+  return acquireScheduleBridge(bridge, input, capabilities);
+}
+
+export async function observeC1Schedule(input, bridge, producers, timing = {}) {
+  const current = reconstructScheduleBridge(bridge);
+  if (current.state !== "WAITING") return current;
+  const now = timing.now ?? (() => new Date().toISOString());
+  const at = now(),
+    slot = Number((instant(at).ticks - instant(current.t0Utc).ticks) / 30000000000n);
+  const window = current.schedule.windows.find((w) => !w.ended);
+  if (current.pending || slot < 0 || slot !== window?.startSlot + window?.reads.length || input.slot?.index !== slot)
+    return { state: "STOP", reasons: ["STOP_MISSED_OR_DUPLICATE_SLOT"], t0Utc: null, c1Schedule: "NOT_STARTED" };
+  const prior = await acquireC1Evidence(input, producers, timing);
+  const observedAt = now();
+  const event = { id: `read-${slot}`, kind: "READ", at: observedAt, payload: prior };
+  const recorded = appendScheduleTransition({ ...bridge, expectedPrevious: current.previous, event }, { now });
+  if (recorded.state !== "WAITING" || !recorded.pending) return recorded;
+  const recheck = await recheckC1Evidence(input, prior, producers, timing);
+  return appendScheduleTransition(
+    {
+      ...bridge,
+      expectedPrevious: recorded.previous,
+      event: { id: `recheck-${slot}`, kind: "RECHECK", at: now(), payload: recheck },
+    },
+    { now },
+  );
 }
 
 export function main(args, { now } = {}) {
