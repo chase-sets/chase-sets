@@ -4,7 +4,15 @@
 //! Filters button opens. The words box and the sort are in the form by its id, so changing any
 //! of them sends every choice.
 use corten::prelude::*;
-use platform::ui::visually_hidden::VisuallyHidden;
+use platform::{
+    glyphs,
+    ui::{
+        icon::Icon as KitIcon,
+        input::Input,
+        input_group::{Adornment, InputGroup},
+        visually_hidden::VisuallyHidden,
+    },
+};
 
 use super::{
     item_detail::{analytics, similar_image},
@@ -305,15 +313,17 @@ pub fn SearchPage<'a>(t: SearchMsg, p: Pilot, screen: &'a SearchScreen, failed: 
     }
 }
 
-/// The words box: in the form by its id, so Enter sends every choice.
+/// The words box (the design system's `SearchInput`: the search glyph inside the box): in the form
+/// by its id, so Enter sends every choice.
 #[component(css = SearchPage)]
 fn WordsBox<'a>(t: SearchMsg, terms: &'a Terms, placeholder: &'a str) -> impl Render {
     let f = TermsQuery::FIELDS;
     html! {
         <search class={Words}>
-            <label>
-                <span class={VisuallyHidden {}}>{t.page_marketplace_search()}</span>
+            <label class={InputGroup {}}>
+                <Adornment><KitIcon glyph={glyphs::SEARCH} /></Adornment>
                 <input
+                    class={Input {}}
                     type="search"
                     name={f.q}
                     form={SearchFormId}
@@ -321,6 +331,7 @@ fn WordsBox<'a>(t: SearchMsg, terms: &'a Terms, placeholder: &'a str) -> impl Re
                     placeholder={placeholder}
                     enterkeyhint="search"
                 >
+                <span class={VisuallyHidden {}}>{t.page_marketplace_search()}</span>
             </label>
             <button type="submit" form={SearchFormId} class={Primary}>{t.page_marketplace_search()}</button>
         </search>

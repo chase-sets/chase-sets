@@ -5235,7 +5235,18 @@ async fn search_sends_its_terms_and_draws_results_filters_and_load_more() {
     assert!(html.contains(">Japanese<"), "a result's language: {html}");
     // The filters are one GET form; the words box and the sort are in it by its id.
     assert!(html.contains(r#"<form id="search-form""#), "{html}");
-    assert!(html.contains(r#"<input type="search" name="q" form="search-form" value="pika""#), "{html}");
+    assert!(html.contains(r#"<input class="input__input" type="search" name="q" form="search-form" value="pika""#), "{html}");
+    // The words box is the kit's input group, the design system's search glyph inside its border
+    // and hidden from a screen reader, which reads the label's words.
+    let words = &html[html.find(r#"<label class="input-group__input-group">"#).expect("the words box's group")..];
+    let words = &words[..words.find("</label>").unwrap()];
+    assert!(
+        words.starts_with(
+            r#"<label class="input-group__input-group"><span class="input-group__adornment" aria-hidden="true"><svg"#
+        ),
+        "{words}"
+    );
+    assert!(words.contains(r#"<span class="visually-hidden__visually-hidden">Marketplace search</span>"#), "{words}");
     assert!(html.contains(r#"<select name="sort" form="search-form">"#), "{html}");
     assert!(html.contains(r#"<input type="checkbox" name="dimension.dim_grade" value="chc_10" checked>"#), "{html}");
     // Each chip is the address without its filter.
