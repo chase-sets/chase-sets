@@ -827,6 +827,7 @@ describe("Catalog primary workbench admin contracts", () => {
               expansionId: null,
               expansionName: null,
             },
+            commandScopes: null,
             actions: {
               import: {
                 key: "scope.import",
