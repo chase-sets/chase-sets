@@ -475,12 +475,13 @@ function sourceScopeUnitRow(
             blockers,
           ),
         ),
+        // The row form posts currentWorkbenchHref plus commandContext: no review filters and no status.
         commandPreview: promotionCommandPreviewFor({
           ...input.routeContext,
           sourceObservationFilters: {},
           providerKey: candidate.providerKey,
           unitKey: candidate.unitKey,
-          scope: routeScope,
+          scope: { ...routeScope, status: null },
           importScope,
           profileVersion: candidate.profile?.profileVersion ?? null,
         }),

@@ -79,11 +79,11 @@ describe("Catalog source-scope workset", () => {
     expect(model.sourceScopeWorkset.units).toHaveLength(3);
     for (const row of model.sourceScopeWorkset.units) {
       const scope = {
-          provider: row.providerKey,
-          language: row.commandContext.languageCode,
-          productLineId: row.commandContext.productLineId,
-          expansionId: row.commandContext.expansionId ?? row.commandContext.expansionName,
-          setId: row.commandContext.expansionId ?? row.commandContext.expansionName,
+        provider: row.providerKey,
+        language: row.commandContext.languageCode,
+        productLineId: row.commandContext.productLineId,
+        expansionId: row.commandContext.expansionId ?? row.commandContext.expansionName,
+        setId: row.commandContext.expansionId ?? row.commandContext.expansionName,
       };
       expect(row.actions.previewPromotion.commandPreview).toEqual({
         scope,
