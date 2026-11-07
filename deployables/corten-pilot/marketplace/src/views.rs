@@ -156,7 +156,8 @@ pub const INVENTORY: &[Component] = &[
 
 /// The cart's components (`/account/cart`), and checkout start's page, which a guest's Check out
 /// draws when it cannot start (`checkout_start::cart_as_guest`).
-pub const CART: &[Component] = &[CartItem, CheckoutStartPage];
+pub const CART: &[Component] =
+    &[CartItem, CheckoutStartPage, cart_item::handlers::COMPONENT, corten_ui::NumberField, platform::ui::stepper::Stepper];
 
 /// The offline page (`/offline`), which the service worker keeps for a navigation it cannot make.
 pub const OFFLINE: &[Component] = &[OfflinePage];
@@ -678,7 +679,7 @@ pub fn RefusedDecision<'a>(
 
 /// The cart page (marketplace's `CheckoutCartPage`): its one notice, the lines, the totals and
 /// the checkout bar, or the empty cart.
-pub fn cart_page<'a>(t: CartMsg, screen: &'a CartScreen, notice: Option<&'a crate::cart::Notice>) -> impl Render + 'a {
+pub fn cart_page<'a>(t: CartMsg, p: Pilot, screen: &'a CartScreen, notice: Option<&'a crate::cart::Notice>) -> impl Render + 'a {
     use crate::cart::Notice as Said;
     let paused = matches!(notice, Some(Said::Attempt(a)) if a.pauses());
     let readiness = screen.readiness.as_ref();
@@ -746,7 +747,7 @@ pub fn cart_page<'a>(t: CartMsg, screen: &'a CartScreen, notice: Option<&'a crat
                 }
                 <CartList>
                     for line in &screen.lines {
-                        <CartItem t={t} line={line} paused={paused} />
+                        <CartItem t={t} p={p} line={line} paused={paused} />
                     }
                 </CartList>
                 <CartTotals t={t} items={screen.item_count()} total={&total} known={known} />

@@ -49,6 +49,10 @@
     "unidentified_title": "Not available",
     "unidentified": "We could not check who you are. Try again in a moment."
   },
+  "cart": {
+    "quantity": "Enter a whole number of 1 or more.",
+    "update": "Update quantity"
+  },
   "listing": {
     "price": "Price",
     "seller": "Seller",

@@ -35,9 +35,12 @@ use crate::{
     app::{Config, Shared, read_failed, sign_in_at, url},
     auth::Buyer,
     cart_attempt::{self, State as Attempted},
-    text::CartMsg,
+    text::{CartMsg, Pilot},
     views::{self, Layout},
 };
+
+/// The quantity a line takes: a whole number from 1, up to the cart read model's `integer` column.
+pub const QUANTITY: Bounds<u32> = Bounds::new(1, i32::MAX as u32);
 
 /// The guest cart a browser carries from before it signed in (marketplace's
 /// `CHECKOUT_ANONYMOUS_CART_COOKIE_NAME`).
@@ -57,16 +60,14 @@ pub struct AfterWrite {
 }
 
 /// A line write's form (marketplace's cart line forms): the attempt (`SubmitKey`), every line
-/// merged into the one shown, and for a quantity the quantity drawn and the step pressed (`delta`),
-/// for a lock the preferred listing. Read as `Number()` reads them: a missing quantity is 1 and a
-/// missing step 0.
+/// merged into the one shown, and for a quantity the quantity the buyer set (stepped or typed, as
+/// marketplace's `QuantityStepper` takes it), for a lock the preferred listing.
 #[derive(Clone, Debug, Default, Fields)]
 #[serde(default)]
 pub struct LineInput {
     pub attempt: Option<SubmitKey>,
     pub line_id: Vec<String>,
-    pub quantity: String,
-    pub delta: String,
+    pub quantity: Entry<u32>,
     pub preference: String,
 }
 
@@ -82,15 +83,13 @@ pub enum Write {
 impl LineInput {
     /// The write's commands, one attempt (marketplace's `handleAction`), or the reason it is
     /// refused before it is sent. A quantity goes on the first line and the lines merged into it
-    /// are removed, all or nothing.
-    pub fn commands(&self, t: CartMsg, write: Write) -> Result<Vec<CartCommand>, &'static str> {
+    /// are removed, all or nothing; one that is not a whole number [`QUANTITY`] holds is refused.
+    pub fn commands(&self, t: CartMsg, p: Pilot, write: Write) -> Result<Vec<CartCommand>, &'static str> {
         let ids: Vec<&str> = self.line_id.iter().map(|id| id.trim()).filter(|id| !id.is_empty()).collect();
         match write {
             Write::Quantity => {
                 let [first, rest @ ..] = ids.as_slice() else { return Err(t.route_request_failed()) };
-                let entered = number(&self.quantity).unwrap_or(1);
-                let next = entered.saturating_add(number(&self.delta).unwrap_or(0)).clamp(1, i64::from(u32::MAX));
-                let quantity = u32::try_from(next).unwrap_or(1);
+                let Some(quantity) = QUANTITY.read(&self.quantity) else { return Err(p.cart_quantity()) };
                 let mut commands = vec![CartCommand::Quantity { line_id: (*first).to_owned(), quantity }];
                 commands.extend(rest.iter().map(|id| CartCommand::Remove { line_id: (*id).to_owned() }));
                 Ok(commands)
@@ -115,12 +114,6 @@ impl LineInput {
             }
         }
     }
-}
-
-/// A whole number as a form sends it; a blank or a fraction is none (`Number()` would round a
-/// fraction into the quantity, which the API refuses anyway).
-fn number(text: &str) -> Option<i64> {
-    text.trim().parse().ok()
 }
 
 /// What the page says above the lines: why checkout did not start, or a line write that did not
@@ -530,7 +523,7 @@ async fn render(
         Some(Notice::Attempt(a)) if a.state != Attempted::FailedSafe => StatusCode::CONFLICT,
         Some(_) => StatusCode::UNPROCESSABLE_ENTITY,
     };
-    let view = views::cart_page(t, &screen, notice.as_ref());
+    let view = views::cart_page(t, req.t(), &screen, notice.as_ref());
     let title = t.route_cart_marketplace();
     let cart = (!screen.pending).then(|| screen.item_count());
     req.screen_with_status(status, &screen, html! { <Layout req={req} viewer={viewer} title={title} head={head}>{view}</Layout> })
@@ -582,7 +575,7 @@ async fn write(req: &Req, buyer: &Buyer, config: &Config, headers: &HeaderMap, w
     };
     let commands = match buyer {
         Buyer::Guest(_) if guest.is_none() => Err(t.route_request_failed()),
-        _ => input.commands(t, which),
+        _ => input.commands(t, req.t(), which),
     };
     let commands = match commands {
         Ok(commands) => commands,

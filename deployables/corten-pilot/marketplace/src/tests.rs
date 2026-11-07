@@ -2692,7 +2692,7 @@ async fn a_cart_that_cannot_check_out_says_which_lines_need_attention() {
     // The two Pikachu lines are one, quantity 3, before the older Mew; Smart Match prices it "from".
     assert_eq!(html.matches("data-cart-line=").count(), 2, "{html}");
     assert!(html.contains(r#"data-cart-line="cli_pikachu_a""#), "the merged line keeps the first one's id: {html}");
-    assert!(html.contains("data-quantity>3<"), "{html}");
+    assert!(html.contains(r#"name="quantity" value="3" min="1""#), "{html}");
     assert!(page.contains("from $53.85"), "{page}");
     assert!(html.contains("data-reason>Needs fulfillment<"), "{html}");
     // The API says the other currency's line needs review (marketplace draws it Ready).
@@ -2990,7 +2990,7 @@ async fn a_guest_cart_is_the_cart_page_with_its_lines_total_and_offer() {
 #[tokio::test]
 async fn a_guests_line_write_goes_to_the_guest_cart_it_carries() {
     let pilot = Pilot::new().await;
-    let body = format!("attempt={KEY}&line_id=cli_pikachu&quantity=1&delta=1");
+    let body = format!("attempt={KEY}&line_id=cli_pikachu&quantity=2");
     let (status, headers, html) = pilot.send(visitor_post(QUANTITY, Some(GUEST_LINES), &body)).await;
     assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
     let to = headers[header::LOCATION].to_str().unwrap();
@@ -3200,15 +3200,18 @@ async fn each_line_has_its_writes_as_plain_forms_for_every_line_merged_into_it()
         merged.contains(r#"name="line_id" value="cli_pikachu_a""#) && merged.contains(r#"name="line_id" value="cli_pikachu_b""#),
         "{merged}"
     );
-    assert!(merged.contains(r#"name="quantity" value="3""#), "{merged}");
-    assert!(
-        merged.contains(r#"name="delta" value="-1" aria-label="Decrease""#)
-            && merged.contains(r#"value="1" aria-label="Increase""#),
-        "{merged}"
-    );
+    // The kit's NumberField, from 1, named by its label, and sent by Update quantity without the
+    // script; with it, a change sends the form (cart_item.js).
+    assert!(merged.contains(r#"name="quantity" value="3" min="1" max="2147483647" step="1""#), "{merged}");
+    assert!(merged.contains(r#"aria-label="Decrease""#) && merged.contains(r#"aria-label="Increase""#), "{merged}");
+    assert!(merged.contains(r#"<label class=""#) && merged.contains(">Quantity</label>"), "{merged}");
+    assert!(merged.contains(">Update quantity</button>") && merged.contains("cart_item.commit"), "{merged}");
+    assert!(merged.contains(r#"id="line-quantity-form-cli_pikachu_a""#), "a form a patch can find: {merged}");
+    assert!(!merged.contains(r#"name="delta""#), "{merged}");
     // Mew's quantity is 1: it can only go up.
     let one = steppers[1];
-    assert!(one.contains(r#"value="-1" aria-label="Decrease" disabled"#), "{one}");
+    assert!(one.contains(r#"aria-label="Decrease" tabindex="-1" disabled"#), "{one}");
+    assert!(!one.contains(r#"aria-label="Increase" tabindex="-1" disabled"#), "{one}");
     assert_eq!(forms_to(&html, REMOVE).len(), 2, "{html}");
     // Only the line with a preferred listing it is not locked to can be locked.
     let locks = forms_to(&html, LOCK);
@@ -3231,7 +3234,7 @@ async fn each_line_has_its_writes_as_plain_forms_for_every_line_merged_into_it()
 async fn a_quantity_step_is_one_attempt_and_the_cart_is_read_after_it() {
     let pilot = Pilot::new().await;
     let attempt = new_attempt();
-    let body = format!("attempt={attempt}&line_id=cli_pikachu_a&line_id=cli_pikachu_b&quantity=3&delta=1");
+    let body = format!("attempt={attempt}&line_id=cli_pikachu_a&line_id=cli_pikachu_b&quantity=4");
     let (status, headers, html) = pilot.send(post(QUANTITY, "blocked", &body, false)).await;
     assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
     let to = headers[header::LOCATION].to_str().unwrap();
@@ -3252,12 +3255,20 @@ async fn a_quantity_step_is_one_attempt_and_the_cart_is_read_after_it() {
     let reads = cart_calls(&pilot);
     assert_eq!(waits_for(&reads.last().unwrap().headers).as_deref(), Some("11"));
 
-    // A step below 1 is 1, and a post without an attempt (no script) is still one attempt.
-    let (status, _, _) = pilot.send(post(QUANTITY, "blocked", "line_id=cli_eur&quantity=1&delta=-1", false)).await;
+    // A quantity typed without the script is still one attempt.
+    let (status, _, _) = pilot.send(post(QUANTITY, "blocked", "line_id=cli_eur&quantity=12", false)).await;
     assert_eq!(status, StatusCode::SEE_OTHER);
     let sent = cart_writes(&pilot).pop().unwrap();
-    assert_eq!(sent["commands"], json!([{ "type": "quantity", "lineId": "cli_eur", "quantity": 1 }]));
+    assert_eq!(sent["commands"], json!([{ "type": "quantity", "lineId": "cli_eur", "quantity": 12 }]));
     assert_eq!(sent["attemptId"].as_str().unwrap().len(), 36, "{sent}");
+
+    // One that is not a whole number from 1 is refused before it is sent, and says so.
+    for typed in ["0", "", "2.5", "4x", "2147483648"] {
+        let (status, _, html) = pilot.send(post(QUANTITY, "blocked", &format!("line_id=cli_eur&quantity={typed}"), false)).await;
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{typed}: {html}");
+        assert!(text(&html).contains("Enter a whole number of 1 or more."), "{typed}: {html}");
+    }
+    assert_eq!(cart_writes(&pilot).len(), 2, "nothing more sent");
 }
 
 #[tokio::test]
@@ -3300,9 +3311,8 @@ async fn remove_and_lock_send_a_command_for_each_merged_line() {
 #[tokio::test]
 async fn a_write_refused_or_applied_in_part_is_the_cart_with_what_did_not_apply() {
     let pilot = Pilot::new().await;
-    let (status, _, html) = pilot
-        .send(post(QUANTITY, "blocked", &format!("attempt={}&line_id=cli_refused&quantity=5&delta=1", new_attempt()), false))
-        .await;
+    let (status, _, html) =
+        pilot.send(post(QUANTITY, "blocked", &format!("attempt={}&line_id=cli_refused&quantity=6", new_attempt()), false)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
     let page = text(&html);
     assert!(page.contains("Your cart change was not applied Only 2 are available."), "the API's reason: {page}");
@@ -3339,7 +3349,7 @@ async fn a_lost_answer_is_looked_up_once_and_one_not_found_pauses_the_cart_until
 
     // Not found: not known, so the cart's writes are paused and the same write can be sent again.
     let attempt = new_attempt();
-    let body = format!("attempt={attempt}&line_id=cli_unknown&quantity=2&delta=-1");
+    let body = format!("attempt={attempt}&line_id=cli_unknown&quantity=1");
     let (status, _, html) = pilot.send(post(QUANTITY, "blocked", &body, false)).await;
     assert_eq!(status, StatusCode::CONFLICT, "{html}");
     assert_eq!(cart_writes(&pilot).len(), 2, "never resent on its own");
@@ -3351,7 +3361,7 @@ async fn a_lost_answer_is_looked_up_once_and_one_not_found_pauses_the_cart_until
         resend.contains(&format!(r#"name="attempt" value="{attempt}""#)) && !resend.contains("data-submit"),
         "the same attempt: {resend}"
     );
-    assert!(resend.contains(r#"name="quantity" value="2""#) && resend.contains(r#"name="delta" value="-1""#), "{resend}");
+    assert!(resend.contains(r#"name="quantity" value="1""#) && !resend.contains(r#"name="delta""#), "{resend}");
     assert!(html.contains(r#"href="/account/cart">Refresh cart<"#), "{html}");
     let fieldsets = fieldsets(&html);
     assert_eq!(fieldsets.len(), 5, "two steppers, two removes, one lock: {html}");

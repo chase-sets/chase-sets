@@ -30,6 +30,7 @@ pub mod separator;
 pub mod sheet;
 pub mod skeleton;
 pub mod slider;
+pub mod stepper;
 pub mod steps;
 pub mod switch;
 pub mod table;
@@ -62,6 +63,7 @@ pub const COMPONENTS: &[Component] = &[
     sheet::Sheet,
     skeleton::Skeleton,
     slider::Slider,
+    stepper::Stepper,
     steps::Steps,
     switch::Switch,
     table::Table,
