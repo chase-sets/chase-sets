@@ -54,8 +54,8 @@ pub const HELP: &[Component] = &[HelpHub];
 /// those pages share.
 pub const COMPARE: &[Component] = &[ComparePage];
 
-/// The market pages' components (`/market`): the page and its chart.
-pub const MARKET: &[Component] = &[MarketPage, TimeSeries];
+/// The market pages' components (`/market`): the page, its chart and the kit's Stats.
+pub const MARKET: &[Component] = &[MarketPage, TimeSeries, platform::ui::stats::Stats];
 
 /// The document around every page (public-web's root `Layout`): the theme color, the manifest and
 /// the favicon, `title`, the

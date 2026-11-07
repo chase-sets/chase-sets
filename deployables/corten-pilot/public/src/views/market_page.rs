@@ -8,7 +8,10 @@ use corten::{
     i18n::{Currency, DateStyle, parse_timestamp},
     prelude::*,
 };
-use platform::chart::{Chart, Point, TimeSeries};
+use platform::{
+    chart::{Chart, Point, TimeSeries},
+    ui::stats::{Stat, StatTone, Stats as KitStats, StatsSurface},
+};
 
 use crate::{
     api::{Aggregate, MarketPage as Page},
@@ -163,43 +166,32 @@ pub fn MarketPage<'a>(t: MarketMsg, p: Pilot, screen: &'a Screen) -> impl Render
                     data-currency={group.currency.as_deref()}
                 >
                     <h2 class={SectionTitle} id={format!("{}-stats", group.summary_id)}>{&group.stats}</h2>
-                    <dl class={Stats}>
-                        <div class={Stat}>
-                            <dt>{t.page_last_sold()}</dt>
-                            <dd class={Value}>{&group.last_sold}</dd>
-                            if let Some(on) = &group.last_sold_on {
-                                <dd>{on}</dd>
-                            }
-                        </div>
-                        <div class={Stat}>
-                            <dt>{t.page_median_30_day()}</dt>
-                            <dd class={Value}>{&group.median30}</dd>
-                            <dd>{&group.trades30}</dd>
-                        </div>
-                        <div class={Stat}>
-                            <dt>{t.page_median_90_day()}</dt>
-                            <dd class={Value}>{&group.median90}</dd>
-                            <dd>{&group.trades90}</dd>
-                        </div>
-                        <div class={Stat}>
-                            <dt>{t.page_active_listings()}</dt>
-                            <dd class={Value}>{&listings.to_string()}</dd>
-                            // The lowest asks are the market's, not a currency's: shown once.
-                            if index == 0 {
-                                if asks.is_empty() {
-                                    <dd>
-                                        {if page.unpriced_buyable_listing_count > 0 {
-                                            t.page_price_unavailable()
-                                        } else {
-                                            t.page_no_live_asks()
-                                        }}
-                                    </dd>
-                                }
-                                for ask in &asks {
-                                    <dd>{ask}</dd>
-                                }
-                            }
-                        </div>
+                    <dl class={KitStats { surface: StatsSurface::Plain }}>
+                        <Stat
+                            label={t.page_last_sold()}
+                            value={group.last_sold.as_str()}
+                            note={group.last_sold_on.as_deref()}
+                            tone={StatTone::Neutral}
+                        />
+                        <Stat
+                            label={t.page_median_30_day()}
+                            value={group.median30.as_str()}
+                            note={group.trades30.as_str()}
+                            tone={StatTone::Neutral}
+                        />
+                        <Stat
+                            label={t.page_median_90_day()}
+                            value={group.median90.as_str()}
+                            note={group.trades90.as_str()}
+                            tone={StatTone::Neutral}
+                        />
+                        // The lowest asks are the market's, not a currency's: shown once.
+                        <Stat
+                            label={t.page_active_listings()}
+                            value={listings.to_string()}
+                            note={(index == 0).then(|| lowest_asks(t, &asks, page.unpriced_buyable_listing_count > 0))}
+                            tone={StatTone::Neutral}
+                        />
                     </dl>
                     if let Some(rate) = &group.sell_through {
                         <p class={Badge}>{rate}</p>
@@ -237,5 +229,26 @@ fn Empty<'a>(title: &'a str, text: &'a str) -> impl Render {
             <p class={EmptyTitle}>{title}</p>
             <p class={Muted}>{text}</p>
         </div>
+    }
+}
+
+/// The market's lowest asks, the note under the first currency's active listings: one per
+/// currency as a list, or why there are none.
+fn lowest_asks<'a>(t: MarketMsg, asks: &'a [String], unpriced: bool) -> impl Render + 'a {
+    html! { <LowestAsks t={t} asks={asks} unpriced={unpriced} /> }
+}
+
+#[component(css = MarketPage)]
+fn LowestAsks<'a>(t: MarketMsg, asks: &'a [String], unpriced: bool) -> impl Render {
+    html! {
+        if asks.is_empty() {
+            {if unpriced { t.page_price_unavailable() } else { t.page_no_live_asks() }}
+        } else {
+            <ul class={Asks}>
+                for ask in asks {
+                    <li>{ask}</li>
+                }
+            </ul>
+        }
     }
 }
