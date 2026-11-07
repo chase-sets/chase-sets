@@ -146,7 +146,10 @@ check("classifier evaluates the unchanged scanner predicates and every matching 
   ].map((text, i) => ({ file: `synthetic-${i}`, text: `neutral\n${text}\nneutral` }));
   const verify = (classify, depth = 0) => {
     const classified = classify(corpus, depth);
-    assert.deepEqual(classified.map(({ file, line }) => ({ file, line })), scanExposure(corpus, depth));
+    assert.deepEqual(
+      classified.map(({ file, line }) => ({ file, line })),
+      scanExposure(corpus, depth),
+    );
     return classified;
   };
   const classified = verify(classifyExposure);
@@ -154,12 +157,16 @@ check("classifier evaluates the unchanged scanner predicates and every matching 
   assert.deepEqual(new Set([...classified, ...deep].flatMap(({ rules }) => rules)), new Set(exposureRuleIds));
   assert.deepEqual(classified.at(-1).rules, ["LABELED_FIELD", "URL_QUERY", "QUERY_PARAMETER"]);
   for (const rule of exposureRuleIds) {
-    const dropping = (files, depth) => classifyExposure(files, depth)
-      .map((hit) => ({ ...hit, rules: hit.rules.filter((entry) => entry !== rule) }))
-      .filter(({ rules }) => rules.length);
+    const dropping = (files, depth) =>
+      classifyExposure(files, depth)
+        .map((hit) => ({ ...hit, rules: hit.rules.filter((entry) => entry !== rule) }))
+        .filter(({ rules }) => rules.length);
     assert.throws(() => verify(dropping, rule === "DEPTH" ? 9 : 0), undefined, `dropping ${rule} must go red`);
   }
   // The fixed scanner body remains exactly H1'''; the classifier contains no regex literals.
-  assert.equal(sha256(scanExposure.toString().replaceAll("\r\n", "\n")), "2c5519d273b0e86622983f767c430ec9427b1b24bcb57ba185ccac77ff55232b");
+  assert.equal(
+    sha256(scanExposure.toString().replaceAll("\r\n", "\n")),
+    "2c5519d273b0e86622983f767c430ec9427b1b24bcb57ba185ccac77ff55232b",
+  );
 });
 console.log(`PASS ${checks} focused pure-helper groups; no processes, containers, network or harness execution`);

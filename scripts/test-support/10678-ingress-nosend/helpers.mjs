@@ -208,7 +208,12 @@ const classifiedScanner = (() => {
   const source = scanExposure.toString().replaceAll("\r\n", "\n");
   const start = source.indexOf("      if (\n");
   const end = source.indexOf("        hits.push({ file, line: i + 1 });", start);
-  const predicates = source.slice(start + "      if (\n".length, end).trim().slice(0, -1).trim().split(" ||\n");
+  const predicates = source
+    .slice(start + "      if (\n".length, end)
+    .trim()
+    .slice(0, -1)
+    .trim()
+    .split(" ||\n");
   invariant(predicates.length === exposureRuleIds.length, "EXPOSURE_CLASSIFIER_SOURCE_MISMATCH");
   const classified = `${source.slice(0, start)}
       const rules = [${predicates.map((predicate, i) => `((${predicate}) ? ${JSON.stringify(exposureRuleIds[i])} : null)`).join(",")}].filter(Boolean);
