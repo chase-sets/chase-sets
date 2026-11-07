@@ -84,7 +84,9 @@ async function handlePromotion(
   try {
     // Read the effective submitted row, never a posted descriptor or loader closure.
     // Do not send the held token: the read must not request another preview.
-    const location = `/catalog/integrations?${serializeCatalogPrimaryWorkbenchRouteContext({ ...context, promotionPreviewId: null, jobId: null })}`;
+    const query = serializeCatalogPrimaryWorkbenchRouteContext({ ...context, promotionPreviewId: null, jobId: null });
+    if (context.scope?.status) query.set("status", context.scope.status);
+    const location = `/catalog/integrations?${query}`;
     const answer = await api.getCatalogPrimaryWorkbenchSurface<{ readModel: CatalogPrimaryWorkbenchReadModel }>(
       "daily",
       location,

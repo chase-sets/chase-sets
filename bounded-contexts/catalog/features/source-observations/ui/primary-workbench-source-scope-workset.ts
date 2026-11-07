@@ -477,6 +477,7 @@ function sourceScopeUnitRow(
         ),
         commandPreview: promotionCommandPreviewFor({
           ...input.routeContext,
+          sourceObservationFilters: {},
           providerKey: candidate.providerKey,
           unitKey: candidate.unitKey,
           scope: routeScope,

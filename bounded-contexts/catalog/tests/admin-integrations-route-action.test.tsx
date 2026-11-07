@@ -352,6 +352,43 @@ const reviewPage = {
 };
 
 describe("Catalog integrations route", () => {
+  // Issue #11142: accepted status URLs must survive the action's descriptor read.
+  it.each([
+    ["&status=changed", "changed"],
+    ["&status=eligible&filter.status=changed", "changed"],
+  ])("round-trips scope status through the real daily read: %s", async (query, status) => {
+    const requestUrl = receiptRequestUrl + query;
+    const previewBulkPromoteSourceObservations = vi.fn().mockResolvedValue(syntheticPromotionPreviewResponse());
+    mockCreateCatalogRequestApiClient.mockReturnValue({
+      listSourceObservationIntegrationScopes: vi.fn().mockResolvedValue({
+        items: [sourceObservationScope()], total: 1, count: 1,
+      }),
+      listSourceObservationProviderProfiles: vi.fn().mockResolvedValue({
+        items: [profileReview({ active: true, lifecycle: "active", profileVersion: "2026.06.04" })],
+        total: 1, count: 1,
+      }),
+      getCatalogIntegrationControlPlaneOverview: vi.fn().mockResolvedValue(null),
+      listSourceObservations: vi.fn().mockResolvedValue({ items: [], total: 0, count: 0 }),
+      previewBulkPromoteSourceObservations,
+    });
+    const result = await runDailyAction({
+      _intent: "observation.promote",
+      promotionPhase: "preview",
+      providerKey: "tcgdex",
+      unitKey: "tcgdex:pokemon:card:import",
+      importScope: "en:3:base:base1",
+      profileVersion: "2026.06.04",
+    }, requestUrl);
+    expect(previewBulkPromoteSourceObservations).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ status }),
+      { promoteAsDraft: false, confirmation: expect.objectContaining({ scope: expect.objectContaining({ status }) }) },
+    );
+    const data = loaderData({ requestUrl, readModel: receiptRouteModel("2026.06.04", requestUrl) });
+    const probe = renderHook(() => useOriginalPromotionReceipt(data, result, false));
+    expect(probe.result.current.promotionPreview.executionSafeguards.previewFresh).toBe(true);
+    probe.unmount();
+  });
+
   // Issue #11142: distinctive API values reveal any remaining route-side promotion authority.
   it("forwards the submitted row's API descriptor and keeps its original receipt confirmable", async () => {
     const requestUrl = receiptRequestUrl;

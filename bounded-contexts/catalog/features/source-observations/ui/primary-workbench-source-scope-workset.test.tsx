@@ -66,7 +66,7 @@ describe("Catalog source-scope workset", () => {
   afterEach(() => cleanup());
 
   // Issue #11142: every row owns its promotion identity, even at equal coordinates.
-  it("returns each equal-coordinate unit's own promotion descriptor with page filters", () => {
+  it("returns each equal-coordinate unit's own promotion descriptor without page filters", () => {
     const profiles = magicProfiles();
     const model = buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
       requestUrl:
@@ -78,21 +78,20 @@ describe("Catalog source-scope workset", () => {
     });
     expect(model.sourceScopeWorkset.units).toHaveLength(3);
     for (const row of model.sourceScopeWorkset.units) {
-      expect(row.actions.previewPromotion.commandPreview).toEqual({
-        scope: {
+      const scope = {
           provider: row.providerKey,
           language: row.commandContext.languageCode,
           productLineId: row.commandContext.productLineId,
           expansionId: row.commandContext.expansionId ?? row.commandContext.expansionName,
           setId: row.commandContext.expansionId ?? row.commandContext.expansionName,
-          status: "changed",
-          search: "synthetic-search",
-        },
+      };
+      expect(row.actions.previewPromotion.commandPreview).toEqual({
+        scope,
         confirmation: {
           unitKey: row.unitKey,
           importScope: row.importScope,
           profileVersion: row.profileVersion,
-          scope: expect.objectContaining({ provider: row.providerKey, status: "changed", search: "synthetic-search" }),
+          scope,
         },
         allowScopeSelection: true,
       });
