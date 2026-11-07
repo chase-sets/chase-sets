@@ -11,10 +11,13 @@ use platform::ui::{
     alert::{Alert, AlertEmphasis, AlertVariant, FormAlert},
     button::{Button, ButtonSize, ButtonVariant},
     checkbox::Checkbox,
+    dialog::{Dialog, DialogFooter, DialogHeader, DialogSize},
     input::Input,
     pagination::Pagination,
+    radio_group::{Radio, RadioGroup},
     steps::{Step, StepState, Steps, StepsLayout},
     table::{CellLabel, Table, TableLayout},
+    textarea::Textarea,
 };
 
 use super::integrations_page::{
@@ -24,8 +27,9 @@ use crate::{
     catalog::{
         api::AliasReview,
         daily::{
-            self, CANDIDATE_COMMANDS, Candidate, CandidateInput, Daily, DailyScreen, Governance, Health, ImportJob, JobInput,
-            Ran, ReviewInput, ReviewRow, Said, Stage, StageState, SyncInput, SyncRun, UnitState, WorksetUnit, at, with_query,
+            self, CANDIDATE_COMMANDS, Candidate, CandidateInput, Daily, DailyScreen, EditForm, Governance, Health, ImportJob,
+            JobInput, PROMOTION_INTENTS, Ran, ReviewInput, ReviewRow, Said, Stage, StageState, SyncInput, SyncRun, UnitState,
+            WorksetUnit, at, with_query,
         },
         integrations,
         views::AliasReviewPart,
@@ -992,8 +996,8 @@ fn candidate_tone(status: &str) -> &'static str {
 }
 
 /// Merged candidate review (`CatalogIntegrationMergeCandidateReviewModule`): each candidate's
-/// identity, sources, status and readiness, and the ignore and defer the API offers it; its
-/// evidence, edit, split and promotion open on admin-web.
+/// identity, sources, status and readiness, and the ignore, defer, split and edit the API offers
+/// it; its evidence and promotion open on admin-web.
 #[component(css = DailyPage)]
 fn CandidatesModule<'a>(t: Cat, p: Pilot, model: &'a Daily, context: &'a str, manage: bool) -> impl Render {
     let merge = &model.merge_candidate_review;
@@ -1028,7 +1032,7 @@ fn CandidatesModule<'a>(t: Cat, p: Pilot, model: &'a Daily, context: &'a str, ma
                         </thead>
                         <tbody>
                             for row in &merge.rows {
-                                <CandidateRow t={t} row={row} context={context} manage={manage} />
+                                <CandidateRow t={t} p={p} row={row} context={context} manage={manage} />
                             }
                         </tbody>
                     </table>
@@ -1047,8 +1051,10 @@ fn CandidatesModule<'a>(t: Cat, p: Pilot, model: &'a Daily, context: &'a str, ma
 
 /// A candidate's row. Its ignore and defer are one form's buttons, each disabled unless the API
 /// offers it (admin-web's `MergeCandidateActionButton`), with the blockers of those it does not.
+/// Split is its own form, carrying the version and the observations the API's split names; Edit
+/// opens a dialog with the typed edit (admin-web's `CatalogMergeCandidateEditForm`).
 #[component(css = DailyPage)]
-fn CandidateRow<'a>(t: Cat, row: &'a Candidate, context: &'a str, manage: bool) -> impl Render {
+fn CandidateRow<'a>(t: Cat, p: Pilot, row: &'a Candidate, context: &'a str, manage: bool) -> impl Render {
     let intent = state_label(&row.proposed_mapping.promotion_intent);
     let sources = t.wb_merge_sources_count(row.source_count).to_string();
     let status = state_label(&row.status);
@@ -1068,6 +1074,9 @@ fn CandidateRow<'a>(t: Cat, row: &'a Candidate, context: &'a str, manage: bool) 
         }
     }
     let action = at(&daily::url::MergeCandidate { id: &row.candidate_id }.href(), context);
+    let split = row.split();
+    let edit = row.edit_form.version();
+    let dialog = CandidateEditId(&row.candidate_id);
     html! {
         <tr data-catalog-merge-candidate={&row.candidate_id}>
             <td>
@@ -1119,7 +1128,7 @@ fn CandidateRow<'a>(t: Cat, row: &'a Candidate, context: &'a str, manage: bool) 
                             data-patch
                             data-catalog-primary-workbench-command="candidate"
                         >
-                            for (entry, word) in &commands {
+                            for (entry, word) in commands.iter().filter(|(_, word)| *word != "split") {
                                 let label = if *word == "ignore" { t.wb_merge_action_ignore() } else { t.wb_merge_action_defer() };
                                 let aria = t.wb_merge_action_aria(crate::text::cat::WbMergeActionAria { action: label, candidate: &row.identity_label }).to_string();
                                 <button
@@ -1135,12 +1144,159 @@ fn CandidateRow<'a>(t: Cat, row: &'a Candidate, context: &'a str, manage: bool) 
                             }
                         </form>
                     }
+                    if let (true, Some((action_entry, version, ids))) = (manage, split) {
+                        <form
+                            method="post"
+                            action={&action}
+                            class={Row}
+                            data-patch
+                            data-catalog-primary-workbench-command="candidate-split"
+                        >
+                            <input type="hidden" name={CandidateInput::FIELDS.version} value={version}>
+                            for id in ids {
+                                <input type="hidden" name={CandidateInput::FIELDS.split} value={id}>
+                            }
+                            if let Some(preview) = &action_entry.command_preview {
+                                if !preview.body.reason.is_empty() {
+                                    <input type="hidden" name={CandidateInput::FIELDS.reason} value={&preview.body.reason}>
+                                }
+                            }
+                            let aria = t.wb_merge_action_aria(crate::text::cat::WbMergeActionAria { action: t.wb_merge_action_split(), candidate: &row.identity_label }).to_string();
+                            <button
+                                type="submit"
+                                class={Button { variant: ButtonVariant::Outline, size: ButtonSize::Sm }}
+                                name={CandidateInput::FIELDS.command}
+                                value="split"
+                                aria-label={&aria}
+                            >
+                                {t.wb_merge_action_split()}
+                            </button>
+                        </form>
+                    }
+                    if let (true, Some(version)) = (manage, edit) {
+                        <button
+                            type="button"
+                            class={Button { variant: ButtonVariant::Outline, size: ButtonSize::Sm }}
+                            command="show-modal"
+                            commandfor={dialog}
+                            aria-haspopup="dialog"
+                        >
+                            {t.wb_merge_edit_trigger()}
+                        </button>
+                        <CandidateEdit t={t} p={p} dialog={dialog} form={&row.edit_form} version={version} action={&action} />
+                    }
                     if !blocked.is_empty() {
                         <Blockers t={t} blockers={&blocked} />
                     }
                 </span>
             </td>
         </tr>
+    }
+}
+
+/// A candidate's edit dialog, by the candidate's id.
+#[derive(Id, Clone, Copy)]
+struct CandidateEditId<'a>(&'a str);
+
+/// The typed candidate edit (admin-web's `CatalogMergeCandidateEditForm`): the promotion intent,
+/// the matched Catalog Item and Products, each editable fact, the external references to drop and
+/// the reason. It posts without `data-patch`, so a refusal is the page again with its message at
+/// the top, not behind the dialog.
+#[component(css = DailyPage)]
+fn CandidateEdit<'a>(
+    t: Cat,
+    p: Pilot,
+    dialog: CandidateEditId<'a>,
+    form: &'a EditForm,
+    version: u64,
+    action: &'a str,
+) -> impl Render {
+    let f = CandidateInput::FIELDS;
+    let heading = super::id_with(&dialog, "-title");
+    let intents = [t.wb_merge_edit_intent_create(), t.wb_merge_edit_intent_update(), t.wb_merge_edit_intent_link()];
+    let products = form.product_ids.join(", ");
+    html! {
+        <dialog class={Dialog { size: DialogSize::Md }} id={dialog} closedby="any" aria-labelledby={&heading}>
+            <div class={DialogHeader {}}>
+                <h2 id={&heading}>{t.wb_merge_edit_title()}</h2>
+                <button
+                    type="button"
+                    class={Button { variant: ButtonVariant::Ghost, size: ButtonSize::Sm }}
+                    command="close"
+                    commandfor={dialog}
+                >
+                    {p.catalog_close()}
+                </button>
+            </div>
+            <p class={Muted}>{t.wb_merge_edit_description()}</p>
+            <form method="post" action={action} class={Edit} data-catalog-merge-candidate-edit-form="true">
+                <input type="hidden" name={f.command} value="update">
+                <input type="hidden" name={f.version} value={version}>
+                <RadioGroup legend={t.wb_merge_edit_promotion_intent()}>
+                    for (value, label) in PROMOTION_INTENTS.iter().zip(intents) {
+                        <Radio label={label}>
+                            <input type="radio" name={f.intent} value={*value} checked={*value == form.promotion_intent}>
+                        </Radio>
+                    }
+                </RadioGroup>
+                <label class={Field}>
+                    <span>{t.wb_merge_edit_catalog_item_id()}</span>
+                    <input type="text" name={f.catalog_item_id} value={form.catalog_item_id.as_deref().unwrap_or_default()} class={Input {}}>
+                </label>
+                <label class={Field}>
+                    <span>{t.wb_merge_edit_product_ids()}</span>
+                    <input type="text" name={f.product_ids} value={&products} class={Input {}}>
+                    <small class={Muted}>{t.wb_merge_edit_product_ids_help()}</small>
+                </label>
+                <fieldset class={Edit}>
+                    <legend>{t.wb_merge_edit_facts_title()}</legend>
+                    if form.editable_facts.is_empty() {
+                        <p class={Muted}>{t.wb_merge_edit_facts_empty()}</p>
+                    }
+                    for fact in &form.editable_facts {
+                        <input type="hidden" name={f.fact_key} value={&fact.key}>
+                        <label class={Field}>
+                            <span>{&fact.label}</span>
+                            <input type="text" name={f.fact_value} value={&fact.value} class={Input {}}>
+                        </label>
+                        <input type="hidden" name={f.fact_shown} value={&fact.value}>
+                    }
+                </fieldset>
+                <fieldset class={Edit}>
+                    <legend>{t.wb_merge_edit_references_catalog_item()}</legend>
+                    if form.external_catalog_item_references.is_empty() {
+                        <p class={Muted}>{t.wb_merge_edit_references_empty()}</p>
+                    }
+                    for reference in &form.external_catalog_item_references {
+                        let label = t.wb_merge_edit_references_drop(&reference.label).to_string();
+                        <Checkbox label={&label}>
+                            <input type="checkbox" name={f.drop_catalog_ref} value={reference.index}>
+                        </Checkbox>
+                    }
+                </fieldset>
+                <fieldset class={Edit}>
+                    <legend>{t.wb_merge_edit_references_product()}</legend>
+                    if form.external_product_references.is_empty() {
+                        <p class={Muted}>{t.wb_merge_edit_references_empty()}</p>
+                    }
+                    for reference in &form.external_product_references {
+                        let label = t.wb_merge_edit_references_drop(&reference.label).to_string();
+                        <Checkbox label={&label}>
+                            <input type="checkbox" name={f.drop_product_ref} value={reference.index}>
+                        </Checkbox>
+                    }
+                </fieldset>
+                <label class={Field}>
+                    <span>{t.wb_merge_edit_reason()}</span>
+                    <textarea name={f.reason} rows="2" required class={Textarea {}}></textarea>
+                </label>
+                <div class={DialogFooter {}}>
+                    <button type="submit" class={Button { variant: ButtonVariant::Primary, size: ButtonSize::Sm }}>
+                        {t.wb_merge_edit_submit()}
+                    </button>
+                </div>
+            </form>
+        </dialog>
     }
 }
 

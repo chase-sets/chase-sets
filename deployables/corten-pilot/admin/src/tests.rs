@@ -7678,7 +7678,17 @@ fn daily_surface(location: &str) -> Response {
                 "promoteReadiness": { "state": "ready", "blockers": [] }, "proposedMapping": { "promotionIntent": "create" },
                 "actions": [{ "key": "candidate.promote", "state": "available", "blockers": [] },
                     { "key": "candidate.ignore", "state": "available", "blockers": [] },
-                    { "key": "candidate.defer", "state": "blocked", "blockers": ["source-projection-stale"] }] }] },
+                    { "key": "candidate.defer", "state": "blocked", "blockers": ["source-projection-stale"] },
+                    { "key": "candidate.split", "state": "available", "blockers": [], "commandPreview": {
+                        "commandKind": "catalog-merge-candidate-split",
+                        "body": { "reason": "Split from the scope-first Catalog sync workbench.", "expectedVersion": 4,
+                            "splitObservationIds": ["obs_2"] } } }],
+                "editForm": { "state": "available", "blockers": [], "candidateVersion": 4,
+                    "promotionIntent": "create-catalog-item", "catalogItemId": null, "productIds": ["prd_1"],
+                    "editableFacts": [{ "key": "name", "fieldPath": "catalogItem.name", "label": "name", "value": "Sprigatito" },
+                        { "key": "rarity", "fieldPath": "catalogItem.rarity", "label": "rarity", "value": "Common" }],
+                    "externalCatalogItemReferences": [{ "index": 0, "label": "tcgplayer:111" }],
+                    "externalProductReferences": [] } }] },
             "promotionPreview": { "previewId": null, "blockers": [], "destructiveCount": 0 },
             "promotionResult": null,
             "actions": [{ "key": "observation.defer", "state": "available", "blockers": [] },
@@ -7784,6 +7794,13 @@ fn daily_command(method: &Method, path: &str, body: &str) -> Option<Response> {
         "/catalog-sync-scope/state" => scope_sync_state(&sent),
         "/bulk-defer/jobs" => written(StatusCode::ACCEPTED, "bulk_1"),
         "/admin/merge-candidates/cand_1/ignore" | "/admin/merge-candidates/cand_1/defer" => written(StatusCode::OK, "cand_1"),
+        "/admin/merge-candidates/cand_1/split" | "/admin/merge-candidates/cand_1/update" => {
+            if sent["expectedVersion"] == json!(4) {
+                written(StatusCode::OK, "cand_1")
+            } else {
+                refusal(StatusCode::CONFLICT, "stale_merge_candidate", "Catalog Merge Candidate changed.")
+            }
+        }
         "/admin/merge-candidates/cand_gone/ignore" => {
             refusal(StatusCode::NOT_FOUND, "candidate_not_found", "That merge candidate no longer exists.")
         }
@@ -8537,8 +8554,8 @@ async fn the_daily_workbench_draws_the_apis_read_with_its_stages_and_commands() 
     // Each command's form patches the page with JavaScript and posts without it.
     assert_eq!(
         html.matches("data-patch").count(),
-        5,
-        "the sync's, a failed unit's retry, the job's, the candidate's and the review's: {html}"
+        6,
+        "the sync's, a failed unit's retry, the job's, the candidate's, its split and the review's: {html}"
     );
     // The sync's form carries the working set, the scope and every unit, the eligible one checked.
     assert!(html.contains(r#"action="/catalog/integrations/catalog-sync?providerKey=tcgplayer&amp;unitKey=pokemon""#), "{html}");
@@ -8559,7 +8576,10 @@ async fn the_daily_workbench_draws_the_apis_read_with_its_stages_and_commands() 
     assert!(html.contains("3/10 work units, 30% complete") && html.contains("Cache: 4 hits, 8 misses"), "{html}");
 
     // Review: a box for the reviewable row only, the status links, the pager and the bulk actions.
-    assert!(html.contains(r#"name="observation" value="obs_1""#) && !html.contains(r#"value="obs_2""#), "{html}");
+    assert!(
+        html.contains(r#"name="observation" value="obs_1""#) && !html.contains(r#"name="observation" value="obs_2""#),
+        "{html}"
+    );
     assert!(html.contains(r#"href="/catalog/source-observations/obs_1""#), "the pilot's observation page: {html}");
     assert!(
         html.contains(r#"href="/catalog/integrations?providerKey=tcgplayer&amp;unitKey=pokemon&amp;filter.status=observed""#),
@@ -8927,7 +8947,7 @@ async fn the_sync_draws_the_run_the_address_names_and_the_scopes_state_with_retr
     assert!(!html.contains("data-catalog-sync-run-id"), "{html}");
 }
 #[tokio::test]
-async fn a_merge_candidate_is_ignored_or_deferred_with_admin_webs_reason_and_the_rest_stays_on_admin_web() {
+async fn a_merge_candidate_is_ignored_or_deferred_with_admin_webs_reason_and_promotion_stays_on_admin_web() {
     let pilot = Pilot::new().await;
     let at = "providerKey=tcgplayer&unitKey=pokemon";
     let (status, _, html) = pilot.send(get(&format!("/catalog/integrations?{at}"), Some("staff"))).await;
@@ -8983,6 +9003,82 @@ async fn a_merge_candidate_is_ignored_or_deferred_with_admin_webs_reason_and_the
     let before = daily_writes(&pilot).len();
     let (status, _, _) = pilot.send(post("/catalog/integrations/candidates/cand_1", "command=promote", false)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "a command the form does not offer");
+    assert_eq!(daily_writes(&pilot).len(), before, "it does not reach the API");
+}
+
+#[tokio::test]
+async fn a_candidate_splits_and_is_edited_with_the_version_the_page_read_and_a_moved_one_says_so() {
+    let pilot = Pilot::new().await;
+    let at = "providerKey=tcgplayer&unitKey=pokemon";
+    let (status, _, html) = pilot.send(get(&format!("/catalog/integrations?{at}"), Some("staff"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let split = &html[html.find(r#"data-catalog-primary-workbench-command="candidate-split""#).expect(&html)..];
+    let split = &split[..split.find("</form>").unwrap()];
+    assert!(split.contains(r#"name="version" value="4""#) && split.contains(r#"name="split" value="obs_2""#), "{split}");
+    assert!(split.contains(r#"aria-label="Split: Sprigatito 001""#), "{split}");
+    let edit = &html[html.find(r#"data-catalog-merge-candidate-edit-form="true""#).expect(&html)..];
+    let edit = &edit[..edit.find("</form>").unwrap()];
+    assert!(edit.contains(r#"name="command" value="update""#) && edit.contains(r#"name="version" value="4""#), "{edit}");
+    assert!(edit.contains(r#"value="create-catalog-item" checked"#), "the intent it has is chosen: {edit}");
+    assert!(edit.contains(r#"name="product_ids" value="prd_1""#), "{edit}");
+    assert!(
+        edit.contains(r#"name="fact_value" value="Sprigatito""#) && edit.contains(r#"name="fact_shown" value="Common""#),
+        "{edit}"
+    );
+    assert!(edit.contains("Remove tcgplayer:111") && edit.contains(r#"name="drop_catalog_ref" value="0""#), "{edit}");
+    assert!(!edit.contains("data-patch"), "a refusal is the page again, not behind the dialog: {edit}");
+    assert!(html.contains(r#"command="show-modal""#), "Edit opens its dialog with no script: {html}");
+
+    let (status, _, html) = pilot.send(get(&format!("/catalog/integrations?{at}"), Some("catalog-reader"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(!html.contains("candidate-split") && !html.contains("candidate-edit-form"), "not the reader's: {html}");
+
+    let (status, headers, _) = pilot
+        .send(post(
+            &format!("/catalog/integrations/candidates/cand_1?{at}"),
+            "command=split&version=4&split=obs_2&reason=Split+from+the+scope-first+Catalog+sync+workbench.",
+            false,
+        ))
+        .await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert!(headers[header::LOCATION].to_str().unwrap().contains("done=queued"));
+    let edit = "command=update&version=4&intent=update-catalog-item&catalog_item_id=+cat_9+&product_ids=prd_1%2C+prd_2\
+        &fact_key=name&fact_value=Sprigatito&fact_shown=Sprigatito&fact_key=rarity&fact_value=Rare&fact_shown=Common\
+        &drop_catalog_ref=0&reason=Wrong+rarity";
+    let (status, headers, _) = pilot.send(post(&format!("/catalog/integrations/candidates/cand_1?{at}"), edit, false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert!(headers[header::LOCATION].to_str().unwrap().contains("done=queued"));
+    let writes = daily_writes(&pilot);
+    let paths: Vec<&str> = writes.iter().map(|c| c.path.as_str()).collect();
+    assert_eq!(
+        paths,
+        [
+            "/api/catalog/source-observations/admin/merge-candidates/cand_1/split",
+            "/api/catalog/source-observations/admin/merge-candidates/cand_1/update",
+        ]
+    );
+    let sent: Value = serde_json::from_str(&writes[0].body).unwrap();
+    assert_eq!(
+        sent,
+        json!({ "reason": "Split from the scope-first Catalog sync workbench.", "expectedVersion": 4, "splitObservationIds": ["obs_2"] })
+    );
+    let sent: Value = serde_json::from_str(&writes[1].body).unwrap();
+    assert_eq!(
+        sent,
+        json!({ "reason": "Wrong rarity", "expectedVersion": 4, "edit": {
+            "promotionIntent": "update-catalog-item", "catalogItemId": "cat_9", "productIds": ["prd_1", "prd_2"],
+            "factOverrides": [{ "key": "rarity", "value": "Rare" }],
+            "droppedExternalCatalogItemReferenceIndexes": [0], "droppedExternalProductReferenceIndexes": [] } }),
+        "only the fact the operator changed is an override"
+    );
+
+    let stale = "command=update&version=3&reason=Wrong+rarity";
+    let (status, _, html) = pilot.send(post(&format!("/catalog/integrations/candidates/cand_1?{at}"), stale, false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    assert!(html.contains("The merge candidate changed after this page loaded it, so nothing was saved."), "{html}");
+    let before = daily_writes(&pilot).len();
+    let (status, _, _) = pilot.send(post("/catalog/integrations/candidates/cand_1", "command=split&split=obs_2", false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "a split without the version it read");
     assert_eq!(daily_writes(&pilot).len(), before, "it does not reach the API");
 }
 

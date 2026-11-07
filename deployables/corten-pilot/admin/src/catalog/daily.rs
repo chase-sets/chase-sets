@@ -18,15 +18,14 @@
 //! as the surface's location without reading it, and every command's form carries it so its
 //! redirect lands on the same working set. A command's body is the API's own
 //! (`POST /source-observations/catalog-sync-scope/runs`, `.../integration-jobs/{id}/{command}`,
-//! `.../bulk-defer/jobs`, `.../bulk-reject/jobs`, `.../admin/merge-candidates/{id}/{ignore,defer}`); the API
-//! decides what each allows.
+//! `.../bulk-defer/jobs`, `.../bulk-reject/jobs`, `.../admin/merge-candidates/{id}/{ignore,defer,split,update}`);
+//! the API decides what each allows. A merge candidate's split and edit name the candidate version
+//! the page read, and the API applies them to the snapshot it holds.
 //!
 //! Preview and promote stay on admin-web: the API does not yet refuse a stale preview itself
-//! (chase-sets/chase-sets#11045), so the pilot does not send a promotion. Merge candidate edits and
-//! splits open on admin-web until the API applies them to the stored snapshot rather than storing the
-//! page's (chase-sets/chase-sets#11078); the evidence sheets until the API serves their detail
-//! (chase-sets/chase-sets#11079); and the import preview until the API builds its scope
-//! (chase-sets/chase-sets#11082).
+//! (chase-sets/chase-sets#11045), so the pilot does not send a promotion. The evidence sheets open on
+//! admin-web until the API serves their detail (chase-sets/chase-sets#11079), and the import preview
+//! until the API builds its scope (chase-sets/chase-sets#11082).
 //!
 //! A scope's page draws the same stages for its scope (`crate::catalog::scope`), its forms carrying
 //! the working set's `home` (the pilot's own key, never sent to the API), so the redirect after a
@@ -213,6 +212,24 @@ pub struct Action {
     pub key: String,
     pub state: String,
     pub blockers: Vec<String>,
+    /// The body the API built for the command, where it builds one (a merge candidate's split
+    /// names the version it read and the observations it splits off).
+    pub command_preview: Option<CommandPreview>,
+}
+
+/// A command's body as the API built it (`CatalogMergeCandidateReviewCommandPreview`).
+#[derive(Clone, Debug, Default, Deserialize, Serialize, ToJson)]
+#[serde(default, rename_all = "camelCase")]
+pub struct CommandPreview {
+    pub body: PreviewBody,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize, ToJson)]
+#[serde(default, rename_all = "camelCase")]
+pub struct PreviewBody {
+    pub reason: String,
+    pub expected_version: Option<u64>,
+    pub split_observation_ids: Vec<String>,
 }
 
 impl Action {
@@ -619,6 +636,56 @@ pub struct Candidate {
     pub promote_readiness: Readied,
     pub proposed_mapping: Mapping,
     pub actions: Vec<Action>,
+    pub edit_form: EditForm,
+}
+
+impl Candidate {
+    /// The split the API offers: the version it read and the observations it splits off, when
+    /// the command may run.
+    pub fn split(&self) -> Option<(&Action, u64, &[String])> {
+        let action = self.actions.iter().find(|a| a.key == "candidate.split" && a.open())?;
+        let body = &action.command_preview.as_ref()?.body;
+        let ids = body.split_observation_ids.as_slice();
+        Some((action, body.expected_version?, ids)).filter(|(_, _, ids)| !ids.is_empty())
+    }
+}
+
+/// A candidate's typed edit (`CatalogPrimaryWorkbenchMergeCandidateEditFormReadModel`): what the
+/// form shows and the version it names. The API applies the edit to the snapshot it holds.
+#[derive(Clone, Debug, Default, Deserialize, Serialize, ToJson)]
+#[serde(default, rename_all = "camelCase")]
+pub struct EditForm {
+    pub state: String,
+    pub blockers: Vec<String>,
+    pub candidate_version: Option<u64>,
+    pub promotion_intent: String,
+    pub catalog_item_id: Option<String>,
+    pub product_ids: Vec<String>,
+    pub editable_facts: Vec<EditFact>,
+    pub external_catalog_item_references: Vec<EditReference>,
+    pub external_product_references: Vec<EditReference>,
+}
+
+impl EditForm {
+    /// The version the form names, when the API offers the edit.
+    pub fn version(&self) -> Option<u64> {
+        if self.state == "available" { self.candidate_version } else { None }
+    }
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize, ToJson)]
+#[serde(default, rename_all = "camelCase")]
+pub struct EditFact {
+    pub key: String,
+    pub label: String,
+    pub value: String,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize, ToJson)]
+#[serde(default)]
+pub struct EditReference {
+    pub index: u64,
+    pub label: String,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize, ToJson)]
@@ -1214,27 +1281,112 @@ pub(crate) async fn review(
     answer(&req, &staff, &config, &headers, &context, sent, Ran::Queued).await
 }
 
-/// A merge candidate's command: `ignore` or `defer`.
+/// A merge candidate's command: `ignore`, `defer`, `split` or `update` (its edit). A split
+/// and an edit name the candidate version the page read; the API applies them to the snapshot it
+/// holds and refuses a version it has moved on from.
 #[derive(Clone, Debug, Default, Deserialize, Fields)]
 #[serde(default)]
 pub struct CandidateInput {
     pub command: String,
+    pub version: String,
+    /// The observations a split takes off, as the API's split names them.
+    pub split: Vec<String>,
+    pub reason: String,
+    /// The edit's fields (admin-web's `CatalogMergeCandidateEditForm`).
+    pub intent: String,
+    pub catalog_item_id: String,
+    pub product_ids: String,
+    /// Each fact the form shows: its key, the value typed, and the value it showed, so only a
+    /// fact the operator changed becomes an override.
+    pub fact_key: Vec<String>,
+    pub fact_value: Vec<String>,
+    pub fact_shown: Vec<String>,
+    /// The indexes of the external references to drop.
+    pub drop_catalog_ref: Vec<String>,
+    pub drop_product_ref: Vec<String>,
 }
 
-/// The merge candidate commands the pilot sends; promote, edit and split stay on admin-web.
-pub const CANDIDATE_COMMANDS: [(&str, &str); 2] = [("candidate.ignore", "ignore"), ("candidate.defer", "defer")];
+/// The merge candidate commands the row's buttons send; promote stays on admin-web
+/// (chase-sets/chase-sets#11045), and the edit is its own form.
+pub const CANDIDATE_COMMANDS: [(&str, &str); 3] =
+    [("candidate.ignore", "ignore"), ("candidate.defer", "defer"), ("candidate.split", "split")];
+
+/// The promotion intents an edit offers, in admin-web's order.
+pub const PROMOTION_INTENTS: [&str; 3] = ["create-catalog-item", "update-catalog-item", "link-existing-catalog-item"];
 
 impl CandidateInput {
-    /// The command's path segment and the API's body: the reason admin-web sends for it
-    /// (`candidateActionReason`). `None` for a command the form does not offer.
+    /// The command's path segment and the API's body. An ignore or defer sends the reason
+    /// admin-web sends for it (`candidateActionReason`); a split the reason the API built, or that
+    /// one. `None` for a command the form does not offer, or a split or edit without the version
+    /// it read.
     pub fn command(&self, t: Cat) -> Option<(&'static str, Value)> {
-        let (word, label) = match self.command.as_str() {
-            "ignore" => ("ignore", t.wb_merge_action_ignore()),
-            "defer" => ("defer", t.wb_merge_action_defer()),
-            _ => return None,
-        };
-        Some((word, json!({ "reason": t.wb_merge_action_reason(label).to_string() })))
+        let reason = |label: &str| t.wb_merge_action_reason(label).to_string();
+        match self.command.as_str() {
+            "ignore" => Some(("ignore", json!({ "reason": reason(t.wb_merge_action_ignore()) }))),
+            "defer" => Some(("defer", json!({ "reason": reason(t.wb_merge_action_defer()) }))),
+            "split" => {
+                let version = self.version()?;
+                let ids = ids(&self.split);
+                if ids.is_empty() {
+                    return None;
+                }
+                let typed = self.reason.trim();
+                let reason = if typed.is_empty() { reason(t.wb_merge_action_split()) } else { typed.to_owned() };
+                Some(("split", json!({ "reason": reason, "expectedVersion": version, "splitObservationIds": ids })))
+            }
+            "update" => {
+                let version = self.version()?;
+                Some(("update", json!({ "reason": self.reason.trim(), "expectedVersion": version, "edit": self.edit() })))
+            }
+            _ => None,
+        }
     }
+
+    fn version(&self) -> Option<u64> {
+        self.version.trim().parse().ok()
+    }
+
+    /// The edit (`catalogMergeCandidateEditRequestFromFormData`): the intent when it is one the
+    /// form offers, the Catalog Item (none when blank), the Product ids, the facts changed from
+    /// what the form showed, and the references to drop.
+    fn edit(&self) -> Value {
+        let overrides: Vec<Value> = self
+            .fact_key
+            .iter()
+            .zip(&self.fact_value)
+            .zip(&self.fact_shown)
+            .filter(|((key, value), shown)| !key.is_empty() && value != shown)
+            .map(|((key, value), _)| json!({ "key": key, "value": value }))
+            .collect();
+        let indexes = |checked: &[String]| -> Vec<u64> {
+            let mut out: Vec<u64> = checked.iter().filter_map(|i| i.trim().parse().ok()).collect();
+            out.sort_unstable();
+            out.dedup();
+            out
+        };
+        let mut edit = json!({
+            "catalogItemId": Some(self.catalog_item_id.trim()).filter(|id| !id.is_empty()),
+            "productIds": ids(&[self.product_ids.clone()]),
+            "factOverrides": overrides,
+            "droppedExternalCatalogItemReferenceIndexes": indexes(&self.drop_catalog_ref),
+            "droppedExternalProductReferenceIndexes": indexes(&self.drop_product_ref),
+        });
+        if PROMOTION_INTENTS.contains(&self.intent.as_str()) {
+            edit["promotionIntent"] = json!(self.intent);
+        }
+        edit
+    }
+}
+
+/// The ids in the values, each split at commas and trimmed, blanks and repeats left out.
+fn ids(values: &[String]) -> Vec<&str> {
+    let mut out: Vec<&str> = Vec::new();
+    for id in values.iter().flat_map(|v| v.split(',')).map(str::trim) {
+        if !id.is_empty() && !out.contains(&id) {
+            out.push(id);
+        }
+    }
+    out
 }
 
 pub(crate) async fn candidate(
@@ -1252,7 +1404,19 @@ pub(crate) async fn candidate(
         Some((word, body)) => {
             let caller = config.platform.caller(&headers, config.proto, None);
             let rest = format!("/admin/merge-candidates{}", under(&route.id, &[word]));
-            command(&caller, Method::POST, Kind::SourceObservations, &rest, Some(&body)).await
+            match caller.command(Method::POST, Kind::SourceObservations, &rest, Some(&body)).await {
+                Ok(written) => Sent::Written(written),
+                // The candidate moved after the page read it (admin-web's `candidate-stale`).
+                Err(error) if error.code() == Some("stale_merge_candidate") => {
+                    let mut errors = Errors::new();
+                    errors.add_form(t.feedback_candidate_stale());
+                    Sent::Refused(errors)
+                }
+                Err(error) => match crate::app::refused(error) {
+                    Ok(errors) => Sent::Refused(errors),
+                    Err(denied) => Sent::Denied(denied),
+                },
+            }
         }
         None => Sent::Refused(super::not_offered(req.t())),
     };
