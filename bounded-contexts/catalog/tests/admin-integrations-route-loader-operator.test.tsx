@@ -66,6 +66,7 @@ vi.mock("react-router", async () => {
     useNavigate: () => mockUseNavigate,
     useRouteLoaderData: mockUseRouteLoaderData,
     useActionData: mockUseActionData,
+    useNavigation: () => ({ state: "idle" }),
     // The import-jobs module polls live progress via useRevalidator and the daily
     // import-context form submits context changes via useSubmit; outside a data
     // router (this bare render) both need a stub so the workbench still renders.
@@ -74,9 +75,15 @@ vi.mock("react-router", async () => {
   };
 });
 
-vi.mock("../support/request-support/api-client", () => ({
-  createCatalogRequestApiClient: mockCreateCatalogRequestApiClient,
-}));
+vi.mock("../support/request-support/api-client", async () => {
+  const { withCatalogSurfaceReads } = await vi.importActual<
+    typeof import("../features/source-observations/tests/integrations-surface-read-test-client")
+  >("../features/source-observations/tests/integrations-surface-read-test-client");
+  return {
+    createCatalogRequestApiClient: (request: Request) =>
+      withCatalogSurfaceReads(mockCreateCatalogRequestApiClient(request), request),
+  };
+});
 
 vi.mock("@chase-sets/platform-runtime/auth", () => ({
   isTransientAuthResolutionError: mockIsTransientAuthResolutionError,
@@ -287,7 +294,7 @@ describe("Catalog integrations route", () => {
       scope: { provider: "tcgdex", language: "ja", setId: "sv8", status: "", search: "" },
     });
     mockCreateCatalogRequestApiClient.mockReturnValue({ previewBulkPromoteSourceObservations });
-    const previewResponse = await runDailyActionRedirect(
+    const previewResponse = await runDailyAction(
       {
         _intent: "observation.promote",
         providerKey: "tcgdex",
@@ -299,8 +306,7 @@ describe("Catalog integrations route", () => {
       },
       selectedScopeUrl,
     );
-    const previewLocation = redirectLocation(previewResponse);
-    const promotionPreviewId = previewLocation.searchParams.get("promotionPreviewId");
+    const promotionPreviewId = previewResponse.context.promotionPreviewId;
     const selectedScopePromotionFilter = {
       provider: "tcgdex",
       language: "ja",
@@ -311,8 +317,7 @@ describe("Catalog integrations route", () => {
     expect(previewBulkPromoteSourceObservations).toHaveBeenCalledWith(selectedScopePromotionFilter, {
       promoteAsDraft: false,
     });
-    expect(previewLocation.pathname).toBe("/catalog/integrations");
-    expect(previewLocation.searchParams.get("commandResult")).toBe("preview-ready");
+    expect(previewResponse.feedback.result).toBe("preview-ready");
     expect(promotionPreviewId).toBe(
       "preview-tcgdex_tcgdex_pokemon_single-card_source-observation-import_ja_SV_SV8_2026.06.04_ja_sv8_all_none_filtered-130-130-no-fingerprint-publishable-complete.blocked0.811c9dc5",
     );

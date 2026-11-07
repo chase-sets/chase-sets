@@ -44,6 +44,8 @@ function paldeanFatesScope(overrides: Partial<CatalogScopeRecordDetail> = {}): C
     languageEditions: ["en", "ja"],
     lifecycleStatus: "active",
     updatedAt: "2026-07-03T12:00:00.000Z",
+    promotionReadiness: "live",
+    syncFreshness: "fresh",
     ...overrides,
   };
 }
@@ -120,10 +122,6 @@ function aliasReview(candidates: readonly CatalogAliasReviewCandidateSummary[]):
   };
 }
 
-// Fixed clock 11 days after the scope's updatedAt so sync-freshness is "fresh"
-// (inside the two-week stale threshold) regardless of the real wall clock.
-const NOW = "2026-07-14T12:00:00.000Z";
-
 describe("CatalogScopeDetailPage", () => {
   it("shows the scope header and the language-editions section for a scope imported in en+ja", () => {
     render(
@@ -131,7 +129,6 @@ describe("CatalogScopeDetailPage", () => {
         scope={paldeanFatesScope()}
         languageEditionAliasReview={aliasReview([candidate()])}
         actionHref={ACTION_HREF}
-        now={NOW}
       />,
     );
 
@@ -145,7 +142,6 @@ describe("CatalogScopeDetailPage", () => {
         scope={paldeanFatesScope()}
         languageEditionAliasReview={aliasReview([candidate()])}
         actionHref={ACTION_HREF}
-        now={NOW}
       />,
     );
 
@@ -162,7 +158,6 @@ describe("CatalogScopeDetailPage", () => {
         languageEditionAliasReview={aliasReview([])}
         languageEditionAliasReviewFailed
         actionHref={ACTION_HREF}
-        now={NOW}
       />,
     );
 
@@ -175,7 +170,6 @@ describe("CatalogScopeDetailPage", () => {
         scope={paldeanFatesScope()}
         languageEditionAliasReview={aliasReview([])}
         actionHref={ACTION_HREF}
-        now={NOW}
         loading
       />,
     );
@@ -189,7 +183,6 @@ describe("CatalogScopeDetailPage", () => {
         scope={paldeanFatesScope()}
         languageEditionAliasReview={aliasReview([])}
         actionHref={ACTION_HREF}
-        now={NOW}
         coverageMatrix={
           {
             scopeRecordId: "scope_expansion_paldean_fates",
@@ -222,7 +215,6 @@ describe("CatalogScopeDetailPage", () => {
         scope={paldeanFatesScope({ languageEditions: ["en"] })}
         languageEditionAliasReview={aliasReview([])}
         actionHref={ACTION_HREF}
-        now={NOW}
       />,
     );
 

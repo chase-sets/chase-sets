@@ -40,15 +40,28 @@ export async function handleScopeCommand(input: {
   if (!context.providerKey || !context.unitKey || !context.importScope) {
     return scopeResult(intent, "error", "command-failed", { ...context, jobId: null, promotionPreviewId: null });
   }
-  const job = await api.enqueueSourceObservationIntegrationJob<CatalogCommandJobResponse>(
-    "import",
-    integrationScopeFromContext(context),
-  );
-  return scopeResult(intent, "success", "job-queued", {
-    ...context,
-    jobId: stringValue(job.jobId) ?? context.jobId,
-    promotionPreviewId: null,
-  });
+  const scope = integrationScopeFromContext(context);
+  const job = await api.enqueueSourceObservationIntegrationJob<CatalogCommandJobResponse>("import", scope);
+  return {
+    ...scopeResult(intent, "success", "job-queued", {
+      ...context,
+      jobId: stringValue(job.jobId) ?? context.jobId,
+      promotionPreviewId: null,
+    }),
+    // Only the producer's scalars identify the returned job. Context retains its
+    // existing handoff semantics, but is never the receipt's identity fallback.
+    importJobReceipt: {
+      schemaVersion: "source-observation-import-job-receipt/v1",
+      jobId: typeof job.jobId === "string" && job.jobId.trim() ? job.jobId : null,
+      status: typeof job.status === "string" && job.status.trim() ? job.status : null,
+      scope,
+      submitted: {
+        providerKey: context.providerKey,
+        unitKey: context.unitKey,
+        profileVersion: context.profileVersion,
+      },
+    },
+  };
 }
 
 function scopeResult(

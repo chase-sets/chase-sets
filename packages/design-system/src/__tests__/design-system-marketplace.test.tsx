@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { act, useState, type ReactNode } from "react";
+import { act, StrictMode, useState, type ReactNode } from "react";
 import userEvent from "@testing-library/user-event";
 import { hydrateRoot, type Root } from "react-dom/client";
 import { renderToString } from "react-dom/server";
@@ -1840,6 +1840,159 @@ describe("design system marketplace patterns", () => {
         </BulkActionSurface>,
       ),
     ).toThrow("BulkActionSurface can render only one BulkActionBar");
+  });
+
+  it.each([false, true])("BulkActionSurface clear/reselect retains descendant selection (StrictMode=%s)", (strict) => {
+    const parentRender = vi.fn();
+    function Selection() {
+      const [selected, setSelected] = useState<string | null>(null);
+      const [revision, setRevision] = useState(0);
+      return (
+        <>
+          <button onClick={() => setSelected("A")}>Select A</button>
+          <button onClick={() => setSelected("B")}>Select B</button>
+          <button onClick={() => setSelected(null)}>Clear selection</button>
+          <button onClick={() => setRevision((value) => value + 1)}>Rerender child {revision}</button>
+          {selected ? (
+            <BulkActionBar role="status" count={1} formatSelectedLabel={() => `Selected ${selected}`} />
+          ) : null}
+        </>
+      );
+    }
+    function RetainedSurface() {
+      parentRender();
+      return (
+        <BulkActionSurface>
+          <Selection />
+        </BulkActionSurface>
+      );
+    }
+    render(
+      strict ? (
+        <StrictMode>
+          <RetainedSurface />
+        </StrictMode>
+      ) : (
+        <RetainedSurface />
+      ),
+    );
+    const initialParentRenders = parentRender.mock.calls.length;
+    expect(screen.queryByText(/^Selected /)).toBeNull();
+    for (const selected of ["A", "B", "A", "B"]) {
+      fireEvent.click(screen.getByRole("button", { name: `Select ${selected}` }));
+      expect(screen.getAllByRole("status")).toHaveLength(1);
+      expect(screen.getByText(`Selected ${selected}`)).toBeTruthy();
+      fireEvent.click(screen.getByRole("button", { name: /Rerender child/ }));
+      expect(screen.getAllByRole("status")).toHaveLength(1);
+      fireEvent.click(screen.getByRole("button", { name: "Clear selection" }));
+      expect(screen.queryByText(/^Selected /)).toBeNull();
+    }
+    expect(parentRender).toHaveBeenCalledTimes(initialParentRenders);
+  });
+
+  it.each([false, true])("BulkActionSurface rejects a second committed bar (CSS-hidden=%s)", (hidden) => {
+    function Bars() {
+      const [second, setSecond] = useState(false);
+      return (
+        <>
+          <button onClick={() => setSecond(true)}>Add second bar</button>
+          <BulkActionBar count={1} />
+          {second ? (
+            <div style={hidden ? { display: "none" } : undefined}>
+              <BulkActionBar count={2} />
+            </div>
+          ) : null}
+        </>
+      );
+    }
+    render(
+      <BulkActionSurface>
+        <Bars />
+      </BulkActionSurface>,
+    );
+    expect(screen.getByText("1 item selected")).toBeTruthy();
+    expect(() => fireEvent.click(screen.getByRole("button", { name: "Add second bar" }))).toThrow(
+      "BulkActionSurface can render only one BulkActionBar",
+    );
+  });
+
+  it("BulkActionSurface rejects CSS-hidden but mounted duplicate bulk bars on the server", () => {
+    expect(() =>
+      renderToString(
+        <BulkActionSurface>
+          <BulkActionBar count={1} />
+          <div style={{ display: "none" }}>
+            <BulkActionBar count={2} />
+          </div>
+        </BulkActionSurface>,
+      ),
+    ).toThrow("BulkActionSurface can render only one BulkActionBar");
+  });
+
+  it("BulkActionSurface keeps separate surfaces independent", () => {
+    const surfaces = (
+      <>
+        <BulkActionSurface>
+          <BulkActionBar count={1} />
+        </BulkActionSurface>
+        <BulkActionSurface>
+          <BulkActionBar count={2} />
+        </BulkActionSurface>
+      </>
+    );
+    expect(renderToString(surfaces)).toContain("1 item selected");
+    expect(renderToString(surfaces)).toContain("2 items selected");
+    render(<StrictMode>{surfaces}</StrictMode>);
+    expect(screen.getByText("1 item selected")).toBeTruthy();
+    expect(screen.getByText("2 items selected")).toBeTruthy();
+  });
+
+  it("BulkActionSurface releases hydrated and replaced bulk bars", async () => {
+    function Selection() {
+      const [selected, setSelected] = useState<string | null>("A");
+      return (
+        <>
+          <button onClick={() => setSelected(null)}>Clear selection</button>
+          <button onClick={() => setSelected("B")}>Select B</button>
+          {selected ? (
+            <BulkActionBar key={selected} role="status" count={1} formatSelectedLabel={() => `Selected ${selected}`} />
+          ) : null}
+        </>
+      );
+    }
+    const surface = (
+      <StrictMode>
+        <BulkActionSurface>
+          <Selection />
+        </BulkActionSurface>
+      </StrictMode>
+    );
+    const container = document.createElement("div");
+    container.innerHTML = renderToString(surface);
+    document.body.appendChild(container);
+    const recoverableError = vi.fn();
+    let root: Root | undefined;
+    try {
+      await act(async () => {
+        root = hydrateRoot(container, surface, { onRecoverableError: recoverableError });
+      });
+      const view = within(container);
+      expect(view.getByRole("status").textContent).toBe("Selected A");
+      fireEvent.click(view.getByRole("button", { name: "Select B" }));
+      expect(view.getAllByRole("status")).toHaveLength(1);
+      expect(view.getByRole("status").textContent).toBe("Selected B");
+      fireEvent.click(view.getByRole("button", { name: "Clear selection" }));
+      expect(view.queryByRole("status")).toBeNull();
+      fireEvent.click(view.getByRole("button", { name: "Select B" }));
+      expect(view.getAllByRole("status")).toHaveLength(1);
+      expect(view.getByRole("status").textContent).toBe("Selected B");
+      expect(recoverableError).not.toHaveBeenCalled();
+    } finally {
+      await act(async () => {
+        root?.unmount();
+      });
+      container.remove();
+    }
   });
 
   it("moves large bulk action sets into a reusable side panel", async () => {

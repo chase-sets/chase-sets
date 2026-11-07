@@ -114,14 +114,25 @@ describe("cart readiness snapshots", () => {
     };
     const mixed = createCartReadinessSnapshot([usd, eur]);
     expect(
-      mixed.linePresentations.map(({ lineId, reason, fulfillmentAvailable }) => ({
+      mixed.linePresentations.map(({ lineId, reason, fulfillmentAvailable, price }) => ({
         lineId,
         reason,
         fulfillmentAvailable,
+        price,
       })),
     ).toEqual([
-      { lineId: "cli_eur_matrix", reason: "currency-mismatch", fulfillmentAvailable: true },
-      { lineId: "cli_ready", reason: "currency-mismatch", fulfillmentAvailable: true },
+      {
+        lineId: "cli_eur_matrix",
+        reason: "currency-mismatch",
+        fulfillmentAvailable: true,
+        price: { state: "exact", amount: "25.00", currency: "EUR" },
+      },
+      {
+        lineId: "cli_ready",
+        reason: "currency-mismatch",
+        fulfillmentAvailable: true,
+        price: { state: "exact", amount: "25.00", currency: "USD" },
+      },
     ]);
   });
 

@@ -189,6 +189,13 @@ describe("checkout cart page", () => {
       loaded: { ...apiRead.loaded, linePresentations: [presentation] },
       declined: { ...apiRead.declined, linePresentations: [presentation] },
     });
+    const rowFrom = (markup: string) => {
+      const container = document.createElement("div");
+      container.innerHTML = markup;
+      const row = container.querySelector<HTMLElement>("[data-marketplace-cart-line]");
+      expect(row).not.toBeNull();
+      return row!;
+    };
 
     const readyWithoutPath = renderToString(
       <CheckoutCartPage
@@ -202,8 +209,41 @@ describe("checkout cart page", () => {
         })}
       />,
     );
-    expect(readyWithoutPath).toContain(">Ready</span>");
-    expect(readyWithoutPath).not.toContain("bg-success-soft");
+    const withoutPathRow = rowFrom(readyWithoutPath);
+    expect(within(withoutPathRow).getByRole("link", { name: "Find alternatives" })).toBeTruthy();
+    expect(within(withoutPathRow).getByText("Ready").className).not.toContain("bg-success-soft");
+
+    const mismatchWithPath = rowFrom(
+      renderToString(
+        <CheckoutCartPage
+          cartLines={[cartLine]}
+          readiness={withPresentation({
+            lineId: cartLine.line_id,
+            reason: "currency-mismatch",
+            fulfillmentAvailable: true,
+            listingId: "lst_card_vault",
+            price: { state: "exact", amount: "778.00", currency: "USD" },
+          })}
+        />,
+      ),
+    );
+    expect(within(mismatchWithPath).getByText("Needs review").className).not.toContain("bg-success-soft");
+    expect(within(mismatchWithPath).queryByRole("link", { name: "Find alternatives" })).toBeNull();
+    const mismatchWithoutPath = rowFrom(
+      renderToString(
+        <CheckoutCartPage
+          cartLines={[cartLine]}
+          readiness={withPresentation({
+            lineId: cartLine.line_id,
+            reason: "currency-mismatch",
+            fulfillmentAvailable: false,
+            listingId: "lst_card_vault",
+            price: { state: "exact", amount: "778.00", currency: "USD" },
+          })}
+        />,
+      ),
+    );
+    expect(within(mismatchWithoutPath).getByRole("link", { name: "Find alternatives" })).toBeTruthy();
 
     const unpriced = renderToString(
       <CheckoutCartPage
@@ -217,7 +257,10 @@ describe("checkout cart page", () => {
         })}
       />,
     );
-    expect(unpriced).toContain("Priced at checkout");
+    const unpricedRow = rowFrom(unpriced);
+    expect(within(unpricedRow).getByText("Priced at checkout")).toBeTruthy();
+    expect(within(unpricedRow).queryByText("$778.00")).toBeNull();
+    expect(within(unpricedRow).queryByRole("link", { name: "Find alternatives" })).toBeNull();
 
     const indicative = renderToString(
       <CheckoutCartPage
@@ -231,7 +274,8 @@ describe("checkout cart page", () => {
         })}
       />,
     );
-    expect(indicative).toContain(">from</p>");
+    expect(within(rowFrom(indicative)).getByText("from")).toBeTruthy();
+    expect(within(rowFrom(indicative)).getByText("$778.00")).toBeTruthy();
 
     const exact = renderToString(
       <CheckoutCartPage
@@ -245,7 +289,8 @@ describe("checkout cart page", () => {
         })}
       />,
     );
-    expect(exact).not.toContain(">from</p>");
+    expect(within(rowFrom(exact)).queryByText("from")).toBeNull();
+    expect(within(rowFrom(exact)).getByText("$778.00")).toBeTruthy();
 
     const warning = renderToString(
       <CheckoutCartPage
@@ -259,8 +304,9 @@ describe("checkout cart page", () => {
         })}
       />,
     );
-    expect(warning).toContain("Shipping measure missing");
-    expect(warning).not.toContain(">Ready</span>");
+    const warningRow = rowFrom(warning);
+    expect(within(warningRow).getByText("Shipping measure missing").className).not.toContain("bg-success-soft");
+    expect(within(warningRow).queryByText("Ready")).toBeNull();
   });
 
   it.each([
@@ -312,8 +358,16 @@ describe("checkout cart page", () => {
       declined: { ...base.declined, linePresentations: [answer] },
     };
     const markup = renderToString(<CheckoutCartPage cartLines={lines} readiness={readiness} />);
-    expect(markup.match(/Priced at checkout/g)?.length).toBeGreaterThan(0);
-    expect(markup).toContain("Ready");
+    const container = document.createElement("div");
+    container.innerHTML = markup;
+    const missingRow = container
+      .querySelector('[data-optimistic-resource*="cart_line_partial_1"]')
+      ?.closest<HTMLElement>("[data-marketplace-cart-line]");
+    expect(missingRow).toBeTruthy();
+    expect(within(missingRow!).getByText("Priced at checkout")).toBeTruthy();
+    expect(within(missingRow!).getByText("Needs review").className).not.toContain("bg-success-soft");
+    expect(within(missingRow!).queryByText("Ready")).toBeNull();
+    expect(within(missingRow!).queryByText("$389.00")).toBeNull();
   });
 
   it("uses each API line listing even when readiness is unresolved, grouped, or mixed-currency", () => {
@@ -570,6 +624,8 @@ describe("checkout cart page", () => {
     expect(within(indicativeRow!).getByText("from")).toBeTruthy();
     expect(within(indicativeRow!).getByText("$1,167.00")).toBeTruthy();
     expect(within(indicativeRow!).queryByText("Ready")).toBeNull();
+    expect(within(indicativeRow!).getByText("Updating cart").className).not.toContain("bg-success-soft");
+    expect(document.querySelector('form[action="/checkout/buy/readiness"]')).toBeNull();
 
     cleanup();
     const lockedLine: CheckoutCartLine = {
@@ -585,6 +641,10 @@ describe("checkout cart page", () => {
     expect(within(lockedRow!).getByText("Priced at checkout")).toBeTruthy();
     expect(within(lockedRow!).queryByText("$1,185.00")).toBeNull();
     expect(within(lockedRow!).queryByText("$790.00")).toBeNull();
+    expect(within(lockedRow!).queryByText("Ready")).toBeNull();
+    expect(within(lockedRow!).queryByText("from")).toBeNull();
+    expect(within(lockedRow!).getByText("Updating cart").className).not.toContain("bg-success-soft");
+    expect(document.querySelector('form[action="/checkout/buy/readiness"]')).toBeNull();
   });
 
   it("defers a locked row whose returned stream version is invalid", () => {
@@ -1240,6 +1300,11 @@ describe("checkout cart page", () => {
       "When you add items, checkout will show final shipping, tax, and payment details before you pay.",
     );
     expect(markup).toContain("Keep shopping");
+    const container = document.createElement("div");
+    container.innerHTML = markup;
+    expect(container.querySelector("section div.m-0.mx-auto.max-w-xl")?.className).toContain(
+      "m-0 mx-auto max-w-xl text-sm leading-6 text-secondary",
+    );
     expect(markup).not.toContain("Estimated total");
     expect(markup).not.toContain("Check out");
   });
