@@ -21,12 +21,11 @@
 //! admin-web otherwise.
 use corten::{
     ClientIp, Local,
-    axum::http::{HeaderMap, StatusCode, Uri},
+    http::{HeaderMap, StatusCode, Uri},
     prelude::*,
     security::cookie::SetCookie,
 };
 use platform::auth::{Authenticated, Kind, Membership, Method, PhoneCodeSent, Refusal, call, safe_return_to, selection_token};
-use serde::Deserialize;
 use serde_json::{Value, json};
 
 use crate::{
@@ -91,7 +90,7 @@ pub mod sign_out {
 }
 
 /// The page's address, named as admin-web's.
-#[derive(Clone, Debug, Default, Deserialize, Fields, Route)]
+#[derive(Clone, Debug, Default, Fields, Route)]
 #[route(query)]
 #[serde(rename_all = "camelCase")]
 pub struct Ask {
@@ -129,7 +128,7 @@ impl Ask {
 }
 
 /// The account selection's address: where the sign-in goes once an account is chosen.
-#[derive(Clone, Debug, Default, Deserialize, Fields, Route)]
+#[derive(Clone, Debug, Default, Fields, Route)]
 #[route(query)]
 #[serde(rename_all = "camelCase")]
 pub struct Back {
@@ -137,7 +136,7 @@ pub struct Back {
 }
 
 /// The magic link's address, as the API writes it.
-#[derive(Clone, Debug, Default, Deserialize, Fields, Route)]
+#[derive(Clone, Debug, Default, Fields, Route)]
 #[route(query)]
 #[serde(rename_all = "camelCase")]
 pub struct Link {
@@ -146,7 +145,7 @@ pub struct Link {
 }
 
 /// The form's fields, named as admin-web's forms name them.
-#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[derive(Clone, Debug, Default, Fields)]
 #[serde(rename_all = "camelCase", default)]
 pub struct SignInForm {
     pub intent: String,
@@ -158,7 +157,7 @@ pub struct SignInForm {
 }
 
 /// Account selection's form.
-#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[derive(Clone, Debug, Default, Fields)]
 #[serde(rename_all = "camelCase", default)]
 pub struct SelectForm {
     pub account_id: String,

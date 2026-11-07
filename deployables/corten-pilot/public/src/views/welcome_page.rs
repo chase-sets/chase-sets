@@ -77,7 +77,7 @@ pub fn WelcomePage<'a>(t: HomeMsg, p: Pilot, screen: &'a Screen, saved: Option<S
                             Some(position) => {
                                 <div class={Place}>
                                     <p class={Position}>
-                                        {t.welcome_referral_position_value(&position.to_string(), &referrals.total.to_string())}
+                                        {t.welcome_referral_position_value(crate::text::home_msg::WelcomeReferralPositionValue { position: &position.to_string(), total: &referrals.total.to_string() })}
                                     </p>
                                     if referrals.advanced > 0 {
                                         <p class={Note}>
@@ -108,7 +108,9 @@ pub fn WelcomePage<'a>(t: HomeMsg, p: Pilot, screen: &'a Screen, saved: Option<S
                         <div class={Progress}>
                             <div class={ProgressHead}>
                                 <span id="welcome-progress-label">{t.welcome_referral_progress_label()}</span>
-                                <span>{t.welcome_referral_progress_value(&referrals.count.to_string(), &goal)}</span>
+                                <span>
+                                    {t.welcome_referral_progress_value(crate::text::home_msg::WelcomeReferralProgressValue { count: &referrals.count.to_string(), goal: &goal })}
+                                </span>
                             </div>
                             <progress
                                 class={(Bar, screen.goal_reached().then_some(Done))}

@@ -272,6 +272,9 @@ struct Known<'a> {
     label: &'a str,
     fully_delivered: bool,
     can_cancel: bool,
+    /// Where a buyer whose cancel awaits email verification verifies it, when the order could be
+    /// cancelled (`showVerifyEmailToCancel`).
+    verify_email: Option<&'a str>,
 }
 
 impl<'a> Known<'a> {
@@ -289,6 +292,7 @@ impl<'a> Known<'a> {
             label,
             fully_delivered,
             can_cancel: !fully_delivered && (order.self_service_cancellation_available || pending),
+            verify_email: None,
         }
     }
 
@@ -373,6 +377,7 @@ pub fn OrderPage<'a>(t: OrdersMsg, p: Pilot, screen: &'a OrderScreen) -> impl Re
                 notice={screen.notice.as_deref()}
                 back={&back}
                 may_cancel={screen.may_cancel}
+                verify_email={screen.verify_email.as_deref()}
             />
         } else {
             <div class={Page}>
@@ -393,14 +398,21 @@ fn OrderView<'a>(
     notice: Option<&'a str>,
     back: &'a str,
     may_cancel: bool,
+    verify_email: Option<&'a str>,
 ) -> impl Render {
     let mut facts = Known::of(t, side, order);
+    facts.verify_email = verify_email.filter(|_| facts.can_cancel && !may_cancel);
     facts.can_cancel &= may_cancel;
     let eyebrow = match side {
         Side::Buyer => t.detail_buyer(),
         Side::Seller => t.detail_seller(),
     };
-    let title = t.detail_order_title(facts.label, &order.display_reference).to_string();
+    let title = t
+        .detail_order_title(crate::text::orders_msg::DetailOrderTitle {
+            projection_label: facts.label,
+            order_reference: &order.display_reference,
+        })
+        .to_string();
     let counterparty = t.detail_counterparty_description(facts.counterparty()).to_string();
     let money = facts.money();
     let outcome_title = match side {
@@ -526,8 +538,7 @@ fn OrderFacts<'a>(t: OrdersMsg, p: Pilot, facts: &'a Known<'a>) -> impl Render {
     let support_label = if facts.fulfillment_started() { t.detail_ask_to_cancel() } else { t.detail_open_support() };
     let fulfillment = (!matches!(order.status.as_str(), "pending-payment" | "pending-reservation")).then(|| match facts.side {
         Side::Buyer => crate::app::url::Shipments.href(),
-        // The seller's command center is marketplace's (chase-sets/chase-sets#10638).
-        Side::Seller => market_href("/account/sales/shipments"),
+        Side::Seller => crate::app::url::SaleShipments::default().href(),
     });
     let cancel = t.detail_cancel_projection(&lower).to_string();
     html! {
@@ -559,6 +570,13 @@ fn OrderFacts<'a>(t: OrdersMsg, p: Pilot, facts: &'a Known<'a>) -> impl Render {
             }
             if let Some(window) = &window {
                 <p class={(Banner, Info)} role="note">{window}</p>
+            }
+            if let Some(verify) = facts.verify_email {
+                <div class={(Banner, Info)} role="note">
+                    <p class={Strong}>{&t.detail_verify_email_to_cancel_title(&lower).to_string()}</p>
+                    <p>{t.detail_verify_email_to_cancel_description()}</p>
+                    <p><a class={Secondary} href={verify}>{t.detail_verify_email()}</a></p>
+                </div>
             }
             <div class={Actions}>
                 if let Some(pay) = &pay {
@@ -693,7 +711,12 @@ fn Callout<'a>(t: OrdersMsg, facts: &'a Known<'a>, opportunity: &'a ReviewOpport
     let published = opportunity.revealed && opportunity.active_review_revealed_at.is_some();
     let heading = match active {
         Some(_) => t.callout_your_account_review_is_already_active().to_owned(),
-        None => t.callout_ready_for_counterparty_review(transaction, counterparty).to_string(),
+        None => t
+            .callout_ready_for_counterparty_review(crate::text::orders_msg::CalloutReadyForCounterpartyReview {
+                transaction_label: transaction,
+                counterparty_role: counterparty,
+            })
+            .to_string(),
     };
     html! {
         <div class={(Card, Tinted)}>

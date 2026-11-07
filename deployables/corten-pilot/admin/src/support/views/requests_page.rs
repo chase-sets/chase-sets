@@ -1,9 +1,10 @@
 //! Support requests' page (`SupportOperationsPage`): the status tabs (links), the filters with their
-//! applied chips, the count with Escalate overdue, the queue as a table that scrolls on its own
-//! on a phone, its pages, and the selected request's sheet (`EntityDetailDrawer`). Without
+//! applied chips, the count with Escalate overdue, the queue as a table that stacks on a phone
+//! (a row a block of labelled lines), its pages, and the selected request's sheet (`EntityDetailDrawer`). Without
 //! JavaScript the sheet is an open, non-modal `<dialog>` closed by a link back to the queue; corten-ui's
 //! `dialog::modalClosedBy` makes it modal and sends Escape to that link. Each case action is its
 //! own form, so none needs a script; Other actions and the full case context are `<details>`.
+use platform::ui::table::{CellLabel, Table as KitTable, TableLayout};
 use std::time::SystemTime;
 
 use corten::{
@@ -123,9 +124,15 @@ fn Deadline<'a>(t: Sup, due: Option<&'a str>, now: SystemTime) -> impl Render {
             let (overdue, value, unit) = countdown(when_due, now);
             <span class={Stack}>
                 if overdue {
-                    <Tag words={&t.ops_deadline_overdue(value, unit).to_string()} tone="danger" />
+                    <Tag
+                        words={&t.ops_deadline_overdue(crate::text::sup::OpsDeadlineOverdue { value, unit }).to_string()}
+                        tone="danger"
+                    />
                 } else {
-                    <Tag words={&t.ops_deadline_due(value, unit).to_string()} tone="warning" />
+                    <Tag
+                        words={&t.ops_deadline_due(crate::text::sup::OpsDeadlineDue { value, unit }).to_string()}
+                        tone="warning"
+                    />
                 }
                 <span class={Small}>{when(t, Some(text))}</span>
             </span>
@@ -214,7 +221,9 @@ pub fn RequestsPage<'a>(t: Sup, p: Pilot, screen: &'a QueueScreen, now: SystemTi
                 } else {
                     <Tag words={t.ops_success()} tone="success" />
                 }
-                <p class={Strong}>{t.ops_escalation_result(e.escalated, e.skipped)}</p>
+                <p class={Strong}>
+                    {t.ops_escalation_result(crate::text::sup::OpsEscalationResult { escalated: e.escalated, skipped: e.skipped })}
+                </p>
                 if e.capped {
                     <p class={Muted}>{t.ops_escalation_capped(e.total)}</p>
                 }
@@ -288,7 +297,9 @@ pub fn RequestsPage<'a>(t: Sup, p: Pilot, screen: &'a QueueScreen, now: SystemTi
                 </ul>
             }
             <div class={Count}>
-                <p class={Strong}>{t.ops_queue_count(screen.queue.count, screen.queue.total)}</p>
+                <p class={Strong}>
+                    {t.ops_queue_count(crate::text::sup::OpsQueueCount { count: screen.queue.count, total: screen.queue.total })}
+                </p>
                 <form method="post" action={&here}>
                     <button type="submit" class={Button} disabled={screen.unavailable}>{t.ops_escalate_overdue()}</button>
                 </form>
@@ -304,29 +315,31 @@ pub fn RequestsPage<'a>(t: Sup, p: Pilot, screen: &'a QueueScreen, now: SystemTi
                 </div>
             } else {
                 <div class={Scroll}>
-                    <table class={Table} aria-label={t.ops_queue_title()}>
-                        <thead>
-                            <tr>
-                                <th scope="col">{t.ops_reference()}</th>
-                                <th scope="col">{t.ops_order()}</th>
-                                <th scope="col">{t.ops_status()}</th>
-                                <th scope="col">{t.ops_next_deadline()}</th>
-                                <th scope="col">{t.ops_checklist()}</th>
-                                <th scope="col">{t.ops_action()}</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            for row in &screen.queue.items {
-                                <QueueRow t={t} row={row} screen={screen} now={now} title={&flow_title(&row.flow_type)} />
-                            }
-                        </tbody>
-                    </table>
+                    <KitTable layout={TableLayout::Stack}>
+                        <table class={Table} aria-label={t.ops_queue_title()}>
+                            <thead>
+                                <tr>
+                                    <th scope="col">{t.ops_reference()}</th>
+                                    <th scope="col">{t.ops_order()}</th>
+                                    <th scope="col">{t.ops_status()}</th>
+                                    <th scope="col">{t.ops_next_deadline()}</th>
+                                    <th scope="col">{t.ops_checklist()}</th>
+                                    <th scope="col">{t.ops_action()}</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                for row in &screen.queue.items {
+                                    <QueueRow t={t} row={row} screen={screen} now={now} title={&flow_title(&row.flow_type)} />
+                                }
+                            </tbody>
+                        </table>
+                    </KitTable>
                 </div>
             }
             if previous.is_some() || next.is_some() {
                 <nav class={Pages} aria-label={p.pages_label()}>
                     if let Some(href) = &previous { <a class={Open} href={href} rel="prev">{p.pages_previous()}</a> }
-                    <span>{p.pages_current(page, pages)}</span>
+                    <span>{p.pages_current(crate::text::pilot::PagesCurrent { page, pages })}</span>
                     if let Some(href) = &next { <a class={Open} href={href} rel="next">{p.pages_next()}</a> }
                 </nav>
             }
@@ -347,13 +360,18 @@ fn QueueRow<'a>(t: Sup, row: &'a Row, screen: &'a QueueScreen, now: SystemTime, 
     html! {
         <tr>
             <td>
+                <CellLabel>{t.ops_reference()}</CellLabel>
                 <span class={Stack}>
                     <span class={(Strong, Words)}>{row.reference()}</span>
                     <span class={Small}>{title}</span>
                 </span>
             </td>
-            <td><Order t={t} order_id={&row.order_id} marketplace={screen.marketplace.as_deref()} /></td>
             <td>
+                <CellLabel>{t.ops_order()}</CellLabel>
+                <Order t={t} order_id={&row.order_id} marketplace={screen.marketplace.as_deref()} />
+            </td>
+            <td>
+                <CellLabel>{t.ops_status()}</CellLabel>
                 <span class={Stack}>
                     <Tag
                         words={&status(t, &row.status)}
@@ -367,9 +385,18 @@ fn QueueRow<'a>(t: Sup, row: &'a Row, screen: &'a QueueScreen, now: SystemTime, 
                     }
                 </span>
             </td>
-            <td><Deadline t={t} due={row.next_deadline()} now={now} /></td>
-            <td>{t.ops_checklist_summary(satisfied, required)}</td>
-            <td><a class={Open} href={&open}>{t.ops_open()}</a></td>
+            <td>
+                <CellLabel>{t.ops_next_deadline()}</CellLabel>
+                <Deadline t={t} due={row.next_deadline()} now={now} />
+            </td>
+            <td>
+                <CellLabel>{t.ops_checklist()}</CellLabel>
+                {t.ops_checklist_summary(crate::text::sup::OpsChecklistSummary { satisfied, required })}
+            </td>
+            <td>
+                <CellLabel>{t.ops_action()}</CellLabel>
+                <a class={Open} href={&open}>{t.ops_open()}</a>
+            </td>
         </tr>
     }
 }
@@ -834,7 +861,7 @@ fn CaseForm<'a>(t: Sup, action: CaseAction, detail: &'a Detail, href: &'a str) -
                         <select name={f.responsibility_finding} required>
                             for reason in reasons {
                                 <option value={&format!("{}|{}", reason.responsibility, reason.code)}>
-                                    {t.ops_resolve_responsibility_reason_option(&reason.operator_label, &reason.responsibility)}
+                                    {t.ops_resolve_responsibility_reason_option(crate::text::sup::OpsResolveResponsibilityReasonOption { reason: &reason.operator_label, responsibility: &reason.responsibility })}
                                 </option>
                             }
                         </select>

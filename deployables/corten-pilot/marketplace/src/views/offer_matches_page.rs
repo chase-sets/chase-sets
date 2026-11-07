@@ -232,7 +232,7 @@ fn MatchRow<'a>(t: OfferMatchesMsg, p: Pilot, offer: &'a OfferMatch) -> impl Ren
                 <dd>
                     <span class={Strong}>{money(&offer.listing_price_amount, Some(&offer.listing_price_currency_code), t)}</span>
                     <span class={Hint}>
-                        {t.list_listing_quantity(offer.listing_visible_quantity, offer.listing_quantity_cap)}
+                        {t.list_listing_quantity(crate::text::offer_matches_msg::ListListingQuantity { visible: offer.listing_visible_quantity, cap: offer.listing_quantity_cap })}
                     </span>
                 </dd>
             </div>
@@ -271,12 +271,16 @@ fn MatchRow<'a>(t: OfferMatchesMsg, p: Pilot, offer: &'a OfferMatch) -> impl Ren
                     class={(Button, Secondary)}
                     type="submit"
                     disabled={!offer.can_fulfill || !submitted}
-                    aria-label={p.offer_matches_add_for(who, title).to_string()}
+                    aria-label={p.offer_matches_add_for(crate::text::pilot::OfferMatchesAddFor { buyer: who, title }).to_string()}
                 >
                     {t.list_add_to_sell_list()}
                 </button>
             </form>
-            <a class={(Button, Secondary)} href={&open} aria-label={p.offer_matches_open_for(who, title).to_string()}>
+            <a
+                class={(Button, Secondary)}
+                href={&open}
+                aria-label={p.offer_matches_open_for(crate::text::pilot::OfferMatchesOpenFor { buyer: who, title }).to_string()}
+            >
                 {t.list_open()}
             </a>
             <form method="post" action={&open}>
@@ -286,7 +290,7 @@ fn MatchRow<'a>(t: OfferMatchesMsg, p: Pilot, offer: &'a OfferMatch) -> impl Ren
                     class={(Button, Secondary)}
                     type="submit"
                     disabled={!submitted}
-                    aria-label={p.offer_matches_decline_for(who, title).to_string()}
+                    aria-label={p.offer_matches_decline_for(crate::text::pilot::OfferMatchesDeclineFor { buyer: who, title }).to_string()}
                 >
                     {t.list_decline()}
                 </button>
@@ -310,7 +314,8 @@ fn Buyer<'a>(t: OfferMatchesMsg, p: Pilot, offer: &'a OfferMatch) -> impl Render
                 Some(r) => {
                     <span
                         class={Hint}
-                        aria-label={p.offer_matches_rating(&format!("{r:.1}"), offer.buyer_review_count).to_string()}
+                        role="img"
+                        aria-label={p.offer_matches_rating(crate::text::pilot::OfferMatchesRating { rating: &format!("{r:.1}"), reviews: offer.buyer_review_count }).to_string()}
                     >
                         <span aria-hidden="true">"\u{2605} " {format!("{r:.1}")} " (" {offer.buyer_review_count} ")"</span>
                     </span>
@@ -370,7 +375,7 @@ pub fn OfferMatchPage<'a>(t: OfferMatchesMsg, p: Pilot, screen: &'a OfferScreen)
                     </p>
                     <p class={Big}>{&offer_price}</p>
                     <p class={Muted}>
-                        {t.detail_offer_is_percentage_of_ask(&bps(t, offer.offer_to_listing_price_bps), &gap(t, &offer.offer_price_gap_amount))}
+                        {t.detail_offer_is_percentage_of_ask(crate::text::offer_matches_msg::DetailOfferIsPercentageOfAsk { percentage: &bps(t, offer.offer_to_listing_price_bps), gap: &gap(t, &offer.offer_price_gap_amount) })}
                     </p>
                     <p class={Strong}>{&offer.item_title}</p>
                     if let Some(subtitle) = &offer.item_subtitle {

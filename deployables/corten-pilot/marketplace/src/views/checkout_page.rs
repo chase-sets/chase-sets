@@ -21,8 +21,9 @@ use crate::{
     checkout::{
         CheckoutForm, ConfirmationScreen, Edit, MANUAL, Notice, Place, Recovery, SHIPPING, Screen, signature, support_reference,
     },
-    text::CheckoutMsg,
+    text::{CheckoutMsg, Pilot},
 };
+use platform::ui::steps::{Step, StepState, Steps as KitSteps, StepsLayout};
 
 corten::script::script!(pub mod handlers = "checkout_page.js");
 
@@ -65,7 +66,15 @@ fn estimate(t: CheckoutMsg, screen: &Screen) -> Option<String> {
     let e = &group.delivery_estimate;
     let option = shipping_label(t, screen.session.shipping_option.as_deref().unwrap_or("standard"));
     let window = format!("{} - {}", e.earliest_date, e.latest_date);
-    Some(t.page_delivery_estimate_summary(option, &window, &e.package_count.to_string(), &e.service_level).to_string())
+    Some(
+        t.page_delivery_estimate_summary(crate::text::checkout_msg::PageDeliveryEstimateSummary {
+            shipping_option: option,
+            window: &window,
+            package_count: &e.package_count.to_string(),
+            service_level: &e.service_level,
+        })
+        .to_string(),
+    )
 }
 
 /// A line's price from the preview (`previewLineForSessionLine`): the cart line's, the listing's,
@@ -156,7 +165,7 @@ pub fn CheckoutRecovery(t: CheckoutMsg, kind: Recovery) -> impl Render {
 
 /// The page.
 #[component(css)]
-pub fn CheckoutPage<'a>(t: CheckoutMsg, screen: &'a Screen) -> impl Render {
+pub fn CheckoutPage<'a>(t: CheckoutMsg, p: Pilot, screen: &'a Screen) -> impl Render {
     let empty = screen.session.lines.is_empty();
     html! {
         <div class={Checkout} data-checkout>
@@ -193,7 +202,7 @@ pub fn CheckoutPage<'a>(t: CheckoutMsg, screen: &'a Screen) -> impl Render {
                 </details>
                 <div class={Flow}>
                     <div class={Main}>
-                        <Stepper t={t} screen={screen} />
+                        <Stepper t={t} p={p} screen={screen} />
                         if let Some(error) = &screen.error {
                             <div class={Banner} data-tone="danger" role="alert" data-checkout-error>
                                 <p class={Strong}>{t.page_checkout_issue()}</p>
@@ -263,20 +272,27 @@ fn total_label(t: CheckoutMsg, screen: &Screen) -> &'static str {
     if screen.offer { t.page_total() } else { t.page_payable_total() }
 }
 
+/// The steps (`PageStepper`), as the kit's `Steps`: a step is done, current, blocked (Review
+/// while the session cannot be confirmed) or not started, with its words read after its name, and
+/// its description under it from 40rem.
 #[component(css = CheckoutPage)]
-fn Stepper<'a>(t: CheckoutMsg, screen: &'a Screen) -> impl Render {
+fn Stepper<'a>(t: CheckoutMsg, p: Pilot, screen: &'a Screen) -> impl Render {
     html! {
-        <ol class={Steps} aria-label={t.page_checkout_steps()}>
-            for (label, description, status) in steps(t, screen) {
-                <li class={Step} data-status={status} aria-current={(status == "current").then_some("step")}>
-                    <span class={StepMark} aria-hidden="true"></span>
-                    <span class={StepText}>
-                        <span class={Strong}>{label}</span>
-                        <span class={StepDescription}>{description}</span>
-                    </span>
-                </li>
-            }
-        </ol>
+        let steps: Vec<Step> = steps(t, screen)
+            .into_iter()
+            .map(|(label, description, status)| Step { label, description: Some(description), link: None, state: step_state(p, status) })
+            .collect();
+        <KitSteps label={t.page_checkout_steps()} layout={StepsLayout::Row} steps={&steps} />
+    }
+}
+
+/// A step's status as the kit's state, with its words.
+fn step_state(p: Pilot, status: &str) -> StepState<'static> {
+    match status {
+        "complete" => StepState::Done(p.steps_done()),
+        "current" => StepState::Current,
+        "blocked" => StepState::Blocked(p.steps_blocked()),
+        _ => StepState::Todo(p.steps_not_started()),
     }
 }
 
@@ -299,12 +315,24 @@ fn PageNotice<'a>(t: CheckoutMsg, screen: &'a Screen) -> impl Render {
             (t.page_payment_quote_required(), t.page_payment_quote_required_description().to_owned(), "info")
         }
         Notice::ReviewUpdated => (t.page_review_updated(), t.page_review_updated_description().to_owned(), "success"),
-        Notice::FastCheckout { address, method } => {
-            (t.page_fast_checkout_ready(), t.page_fast_checkout_ready_description(address, method).to_string(), "success")
-        }
-        Notice::SavedPayment { address, method } => {
-            (t.page_saved_payment_step_ready(), t.page_saved_payment_step_ready_description(address, method).to_string(), "info")
-        }
+        Notice::FastCheckout { address, method } => (
+            t.page_fast_checkout_ready(),
+            t.page_fast_checkout_ready_description(crate::text::checkout_msg::PageFastCheckoutReadyDescription {
+                address_label: address,
+                payment_method_category: method,
+            })
+            .to_string(),
+            "success",
+        ),
+        Notice::SavedPayment { address, method } => (
+            t.page_saved_payment_step_ready(),
+            t.page_saved_payment_step_ready_description(crate::text::checkout_msg::PageSavedPaymentStepReadyDescription {
+                address_label: address,
+                payment_method_category: method,
+            })
+            .to_string(),
+            "info",
+        ),
         Notice::SavedAddress(address) => {
             (t.page_saved_address_ready(), t.page_saved_address_ready_description(address).to_string(), "info")
         }
@@ -656,7 +684,7 @@ fn PaymentPart<'a>(t: CheckoutMsg, screen: &'a Screen) -> impl Render {
                         <p class={Strong}>{t.page_payment_review_next()}</p>
                         if let Some(w) = &screen.wallet {
                             <p>
-                                {t.page_payment_review_next_with_wallet(&w.available_balance_amount, &w.currency_code.to_uppercase())}
+                                {t.page_payment_review_next_with_wallet(crate::text::checkout_msg::PagePaymentReviewNextWithWallet { amount: &w.available_balance_amount, currency: &w.currency_code.to_uppercase() })}
                             </p>
                         } else {
                             <p>{t.page_payment_review_next_description()}</p>
@@ -774,8 +802,9 @@ fn SavedRow<'a>(
 }
 
 /// The one commit control (`checkoutCommitButton`): Review buy cart while a line cannot be
-/// bought, Update totals while there is no quote, else Pay now, which the page's script swaps for
-/// Update totals once a field changes.
+/// bought, Verify your email to pay while Auth withholds payment pending it, Update totals while
+/// there is no quote, else Pay now, which the page's script swaps for Update totals once a field
+/// changes.
 #[component(css = CheckoutPage)]
 fn Commit<'a>(t: CheckoutMsg, screen: &'a Screen, in_form: bool) -> impl Render {
     let f = CheckoutForm::FIELDS;
@@ -801,6 +830,8 @@ fn Commit<'a>(t: CheckoutMsg, screen: &'a Screen, in_form: bool) -> impl Render 
             </button>
         } else if !screen.can_confirm {
             <a class={(Button, Wide)} href={url::Cart::default()}>{t.page_review_buy_cart()}</a>
+        } else if let Some(verify) = &screen.verify_email {
+            <a class={(Button, Wide)} href={verify.as_str()}>{t.page_verify_email_to_pay()}</a>
         } else if screen.needs_quote {
             <button
                 type="submit"

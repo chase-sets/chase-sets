@@ -1,0 +1,121 @@
+/* Provider detail's validation readiness, around the integrations shell's modules and the UI
+   kit's tables, accordion, inputs and textarea (platform::ui): a row's side sheet is a disclosure
+   alone in its first cell, with no phone label, so a stacked table gives it the whole row; the
+   activation checks are two columns from a tablet up and the decision's forms sit beside its
+   facts, and each table stacks on a phone. */
+.stack {
+  display: grid;
+  gap: var(--space-4);
+  min-width: 0;
+}
+.group {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.strong {
+  margin: 0;
+  font-weight: 600;
+}
+.muted {
+  margin: 0;
+  font-size: 0.875rem;
+  font-weight: 400;
+  color: var(--color-text-secondary);
+}
+.words {
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+.badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+}
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+  justify-content: space-between;
+  min-width: 0;
+}
+.panel {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
+  padding: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-2);
+}
+.sheet {
+  min-width: 0;
+}
+.body {
+  display: grid;
+  gap: var(--space-3);
+  margin-block-start: var(--space-3);
+  min-width: 0;
+}
+.lines {
+  display: grid;
+  gap: var(--space-1);
+  justify-items: start;
+  min-width: 0;
+}
+.list {
+  display: grid;
+  gap: var(--space-1);
+  margin: 0;
+  padding-inline-start: var(--space-4);
+  overflow-wrap: anywhere;
+}
+.checklist {
+  display: grid;
+  gap: var(--space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.checklist li {
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+}
+.metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+  gap: var(--space-2);
+  margin: 0;
+}
+.grid,
+.columns {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-3);
+}
+.form {
+  display: grid;
+  gap: var(--space-3);
+  min-width: 0;
+}
+.field {
+  display: grid;
+  gap: var(--space-1);
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+.field textarea,
+.field input {
+  width: 100%;
+  box-sizing: border-box;
+}
+@media (min-width: 48rem) {
+  .grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .columns {
+    grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+  }
+}

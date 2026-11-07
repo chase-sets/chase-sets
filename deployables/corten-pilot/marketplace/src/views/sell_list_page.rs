@@ -552,7 +552,9 @@ fn LineCard<'a>(t: SellListMsg, line: &'a Line, surface: Surface, selectable: bo
                 </div>
             </div>
             <p class={Big}>{t.page_estimated_net(&dollars(t, net))}</p>
-            <p class={Hint}>{t.page_card_summary(row.quantity, &best_offer)}</p>
+            <p class={Hint}>
+                {t.page_card_summary(crate::text::sell_list_msg::PageCardSummary { quantity: row.quantity, offer: &best_offer })}
+            </p>
             <p class={Muted}>{detail(t, ready)}</p>
             if let Some(comparison) = comparison {
                 <p class={Muted}>{comparison}</p>
@@ -600,7 +602,7 @@ fn LineCard<'a>(t: SellListMsg, line: &'a Line, surface: Surface, selectable: bo
                         <dt>{t.page_inventory()}</dt>
                         <dd>
                             {match line.default_inventory() {
-                                Some(i) => t.page_inventory_option_label(&i.storage_location_name, &i.ship_from_code, i.available_quantity).to_string(),
+                                Some(i) => t.page_inventory_option_label(crate::text::sell_list_msg::PageInventoryOptionLabel { location: &i.storage_location_name, ship_from: &i.ship_from_code, quantity: i.available_quantity }).to_string(),
                                 None => t.page_inventory_required().to_owned(),
                             }}
                         </dd>
@@ -975,7 +977,7 @@ fn ProductAction<'a>(t: SellListMsg, line: &'a Line, surface: Surface) -> impl R
                             {t.page_use_smart_match_offer(&buyer(t, o.offer.buyer_display_name.as_deref()))}
                         </span>
                         <span class={Hint}>
-                            {t.page_use_smart_match_offer_description(o.offer.quantity_requested, &amount(t, Some(&o.terms.seller_net_unit_amount)))}
+                            {t.page_use_smart_match_offer_description(crate::text::sell_list_msg::PageUseSmartMatchOfferDescription { quantity: o.offer.quantity_requested, seller_net: &amount(t, Some(&o.terms.seller_net_unit_amount)) })}
                         </span>
                     </p>
                     if let Some(evidence) = &o.evidence {
@@ -1006,7 +1008,7 @@ fn ProductAction<'a>(t: SellListMsg, line: &'a Line, surface: Surface) -> impl R
                         }
                         for item in &line.inventory {
                             <option value={&item.item_id} selected={inventory.is_some_and(|i| i.item_id == item.item_id)}>
-                                {t.page_inventory_option_label(&item.storage_location_name, &item.ship_from_code, item.available_quantity)}
+                                {t.page_inventory_option_label(crate::text::sell_list_msg::PageInventoryOptionLabel { location: &item.storage_location_name, ship_from: &item.ship_from_code, quantity: item.available_quantity })}
                             </option>
                         }
                     </select>

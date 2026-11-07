@@ -19,14 +19,14 @@ use crate::recovery::{attempt_text, submit_key};
 use std::{collections::HashMap, time::Duration};
 
 use corten::{
-    axum::http::{HeaderMap, StatusCode, header},
+    http::{HeaderMap, StatusCode, Uri, header},
     prelude::*,
     security::cookie,
 };
 use platform::{money, receipt::Receipt};
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
-use crate::chrome::Chrome;
+use crate::chrome::CartCount;
 use crate::{
     api::{
         ApiError, Cart, CartCommand, CartLine, CartWrite, Checkout as _, Decisions, OptimizationDecision, Readiness,
@@ -35,9 +35,12 @@ use crate::{
     app::{Config, Shared, read_failed, sign_in_at, url},
     auth::Buyer,
     cart_attempt::{self, State as Attempted},
-    text::CartMsg,
+    text::{CartMsg, Pilot},
     views::{self, Layout},
 };
+
+/// The quantity a line takes: a whole number from 1, up to the cart read model's `integer` column.
+pub const QUANTITY: Bounds<u32> = Bounds::new(1, i32::MAX as u32);
 
 /// The guest cart a browser carries from before it signed in (marketplace's
 /// `CHECKOUT_ANONYMOUS_CART_COOKIE_NAME`).
@@ -50,23 +53,21 @@ pub fn anonymous_cart(headers: &HeaderMap) -> Option<&str> {
 
 /// What the cart's address carries after a write: its receipt, which the cart read waits for
 /// (marketplace's `afterWrite`).
-#[derive(Clone, Debug, Default, Deserialize, Fields, Route)]
+#[derive(Clone, Debug, Default, Fields, Route)]
 #[route(query)]
 pub struct AfterWrite {
     pub after_write: Option<String>,
 }
 
 /// A line write's form (marketplace's cart line forms): the attempt (`SubmitKey`), every line
-/// merged into the one shown, and for a quantity the quantity drawn and the step pressed (`delta`),
-/// for a lock the preferred listing. Read as `Number()` reads them: a missing quantity is 1 and a
-/// missing step 0.
-#[derive(Clone, Debug, Default, Deserialize, Fields)]
+/// merged into the one shown, and for a quantity the quantity the buyer set (stepped or typed, as
+/// marketplace's `QuantityStepper` takes it), for a lock the preferred listing.
+#[derive(Clone, Debug, Default, Fields)]
 #[serde(default)]
 pub struct LineInput {
     pub attempt: Option<SubmitKey>,
     pub line_id: Vec<String>,
-    pub quantity: String,
-    pub delta: String,
+    pub quantity: Entry<u32>,
     pub preference: String,
 }
 
@@ -82,15 +83,13 @@ pub enum Write {
 impl LineInput {
     /// The write's commands, one attempt (marketplace's `handleAction`), or the reason it is
     /// refused before it is sent. A quantity goes on the first line and the lines merged into it
-    /// are removed, all or nothing.
-    pub fn commands(&self, t: CartMsg, write: Write) -> Result<Vec<CartCommand>, &'static str> {
+    /// are removed, all or nothing; one that is not a whole number [`QUANTITY`] holds is refused.
+    pub fn commands(&self, t: CartMsg, p: Pilot, write: Write) -> Result<Vec<CartCommand>, &'static str> {
         let ids: Vec<&str> = self.line_id.iter().map(|id| id.trim()).filter(|id| !id.is_empty()).collect();
         match write {
             Write::Quantity => {
                 let [first, rest @ ..] = ids.as_slice() else { return Err(t.route_request_failed()) };
-                let entered = number(&self.quantity).unwrap_or(1);
-                let next = entered.saturating_add(number(&self.delta).unwrap_or(0)).clamp(1, i64::from(u32::MAX));
-                let quantity = u32::try_from(next).unwrap_or(1);
+                let Some(quantity) = QUANTITY.read(&self.quantity) else { return Err(p.cart_quantity()) };
                 let mut commands = vec![CartCommand::Quantity { line_id: (*first).to_owned(), quantity }];
                 commands.extend(rest.iter().map(|id| CartCommand::Remove { line_id: (*id).to_owned() }));
                 Ok(commands)
@@ -115,12 +114,6 @@ impl LineInput {
             }
         }
     }
-}
-
-/// A whole number as a form sends it; a blank or a fraction is none (`Number()` would round a
-/// fraction into the quantity, which the API refuses anyway).
-fn number(text: &str) -> Option<i64> {
-    text.trim().parse().ok()
 }
 
 /// What the page says above the lines: why checkout did not start, or a line write that did not
@@ -212,7 +205,7 @@ impl CartScreen {
 /// What Check out and Use lower price post: the lower-price offer's decision as the snapshot the
 /// page drew was read with (`offer` `declined` or `accepted`, for `line` and `listing`), or
 /// none. Checkout reads the cart's readiness again with it, so the page's snapshot is not sent.
-#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[derive(Clone, Debug, Default, Fields)]
 #[serde(default)]
 pub struct CheckoutInput {
     pub offer: String,
@@ -486,7 +479,9 @@ pub(crate) async fn page(
 
 /// The cart page, read after `receipt`'s write when there is one, with `notice` above the lines:
 /// a checkout or a write that applied nothing is 422, a write that applied part or may not have
-/// applied is 409. The nav's count is the one this read found, so the page takes no `Chrome`.
+/// applied is 409. The nav's count is the one this read found, which the page gives the layout
+/// read (`chrome::CartCount`, which Corten starts no read of its own for on this page: `gives` on its
+/// route).
 async fn render(
     req: &Req,
     buyer: &Buyer,
@@ -507,7 +502,10 @@ async fn render(
         Err(error) if receipt.is_some() && error.catching_up() => CartScreen::pending(),
         Err(error) => {
             let t: CartMsg = req.t();
-            return read_failed(req, viewer, error, receipt.is_some().then(|| t.route_cart_pending_fresh_write()), None);
+            // The page the route gives the count for (`gives(CartCount)`): a read that failed after a
+            // write draws it as one still catching up.
+            return read_failed(req, viewer, error, receipt.is_some().then(|| t.route_cart_pending_fresh_write()))
+                .map(|page| page.give::<CartCount>(None));
         }
     };
     let t: CartMsg = req.t();
@@ -525,14 +523,11 @@ async fn render(
         Some(Notice::Attempt(a)) if a.state != Attempted::FailedSafe => StatusCode::CONFLICT,
         Some(_) => StatusCode::UNPROCESSABLE_ENTITY,
     };
-    let view = views::cart_page(t, &screen, notice.as_ref());
+    let view = views::cart_page(t, req.t(), &screen, notice.as_ref());
     let title = t.route_cart_marketplace();
     let cart = (!screen.pending).then(|| screen.item_count());
-    req.screen_with_status(
-        status,
-        &screen,
-        html! { <Layout req={req} viewer={viewer} cart={cart} title={title} head={head}>{view}</Layout> },
-    )
+    req.screen_with_status(status, &screen, html! { <Layout req={req} viewer={viewer} title={title} head={head}>{view}</Layout> })
+        .map(|page| page.give::<CartCount>(cart))
 }
 
 pub(crate) async fn quantity(
@@ -580,7 +575,7 @@ async fn write(req: &Req, buyer: &Buyer, config: &Config, headers: &HeaderMap, w
     };
     let commands = match buyer {
         Buyer::Guest(_) if guest.is_none() => Err(t.route_request_failed()),
-        _ => input.commands(t, which),
+        _ => input.commands(t, req.t(), which),
     };
     let commands = match commands {
         Ok(commands) => commands,
@@ -620,16 +615,16 @@ async fn write(req: &Req, buyer: &Buyer, config: &Config, headers: &HeaderMap, w
 /// start's Continue, with the same decision.
 pub(crate) async fn checkout(
     req: Req,
-    chrome: Chrome,
     Caller(buyer): Caller<Buyer>,
     State(config): State<Shared>,
     headers: HeaderMap,
+    uri: Uri,
     Form(input): Form<CheckoutInput>,
 ) -> HtmlResult {
     let decisions = input.decisions();
     if let Buyer::Guest(_) = buyer {
-        return crate::checkout_start::cart_as_guest(&req, buyer.session().as_ref(), &config, &headers, &decisions, &chrome)
-            .await;
+        let session = buyer.session();
+        return crate::checkout_start::cart_as_guest(&req, session.as_ref(), &config, &headers, &uri, &decisions).await;
     }
     let caller = config.platform.caller(&headers, config.proto, None);
     let guest = anonymous_cart(&headers);
@@ -660,7 +655,7 @@ pub(crate) async fn checkout(
 async fn refused(req: &Req, buyer: &Buyer, config: &Config, headers: &HeaderMap, error: ApiError) -> HtmlResult {
     match error.status() {
         Some(StatusCode::UNAUTHORIZED) => sign_in_to_cart(req),
-        Some(StatusCode::FORBIDDEN) => Err(corten::Error::new(error).with_status(StatusCode::FORBIDDEN)),
+        Some(StatusCode::FORBIDDEN) => Err(crate::app::api_refused(error)),
         Some(status) if status.is_client_error() => {
             let t: CartMsg = req.t();
             let reason = error.refusal().unwrap_or(t.route_request_failed()).to_owned();

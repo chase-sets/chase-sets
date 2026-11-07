@@ -3,12 +3,11 @@
 //! the API does not have is a 404 and a failed read a 502, where marketplace answers both with
 //! 200 (chase-sets/chase-sets#10612).
 use corten::{
-    axum::http::{HeaderMap, StatusCode, Uri},
+    http::{HeaderMap, StatusCode, Uri},
     prelude::*,
 };
 use serde_json::{Value, json};
 
-use crate::chrome::Chrome;
 use crate::{
     api::{Search, SetPage},
     app::{Shared, marketplace_origin, url},
@@ -19,7 +18,6 @@ use crate::{
 
 pub(crate) async fn page(
     req: Req,
-    chrome: Chrome,
     session: Option<corten::Caller<Session>>,
     State(config): State<Shared>,
     headers: HeaderMap,
@@ -45,7 +43,12 @@ pub(crate) async fn page(
     let t: SearchMsg = req.t();
     let canonical = format!("{}{}", marketplace_origin(), url::Set { slug: &set.slug }.href());
     let title = t.set_card_list_meta_title(&set.name).to_string();
-    let description = t.set_browse_card_list_description(&set.name, set.item_count).to_string();
+    let description = t
+        .set_browse_card_list_description(crate::text::search_msg::SetBrowseCardListDescription {
+            name: &set.name,
+            count: set.item_count,
+        })
+        .to_string();
     let breadcrumb = breadcrumb(t, &set, &canonical);
     let (og_title, og_description) = (title.as_str(), description.as_str());
     let head = html! {
@@ -58,9 +61,8 @@ pub(crate) async fn page(
     };
     let session = session.as_deref();
     let viewer = session.and_then(Session::viewer);
-    let cart = chrome.cart().await;
     req.page(html! {
-        <views::Layout req={&req} viewer={viewer} cart={cart} title={&title} head={head}>
+        <views::Layout req={&req} viewer={viewer} title={&title} head={head}>
             <views::SetPage t={t} set={&set} />
         </views::Layout>
     })

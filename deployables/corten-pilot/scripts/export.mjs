@@ -145,6 +145,10 @@
 // - marketplace/agent-scopes.json: the scope families Auth recognizes (contracts/auth-context's
 //   AGENT_OAUTH_KNOWN_SCOPE_FAMILIES), each family's label and its scopes' labels and descriptions, which
 //   a grant's and a consent's scopes are listed by.
+// - marketplace/email-verification.json: each role's permissions Auth withholds until the member's email
+//   is verified (contracts/auth-context's ROLE_PERMISSIONS within EMAIL_VERIFICATION_RESTRICTED_PERMISSIONS),
+//   which permissionAwaitsEmailVerification reads to offer Verify your email in place of an action. A
+//   workaround until Auth says what it withheld (https://github.com/chase-sets/chase-sets/issues/10987).
 // - marketplace/locales/listing-new.en.json: Create listing's English catalog
 // - marketplace/locales/seller-listing.en.json: the seller's listing page's English catalog
 //   (marketplace.features.listings.ui.listingCreatePage.* as page.*, marketplace.routes.accountListingsNew.* as
@@ -221,16 +225,18 @@
 //   marketplace.app.routes.manifest.description as manifest_description).
 // - marketplace/static/icons/: marketplace-web's four app icons (public/icons), which its manifest names.
 // - admin/favicon.svg: the same logo, admin-web's favicon. Not committed (see GENERATED).
-// - admin/locales/site.en.json: admin-web's offline page and its web app manifest's description
-//   (adminWeb.app.routes.offline.* as offline.*, and adminWeb.app.routes.manifest.description as
-//   manifest_description).
+// - admin/locales/site.en.json: admin-web's offline page, its home (the sections), and its web app
+//   manifest's description (adminWeb.app.routes.offline.* as offline.*, adminWeb.app.routes.index.*
+//   as index.*, and adminWeb.app.routes.manifest.description as manifest_description).
 // - admin/static/icons/: admin-web's four app icons (public/icons), which its manifest names.
 // - public/static/home/: public-web's home page's hero picture (three widths) and social cards.
 // - marketplace/nav.json: marketplace-web's top-nav contributions, each group with its children.
 // - marketplace/nav.bottom.json, marketplace/nav.account.json: its bottom-nav (the phone bar, with
 //   each entry's packing priority and badge) and account-menu contributions, composed the same way.
-// - marketplace/nav-icons.json: the inner markup of the design system's `Icon` for each icon those
-//   entries name, and the menu's, as its lucide glyph draws it (the pilot draws the `<svg>` around it).
+// - platform/src/glyphs.rs: the inner markup of the design system's `Icon` for each icon those
+//   entries name, the menu's and the public pages', as its lucide glyph draws it: a kit `Glyph` each
+//   (`platform::glyphs`), made with `Glyph::filled` for the ones `Icon` fills, and `named` for a nav
+//   entry's name.
 // - platform/tokens/: the design system's light and dark values (packages/design-system styles.css)
 //   for the tokens the pilot uses, as W3C Design Tokens files and a resolver (DTCG 2025.10), which
 //   Corten's `tokens!` reads. Not committed (see GENERATED).
@@ -338,12 +344,12 @@ function marketplaceNav(slot = "top-nav") {
 }
 
 /** The inner markup of the design system's `Icon` for each icon `items` name, and the menu's. */
-async function navIcons(...slots) {
+async function designIcons(extra, ...slots) {
   const need = createRequire(path.join(repo, "packages/design-system/package.json"));
   const { createElement } = need("react");
   const { renderToStaticMarkup } = need("react-dom/server");
   const { Icon } = await import(pathToFileURL(path.join(repo, "packages/design-system/src/icons/index.tsx")).href);
-  const names = new Set(["menu"]);
+  const names = new Set(["menu", ...extra]);
   const walk = (item) => {
     if (item.icon) names.add(item.icon);
     (item.children ?? []).forEach(walk);
@@ -357,6 +363,57 @@ async function navIcons(...slots) {
     icons[name] = inner;
   }
   return icons;
+}
+
+// The design system's icons the public pages draw (public/src/views/home_page.rs's `IconName`).
+const PUBLIC_ICONS = [
+  "cart",
+  "check",
+  "chevronDown",
+  "chevronLeft",
+  "chevronRight",
+  "info",
+  "message",
+  "pause",
+  "rocket",
+  "store",
+  "users",
+  "warning",
+];
+
+/** `icons` as kit glyphs (platform/src/glyphs.rs), the ones the design system's `Icon` fills made filled. */
+function glyphsModule(icons) {
+  const source = readFileSync(path.join(repo, "packages/design-system/src/icons/index.tsx"), "utf8");
+  const rule = source.match(/const filled = ([^;]+);/)?.[1];
+  if (!rule) throw new Error("design-system Icon: no filled rule");
+  const filled = [...rule.matchAll(/name === "(\w+)"/g)].map((m) => m[1]);
+  const constant = (name) => name.replace(/([a-z0-9])([A-Z])/g, "$1_$2").toUpperCase();
+  const lines = [
+    "// Written by deployables/corten-pilot/scripts/export.mjs from the design system's `Icon`",
+    "// (packages/design-system/src/icons): each glyph the pilot draws, as Lucide draws it. Do not edit.",
+    "use crate::ui::icon::Glyph;",
+    "",
+  ];
+  for (const [name, inner] of Object.entries(icons)) {
+    if (inner.includes('"##')) throw new Error(`icon ${name}: its markup closes the raw string`);
+    const make = filled.includes(name) ? "Glyph::filled" : "Glyph::new";
+    lines.push(
+      `/// \`${name}\`${filled.includes(name) ? ", filled" : ""}.`,
+      `pub const ${constant(name)}: Glyph = ${make}(r##"${inner}"##);`,
+    );
+  }
+  lines.push(
+    "",
+    "/// The glyph a nav entry names, by the design system's name.",
+    "pub fn named(name: &str) -> Option<Glyph> {",
+    "    match name {",
+    ...Object.keys(icons).map((name) => `        "${name}" => Some(${constant(name)}),`),
+    "        _ => None,",
+    "    }",
+    "}",
+    "",
+  );
+  return lines.join("\n");
 }
 
 // Token name in the pilot -> custom property in the design system. Dark values are the same
@@ -381,14 +438,17 @@ const colors = {
   "secondary-foreground": "secondary-foreground",
   success: "success",
   "success-soft": "success-soft",
+  "success-contrast": "success-contrast",
   warning: "warning",
   "warning-soft": "warning-soft",
+  "warning-contrast": "warning-contrast",
   danger: "danger",
   "danger-soft": "danger-soft",
   "danger-hover": "danger-hover",
   "danger-contrast": "danger-contrast",
   info: "info",
   "info-soft": "info-soft",
+  "info-contrast": "info-contrast",
   overlay: "overlay",
   // The brand foil (BrandFoilText, the logo): public-web's home page title.
   "logo-start": "chase-logo-start",
@@ -449,7 +509,7 @@ const dtcgGroup = (group, values, typed) => ({
 // system's when the page chose none.
 // The UI kit's theme (Corten's shadcn names, platform/src/ui), each a reference to the design
 // system's token, so the dark theme's changes reach the kit's components with no second set of
-// values. The status tones are the pilot's additions to the kit's names.
+// values.
 const kitTheme = {
   background: "color.background",
   foreground: "color.text",
@@ -467,14 +527,12 @@ const kitTheme = {
   "accent-foreground": "color.text",
   destructive: "color.danger",
   "destructive-foreground": "color.danger-contrast",
-  "destructive-soft": "color.danger-soft",
   success: "color.success",
-  "success-soft": "color.success-soft",
+  "success-foreground": "color.success-contrast",
   warning: "color.warning",
-  "warning-soft": "color.warning-soft",
+  "warning-foreground": "color.warning-contrast",
   info: "color.info",
-  "info-soft": "color.info-soft",
-  "primary-soft": "color.primary-soft",
+  "info-foreground": "color.info-contrast",
   border: "color.border",
   input: "color.input",
   ring: "color.ring",
@@ -501,7 +559,17 @@ function tokens() {
     radius: { md: value("radius"), lg: value("radius-lg"), xl: value("radius-xl"), full: value("radius-full") },
     shadow: scale(shadows),
     font: { display: value("display-font"), body: value("body-font"), mono: value("mono-font") },
-    control: { height: value("control-md-height"), px: value("control-md-px"), py: value("control-md-py") },
+    // The kit's control sizes are the design system's: every button and field a 44 px touch target
+    // (`--control-height` and its `-sm`), a large one 3rem, and a field's inline padding its small one's.
+    control: {
+      height: value("control-md-height"),
+      "height-sm": value("control-sm-height"),
+      "height-lg": value("control-lg-height"),
+      padding: value("control-sm-px"),
+      "font-size": value("font-size-sm"),
+      px: value("control-md-px"),
+      py: value("control-md-py"),
+    },
   };
   const dark = { color: scale(colors, "dark-"), shadow: scale(shadows, "dark-") };
   const groups = Object.fromEntries(
@@ -513,14 +581,30 @@ function tokens() {
     ...groups,
     $extensions: {
       "run.corten": {
-        breakpoints: { md: dtcgDimension("48rem"), lg: dtcgDimension("64rem") },
+        // Tailwind's names and widths, the design system's. The kit's phone layouts (NavBar, Stats,
+        // Steps, Table) switch at `wide`, which is `md`: the design system's DataTable stacks, the
+        // nav's bar and the sheets change at 48rem, and so do the pilot's own `(--md)` rules.
+        breakpoints: {
+          sm: dtcgDimension("40rem"),
+          md: dtcgDimension("48rem"),
+          lg: dtcgDimension("64rem"),
+          wide: "{md}",
+        },
         utilities: { gap: { property: "gap", group: "space" } },
       },
     },
   };
-  const kit = Object.fromEntries(
-    Object.entries(kitTheme).map(([name, token]) => [name, { $type: "color", $value: `{${token}}` }]),
-  );
+  // The kit's card sizes sit beside its colors, flat: a `card` group in the base set and the kit's
+  // `card` color would clash, which `tokens!` refuses to compile.
+  const kit = {
+    ...Object.fromEntries(
+      Object.entries(kitTheme).map(([name, token]) => [name, { $type: "color", $value: `{${token}}` }]),
+    ),
+    "card-padding": { $type: "dimension", $value: "{space.6}" },
+    "card-heading-font-size": { $type: "dimension", $value: dtcgDimension(value("font-size-base")) },
+    // The toaster's gap from the bottom, the kit's 1rem; marketplace lifts it above its phone bar on <body>.
+    "toasts-inset-bottom": { $type: "dimension", $value: dtcgDimension("1rem") },
+  };
   return {
     base,
     kit,
@@ -720,7 +804,7 @@ const { platformOperationsReportedContentActionsByTargetType } = await import(
 const { defaultPostagePolicy } = await import(
   pathToFileURL(path.join(repo, "contracts/product-measures/index.ts")).href
 );
-const { AGENT_OAUTH_KNOWN_SCOPE_FAMILIES } = await import(
+const { AGENT_OAUTH_KNOWN_SCOPE_FAMILIES, EMAIL_VERIFICATION_RESTRICTED_PERMISSIONS, ROLE_PERMISSIONS } = await import(
   pathToFileURL(path.join(repo, "contracts/auth-context/index.ts")).href
 );
 const agentScopes = AGENT_OAUTH_KNOWN_SCOPE_FAMILIES.map(({ family, label, scopes }) => ({
@@ -728,6 +812,14 @@ const agentScopes = AGENT_OAUTH_KNOWN_SCOPE_FAMILIES.map(({ family, label, scope
   label,
   scopes: scopes.map(({ scope, label, description }) => ({ scope, label, description })),
 }));
+const emailVerification = Object.fromEntries(
+  Object.entries(ROLE_PERMISSIONS)
+    .map(([role, permissions]) => [
+      role,
+      EMAIL_VERIFICATION_RESTRICTED_PERMISSIONS.filter((permission) => permissions.includes(permission)),
+    ])
+    .filter(([, withheld]) => withheld.length > 0),
+);
 const { adminAuthHostConfig } = await import(
   pathToFileURL(path.join(repo, "bounded-contexts/auth/support/route-support/host-config.ts")).href
 );
@@ -782,8 +874,57 @@ const outputs = [
         ["catalog.features.scopeSyncBatches.count.", "ssb.count"],
         ["catalog.features.scopeSyncBatches.routes.", "ssb.routes"],
         ["catalog.features.sourceObservations.ui.aliasReview.action.", "alias_action"],
+        ["catalog.features.sourceObservations.ui.aliasReview.allScopes.", "alias_all"],
+        ["catalog.features.sourceObservations.ui.aliasReview.metric.", "alias_metric"],
+        ["catalog.features.sourceObservations.ui.aliasReview.coverage.", "alias_coverage"],
+        ["catalog.features.sourceObservations.ui.aliasReview.table.", "alias_table"],
+        ["catalog.features.sourceObservations.ui.aliasReview.empty.", "alias_empty"],
+        ["catalog.features.sourceObservations.ui.aliasReview.warning.", "alias_warning"],
+        ["catalog.features.sourceObservations.ui.aliasReview.evidence.", "alias_evidence"],
+        ["catalog.features.sourceObservations.ui.aliasReview.selection.", "alias_selection"],
+        ["catalog.features.sourceObservations.ui.aliasReview.bulk.", "alias_bulk"],
+        ["catalog.features.sourceObservations.ui.aliasReview.title", "alias_review.title"],
+        ["catalog.features.sourceObservations.ui.aliasReview.description", "alias_review.description"],
+        ["catalog.features.sourceObservations.ui.aliasReview.status.count", "alias_review.count"],
+        ["catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.unavailable", "alias_review.unavailable"],
         ["catalog.features.attentionQueue.", "attention"],
         ["catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.", "feedback"],
+        ["catalog.features.sourceObservations.ui.primaryWorkbench.health.", "wb_health"],
+        ["catalog.features.sourceObservations.ui.primaryWorkbench.metric.", "wb_metric"],
+        ["catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.", "wb_copy"],
+        ["catalog.features.sourceObservations.ui.primaryWorkbench.stage.", "wb_stage"],
+        ["catalog.features.sourceObservations.ui.primaryWorkbench.catalogSync.", "wb_sync"],
+        ["catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.", "wb_jobs"],
+        ["catalog.features.sourceObservations.ui.primaryWorkbench.import.operations.", "wb_import_operations"],
+        ["catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.", "wb_merge"],
+        ["catalog.features.sourceObservations.ui.primaryWorkbench.review.", "wb_review"],
+        ["catalog.features.sourceObservations.ui.primaryWorkbench.table.", "wb_table"],
+        ["catalog.features.sourceObservations.ui.primaryWorkbench.governanceStatus.", "wb_gov_status"],
+        ["catalog.features.sourceObservations.ui.primaryWorkbench.healthStatus.", "wb_health_status"],
+        ["catalog.features.sourceObservations.ui.primaryWorkbench.eyebrow", "wb.eyebrow"],
+        ["catalog.features.sourceObservations.ui.primaryWorkbench.title", "wb.title"],
+        ["catalog.features.sourceObservations.ui.primaryWorkbench.description", "wb.description"],
+        ["catalog.features.sourceObservations.ui.primaryWorkbench.returnToWorkbench", "wb.return"],
+        ["catalog.features.sourceObservations.ui.primaryWorkbench.not.selected", "wb.not_selected"],
+        ["catalog.features.sourceObservations.ui.primaryWorkbench.none", "wb.none"],
+        ["catalog.features.sourceObservations.ui.primaryWorkbench.evidence.close", "wb.evidence_close"],
+        ["catalog.features.sourceObservations.ui.primaryWorkbench.evidence", "wb.evidence"],
+        ["catalog.features.sourceObservations.ui.primaryWorkbench.blocked", "wb.blocked"],
+        ["catalog.features.sourceObservations.ui.primaryWorkbench.preview.promotion", "wb.preview_promotion"],
+        ["catalog.features.sourceObservations.ui.primaryWorkbench.command.count.catalogItemUpdates", "wb.item_updates"],
+        ["catalog.features.sourceObservations.ui.governanceControls.", "wb_gov"],
+        ["catalog.features.sourceObservations.ui.auditEvidence.", "wb_audit"],
+        ["catalog.features.sourceObservations.ui.providerDetail.", "pd"],
+        ["catalog.features.sourceObservations.ui.primaryWorkbench.profile.", "wb_profile"],
+        ["catalog.features.sourceObservations.ui.primaryWorkbench.validation.", "wb_validation"],
+        ["catalog.features.sourceObservations.ui.primaryWorkbench.key.", "wb_key"],
+        ["catalog.features.sourceObservations.ui.primaryWorkbench.command.count.", "wb_count"],
+        ["catalog.features.sourceObservations.ui.lifecycleRecovery.", "recovery"],
+        ["catalog.features.operatorSession.ui.adminPanel.", "os"],
+        ["catalog.features.sourceObservations.ui.primaryWorkbench.importContext.", "wb_ctx"],
+        ["catalog.features.sourceObservations.ui.primaryWorkbench.sourceOptions.", "wb_options"],
+        ["catalog.features.sourceObservations.ui.primaryWorkbench.sourceScopeWorkset.", "wb_workset"],
+        ["catalog.features.providerScopeDiscovery.ui.schedulePanel.", "schedule"],
         ["catalog.features.catalogItems.ui.catalogItemListPage.", "item_list"],
         ["catalog.features.catalogItems.ui.catalogItemDetailPage.", "item"],
         ["catalog.routes.admin.dimensions.dimensions.catalog.admin", "route.dimensions"],
@@ -808,6 +949,11 @@ const outputs = [
         ["catalog.routes.admin.scopeDetail.scope.catalog.admin", "route.scope"],
         ["catalog.routes.admin.sourceObservationsDetail.named.title", "route.obs_named"],
         ["catalog.routes.admin.sourceObservationsDetail.source.observation.catalog.admin", "route.obs"],
+        ["catalog.routes.admin.integrations.catalog.integrations.catalog.admin", "route.integrations"],
+        ["catalog.routes.admin.integrationsGovernance.governance.catalog.admin", "route.integrations_governance"],
+        ["catalog.routes.admin.integrationsSettings.settings.catalog.admin", "route.integrations_settings"],
+        ["catalog.routes.admin.integrationsHealth.health.catalog.admin", "route.integrations_health"],
+        ["catalog.routes.admin.catalogProviderDetail.provider.catalog.admin", "route.provider"],
       ]),
     ),
   ],
@@ -1225,6 +1371,8 @@ const outputs = [
         ["fulfillment.routes.marketplace.accountSaleShipmentPacking.", "pack_route"],
         ["fulfillment.features.shipments.ui.packingSlipPage.", "slip"],
         ["fulfillment.routes.marketplace.accountSaleShipmentPackingSlips.", "slips_route"],
+        ["fulfillment.features.shipments.ui.commandCenter.", "center"],
+        ["fulfillment.routes.marketplace.accountSaleShipments.", "sales_route"],
       ]),
     ),
   ],
@@ -1393,6 +1541,7 @@ const outputs = [
     ),
   ],
   ["marketplace/agent-scopes.json", json(agentScopes)],
+  ["marketplace/email-verification.json", json(emailVerification)],
   [
     "marketplace/locales/listing-new.en.json",
     json(
@@ -1699,6 +1848,7 @@ const outputs = [
     json(
       await catalog("admin-web.ts", "adminWebEnglishTranslations", [
         ["adminWeb.app.routes.offline.", "offline"],
+        ["adminWeb.app.routes.index.", "index"],
         ["adminWeb.app.routes.manifest.description", "manifest_description"],
       ]),
     ),
@@ -1706,7 +1856,10 @@ const outputs = [
   ["marketplace/nav.json", json(marketplaceNav())],
   ["marketplace/nav.bottom.json", json(marketplaceNav("bottom-nav"))],
   ["marketplace/nav.account.json", json(marketplaceNav("account-menu"))],
-  ["marketplace/nav-icons.json", json(await navIcons(marketplaceNav("bottom-nav"), marketplaceNav("account-menu")))],
+  [
+    "platform/src/glyphs.rs",
+    glyphsModule(await designIcons(PUBLIC_ICONS, marketplaceNav("bottom-nav"), marketplaceNav("account-menu"))),
+  ],
   ["platform/tokens/base.tokens.json", json(designTokens.base)],
   ["platform/tokens/dark.tokens.json", json(designTokens.dark)],
   ["platform/tokens/ui.tokens.json", json(designTokens.kit)],

@@ -7,6 +7,8 @@
 //! side and a review's head spreads across its card.
 use corten::prelude::*;
 
+use platform::ui::meter::Meter;
+
 use super::{account_page::Side, on_marketplace};
 use crate::{
     accounts::{MOST_DETAILS, REASONS, ReviewNotice},
@@ -208,7 +210,11 @@ fn Empty<'a>(title: &'a str, description: &'a str) -> impl Render {
 #[component(css = ReviewsPage)]
 fn Distribution<'a>(t: ReviewsMsg, title: &'a str, side: &'a Side) -> impl Render {
     let count = if side.ratings != side.reviews {
-        t.summary_rating_and_review_count(side.ratings, side.reviews).to_string()
+        t.summary_rating_and_review_count(crate::text::reviews_msg::SummaryRatingAndReviewCount {
+            rating_count: side.ratings,
+            review_count: side.reviews,
+        })
+        .to_string()
     } else if side.reviews > 0 {
         side.reviews.to_string()
     } else {
@@ -226,9 +232,9 @@ fn Distribution<'a>(t: ReviewsMsg, title: &'a str, side: &'a Side) -> impl Rende
                 for (n, stars) in side.counts.iter().zip([5, 4, 3, 2, 1]) {
                     <li>
                         <span>{stars}</span>
-                        <progress max="100" value={percent(*n, side.ratings)}>
+                        <meter class={Meter {}} min="0" max="100" value={percent(*n, side.ratings)}>
                             {format!("{}%", percent(*n, side.ratings))}
-                        </progress>
+                        </meter>
                         <span class={Faint}>{format!("{}%", percent(*n, side.ratings))}</span>
                     </li>
                 }

@@ -9,6 +9,10 @@
 //! Buy, the two forms' choices kept in step, the promo bar's turns, the sticky bars, the referrer
 //! in the forms, and the analytics events.
 use corten::prelude::*;
+use platform::{
+    glyphs,
+    ui::{icon::Icon as KitIcon, visually_hidden::VisuallyHidden},
+};
 
 use crate::{
     home::{Game, Interest, Panel, Role, Screen, Variant},
@@ -142,11 +146,11 @@ fn HeroCopy(t: HomeMsg, p: Pilot, variant: Variant, shown: bool) -> impl Render 
                 </h1>
                 <p class={HeroDescription}>{description}</p>
             </div>
-            <div class={HighlightOne} aria-label={p.home_highlight()}>
+            <div class={HighlightOne} role="group" aria-label={p.home_highlight()}>
                 <span class={HighlightLabel}>{first_label}</span>
                 <span class={HighlightValue}>{first_value}</span>
             </div>
-            <div class={Highlights} aria-label={p.home_highlights()}>
+            <div class={Highlights} role="group" aria-label={p.home_highlights()}>
                 for (label, value) in highlights {
                     <div class={Highlight}>
                         <div class={HighlightLabel}>{label}</div>
@@ -212,7 +216,7 @@ fn SignupPanel<'a>(t: HomeMsg, screen: &'a Screen, panel: Panel) -> impl Render 
                 <input type="hidden" name="panel" value={panel.as_str()}>
                 if hero {
                     <fieldset class={Segments}>
-                        <legend class={VisuallyHidden}>{t.waitlist_hero_intent_label()}</legend>
+                        <legend class={VisuallyHidden {}}>{t.waitlist_hero_intent_label()}</legend>
                         for role in Role::HERO {
                             <label class={Segment}>
                                 <input type="radio" name="role" value={role.as_str()} checked={screen.role == role}>
@@ -488,7 +492,12 @@ fn Founders<'a>(t: HomeMsg, screen: &'a Screen) -> impl Render {
 /// full form.
 #[component(css = HomePage)]
 fn FinalCta<'a>(t: HomeMsg, screen: &'a Screen) -> impl Render {
-    let byline = t.home_final_cta_byline(t.home_founder_story_name(), t.home_founder_story_role()).to_string();
+    let byline = t
+        .home_final_cta_byline(crate::text::home_msg::HomeFinalCtaByline {
+            name: t.home_founder_story_name(),
+            role: t.home_founder_story_role(),
+        })
+        .to_string();
     html! {
         <section class={Section} data-section="final_cta">
             <div class={TwoColumns}>
@@ -770,74 +779,21 @@ pub enum IconName {
 
 #[component(css = HomePage)]
 pub(crate) fn Icon(name: IconName) -> impl Render {
-    html! {
-        <svg
-            class={Icon}
-            viewBox="0 0 24 24"
-            width="16"
-            height="16"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            aria-hidden="true"
-            focusable="false"
-        >
-            match name {
-                IconName::Rocket => {
-                    <path d="M12 15v5s3.03-.55 4-2c1.08-1.62 0-5 0-5"></path>
-                    <path d="M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 0 0-2.91-.09"></path>
-                    <path d="M9 12a22 22 0 0 1 2-3.95A12.88 12.88 0 0 1 22 2c0 2.72-.78 7.5-6 11a22.4 22.4 0 0 1-4 2z"></path>
-                    <path d="M9 12H4s.55-3.03 2-4c1.62-1.08 5 .05 5 .05"></path>
-                }
-                IconName::Store => {
-                    <path d="M15 21v-5a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v5"></path>
-                    <path
-                        d="M17.774 10.31a1.12 1.12 0 0 0-1.549 0 2.5 2.5 0 0 1-3.451 0 1.12 1.12 0 0 0-1.548 0 2.5 2.5 0 0 1-3.452 0 1.12 1.12 0 0 0-1.549 0 2.5 2.5 0 0 1-3.77-3.248l2.889-4.184A2 2 0 0 1 7 2h10a2 2 0 0 1 1.653.873l2.895 4.192a2.5 2.5 0 0 1-3.774 3.244"
-                    ></path>
-                    <path d="M4 10.95V19a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8.05"></path>
-                }
-                IconName::Cart => {
-                    <circle cx="8" cy="21" r="1"></circle>
-                    <circle cx="19" cy="21" r="1"></circle>
-                    <path d="M2.05 2.05h2l2.66 12.42a2 2 0 0 0 2 1.58h9.78a2 2 0 0 0 1.95-1.57l1.65-7.43H5.12"></path>
-                }
-                IconName::Users => {
-                    <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path>
-                    <path d="M16 3.128a4 4 0 0 1 0 7.744"></path>
-                    <path d="M22 21v-2a4 4 0 0 0-3-3.87"></path>
-                    <circle cx="9" cy="7" r="4"></circle>
-                }
-                IconName::Message => {
-                    <path
-                        d="M22 17a2 2 0 0 1-2 2H6.828a2 2 0 0 0-1.414.586l-2.202 2.202A.71.71 0 0 1 2 21.286V5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2z"
-                    ></path>
-                }
-                IconName::ChevronDown => { <path d="m6 9 6 6 6-6"></path> }
-                IconName::ChevronLeft => { <path d="m15 18-6-6 6-6"></path> }
-                IconName::ChevronRight => { <path d="m9 18 6-6-6-6"></path> }
-                IconName::Pause => {
-                    <rect x="14" y="3" width="5" height="18" rx="1"></rect>
-                    <rect x="5" y="3" width="5" height="18" rx="1"></rect>
-                }
-                IconName::Check => {
-                    <circle cx="12" cy="12" r="10"></circle>
-                    <path d="m9 12 2 2 4-4"></path>
-                }
-                IconName::Info => {
-                    <circle cx="12" cy="12" r="10"></circle>
-                    <path d="M12 16v-4"></path>
-                    <path d="M12 8h.01"></path>
-                }
-                IconName::Warning => {
-                    <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"></path>
-                    <path d="M12 9v4"></path>
-                    <path d="M12 17h.01"></path>
-                }
-            }
-        </svg>
-    }
+    let glyph = match name {
+        IconName::Rocket => glyphs::ROCKET,
+        IconName::Store => glyphs::STORE,
+        IconName::Cart => glyphs::CART,
+        IconName::Users => glyphs::USERS,
+        IconName::Message => glyphs::MESSAGE,
+        IconName::ChevronDown => glyphs::CHEVRON_DOWN,
+        IconName::ChevronLeft => glyphs::CHEVRON_LEFT,
+        IconName::ChevronRight => glyphs::CHEVRON_RIGHT,
+        IconName::Pause => glyphs::PAUSE,
+        IconName::Check => glyphs::CHECK,
+        IconName::Info => glyphs::INFO,
+        IconName::Warning => glyphs::WARNING,
+    };
+    html! { <span class={Icon}><KitIcon glyph={glyph} /></span> }
 }
 
 #[cfg(test)]

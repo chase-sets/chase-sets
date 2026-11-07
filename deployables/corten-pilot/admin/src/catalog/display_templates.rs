@@ -11,7 +11,7 @@
 //!
 //! The API checks a template's tokens when it is published (an unknown field or reference type
 //! is refused); its refusal is the lifecycle form's message.
-use corten::{LiveResponse, LiveSince, axum::http::HeaderMap, prelude::*};
+use corten::{LiveResponse, LiveSince, http::HeaderMap, prelude::*};
 use platform::receipt::Receipt;
 
 use super::{
@@ -45,12 +45,11 @@ fn api_query(query: &url::TemplateQuery, page: u32) -> String {
 #[corten::routes(state = crate::app::Shared, area = crate::catalog::url::Catalog, caller = crate::auth::Staff<crate::auth::CatalogAccess>)]
 pub mod url {
     use corten::{Fields, Route};
-    use serde::Deserialize;
 
     pub use crate::catalog::url::ListNotice;
 
     /// The list's filters (the filter form's fields) and page (from 1).
-    #[derive(Clone, Debug, Default, Deserialize, Fields, Route)]
+    #[derive(Clone, Debug, Default, Fields, Route)]
     #[route(query)]
     pub struct TemplateQuery {
         pub search: Option<String>,
@@ -143,9 +142,9 @@ async fn page_list(
     req.screen(
         &screen,
         html! {
-            <crate::views::Layout req={req} viewer={Some(viewer)} title={t.route_templates()} head="">
+            <crate::views::OwnToastLayout req={req} viewer={Some(viewer)} title={t.route_templates()} head="">
                 {view}
-            </crate::views::Layout>
+            </crate::views::OwnToastLayout>
         },
     )
 }
@@ -246,9 +245,9 @@ async fn template_page(
     req.screen(
         &template,
         html! {
-            <crate::views::Layout req={req} viewer={Some(viewer)} title={t.route_template()} head="">
+            <crate::views::OwnToastLayout req={req} viewer={Some(viewer)} title={t.route_template()} head="">
                 {view}
-            </crate::views::Layout>
+            </crate::views::OwnToastLayout>
         },
     )
 }

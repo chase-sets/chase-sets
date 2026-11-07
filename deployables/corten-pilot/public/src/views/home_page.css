@@ -23,7 +23,7 @@
   font: 600 1.5rem/1.25 var(--font-display);
   overflow-wrap: anywhere;
 }
-@media (min-width: 48rem) {
+@media (--md) {
   .section-title {
     font-size: 1.875rem;
   }
@@ -45,19 +45,11 @@
   color: var(--color-text-secondary);
   font-size: 0.75rem;
 }
-.visually-hidden {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  clip: rect(0 0 0 0);
-  white-space: nowrap;
-  border: 0;
-  padding: 0;
-  margin: -1px;
-}
+/* The kit's Icon in its <span>, at the design system's small size (16px). */
 .icon {
+  display: inline-flex;
   flex: none;
+  font-size: 1rem;
 }
 
 /* Buttons and links that look like them: 44px tall, the design system's tones. */
@@ -226,7 +218,7 @@
 .promo[data-tone="warning"] {
   background: var(--color-warning-soft);
 }
-@media (min-width: 48rem) {
+@media (--md) {
   .promo {
     padding: var(--space-2) var(--space-4);
   }
@@ -271,7 +263,7 @@
   color: var(--color-text-secondary);
   font-size: 0.875rem;
 }
-@media (min-width: 48rem) {
+@media (--md) {
   .promo-title {
     white-space: normal;
   }
@@ -304,7 +296,7 @@
     min-height: 20rem;
   }
 }
-@media (min-width: 48rem) {
+@media (--md) {
   .hero {
     margin: 0 calc(-1 * var(--space-6));
   }
@@ -358,7 +350,7 @@
     padding: var(--space-5) var(--space-4);
   }
 }
-@media (min-width: 48rem) {
+@media (--md) {
   .hero-grid {
     padding: var(--space-5) var(--space-6);
   }
@@ -401,7 +393,7 @@
     font-size: 2.25rem;
   }
 }
-@media (min-width: 48rem) {
+@media (--md) {
   .hero-title {
     font-size: 3rem;
     line-height: 1.1;
@@ -436,7 +428,7 @@
     font-size: 1rem;
   }
 }
-@media (min-width: 48rem) {
+@media (--md) {
   .hero-description {
     font-size: 1.125rem;
     line-height: 1.75rem;
@@ -455,7 +447,7 @@
   gap: var(--space-4);
   max-width: 42rem;
 }
-@media (min-width: 48rem) {
+@media (--md) {
   .highlight-one {
     display: none;
   }
@@ -617,7 +609,7 @@
   display: grid;
   gap: var(--space-3);
 }
-@media (min-width: 48rem) {
+@media (--md) {
   .pair {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -847,7 +839,7 @@
   margin: 0 auto;
   padding: var(--space-2) var(--space-6);
 }
-@media (min-width: 48rem) {
+@media (--md) {
   .sticky-bottom {
     display: none;
   }

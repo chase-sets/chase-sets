@@ -33,14 +33,13 @@
 use std::time::SystemTime;
 
 use corten::{
-    axum::http::{HeaderMap, StatusCode},
+    http::{HeaderMap, StatusCode},
     i18n::parse_timestamp,
     prelude::*,
 };
 use platform::receipt::Receipt;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
-use crate::chrome::Chrome;
 use crate::{
     api::{
         ApiError, CheckoutSession, CheckoutSessions as _, ConfirmBody, FulfillmentPreview, PaymentPreview, PaymentSummary,
@@ -48,6 +47,7 @@ use crate::{
     },
     app::{ACCOUNTS_VIEW, ORDERS_MANAGE, PAYOUTS_VIEW, Shared, sign_in, url},
     auth::{CheckoutBuyer, Viewer},
+    email_verification::{self, Purpose},
     text::{CheckoutMsg, Pilot},
     views::{self, Layout},
 };
@@ -61,7 +61,7 @@ pub const SHIPPING: [&str; 3] = ["standard", "expedited", "priority"];
 
 /// The page's address: the write it reads after, the payment method on screen, what the last
 /// write did (`review=updated`, `quote=required`) and the step opened for editing.
-#[derive(Clone, Debug, Default, Deserialize, Fields, Route)]
+#[derive(Clone, Debug, Default, Fields, Route)]
 #[route(query)]
 #[serde(rename_all = "camelCase")]
 pub struct Place {
@@ -130,7 +130,7 @@ impl Edit {
 }
 
 /// The form's fields, named as marketplace's form names them.
-#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[derive(Clone, Debug, Default, Fields)]
 #[serde(rename_all = "camelCase", default)]
 pub struct CheckoutForm {
     pub intent: String,
@@ -342,6 +342,9 @@ pub struct Screen {
     /// Pay now may have reached Checkout, but one read of the session showed neither a payment
     /// nor an offer: Pay now is off until the buyer refreshes (`confirmationAmbiguous`).
     pub ambiguous: bool,
+    /// Where the buyer verifies their email while Auth withholds `orders.manage` pending it:
+    /// Pay now becomes this link, as Checkout would refuse the payment (`paymentVerifyEmailHref`).
+    pub verify_email: Option<String>,
     pub place: Place,
 }
 
@@ -517,6 +520,7 @@ impl Screen {
             expired,
             error,
             ambiguous: false,
+            verify_email: None,
             place,
         }
     }
@@ -569,7 +573,7 @@ pub enum Recovery {
     Unavailable,
 }
 
-async fn recovery(req: &Req, viewer: &Viewer, kind: Recovery, chrome: &Chrome) -> HtmlResult {
+async fn recovery(req: &Req, viewer: &Viewer, kind: Recovery) -> HtmlResult {
     let t: CheckoutMsg = req.t();
     let status = match kind {
         Recovery::NotFound => StatusCode::NOT_FOUND,
@@ -581,11 +585,10 @@ async fn recovery(req: &Req, viewer: &Viewer, kind: Recovery, chrome: &Chrome) -
         <meta name="robots" content="noindex">
         {(kind == Recovery::Preparing).then_some(ReadAgain { after: std::time::Duration::from_secs(2) })}
     };
-    let cart = chrome.cart().await;
     req.page_with_status(
         status,
         html! {
-            <Layout req={req} viewer={Some(viewer)} cart={cart} title={t.route_checkout_marketplace()} head={head}>
+            <Layout req={req} viewer={Some(viewer)} title={t.route_checkout_marketplace()} head={head}>
                 <views::CheckoutRecovery t={t} kind={kind} />
             </Layout>
         },
@@ -611,7 +614,6 @@ async fn render(
     id: &str,
     place: Place,
     answer: Answer,
-    chrome: &Chrome,
 ) -> HtmlResult {
     let receipt = Receipt::from_param(place.after_write.as_deref());
     let waiting = config.platform.caller(headers, config.proto, receipt.as_ref());
@@ -620,21 +622,21 @@ async fn render(
         Ok(session) => session,
         Err(error) if ended(&error) => return sign_in(req),
         Err(error) if receipt.is_some() && error.catching_up() => {
-            return recovery(req, viewer, Recovery::Preparing, chrome).await;
+            return recovery(req, viewer, Recovery::Preparing).await;
         }
         Err(error) if error.status() == Some(StatusCode::NOT_FOUND) => {
-            return recovery(req, viewer, Recovery::NotFound, chrome).await;
+            return recovery(req, viewer, Recovery::NotFound).await;
         }
         // A guest whose checkout is no longer its own starts again (the loader's 403 for a guest).
         Err(error) if error.status() == Some(StatusCode::FORBIDDEN) && viewer.guest() => {
             return req.redirect(&url::CheckoutStart);
         }
         Err(error) if error.status() == Some(StatusCode::FORBIDDEN) => {
-            return recovery(req, viewer, Recovery::WrongAccount, chrome).await;
+            return recovery(req, viewer, Recovery::WrongAccount).await;
         }
         Err(error) => {
             tracing::warn!("the checkout session could not be read: {error}");
-            return recovery(req, viewer, Recovery::Unavailable, chrome).await;
+            return recovery(req, viewer, Recovery::Unavailable).await;
         }
     };
     if let Some(offer) = &session.submitted_offer_id {
@@ -703,6 +705,10 @@ async fn render(
     };
     let mut screen = Screen::new(reads, place, error);
     screen.ambiguous = matches!(answer, Answer::Ambiguous);
+    // Auth withholds payment until the buyer verifies their email; Pay now would be refused.
+    screen.verify_email = (!screen.offer && email_verification::awaits(actor, ORDERS_MANAGE)).then(|| {
+        email_verification::sign_in_href(&url::BuyCheckout { id, place: Place::default() }.href(), Purpose::PayCheckout)
+    });
     let t: CheckoutMsg = req.t();
     let description = if screen.offer {
         t.page_confirm_shipping_place_purchase_intent()
@@ -713,17 +719,16 @@ async fn render(
         <meta name="description" content={description}>
         <meta name="robots" content="noindex">
     };
-    let cart = chrome.cart().await;
     let page = html! {
-        <Layout req={req} viewer={Some(viewer)} cart={cart} title={t.route_checkout_marketplace()} head={head}>
-            <views::CheckoutPage t={t} screen={&screen} />
+        <Layout req={req} viewer={Some(viewer)} title={t.route_checkout_marketplace()} head={head}>
+            <views::CheckoutPage t={t} p={req.t()} screen={&screen} />
         </Layout>
     };
     if status == StatusCode::OK { req.page(page) } else { req.page_with_status(status, page) }
 }
 
 /// Checkout received's address: the receipt of the Pay now it reads after.
-#[derive(Clone, Debug, Default, Deserialize, Fields, Route)]
+#[derive(Clone, Debug, Default, Fields, Route)]
 #[route(query)]
 #[serde(rename_all = "camelCase")]
 pub struct ConfirmationPlace {
@@ -748,7 +753,6 @@ pub struct ConfirmationScreen {
 /// has started, else the payment's references and Continue to payment.
 pub(crate) async fn confirmation(
     req: Req,
-    chrome: Chrome,
     Caller(CheckoutBuyer(viewer)): Caller<CheckoutBuyer>,
     State(config): State<Shared>,
     headers: HeaderMap,
@@ -761,17 +765,17 @@ pub(crate) async fn confirmation(
         Ok(session) => session,
         Err(error) if ended(&error) => return sign_in(&req),
         Err(error) if receipt.is_some() && error.catching_up() => {
-            return recovery(&req, &viewer, Recovery::Preparing, &chrome).await;
+            return recovery(&req, &viewer, Recovery::Preparing).await;
         }
         Err(error) if error.status() == Some(StatusCode::NOT_FOUND) => {
-            return recovery(&req, &viewer, Recovery::NotFound, &chrome).await;
+            return recovery(&req, &viewer, Recovery::NotFound).await;
         }
         Err(error) if error.status() == Some(StatusCode::FORBIDDEN) => {
-            return recovery(&req, &viewer, Recovery::WrongAccount, &chrome).await;
+            return recovery(&req, &viewer, Recovery::WrongAccount).await;
         }
         Err(error) => {
             tracing::warn!("the checkout session could not be read: {error}");
-            return recovery(&req, &viewer, Recovery::Unavailable, &chrome).await;
+            return recovery(&req, &viewer, Recovery::Unavailable).await;
         }
     };
     if let Some(offer) = &session.submitted_offer_id {
@@ -796,11 +800,10 @@ pub(crate) async fn confirmation(
     let t: CheckoutMsg = req.t();
     let view = html! { <views::BuyConfirmationPage t={t} screen={&screen} /> };
     let head = html! { <meta name="description" content={t.confirmation_route_description()}> };
-    let cart = chrome.cart().await;
     req.screen(
         &screen,
         html! {
-            <Layout req={&req} viewer={Some(&viewer)} cart={cart} title={t.confirmation_route_title()} head={head}>{view}</Layout>
+            <Layout req={&req} viewer={Some(&viewer)} title={t.confirmation_route_title()} head={head}>{view}</Layout>
         },
     )
 }
@@ -822,14 +825,13 @@ fn submitted_offer<'a>(id: &'a str, receipt: Option<&Receipt>) -> url::Submitted
 
 pub(crate) async fn page(
     req: Req,
-    chrome: Chrome,
     Caller(CheckoutBuyer(viewer)): Caller<CheckoutBuyer>,
     State(config): State<Shared>,
     headers: HeaderMap,
     Params(route): Params<crate::app::url::checkout::BuyCheckout<'_>>,
 ) -> HtmlResult {
     let (id, place) = (route.id, route.place);
-    render(&req, &viewer, &config, &headers, &id, place, Answer::Nothing, &chrome).await
+    render(&req, &viewer, &config, &headers, &id, place, Answer::Nothing).await
 }
 
 /// What a review write was refused for, in the page's words: an address or shipping option the
@@ -859,7 +861,6 @@ fn latest(receipts: impl IntoIterator<Item = Option<Receipt>>) -> Option<Receipt
 /// `confirm-checkout`), and Retry wallet balance, which reads the page again.
 pub(crate) async fn write(
     req: Req,
-    chrome: Chrome,
     Caller(CheckoutBuyer(viewer)): Caller<CheckoutBuyer>,
     State(config): State<Shared>,
     headers: HeaderMap,
@@ -867,7 +868,6 @@ pub(crate) async fn write(
     Form(form): Form<CheckoutForm>,
 ) -> HtmlResult {
     // Lent to each answer that draws the page, the refusals' closures among them.
-    let chrome = &chrome;
     let id = route.id;
     let t: CheckoutMsg = req.t();
     let caller = config.platform.caller(&headers, config.proto, None);
@@ -896,8 +896,7 @@ pub(crate) async fn write(
                 None => (error.refusal().unwrap_or(t.route_request_failed()).to_owned(), place),
             };
             tracing::warn!("a checkout write was refused: {error}");
-            render(req, viewer, &config, headers, id, place, Answer::Refused(StatusCode::UNPROCESSABLE_ENTITY, message), chrome)
-                .await
+            render(req, viewer, &config, headers, id, place, Answer::Refused(StatusCode::UNPROCESSABLE_ENTITY, message)).await
         }
     };
     let here = Place { payment_method_category: Some(visible.clone()), ..Place::default() };
@@ -928,7 +927,7 @@ pub(crate) async fn write(
         {
             let p: Pilot = req.t();
             let refused = Answer::Refused(StatusCode::UNPROCESSABLE_ENTITY, p.guest_saved_payment_unavailable().to_owned());
-            render(&req, &viewer, &config, &headers, &id, here, refused, chrome).await
+            render(&req, &viewer, &config, &headers, &id, here, refused).await
         }
         "confirm-checkout" => {
             let session = match caller.checkout_session(&id).await {
@@ -937,17 +936,7 @@ pub(crate) async fn write(
             };
             if expired(&session, SystemTime::now()) {
                 let message = t.recovery_checkout_handoff_expired_description().to_owned();
-                return render(
-                    &req,
-                    &viewer,
-                    &config,
-                    &headers,
-                    &id,
-                    here,
-                    Answer::Refused(StatusCode::CONFLICT, message),
-                    chrome,
-                )
-                .await;
+                return render(&req, &viewer, &config, &headers, &id, here, Answer::Refused(StatusCode::CONFLICT, message)).await;
             }
             // A cancelled session is final: a confirm sent again sends nothing and shows it as it is.
             if session.cancelled_at.is_some() {
@@ -1014,7 +1003,6 @@ pub(crate) async fn write(
                                 &id,
                                 here,
                                 Answer::Refused(StatusCode::BAD_GATEWAY, t.route_request_failed().to_owned()),
-                                chrome,
                             )
                             .await
                         }
@@ -1034,13 +1022,23 @@ pub(crate) async fn write(
                 {
                     back(Place::reviewed(latest(receipts).as_ref(), &visible, false))
                 }
+                // Checkout refuses Pay now before any order for a buyer who cannot start a payment:
+                // the page again with its words, and Verify your email where Auth withheld it
+                // (`isPaymentStartRefused`).
+                Err(error)
+                    if error.status() == Some(StatusCode::FORBIDDEN)
+                        && matches!(error.code(), Some("email_verification_required" | "authorization_forbidden")) =>
+                {
+                    let message = error.refusal().unwrap_or(t.route_request_failed()).to_owned();
+                    render(&req, &viewer, &config, &headers, &id, here, Answer::Refused(StatusCode::FORBIDDEN, message)).await
+                }
                 // The session already started with other order or payment details: nothing new was
                 // sent, and the page shows it as it is now.
                 Err(error)
                     if error.status() == Some(StatusCode::CONFLICT) && error.code() == Some("checkout_confirmation_changed") =>
                 {
                     let changed = Answer::Refused(StatusCode::CONFLICT, t.route_confirmation_changed().to_owned());
-                    render(&req, &viewer, &config, &headers, &id, here, changed, chrome).await
+                    render(&req, &viewer, &config, &headers, &id, here, changed).await
                 }
                 // Pay now may have reached Checkout: it is never sent again. One read decides; a
                 // started payment or a submitted offer is its first result, anything else stays
@@ -1053,7 +1051,7 @@ pub(crate) async fn write(
                             req.redirect(&submitted_offer(&offer, latest(receipts).as_ref()))
                         }
                         Ok(read) if read.payment_id.is_some() => back(Place::after(latest(receipts).as_ref(), &visible)),
-                        _ => render(&req, &viewer, &config, &headers, &id, here, Answer::Ambiguous, chrome).await,
+                        _ => render(&req, &viewer, &config, &headers, &id, here, Answer::Ambiguous).await,
                     }
                 }
                 Err(error) => refused(error, here).await,

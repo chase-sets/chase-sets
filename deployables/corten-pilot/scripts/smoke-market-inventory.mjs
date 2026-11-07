@@ -79,9 +79,8 @@ async function until(page, id, ok) {
 }
 /**
  * The item page after a write the pilot redirected to: it confirms the attempt and reads the item
- * after the write's receipt. When the API times that read out the
- * page says it could not verify the update; then the smoke asks the API with the same receipt, and
- * checks the page again without it once the API has caught up (`ok`).
+ * after the write's receipt, which the API answers once the item's projections hold it, so the page
+ * never says it could not verify the update.
  */
 async function landed(page, family, id, ok) {
   await settled(page);
@@ -92,23 +91,7 @@ async function landed(page, family, id, ok) {
       `${family} goes back to the item page with its receipt`,
     );
   const body = (await page.locator("main").textContent()) ?? "";
-  if (body.includes(text.unverified)) {
-    const receipt = to.searchParams.get("after_write") ?? "";
-    const again = await page.request.get(`${api}/api/inventory/items/${encodeURIComponent(id)}`, {
-      headers: { "chase-sets-read-after-write": encodeURIComponent(receipt) },
-    });
-    const code = again.ok() ? null : (await again.json()).error?.code;
-    // The page's read waited and failed; by the time the smoke asks, the API may have caught up.
-    const timedOut = again.status() === 503 && code === "projection_freshness_timeout";
-    check(
-      timedOut || again.ok(),
-      `unverified only after the API timed out the receipt (now ${again.status()} ${code ?? "caught up"}, chase-sets/chase-sets#10672)`,
-    );
-    await until(page, id, ok);
-    to.searchParams.delete("after_write");
-    await page.goto(to.href);
-    await page.waitForFunction(() => /** @type {any} */ (window).__hydratedAt > 0);
-  }
+  check(!body.includes(text.unverified), `the item page read ${family ?? "the write"} after its receipt`);
   if (family)
     check((await page.getByText(text.confirmed).count()) === 1, `the item page confirms the ${family} attempt`);
   const now = await until(page, id, ok);
@@ -269,32 +252,16 @@ let catalogTitle;
   await dialog.locator('textarea[name="note"]').fill(`Corten pilot smoke ${randomUUID().slice(0, 8)}`);
   await Promise.all([page.waitForURL(/offlineSaleItemId=/), dialog.locator('button[type="submit"]').click()]);
   await settled(page);
-  // The list reads the item again after the sale's receipt. The API can time that read out for
-  // ~30 s while other Inventory projections catch up, longer than a
-  // receipt is kept (30 s, as marketplace keeps it); then the page says it could not verify the
-  // result, as marketplace does. That is right only while the API refuses the read itself, so ask
-  // it at once with the same receipt.
+  // The list reads the item again after the sale's receipt, so it says what the sale did.
   const said = page
     .locator('[role="status"], [role="alert"]')
     .filter({ hasText: /recorded as sold|could not be verified/ });
   await said.first().waitFor();
   const message = (await said.first().textContent()) ?? "";
-  if (message.includes("recorded as sold")) {
-    check(
-      message.includes("Completed: 1 units recorded as sold. Authoritative available quantity: 0."),
-      "the list says what the sale did, read again after it",
-    );
-  } else {
-    const receipt = new URL(page.url()).searchParams.get("after_write") ?? "";
-    const again = await page.request.get(`${api}/api/inventory/items/${encodeURIComponent(created)}`, {
-      headers: { "chase-sets-read-after-write": encodeURIComponent(receipt) },
-    });
-    const code = again.ok() ? null : (await again.json()).error?.code;
-    check(
-      receipt !== "" && again.status() === 503 && code === "projection_freshness_timeout",
-      `the list says it could not verify the sale while the API times out its receipt (${again.status()} ${code}, chase-sets/chase-sets#10672)`,
-    );
-  }
+  check(
+    message.includes("Completed: 1 units recorded as sold. Authoritative available quantity: 0."),
+    `the list says what the sale did, read again after it: ${message}`,
+  );
   check((await page.locator("dialog[open]").count()) === 0, "the dialog is closed");
   let sold = await item(page, created);
   for (let i = 0; i < 80 && sold?.available_quantity !== 0; i += 1) {

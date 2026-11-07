@@ -253,17 +253,22 @@ try {
       const wide = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth);
       check(!wide, `the guest's cart does not scroll sideways at ${width} px`);
     }
-    await page.getByRole("button", { name: "Increase" }).first().click();
+    // Without JavaScript the quantity is typed and Update quantity sends it.
+    const setQuantity = async (n) => {
+      await page.getByLabel("Quantity", { exact: true }).first().fill(String(n));
+      await page.getByRole("button", { name: "Update quantity" }).first().click();
+    };
+    await setQuantity(2);
     const two = await eventually(guestRead, (c) => c.items[0]?.quantity === 2);
     check(
       two.items[0]?.quantity === 2,
-      `Increase on the guest's cart adds one to the guest cart's line (${two.items.map((l) => l.quantity)})`,
+      `Update quantity on the guest's cart sets the guest cart's line to two (${two.items.map((l) => l.quantity)})`,
     );
     check(await shows(page, "Quantity", { reload: true }), "and the cart is drawn again after the write");
     // The listing has one, so two cannot check out: back to one, which can.
-    await page.getByRole("button", { name: "Decrease" }).first().click();
+    await setQuantity(1);
     const one = await eventually(guestRead, (c) => c.items[0]?.quantity === 1);
-    check(one.items[0]?.quantity === 1, `Decrease takes it back to one (${one.items.map((l) => l.quantity)})`);
+    check(one.items[0]?.quantity === 1, `and back to one (${one.items.map((l) => l.quantity)})`);
     check(await shows(page, "Check out", { reload: true }), "and the cart can check out again");
     const checkOut = page.getByRole("button", { name: "Check out" });
     if (await checkOut.count()) {

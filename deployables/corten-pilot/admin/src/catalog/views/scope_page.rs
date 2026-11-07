@@ -1,14 +1,17 @@
 //! A scope's page (admin-web's `CatalogScopeDetailPage`): the header, the journey, the coverage
-//! matrix, the import-to-promotion section (on admin-web), the candidate review jobs and the
-//! language editions. Every write is a plain form; a reject or revoke's reason is folded under its
+//! matrix, the import-to-promotion section (the daily workbench's banners and stages for the scope,
+//! without its import context bar and workset, as admin-web draws them there), the candidate review
+//! jobs and the language editions. Every write is a plain form; a reject or revoke's reason is folded under its
 //! button (`<details>`), and Propose mapping is a dialog, so the page works without JavaScript.
 use corten::prelude::*;
+use platform::ui::stats::{Stat, StatTone, Stats as KitStats, StatsSurface};
 
 use super::{CatalogDialog, DetailPage, Empty, Toasts, Tone, TonePill, Trigger};
 use crate::{
     api::segment,
     catalog::{
-        api::{AliasCandidate, Coverage, CoverageRow, ReviewJob},
+        api::{AliasCandidate, AliasReview, Coverage, CoverageRow, ReviewJob},
+        attention::ACCEPT_ELIGIBLE,
         scope::{
             CONFIDENCES, Condition, Edition, Jobs, Journey, Link, ScopeBack, ScopeScreen, Stage, StageKey, StageStatus,
             url::{self, AliasCommand, MappingInput, ProposeInput, ScopeAt, Via},
@@ -25,16 +28,16 @@ pub struct ScopeProposeDialogId;
 
 /// The page: `cursor` is the completed jobs' page shown, `notice` the toast of the write before,
 /// `back` a refused write's message or Propose mapping's form, and `manage` whether the viewer
-/// may write (`catalog.manage`).
+/// may write (`catalog.manage`). The words are the request's (`req`).
 pub fn scope_page<'a>(
-    t: Cat,
-    p: Pilot,
+    req: &'a Req,
     screen: &'a ScopeScreen,
     cursor: Option<&'a str>,
     notice: Option<String>,
     back: ScopeBack,
     manage: bool,
 ) -> impl Render + 'a {
+    let (t, p): (Cat, Pilot) = (req.t(), req.t());
     let (refused, propose) = match back {
         ScopeBack::Nothing => (None, None),
         ScopeBack::Refused(message) => (Some(message), None),
@@ -59,7 +62,7 @@ pub fn scope_page<'a>(
                     manage={manage}
                     via={Via::Scope}
                 />
-                <WorkspacePart p={p} href={&workspace} />
+                <WorkspacePart t={t} p={p} req={req} screen={screen} href={&workspace} />
                 <JobsPart t={t} p={p} id={id} jobs={screen.jobs.as_ref()} cursor={cursor} />
                 if let Some(editions) = &screen.editions {
                     <EditionsPart t={t} action={&aliases} editions={editions} manage={manage} />
@@ -88,7 +91,12 @@ pub fn ScopePage<C: Render>(children: C) -> impl Render {
 #[component(css = ScopePage)]
 fn ScopeHeader<'a>(t: Cat, p: Pilot, screen: &'a ScopeScreen, refused: Option<&'a str>) -> impl Render {
     let s = &screen.scope;
-    let eyebrow = t.scope_detail_eyebrow(&s.product_domain, &s.scope_kind).to_string();
+    let eyebrow = t
+        .scope_detail_eyebrow(crate::text::cat::ScopeDetailEyebrow {
+            product_domain: &s.product_domain,
+            scope_kind: &s.scope_kind,
+        })
+        .to_string();
     html! {
         <div class={Header}>
             <p class={Eyebrow}>{&eyebrow}</p>
@@ -124,15 +132,28 @@ pub fn Rows<'a, C: Render>(label: &'a str, head: &'a [&'a str], children: C) -> 
     }
 }
 
-/// Workaround for chase-sets/chase-sets#10507: the import-to-promotion workspace is composed in
-/// admin-web's server, so the section links there.
+/// The import-to-promotion section: the daily surface for the scope (`ScopeScreen::context`), its
+/// banners and stages; their commands post to the daily workbench's routes with the working set,
+/// whose `home` lands them back here. A refused one's message is patched into the section's
+/// notice. When the surface does not read, the section says so and links to admin-web's page.
 #[component(css = ScopePage)]
-fn WorkspacePart<'a>(p: Pilot, href: &'a str) -> impl Render {
+fn WorkspacePart<'a>(t: Cat, p: Pilot, req: &'a Req, screen: &'a ScopeScreen, href: &'a str) -> impl Render {
     html! {
-        <section class={Part} aria-labelledby="scope-workspace">
+        <section class={Part} aria-labelledby="scope-workspace" data-scope-workspace>
             <h2 class={PartTitle} id="scope-workspace">{p.scope_workspace_title()}</h2>
-            <p class={Muted}>{p.scope_workspace_elsewhere()}</p>
-            <a class={Link} href={href}>{p.scope_workspace_open()}</a>
+            match &screen.workspace {
+                Some(workspace) => {
+                    <div id={super::DailyRefusalId}></div>
+                    <super::Signals t={t} req={req} model={&workspace.read.read_model} context={&screen.context} />
+                    <super::Stages t={t} p={p} req={req} screen={workspace} context={&screen.context} />
+                }
+                None => {
+                    <div class={(Banner, Warning)} role="status">
+                        <p>{p.scope_workspace_unread()}</p>
+                    </div>
+                    <a class={Link} href={href}>{p.scope_workspace_open()}</a>
+                }
+            }
         </section>
     }
 }
@@ -205,7 +226,7 @@ fn JourneyPart<'a>(t: Cat, p: Pilot, journey: &'a Journey) -> impl Render {
                 <p class={BannerTitle}>{title}</p>
                 <p>{description}</p>
             </div>
-            <Stats items={&stats} />
+            <Counts items={&stats} />
             <ol class={Stages} aria-label={p.scope_stages()}>
                 for stage in &journey.stages {
                     <StageItem t={t} p={p} stage={stage} journey={journey} />
@@ -215,16 +236,13 @@ fn JourneyPart<'a>(t: Cat, p: Pilot, journey: &'a Journey) -> impl Render {
     }
 }
 
-/// Counts, as `StatGrid` shows them.
+/// Counts, as `StatGrid` shows them: the kit's `Stats`.
 #[component(css = ScopePage)]
-fn Stats<'a>(items: &'a [(&'a str, usize)]) -> impl Render {
+fn Counts<'a>(items: &'a [(&'a str, usize)]) -> impl Render {
     html! {
-        <dl class={Stats}>
+        <dl class={KitStats { surface: StatsSurface::Cards }}>
             for (label, value) in items {
-                <div class={Stat}>
-                    <dt>{*label}</dt>
-                    <dd>{value.to_string()}</dd>
-                </div>
+                <Stat label={label} value={*value} note="" tone={StatTone::Neutral} />
             }
         </dl>
     }
@@ -480,6 +498,7 @@ fn ProposeDialog<'a>(t: Cat, p: Pilot, action: &'a str, back: Option<&'a (Propos
     let chosen = if input.confidence.is_empty() { "manual" } else { input.confidence.as_str() };
     html! {
         <CatalogDialog
+            p={p}
             id={ScopeProposeDialogId}
             title={t.coverage_propose_mapping()}
             description={None}
@@ -595,9 +614,20 @@ fn JobRow<'a>(t: Cat, job: &'a ReviewJob) -> impl Render {
     } else {
         t.scope_detail_candidate_review_jobs_kind_defer()
     };
-    let progress = t.scope_detail_candidate_review_jobs_progress(job.progress.completed, job.progress.total).to_string();
+    let progress = t
+        .scope_detail_candidate_review_jobs_progress(crate::text::cat::ScopeDetailCandidateReviewJobsProgress {
+            completed: job.progress.completed,
+            total: job.progress.total,
+        })
+        .to_string();
     let counts = job.result.as_ref().map(|r| {
-        t.scope_detail_candidate_review_jobs_counts(r.promoted, r.deferred, r.skipped_not_eligible, r.failed).to_string()
+        t.scope_detail_candidate_review_jobs_counts(crate::text::cat::ScopeDetailCandidateReviewJobsCounts {
+            promoted: r.promoted,
+            deferred: r.deferred,
+            skipped: r.skipped_not_eligible,
+            failed: r.failed,
+        })
+        .to_string()
     });
     let mut items: Vec<&str> = Vec::new();
     for outcome in job.result.iter().flat_map(|r| &r.outcomes) {
@@ -667,7 +697,12 @@ fn review_tone(status: &str) -> Tone {
 fn EditionsPart<'a>(t: Cat, action: &'a str, editions: &'a [Edition], manage: bool) -> impl Render {
     let linked = editions.iter().filter(|e| e.link == Link::Linked).count();
     let pending: usize = editions.iter().map(|e| e.pending.len()).sum();
-    let status = t.scope_detail_language_editions_status(linked, editions.len()).to_string();
+    let status = t
+        .scope_detail_language_editions_status(crate::text::cat::ScopeDetailLanguageEditionsStatus {
+            linked,
+            total: editions.len(),
+        })
+        .to_string();
     let stats = [
         (t.scope_detail_language_editions_stat_editions(), editions.len()),
         (t.scope_detail_language_editions_stat_linked(), linked),
@@ -680,7 +715,7 @@ fn EditionsPart<'a>(t: Cat, action: &'a str, editions: &'a [Edition], manage: bo
                 <TonePill text={&status} tone={if pending > 0 { Tone::Warning } else { Tone::Success }} />
             </div>
             <p class={Muted}>{t.scope_detail_language_editions_description()}</p>
-            <Stats items={&stats} />
+            <Counts items={&stats} />
             for edition in editions {
                 <EditionView t={t} action={action} edition={edition} manage={manage} />
             }
@@ -717,18 +752,183 @@ fn EditionView<'a>(t: Cat, action: &'a str, edition: &'a Edition, manage: bool) 
                 <p class={Muted}>{t.scope_detail_language_editions_empty()}</p>
             } else {
                 for candidate in edition.pending.iter().chain(&edition.accepted) {
-                    <CandidateView t={t} action={action} candidate={candidate} manage={manage} />
+                    <CandidateView t={t} action={action} candidate={candidate} manage={manage} full={false} />
                 }
             }
         </details>
     }
 }
 
-/// A candidate: the alias, its native name, its status and confidence, why a pending one did not
-/// auto-accept, and its commands (off for a viewer who may not write, as admin-web's are).
+/// The all-scopes alias review on the scopes list (admin-web's `CatalogIntegrationAliasReviewWorkspace`
+/// in a `ProgressiveDisclosure`, closed at first): the counts, the coverage, and each candidate
+/// with its commands, posted to `action`; a banner when the review could not be read.
+///
+/// A reviewable (pending) candidate has a box in the bulk bar's form (`form="alias-bulk"`), so the
+/// bar posts the checked ones without JavaScript, and Clear selection is the form's reset. The
+/// bar is always drawn while a candidate is reviewable, where admin-web shows it once one is
+/// checked; with none checked the server answers the failed banner. Reject's reason is required
+/// and the other buttons skip that check (`formnovalidate`); the reason comes first in the form,
+/// so Enter in it rejects rather than accepting.
 #[component(css = ScopePage)]
-fn CandidateView<'a>(t: Cat, action: &'a str, candidate: &'a AliasCandidate, manage: bool) -> impl Render {
+pub fn AliasReviewPart<'a>(
+    t: Cat,
+    p: Pilot,
+    action: &'a str,
+    review: Option<&'a AliasReview>,
+    failed: bool,
+    manage: bool,
+) -> impl Render {
+    let f = AliasCommand::FIELDS;
+    html! {
+        match review {
+            None => {
+                if failed {
+                    <div class={(Banner, Warning, AllScopes)} role="status" data-alias-review="all-scopes">
+                        <p class={BannerTitle}>{t.alias_review_title()}</p>
+                        <p>{t.alias_review_unavailable()}</p>
+                    </div>
+                }
+            }
+            Some(review) => {
+                let counts = &review.counts;
+                let coverage = &review.coverage;
+                let summary = t.alias_all_summary(counts.needs_review).to_string();
+                let count = t.alias_review_count(counts.total).to_string();
+                let metrics = [
+                    (t.alias_metric_needs_review(), counts.needs_review as usize),
+                    (t.alias_metric_auto_accept_eligible(), counts.auto_accept_eligible as usize),
+                    (t.alias_metric_warned(), counts.warned as usize),
+                    (t.alias_metric_accepted(), (counts.accepted + counts.auto_accepted) as usize),
+                ];
+                let covered = [
+                    (t.alias_coverage_accepted_english(), coverage.cards_with_accepted_english_alias as usize),
+                    (t.alias_coverage_species_only(), coverage.cards_with_only_species_aliases as usize),
+                    (t.alias_coverage_cards_needing_review(), coverage.cards_needing_review as usize),
+                    (t.alias_coverage_references_needing_review(), coverage.expansions_and_series_needing_review as usize),
+                ];
+                // The coverage is built from the candidates' targets, so no candidates means none.
+                let pending = if counts.needs_review > 0 { Tone::Warning } else { Tone::Neutral };
+                let status = if counts.needs_review > 0 { Tone::Warning } else { Tone::Success };
+                <details class={(Edition, AllScopes)} data-alias-review="all-scopes">
+                    <summary>
+                        <span class={Stack}>
+                            <strong>{t.alias_all_title()}</strong>
+                            <span class={Muted}>{t.alias_all_description()}</span>
+                        </span>
+                        <TonePill text={&summary} tone={pending} />
+                    </summary>
+                    <div class={Inner}>
+                        <div class={Head}>
+                            <h2 class={PartTitle}>{t.alias_review_title()}</h2>
+                            <TonePill text={&count} tone={status} />
+                        </div>
+                        <p class={Muted}>{t.alias_review_description()}</p>
+                        <Counts items={&metrics} />
+                        <h3 class={SubTitle}>{t.alias_coverage_title()}</h3>
+                        <p class={Muted}>{t.alias_coverage_description()}</p>
+                        if counts.total > 0 {
+                            <Counts items={&covered} />
+                        } else {
+                            <p class={Muted}>{t.alias_coverage_empty()}</p>
+                        }
+                        if review.candidates.iter().any(|c| c.reviewable) {
+                            <form
+                                id={ALIAS_BULK}
+                                class={BulkBar}
+                                method="post"
+                                action={action}
+                                aria-label={p.bulk_label()}
+                                data-alias-review-bulk-actions
+                            >
+                                <div class={(ReasonForm, BulkReject)}>
+                                    <label class={Field}>
+                                        <span class={Label}>{t.alias_bulk_reason()}</span>
+                                        <input type="text" name={f.reason} required disabled={!manage}>
+                                    </label>
+                                    <button
+                                        type="submit"
+                                        class={(Small, Secondary)}
+                                        name={f.intent}
+                                        value="alias.reject"
+                                        disabled={!manage}
+                                    >
+                                        {t.alias_action_reject()}
+                                    </button>
+                                </div>
+                                <div class={Actions}>
+                                    <button
+                                        type="submit"
+                                        class={Small}
+                                        name={f.intent}
+                                        value="alias.accept"
+                                        formnovalidate
+                                        disabled={!manage}
+                                    >
+                                        {t.alias_action_accept()}
+                                    </button>
+                                    if review.candidates.iter().any(|c| c.reviewable && c.auto_accept.eligible) {
+                                        <button
+                                            type="submit"
+                                            class={(Small, Secondary)}
+                                            name={f.intent}
+                                            value={ACCEPT_ELIGIBLE}
+                                            formnovalidate
+                                            disabled={!manage}
+                                        >
+                                            {t.alias_action_auto_accept()}
+                                        </button>
+                                    }
+                                    <button
+                                        type="submit"
+                                        class={(Small, Secondary)}
+                                        name={f.intent}
+                                        value="alias.defer"
+                                        formnovalidate
+                                        disabled={!manage}
+                                    >
+                                        {t.alias_action_defer()}
+                                    </button>
+                                    <button type="reset" class={(Small, Secondary)}>{t.alias_selection_clear()}</button>
+                                </div>
+                            </form>
+                        }
+                        if review.candidates.is_empty() {
+                            <Empty title={t.alias_empty_title()} description={t.alias_empty_description()} />
+                        } else {
+                            for candidate in &review.candidates {
+                                if candidate.reviewable {
+                                    <div class={Picked}>
+                                        <input
+                                            type="checkbox"
+                                            class={PickBox}
+                                            name={f.picked}
+                                            value={&candidate.alias_hash}
+                                            form={ALIAS_BULK}
+                                            aria-label={&p.bulk_select_row(&candidate.proposed_alias).to_string()}
+                                            disabled={!manage}
+                                        >
+                                        <CandidateView t={t} action={action} candidate={candidate} manage={manage} full={true} />
+                                    </div>
+                                } else {
+                                    <CandidateView t={t} action={action} candidate={candidate} manage={manage} full={true} />
+                                }
+                            }
+                        }
+                    </div>
+                </details>
+            }
+        }
+    }
+}
+
+/// A candidate: the alias, its native name, its status and confidence, why a pending one did not
+/// auto-accept, and its commands (off for a viewer who may not write, as admin-web's are). `full`
+/// adds what the all-scopes review's table shows: its type, warnings, source and evidence.
+#[component(css = ScopePage)]
+pub fn CandidateView<'a>(t: Cat, action: &'a str, candidate: &'a AliasCandidate, manage: bool, full: bool) -> impl Render {
     let native = t.scope_detail_language_editions_candidate_native(&candidate.native_printed_name).to_string();
+    let source = format!("{} · {}", candidate.provider_key, candidate.source_category);
+    let evidence = t.alias_evidence_title(&candidate.proposed_alias).to_string();
     let f = AliasCommand::FIELDS;
     html! {
         <div class={Candidate} data-language-edition-candidate={&candidate.alias_hash}>
@@ -736,12 +936,40 @@ fn CandidateView<'a>(t: Cat, action: &'a str, candidate: &'a AliasCandidate, man
                 <span class={Stack}>
                     <strong>{&candidate.proposed_alias}</strong>
                     <span class={Muted}>{&native}</span>
+                    if full && !candidate.provider_key.is_empty() {
+                        <span class={Muted}>{&source}</span>
+                    }
                 </span>
                 <span class={Pills}>
                     <TonePill text={&candidate.review_status} tone={review_tone(&candidate.review_status)} />
                     <TonePill text={&candidate.confidence} tone={Tone::Neutral} />
+                    if full && !candidate.alias_type.is_empty() {
+                        <TonePill text={&candidate.alias_type} tone={Tone::Neutral} />
+                    }
+                    if full && candidate.auto_accept.eligible {
+                        <TonePill text={t.alias_action_auto_accept()} tone={Tone::Info} />
+                    }
+                    if full {
+                        for warning in &candidate.warnings {
+                            <TonePill text={warning_label(t, warning)} tone={Tone::Warning} />
+                        }
+                    }
                 </span>
             </div>
+            if full && !candidate.evidence.is_empty() {
+                <details class={Evidence}>
+                    <summary>{t.alias_evidence_trigger()}</summary>
+                    <p class={Muted}>{&evidence}</p>
+                    <dl>
+                        for line in &candidate.evidence {
+                            <div>
+                                <dt>{&line.label}</dt>
+                                <dd>{&line.value}</dd>
+                            </div>
+                        }
+                    </dl>
+                </details>
+            }
             if candidate.review_status == "pending" {
                 <div class={Reasons}>
                     <p class={Label}>{t.scope_detail_language_editions_candidate_auto_accept()}</p>
@@ -798,6 +1026,20 @@ fn CandidateView<'a>(t: Cat, action: &'a str, candidate: &'a AliasCandidate, man
     }
 }
 
+/// The all-scopes review's bulk bar, which the candidates' boxes join.
+const ALIAS_BULK: &str = "alias-bulk";
+
+/// A candidate's warning (`CatalogAliasReviewWarningKey`); one the pilot does not know is its key.
+fn warning_label(t: Cat, warning: &str) -> &str {
+    match warning {
+        "generated-translation" => t.alias_warning_generated_translation(),
+        "low-confidence-evidence" => t.alias_warning_low_confidence(),
+        "never-official-source" => t.alias_warning_never_official(),
+        "indonesian-id-not-english" => t.alias_warning_indonesian_id(),
+        other => other,
+    }
+}
+
 fn alias_label(t: Cat, intent: &str) -> &'static str {
     match intent {
         "alias.accept" => t.alias_action_accept(),
@@ -833,7 +1075,12 @@ pub fn InboxHeader<'a>(t: Cat, summary: &'a str, tone: InboxTone) -> impl Render
 #[component(css = ScopePage)]
 pub fn InboxRow<'a>(t: Cat, group: &'a crate::catalog::coverage::Group) -> impl Render {
     let review = crate::catalog::coverage::url::CoveragePage { id: &group.scope_record_id, at: Default::default() }.href();
-    let pending = t.inbox_pending_count(group.counts.total, group.counts.high_confidence).to_string();
+    let pending = t
+        .inbox_pending_count(crate::text::cat::InboxPendingCount {
+            total: group.counts.total,
+            high_confidence: group.counts.high_confidence,
+        })
+        .to_string();
     let (status, tone) = if group.is_draft_canonical_record {
         (t.inbox_new_canonical_record(), Tone::Warning)
     } else {
