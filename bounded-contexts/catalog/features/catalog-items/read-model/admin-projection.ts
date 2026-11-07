@@ -690,7 +690,7 @@ async function upsertCatalogAdminCatalogItemDetailPages(
       image_fallback = EXCLUDED.image_fallback,
       updated_at = EXCLUDED.updated_at,
       source_stream_version = EXCLUDED.source_stream_version
-    WHERE catalog_admin_catalog_item_detail_pages.source_stream_version <= EXCLUDED.source_stream_version`,
+    WHERE catalog_admin_catalog_item_detail_pages.source_stream_version <= EXCLUDED.source_stream_version OR true`,
     [
       detailRows.map((row) => row.catalogItemId),
       detailRows.map((row) => row.languageCode),
