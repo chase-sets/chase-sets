@@ -952,17 +952,28 @@ describe("checkout web routes: checkout session loader", () => {
     expect("autoResumePaymentStart" in result).toBe(false);
   });
 
-  // chase-sets/chase-sets#10785: confirm created the orders and cleared the preview, but started no payment.
-  function committedOrdersWithoutPaymentSession() {
+  // https://github.com/chase-sets/chase-sets/issues/10785: confirm created the orders and cleared the preview, but started no payment.
+  function committedOrdersWithoutPaymentSession(overrides: Record<string, unknown> = {}) {
     return {
       ...walletCheckoutSession(),
-      fulfillment_preview_revision: null,
+      fulfillment_preview_revision: "rev_committed",
       fulfillment_preview_snapshot: null,
       order_ids: ["ord_checkout_1", "ord_checkout_2"],
+      last_recorded_quote: fulfillmentPreviewSnapshot({
+        revision: "rev_committed",
+        totals: {
+          itemSubtotalAmount: "30.00",
+          shippingAmount: "5.99",
+          salesTaxAmount: "2.00",
+          totalAmount: "37.99",
+          packageCount: 2,
+        },
+      }),
+      ...overrides,
     };
   }
 
-  it("quotes Pay now from Payments for the orders confirm created once the preview is gone", async () => {
+  function signInBuyerWithWallet() {
     mockResolveActorFromAuthApi.mockResolvedValue({
       accountId: "acc_buyer",
       roleKey: "owner",
@@ -972,76 +983,67 @@ describe("checkout web routes: checkout session loader", () => {
       "fetch",
       vi.fn(async () => Response.json({ available_balance_amount: "5.00", currency_code: "usd" })),
     );
-    mockGetCheckoutSession.mockResolvedValue(committedOrdersWithoutPaymentSession());
-    mockGetCheckoutStatus.mockResolvedValue({
-      order_ids: ["ord_checkout_1", "ord_checkout_2"],
-      amount: "37.99",
-      currency_code: "usd",
-      marketplace_checkout_fee: {
-        payment_method_category: "card",
-        marketplace_checkout_fee_amount: "1.30",
-        total_amount: "34.29",
-        quote_fingerprint: "marketplace-checkout-fee-v1|card|37.99|5.00|32.99|1.30|34.29|34.29",
-      },
-      payment_method_quotes: [{ payment_method_category: "card", total_amount: "34.29" }],
-      wallet_credit: { requested_amount: "5.00", applied_amount: "5.00", external_amount: "32.99" },
-      can_start_payment: true,
-      unavailable_reasons: [],
-      unavailable_reason_details: [],
-    });
     mockCreateCheckoutRequestApiClient.mockReturnValue({ getCheckoutSession: mockGetCheckoutSession });
     mockCreatePaymentsRequestApiClient.mockReturnValue({
       getCheckoutStatus: mockGetCheckoutStatus,
       previewCheckoutStatus: mockPreviewCheckoutStatus,
     });
+  }
 
-    const result = await checkoutSessionLoader({
+  function loadCommittedOrderCheckout() {
+    return checkoutSessionLoader({
       request: new Request("http://localhost/checkout/buy/session/chk_wallet?paymentMethodCategory=card"),
       params: { sessionId: "chk_wallet" },
       context: undefined,
     } as never);
+  }
 
-    expect(mockGetCheckoutStatus).toHaveBeenCalledWith({
-      orderIds: ["ord_checkout_1", "ord_checkout_2"],
-      currencyCode: "usd",
-      requestedBalanceCreditAmount: "5.00",
-      paymentMethodCategory: "card",
-    });
-    expect(mockPreviewCheckoutStatus).not.toHaveBeenCalled();
+  it("quotes Pay now from the quote the orders confirm created were bound to once the preview is gone", async () => {
+    signInBuyerWithWallet();
+    mockGetCheckoutSession.mockResolvedValue(committedOrdersWithoutPaymentSession());
+
+    const result = await loadCommittedOrderCheckout();
+
     expect(result.previewError).toBeNull();
-    expect(result.paymentPreview?.marketplace_checkout_fee.quote_fingerprint).toBe(
-      "marketplace-checkout-fee-v1|card|37.99|5.00|32.99|1.30|34.29|34.29",
+    expect(result.paymentPreview).toMatchObject({
+      order_ids: ["ord_checkout_1", "ord_checkout_2"],
+      currency_code: "usd",
+      amount: "37.99",
+      wallet_credit: { requested_amount: "5.00", applied_amount: "5.00", external_amount: "32.99" },
+      can_start_payment: true,
+      marketplace_checkout_fee: { payment_method_category: "card" },
+    });
+  });
+
+  it("reads no other context to quote the orders confirm created", async () => {
+    signInBuyerWithWallet();
+    mockGetCheckoutSession.mockResolvedValue(committedOrdersWithoutPaymentSession());
+
+    await loadCommittedOrderCheckout();
+
+    expect(mockCreatePaymentsRequestApiClient).not.toHaveBeenCalled();
+    expect(mockGetCheckoutStatus).not.toHaveBeenCalled();
+    expect(mockPreviewCheckoutStatus).not.toHaveBeenCalled();
+    expect(readFileSync(new URL("./checkout-session.tsx", import.meta.url), "utf8")).not.toMatch(
+      /createPaymentsRequestApiClient|getCheckoutStatus/,
     );
   });
 
-  it("keeps the totals notice when Payments cannot quote the orders confirm created yet", async () => {
-    mockResolveActorFromAuthApi.mockResolvedValue({
-      accountId: "acc_buyer",
-      roleKey: "owner",
-      permissions: ["orders.view", "orders.manage", "payouts.view"],
-    });
-    stubValidatedZeroWallet();
-    mockGetCheckoutSession.mockResolvedValue(committedOrdersWithoutPaymentSession());
-    mockGetCheckoutStatus.mockRejectedValue(
-      new MockPaymentsApiError(400, { error: { code: "order_input_not_ready", message: "Not ready." } }),
-    );
-    mockCreateCheckoutRequestApiClient.mockReturnValue({ getCheckoutSession: mockGetCheckoutSession });
-    mockCreatePaymentsRequestApiClient.mockReturnValue({
-      getCheckoutStatus: mockGetCheckoutStatus,
-      previewCheckoutStatus: mockPreviewCheckoutStatus,
-    });
+  it.each([
+    ["was recorded for another revision", { fulfillment_preview_revision: "rev_other" }],
+    ["is missing", { last_recorded_quote: null }],
+    ["is absent from the read", { last_recorded_quote: undefined }],
+    ["has no revision the orders kept, as before this change", { fulfillment_preview_revision: null }],
+  ])("keeps the totals notice and no Pay now quote when the session's quote %s", async (_case, overrides) => {
+    signInBuyerWithWallet();
+    mockGetCheckoutSession.mockResolvedValue(committedOrdersWithoutPaymentSession(overrides));
 
-    const result = await checkoutSessionLoader({
-      request: new Request("http://localhost/checkout/buy/session/chk_wallet"),
-      params: { sessionId: "chk_wallet" },
-      context: undefined,
-    } as never);
+    const result = await loadCommittedOrderCheckout();
 
-    expect(mockGetCheckoutStatus).toHaveBeenCalledTimes(1);
     expect(result.paymentPreview).toBeNull();
     expect(result.previewError).toBe("Checkout totals are temporarily unavailable. Refresh before confirming payment.");
+    expect(mockCreatePaymentsRequestApiClient).not.toHaveBeenCalled();
   });
-
   it("arms signed-in payment-start resume from stored order freshness after compact recovery token is gone", async () => {
     mockResolveActorFromAuthApi.mockResolvedValue({
       accountId: "acc_buyer",

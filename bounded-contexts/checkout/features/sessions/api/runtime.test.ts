@@ -3874,4 +3874,82 @@ describe("checkout session last recorded quote", () => {
     );
     await expect(services.getLastRecordedQuote(offer.sessionId, accountId)).resolves.toBeNull();
   });
+
+  describe("a session whose orders wait for payment", () => {
+    const orderedSessionId = "chk_ordered_quote";
+    // Started with Q1 and address set, as recorded above, then confirm's orders bound to Q1's revision.
+    const ordersCreated = {
+      type: "checkout.session.orders-created",
+      data: {
+        sessionId: orderedSessionId as never,
+        orderIds: ["ord_1"] as never,
+        orderWriteCommitPositions: [],
+        fulfillmentPreviewRevision: "rev_q1",
+        recordedAt: "2026-10-16T00:01:30.000Z",
+      },
+    } satisfies CheckoutSessionEvent;
+    const orderedStream = [...recordedStream.slice(0, 2), ordersCreated];
+
+    async function runtimeWithProjectedOrders(projected: Partial<CheckoutSessionRow>) {
+      const { eventStore } = createInMemoryEventStore();
+      await eventStore.appendToStream({
+        streamId: `checkout.session-${orderedSessionId}`,
+        expectedVersion: "no_stream",
+        context,
+        events: orderedStream.map((event) => ({
+          eventType: event.type,
+          payload: { ...event.data, sessionId: orderedSessionId } as never,
+        })),
+      });
+      const readStream = vi.spyOn(eventStore, "readStream");
+      const db = {
+        query: vi.fn(async (sql: string) => ({
+          rows: sql.includes("checkout_session_pages")
+            ? [
+                createSessionPageRow(null, {
+                  session_id: orderedSessionId,
+                  source_type: "buy-now",
+                  fulfillment_preview_revision: "rev_q1",
+                  shipping_address_id: serviceableShippingAddress.shippingAddressId,
+                  shipping_address: serviceableShippingAddress,
+                  order_ids: ["ord_1"],
+                  ...projected,
+                }),
+              ]
+            : [],
+        })),
+      };
+      const services = createCheckoutSessionRuntime({
+        eventStore,
+        checkpointStore: createCheckpointStore(),
+        db,
+        cart: createCartServices() as never,
+      });
+      const sessionStreamReads = () =>
+        readStream.mock.calls.filter(([input]) => input.streamId === `checkout.session-${orderedSessionId}`).length;
+      return { services, sessionStreamReads };
+    }
+
+    it("carries the quote its aggregate recorded, at the cost of one stream read", async () => {
+      const { services, sessionStreamReads } = await runtimeWithProjectedOrders({});
+
+      await expect(services.getSession(orderedSessionId, "acc_buyer")).resolves.toMatchObject({
+        order_ids: ["ord_1"],
+        payment_id: null,
+        fulfillment_preview_revision: "rev_q1",
+        last_recorded_quote: q1,
+      });
+      expect(sessionStreamReads()).toBe(1);
+    });
+
+    it("carries no quote and reads no stream once its payment has started", async () => {
+      const { services, sessionStreamReads } = await runtimeWithProjectedOrders({ payment_id: "pay_1" });
+
+      const session = await services.getSession(orderedSessionId, "acc_buyer");
+
+      expect(session).toMatchObject({ payment_id: "pay_1" });
+      expect(session).not.toHaveProperty("last_recorded_quote");
+      expect(sessionStreamReads()).toBe(0);
+    });
+  });
 });

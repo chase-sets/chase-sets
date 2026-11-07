@@ -50,11 +50,7 @@ import {
   isCheckoutRecovery,
 } from "../features/sessions/api/checkout-recovery";
 import { createIdentityRequestApiClient } from "@chase-sets/identity/server";
-import {
-  createPaymentsRequestApiClient,
-  type PaymentElementDefaultValues,
-  type PaymentsSavedCheckoutInstrument,
-} from "@chase-sets/payments/server";
+import { type PaymentElementDefaultValues, type PaymentsSavedCheckoutInstrument } from "@chase-sets/payments/server";
 import { StripeConfirmationCard } from "@chase-sets/payments/web";
 import { checkoutSessionSourceCreatesOrders } from "@chase-sets/checkout-order-source";
 import { normalizeRequestedBalanceCreditAmount } from "../support/request-support/balance-credit";
@@ -736,31 +732,40 @@ function loadPaymentPreview(
 
 /**
  * Once confirm has created the orders, Checkout clears the session's fulfillment
- * preview, so the payment is quoted by Payments for those orders, as the order's
- * own Pay now page quotes it. A repeat confirm then starts the payment at that
- * quote. Null while Payments cannot quote them yet, which keeps the totals notice.
+ * preview. The orders keep the preview revision they were bound to, and the session
+ * keeps the quote it last recorded, so Pay now is quoted from that quote when the
+ * two revisions match, the same way the pre-order path quotes the live preview. A
+ * repeat confirm then starts the payment at that quote; Payments still checks its
+ * fingerprint. A missing quote or another revision gives no quote, which keeps the
+ * totals notice. Checkout reads no other context here.
  */
-async function loadCommittedOrderPaymentPreview(
-  request: Request,
+function loadCommittedOrderPaymentPreview(
   actor: Awaited<ReturnType<typeof resolveActorFromAuthApi>>,
-  session: Readonly<{ payment_id: string | null; order_ids: readonly string[] }>,
+  session: Readonly<{
+    payment_id: string | null;
+    order_ids: readonly string[];
+    fulfillment_preview_revision: string | null;
+    last_recorded_quote?: CheckoutFulfillmentPreview | null;
+  }>,
   wallet: WalletRead | null,
   paymentMethodCategory: string,
-): Promise<CheckoutPaymentPreviewStatus | null> {
+): CheckoutPaymentPreviewStatus | null {
   if (!actor || session.payment_id || session.order_ids.length === 0 || wallet?.status === "unavailable") {
     return null;
   }
 
-  try {
-    return await createPaymentsRequestApiClient(request).getCheckoutStatus({
-      orderIds: session.order_ids,
-      currencyCode: wallet?.status === "available" ? wallet.balance.currency_code : "usd",
-      requestedBalanceCreditAmount: wallet?.status === "available" ? wallet.balance.available_balance_amount : "0.00",
-      paymentMethodCategory,
-    });
-  } catch {
+  const quote = session.last_recorded_quote ?? null;
+  if (!quote || !session.fulfillment_preview_revision || quote.revision !== session.fulfillment_preview_revision) {
     return null;
   }
+
+  return buildCheckoutPaymentPreviewStatus({
+    orderIds: session.order_ids,
+    amount: quote.totals.totalAmount,
+    currencyCode: wallet?.status === "available" ? wallet.balance.currency_code : "usd",
+    requestedBalanceCreditAmount: wallet?.status === "available" ? wallet.balance.available_balance_amount : "0.00",
+    paymentMethodCategory,
+  });
 }
 
 function reloadForRealtimeSync() {
@@ -846,7 +851,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
   const committedOrderPaymentPreview =
     expiredCheckout || fulfillmentPreview
       ? null
-      : await loadCommittedOrderPaymentPreview(ancillaryRequest, actor, session, wallet, selectedPaymentMethodCategory);
+      : loadCommittedOrderPaymentPreview(actor, session, wallet, selectedPaymentMethodCategory);
   const previewError = committedOrderPaymentPreview ? null : loadedFulfillmentPreview.previewError;
   const paymentPreview = expiredCheckout
     ? null

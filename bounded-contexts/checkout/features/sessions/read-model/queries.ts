@@ -33,6 +33,13 @@ export type CheckoutSessionRow = Readonly<{
   created_at: string;
   handoff_expires_at: string | null;
   updated_at: string;
+  /**
+   * The Session's last recorded quote, read from its aggregate. Present only while
+   * its orders exist and no payment has started, after confirm's address write
+   * cleared the live preview; the loader uses it only when its revision is the one
+   * the orders kept.
+   */
+  last_recorded_quote?: CheckoutFulfillmentPreview | null;
 }>;
 
 type CheckoutSessionPageRow = Omit<

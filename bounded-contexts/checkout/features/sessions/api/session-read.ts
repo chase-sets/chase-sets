@@ -80,6 +80,20 @@ function sessionPageIsBehindCommittedAggregate(
   return false;
 }
 
+/**
+ * Confirm's address write clears the live preview, so a Session whose orders wait
+ * for payment carries the quote it last recorded, read from its own aggregate. This
+ * costs one stream load in that window and reads no other context.
+ */
+async function withCommittedOrderQuote(
+  session: CheckoutSessionRow,
+  loadState: () => Promise<CheckoutSessionState | null>,
+): Promise<CheckoutSessionRow> {
+  if (session.order_ids.length === 0 || session.payment_id || session.submitted_offer_id) return session;
+  const state = await loadState();
+  return { ...session, last_recorded_quote: state?.lastRecordedQuote ?? null };
+}
+
 function readinessStaleError(code = "readiness_snapshot_stale") {
   return new CheckoutDomainError("Cart readiness changed. Review your cart before checkout.", code);
 }
@@ -225,11 +239,14 @@ export function createCheckoutSessionReadServices(
           ? await deps.loadSessionStateForBuyerOrNull(sessionId, accountId)
           : null;
       const aggregateSession = aggregateState ? stateToCheckoutSessionRow(aggregateState) : null;
-      const session =
+      const readSession =
         projectedSession && !sessionPageIsBehindCommittedAggregate(projectedSession, aggregateSession)
           ? projectedSession
           : aggregateSession;
-      if (!session) return null;
+      if (!readSession) return null;
+      const session = await withCommittedOrderQuote(readSession, () =>
+        aggregateState ? Promise.resolve(aggregateState) : deps.loadSessionStateForBuyerOrNull(sessionId, accountId),
+      );
       if (session.source_type !== "cart") return session;
       await assertCurrentCartReadinessForUncommittedSession(
         {
