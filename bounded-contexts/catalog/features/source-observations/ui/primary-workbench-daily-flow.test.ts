@@ -88,6 +88,12 @@ describe("Catalog primary workbench daily flow", () => {
         promotionPreview: { ...base.promotionPreview, previewId: "preview_1" },
       }).openStage,
     ).toBe("create-items");
+    expect(
+      catalogPrimaryWorkbenchDailyFlowFor({
+        ...base,
+        promotionResult: {} as NonNullable<CatalogPrimaryWorkbenchReadModel["promotionResult"]>,
+      }).openStage,
+    ).toBe("create-items");
   });
 
   it("blocks Run sync on a readiness blocker and Create on a promotion blocker, and marks the rest", () => {
@@ -111,10 +117,10 @@ describe("Catalog primary workbench daily flow", () => {
       promotionPreview: { ...synced.promotionPreview, blockers: [] },
     });
     expect(flow.openStage).toBe("review-changes");
-    expect(flow.stages.map((stage) => [stage.key, stage.done, stage.state])).toEqual([
-      ["run-sync", true, "complete"],
-      ["review-changes", true, "current"],
-      ["create-items", false, "upcoming"],
+    expect(flow.stages.map((stage) => [stage.key, stage.state])).toEqual([
+      ["run-sync", "complete"],
+      ["review-changes", "current"],
+      ["create-items", "upcoming"],
     ]);
   });
 
@@ -125,6 +131,23 @@ describe("Catalog primary workbench daily flow", () => {
     expect(catalogPrimaryWorkbenchFlowStageState(stage, "create-items")).toBe("complete");
     expect(catalogPrimaryWorkbenchFlowStageState({ ...stage, done: true }, "run-sync")).toBe("complete");
     expect(catalogPrimaryWorkbenchFlowStageState({ ...stage, blocked: true }, "review-changes")).toBe("blocked");
+  });
+
+  it.each(["readiness", "promotion"] as const)("blocks only the %s stage for isolated blockers", (kind) => {
+    const base = nothingToReview(dailyReadModel("providerKey=tcgdex"));
+    const model = {
+      ...base,
+      readiness: { ...base.readiness, blockers: kind === "readiness" ? ["rbac-missing" as const] : [] },
+      promotionPreview: { ...base.promotionPreview, blockers: kind === "promotion" ? ["rbac-missing" as const] : [] },
+    };
+    const flow = catalogPrimaryWorkbenchDailyFlowFor(model);
+    for (const selected of ["run-sync", "review-changes", "create-items"] as const) {
+      expect(
+        flow.stagesByOpenStage[selected].filter((stage) => stage.state === "blocked").map((stage) => stage.key),
+      ).toEqual([kind === "readiness" ? "run-sync" : "create-items"]);
+    }
+    expect(flow.stages).toEqual(flow.stagesByOpenStage[flow.openStage]);
+    expect(flow.stages.every((stage) => !("blocked" in stage) && !("done" in stage))).toBe(true);
   });
 
   it("publishes the flow on the read model", () => {
@@ -156,6 +179,19 @@ describe("Catalog primary workbench daily status", () => {
   it("says denied for RBAC, a denied action or a denial blocker, before stopped", () => {
     const nominalActions = nominal.actions.map((action) => ({ ...action, state: "available" as const }));
     const quiet = { ...nominal, actions: nominalActions };
+    for (const blocker of ["permission-denied", "authorization-denied", "rbac-missing"] as const) {
+      expect(status(withReadiness(quiet, { blockers: [blocker], rolloutEnabled: false })).governance).toBe("denied");
+      expect(
+        status({ ...quiet, promotionPreview: { ...quiet.promotionPreview, blockers: [blocker, "rollout-disabled"] } })
+          .governance,
+      ).toBe("denied");
+    }
+    for (const blocker of ["rollout-disabled", "kill-switch-active"] as const) {
+      expect(status(withReadiness(quiet, { blockers: [blocker] })).governance).toBe("stopped");
+      expect(
+        status({ ...quiet, promotionPreview: { ...quiet.promotionPreview, blockers: [blocker] } }).governance,
+      ).toBe("stopped");
+    }
     expect(status(withReadiness(quiet, { rbacAllowed: false, rolloutEnabled: false })).governance).toBe("denied");
     expect(
       status({ ...quiet, actions: [{ ...nominalActions[0]!, state: "denied" as const }, ...nominalActions.slice(1)] })

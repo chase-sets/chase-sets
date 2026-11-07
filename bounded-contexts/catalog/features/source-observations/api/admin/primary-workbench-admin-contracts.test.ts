@@ -1287,7 +1287,11 @@ describe("Catalog primary workbench admin contracts", () => {
           { key: "status", label: "Status", value: "changed", serverApplied: true },
         ],
         savedFilters,
-        statusFilters: [{ value: "all", count: 1, href: "/catalog/integrations?providerKey=tcgdex" }],
+        statusFilters: (["all", "observed", "eligible", "promoted", "rejected"] as const).map((value) => ({
+          value,
+          count: 1,
+          href: "/catalog/integrations?providerKey=tcgdex",
+        })),
         pagination: {
           mode: "offset",
           limit: 25,
@@ -1574,11 +1578,12 @@ describe("Catalog primary workbench admin contracts", () => {
         },
       ],
       flow: {
+        ...dailyFlowFixture(),
         openStage: "review-changes",
         stages: [
-          { key: "run-sync", blocked: false, done: true, state: "complete" },
-          { key: "review-changes", blocked: false, done: false, state: "current" },
-          { key: "create-items", blocked: false, done: false, state: "upcoming" },
+          { key: "run-sync", state: "complete" },
+          { key: "review-changes", state: "current" },
+          { key: "create-items", state: "upcoming" },
         ],
       },
       dailyStatus: { governance: null, health: "degraded" },
@@ -1618,6 +1623,78 @@ describe("Catalog primary workbench admin contracts", () => {
         unsafeObservabilityLinkModel as unknown as CatalogPrimaryWorkbenchReadModel,
       ),
     ).toThrow("Primary workbench governance alert and runbook links must target approved observability.");
+  });
+
+  it("rejects missing or malformed daily answers and unsafe review links without fallback", () => {
+    const base = minimalWorkbenchComposite();
+    for (const flow of [
+      undefined,
+      { ...base.flow, openStage: "legacy" },
+      { ...base.flow, stagesByOpenStage: {} },
+      { ...base.flow, stages: [{ key: "run-sync", state: "legacy" }] },
+    ]) {
+      expect(() =>
+        validateCatalogPrimaryWorkbenchReadModelContract({
+          ...base,
+          flow,
+        } as unknown as CatalogPrimaryWorkbenchReadModel),
+      ).toThrow("Primary workbench daily flow answers must be complete and valid.");
+    }
+    for (const dailyStatus of [
+      undefined,
+      { governance: "allowed", health: null },
+      { governance: null, health: "fresh" },
+    ]) {
+      expect(() =>
+        validateCatalogPrimaryWorkbenchReadModelContract({
+          ...base,
+          dailyStatus,
+        } as unknown as CatalogPrimaryWorkbenchReadModel),
+      ).toThrow("Primary workbench daily status answers must be complete and valid.");
+    }
+    for (const href of [
+      "//evil.example/catalog/integrations",
+      "https://evil.example/catalog/integrations",
+      "javascript:alert(1)",
+    ]) {
+      const sourceObservationReview = {
+        ...base.sourceObservationReview,
+        statusFilters: base.sourceObservationReview!.statusFilters.map((filter) => ({ ...filter, href })),
+      };
+      expect(() =>
+        validateCatalogPrimaryWorkbenchReadModelContract({
+          ...base,
+          sourceObservationReview,
+        } as CatalogPrimaryWorkbenchReadModel),
+      ).toThrow("Primary workbench review navigation answers must be complete and safe.");
+    }
+    for (const sourceObservationReview of [
+      undefined,
+      { ...base.sourceObservationReview, statusFilters: [] },
+      {
+        ...base.sourceObservationReview,
+        statusFilters: base.sourceObservationReview!.statusFilters.map((filter) => ({ ...filter, value: "legacy" })),
+      },
+      {
+        ...base.sourceObservationReview,
+        pagination: { ...base.sourceObservationReview!.pagination, nextCursor: "offset:25", nextHref: null },
+      },
+      {
+        ...base.sourceObservationReview,
+        pagination: {
+          ...base.sourceObservationReview!.pagination,
+          nextCursor: "offset:25",
+          nextHref: "//evil.example/catalog/integrations",
+        },
+      },
+    ]) {
+      expect(() =>
+        validateCatalogPrimaryWorkbenchReadModelContract({
+          ...base,
+          sourceObservationReview,
+        } as unknown as CatalogPrimaryWorkbenchReadModel),
+      ).toThrow("Primary workbench review navigation answers must be complete and safe.");
+    }
   });
 
   it("workbench exported symbol and validator ownership is complete", () => {
@@ -1691,7 +1768,7 @@ describe("Catalog primary workbench admin contracts", () => {
       }
     }
     expect(thrownMessages).toEqual(baselineThrownMessages);
-    expect(Object.values(baselineThrownMessages).flat()).toHaveLength(174);
+    expect(Object.values(baselineThrownMessages).flat()).toHaveLength(177);
     expect(Object.values(baselineThrownMessages).filter((messages) => messages.length > 0)).toHaveLength(19);
 
     // The base composite omits only the optional promotion result, which the composer accepts.
@@ -2877,9 +2954,34 @@ const omittedFamilyControls: readonly OmissionControl[] = [
 ];
 
 // The smallest composite every family validator accepts: fixtures where they exist, empty collections elsewhere.
+function dailyFlowFixture(): CatalogPrimaryWorkbenchReadModel["flow"] {
+  const stages: CatalogPrimaryWorkbenchReadModel["flow"]["stages"] = [
+    { key: "run-sync", state: "complete" },
+    { key: "review-changes", state: "current" },
+    { key: "create-items", state: "upcoming" },
+  ];
+  return {
+    openStage: "review-changes",
+    openStageWithHeldPreview: "create-items",
+    stages,
+    stagesByOpenStage: { "run-sync": stages, "review-changes": stages, "create-items": stages },
+  };
+}
+
 function minimalWorkbenchComposite(): Partial<CatalogPrimaryWorkbenchReadModel> {
   const composite = {
     schemaVersion: catalogPrimaryWorkbenchContractVersion,
+    flow: dailyFlowFixture(),
+    dailyStatus: { governance: null, health: null },
+    sourceObservationReview: {
+      rows: [],
+      statusFilters: ["all", "observed", "eligible", "promoted", "rejected"].map((value) => ({
+        value,
+        count: 0,
+        href: "/catalog/integrations",
+      })),
+      pagination: { previousCursor: null, nextCursor: null, previousHref: null, nextHref: null },
+    },
     routeContext: {
       section: "import-to-promotion",
       selectedObservationIds: [],
@@ -3384,6 +3486,9 @@ const baselineThrownMessages: Readonly<Record<string, readonly string[]>> = {
     "Primary workbench deploy-skew policy is required.",
     "Primary workbench deploy-skew policy is unsupported and must fail closed.",
     "Primary workbench instrumentation must be redaction-safe.",
+    "Primary workbench daily flow answers must be complete and valid.",
+    "Primary workbench daily status answers must be complete and valid.",
+    "Primary workbench review navigation answers must be complete and safe.",
   ],
   validatePrimaryWorkbenchRouteContext: [
     "Primary workbench route context section must be a rebuilt workspace or primary section key.",

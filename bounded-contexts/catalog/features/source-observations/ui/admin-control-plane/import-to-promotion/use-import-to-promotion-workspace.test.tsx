@@ -87,6 +87,20 @@ describe("useImportToPromotionWorkspace — stage reconciliation with server tru
     expect(latest.activeStage).toBe("run-sync");
   });
 
+  it("uses only the effective API open stage and preserves a manual choice across unchanged answers", () => {
+    const base = readModel();
+    const sentinel = { ...base, flow: { ...base.flow, openStage: "create-items" as const } };
+    const { rerender } = render(<Probe model={sentinel} />);
+    expect(latest.activeStage).toBe("create-items");
+    act(() => latest.setActiveStage("review-changes"));
+    rerender(
+      <Probe model={{ ...sentinel, promotionPreview: { ...sentinel.promotionPreview, previewId: "contrary" } }} />,
+    );
+    expect(latest.activeStage).toBe("review-changes");
+    rerender(<Probe model={{ ...base, flow: { ...base.flow, openStage: "run-sync" } }} />);
+    expect(latest.activeStage).toBe("run-sync");
+  });
+
   it("derives the review stage when there are changes to review", () => {
     render(
       <Probe model={readModel({ review: { rows: [reviewRow("obs_1")], counts: { observed: 1, changed: 1 } } })} />,

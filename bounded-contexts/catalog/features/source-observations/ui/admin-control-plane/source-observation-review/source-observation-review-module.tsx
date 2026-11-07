@@ -447,12 +447,9 @@ function SourceObservationRejectPanel({
 }
 
 // GET-navigation pager for the Source Observation review queue. The daily surface
-// is loader-driven, so each page is a full navigation: building the prev/next
-// hrefs from the current routeContext (only overriding reviewOffset) preserves
-// provider/unit/scope/filters AND the current selection (selectedObservationIds)
-// across pages, and the loader re-reads the offset to fetch that page. Prev/next
-// render only when a page exists in that direction, so the boundaries are dead
-// ends by absence rather than disabled controls.
+// is loader-driven, so each API-provided href is a full GET navigation. Embeds
+// replace only its pathname; the API's provider/scope/filter/selection query is
+// preserved. Cursor-gated links are absent at the queue boundaries.
 function SourceObservationReviewPager({ readModel }: { readModel: CatalogPrimaryWorkbenchReadModel }) {
   const { limit, offset, total, previousHref, nextHref } = readModel.sourceObservationReview.pagination;
   const rebase = useCatalogIntegrationHrefRebase();

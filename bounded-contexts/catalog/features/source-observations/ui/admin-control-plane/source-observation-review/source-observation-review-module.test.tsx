@@ -14,6 +14,7 @@ import {
 import { loader as loadSourceObservationEvidence } from "../../../../../routes/admin/integrations-observation-evidence";
 import { ApiError } from "../../../../../support/shell-support/api/client";
 import { loader as loadDailySurface } from "../../../../../routes/admin/integrations";
+import { CatalogIntegrationCommandActionProvider } from "../import-to-promotion/command-action-context";
 
 const { createApi } = vi.hoisted(() => ({ createApi: vi.fn() }));
 vi.mock("../../../../../support/request-support/api-client", async () => {
@@ -256,6 +257,70 @@ async function selectStatus(router: ReturnType<typeof createMemoryRouter>, label
 }
 
 describe("Source Observation status navigation through the daily loader", () => {
+  it.each(["/catalog/scopes/sentinel", "/catalog/providers/sentinel"])(
+    "uses API href sentinels in the real review embedded on %s",
+    async (actionPath) => {
+      const base = buildCatalogPrimaryWorkbenchReadModelForSurface("daily", {
+        requestUrl: "https://admin.example/catalog/integrations",
+        scopes: { items: [], total: 0, count: 0 },
+        profileReviews: { items: [], total: 0, count: 0 },
+        controlPlaneOverview: null,
+        canManageCatalog: true,
+      });
+      const pagerQuery = "?section=source-observation-review&sentinel=pager%20query&reviewOffset=50";
+      const statusQuery = "?sentinel=status+query&filter.status=eligible";
+      const readModel = {
+        ...base,
+        sourceObservationReview: {
+          ...base.sourceObservationReview,
+          pagination: {
+            ...base.sourceObservationReview.pagination,
+            limit: 25,
+            offset: 25,
+            total: 75,
+            previousCursor: "offset:0",
+            nextCursor: "offset:50",
+            previousHref: `/catalog/integrations${pagerQuery}&direction=previous`,
+            nextHref: `/catalog/integrations${pagerQuery}`,
+          },
+          statusFilters: base.sourceObservationReview.statusFilters.map((filter) => ({
+            ...filter,
+            href: `/catalog/integrations${statusQuery}`,
+          })),
+        },
+      };
+      const router = createMemoryRouter(
+        [
+          {
+            path: actionPath,
+            loader: () => ({ readModel }),
+            element: (
+              <CatalogIntegrationCommandActionProvider actionPath={actionPath}>
+                <LoadedReview />
+              </CatalogIntegrationCommandActionProvider>
+            ),
+          },
+        ],
+        { initialEntries: [actionPath] },
+      );
+      render(
+        <ChaseRoot linkComponent={RouterLinkAdapter}>
+          <RouterProvider router={router} />
+        </ChaseRoot>,
+      );
+      await screen.findByRole("radio", { name: /^Eligible/ });
+      expect(document.querySelector('a[rel="next"]')?.getAttribute("href")).toBe(`${actionPath}${pagerQuery}`);
+      expect(document.querySelector('a[rel="prev"]')?.getAttribute("href")).toBe(
+        `${actionPath}${pagerQuery}&direction=previous`,
+      );
+      fireEvent.click(screen.getByRole("radio", { name: /^Eligible/ }));
+      await waitFor(() => expect(router.state.location.search).toBe(statusQuery));
+      expect(router.state.location.pathname).toBe(actionPath);
+      expect(router.state.preventScrollReset).toBe(true);
+      router.dispose();
+    },
+  );
+
   it("defaults to All and keeps every status, count, scope and reset offset through reload and history", async () => {
     const list = mockReviewApi();
     const { router, view } = renderLoadedReview(`${selectedScopeUrl}&reviewOffset=25`);

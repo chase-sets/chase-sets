@@ -2,7 +2,6 @@ import { useMemo } from "react";
 import { PageStepper, type PageStepperItem } from "@chase-sets/design-system";
 import { t } from "@chase-sets/localization";
 import type { CatalogPrimaryWorkbenchReadModel } from "../../../api/primary-workbench-admin-contracts";
-import { catalogPrimaryWorkbenchFlowStageState } from "../../primary-workbench-daily-flow";
 import type { ImportToPromotionStageKey } from "./use-import-to-promotion-workspace";
 
 export type PrimaryWorkbenchStageDescriptor = Readonly<{
@@ -55,12 +54,9 @@ export function buildFlowStages(
     },
   };
 
-  return readModel.flow.stages.map((stage) => ({
+  return readModel.flow.stagesByOpenStage[activeStage].map((stage) => ({
     ...descriptors[stage.key],
-    status:
-      activeStage === readModel.flow.openStage
-        ? stage.state
-        : catalogPrimaryWorkbenchFlowStageState(stage, activeStage),
+    status: stage.state,
   }));
 }
 

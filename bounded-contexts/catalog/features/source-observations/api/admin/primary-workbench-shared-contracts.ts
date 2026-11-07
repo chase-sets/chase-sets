@@ -181,16 +181,21 @@ export type CatalogPrimaryWorkbenchFlowStageKey = "run-sync" | "review-changes" 
 
 export type CatalogPrimaryWorkbenchFlowStageState = "blocked" | "current" | "complete" | "upcoming";
 
-// Each stage's facts and its state with `openStage` open. `openStage` is the
-// route section's stage, else the first stage that still has work. A client
-// that lets the operator open another stage derives the states for it with
-// `catalogPrimaryWorkbenchFlowStageState` from `blocked` and `done`.
+// All local selections use API-computed states; the browser selects and localizes.
 export type CatalogPrimaryWorkbenchFlowReadModel = Readonly<{
   openStage: CatalogPrimaryWorkbenchFlowStageKey;
+  openStageWithHeldPreview: CatalogPrimaryWorkbenchFlowStageKey;
+  stagesByOpenStage: Readonly<
+    Record<
+      CatalogPrimaryWorkbenchFlowStageKey,
+      readonly Readonly<{
+        key: CatalogPrimaryWorkbenchFlowStageKey;
+        state: CatalogPrimaryWorkbenchFlowStageState;
+      }>[]
+    >
+  >;
   stages: readonly Readonly<{
     key: CatalogPrimaryWorkbenchFlowStageKey;
-    blocked: boolean;
-    done: boolean;
     state: CatalogPrimaryWorkbenchFlowStageState;
   }>[];
 }>;

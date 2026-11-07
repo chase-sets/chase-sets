@@ -38,12 +38,21 @@ export function catalogPrimaryWorkbenchDailyFlowFor(input: DailyFlowInput): Cata
     "create-items": createDone,
   };
 
+  const stagesFor = (selected: CatalogPrimaryWorkbenchFlowStageKey) =>
+    flowStageOrder.map((key) => ({
+      key,
+      state: catalogPrimaryWorkbenchFlowStageState({ key, blocked: blocked[key], done: done[key] }, selected),
+    }));
+  const stagesByOpenStage = {
+    "run-sync": stagesFor("run-sync"),
+    "review-changes": stagesFor("review-changes"),
+    "create-items": stagesFor("create-items"),
+  };
   return {
     openStage,
-    stages: flowStageOrder.map((key) => {
-      const facts = { key, blocked: blocked[key], done: done[key] };
-      return { ...facts, state: catalogPrimaryWorkbenchFlowStageState(facts, openStage) };
-    }),
+    openStageWithHeldPreview: routeSectionStage(input) ?? "create-items",
+    stagesByOpenStage,
+    stages: stagesByOpenStage[openStage],
   };
 }
 

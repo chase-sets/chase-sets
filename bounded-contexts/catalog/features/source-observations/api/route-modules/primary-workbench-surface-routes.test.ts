@@ -89,6 +89,55 @@ afterEach(() => {
 
 describe("Catalog primary workbench surface routes", () => {
   it.each([
+    ["import-jobs", "run-sync"],
+    ["provider-scope-selection", "run-sync"],
+    ["readiness", "run-sync"],
+    ["source-observation-review", "review-changes"],
+    ["conflict-resolution", "review-changes"],
+    ["promotion-preview", "create-items"],
+    ["promotion-result", "create-items"],
+  ])("returns the daily flow answer for %s over HTTP", async (section, openStage) => {
+    const services = surfaceServices();
+    const body = await getJson(
+      buildApp(services, mutableProfileStore()),
+      surfacePath("daily", `/catalog/integrations?providerKey=tcgdex&section=${section}`),
+    );
+    expect(body.readModel.flow.openStage).toBe(openStage);
+    expect(body.readModel.flow.openStageWithHeldPreview).toBe(openStage);
+    expect(body.readModel.flow.stages).toEqual(body.readModel.flow.stagesByOpenStage[openStage]);
+    for (const selected of ["run-sync", "review-changes", "create-items"]) {
+      expect(body.readModel.flow.stagesByOpenStage[selected].map((stage: { key: string }) => stage.key)).toEqual([
+        "run-sync",
+        "review-changes",
+        "create-items",
+      ]);
+    }
+    expect(services.listSourceObservations).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns daily status and flow even when readiness is unavailable", async () => {
+    const services = surfaceServices({
+      getCatalogIntegrationControlPlaneReadiness: vi.fn(async () => {
+        throw new Error("Synthetic unavailable readiness");
+      }),
+    });
+    const body = await getJson(
+      buildApp(services, mutableProfileStore()),
+      surfacePath("daily", "/catalog/integrations"),
+    );
+    expect(body.readModel.dailyStatus).toEqual({ governance: null, health: "degraded" });
+    expect(body.readModel.flow.openStageWithHeldPreview).toBe("create-items");
+    expect(body.readModel.readiness.freshness).not.toBe("fresh");
+    expect(body.readModelFailures.length).toBeGreaterThan(0);
+  });
+
+  it("returns denied daily governance for a view-only HTTP actor", async () => {
+    const app = buildApp(surfaceServices(), mutableProfileStore(), viewOnlyActor);
+    const body = await getJson(app, surfacePath("daily", "/catalog/integrations"));
+    expect(body.readModel.dailyStatus.governance).toBe("denied");
+  });
+
+  it.each([
     ["governance", "/catalog/integrations/governance"],
     ["health", "/catalog/integrations/health"],
   ])("composes the %s surface the admin loader composed from the per-projection routes", async (surface, location) => {
