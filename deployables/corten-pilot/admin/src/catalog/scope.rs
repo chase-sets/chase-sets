@@ -19,7 +19,7 @@
 //! The import-to-promotion section is the daily workbench's surface for the scope
 //! (`GET .../workbench-surfaces/daily?location=`), read with the others and drawn with the daily
 //! page's banners and stages; its location is built from the scope as admin-web builds it
-//! ([`workspace_context`], chase-sets/chase-sets#10507), and its commands are the daily routes', which
+//! ([`workspace_context`], chase-sets/chase-sets#11131), and its commands are the daily routes', which
 //! land back here (the working set's `home`). A surface that does not read is the section's banner,
 //! with admin-web's page linked.
 use corten::{
@@ -320,7 +320,7 @@ const SCOPE_KEYS: [&str; 11] = [
     "scopeRecordId",
 ];
 
-/// Workaround (chase-sets/chase-sets#10507): the import-to-promotion section's working set, as
+/// Workaround (chase-sets/chase-sets#11131): the import-to-promotion section's working set, as
 /// admin-web's `scopeDetailWorkbenchRequest` builds the daily surface's location from the scope:
 /// the address's other keys kept, the scope's hierarchy by its kind, its id, and its first
 /// language edition unless the address names one; then `home`, so a command lands back here.

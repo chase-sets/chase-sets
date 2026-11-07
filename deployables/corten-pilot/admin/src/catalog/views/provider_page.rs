@@ -194,7 +194,7 @@ pub fn ProviderPage<'a>(
                     sign_in={&sign_in}
                 />
             }
-            if let Some(schedules) = &screen.schedule {
+            if let Some(schedules) = &screen.read.provider_refresh_schedules {
                 <SchedulePanel t={t} req={req} key={key} context={context} schedules={schedules} manage={screen.manage} />
             }
             match &model.profile_authoring.selected_profile {

@@ -1,5 +1,7 @@
-//! Provider detail's Operator session (admin-web's `OperatorSessionPanel`, shown to a platform admin
-//! on TCGplayer): the extension grant's status, Pair extension and Disconnect. Catalog's
+//! Provider detail's Operator session (admin-web's `OperatorSessionPanel`, offered where the
+//! provider's health surface says so: a platform admin on TCGplayer): the extension grant's
+//! status, Pair extension and Disconnect. Each write first asks the surface whether it is offered.
+//! Catalog's
 //! `/api/catalog/operator-session` routes decide everything: who may (`catalog.manage` and the
 //! platform-admin role), a sign-in within ten minutes, and that a write comes from the page's own
 //! origin. So each write carries the browser's `Origin` and `Sec-Fetch-Site`, as admin-web's
@@ -248,17 +250,9 @@ pub(crate) async fn pair(
     uri: Uri,
     Params(route): Params<provider::url::Pair<'_>>,
 ) -> HtmlResult {
-    if !provider::operator_session(&staff.viewer.role_key, &route.key) {
-        return provider::again(
-            &req,
-            &staff,
-            &config,
-            &headers,
-            &route.key,
-            &daily::context_of(&uri),
-            super::not_offered(req.t()),
-        )
-        .await;
+    let context = daily::context_of(&uri);
+    if !provider::offers_operator_session(&config, &headers, &route.key, &context).await {
+        return provider::again(&req, &staff, &config, &headers, &route.key, &context, super::not_offered(req.t())).await;
     }
     let answer = mint(&config, &headers).await;
     drawn(&req, &staff, &config, &headers, &route.key, &uri, answer).await
@@ -275,7 +269,7 @@ pub(crate) async fn disconnect(
     Form(input): Form<DisconnectInput>,
 ) -> HtmlResult {
     let context = daily::context_of(&uri);
-    if !provider::operator_session(&staff.viewer.role_key, &route.key) {
+    if !provider::offers_operator_session(&config, &headers, &route.key, &context).await {
         return provider::again(&req, &staff, &config, &headers, &route.key, &context, super::not_offered(req.t())).await;
     }
     if input.confirmed != DisconnectInput::CONFIRMED {

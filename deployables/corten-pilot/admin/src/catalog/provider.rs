@@ -29,17 +29,11 @@
 //!
 //! Validation readiness (provider readiness, fixtures, dry runs, semantic compare, activation
 //! readiness and the activation decision) is drawn from the same read ([`super::validation`]), and
-//! so are the profile's section workspaces, each saved by its own form ([`super::sections`]). A
-//! platform admin on TCGplayer also gets the Operator session ([`super::operator_session`]), read
-//! beside the surface.
-//!
-//! Workarounds, each to remove when its issue lands:
-//! 1. chase-sets/chase-sets#11050: the surface read takes the provider only from the location's
-//!    query, so `location` adds `providerKey`; the read carries no refresh schedule, so `schedule`
-//!    lists every provider's and keeps this one; and who is offered the Operator session
-//!    (`operator_session`) is copied from admin-web's loader.
-//! 2. chase-sets/chase-sets#11049: the API's lifecycle commands take no confirmation, so
-//!    `LifecycleInput::confirmed` checks the one the form carries before the pilot sends one.
+//! so are the profile's section workspaces, each saved by its own form ([`super::sections`]). The
+//! surface names the provider from the page's path, and carries the provider's refresh schedule
+//! and whether the viewer is offered the Operator session ([`super::operator_session`]), whose
+//! status is read once the surface says so (chase-sets/chase-sets#11050). A lifecycle command sends
+//! the confirmation the form carries, which the API checks (chase-sets/chase-sets#11049).
 use corten::{
     Local,
     http::{HeaderMap, StatusCode, Uri},
@@ -51,7 +45,7 @@ use serde_json::{Value, json};
 
 use super::{
     Sent,
-    api::{Catalog as _, Kind, List, Written, under},
+    api::{Catalog as _, Kind, Written, under},
     command,
     daily::{self, ImportJobs, Readiness, at, with_query},
     integrations::{HealthProvider, HealthUnit},
@@ -177,6 +171,11 @@ impl Done {
 pub struct ProviderRead {
     pub read_model: Model,
     pub read_model_failures: Vec<String>,
+    /// The provider's source-option refresh schedules; none when the API could not read them, so
+    /// the panel is not drawn, as on admin-web.
+    pub provider_refresh_schedules: Option<Vec<Schedule>>,
+    /// Whether the viewer is offered the Operator session section.
+    pub operator_session: bool,
 }
 
 /// `CatalogPrimaryWorkbenchReadModel`, the slices provider detail draws.
@@ -445,14 +444,12 @@ impl Schedule {
     }
 }
 
-/// What the page draws: the provider, the read model, its refresh schedule (none when it could not
-/// be read), whether the viewer may run the commands, and the Operator session's status when it is
-/// offered.
+/// What the page draws: the provider, the surface the API composed, whether the viewer may run the
+/// commands, and the Operator session's status when the surface offers it.
 #[derive(Clone, Debug, Default, Serialize, ToJson)]
 pub struct ProviderScreen {
     pub key: String,
     pub read: ProviderRead,
-    pub schedule: Option<Vec<Schedule>>,
     pub manage: bool,
     pub operator_session: Option<super::operator_session::Operator>,
 }
@@ -463,18 +460,15 @@ pub enum Said<'a> {
     Refused(&'a Errors),
 }
 
-/// The API's location for the provider's page: the path and the context, with the provider in
-/// the query unless the context names one (workaround, chase-sets/chase-sets#11050).
+/// The API's location for the provider's page: its path and the context.
 pub fn location(key: &str, context: &str) -> String {
-    let path = url::Provider { key }.href().to_string();
-    let named = context.split('&').any(|pair| pair.split('=').next() == Some("providerKey"));
-    if named { at(&path, context) } else { at(&path, &with_query(context, &[("providerKey", Some(key))])) }
+    at(&url::Provider { key }.href().to_string(), context)
 }
 
-/// Who is offered the Operator session section: a platform admin on TCGplayer (admin-web's
-/// `loadOperatorSessionActorKey`; workaround, chase-sets/chase-sets#11050).
-pub fn operator_session(role_key: &str, key: &str) -> bool {
-    key == "tcgplayer" && role_key == "platform-admin"
+/// Whether the provider's surface offers the viewer the Operator session, which only the API
+/// decides; a surface that cannot be read offers nothing.
+pub(super) async fn offers_operator_session(config: &Shared, headers: &HeaderMap, key: &str, context: &str) -> bool {
+    read(config, headers, &location(key, context), None).await.is_ok_and(|read| read.operator_session)
 }
 
 async fn read(
@@ -485,15 +479,6 @@ async fn read(
 ) -> Result<ProviderRead, crate::api::ApiError> {
     let rest = format!("/workbench-surfaces/health?location={}", segment(location));
     config.platform.caller(headers, config.proto, receipt).read_at::<ProviderRead>(Kind::SourceObservations, &rest).await
-}
-
-/// The provider's refresh schedule: every provider's, this one kept (workaround,
-/// chase-sets/chase-sets#11050). None when the API could not answer, so the panel is not drawn,
-/// as on admin-web.
-async fn schedule(config: &Shared, headers: &HeaderMap, key: &str) -> Option<Vec<Schedule>> {
-    let caller = config.platform.caller(headers, config.proto, None);
-    let all = caller.read_at::<List<Schedule>>(Kind::ProviderScopeDiscovery, "/refresh-schedule").await.ok()?;
-    Some(all.items.into_iter().filter(|s| s.provider_key == key).collect())
 }
 
 #[expect(
@@ -512,23 +497,16 @@ async fn render(
     refused: bool,
     operator: Option<(&super::operator_session::Answer, StatusCode)>,
 ) -> HtmlResult {
-    let location = location(key, context);
-    let offered = operator_session(&viewer.role_key, key);
-    let session = async {
-        match offered {
-            true => {
-                Some(super::operator_session::Operator { metadata: super::operator_session::metadata(config, headers).await })
-            }
-            false => None,
-        }
-    };
-    let (read, schedule, session) =
-        tokio::join!(read(config, headers, &location, receipt.as_ref()), schedule(config, headers, key), session);
-    let read = match read {
+    let read = match read(config, headers, &location(key, context), receipt.as_ref()).await {
         Ok(read) => read,
         Err(error) => return read_failed(req, error, receipt.is_some()),
     };
-    let screen = ProviderScreen { key: key.to_owned(), read, schedule, manage: manages(viewer), operator_session: session };
+    // The session's status, only for a viewer the surface offers it to.
+    let session = match read.operator_session {
+        true => Some(super::operator_session::Operator { metadata: super::operator_session::metadata(config, headers).await }),
+        false => None,
+    };
+    let screen = ProviderScreen { key: key.to_owned(), read, manage: manages(viewer), operator_session: session };
     let t: Cat = req.t();
     let p: Pilot = req.t();
     let view = html! {
@@ -762,14 +740,6 @@ impl LifecycleInput {
             _ => None,
         }
     }
-
-    /// Whether the box was checked for this operation on this version. Workaround
-    /// (chase-sets/chase-sets#11049): the API's commands take no confirmation, so the pilot checks
-    /// it, as admin-web's action does.
-    pub fn confirmed(&self, key: &str) -> bool {
-        let command_key = format!("provider-profile.{}", self.operation);
-        self.confirmation == LifecycleInput::confirmation_for(&command_key, key, self.profile_version.trim())
-    }
 }
 
 pub(crate) async fn lifecycle(
@@ -782,19 +752,16 @@ pub(crate) async fn lifecycle(
     Form(input): Form<LifecycleInput>,
 ) -> HtmlResult {
     let context = daily::context_of(&uri);
-    let t: Cat = req.t();
     let version = input.profile_version.trim();
     let Some((word, done)) = input.operation().filter(|_| !version.is_empty()) else {
         return again(&req, &staff, &config, &headers, &route.key, &context, super::not_offered(req.t())).await;
     };
-    if !input.confirmed(&route.key) {
-        let mut errors = Errors::new();
-        errors.add_form(t.feedback_confirmation_required());
-        return again(&req, &staff, &config, &headers, &route.key, &context, errors).await;
-    }
+    // The box's value, as the form carries it: the API refuses one that does not confirm this
+    // command on this version, and the page says so.
+    let body = json!({ "lifecycleConfirmation": input.confirmation });
     let caller = config.platform.caller(&headers, config.proto, None);
     let rest = format!("/provider-profiles{}", under(&route.key, &[version, word]));
-    let sent = command(&caller, Method::POST, Kind::SourceObservations, &rest, None).await;
+    let sent = command(&caller, Method::POST, Kind::SourceObservations, &rest, Some(&body)).await;
     answer(&req, &staff, &config, &headers, &route.key, &context, sent, &[("profileVersion", Some(version))], done).await
 }
 
@@ -823,31 +790,15 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_location_names_the_provider_unless_the_context_already_does() {
-        assert_eq!(location("tcgplayer", ""), "/catalog/providers/tcgplayer?providerKey=tcgplayer");
-        assert_eq!(
-            location("tcgplayer", "profileVersion=2026.07.13"),
-            "/catalog/providers/tcgplayer?profileVersion=2026.07.13&providerKey=tcgplayer"
-        );
-        assert_eq!(location("tcgplayer", "providerKey=scryfall"), "/catalog/providers/tcgplayer?providerKey=scryfall");
+    fn the_location_is_the_pages_path_and_context() {
+        assert_eq!(location("tcgplayer", ""), "/catalog/providers/tcgplayer");
+        assert_eq!(location("tcgplayer", "profileVersion=2026.07.13"), "/catalog/providers/tcgplayer?profileVersion=2026.07.13");
     }
 
     #[test]
-    fn a_lifecycle_command_runs_only_with_its_own_confirmation() {
-        let mut input = LifecycleInput {
-            operation: "retire".into(),
-            profile_version: "2026.06.23".into(),
-            confirmation: LifecycleInput::confirmation_for("provider-profile.retire", "tcgplayer", "2026.06.23"),
-        };
-        assert!(input.confirmed("tcgplayer"));
-        assert!(!input.confirmed("scryfall"), "another provider's");
-        input.profile_version = "2026.07.13".into();
-        assert!(!input.confirmed("tcgplayer"), "another version's");
-        input.profile_version = "2026.06.23".into();
-        input.operation = "rollback".into();
-        assert!(!input.confirmed("tcgplayer"), "another operation's");
-        input.confirmation.clear();
-        assert!(!input.confirmed("tcgplayer"), "an unchecked box");
+    fn a_lifecycle_form_offers_rollback_deprecate_and_retire() {
+        let mut input = LifecycleInput { operation: "retire".into(), ..LifecycleInput::default() };
+        assert_eq!(input.operation(), Some(("retire", Done::Retired)));
         input.operation = "activate".into();
         assert_eq!(input.operation(), None, "the page offers no activation");
     }
@@ -869,12 +820,5 @@ mod tests {
             assert_eq!(done.word(), word);
         }
         assert_eq!(Done::of("promoted"), None);
-    }
-
-    #[test]
-    fn an_operator_session_is_offered_to_a_platform_admin_on_tcgplayer() {
-        assert!(operator_session("platform-admin", "tcgplayer"));
-        assert!(!operator_session("catalog-manager", "tcgplayer"));
-        assert!(!operator_session("platform-admin", "scryfall"));
     }
 }

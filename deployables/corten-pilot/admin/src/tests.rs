@@ -346,7 +346,7 @@ async fn platform(State(calls): State<Calls>, method: Method, uri: Uri, headers:
         return provider_connections();
     }
     if let Some(surface) = uri.path().strip_prefix("/api/catalog/source-observations/workbench-surfaces/") {
-        return workbench_surface(surface, uri.query().unwrap_or_default());
+        return workbench_surface(surface, uri.query().unwrap_or_default(), cookie);
     }
     if let Some(answer) = daily_command(&method, uri.path(), &body) {
         return answer;
@@ -7449,7 +7449,7 @@ fn provider_connections() -> Response {
 /// provider, a rollout stop, a failed job and a partial audit projection. A location naming
 /// `providerKey=down` is a read model built without the control-plane overview (its panels say
 /// they are unavailable); `providerKey=broken` fails the read.
-fn workbench_surface(surface: &str, query: &str) -> Response {
+fn workbench_surface(surface: &str, query: &str, cookie: &str) -> Response {
     if !matches!(surface, "daily" | "daily/source-options" | "governance" | "health") {
         return refusal(
             StatusCode::NOT_FOUND,
@@ -7482,7 +7482,7 @@ fn workbench_surface(surface: &str, query: &str) -> Response {
         return Json(source_options(true)).into_response();
     }
     if surface == "health" && location.starts_with("/catalog/providers/") {
-        return provider_surface(&location);
+        return provider_surface(&location, cookie);
     }
     let down = location.contains("providerKey=down");
     let link = |key: &str, label: &str, href: &str, kind: &str| {
@@ -7871,7 +7871,23 @@ fn section_workspaces() -> Value {
 /// The Catalog API's composed health surface for a provider's page (`location=/catalog/providers/
 /// {key}?...`): TCGplayer with a degraded transport, an active profile that can become a draft,
 /// two versions with rollback blocked and deprecate and retire offered, one unit, and a failed job.
-fn provider_surface(location: &str) -> Response {
+/// The provider named by the path gets its own refresh schedule (TCGplayer's runs on its own,
+/// Lorcast's is paused, `noschedule`'s could not be read), and a platform admin on TCGplayer is
+/// offered the Operator session, as the API decides.
+fn provider_surface(location: &str, cookie: &str) -> Response {
+    let key = location.trim_start_matches("/catalog/providers/").split(['?', '/']).next().unwrap_or_default();
+    let schedule = |paused: bool, status: &str| {
+        json!({ "providerKey": key, "scheduleEnabled": true, "manualOnly": false, "intervalMs": 86_400_000, "paused": paused,
+            "nextRunAt": "2026-11-05T12:00:00.000Z", "lastRunCompletedAt": "2026-11-04T12:00:00.000Z",
+            "lastRunStatus": status, "lastRunError": null })
+    };
+    let schedules = match key {
+        "tcgplayer" => json!([schedule(false, "succeeded")]),
+        "lorcast" => json!([schedule(true, "failed")]),
+        "noschedule" => Value::Null,
+        _ => json!([]),
+    };
+    let operator_session = key == "tcgplayer" && cookie.contains("chase_sets_session=catalog-admin");
     let selected = if location.contains("profileVersion=2026.06.23") { "2026.06.23" } else { "2026.07.13" };
     let job = location.contains("jobId=job_9").then_some("job_9");
     let op = |operation: &str, label: &str, state: &str, blockers: &[&str]| {
@@ -7888,6 +7904,9 @@ fn provider_surface(location: &str) -> Response {
     };
     Json(json!({
         "readModelFailures": [],
+        "providerRefreshSchedules": schedules,
+        "operatorSession": operator_session,
+        "operatorSessionActorKey": if operator_session { json!("usr_1:mem_1") } else { Value::Null },
         "readModel": {
             "generatedAt": "2026-11-05T12:00:00.000Z",
             "validationReadiness": validation_readiness(selected),
@@ -8029,22 +8048,14 @@ fn operator_session_api(method: &Method, path: &str, headers: &HeaderMap) -> Opt
 /// The grant the operator-session mock mints: 43 base64url characters, as Catalog's.
 const OPERATOR_GRANT: &str = "Q2hhc2VTZXRzT3BlcmF0b3JHcmFudEZvclRlc3RzXzA";
 
-/// The refresh schedules and a provider's commands: TCGplayer's schedule runs on its own, Lorcast's
-/// is paused and its run fails at the provider (the API's 502); a deprecate of 2026.06.23 is refused
-/// as a lifecycle conflict. Migration evidence with a blank text is refused, as the API's section
-/// check does, and activating 2026.06.23 is refused for its missing evidence.
+/// A provider's commands: Lorcast's refresh run fails at the provider (the API's 502); a rollback,
+/// deprecate or retire without the confirmation of that command on that version is refused, as the
+/// API refuses it, and a deprecate of 2026.06.23 is refused as a lifecycle conflict. Migration
+/// evidence with a blank text is refused, as the API's section check does, and activating
+/// 2026.06.23 is refused for its missing evidence.
 fn provider_api(method: &Method, path: &str, body: &str) -> Option<Response> {
-    let schedule = |key: &str, paused: bool, status: &str| {
-        json!({ "providerKey": key, "scheduleEnabled": true, "manualOnly": false, "intervalMs": 86_400_000, "paused": paused,
-            "nextRunAt": "2026-11-05T12:00:00.000Z", "lastRunCompletedAt": "2026-11-04T12:00:00.000Z",
-            "lastRunStatus": status, "lastRunError": null })
-    };
     if let Some(rest) = path.strip_prefix("/api/catalog/provider-scope-discovery/refresh-schedule") {
         return Some(match (method.as_str(), rest) {
-            ("GET", "") => {
-                Json(json!({ "items": [schedule("tcgplayer", false, "succeeded"), schedule("lorcast", true, "failed")] }))
-                    .into_response()
-            }
             ("POST", "/lorcast/run") => {
                 refusal(StatusCode::BAD_GATEWAY, "provider_refresh_failed", "The provider refresh run failed.")
             }
@@ -8088,6 +8099,16 @@ fn provider_api(method: &Method, path: &str, body: &str) -> Option<Response> {
     if *method != Method::POST {
         return None;
     }
+    if let [key, version, op @ ("rollback" | "deprecate" | "retire")] = rest.split('/').collect::<Vec<_>>()[..] {
+        let sent: Value = serde_json::from_str(body).unwrap_or(Value::Null);
+        if sent["lifecycleConfirmation"] != format!("confirm:provider-profile.{op}:{key}:{version}") {
+            return Some(refusal(
+                StatusCode::BAD_REQUEST,
+                "lifecycle_confirmation_required",
+                "Confirm the lifecycle impact and audit evidence before running this profile lifecycle action.",
+            ));
+        }
+    }
     Some(match rest {
         "tcgplayer/2026.07.13/clone" => {
             let receipt = percent_encoding::utf8_percent_encode(RECEIPT, percent_encoding::NON_ALPHANUMERIC).to_string();
@@ -8123,11 +8144,15 @@ async fn provider_detail_draws_the_apis_health_surface_for_the_provider_with_its
     assert_eq!(status, StatusCode::OK, "{html}");
     assert!(
         integrations_calls(&pilot).contains(
-            &"/api/catalog/source-observations/workbench-surfaces/health?location=%2Fcatalog%2Fproviders%2Ftcgplayer%3FprofileVersion%3D2026.07.13%26providerKey%3Dtcgplayer"
+            &"/api/catalog/source-observations/workbench-surfaces/health?location=%2Fcatalog%2Fproviders%2Ftcgplayer%3FprofileVersion%3D2026.07.13"
                 .to_owned()
         ),
-        "the page's address with the provider added (chase-sets/chase-sets#11050): {:?}",
+        "the page's own address, whose path names the provider (chase-sets/chase-sets#11050): {:?}",
         integrations_calls(&pilot)
+    );
+    assert!(
+        !pilot.calls.lock().unwrap().iter().any(|c| c.path.contains("/refresh-schedule")),
+        "the schedule comes with the surface"
     );
     assert!(html.contains(r#"data-catalog-provider-detail="true""#) && html.contains("Option queries are slow."), "{html}");
     // Only this provider's schedule, with Pause and Run now for a manager.
@@ -8184,7 +8209,7 @@ async fn a_reader_sees_provider_detail_without_its_commands_and_a_platform_admin
 
     let (status, _, html) = pilot.send(get("/catalog/providers/tcgplayer", Some("catalog-admin"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");
-    assert!(html.contains("Operator session"), "a platform admin on TCGplayer (chase-sets/chase-sets#11050): {html}");
+    assert!(html.contains("Operator session"), "offered by the surface (chase-sets/chase-sets#11050): {html}");
     assert!(html.contains(r#"action="/catalog/providers/tcgplayer/operator-session/pair""#), "{html}");
     let (status, _, html) = pilot.send(get("/catalog/providers/lorcast", Some("catalog-admin"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");
@@ -8193,6 +8218,10 @@ async fn a_reader_sees_provider_detail_without_its_commands_and_a_platform_admin
         html.contains(r#"data-catalog-provider-refresh-schedule-row="lorcast""#) && html.contains(r#"value="resume""#),
         "{html}"
     );
+    // A schedule the API could not read draws no panel.
+    let (status, _, html) = pilot.send(get("/catalog/providers/noschedule", Some("staff"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(!html.contains(r#"data-catalog-provider-refresh-schedule="panel""#), "{html}");
 }
 
 #[tokio::test]
@@ -8247,6 +8276,12 @@ async fn each_provider_command_sends_the_apis_path_and_lands_on_the_page() {
     );
     let clone = pilot.calls.lock().unwrap().iter().find(|c| c.path.ends_with("/clone")).cloned().unwrap();
     assert_eq!(serde_json::from_str::<Value>(&clone.body).unwrap(), json!({ "targetProfileVersion": "", "lifecycle": "draft" }));
+    let retire = pilot.calls.lock().unwrap().iter().find(|c| c.path.ends_with("/retire")).cloned().unwrap();
+    assert_eq!(
+        serde_json::from_str::<Value>(&retire.body).unwrap(),
+        json!({ "lifecycleConfirmation": "confirm:provider-profile.retire:tcgplayer:2026.07.13" }),
+        "the box's value, which the API checks"
+    );
 
     // The page it lands on says so.
     let (status, _, html) = pilot.send(get(&format!("/catalog/providers/tcgplayer?{at}&done=retired"), Some("staff"))).await;
@@ -8257,20 +8292,23 @@ async fn each_provider_command_sends_the_apis_path_and_lands_on_the_page() {
 #[tokio::test]
 async fn a_refused_provider_command_is_the_page_again_with_its_reason() {
     let pilot = Pilot::new().await;
-    // Without its box, or with another version's, a lifecycle command does not reach the API
-    // (chase-sets/chase-sets#11049).
+    // Without its box, or with another version's, the API refuses a lifecycle command and the page
+    // says why (chase-sets/chase-sets#11049).
     let at = "/catalog/providers/tcgplayer/lifecycle";
+    let confirm_first = "Confirm the lifecycle impact and audit evidence before running this profile lifecycle action.";
     let (status, _, html) = pilot.send(post(at, "operation=retire&profileVersion=2026.07.13", false)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
     assert!(html.contains(r#"data-catalog-provider-detail="true""#) && html.contains(r#"role="alert""#), "{html}");
+    assert!(html.contains(confirm_first), "{html}");
     let other = "confirm%3Aprovider-profile.retire%3Atcgplayer%3A2026.06.23";
     let (status, _, patch) =
         pilot.send(post(at, &format!("operation=retire&profileVersion=2026.07.13&confirmation={other}"), true)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{patch}");
-    assert!(!patch.contains("data-catalog-provider-detail"), "only the notice: {patch}");
+    assert!(!patch.contains("data-catalog-provider-detail") && patch.contains(confirm_first), "only the notice: {patch}");
+    let refused = provider_writes(&pilot);
     let (status, _, _) = pilot.send(post(at, "operation=activate&profileVersion=2026.07.13", false)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "an operation the page does not offer");
-    assert!(provider_writes(&pilot).is_empty(), "none reaches the API");
+    assert_eq!(provider_writes(&pilot), refused, "which does not reach the API");
 
     // The API's refusal, in its words.
     let confirm = "confirm%3Aprovider-profile.deprecate%3Atcgplayer%3A2026.06.23";
@@ -10060,7 +10098,7 @@ async fn the_operator_session_pairs_once_with_the_browsers_origin_and_disconnect
     assert!(html.contains("it is now revision 4"), "{html}");
     assert!(html.contains("data-catalog-operator-session-disconnect"), "a conflict can be tried again: {html}");
 
-    // Only a platform admin on TCGplayer: anyone else's write sends nothing.
+    // Only where the surface offers it (a platform admin on TCGplayer): another write sends nothing.
     let before = pilot.calls.lock().unwrap().len();
     let (status, _, _) =
         pilot.send(post_as("catalog-admin", "/catalog/providers/lorcast/operator-session/pair", "", false)).await;
