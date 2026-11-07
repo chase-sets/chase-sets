@@ -10,11 +10,19 @@ import { composeModuleSchemaSql, drainLocalProjectionHandlerSets } from "@chase-
 import { createPostgresEventStore, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { demoIdentitySeedIds } from "@chase-sets/identity-seed";
+import { randomUUID } from "node:crypto";
+import { module as marketplaceModule } from "@chase-sets/marketplace";
+import type { MarketplaceServices } from "@chase-sets/marketplace/server";
 import { createInventoryExternalChannelSaleRecorderForPool } from "@chase-sets/inventory/server";
 import { module as channelsModule } from "../../../index";
 import { channelConnectionEventCodec } from "../../connections/domain/codec";
 import { channelSyncRunEventCodec } from "../../tcgplayer-csv/domain/codec";
 import { inspectManualSyncSeedState, manualSyncScenarioSeed, seedManualSyncScenario } from "./seed";
+import {
+  browserRecoveryContext,
+  createBrowserRecoveryFixture,
+  type BrowserRecoveryFixtureInput,
+} from "../tests/browser-recovery-fixture";
 
 const databaseBaseUrl = process.env.TEST_DATABASE_URL;
 const describeDb = databaseBaseUrl ? describe : describe.skip;
@@ -346,3 +354,320 @@ describeDb("manual-sync browser scenario seed", () => {
     ]);
   });
 });
+
+// Test-only owned fixture authority: https://github.com/chase-sets/chase-sets/issues/11115.
+describeDb("invocation-owned browser recovery with the real Marketplace clamp", () => {
+  let pools: Readonly<Record<"channels" | "marketplace", PgTransactionalPool>>;
+  beforeAll(async () => {
+    const urls = createMultiContextTestDatabaseUrls(
+      databaseBaseUrl!,
+      ["channels", "marketplace"],
+      "owned_browser_recovery",
+    );
+    await ensureMultiContextTestDatabases(databaseBaseUrl!, urls);
+    pools = createMultiContextTestPools(urls);
+  });
+  beforeEach(async () => {
+    await resetMultiContextTestSchemas(pools);
+    await pools.channels.query(composeModuleSchemaSql(channelsModule));
+    await pools.marketplace.query(composeModuleSchemaSql(marketplaceModule));
+  });
+  afterAll(async () => closeMultiContextTestPools(pools));
+
+  function runtimes() {
+    const marketplace = marketplaceModule.createServices(pools.marketplace, {});
+    const channels = channelsModule.createServices(pools.channels, {
+      channelSaleRecorder: async (): Promise<never> => {
+        throw new Error("recovery must not record an external sale");
+      },
+      marketplaceChannelInboundClamp: { kind: "available", port: marketplace.channelInboundClamp },
+    });
+    return { marketplace, channels };
+  }
+
+  async function prepare(marketplace: MarketplaceServices): Promise<BrowserRecoveryFixtureInput> {
+    const ownershipId = randomUUID();
+    const input = {
+      ownershipId,
+      connectionId: `chn_${ownershipId}`,
+      listingId: `lst_${ownershipId}`,
+      inventoryItemId: `itm_${ownershipId}`,
+      createdAfter: new Date(Date.now() - 1000).toISOString(),
+    };
+    const events = createPostgresEventStore({ pool: pools.channels });
+    await events.appendToStream({
+      streamId: `channels.connection-${input.connectionId}`,
+      expectedVersion: "no_stream",
+      context: browserRecoveryContext,
+      events: [
+        {
+          eventType: "channels.connection.connected",
+          payload: {
+            connectionId: input.connectionId,
+            accountId: demoIdentitySeedIds.accountId,
+            providerKey: "tcgplayer",
+            environment: "sandbox",
+            createdAt: new Date().toISOString(),
+          },
+        },
+        {
+          eventType: "channels.connection.activated",
+          payload: {
+            connectionId: input.connectionId,
+            credentialReference: null,
+            bindings: [{ storageLocationId: "loc_owned_recovery", revision: 1 }],
+          },
+        },
+      ],
+    });
+    await ownedRecoveryListing(pools.marketplace, marketplace, input);
+    return input;
+  }
+
+  function create(input: BrowserRecoveryFixtureInput, services: ReturnType<typeof runtimes>) {
+    return createBrowserRecoveryFixture(
+      pools.channels,
+      services.channels,
+      { pool: pools.marketplace, listings: services.marketplace.listings },
+      input,
+    );
+  }
+
+  it("recovers, downloads, releases and starts day-after work without changing the retained seed or unrelated Listings", async () => {
+    const services = runtimes();
+    await seedManualSyncScenario(pools.channels, services.channels);
+    await drainLocalProjectionHandlerSets("channels", pools.channels, services.channels.projectors);
+    await seedManualSyncScenario(pools.channels, services.channels);
+    await services.channels.tcgplayerCsv.claimRun(
+      { runId: manualSyncScenarioSeed.runId, expectedRevision: 0 },
+      browserRecoveryContext,
+    );
+    await services.channels.tcgplayerCsv.releaseRun(
+      { runId: manualSyncScenarioSeed.runId, expectedRevision: 1 },
+      browserRecoveryContext,
+    );
+    const events = createPostgresEventStore({ pool: pools.channels });
+    const sharedBefore = await events.readStream({
+      streamId: `channels.tcgplayer-sync-run-${manualSyncScenarioSeed.runId}`,
+    });
+    const unrelated = await prepare(services.marketplace);
+    const unrelatedBefore = await services.marketplace.listings.loadListingState(unrelated.listingId);
+
+    for (const phase of ["initial", "day-after"]) {
+      const input = await prepare(services.marketplace);
+      const fixture = await create(input, services);
+      await drainLocalProjectionHandlerSets("channels", pools.channels, services.channels.projectors);
+      const panelInput = { accountId: demoIdentitySeedIds.accountId, connectionId: input.connectionId };
+      expect(await services.channels.manualSync.readPanel(panelInput), phase).toMatchObject({
+        attentionReason: "recovery",
+      });
+      const runInput = { ...panelInput, runId: fixture.runId, expectedRevision: 0 };
+      expect(await services.channels.manualSync.retryClamp(runInput, browserRecoveryContext)).toMatchObject({
+        attentionReason: "ready",
+        actions: ["download"],
+      });
+      expect((await services.marketplace.listings.loadListingState(input.listingId)).status).toBe("paused");
+      expect(await services.marketplace.listings.loadListingState(unrelated.listingId)).toEqual(unrelatedBefore);
+      const owners = await pools.marketplace.query(
+        "SELECT listing_id FROM marketplace_channel_inbound_clamps WHERE run_id=$1",
+        [fixture.runId],
+      );
+      expect(owners.rows).toEqual([{ listing_id: input.listingId }]);
+      const download = await services.channels.manualSync.claimAndDownload(runInput, browserRecoveryContext);
+      expect(download.run).toMatchObject({ state: "claimed", revision: 1, members: [{ listingId: input.listingId }] });
+      expect(download.fileName).toBe(`tcgplayer-staged-${fixture.runId}.csv`);
+      await drainLocalProjectionHandlerSets("channels", pools.channels, services.channels.projectors);
+      expect(await services.channels.manualSync.readPanel(panelInput)).toMatchObject({ run: { state: "claimed" } });
+      await expect(
+        services.channels.manualSync.release({ ...runInput, expectedRevision: 1 }, browserRecoveryContext),
+      ).resolves.toMatchObject({ state: "abandoned", revision: 2 });
+      expect((await services.marketplace.listings.loadListingState(input.listingId)).status).toBe("active");
+      await expect(create(input, services)).rejects.toThrow("owned-recovery-run-collision");
+      await expect(
+        events.readStream({ streamId: `channels.tcgplayer-sync-run-${manualSyncScenarioSeed.runId}` }),
+      ).resolves.toEqual(sharedBefore);
+      expect(await services.marketplace.listings.loadListingState(unrelated.listingId)).toEqual(unrelatedBefore);
+    }
+  });
+
+  it("refuses an interrupted existing run and an authoritative sibling absent from the read model before authoring work", async () => {
+    const services = runtimes();
+    const input = await prepare(services.marketplace);
+    const events = createPostgresEventStore({ pool: pools.marketplace });
+    await events.appendToStream({
+      streamId: `marketplace.inventory-listing-capacity-${input.inventoryItemId}`,
+      expectedVersion: 1,
+      context: browserRecoveryContext,
+      events: [
+        {
+          eventType: "marketplace.inventory-listings.registered",
+          payload: { inventoryItemId: input.inventoryItemId, listingIds: ["lst_unprojected_sibling"] },
+        },
+      ],
+    });
+    await expect(create(input, services)).rejects.toThrow("owned-recovery-listing-collision");
+    expect(
+      (
+        await pools.channels.query("SELECT 1 FROM channel_outbound_operations WHERE connection_id=$1", [
+          input.connectionId,
+        ])
+      ).rows,
+    ).toEqual([]);
+    const partial = await prepare(services.marketplace);
+    const channelEvents = createPostgresEventStore({ pool: pools.channels });
+    const streamId = `channels.tcgplayer-sync-run-run-browser-recovery-${partial.ownershipId}`;
+    await channelEvents.appendToStream({
+      streamId,
+      expectedVersion: "no_stream",
+      context: browserRecoveryContext,
+      events: [{ eventType: "test.interrupted-owned-recovery", payload: { ownershipId: partial.ownershipId } }],
+    });
+    const before = await channelEvents.readStream({ streamId });
+    await expect(create(partial, services)).rejects.toThrow("owned-recovery-run-collision");
+    expect(await channelEvents.readStream({ streamId })).toEqual(before);
+    expect(
+      (
+        await pools.channels.query("SELECT 1 FROM channel_outbound_operations WHERE connection_id=$1", [
+          partial.connectionId,
+        ])
+      ).rows,
+    ).toEqual([]);
+  });
+
+  it("makes omitted recovery initialization observably different instead of accepting an arbitrary existing panel", async () => {
+    const services = runtimes();
+    const input = await prepare(services.marketplace);
+    await drainLocalProjectionHandlerSets("channels", pools.channels, services.channels.projectors);
+    const panel = { accountId: demoIdentitySeedIds.accountId, connectionId: input.connectionId };
+    expect(await services.channels.manualSync.readPanel(panel)).not.toMatchObject({ attentionReason: "recovery" });
+    await create(input, services);
+    await drainLocalProjectionHandlerSets("channels", pools.channels, services.channels.projectors);
+    expect(await services.channels.manualSync.readPanel(panel)).toMatchObject({ attentionReason: "recovery" });
+  });
+});
+
+async function ownedRecoveryListing(
+  pool: PgTransactionalPool,
+  services: MarketplaceServices,
+  input: BrowserRecoveryFixtureInput,
+) {
+  const accountId = demoIdentitySeedIds.accountId;
+  await pool.query(
+    `INSERT INTO marketplace_supply_locations
+    (storage_location_id,account_id,name,ship_from_code,ship_from_address,is_archived,updated_at)
+    VALUES ('loc_owned_recovery',$1,'Owned recovery','CHI','{}'::jsonb,false,now()) ON CONFLICT DO NOTHING`,
+    [accountId],
+  );
+  await pool.query(
+    `INSERT INTO marketplace_supply_items
+    (item_id,account_id,catalog_catalog_item_id,product_id,selected_options,graded_card,storage_location_id,total_quantity,acquisition_cost_amount,last_stream_version,updated_at)
+    VALUES ($1,$2,'cat_owned_recovery','cat_owned_recovery::','[]'::jsonb,NULL,'loc_owned_recovery',2,NULL,1,now())`,
+    [input.inventoryItemId, accountId],
+  );
+  const evidenceRequirements = {
+    policyId: null,
+    policyVersion: null,
+    policyHash: "sha256:owned-policy",
+    evaluatedAt: new Date().toISOString(),
+    requirementHash: "sha256:owned-requirements",
+    matchedRuleIds: [],
+    explanationCodes: [],
+    requirements: { minimumPhotoCount: 0, requiredSlots: [], sellerTrustRequirements: [], buyerAcknowledgment: "none" },
+  } as const;
+  const command: Parameters<MarketplaceServices["listings"]["commandHandler"]>[0]["command"] = {
+    type: "CreateListing",
+    listingId: input.listingId as never,
+    accountId,
+    inventoryItemId: input.inventoryItemId,
+    catalogItemId: "cat_owned_recovery",
+    productId: "cat_owned_recovery::" as never,
+    itemLanguageCode: "en",
+    itemTitle: "Owned recovery",
+    itemSubtitle: null,
+    selectedOptions: [],
+    productSummary: null,
+    productMeasureSnapshot: {
+      catalogItemId: "cat_owned_recovery",
+      productId: "cat_owned_recovery::",
+      selectedOptions: [],
+      measureVersion: "owned-v1",
+      unitLengthInches: 3.5,
+      unitWidthInches: 2.5,
+      unitHeightInches: 0.01,
+      unitWeightOunces: 0.1,
+      physicalFlags: ["raw-card"],
+      stackBehavior: "stackable-thickness",
+      source: "profile",
+      confidence: "measured",
+    },
+    storageLocationName: "Owned recovery",
+    shipFromCode: "CHI",
+    shipFromAddress: {
+      name: "Synthetic seller",
+      company: null,
+      line1: "1 Test St",
+      line2: null,
+      city: "Chicago",
+      state: "IL",
+      postalCode: "60601",
+      country: "US",
+      phone: null,
+      email: null,
+    },
+    priceAmount: "5.00",
+    priceCurrencyCode: "USD",
+    quantityCap: 1,
+    evidenceRequirements,
+    feeLock: {
+      unitCount: 1,
+      terms: {
+        marketplaceSalesFeePercentageBps: 500,
+        marketplaceSalesFeeFixedAmount: "0.00",
+        marketplaceSalesFeeCapAmount: "25.00",
+        shippingAllowancePercentageBps: 500,
+        termsScheduleId: "cts_standard",
+        termsAgreementId: null,
+        termsResolvedAt: new Date().toISOString(),
+      },
+      marketplaceSalesFeeUnitAmount: "0.25",
+      sellerNetUnitAmount: "4.75",
+      feeQuoteFingerprint: "fee_owned",
+    },
+  };
+  const created = await services.listings.commandHandler({
+    streamId: `marketplace.listing-${input.listingId}`,
+    command,
+    context: browserRecoveryContext,
+  });
+  const published = await services.listings.commandHandler({
+    streamId: `marketplace.listing-${input.listingId}`,
+    expectedVersion: created.version,
+    command: {
+      type: "PublishListing",
+      readiness: {
+        ready: true,
+        requirementHash: evidenceRequirements.requirementHash,
+        unmetCodes: [],
+        coverage: { complete: true, unmetCodes: [], slots: [], activePhotoCount: 0, minimumPhotoCount: 0 },
+      },
+    },
+    context: browserRecoveryContext,
+  });
+  await pool.query(
+    `INSERT INTO marketplace_listing_pages
+    (listing_id,account_id,inventory_item_id,catalog_catalog_item_id,product_id,price_amount,price_currency_code,listing_stream_version,marketplace_sales_fee_unit_amount,seller_net_unit_amount,fee_quote_fingerprint,quantity_cap,evidence_requirements,status,updated_at)
+    VALUES ($1,$2,$3,'cat_owned_recovery','cat_owned_recovery::','5.00','USD',$4,'0.25','4.75','fee_owned',1,$5,'active',now())`,
+    [input.listingId, accountId, input.inventoryItemId, published.version, JSON.stringify(evidenceRequirements)],
+  );
+  await createPostgresEventStore({ pool }).appendToStream({
+    streamId: `marketplace.inventory-listing-capacity-${input.inventoryItemId}`,
+    expectedVersion: "no_stream",
+    context: browserRecoveryContext,
+    events: [
+      {
+        eventType: "marketplace.inventory-listing-capacity.committed",
+        payload: { inventoryItemId: input.inventoryItemId, listingId: input.listingId, quantityCap: 1 },
+      },
+    ],
+  });
+}

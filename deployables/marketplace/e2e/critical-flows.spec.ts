@@ -869,16 +869,23 @@ test.describe("marketplace critical flows", () => {
     await expectAccountRouteReady(page, accountCriticalRoutes[0]);
 
     const colorTheme = await openAccountColorThemeControl(page);
-    const preferencesResponse = page.waitForResponse((response) => {
-      const url = new URL(response.url());
-      return url.pathname === "/api/identity/preferences" && response.request().method() === "PUT";
-    });
-    await colorTheme
-      .locator("label")
-      .filter({ hasText: /^Dark$/ })
-      .click();
-    expect((await preferencesResponse).status()).toBe(200);
-    await expect(colorTheme.locator('input[data-theme-choice="dark"]')).toBeChecked();
+    const persistedPreferences = await page.request.get("/api/identity/preferences");
+    expect(persistedPreferences.status()).toBe(200);
+    const persisted = (await persistedPreferences.json()) as { colorMode: string };
+    await expect(colorTheme.locator(`input[data-theme-choice="${persisted.colorMode}"]`)).toBeChecked();
+    for (const choice of accountColorModeChanges(persisted.colorMode)) {
+      const preferencesResponse = page.waitForResponse(
+        (response) =>
+          new URL(response.url()).pathname === "/api/identity/preferences" && response.request().method() === "PUT",
+      );
+      await colorTheme
+        .locator("label")
+        .filter({ hasText: new RegExp(`^${choice === "light" ? "Light" : "Dark"}$`) })
+        .click();
+      expect((await preferencesResponse).status()).toBe(200);
+      await expect(colorTheme.locator(`input[data-theme-choice="${choice}"]`)).toBeChecked();
+      await waitForPreferences(page, { colorMode: choice });
+    }
 
     await expect(page.locator('[data-color-mode="dark"]').first()).toBeVisible();
     await waitForPreferences(page, { colorMode: "dark" });
@@ -942,3 +949,8 @@ test.describe("marketplace critical flows", () => {
     }
   });
 });
+
+function accountColorModeChanges(current: string): readonly ("light" | "dark")[] {
+  if (!["system", "light", "dark"].includes(current)) throw new Error("Unknown persisted color mode");
+  return current === "dark" ? ["light", "dark"] : ["dark"];
+}

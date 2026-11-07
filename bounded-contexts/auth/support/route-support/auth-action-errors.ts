@@ -162,7 +162,7 @@ export function authApiActionError(error: AuthApiError, intent: AuthActionIntent
   }
   if (error.status === 429 && (!rejection || rejection.code === "rate_limited"))
     return authFormFailure(t("auth.support.routeSupport.authHost.rate.limited"), intent);
-  if (error.status === 409 && (!rejection || rejection.code === "conflict"))
+  if (error.status === 409 && (!rejection || rejection.code === "conflict" || rejection.code === "email_already_taken"))
     return authFormFailure(t("auth.support.routeSupport.authHost.request.failed"), intent);
   return fallback();
 }

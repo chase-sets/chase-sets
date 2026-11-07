@@ -1,0 +1,70 @@
+name: Marketplace Account Lifecycle Probe
+
+# Probe-only, never a required check. It runs the development-target Marketplace
+# Account suite on hosted Ubuntu with CI=true: one clean run on a fresh runner with no
+# sandbox volume, then one retained run after `dev:down` kept that volume, in the
+# same job and compose project. At the pinned baseline head it is the pre-edit
+# classification; at a repaired head it is the final exact-head proof. It claims
+# nothing about the CI-unset lane-host path and never repairs, retries or filters the
+# suite.
+on:
+  pull_request:
+    paths:
+      - .github/workflows/marketplace-account-lifecycle-probe.yml
+      - scripts/marketplace-account-lifecycle-probe.mjs
+
+permissions:
+  contents: read
+
+concurrency:
+  group: marketplace-account-lifecycle-probe-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+jobs:
+  probe:
+    name: Marketplace Account dev-target clean/retained probe (non-required)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    env:
+      CI: "true"
+      CHASE_SETS_BROWSER_E2E_SYSTEM: development
+      PROBE_SOURCE_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      PROBE_EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          # Full history: a repaired head is joined to the pinned baseline head and to
+          # its merge base with the event base; neither is reachable from a shallow clone.
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup-pnpm-workspace
+        with:
+          install: true
+
+      - name: Cache Playwright Chromium
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-chromium-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            playwright-chromium-${{ runner.os }}-
+
+      - name: Install Playwright Chromium
+        timeout-minutes: 7
+        run: PLAYWRIGHT_BROWSERS_PATH="$HOME/.cache/ms-playwright" pnpm exec playwright install --with-deps chromium
+
+      - name: Run paired clean and retained controls
+        id: probe
+        run: PLAYWRIGHT_BROWSERS_PATH="$HOME/.cache/ms-playwright" node scripts/marketplace-account-lifecycle-probe.mjs --out-dir artifacts/marketplace-account-lifecycle-probe
+
+      - name: Upload probe evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: marketplace-account-lifecycle-probe-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/marketplace-account-lifecycle-probe
+          if-no-files-found: error
+          include-hidden-files: true
+          retention-days: 14
