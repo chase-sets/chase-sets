@@ -3,7 +3,7 @@ import type {
   SourceObservationPromotionPreview,
   SourceObservationPromotionScope,
 } from "../../client-support/contracts";
-import { ApiError as CatalogApiError } from "../../shell-support/api/client";
+import { ApiError as CatalogApiError, type CatalogPromotionConfirmation } from "../../shell-support/api/client";
 import type {
   CatalogSyncScope,
   CatalogSyncScopeReferenceKind,
@@ -175,12 +175,30 @@ export function isStalePromotionPreviewError(error: unknown): boolean {
     recordValue(recordValue(error.body)?.error)?.code === "stale_promotion_preview"
   );
 }
+
+/**
+ * The page a promotion is previewed from and confirmed on: its unit, import
+ * scope, profile version and page scope. admin-web sends it with the preview
+ * and with the execution; the Catalog API binds it into the token and compares.
+ */
+export function promotionConfirmationFromContext(context: RouteContext): CatalogPromotionConfirmation {
+  return {
+    unitKey: context.unitKey ?? null,
+    importScope: context.importScope ?? null,
+    profileVersion: context.profileVersion ?? null,
+    scope: promotionScopeFromContext(context),
+  };
+}
+
 export async function previewPromotionForContext(
   api: ReturnType<typeof createCatalogRequestApiClient>,
   context: RouteContext,
   selectedObservationIds: readonly string[],
 ): Promise<SourceObservationPromotionPreview> {
-  const options = { promoteAsDraft: context.promoteAsDraft === true };
+  const options = {
+    promoteAsDraft: context.promoteAsDraft === true,
+    confirmation: promotionConfirmationFromContext(context),
+  };
   return selectedObservationIds.length > 0
     ? api.previewBulkPromoteSourceObservationIds<SourceObservationPromotionPreview>(
         [...selectedObservationIds],

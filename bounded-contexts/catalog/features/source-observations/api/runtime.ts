@@ -21,6 +21,7 @@ import {
   listSourceObservationIntegrationScopes,
 } from "../read-model/queries";
 import { upsertSourceObservationAliasCandidates } from "../../alias-equivalence/read-model/projection";
+import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { createPostgresDurableJobStore } from "@chase-sets/platform-runtime/durable-job-store";
 import { createPostgresDurableJobWorkUnitStore } from "@chase-sets/platform-runtime/durable-job-work-units";
 import { createCatalogIntegrationDryRunProofRegistry } from "./governance/catalog-integration-dry-run-proofs";
@@ -262,6 +263,45 @@ export function createSourceObservationRuntime(
       eventSnapshot: toSourceObservationBulkJobEventSnapshot,
     },
   );
+  // The same stores over one transaction's client: a bulk promotion admission
+  // enqueues inside the transaction whose reads it checked. Waiters and the
+  // retention sweeps stay on the pooled stores above.
+  const bulkReviewStoresIn = (db: PgQueryable) => ({
+    jobStore: createPostgresDurableJobStore<
+      SourceObservationBulkJobPayload,
+      BulkSourceObservationProgress,
+      SourceObservationBulkJobResult,
+      SourceObservationBulkJob
+    >(
+      db,
+      {
+        jobsTable: "catalog_source_observation_bulk_review_jobs",
+        eventsTable: "catalog_source_observation_bulk_review_job_events",
+        notifyChannel: "catalog_source_observation_durable_job_events",
+      },
+      { eventSnapshot: toSourceObservationBulkJobEventSnapshot },
+    ),
+    workUnitStore: createPostgresDurableJobWorkUnitStore<
+      SourceObservationBulkJobPayload,
+      BulkSourceObservationProgress,
+      SourceObservationBulkJobResult,
+      SourceObservationBulkWorkUnitPayload,
+      SourceObservationBulkWorkUnitResult,
+      SourceObservationBulkJob
+    >(
+      db,
+      {
+        jobsTable: "catalog_source_observation_bulk_review_jobs",
+        eventsTable: "catalog_source_observation_bulk_review_job_events",
+        workUnitsTable: "catalog_source_observation_bulk_review_work_units",
+        notifyChannel: "catalog_source_observation_durable_job_events",
+      },
+      {
+        workflowName: "catalog.source-observation-bulk-review",
+        eventSnapshot: toSourceObservationBulkJobEventSnapshot,
+      },
+    ),
+  });
   // Catalog Merge Candidate scope jobs share the bulk review tables and claim
   // budget; their own typed views keep candidate payloads out of the
   // observation job serializers.
@@ -439,6 +479,7 @@ export function createSourceObservationRuntime(
     rolloutControlPolicy,
     bulkReviewJobStore,
     bulkReviewWorkUnitStore,
+    bulkReviewStoresIn,
     promotionReapply,
     processNextMergeCandidateBulkJob: mergeCandidateBulkJobs.services.processNextCatalogMergeCandidateBulkJob,
   });

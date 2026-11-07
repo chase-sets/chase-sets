@@ -8,6 +8,7 @@ import {
   type DurableJobWorkUnitSummary,
 } from "@chase-sets/platform-runtime/durable-job-work-units";
 import { type JsonValue } from "@chase-sets/primitives/json";
+import type { SourceObservationPromotionConfirmation } from "./promotion/promotion-preview-token";
 import type { CatalogItemId, ReferenceRecordId } from "../../../ids";
 import { type CatalogScopeSyncUnitState } from "../../scope-sync-state/domain/state";
 import {
@@ -1014,6 +1015,19 @@ export type BulkReviewJobServices = Readonly<{
     promoteAsDraft?: boolean;
     context: EventStoreContext;
   }) => Promise<SourceObservationBulkJob>;
+  /**
+   * Enqueues a bulk promotion only while `previewToken` is the token of a
+   * fresh preview of the same selection, draft choice and review page, with the
+   * check and the enqueue in one transaction. Null when it is missing or stale.
+   */
+  admitBulkPromotionJob: (input: {
+    observationIds: readonly string[];
+    scope?: SourceObservationFilterScope;
+    promoteAsDraft: boolean;
+    previewToken: string;
+    confirmation: SourceObservationPromotionConfirmation;
+    context: EventStoreContext;
+  }) => Promise<SourceObservationBulkJob | null>;
   getBulkReviewJob: (jobId: string, context?: EventStoreContext | null) => Promise<SourceObservationBulkJob | null>;
   listBulkReviewJobEvents: (
     jobId: string,

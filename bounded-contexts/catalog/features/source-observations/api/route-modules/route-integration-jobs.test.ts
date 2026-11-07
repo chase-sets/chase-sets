@@ -13,8 +13,9 @@ import {
   rolloutDenied,
 } from "./route-test-harness";
 
-// Bulk promotion requires the token of a fresh preview; these tests cover the
-// enqueue itself, so they confirm through a preview that never changes.
+// Bulk promotion requires the token of a fresh preview; these tests cover what
+// the routes hand the admission (bulk-promote-preview-token.test.ts covers the
+// admission itself), so they confirm through a preview that never changes.
 function withPromotionPreview(services: Record<string, unknown>): SourceObservationRouteServices {
   return {
     previewPromoteObservations: vi.fn(async () => promotionPreviewFixture()),
@@ -604,8 +605,8 @@ describe("source observation routes: integration and bulk review jobs", () => {
       selectionMode: "filter",
       scope: { status: "observed", language: "en", setId: "base1" },
     });
-    const enqueueBulkReviewJob = vi.fn(async () => job);
-    const app = buildApp(withPromotionPreview({ enqueueBulkReviewJob }));
+    const admitBulkPromotionJob = vi.fn(async () => job);
+    const app = buildApp(withPromotionPreview({ admitBulkPromotionJob }));
 
     const response = await app.request("/source-observations/bulk-promote", {
       method: "POST",
@@ -623,8 +624,7 @@ describe("source observation routes: integration and bulk review jobs", () => {
       action: "promote",
       status: "queued",
     });
-    expect(enqueueBulkReviewJob).toHaveBeenCalledWith({
-      action: "promote",
+    expect(admitBulkPromotionJob).toHaveBeenCalledWith({
       observationIds: [],
       scope: {
         search: undefined,
@@ -634,12 +634,19 @@ describe("source observation routes: integration and bulk review jobs", () => {
         setId: "base1",
       },
       promoteAsDraft: false,
+      previewToken: expect.stringMatching(/^spp1\./),
+      confirmation: {
+        unitKey: null,
+        importScope: null,
+        profileVersion: null,
+        scope: { search: undefined, status: undefined, provider: undefined, language: undefined, setId: undefined },
+      },
       context,
     });
   });
 
   it("carries only an explicit boolean promote-as-draft choice into the promotion job", async () => {
-    const enqueueBulkReviewJob = vi.fn(async () =>
+    const admitBulkPromotionJob = vi.fn(async () =>
       bulkJobFixture({
         jobId: "job_promote_draft",
         action: "promote",
@@ -647,7 +654,7 @@ describe("source observation routes: integration and bulk review jobs", () => {
         observationIds: ["obs_1"],
       }),
     );
-    const app = buildApp(withPromotionPreview({ enqueueBulkReviewJob }));
+    const app = buildApp(withPromotionPreview({ admitBulkPromotionJob }));
 
     for (const body of [
       { observationIds: ["obs_1"], promoteAsDraft: true },
@@ -662,7 +669,7 @@ describe("source observation routes: integration and bulk review jobs", () => {
       expect(response.status).toBe(202);
     }
 
-    expect(enqueueBulkReviewJob.mock.calls.map((call) => (call as unknown[])[0])).toEqual([
+    expect(admitBulkPromotionJob.mock.calls.map((call) => (call as unknown[])[0])).toEqual([
       expect.objectContaining({ promoteAsDraft: true }),
       expect.objectContaining({ promoteAsDraft: false }),
       expect.objectContaining({ promoteAsDraft: false }),
@@ -670,10 +677,10 @@ describe("source observation routes: integration and bulk review jobs", () => {
   });
 
   it("returns rollout evidence when bulk promotion is disabled", async () => {
-    const enqueueBulkReviewJob = vi.fn(async () => {
+    const admitBulkPromotionJob = vi.fn(async () => {
       throw rolloutDenied({ capability: "promotion", providerKey: "tcgdex" });
     });
-    const app = buildApp(withPromotionPreview({ enqueueBulkReviewJob }));
+    const app = buildApp(withPromotionPreview({ admitBulkPromotionJob }));
 
     const response = await app.request("/source-observations/bulk-promote", {
       method: "POST",
@@ -888,8 +895,8 @@ describe("source observation routes: integration and bulk review jobs", () => {
       action: "promote",
       observationIds: ["obs_1", "obs_2"],
     });
-    const enqueueBulkReviewJob = vi.fn(async () => job);
-    const app = buildApp(withPromotionPreview({ enqueueBulkReviewJob }));
+    const admitBulkPromotionJob = vi.fn(async () => job);
+    const app = buildApp(withPromotionPreview({ admitBulkPromotionJob }));
 
     const response = await app.request("/source-observations/bulk-promote", {
       method: "POST",
@@ -903,11 +910,17 @@ describe("source observation routes: integration and bulk review jobs", () => {
       action: "promote",
       status: "queued",
     });
-    expect(enqueueBulkReviewJob).toHaveBeenCalledWith({
-      action: "promote",
+    expect(admitBulkPromotionJob).toHaveBeenCalledWith({
       observationIds: ["obs_1", "obs_2"],
       scope: undefined,
       promoteAsDraft: false,
+      previewToken: expect.stringMatching(/^spp1\./),
+      confirmation: {
+        unitKey: null,
+        importScope: null,
+        profileVersion: null,
+        scope: { search: undefined, status: undefined, provider: undefined, language: undefined, setId: undefined },
+      },
       context,
     });
   });

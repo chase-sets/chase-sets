@@ -4,6 +4,7 @@ import type { JsonValue } from "@chase-sets/primitives/json";
 import type { Context } from "hono";
 import type { CatalogAuthoringEnv } from "../../../../support/authoring-support/api";
 import type { SourceObservationFilterScope } from "../../read-model/queries";
+import type { SourceObservationPromotionConfirmation } from "../promotion/promotion-preview-token";
 import type {
   BulkReviewJobServices,
   IntegrationJobServices,
@@ -32,6 +33,23 @@ export function parsePromotionScope(input: unknown): SourceObservationFilterScop
     ...(seriesId ? { seriesId } : {}),
     ...(expansionId ? { expansionId } : {}),
     setId,
+  };
+}
+
+/**
+ * The review page a promotion preview or execution names (`confirmation`): its
+ * unit, import scope, profile version and page scope. A missing field is null,
+ * so a request that names no page confirms only a preview that named none.
+ */
+export function parsePromotionConfirmation(input: unknown): SourceObservationPromotionConfirmation {
+  const record = isRecord(input) ? input : {};
+  const text = (value: unknown) => stringField(value)?.trim() || null;
+
+  return {
+    unitKey: text(record.unitKey),
+    importScope: text(record.importScope),
+    profileVersion: text(record.profileVersion),
+    scope: parsePromotionScope(record.scope),
   };
 }
 

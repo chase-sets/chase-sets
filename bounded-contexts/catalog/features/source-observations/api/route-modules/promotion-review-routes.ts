@@ -2,7 +2,13 @@ import { t } from "@chase-sets/localization";
 import { Hono } from "hono";
 import type { CatalogAuthoringEnv } from "../../../../support/authoring-support/api";
 import type { CatalogIntegrationEngineServices, PromotionReapplyServices } from "../runtime";
-import { parseObservationIds, parsePromoteAsDraft, parsePromotionScope, parseValidationAfter } from "./route-helpers";
+import {
+  parseObservationIds,
+  parsePromoteAsDraft,
+  parsePromotionConfirmation,
+  parsePromotionScope,
+  parseValidationAfter,
+} from "./route-helpers";
 import { requireCatalogIntegrationControlPlanePermission } from "../admin/admin-control-plane-rbac";
 import { sourceObservationPromotionPreviewToken } from "../promotion/promotion-preview-token";
 
@@ -28,6 +34,7 @@ export function promotionReviewRoutes(services: PromotionReviewRouteServices) {
       scope?: unknown;
       promoteAsDraft?: unknown;
       validationAfter?: unknown;
+      confirmation?: unknown;
     };
     const observationIds = parseObservationIds(body.observationIds);
     const promoteAsDraft = parsePromoteAsDraft(body.promoteAsDraft);
@@ -47,6 +54,7 @@ export function promotionReviewRoutes(services: PromotionReviewRouteServices) {
       : sourceObservationPromotionPreviewToken(
           observationIds.length > 0 ? { observationIds } : { scope: result.scope },
           result,
+          parsePromotionConfirmation(body.confirmation),
         );
 
     return c.json({ ...result, previewToken });
