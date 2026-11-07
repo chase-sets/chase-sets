@@ -337,37 +337,93 @@ describe("checkout cart page", () => {
     expect(markup).toContain("Ready");
   });
 
-  it("fails closed for a partial presentation answer instead of copying another member", () => {
-    const lines = [0, 1].map((index) => ({
-      ...cartLine,
-      line_id: `cart_line_partial_${index}`,
-      quantity: 1,
-      updated_at: `2026-05-1${index}T00:00:00.000Z`,
-    }));
-    const base = createCartReadinessRead(lines);
-    const answer = {
-      lineId: lines[0]!.line_id,
-      reason: "ready" as const,
-      fulfillmentAvailable: true,
-      listingId: "lst_card_vault",
-      price: { state: "exact" as const, amount: "389.00", currency: "USD" },
-    };
+  it.each([
+    ["loaded-only", true, false, false],
+    ["declined-only", false, true, false],
+    ["both", true, true, false],
+    ["loaded wrong-ID", true, false, true],
+    ["declined wrong-ID", false, true, true],
+    ["both wrong-ID", true, true, true],
+  ] as const)(
+    "fails closed for incomplete %s presentations despite ready aggregates",
+    (_case, loaded, declined, wrongId) => {
+      const lines = [0, 1].map((index) => ({
+        ...cartLine,
+        line_id: `cart_line_partial_${index}`,
+        quantity: 1,
+        updated_at: `2026-05-1${index}T00:00:00.000Z`,
+      }));
+      const base = createCartReadinessRead(lines);
+      const answer = {
+        lineId: lines[0]!.line_id,
+        reason: "ready" as const,
+        fulfillmentAvailable: true,
+        listingId: "lst_card_vault",
+        price: { state: "exact" as const, amount: "389.00", currency: "USD" },
+      };
+      const complete = [answer, { ...answer, lineId: lines[1]!.line_id }];
+      const incomplete = wrongId ? [answer, { ...answer, lineId: "not-a-source-line" }] : [answer];
+      expect(base.loaded.status).toBe("ready");
+      expect(base.declined.status).toBe("ready");
+      expect(base.declined.unresolvedLineIds).toEqual([]);
+      mockUseFetcher.mockImplementation(() => ({ state: "idle", data: null, submit: mockFetcherSubmit }));
+      const completeReadiness = {
+        ...base,
+        loaded: { ...base.loaded, linePresentations: complete },
+        declined: { ...base.declined, linePresentations: complete },
+      };
+      const readiness = {
+        ...completeReadiness,
+        loaded: { ...base.loaded, linePresentations: loaded ? incomplete : complete },
+        declined: { ...base.declined, linePresentations: declined ? incomplete : complete },
+      };
+      const { container, rerender } = render(<CheckoutCartPage cartLines={lines} readiness={completeReadiness} />);
+      expect(screen.getByRole("button", { name: "Check out" }).hasAttribute("disabled")).toBe(false);
+      rerender(<CheckoutCartPage cartLines={lines} readiness={readiness} />);
+      if (loaded) {
+        const missingRow = container
+          .querySelector('[data-optimistic-resource*="cart_line_partial_1"]')
+          ?.closest<HTMLElement>("[data-marketplace-cart-line]");
+        expect(missingRow).toBeTruthy();
+        expect(within(missingRow!).getByText("Priced at checkout")).toBeTruthy();
+        expect(within(missingRow!).getByText("Needs review").className).not.toContain("bg-success-soft");
+        expect(within(missingRow!).queryByText("Ready")).toBeNull();
+        expect(within(missingRow!).queryByText("$389.00")).toBeNull();
+        const answeredRow = container
+          .querySelector('[data-optimistic-resource*="cart_line_partial_0"]')
+          ?.closest<HTMLElement>("[data-marketplace-cart-line]");
+        expect(within(answeredRow!).getByText("Ready").className).toContain("bg-success-soft");
+        expect(within(answeredRow!).getByText("$389.00")).toBeTruthy();
+      }
+      expect(container.querySelector('form[method="post"][action="/checkout/buy/readiness"]')).toBeNull();
+      expect(screen.queryByRole("button", { name: "Check out" })).toBeNull();
+      expect(screen.getByRole("link", { name: "Continue to checkout" }).getAttribute("href")).toBe(
+        "/checkout/buy/readiness",
+      );
+      rerender(<CheckoutCartPage cartLines={lines} readiness={completeReadiness} />);
+      expect(container.querySelectorAll('form[action="/checkout/buy/readiness"]')).toHaveLength(1);
+      expect(screen.getByRole("button", { name: "Check out" }).hasAttribute("disabled")).toBe(false);
+    },
+  );
+
+  it("allows complete returned presentations with deferred price without adding a client readiness policy", () => {
+    const base = createCartReadinessRead([cartLine]);
+    expect(base.loaded.status).toBe("ready");
+    expect(base.declined.status).toBe("ready");
+    const presentations = [
+      { ...base.loaded.linePresentations[0]!, reason: "changed" as const, fulfillmentAvailable: false, price: null },
+    ];
     const readiness = {
       ...base,
-      loaded: { ...base.loaded, linePresentations: [answer] },
-      declined: { ...base.declined, linePresentations: [answer] },
+      loaded: { ...base.loaded, linePresentations: presentations },
+      declined: { ...base.declined, linePresentations: presentations },
     };
-    const markup = renderToString(<CheckoutCartPage cartLines={lines} readiness={readiness} />);
-    const container = document.createElement("div");
-    container.innerHTML = markup;
-    const missingRow = container
-      .querySelector('[data-optimistic-resource*="cart_line_partial_1"]')
-      ?.closest<HTMLElement>("[data-marketplace-cart-line]");
-    expect(missingRow).toBeTruthy();
-    expect(within(missingRow!).getByText("Priced at checkout")).toBeTruthy();
-    expect(within(missingRow!).getByText("Needs review").className).not.toContain("bg-success-soft");
-    expect(within(missingRow!).queryByText("Ready")).toBeNull();
-    expect(within(missingRow!).queryByText("$389.00")).toBeNull();
+    const { container } = render(<CheckoutCartPage cartLines={[cartLine]} readiness={readiness} />);
+    const row = container.querySelector<HTMLElement>("[data-marketplace-cart-line]")!;
+    expect(within(row).getByText("Priced at checkout")).toBeTruthy();
+    expect(within(row).getByText("Needs review")).toBeTruthy();
+    expect(container.querySelectorAll('form[action="/checkout/buy/readiness"]')).toHaveLength(1);
+    expect(screen.getByRole("button", { name: "Check out" }).hasAttribute("disabled")).toBe(false);
   });
 
   it("uses each API line listing even when readiness is unresolved, grouped, or mixed-currency", () => {
@@ -1196,6 +1252,48 @@ describe("checkout cart page", () => {
     const primaryStamps = markup.match(/data-primary-action-count="1"/g) ?? [];
     expect(primaryStamps.length).toBe(1);
     expect(markup).not.toContain("allocation");
+
+    const base = createCartReadinessRead([expensiveLine]);
+    expect(base.loaded.status).toBe("ready");
+    expect(base.declined.status).toBe("ready");
+    expect(base.declined.optimization.available).toBe(true);
+    expect(base.accepted?.status).toBe("ready");
+    const accepted = base.accepted!;
+    for (const snapshot of ["loaded", "declined", "accepted"] as const) {
+      for (const wrongId of [false, true]) {
+        const readiness = {
+          ...base,
+          [snapshot]: {
+            ...base[snapshot],
+            linePresentations: wrongId
+              ? [{ ...base[snapshot]!.linePresentations[0]!, lineId: "not-a-source-line" }]
+              : [],
+          },
+        };
+        const container = document.createElement("div");
+        container.innerHTML = renderToString(<CheckoutCartPage cartLines={[expensiveLine]} readiness={readiness} />);
+        const forms = container.querySelectorAll('form[method="post"][action="/checkout/buy/readiness"]');
+        expect(forms, `${snapshot}, wrongId=${wrongId}`).toHaveLength(snapshot === "accepted" ? 1 : 0);
+        expect(within(container).queryByRole("button", { name: "Use lower price" })).toBeNull();
+        if (snapshot === "accepted") {
+          expect(within(container).getByRole("button", { name: "Check out" }).hasAttribute("disabled")).toBe(false);
+          expect(forms[0]!.querySelector('input[name="readinessSnapshotId"]')?.getAttribute("value")).toBe(
+            base.declined.snapshotId,
+          );
+          expect(forms[0]!.querySelector('input[name="readinessDecisions"]')?.getAttribute("value")).toContain(
+            '"decision":"declined"',
+          );
+        } else {
+          expect(within(container).queryByRole("button", { name: "Check out" })).toBeNull();
+        }
+      }
+    }
+    const completeContainer = document.createElement("div");
+    completeContainer.innerHTML = markup;
+    const acceptedForm = within(completeContainer).getByRole("button", { name: "Use lower price" }).closest("form")!;
+    expect(acceptedForm.querySelector('input[name="readinessSnapshotId"]')?.getAttribute("value")).toBe(
+      accepted.snapshotId,
+    );
   });
 
   it("shows the selected listing's seller rating on the cart line", () => {

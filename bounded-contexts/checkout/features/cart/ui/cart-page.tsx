@@ -772,6 +772,11 @@ function CartAttemptNotice({
   );
 }
 
+function hasCompleteLinePresentations(cartLines: readonly CheckoutCartLine[], snapshot: CartReadinessSnapshot) {
+  const answeredLineIds = new Set((snapshot.linePresentations ?? []).map((presentation) => presentation.lineId));
+  return cartLines.every((line) => answeredLineIds.has(line.line_id));
+}
+
 export function CheckoutCartPage({
   cartLines,
   readiness: providedReadiness,
@@ -795,7 +800,13 @@ export function CheckoutCartPage({
   const hasPendingOptimisticMutation = sourceCartLineGroups.some(
     (line) => cartMutations.statusForLine(line) !== "idle",
   );
-  const readiness = providedReadiness && !hasPendingOptimisticMutation ? providedReadiness : null;
+  const readiness =
+    providedReadiness &&
+    !hasPendingOptimisticMutation &&
+    hasCompleteLinePresentations(cartLines, providedReadiness.loaded) &&
+    hasCompleteLinePresentations(cartLines, providedReadiness.declined)
+      ? providedReadiness
+      : null;
   const visibleErrorMessage = cartMutations.errorMessage ?? errorMessage;
   const cartLineCount = cartLineGroups.reduce((sum, line) => sum + line.quantity, 0);
   const checkoutReadinessSnapshot = readiness?.declined ?? null;
@@ -829,7 +840,7 @@ export function CheckoutCartPage({
       } satisfies CartReadinessDecisionInput)
     : null;
   const acceptedOptimization =
-    readiness?.accepted && acceptedOptimizationDecision
+    readiness?.accepted && acceptedOptimizationDecision && hasCompleteLinePresentations(cartLines, readiness.accepted)
       ? { decisions: acceptedOptimizationDecision, snapshot: readiness.accepted }
       : null;
   const cartReady = Boolean(readiness && cartLineGroups.length > 0 && checkoutReadinessSnapshot?.status === "ready");
