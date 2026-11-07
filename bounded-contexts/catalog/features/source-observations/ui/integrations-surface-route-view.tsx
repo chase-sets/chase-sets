@@ -243,6 +243,23 @@ export function useOriginalPromotionReceipt(
     // Only loader/URL context seeds the working selection; action context binds the receipt.
     // The token belongs to the POST only. Generated links never serialize it.
     routeContext: { ...model.routeContext, promotionPreviewId: null },
+    flow: {
+      ...model.flow,
+      openStage: model.flow.openStageWithHeldPreview,
+      stages: model.flow.stagesByOpenStage[model.flow.openStageWithHeldPreview],
+    },
+    sourceObservationReview: {
+      ...model.sourceObservationReview,
+      statusFilters: model.sourceObservationReview.statusFilters.map((filter) => ({
+        ...filter,
+        href: withoutPromotionPreviewId(filter.href),
+      })),
+      pagination: {
+        ...model.sourceObservationReview.pagination,
+        previousHref: withoutPromotionPreviewId(model.sourceObservationReview.pagination.previousHref),
+        nextHref: withoutPromotionPreviewId(model.sourceObservationReview.pagination.nextHref),
+      },
+    },
     promotionPreview: {
       ...model.promotionPreview,
       previewId: receipt.previewId,
@@ -261,6 +278,15 @@ export function useOriginalPromotionReceipt(
       },
     },
   };
+}
+
+function withoutPromotionPreviewId(href: string): string;
+function withoutPromotionPreviewId(href: string | null): string | null;
+function withoutPromotionPreviewId(href: string | null): string | null {
+  if (href === null) return null;
+  const url = new URL(href, "https://catalog.invalid");
+  url.searchParams.delete("promotionPreviewId");
+  return `${url.pathname}${url.search}${url.hash}`;
 }
 
 // Stream the supplementary alias-review workspace behind a Suspense/Await

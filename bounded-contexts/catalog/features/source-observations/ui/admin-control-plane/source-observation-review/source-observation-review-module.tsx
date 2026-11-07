@@ -32,7 +32,7 @@ import type {
 } from "../../../api/primary-workbench-admin-contracts";
 import {
   useCatalogIntegrationCommandHref,
-  useCatalogIntegrationSurfaceHref,
+  useCatalogIntegrationHrefRebase,
 } from "../import-to-promotion/command-action-context";
 import { CommandFormButton, CommandHiddenInputs, isActionAvailable } from "../import-to-promotion/command-controls";
 import { BlockerList, stateLabel, uniqueBlockers } from "../import-to-promotion/workbench-formatting";
@@ -67,45 +67,20 @@ export function CatalogIntegrationSourceObservationReviewModule({
   aliasVisibility?: ReactNode;
 }>) {
   const submit = useSubmit();
-  const surfaceHref = useCatalogIntegrationSurfaceHref(readModel.routeContext, "import-to-promotion");
+  const rebase = useCatalogIntegrationHrefRebase();
   const review = readModel.sourceObservationReview;
   const status = review.filters.find((filter) => filter.key === "status")?.value ?? "all";
-  const counts = review.counts;
-  const total = counts.observed + counts.changed + counts.promoted + counts.rejected;
-  const statusOptions = [
-    {
-      value: "all",
-      label: t("catalog.features.sourceObservations.ui.primaryWorkbench.review.status.all"),
-      count: total,
-    },
-    {
-      value: "observed",
-      label: t("catalog.features.sourceObservations.ui.primaryWorkbench.review.status.observed"),
-      count: counts.observed,
-    },
-    {
-      value: "eligible",
-      label: t("catalog.features.sourceObservations.ui.primaryWorkbench.review.status.eligible"),
-      count: counts.eligible,
-    },
-    {
-      value: "promoted",
-      label: t("catalog.features.sourceObservations.ui.primaryWorkbench.review.status.promoted"),
-      count: counts.promoted,
-    },
-    {
-      value: "rejected",
-      label: t("catalog.features.sourceObservations.ui.primaryWorkbench.review.status.rejected"),
-      count: counts.rejected,
-    },
-  ];
+  const total = review.statusFilters.find((option) => option.value === "all")?.count ?? 0;
+  const statusOptions = review.statusFilters.map((option) => ({
+    ...option,
+    href: rebase(option.href),
+    label: t(`catalog.features.sourceObservations.ui.primaryWorkbench.review.status.${option.value}`),
+  }));
   const narrowed = status !== "all" && total > 0 && review.freshness !== "unavailable";
   function selectStatus(value: string) {
-    const url = new URL(surfaceHref, "https://catalog.invalid");
-    url.searchParams.delete("status");
-    url.searchParams.delete("reviewOffset");
-    if (value === "all") url.searchParams.delete("filter.status");
-    else url.searchParams.set("filter.status", value);
+    const option = statusOptions.find((candidate) => candidate.value === value);
+    if (!option) return;
+    const url = new URL(option.href, "https://catalog.invalid");
     void submit(url.searchParams, { method: "get", action: url.pathname, preventScrollReset: true });
   }
   const reviewColumns = useMemo<DataColumn<SourceObservationReviewRow>[]>(
@@ -472,28 +447,12 @@ function SourceObservationRejectPanel({
 }
 
 // GET-navigation pager for the Source Observation review queue. The daily surface
-// is loader-driven, so each page is a full navigation: building the prev/next
-// hrefs from the current routeContext (only overriding reviewOffset) preserves
-// provider/unit/scope/filters AND the current selection (selectedObservationIds)
-// across pages, and the loader re-reads the offset to fetch that page. Prev/next
-// render only when a page exists in that direction, so the boundaries are dead
-// ends by absence rather than disabled controls.
+// is loader-driven, so each API-provided href is a full GET navigation. Embeds
+// replace only its pathname; the API's provider/scope/filter/selection query is
+// preserved. Cursor-gated links are absent at the queue boundaries.
 function SourceObservationReviewPager({ readModel }: { readModel: CatalogPrimaryWorkbenchReadModel }) {
-  const { limit, offset, total, nextCursor, previousCursor } = readModel.sourceObservationReview.pagination;
-  const previousHref = useCatalogIntegrationSurfaceHref(
-    {
-      ...readModel.routeContext,
-      reviewOffset: Math.max(offset - limit, 0) || null,
-    },
-    "source-observation-review",
-  );
-  const nextHref = useCatalogIntegrationSurfaceHref(
-    {
-      ...readModel.routeContext,
-      reviewOffset: offset + limit,
-    },
-    "source-observation-review",
-  );
+  const { limit, offset, total, previousHref, nextHref } = readModel.sourceObservationReview.pagination;
+  const rebase = useCatalogIntegrationHrefRebase();
   if (total <= limit) {
     return null;
   }
@@ -518,13 +477,13 @@ function SourceObservationReviewPager({ readModel }: { readModel: CatalogPrimary
         })}
       </WorkbenchText>
       <WorkbenchActionRow>
-        {previousCursor ? (
-          <LinkButton size="sm" tone="secondary" leadingIcon="chevronLeft" href={previousHref} rel="prev">
+        {previousHref ? (
+          <LinkButton size="sm" tone="secondary" leadingIcon="chevronLeft" href={rebase(previousHref)} rel="prev">
             {t("catalog.features.sourceObservations.ui.primaryWorkbench.review.pager.previous")}
           </LinkButton>
         ) : null}
-        {nextCursor ? (
-          <LinkButton size="sm" tone="secondary" trailingIcon="chevronRight" href={nextHref} rel="next">
+        {nextHref ? (
+          <LinkButton size="sm" tone="secondary" trailingIcon="chevronRight" href={rebase(nextHref)} rel="next">
             {t("catalog.features.sourceObservations.ui.primaryWorkbench.review.pager.next")}
           </LinkButton>
         ) : null}

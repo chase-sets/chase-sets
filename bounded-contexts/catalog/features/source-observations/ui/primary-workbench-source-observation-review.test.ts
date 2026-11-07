@@ -47,6 +47,30 @@ const slimRowRouteContext: CatalogPrimaryWorkbenchRouteContext = {
 };
 
 describe("Catalog primary workbench read model - source observation review", () => {
+  it.each(["empty", "unavailable", "stale-offset"] as const)("preserves pager boundaries for %s", (state) => {
+    const model = buildCatalogPrimaryWorkbenchReadModel({
+      requestUrl:
+        "https://admin.example/catalog/integrations?section=promotion-preview&providerKey=tcgdex&promotionPreviewId=preview_1&reviewLimit=50&reviewOffset=50",
+      scopes: { items: [sourceObservationScope()], total: 1, count: 1 },
+      profileReviews: { items: [], total: 0, count: 0 },
+      controlPlaneOverview: null,
+      canManageCatalog: true,
+      reviewObservations:
+        state === "unavailable" ? null : { items: [], total: state === "stale-offset" ? 30 : 0, count: 0 },
+      readModelFailures: state === "unavailable" ? ["source-observation-review"] : [],
+      reviewPagination: { limit: 50, offset: 50 },
+    });
+    const { pagination } = model.sourceObservationReview;
+    expect(pagination.previousCursor).not.toBeNull();
+    expect(pagination.previousHref).not.toBeNull();
+    expect(pagination.nextCursor).toBeNull();
+    expect(pagination.nextHref).toBeNull();
+    const previous = new URL(pagination.previousHref!, "https://admin.example");
+    expect(previous.searchParams.get("section")).toBe("source-observation-review");
+    expect(previous.searchParams.has("reviewOffset")).toBe(false);
+    expect(previous.searchParams.get("promotionPreviewId")).toBe("preview_1");
+    expect(previous.searchParams.get("reviewLimit")).toBe("50");
+  });
   it("deep-projects the whole original Preview without nested extras, aliases or diagnostic loss", () => {
     const receipt = syntheticPromotionReceipt();
     const diagnostic = {
