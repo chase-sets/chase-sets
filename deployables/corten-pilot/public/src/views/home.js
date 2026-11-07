@@ -290,8 +290,9 @@ export function submitted(event, root) {
 
 /**
  * The hero's form adds the first priority the visitor chose in the full form.
- * Workaround (corten-run/corten#1072): Corten checks a formdata listener's event only as an
- * `Event`, so the handler takes that and reads it as the `FormDataEvent` it is.
+ * Workaround (https://github.com/corten-run/corten/issues/1072): Corten checks a formdata
+ * listener's event only as an `Event`, so the handler takes that and reads it as the
+ * `FormDataEvent` it is.
  * @param {Event} event
  * @param {HTMLFormElement} form
  */
