@@ -82,6 +82,13 @@ export type CatalogPrimaryWorkbenchSourceObservationReviewReadModel = Readonly<{
     filters: Readonly<Record<string, string>>;
     count: number | null;
   }>[];
+  // The status filter's options in order, each with its count and the daily
+  // link that applies it (back to the first page).
+  statusFilters: readonly Readonly<{
+    value: "all" | "observed" | "eligible" | "promoted" | "rejected";
+    count: number;
+    href: string;
+  }>[];
   pagination: Readonly<{
     mode: "offset";
     limit: number;
@@ -89,6 +96,9 @@ export type CatalogPrimaryWorkbenchSourceObservationReviewReadModel = Readonly<{
     total: number;
     nextCursor: string | null;
     previousCursor: string | null;
+    // Daily links to the neighbouring pages; null at either end.
+    previousHref: string | null;
+    nextHref: string | null;
   }>;
   bulkSelection: Readonly<{
     selectedCount: number;

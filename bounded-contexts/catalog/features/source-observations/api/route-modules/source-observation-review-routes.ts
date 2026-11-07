@@ -9,6 +9,9 @@ import {
 } from "../governance/catalog-integration-rollout-controls";
 import { requireCatalogIntegrationControlPlanePermission } from "../admin/admin-control-plane-rbac";
 import { parsePromoteAsDraft } from "./route-helpers";
+import { sourceObservationEvidenceFor } from "../admin/source-observation-evidence-read";
+import type { CatalogPrimaryWorkbenchSourceObservationEvidenceRouteData } from "../admin/primary-workbench-admin-contracts";
+import type { SourceObservationListItem } from "../../ui/contracts";
 
 export type SourceObservationReadReviewRouteServices = SourceObservationReadServices & SourceObservationReviewServices;
 
@@ -66,6 +69,47 @@ export function sourceObservationReadReviewRoutes(services: SourceObservationRea
       ...observation,
       source_payload: redactCatalogIntegrationProviderData(observation.source_payload),
     });
+  });
+
+  // The evidence sheet a daily workbench review row opens. Its promotion readiness, command
+  // disposition and Product contents states are worked out here, so every client shows the same.
+  app.get("/:id/evidence", async (c) => {
+    const permissionError = requireCatalogIntegrationControlPlanePermission(c, "source-observation-read");
+    if (permissionError) {
+      return permissionError;
+    }
+
+    const observationId = c.req.param("id");
+    const observation = await services.getSourceObservationDetail(observationId);
+    if (!observation) {
+      return c.json(
+        {
+          error: {
+            code: "not_found",
+            message: t("catalog.features.sourceObservations.api.route.source.observation.not.found"),
+          },
+        },
+        404,
+      );
+    }
+    // Labels fall back to the content type and policy keys when they cannot be read.
+    const labels = (await services.listProductContentsEvidenceLabels?.().catch(() => null)) ?? null;
+    // The composer reads the record as this route's GET /:id answers it.
+    const record = JSON.parse(
+      JSON.stringify({
+        ...observation,
+        source_payload: redactCatalogIntegrationProviderData(observation.source_payload),
+      }),
+    ) as SourceObservationListItem;
+
+    return c.json({
+      observationId,
+      detail: sourceObservationEvidenceFor({
+        observation: record,
+        canManage: c.get("actor")?.permissions.includes("catalog.manage") ?? false,
+        labels,
+      }),
+    } satisfies CatalogPrimaryWorkbenchSourceObservationEvidenceRouteData);
   });
 
   app.post("/:id/promote", async (c) => {

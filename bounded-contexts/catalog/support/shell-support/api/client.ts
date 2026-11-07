@@ -1481,6 +1481,13 @@ export function createCatalogApiClient({
       });
       return parseJsonResponse<T>(response);
     },
+    async getSourceObservationEvidence<T>(id: string): Promise<T> {
+      const response = await client["source-observations"][":id"].evidence.$get({
+        param: { id },
+        header: headers,
+      });
+      return parseJsonResponse<T>(response);
+    },
     async listCatalogMergeCandidates<T>(query = ""): Promise<T> {
       const search = query ? `?${new URLSearchParams(queryFromString(query)).toString()}` : "";
       const response = await configuredFetch(

@@ -915,6 +915,129 @@ describe("fulfillment shipment runtime", () => {
     expect(after.at(-1)?.eventType).toBe("fulfillment.shipment.cancelled");
   });
 
+  it.each(["cancelled", "label-attached"] as const)(
+    "refuses a command-center label purchase for a stored %s shipment behind a lagging awaiting-label row",
+    async (storedStatus) => {
+      const memory = createInMemoryEventStore();
+      const postageWrites: string[] = [];
+      const db = {
+        query: vi.fn(async (sql: string) => {
+          if (sql.includes("FROM fulfillment_shipment_pages AS page")) {
+            return { rows: [createPackedShipmentRow()] };
+          }
+          if (/^\s*(INSERT|UPDATE)\b/.test(sql) && sql.includes("fulfillment_postage_label_operations")) {
+            postageWrites.push(sql);
+          }
+          return { rows: [] };
+        }),
+      };
+      const postageLabelProvider = {
+        providerName: "synthetic-postage",
+        providerMode: "test",
+        purchaseUspsLabel: vi.fn(async () => purchasedSandboxLabel),
+        voidLabel: vi.fn(),
+      } as unknown as PostageLabelProvider;
+      const services = createFulfillmentShipmentRuntime({
+        eventStore: memory.eventStore,
+        checkpointStore: createCheckpointStore(),
+        db: db as never,
+        postageLabelProvider,
+      });
+      const context = {
+        tenantId: "tnt_test" as never,
+        audit: { performedByUserId: "usr_test" as never, forAccountId: "acc_seller" as never },
+      };
+      if (storedStatus === "cancelled") {
+        await seedPackedShipmentAggregate(services, context);
+        for (const command of [
+          {
+            type: "CancelShipment",
+            cancelledAt: "2026-04-02T00:06:00.000Z",
+            cancellationSignal: {
+              orderId: "ord_1" as never,
+              origin: "order-cancelled",
+              reason: "seller-cannot-fulfill",
+            },
+          },
+          { type: "CancelShipment", cancelledAt: "2026-04-02T00:07:00.000Z" },
+        ] as const) {
+          await services.commandHandler({ streamId: "fulfillment.shipment-shp_1", command, context });
+        }
+      } else {
+        await seedAttachedShipmentAggregate(services, context);
+      }
+      const before = memory.readAllEvents().filter((event) => event.streamId === "fulfillment.shipment-shp_1");
+      const api = {
+        purchaseUspsLabel: (shipmentId: string, body: Record<string, unknown>, mutationAttemptId: string) =>
+          services.purchaseUspsLabel(
+            { shipmentId, sellerAccountId: "acc_seller", ...body, mutationAttemptId } as never,
+            context,
+          ),
+      };
+      const form = new FormData();
+      form.set("shipmentId", "shp_1");
+      form.set("mutationAttemptId", "218f47d2-9d2a-4d68-8f33-6fb718c7829c");
+
+      const outcome = await runShipmentCommandCenterAction(api as never, "buy-label", form);
+
+      expect(outcome).toEqual({ ok: false, error: `Cannot buy label a shipment that is ${storedStatus}.` });
+      expect(postageLabelProvider.purchaseUspsLabel).not.toHaveBeenCalled();
+      expect(postageWrites).toEqual([]);
+      expect(memory.readAllEvents().filter((event) => event.streamId === "fulfillment.shipment-shp_1")).toEqual(before);
+    },
+  );
+
+  it("closes a fresh operation without buying when the stored shipment is cancelled behind its page row", async () => {
+    const memory = createInMemoryEventStore();
+    const db = createPostageOperationDb();
+    const postageLabelProvider = {
+      providerName: "synthetic-postage",
+      providerMode: "test",
+      purchaseUspsLabel: vi.fn(async () => purchasedSandboxLabel),
+      voidLabel: vi.fn(),
+    } as unknown as PostageLabelProvider;
+    const services = createFulfillmentShipmentRuntime({
+      eventStore: memory.eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: db as never,
+      postageLabelProvider,
+    });
+    const context = {
+      tenantId: "tnt_test" as never,
+      audit: { performedByUserId: "usr_test" as never, forAccountId: "acc_seller" as never },
+    };
+    await seedPackedShipmentAggregate(services, context);
+    await services.commandHandler({
+      streamId: "fulfillment.shipment-shp_1",
+      command: {
+        type: "CancelShipment",
+        cancelledAt: "2026-04-02T00:06:00.000Z",
+        cancellationSignal: { orderId: "ord_1" as never, origin: "order-cancelled", reason: "seller-cannot-fulfill" },
+      },
+      context,
+    });
+    await services.commandHandler({
+      streamId: "fulfillment.shipment-shp_1",
+      command: { type: "CancelShipment", cancelledAt: "2026-04-02T00:07:00.000Z" },
+      context,
+    });
+    const before = memory.readAllEvents().filter((event) => event.streamId === "fulfillment.shipment-shp_1");
+
+    await expect(
+      services.purchaseUspsLabel(
+        { shipmentId: "shp_1", sellerAccountId: "acc_seller", serviceLevel: "USPS_GROUND_ADVANTAGE" },
+        context,
+      ),
+    ).rejects.toThrow("Cannot buy label a shipment that is cancelled.");
+
+    expect(postageLabelProvider.purchaseUspsLabel).not.toHaveBeenCalled();
+    expect(db.readOperation()).toMatchObject({
+      status: "failed",
+      error_message: "Cannot buy label a shipment that is cancelled.",
+    });
+    expect(memory.readAllEvents().filter((event) => event.streamId === "fulfillment.shipment-shp_1")).toEqual(before);
+  });
+
   it.each(["packing", "awaiting-label", "label-attached", "dispatched", "delivered", "returned", "exception"] as const)(
     "records one verbatim order-cancellation conflict from %s through the real seam",
     async (status) => {
