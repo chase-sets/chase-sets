@@ -530,11 +530,13 @@
   .arrivals {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
-  /* The dialog drawn in place as the rail: a closed dialog is only hidden by display. */
+  /* The dialog drawn in place as the rail. Corten's components.css hides a closed dialog with
+     !important, so the rail takes !important with a class's weight to stay drawn. Workaround
+     (corten-run/corten#1081): remove it when Corten has a way to draw a closed dialog in place. */
   .filters {
     position: sticky;
     top: var(--space-4);
-    display: block;
+    display: block !important;
     height: auto;
     max-height: calc(100vh - 2 * var(--space-4));
     overflow-y: auto;
