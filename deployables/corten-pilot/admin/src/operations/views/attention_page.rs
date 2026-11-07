@@ -8,6 +8,8 @@ use corten::{
     prelude::*,
 };
 
+use platform::ui::stats::{Stat, StatTone, Stats as KitStats, StatsSurface};
+
 use super::ids;
 use crate::{
     operations::{
@@ -104,12 +106,9 @@ fn QueueParts<'a>(t: Ops, queue: &'a Queue) -> impl Render {
         t.attention_column_action(),
     ];
     html! {
-        <dl class={Stats}>
+        <dl class={(KitStats { surface: StatsSurface::Cards }, Counts)}>
             for (label, value) in &stats {
-                <div class={Stat}>
-                    <dt>{*label}</dt>
-                    <dd>{*value}</dd>
-                </div>
+                <Stat label={*label} value={*value} note="" tone={StatTone::Neutral} />
             }
         </dl>
         if !unavailable.is_empty() {

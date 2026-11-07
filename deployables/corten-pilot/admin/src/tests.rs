@@ -4025,7 +4025,7 @@ async fn the_attention_queue_draws_its_counts_its_missing_sources_and_its_items_
         "{html}"
     );
     for (label, count) in [("Total", 3), ("Critical", 1), ("Warning", 1), ("Info", 1)] {
-        assert!(html.contains(&format!("<dt>{label}</dt><dd>{count}</dd>")), "{label}: {html}");
+        assert!(html.contains(&format!("<dt>{label}</dt><dd class=\"stats__value\">{count}</dd>")), "{label}: {html}");
     }
     assert!(
         html.contains("Some sources are unavailable") && html.contains("Wake work unavailable: wake status unavailable"),
@@ -4085,7 +4085,7 @@ async fn an_empty_queue_says_so_and_a_queue_the_api_cannot_read_is_an_error() {
     let pilot = Pilot::new().await;
     let (status, _, html) = pilot.send(get("/platform/operations-attention", Some("ops-empty"))).await;
     assert_eq!(status, StatusCode::OK);
-    assert!(html.contains("Nothing needs you") && html.contains("<dt>Total</dt><dd>0</dd>"), "{html}");
+    assert!(html.contains("Nothing needs you") && html.contains(r#"<dt>Total</dt><dd class="stats__value">0</dd>"#), "{html}");
     assert!(!html.contains("Some sources are unavailable") && !html.contains("<table"), "{html}");
     let (status, _, _) = pilot.send(get("/platform/operations-attention", Some("ops-down"))).await;
     assert_eq!(status, StatusCode::BAD_GATEWAY);
