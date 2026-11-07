@@ -15,11 +15,14 @@ import {
   type PairingDrillPreflightRow,
   type PairingDrillRefusalCode,
   type PairingDrillResolver,
+  type StagingPersonaSignInReceipt,
 } from "./pairing-drill";
 
 const stagingOrigin = linkIntentOrigins["marketplace-web"].staging;
 const productionOrigin = linkIntentOrigins["marketplace-web"].production;
 const authorizePath = "/channel-connector/oauth/authorize";
+const stagingPersonaSignInPath = "/api/auth/staging-persona-sign-in";
+const stagingPersonaMagicLinkPath = "/sign-in/magic";
 const valueFlags = [
   "--deploy-run",
   "--deploy-commit",
@@ -30,6 +33,7 @@ const valueFlags = [
 ] as const;
 const pairingFlags = ["--client-id", "--artifact-digest", "--persona-alias"] as const;
 const probeTimeoutMs = 10_000;
+export const STAGING_PERSONA_MAGIC_LINK_SECRET_ENV = "CONNECTOR_STAGING_PERSONA_MAGIC_LINK_SECRET";
 
 export type StagingDrillArgs = Readonly<{
   smoke: boolean;
@@ -51,7 +55,7 @@ export type StagingDrillPorts = Readonly<{
   /** The delivery-owned deploy-authority adapter: product code never reads GitHub itself. */
   resolveDeployBinding(request: DeployBindingRequest): Promise<DeployBindingResult>;
   /** Persona sign-in; absent until staging persona sign-in wires it, so a pairing run refuses before any read. */
-  signIn?: (context: BrowserContext, personaAlias: string) => Promise<void>;
+  signIn?: (context: BrowserContext, personaAlias: string) => Promise<void | StagingPersonaSignInReceipt>;
   dist: string;
   outputDir: string;
   /** Fake seam only; the composed staging command never supplies one. */
@@ -62,6 +66,169 @@ export type StagingDrillPorts = Readonly<{
   traceActive?: boolean;
   launch?: DeployedPairingDrillInput["launch"];
 }>;
+
+const maxPersonaTokenLength = 256;
+export const stagingPersonaResponseByteLimit = Buffer.byteLength(
+  JSON.stringify({
+    alias: "sealed-stockroom",
+    link: `${stagingOrigin}${stagingPersonaMagicLinkPath}?token=${"x".repeat(maxPersonaTokenLength)}`,
+    expiresAt: "9999-12-31T23:59:59.999Z",
+  }),
+);
+
+async function readPersonaResponse(response: Response) {
+  const reader = response.body?.getReader();
+  if (!reader) throw new Error("missing-body");
+  const chunks: Uint8Array[] = [];
+  let bytes = 0;
+  try {
+    for (;;) {
+      const part = await reader.read();
+      if (part.done) break;
+      bytes += part.value.byteLength;
+      if (bytes > stagingPersonaResponseByteLimit) throw new Error("body-too-large");
+      chunks.push(part.value);
+    }
+    return JSON.parse(Buffer.concat(chunks).toString("utf8")) as Record<string, unknown>;
+  } finally {
+    await reader.cancel().catch(() => undefined);
+    reader.releaseLock();
+  }
+}
+
+function issuePersonaInFake(bearer: string, alias: string, resolver: PairingDrillResolver) {
+  const lookup = ((_hostname, options, callback) =>
+    options.all
+      ? callback(null, [{ address: resolver.address, family: 4 }])
+      : callback(null, resolver.address, 4)) as LookupFunction;
+  return new Promise<Response>((resolve, reject) => {
+    const request = httpsRequest(
+      `${stagingOrigin}${stagingPersonaSignInPath}`,
+      {
+        method: "POST",
+        port: resolver.port,
+        ca: resolver.certificatePem,
+        lookup,
+        signal: AbortSignal.timeout(probeTimeoutMs),
+        headers: {
+          accept: "application/json",
+          "content-type": "application/json",
+          authorization: `Bearer ${bearer}`,
+          origin: stagingOrigin,
+        },
+      },
+      (response) => {
+        const chunks: Buffer[] = [];
+        let bytes = 0;
+        response.on("data", (chunk: Buffer) => {
+          bytes += chunk.length;
+          if (bytes > stagingPersonaResponseByteLimit) {
+            request.destroy(new Error("body-too-large"));
+            return;
+          }
+          chunks.push(chunk);
+        });
+        response.on("end", () =>
+          resolve(new Response(new Uint8Array(Buffer.concat(chunks)), { status: response.statusCode ?? 500 })),
+        );
+        response.on("error", reject);
+      },
+    );
+    request.on("error", reject);
+    request.end(JSON.stringify({ alias }));
+  });
+}
+
+/** Captures the injected bearer once; only the returned callback can issue, probe and use its in-memory link. */
+export function createStagingPersonaSignIn(resolver?: PairingDrillResolver) {
+  // Capture before deploy reads or Chromium launch, not when the browser is ready.
+  let heldBearer = process.env[STAGING_PERSONA_MAGIC_LINK_SECRET_ENV];
+  delete process.env[STAGING_PERSONA_MAGIC_LINK_SECRET_ENV];
+  return async (context: BrowserContext, personaAlias: string): Promise<StagingPersonaSignInReceipt> => {
+    const bearer = heldBearer;
+    heldBearer = undefined;
+    let record: StagingPersonaSignInReceipt = {
+      alias: personaAlias,
+      host: new URL(stagingOrigin).host,
+      issuanceStatus: null,
+      landingStatus: null,
+      expiresAt: null,
+      outcome: "refused",
+    };
+    try {
+      if (!bearer?.startsWith("cs_stg_persona_")) throw new Error("missing-bearer");
+      const response = resolver
+        ? await issuePersonaInFake(bearer, personaAlias, resolver)
+        : await fetch(`${stagingOrigin}${stagingPersonaSignInPath}`, {
+            method: "POST",
+            headers: {
+              accept: "application/json",
+              "content-type": "application/json",
+              authorization: `Bearer ${bearer}`,
+              origin: stagingOrigin,
+            },
+            body: JSON.stringify({ alias: personaAlias }),
+            redirect: "error",
+            signal: AbortSignal.timeout(probeTimeoutMs),
+          });
+      record = { ...record, issuanceStatus: response.status };
+      if (!response.ok) throw new Error("staging-persona-sign-in-refused");
+      const body = await readPersonaResponse(response);
+      if (
+        !body ||
+        typeof body !== "object" ||
+        Object.keys(body).sort().join() !== "alias,expiresAt,link" ||
+        body.alias !== personaAlias ||
+        typeof body.link !== "string" ||
+        typeof body.expiresAt !== "string"
+      )
+        throw new Error("staging-persona-link-invalid");
+      const link = new URL(body.link);
+      const token = link.searchParams.get("token");
+      const expiry = Date.parse(body.expiresAt);
+      const now = Date.now();
+      if (
+        link.origin !== stagingOrigin ||
+        link.pathname !== stagingPersonaMagicLinkPath ||
+        link.username ||
+        link.password ||
+        link.hash ||
+        [...link.searchParams.keys()].join() !== "token" ||
+        !token ||
+        !/^[A-Za-z0-9_-]+$/.test(token) ||
+        token.length > maxPersonaTokenLength ||
+        !Number.isFinite(expiry) ||
+        expiry <= now ||
+        expiry > now + 10 * 60 * 1000 ||
+        new Date(expiry).toISOString() !== body.expiresAt
+      ) {
+        throw new Error("staging-persona-link-origin-refused");
+      }
+      record = { ...record, expiresAt: body.expiresAt };
+
+      const landing = await context.request.get(`${stagingOrigin}${stagingPersonaMagicLinkPath}`, {
+        headers: { accept: "text/html" },
+        maxRedirects: 0,
+        timeout: probeTimeoutMs,
+      });
+      record = { ...record, landingStatus: landing.status() };
+      if (!landing.ok()) throw new Error("staging-persona-probe-refused");
+      if (Date.parse(body.expiresAt) <= Date.now()) throw new Error("staging-persona-link-expired");
+      const page = context.pages()[0] ?? (await context.newPage());
+      await page.goto(link.href);
+      record = { ...record, outcome: "used" };
+      return record;
+    } catch {
+      throw new PairingDrillRefusal("connector-drill-sign-in-unavailable", {
+        forwardCount: 0,
+        forwards: [],
+        requests: [],
+        lifecycle: [],
+        signIn: record,
+      });
+    }
+  };
+}
 
 const refusal = (code: PairingDrillRefusalCode, deployStop?: string) =>
   new PairingDrillRefusal(code, {
