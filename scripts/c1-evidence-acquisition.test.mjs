@@ -1,13 +1,17 @@
 import { readFileSync, mkdtempSync, writeFileSync, existsSync, rmSync, mkdirSync } from "node:fs";
 import { execFileSync } from "node:child_process";
+import { generateKeyPairSync, sign } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { crc32, deflateRawSync } from "node:zlib";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   acquireC1Evidence,
   recheckC1Evidence,
   consumeCompleteEnvelope,
+  acquireRetainedC1Evidence,
+  main as acquisitionMain,
   CONTEXT,
   READS,
 } from "./c1-evidence-acquisition.mjs";
@@ -868,6 +872,412 @@ function cli(plan) {
   }
 }
 
+function syntheticZip(entries, method = 0) {
+  const local = [],
+    central = [];
+  let offset = 0;
+  for (const [name, value] of entries) {
+    const filename = Buffer.from(name),
+      bytes = Buffer.from(value);
+    const compressed = method === 8 ? deflateRawSync(bytes) : bytes;
+    const header = Buffer.alloc(30),
+      directory = Buffer.alloc(46);
+    header.writeUInt32LE(0x04034b50);
+    header.writeUInt16LE(20, 4);
+    header.writeUInt16LE(method, 8);
+    header.writeUInt32LE(crc32(bytes), 14);
+    header.writeUInt32LE(compressed.length, 18);
+    header.writeUInt32LE(bytes.length, 22);
+    header.writeUInt16LE(filename.length, 26);
+    directory.writeUInt32LE(0x02014b50);
+    directory.writeUInt16LE(20, 4);
+    directory.writeUInt16LE(20, 6);
+    header.copy(directory, 10, 8, 26);
+    directory.writeUInt16LE(filename.length, 28);
+    directory.writeUInt32LE(offset, 42);
+    local.push(header, filename, compressed);
+    central.push(directory, filename);
+    offset += header.length + filename.length + compressed.length;
+  }
+  const directory = Buffer.concat(central),
+    end = Buffer.alloc(22);
+  end.writeUInt32LE(0x06054b50);
+  end.writeUInt16LE(entries.length, 8);
+  end.writeUInt16LE(entries.length, 10);
+  end.writeUInt32LE(directory.length, 12);
+  end.writeUInt32LE(offset, 16);
+  return Buffer.concat([...local, directory, end]);
+}
+
+function custodyFor(f) {
+  const root = sandbox(),
+    start = "2030-01-01T00:00:00Z",
+    end = "2030-01-01T01:00:10Z",
+    now = "2030-01-01T01:00:20Z";
+  mkdirSync(join(root, "sources"));
+  const keys = generateKeyPairSync("ed25519"),
+    binding = f.envelope.binding;
+  const historyBinding = {
+    release: "4".repeat(40),
+    digest: `sha256:${generatedHash("synthetic-c1-image")}`,
+    workflowHead: binding.workflowHead,
+    namespace: "chase-sets-verify-900000000000099-1",
+    uid: "synthetic-c1-namespace",
+    nodeUid: "synthetic-c1-node",
+    census: { ...binding.census, id: 900000000000098 },
+    verification: { ...binding.verification, id: 900000000000099 },
+  };
+  const plan = {
+    version: "c1-evidence-custody/v1",
+    performer: "synthetic-custody-executor",
+    binding,
+    nodeUid: "synthetic-held-node",
+    validFrom: start,
+    validUntil: "2030-01-02T00:00:00Z",
+    retainUntil: "2031-01-01T00:00:00Z",
+    original: { custodian: "synthetic-original-custodian", prefix: join(root, "originals") },
+    backup: {
+      custodian: "synthetic-backup-custodian",
+      prefix: join(root, "backups"),
+      publicKey: keys.publicKey.export({ type: "spki", format: "pem" }),
+    },
+    manifestPath: join(root, "custody-manifest.json"),
+    acknowledgementPath: join(root, "custody-ack.json"),
+    planOriginalPath: join(root, "originals", "plan.json"),
+    planBackupPath: join(root, "backups", "plan.json"),
+    files: [],
+    envelopeId: "envelope",
+    admittedId: "admitted",
+    clockMappings: [],
+    sourceGraph: { workflowId: "", helperId: "", actionIds: [] },
+    history: {
+      binding: historyBinding,
+      start,
+      end,
+      startResourceVersion: "synthetic-rv-start",
+      inventoryId: "inventory",
+      segments: ["history"],
+      logIds: ["api-log", "worker-log"],
+    },
+    artifacts: [],
+    consumption: {
+      custodyPath: join(root, "reader-custody.json"),
+      outputs: {
+        envelope: join(root, "envelope.json"),
+        manifest: join(root, "manifest.json"),
+        receipt: join(root, "receipt.json"),
+      },
+    },
+  };
+  function add(id, value, extra = {}) {
+    const bytes = Buffer.isBuffer(value) ? value : Buffer.from(JSON.stringify(value));
+    const sourceBinding = extra.scope === "lifecycle" ? historyBinding : binding;
+    const file = {
+      id,
+      scope: "terminal",
+      sourcePath: join(root, "sources", id),
+      originalPath: join(root, "originals", id),
+      backupPath: join(root, "backups", id),
+      encoding: "utf8",
+      bytes: bytes.length,
+      sha256: sha256(bytes),
+      safety: { reviewer: "synthetic-safety-review", sha256: sha256(bytes) },
+      origin: {
+        method: "GET",
+        url: `https://synthetic.invalid/retained/${id}`,
+        apiVersion: "synthetic/v1",
+        status: 200,
+        headers: { "content-type": "application/json" },
+        startedAt: "2030-01-01T01:00:18Z",
+        completedAt: "2030-01-01T01:00:19Z",
+        expiresAt: "2030-01-02T00:00:00Z",
+        sourceHash: binding.helperHash,
+        workflowHead: sourceBinding.workflowHead,
+        release: sourceBinding.release,
+        digest: sourceBinding.digest,
+        runId: sourceBinding.verification.id,
+        attempt: sourceBinding.verification.attempt,
+        jobId: f.envelope.sourceMap.jobId,
+        step: "Synthetic retained owning source",
+        namespaceUid: sourceBinding.uid,
+        nodeUid: extra.scope === "lifecycle" ? historyBinding.nodeUid : plan.nodeUid,
+        containerUid: "synthetic-api",
+        evidencePointer: "",
+      },
+      ...extra,
+    };
+    if (!Buffer.isBuffer(value) && value?.url && typeof value.body === "string") {
+      Object.assign(file.origin, {
+        url: value.url,
+        method: value.method,
+        apiVersion: value.apiVersion,
+        status: value.status,
+        headers: value.headers,
+        startedAt: value.captureStartedAt,
+        completedAt: value.captureCompletedAt,
+      });
+    } else if (Buffer.isBuffer(value)) {
+      try {
+        const record = JSON.parse(value.toString("utf8"));
+        if (record?.url && typeof record.body === "string")
+          Object.assign(file.origin, {
+            url: record.url,
+            method: record.method,
+            apiVersion: record.apiVersion,
+            status: record.status,
+            headers: record.headers,
+            startedAt: record.captureStartedAt,
+            completedAt: record.captureCompletedAt,
+          });
+      } catch {}
+    }
+    plan.files.push(file);
+    writeFileSync(file.sourcePath, bytes);
+    return file;
+  }
+  for (const [i, file] of f.envelope.files.entries()) {
+    const added = add(`reader-${i}`, Buffer.from(file.original), { readerPath: file.path });
+    if (file.path === "source-workflow") plan.sourceGraph.workflowId = added.id;
+    if (file.path === "source-helper") plan.sourceGraph.helperId = added.id;
+    if (file.path === "source-action") plan.sourceGraph.actionIds.push(added.id);
+  }
+  add("envelope", f.envelope);
+  add("admitted", f.admitted);
+  const events = JSON.parse(f.envelope.files.find((file) => file.path === "synthetic-events.json").original);
+  const eventFile = plan.files.find((file) => file.readerPath === "synthetic-events.json");
+  for (const [i, event] of events.entries())
+    plan.clockMappings.push({
+      kind: event.kind,
+      fileId: eventFile.id,
+      pointer: `/${i}`,
+      sourcePointer: `/${i}`,
+      delivery: sha256(`${eventFile.sha256}:/${i}:${event.kind}`),
+    });
+  const resources = [
+    { kind: "Namespace", uid: historyBinding.uid, createdAt: start, finalizedAt: end },
+    { kind: "Node", uid: historyBinding.nodeUid, createdAt: start, finalizedAt: end },
+    { kind: "Pod", uid: "synthetic-pod", createdAt: start, finalizedAt: end },
+    ...["api", "worker"].map((role) => {
+      const log = add(`${role}-log`, Buffer.from(`synthetic whole ${role} log\n`), {
+        scope: "lifecycle",
+        log: { ownerUid: `synthetic-${role}`, generation: 0, rotation: 0 },
+      });
+      log.origin.containerUid = log.log.ownerUid;
+      return {
+        kind: "Container",
+        uid: `synthetic-${role}`,
+        createdAt: start,
+        finalizedAt: end,
+        generations: [{ number: 0, rotations: [{ number: 0, bytes: log.bytes, sha256: log.sha256 }] }],
+      };
+    }),
+    { kind: "Producer", uid: "synthetic-owning-producer", createdAt: start, finalizedAt: end },
+  ];
+  for (const resource of resources)
+    if (["Pod", "Container", "Producer"].includes(resource.kind))
+      resource.identity = {
+        runId: historyBinding.verification.id,
+        attempt: historyBinding.verification.attempt,
+        namespaceUid: historyBinding.uid,
+        nodeUid: historyBinding.nodeUid,
+        digest: historyBinding.digest,
+      };
+  const lifecycleEvents = [
+    "NamespaceCreated",
+    "NodeReady",
+    "Scheduled",
+    "Pulling",
+    "Pulled",
+    "Started",
+    "PodReady",
+    "NamespaceDeleting",
+    "NamespaceDeleted",
+  ];
+  add("inventory", { binding: historyBinding, resources, eventCount: lifecycleEvents.length }, { scope: "lifecycle" });
+  const records = [
+    ...resources.flatMap((r) => [
+      { kind: r.kind, uid: r.uid, identity: r.identity, action: "created", at: start },
+      { kind: r.kind, uid: r.uid, identity: r.identity, action: "finalized", at: end },
+    ]),
+    ...lifecycleEvents.map((reason, index) => ({
+      kind: "Event",
+      uid: `synthetic-c1-event-${index}`,
+      action: "observed",
+      at: end,
+      reason,
+    })),
+  ];
+  add(
+    "history",
+    {
+      binding: historyBinding,
+      startedAt: start,
+      completedAt: end,
+      retainedFrom: start,
+      expiresAt: "2030-01-02T00:00:00Z",
+      fromResourceVersion: "synthetic-rv-start",
+      resourceVersion: "synthetic-rv-end",
+      page: 1,
+      totalPages: 1,
+      totalCount: records.length,
+      records,
+    },
+    { scope: "lifecycle" },
+  );
+  for (const role of ["census", "verification"]) {
+    const owner = binding[role];
+    const name =
+      role === "census"
+        ? `preview-pool-census-${owner.id}-${owner.attempt}`
+        : `ephemeral-verification-${binding.release}-${owner.id}-${owner.attempt}`;
+    const id = role === "census" ? 900000000000301 : 900000000000302;
+    const payload = add(
+      `${role}-payload`,
+      role === "census"
+        ? {
+            schemaVersion: "preview-pool-census/v1",
+            result: "success",
+            mode: "sample",
+            startedAt: "2030-01-01T00:12:00Z",
+            finishedAt: "2030-01-01T00:57:00Z",
+            containers: [{ namespace: binding.namespace }],
+            errors: [],
+            thinSamples: [],
+            intervalSeconds: 10,
+            durationMinutes: 45,
+            lowerBound: "synthetic sampled lower bounds",
+            nodes: [],
+            namespaces: [],
+            events: [],
+            autoscalerStatus: null,
+          }
+        : {
+            schemaVersion: "ephemeral-verification/v1",
+            releaseCommit: binding.release,
+            imageDigest: binding.digest,
+            workflowRunId: String(owner.id),
+            workflowRunAttempt: String(owner.attempt),
+            namespace: binding.namespace,
+            imageRepository: "synthetic/release",
+            producerRunId: null,
+            producerRunAttempt: null,
+            trigger: "workflow_dispatch",
+            result: "success",
+            failurePhase: null,
+            teardownResult: f.envelope.namespace.deleted ? "success" : "failure",
+            persistentStagingResult: "not-run",
+            persistentStagingRetained: true,
+            workloads: ["representative-commerce-state", "platform-smoke", "stripe-money-smoke"],
+            checkedAt: end,
+          },
+    );
+    const payloadName = role === "census" ? "preview-pool-census.json" : "ephemeral-verification.json";
+    const archive = add(`${role}-archive`, syntheticZip([[payloadName, readFileSync(payload.sourcePath)]]), {
+      encoding: "binary",
+      artifactArchive: true,
+    });
+    add(
+      `${role}-artifacts`,
+      raw(`https://api.github.com/repos/${repository}/actions/runs/${owner.id}/artifacts?per_page=100&page=1`, {
+        total_count: 1,
+        artifacts: [
+          {
+            id,
+            name,
+            expired: false,
+            workflow_run: { id: owner.id },
+            digest: `sha256:${archive.sha256}`,
+            size_in_bytes: archive.bytes,
+          },
+        ],
+      }),
+    );
+    plan.artifacts.push({
+      role,
+      id,
+      name,
+      runId: owner.id,
+      attempt: owner.attempt,
+      pages: [`${role}-artifacts`],
+      archiveId: archive.id,
+      archiveHash: archive.sha256,
+      payloadId: `${role}-payload`,
+      payloadName,
+    });
+  }
+  const planFile = join(root, "plan.json");
+  const save = () => writeFileSync(planFile, JSON.stringify(plan));
+  const replace = (id, value) => {
+    const file = plan.files.find((entry) => entry.id === id);
+    const bytes = Buffer.isBuffer(value) ? value : Buffer.from(JSON.stringify(value));
+    writeFileSync(file.sourcePath, bytes);
+    file.bytes = bytes.length;
+    file.sha256 = sha256(bytes);
+    file.safety.sha256 = file.sha256;
+  };
+  const replaceArchive = (entries, method = 0) => {
+    replace("verification-archive", syntheticZip(entries, method));
+    const archive = plan.files.find((file) => file.id === "verification-archive");
+    plan.artifacts.find((artifact) => artifact.role === "verification").archiveHash = archive.sha256;
+    const page = plan.files.find((file) => file.id === "verification-artifacts");
+    const response = JSON.parse(readFileSync(page.sourcePath));
+    const body = JSON.parse(response.body);
+    body.artifacts[0].digest = `sha256:${archive.sha256}`;
+    body.artifacts[0].size_in_bytes = archive.bytes;
+    replace(page.id, raw(response.url, body));
+    save();
+  };
+  save();
+  const backup = {
+    custodian: plan.backup.custodian,
+    async retain(request) {
+      // This independent native fixture process sees only named files and an isolation sentinel.
+      const files = JSON.parse(
+        execFileSync(
+          process.execPath,
+          [
+            "-e",
+            'const fs=require("node:fs"),crypto=require("node:crypto");if(process.env.SYNTHETIC_ISOLATION_SENTINEL!=="custody-only")throw Error("isolation");const files=JSON.parse(fs.readFileSync(0,"utf8"));const result=files.map(f=>{fs.writeFileSync(f.backupPath,fs.readFileSync(f.originalPath),{flag:"wx"});const b=fs.readFileSync(f.backupPath);return {path:f.backupPath,bytes:b.length,sha256:crypto.createHash("sha256").update(b).digest("hex")}});process.stdout.write(JSON.stringify(result));',
+          ],
+          {
+            encoding: "utf8",
+            input: JSON.stringify(request.files),
+            env: { SystemRoot: process.env.SystemRoot ?? "", PATH: "", SYNTHETIC_ISOLATION_SENTINEL: "custody-only" },
+          },
+        ),
+      );
+      const payload = {
+        planHash: request.planHash,
+        custodian: plan.backup.custodian,
+        captureStartedAt: request.startedAt,
+        acknowledgedAt: now,
+        retainUntil: plan.retainUntil,
+        files,
+      };
+      return {
+        payload,
+        signature: sign(null, Buffer.from(JSON.stringify(payload)), keys.privateKey).toString("base64"),
+      };
+    },
+  };
+  const input = () => ({
+    planFile,
+    authority: { approvedPlanHash: sha256(readFileSync(planFile)), performer: plan.performer },
+  });
+  return {
+    root,
+    plan,
+    planFile,
+    save,
+    add,
+    replace,
+    replaceArchive,
+    input,
+    capabilities: { backup, now: () => now },
+    run: () => acquireRetainedC1Evidence(input(), { backup, now: () => now }),
+  };
+}
+
 describe("five-read projection production entrypoint", () => {
   it.each(
     ["initContainerStatuses", "containerStatuses", "ephemeralContainerStatuses"].flatMap((statuses) =>
@@ -1468,5 +1878,328 @@ describe("complete envelope entrypoint actual CLI", () => {
     const result = consumeCompleteEnvelope(plan);
     expect(result).toEqual({ state: "STOP", reasons: ["STOP_PARTIAL_MATERIALIZATION"], partial: true });
     expect(existsSync(plan.outputs.receipt)).toBe(false);
+  });
+});
+
+describe("terminal custody production entrypoint", () => {
+  const sourceIds = [
+    ...fixture().envelope.files.map((_, i) => `reader-${i}`),
+    "envelope",
+    "admitted",
+    "api-log",
+    "worker-log",
+    "inventory",
+    "history",
+    "census-archive",
+    "census-payload",
+    "census-artifacts",
+    "verification-archive",
+    "verification-payload",
+    "verification-artifacts",
+  ];
+  it("F1 refuses a duplicate delivery replacing an omitted lifecycle event with totals unchanged", async () => {
+    const custody = custodyFor(fixture());
+    const history = JSON.parse(readFileSync(custody.plan.files.find((file) => file.id === "history").sourcePath));
+    const events = history.records.filter((record) => record.kind === "Event");
+    expect(events).toHaveLength(9);
+    expect(events.at(-1).reason).toBe("NamespaceDeleted");
+    history.records[history.records.length - 1] = structuredClone(events[0]);
+    custody.replace("history", history);
+    custody.save();
+    const result = await custody.run();
+    expect(result.state, JSON.stringify(result)).toBe("STOP");
+    expect(result.missing).toContain("EVENT_COVERAGE");
+    expect(result.partial).toBe(false);
+    expect(existsSync(custody.plan.original.prefix)).toBe(false);
+    expect(existsSync(custody.plan.backup.prefix)).toBe(false);
+  });
+  it("F1 retains complete unique history with identical delivery overlap and replay", async () => {
+    const custody = custodyFor(fixture());
+    const history = JSON.parse(readFileSync(custody.plan.files.find((file) => file.id === "history").sourcePath));
+    history.records.push(structuredClone(history.records.find((record) => record.kind === "Event")));
+    custody.replace("history", history);
+    custody.save();
+    const result = await custody.run();
+    expect(result.state, JSON.stringify(result)).toBe("MATERIALIZED");
+    expect(await custody.run()).toEqual(result);
+  });
+  it("F1 refuses conflicting lifecycle deliveries without creating custody", async () => {
+    const custody = custodyFor(fixture());
+    const history = JSON.parse(readFileSync(custody.plan.files.find((file) => file.id === "history").sourcePath));
+    const event = history.records.find((record) => record.kind === "Event");
+    history.records.push({ ...event, reason: "synthetic-conflicting-reason" });
+    custody.replace("history", history);
+    custody.save();
+    const result = await custody.run();
+    expect(result.missing).toContain("DELIVERY_CONFLICT");
+    expect(result.state).toBe("STOP");
+    expect(result.partial).toBe(false);
+  });
+  it.each(["synthetic-unrelated-container", undefined])(
+    "F3 refuses owning worker log provenance %s before either prefix",
+    async (owner) => {
+      const custody = custodyFor(fixture());
+      custody.plan.files.find((file) => file.id === "worker-log").origin.containerUid = owner;
+      custody.save();
+      const result = await custody.run();
+      expect(result.state, JSON.stringify(result)).toBe("STOP");
+      expect(result.partial).toBe(false);
+      expect(existsSync(custody.plan.original.prefix)).toBe(false);
+      expect(existsSync(custody.plan.backup.prefix)).toBe(false);
+    },
+  );
+  it.each(["generation", "rotation", "attempt owner", "source pointer"])(
+    "F3 refuses a mismatched owning log %s",
+    async (attack) => {
+      const custody = custodyFor(fixture());
+      const log = custody.plan.files.find((file) => file.id === "worker-log");
+      if (attack === "generation") log.log.generation++;
+      if (attack === "rotation") log.log.rotation++;
+      if (attack === "attempt owner") log.origin.runId = custody.plan.history.binding.census.id;
+      if (attack === "source pointer") log.origin.evidencePointer = "/unrelated-generation";
+      custody.save();
+      const result = await custody.run();
+      expect(result.state, JSON.stringify(result)).toBe("STOP");
+      expect(result.partial).toBe(false);
+      expect(existsSync(custody.plan.original.prefix)).toBe(false);
+      expect(existsSync(custody.plan.backup.prefix)).toBe(false);
+    },
+  );
+  it.each(["diagnostics-only", "duplicate-member", "mismatching-member-bytes", "nested-canonical", "unsafe-entry"])(
+    "F4 refuses %s archive despite a separately valid canonical payload",
+    async (attack) => {
+      const custody = custodyFor(fixture());
+      const payload = readFileSync(custody.plan.files.find((file) => file.id === "verification-payload").sourcePath);
+      const canonical = ["ephemeral-verification.json", payload];
+      const entries =
+        attack === "diagnostics-only"
+          ? [["diagnostics.json", "{}"]]
+          : attack === "duplicate-member"
+            ? [canonical, canonical]
+            : attack === "mismatching-member-bytes"
+              ? [[canonical[0], Buffer.from(payload.toString().replace("2030-", "2031-"))]]
+              : attack === "nested-canonical"
+                ? [["nested/ephemeral-verification.json", payload]]
+                : [canonical, ["../diagnostics.json", "{}"]];
+      custody.replaceArchive(entries);
+      const result = await custody.run();
+      expect(result.state, JSON.stringify(result)).toBe("STOP");
+      expect(result.missing).toContain(
+        attack === "mismatching-member-bytes"
+          ? "ARTIFACT_MEMBER_BYTES"
+          : ["diagnostics-only", "nested-canonical"].includes(attack)
+            ? "ARTIFACT_CANONICAL_MEMBER"
+            : "ARTIFACT_ARCHIVE",
+      );
+      expect(result.partial).toBe(false);
+      expect(existsSync(custody.plan.original.prefix)).toBe(false);
+      expect(existsSync(custody.plan.backup.prefix)).toBe(false);
+    },
+  );
+  it("F4 retains a deflated canonical member byte-for-byte with safe diagnostics", async () => {
+    const custody = custodyFor(fixture());
+    const payload = readFileSync(custody.plan.files.find((file) => file.id === "verification-payload").sourcePath);
+    custody.replaceArchive(
+      [
+        ["ephemeral-verification.json", payload],
+        ["diagnostics.json", "{}"],
+      ],
+      8,
+    );
+    const result = await custody.run();
+    expect(result.state, JSON.stringify(result)).toBe("MATERIALIZED");
+    const worker = custody.plan.files.find((file) => file.id === "worker-log");
+    expect(worker.origin.containerUid).toBe(worker.log.ownerUid);
+    expect(await custody.run()).toEqual(result);
+  });
+  it("consumes an independently retained plan through the existing acquisition CLI parser without recapturing", async () => {
+    const custody = custodyFor(fixture()),
+      expected = await custody.run();
+    expect(expected.state).toBe("MATERIALIZED");
+    const input = custody.input();
+    const result = await acquisitionMain(
+      [
+        "--retained-plan-file",
+        custody.planFile,
+        "--approved-plan-hash",
+        input.authority.approvedPlanHash,
+        "--performer",
+        input.authority.performer,
+      ],
+      { now: custody.capabilities.now },
+    );
+    expect(result).toEqual(expected);
+  });
+  it("native retained-plan CLI refuses absent durable custody before any original write", () => {
+    const custody = custodyFor(fixture()),
+      input = custody.input();
+    let status, result;
+    try {
+      execFileSync(
+        process.execPath,
+        [
+          fileURLToPath(new URL("./c1-evidence-acquisition.mjs", import.meta.url)),
+          "--retained-plan-file",
+          custody.planFile,
+          "--approved-plan-hash",
+          input.authority.approvedPlanHash,
+          "--performer",
+          input.authority.performer,
+        ],
+        { env: { SystemRoot: process.env.SystemRoot ?? "", PATH: "", SYNTHETIC_ISOLATION_SENTINEL: "fixture-only" } },
+      );
+    } catch (error) {
+      status = error.status;
+      result = JSON.parse(error.stdout);
+    }
+    expect(status).toBe(1);
+    expect(result.missing).toEqual(["RETAINED_PLAN_AUTHORITY"]);
+    expect(existsSync(custody.plan.planOriginalPath)).toBe(false);
+  });
+  it.each([
+    "withheld authorization",
+    "changed release",
+    "planted secret",
+    "missing consumption plan",
+    "cross-scope lifecycle source",
+  ])("source custody admission through production: %s", async (attack) => {
+    const custody = custodyFor(fixture());
+    if (attack === "changed release") custody.plan.files[0].origin.release = "9".repeat(40);
+    if (attack === "planted secret") writeFileSync(custody.plan.files[0].sourcePath, "synthetic-sensitive-marker");
+    if (attack === "missing consumption plan") delete custody.plan.consumption;
+    if (attack === "cross-scope lifecycle source")
+      custody.plan.files.find((f) => f.id === "history").scope = "terminal";
+    custody.save();
+    const input = custody.input();
+    if (attack === "withheld authorization") delete input.authority;
+    const result = await acquireRetainedC1Evidence(input, custody.capabilities);
+    expect(result.state).toBe("STOP");
+    expect(result.partial).toBe(false);
+    expect(existsSync(custody.plan.planOriginalPath)).toBe(false);
+    expect(JSON.stringify(result)).not.toContain("synthetic-sensitive-marker");
+  });
+  it("refuses a canonical payload reduced to identity-only JSON even with every byte hash updated", async () => {
+    const custody = custodyFor(fixture()),
+      file = custody.plan.files.find((f) => f.id === "verification-payload");
+    const value = JSON.parse(readFileSync(file.sourcePath));
+    delete value.checkedAt;
+    const bytes = Buffer.from(JSON.stringify(value));
+    writeFileSync(file.sourcePath, bytes);
+    file.bytes = bytes.length;
+    file.sha256 = sha256(bytes);
+    file.safety.sha256 = file.sha256;
+    custody.replaceArchive([["ephemeral-verification.json", bytes]]);
+    custody.save();
+    const result = await custody.run();
+    expect(result.state).toBe("STOP");
+    expect(result.missing).toContain("ARTIFACT_PAYLOAD_BINDING");
+    expect(result.partial).toBe(false);
+  });
+  it("backs up the complete page-two owner envelope before calling the landed reader", async () => {
+    const f = fixture({ pageTwo: true }),
+      custody = custodyFor(f),
+      result = await custody.run();
+    expect(result.state, JSON.stringify(result)).toBe("MATERIALIZED");
+    expect(result.receipt).toEqual(read(f));
+    expect(result.receipt.cRunTerminal.utc).toBe(null);
+    expect(result.receipt.c1Admission).not.toBe(true);
+    const manifest = JSON.parse(readFileSync(result.custodyManifestPath));
+    expect(manifest.terminal.facts).toEqual(read(f));
+    expect(manifest.history.binding.uid).not.toBe(manifest.terminal.binding.uid);
+    expect(manifest.history.binding.release).not.toBe(manifest.terminal.binding.release);
+    expect(manifest.history.binding.verification.id).not.toBe(manifest.terminal.binding.verification.id);
+    expect(custody.plan.clockMappings).toHaveLength(7);
+    expect(manifest.files).toHaveLength(custody.plan.files.length + 1);
+    for (const file of manifest.files) {
+      expect(sha256(readFileSync(file.originalPath))).toBe(file.sha256);
+      expect(sha256(readFileSync(file.backupPath))).toBe(file.sha256);
+    }
+    expect(JSON.parse(readFileSync(custody.plan.consumption.outputs.envelope))).toEqual(f.envelope);
+    expect(await custody.run()).toEqual(result);
+  });
+  it.each(sourceIds)("custody bridge omission: removing required source %s refuses before bracket", async (id) => {
+    const f = fixture(),
+      custody = custodyFor(f);
+    const source = custody.plan.files.find((file) => file.id === id);
+    source.sourcePath = join(custody.root, "missing-source");
+    custody.save();
+    const result = await custody.run();
+    expect(result.state, id).toBe("STOP");
+    expect(result.partial, id).toBe(false);
+    expect(result.missing).toContain(`SOURCE_UNAVAILABLE:${id}`);
+    expect(existsSync(custody.plan.consumption.outputs.receipt)).toBe(false);
+  });
+  it.each(["custody-plan", ...sourceIds])(
+    "custody bridge omission: removing independent backup %s refuses with unrelated predicates fixed",
+    async (id) => {
+      const custody = custodyFor(fixture());
+      expect((await custody.run()).state).toBe("MATERIALIZED");
+      const path =
+        id === "custody-plan"
+          ? custody.plan.planBackupPath
+          : custody.plan.files.find((file) => file.id === id).backupPath;
+      rmSync(path);
+      const result = await custody.run();
+      expect(result.state, id).toBe("STOP");
+      expect(result.missing, id).toContain(`BACKUP_UNAVAILABLE:${id}`);
+    },
+  );
+  it.each([
+    "101-total/100-count",
+    "canonical missing/nonempty directory",
+    "mixed attempt",
+    "skipped-with-time",
+    "missing-finalizer",
+    "creation-then-label-failure",
+    "early cancellation",
+    "runner loss",
+  ])("preserves %s as UNKNOWN/refusal, never cleanup success", async (attack) => {
+    const f = fixture({ pageTwo: attack === "101-total/100-count" });
+    if (attack === "101-total/100-count") f.envelope.jobs.verification.pages.pop();
+    if (attack === "mixed attempt")
+      f.envelope.consumption.verification[1] = mutateRecord(
+        f.envelope.consumption.verification[1],
+        (r) => (r.run_attempt = 2),
+      );
+    if (attack === "skipped-with-time") changeDelete(f, (s) => (s.conclusion = "skipped"));
+    if (attack === "missing-finalizer") changeDelete(f, (s) => (s.name = "Synthetic absent finalizer"));
+    if (attack === "creation-then-label-failure") f.envelope.namespace.state = "NOT_CREATED";
+    if (attack === "early cancellation")
+      changeDelete(f, (s) => {
+        s.conclusion = "cancelled";
+        s.started_at = null;
+        s.completed_at = null;
+      });
+    if (attack === "runner loss") f.envelope.jobs.verification.details = [];
+    retain(f);
+    const custody = custodyFor(f);
+    if (attack === "canonical missing/nonempty directory") {
+      const file = custody.plan.files.find((s) => s.id === "verification-payload");
+      rmSync(file.sourcePath);
+      mkdirSync(file.sourcePath);
+      writeFileSync(join(file.sourcePath, "diagnostics.json"), "{}");
+    }
+    const result = await custody.run();
+    expect(result.state, JSON.stringify(result)).toBe("STOP");
+    if (attack !== "canonical missing/nonempty directory") {
+      expect(result.receipt).toEqual(read(f));
+      expect(result.receipt.t0Utc).toBe(null);
+    } else expect(existsSync(custody.plan.consumption.outputs.receipt)).toBe(false);
+  });
+  it("retains executed failed-delete/Terminating as negative c1 admission, not successful cleanup", async () => {
+    const f = changeDelete(fixture(), (s) => (s.conclusion = "failure"));
+    f.envelope.namespace.deleted = false;
+    retain(f);
+    const result = await custodyFor(f).run();
+    expect(result.receipt).toEqual(read(f));
+    expect(result.receipt.cleanupSucceeded).toBe(false);
+    expect(result.receipt.c1Admission).toBe(false);
+  });
+  it("withholds backup authority before any original is written", async () => {
+    const custody = custodyFor(fixture());
+    const result = await acquireRetainedC1Evidence(custody.input(), { now: custody.capabilities.now });
+    expect(result.state).toBe("STOP");
+    expect(result.missing).toContain("INDEPENDENT_CUSTODIAN");
+    expect(existsSync(custody.plan.files[0].originalPath)).toBe(false);
   });
 });
