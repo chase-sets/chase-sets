@@ -4221,15 +4221,19 @@ async fn a_command_from_a_scopes_workspace_lands_back_on_the_scope_and_the_addre
         html.contains(&format!(r#"action="/catalog/integrations/review?{}""#, again.replace('&', "&amp;"))),
         "its commands keep the working set: {html}"
     );
-    // Nothing checked: the form says so and sends nothing (chase-sets/chase-sets#11090).
+    // Nothing checked: the API refuses it, and the page says the API's reason.
     let bulk = |pilot: &Pilot| daily_writes(pilot).iter().filter(|c| c.path.contains("/bulk-")).count();
     let before = bulk(&pilot);
     for body in ["action=reject&reason=Duplicate", "action=defer"] {
         let (status, _, html) = pilot.send(post(&at, body, false)).await;
         assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}: {html}");
-        assert!(html.contains("No observations selected") && html.contains("data-scope-workspace"), "{body}: {html}");
+        assert!(
+            html.contains("Bulk review requires selected observations or an explicit review scope.")
+                && html.contains("data-scope-workspace"),
+            "{body}: {html}"
+        );
     }
-    assert_eq!(bulk(&pilot), before, "nothing was sent");
+    assert_eq!(bulk(&pilot), before + 2, "each was sent, and the API refused it");
     // A command from the daily workbench itself, refused, is the daily workbench again.
     let daily = context.replace("&home=scp_paf", "");
     let (status, _, html) =
@@ -7736,6 +7740,54 @@ fn daily_surface(location: &str) -> Response {
     });
     let serde_json::Value::Object(context) = context else { unreachable!("the context is an object") };
     surface["readModel"].as_object_mut().expect("the read model is an object").extend(context);
+    // What the API works out for this read (`flow`, `dailyStatus`, the review's links): it opens
+    // on the section's stage, else Review (there are changes); a stop blocks Run sync and is the
+    // governance banner; the throttled transport is a degraded health banner.
+    let open = match section {
+        "import-jobs" | "provider-scope-selection" | "readiness" => "run-sync",
+        "promotion-preview" | "promotion-result" => "create-items",
+        _ => "review-changes",
+    };
+    let order = ["run-sync", "review-changes", "create-items"];
+    let at = |key: &str| order.iter().position(|k| *k == key);
+    let stages: Vec<Value> = order
+        .iter()
+        .map(|key| {
+            let state = if *key == "run-sync" && stopped {
+                "blocked"
+            } else if *key == open {
+                "current"
+            } else if at(key) < at(open) {
+                "complete"
+            } else {
+                "upcoming"
+            };
+            json!({ "key": key, "state": state })
+        })
+        .collect();
+    surface["readModel"]["flow"] = json!({ "openStage": open, "openStageWithHeldPreview": open, "stages": stages });
+    surface["readModel"]["dailyStatus"] =
+        json!({ "governance": if stopped { Some("stopped") } else { None }, "health": "degraded" });
+    let kept: Vec<&str> = location
+        .split_once('?')
+        .map_or("", |(_, q)| q)
+        .split('&')
+        .filter(|p| !p.is_empty() && !["filter.status=", "reviewOffset=", "section=", "status="].iter().any(|k| p.starts_with(k)))
+        .collect();
+    let daily =
+        |extra: &[&str]| format!("/catalog/integrations?{}", kept.iter().chain(extra).copied().collect::<Vec<_>>().join("&"));
+    let review = &mut surface["readModel"]["sourceObservationReview"];
+    review["statusFilters"] = json!([
+        { "value": "all", "count": 30, "href": daily(&[]) },
+        { "value": "observed", "count": 12, "href": daily(&["filter.status=observed"]) },
+        { "value": "eligible", "count": 4, "href": daily(&["filter.status=eligible"]) },
+        { "value": "promoted", "count": 14, "href": daily(&["filter.status=promoted"]) },
+        { "value": "rejected", "count": 1, "href": daily(&["filter.status=rejected"]) }
+    ]);
+    if !stopped {
+        review["pagination"]["previousHref"] = Value::Null;
+        review["pagination"]["nextHref"] = json!(daily(&["reviewOffset=25", "section=source-observation-review"]));
+    }
     Json(surface).into_response()
 }
 
@@ -7831,6 +7883,23 @@ fn daily_command(method: &Method, path: &str, body: &str) -> Option<Response> {
             }
         }
         "/catalog-sync-scope/state" => scope_sync_state(&sent),
+        // A bulk defer or reject needs observations or a scope (the API's `selection_required`).
+        "/bulk-defer/jobs" | "/bulk-reject/jobs"
+            if sent["observationIds"]
+                .as_array()
+                .is_none_or(|ids| ids.iter().all(|id| id.as_str().is_none_or(|id| id.trim().is_empty())))
+                && sent["scope"].is_null() =>
+        {
+            if rest == "/bulk-reject/jobs" && sent["reason"].as_str().is_none_or(str::is_empty) {
+                refusal(StatusCode::BAD_REQUEST, "reason_required", "A reason is required to reject observations.")
+            } else {
+                refusal(
+                    StatusCode::BAD_REQUEST,
+                    "selection_required",
+                    "Bulk review requires selected observations or an explicit review scope.",
+                )
+            }
+        }
         "/bulk-defer/jobs" => written(StatusCode::ACCEPTED, "bulk_1"),
         // A workset unit's import and reapply.
         "/integration-jobs" => queued("job_9"),
@@ -8752,13 +8821,19 @@ async fn the_daily_workbench_draws_the_apis_read_with_its_stages_and_commands() 
         "a status link keeps the working set: {html}"
     );
     assert!(
-        html.contains(r#"href="/catalog/integrations?providerKey=tcgplayer&amp;unitKey=pokemon&amp;reviewOffset=25""#),
-        "the next page: {html}"
+        html.contains(
+            r#"href="/catalog/integrations?providerKey=tcgplayer&amp;unitKey=pokemon&amp;reviewOffset=25&amp;section=source-observation-review" rel="next""#
+        ),
+        "the API's next page: {html}"
     );
+    assert!(!html.contains(r#"rel="prev""#), "no previous page on the first: {html}");
     assert!(html.contains("1–25 of 30 (page 1 of 2)"), "{html}");
     assert!(html.contains(r#"name="action" value="defer""#) && html.contains(r#"name="action" value="reject""#), "{html}");
     assert!(html.contains(r#"name="reason""#), "{html}");
-    assert!(!html.contains(r#"value="promote""#), "promotion stays on admin-web (chase-sets/chase-sets#11045): {html}");
+    assert!(
+        !html.contains(r#"value="promote""#),
+        "promotion stays on admin-web (chase-sets/chase-sets#11142, chase-sets/chase-sets#11143): {html}"
+    );
     assert!(
         html.contains(r#"href="http://localhost:7752/catalog/integrations?providerKey=tcgplayer&amp;unitKey=pokemon""#),
         "candidates and the preview open on admin-web: {html}"
@@ -8801,7 +8876,7 @@ async fn the_workset_draws_each_units_state_and_its_sync_and_reapply_and_opens_i
     assert!(panel.contains(r#"name="command" value="import">Sync TCGplayer singles</button>"#), "{panel}");
     assert!(panel.contains(r#"name="command" value="reapply">Reapply TCGplayer singles</button>"#), "{panel}");
     // Preview is closed here, so it is its state, with no way to it on admin-web
-    // (chase-sets/chase-sets#11045).
+    // (chase-sets/chase-sets#11142).
     assert!(panel.contains(r#"data-catalog-primary-workbench-command="observation.promote" data-state="disabled""#), "{panel}");
     assert!(!panel.contains("on admin-web</a>"), "{panel}");
     // A unit without a key or profile says so, and why its commands are closed; with no scopes it
@@ -9138,7 +9213,10 @@ async fn a_merge_candidate_is_ignored_or_deferred_with_admin_webs_reason_and_pro
         form[form[..defer].rfind("<button").unwrap()..].split('>').next().unwrap().contains("disabled"),
         "a blocked defer: {form}"
     );
-    assert!(!form.contains(r#"value="promote""#), "promotion stays on admin-web (chase-sets/chase-sets#11045): {form}");
+    assert!(
+        !form.contains(r#"value="promote""#),
+        "promotion stays on admin-web (chase-sets/chase-sets#11142, chase-sets/chase-sets#11143): {form}"
+    );
 
     let (status, _, html) = pilot.send(get(&format!("/catalog/integrations?{at}"), Some("catalog-reader"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");

@@ -28,8 +28,9 @@
 //! (`commandScopes`, chase-sets/chase-sets#11082), to `POST .../integration-jobs` and
 //! `POST .../reapply`; the API refuses a scope it cannot import or reapply.
 //!
-//! Preview and promote stay on admin-web: the API does not yet refuse a stale preview itself
-//! (chase-sets/chase-sets#11045), so the pilot does not send a promotion, and the jobs stage's import
+//! Preview and promote stay on admin-web: the API checks the preview's token, but the selection and
+//! confirmation it binds are admin-web's own composition of the route (chase-sets/chase-sets#11142),
+//! so the pilot does not send a promotion, and the jobs stage's import
 //! preview opens there until the API composes it for the working set (chase-sets/chase-sets#11130).
 //!
 //! A review row's Evidence opens the observation's evidence sheet from the API's detail
@@ -59,10 +60,9 @@
 //! does not read, as admin-web's panels are. A failed or stale unit's Retry provider is the job route's
 //! retry of its last job.
 //!
-//! Workaround (chase-sets/chase-sets#11047): the read model does not carry the stages' states, the
-//! open stage, the governance and health banners or the review queue's pager and filter links, so
-//! `open_stage`, `flow`, `blockers`, `governance`, `health` and `with_query` copy admin-web's
-//! rules for them. Remove them when the API returns those fields.
+//! The read model carries the open stage and each stage's state (`flow`), the governance and
+//! health banners (`dailyStatus`), and the review queue's status filter and pager links; a scope's
+//! page draws those links on itself ([`rebase`]).
 use corten::{
     Local,
     http::{HeaderMap, Uri},
@@ -188,6 +188,35 @@ pub struct Daily {
     pub source_scope_workset: Workset,
     /// The source options' skeleton: their kinds, without the pages the page reads beside it.
     pub source_options: SourceOptions,
+    /// The stage the page opens on and each stage's state.
+    pub flow: Flow,
+    /// The governance and health banners the daily route shows.
+    pub daily_status: DailyStatus,
+}
+
+/// `CatalogPrimaryWorkbenchFlowReadModel`: the stage the route opens on (its section's, else the
+/// first with work) and the three stages' states with it open.
+#[derive(Clone, Debug, Default, Deserialize, Serialize, ToJson)]
+#[serde(default, rename_all = "camelCase")]
+pub struct Flow {
+    pub open_stage: String,
+    pub stages: Vec<FlowStage>,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize, ToJson)]
+#[serde(default)]
+pub struct FlowStage {
+    pub key: String,
+    pub state: String,
+}
+
+/// `CatalogPrimaryWorkbenchDailyStatusReadModel`: `denied` or `stopped`, and `blocked` or
+/// `degraded`; none for a banner the route does not show.
+#[derive(Clone, Debug, Default, Deserialize, Serialize, ToJson)]
+#[serde(default)]
+pub struct DailyStatus {
+    pub governance: Option<String>,
+    pub health: Option<String>,
 }
 
 /// The route context the API parsed from the location: the section, for the open stage, and the
@@ -577,8 +606,18 @@ pub struct Review {
     pub counts: ReviewCounts,
     pub promotion_ready_count: u64,
     pub filters: Vec<ReviewFilter>,
+    /// The status filter's options in order, each with its count and its daily link.
+    pub status_filters: Vec<StatusFilter>,
     pub pagination: Pagination,
     pub rows: Vec<ReviewRow>,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize, ToJson)]
+#[serde(default)]
+pub struct StatusFilter {
+    pub value: String,
+    pub count: u64,
+    pub href: String,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize, ToJson)]
@@ -609,6 +648,9 @@ pub struct Pagination {
     pub total: u64,
     pub next_cursor: Option<String>,
     pub previous_cursor: Option<String>,
+    /// The daily links to the neighbouring pages, none at either end.
+    pub previous_href: Option<String>,
+    pub next_href: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize, ToJson)]
@@ -860,55 +902,35 @@ pub enum StageState {
     Blocked,
 }
 
-/// The stage the read model opens on: the route's section, else the first stage with work.
-/// Workaround (chase-sets/chase-sets#11047): admin-web's `routeTargetStage` and
-/// `serverDerivedActiveStage`.
-pub fn open_stage(model: &Daily) -> Stage {
-    match model.route_context.section.as_str() {
-        "import-jobs" | "provider-scope-selection" | "readiness" => return Stage::RunSync,
-        "source-observation-review" | "conflict-resolution" => return Stage::Review,
-        "promotion-preview" | "promotion-result" => return Stage::Create,
-        _ => {}
-    }
-    let review = &model.source_observation_review;
-    if model.promotion_result.is_some() || model.promotion_preview.preview_id.is_some() {
-        Stage::Create
-    } else if !review.rows.is_empty() || review.promotion_ready_count > 0 || review.counts.changed > 0 {
-        Stage::Review
-    } else {
-        Stage::RunSync
+impl Stage {
+    /// The stage a read model's key names.
+    pub fn of(key: &str) -> Option<Stage> {
+        Stage::ALL.into_iter().find(|stage| stage.key() == key)
     }
 }
 
-/// Each stage's state, with `open` current. Workaround (chase-sets/chase-sets#11047): admin-web's
-/// `buildFlowStages`.
-pub fn flow(model: &Daily, open: Stage) -> [(Stage, StageState); 3] {
-    let review = &model.source_observation_review;
-    let sync_done = !model.import_jobs.jobs.is_empty() || review.counts.changed > 0;
-    let create_done = model.promotion_result.is_some();
-    let blocked = |stage: Stage| match stage {
-        Stage::RunSync => !model.readiness.blockers.is_empty(),
-        Stage::Review => false,
-        Stage::Create => !model.promotion_preview.blockers.is_empty(),
-    };
-    let done = |stage: Stage| match stage {
-        Stage::RunSync => sync_done,
-        Stage::Review => review.promotion_ready_count == 0 && (create_done || sync_done),
-        Stage::Create => create_done,
-    };
-    let at = |stage: Stage| Stage::ALL.iter().position(|s| *s == stage).unwrap_or(0);
-    Stage::ALL.map(|stage| {
-        let state = if blocked(stage) {
-            StageState::Blocked
-        } else if stage == open {
-            StageState::Current
-        } else if at(stage) < at(open) || done(stage) {
-            StageState::Complete
-        } else {
-            StageState::Upcoming
-        };
-        (stage, state)
-    })
+impl StageState {
+    /// The state a read model's flow names (`CatalogPrimaryWorkbenchFlowStageState`).
+    pub fn of(state: &str) -> Option<StageState> {
+        match state {
+            "complete" => Some(StageState::Complete),
+            "current" => Some(StageState::Current),
+            "upcoming" => Some(StageState::Upcoming),
+            "blocked" => Some(StageState::Blocked),
+            _ => None,
+        }
+    }
+}
+
+/// The stage the read model opens on (`flow.openStage`), Run sync for one it does not name.
+pub fn open_stage(model: &Daily) -> Stage {
+    Stage::of(&model.flow.open_stage).unwrap_or(Stage::RunSync)
+}
+
+/// Each stage's state as the read model's flow gives them, in order; a stage it leaves out or
+/// names in a state the page does not know is not drawn.
+pub fn flow(model: &Daily) -> Vec<(Stage, StageState)> {
+    model.flow.stages.iter().filter_map(|s| Some((Stage::of(&s.key)?, StageState::of(&s.state)?))).collect()
 }
 
 /// The flow's blockers, each once: readiness's, then the promotion command's.
@@ -936,39 +958,26 @@ pub enum Health {
     Degraded,
 }
 
-/// Whether a primary command is denied (access) or stopped (a rollout control), denial first.
-/// Workaround (chase-sets/chase-sets#11047): admin-web's `catalogDailyGovernanceStatus`.
+/// The governance banner the read model asks for (`dailyStatus.governance`).
 pub fn governance(model: &Daily) -> Option<Governance> {
-    let all = blockers(model);
-    let has = |names: &[&str]| names.iter().any(|n| all.contains(n));
-    if !model.readiness.rbac_allowed
-        || model.actions.iter().any(|a| a.state == "denied")
-        || has(&["permission-denied", "authorization-denied", "rbac-missing"])
-    {
-        Some(Governance::Denied)
-    } else if !model.readiness.rollout_enabled || has(&["rollout-disabled", "kill-switch-active"]) {
-        Some(Governance::Stopped)
-    } else {
-        None
+    match model.daily_status.governance.as_deref()? {
+        "denied" => Some(Governance::Denied),
+        "stopped" => Some(Governance::Stopped),
+        _ => None,
     }
 }
 
-/// Whether the working set's health is blocked or degraded. Workaround
-/// (chase-sets/chase-sets#11047): admin-web's `catalogDailyHealthStatus`.
+/// The health banner the read model asks for (`dailyStatus.health`).
 pub fn health(model: &Daily) -> Option<Health> {
-    let transport = &model.readiness.provider_transport;
-    if transport.iter().any(|t| matches!(t.as_str(), "timeout" | "pagination-failure" | "degraded-provider")) {
-        Some(Health::Blocked)
-    } else if !transport.is_empty() || model.readiness.freshness != "fresh" || model.import_jobs.failed_job_count > 0 {
-        Some(Health::Degraded)
-    } else {
-        None
+    match model.daily_status.health.as_deref()? {
+        "blocked" => Some(Health::Blocked),
+        "degraded" => Some(Health::Degraded),
+        _ => None,
     }
 }
 
 /// The query `context` with each named key set to its value, or removed for `None`, keeping the
-/// rest in order. Workaround (chase-sets/chase-sets#11047): admin-web builds the pager's and the
-/// status filter's links from its route context; the read model carries none.
+/// rest in order.
 pub fn with_query(context: &str, changes: &[(&str, Option<&str>)]) -> String {
     let named = |pair: &str| changes.iter().any(|(key, _)| pair.split('=').next() == Some(*key));
     let mut pairs: Vec<String> = context.split('&').filter(|p| !p.is_empty() && !named(p)).map(str::to_owned).collect();
@@ -997,6 +1006,17 @@ pub fn home(context: &str) -> String {
         Some(id) => crate::catalog::scope::url::ScopePage::of(&id).href().to_string(),
         None => url::Daily.href().to_string(),
     }
+}
+
+/// A daily link the read model built (a review status filter's, its pager's) on the page the
+/// working set `context` draws its stages on, as admin-web's embeds rebase it: the link's query with
+/// the working set's `home`, at that page. `None` for a link that is not the daily route's.
+pub fn rebase(context: &str, href: &str) -> Option<String> {
+    let (path, query) = href.split_once('?').unwrap_or((href, ""));
+    (path == url::Daily.href().as_str()).then(|| {
+        let id = context_value(context, HOME).filter(|id| !id.is_empty());
+        at(&home(context), &with_query(query, &[(HOME, id.as_deref())]))
+    })
 }
 
 /// The daily surface's location for the working set: the daily route with its query, less the
@@ -1485,14 +1505,9 @@ pub(crate) async fn review(
 ) -> HtmlResult {
     let context = context_of(&uri);
     let t: Cat = req.t();
-    // Workaround (chase-sets/chase-sets#11090): the API takes a reject with no observations as every
-    // reviewable one in every scope, so the form says none is checked and sends nothing.
+    // Nothing checked is sent as it is: the API refuses a defer or reject with no observations and
+    // no scope (`selection_required`), and its reason is the form's.
     let sent = match input.command(t) {
-        Some(_) if input.observation.iter().all(|id| id.trim().is_empty()) => {
-            let mut errors = Errors::new();
-            errors.add_form(t.wb_copy_no_observations_selected());
-            Sent::Refused(errors)
-        }
         Some((rest, body)) => {
             let caller = config.platform.caller(&headers, config.proto, None);
             command(&caller, Method::POST, Kind::SourceObservations, rest, Some(&body)).await
@@ -1527,8 +1542,9 @@ pub struct CandidateInput {
     pub drop_product_ref: Vec<String>,
 }
 
-/// The merge candidate commands the row's buttons send; promote stays on admin-web
-/// (chase-sets/chase-sets#11045), and the edit is its own form.
+/// The merge candidate commands the row's buttons send; promote stays on admin-web, since the API
+/// does not check it against the version the page read (chase-sets/chase-sets#11143), and the edit is
+/// its own form.
 pub const CANDIDATE_COMMANDS: [(&str, &str); 3] =
     [("candidate.ignore", "ignore"), ("candidate.defer", "defer"), ("candidate.split", "split")];
 
@@ -1737,43 +1753,33 @@ mod tests {
     }
 
     #[test]
-    fn the_open_stage_follows_the_section_then_the_work_as_admin_web_picks_it() {
-        assert_eq!(open_stage(&Daily::default()), Stage::RunSync);
-        let changed = model(json!({ "sourceObservationReview": { "counts": { "changed": 2 } } }));
-        assert_eq!(open_stage(&changed), Stage::Review);
-        let previewed = model(json!({ "promotionPreview": { "previewId": "p1" } }));
-        assert_eq!(open_stage(&previewed), Stage::Create);
-        let jobs = model(json!({ "routeContext": { "section": "import-jobs" }, "promotionPreview": { "previewId": "p1" } }));
-        assert_eq!(open_stage(&jobs), Stage::RunSync, "the route's section first");
+    fn the_stages_and_banners_are_the_read_models() {
+        assert_eq!(open_stage(&Daily::default()), Stage::RunSync, "a model without a flow opens on Run sync");
+        assert!(flow(&Daily::default()).is_empty());
+        let m = model(json!({ "flow": { "openStage": "review-changes", "stages": [
+            { "key": "run-sync", "state": "blocked" }, { "key": "review-changes", "state": "current" },
+            { "key": "create-items", "state": "upcoming" }, { "key": "later", "state": "upcoming" }] },
+            "dailyStatus": { "governance": "stopped", "health": "degraded" } }));
+        assert_eq!(open_stage(&m), Stage::Review);
+        assert_eq!(
+            flow(&m),
+            [(Stage::RunSync, StageState::Blocked), (Stage::Review, StageState::Current), (Stage::Create, StageState::Upcoming)],
+            "a stage the page does not know is left out"
+        );
+        assert_eq!((governance(&m), health(&m)), (Some(Governance::Stopped), Some(Health::Degraded)));
+        assert_eq!((governance(&Daily::default()), health(&Daily::default())), (None, None));
     }
 
     #[test]
-    fn a_stage_is_blocked_by_its_blockers_and_done_behind_the_open_one() {
-        let m = model(json!({ "readiness": { "blockers": ["provider-selection-required"] },
-            "sourceObservationReview": { "counts": { "changed": 1 }, "promotionReadyCount": 3 } }));
-        let states: Vec<_> = flow(&m, open_stage(&m)).into_iter().map(|(_, s)| s).collect();
-        assert_eq!(states, [StageState::Blocked, StageState::Current, StageState::Upcoming]);
-        let done = model(json!({ "importJobs": { "jobs": [{ "jobId": "j" }] }, "promotionResult": { "resultId": "r" } }));
-        let states: Vec<_> = flow(&done, Stage::Create).into_iter().map(|(_, s)| s).collect();
-        assert_eq!(states, [StageState::Complete, StageState::Complete, StageState::Current]);
-    }
-
-    #[test]
-    fn denial_comes_before_a_stop_and_a_blocking_transport_before_degradation() {
-        assert_eq!(governance(&Daily::default()), None);
-        let stopped = model(json!({ "readiness": { "blockers": ["kill-switch-active"] } }));
-        assert_eq!(governance(&stopped), Some(Governance::Stopped));
-        let both = model(json!({ "readiness": { "rolloutEnabled": false, "rbacAllowed": false } }));
-        assert_eq!(governance(&both), Some(Governance::Denied));
-        let denied = model(json!({ "actions": [{ "key": "scope.sync", "state": "denied" }] }));
-        assert_eq!(governance(&denied), Some(Governance::Denied));
-        assert_eq!(health(&Daily::default()), None);
-        let stale = model(json!({ "readiness": { "freshness": "stale" } }));
-        assert_eq!(health(&stale), Some(Health::Degraded));
-        let failed = model(json!({ "importJobs": { "failedJobCount": 1 } }));
-        assert_eq!(health(&failed), Some(Health::Degraded));
-        let timeout = model(json!({ "readiness": { "providerTransport": ["throttle", "timeout"] } }));
-        assert_eq!(health(&timeout), Some(Health::Blocked));
+    fn a_daily_link_is_drawn_on_the_page_the_working_set_draws_its_stages_on() {
+        let href = "/catalog/integrations?providerKey=tcgplayer&reviewOffset=25&section=source-observation-review";
+        assert_eq!(rebase("providerKey=tcgplayer", href).as_deref(), Some(href));
+        let scope = crate::catalog::scope::url::ScopePage::of("scp_paf").href().to_string();
+        assert_eq!(
+            rebase("providerKey=tcgplayer&home=scp_paf", href),
+            Some(format!("{scope}?providerKey=tcgplayer&reviewOffset=25&section=source-observation-review&home=scp_paf"))
+        );
+        assert_eq!(rebase("", "https://example.test/catalog/integrations?x=1"), None, "only the daily route's");
     }
 
     #[test]

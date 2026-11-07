@@ -127,7 +127,6 @@ pub const COMPONENTS: &[Component] = &[
     platform::ui::checkbox::Checkbox,
     platform::ui::dialog::Dialog,
     platform::ui::input::Input,
-    platform::ui::pagination::Pagination,
     platform::ui::radio_group::RadioGroup,
     platform::ui::select::Select,
     platform::ui::sheet::Sheet,

@@ -5,7 +5,7 @@
 //! no script. Every command is a form that posts to the pilot and lands back on the working set;
 //! the rows' boxes sit inside their form, so a defer, a reject or a sync sends the checked ones
 //! without JavaScript. Each table stacks on a phone, a row a block of labelled lines.
-use corten::{Href, Local, prelude::*};
+use corten::prelude::*;
 use platform::ui::{
     accordion::Accordion,
     alert::{Alert, AlertEmphasis, AlertVariant, FormAlert},
@@ -13,7 +13,6 @@ use platform::ui::{
     checkbox::Checkbox,
     dialog::{Dialog, DialogFooter, DialogHeader, DialogSize},
     input::Input,
-    pagination::Pagination,
     radio_group::{Radio, RadioGroup},
     sheet::{Sheet, SheetHeader, SheetWidth, Side},
     steps::{Step, StepState, Steps, StepsLayout},
@@ -214,7 +213,7 @@ pub fn Signals<'a>(t: Cat, req: &'a Req, model: &'a Daily, context: &'a str) -> 
 pub fn Stages<'a>(t: Cat, p: Pilot, req: &'a Req, screen: &'a DailyScreen, context: &'a str) -> impl Render {
     let model = &screen.read.read_model;
     let open = daily::open_stage(model);
-    let flow = daily::flow(model, open);
+    let flow = daily::flow(model);
     let blockers = daily::blockers(model);
     let blocker_names: Vec<String> = blockers.iter().map(|b| (*b).to_owned()).collect();
     html! {
@@ -312,7 +311,7 @@ fn workset_unit_tone(state: &str) -> &'static str {
 /// The selected source scope (`CatalogSourceScopeWorksetModule`): the scope and its counts, then each
 /// provider unit with its state, the way to open its scope, and its Sync, Preview and Reapply. Sync
 /// and Reapply post the scopes the API built for the unit; Preview opens on admin-web until the API
-/// checks a promotion preview itself (chase-sets/chase-sets#11045). Nothing draws without a unit, as
+/// returns a promotion's selection and confirmation (chase-sets/chase-sets#11142). Nothing draws without a unit, as
 /// there.
 #[component(css = DailyPage)]
 fn WorksetModule<'a>(t: Cat, p: Pilot, req: &'a Req, model: &'a Daily, context: &'a str, manage: bool) -> impl Render {
@@ -1346,7 +1345,7 @@ fn observation_tone(status: &str) -> &'static str {
 /// Source Observation review (`CatalogIntegrationSourceObservationReviewModule`): the filters, the
 /// status choice as links, the page of rows with a box for each reviewable one and its Evidence
 /// sheet, the pager, and Defer and Reject for the checked ones. Preview promotion opens on admin-web
-/// (chase-sets/chase-sets#11045).
+/// (chase-sets/chase-sets#11142).
 #[component(css = DailyPage)]
 fn ReviewModule<'a>(
     t: Cat,
@@ -1359,31 +1358,34 @@ fn ReviewModule<'a>(
 ) -> impl Render {
     let alias_action = at(&daily::url::Aliases.href(), context);
     let review = &model.source_observation_review;
-    let c = &review.counts;
-    let total = c.observed + c.changed + c.promoted + c.rejected;
+    let total = review.status_filters.iter().find(|o| o.value == "all").map_or(0, |o| o.count);
     let status = review.filters.iter().find(|f| f.key == "status").and_then(|f| f.value.clone()).unwrap_or_else(|| "all".into());
-    let options = [
-        ("all", t.wb_review_status_all(), total),
-        ("observed", t.wb_review_status_observed(), c.observed),
-        ("eligible", t.wb_review_status_eligible(), c.eligible),
-        ("promoted", t.wb_review_status_promoted(), c.promoted),
-        ("rejected", t.wb_review_status_rejected(), c.rejected),
-    ];
     let daily_path = daily::home(context);
     let kept = daily::context_fields(context);
-    // Workaround (chase-sets/chase-sets#11047): the status links, as admin-web's `selectStatus`
-    // builds them.
-    let choices: Vec<(String, String, bool)> = options
+    // The read model's status filter, each option's link on this page; one it names that the page
+    // has no words for, or whose link is not the daily route's, is not drawn.
+    let choices: Vec<(String, String, bool)> = review
+        .status_filters
         .iter()
-        .map(|(value, label, count)| {
-            let chosen = (*value != "all").then_some(*value);
-            let href =
-                at(&daily_path, &with_query(context, &[("status", None), ("reviewOffset", None), ("filter.status", chosen)]));
-            (href, format!("{label}{}", t.wb_review_saved_count(&count.to_string())), *value == status)
+        .filter_map(|option| {
+            let label = match option.value.as_str() {
+                "all" => t.wb_review_status_all(),
+                "observed" => t.wb_review_status_observed(),
+                "eligible" => t.wb_review_status_eligible(),
+                "promoted" => t.wb_review_status_promoted(),
+                "rejected" => t.wb_review_status_rejected(),
+                _ => return None,
+            };
+            let href = daily::rebase(context, &option.href)?;
+            Some((href, format!("{label}{}", t.wb_review_saved_count(&option.count.to_string())), option.value == status))
         })
         .collect();
+
     let narrowed = status != "all" && total > 0 && review.freshness != "unavailable";
     let pagination = &review.pagination;
+    // The read model's links to the neighbouring pages, on this page.
+    let page_link = |href: &Option<String>| href.as_deref().and_then(|href| daily::rebase(context, href));
+    let (previous, next) = (page_link(&pagination.previous_href), page_link(&pagination.next_href));
     let limit = pagination.limit.max(1);
     let pages = pagination.total.div_ceil(limit).max(1) as usize;
     let current = (pagination.offset / limit + 1) as usize;
@@ -1481,14 +1483,20 @@ fn ReviewModule<'a>(
                 if pagination.total > limit {
                     <div class={Pager}>
                         <small>{pager_summary}</small>
-                        <Pagination
-                            label={t.wb_review_pager_label()}
-                            previous_label={t.wb_review_pager_previous()}
-                            next_label={t.wb_review_pager_next()}
-                            pages={pages}
-                            current={current}
-                            link={|n| review_page(context, limit, n)}
-                        />
+                        // Workaround (corten-run/corten#1073): the kit's Pagination needs every page's
+                        // link, and the read model gives the previous and the next.
+                        <nav class={Row} aria-label={t.wb_review_pager_label()}>
+                            if let Some(href) = &previous {
+                                <a class={Button { variant: ButtonVariant::Outline, size: ButtonSize::Sm }} href={href} rel="prev">
+                                    {t.wb_review_pager_previous()}
+                                </a>
+                            }
+                            if let Some(href) = &next {
+                                <a class={Button { variant: ButtonVariant::Outline, size: ButtonSize::Sm }} href={href} rel="next">
+                                    {t.wb_review_pager_next()}
+                                </a>
+                            }
+                        </nav>
                     </div>
                 }
                 if manage && reviewable {
@@ -1532,19 +1540,6 @@ fn ReviewModule<'a>(
     }
 }
 
-/// The review's page `n` (from 1) of the working set `context`, boxed: it is a local link, or the
-/// workbench's home when the link does not parse.
-// Workaround (chase-sets/chase-sets#11047): a page's link, as admin-web's pager builds it.
-fn review_page(context: &str, limit: u64, n: usize) -> Box<dyn Href> {
-    let offset = ((n as u64).saturating_sub(1) * limit).to_string();
-    let offset = (n > 1).then_some(offset.as_str());
-    let to = at(&daily::home(context), &with_query(context, &[("reviewOffset", offset)]));
-    match Local::parse(&to) {
-        Some(local) => Box::new(local),
-        None => Box::new(daily::url::Daily),
-    }
-}
-
 /// The evidence sheet, and the GET form a review row's Evidence submits (its action the row's sheet,
 /// its fields the working set).
 #[derive(Id, Clone, Copy)]
@@ -1555,7 +1550,7 @@ const EVIDENCE_OPEN: &str = "wb-evidence-open";
 /// from the right, a record's width beside its list and never more than most of a phone's: drawn
 /// open by the server and made modal when it joins the page, or the empty dialog a row's Evidence
 /// answer replaces. A detail the API does not have is the sheet's error, as there. Its footer's
-/// Preview promotion opens on admin-web (chase-sets/chase-sets#11045), where the button does nothing.
+/// Preview promotion opens on admin-web (chase-sets/chase-sets#11142), where the button does nothing.
 #[component(css = DailyPage)]
 pub fn EvidenceSheet<'a>(t: Cat, p: Pilot, evidence: Option<&'a ObservationEvidence>, context: &'a str) -> impl Patch {
     let heading = super::id_with(&EvidenceSheetId, "-title");
@@ -1802,7 +1797,7 @@ fn ReviewRowView<'a>(t: Cat, p: Pilot, req: &'a Req, row: &'a ReviewRow, manage:
 }
 
 /// Create / update items (`CatalogIntegrationCreateItemsStage`): the latest promotion outcome, and
-/// the way to preview and promote, which opens on admin-web (chase-sets/chase-sets#11045).
+/// the way to preview and promote, which opens on admin-web (chase-sets/chase-sets#11142).
 #[component(css = DailyPage)]
 fn CreateModule<'a>(t: Cat, p: Pilot, model: &'a Daily, context: &'a str) -> impl Render {
     let elsewhere =
