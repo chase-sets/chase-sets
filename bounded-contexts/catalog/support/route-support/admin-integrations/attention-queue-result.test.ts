@@ -152,9 +152,6 @@ describe("Catalog attention queue deferred result", () => {
     expect(incompleteZero.empty).toBe(false);
     const readyIncompleteZero = resolveCatalogAttentionQueueResult(serialized(incompleteZero));
     expect(readyIncompleteZero.status === "ready" && readyIncompleteZero.readModel.empty).toBe(false);
-    const claimedEmpty = serialized(incompleteZero);
-    claimedEmpty.empty = true;
-    expect(resolveCatalogAttentionQueueResult(claimedEmpty)).toBe(CATALOG_ATTENTION_QUEUE_UNAVAILABLE);
   });
 
   it("accepts one paged kind and rejects a page carrying another kind's items", () => {
@@ -192,6 +189,28 @@ describe("Catalog attention queue deferred result", () => {
     expect(complete.status === "ready" && complete.readModel.countBasis.total).toBe("exact");
   });
 
+  // The Catalog API owns the queue's counts, count bases, freshness and emptiness. The parser
+  // checks their shape and passes them through; it never recomputes them from coverage or the
+  // returned items, so a value the attention runtime derived reaches the page as returned.
+  const apiOwnedValues: ReadonlyArray<[label: string, mutate: (raw: Mutable) => void]> = [
+    ["empty", (raw) => void (raw.empty = !raw.empty)],
+    ["counts.total", (raw) => void (counts(raw).total = 3)],
+    ["counts.bySeverity", (raw) => void (counts(raw).bySeverity = { critical: 0, warning: 1, info: 1 })],
+    ["counts.byKind", (raw) => void ((counts(raw).byKind as Mutable)["import-job"] = 1)],
+    ["countBasis.total", (raw) => void (countBasis(raw).total = "lower-bound")],
+    ["countBasis.bySeverity", (raw) => void ((countBasis(raw).bySeverity as Mutable).info = "lower-bound")],
+    ["freshness.generatedAt", (raw) => void (freshness(raw).generatedAt = "2026-07-09T12:00:01.000Z")],
+    ["freshness.oldestObservedAt", (raw) => void (freshness(raw).oldestObservedAt = "2026-07-05T00:00:00.000Z")],
+    ["freshness.newestObservedAt", (raw) => void (freshness(raw).newestObservedAt = null)],
+  ];
+
+  it.each(apiOwnedValues)("takes the API's %s as returned, without recomputing it", (_label, mutate) => {
+    const raw = serialized(catalogAttentionQueueReadModelFixture());
+    mutate(raw);
+    const result = resolveCatalogAttentionQueueResult(raw);
+    expect(result).toEqual({ status: "ready", readModel: raw });
+  });
+
   const singleMutationControls: ReadonlyArray<[label: string, mutate: (raw: Mutable) => void]> = [
     // Top level: exact key set and primitive types.
     ["unknown top-level key", (raw) => void (raw.extra = true)],
@@ -204,19 +223,13 @@ describe("Catalog attention queue deferred result", () => {
     ["generatedAt not a timestamp", (raw) => void (raw.generatedAt = "yesterday")],
     ["generatedAt a calendar date only", (raw) => void (raw.generatedAt = "2026-07-09")],
     ["generatedAt unparseable despite the shape", (raw) => void (raw.generatedAt = "2026-13-45T99:99:00Z")],
-    // Derived facts must agree with the items.
-    ["empty flag contradicts items", (raw) => void (raw.empty = true)],
-    ["counts.total off by one", (raw) => void (counts(raw).total = 3)],
+    // Counts, count bases and freshness: closed keys, closed enums, counts and timestamps.
+    ["counts.byKind count negative", (raw) => void ((counts(raw).byKind as Mutable)["import-job"] = -1)],
+    ["counts.bySeverity count a string", (raw) => void ((counts(raw).bySeverity as Mutable).critical = "2")],
     ["counts.total a float", (raw) => void (counts(raw).total = 2.5)],
-    ["severity count mismatch", (raw) => void ((counts(raw).bySeverity as Mutable).critical = 0)],
-    ["kind count mismatch", (raw) => void ((counts(raw).byKind as Mutable)["import-job"] = 1)],
     ["unknown severity count key", (raw) => void ((counts(raw).bySeverity as Mutable).fatal = 0)],
     ["missing kind count key", (raw) => void delete (counts(raw).byKind as Mutable)["stale-scope-sync"]],
     ["unknown counts key", (raw) => void (counts(raw).byProvider = {})],
-    [
-      "severity counts not attributable to the kinds",
-      (raw) => void (counts(raw).bySeverity = { critical: 0, warning: 1, info: 1 }),
-    ],
     // Windows, coverage and count bases: cohort-wide totals beside one window.
     ["missing top-level window", (raw) => void delete raw.window],
     ["missing top-level coverage", (raw) => void delete raw.coverage],
@@ -241,26 +254,15 @@ describe("Catalog attention queue deferred result", () => {
       (raw) => void (coverage(raw, "import-job").totalKind = "lower-bound"),
     ],
     ["unknown coverage key", (raw) => void (coverage(raw, "import-job").estimated = true)],
-    ["countBasis lower bound without a lower-bound kind", (raw) => void (countBasis(raw).total = "lower-bound")],
-    [
-      "countBasis severity basis disagrees with the kinds",
-      (raw) => void ((countBasis(raw).bySeverity as Mutable).info = "lower-bound"),
-    ],
     ["countBasis outside the enum", (raw) => void (countBasis(raw).total = "estimate")],
+    [
+      "countBasis severity basis outside the enum",
+      (raw) => void ((countBasis(raw).bySeverity as Mutable).info = "estimate"),
+    ],
+    ["countBasis missing a severity", (raw) => void delete (countBasis(raw).bySeverity as Mutable).warning],
+    ["freshness generatedAt without a timezone", (raw) => void (freshness(raw).generatedAt = "2026-07-09T12:00:00")],
+    ["oldestObservedAt not a timestamp", (raw) => void (freshness(raw).oldestObservedAt = "last week")],
     ["item severity its kind cannot produce", (raw) => void (item(raw, 1).severity = "critical")],
-    [
-      "freshness generatedAt disagrees with top level",
-      (raw) => void (freshness(raw).generatedAt = "2026-07-09T12:00:01.000Z"),
-    ],
-    [
-      "oldestObservedAt not the item minimum",
-      (raw) => void (freshness(raw).oldestObservedAt = "2026-07-05T00:00:00.000Z"),
-    ],
-    [
-      "newestObservedAt not the item maximum",
-      (raw) => void (freshness(raw).newestObservedAt = "2026-07-01T00:00:00.000Z"),
-    ],
-    ["nonempty queue with null extrema", (raw) => void (freshness(raw).oldestObservedAt = null)],
     ["unknown freshness key", (raw) => void (freshness(raw).staleAfter = "2026-07-10T00:00:00.000Z")],
     // Items: closed fields, enums, params and timestamps.
     ["item with an unknown key", (raw) => void (item(raw).note = "x")],
@@ -308,12 +310,12 @@ describe("Catalog attention queue deferred result", () => {
     expect(parseCatalogAttentionQueueReadModel(raw)).toBeNull();
   });
 
-  it("marks an empty queue unavailable when its extrema are not null", () => {
+  it("takes an empty queue's extrema as the API returns them", () => {
     const raw = serialized(catalogAttentionQueueReadModelFixture([]));
     freshness(raw).oldestObservedAt = CATALOG_ATTENTION_FIXTURE_GENERATED_AT;
     freshness(raw).newestObservedAt = CATALOG_ATTENTION_FIXTURE_GENERATED_AT;
 
-    expect(resolveCatalogAttentionQueueResult(raw)).toBe(CATALOG_ATTENTION_QUEUE_UNAVAILABLE);
+    expect(resolveCatalogAttentionQueueResult(raw)).toEqual({ status: "ready", readModel: raw });
   });
 
   it("rejects a single malformed item even when every other item is valid", () => {

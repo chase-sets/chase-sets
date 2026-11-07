@@ -1,15 +1,26 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen } from "@testing-library/react";
+import { useState } from "react";
+import { cleanup, fireEvent, isInaccessible, render, renderHook, screen, within } from "@testing-library/react";
 import { waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError as CatalogApiError } from "../support/shell-support/api/client";
 import IntegrationsRoute, { action, loader } from "../routes/admin/integrations";
+import ScopeDetailRoute from "../routes/admin/scope-detail";
 import { loader as providersLoader, action as providerDetailAction } from "../routes/admin/catalog-provider-detail";
 import { action as governanceAction } from "../routes/admin/integrations-governance";
 import type { CatalogIntegrationsCommandResult } from "../support/route-support/admin-integrations/integrations-command-result";
+import { commandResultNeedsRoutableHandoff } from "../support/route-support/admin-integrations/integrations-command-result";
+import { action as scopeDetailAction } from "../support/route-support/admin-scope-detail/scope-detail-action";
+import { useOriginalPromotionReceipt } from "../features/source-observations/ui/integrations-surface-route-view";
+import { CatalogIntegrationCreateItemsStage } from "../features/source-observations/ui/admin-control-plane/import-to-promotion/create-items-stage";
 import { buildCatalogPrimaryWorkbenchReadModelForSurface } from "../features/source-observations/ui/primary-workbench-read-model";
 import { parseCatalogPrimaryWorkbenchRouteContext } from "../features/source-observations/ui/primary-workbench-route-context";
 import { catalogPrimaryWorkbenchSourceOptionHref } from "../features/source-observations/ui/primary-workbench-source-option-refresh";
+import {
+  observationSelectionScopeKey,
+  readPersistedObservationSelection,
+  writePersistedObservationSelection,
+} from "../features/source-observations/ui/primary-workbench-selection-store";
 import {
   controlPlaneOverview,
   loaderData,
@@ -18,6 +29,7 @@ import {
   profileReview,
   sourceObservationListItem,
   sourceObservationScope,
+  syntheticPromotionReceipt,
 } from "../features/source-observations/ui/primary-workbench-test-fixtures";
 import type { CatalogIntegrationControlPlaneUnitReadiness } from "../features/source-observations/ui/contracts";
 
@@ -47,6 +59,7 @@ const {
   mockUseNavigate,
   mockUseRouteLoaderData,
   mockUseActionData,
+  mockUseNavigation,
 } = vi.hoisted(() => ({
   mockCreateCatalogRequestApiClient: vi.fn(),
   mockIsTransientAuthResolutionError: vi.fn(),
@@ -55,6 +68,7 @@ const {
   mockUseNavigate: vi.fn(),
   mockUseRouteLoaderData: vi.fn(),
   mockUseActionData: vi.fn(),
+  mockUseNavigation: vi.fn(() => ({ state: "idle" })),
 }));
 
 vi.mock("react-router", async () => {
@@ -65,6 +79,9 @@ vi.mock("react-router", async () => {
     useNavigate: () => mockUseNavigate,
     useRouteLoaderData: mockUseRouteLoaderData,
     useActionData: mockUseActionData,
+    useNavigation: mockUseNavigation,
+    useLocation: () => ({ pathname: "/catalog/integrations", search: "", hash: "", key: "synthetic-daily" }),
+    useFetcher: () => ({ state: "idle", data: undefined, load: () => undefined }),
     // The import-jobs module polls live progress via useRevalidator and the daily
     // import-context form submits context changes via useSubmit; outside a data
     // router (this bare render) both need a stub so the workbench still renders.
@@ -88,7 +105,508 @@ vi.mock("@chase-sets/platform-runtime/auth", () => ({
   resolveActorFromAuthApi: mockResolveActorFromAuthApi,
 }));
 
+function readOriginalReceiptDom(node: Element): Record<string, unknown> {
+  const result: Record<string, unknown> = {};
+  const set = (path: string, value: unknown) => {
+    const parts = path.split(".");
+    let parent = result;
+    for (const part of parts.slice(0, -1)) {
+      parent = (parent[part] ??= {}) as Record<string, unknown>;
+    }
+    parent[parts.at(-1)!] = value;
+  };
+  for (const array of node.querySelectorAll("[data-catalog-receipt-array]")) {
+    set(array.getAttribute("data-catalog-receipt-array")!, []);
+  }
+  const seen = new Set<string>();
+  for (const field of node.querySelectorAll("[data-catalog-receipt-field]")) {
+    const path = field.getAttribute("data-catalog-receipt-field")!;
+    expect(seen.has(path), path).toBe(false);
+    seen.add(path);
+    expect(field.closest("[hidden],input,script")).toBeNull();
+    const kind = field.getAttribute("data-catalog-receipt-kind");
+    const text = field.textContent;
+    expect(["null", "undefined", "empty-string", "number", "boolean", "string"]).toContain(kind);
+    set(
+      path,
+      kind === "null"
+        ? null
+        : kind === "undefined"
+          ? undefined
+          : kind === "empty-string"
+            ? ""
+            : kind === "number"
+              ? Number(text)
+              : kind === "boolean"
+                ? text === "true"
+                : text,
+    );
+  }
+  return result;
+}
+
+const receiptRequestUrl =
+  "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&importScope=en:3:base:base1&profileVersion=2026.06.04";
+
+function receiptUrlFor(scopeRecordId: string | null) {
+  return scopeRecordId
+    ? receiptRequestUrl.replace("/catalog/integrations?", `/catalog/scopes/${scopeRecordId}?`) +
+        `&scopeRecordId=${scopeRecordId}`
+    : receiptRequestUrl;
+}
+
+function receiptRouteModel(
+  activeProfileVersion: string | null = "2026.06.04",
+  requestUrl = receiptRequestUrl,
+  overview: ReturnType<typeof controlPlaneOverview> | null = null,
+) {
+  return buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
+    requestUrl,
+    scopes: { items: [sourceObservationScope()], total: 1, count: 1 },
+    profileReviews: {
+      items: activeProfileVersion
+        ? [profileReview({ active: true, lifecycle: "active", profileVersion: activeProfileVersion })]
+        : [],
+      total: activeProfileVersion ? 1 : 0,
+      count: activeProfileVersion ? 1 : 0,
+    },
+    controlPlaneOverview: overview,
+    canManageCatalog: true,
+    reviewObservations: {
+      items: [sourceObservationListItem(), sourceObservationListItem({ observation_id: "obs_002" })],
+      total: 2,
+      count: 2,
+    },
+  });
+}
+
+function expectActiveProfileOnlyDifference(
+  matching: ReturnType<typeof receiptRouteModel>,
+  changed: ReturnType<typeof receiptRouteModel>,
+  activeProfileVersion: string,
+) {
+  expect(changed.importJobs.selectedScope?.profileVersion).toBe(activeProfileVersion);
+  expect(changed.routeContext).toEqual(matching.routeContext);
+  expect(changed.sourceObservationReview).toEqual(matching.sourceObservationReview);
+  const { profileWorkflows, ...preview } = changed.promotionPreview;
+  const { profileWorkflows: matchingWorkflows, ...matchingPreview } = matching.promotionPreview;
+  expect(preview).toEqual(matchingPreview);
+  expect(profileWorkflows).toEqual({
+    ...matchingWorkflows,
+    reapply: { ...matchingWorkflows.reapply, profileVersion: activeProfileVersion },
+  });
+  expect(changed.readiness).toEqual(matching.readiness);
+}
+
+// Exercise the real route/workspace and action with form-derived inputs. Pending
+// starts on submission and ends only when the actual deferred action settles.
+function ReceiptActionRouteHarness({
+  readModel,
+  requestUrl = receiptRequestUrl,
+  scopeRecordId = null,
+}: {
+  readModel: ReturnType<typeof receiptRouteModel>;
+  requestUrl?: string;
+  scopeRecordId?: string | null;
+}) {
+  const [transition, setTransition] = useState<{
+    pending: boolean;
+    result: CatalogIntegrationsCommandResult | null;
+  }>({ pending: false, result: null });
+  const journey = loaderData({ requestUrl, readModel });
+  mockUseLoaderData.mockReturnValue(
+    scopeRecordId
+      ? {
+          scope: {
+            scopeRecordId,
+            name: "Synthetic scope",
+            productDomain: "pokemon",
+            scopeKind: "set",
+            lifecycleStatus: "active",
+            referenceTypeKey: "set",
+            referenceRecordId: "synthetic-reference-record",
+            referenceRecordKey: "synthetic-set",
+            parentScopeRecordId: null,
+            productLineScopeRecordId: null,
+            seriesScopeRecordId: null,
+            releaseDate: null,
+            officialSetCode: null,
+            languageEditions: ["en"],
+            updatedAt: "2026-11-06T00:00:00Z",
+          },
+          languageEditionAliasReview: aliasReviewReadModel(),
+          journey,
+        }
+      : journey,
+  );
+  mockUseActionData.mockReturnValue(transition.result);
+  mockUseNavigation.mockReturnValue({ state: transition.pending ? "submitting" : "idle" });
+  return (
+    <div
+      data-testid="receipt-action-transition"
+      data-state={transition.pending ? "submitting" : "idle"}
+      onSubmit={async (event) => {
+        event.preventDefault();
+        const fields = Object.fromEntries(
+          [...new FormData(event.target as HTMLFormElement).entries()].map(([key, value]) => [key, String(value)]),
+        );
+        const form = event.target as HTMLFormElement;
+        expect(new URL(form.getAttribute("action")!, requestUrl).pathname).toBe(new URL(requestUrl).pathname);
+        expect(fields._intent).toBe("observation.promote");
+        expect(fields.promotionPhase).toBe("preview");
+        expect(fields.scopeRecordId).toBe(scopeRecordId ?? "");
+        setTransition((previous) => ({ ...previous, pending: true }));
+        const result = scopeRecordId
+          ? await scopeDetailAction(actionRequest(fields, requestUrl))
+          : await runDailyAction(fields, requestUrl);
+        setTransition({ pending: false, result });
+      }}
+    >
+      {scopeRecordId ? <ScopeDetailRoute /> : <IntegrationsRoute />}
+    </div>
+  );
+}
+
+function receiptPreviewButton(): HTMLButtonElement {
+  openReceiptStage("create-items");
+  return screen
+    .getAllByRole("button", { name: /Preview promotion/ })
+    .find((button) => !button.hasAttribute("aria-expanded"))! as HTMLButtonElement;
+}
+
+function openReceiptStage(stage: "review-changes" | "create-items") {
+  const trigger = document.querySelector<HTMLButtonElement>(`[data-catalog-import-workflow-stage="${stage}"]`)!;
+  expect(trigger).not.toBeNull();
+  if (trigger.getAttribute("aria-expanded") !== "true") fireEvent.click(trigger);
+}
+
+function observationRowCheckboxes(): HTMLInputElement[] {
+  openReceiptStage("review-changes");
+  const table = [...document.querySelectorAll("table")].find(
+    (candidate) => candidate.caption?.textContent === "Source Observation review",
+  )!;
+  expect(table).toBeDefined();
+  expect(isInaccessible(table)).toBe(false);
+  return [...table.querySelectorAll<HTMLInputElement>('tbody input[type="checkbox"]')];
+}
+
+function expectWorkingSelection(scopeKey: string, ids: readonly string[]) {
+  const rows = observationRowCheckboxes();
+  expect(rows).toHaveLength(2);
+  expect(rows.map((row) => row.disabled)).toEqual([false, false]);
+  expect(rows.map((row) => row.checked)).toEqual([ids.includes("obs_001"), ids.includes("obs_002")]);
+  expect([...readPersistedObservationSelection(scopeKey)].sort()).toEqual([...ids].sort());
+}
+
+function changeWorkingSelection(scopeKey: string, from: "obs_001" | "obs_002", to: "obs_001" | "obs_002") {
+  const rows = observationRowCheckboxes();
+  fireEvent.click(rows[to === "obs_001" ? 0 : 1]);
+  expectWorkingSelection(scopeKey, [from, to]);
+  fireEvent.click(rows[from === "obs_001" ? 0 : 1]);
+  expectWorkingSelection(scopeKey, [to]);
+}
+
+function expectOriginalReceipt(result: CatalogIntegrationsCommandResult, state?: "fresh" | "stale") {
+  openReceiptStage("create-items");
+  const disclosure = screen
+    .getAllByRole("button", { name: /Preview promotion/ })
+    .find((button) => button.hasAttribute("aria-expanded"))!;
+  if (disclosure.getAttribute("aria-expanded") !== "true") fireEvent.click(disclosure);
+  const node = document.querySelector("[data-catalog-promotion-receipt]")!;
+  expect(readOriginalReceiptDom(node)).toEqual(result.promotionReceipt);
+  expect(isInaccessible(node)).toBe(false);
+  if (state) {
+    const status = document.querySelector(`[data-catalog-promotion-receipt-state="${state}"]`);
+    expect(status).not.toBeNull();
+    expect(isInaccessible(status!)).toBe(false);
+  }
+  const commit = screen.getByRole("button", { name: "Create or update Catalog Items" }) as HTMLButtonElement;
+  expect(commit.form?.querySelector<HTMLInputElement>('[name="promotionPreviewId"]')?.value).toBe(
+    result.promotionReceipt!.previewId,
+  );
+  for (const link of document.querySelectorAll<HTMLAnchorElement>("a[href]")) {
+    expect(link.href).not.toContain("promotionPreviewId");
+    expect(link.href).not.toContain(result.promotionReceipt!.preview.fingerprint);
+  }
+  expect(JSON.stringify(window.sessionStorage)).not.toContain(result.promotionReceipt!.previewId);
+  expect(JSON.stringify(window.sessionStorage)).not.toContain(result.promotionReceipt!.preview.fingerprint);
+}
+
+function recordSyntheticReceipt(label: string, result: CatalogIntegrationsCommandResult) {
+  console.info(`SYNTHETIC_RECEIPT ${label} ${JSON.stringify(result.promotionReceipt)}`);
+}
+
 describe("Catalog integrations route", () => {
+  it.each([null, "synthetic-scope-record"])(
+    "preserves working selection B when deferred Preview A settles under scope %s",
+    async (scopeRecordId) => {
+      window.sessionStorage.clear();
+      const requestUrl = receiptUrlFor(scopeRecordId);
+      const readModel = receiptRouteModel("2026.06.04", requestUrl);
+      const scopeKey = observationSelectionScopeKey(readModel.routeContext);
+      writePersistedObservationSelection(scopeKey, ["obs_001"]);
+      let resolvePreview!: (preview: ReturnType<typeof syntheticPromotionReceipt>["preview"]) => void;
+      const deferred = new Promise<ReturnType<typeof syntheticPromotionReceipt>["preview"]>((resolve) => {
+        resolvePreview = resolve;
+      });
+      const previewBulkPromoteSourceObservationIds = vi.fn().mockReturnValueOnce(deferred);
+      const bulkPromoteSourceObservations = vi.fn();
+      mockCreateCatalogRequestApiClient.mockReturnValue({
+        previewBulkPromoteSourceObservationIds,
+        bulkPromoteSourceObservations,
+      });
+      const route = render(
+        <ReceiptActionRouteHarness readModel={readModel} requestUrl={requestUrl} scopeRecordId={scopeRecordId} />,
+      );
+      const rowCheckboxes = observationRowCheckboxes;
+      expectWorkingSelection(scopeKey, ["obs_001"]);
+      const originalTable = rowCheckboxes()[0].closest("table");
+      const originalTransition = screen.getByTestId("receipt-action-transition");
+      fireEvent.submit(receiptPreviewButton().form!);
+      await waitFor(() => expect(previewBulkPromoteSourceObservationIds).toHaveBeenCalledTimes(1));
+      expect(screen.getByTestId("receipt-action-transition").getAttribute("data-state")).toBe("submitting");
+      expect(screen.getByLabelText(/I confirm this will promote/).hasAttribute("disabled")).toBe(true);
+      changeWorkingSelection(scopeKey, "obs_001", "obs_002");
+      resolvePreview(syntheticPromotionReceipt().preview);
+      await waitFor(() =>
+        expect(screen.getByTestId("receipt-action-transition").getAttribute("data-state")).toBe("idle"),
+      );
+      const resultA = mockUseActionData();
+      recordSyntheticReceipt(`F1 scope=${scopeRecordId} original=A`, resultA);
+      expectWorkingSelection(scopeKey, ["obs_002"]);
+      expect(rowCheckboxes()[0].closest("table")).toBe(originalTable);
+      expect(screen.getByTestId("receipt-action-transition")).toBe(originalTransition);
+      expect(resultA.promotionReceipt.selection.observationIds).toEqual(["obs_001"]);
+      expect(resultA.promotionReceipt.selection.scopeRecordId).toBe(scopeRecordId);
+      expectOriginalReceipt(resultA, "stale");
+      const confirmation = screen.getByLabelText(/I confirm this will promote/);
+      const commit = screen.getByRole("button", { name: "Create or update Catalog Items" }) as HTMLButtonElement;
+      expect(confirmation.hasAttribute("disabled")).toBe(true);
+      expect(commit.disabled).toBe(true);
+      expect(previewBulkPromoteSourceObservationIds).toHaveBeenCalledTimes(1);
+      expect(bulkPromoteSourceObservations).not.toHaveBeenCalled();
+      expect(mockUseNavigate).not.toHaveBeenCalled();
+      changeWorkingSelection(scopeKey, "obs_002", "obs_001");
+      openReceiptStage("create-items");
+      expect(confirmation.hasAttribute("disabled")).toBe(true);
+      expect(commit.disabled).toBe(true);
+      changeWorkingSelection(scopeKey, "obs_001", "obs_002");
+      const previewB = syntheticPromotionReceipt().preview;
+      previewB.validation.coveredObservationIds = ["obs_002"];
+      previewBulkPromoteSourceObservationIds.mockResolvedValueOnce(previewB);
+      fireEvent.submit(receiptPreviewButton().form!);
+      await waitFor(() => expect(confirmation.hasAttribute("disabled")).toBe(false));
+      const resultB = mockUseActionData();
+      recordSyntheticReceipt(`F1 scope=${scopeRecordId} original=B`, resultB);
+      expect(resultB.promotionReceipt.selection.observationIds).toEqual(["obs_002"]);
+      expectOriginalReceipt(resultB, "fresh");
+      expect(commit.disabled).toBe(true);
+      fireEvent.click(confirmation);
+      expect(commit.disabled).toBe(false);
+      expect(previewBulkPromoteSourceObservationIds).toHaveBeenCalledTimes(2);
+      expect(previewBulkPromoteSourceObservationIds.mock.calls.map(([ids]) => ids)).toEqual([["obs_001"], ["obs_002"]]);
+      expect(bulkPromoteSourceObservations).not.toHaveBeenCalled();
+      expect(mockUseNavigate).not.toHaveBeenCalled();
+      route.unmount();
+      render(<ReceiptActionRouteHarness readModel={readModel} requestUrl={requestUrl} scopeRecordId={scopeRecordId} />);
+      expectWorkingSelection(scopeKey, ["obs_002"]);
+      openReceiptStage("create-items");
+      expect(document.querySelector("[data-catalog-promotion-receipt]")).toBeNull();
+      expect(screen.getByLabelText(/I confirm this will promote/).hasAttribute("disabled")).toBe(true);
+      expect(
+        (screen.getByRole("button", { name: "Create or update Catalog Items" }) as HTMLButtonElement).disabled,
+      ).toBe(true);
+      expect(previewBulkPromoteSourceObservationIds).toHaveBeenCalledTimes(2);
+    },
+  );
+
+  it.each(
+    [null, "synthetic-scope-record"].flatMap((scopeRecordId) =>
+      ["2026.06.04", "synthetic-active-B", null].map((activeProfileVersion) => ({
+        scopeRecordId,
+        activeProfileVersion,
+      })),
+    ),
+  )(
+    "checks initial active profile $activeProfileVersion and restoration under scope $scopeRecordId",
+    async ({ activeProfileVersion, scopeRecordId }) => {
+      window.sessionStorage.clear();
+      const requestUrl = receiptUrlFor(scopeRecordId);
+      const matchingModel = receiptRouteModel("2026.06.04", requestUrl);
+      const readModel = receiptRouteModel(activeProfileVersion, requestUrl);
+      expect(readModel.importJobs.selectedScope?.profileVersion).toBe(activeProfileVersion);
+      if (activeProfileVersion) expectActiveProfileOnlyDifference(matchingModel, readModel, activeProfileVersion);
+      expect(readModel.routeContext).toEqual(matchingModel.routeContext);
+      expect(readModel.sourceObservationReview.rows).toEqual(matchingModel.sourceObservationReview.rows);
+      expect(readModel.promotionPreview.currentFingerprint).toBe(matchingModel.promotionPreview.currentFingerprint);
+      expect(readModel.promotionPreview.blockers).toEqual(
+        activeProfileVersion === null
+          ? expect.arrayContaining(["missing-active-profile"])
+          : matchingModel.promotionPreview.blockers,
+      );
+      writePersistedObservationSelection(observationSelectionScopeKey(readModel.routeContext), ["obs_001"]);
+      const original = syntheticPromotionReceipt().preview;
+      let resolvePreview!: (preview: typeof original) => void;
+      const previewBulkPromoteSourceObservationIds = vi.fn().mockReturnValueOnce(
+        new Promise<typeof original>((resolve) => {
+          resolvePreview = resolve;
+        }),
+      );
+      const bulkPromoteSourceObservations = vi.fn();
+      mockCreateCatalogRequestApiClient.mockReturnValue({
+        previewBulkPromoteSourceObservationIds,
+        bulkPromoteSourceObservations,
+      });
+      const harness = (model: ReturnType<typeof receiptRouteModel>) => (
+        <ReceiptActionRouteHarness readModel={model} requestUrl={requestUrl} scopeRecordId={scopeRecordId} />
+      );
+      const { rerender } = render(harness(readModel));
+      fireEvent.submit(receiptPreviewButton().form!);
+      await waitFor(() => expect(previewBulkPromoteSourceObservationIds).toHaveBeenCalledTimes(1));
+      expect(screen.getByTestId("receipt-action-transition").getAttribute("data-state")).toBe("submitting");
+      resolvePreview(original);
+      await waitFor(() =>
+        expect(screen.getByTestId("receipt-action-transition").getAttribute("data-state")).toBe("idle"),
+      );
+      const result = mockUseActionData();
+      recordSyntheticReceipt(`F2 scope=${scopeRecordId} initial-active=${activeProfileVersion}`, result);
+      expectOriginalReceipt(result, activeProfileVersion === "2026.06.04" ? "fresh" : "stale");
+      const confirmation = screen.getByLabelText(/I confirm this will promote/);
+      const commit = screen.getByRole("button", { name: "Create or update Catalog Items" }) as HTMLButtonElement;
+      expect(confirmation.hasAttribute("disabled")).toBe(activeProfileVersion !== "2026.06.04");
+      expect(commit.disabled).toBe(true);
+      if (activeProfileVersion === "2026.06.04") {
+        fireEvent.click(confirmation);
+        expect(commit.disabled).toBe(false);
+        const driftModel = receiptRouteModel("synthetic-active-B", requestUrl);
+        expectActiveProfileOnlyDifference(matchingModel, driftModel, "synthetic-active-B");
+        rerender(harness(driftModel));
+        expect(confirmation.hasAttribute("disabled")).toBe(true);
+        expect(commit.disabled).toBe(true);
+      }
+      rerender(harness(matchingModel));
+      expect(confirmation.hasAttribute("disabled")).toBe(true);
+      expect(commit.disabled).toBe(true);
+      expectOriginalReceipt(result, "stale");
+      expect(previewBulkPromoteSourceObservationIds).toHaveBeenCalledTimes(1);
+      previewBulkPromoteSourceObservationIds.mockResolvedValueOnce(original);
+      fireEvent.submit(receiptPreviewButton().form!);
+      await waitFor(() => expect(confirmation.hasAttribute("disabled")).toBe(false));
+      expect(commit.disabled).toBe(true);
+      fireEvent.click(confirmation);
+      expect(commit.disabled).toBe(false);
+      expectOriginalReceipt(mockUseActionData(), "fresh");
+      expect(previewBulkPromoteSourceObservationIds).toHaveBeenCalledTimes(2);
+      expect(bulkPromoteSourceObservations).not.toHaveBeenCalled();
+      expect(mockUseNavigate).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(
+    [null, "synthetic-scope-record"].flatMap((scopeRecordId) =>
+      [false, true].map((restoreWhilePending) => ({ scopeRecordId, restoreWhilePending })),
+    ),
+  )(
+    "latches active-only profile drift while pending under scope $scopeRecordId, restored pending=$restoreWhilePending",
+    async ({ scopeRecordId, restoreWhilePending }) => {
+      window.sessionStorage.clear();
+      const requestUrl = receiptUrlFor(scopeRecordId);
+      const matching = receiptRouteModel("2026.06.04", requestUrl);
+      const drift = receiptRouteModel("synthetic-active-B", requestUrl);
+      expect(matching.importJobs.selectedScope?.profileVersion).toBe("2026.06.04");
+      expectActiveProfileOnlyDifference(matching, drift, "synthetic-active-B");
+      const scopeKey = observationSelectionScopeKey(matching.routeContext);
+      writePersistedObservationSelection(scopeKey, ["obs_001"]);
+      const original = syntheticPromotionReceipt().preview;
+      let resolvePreview!: (preview: typeof original) => void;
+      const previewBulkPromoteSourceObservationIds = vi.fn().mockReturnValueOnce(
+        new Promise<typeof original>((resolve) => {
+          resolvePreview = resolve;
+        }),
+      );
+      const bulkPromoteSourceObservations = vi.fn();
+      mockCreateCatalogRequestApiClient.mockReturnValue({
+        previewBulkPromoteSourceObservationIds,
+        bulkPromoteSourceObservations,
+      });
+      const harness = (model: ReturnType<typeof receiptRouteModel>) => (
+        <ReceiptActionRouteHarness readModel={model} requestUrl={requestUrl} scopeRecordId={scopeRecordId} />
+      );
+      const { rerender } = render(harness(matching));
+      fireEvent.submit(receiptPreviewButton().form!);
+      await waitFor(() => expect(previewBulkPromoteSourceObservationIds).toHaveBeenCalledTimes(1));
+      expect(screen.getByTestId("receipt-action-transition").getAttribute("data-state")).toBe("submitting");
+      rerender(harness(drift));
+      expectWorkingSelection(scopeKey, ["obs_001"]);
+      openReceiptStage("create-items");
+      expect(screen.getByLabelText(/I confirm this will promote/).hasAttribute("disabled")).toBe(true);
+      if (restoreWhilePending) rerender(harness(matching));
+      resolvePreview(original);
+      await waitFor(() =>
+        expect(screen.getByTestId("receipt-action-transition").getAttribute("data-state")).toBe("idle"),
+      );
+      recordSyntheticReceipt(
+        `F2 scope=${scopeRecordId} pending-drift restored=${restoreWhilePending}`,
+        mockUseActionData(),
+      );
+      expectOriginalReceipt(mockUseActionData(), "stale");
+      const confirmation = screen.getByLabelText(/I confirm this will promote/);
+      const commit = screen.getByRole("button", { name: "Create or update Catalog Items" }) as HTMLButtonElement;
+      expect(confirmation.hasAttribute("disabled")).toBe(true);
+      expect(commit.disabled).toBe(true);
+      rerender(harness(matching));
+      expectOriginalReceipt(mockUseActionData(), "stale");
+      expect(confirmation.hasAttribute("disabled")).toBe(true);
+      expect(commit.disabled).toBe(true);
+      expect(previewBulkPromoteSourceObservationIds).toHaveBeenCalledTimes(1);
+      previewBulkPromoteSourceObservationIds.mockResolvedValueOnce(original);
+      fireEvent.submit(receiptPreviewButton().form!);
+      await waitFor(() => expect(confirmation.hasAttribute("disabled")).toBe(false));
+      expectOriginalReceipt(mockUseActionData(), "fresh");
+      expect(commit.disabled).toBe(true);
+      fireEvent.click(confirmation);
+      expect(commit.disabled).toBe(false);
+      expect(previewBulkPromoteSourceObservationIds).toHaveBeenCalledTimes(2);
+      expect(bulkPromoteSourceObservations).not.toHaveBeenCalled();
+      expect(mockUseNavigate).not.toHaveBeenCalled();
+    },
+  );
+
+  it("reconciles real deep-link selection and a different scope without restoring a receipt", () => {
+    window.sessionStorage.clear();
+    const initial = receiptRouteModel();
+    const scopeKey = observationSelectionScopeKey(initial.routeContext);
+    writePersistedObservationSelection(scopeKey, ["obs_001"]);
+    const deepLink = `${receiptRequestUrl}&selectedObservationIds=obs_002`;
+    const { rerender } = render(
+      <ReceiptActionRouteHarness readModel={receiptRouteModel("2026.06.04", deepLink)} requestUrl={deepLink} />,
+    );
+    expect(observationRowCheckboxes().map((input) => input.checked)).toEqual([false, true]);
+    expect(readPersistedObservationSelection(scopeKey)).toEqual(["obs_002"]);
+    const otherDeepLink = `${receiptRequestUrl}&selectedObservationIds=obs_001`;
+    rerender(
+      <ReceiptActionRouteHarness
+        readModel={receiptRouteModel("2026.06.04", otherDeepLink)}
+        requestUrl={otherDeepLink}
+      />,
+    );
+    expect(observationRowCheckboxes().map((input) => input.checked)).toEqual([true, false]);
+    expect(readPersistedObservationSelection(scopeKey)).toEqual(["obs_001"]);
+    const otherScopeUrl = receiptRequestUrl.replace("profileVersion=2026.06.04", "profileVersion=synthetic-profile-C");
+    const otherScope = receiptRouteModel("synthetic-profile-C", otherScopeUrl);
+    const otherScopeKey = observationSelectionScopeKey(otherScope.routeContext);
+    expect(otherScopeKey).not.toBe(scopeKey);
+    writePersistedObservationSelection(otherScopeKey, ["obs_002"]);
+    rerender(<ReceiptActionRouteHarness readModel={otherScope} requestUrl={otherScopeUrl} />);
+    expect(observationRowCheckboxes().map((input) => input.checked)).toEqual([false, true]);
+    expect(readPersistedObservationSelection(scopeKey)).toEqual(["obs_001"]);
+    expect(readPersistedObservationSelection(otherScopeKey)).toEqual(["obs_002"]);
+    expect(document.querySelector("[data-catalog-promotion-receipt]")).toBeNull();
+    expect(screen.getByLabelText(/I confirm this will promote/).hasAttribute("disabled")).toBe(true);
+    expect(mockCreateCatalogRequestApiClient).not.toHaveBeenCalled();
+    expect(mockUseNavigate).not.toHaveBeenCalled();
+  });
+
   it("enqueues exact selected product coordinates from the real action without changing compact set meaning", async () => {
     const enqueueSourceObservationIntegrationJob = vi.fn().mockResolvedValue({ jobId: "synthetic_product_job" });
     mockCreateCatalogRequestApiClient.mockReturnValue({ enqueueSourceObservationIntegrationJob });
@@ -165,6 +683,7 @@ describe("Catalog integrations route", () => {
   });
   afterEach(() => {
     cleanup();
+    window.sessionStorage.clear();
     mockUseLoaderData.mockReset();
     mockUseNavigate.mockReset();
     mockUseRouteLoaderData.mockReset();
@@ -174,6 +693,7 @@ describe("Catalog integrations route", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockIsTransientAuthResolutionError.mockReturnValue(false);
+    mockUseNavigation.mockReturnValue({ state: "idle" });
     mockResolveActorFromAuthApi.mockResolvedValue({
       permissions: ["catalog.view", "catalog.manage"],
     });
@@ -225,6 +745,240 @@ describe("Catalog integrations route", () => {
         promotionResult: "job-queued",
       }),
     );
+  });
+
+  it("reads the daily import receipt DOM against the actual returned job and sent scope without changing loader context", async () => {
+    const enqueueSourceObservationIntegrationJob = vi.fn().mockResolvedValue({
+      jobId: "synthetic-returned-job-A",
+      status: "running",
+      profileVersion: "synthetic-effective-profile-not-submitted",
+      scope: { setId: "synthetic-response-scope-not-sent" },
+    });
+    mockCreateCatalogRequestApiClient.mockReturnValue({ enqueueSourceObservationIntegrationJob });
+    const result = await runDailyAction(
+      {
+        _intent: "scope.import",
+        providerKey: "tcgdex",
+        unitKey: "tcgdex:pokemon:card:import",
+        importScope: "en:3:base:base1",
+        profileVersion: "2026.06.04",
+        jobId: "synthetic-submitted-job",
+      },
+      receiptRequestUrl + "&jobId=synthetic-url-job",
+    );
+    const requestUrl = receiptRequestUrl + "&jobId=synthetic-loader-sync-run";
+    const baseOverview = controlPlaneOverview();
+    const overview = controlPlaneOverview({
+      unitActivity: {
+        ...baseOverview.unitActivity,
+        units: [
+          {
+            unitKey: "tcgdex:pokemon:card:import",
+            recentJobs: [integrationJobSummary({ jobId: "synthetic-newer-job-B", startedAt: "2026-11-06T20:00:00Z" })],
+          },
+        ],
+      },
+    });
+    const readModel = receiptRouteModel("2026.06.04", requestUrl, overview);
+    const originalModel = structuredClone(readModel);
+    mockUseLoaderData.mockReturnValue(loaderData({ requestUrl, readModel }));
+    mockUseActionData.mockReturnValue(undefined);
+    const { rerender } = render(<IntegrationsRoute />);
+    const hiddenJobIds = () =>
+      [...document.querySelectorAll<HTMLInputElement>('input[name="jobId"]')].map((field) => field.value);
+    const originalHiddenJobIds = hiddenJobIds();
+    expect(originalHiddenJobIds).toContain("synthetic-loader-sync-run");
+    mockUseActionData.mockReturnValue(result);
+    rerender(<IntegrationsRoute />);
+    const root = document.querySelector('[data-catalog-import-job-receipt="source-observation-import-job-receipt/v1"]');
+    expect(root).not.toBeNull();
+    expect(isInaccessible(root!)).toBe(false);
+    const expected = {
+      schemaVersion: "source-observation-import-job-receipt/v1",
+      jobId: "synthetic-returned-job-A",
+      status: "running",
+      scope: enqueueSourceObservationIntegrationJob.mock.calls[0]![1],
+      submitted: { providerKey: "tcgdex", unitKey: "tcgdex:pokemon:card:import", profileVersion: "2026.06.04" },
+    };
+    expect(readOriginalReceiptDom(root!)).toEqual(expected);
+    expect(result).toMatchObject({ importJobReceipt: expected });
+    for (const excluded of [
+      "synthetic-submitted-job",
+      "synthetic-url-job",
+      "synthetic-loader-sync-run",
+      "synthetic-newer-job-B",
+      "synthetic-effective-profile-not-submitted",
+      "synthetic-response-scope-not-sent",
+    ]) {
+      expect(root!.textContent).not.toContain(excluded);
+    }
+    expect(readModel).toEqual(originalModel);
+    expect(readModel.importJobs.jobs.map((job) => job.jobId)).toContain("synthetic-newer-job-B");
+    expect(document.querySelector('[data-catalog-import-job-id="synthetic-newer-job-B"]')).not.toBeNull();
+    expect(hiddenJobIds()).toEqual(originalHiddenJobIds);
+    for (const link of document.querySelectorAll<HTMLAnchorElement>("a[href]")) {
+      expect(link.href).not.toContain("synthetic-returned-job-A");
+    }
+    expect(mockUseNavigate).not.toHaveBeenCalled();
+    expect(enqueueSourceObservationIntegrationJob).toHaveBeenCalledTimes(1);
+    const clientCalls = mockCreateCatalogRequestApiClient.mock.calls.length;
+    mockUseActionData.mockReturnValue(null);
+    rerender(<IntegrationsRoute />);
+    expect(readOriginalReceiptDom(document.querySelector("[data-catalog-import-job-receipt]")!)).toEqual(expected);
+    mockUseNavigation.mockReturnValue({ state: "submitting" });
+    rerender(<IntegrationsRoute />);
+    expect(document.querySelector("[data-catalog-import-job-receipt]")).toBeNull();
+    mockUseActionData.mockReturnValue({
+      ...result,
+      feedback: { ...result.feedback, intent: "observation.review", result: "command-failed", status: "error" },
+    });
+    mockUseNavigation.mockReturnValue({ state: "idle" });
+    rerender(<IntegrationsRoute />);
+    expect(document.querySelector("[data-catalog-import-job-receipt]")).toBeNull();
+    mockUseActionData.mockReturnValue(undefined);
+    rerender(<IntegrationsRoute />);
+    expect(document.querySelector("[data-catalog-import-job-receipt]")).toBeNull();
+    expect(mockCreateCatalogRequestApiClient).toHaveBeenCalledTimes(clientCalls);
+  });
+
+  it("shows no receipt while the actual import enqueue is pending, then shows its settled response", async () => {
+    let settle!: (job: { jobId: string; status: string }) => void;
+    const enqueueSourceObservationIntegrationJob = vi.fn().mockReturnValue(
+      new Promise((resolve) => {
+        settle = resolve;
+      }),
+    );
+    mockCreateCatalogRequestApiClient.mockReturnValue({ enqueueSourceObservationIntegrationJob });
+    const pendingAction = runDailyAction({
+      _intent: "scope.import",
+      providerKey: "tcgdex",
+      unitKey: "tcgdex:pokemon:card:import",
+      importScope: "en:3:base:base1",
+      profileVersion: "2026.06.04",
+    });
+    mockUseLoaderData.mockReturnValue(loaderData({ requestUrl: receiptRequestUrl, readModel: receiptRouteModel() }));
+    mockUseActionData.mockReturnValue(undefined);
+    mockUseNavigation.mockReturnValue({ state: "submitting" });
+    const view = render(<IntegrationsRoute />);
+    expect(document.querySelector("[data-catalog-import-job-receipt]")).toBeNull();
+    settle({ jobId: "synthetic-settled-job", status: "queued" });
+    const result = await pendingAction;
+    mockUseActionData.mockReturnValue(result);
+    mockUseNavigation.mockReturnValue({ state: "idle" });
+    view.rerender(<IntegrationsRoute />);
+    const root = document.querySelector("[data-catalog-import-job-receipt]");
+    expect(root).not.toBeNull();
+    expect(readOriginalReceiptDom(root!)).toMatchObject({
+      jobId: "synthetic-settled-job",
+      status: "queued",
+      scope: enqueueSourceObservationIntegrationJob.mock.calls[0]![1],
+      submitted: { providerKey: "tcgdex", unitKey: "tcgdex:pokemon:card:import", profileVersion: "2026.06.04" },
+    });
+    expect(enqueueSourceObservationIntegrationJob).toHaveBeenCalledTimes(1);
+    expect(mockUseNavigate).not.toHaveBeenCalled();
+  });
+
+  it.each([undefined, "", 42])(
+    "shows unavailable for producer job ID %s, never the non-null submitted fallback",
+    async (jobId) => {
+      const enqueueSourceObservationIntegrationJob = vi.fn().mockResolvedValue({ jobId, status: "queued" });
+      mockCreateCatalogRequestApiClient.mockReturnValue({ enqueueSourceObservationIntegrationJob });
+      const result = await runDailyAction({
+        _intent: "scope.import",
+        providerKey: "tcgdex",
+        unitKey: "tcgdex:pokemon:card:import",
+        importScope: "en:3:base:base1",
+        profileVersion: "2026.06.04",
+        jobId: "synthetic-fallback-must-not-render",
+      });
+      mockUseLoaderData.mockReturnValue(loaderData({ requestUrl: receiptRequestUrl, readModel: receiptRouteModel() }));
+      mockUseActionData.mockReturnValue(result);
+      render(<IntegrationsRoute />);
+      const root = document.querySelector("[data-catalog-import-job-receipt]");
+      expect(root).not.toBeNull();
+      expect(readOriginalReceiptDom(root!)).toMatchObject({ jobId: null, status: "queued" });
+      expect(root!.querySelector('[data-catalog-receipt-field="jobId"]')!.textContent).toMatch(
+        /not returned|unavailable/i,
+      );
+      expect(root!.textContent).not.toContain("synthetic-fallback-must-not-render");
+    },
+  );
+
+  it.each([undefined, 42])("shows unavailable for producer status %s without inventing queued", async (status) => {
+    const enqueueSourceObservationIntegrationJob = vi.fn().mockResolvedValue({ jobId: "synthetic-status-job", status });
+    mockCreateCatalogRequestApiClient.mockReturnValue({ enqueueSourceObservationIntegrationJob });
+    const result = await runDailyAction({
+      _intent: "scope.import",
+      providerKey: "tcgdex",
+      unitKey: "tcgdex:pokemon:card:import",
+      importScope: "en:3:base:base1",
+    });
+    mockUseLoaderData.mockReturnValue(loaderData({ requestUrl: receiptRequestUrl, readModel: receiptRouteModel() }));
+    mockUseActionData.mockReturnValue(result);
+    render(<IntegrationsRoute />);
+    const root = document.querySelector("[data-catalog-import-job-receipt]");
+    expect(root).not.toBeNull();
+    expect(readOriginalReceiptDom(root!)).toMatchObject({ jobId: "synthetic-status-job", status: null });
+    expect(root!.querySelector('[data-catalog-receipt-field="status"]')!.textContent).toMatch(
+      /not returned|unavailable/i,
+    );
+  });
+
+  it("renders only allowed escaped import receipt scalars and excludes injected response extras", async () => {
+    const jobId = '<img src=x onerror="synthetic()">';
+    const status = "<script>synthetic()</script>";
+    const enqueueSourceObservationIntegrationJob = vi.fn().mockResolvedValue({
+      jobId,
+      status,
+      nested: { jobId: "synthetic-nested-secret" },
+      headers: "synthetic-header-secret",
+      credentials: "synthetic-credential-secret",
+      error: { detail: "synthetic-error-secret" },
+    });
+    mockCreateCatalogRequestApiClient.mockReturnValue({ enqueueSourceObservationIntegrationJob });
+    const result = await runDailyAction({
+      _intent: "scope.import",
+      providerKey: "tcgdex",
+      unitKey: "tcgdex:pokemon:card:import",
+      importScope: "en:3:base:base1",
+      profileVersion: "2026.06.04",
+    });
+    mockUseLoaderData.mockReturnValue(loaderData({ requestUrl: receiptRequestUrl, readModel: receiptRouteModel() }));
+    mockUseActionData.mockReturnValue(result);
+    render(<IntegrationsRoute />);
+    const root = document.querySelector("[data-catalog-import-job-receipt]");
+    expect(root).not.toBeNull();
+    expect(readOriginalReceiptDom(root!)).toEqual({
+      schemaVersion: "source-observation-import-job-receipt/v1",
+      jobId,
+      status,
+      scope: enqueueSourceObservationIntegrationJob.mock.calls[0]![1],
+      submitted: { providerKey: "tcgdex", unitKey: "tcgdex:pokemon:card:import", profileVersion: "2026.06.04" },
+    });
+    expect(root!.querySelector("img,script,a")).toBeNull();
+    expect(root!.innerHTML).toContain("&lt;img");
+    expect(root!.textContent).not.toContain("secret");
+    expect(JSON.stringify(result)).not.toContain("synthetic-credential-secret");
+  });
+
+  it("never renders import job identity for failed or refused actual actions", async () => {
+    const enqueueSourceObservationIntegrationJob = vi.fn().mockRejectedValue(new Error("synthetic-failed-identity"));
+    mockCreateCatalogRequestApiClient.mockReturnValue({ enqueueSourceObservationIntegrationJob });
+    for (const providerKey of ["tcgdex", ""]) {
+      const result = await runDailyAction({
+        _intent: "scope.import",
+        providerKey,
+        unitKey: "tcgdex:pokemon:card:import",
+        importScope: "en:3:base:base1",
+        jobId: "synthetic-failed-identity",
+      });
+      expect(result.feedback.status).toBe("error");
+      mockUseLoaderData.mockReturnValue(loaderData({ requestUrl: receiptRequestUrl, readModel: receiptRouteModel() }));
+      mockUseActionData.mockReturnValue(result);
+      const view = render(<IntegrationsRoute />);
+      expect(document.querySelector("[data-catalog-import-job-receipt]")).toBeNull();
+      view.unmount();
+    }
   });
 
   it("enqueues a scope-first Catalog sync run and carries the parent run id", async () => {
@@ -561,7 +1315,7 @@ describe("Catalog integrations route", () => {
     });
     mockCreateCatalogRequestApiClient.mockReturnValue({ previewBulkPromoteSourceObservationIds });
 
-    const response = await runDailyActionRedirect(
+    const result = await runDailyAction(
       {
         _intent: "observation.promote",
         providerKey: "tcgdex",
@@ -572,16 +1326,440 @@ describe("Catalog integrations route", () => {
       },
       "https://admin.example/catalog/integrations?filter.status=changed",
     );
-    const location = redirectLocation(response);
-
     expect(previewBulkPromoteSourceObservationIds).toHaveBeenCalledWith(["obs_001"], { promoteAsDraft: false });
-    expect(location.pathname).toBe("/catalog/integrations");
-    expect(location.searchParams.get("selectedObservationIds")).toBe("obs_001");
-    expect(location.searchParams.get("commandStatus")).toBe("success");
-    expect(location.searchParams.get("commandResult")).toBe("preview-ready");
-    expect(location.searchParams.get("promotionPreviewId")).toBe(
+    expect(result.context.selectedObservationIds).toEqual(["obs_001"]);
+    expect(result.feedback.result).toBe("preview-ready");
+    expect(result.context.promotionPreviewId).toBe(
       "preview-tcgdex_tcgdex_pokemon_card_import_en_3_base_base1_2026.06.04_en_base1_changed_none_obs_001-1-1-no-fingerprint-publishable-complete.blocked0.811c9dc5",
     );
+  });
+
+  it("renders the original action receipt instead of loader validation and keeps its token out of links", async () => {
+    window.sessionStorage.clear();
+    const original = syntheticPromotionReceipt().preview;
+    original.matched = 7;
+    original.terminal = 6;
+    original.validation.coveredObservationIds = ["synthetic-returned-not-submitted"];
+    original.validation.diagnostics = [
+      {
+        observationId: "synthetic-returned-not-submitted",
+        code: "synthetic-warning",
+        path: "synthetic-path",
+        diagnosticText: "<img src=x onerror=synthetic()> is plain text",
+        blocking: false,
+        displayIdentity: {
+          missingTokens: ["synthetic-missing"],
+          templateKey: "https://example.invalid/synthetic-not-a-link",
+          templateTargetKind: "blueprint",
+          templateTargetId: "synthetic-target",
+          templateReason: "missing-required-fields",
+        },
+      },
+    ];
+    const previewBulkPromoteSourceObservationIds = vi.fn().mockResolvedValue(original);
+    mockCreateCatalogRequestApiClient.mockReturnValue({ previewBulkPromoteSourceObservationIds });
+    const result = await runDailyAction({
+      _intent: "observation.promote",
+      promotionPhase: "preview",
+      providerKey: "tcgdex",
+      unitKey: "tcgdex:pokemon:card:import",
+      importScope: "en:3:base:base1",
+      profileVersion: "2026.06.04",
+      selectedObservationIds: "obs_001",
+    });
+    expect(result.promotionReceipt?.preview).toEqual(original);
+    expect(result.promotionReceipt?.previewId).toBe(result.context.promotionPreviewId);
+    const requestUrl =
+      "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&importScope=en:3:base:base1&profileVersion=2026.06.04";
+    const readModel = buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
+      requestUrl,
+      scopes: { items: [sourceObservationScope()], total: 1, count: 1 },
+      profileReviews: { items: [profileReview({ active: true, lifecycle: "active" })], total: 1, count: 1 },
+      controlPlaneOverview: null,
+      canManageCatalog: true,
+      reviewObservations: { items: [sourceObservationListItem()], total: 1, count: 1 },
+    });
+    mockUseLoaderData.mockReturnValue(loaderData({ requestUrl, readModel }));
+    mockUseActionData.mockReturnValue(result);
+    const { rerender } = render(<IntegrationsRoute />);
+    const disclosure = screen
+      .getAllByRole("button", { name: /Preview promotion/ })
+      .find((button) => button.hasAttribute("aria-expanded"));
+    expect(disclosure).toBeTruthy();
+    fireEvent.click(disclosure!);
+    const receiptNode = document.querySelector(
+      '[data-catalog-promotion-receipt="source-observation-promotion-receipt/v1"]',
+    );
+    expect(receiptNode).not.toBeNull();
+    expect(readOriginalReceiptDom(receiptNode!)).toEqual(result.promotionReceipt);
+    expect(receiptNode?.textContent).toContain("synthetic-returned-not-submitted");
+    expect(
+      receiptNode?.querySelector('[data-catalog-receipt-field="preview.validation.coveredObservationIds.0"]')
+        ?.textContent,
+    ).not.toBe("obs_001");
+    expect(receiptNode?.querySelector("img,a,script")).toBeNull();
+    expect(receiptNode?.innerHTML).toContain("&lt;img");
+    expect(mockUseNavigate).not.toHaveBeenCalled();
+    expect(previewBulkPromoteSourceObservationIds).toHaveBeenCalledTimes(1);
+    for (const link of document.querySelectorAll<HTMLAnchorElement>("a[href]")) {
+      expect(link.href).not.toContain("promotionPreviewId");
+      expect(link.href).not.toContain(original.fingerprint);
+    }
+    expect(screen.getByLabelText(/I confirm this will promote/).hasAttribute("disabled")).toBe(true);
+    mockUseActionData.mockReturnValue(undefined);
+    rerender(<IntegrationsRoute />);
+    expect(document.querySelector("[data-catalog-promotion-receipt]")).toBeNull();
+    expect(screen.getByLabelText(/I confirm this will promote/).hasAttribute("disabled")).toBe(true);
+  });
+
+  it.each(["empty", "partial", "complete"] as const)(
+    "renders the complete typed original receipt for a %s page",
+    (coverage) => {
+      const receipt = syntheticPromotionReceipt();
+      receipt.preview.matched = 3;
+      receipt.preview.eligible = coverage === "empty" ? 0 : 3;
+      receipt.selection.observationIds = ["synthetic-c", "synthetic-a", "synthetic-b"];
+      receipt.preview.validation.coveredObservationIds =
+        coverage === "empty" ? [] : ["synthetic-b", "synthetic-c", "synthetic-a"];
+      receipt.preview.validation.coverage = coverage === "partial" ? "partial" : "complete";
+      receipt.preview.validation.continuation = coverage === "partial" ? "synthetic-next-page" : null;
+      receipt.preview.validation.diagnostics =
+        coverage === "empty"
+          ? []
+          : [
+              {
+                observationId: "synthetic-c",
+                code: "synthetic-warning",
+                path: "facts",
+                diagnosticText: "synthetic-text",
+                blocking: false,
+              },
+              {
+                observationId: "synthetic-a",
+                code: "synthetic-identity",
+                path: "displayIdentity",
+                diagnosticText: "synthetic-identity-text",
+                blocking: false,
+                displayIdentity: {
+                  missingTokens: [],
+                  templateKey: null,
+                  templateTargetKind: null,
+                  templateTargetId: null,
+                  templateReason: "no-targeted-template",
+                },
+              },
+            ];
+      const model = loaderData().readModel;
+      const readModel = {
+        ...model,
+        promotionPreview: { ...model.promotionPreview, previewId: receipt.previewId, receipt },
+      };
+      render(
+        <CatalogIntegrationCreateItemsStage
+          readModel={readModel}
+          selectedObservationIds={receipt.selection.observationIds}
+        />,
+      );
+      const disclosure = screen
+        .getAllByRole("button", { name: /Preview promotion/ })
+        .find((button) => button.hasAttribute("aria-expanded"));
+      fireEvent.click(disclosure!);
+      const node = document.querySelector("[data-catalog-promotion-receipt]");
+      expect(node).not.toBeNull();
+      expect(readOriginalReceiptDom(node!)).toEqual(receipt);
+      const emptyArrayPaths =
+        coverage === "empty"
+          ? ["preview.validation.coveredObservationIds", "preview.validation.diagnostics"]
+          : ["preview.validation.diagnostics.1.displayIdentity.missingTokens"];
+      for (const path of emptyArrayPaths) {
+        const array = node!.querySelector(`[data-catalog-receipt-array="${path}"]`)!;
+        expect(isInaccessible(within(array as HTMLElement).getByText(path, { exact: true }))).toBe(false);
+        expect(isInaccessible(within(array as HTMLElement).getByText("None", { exact: true }))).toBe(false);
+      }
+      const nullField = node!.querySelector('[data-catalog-receipt-field="selection.scopeRecordId"]')!;
+      expect(nullField.textContent).toBe("null");
+      expect(isInaccessible(nullField)).toBe(false);
+      expect(node?.querySelector("input,textarea,script,a")).toBeNull();
+      expect(screen.getByLabelText(/I confirm this will promote/).hasAttribute("disabled")).toBe(true);
+    },
+  );
+
+  it.each([
+    [undefined, "Not returned"],
+    ["", "Empty string"],
+    ["synthetic-search", "synthetic-search"],
+  ] as const)("renders the localized scalar state for selected search %s", (search, expectedText) => {
+    const receipt = syntheticPromotionReceipt();
+    receipt.selection.scope.search = search;
+    const model = loaderData().readModel;
+    render(
+      <CatalogIntegrationCreateItemsStage
+        readModel={{ ...model, promotionPreview: { ...model.promotionPreview, previewId: receipt.previewId, receipt } }}
+        selectedObservationIds={receipt.selection.observationIds}
+      />,
+    );
+    const disclosure = screen
+      .getAllByRole("button", { name: /Preview promotion/ })
+      .find((button) => button.hasAttribute("aria-expanded"));
+    fireEvent.click(disclosure!);
+    const node = document.querySelector("[data-catalog-promotion-receipt]")!;
+    expect(readOriginalReceiptDom(node)).toEqual(receipt);
+    const field = node.querySelector('[data-catalog-receipt-field="selection.scope.search"]')!;
+    expect(field.textContent).toBe(expectedText);
+    expect(isInaccessible(field)).toBe(false);
+  });
+
+  it("binds confirmation and execute to the action token, invalidates observed drift, and rebinds only a new Preview", async () => {
+    window.sessionStorage.clear();
+    const original = syntheticPromotionReceipt().preview;
+    const previewBulkPromoteSourceObservationIds = vi.fn().mockResolvedValue(original);
+    const bulkPromoteSourceObservations = vi.fn().mockResolvedValue({ jobId: "synthetic-receipt-job" });
+    mockCreateCatalogRequestApiClient.mockReturnValue({
+      previewBulkPromoteSourceObservationIds,
+      bulkPromoteSourceObservations,
+    });
+    const fields = {
+      _intent: "observation.promote",
+      promotionPhase: "preview",
+      providerKey: "tcgdex",
+      unitKey: "tcgdex:pokemon:card:import",
+      importScope: "en:3:base:base1",
+      profileVersion: "2026.06.04",
+      selectedObservationIds: "obs_001",
+    };
+    const requestUrl =
+      "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&importScope=en:3:base:base1&profileVersion=2026.06.04";
+    const readModel = buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
+      requestUrl,
+      scopes: { items: [sourceObservationScope()], total: 1, count: 1 },
+      profileReviews: { items: [profileReview({ active: true, lifecycle: "active" })], total: 1, count: 1 },
+      controlPlaneOverview: null,
+      canManageCatalog: true,
+      reviewObservations: { items: [sourceObservationListItem()], total: 1, count: 1 },
+    });
+    writePersistedObservationSelection(observationSelectionScopeKey(readModel.routeContext), ["obs_001"]);
+    mockUseLoaderData.mockReturnValue(loaderData({ requestUrl, readModel }));
+    const { rerender } = render(<IntegrationsRoute />);
+    mockUseNavigation.mockReturnValue({ state: "submitting" });
+    rerender(<IntegrationsRoute />);
+    const result = await runDailyAction(fields);
+    mockUseActionData.mockReturnValue(result);
+    mockUseNavigation.mockReturnValue({ state: "idle" });
+    rerender(<IntegrationsRoute />);
+    const confirmation = screen.getByLabelText(/I confirm this will promote/);
+    expect(confirmation.hasAttribute("disabled")).toBe(false);
+    fireEvent.click(confirmation);
+    const commit = screen.getByRole("button", { name: "Create or update Catalog Items" }) as HTMLButtonElement;
+    expect(commit.disabled).toBe(false);
+    expect(commit.form?.querySelector<HTMLInputElement>('[name="promotionPreviewId"]')?.value).toBe(
+      result.promotionReceipt?.previewId,
+    );
+    expect(commit.form?.action).not.toContain("promotionPreviewId");
+    expect(previewBulkPromoteSourceObservationIds).toHaveBeenCalledTimes(1);
+    expect(bulkPromoteSourceObservations).not.toHaveBeenCalled();
+
+    mockUseNavigation.mockReturnValue({ state: "submitting" });
+    rerender(<IntegrationsRoute />);
+    expect(confirmation.hasAttribute("disabled")).toBe(true);
+    expect(commit.disabled).toBe(true);
+    mockUseNavigation.mockReturnValue({ state: "idle" });
+    rerender(<IntegrationsRoute />);
+    expect(confirmation.hasAttribute("disabled")).toBe(true);
+    mockUseActionData.mockReturnValue(await runDailyAction(fields));
+    rerender(<IntegrationsRoute />);
+    expect(confirmation.hasAttribute("disabled")).toBe(false);
+
+    const drifted = {
+      ...readModel,
+      sourceObservationReview: {
+        ...readModel.sourceObservationReview,
+        rows: readModel.sourceObservationReview.rows.map((row) => ({ ...row, changedAt: "2026-11-06T00:00:00Z" })),
+      },
+    };
+    mockUseLoaderData.mockReturnValue(loaderData({ requestUrl, readModel: drifted }));
+    rerender(<IntegrationsRoute />);
+    expect(confirmation.hasAttribute("disabled")).toBe(true);
+    expect(commit.disabled).toBe(true);
+    mockUseLoaderData.mockReturnValue(loaderData({ requestUrl, readModel }));
+    rerender(<IntegrationsRoute />);
+    expect(confirmation.hasAttribute("disabled")).toBe(true);
+
+    const renewed = await runDailyAction(fields);
+    mockUseActionData.mockReturnValue(renewed);
+    rerender(<IntegrationsRoute />);
+    expect(confirmation.hasAttribute("disabled")).toBe(false);
+    expect(commit.disabled).toBe(true);
+    fireEvent.click(confirmation);
+    const submitted = Object.fromEntries(
+      [...new FormData(commit.form!).entries()].map(([key, value]) => [key, String(value)]),
+    );
+    expect(submitted.promotionPreviewId).toBe(renewed.promotionReceipt?.previewId);
+    const queued = await runDailyActionRedirect(submitted, requestUrl);
+    expect(redirectLocation(queued).searchParams.get("jobId")).toBe("synthetic-receipt-job");
+    expect(bulkPromoteSourceObservations).toHaveBeenCalledWith(["obs_001"], { promoteAsDraft: false });
+    expect(JSON.stringify(window.sessionStorage)).not.toContain(original.fingerprint);
+    expect(JSON.stringify(window.sessionStorage)).not.toContain(renewed.promotionReceipt!.previewId);
+  });
+
+  it("retains Scope Detail Preview data while preserving its queued-job handoff", async () => {
+    const previewBulkPromoteSourceObservationIds = vi.fn().mockResolvedValue(syntheticPromotionReceipt().preview);
+    const bulkPromoteSourceObservations = vi.fn().mockResolvedValue({ jobId: "synthetic-scope-receipt-job" });
+    mockCreateCatalogRequestApiClient.mockReturnValue({
+      previewBulkPromoteSourceObservationIds,
+      bulkPromoteSourceObservations,
+    });
+    const fields = {
+      _intent: "observation.promote",
+      promotionPhase: "preview",
+      providerKey: "tcgdex",
+      scopeRecordId: "synthetic-scope-record",
+      unitKey: "tcgdex:pokemon:card:import",
+      importScope: "en:3:base:base1",
+      profileVersion: "2026.06.04",
+      selectedObservationIds: "obs_001",
+    };
+    const result = await scopeDetailAction(
+      actionRequest(fields, "https://admin.example/catalog/scopes/synthetic-scope-record"),
+    );
+    expect(result.promotionReceipt?.selection.scopeRecordId).toBe("synthetic-scope-record");
+    expect(commandResultNeedsRoutableHandoff(result)).toBe(false);
+    const queued = await scopeDetailAction(
+      actionRequest(
+        { ...fields, promotionPhase: "execute", promotionPreviewId: result.promotionReceipt!.previewId },
+        "https://admin.example/catalog/scopes/synthetic-scope-record",
+      ),
+    );
+    expect(queued.feedback.result).toBe("job-queued");
+    expect(commandResultNeedsRoutableHandoff(queued)).toBe(true);
+    expect(queued.context.jobId).toBe("synthetic-scope-receipt-job");
+    expect(queued.promotionReceipt).toBeUndefined();
+  });
+
+  it("independently refuses mismatched action and loader bindings without substituting original evidence", async () => {
+    const previewBulkPromoteSourceObservationIds = vi.fn().mockResolvedValue(syntheticPromotionReceipt().preview);
+    mockCreateCatalogRequestApiClient.mockReturnValue({ previewBulkPromoteSourceObservationIds });
+    const actionResult = await runDailyAction({
+      _intent: "observation.promote",
+      promotionPhase: "preview",
+      providerKey: "tcgdex",
+      unitKey: "tcgdex:pokemon:card:import",
+      importScope: "en:3:base:base1",
+      profileVersion: "2026.06.04",
+      selectedObservationIds: "obs_001",
+    });
+    const requestUrl =
+      "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&importScope=en:3:base:base1&profileVersion=2026.06.04";
+    const readModel = buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
+      requestUrl,
+      scopes: { items: [sourceObservationScope()], total: 1, count: 1 },
+      profileReviews: { items: [profileReview({ active: true, lifecycle: "active" })], total: 1, count: 1 },
+      controlPlaneOverview: null,
+      canManageCatalog: true,
+      reviewObservations: { items: [sourceObservationListItem()], total: 1, count: 1 },
+    });
+    const data = loaderData({ requestUrl, readModel });
+    const positive = renderHook(() => useOriginalPromotionReceipt(data, actionResult, false));
+    expect(positive.result.current.promotionPreview.executionSafeguards.previewFresh).toBe(true);
+    positive.unmount();
+    const controls: Parameters<typeof useOriginalPromotionReceipt>[] = [
+      [data, { ...actionResult, context: { ...actionResult.context, promotionPreviewId: "synthetic-token-b" } }, false],
+      [
+        data,
+        { ...actionResult, context: { ...actionResult.context, selectedObservationIds: ["synthetic-other-id"] } },
+        false,
+      ],
+      [data, { ...actionResult, context: { ...actionResult.context, promoteAsDraft: true } }, false],
+      [
+        {
+          ...data,
+          readModel: {
+            ...readModel,
+            routeContext: { ...readModel.routeContext, providerKey: "synthetic-other-provider" },
+          },
+        },
+        actionResult,
+        false,
+      ],
+      [
+        {
+          ...data,
+          readModel: {
+            ...readModel,
+            promotionPreview: { ...readModel.promotionPreview, currentFingerprint: "synthetic-fingerprint-b" },
+          },
+        },
+        actionResult,
+        false,
+      ],
+      [
+        {
+          ...data,
+          readModel: {
+            ...readModel,
+            promotionPreview: { ...readModel.promotionPreview, previewId: "synthetic-token-b" },
+          },
+        },
+        actionResult,
+        false,
+      ],
+      [
+        { ...data, readModel: { ...readModel, readiness: { ...readModel.readiness, rbacAllowed: false } } },
+        actionResult,
+        false,
+      ],
+      [
+        {
+          ...data,
+          readModel: {
+            ...readModel,
+            sourceObservationReview: { ...readModel.sourceObservationReview, freshness: "stale" },
+          },
+        },
+        actionResult,
+        false,
+      ],
+      [
+        {
+          ...data,
+          readModel: {
+            ...readModel,
+            promotionPreview: { ...readModel.promotionPreview, blockers: ["permission-denied"] },
+          },
+        },
+        actionResult,
+        false,
+      ],
+      [data, actionResult, true],
+    ];
+    for (const args of controls) {
+      const probe = renderHook(() => useOriginalPromotionReceipt(...args));
+      expect(probe.result.current.promotionPreview.executionSafeguards.previewFresh).toBe(false);
+      expect(probe.result.current.promotionPreview.receipt).toEqual(actionResult.promotionReceipt);
+      expect(probe.result.current.routeContext.promotionPreviewId).toBeNull();
+      probe.unmount();
+    }
+    expect(previewBulkPromoteSourceObservationIds).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not expose failed or missing Preview payloads as receipts", async () => {
+    const previewBulkPromoteSourceObservationIds = vi.fn();
+    mockCreateCatalogRequestApiClient.mockReturnValue({ previewBulkPromoteSourceObservationIds });
+    const fields = {
+      _intent: "observation.promote",
+      promotionPhase: "preview",
+      providerKey: "tcgdex",
+      selectedObservationIds: "obs_001",
+    };
+    for (const missing of [undefined, { ...syntheticPromotionReceipt().preview, validation: undefined }]) {
+      previewBulkPromoteSourceObservationIds.mockResolvedValueOnce(missing);
+      const result = await runDailyAction(fields);
+      expect(result.feedback.status).toBe("error");
+      expect(result.promotionReceipt).toBeUndefined();
+    }
+    previewBulkPromoteSourceObservationIds.mockRejectedValueOnce(new Error("synthetic-private-exception"));
+    const failed = await runDailyAction(fields);
+    expect(failed.feedback.status).toBe("error");
+    expect(JSON.stringify(failed)).not.toContain("synthetic-private-exception");
   });
 
   it("previews the matching TCGdex scope without silently narrowing fresh observations out", async () => {
@@ -594,15 +1772,13 @@ describe("Catalog integrations route", () => {
     });
     mockCreateCatalogRequestApiClient.mockReturnValue({ previewBulkPromoteSourceObservations });
 
-    const response = await runDailyActionRedirect({
+    const result = await runDailyAction({
       _intent: "observation.promote",
       providerKey: "tcgdex",
       unitKey: "tcgdex:pokemon:card:import",
       importScope: "en:3:base:base1",
       profileVersion: "2026.06.04",
     });
-    const location = redirectLocation(response);
-
     expect(previewBulkPromoteSourceObservations).toHaveBeenCalledWith(
       {
         provider: "tcgdex",
@@ -614,9 +1790,8 @@ describe("Catalog integrations route", () => {
       },
       { promoteAsDraft: false },
     );
-    expect(location.pathname).toBe("/catalog/integrations");
-    expect(location.searchParams.get("commandResult")).toBe("preview-ready");
-    expect(location.searchParams.get("promotionPreviewId")).toBe(
+    expect(result.feedback.result).toBe("preview-ready");
+    expect(result.context.promotionPreviewId).toBe(
       "preview-tcgdex_tcgdex_pokemon_card_import_en_3_base_base1_2026.06.04_en_base1_all_none_filtered-124-124-no-fingerprint-publishable-complete.blocked0.811c9dc5",
     );
   });
@@ -955,9 +2130,21 @@ describe("Catalog integrations route", () => {
       lifecycleUrl,
     );
 
-    expect(rollbackSourceObservationProviderProfile).toHaveBeenCalledWith("tcgdex", "2026.06.03");
-    expect(deprecateSourceObservationProviderProfile).toHaveBeenCalledWith("tcgdex", "2026.06.04");
-    expect(retireSourceObservationProviderProfile).toHaveBeenCalledWith("tcgdex", "2026.06.02");
+    expect(rollbackSourceObservationProviderProfile).toHaveBeenCalledWith(
+      "tcgdex",
+      "2026.06.03",
+      lifecycleConfirmationValue("provider-profile.rollback", "tcgdex", "2026.06.03"),
+    );
+    expect(deprecateSourceObservationProviderProfile).toHaveBeenCalledWith(
+      "tcgdex",
+      "2026.06.04",
+      lifecycleConfirmationValue("provider-profile.deprecate", "tcgdex", "2026.06.04"),
+    );
+    expect(retireSourceObservationProviderProfile).toHaveBeenCalledWith(
+      "tcgdex",
+      "2026.06.02",
+      lifecycleConfirmationValue("provider-profile.retire", "tcgdex", "2026.06.02"),
+    );
     expect(rollbackResponse.headers.get("Location")).toContain("/catalog/providers/tcgdex");
     expect(rollbackResponse.headers.get("Location")).toContain("commandResult=profile-rolled-back");
     expect(rollbackResponse.headers.get("Location")).not.toContain("promotionPreviewId=");
@@ -985,8 +2172,12 @@ describe("Catalog integrations route", () => {
     );
   });
 
-  it("fails closed when profile lifecycle confirmation is missing", async () => {
-    const retireSourceObservationProviderProfile = vi.fn();
+  it("forwards unchecked lifecycle submission and reports the API confirmation refusal", async () => {
+    const retireSourceObservationProviderProfile = vi.fn().mockRejectedValue(
+      new CatalogApiError(400, {
+        error: { code: "lifecycle_confirmation_required", message: "Confirm this lifecycle operation." },
+      }),
+    );
     const recordCatalogControlPlaneEvent = vi.fn().mockResolvedValue({ status: "recorded" });
     mockCreateCatalogRequestApiClient.mockReturnValue({
       retireSourceObservationProviderProfile,
@@ -1004,7 +2195,7 @@ describe("Catalog integrations route", () => {
       "https://admin.example/catalog/providers/tcgdex",
     );
 
-    expect(retireSourceObservationProviderProfile).not.toHaveBeenCalled();
+    expect(retireSourceObservationProviderProfile).toHaveBeenCalledWith("tcgdex", "2026.06.02", null);
     expect(response.status).toBe(302);
     expect(response.headers.get("Location")).toContain("/catalog/providers/tcgdex");
     expect(response.headers.get("Location")).toContain("commandStatus=error");
@@ -1020,6 +2211,51 @@ describe("Catalog integrations route", () => {
         blockerCategory: "readiness",
       }),
     );
+  });
+
+  it.each([
+    ["rollback", "rollbackSourceObservationProviderProfile"],
+    ["deprecate", "deprecateSourceObservationProviderProfile"],
+    ["retire", "retireSourceObservationProviderProfile"],
+  ] as const)("forwards raw mismatched confirmation for %s to the API", async (operation, method) => {
+    const command = vi
+      .fn()
+      .mockRejectedValue(new CatalogApiError(400, { error: { code: "lifecycle_confirmation_required" } }));
+    mockCreateCatalogRequestApiClient.mockReturnValue({
+      [method]: command,
+      recordCatalogControlPlaneEvent: vi.fn().mockResolvedValue({ status: "recorded" }),
+    });
+    const confirmation = " confirm:provider-profile.retire:other-provider:other-version ";
+    const response = await runProviderDetailAction(
+      {
+        _intent: `provider-profile.${operation}`,
+        providerKey: "tcgdex",
+        profileVersion: "2026.06.02",
+        lifecycleConfirmation: confirmation,
+      },
+      "https://admin.example/catalog/providers/tcgdex",
+    );
+    expect(command).toHaveBeenCalledWith("tcgdex", "2026.06.02", confirmation);
+    expect(response.headers.get("Location")).toContain("commandResult=confirmation-required");
+  });
+
+  it.each([
+    [400, "other_error", "command-failed"],
+    [403, "lifecycle_confirmation_required", "command-failed"],
+    [500, "lifecycle_confirmation_required", "command-failed"],
+    [409, "lifecycle_confirmation_required", "lifecycle-conflict"],
+  ] as const)("preserves feedback for lifecycle API status %s code %s", async (status, code, result) => {
+    const command = vi.fn().mockRejectedValue(new CatalogApiError(status, { error: { code } }));
+    mockCreateCatalogRequestApiClient.mockReturnValue({
+      retireSourceObservationProviderProfile: command,
+      recordCatalogControlPlaneEvent: vi.fn().mockResolvedValue({ status: "recorded" }),
+    });
+    const response = await runProviderDetailAction(
+      { _intent: "provider-profile.retire", providerKey: "tcgdex", profileVersion: "2026.06.02" },
+      "https://admin.example/catalog/providers/tcgdex",
+    );
+    expect(command).toHaveBeenCalledWith("tcgdex", "2026.06.02", null);
+    expect(response.headers.get("Location")).toContain(`commandResult=${result}`);
   });
 
   it("returns lifecycle-scoped feedback for profile lifecycle consistency conflicts", async () => {
@@ -1199,19 +2435,15 @@ describe("Catalog integrations route", () => {
       selectedObservationIds: "obs_001",
     };
 
-    const publishablePreview = redirectLocation(
-      await runDailyActionRedirect({ ...baseForm, promotionPhase: "preview" }),
-    );
-    const draftPreview = redirectLocation(
-      await runDailyActionRedirect({ ...baseForm, promotionPhase: "preview", promoteAsDraft: "true" }),
-    );
-    const publishableToken = publishablePreview.searchParams.get("promotionPreviewId")!;
-    const draftToken = draftPreview.searchParams.get("promotionPreviewId")!;
+    const publishablePreview = await runDailyAction({ ...baseForm, promotionPhase: "preview" });
+    const draftPreview = await runDailyAction({ ...baseForm, promotionPhase: "preview", promoteAsDraft: "true" });
+    const publishableToken = publishablePreview.context.promotionPreviewId!;
+    const draftToken = draftPreview.context.promotionPreviewId!;
 
     expect(previewBulkPromoteSourceObservationIds).toHaveBeenNthCalledWith(1, ["obs_001"], { promoteAsDraft: false });
     expect(previewBulkPromoteSourceObservationIds).toHaveBeenNthCalledWith(2, ["obs_001"], { promoteAsDraft: true });
-    expect(publishablePreview.searchParams.get("promoteAsDraft")).toBeNull();
-    expect(draftPreview.searchParams.get("promoteAsDraft")).toBe("true");
+    expect(publishablePreview.context.promoteAsDraft).toBe(false);
+    expect(draftPreview.context.promoteAsDraft).toBe(true);
     expect(publishableToken).toContain("-publishable-complete.blocked1.");
     expect(draftToken).toContain("-draft-complete.blocked0.");
     expect(draftToken).not.toBe(publishableToken);

@@ -509,6 +509,7 @@ function candidateWriter(db: PgTransactionalPool, eventStore: EventStore) {
       for (const event of await eventStore.readStream({ streamId })) {
         await projection[event.eventType]?.({
           streamId,
+          streamVersion: event.streamVersion,
           data: event.payload,
           timing: { recordedAt: event.recordedAt },
         } as never);

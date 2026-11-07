@@ -1429,32 +1429,47 @@ export function createCatalogApiClient({
       );
       return parseJsonResponse<T>(response);
     },
-    async rollbackSourceObservationProviderProfile<T>(providerKey: string, profileVersion: string): Promise<T> {
+    async rollbackSourceObservationProviderProfile<T>(
+      providerKey: string,
+      profileVersion: string,
+      lifecycleConfirmation: string | null,
+    ): Promise<T> {
       const response = await configuredFetch(
         `${baseUrl.replace(/\/$/, "")}/source-observations/provider-profiles/${encodeURIComponent(providerKey)}/${encodeURIComponent(profileVersion)}/rollback`,
         {
           method: "POST",
-          headers: headersToRecord(headers),
+          headers: { ...headersToRecord(headers), "content-type": "application/json" },
+          body: JSON.stringify({ lifecycleConfirmation }),
         },
       );
       return parseJsonResponse<T>(response);
     },
-    async retireSourceObservationProviderProfile<T>(providerKey: string, profileVersion: string): Promise<T> {
+    async retireSourceObservationProviderProfile<T>(
+      providerKey: string,
+      profileVersion: string,
+      lifecycleConfirmation: string | null,
+    ): Promise<T> {
       const response = await configuredFetch(
         `${baseUrl.replace(/\/$/, "")}/source-observations/provider-profiles/${encodeURIComponent(providerKey)}/${encodeURIComponent(profileVersion)}/retire`,
         {
           method: "POST",
-          headers: headersToRecord(headers),
+          headers: { ...headersToRecord(headers), "content-type": "application/json" },
+          body: JSON.stringify({ lifecycleConfirmation }),
         },
       );
       return parseJsonResponse<T>(response);
     },
-    async deprecateSourceObservationProviderProfile<T>(providerKey: string, profileVersion: string): Promise<T> {
+    async deprecateSourceObservationProviderProfile<T>(
+      providerKey: string,
+      profileVersion: string,
+      lifecycleConfirmation: string | null,
+    ): Promise<T> {
       const response = await configuredFetch(
         `${baseUrl.replace(/\/$/, "")}/source-observations/provider-profiles/${encodeURIComponent(providerKey)}/${encodeURIComponent(profileVersion)}/deprecate`,
         {
           method: "POST",
-          headers: headersToRecord(headers),
+          headers: { ...headersToRecord(headers), "content-type": "application/json" },
+          body: JSON.stringify({ lifecycleConfirmation }),
         },
       );
       return parseJsonResponse<T>(response);
