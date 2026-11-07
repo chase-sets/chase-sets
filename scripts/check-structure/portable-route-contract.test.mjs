@@ -265,6 +265,7 @@ describe("portable route manifest contract", () => {
           routeId: "item-detail-rail-analytics",
           fileExport: "./routes/item-detail-rail-analytics",
           delivery: "web-resource-only",
+          unsupportedMobile: expect.objectContaining({ followUp: "#5238" }),
         }),
       }),
     );

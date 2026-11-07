@@ -1293,7 +1293,7 @@
           "availability": { "web": true, "mobile": false },
           "unsupportedMobile": {
             "owner": "discovery",
-            "followUp": "#10955",
+            "followUp": "#5238",
             "reason": "The route ingests browser bridge analytics rather than a portable page."
           }
         },
