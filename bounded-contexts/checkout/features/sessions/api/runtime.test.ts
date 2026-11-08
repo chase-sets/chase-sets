@@ -326,6 +326,19 @@ const serviceableShippingAddress = {
 };
 
 describe("checkout session runtime", () => {
+  it("threads the buyer account into the payment summary query", async () => {
+    const { eventStore } = createInMemoryEventStore();
+    const query = vi.fn(async () => ({ rows: [] }));
+    const services = createCheckoutSessionRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: { query },
+      cart: createUnionCartServices([readyCartLine], []),
+    });
+    await expect(services.getPaymentSummary("pay_1", "acc_buyer")).resolves.toBeNull();
+    expect(query).toHaveBeenCalledExactlyOnceWith(expect.any(String), ["pay_1", "acc_buyer"]);
+  });
+
   it("turns a duplicate command with a stale expected version into a typed conflict", async () => {
     const { eventStore } = createInMemoryEventStore();
     const input = {

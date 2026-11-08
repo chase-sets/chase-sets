@@ -328,6 +328,76 @@ describe("checkout session routes", () => {
     mockPreviewCheckoutFulfillmentThroughOrdering.mockResolvedValue(readyBuyNowSupplyPreview());
   });
 
+  it("returns the owner's payment summary and hides it from another account", async () => {
+    const summary = { payment_id: "pay_1", amount: "27.29", currency_code: "usd", status: "pending-confirmation" };
+    mockCreateCheckoutOrdersThroughOrdering.mockResolvedValue({
+      orderIds: ["ord_1"],
+      readyLineKeys: ["cli_1"],
+      writeResult: orderingApiWriteResult,
+    });
+    mockCreateCheckoutPaymentThroughPayments.mockResolvedValue(createPaymentResult(summary.payment_id));
+    const getPaymentSummary = vi.fn<CheckoutSessionServices["getPaymentSummary"]>(async (paymentId, accountId) =>
+      paymentId === summary.payment_id && accountId === "acc_buyer" ? summary : null,
+    );
+    const services = createServices({ getPaymentSummary });
+    const owner = buildApp(services);
+    const started = await owner.fetch(
+      new Request("http://checkout.test/account/checkout-sessions/chk_1/confirm", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ shippingAddress, marketplaceCheckoutFeeQuoteFingerprint: "quote_1" }),
+      }),
+    );
+    expect(started.status).toBe(200);
+    expect(await started.json()).toMatchObject({ payment_id: summary.payment_id });
+    expect(mockCreateCheckoutPaymentThroughPayments).toHaveBeenCalledTimes(1);
+
+    const path = `http://checkout.test/account/checkout-payment-summaries/${summary.payment_id}`;
+    const owned = await owner.fetch(new Request(path));
+    expect(owned.status).toBe(200);
+    expect(await owned.json()).toEqual(summary);
+    expect(getPaymentSummary).toHaveBeenLastCalledWith(summary.payment_id, "acc_buyer");
+
+    const other = buildApp(services, createBuyerActor({ accountId: "acc_other" }));
+    const foreign = await other.fetch(new Request(`${path}?accountId=acc_buyer&buyer_account_id=acc_buyer`));
+    expect(foreign.status).toBe(404);
+    expect(await foreign.json()).toEqual({ error: { code: "not_found", message: "Payment summary not found." } });
+    expect(getPaymentSummary).toHaveBeenLastCalledWith(summary.payment_id, "acc_other");
+  });
+
+  it("hides foreign, unowned and missing payment summaries identically", async () => {
+    const buyers = new Map<string, string | null>([
+      ["pay_foreign", "acc_other"],
+      ["pay_unowned", null],
+    ]);
+    const getPaymentSummary = vi.fn<CheckoutSessionServices["getPaymentSummary"]>(async (paymentId, accountId) =>
+      buyers.get(paymentId) === accountId
+        ? { payment_id: paymentId, amount: "27.29", currency_code: "usd", status: "captured" }
+        : null,
+    );
+    const app = buildApp(createServices({ getPaymentSummary }));
+    for (const paymentId of ["pay_foreign", "pay_unowned", "pay_missing"]) {
+      const response = await app.fetch(
+        new Request(`http://checkout.test/account/checkout-payment-summaries/${paymentId}`),
+      );
+      expect(response.status).toBe(404);
+      expect(await response.json()).toEqual({ error: { code: "not_found", message: "Payment summary not found." } });
+      expect(getPaymentSummary).toHaveBeenLastCalledWith(paymentId, "acc_buyer");
+    }
+  });
+
+  it("requires authentication before reading a payment summary", async () => {
+    const services = createServices();
+    const response = await buildApp(services, null).fetch(
+      new Request("http://checkout.test/account/checkout-payment-summaries/pay_1"),
+    );
+    expect(response.status).toBe(401);
+    expect(await response.json()).toEqual({
+      error: { code: "authentication_required", message: "Authentication required." },
+    });
+    expect(services.getPaymentSummary).not.toHaveBeenCalled();
+  });
+
   it("loads inline payment confirmation through the buyer-owned checkout composite", async () => {
     const getPaymentConfirmation = vi.fn(async () => ({
       payment_id: "pay_1",

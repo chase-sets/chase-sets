@@ -794,7 +794,7 @@ export function createAccountCheckoutSessionRoutes(
       return access.response;
     }
 
-    const paymentSummary = await services.getPaymentSummary(c.req.param("paymentId"));
+    const paymentSummary = await services.getPaymentSummary(c.req.param("paymentId"), access.actor.accountId);
     if (!paymentSummary) {
       return c.json(
         { error: { code: "not_found", message: t("checkout.features.sessions.api.route.payment.summary.not.found") } },
