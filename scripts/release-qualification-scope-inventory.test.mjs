@@ -606,6 +606,15 @@ const neutralityAuthorityPaths = [
   fileURLToPath(new URL("./release-qualification-scope.mjs", import.meta.url)),
   modulePath,
   sweepPath,
+  fileURLToPath(new URL("./release-qualification-scope-applicability.mjs", import.meta.url)),
+  // Governed membership and the evaluator's SQL classification share this provider.
+  fileURLToPath(new URL("./check-structure/sql-execution-surface.mjs", import.meta.url)),
+  // The classifier's import candidates and the evaluator's module resolution share this provider.
+  fileURLToPath(new URL("./check-structure/module-resolution.mjs", import.meta.url)),
+  fileURLToPath(new URL("./lib/repo.mjs", import.meta.url)),
+  fileURLToPath(new URL("./lib/cli-options.mjs", import.meta.url)),
+  fileURLToPath(new URL("../packages/typescript-compiler-api/index.mjs", import.meta.url)),
+  fileURLToPath(new URL("../packages/typescript-compiler-api/package.json", import.meta.url)),
 ].map((file) => path.relative(repoRoot, file).split(path.sep).join("/"));
 
 function checkMergeBaseNeutrality({
@@ -618,7 +627,7 @@ function checkMergeBaseNeutrality({
   output = emit,
 }) {
   const comparedFiles = new TextDecoder("utf-8", { fatal: true })
-    .decode(execGit(["diff", "--name-only", "-z", fork, head]))
+    .decode(execGit(["diff", "--name-only", "-z", "--no-renames", fork, head]))
     .split("\0")
     .filter(Boolean);
   if (!comparedFiles.some((file) => neutralityAuthorityPaths.includes(file))) {
@@ -687,38 +696,61 @@ function checkMergeBaseNeutrality({
   });
 }
 
-it.each(neutralityAuthorityPaths)(
-  "merge-base neutrality still rejects an added governed member when %s changes",
-  (authority) => {
-    const head = candidate.sha;
-    const fork = base.sha;
-    const inputs = { paths: [ruledPath], classify: () => ({ class: "isolated" }) };
-    const inventory = { counts: { discovered: 1, persistentRequired: 0, ruled: 1 }, records: [{}] };
-    const execGit = (args) => {
-      if (args[0] === "diff") {
-        expect(args).toEqual(["diff", "--name-only", "-z", fork, head]);
-        return Buffer.from(`${authority}\0${siblingPath}\0`);
-      }
-      if (args[0] === "show") {
-        // A mode-only classifier change keeps its bytes neutral, reaching the member-set assertion.
-        return Buffer.from(
-          args[1].endsWith(".test.mjs") ? "discovered: 1, persistentCount: 0, ruledCount: 1" : cleanSource,
-        );
-      }
-      if (args[0] === "rev-parse") return Buffer.from(args[1]);
-      if (args[0] === "ls-tree") return Buffer.from(`${ruledPath}\0${args.at(-1) === head ? `${siblingPath}\0` : ""}`);
-      throw new Error(`Unexpected synthetic Git call: ${JSON.stringify(args)}`);
-    };
-    expect(() =>
-      checkMergeBaseNeutrality({ head, fork, inputs, inventory, execGit, loadInputs: () => inputs }),
-    ).toThrowError(expect.objectContaining({ actual: [ruledPath, siblingPath], expected: [ruledPath] }));
-  },
-);
+// Required cases are independent of neutralityAuthorityPaths so deleting an authority cannot delete its control.
+const requiredNeutralityAuthorityPaths = [
+  "scripts/release-qualification-scope.mjs",
+  "scripts/release-qualification-scope-inventory.mjs",
+  "scripts/release-qualification-scope.test.mjs",
+  "scripts/release-qualification-scope-applicability.mjs",
+  "scripts/check-structure/sql-execution-surface.mjs",
+  "scripts/check-structure/module-resolution.mjs",
+  "scripts/lib/repo.mjs",
+  "scripts/lib/cli-options.mjs",
+  "packages/typescript-compiler-api/index.mjs",
+  "packages/typescript-compiler-api/package.json",
+];
+
+describe.each(requiredNeutralityAuthorityPaths)("merge-base neutrality authority %s", (authority) => {
+  it.each(["modified", "deleted", "mode-only", "renamed-away"])(
+    "rejects an added governed member when %s",
+    (change) => {
+      const head = candidate.sha;
+      const fork = base.sha;
+      const inputs = { paths: [ruledPath], classify: () => ({ class: "isolated" }) };
+      const inventory = { counts: { discovered: 1, persistentRequired: 0, ruled: 1 }, records: [{}] };
+      const output = vi.fn();
+      const execGit = (args) => {
+        if (args[0] === "diff") {
+          const destination = "scripts/SYNTHETIC-renamed-authority.mjs";
+          const names =
+            change === "renamed-away"
+              ? [...(args.includes("--no-renames") ? [authority] : []), destination, siblingPath]
+              : [authority, siblingPath];
+          return Buffer.from(`${names.join("\0")}\0`);
+        }
+        if (args[0] === "show") {
+          // Synthetic neutral classifier bytes isolate applicability from the later byte-equality assertion.
+          return Buffer.from(
+            args[1].endsWith(".test.mjs") ? "discovered: 1, persistentCount: 0, ruledCount: 1" : cleanSource,
+          );
+        }
+        if (args[0] === "rev-parse") return Buffer.from(args[1]);
+        if (args[0] === "ls-tree")
+          return Buffer.from(`${ruledPath}\0${args.at(-1) === head ? `${siblingPath}\0` : ""}`);
+        throw new Error(`Unexpected synthetic Git call: ${JSON.stringify(args)}`);
+      };
+      expect(() =>
+        checkMergeBaseNeutrality({ head, fork, inputs, inventory, execGit, loadInputs: () => inputs, output }),
+      ).toThrowError(expect.objectContaining({ actual: [ruledPath, siblingPath], expected: [ruledPath] }));
+      expect(output).not.toHaveBeenCalled();
+    },
+  );
+});
 
 it("merge-base neutrality emits NOT_APPLICABLE with the compared files for an unrelated module addition", () => {
   const output = vi.fn();
   const execGit = vi.fn((args) => {
-    expect(args).toEqual(["diff", "--name-only", "-z", base.sha, candidate.sha]);
+    expect(args).toEqual(["diff", "--name-only", "-z", "--no-renames", base.sha, candidate.sha]);
     return Buffer.from(`${siblingPath}\0`);
   });
   checkMergeBaseNeutrality({ head: candidate.sha, fork: base.sha, execGit, output });
@@ -728,7 +760,7 @@ it("merge-base neutrality emits NOT_APPLICABLE with the compared files for an un
     mergeBase: base.sha,
     reason: "candidate changes no classifier, inventory or pinned-count authority",
     comparedFiles: [siblingPath],
-    authorityFiles: neutralityAuthorityPaths,
+    authorityFiles: requiredNeutralityAuthorityPaths,
   });
 });
 
