@@ -165,34 +165,6 @@
   font-size: 0.875rem;
   font-weight: 600;
 }
-.bar {
-  width: 100%;
-  height: 0.5rem;
-  border: 0;
-  border-radius: 999px;
-  background: var(--color-surface-3);
-  accent-color: var(--color-primary);
-  appearance: none;
-  overflow: hidden;
-}
-.bar::-webkit-progress-bar {
-  background: var(--color-surface-3);
-  border-radius: 999px;
-}
-.bar::-webkit-progress-value {
-  background: var(--color-primary);
-  border-radius: 999px;
-}
-.bar::-moz-progress-bar {
-  background: var(--color-primary);
-  border-radius: 999px;
-}
-.done::-webkit-progress-value {
-  background: var(--color-success);
-}
-.done::-moz-progress-bar {
-  background: var(--color-success);
-}
 .badge {
   justify-self: start;
   padding: 0.125rem var(--space-2);

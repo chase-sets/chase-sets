@@ -113,37 +113,6 @@
   justify-content: space-between;
   gap: var(--space-2);
 }
-/* Its own <progress> rules for the info and success fills, until the kit's Progress has a tone
-   (corten-run/corten#1059). */
-.bar {
-  inline-size: 100%;
-  block-size: 0.5rem;
-  border: 0;
-  border-radius: 999px;
-  background: var(--color-border);
-  overflow: hidden;
-}
-.bar::-webkit-progress-bar {
-  background: var(--color-border);
-}
-.open {
-  accent-color: var(--color-info);
-}
-.open::-webkit-progress-value {
-  background: var(--color-info);
-}
-.open::-moz-progress-bar {
-  background: var(--color-info);
-}
-.met {
-  accent-color: var(--color-success);
-}
-.met::-webkit-progress-value {
-  background: var(--color-success);
-}
-.met::-moz-progress-bar {
-  background: var(--color-success);
-}
 .link {
   color: var(--color-primary);
   font-weight: 600;

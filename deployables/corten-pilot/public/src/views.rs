@@ -30,11 +30,12 @@ pub use welcome_page::{WaveStatus, WelcomePage};
 /// addresses at the root, which no area's prefix can cover (todd-skelton/corten#93), and their
 /// stylesheet is small (README decision 79). The welcome page is where Join lands, so most of
 /// the home page's visitors who act open it next. The kit's `VisuallyHidden` is the home page's
-/// hidden legend and the market chart's summary.
+/// hidden legend and the market chart's summary, and its `Progress` the welcome page's referral bar.
 pub const COMPONENTS: &[Component] = &[
     theme::TOKENS,
     platform::ui::icon::Icon,
     platform::ui::visually_hidden::VisuallyHidden,
+    platform::ui::progress::Progress,
     NotFound,
     HomeLayout,
     HomePage,

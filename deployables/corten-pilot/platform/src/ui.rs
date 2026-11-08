@@ -27,6 +27,7 @@ pub mod meter;
 pub mod nav_bar;
 pub mod pagination;
 pub mod popover;
+pub mod progress;
 pub mod radio_group;
 pub mod select;
 pub mod separator;
@@ -65,6 +66,7 @@ pub const COMPONENTS: &[Component] = &[
     nav_bar::NavBar,
     pagination::Pagination,
     popover::Popover,
+    progress::Progress,
     radio_group::RadioGroup,
     select::Select,
     separator::Separator,

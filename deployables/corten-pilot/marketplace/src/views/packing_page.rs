@@ -25,6 +25,7 @@ use platform::{
     search::SearchGlyph,
     ui::{
         input_group::InputGroup,
+        progress::{Progress as KitProgress, ProgressSize, ProgressTone},
         steps::{Step as KitStep, StepState, Steps as KitSteps, StepsLayout},
     },
 };
@@ -401,13 +402,18 @@ fn Progress<'a>(t: ShipmentsMsg, s: &'a ShipmentDetail) -> impl Patch {
     let percent = if at.packed { 100 } else { (checked * 100 + total / 2).checked_div(total).unwrap_or(0) };
     let label = t.packing_progress(crate::text::shipments_msg::PackingProgress { checked, total }).to_string();
     html! {
-        <div id={PackingProgressId} class={Progress} data-tone={if all || at.packed { "success" } else { "accent" }}>
+        <div id={PackingProgressId} class={Progress}>
             if at.packing || at.packed {
                 <div class={ProgressHead}>
                     <span id="packing-progress-label">{&label}</span>
                     <span class={Strong}>{t.packing_progress_percent(percent)}</span>
                 </div>
-                <progress class={Bar} max="100" value={percent} aria-labelledby="packing-progress-label"></progress>
+                <progress
+                    class={KitProgress { size: ProgressSize::Md, tone: if all || at.packed { ProgressTone::Success } else { ProgressTone::Primary } }}
+                    max="100"
+                    value={percent}
+                    aria-labelledby="packing-progress-label"
+                ></progress>
             }
         </div>
     }

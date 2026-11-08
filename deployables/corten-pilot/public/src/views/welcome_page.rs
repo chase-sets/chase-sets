@@ -8,6 +8,7 @@
 //! the Discord share's copied message and the analytics events.
 use corten::prelude::*;
 use corten_ui::{Copied, CopyButton};
+use platform::ui::progress::{Progress as KitProgress, ProgressSize, ProgressTone};
 
 use super::home_page::handlers;
 use crate::{
@@ -113,7 +114,10 @@ pub fn WelcomePage<'a>(t: HomeMsg, p: Pilot, screen: &'a Screen, saved: Option<S
                                 </span>
                             </div>
                             <progress
-                                class={(Bar, screen.goal_reached().then_some(Done))}
+                                class={KitProgress {
+                                    size: ProgressSize::Md,
+                                    tone: if screen.goal_reached() { ProgressTone::Success } else { ProgressTone::Primary },
+                                }}
                                 aria-labelledby="welcome-progress-label"
                                 max={&goal}
                                 value={referrals.count.min(referrals.goal).to_string()}

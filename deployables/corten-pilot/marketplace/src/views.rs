@@ -310,6 +310,7 @@ pub const SALE_SHIPMENTS: &[Component] = &[
     ShipmentPage,
     PackingPage,
     platform::ui::steps::Steps,
+    platform::ui::progress::Progress,
     packing_page::handlers::COMPONENT,
     corten_ui::CopyButton,
     PackingSlipsPage,

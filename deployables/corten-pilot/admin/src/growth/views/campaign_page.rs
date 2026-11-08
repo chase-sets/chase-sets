@@ -3,6 +3,7 @@
 //! funnel dashboard's link. The tables stack on a phone, a row a block of labelled lines.
 use corten::prelude::*;
 use platform::ui::{
+    progress::{Progress as KitProgress, ProgressSize, ProgressTone},
     stats::{Stat, StatTone, Stats as KitStats, StatsSurface},
     table::{CellLabel, Table as KitTable, TableLayout},
 };
@@ -46,7 +47,7 @@ fn Progress<'a>(t: Gro, label: &'a str, count: u64, goal: u64, met: bool) -> imp
                 </span>
             </div>
             <progress
-                class={(Bar, if met { Met } else { Open })}
+                class={KitProgress { size: ProgressSize::Md, tone: if met { ProgressTone::Success } else { ProgressTone::Info } }}
                 max="100"
                 value={progress(count, goal).to_string()}
                 aria-label={label}

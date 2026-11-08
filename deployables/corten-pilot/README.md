@@ -249,7 +249,7 @@ registered files.
 
 ## Corten pin
 
-`Cargo.toml` pins Corten to `f4d340c3` (Corten `main` on 2026-11-08), whose framework package is
+`Cargo.toml` pins Corten to `8f0fc061` (Corten `main` on 2026-11-08), whose framework package is
 `corten-run` (the library is still `corten`). No release is tagged. The
 pin follows Corten's latest `main` (Todd, 2026-11-02), and each move is its own commit that says
 what changed; the workarounds a move lets go follow it in commits of their own. The history of every move is in the
@@ -299,7 +299,6 @@ but keep their own bordered choice rows, which are the design system's `Checkbox
 | --- | --- |
 | [corten-run/corten#1054 Kit Stats writes its label and figure type as literals, so a theme with a display face or uppercase labels (Chase Sets' design system) edits the copied stats.css](https://github.com/corten-run/corten/issues/1054) | [platform/src/ui/stats.css](platform/src/ui/stats.css) sets the design system's label and value type |
 | [corten-run/corten#1082 Kit RadioGroup and Checkboxes print their fieldset's gap and legend margin as literals kept equal by hand, so a theme with tighter choice lists edits both copies](https://github.com/corten-run/corten/issues/1082) | [platform/src/ui/radio_group.css](platform/src/ui/radio_group.css) and [platform/src/ui/checkboxes.css](platform/src/ui/checkboxes.css) set the design system's .5rem legend gap and choice gap |
-| [corten-run/corten#1059 Kit Progress has no tone, so a finished or failed task's bar cannot be drawn in the theme's success or destructive color](https://github.com/corten-run/corten/issues/1059) | [marketplace/src/views/packing_page.css](marketplace/src/views/packing_page.css), [public/src/views/welcome_page.css](public/src/views/welcome_page.css) and [admin/src/growth/views/campaign_page.css](admin/src/growth/views/campaign_page.css) keep their own `<progress>` rules with the success fill (the campaign's open bars also the info fill) |
 | [corten-run/corten#1065 Kit Stack and Cluster always print a literal gap, so an app on its own token spacing scale cannot use them with its gap utility](https://github.com/corten-run/corten/issues/1065) | closed by Corten's `Gap::App` (pinned since `f4f37f95`); not ported yet: 25 page stylesheets keep their own grid `.stack` on the `--space-*` scale, most with grid alignment (`justify-items: start`, `align-items: end`) the kit's flex column does not set, so each move to `Stack { gap: Gap::App }` and a page rule needs that page's browser pass |
 | [corten-run/corten#1070 Kit StatusDot has no live form, so a corten-live stream's Live badge keeps its own pulsing dot and reduced-motion rule](https://github.com/corten-run/corten/issues/1070) | [admin/src/views/live_status.css](admin/src/views/live_status.css) keeps its own `.dot` and pulse; the kit's `status_dot` is not taken |
 | [corten-run/corten#1060 Kit Segmented draws only as wide as its choices, so a phone's full-width choice bar (equal parts across the row) keeps its own segmented rules](https://github.com/corten-run/corten/issues/1060) | [marketplace/src/views/item_detail.css](marketplace/src/views/item_detail.css) keeps its own `.segmented` grid for the rail's side and the chart's ranges |
