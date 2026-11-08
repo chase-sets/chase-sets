@@ -302,6 +302,37 @@ describe("checkout session page", () => {
     expect(container.querySelector('[name="intent"]')).toBeNull();
     expect(screen.queryByText("payment-entry-marker")).toBeNull();
   });
+  it("replaces Pay now with the email verification link while Auth withholds payment (#10785)", () => {
+    const href =
+      "/sign-in?returnTo=%2Fcheckout%2Fbuy%2Fsession%2Fchk_1%3FverifyEmail%3Dpay-checkout&signInMethod=magic-link";
+    const props = {
+      session: readySession,
+      fulfillmentPreview: readyFulfillmentPreview,
+      paymentPreview,
+      isSignedInBuyer: true,
+      savedShippingAddresses: [signedInSavedAddress],
+    };
+    expect(renderToString(<CheckoutSessionPage {...props} />)).toContain("Pay now");
+
+    const markup = renderToString(<CheckoutSessionPage {...props} paymentVerifyEmailHref={href} />);
+
+    expect(markup).toContain("Verify your email to pay");
+    expect(markup).toContain(`href="${href.replaceAll("&", "&amp;")}"`);
+    expect(markup).not.toContain("Pay now");
+  });
+
+  it("keeps cart review ahead of email verification when nothing can be confirmed", () => {
+    const markup = renderToString(
+      <CheckoutSessionPage
+        session={session}
+        fulfillmentPreview={fulfillmentPreview}
+        paymentVerifyEmailHref="/sign-in"
+      />,
+    );
+
+    expect(markup).toContain("Review buy cart");
+    expect(markup).not.toContain("Verify your email to pay");
+  });
   it("renders all four checkout form sections as tinted furniture", () => {
     const { container } = render(<CheckoutSessionPage session={session} fulfillmentPreview={fulfillmentPreview} />);
 

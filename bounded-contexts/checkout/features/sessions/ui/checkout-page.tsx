@@ -61,6 +61,7 @@ export function CheckoutSessionPage(props: CheckoutSessionPageProps) {
     commitIcon: model.commitIcon,
     isSubmitting: model.isSubmitting,
     confirmationAmbiguous: props.confirmationAmbiguous ?? false,
+    verifyEmailHref: props.paymentVerifyEmailHref ?? null,
     submittingCtaLabel: model.submittingCtaLabel,
     primaryCtaLabel: model.primaryCtaLabel,
   };
