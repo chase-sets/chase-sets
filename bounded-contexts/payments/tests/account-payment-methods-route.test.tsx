@@ -206,11 +206,12 @@ function expectElevatedSurface(anchor: HTMLElement, glow: boolean) {
 function mockStripe(confirmSetup = vi.fn().mockResolvedValue({})) {
   const paymentElement = { mount: vi.fn(), destroy: vi.fn() };
   const update = vi.fn();
+  const elements = vi.fn(() => ({ create: vi.fn(() => paymentElement), update }));
   (window as unknown as { Stripe?: unknown }).Stripe = vi.fn(() => ({
-    elements: vi.fn(() => ({ create: vi.fn(() => paymentElement), update })),
+    elements,
     confirmSetup,
   }));
-  return { paymentElement, update, confirmSetup };
+  return { paymentElement, update, confirmSetup, elements };
 }
 
 async function startEmbeddedSetup() {
@@ -404,9 +405,9 @@ describe("account payment methods route", () => {
     expectElevatedSurface(screen.getByRole("button", { name: "Save payment method" }), true);
   });
 
-  it("preserves the mounted setup element when the theme changes", async () => {
-    const { paymentElement, update } = mockStripe();
-    stubPaymentsApi({
+  it("uses default setup appearance without theme-only SDK or session calls", async () => {
+    const { paymentElement, update, elements, confirmSetup } = mockStripe();
+    const api = stubPaymentsApi({
       list: () => [cardMethod],
       reply: (call) => (call.path === "/payment-methods/setup-sessions" ? jsonResponse(embeddedSetup, 201) : undefined),
     });
@@ -414,21 +415,21 @@ describe("account payment methods route", () => {
     await startEmbeddedSetup();
 
     await waitFor(() => expect(paymentElement.mount).toHaveBeenCalled());
+    const callsBeforeThemeChange = api.calls.length;
     page.rerenderTheme({ colors: { foreground: "#eeeeee" } });
-    await waitFor(() =>
-      expect(update).toHaveBeenCalledWith(
-        expect.objectContaining({ appearance: expect.objectContaining({ variables: expect.any(Object) }) }),
-      ),
-    );
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(update).not.toHaveBeenCalled();
     expect(paymentElement.destroy).not.toHaveBeenCalled();
     page.rerenderTheme({ colors: { foreground: "var(--missing)" } });
-    await waitFor(() =>
-      expect(update).toHaveBeenCalledWith(
-        expect.objectContaining({
-          appearance: expect.objectContaining({ variables: expect.objectContaining({ colorText: "#211d33" }) }),
-        }),
-      ),
-    );
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(update).not.toHaveBeenCalled();
+    expect(elements).toHaveBeenCalledExactlyOnceWith({ clientSecret: embeddedSetup.processor_client_secret });
+    expect(confirmSetup).not.toHaveBeenCalled();
+    expect(api.calls).toHaveLength(callsBeforeThemeChange);
     expect(paymentElement.destroy).not.toHaveBeenCalled();
   });
 
