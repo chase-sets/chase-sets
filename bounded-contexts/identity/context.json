@@ -442,6 +442,14 @@
         "ownerSlice": "memberships"
       },
       {
+        "name": "identity.get-api-key",
+        "ownerSlice": "api-keys"
+      },
+      {
+        "name": "identity.list-api-keys",
+        "ownerSlice": "api-keys"
+      },
+      {
         "name": "identity.revoke-api-key",
         "ownerSlice": "api-keys"
       }
@@ -1780,8 +1788,10 @@
         "identity.disable-user-auth-method"
       ]
     },
-    "api-keys": { "pending": "#9238" },
-    "api-keys-detail": { "pending": "#9238" },
+    "api-keys": { "tools": ["identity.list-api-keys", "identity.list-users"] },
+    "api-keys-detail": {
+      "tools": ["identity.get-api-key", "identity.get-user-account-link", "identity.revoke-api-key"]
+    },
     "invitations": {
       "tools": [
         "identity.create-and-send-invitation",
