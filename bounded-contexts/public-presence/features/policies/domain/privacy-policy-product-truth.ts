@@ -403,7 +403,7 @@ export const privacyProductTruthBindings: readonly PrivacyProductTruthBinding[] 
     inventorySubject:
       "@stripe/stripe-js@bounded-contexts/payments/features/payments/ui/account-payment/stripe-setup-card.tsx",
     evidenceRefs: [
-      "bounded-contexts/payments/features/payments/ui/account-payment/stripe-setup-card.tsx:46",
+      "bounded-contexts/payments/features/payments/ui/account-payment/stripe-setup-card.tsx:38",
       "bounded-contexts/payments/package.json:45",
       "bounded-contexts/settlement/features/payout-readiness/ui/stripe-connect-csp.ts:7",
       "bounded-contexts/settlement/features/payout-readiness/ui/stripe-connect-csp.ts:9",
@@ -436,7 +436,7 @@ export const privacyProductTruthBindings: readonly PrivacyProductTruthBinding[] 
     evidenceRefs: [
       "bounded-contexts/settlement/features/payout-readiness/ui/stripe-connect-csp.ts:7",
       "bounded-contexts/settlement/features/payout-readiness/ui/stripe-connect-csp.ts:9",
-      "bounded-contexts/settlement/features/payout-readiness/ui/stripe-connect-notification-banner.tsx:74-85",
+      "bounded-contexts/settlement/features/payout-readiness/ui/stripe-connect-notification-banner.tsx:69-80",
       "bounded-contexts/settlement/package.json:47",
     ],
     factualSummary:

@@ -1003,15 +1003,19 @@ describe("shared E2E setup selection", () => {
     expect(captured.cases).toHaveLength(150);
     expect(candidate.cases).toHaveLength(151);
     expect(candidate.families).toEqual(
-      captured.families.filter((family) => family.path !== retired).map((family) =>
-        family.family === "boundedContextRouteSuiteOwnership:45"
-          ? {
-              ...family,
-              pattern:
-                "/^bounded-contexts\\/discovery\\/routes\\/item-detail(?:\\.|-market-history\\.|-rail-analytics\\.)/",
-            }
-          : family.family === "e2eNoSuiteExclusions:4" ? { ...family, family: "e2eNoSuiteExclusions:3" } : family,
-      ),
+      captured.families
+        .filter((family) => family.path !== retired)
+        .map((family) =>
+          family.family === "boundedContextRouteSuiteOwnership:45"
+            ? {
+                ...family,
+                pattern:
+                  "/^bounded-contexts\\/discovery\\/routes\\/item-detail(?:\\.|-market-history\\.|-rail-analytics\\.)/",
+              }
+            : family.family === "e2eNoSuiteExclusions:4"
+              ? { ...family, family: "e2eNoSuiteExclusions:3" }
+              : family,
+        ),
     );
     expect(candidate.families).toHaveLength(142);
     for (const entry of captured.cases) {
@@ -1019,10 +1023,22 @@ describe("shared E2E setup selection", () => {
       const next = classifyChanges({ changedFiles: entry.changedFiles, workspaces });
       const ownsSetup = entry.changedFiles.some((file) => setupPaths.includes(file));
       const ownsRetired = entry.changedFiles.includes(retired);
-      expect(next).toEqual(ownsRetired ? { ...old, e2eSuiteIds: fallback.suiteIds, e2eTestsRequired: true } : ownsSetup ? { ...old, e2eSuiteIds: ["admin_auth"], e2eTestsRequired: true } : old);
+      expect(next).toEqual(
+        ownsRetired
+          ? { ...old, e2eSuiteIds: fallback.suiteIds, e2eTestsRequired: true }
+          : ownsSetup
+            ? { ...old, e2eSuiteIds: ["admin_auth"], e2eTestsRequired: true }
+            : old,
+      );
       expect(
         candidate.cases.find((item) => JSON.stringify(item.changedFiles) === JSON.stringify(entry.changedFiles)),
-      ).toEqual(ownsRetired ? { ...entry, suiteIds: fallback.suiteIds, batches: fallback.batches } : ownsSetup ? { ...entry, suiteIds: ["admin_auth"], batches: ["admin_auth"] } : entry);
+      ).toEqual(
+        ownsRetired
+          ? { ...entry, suiteIds: fallback.suiteIds, batches: fallback.batches }
+          : ownsSetup
+            ? { ...entry, suiteIds: ["admin_auth"], batches: ["admin_auth"] }
+            : entry,
+      );
     }
     for (const file of nearMisses) {
       const scope = classifyChanges({ changedFiles: [file], workspaces });

@@ -1,4 +1,4 @@
-# Embedded Stripe Appearance
+# Default Embedded Stripe Appearance
 
 Stripe owns the default appearance of its embedded Elements, Checkout Elements,
 Connect onboarding and management components, and notification banner. Chase Sets

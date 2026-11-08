@@ -51,7 +51,7 @@ function contrastRatio(foreground: string, surface: string) {
 }
 
 describe("actual stylesheet text and status contrast", () => {
-it.each(modes)("measures complete text/status pairs in %s", (mode) => {
+  it.each(modes)("measures complete text/status pairs in %s", (mode) => {
     const values = cssValues(mode);
     const pairs: [string, string, number][] = [
       ["--foreground", "--background", 4.5],

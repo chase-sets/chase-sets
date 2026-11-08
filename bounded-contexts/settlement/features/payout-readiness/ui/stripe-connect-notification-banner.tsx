@@ -1,12 +1,7 @@
 import { t } from "@chase-sets/localization";
 import { loadConnectAndInitialize, type ConnectHTMLElementRecord } from "@stripe/connect-js/pure";
 import { useCallback, useEffect, useRef, useState } from "react";
-import {
-  EmbeddedProviderSurface,
-  Banner,
-  LoadingSpinner,
-  Stack,
-} from "@chase-sets/design-system";
+import { EmbeddedProviderSurface, Banner, LoadingSpinner, Stack } from "@chase-sets/design-system";
 
 type StripeConnectNotificationBannerElement = ConnectHTMLElementRecord["notification-banner"];
 

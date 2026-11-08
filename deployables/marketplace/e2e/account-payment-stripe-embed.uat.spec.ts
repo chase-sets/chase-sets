@@ -845,7 +845,6 @@ function plantedMarkerGuard() {
 }
 
 test.describe("stripe embed artifact safety, provider-free", () => {
-
   test("refuses an ungoverned resolved config shape, naming each ungoverned setting", async () => {
     // The exact shape a forgotten --config resolves: the shared config's HTML
     // reporter and retry telemetry, retained failure artifacts, CI retries,

@@ -3,15 +3,7 @@ import { loadStripe } from "@stripe/stripe-js";
 import type { Stripe, StripeElements, StripePaymentElement } from "@stripe/stripe-js";
 import { useEffect, useRef, useState } from "react";
 import { useRevalidator } from "react-router";
-import {
-  Badge,
-  Banner,
-  Button,
-  MountPoint,
-  Stack,
-  Surface,
-  Text,
-} from "@chase-sets/design-system";
+import { Badge, Banner, Button, MountPoint, Stack, Surface, Text } from "@chase-sets/design-system";
 import { createPaymentsApiClient, type PaymentsSavedCheckoutSetupSession } from "../../../../client";
 
 const POLL_INTERVAL_MS = 2_000;
