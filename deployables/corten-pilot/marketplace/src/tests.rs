@@ -10699,7 +10699,11 @@ fn inventory_items(stand: &Stand, method: &Method, uri: &Uri, headers: &HeaderMa
             let page: Vec<Value> = all.iter().skip(offset).take(limit).cloned().collect();
             Json(json!({ "items": page, "total": 2, "count": page.len(), "limit": limit, "offset": offset })).into_response()
         }
-        ("GET", "/inv_1") => Json(inventory_detail()).into_response(),
+        ("GET", "/inv_1") => match waits_for(headers).as_deref() {
+            Some("43") => refusal(StatusCode::SERVICE_UNAVAILABLE, "projection_freshness_timeout", "Not caught up."),
+            Some("44") => refusal(StatusCode::INTERNAL_SERVER_ERROR, "internal_error", "Failed."),
+            _ => Json(inventory_detail()).into_response(),
+        },
         ("GET", "/inv_gone") => refusal(StatusCode::NOT_FOUND, "inventory_item_not_found", "Inventory item not found."),
         ("POST", "/inv_1/adjustments") => {
             let attempt = headers.get("inventory-mutation-attempt").and_then(|v| v.to_str().ok()).unwrap_or_default().to_owned();
@@ -11056,6 +11060,32 @@ async fn a_refused_sale_is_its_dialog_again() {
 }
 
 const STOCK_ITEM: &str = "/account/inventory/items/inv_1";
+
+/// marketplace's `pending` and `unverified`: a read after a write the API has not caught up to
+/// is the page saying the item is still updating, which reads it again; one that failed for good
+/// says the update could not be verified.
+#[tokio::test]
+async fn an_item_not_readable_yet_after_a_write_says_so_and_reads_again() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get(&format!("{STOCK_ITEM}?after_write={}", receipt_at("43")), Some("seller"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains(r#"<noscript data-corten-read-again="2" data-corten-head>"#), "read again shortly: {html}");
+    let page = text(&html);
+    assert!(
+        page.contains("Inventory item is still updating Your change was saved. This page reads the item again in a moment."),
+        "{page}"
+    );
+    assert!(
+        !page.contains("could not be verified") && !html.contains(r#"action="/account/inventory/items/inv_1/adjustments""#),
+        "{html}"
+    );
+    let (status, _, html) = pilot.send(get(&format!("{STOCK_ITEM}?after_write={}", receipt_at("44")), Some("seller"))).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{html}");
+    assert!(text(&html).contains("Inventory item update could not be verified."), "{html}");
+    assert!(!html.contains("data-corten-read-again"), "{html}");
+    let (_, _, html) = pilot.send(get(&format!("{STOCK_ITEM}?after_write={}", receipt_at("42")), Some("seller"))).await;
+    assert!(text(&html).contains("Charizard") && !html.contains("data-corten-read-again"), "caught up: {html}");
+}
 
 #[tokio::test]
 async fn the_item_page_shows_its_holds_and_ledger_and_data_clients_get_the_screen() {

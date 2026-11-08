@@ -272,7 +272,21 @@ async fn render(
         Err(error) if error.status() == Some(StatusCode::NOT_FOUND) && receipt.is_none() => {
             return Err(corten::Error::new(error).with_status(StatusCode::NOT_FOUND));
         }
-        // marketplace's `unverified`: the read after a write did not catch up.
+        // marketplace's `pending`: the write's projection is not readable yet, so the page reads
+        // it again (with the receipt, until the receipt is too old to wait for).
+        Err(error) if receipt.is_some() && error.catching_up() => {
+            let title = t.item_route_inventory_item_marketplace();
+            let head = html! {
+                <meta name="robots" content="noindex">
+                <ReadAgain after={std::time::Duration::from_secs(2)} />
+            };
+            let view = html! {
+                <h1>{p.inventory_item_pending_title()}</h1>
+                <p role="status">{p.inventory_item_pending()}</p>
+            };
+            return req.page(html! { <Layout req={req} viewer={Some(viewer)} title={title} head={head}>{view}</Layout> });
+        }
+        // marketplace's `unverified`: the read after a write failed otherwise.
         Err(error) => {
             return read_failed(req, Some(viewer), error, receipt.is_some().then(|| p.inventory_item_unverified()));
         }
