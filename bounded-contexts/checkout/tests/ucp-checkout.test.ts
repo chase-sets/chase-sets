@@ -408,6 +408,30 @@ describe("UCP 2026-08-25 Checkout resource", () => {
 });
 
 describe("UCP state lifecycle AC2 and expiry AC6", () => {
+  it("reads the session payment summary for the UCP actor account", async () => {
+    const f = fixture({ order_ids: ["ord_1"], payment_id: "pay_1" });
+    f.getOrderFacts.mockResolvedValue([{ id: "ord_1", status: "pending-payment" }]);
+    const getPaymentSummary = vi.mocked(f.sessions.getPaymentSummary);
+    getPaymentSummary.mockResolvedValue({
+      payment_id: "pay_1",
+      amount: "20.00",
+      currency_code: "usd",
+      status: "pending-confirmation",
+    });
+    expect(await f.restHandlers.get_checkout(input())).toMatchObject({ status: "requires_escalation" });
+    expect(getPaymentSummary).toHaveBeenLastCalledWith("pay_1", actor.accountId);
+    getPaymentSummary.mockResolvedValue({
+      payment_id: "pay_1",
+      amount: "20.00",
+      currency_code: "usd",
+      status: "captured",
+    });
+    expect(await f.restHandlers.get_checkout(input())).toMatchObject({ status: "complete_in_progress" });
+    expect(getPaymentSummary).toHaveBeenLastCalledWith("pay_1", actor.accountId);
+    expect(getPaymentSummary).toHaveBeenCalledTimes(2);
+    noWrites(f);
+  });
+
   it("uses fresh availability after create, but never previews committed orders", async () => {
     const f = fixture();
     await f.restHandlers.create_checkout(input(dto()));
