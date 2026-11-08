@@ -466,9 +466,9 @@ test.describe("buy funnel redesign — defect verification", () => {
       .toBe(true);
     const cartLines = page.locator("[data-marketplace-cart-line]");
     await expect(cartLines, claim).toHaveCount(marketplaceBrowserE2eSeedContract.cart.lineCount);
-    const fallbackOwner = cartLines.filter({
-      has: page.locator("img[src*='/fake-cdn/assets/pokemon-card-back.png']"),
-    });
+    const fallbackOwner = cartLines
+      .filter({ has: page.locator("img[src*='/fake-cdn/assets/pokemon-card-back.png']") })
+      .first();
     await expect(fallbackOwner, claim).toHaveCount(1);
     await expect(fallbackOwner, claim).toBeVisible();
     await expect(fallbackOwner.getByRole("spinbutton", { name: "Quantity" }), claim).toBeVisible();
