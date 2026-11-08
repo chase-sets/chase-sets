@@ -166,6 +166,15 @@
   padding: 0;
   border: 0;
 }
+/* The create stage's identity verdicts (admin-web's compact StatusReasonList): a reason's badge and
+   its words, one a line. */
+.verdicts {
+  display: grid;
+  gap: var(--space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
 /* The evidence sheet's lists (admin-web's EvidenceStringList) and its footer. */
 .evidence-list {
   display: grid;

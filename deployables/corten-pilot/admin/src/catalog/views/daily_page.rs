@@ -35,8 +35,9 @@ use crate::{
         api::AliasReview,
         daily::{
             self, CANDIDATE_COMMANDS, Candidate, CandidateInput, ContentsLine, Daily, DailyScreen, EditForm, EvidenceDetail,
-            Governance, Health, ImportJob, JobInput, ObservationEvidence, PROMOTION_INTENTS, Ran, ReviewInput, ReviewRow, Said,
-            Stage, StageState, SyncInput, SyncRun, UnitInput, UnitState, WorksetUnit, at, with_query,
+            Governance, Health, ImportJob, JobInput, ObservationEvidence, PROMOTION_INTENTS, PromotionInput, PromotionPreview,
+            Ran, ReviewInput, ReviewRow, Said, Stage, StageState, SyncInput, SyncRun, UnitInput, UnitState, WorksetUnit, at,
+            with_query,
         },
         integrations,
         views::AliasReviewPart,
@@ -284,7 +285,7 @@ pub fn Stages<'a>(t: Cat, p: Pilot, req: &'a Req, screen: &'a DailyScreen, conte
                                 />
                             }
                             Stage::Create => {
-                                <CreateModule t={t} p={p} model={model} context={context} />
+                                <CreateModule t={t} p={p} req={req} model={model} context={context} manage={screen.manage} />
                             }
                         }
                     </div>
@@ -357,7 +358,7 @@ fn WorksetModule<'a>(t: Cat, p: Pilot, req: &'a Req, model: &'a Daily, context: 
                             </tbody>
                         </table>
                     </Table>
-                    if manage {
+                    if manage && workset.units.iter().any(|u| u.actions.preview_promotion.open() && !u.previewable()) {
                         <p class={Muted}>{p.integrations_workset_elsewhere()}</p>
                     }
                 </Module>
@@ -402,7 +403,11 @@ fn WorksetRow<'a>(t: Cat, p: Pilot, req: &'a Req, unit: &'a WorksetUnit, context
         }
     }
     let preview = manage && unit.actions.preview_promotion.open();
-    let elsewhere = preview.then(|| admin_web(&unit.current_workbench_href).map(|u| u.to_string())).flatten();
+    // The unit's Preview posts to the pilot once the read builds the unit's promotion
+    // (chase-sets/chase-sets#11142); before, it opens on admin-web.
+    let previewable = manage && unit.previewable();
+    let elsewhere = (preview && !previewable).then(|| admin_web(&unit.current_workbench_href).map(|u| u.to_string())).flatten();
+    let promotion = at(&daily::url::Promotion.href(), context);
     let run = p.integrations_workset_open(&unit.display_name).to_string();
     html! {
         <tr data-catalog-source-scope-unit={key}>
@@ -431,7 +436,26 @@ fn WorksetRow<'a>(t: Cat, p: Pilot, req: &'a Req, unit: &'a WorksetUnit, context
                     }
                     <span class={Badges}>
                         for (command, label, state) in &commands {
-                            if sendable && *command != "preview" {
+                            if previewable && *command == "preview" {
+                                <form
+                                    method="post"
+                                    action={&promotion}
+                                    data-patch
+                                    data-catalog-primary-workbench-command={&state.key}
+                                    data-state={&state.state}
+                                >
+                                    <input type="hidden" name={PromotionInput::FIELDS.unit} value={key}>
+                                    <button
+                                        type="submit"
+                                        class={Button { variant: ButtonVariant::Ghost, size: ButtonSize::Sm }}
+                                        name={PromotionInput::FIELDS.phase}
+                                        value="preview-unit"
+                                        disabled={!state.open()}
+                                    >
+                                        {label}
+                                    </button>
+                                </form>
+                            } else if sendable && *command != "preview" {
                                 <form
                                     method="post"
                                     action={&action}
@@ -1356,7 +1380,8 @@ fn observation_tone(status: &str) -> &'static str {
 
 /// Source Observation review (`CatalogIntegrationSourceObservationReviewModule`): the filters, the
 /// status choice as links, the page of rows with a box for each reviewable one and its Evidence
-/// sheet, the pager, and Defer and Reject for the checked ones. Preview promotion opens on admin-web
+/// sheet, the pager, and Preview promotion, Defer and Reject for the checked ones. Preview promotion
+/// opens on admin-web until the read builds the promotion's selection and confirmation
 /// (chase-sets/chase-sets#11142).
 #[component(css = DailyPage)]
 fn ReviewModule<'a>(
@@ -1420,7 +1445,12 @@ fn ReviewModule<'a>(
     let defer = manage && reviewable && action_open("observation.defer");
     let reject = manage && reviewable && action_open("observation.reject");
     let scope = review.filters.iter().find(|f| f.key == "setId").and_then(|f| f.value.clone()).unwrap_or_default();
-    let elsewhere = admin_web(&daily::location(context)).map(|u| u.to_string());
+    // Preview promotion of the checked rows posts to the pilot once the read builds the promotion's
+    // selection and confirmation (chase-sets/chase-sets#11142); before, it opens on admin-web.
+    let offered = manage && daily::promotion_command(model).is_some();
+    let promotion = at(&daily::url::Promotion.href(), context);
+    let previewable = offered && action_open("observation.promote") && review.rows.iter().any(ReviewRow::eligible);
+    let elsewhere = (!offered).then(|| admin_web(&daily::location(context)).map(|u| u.to_string())).flatten();
     let in_scope = t.wb_review_status(pagination.total).to_string();
     let filtered =
         t.wb_review_empty_filtered(crate::text::cat::WbReviewEmptyFiltered { status: &status, scope: &scope, total }).to_string();
@@ -1513,6 +1543,19 @@ fn ReviewModule<'a>(
                             <input type="text" name={f.reason} class={Input {}}>
                         </label>
                         <div class={Row}>
+                            if offered {
+                                <button
+                                    type="submit"
+                                    class={Button { variant: ButtonVariant::Primary, size: ButtonSize::Sm }}
+                                    formaction={&promotion}
+                                    name={PromotionInput::FIELDS.phase}
+                                    value="preview-checked"
+                                    disabled={!previewable}
+                                    aria-label={(!previewable).then(|| t.wb_review_bulk_preview_denied())}
+                                >
+                                    {t.wb_preview_promotion()}
+                                </button>
+                            }
                             <button
                                 type="submit"
                                 class={Button { variant: ButtonVariant::Outline, size: ButtonSize::Sm }}
@@ -1557,7 +1600,9 @@ const EVIDENCE_OPEN: &str = "wb-evidence-open";
 /// from the right, a record's width beside its list and never more than most of a phone's: drawn
 /// open by the server and made modal when it joins the page, or the empty dialog a row's Evidence
 /// answer replaces. A detail the API does not have is the sheet's error, as there. Its footer's
-/// Preview promotion opens on admin-web (chase-sets/chase-sets#11142), where the button does nothing.
+/// Preview promotion previews this observation's promotion (admin-web's button does nothing); the
+/// sheet has no read model to tell whether the API builds the promotion yet, so before
+/// chase-sets/chase-sets#11142 the preview is refused as not offered.
 #[component(css = DailyPage)]
 pub fn EvidenceSheet<'a>(t: Cat, p: Pilot, evidence: Option<&'a ObservationEvidence>, context: &'a str) -> impl Patch {
     let heading = super::id_with(&EvidenceSheetId, "-title");
@@ -1570,9 +1615,7 @@ pub fn EvidenceSheet<'a>(t: Cat, p: Pilot, evidence: Option<&'a ObservationEvide
                 let name = detail.map_or(evidence.observation_id.as_str(), |d| d.display_name.as_str());
                 let title = t.wb_review_evidence_title(name).to_string();
                 let eligible = detail.is_some_and(|d| d.promotion_readiness.state == "eligible");
-                let preview = admin_web(&daily::location(&with_query(context, &[("section", Some("promotion-preview"))])))
-                    .map(|u| u.to_string())
-                    .filter(|_| eligible);
+                let promotion = at(&daily::url::Promotion.href(), context);
                 <dialog
                     class={Sheet { side: Side::Right(SheetWidth::Lg) }}
                     id={EvidenceSheetId}
@@ -1606,21 +1649,31 @@ pub fn EvidenceSheet<'a>(t: Cat, p: Pilot, evidence: Option<&'a ObservationEvide
                         Some(detail) => { <EvidenceBody t={t} detail={detail} /> }
                     }
                     <div class={EvidenceFooter}>
-                        match &preview {
-                            Some(href) => {
-                                <a class={Button { variant: ButtonVariant::Primary, size: ButtonSize::Sm }} href={href}>
-                                    {t.wb_preview_promotion()}
-                                </a>
-                            }
-                            None => {
+                        if eligible {
+                            <form
+                                method="post"
+                                action={&promotion}
+                                data-patch
+                                data-catalog-primary-workbench-command="observation.promote"
+                            >
+                                <input type="hidden" name={PromotionInput::FIELDS.observation} value={&evidence.observation_id}>
                                 <button
-                                    type="button"
+                                    type="submit"
                                     class={Button { variant: ButtonVariant::Primary, size: ButtonSize::Sm }}
-                                    disabled
+                                    name={PromotionInput::FIELDS.phase}
+                                    value="preview-checked"
                                 >
-                                    {t.wb_blocked()}
+                                    {t.wb_preview_promotion()}
                                 </button>
-                            }
+                            </form>
+                        } else {
+                            <button
+                                type="button"
+                                class={Button { variant: ButtonVariant::Primary, size: ButtonSize::Sm }}
+                                disabled
+                            >
+                                {t.wb_blocked()}
+                            </button>
                         }
                     </div>
                 </dialog>
@@ -1803,12 +1856,68 @@ fn ReviewRowView<'a>(t: Cat, p: Pilot, req: &'a Req, row: &'a ReviewRow, manage:
     }
 }
 
-/// Create / update items (`CatalogIntegrationCreateItemsStage`): the latest promotion outcome, and
-/// the way to preview and promote, which opens on admin-web (chase-sets/chase-sets#11142).
+/// Create / update items (`CatalogIntegrationCreateItemsStage`): the latest promotion outcome, then
+/// the previewed impact of the working set's selection (or its scope), its pre-write validation,
+/// and one form that previews again or, with the box confirmed, commits the preview the address
+/// holds. The draft choice sits in that form, so a commit with a choice the preview did not bind is
+/// refused and asks for a preview again, as admin-web's stage holds it back. Before the API builds
+/// the promotion's selection and confirmation (chase-sets/chase-sets#11142), the stage opens on
+/// admin-web.
 #[component(css = DailyPage)]
-fn CreateModule<'a>(t: Cat, p: Pilot, model: &'a Daily, context: &'a str) -> impl Render {
-    let elsewhere =
-        admin_web(&daily::location(&with_query(context, &[("section", Some("promotion-preview"))]))).map(|u| u.to_string());
+fn CreateModule<'a>(t: Cat, p: Pilot, req: &'a Req, model: &'a Daily, context: &'a str, manage: bool) -> impl Render {
+    let preview = &model.promotion_preview;
+    let offered = manage && daily::promotion_command(model).is_some();
+    let open = model.actions.iter().find(|a| a.key == "observation.promote").is_some_and(|a| a.open());
+    let elsewhere = (manage && !offered)
+        .then(|| admin_web(&daily::location(&with_query(context, &[("section", Some("promotion-preview"))]))))
+        .flatten()
+        .map(|u| u.to_string());
+    let fresh = preview.fresh();
+    let blocked = preview.identity_blocked();
+    let draft = preview.validation.promote_as_draft;
+    let scoped = t
+        .wb_stage_create_promote_scope_scoped(crate::text::cat::WbStageCreatePromoteScopeScoped {
+            count: preview.scope.eligible_count,
+            scope: &preview.scope.label,
+        })
+        .to_string();
+    let explicit = t
+        .wb_stage_create_promote_scope_explicit(crate::text::cat::WbStageCreatePromoteScopeExplicit {
+            count: preview.scope.requested_count,
+            scope: &preview.scope.filter_summary.join(", "),
+        })
+        .to_string();
+    let confirm = t
+        .wb_stage_create_confirm(crate::text::cat::WbStageCreateConfirm {
+            count: preview.scope.eligible_count,
+            scope: &preview.scope.label,
+        })
+        .to_string();
+    let freshness = state_label(&preview.freshness);
+    let plan = preview.command_plan_hash.clone().unwrap_or_else(|| t.wb_review_preview_required().to_owned());
+    let facts = [
+        (t.wb_command_scope(), preview.scope.label.clone()),
+        (t.wb_eligible_observations(), preview.scope.eligible_count.to_string()),
+        (t.wb_command_plan(), plan),
+    ];
+    let counts = [
+        (t.wb_count_matched(), preview.scope.requested_count.to_string()),
+        (t.wb_count_eligible(), preview.outcome_counts.eligible.to_string()),
+        (t.wb_count_blocked(), preview.outcome_counts.blocked.to_string()),
+        (t.wb_count_skipped(), preview.outcome_counts.skipped.to_string()),
+        (t.wb_count_conflicting(), preview.outcome_counts.conflicting.to_string()),
+        (t.wb_item_updates(), preview.destructive_count.to_string()),
+    ];
+    let state = if fresh { t.wb_stage_create_preview_fresh() } else { t.wb_stage_create_preview_refresh() };
+    let action = at(&daily::url::Promotion.href(), context);
+    let f = PromotionInput::FIELDS;
+    let provider = model.route_context.provider_key.as_deref().map(str::trim).filter(|p| !p.is_empty());
+    let items = crate::catalog::items::url::ItemQuery { source: provider.map(str::to_owned), ..Default::default() };
+    let handoff = link_to(req, &crate::catalog::items::url::Items::of(&items).href().to_string());
+    let handoff_label = match provider {
+        Some(provider) => t.wb_stage_create_handoff_cta(provider).to_string(),
+        None => t.wb_stage_create_handoff_cta_unscoped().to_owned(),
+    };
     html! {
         <section class={(KitStack { gap: Gap::App }, gap_4(), Stack)} aria-labelledby="wb-create">
             <h2 id="wb-create" class={VisuallyHidden {}}>{t.wb_stage_create_label()}</h2>
@@ -1825,6 +1934,66 @@ fn CreateModule<'a>(t: Cat, p: Pilot, model: &'a Daily, context: &'a str) -> imp
                     <Pairs items={&items} />
                 </div>
             }
+            if offered {
+                <form
+                    method="post"
+                    action={&action}
+                    class={(Panel, KitStack { gap: Gap::App }, gap_4(), Stack)}
+                    data-patch
+                    data-catalog-primary-workbench-command="observation.promote"
+                    data-catalog-promotion-preview={if fresh { "fresh" } else { "stale" }}
+                >
+                    <div class={Row}>
+                        <span class={CellBlock}>
+                            <span class={Strong}>{t.wb_stage_create_promote_scope_title()}</span>
+                            <small class={Muted}>{scoped}</small>
+                        </span>
+                        <span class={Badges}>
+                            <Pill text={t.wb_stage_create_scoped_badge()} tone="info" />
+                            <Pill text={&freshness} tone={if fresh { "success" } else { "warning" }} />
+                        </span>
+                    </div>
+                    <div class={Columns}>
+                        <Pairs items={&facts} />
+                        <Pairs items={&counts} />
+                    </div>
+                    <small class={Muted}>{explicit}</small>
+                    <Checkbox label={t.wb_stage_create_promote_as_draft_label()}>
+                        <input type="checkbox" name={f.draft} value="true" checked={draft}>
+                    </Checkbox>
+                    <small class={Muted}>{t.wb_stage_create_promote_as_draft_description()}</small>
+                    <div class={Row}>
+                        <span class={Strong}>{state}</span>
+                        <button
+                            type="submit"
+                            class={Button { variant: ButtonVariant::Secondary, size: ButtonSize::Sm }}
+                            name={f.phase}
+                            value="preview"
+                            disabled={!open}
+                        >
+                            {t.wb_preview_promotion()}
+                        </button>
+                    </div>
+                    <PromotionValidation t={t} preview={preview} />
+                    <Checkbox label={&confirm}>
+                        <input type="checkbox" name={f.confirm} value="true" disabled={!open || !fresh || blocked}>
+                    </Checkbox>
+                    <div class={Row}>
+                        <button
+                            type="submit"
+                            class={Button { variant: ButtonVariant::Primary, size: ButtonSize::Sm }}
+                            name={f.phase}
+                            value="execute"
+                            disabled={!open || !fresh || blocked}
+                        >
+                            {t.wb_stage_create_commit()}
+                        </button>
+                    </div>
+                    if !preview.blockers.is_empty() {
+                        <Blockers t={t} blockers={&preview.blockers} />
+                    }
+                </form>
+            }
             if let Some(href) = &elsewhere {
                 <Alert variant={AlertVariant::Info} emphasis={AlertEmphasis::Outline}>
                     <p>{p.integrations_create_elsewhere()}</p>
@@ -1833,7 +2002,94 @@ fn CreateModule<'a>(t: Cat, p: Pilot, model: &'a Daily, context: &'a str) -> imp
                     </a>
                 </Alert>
             }
+            if let Some(href) = &handoff {
+                <div class={(Panel, Row)}>
+                    <span class={CellBlock}>
+                        <span class={Strong}>{t.wb_stage_create_handoff_title()}</span>
+                        <small class={Muted}>{t.wb_stage_create_handoff_description()}</small>
+                    </span>
+                    <a class={Button { variant: ButtonVariant::Outline, size: ButtonSize::Sm }} href={href}>
+                        {handoff_label}
+                    </a>
+                </div>
+            }
         </section>
+    }
+}
+
+/// The preview's pre-write validation (`CatalogIntegrationPromotionValidation`): how much it
+/// validated, how many observations are blocked or carried as drafts, and each identity verdict.
+/// Nothing before a preview.
+#[component(css = DailyPage)]
+fn PromotionValidation<'a>(t: Cat, preview: &'a PromotionPreview) -> impl Render {
+    let validation = &preview.validation;
+    let shown = validation.coverage != "not-previewed";
+    let blocked = validation.identity_diagnostics.iter().filter(|d| d.blocking).count();
+    let draft_only = validation.identity_diagnostics.len() - blocked;
+    let coverage = if validation.coverage == "complete" {
+        t.wb_stage_create_validation_coverage_complete(validation.covered_count).to_string()
+    } else {
+        t.wb_stage_create_validation_coverage_partial(validation.covered_count).to_string()
+    };
+    let verdicts: Vec<(&str, String, bool)> = validation
+        .identity_diagnostics
+        .iter()
+        .map(|d| {
+            let reason = match d.template_reason.as_str() {
+                "unresolved-title-tokens" => t.wb_stage_create_validation_identity_reason_unresolved_title_tokens(),
+                "no-targeted-template" => t.wb_stage_create_validation_identity_reason_no_targeted_template(),
+                "missing-required-fields" => t.wb_stage_create_validation_identity_reason_missing_required_fields(),
+                _ => "",
+            };
+            let text = if d.missing_tokens.is_empty() {
+                t.wb_stage_create_validation_identity_observation_no_tokens(
+                    crate::text::cat::WbStageCreateValidationIdentityObservationNoTokens {
+                        observation_id: &d.observation_id,
+                        reason: &d.diagnostic_text,
+                    },
+                )
+                .to_string()
+            } else {
+                t.wb_stage_create_validation_identity_observation(crate::text::cat::WbStageCreateValidationIdentityObservation {
+                    observation_id: &d.observation_id,
+                    reason: &d.diagnostic_text,
+                    tokens: &d.missing_tokens.join(", "),
+                })
+                .to_string()
+            };
+            (reason, text, d.blocking)
+        })
+        .collect();
+    html! {
+        if shown {
+            <div class={(KitStack { gap: Gap::App }, Stack)} data-catalog-promotion-validation={&validation.coverage}>
+                <p class={Strong}>{t.wb_stage_create_validation_title()}</p>
+                <small class={Muted}>{coverage}</small>
+                if blocked > 0 {
+                    <small class={Strong}>{t.wb_stage_create_validation_identity_blocked(blocked).to_string()}</small>
+                }
+                if draft_only > 0 {
+                    <small class={Muted}>{t.wb_stage_create_validation_identity_draft_only(draft_only).to_string()}</small>
+                }
+                if !validation.other_blocked_observation_ids.is_empty() {
+                    <small class={Muted}>
+                        {t.wb_stage_create_validation_other_blocked(validation.other_blocked_observation_ids.len()).to_string()}
+                    </small>
+                }
+                if !verdicts.is_empty() {
+                    <ul class={Verdicts}>
+                        for (reason, text, blocking) in &verdicts {
+                            <li class={Row}>
+                                if !reason.is_empty() {
+                                    <Pill text={reason} tone={if *blocking { "danger" } else { "warning" }} />
+                                }
+                                <span class={(Muted, Words)}>{text}</span>
+                            </li>
+                        }
+                    </ul>
+                }
+            </div>
+        }
     }
 }
 
