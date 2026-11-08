@@ -4,6 +4,7 @@ import { findMcpTool } from "@chase-sets/platform-runtime/mcp-contracts";
 import type { ApiKeyServices } from "./runtime";
 import { getApiKey as queryApiKey } from "../read-model/queries";
 import { createApiKeyMcpHandlers } from "./mcp";
+import { apiKeyRoutes } from "./route";
 import { buildPaginationClause } from "@chase-sets/event-core-postgres";
 import { createUserMcpHandlers } from "../../users/api/mcp";
 import type { UserServices } from "../../users/api/runtime";
@@ -171,6 +172,32 @@ describe("identity API-key MCP handlers", () => {
     );
     expect(listApiKeys).toHaveBeenLastCalledWith({ search: "prefix", status: "revoked", limit: 999, offset: 99999 });
     expect(buildPaginationClause(listApiKeys.mock.calls[1]![0]).values).toEqual([500, 10000]);
+  });
+
+  it.each([0, 20])("preserves source-route parsing for limit %s and zero offset", async (limit) => {
+    const { handlers, listApiKeys, getApiKey, commandHandler } = readFixture();
+    const routes = apiKeyRoutes({
+      listApiKeys,
+      getApiKey,
+      commandHandler,
+      projectors: [],
+      db: { query: vi.fn() },
+      auth: {
+        issueOpaqueToken: vi.fn(),
+        hashSecret: vi.fn(),
+        verifySecret: vi.fn(),
+        issueChallenge: vi.fn(),
+      },
+      getUser: vi.fn(),
+    });
+    const response = await routes.request(`https://api.test/?limit=${limit}&offset=0&search=prefix&status=active`);
+    expect(response.status).toBe(200);
+    await handlers["identity.list-api-keys"]!(request({ limit, offset: 0, search: "prefix", status: "active" }));
+    const sourceParams = listApiKeys.mock.calls[0]![0];
+    const mcpParams = listApiKeys.mock.calls[1]![0];
+    expect(sourceParams).toEqual({ search: "prefix", status: "active", limit: limit || undefined, offset: undefined });
+    expect(mcpParams).toEqual(sourceParams);
+    expect(buildPaginationClause(mcpParams).values).toEqual([limit || 50, 0]);
   });
 
   it.each([{ search: 42 }, { status: false }])(

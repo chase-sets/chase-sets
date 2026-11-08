@@ -46,8 +46,8 @@ export function createApiKeyMcpHandlers(services: ApiKeyServices, db: PgQueryabl
     const result = await services.listApiKeys({
       search: scopedActor.roleKey !== "platform-admin" ? scopedActor.userId : search,
       status: optionalString(args, "status"),
-      limit: args.limit,
-      offset: args.offset,
+      limit: Number(args.limit) || undefined,
+      offset: Number(args.offset) || undefined,
     });
     return { items: result.items.map(publicApiKey), total: result.total, count: result.items.length };
   };
