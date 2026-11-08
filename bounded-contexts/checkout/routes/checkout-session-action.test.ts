@@ -2606,7 +2606,11 @@ describe("checkout web routes: checkout session action", () => {
   ] as const)(
     "still writes the authenticity check opt-in for buy-now and cart confirms (%s, selected=%s)",
     async (sourceType, selected, fingerprint) => {
-      mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", roleKey: "owner", permissions: [] });
+      mockResolveActorFromAuthApi.mockResolvedValue({
+        accountId: "acc_buyer",
+        roleKey: "owner",
+        permissions: ["orders.manage"],
+      });
       mockGetCheckoutSession.mockResolvedValue(checkoutSessionForReviewedPreview({ source_type: sourceType }));
       mockConfirmCheckoutSession.mockResolvedValue({ payment_id: "pay_1", order_ids: ["ord_1"], status: "confirmed" });
       mockCreateCheckoutRequestApiClient.mockReturnValue({
