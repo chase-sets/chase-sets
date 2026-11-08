@@ -1078,13 +1078,14 @@ async function handleAction(intent: string, { request, params, formData }: FormA
         : await writeApi.selectShippingOption(params.sessionId, {
             shippingOption,
           });
-      const authenticityCheckOptInResult = hasCommittedSideEffects
-        ? null
-        : await writeApi.selectAuthenticityCheckOptIn(params.sessionId, {
-            selected: String(formData.get("authenticityCheckOptIn") ?? "") === "true",
-            quoteFingerprint: String(formData.get("authenticityCheckOptInQuoteFingerprint") ?? "") || null,
-          });
       const sourceType = session?.source_type ?? String(formData.get("sourceType") ?? "");
+      const authenticityCheckOptInResult =
+        hasCommittedSideEffects || sourceType === "offer-intent"
+          ? null
+          : await writeApi.selectAuthenticityCheckOptIn(params.sessionId, {
+              selected: String(formData.get("authenticityCheckOptIn") ?? "") === "true",
+              quoteFingerprint: String(formData.get("authenticityCheckOptInQuoteFingerprint") ?? "") || null,
+            });
       const visibleReviewChanged =
         visiblePaymentMethodCategory !== quotedPaymentMethodCategory ||
         (reviewedShippingOption !== null && reviewedShippingOption !== shippingOption) ||

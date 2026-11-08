@@ -2543,6 +2543,101 @@ describe("checkout web routes: checkout session action", () => {
     expect(mockConfirmCheckoutSession).toHaveBeenCalledWith("chk_1", expect.objectContaining({}));
   });
 
+  it.each(["session-sourced", "form-sourced"] as const)(
+    "submits an offer intent without writing the authenticity check opt-in (%s)",
+    async (source) => {
+      mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", roleKey: "owner", permissions: [] });
+      mockGetCheckoutSession.mockResolvedValue(
+        source === "session-sourced"
+          ? checkoutSessionForReviewedPreview({ source_type: "offer-intent", submitted_offer_id: null, order_ids: [] })
+          : null,
+      );
+      mockSelectAuthenticityCheckOptIn.mockRejectedValue(
+        new MockCheckoutApiError(400, {
+          error: {
+            code: "validation_failed",
+            message: "Purchase intent checkout does not offer the authenticity check.",
+          },
+        }),
+      );
+      mockConfirmCheckoutSession.mockResolvedValue({ offer_id: "off_chk_1", status: "purchase-intent-submitted" });
+      mockCreateCheckoutRequestApiClient.mockReturnValue({
+        getCheckoutSession: mockGetCheckoutSession,
+        selectShippingOption: mockSelectShippingOption,
+        selectAuthenticityCheckOptIn: mockSelectAuthenticityCheckOptIn,
+        confirmCheckoutSession: mockConfirmCheckoutSession,
+      });
+
+      const response = await checkoutSessionAction({
+        request: new Request("http://localhost/checkout/buy/session/chk_1", {
+          method: "POST",
+          body: confirmCheckoutForm({ sourceType: source === "form-sourced" ? "offer-intent" : "cart" }),
+        }),
+        params: { sessionId: "chk_1" },
+        context: undefined,
+      } as never);
+
+      expect(mockSelectAuthenticityCheckOptIn).not.toHaveBeenCalled();
+      expect(mockSelectShippingOption).toHaveBeenCalledExactlyOnceWith("chk_1", { shippingOption: "standard" });
+      expect(mockConfirmCheckoutSession).toHaveBeenCalledExactlyOnceWith(
+        "chk_1",
+        expect.objectContaining({
+          shippingAddress: expect.objectContaining({
+            name: "Jane Smith",
+            line1: "100 Market Street",
+            city: "Chicago",
+            state: "IL",
+            postalCode: "60601",
+            country: "US",
+          }),
+        }),
+      );
+      expect(response).toBeInstanceOf(Response);
+      expect((response as Response).status).toBe(302);
+      expect((response as Response).headers.get("Location")).toBe("/account/offers/submitted/off_chk_1");
+    },
+  );
+
+  it.each([
+    ["buy-now", true, "authenticity_quote_1"],
+    ["buy-now", false, ""],
+    ["cart", true, "authenticity_quote_1"],
+    ["cart", false, ""],
+  ] as const)(
+    "still writes the authenticity check opt-in for buy-now and cart confirms (%s, selected=%s)",
+    async (sourceType, selected, fingerprint) => {
+      mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", roleKey: "owner", permissions: [] });
+      mockGetCheckoutSession.mockResolvedValue(checkoutSessionForReviewedPreview({ source_type: sourceType }));
+      mockConfirmCheckoutSession.mockResolvedValue({ payment_id: "pay_1", order_ids: ["ord_1"], status: "confirmed" });
+      mockCreateCheckoutRequestApiClient.mockReturnValue({
+        getCheckoutSession: mockGetCheckoutSession,
+        selectShippingOption: mockSelectShippingOption,
+        selectAuthenticityCheckOptIn: mockSelectAuthenticityCheckOptIn,
+        confirmCheckoutSession: mockConfirmCheckoutSession,
+      });
+
+      const response = await checkoutSessionAction({
+        request: new Request("http://localhost/checkout/buy/session/chk_1", {
+          method: "POST",
+          body: confirmCheckoutForm({
+            sourceType: "offer-intent",
+            authenticityCheckOptIn: String(selected),
+            authenticityCheckOptInQuoteFingerprint: fingerprint,
+          }),
+        }),
+        params: { sessionId: "chk_1" },
+        context: undefined,
+      } as never);
+
+      expect(mockSelectAuthenticityCheckOptIn).toHaveBeenCalledExactlyOnceWith("chk_1", {
+        selected,
+        quoteFingerprint: fingerprint || null,
+      });
+      expect(mockConfirmCheckoutSession).toHaveBeenCalledTimes(1);
+      expect((response as Response).status).toBe(302);
+    },
+  );
+
   it("redirects confirmed purchase intent to the submitted offer", async () => {
     mockResolveActorFromAuthApi.mockResolvedValue({});
     mockSelectShippingOption.mockResolvedValue({});

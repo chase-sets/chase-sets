@@ -679,6 +679,24 @@ describe("last recorded quote", () => {
     }
   }
 
+  it("refuses the authenticity check opt-in for an offer intent", () => {
+    const state = decideCheckoutSession(initialCheckoutSessionState, start("offer-intent")).reduce(
+      evolveCheckoutSession,
+      initialCheckoutSessionState,
+    );
+
+    for (const selected of [true, false]) {
+      expect(() =>
+        decideCheckoutSession(state, {
+          type: "SelectAuthenticityCheckOptIn",
+          selected,
+          quoteFingerprint: selected ? "authenticity_quote_1" : null,
+          selectedAt: at(1),
+        }),
+      ).toThrow("Purchase intent checkout does not offer the authenticity check.");
+    }
+  });
+
   it("retains the last recorded quote through invalidation", () => {
     buyNowThroughInvalidationCancelAndOrders(new Set());
   });
