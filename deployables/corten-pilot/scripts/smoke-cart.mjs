@@ -89,18 +89,25 @@ async function shown(page) {
     lines.length > 0 && lines.length <= cart.items.length,
     `one card per product and fulfillment (${lines.length} for ${cart.items.length} lines)`,
   );
-  const outcomes = Object.fromEntries(cart.readiness.loaded.lineOutcomes.map((o) => [o.lineId, o.reason]));
+  const presented = Object.fromEntries((cart.readiness.loaded.linePresentations ?? []).map((p) => [p.lineId, p]));
   for (const line of lines) {
     const item = cart.items.find((i) => i.line_id === line.id);
     check(Boolean(item) && item.item_title === line.title, `${line.title}: a line the API returned`);
+    const p = presented[line.id];
     check(
-      line.reason === labels[outcomes[line.id]],
-      `${line.title}: the badge is the API's line outcome (${line.reason}, ${outcomes[line.id]})`,
+      line.reason === (p ? (labels[p.reason] ?? "Needs review") : "Needs review"),
+      `${line.title}: the badge is the API's presentation (${line.reason}, ${p?.reason})`,
     );
-    check(
-      /^(from )?\$[\d,]+\.\d{2}$|^Priced at checkout$/.test(line.price ?? ""),
-      `${line.title}: a price (${line.price})`,
-    );
+    // A card merged from several lines (its quantity more than its first line's) adds their
+    // prices, so only a card of one line is held to its presentation's price.
+    const expected = !p?.price || p.price.state === "deferred"
+      ? "Priced at checkout"
+      : `${p.price.state === "indicative" ? "from " : ""}${money(p.price)}`;
+    if (Number(line.quantity) === item?.quantity) {
+      check(line.price === expected, `${line.title}: the price is the API's (${line.price}, ${expected})`);
+    } else {
+      check(/^(from )?\$[\d,]+\.\d{2}$|^Priced at checkout$/.test(line.price ?? ""), `${line.title}: a merged line's price (${line.price})`);
+    }
   }
   check(total === money(cart.readiness.estimatedSubtotal), `the total is the API's estimated subtotal (${total})`);
   const notice = await page

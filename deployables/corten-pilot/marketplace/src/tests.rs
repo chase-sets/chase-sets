@@ -237,13 +237,27 @@ fn cart_line(id: &str, item: &str, quantity: u32, locked: Option<&str>, listings
     })
 }
 
-/// A readiness snapshot of `status` with each line's reason and the optimization's `decision`.
-fn snapshot(id: &str, status: &str, reasons: &[(&str, &str)], decision: &str, offer: bool) -> Value {
+/// How the API presents a line: its reason, whether it can be fulfilled, its listing and its price
+/// (`state`, `amount`) in USD.
+type Presented<'a> = (&'a str, &'a str, bool, Option<&'a str>, Option<(&'a str, &'a str)>);
+
+/// A readiness snapshot of `status` with each line's outcome and presentation and the
+/// optimization's `decision`.
+fn snapshot(id: &str, status: &str, lines: &[Presented], decision: &str, offer: bool) -> Value {
     let outcomes: Vec<Value> =
-        reasons.iter().map(|(line, reason)| json!({ "lineId": line, "outcome": "checkout", "reason": reason })).collect();
+        lines.iter().map(|(line, reason, ..)| json!({ "lineId": line, "outcome": "checkout", "reason": reason })).collect();
+    let presentations: Vec<Value> = lines
+        .iter()
+        .map(|(line, reason, fulfillable, listing, price)| {
+            json!({
+                "lineId": line, "reason": reason, "fulfillmentAvailable": fulfillable, "listingId": listing,
+                "price": price.map(|(state, amount)| json!({ "state": state, "amount": amount, "currency": "USD" })),
+            })
+        })
+        .collect();
     json!({
         "schemaVersion": "checkout.cart-readiness.v1", "source": "cart", "sourceRevision": "cr_rev", "snapshotId": id,
-        "status": status, "lineCount": reasons.len(), "includedLineIds": [], "unresolvedLineIds": [],
+        "status": status, "lineCount": lines.len(), "includedLineIds": [], "unresolvedLineIds": [],
         "lineOutcomes": outcomes,
         "optimization": {
             "available": offer, "decision": decision,
@@ -251,7 +265,7 @@ fn snapshot(id: &str, status: &str, reasons: &[(&str, &str)], decision: &str, of
             "proposedListingId": if offer { json!("lst_vault_charizard") } else { Value::Null },
             "currentListingId": null, "savingsAmount": if offer { json!("10.99") } else { Value::Null }, "currency": "USD",
         },
-        "fulfillmentGroups": [], "customerSafeFacts": [],
+        "fulfillmentGroups": [], "customerSafeFacts": [], "linePresentations": presentations,
     })
 }
 
@@ -272,10 +286,12 @@ fn cart(session: &str) -> Value {
             let mut mew = cart_line("cli_eur", "Mew", 1, Some("lst_mew"), &[], "2026-10-24T02:00:00.000Z");
             mew["item_image_url"] = json!("/fake-cdn/assets/pokemon_tcg_back.png");
             mew["item_image_srcset"] = json!("/fake-cdn/assets/mew-1x.png 1x, https://cdn.example/mew-2x.png 2x");
-            let reasons = [
-                ("cli_pikachu_a", "unassigned-fulfillment"),
-                ("cli_pikachu_b", "unassigned-fulfillment"),
-                ("cli_eur", "currency-mismatch"),
+            // The Pikachu lines have no way to be fulfilled and are priced from the one listing,
+            // each for its quantity; the Mew line's listing is gone, so it is priced at checkout.
+            let reasons: [Presented; 3] = [
+                ("cli_pikachu_a", "unassigned-fulfillment", false, Some("lst_pikachu"), Some(("indicative", "17.95"))),
+                ("cli_pikachu_b", "unassigned-fulfillment", false, Some("lst_pikachu"), Some(("indicative", "35.90"))),
+                ("cli_eur", "currency-mismatch", true, Some("lst_mew"), None),
             ];
             json!({
                 "items": [
@@ -293,6 +309,17 @@ fn cart(session: &str) -> Value {
                 },
             })
         }
+        // The buyer's cart, the API presenting only its Pikachu line.
+        "unpresented" => {
+            let mut buyer = cart("buyer");
+            for snapshot in ["loaded", "declined", "accepted"] {
+                buyer["readiness"][snapshot]["linePresentations"]
+                    .as_array_mut()
+                    .unwrap()
+                    .retain(|p| p["lineId"] == "cli_pikachu");
+            }
+            buyer
+        }
         "empty" => json!({
             "items": [], "count": 0,
             "readiness": {
@@ -302,7 +329,10 @@ fn cart(session: &str) -> Value {
             },
         }),
         _ => {
-            let reasons = [("cli_charizard", "ready"), ("cli_pikachu", "ready")];
+            let reasons: [Presented; 2] = [
+                ("cli_charizard", "ready", true, Some("lst_chase_charizard"), Some(("exact", "399.99"))),
+                ("cli_pikachu", "ready", true, Some("lst_chase_pikachu"), Some(("exact", "21.50"))),
+            ];
             json!({
                 "items": [
                     cart_line("cli_pikachu", "Pikachu", 1, Some("lst_chase_pikachu"), &[("lst_chase_pikachu", "Chase Sets", "21.50")], "2026-10-24T03:55:54.259Z"),
@@ -434,7 +464,7 @@ async fn platform(State(stand): State<Stand>, method: Method, uri: Uri, headers:
             "reader" => actor(&["inventory.view"]),
             // A buyer: any account has a cart, and none of these may see inventory.
             // `stale`'s session ends before its cart write is sent.
-            "other" | "buyer" | "blocked" | "empty" | "stale" => actor(&[]),
+            "other" | "buyer" | "blocked" | "empty" | "stale" | "unpresented" => actor(&[]),
             "guest" => actor(&["guest-checkout.manage"]),
             // An account that sees items as a seller and may take offers.
             "trader" => actor(&["offers.view", "listings.view", "offers.manage"]),
@@ -2695,7 +2725,7 @@ async fn a_cart_that_cannot_check_out_says_which_lines_need_attention() {
     assert!(html.contains(r#"name="quantity" value="3" min="1""#), "{html}");
     assert!(page.contains("from $53.85"), "{page}");
     assert!(html.contains("data-reason>Needs fulfillment<"), "{html}");
-    // The API says the other currency's line needs review (marketplace draws it Ready).
+    // The API says the other currency's line needs review.
     assert!(html.contains("data-reason>Needs review<"), "{html}");
     assert!(page.contains("Priced at checkout"), "a line without a priced listing, and the total: {page}");
     assert_eq!(page.matches("Find alternatives").count(), 1, "only the line with no fulfillment: {page}");
@@ -2703,6 +2733,25 @@ async fn a_cart_that_cannot_check_out_says_which_lines_need_attention() {
     assert!(html.contains(">Continue to checkout<") && !html.contains(">Check out<"), "{html}");
     assert!(page.contains("Resolve item availability before payment starts."), "{page}");
     assert!(!page.contains("Use lower price"), "{page}");
+}
+
+/// A line the API did not present is drawn as needing review and priced at checkout, and the cart
+/// shows no total, offer or checkout until every line is presented (marketplace's
+/// `hasCompleteLinePresentations`).
+#[tokio::test]
+async fn a_line_the_api_did_not_present_needs_review_and_holds_the_checkout() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get(CART_SCREEN, Some("unpresented"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let page = text(&html);
+    assert_eq!(html.matches("data-cart-line=").count(), 2, "{html}");
+    assert_eq!(html.matches("data-reason>Ready<").count(), 1, "the presented line: {html}");
+    assert_eq!(html.matches("data-reason>Needs review<").count(), 1, "the other: {html}");
+    assert!(page.contains("$21.50") && !page.contains("$399.99"), "only the presented line is priced: {page}");
+    assert!(page.contains("Priced at checkout"), "{page}");
+    assert!(!page.contains("Find alternatives"), "a line not presented is not said to have no fulfillment: {page}");
+    assert!(!page.contains("Estimated total $421.49") && !page.contains("Save "), "{page}");
+    assert!(checkout_forms(&html).is_empty(), "{html}");
 }
 
 #[tokio::test]

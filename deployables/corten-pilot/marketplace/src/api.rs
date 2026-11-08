@@ -503,6 +503,31 @@ pub struct Snapshot {
     /// What the buyer may be told about a cart that is not ready.
     #[serde(default)]
     pub customer_safe_facts: Vec<String>,
+    /// How each line is drawn (`linePresentations`), so the page keeps no seller-option rules.
+    #[serde(default)]
+    pub line_presentations: Vec<LinePresentation>,
+}
+
+/// `CartReadinessLinePresentation`: a line's outcome, whether it has a way to be fulfilled, the
+/// listing it would check out with and its price.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct LinePresentation {
+    pub line_id: String,
+    /// A `LineOutcome` reason.
+    pub reason: String,
+    pub fulfillment_available: bool,
+    pub listing_id: Option<String>,
+    pub price: Option<LinePrice>,
+}
+
+/// A line's price for its whole quantity: `exact` for a locked listing, `indicative` for Smart
+/// Match's chosen listing, `deferred` when it is priced at checkout.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+pub struct LinePrice {
+    pub state: String,
+    pub amount: String,
+    pub currency: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]

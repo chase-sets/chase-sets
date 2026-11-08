@@ -123,8 +123,11 @@ pub fn CartItem<'a>(t: CartMsg, p: Pilot, line: &'a Line, paused: bool) -> impl 
     let image = on_marketplace(l.item_image_url.as_deref().unwrap_or(FALLBACK_IMAGE));
     let srcset = l.item_image_srcset.as_deref().map(srcset_on_marketplace);
     let options = options(l.product_summary.as_deref());
-    let ready = line.reason.is_none_or(|r| r == Reason::Ready);
-    let fulfillable = line.reason.is_none_or(Reason::fulfillable);
+    // Ready in the success color only for a line the API presented as ready with a way to be
+    // fulfilled, and Find alternatives only for one it presented with none (marketplace's
+    // `readinessTone` and `alternativesAction`).
+    let ready = line.reason == Reason::Ready && line.fulfillment_available == Some(true);
+    let fulfillable = line.fulfillment_available != Some(false);
     let alternatives = link(&format!("/search?q={}", segment(&l.item_title)));
     let locked = (l.fulfillment_mode == "locked-listing").then_some(l.locked_listing_id.as_deref()).flatten();
     let preferred = if locked.is_none() { l.seller_preference_id.as_deref() } else { None };
@@ -152,11 +155,9 @@ pub fn CartItem<'a>(t: CartMsg, p: Pilot, line: &'a Line, paused: bool) -> impl 
                     if let Some(code) = l.item_language_code.as_deref().filter(|c| !c.trim().is_empty()) {
                         <span class={(Pill, Neutral)}>{language(t, code)}</span>
                     }
-                    if let Some(r) = line.reason {
-                        <span class={(Pill, ready.then_some(Success), (!ready).then_some(Warning))} data-reason>
-                            {reason(t, r)}
-                        </span>
-                    }
+                    <span class={(Pill, ready.then_some(Success), (!ready).then_some(Warning))} data-reason>
+                        {reason(t, line.reason)}
+                    </span>
                 </div>
                 if options.is_empty() {
                     <p class={Badges}><span class={(Pill, Neutral)}>{t.page_standard()}</span></p>

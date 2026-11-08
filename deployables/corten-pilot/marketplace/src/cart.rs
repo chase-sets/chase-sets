@@ -11,10 +11,10 @@
 //! Checkout API's call, so the pilot makes it.
 //!
 //! The API computes the readiness, the totals and the savings
-//! ([chase-sets/chase-sets#10504](https://github.com/chase-sets/chase-sets/issues/10504)). Each
-//! line's badge is the API's line outcome, not a copy of its rules
-//! ([chase-sets/chase-sets#10576](https://github.com/chase-sets/chase-sets/issues/10576)); the
-//! line's price is still worked out here from its listings, as marketplace's page does.
+//! ([chase-sets/chase-sets#10504](https://github.com/chase-sets/chase-sets/issues/10504)), and how
+//! each line is drawn (`linePresentations`): its outcome, whether it has a way to be fulfilled,
+//! the listing it would check out with and its price, so the page keeps none of the API's rules
+//! ([chase-sets/chase-sets#10576](https://github.com/chase-sets/chase-sets/issues/10576)).
 use crate::recovery::{attempt_text, submit_key};
 use std::{collections::HashMap, time::Duration};
 
@@ -29,8 +29,8 @@ use serde::Serialize;
 use crate::chrome::CartCount;
 use crate::{
     api::{
-        ApiError, Cart, CartCommand, CartLine, CartWrite, Checkout as _, Decisions, OptimizationDecision, Readiness,
-        SellerOption, Snapshot,
+        ApiError, Cart, CartCommand, CartLine, CartWrite, Checkout as _, Decisions, LinePresentation, OptimizationDecision,
+        Readiness, SellerOption, Snapshot,
     },
     app::{Config, Shared, read_failed, sign_in_at, url},
     auth::Buyer,
@@ -156,18 +156,26 @@ pub struct CartScreen {
 
 impl CartScreen {
     pub fn of(cart: Cart) -> Self {
-        let readiness = cart.readiness;
-        let reasons: HashMap<&str, &str> = readiness
+        // Each line is drawn from the cart as loaded; the readiness (the totals, the offer, checkout)
+        // only when the API presented every line, as loaded and without the offer (marketplace's
+        // `hasCompleteLinePresentations`).
+        let presentations: HashMap<String, LinePresentation> = cart
+            .readiness
             .iter()
-            .flat_map(|r| r.loaded.line_outcomes.iter().map(|o| (o.line_id.as_str(), o.reason.as_str())))
+            .flat_map(|r| r.loaded.line_presentations.iter().map(|p| (p.line_id.clone(), p.clone())))
             .collect();
-        let lines = group(cart.items)
+        let items = cart.items;
+        let complete = |s: &Snapshot| items.iter().all(|l| s.line_presentations.iter().any(|p| p.line_id == l.line_id));
+        let readiness = cart.readiness.filter(|r| complete(&r.loaded) && complete(&r.declined));
+        let lines = group(items, &presentations)
             .into_iter()
-            .map(|(line, line_ids)| {
-                let listing_id = readiness.as_ref().and_then(|r| r.line_listing_ids.get(&line.line_id).cloned().flatten());
-                let price = price(&line, listing_id.as_deref());
-                let reason = reasons.get(line.line_id.as_str()).map(|r| Reason::of(r));
-                Line { line, line_ids, listing_id, reason, price }
+            .map(|(line, line_ids, presentation)| {
+                let chosen = readiness.as_ref().and_then(|r| r.line_listing_ids.get(&line.line_id).cloned().flatten());
+                let listing_id = presentation.as_ref().and_then(|p| p.listing_id.clone()).or(chosen);
+                let reason = presentation.as_ref().map_or(Reason::Other, |p| Reason::of(&p.reason));
+                let fulfillment_available = presentation.as_ref().map(|p| p.fulfillment_available);
+                let price = Price::of(presentation.as_ref());
+                Line { line, line_ids, listing_id, reason, fulfillment_available, price }
             })
             .collect();
         CartScreen { lines, readiness, pending: false }
@@ -250,10 +258,12 @@ pub struct Line {
     pub line: CartLine,
     /// Every line merged into this one; the first is `line.line_id`.
     pub line_ids: Vec<String>,
-    /// The listing the API chose for the line, which prices it.
+    /// The listing the line would check out with, the API's.
     pub listing_id: Option<String>,
-    /// What the line needs before checkout, from the API's line outcome.
-    pub reason: Option<Reason>,
+    /// What the line needs before checkout, the API's; a line it did not present needs review.
+    pub reason: Reason,
+    /// Whether the line has a way to be fulfilled, the API's; none for a line it did not present.
+    pub fulfillment_available: Option<bool>,
     pub price: Price,
 }
 
@@ -307,7 +317,7 @@ impl<'a> Seller<'a> {
     }
 }
 
-/// What a line needs before checkout: the API's `lineOutcomes[].reason`.
+/// What a line needs before checkout: its presentation's `reason`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum Reason {
@@ -317,8 +327,7 @@ pub enum Reason {
     WaitingForSupply,
     Changed,
     ShippingMeasureMissing,
-    /// The line's currency is not the cart's. marketplace draws it as Ready, since its page does
-    /// not look at currency (chase-sets/chase-sets#10576); the pilot says it needs review.
+    /// The line's currency is not the cart's: it needs review.
     CurrencyMismatch,
     /// A reason this build does not know.
     Other,
@@ -337,17 +346,12 @@ impl Reason {
             _ => Reason::Other,
         }
     }
-
-    /// The line can be fulfilled as it is (marketplace's `hasFulfillmentPath`): no "Find
-    /// alternatives".
-    pub fn fulfillable(self) -> bool {
-        matches!(self, Reason::Ready | Reason::CurrencyMismatch)
-    }
 }
 
-/// A line's price (marketplace's `linePriceState`): a locked listing's is exact, Smart Match's is
-/// "from" the chosen listing, and a line with no priced listing is priced at checkout. The amount
-/// is the API's decimal text; the page writes it in the request's locale.
+/// A line's price for its quantity, the API's (`linePresentations[].price`): a locked listing's
+/// is exact, Smart Match's is "from" the listing it chose, and a line with no priced listing is
+/// priced at checkout. The amount is the API's decimal text; the page writes it in the request's
+/// locale.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[serde(tag = "state", rename_all = "kebab-case")]
 pub enum Price {
@@ -356,76 +360,86 @@ pub enum Price {
     Deferred,
 }
 
+impl Price {
+    fn of(presentation: Option<&LinePresentation>) -> Self {
+        match presentation.and_then(|p| p.price.as_ref()) {
+            Some(p) if p.state == "exact" => Price::Exact { amount: p.amount.clone(), currency: p.currency.clone() },
+            Some(p) if p.state == "indicative" => Price::From { amount: p.amount.clone(), currency: p.currency.clone() },
+            _ => Price::Deferred,
+        }
+    }
+}
+
 /// The listing `listing_id` among the line's options.
 fn option<'a>(line: &'a CartLine, listing_id: Option<&str>) -> Option<&'a SellerOption> {
     let id = listing_id?;
     line.seller_options.iter().find(|o| o.listing_id == id)
 }
 
-/// A listing's unit price in cents and its currency, when it is a usable price (marketplace's
-/// `listingMoney`): non-negative money, a three-letter currency and a stream version.
-fn unit(amount: Option<&str>, currency: Option<&str>, version: Option<u64>) -> Option<(i64, String)> {
-    let cents = money::cents(amount?).filter(|c| *c >= 0)?;
-    let currency = currency.filter(|c| c.len() == 3 && c.bytes().all(|b| b.is_ascii_uppercase()))?;
-    version.filter(|v| *v > 0)?;
-    Some((cents, currency.to_owned()))
+/// Cents as the API's decimal text.
+fn amount(cents: i64) -> String {
+    corten::i18n::Decimal::new(i128::from(cents), 2).to_string()
 }
 
-fn option_unit(option: &SellerOption) -> Option<(i64, String)> {
-    unit(Some(&option.price_amount), option.price_currency_code.as_deref(), option.listing_stream_version)
+/// What a line looks like, so only lines drawn alike are merged (marketplace's
+/// `cartLinePresentationKey`): its presentation, its price per item when the quantity divides it.
+fn presentation_key(line: &CartLine, presentation: Option<&LinePresentation>) -> String {
+    let Some(p) = presentation else { return "no-read".to_owned() };
+    let quantity = i64::from(line.quantity.max(1));
+    let price = p.price.as_ref().map(|price| match money::cents(&price.amount) {
+        Some(cents) if cents % quantity == 0 => format!("{}:{}:each {}", price.state, price.currency, cents / quantity),
+        _ => format!("{}:{}:{}", price.state, price.currency, price.amount),
+    });
+    format!("{}:{}:{}:{}", p.reason, p.fulfillment_available, p.listing_id.as_deref().unwrap_or(""), price.unwrap_or_default())
 }
 
-fn price(line: &CartLine, listing_id: Option<&str>) -> Price {
-    let unit = match line.locked_listing_id.as_deref() {
-        Some(locked) => option(line, Some(locked)).and_then(option_unit).or_else(|| {
-            (line.selected_listing_id.as_deref() == Some(locked))
-                .then(|| {
-                    unit(
-                        line.selected_listing_price_amount.as_deref(),
-                        line.selected_listing_price_currency_code.as_deref(),
-                        line.selected_listing_stream_version,
-                    )
-                })
-                .flatten()
-        }),
-        None => option(line, listing_id).and_then(option_unit),
-    };
-    match unit {
-        None => Price::Deferred,
-        Some((cents, currency)) => {
-            let total = cents.saturating_mul(i64::from(line.quantity));
-            let amount = corten::i18n::Decimal::new(i128::from(total), 2).to_string();
-            if line.fulfillment_mode == "locked-listing" && line.locked_listing_id.is_some() {
-                Price::Exact { amount, currency }
-            } else {
-                Price::From { amount, currency }
+/// Two merged lines' presentation (marketplace's `mergeLinePresentations`): the first's, its price
+/// the two added when both are priced alike.
+fn merge(left: Option<LinePresentation>, right: Option<&LinePresentation>) -> Option<LinePresentation> {
+    match (left, right) {
+        (Some(mut left), Some(right)) => {
+            if let (Some(l), Some(r)) = (left.price.as_mut(), right.price.as_ref())
+                && l.state == r.state
+                && l.currency == r.currency
+                && let (Some(a), Some(b)) = (money::cents(&l.amount), money::cents(&r.amount))
+            {
+                l.amount = amount(a.saturating_add(b));
             }
+            Some(left)
         }
+        (left, right) => left.or_else(|| right.cloned()),
     }
 }
 
-/// The lines for one product and fulfillment as one (marketplace's `groupCartLines`): their
-/// quantities added, their listings merged, the newest first. Each comes with the ids it merged.
-fn group(items: Vec<CartLine>) -> Vec<(CartLine, Vec<String>)> {
+/// The lines for one product and fulfillment, drawn alike, as one (marketplace's `groupCartLines`):
+/// their quantities added, their listings merged, the newest first. Each comes with the ids it
+/// merged and its presentation.
+fn group(
+    items: Vec<CartLine>,
+    presentations: &HashMap<String, LinePresentation>,
+) -> Vec<(CartLine, Vec<String>, Option<LinePresentation>)> {
     let key = |l: &CartLine| {
         let or = |v: &Option<String>| v.clone().unwrap_or_default();
         format!(
-            "{}:{}:{}:{}:{}",
+            "{}:{}:{}:{}:{}:{}",
             l.catalog_catalog_item_id,
             l.product_id,
             l.fulfillment_mode,
             or(&l.locked_listing_id),
-            or(&l.seller_preference_id)
+            or(&l.seller_preference_id),
+            presentation_key(l, presentations.get(&l.line_id))
         )
     };
-    let mut groups: Vec<(String, CartLine, Vec<String>)> = Vec::new();
+    let mut groups: Vec<(String, CartLine, Vec<String>, Option<LinePresentation>)> = Vec::new();
     for line in items {
         let k = key(&line);
-        let Some((_, existing, ids)) = groups.iter_mut().find(|(g, _, _)| *g == k) else {
+        let presentation = presentations.get(&line.line_id);
+        let Some((_, existing, ids, presented)) = groups.iter_mut().find(|(g, _, _, _)| *g == k) else {
             let id = line.line_id.clone();
-            groups.push((k, line, vec![id]));
+            groups.push((k, line, vec![id], presentation.cloned()));
             continue;
         };
+        *presented = merge(presented.take(), presentation);
         ids.push(line.line_id.clone());
         existing.quantity += line.quantity;
         for option in &line.seller_options {
@@ -456,8 +470,8 @@ fn group(items: Vec<CartLine>) -> Vec<(CartLine, Vec<String>)> {
             existing.updated_at = line.updated_at.clone();
         }
     }
-    let mut lines: Vec<_> = groups.into_iter().map(|(_, line, ids)| (line, ids)).collect();
-    lines.sort_by(|(a, _), (b, _)| {
+    let mut lines: Vec<_> = groups.into_iter().map(|(_, line, ids, presented)| (line, ids, presented)).collect();
+    lines.sort_by(|(a, _, _), (b, _, _)| {
         corten::i18n::parse_timestamp(&b.updated_at)
             .cmp(&corten::i18n::parse_timestamp(&a.updated_at))
             .then_with(|| a.line_id.cmp(&b.line_id))
