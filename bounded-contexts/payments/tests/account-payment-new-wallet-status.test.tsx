@@ -182,6 +182,13 @@ function mount(autostart = false, entry = "/account/payments/new?orderIds=ord_1"
 async function ready() {
   await screen.findByRole("heading", { name: "Start payment" });
 }
+async function readyToContinue() {
+  await waitFor(() => {
+    const buttons = screen.getAllByRole("button", { name: "Continue to payment" }) as HTMLButtonElement[];
+    expect(buttons).toHaveLength(2);
+    for (const button of buttons) expect(button.disabled).toBe(false);
+  });
+}
 function option(value: string) {
   return document.querySelector<HTMLOptionElement>(`option[value="${value}"]`)!;
 }
@@ -407,89 +414,137 @@ describe("Start payment authoritative wallet status", () => {
     },
   );
 
-  it("keeps withheld credit honest when terms recovery does not complete", async () => {
-    for (const failure of [
-      "inactive",
-      "refused",
-      "transport",
-      "unconfirmed",
-      "missing-receipt",
-      "malformed-receipt",
-      "wrong-source",
-      "still-withheld",
-      "timeout",
-    ] as const) {
-      const api = harness();
-      const router = mount();
-      await ready();
-      if (failure === "inactive" || failure === "refused")
-        api.setAccept(() =>
-          jsonResponse({ error: { code: failure, message: secret } }, failure === "inactive" ? 409 : 403),
-        );
-      if (failure === "transport")
-        api.setAccept(() => {
-          throw new Error(secret);
-        });
-      if (failure === "unconfirmed") api.setAccept(() => jsonResponse({ accepted: false, message: secret }));
-      if (failure === "missing-receipt") api.setAccept(() => jsonResponse({ accepted: true }, 201));
-      if (failure === "malformed-receipt" || failure === "wrong-source")
-        api.setAccept(() =>
-          jsonResponse({ accepted: true }, 201, {
-            "Chase-Sets-Consistency": "eventual",
-            "Chase-Sets-Commit-Receipt":
-              failure === "malformed-receipt"
-                ? secret
-                : encodeCommitReceipt([{ ...identityPosition, sourceContextName: "payments" }]),
-          }),
-        );
-      if (failure === "timeout")
-        api.setFresh(() => jsonResponse({ error: { code: "projection_freshness_timeout", message: secret } }, 503));
-      fireEvent.click(screen.getByRole("button", { name: "Accept Terms of Service" }));
-      await waitFor(() => expect(api.accepts()).toHaveLength(1));
-      await waitFor(() => expect(router.state.navigation.state).toBe("idle"));
-      expect(screen.getByText(reason)).toBeTruthy();
-      controls(true);
-      expect(screen.getByRole("link", { name: "Review Terms of Service" })).toBeTruthy();
-      expect(await screen.findAllByRole("button", { name: "Continue to payment" })).toHaveLength(2);
-      expect(document.body.textContent).not.toContain(secret);
-      expect(JSON.stringify({ loader: router.state.loaderData, action: router.state.actionData })).not.toContain(
-        secret,
-      );
-      expect(screen.queryByText(/Terms accepted|Wallet restored/i)).toBeNull();
-      if (failure !== "still-withheld" && failure !== "timeout") {
-        expect(
-          screen.getByText(
-            "Terms acceptance could not be confirmed. Review the Terms or continue without wallet balance.",
-          ),
-        ).toBeTruthy();
-      }
-      if (failure === "timeout") {
-        expect(screen.getByText("Wallet status is catching up. Refresh before using wallet balance.")).toBeTruthy();
-        const refresh = screen.getByRole("link", { name: "Refresh wallet status" });
-        expect(refresh.getAttribute("href")).toContain("orderIds=ord_1");
-        expect(refresh.getAttribute("href")).toContain("afterWrite=");
-        fireEvent.click(screen.getAllByRole("button", { name: "Continue to payment" })[1]!);
-        await waitFor(() => expect(router.state.navigation.state).toBe("idle"));
-        await screen.findAllByRole("button", { name: "Continue to payment" });
-        expect(api.creates()).toHaveLength(0);
-        expect(document.body.textContent).not.toContain(secret);
-        expect(JSON.stringify(router.state.actionData)).not.toContain(secret);
-        api.setFresh(undefined);
-        fireEvent.click(screen.getByRole("link", { name: "Refresh wallet status" }));
-        await waitFor(() => expect(router.state.navigation.state).toBe("idle"));
-        expect(api.accepts()).toHaveLength(1);
-      }
-      expect(api.creates()).toHaveLength(0);
-      expect(router.state.location.search).toContain("orderIds=ord_1");
+  it("waits for committed Continue after the router reports recovered idle", async () => {
+    const api = harness();
+    const router = mount();
+    await ready();
+    let finishFresh!: (response: Response) => void;
+    api.setFresh(
+      () =>
+        new Promise((resolve) => {
+          finishFresh = resolve;
+        }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Accept Terms of Service" }));
+    await waitFor(() => {
+      expect(finishFresh).toBeTypeOf("function");
+      expect(router.state.navigation.state).toBe("loading");
       expect((screen.getAllByRole("button", { name: "Continue to payment" })[1] as HTMLButtonElement).disabled).toBe(
-        false,
+        true,
       );
-      fireEvent.click(screen.getAllByRole("button", { name: "Continue to payment" })[1]!);
-      await screen.findByText("Payment destination");
-      expect(api.creates()).toHaveLength(1);
-      expect(api.accepts()).toHaveLength(1);
-      cleanup();
+    });
+    expect(api.creates()).toHaveLength(0);
+    let disabledAtIdle: boolean | undefined;
+    const unsubscribe = router.subscribe((state) => {
+      if (state.navigation.state === "idle") {
+        disabledAtIdle = (screen.getAllByRole("button", { name: "Continue to payment" })[1] as HTMLButtonElement)
+          .disabled;
+      }
+    });
+    try {
+      await act(async () => {
+        finishFresh(jsonResponse(status()));
+        await waitFor(() => expect(router.state.navigation.state).toBe("idle"));
+      });
+    } finally {
+      unsubscribe();
     }
+    expect(disabledAtIdle).toBe(true);
+    await readyToContinue();
+    controls(true);
+    api.setFresh(undefined);
+    fireEvent.click(screen.getAllByRole("button", { name: "Continue to payment" })[1]!);
+    await screen.findByText("Payment destination");
+    expect(api.creates()).toHaveLength(1);
+    expect(api.accepts()).toHaveLength(1);
+  });
+
+  it.each([
+    "inactive",
+    "refused",
+    "transport",
+    "unconfirmed",
+    "missing-receipt",
+    "malformed-receipt",
+    "wrong-source",
+    "still-withheld",
+    "timeout",
+  ] as const)("keeps withheld credit honest when terms recovery does not complete: %s", async (failure) => {
+    const api = harness();
+    const router = mount();
+    await ready();
+    if (failure === "inactive" || failure === "refused")
+      api.setAccept(() =>
+        jsonResponse({ error: { code: failure, message: secret } }, failure === "inactive" ? 409 : 403),
+      );
+    if (failure === "transport")
+      api.setAccept(() => {
+        throw new Error(secret);
+      });
+    if (failure === "unconfirmed") api.setAccept(() => jsonResponse({ accepted: false, message: secret }));
+    if (failure === "missing-receipt") api.setAccept(() => jsonResponse({ accepted: true }, 201));
+    if (failure === "malformed-receipt" || failure === "wrong-source")
+      api.setAccept(() =>
+        jsonResponse({ accepted: true }, 201, {
+          "Chase-Sets-Consistency": "eventual",
+          "Chase-Sets-Commit-Receipt":
+            failure === "malformed-receipt"
+              ? secret
+              : encodeCommitReceipt([{ ...identityPosition, sourceContextName: "payments" }]),
+        }),
+      );
+    if (failure === "timeout")
+      api.setFresh(() => jsonResponse({ error: { code: "projection_freshness_timeout", message: secret } }, 503));
+    fireEvent.click(screen.getByRole("button", { name: "Accept Terms of Service" }));
+    await waitFor(() => expect(api.accepts()).toHaveLength(1));
+    await waitFor(() => expect(router.state.navigation.state).toBe("idle"));
+    await readyToContinue();
+    expect(screen.getByText(reason)).toBeTruthy();
+    controls(true);
+    expect(screen.getByRole("link", { name: "Review Terms of Service" })).toBeTruthy();
+    expect(await screen.findAllByRole("button", { name: "Continue to payment" })).toHaveLength(2);
+    expect(document.body.textContent).not.toContain(secret);
+    expect(JSON.stringify({ loader: router.state.loaderData, action: router.state.actionData })).not.toContain(secret);
+    expect(screen.queryByText(/Terms accepted|Wallet restored/i)).toBeNull();
+    if (failure !== "still-withheld" && failure !== "timeout") {
+      expect(
+        screen.getByText(
+          "Terms acceptance could not be confirmed. Review the Terms or continue without wallet balance.",
+        ),
+      ).toBeTruthy();
+    }
+    if (failure === "timeout") {
+      expect(screen.getByText("Wallet status is catching up. Refresh before using wallet balance.")).toBeTruthy();
+      const refresh = screen.getByRole("link", { name: "Refresh wallet status" });
+      expect(refresh.getAttribute("href")).toContain("orderIds=ord_1");
+      expect(refresh.getAttribute("href")).toContain("afterWrite=");
+      fireEvent.click(screen.getAllByRole("button", { name: "Continue to payment" })[1]!);
+      await waitFor(() => expect(router.state.navigation.state).toBe("idle"));
+      await readyToContinue();
+      expect(api.creates()).toHaveLength(0);
+      expect(document.body.textContent).not.toContain(secret);
+      expect(JSON.stringify(router.state.actionData)).not.toContain(secret);
+      api.setFresh(undefined);
+      const beforeRefresh = api.calls.length;
+      fireEvent.click(screen.getByRole("link", { name: "Refresh wallet status" }));
+      await waitFor(() => expect(router.state.navigation.state).toBe("idle"));
+      await readyToContinue();
+      const refreshedStatus = api.calls.slice(beforeRefresh).find((call) => call.path.endsWith("/checkout/status"))!;
+      expect(decodeFreshWriteReceipt(refreshedStatus.headers.get(CHASE_SETS_READ_AFTER_WRITE_HEADER))).toMatchObject({
+        sources: [identityPosition],
+      });
+      expect(refreshedStatus.url.searchParams.get("orderIds")).toBe("ord_1");
+      expect(api.accepts()).toHaveLength(1);
+    }
+    expect(api.creates()).toHaveLength(0);
+    expect(router.state.location.search).toContain("orderIds=ord_1");
+    expect((screen.getAllByRole("button", { name: "Continue to payment" })[1] as HTMLButtonElement).disabled).toBe(
+      false,
+    );
+    fireEvent.click(screen.getAllByRole("button", { name: "Continue to payment" })[1]!);
+    await screen.findByText("Payment destination");
+    expect(api.creates()).toHaveLength(1);
+    expect(api.accepts()).toHaveLength(1);
   });
 
   it("preserves eligible and no-wallet payment paths", async () => {
