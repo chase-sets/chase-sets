@@ -94,16 +94,70 @@ A brief:
 For this contract, "about 12 KB" means at most 12 × 1024 = 12,288
 UTF-8 bytes in the Markdown issue body. Put any don't-rebuild pointers under a
 `Don't-rebuild pointers` heading with one backticked path or symbol per list
-item. Before registration, render the prospective issue body to a Markdown
-file and run:
-
-```powershell
-node ./scripts/brief-lint.mjs <path-to-brief.md>
-```
+item.
 
 Apply this contract to new planning and to the next planning round for an
 existing issue. Never rewrite, split, or re-register existing open briefs
 solely to adopt it.
+
+### Pre-registration checks
+
+Every `chase-sets/chase-sets` brief runs two checks on its exact prospective
+tuple before the issue is created or a repaired or replanned body is adopted:
+fast and full path, Issues tier, Epic and Milestone children, host and review
+follow-ups, and replan or repair rounds alike. Every product path runs both
+checks, and neither replaces the other.
+
+Render the exact body bytes to a Markdown file and the intended metadata to a
+JSON file, then run both checks with the scripts of the inspected `origin/main`
+commit:
+
+```powershell
+node ./scripts/brief-lint.mjs <path-to-brief.md>
+node ./scripts/issue-readiness.mjs --prospective-body <path-to-brief.md> --prospective-metadata <path-to-metadata.json> --checker-sha <40-character-checker-commit>
+```
+
+The metadata names `repository`, `number`, `state`, the enabled native
+`issueType`, the full `milestone` with its outcome-policy description,
+`labels`, `parentNumber`, and the complete native `dependencies` (Blocked by)
+set. Use a disclosed positive placeholder `number` for a new issue and the
+actual number for a repair. Mark each value as a proposal or a captured live
+fact; never omit or fabricate a blocker or identity to pass. `--checker-sha` is
+the 40-character commit whose scripts ran. Retain both inputs, their SHA-256
+hashes, the checker commit, and both complete outputs. Any edit to the body or
+metadata invalidates the proof: rerun both checks. Never execute the brief's
+own verification text as part of either check.
+
+Lint must pass. Judge the readiness JSON, not its exit code, which is 0 even
+for `not-ready`: `checkedRules` must list each of the eleven
+`issue-readiness/v1` rule IDs exactly once, with its status and reason codes.
+
+- A brief intended to become dispatchable needs status `ready`, all eleven
+  rules `pass`, and no reason codes.
+- A lawful blocked or candidate registration keeps its genuine metadata and
+  records, before creation, each expected failure with its rule ID, exact
+  reason codes, and lifecycle, dependency or decision reason. Only these
+  failures are lawful: `ready-00-placed-classified` for intentional
+  non-runnable placement or lifecycle, listing every reason code it reports;
+  `ready-00-dependencies-resolved` with `OPEN_NATIVE_DEPENDENCY` for genuine
+  open native blockers; and `ready-06-decisions-resolved` with
+  `UNRESOLVED_DECISION_DECLARED` for a linked unresolved decision that is also
+  an open native blocker, recording both the decision and dependency
+  diagnostics. Every other rule must pass, and no other `ready-06` failure is
+  waived. Register the issue blocked or candidate and withhold dispatch.
+- Any other failure, an `unknown` status or rule, malformed or incomplete
+  output, or a missing or duplicate rule ID returns the brief to drafting.
+
+This prospective proof grants neither dispatch authority nor a semantic pass:
+the fresh pressure test and a current trusted-default-branch readiness receipt
+(Enforcement below) still decide dispatch.
+
+A `chase-sets/chase-sets-controller` brief keeps the same body standard, lint
+and pressure test, but follows that repository's readiness and release
+contracts, not this eleven-rule check. Never move controller work into a
+product brief, or hide a controller footprint, to pass: the product checker
+refuses a footprint that names tracked controller source
+(`FOOTPRINT_IN_CONTROLLER_REPOSITORY`).
 
 ## Pipeline
 

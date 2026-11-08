@@ -1242,6 +1242,70 @@ describe("checkout session page", () => {
     }
   });
 
+  // chase-sets/chase-sets#10785: once the orders exist the preview is gone, and Pay now resumes their payment.
+  it.each([
+    ["the revision its orders kept", "rev_orders", "rev_orders"],
+    ["no revision for a Session whose orders kept none", null, ""],
+  ])("posts %s once the orders exist without a payment", (_case, kept, posted) => {
+    const { container } = render(
+      <CheckoutSessionPage
+        session={{ ...readySession, order_ids: ["ord_1"], payment_id: null, fulfillment_preview_revision: kept }}
+        fulfillmentPreview={null}
+        paymentPreview={paymentPreview}
+        wallet={null}
+        walletUnavailable={false}
+        isSignedInBuyer
+      />,
+    );
+
+    expect(container.querySelector('input[name="fulfillmentPreviewRevision"]')?.getAttribute("value")).toBe(posted);
+  });
+
+  // chase-sets/chase-sets#11151: the order hash binds the acknowledgement the first form posted. Once the orders
+  // exist the preview that produced it is gone, so the resumed form posts the one the Session kept.
+  it.each([
+    ["a material change it acknowledged", ["Shipping changed for one seller."], "true"],
+    ["no material change", [], ""],
+  ])("posts the acknowledgement its orders were bound to after %s", (_case, materialChangeReasons, posted) => {
+    const field = (container: HTMLElement, name: string) =>
+      container.querySelector<HTMLInputElement>(`input[name='${name}']`)?.value;
+    const quoted = { ...readyFulfillmentPreview, materialChangeReasons };
+    const first = render(
+      <CheckoutSessionPage
+        session={readySession}
+        fulfillmentPreview={quoted}
+        paymentPreview={paymentPreview}
+        isSignedInBuyer
+      />,
+    );
+    const sent = {
+      revision: field(first.container, "fulfillmentPreviewRevision") ?? null,
+      acknowledged: field(first.container, "acknowledgedMaterialChanges") === "true",
+    };
+    expect(field(first.container, "acknowledgedMaterialChanges")).toBe(posted);
+    first.unmount();
+
+    // The Session as that confirm recorded it: orders bound to what the form sent, the live preview cleared.
+    const resumed = render(
+      <CheckoutSessionPage
+        session={{
+          ...readySession,
+          order_ids: ["ord_1"],
+          payment_id: null,
+          fulfillment_preview_revision: sent.revision,
+          last_recorded_quote: quoted,
+          order_acknowledged_material_changes: sent.acknowledged,
+        }}
+        fulfillmentPreview={null}
+        paymentPreview={paymentPreview}
+        isSignedInBuyer
+      />,
+    );
+
+    expect(field(resumed.container, "fulfillmentPreviewRevision")).toBe(sent.revision);
+    expect(field(resumed.container, "acknowledgedMaterialChanges")).toBe(posted);
+  });
+
   it("omits wallet credit from both summaries for a signed-in no-wallet quote", () => {
     const markup = renderToString(
       <CheckoutSessionPage
