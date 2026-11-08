@@ -129,9 +129,15 @@ for (const javaScriptEnabled of [true, false]) {
       await theirs.close();
     }
   }
+  const seenBefore = problems.length;
   const missing = await page.goto(`${base}/account/support/sup_does_not_exist`);
   check(missing?.status() === 404, `${label}: a case that does not exist is Not found (${missing?.status()})`);
-  check(problems.length === 0, `${label}: no console errors (${problems.join(" | ")})`);
+  // The browser logs that page's own 404 as an error; anything else it logs still counts.
+  const logged = [
+    ...problems.slice(0, seenBefore),
+    ...problems.slice(seenBefore).filter((p) => !/status of 404/.test(p)),
+  ];
+  check(logged.length === 0, `${label}: no console errors (${logged.join(" | ")})`);
   await ctx.close();
 }
 check(seen > 0, `the seed's cases were read (${seen / 2} of ${cases.length})`);

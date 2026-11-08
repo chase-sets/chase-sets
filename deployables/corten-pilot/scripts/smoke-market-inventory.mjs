@@ -20,6 +20,7 @@ const text = {
   ready: "Inventory changes are ready.",
   confirmed: "The original Inventory change is confirmed.",
   unverified: "Inventory item update could not be verified.",
+  pending: "Inventory item is still updating",
   choose: "Choose the catalog item from the visible search results.",
 };
 let failures = 0;
@@ -34,6 +35,18 @@ async function settled(page) {
   await page.waitForLoadState();
   await page.waitForFunction(() => !(/** @type {any} */ (window).navigation?.transition));
 }
+/**
+ * Once the page's own requests have answered. Not Playwright's network idle: under `corten dev` the
+ * live-reload stream stays open, so the network never goes idle.
+ */
+async function quiet(page) {
+  const open = /** @type {Set<unknown>} */ (pending.get(page));
+  for (let calm = 0; calm < 2; ) {
+    await page.waitForTimeout(250);
+    calm = open.size === 0 ? calm + 1 : 0;
+  }
+}
+const pending = new WeakMap();
 const browser = await chromium.launch();
 
 async function context(javaScriptEnabled, viewport) {
@@ -44,6 +57,11 @@ async function context(javaScriptEnabled, viewport) {
   });
   const page = await ctx.newPage();
   page.setDefaultTimeout(20_000);
+  const open = new Set();
+  pending.set(page, open);
+  page.on("request", (r) => !r.url().includes("/corten/dev") && open.add(r));
+  page.on("requestfinished", (r) => open.delete(r));
+  page.on("requestfailed", (r) => open.delete(r));
   const problems = [];
   // The pilot's own pages only.
   const ours = () => page.url().startsWith(base);
@@ -84,6 +102,11 @@ async function until(page, id, ok) {
  */
 async function landed(page, family, id, ok) {
   await settled(page);
+  // A read the API has not caught up to yet is the page saying so, which reads it again.
+  for (let i = 0; i < 40 && (await page.getByText(text.pending).count()) > 0; i += 1) {
+    await page.waitForTimeout(500);
+    await settled(page);
+  }
   const to = new URL(page.url());
   if (family)
     check(
@@ -123,7 +146,7 @@ let catalogTitle;
   const form = page.locator('form:has(select[name="storageLocationId"])');
   await form.locator('input[name="q"]').fill(catalogTitle);
   await page.getByText(text.choose).waitFor();
-  await page.waitForLoadState("networkidle");
+  await quiet(page);
   const matches = form.locator('button[name="choose"]');
   check((await matches.count()) > 0, `typing "${catalogTitle}" finds catalog items (${await matches.count()})`);
   // Chosen at once, before typing settles: the search it would have sent must not draw over it.
@@ -145,7 +168,7 @@ let catalogTitle;
       .getAttribute("value");
     if ((await formOption.first().inputValue()) !== raw) {
       await formOption.first().selectOption(raw);
-      await page.waitForLoadState("networkidle");
+      await quiet(page);
       await page.waitForTimeout(300);
     }
   }
@@ -155,7 +178,7 @@ let catalogTitle;
     const select = open.first();
     const value = await select.locator('option:not([value=""])').first().getAttribute("value");
     await select.selectOption(value);
-    await page.waitForLoadState("networkidle");
+    await quiet(page);
     await page.waitForTimeout(300);
   }
   check(
@@ -258,10 +281,26 @@ let catalogTitle;
     .filter({ hasText: /recorded as sold|could not be verified/ });
   await said.first().waitFor();
   const message = (await said.first().textContent()) ?? "";
-  check(
-    message.includes("Completed: 1 units recorded as sold. Authoritative available quantity: 0."),
-    `the list says what the sale did, read again after it: ${message}`,
-  );
+  const done = "Completed: 1 units recorded as sold. Authoritative available quantity: 0.";
+  if (message.includes(done)) check(true, "the list says what the sale did, read again after it");
+  else {
+    // As marketplace's list does, a read after the sale's receipt that fails says the result could
+    // not be verified. That is right only while the API itself has not caught up to the receipt
+    // (a local dev API that only polls can take about 30 s).
+    const receipt = new URL(page.url()).searchParams.get("after_write");
+    const read = receipt
+      ? await page.request.get(`${api}/api/inventory/items/${encodeURIComponent(created)}`, {
+          headers: {
+            "chase-sets-read-after-write": encodeURIComponent(receipt),
+            "chase-sets-read-target-context": "inventory",
+          },
+        })
+      : null;
+    check(
+      message.includes("could not be verified") && read?.status() === 503,
+      `the list says it could not verify the sale only while the API has not caught up (${read?.status()}): ${message}`,
+    );
+  }
   check((await page.locator("dialog[open]").count()) === 0, "the dialog is closed");
   let sold = await item(page, created);
   for (let i = 0; i < 80 && sold?.available_quantity !== 0; i += 1) {
