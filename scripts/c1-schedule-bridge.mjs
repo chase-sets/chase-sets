@@ -1,4 +1,13 @@
-import { closeSync, existsSync, fsyncSync, lstatSync, openSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  closeSync,
+  existsSync,
+  fsyncSync,
+  lstatSync,
+  openSync,
+  readdirSync,
+  readFileSync,
+  writeFileSync,
+} from "node:fs";
 import { isAbsolute, join, resolve } from "node:path";
 import { instant, readTerminalEvidence, sha256, validateWindowSchedule } from "./census-terminal-evidence.mjs";
 import { retainC1Evidence } from "./c1-evidence-custody.mjs";
@@ -476,7 +485,6 @@ function applyEvent(state, event) {
     }
   }
   state.lastAt = event.at;
-  validateWindowSchedule(state.schedule, state.schedule.t0Utc, state.ackAt);
 }
 function startNext(state, slot) {
   const next = state.schedule.windows.find((w) => !w.ended);
@@ -519,52 +527,97 @@ function validateObservation(payload, at, slot, state) {
 
 export function reconstructScheduleBridge({ root, authority }) {
   try {
-    const readiness = json(join(local(root), "readiness.json")),
-      snapshot = json(join(root, "snapshot.json"));
-    const initial = validateInitial(root, readiness);
-    validateSnapshot(snapshot, readiness, authority);
-    need(snapshot.initialHash === digest(initial), "STOP_INITIAL_SNAPSHOT");
-    const snapshotHash = digest(snapshot),
-      ackPath = join(root, "acknowledgement.json");
-    if (!existsSync(ackPath)) return { state: "NOT_STARTED", t0Utc: null, c1Schedule: "NOT_STARTED", snapshotHash };
-    const acknowledged = json(ackPath),
-      ack = acknowledged.ack;
-    need(
-      json(join(root, "acknowledgement-complete.json")).acknowledgementHash === digest(acknowledged),
-      "STOP_PARTIAL_ACK",
-    );
-    need(
-      acknowledged.snapshotHash === snapshotHash &&
-        acknowledged.readinessHash === digest(readiness) &&
-        ack.scheduleHash === digest(snapshot.schedule) &&
-        ack.receiptHash === snapshot.receiptHash &&
-        ack.custodian === readiness.plan.roles.schedule.identity,
-      "STOP_ACK_BINDING",
-    );
-    validateReadiness(readiness, authority, ack.at);
-    validateWindowSchedule(snapshot.schedule, instant(snapshot.rawD).utc, ack.at);
-    const state = {
-      schedule: structuredClone(snapshot.schedule),
-      ackAt: ack.at,
-      lastAt: ack.at,
-      c1Admission: acknowledged.c1Admission,
-      executor: readiness.plan.roles.executor.identity,
-      ...readiness.plan.observationBinding,
-      pending: null,
-      qualified: null,
-      claimed: null,
-      arm: null,
-      stopped: false,
-    };
-    let previous = digest(acknowledged);
-    const events = [];
-    // 180 reads, at most 180 rechecks, one irreversible claim and its confirmation.
-    for (let ordinal = 1; ordinal <= 363; ordinal++) {
-      const path = eventPath(root, ordinal);
-      if (!existsSync(path)) {
-        for (let tail = ordinal + 1; tail <= 363; tail++)
-          need(!existsSync(eventPath(root, tail)), "STOP_TRANSITION_GAP");
-        return {
+    return reconstruct(root, authority).current;
+  } catch (error) {
+    return stopped(error, root);
+  }
+}
+
+function retainedRecord(path) {
+  const bytes = read(path);
+  const value = JSON.parse(bytes.toString("utf8"));
+  need(bytes.equals(Buffer.from(JSON.stringify(value))), "STOP_RETAINED_BYTES");
+  return { bytes, value };
+}
+
+function reconstruct(root, authority) {
+  // All journal entries are direct children of the independently checked root.
+  const names = new Set(readdirSync(local(root)));
+  for (const name of names) {
+    if (name.startsWith("transition-"))
+      need(
+        /^transition-\d{3}\.json$/.test(name) && Number(name.slice(11, 14)) >= 1 && Number(name.slice(11, 14)) <= 362,
+        "STOP_TRANSITION_BOUND",
+      );
+  }
+  const transition = (ordinal) => {
+    const path = eventPath(root, ordinal);
+    const stat = lstatSync(path);
+    need(stat.isFile() && !stat.isSymbolicLink() && stat.size <= 64 * 1024 * 1024, "STOP_LOCAL_FILE");
+    const bytes = readFileSync(path);
+    const value = JSON.parse(bytes.toString("utf8"));
+    need(bytes.equals(Buffer.from(JSON.stringify(value))), "STOP_RETAINED_BYTES");
+    return { bytes, value };
+  };
+  const anchors = new Map();
+  const anchor = (name) => {
+    const record = retainedRecord(join(root, name));
+    anchors.set(name, record.bytes);
+    return record.value;
+  };
+  const readiness = anchor("readiness.json"),
+    snapshot = anchor("snapshot.json");
+  anchor("initial-snapshot.json");
+  const initial = validateInitial(root, readiness);
+  validateSnapshot(snapshot, readiness, authority);
+  need(snapshot.initialHash === digest(initial), "STOP_INITIAL_SNAPSHOT");
+  const snapshotHash = digest(snapshot),
+    ackPath = join(root, "acknowledgement.json");
+  if (!existsSync(ackPath))
+    return { current: { state: "NOT_STARTED", t0Utc: null, c1Schedule: "NOT_STARTED", snapshotHash } };
+  const acknowledged = anchor("acknowledgement.json"),
+    ack = acknowledged.ack;
+  need(anchor("acknowledgement-complete.json").acknowledgementHash === digest(acknowledged), "STOP_PARTIAL_ACK");
+  need(
+    acknowledged.snapshotHash === snapshotHash &&
+      acknowledged.readinessHash === digest(readiness) &&
+      ack.scheduleHash === digest(snapshot.schedule) &&
+      ack.receiptHash === snapshot.receiptHash &&
+      ack.custodian === readiness.plan.roles.schedule.identity,
+    "STOP_ACK_BINDING",
+  );
+  validateReadiness(readiness, authority, ack.at);
+  validateWindowSchedule(snapshot.schedule, instant(snapshot.rawD).utc, ack.at);
+  const state = {
+    schedule: structuredClone(snapshot.schedule),
+    ackAt: ack.at,
+    lastAt: ack.at,
+    c1Admission: acknowledged.c1Admission,
+    executor: readiness.plan.roles.executor.identity,
+    ...readiness.plan.observationBinding,
+    pending: null,
+    qualified: null,
+    claimed: null,
+    arm: null,
+    stopped: false,
+  };
+  let previous = digest(acknowledged);
+  const events = [];
+  const ids = new Set();
+  const entries = new Map();
+  const present = (n) => names.has(`transition-${String(n).padStart(3, "0")}.json`);
+  // 180 reads, at most 180 rechecks, one irreversible claim and its confirmation.
+  for (let ordinal = 1; ordinal <= 363; ordinal++) {
+    if (!present(ordinal)) {
+      for (let tail = ordinal + 1; tail <= 363; tail++) need(!present(tail), "STOP_TRANSITION_GAP");
+      // Each event enforces its transition; validate the resulting schedule once,
+      // rather than revalidating every growing prefix during replay.
+      validateWindowSchedule(state.schedule, state.schedule.t0Utc, state.ackAt);
+      return {
+        anchors,
+        entries,
+        snapshot,
+        current: {
           state: resultState(state),
           t0Utc: state.stopped ? null : snapshot.schedule.t0Utc,
           c1Schedule: resultState(state),
@@ -572,29 +625,152 @@ export function reconstructScheduleBridge({ root, authority }) {
           previous,
           events,
           ...state,
-        };
-      }
-      need(ordinal <= 362, "STOP_TRANSITION_BOUND");
-      const entry = json(path);
-      keys(
-        entry,
-        ["ordinal", "snapshotHash", "histories", "previous", "event", "payloadHash"],
-        "STOP_TRANSITION_SHAPE",
-      );
-      need(
-        entry.ordinal === ordinal &&
-          entry.snapshotHash === snapshotHash &&
-          entry.previous === previous &&
-          equal(entry.histories, snapshot.histories) &&
-          entry.payloadHash === digest(entry.event.payload) &&
-          !events.some((e) => e.id === entry.event.id),
-        "STOP_TRANSITION_CAUSALITY",
-      );
-      applyEvent(state, entry.event);
-      previous = digest(entry);
-      events.push(entry.event);
+        },
+      };
     }
-    need(false, "STOP_TRANSITION_BOUND");
+    need(ordinal <= 362, "STOP_TRANSITION_BOUND");
+    const { value: entry, bytes } = transition(ordinal);
+    keys(entry, ["ordinal", "snapshotHash", "histories", "previous", "event", "payloadHash"], "STOP_TRANSITION_SHAPE");
+    need(
+      entry.ordinal === ordinal &&
+        entry.snapshotHash === snapshotHash &&
+        entry.previous === previous &&
+        equal(entry.histories, snapshot.histories) &&
+        entry.payloadHash === digest(entry.event.payload) &&
+        !ids.has(entry.event.id),
+      "STOP_TRANSITION_CAUSALITY",
+    );
+    applyEvent(state, entry.event);
+    previous = digest(entry);
+    events.push(entry.event);
+    ids.add(entry.event.id);
+    entries.set(entry.event.id, { ordinal, bytes });
+  }
+  need(false, "STOP_TRANSITION_BOUND");
+}
+
+const writers = new WeakMap();
+
+// This cursor verifies appends, never substitutes for a fresh authoritative read.
+export function openScheduleBridgeWriter({ root, authority, writer }) {
+  try {
+    if (writer !== undefined) {
+      const binding = writers.get(writer);
+      need(
+        binding && binding.root === resolve(root) && binding.approval === authority?.approvedPlanHash,
+        "STOP_WRITER_BINDING",
+      );
+      return writer;
+    }
+    const pinned = reconstruct(root, authority);
+    need(Array.isArray(pinned.current.events), "STOP_NOT_ACKNOWLEDGED");
+    root = resolve(root);
+    authority = structuredClone(authority);
+    let current = pinned.current;
+    let live = !["CONSUMED", "REFUSED_THREE_WINDOWS_RETURN_TO_PLANNING_C"].includes(current.state);
+    const checkBinding = (input = {}) => {
+      need(live, "STOP_WRITER_CLOSED");
+      need(
+        (input.root === undefined || resolve(input.root) === root) &&
+          (input.authority === undefined || input.authority.approvedPlanHash === authority.approvedPlanHash),
+        "STOP_WRITER_BINDING",
+      );
+    };
+    const independent = () => {
+      const fresh = reconstruct(root, authority).current;
+      need(equal(fresh, current), "STOP_WRITER_PREFIX");
+      return structuredClone(fresh);
+    };
+    const audit = (input, close) => {
+      try {
+        checkBinding(input);
+        const fresh = independent();
+        if (close) live = false;
+        return fresh;
+      } catch (error) {
+        live = false;
+        return stopped(error, root);
+      }
+    };
+    const progress = () => {
+      const result = structuredClone(current);
+      result.verification = "APPEND_VERIFIED_PROGRESS";
+      // Only a fresh reconstruction may disclose positive qualification.
+      result.qualified = null;
+      return result;
+    };
+    const append = (input, { now = () => new Date().toISOString() } = {}) => {
+      let persistenceStarted = false;
+      try {
+        checkBinding(input);
+        local(root);
+        for (const [name, bytes] of pinned.anchors) need(read(join(root, name)).equals(bytes), "STOP_WRITER_ANCHOR");
+        if (current.events.length) {
+          const tip = pinned.entries.get(current.events.at(-1).id);
+          need(read(eventPath(root, tip.ordinal)).equals(tip.bytes), "STOP_WRITER_PREDECESSOR");
+        }
+        const event = structuredClone(input.event);
+        const duplicate = pinned.entries.get(event.id);
+        if (duplicate) {
+          need(read(eventPath(root, duplicate.ordinal)).equals(duplicate.bytes), "STOP_DUPLICATE_BYTES");
+          need(equal(JSON.parse(duplicate.bytes).event, event), "STOP_CONFLICTING_EVENT");
+          if (["RECHECK", "ARM_CLAIM", "ARM_CONFIRMED"].includes(event.kind)) return independent();
+          return progress();
+        }
+        need(current.events.length < 362, "STOP_TRANSITION_BOUND");
+        need(
+          current.previous === input.expectedPrevious && ticks(now()) === ticks(event.at),
+          "STOP_STALE_PREDECESSOR_OR_TIME",
+        );
+        if (["RECHECK", "ARM_CLAIM", "ARM_CONFIRMED"].includes(event.kind)) independent();
+        const next = structuredClone(current);
+        applyEvent(next, event);
+        validateWindowSchedule(next.schedule, next.schedule.t0Utc, next.ackAt);
+        const entry = {
+          ordinal: current.events.length + 1,
+          snapshotHash: current.snapshotHash,
+          histories: pinned.snapshot.histories,
+          previous: current.previous,
+          event,
+          payloadHash: digest(event.payload),
+        };
+        persistenceStarted = true;
+        create(eventPath(root, entry.ordinal), entry);
+        const bytes = Buffer.from(JSON.stringify(entry));
+        next.events.push(event);
+        next.previous = sha256(bytes);
+        next.state = resultState(next);
+        next.c1Schedule = next.state;
+        current = next;
+        pinned.entries.set(event.id, { ordinal: entry.ordinal, bytes });
+        if (next.state === "REFUSED_THREE_WINDOWS_RETURN_TO_PLANNING_C") return audit(undefined, true);
+        if ((event.kind === "RECHECK" && next.qualified) || ["ARM_CLAIM", "ARM_CONFIRMED"].includes(event.kind)) {
+          const fresh = independent();
+          if (next.state === "CONSUMED") live = false;
+          return fresh;
+        }
+        return progress();
+      } catch (error) {
+        if (
+          persistenceStarted ||
+          ![
+            "STOP_STALE_PREDECESSOR_OR_TIME",
+            "STOP_MISSED_OR_DUPLICATE_SLOT",
+            "STOP_CONFLICTING_EVENT",
+            "STOP_NO_OPPORTUNITY",
+          ].includes(error.message)
+        )
+          live = false;
+        return stopped(error, root);
+      }
+    };
+    const result = Object.freeze({
+      append,
+      read: (input) => audit(input, false),
+      close: (input) => audit(input, true),
+    });
+    writers.set(result, { root, approval: authority.approvedPlanHash });
+    return result;
   } catch (error) {
     return stopped(error, root);
   }
@@ -605,26 +781,11 @@ export function appendScheduleTransition(
   { now = () => new Date().toISOString() } = {},
 ) {
   try {
-    const current = reconstructScheduleBridge({ root, authority });
-    need(Array.isArray(current.events), "STOP_NOT_ACKNOWLEDGED");
-    const prior = current.events.find((e) => e.id === event.id);
-    if (prior) {
-      need(equal(prior, event), "STOP_CONFLICTING_EVENT");
-      return current;
-    }
-    need(current.previous === expectedPrevious && ticks(now()) === ticks(event.at), "STOP_STALE_PREDECESSOR_OR_TIME");
-    const state = structuredClone(current);
-    applyEvent(state, event);
-    const snapshot = json(join(root, "snapshot.json"));
-    create(eventPath(root, current.events.length + 1), {
-      ordinal: current.events.length + 1,
-      snapshotHash: current.snapshotHash,
-      histories: snapshot.histories,
-      previous: current.previous,
-      event,
-      payloadHash: digest(event.payload),
-    });
-    return reconstructScheduleBridge({ root, authority });
+    const writer = openScheduleBridgeWriter({ root, authority });
+    if (writer.state === "STOP") return writer;
+    const result = writer.append({ expectedPrevious, event }, { now });
+    if (result.state === "STOP" || result.verification === undefined) return result;
+    return writer.close();
   } catch (error) {
     return stopped(error, root);
   }

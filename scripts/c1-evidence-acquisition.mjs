@@ -5,7 +5,7 @@ import { performance } from "node:perf_hooks";
 import { parse } from "yaml";
 import { instant, readTerminalEvidence, sha256 } from "./census-terminal-evidence.mjs";
 import { retainC1Evidence } from "./c1-evidence-custody.mjs";
-import { acquireScheduleBridge, appendScheduleTransition, reconstructScheduleBridge } from "./c1-schedule-bridge.mjs";
+import { acquireScheduleBridge, openScheduleBridgeWriter } from "./c1-schedule-bridge.mjs";
 
 export const CONTEXT = "do-nyc3-chase-sets-staging-doks";
 export const READS = Object.freeze(
@@ -883,7 +883,9 @@ export async function acquireScheduledC1Evidence(input, bridge, capabilities) {
 }
 
 export async function observeC1Schedule(input, bridge, producers, timing = {}) {
-  const current = reconstructScheduleBridge(bridge);
+  const writer = openScheduleBridgeWriter(bridge);
+  if (writer.state === "STOP") return writer;
+  const current = writer.read(bridge);
   if (current.state !== "WAITING") return current;
   const now = timing.now ?? (() => new Date().toISOString());
   const at = now(),
@@ -894,10 +896,11 @@ export async function observeC1Schedule(input, bridge, producers, timing = {}) {
   const prior = await acquireC1Evidence(input, producers, timing);
   const observedAt = now();
   const event = { id: `read-${slot}`, kind: "READ", at: observedAt, payload: prior };
-  const recorded = appendScheduleTransition({ ...bridge, expectedPrevious: current.previous, event }, { now });
-  if (recorded.state !== "WAITING" || !recorded.pending) return recorded;
+  const recorded = writer.append({ ...bridge, expectedPrevious: current.previous, event }, { now });
+  if (recorded.state !== "WAITING" || !recorded.pending)
+    return !bridge.writer && recorded.verification === "APPEND_VERIFIED_PROGRESS" ? writer.close(bridge) : recorded;
   const recheck = await recheckC1Evidence(input, prior, producers, timing);
-  return appendScheduleTransition(
+  const result = writer.append(
     {
       ...bridge,
       expectedPrevious: recorded.previous,
@@ -905,6 +908,8 @@ export async function observeC1Schedule(input, bridge, producers, timing = {}) {
     },
     { now },
   );
+  if (bridge.writer || result.verification !== "APPEND_VERIFIED_PROGRESS") return result;
+  return writer.close(bridge);
 }
 
 export function main(args, { now } = {}) {

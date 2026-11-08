@@ -1,4 +1,6 @@
 import { readFileSync, mkdtempSync, writeFileSync, existsSync, rmSync, mkdirSync } from "node:fs";
+import fs from "node:fs";
+import { syncBuiltinESMExports } from "node:module";
 import { execFileSync } from "node:child_process";
 import { generateKeyPairSync, sign } from "node:crypto";
 import { tmpdir } from "node:os";
@@ -31,6 +33,7 @@ import {
   admitScheduleRoles,
   prepareScheduleSnapshot,
   appendScheduleTransition,
+  openScheduleBridgeWriter,
   reconstructScheduleBridge,
 } from "./c1-schedule-bridge.mjs";
 
@@ -1361,23 +1364,40 @@ async function scheduledFixture(change = () => {}, noV = false) {
     expect(prepared.state).toBe("PREPARED");
   }
   let at = "2030-01-01T01:00:20Z";
+  let previous;
+  let writer;
   return {
     f,
     custody,
     observation,
     bridge,
     plan,
+    get writer() {
+      return writer;
+    },
     setAt: (value) => {
       at = value;
     },
-    run: () => acquireScheduledC1Evidence(custody.input(), bridge, { ...custody.capabilities, now: () => at }),
+    run: async () => {
+      const result = await acquireScheduledC1Evidence(custody.input(), bridge, {
+        ...custody.capabilities,
+        now: () => at,
+      });
+      if (result.events) {
+        previous = result.previous;
+        writer = openScheduleBridgeWriter(bridge);
+        expect(typeof writer.append).toBe("function");
+      }
+      return result;
+    },
     append(kind, payload, id, time = at, expectedPrevious) {
       at = time;
-      const previous = reconstructScheduleBridge(bridge).previous;
-      return appendScheduleTransition(
+      const result = writer.append(
         { ...bridge, expectedPrevious: expectedPrevious ?? previous, event: { id, kind, at, payload } },
         { now: () => at },
       );
+      if (result.events) previous = result.previous;
+      return result;
     },
     payload(slot, state = "REFUSED", nodeUid = "synthetic-node") {
       const at = new Date(Date.parse("2030-01-01T01:00:00Z") + slot * 30000 + 21000).toISOString();
@@ -1738,6 +1758,20 @@ describe("D-bound receipt bridge", () => {
 });
 
 describe("window transition", () => {
+  it("closes a no-supplied-writer non-pending production observation independently", async () => {
+    const s = await scheduledFixture();
+    await s.run();
+    s.observation.input.slot.index = 0;
+    s.observation.bodies.nodes.items = [];
+    const result = await observeC1Schedule(s.observation.input, s.bridge, s.observation.producers, {
+      clock: s.observation.clock,
+      now: () => "2030-01-01T01:00:21.000Z",
+    });
+    expect(result.state).toBe("WAITING");
+    expect(result.pending).toBe(null);
+    expect(result.verification).toBeUndefined();
+    expect(result).toEqual(reconstructScheduleBridge(s.bridge));
+  });
   it("retains 180 actual complete negatives on the original grid and refuses further reads", async () => {
     const s = await scheduledFixture();
     expect((await s.run()).state).toBe("WAITING");
@@ -1751,6 +1785,13 @@ describe("window transition", () => {
     }
     expect(result.schedule.windows.map((w) => w.startSlot)).toEqual([0, 60, 120]);
     expect(result.schedule.windows.map((w) => w.reads.length)).toEqual([60, 60, 60]);
+    expect(result.verification).toBeUndefined();
+    const cold = reconstructScheduleBridge(s.bridge);
+    expect(cold).toEqual(result);
+    expect(cold.events).toHaveLength(180);
+    expect(cold.events.map((event) => event.payload)).toEqual(
+      Array.from({ length: 180 }, (_, slot) => s.payload(slot)),
+    );
     const p = s.payload(180);
     expect(s.append("READ", p, "too-late", p.snapshot.reads[0].completedAt).state).toBe("STOP");
   });
@@ -1817,13 +1858,352 @@ describe("window transition", () => {
     const s = await scheduledFixture();
     await s.run();
     s.observation.input.slot.index = 0;
-    const result = await observeC1Schedule(s.observation.input, s.bridge, s.observation.producers, {
-      clock: s.observation.clock,
-      now: () => "2030-01-01T01:00:21.000Z",
-    });
+    const result = await observeC1Schedule(
+      s.observation.input,
+      { ...s.bridge, writer: s.writer },
+      s.observation.producers,
+      {
+        clock: s.observation.clock,
+        now: () => "2030-01-01T01:00:21.000Z",
+      },
+    );
     expect(result.state, JSON.stringify(result)).toBe("WAITING");
     expect(result.events.map((e) => e.kind)).toEqual(["READ", "RECHECK"]);
     expect(result.qualified.nodeUid).toBe("synthetic-node");
+  });
+});
+
+describe("bounded writer regression", () => {
+  const entryPath = (s, ordinal) => join(s.bridge.root, `transition-${String(ordinal).padStart(3, "0")}.json`);
+  async function acknowledged() {
+    const s = await scheduledFixture();
+    expect((await s.run()).state).toBe("WAITING");
+    return s;
+  }
+  function appendRead(s, slot, state = "REFUSED", id = `read-${slot}`) {
+    const payload = s.payload(slot, state);
+    return s.append("READ", payload, id, payload.snapshot.reads[0].completedAt);
+  }
+  function claim(s, previous, recheckHash, writer = s.writer) {
+    const at = "2030-01-01T01:00:21.000Z";
+    return writer.append(
+      {
+        ...s.bridge,
+        expectedPrevious: previous,
+        event: {
+          id: "claim",
+          kind: "ARM_CLAIM",
+          at,
+          payload: { executor: s.plan.roles.executor.identity, recheckHash },
+        },
+      },
+      { now: () => at },
+    );
+  }
+  it.each(
+    [
+      "readiness.json",
+      "initial-snapshot.json",
+      "snapshot.json",
+      "acknowledgement.json",
+      "acknowledgement-complete.json",
+    ].flatMap((name) => ["bytes", "value"].map((attack) => ({ name, attack }))),
+  )("live and cold readers reject $attack changes to $name", async ({ name, attack }) => {
+    const s = await acknowledged();
+    const reader = openScheduleBridgeWriter(s.bridge);
+    const path = join(s.bridge.root, name),
+      bytes = readFileSync(path);
+    if (attack === "bytes") writeFileSync(path, Buffer.concat([bytes, Buffer.from(" ")]));
+    else {
+      const value = JSON.parse(bytes);
+      if (name === "readiness.json") value.plan.roles.executor.identity = "synthetic-other";
+      if (name === "initial-snapshot.json") value.histories.opportunity = generatedHash("other");
+      if (name === "snapshot.json") value.histories.opportunity = generatedHash("other");
+      if (name === "acknowledgement.json") value.ack.custodian = "synthetic-other";
+      if (name === "acknowledgement-complete.json") value.acknowledgementHash = generatedHash("other");
+      writeFileSync(path, JSON.stringify(value));
+    }
+    expect(appendRead(s, 0).reasons).toEqual(["STOP_WRITER_ANCHOR"]);
+    expect(reader.close().state).toBe("STOP");
+    expect(reconstructScheduleBridge(s.bridge).state).toBe("STOP");
+    expect(existsSync(entryPath(s, 1))).toBe(false);
+  });
+  it.each(
+    ["opportunity", "oneFreshArm", "sizingWindows", "lifetimeAttempts", "consumedHeads", "blockingRounds"].flatMap(
+      (history) => ["omitted", "changed"].map((attack) => ({ history, attack })),
+    ),
+  )("refuses $attack independent history $history at every read boundary", async ({ history, attack }) => {
+    const s = await acknowledged();
+    const reader = openScheduleBridgeWriter(s.bridge);
+    const path = join(s.bridge.root, "snapshot.json"),
+      value = JSON.parse(readFileSync(path));
+    if (attack === "omitted") delete value.histories[history];
+    else value.histories[history] = generatedHash("substituted-history");
+    writeFileSync(path, JSON.stringify(value));
+    expect(appendRead(s, 0).state).toBe("STOP");
+    expect(reader.close().state).toBe("STOP");
+    expect(reconstructScheduleBridge(s.bridge).state).toBe("STOP");
+  });
+  it("binds root approval and opaque cursor while isolating caller-owned inputs and outputs", async () => {
+    const s = await acknowledged(),
+      other = await acknowledged();
+    for (const bridge of [other.bridge, { ...s.bridge, authority: { approvedPlanHash: generatedHash("other") } }])
+      expect(openScheduleBridgeWriter({ ...bridge, writer: s.writer }).reasons).toEqual(["STOP_WRITER_BINDING"]);
+    expect(openScheduleBridgeWriter({ ...s.bridge, writer: { ...s.writer } }).state).toBe("STOP");
+    const payload = s.payload(0),
+      original = copy(payload),
+      at = payload.snapshot.reads[0].completedAt;
+    const result = s.append("READ", payload, "read-0", at);
+    payload.snapshot.inventory.length = 0;
+    result.events[0].payload.snapshot.inventory.length = 0;
+    result.schedule.windows[0].reads.length = 0;
+    result.previous = generatedHash("caller-tip");
+    const fresh = s.writer.read();
+    expect(fresh.events[0].payload).toEqual(original);
+    expect(fresh.schedule.windows[0].reads).toHaveLength(1);
+    expect(fresh).toEqual(reconstructScheduleBridge(s.bridge));
+    fresh.events.length = 0;
+    expect(s.writer.close().events).toHaveLength(1);
+    expect(s.writer.read().reasons).toEqual(["STOP_WRITER_CLOSED"]);
+  });
+  it.each([
+    "same-length bytes",
+    "replacement",
+    "interior omission",
+    "tail omission",
+    "future ordinal",
+    "payload",
+    "predecessor",
+    "snapshot",
+    "history",
+  ])("independent readers and pre-claim audit reject poisoned prefix: %s", async (attack) => {
+    const s = await acknowledged();
+    appendRead(s, 0, "ADMITTED");
+    const qualified = s.append("RECHECK", s.payload(0, "ADMITTED"), "recheck-0");
+    expect(qualified.verification).toBeUndefined();
+    const reader = openScheduleBridgeWriter(s.bridge),
+      closer = openScheduleBridgeWriter(s.bridge);
+    const path = entryPath(s, 1),
+      bytes = readFileSync(path),
+      value = JSON.parse(bytes);
+    if (attack === "same-length bytes") {
+      const changed = Buffer.from(bytes.toString().replace('"read-0"', '"read-x"'));
+      expect(changed.length).toBe(bytes.length);
+      writeFileSync(path, changed);
+    } else if (attack === "replacement") {
+      rmSync(path);
+      writeFileSync(path, bytes.toString() + " ", { flag: "wx" });
+    } else if (attack === "interior omission") rmSync(path);
+    else if (attack === "tail omission") rmSync(entryPath(s, 2));
+    else if (attack === "future ordinal") writeFileSync(entryPath(s, 4), bytes, { flag: "wx" });
+    else {
+      if (attack === "payload") value.payloadHash = generatedHash("other");
+      if (attack === "predecessor") value.previous = generatedHash("other");
+      if (attack === "snapshot") value.snapshotHash = generatedHash("other");
+      if (attack === "history") value.histories.opportunity = generatedHash("other");
+      writeFileSync(path, JSON.stringify(value));
+    }
+    // A memoryless cold read cannot authenticate a deleted suffix; the retained
+    // predecessor makes the restart refuse rather than treating it as fresh.
+    if (attack === "tail omission") {
+      expect(reconstructScheduleBridge(s.bridge).events).toHaveLength(1);
+      const payload = s.payload(1),
+        at = payload.snapshot.reads[0].completedAt;
+      expect(
+        appendScheduleTransition(
+          { ...s.bridge, expectedPrevious: qualified.previous, event: { id: "restart", kind: "READ", at, payload } },
+          { now: () => at },
+        ).state,
+      ).toBe("STOP");
+    } else expect(reconstructScheduleBridge(s.bridge).state).toBe("STOP");
+    const originalRead = fs.readFileSync;
+    let earlyByteReads = 0;
+    fs.readFileSync = (...args) => {
+      if (args[0] === path) earlyByteReads++;
+      return originalRead(...args);
+    };
+    syncBuiltinESMExports();
+    let audited;
+    try {
+      audited = reader.read();
+    } finally {
+      fs.readFileSync = originalRead;
+      syncBuiltinESMExports();
+    }
+    expect(audited.state).toBe("STOP");
+    if (attack === "same-length bytes") expect(earlyByteReads).toBeGreaterThan(0);
+    expect(closer.close().state).toBe("STOP");
+    expect(claim(s, qualified.previous, qualified.qualified.recheckHash).state).toBe("STOP");
+    expect(existsSync(entryPath(s, 3))).toBe(false);
+  });
+  it("rereads a non-tail duplicate and refuses conflicts without consuming a slot", async () => {
+    const s = await acknowledged();
+    appendRead(s, 0);
+    const second = appendRead(s, 1);
+    expect(appendRead(s, 0).events).toHaveLength(2);
+    expect(appendRead(s, 0, "REFUSED", "read-0").previous).toBe(second.previous);
+    expect(s.append("READ", s.payload(0, "ADMITTED"), "read-0").reasons).toEqual(["STOP_CONFLICTING_EVENT"]);
+    const path = entryPath(s, 1),
+      bytes = readFileSync(path);
+    writeFileSync(path, bytes.toString().replace('"read-0"', '"read-x"'));
+    expect(appendRead(s, 0).reasons).toEqual(["STOP_DUPLICATE_BYTES"]);
+    expect(existsSync(entryPath(s, 3))).toBe(false);
+  });
+  it.each(["identical competitor", "distinct competitor", "partial next", "write failure", "reread failure"])(
+    "create-new and uncertain persistence preserve the disk prefix: %s",
+    async (attack) => {
+      const s = await acknowledged(),
+        rival = openScheduleBridgeWriter(s.bridge);
+      const initial = reconstructScheduleBridge(s.bridge),
+        payload = s.payload(0),
+        at = payload.snapshot.reads[0].completedAt;
+      const event = { id: "read-0", kind: "READ", at, payload };
+      const input = { ...s.bridge, expectedPrevious: initial.previous, event };
+      const path = entryPath(s, 1);
+      if (attack.endsWith("competitor")) {
+        expect(s.writer.append(input, { now: () => at }).state).toBe("WAITING");
+        const retained = readFileSync(path);
+        const result = rival.append(
+          { ...input, event: attack === "identical competitor" ? event : { ...event, id: "other" } },
+          { now: () => at },
+        );
+        expect(result.state).toBe(attack === "identical competitor" ? "WAITING" : "STOP");
+        expect(readFileSync(path)).toEqual(retained);
+        expect(reconstructScheduleBridge(s.bridge).events).toHaveLength(1);
+        return;
+      }
+      if (attack === "partial next") writeFileSync(path, "{partial", { flag: "wx" });
+      const originalWrite = fs.writeFileSync,
+        originalRead = fs.readFileSync;
+      if (attack === "write failure")
+        fs.writeFileSync = (...args) => {
+          if (typeof args[0] === "number") throw new Error("synthetic-write-failure");
+          return originalWrite(...args);
+        };
+      if (attack === "reread failure")
+        fs.readFileSync = (...args) => {
+          if (args[0] === path) throw new Error("synthetic-reread-failure");
+          return originalRead(...args);
+        };
+      syncBuiltinESMExports();
+      let result;
+      try {
+        result = s.writer.append(input, { now: () => at });
+      } finally {
+        fs.writeFileSync = originalWrite;
+        fs.readFileSync = originalRead;
+        syncBuiltinESMExports();
+      }
+      expect(result.state).toBe("STOP");
+      expect(result.partial).toBe(true);
+      expect(s.writer.append(input, { now: () => at }).reasons).toEqual(["STOP_WRITER_CLOSED"]);
+      const retained = readFileSync(path);
+      const reopened = openScheduleBridgeWriter(s.bridge);
+      if (attack === "reread failure") {
+        expect(reopened.read().events).toHaveLength(1);
+        expect(reopened.append(input, { now: () => at }).events).toHaveLength(1);
+      } else expect(reopened.state).toBe("STOP");
+      expect(readFileSync(path)).toEqual(retained);
+      expect(existsSync(entryPath(s, 2))).toBe(false);
+    },
+  );
+  it.each(["RECHECK", "ARM_CLAIM", "ARM_CONFIRMED"])(
+    "post-write independent %s audit cannot report authority from poisoned history",
+    async (kind) => {
+      const s = await acknowledged();
+      const first = appendRead(s, 0, "ADMITTED");
+      let previous = first.previous,
+        payload = s.payload(0, "ADMITTED"),
+        id = "recheck-0";
+      if (kind !== "RECHECK") {
+        const qualified = s.append("RECHECK", payload, id);
+        previous = qualified.previous;
+        payload = { executor: s.plan.roles.executor.identity, recheckHash: qualified.qualified.recheckHash };
+        id = "claim";
+        if (kind === "ARM_CONFIRMED") {
+          const claimed = s.append("ARM_CLAIM", payload, id);
+          previous = claimed.previous;
+          payload = { claimId: id, executor: payload.executor, runId: 900000000000200, attempt: 1 };
+          id = "confirmed";
+        }
+      }
+      const ordinal = kind === "RECHECK" ? 2 : kind === "ARM_CLAIM" ? 3 : 4;
+      const target = entryPath(s, ordinal),
+        early = entryPath(s, 1),
+        originalRead = fs.readFileSync;
+      fs.readFileSync = (...args) => {
+        const bytes = originalRead(...args);
+        if (args[0] === target) writeFileSync(early, readFileSync(early, "utf8").replace('"read-0"', '"read-x"'));
+        return bytes;
+      };
+      syncBuiltinESMExports();
+      let result;
+      try {
+        result = s.writer.append(
+          { ...s.bridge, expectedPrevious: previous, event: { id, kind, at: "2030-01-01T01:00:21.000Z", payload } },
+          { now: () => "2030-01-01T01:00:21.000Z" },
+        );
+      } finally {
+        fs.readFileSync = originalRead;
+        syncBuiltinESMExports();
+      }
+      expect(result.state).toBe("STOP");
+      expect(result.partial).toBe(true);
+      expect(existsSync(target)).toBe(true);
+      expect(reconstructScheduleBridge(s.bridge).state).toBe("STOP");
+      expect(s.writer.read().reasons).toEqual(["STOP_WRITER_CLOSED"]);
+    },
+  );
+  it("terminal refusal closes independently and cannot hide a poisoned earlier window", async () => {
+    const s = await acknowledged();
+    const error = { state: "STOP", reasons: ["SYNTHETIC_INCOMPLETE"], nodeUid: null };
+    for (let slot = 0; slot < 2; slot++)
+      expect(s.append("READ", error, `error-${slot}`, s.payload(slot).snapshot.reads[0].completedAt).state).toBe(
+        "WAITING",
+      );
+    const originalRead = fs.readFileSync,
+      early = entryPath(s, 1),
+      target = entryPath(s, 3);
+    fs.readFileSync = (...args) => {
+      const bytes = originalRead(...args);
+      if (args[0] === target) writeFileSync(early, originalRead(early, "utf8").replace('"error-0"', '"error-x"'));
+      return bytes;
+    };
+    syncBuiltinESMExports();
+    let result;
+    try {
+      result = s.append("READ", error, "error-2", s.payload(2).snapshot.reads[0].completedAt);
+    } finally {
+      fs.readFileSync = originalRead;
+      syncBuiltinESMExports();
+    }
+    expect(result.state).toBe("STOP");
+    expect(result.partial).toBe(true);
+    expect(result.verification).toBeUndefined();
+    expect(reconstructScheduleBridge(s.bridge).state).toBe("STOP");
+    expect(s.writer.close().reasons).toEqual(["STOP_WRITER_CLOSED"]);
+  });
+  it("legacy one-shot and writer share deadline and slot refusals without granting progress authority", async () => {
+    const s = await acknowledged(),
+      initial = reconstructScheduleBridge(s.bridge);
+    for (const [slot, at] of [
+      [1, "2030-01-01T01:00:51.000Z"],
+      [180, "2030-01-01T02:30:00.000Z"],
+    ]) {
+      const event = { id: `read-${slot}`, kind: "READ", at, payload: s.payload(slot) };
+      const input = { ...s.bridge, expectedPrevious: initial.previous, event };
+      expect(appendScheduleTransition(input, { now: () => at }).state).toBe("STOP");
+      const writer = openScheduleBridgeWriter(s.bridge);
+      expect(writer.append(input, { now: () => at }).state).toBe("STOP");
+    }
+    const payload = s.payload(0),
+      at = payload.snapshot.reads[0].completedAt;
+    const result = appendScheduleTransition(
+      { ...s.bridge, expectedPrevious: initial.previous, event: { id: "read-0", kind: "READ", at, payload } },
+      { now: () => at },
+    );
+    expect(result.verification).toBeUndefined();
+    expect(result).toEqual(reconstructScheduleBridge(s.bridge));
   });
 });
 
