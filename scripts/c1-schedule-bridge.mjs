@@ -372,6 +372,7 @@ export async function acquireScheduleBridge({ root, authority }, input, capabili
       custodyManifestHash: sha256(read(custody.manifestPath)),
       receiptHash: digest(receipt),
       ack,
+      consumedAt: existsSync(path) ? json(path).consumedAt : now(),
       cleanupSucceeded: receipt.cleanupSucceeded,
       c1Admission: receipt.c1Admission,
     };
@@ -382,16 +383,16 @@ export async function acquireScheduleBridge({ root, authority }, input, capabili
         "STOP_PARTIAL_ACK",
       );
     } else {
-      const at = now();
+      const at = record.consumedAt;
       validateReadiness(readiness, authority, at);
       need(
-        at === ack.at &&
-          ticks(at) >= ticks(snapshot.schedule.persistedAt) &&
+        ticks(snapshot.schedule.persistedAt) <= ticks(ack.at) &&
+          ticks(ack.at) <= ticks(at) &&
           ticks(at) < ticks(snapshot.rawD) + slotTicks,
         "STOP_ACTUAL_ACK_TIME",
       );
       create(path, record);
-      need(now() === at, "STOP_ACK_WRITE_DELAY");
+      need(ticks(now()) < ticks(snapshot.rawD) + slotTicks, "STOP_ACK_WRITE_DELAY");
     }
     create(join(root, "acknowledgement-complete.json"), { acknowledgementHash: digest(record) });
     return { ...reconstructScheduleBridge({ root, authority }), receipt };
@@ -583,15 +584,18 @@ function reconstruct(root, authority) {
       acknowledged.readinessHash === digest(readiness) &&
       ack.scheduleHash === digest(snapshot.schedule) &&
       ack.receiptHash === snapshot.receiptHash &&
-      ack.custodian === readiness.plan.roles.schedule.identity,
+      ack.custodian === readiness.plan.roles.schedule.identity &&
+      ticks(snapshot.schedule.persistedAt) <= ticks(ack.at) &&
+      ticks(ack.at) <= ticks(acknowledged.consumedAt) &&
+      ticks(acknowledged.consumedAt) < ticks(snapshot.rawD) + slotTicks,
     "STOP_ACK_BINDING",
   );
-  validateReadiness(readiness, authority, ack.at);
-  validateWindowSchedule(snapshot.schedule, instant(snapshot.rawD).utc, ack.at);
+  validateReadiness(readiness, authority, acknowledged.consumedAt);
+  validateWindowSchedule(snapshot.schedule, instant(snapshot.rawD).utc, acknowledged.consumedAt);
   const state = {
     schedule: structuredClone(snapshot.schedule),
-    ackAt: ack.at,
-    lastAt: ack.at,
+    ackAt: acknowledged.consumedAt,
+    lastAt: acknowledged.consumedAt,
     c1Admission: acknowledged.c1Admission,
     executor: readiness.plan.roles.executor.identity,
     ...readiness.plan.observationBinding,
@@ -718,8 +722,14 @@ export function openScheduleBridgeWriter({ root, authority, writer }) {
           return progress();
         }
         need(current.events.length < 362, "STOP_TRANSITION_BOUND");
+        const at = ticks(event.at),
+          actual = ticks(now()),
+          t0 = ticks(current.schedule.t0Utc);
         need(
-          current.previous === input.expectedPrevious && ticks(now()) === ticks(event.at),
+          current.previous === input.expectedPrevious &&
+            at <= actual &&
+            (actual - t0) / slotTicks === (at - t0) / slotTicks &&
+            actual < t0 + 180n * slotTicks,
           "STOP_STALE_PREDECESSOR_OR_TIME",
         );
         if (["RECHECK", "ARM_CLAIM", "ARM_CONFIRMED"].includes(event.kind)) independent();

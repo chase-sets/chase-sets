@@ -1696,7 +1696,71 @@ describe("qualified handoff state", () => {
   );
 });
 
+function advancingClock(at) {
+  const base = Date.parse(at),
+    started = Date.now();
+  let elapsed = 0;
+  return () => {
+    elapsed = Math.max(elapsed + 1, Date.now() - started);
+    return new Date(base + elapsed).toISOString();
+  };
+}
+
 describe("D-bound receipt bridge", () => {
+  it("F1 synthetic advancing clock consumes full custody and durably acknowledges within the cutoff", async () => {
+    const s = await scheduledFixture();
+    const advancing = advancingClock(s.f.envelope.ack.at);
+    const now = () => (existsSync(s.custody.plan.manifestPath) ? advancing() : s.custody.capabilities.now());
+    const result = await acquireScheduledC1Evidence(s.custody.input(), s.bridge, { ...s.custody.capabilities, now });
+    expect(result.state, JSON.stringify(result.reasons)).toBe("WAITING");
+    const acknowledged = JSON.parse(readFileSync(join(s.bridge.root, "acknowledgement.json")));
+    expect(Date.parse(acknowledged.consumedAt)).toBeGreaterThan(Date.parse(acknowledged.ack.at));
+    expect(result.ackAt).toBe(acknowledged.consumedAt);
+    expect(existsSync(join(s.bridge.root, "acknowledgement-complete.json"))).toBe(true);
+    expect(result).toMatchObject(reconstructScheduleBridge(s.bridge));
+    expect(
+      (await acquireScheduledC1Evidence(s.custody.input(), s.bridge, { ...s.custody.capabilities, now })).state,
+    ).toBe("WAITING");
+  });
+  it.each(["2030-01-01T01:00:30Z", "2030-01-01T01:00:30.001Z"])(
+    "F1 refuses final custody consumption at or past cutoff %s despite an earlier source ack",
+    async (at) => {
+      const s = await scheduledFixture();
+      const result = await acquireScheduledC1Evidence(s.custody.input(), s.bridge, {
+        ...s.custody.capabilities,
+        now: () => (existsSync(s.custody.plan.manifestPath) ? at : s.custody.capabilities.now()),
+      });
+      expect(result.reasons).toEqual(["STOP_ACTUAL_ACK_TIME"]);
+      expect(existsSync(join(s.bridge.root, "acknowledgement.json"))).toBe(false);
+    },
+  );
+  it("F1 synthetic advancing clock tolerates the acknowledgement write crossing a millisecond", async () => {
+    const s = await scheduledFixture(),
+      advancing = advancingClock(s.f.envelope.ack.at);
+    const result = await acquireScheduledC1Evidence(s.custody.input(), s.bridge, {
+      ...s.custody.capabilities,
+      now: () => (existsSync(join(s.bridge.root, "acknowledgement.json")) ? advancing() : s.f.envelope.ack.at),
+    });
+    expect(result.state, JSON.stringify(result.reasons)).toBe("WAITING");
+    expect(existsSync(join(s.bridge.root, "acknowledgement-complete.json"))).toBe(true);
+  });
+  it("F1 refuses an acknowledgement durable past the cutoff with truthful partial evidence", async () => {
+    const s = await scheduledFixture();
+    const result = await acquireScheduledC1Evidence(s.custody.input(), s.bridge, {
+      ...s.custody.capabilities,
+      now: () =>
+        !existsSync(s.custody.plan.manifestPath)
+          ? s.custody.capabilities.now()
+          : existsSync(join(s.bridge.root, "acknowledgement.json"))
+            ? "2030-01-01T01:00:30.001Z"
+            : "2030-01-01T01:00:29.999Z",
+    });
+    expect(result.reasons).toEqual(["STOP_ACK_WRITE_DELAY"]);
+    expect(result.partial).toBe(true);
+    expect(existsSync(join(s.bridge.root, "acknowledgement.json"))).toBe(true);
+    expect(existsSync(join(s.bridge.root, "acknowledgement-complete.json"))).toBe(false);
+    expect(reconstructScheduleBridge(s.bridge).state).toBe("STOP");
+  });
   it("consumes full production custody and reader at actual ack, preserves exact D and null C", async () => {
     const s = await scheduledFixture(),
       result = await s.run();
@@ -1717,11 +1781,15 @@ describe("D-bound receipt bridge", () => {
       expect(result.c1Schedule).toBe("NOT_STARTED");
     },
   );
-  it("refuses provisional ack before independently delayed final evidence", async () => {
+  it("refuses provisional ack when independently delayed final evidence reaches the cutoff", async () => {
     const s = await scheduledFixture((f) => {
       f.envelope.ack.at = "2030-01-01T01:00:15Z";
     });
-    expect((await s.run()).reasons).toContain("STOP_ACTUAL_ACK_TIME");
+    const result = await acquireScheduledC1Evidence(s.custody.input(), s.bridge, {
+      ...s.custody.capabilities,
+      now: () => (existsSync(s.custody.plan.manifestPath) ? "2030-01-01T01:00:30Z" : s.custody.capabilities.now()),
+    });
+    expect(result.reasons).toContain("STOP_ACTUAL_ACK_TIME");
   });
   it.each(["wrong custodian", "wrong schedule", "missing final backup"])(
     "governing-only omission: %s",
@@ -1758,6 +1826,53 @@ describe("D-bound receipt bridge", () => {
 });
 
 describe("window transition", () => {
+  it("F2 synthetic advancing clock permits a writer READ in the same original grid slot", async () => {
+    const s = await scheduledFixture();
+    const initial = await s.run(),
+      payload = s.payload(0);
+    const now = advancingClock(payload.snapshot.reads[0].completedAt),
+      at = now();
+    const result = s.writer.append(
+      { ...s.bridge, expectedPrevious: initial.previous, event: { id: "advancing-read", kind: "READ", at, payload } },
+      { now },
+    );
+    expect(result.state, JSON.stringify(result.reasons)).toBe("WAITING");
+    expect(result.events).toHaveLength(1);
+    expect(s.writer.close()).toEqual(reconstructScheduleBridge(s.bridge));
+  });
+  it("F2 synthetic advancing clock permits the production no-writer observation READ", async () => {
+    const s = await scheduledFixture();
+    await s.run();
+    s.observation.input.slot.index = 0;
+    s.observation.bodies.nodes.items = [];
+    const result = await observeC1Schedule(s.observation.input, s.bridge, s.observation.producers, {
+      clock: s.observation.clock,
+      now: advancingClock("2030-01-01T01:00:21Z"),
+    });
+    expect(result.state, JSON.stringify(result.reasons)).toBe("WAITING");
+    expect(result.events).toHaveLength(1);
+    expect(result.verification).toBeUndefined();
+    expect(result).toEqual(reconstructScheduleBridge(s.bridge));
+  });
+  it.each(["2030-01-01T01:00:20.999Z", "2030-01-01T01:00:30Z", "2030-01-01T02:30:00Z", "2030-01-01T02:30:00.001Z"])(
+    "F2 refuses future stamps or an append in a later slot or at/past deadline: %s",
+    async (actual) => {
+      const s = await scheduledFixture();
+      const initial = await s.run(),
+        payload = s.payload(0);
+      const result = s.writer.append(
+        {
+          ...s.bridge,
+          expectedPrevious: initial.previous,
+          event: { id: "out-of-time", kind: "READ", at: payload.snapshot.reads[0].completedAt, payload },
+        },
+        { now: () => actual },
+      );
+      expect(result.reasons).toEqual(["STOP_STALE_PREDECESSOR_OR_TIME"]);
+      expect(reconstructScheduleBridge(s.bridge).events).toHaveLength(0);
+      expect(s.writer.read().state).toBe("WAITING");
+    },
+  );
   it("closes a no-supplied-writer non-pending production observation independently", async () => {
     const s = await scheduledFixture();
     await s.run();
