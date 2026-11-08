@@ -495,18 +495,7 @@ function discoveredInputs(sha) {
   const token =
     /(?:^|[-_./])(?:seed|seeds|seeding|bootstrap|reconcile|reconciliation|backfill)(?=[-_./]|$)|import-to-promotion|representative-commerce|integration-reset/i;
   const importCandidates = new Set(
-    git([
-      "grep",
-      "-l",
-      "-z",
-      "-E",
-      "runtime-support/seed|seed-support/|/seeding",
-      sha,
-      "--",
-      "*.ts",
-      "*.tsx",
-      "*.mjs",
-    ])
+    git(["grep", "-l", "-z", "-E", "runtime-support/seed|seed-support/|/seeding", sha, "--", "*.ts", "*.tsx", "*.mjs"])
       .toString("utf8")
       .split("\0")
       .filter(Boolean)
