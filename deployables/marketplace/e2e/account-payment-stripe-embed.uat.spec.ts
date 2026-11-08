@@ -368,7 +368,6 @@ function watchProviderIdentifierDeliveries(page: Page) {
     registerShapedIdentifiersFromText(body);
   });
 }
-const evidenceConfigRelativePath = "playwright.stripe-appearance-evidence.config.ts";
 
 // Console traffic is redacted at capture time, so no unredacted byte is ever
 // held in a structure that could later be serialised into an artifact. The
