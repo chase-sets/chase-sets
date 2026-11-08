@@ -602,32 +602,36 @@ function discoveredInputs(sha) {
   };
 }
 
-it("AC8/AC10/AC12 real inventory stays monotonic and canonical classifier records equal merge-base", () => {
-  let provenance;
-  try {
-    provenance = deriveGuardCandidateProvenance();
-  } catch (error) {
-    emit("INVENTORY_CANDIDATE_ROLES_REFUSED", { code: error.code, reachedClause: error.reachedClause });
-    throw error;
+const neutralityAuthorityPaths = [
+  fileURLToPath(new URL("./release-qualification-scope.mjs", import.meta.url)),
+  modulePath,
+  sweepPath,
+].map((file) => path.relative(repoRoot, file).split(path.sep).join("/"));
+
+function checkMergeBaseNeutrality({
+  head,
+  fork,
+  inputs,
+  inventory,
+  execGit = git,
+  loadInputs = discoveredInputs,
+  output = emit,
+}) {
+  const comparedFiles = new TextDecoder("utf-8", { fatal: true })
+    .decode(execGit(["diff", "--name-only", "-z", fork, head]))
+    .split("\0")
+    .filter(Boolean);
+  if (!comparedFiles.some((file) => neutralityAuthorityPaths.includes(file))) {
+    output("INVENTORY_MERGE_BASE_NEUTRALITY_NOT_APPLICABLE", {
+      head,
+      mergeBase: fork,
+      reason: "candidate changes no classifier, inventory or pinned-count authority",
+      comparedFiles,
+      authorityFiles: neutralityAuthorityPaths,
+    });
+    return;
   }
-  emit("INVENTORY_CANDIDATE_ROLES", { environment: provenance.environment, roles: provenance.roles });
-  const head = provenance.roles.landingCandidate.sha;
-  const fork = provenance.roles.forkPoint.sha;
-  const inputs = discoveredInputs(head);
-  const before = head === fork ? inputs : discoveredInputs(fork);
-  const inventory = buildReviewedSurfaceInventory(inputs);
-  expect(inventory.registryStatus).toBe("valid");
-  expect(inventory.misses).toEqual([]);
-  const without = buildReviewedSurfaceInventory({
-    ...inputs,
-    evaluateApplicability: () => ({ applies: true, withdrawalCodes: [] }),
-  });
-  expect(inventory.records).toHaveLength(inputs.paths.length);
-  for (const [index, record] of inventory.records.entries()) {
-    expect(RELEASE_QUALIFICATION_SCOPE_CLASSES.indexOf(record.expectedClass)).toBeGreaterThanOrEqual(
-      RELEASE_QUALIFICATION_SCOPE_CLASSES.indexOf(without.records[index].expectedClass),
-    );
-  }
+  const before = head === fork ? inputs : loadInputs(fork);
   const classifier = (input) =>
     input.paths
       .slice()
@@ -645,11 +649,11 @@ it("AC8/AC10/AC12 real inventory stays monotonic and canonical classifier record
     );
   expect(histogram(records)).toEqual(histogram(original));
   expect(digest(JSON.stringify(records))).toBe(digest(JSON.stringify(original)));
-  expect(git(["show", `${head}:scripts/release-qualification-scope.mjs`])).toEqual(
-    git(["show", `${fork}:scripts/release-qualification-scope.mjs`]),
+  expect(execGit(["show", `${head}:scripts/release-qualification-scope.mjs`])).toEqual(
+    execGit(["show", `${fork}:scripts/release-qualification-scope.mjs`]),
   );
   const pinned = /discovered: (\d+),\s+persistentCount: (\d+),\s+ruledCount: (\d+)/.exec(
-    git(["show", `${fork}:scripts/release-qualification-scope.test.mjs`]).toString("utf8"),
+    execGit(["show", `${fork}:scripts/release-qualification-scope.test.mjs`]).toString("utf8"),
   );
   expect(pinned).not.toBeNull();
   expect(inventory.counts).toEqual({
@@ -658,11 +662,11 @@ it("AC8/AC10/AC12 real inventory stays monotonic and canonical classifier record
     ruled: Number(pinned[3]),
   });
   const tree = (sha) =>
-    git(["rev-parse", `${sha}^{tree}`])
+    execGit(["rev-parse", `${sha}^{tree}`])
       .toString("utf8")
       .trim();
   if (head !== fork) expect(tree(head)).not.toBe(tree(fork));
-  const raw = (sha) => git(["ls-tree", "-r", "-z", "--name-only", "--full-tree", sha]);
+  const raw = (sha) => execGit(["ls-tree", "-r", "-z", "--name-only", "--full-tree", sha]);
   const governed = (sha) => {
     const bytes = raw(sha);
     const names = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
@@ -670,7 +674,7 @@ it("AC8/AC10/AC12 real inventory stays monotonic and canonical classifier record
     return listNonTestTypeScriptModules(repoRoot, { execGit: () => names });
   };
   expect(governed(head)).toEqual(governed(fork));
-  emit("INVENTORY_MERGE_BASE_NEUTRALITY", {
+  output("INVENTORY_MERGE_BASE_NEUTRALITY", {
     head,
     mergeBase: fork,
     headTree: tree(head),
@@ -681,4 +685,77 @@ it("AC8/AC10/AC12 real inventory stays monotonic and canonical classifier record
     comparedPaths: inventory.records.length,
     governedMembers: governed(head).length,
   });
+}
+
+it.each(neutralityAuthorityPaths)(
+  "merge-base neutrality still rejects an added governed member when %s changes",
+  (authority) => {
+    const head = candidate.sha;
+    const fork = base.sha;
+    const inputs = { paths: [ruledPath], classify: () => ({ class: "isolated" }) };
+    const inventory = { counts: { discovered: 1, persistentRequired: 0, ruled: 1 }, records: [{}] };
+    const execGit = (args) => {
+      if (args[0] === "diff") {
+        expect(args).toEqual(["diff", "--name-only", "-z", fork, head]);
+        return Buffer.from(`${authority}\0${siblingPath}\0`);
+      }
+      if (args[0] === "show") {
+        // A mode-only classifier change keeps its bytes neutral, reaching the member-set assertion.
+        return Buffer.from(
+          args[1].endsWith(".test.mjs") ? "discovered: 1, persistentCount: 0, ruledCount: 1" : cleanSource,
+        );
+      }
+      if (args[0] === "rev-parse") return Buffer.from(args[1]);
+      if (args[0] === "ls-tree") return Buffer.from(`${ruledPath}\0${args.at(-1) === head ? `${siblingPath}\0` : ""}`);
+      throw new Error(`Unexpected synthetic Git call: ${JSON.stringify(args)}`);
+    };
+    expect(() =>
+      checkMergeBaseNeutrality({ head, fork, inputs, inventory, execGit, loadInputs: () => inputs }),
+    ).toThrowError(expect.objectContaining({ actual: [ruledPath, siblingPath], expected: [ruledPath] }));
+  },
+);
+
+it("merge-base neutrality emits NOT_APPLICABLE with the compared files for an unrelated module addition", () => {
+  const output = vi.fn();
+  const execGit = vi.fn((args) => {
+    expect(args).toEqual(["diff", "--name-only", "-z", base.sha, candidate.sha]);
+    return Buffer.from(`${siblingPath}\0`);
+  });
+  checkMergeBaseNeutrality({ head: candidate.sha, fork: base.sha, execGit, output });
+  expect(execGit).toHaveBeenCalledTimes(1);
+  expect(output).toHaveBeenCalledExactlyOnceWith("INVENTORY_MERGE_BASE_NEUTRALITY_NOT_APPLICABLE", {
+    head: candidate.sha,
+    mergeBase: base.sha,
+    reason: "candidate changes no classifier, inventory or pinned-count authority",
+    comparedFiles: [siblingPath],
+    authorityFiles: neutralityAuthorityPaths,
+  });
+});
+
+it("AC8/AC10/AC12 real inventory stays monotonic and canonical classifier records equal merge-base", () => {
+  let provenance;
+  try {
+    provenance = deriveGuardCandidateProvenance();
+  } catch (error) {
+    emit("INVENTORY_CANDIDATE_ROLES_REFUSED", { code: error.code, reachedClause: error.reachedClause });
+    throw error;
+  }
+  emit("INVENTORY_CANDIDATE_ROLES", { environment: provenance.environment, roles: provenance.roles });
+  const head = provenance.roles.landingCandidate.sha;
+  const fork = provenance.roles.forkPoint.sha;
+  const inputs = discoveredInputs(head);
+  const inventory = buildReviewedSurfaceInventory(inputs);
+  expect(inventory.registryStatus).toBe("valid");
+  expect(inventory.misses).toEqual([]);
+  const without = buildReviewedSurfaceInventory({
+    ...inputs,
+    evaluateApplicability: () => ({ applies: true, withdrawalCodes: [] }),
+  });
+  expect(inventory.records).toHaveLength(inputs.paths.length);
+  for (const [index, record] of inventory.records.entries()) {
+    expect(RELEASE_QUALIFICATION_SCOPE_CLASSES.indexOf(record.expectedClass)).toBeGreaterThanOrEqual(
+      RELEASE_QUALIFICATION_SCOPE_CLASSES.indexOf(without.records[index].expectedClass),
+    );
+  }
+  checkMergeBaseNeutrality({ head, fork, inputs, inventory });
 });
