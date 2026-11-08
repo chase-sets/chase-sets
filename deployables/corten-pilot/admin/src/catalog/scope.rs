@@ -18,9 +18,11 @@
 //!
 //! The import-to-promotion section is the daily workbench's surface for the scope
 //! (`GET .../workbench-surfaces/daily?location=`), read with the others and drawn with the daily
-//! page's banners and stages; its location is built from the scope as admin-web builds it
-//! ([`workspace_context`], chase-sets/chase-sets#11131), and its commands are the daily routes', which
-//! land back here (the working set's `home`). A surface that does not read is the section's banner,
+//! page's banners and stages. It is read for this page's own address ([`journey_context`]), whose
+//! journey the Catalog API composes from the Scope Record; an API that reads it as sent gets it
+//! again by the scope's hierarchy, as admin-web builds it ([`workspace_context`],
+//! chase-sets/chase-sets#11131). Its commands are the daily routes', which land back here (the
+//! working set's `home`). A surface that does not read is the section's banner,
 //! with admin-web's page linked.
 use corten::{
     http::{HeaderMap, StatusCode},
@@ -320,10 +322,28 @@ const SCOPE_KEYS: [&str; 11] = [
     "scopeRecordId",
 ];
 
-/// Workaround (chase-sets/chase-sets#11131): the import-to-promotion section's working set, as
-/// admin-web's `scopeDetailWorkbenchRequest` builds the daily surface's location from the scope:
-/// the address's other keys kept, the scope's hierarchy by its kind, its id, and its first
-/// language edition unless the address names one; then `home`, so a command lands back here.
+/// The import-to-promotion section's working set as the page sends it: the address's keys less
+/// the page's own and the ones the scope decides, then `home`, so the daily surface is read for the
+/// scope's own page (whose journey the Catalog API composes from the Scope Record,
+/// chase-sets/chase-sets#11131) and a command lands back here.
+pub fn journey_context(query: &str, id: &str) -> String {
+    use crate::catalog::daily::{HOME, with_query};
+    let mut drop: Vec<(&str, Option<&str>)> = PAGE_KEYS.iter().chain(&SCOPE_KEYS).map(|k| (*k, None)).collect();
+    drop.push((HOME, None));
+    with_query(&with_query(query, &drop), &[(HOME, Some(id))])
+}
+
+/// Whether the daily surface `read` is the scope's journey: its Catalog sync names the scope, which
+/// only an API that composes it from the Scope Record does for [`journey_context`] (it sends no
+/// hierarchy).
+fn composes_journey(read: &crate::catalog::daily::DailyScreen, scope: &ScopeRecord) -> bool {
+    read.read.read_model.catalog_sync.scope.reference.scope_record_id.as_deref() == Some(scope.scope_record_id.as_str())
+}
+
+/// Workaround (chase-sets/chase-sets#11131), for a Catalog API that reads a scope page's location as
+/// sent: the working set as admin-web's `scopeDetailWorkbenchRequest` builds it from the scope: the
+/// address's other keys kept, the scope's hierarchy by its kind, its id, and its first language
+/// edition unless the address names one; then `home`.
 pub fn workspace_context(query: &str, scope: &ScopeRecord) -> String {
     use crate::catalog::daily::{HOME, with_query};
     fn set(value: Option<&str>) -> Option<&str> {
@@ -463,11 +483,19 @@ async fn jobs(caller: &Caller<'_>, id: &str, cursor: Option<&str>) -> Option<Job
     }
 }
 
-/// The page's reads: the scope, then its coverage, jobs and (with more than one edition) the
-/// alias review of its Reference Record, together.
+/// The page's reads: the scope, its coverage, its jobs and its import-to-promotion section
+/// together, then (with more than one edition) the alias review of its Reference Record.
 async fn screen(caller: &Caller<'_>, id: &str, cursor: Option<&str>, query: &str, manage: bool) -> Result<ScopeScreen, ApiError> {
-    let scope: ScopeRecord = caller.get(Kind::ScopeRecords, id).await?;
-    let context = workspace_context(query, &scope);
+    use crate::catalog::daily::workspace as daily;
+    let journey_at = journey_context(query, id);
+    let coverage_at = format!("/coverage{}", under(id, &[]));
+    let (scope, coverage, jobs, first) = tokio::join!(
+        caller.get::<ScopeRecord>(Kind::ScopeRecords, id),
+        caller.read_at::<Coverage>(Kind::ProviderScopeMappings, &coverage_at),
+        jobs(caller, id, cursor),
+        daily(caller, &journey_at, manage),
+    );
+    let scope = scope?;
     let review = async {
         if scope.language_editions.len() <= 1 {
             return None;
@@ -475,12 +503,17 @@ async fn screen(caller: &Caller<'_>, id: &str, cursor: Option<&str>, query: &str
         let query = format!("?targetKind=reference-record&targetId={}", segment(&scope.reference_record_id));
         Some(caller.read_at::<AliasReview>(Kind::AliasReview, &query).await)
     };
-    let coverage_at = format!("/coverage{}", under(id, &[]));
-    let coverage = caller.read_at::<Coverage>(Kind::ProviderScopeMappings, &coverage_at);
-    let ((review, coverage, jobs), workspace) = tokio::join!(
-        join3(review, coverage, jobs(caller, id, cursor)),
-        crate::catalog::daily::workspace(caller, &context, manage),
-    );
+    let section = async {
+        match first.filter(|read| composes_journey(read, &scope)) {
+            Some(read) => (journey_at, Some(read)),
+            None => {
+                let context = workspace_context(query, &scope);
+                let read = daily(caller, &context, manage).await;
+                (context, read)
+            }
+        }
+    };
+    let (review, (context, workspace)) = tokio::join!(review, section);
     let coverage = coverage.inspect_err(|error| tracing::warn!("a scope's coverage could not be read: {error}")).ok();
     let (editions, alias_review_failed) = match review {
         None => (None, false),

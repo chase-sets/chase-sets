@@ -4152,11 +4152,17 @@ async fn a_scopes_page_draws_its_journey_coverage_jobs_and_editions_from_the_cat
     // The editions: English canonical, Japanese open with its candidate and its commands.
     assert!(html.contains(r#"data-link="pending-review""#) && html.contains("Confidence is below high."), "{html}");
     assert!(html.contains(r#"data-language-edition-command="alias.defer""#), "{html}");
-    // The import-to-promotion section: the daily surface for the scope, by its hierarchy, its id and
-    // its first edition, its commands posting with the working set that lands them back here.
-    let location = "/catalog/integrations?productLineName=pokemon&productLineId=scp_pokemon&seriesId=scp_sv\
+    // The import-to-promotion section: the daily surface for the scope's own page, which this API
+    // reads as sent, so again by the scope's hierarchy, its id and its first edition (the
+    // chase-sets/chase-sets#11131 workaround), its commands posting with the working set that lands
+    // them back here.
+    let daily = |location: &str| {
+        format!("/api/catalog/source-observations/workbench-surfaces/daily?location={}", crate::api::segment(location))
+    };
+    assert!(calls.contains(&daily("/catalog/scopes/scp_paf")), "the journey's own read first: {calls:?}");
+    let location = "/catalog/scopes/scp_paf?productLineName=pokemon&productLineId=scp_pokemon&seriesId=scp_sv\
                     &expansionId=scp_paf&expansionName=Paldean%20Fates&scopeRecordId=scp_paf&languageCode=en";
-    let read = format!("/api/catalog/source-observations/workbench-surfaces/daily?location={}", crate::api::segment(location));
+    let read = daily(location);
     assert!(calls.contains(&read), "{read} in {calls:?}");
     let context = format!("{}&home=scp_paf", location.split_once('?').unwrap().1);
     assert!(html.contains("data-scope-workspace") && html.contains(r#"name="wb-stage""#), "the stages: {html}");
@@ -4177,6 +4183,36 @@ async fn a_scopes_page_draws_its_journey_coverage_jobs_and_editions_from_the_cat
 }
 
 #[tokio::test]
+async fn a_scopes_journey_is_read_for_its_own_page_once_the_api_composes_it_from_the_scope_record() {
+    let pilot = Pilot::new().await;
+    // A provider in the address is still the scope's to choose; the API decides the rest.
+    let (status, _, html) =
+        pilot.send(get("/catalog/scopes/scp_paf?scopeJourney=composed&providerKey=tcgplayer", Some("staff"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let reads: Vec<String> = pilot
+        .calls
+        .lock()
+        .unwrap()
+        .iter()
+        .filter_map(|c| c.path.split_once("/workbench-surfaces/daily?location=").map(|(_, at)| at.to_owned()))
+        .map(|at| percent_encoding::percent_decode_str(&at).decode_utf8_lossy().into_owned())
+        .collect();
+    assert_eq!(reads, ["/catalog/scopes/scp_paf?scopeJourney=composed"], "one read, with no hierarchy of the pilot's");
+    assert!(html.contains("data-scope-workspace") && html.contains(r#"name="wb-stage""#), "the stages: {html}");
+    assert!(
+        html.contains(r#"action="/catalog/integrations/review?scopeJourney=composed&amp;home=scp_paf""#),
+        "a command carries the page's working set: {html}"
+    );
+
+    let (status, headers, _) = pilot
+        .send(post("/catalog/integrations/review?scopeJourney=composed&home=scp_paf", "action=defer&observation=obs_1", false))
+        .await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let to = headers[header::LOCATION].to_str().unwrap().to_owned();
+    assert!(to.starts_with("/catalog/scopes/scp_paf?scopeJourney=composed&") && to.contains("done=queued"), "{to}");
+}
+
+#[tokio::test]
 async fn a_command_from_a_scopes_workspace_lands_back_on_the_scope_and_the_address_keeps_its_working_set() {
     let pilot = Pilot::new().await;
     // A provider in the address is the scope's to choose, as admin-web drops it; the review's page stays.
@@ -4185,7 +4221,7 @@ async fn a_command_from_a_scopes_workspace_lands_back_on_the_scope_and_the_addre
     let read = pilot.calls.lock().unwrap().iter().rev().find(|c| c.path.contains("/workbench-surfaces/daily?")).cloned().unwrap();
     let location =
         percent_encoding::percent_decode_str(read.path.split_once("location=").unwrap().1).decode_utf8_lossy().into_owned();
-    assert!(location.starts_with("/catalog/integrations?reviewOffset=25&productLineName=pokemon&"), "{location}");
+    assert!(location.starts_with("/catalog/scopes/scp_paf?reviewOffset=25&productLineName=pokemon&"), "{location}");
     assert!(!location.contains("providerKey") && !location.contains("home="), "{location}");
     assert!(
         html.contains(r#"href="/catalog/scopes/scp_paf?productLineName=pokemon&amp;"#),
@@ -7738,6 +7774,13 @@ fn daily_surface(location: &str) -> Response {
                 { "key": "observation.reject", "state": "available", "blockers": [] }]
         }
     });
+    // `scopeJourney=composed` is an API that composes a scope page's journey from its Scope Record
+    // (chase-sets/chase-sets#11131): its Catalog sync names the scope the path names.
+    if location.contains("scopeJourney=composed")
+        && let Some(id) = location.strip_prefix("/catalog/scopes/").and_then(|rest| rest.split('?').next())
+    {
+        surface["readModel"]["catalogSync"]["scope"]["reference"] = json!({ "kind": "expansion", "scopeRecordId": id });
+    }
     // `candidatePromote=versioned` is an API that checks a candidate's promote against the version
     // read, and builds it (chase-sets/chase-sets#11143).
     if location.contains("candidatePromote=versioned") {
