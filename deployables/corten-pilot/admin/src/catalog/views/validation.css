@@ -4,8 +4,6 @@
    activation checks are two columns from a tablet up and the decision's forms sit beside its
    facts, and each table stacks on a phone. */
 .stack {
-  display: grid;
-  gap: var(--space-4);
   min-width: 0;
 }
 .group {

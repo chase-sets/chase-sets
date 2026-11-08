@@ -7,20 +7,24 @@
 //! without JavaScript. Each table stacks on a phone, a row a block of labelled lines.
 use corten::prelude::*;
 use corten::{Href, Local};
-use platform::ui::{
-    accordion::Accordion,
-    alert::{Alert, AlertEmphasis, AlertVariant, FormAlert},
-    button::{Button, ButtonSize, ButtonVariant},
-    checkbox::Checkbox,
-    dialog::{Dialog, DialogFooter, DialogHeader, DialogSize},
-    input::Input,
-    pagination::PreviousNext,
-    radio_group::{Radio, RadioGroup},
-    sheet::{Sheet, SheetHeader, SheetWidth, Side},
-    steps::{Step, StepState, Steps, StepsLayout},
-    table::{CellLabel, Table, TableLayout},
-    textarea::Textarea,
-    visually_hidden::VisuallyHidden,
+use platform::{
+    theme::gap_4,
+    ui::{
+        accordion::Accordion,
+        alert::{Alert, AlertEmphasis, AlertVariant, FormAlert},
+        button::{Button, ButtonSize, ButtonVariant},
+        checkbox::Checkbox,
+        dialog::{Dialog, DialogFooter, DialogHeader, DialogSize},
+        input::Input,
+        pagination::PreviousNext,
+        radio_group::{Radio, RadioGroup},
+        sheet::{Sheet, SheetHeader, SheetWidth, Side},
+        stack::{Gap, Stack as KitStack},
+        steps::{Step, StepState, Steps, StepsLayout},
+        table::{CellLabel, Table, TableLayout},
+        textarea::Textarea,
+        visually_hidden::VisuallyHidden,
+    },
 };
 
 use super::integrations_page::{
@@ -553,7 +557,13 @@ fn SyncModule<'a>(
                 }
                 <p class={Muted}>{p.integrations_sync_estimate_note()}</p>
             </div>
-            <form method="post" action={&action} class={Stack} data-patch data-catalog-primary-workbench-command="scope.sync">
+            <form
+                method="post"
+                action={&action}
+                class={(KitStack { gap: Gap::App }, gap_4(), Stack)}
+                data-patch
+                data-catalog-primary-workbench-command="scope.sync"
+            >
                 <input type="hidden" name={f.product_domain} value={scope.product_domain.as_deref().unwrap_or_default()}>
                 <input type="hidden" name={f.product_form} value={scope.product_form.as_deref().unwrap_or_default()}>
                 <input type="hidden" name={f.language_code} value={scope.language_code.as_deref().unwrap_or_default()}>
@@ -1449,7 +1459,7 @@ fn ReviewModule<'a>(
             <form
                 method="post"
                 action={&action}
-                class={Stack}
+                class={(KitStack { gap: Gap::App }, gap_4(), Stack)}
                 data-patch
                 data-catalog-primary-workbench-command="observation.review"
             >
@@ -1645,7 +1655,7 @@ fn EvidenceBody<'a>(t: Cat, detail: &'a EvidenceDetail) -> impl Render {
     ];
     let lines: Vec<String> = contents.rows.iter().map(|row| contents_line(t, row)).collect();
     html! {
-        <div class={Stack} data-catalog-observation-evidence="loaded">
+        <div class={(KitStack { gap: Gap::App }, gap_4(), Stack)} data-catalog-observation-evidence="loaded">
             <Pairs items={&items} />
             <EvidenceList
                 title={t.wb_review_evidence_normalized()}
@@ -1800,7 +1810,7 @@ fn CreateModule<'a>(t: Cat, p: Pilot, model: &'a Daily, context: &'a str) -> imp
     let elsewhere =
         admin_web(&daily::location(&with_query(context, &[("section", Some("promotion-preview"))]))).map(|u| u.to_string());
     html! {
-        <section class={Stack} aria-labelledby="wb-create">
+        <section class={(KitStack { gap: Gap::App }, gap_4(), Stack)} aria-labelledby="wb-create">
             <h2 id="wb-create" class={VisuallyHidden {}}>{t.wb_stage_create_label()}</h2>
             <p class={Lead}>{t.wb_stage_create_description()}</p>
             if let Some(result) = &model.promotion_result {

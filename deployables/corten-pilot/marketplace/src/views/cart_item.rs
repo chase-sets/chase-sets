@@ -3,7 +3,13 @@
 //! (`StickyCtaBar`) and the empty cart (`MarketplaceEmptyState`).
 use corten::{prelude::*, view::AttrValue};
 use corten_ui::{Number, NumberField};
-use platform::ui::stepper::Stepper;
+use platform::{
+    theme::gap_4,
+    ui::{
+        stack::{Gap, Stack as KitStack},
+        stepper::Stepper,
+    },
+};
 
 use super::{marketplace, on_marketplace, srcset_on_marketplace};
 use crate::{
@@ -91,7 +97,7 @@ pub fn CartHeading<'a>(title: &'a str, description: &'a str) -> impl Render {
 /// The notice, the lines, the totals and the bar, spaced as one stack.
 #[component(css = CartItem)]
 pub fn CartStack<C: Render>(children: C) -> impl Render {
-    html! { <div class={Stack}>{children}</div> }
+    html! { <div class={(KitStack { gap: Gap::App }, gap_4(), Stack)}>{children}</div> }
 }
 
 /// The cart's lines, one card each.

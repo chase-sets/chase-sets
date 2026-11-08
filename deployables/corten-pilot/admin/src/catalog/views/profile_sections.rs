@@ -6,13 +6,17 @@
 //! a textarea, a select or a checkbox, each disabled when the API says so. A form posts to the pilot
 //! and lands back on the page; a refusal is the page's notice, patched in place with JavaScript.
 use corten::prelude::*;
-use platform::ui::{
-    accordion::Accordion,
-    button::{Button, ButtonSize, ButtonVariant},
-    checkbox::Checkbox,
-    input::Input,
-    select::Select,
-    textarea::Textarea,
+use platform::{
+    theme::gap_4,
+    ui::{
+        accordion::Accordion,
+        button::{Button, ButtonSize, ButtonVariant},
+        checkbox::Checkbox,
+        input::Input,
+        select::Select,
+        stack::{Gap, Stack as KitStack},
+        textarea::Textarea,
+    },
 };
 
 use super::integrations_page::{Blockers, Pairs, Pill, state_label};
@@ -68,7 +72,7 @@ pub fn ProfileSections<'a>(
     let grouped = |w: &&Workspace| groups.iter().any(|g| g.sections.contains(&w.section_key));
     let rest: Vec<&Workspace> = workspaces.iter().filter(|w| !grouped(w)).collect();
     html! {
-        <div class={Stack} data-catalog-profile-sections="true">
+        <div class={(KitStack { gap: Gap::App }, gap_4(), Stack)} data-catalog-profile-sections="true">
             for group in groups {
                 let members: Vec<&Workspace> = workspaces.iter().filter(|w| group.sections.contains(&w.section_key)).collect();
                 if !members.is_empty() {

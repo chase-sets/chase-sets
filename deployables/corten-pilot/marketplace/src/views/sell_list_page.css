@@ -62,8 +62,6 @@
   margin-block: var(--space-6);
 }
 .stack {
-  display: grid;
-  gap: var(--space-3);
   min-width: 0;
   padding-block-start: var(--space-3);
 }

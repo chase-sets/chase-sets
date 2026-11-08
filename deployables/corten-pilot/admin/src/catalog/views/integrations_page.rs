@@ -7,13 +7,17 @@ use corten::{
     i18n::{DateStyle, TimeStyle, parse_timestamp},
     prelude::*,
 };
-use platform::ui::{
-    accordion::Accordion,
-    alert::{Alert, AlertEmphasis, AlertVariant},
-    badge::{Badge, BadgeEmphasis, BadgeTone},
-    button::{Button, ButtonSize, ButtonVariant},
-    card::{Card, CardContent, CardHeader},
-    table::{CellLabel, Table, TableLayout},
+use platform::{
+    theme::gap_4,
+    ui::{
+        accordion::Accordion,
+        alert::{Alert, AlertEmphasis, AlertVariant},
+        badge::{Badge, BadgeEmphasis, BadgeTone},
+        button::{Button, ButtonSize, ButtonVariant},
+        card::{Card, CardContent, CardHeader},
+        stack::{Gap, Stack as KitStack},
+        table::{CellLabel, Table, TableLayout},
+    },
 };
 
 use crate::{
@@ -1121,7 +1125,7 @@ fn GovernanceWorkspace<'a>(t: Cat, p: Pilot, req: &'a Req, governance: &'a Gover
             <details class={(Accordion {}, Drawer)}>
                 <summary>{t.wb_audit_title()}</summary>
                 <p class={Muted}>{t.wb_audit_description()}</p>
-                <div class={Stack}>
+                <div class={(KitStack { gap: Gap::App }, gap_4(), Stack)}>
                     <AuditWorkspace t={t} req={req} audit={audit} id="wb-drawer" />
                 </div>
             </details>

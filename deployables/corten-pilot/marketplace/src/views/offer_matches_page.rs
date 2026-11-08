@@ -11,6 +11,10 @@ use corten::{
     i18n::{Currency, DateStyle, Decimal, TimeStyle, parse_timestamp},
     prelude::*,
 };
+use platform::{
+    theme::gap_3,
+    ui::stack::{Gap, Stack as KitStack},
+};
 
 use super::listing_page::options;
 use crate::{
@@ -139,7 +143,7 @@ fn Snapshot<'a>(t: OfferMatchesMsg, matches: &'a OfferMatches) -> impl Patch {
     let best = bps(t, items.iter().map(|o| o.offer_to_listing_price_bps).max().unwrap_or(0));
     let off = items.iter().any(|o| o.seller_listing_availability_status == "unavailable");
     html! {
-        <div id={OfferSnapshotId} class={Stack}>
+        <div id={OfferSnapshotId} class={(KitStack { gap: Gap::App }, gap_3(), Stack)}>
             <section class={Panel} aria-labelledby="snapshot-title">
                 <div class={Tight}>
                     <h2 id="snapshot-title" class={PartTitle}>{t.list_best_match_snapshot()}</h2>
@@ -182,7 +186,7 @@ fn Snapshot<'a>(t: OfferMatchesMsg, matches: &'a OfferMatches) -> impl Patch {
 #[component(css = OfferMatchesPage)]
 fn Rows<'a>(t: OfferMatchesMsg, p: Pilot, matches: &'a OfferMatches) -> impl Patch {
     html! {
-        <div id={OfferRowsId} class={Stack}>
+        <div id={OfferRowsId} class={(KitStack { gap: Gap::App }, gap_3(), Stack)}>
             if matches.items.is_empty() {
                 <div class={Card}>
                     <p class={Strong}>{t.list_no_offer_matches()}</p>

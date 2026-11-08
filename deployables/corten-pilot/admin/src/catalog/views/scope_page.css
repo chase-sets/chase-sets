@@ -244,8 +244,6 @@
   border-bottom: 0;
 }
 .stack {
-  display: grid;
-  gap: var(--space-1);
   min-width: 0;
   overflow-wrap: anywhere;
 }

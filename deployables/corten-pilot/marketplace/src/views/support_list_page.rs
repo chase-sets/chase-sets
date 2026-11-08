@@ -13,7 +13,13 @@ use corten::{
     prelude::*,
 };
 use corten_ui::CheckboxGroup;
-use platform::ui::checkboxes::Checkboxes;
+use platform::{
+    theme::gap_2,
+    ui::{
+        checkboxes::Checkboxes,
+        stack::{Gap, Stack as KitStack},
+    },
+};
 
 use super::{on_marketplace, order_page::display_reference};
 use crate::{
@@ -230,7 +236,7 @@ fn CaseRow<'a>(t: SupportMsg, row: &'a SupportCaseRow, role: Role) -> impl Rende
                 {t.list_checklist_summary(crate::text::support_msg::ListChecklistSummary { satisfied: done, required })}
             </td>
             <td data-label={t.list_resolution()}>
-                <div class={Stack}>
+                <div class={(KitStack { gap: Gap::App }, gap_2(), Stack)}>
                     if let Some(status) = &row.customer_remedy_status {
                         <RemedyStatus t={t} status={status} role={role} />
                     }
@@ -338,7 +344,7 @@ fn next_action(t: SupportMsg, status: &CustomerRemedyStatus) -> Option<&'static 
 fn RemedyStatus<'a>(t: SupportMsg, status: &'a CustomerRemedyStatus, role: Role) -> impl Render {
     let (title, tone) = remedy_title(t, status.state);
     html! {
-        <div class={Stack}>
+        <div class={(KitStack { gap: Gap::App }, gap_2(), Stack)}>
             <span class={Badge} data-tone={tone}>{title}</span>
             <p class={(Small, Strong)}>{outcome(t, status)}</p>
             if let Some(coverage) = coverage(t, status) {
@@ -384,7 +390,7 @@ fn ReturnShippingStatus<'a>(t: SupportMsg, shipping: &'a ReturnShipping, role: R
         .unwrap_or_default();
     let label_url = shipping.label_document_url.as_deref().filter(|_| role == Role::Buyer && shipping.label_status == "ready");
     html! {
-        <div class={Stack}>
+        <div class={(KitStack { gap: Gap::App }, gap_2(), Stack)}>
             <p class={(Small, Strong)}>{t.shipping_title()}</p>
             <span class={Badge} data-tone={tone}>{label}</span>
             if shipping.label_status == "failed" {

@@ -25,6 +25,5 @@ pub const FEEDBACK: &[Component] = &[FeedbackPage];
 pub const ATTENTION: &[Component] = &[FeedbackAttentionPage];
 /// eBay Deletion Lookup's components: its stylesheet.
 pub const EBAY: &[Component] = &[EbayPage];
-/// Support requests' components: its stylesheet, the kit's Stack for a row's lines and the sheet's
-/// dialog script.
-pub const REQUESTS: &[Component] = &[RequestsPage, platform::ui::stack::Stack, corten_ui::dialog::COMPONENT];
+/// Support requests' components: its stylesheet and the sheet's dialog script.
+pub const REQUESTS: &[Component] = &[RequestsPage, corten_ui::dialog::COMPONENT];

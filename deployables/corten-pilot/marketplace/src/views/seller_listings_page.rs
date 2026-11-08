@@ -12,6 +12,10 @@ use corten::{
     i18n::{Currency, DateStyle, Decimal, TimeStyle, parse_timestamp},
     prelude::*,
 };
+use platform::{
+    theme::gap_3,
+    ui::stack::{Gap, Stack as KitStack},
+};
 
 use super::listing_page::options;
 use crate::{
@@ -234,7 +238,7 @@ fn AvailabilityPart<'a>(t: SellerListingsMsg, screen: &'a ListingsScreen) -> imp
     let reason = sent(screen, intent, |s| &s.reason_category, a.disabled_reason_category.as_deref().unwrap_or_default());
     let on = sent(screen, intent, |s| &s.available_again_on, a.available_again_on.as_deref().unwrap_or_default());
     html! {
-        <div class={Stack}>
+        <div class={(KitStack { gap: Gap::App }, gap_3(), Stack)}>
             <p class={Badges}>
                 <span class={Badge} data-tone={if available { "success" } else { "warning" }}>
                     if available {
@@ -334,7 +338,7 @@ fn AwayWindowPart<'a>(t: SellerListingsMsg, screen: &'a ListingsScreen) -> impl 
     let starts = sent(screen, intent, |s| &s.away_window_starts_on, "");
     let ends = sent(screen, intent, |s| &s.away_window_ends_on, "");
     html! {
-        <div class={Stack}>
+        <div class={(KitStack { gap: Gap::App }, gap_3(), Stack)}>
             <h3 class={Strong}>{t.list_away_window()}</h3>
             if let Some(starts_at) = &a.away_window_starts_at {
                 <p class={Muted}>
@@ -432,7 +436,7 @@ fn CapacityPart<'a>(t: SellerListingsMsg, screen: &'a ListingsScreen) -> impl Re
         (Some(count), None) => t.list_order_capacity_open_orders_now_unlimited(count).to_string(),
     };
     html! {
-        <div class={Stack}>
+        <div class={(KitStack { gap: Gap::App }, gap_3(), Stack)}>
             <h3 class={Strong}>{t.list_order_capacity()}</h3>
             <p class={Muted}>{t.list_order_capacity_description()}</p>
             <div class={Tight}>
@@ -674,7 +678,7 @@ fn Rows<'a>(t: SellerListingsMsg, p: Pilot, page: &'a ListingPage, filters: &'a 
     let paged = page.total > limit || filters.offset > 0;
     let next = filters.offset + limit;
     html! {
-        <div id={ListingRowsId} class={Stack}>
+        <div id={ListingRowsId} class={(KitStack { gap: Gap::App }, gap_3(), Stack)}>
             if page.items.is_empty() {
                 <div class={Card}>
                     <p class={Strong}>{t.list_no_listings_yet()}</p>

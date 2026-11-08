@@ -9,7 +9,13 @@ use corten::{
     prelude::*,
 };
 
-use platform::ui::meter::Meter;
+use platform::{
+    theme::gap_2,
+    ui::{
+        meter::Meter,
+        stack::{Gap, Stack as KitStack},
+    },
+};
 
 use super::{listing_page::options, on_marketplace};
 use crate::{
@@ -242,7 +248,7 @@ fn Header<'a>(t: AccountMsg, account: &'a PublicAccount, name: &'a str) -> impl 
     html! {
         <section class={Card} aria-labelledby="account-name">
             <div class={HeadRow}>
-                <div class={Stack}>
+                <div class={(KitStack { gap: Gap::App }, gap_2(), Stack)}>
                     <div class={Inline}>
                         <h1 id="account-name" class={Title}>{name}</h1>
                         <span class={Badge} data-tone="trust">{t.page_verified_account()}</span>
@@ -446,7 +452,7 @@ fn Scoring<'a>(t: AccountMsg, review: &'a AccountReview) -> impl Render {
     };
     html! {
         if review.scoring_disposition.is_some() {
-            <div class={Stack}>
+            <div class={(KitStack { gap: Gap::App }, gap_2(), Stack)}>
                 <div class={Inline}>
                     <span class={Badge} data-tone={if included { "success" } else { "neutral" }}>
                         {if included { t.scoring_included() } else { t.scoring_excluded() }}
@@ -497,7 +503,7 @@ fn ReportAction<'a>(
     let f = ReviewReportFields::FIELDS;
     let max = MOST_DETAILS.to_string();
     html! {
-        <div class={Stack}>
+        <div class={(KitStack { gap: Gap::App }, gap_2(), Stack)}>
             if sent {
                 <div class={Banner} data-tone="success" role="status">
                     <p class={Strong}>{title}</p>

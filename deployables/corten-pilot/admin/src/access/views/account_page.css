@@ -173,8 +173,7 @@
   color: var(--color-text-secondary);
   overflow-wrap: anywhere;
 }
-.row,
-.stack {
+.row {
   display: grid;
   gap: var(--space-3);
   align-items: end;

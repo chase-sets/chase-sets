@@ -4,7 +4,13 @@
 //! jobs and the language editions. Every write is a plain form; a reject or revoke's reason is folded under its
 //! button (`<details>`), and Propose mapping is a dialog, so the page works without JavaScript.
 use corten::prelude::*;
-use platform::ui::stats::{Stat, StatTone, Stats as KitStats, StatsSurface};
+use platform::{
+    theme::gap_1,
+    ui::{
+        stack::{Gap, Stack as KitStack},
+        stats::{Stat, StatTone, Stats as KitStats, StatsSurface},
+    },
+};
 
 use super::{CatalogDialog, DetailPage, Empty, Toasts, Tone, TonePill, Trigger};
 use crate::{
@@ -641,7 +647,7 @@ fn JobRow<'a>(t: Cat, job: &'a ReviewJob) -> impl Render {
     html! {
         <tr data-candidate-review-job-id={&job.job_id}>
             <td data-label={t.scope_detail_candidate_review_jobs_column_job()}>
-                <span class={Stack}>
+                <span class={(KitStack { gap: Gap::App }, gap_1(), Stack)}>
                     <span>{kind}</span>
                     <span class={Muted}>{&job.job_id}</span>
                     if failed {
@@ -655,7 +661,7 @@ fn JobRow<'a>(t: Cat, job: &'a ReviewJob) -> impl Render {
                 </span>
             </td>
             <td data-label={t.scope_detail_candidate_review_jobs_column_status()}>
-                <span class={Stack}>
+                <span class={(KitStack { gap: Gap::App }, gap_1(), Stack)}>
                     <TonePill text={&job.status} tone={job_tone(&job.status)} />
                     <span class={Muted}>{&progress}</span>
                 </span>
@@ -671,7 +677,7 @@ fn JobRow<'a>(t: Cat, job: &'a ReviewJob) -> impl Render {
                 if items.is_empty() {
                     <span class={Muted}>{t.scope_detail_candidate_review_jobs_catalog_items_none()}</span>
                 } else {
-                    <span class={Stack}>
+                    <span class={(KitStack { gap: Gap::App }, gap_1(), Stack)}>
                         for item in &items {
                             <span data-promoted-catalog-item-id={*item}>{*item}</span>
                         }
@@ -811,7 +817,7 @@ pub fn AliasReviewPart<'a>(
                 let status = if counts.needs_review > 0 { Tone::Warning } else { Tone::Success };
                 <details class={(Edition, AllScopes)} data-alias-review="all-scopes">
                     <summary>
-                        <span class={Stack}>
+                        <span class={(KitStack { gap: Gap::App }, gap_1(), Stack)}>
                             <strong>{t.alias_all_title()}</strong>
                             <span class={Muted}>{t.alias_all_description()}</span>
                         </span>
@@ -933,7 +939,7 @@ pub fn CandidateView<'a>(t: Cat, action: &'a str, candidate: &'a AliasCandidate,
     html! {
         <div class={Candidate} data-language-edition-candidate={&candidate.alias_hash}>
             <div class={Head}>
-                <span class={Stack}>
+                <span class={(KitStack { gap: Gap::App }, gap_1(), Stack)}>
                     <strong>{&candidate.proposed_alias}</strong>
                     <span class={Muted}>{&native}</span>
                     if full && !candidate.provider_key.is_empty() {

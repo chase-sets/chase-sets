@@ -7,15 +7,19 @@
 //! job's details are a disclosure, so they open without a script. Each table stacks on a phone, a
 //! row a block of labelled lines.
 use corten::prelude::*;
-use platform::ui::{
-    accordion::Accordion,
-    alert::{AlertEmphasis, FormAlert},
-    button::{Button, ButtonSize, ButtonVariant},
-    card::{Card, CardContent},
-    checkbox::Checkbox,
-    input::Input,
-    table::{CellLabel, Table, TableLayout},
-    visually_hidden::VisuallyHidden,
+use platform::{
+    theme::gap_4,
+    ui::{
+        accordion::Accordion,
+        alert::{AlertEmphasis, FormAlert},
+        button::{Button, ButtonSize, ButtonVariant},
+        card::{Card, CardContent},
+        checkbox::Checkbox,
+        input::Input,
+        stack::{Gap, Stack as KitStack},
+        table::{CellLabel, Table, TableLayout},
+        visually_hidden::VisuallyHidden,
+    },
 };
 
 use super::{
@@ -495,7 +499,7 @@ fn DraftModule<'a>(t: Cat, model: &'a Model, key: &'a str, context: &'a str, man
             tone={action_tone(&draft.state)}
         >
             <div class={Columns}>
-                <div class={Stack}>
+                <div class={(KitStack { gap: Gap::App }, gap_4(), Stack)}>
                     <Blockers t={t} blockers={&draft.blockers} />
                 </div>
                 <form
@@ -754,7 +758,7 @@ fn Units<'a>(t: Cat, model: &'a Model, key: &'a str) -> impl Render {
             if units.is_empty() {
                 <Empty title={t.pd_units_empty_title()} description={t.pd_units_empty_description()} />
             } else {
-                <div class={Stack}>
+                <div class={(KitStack { gap: Gap::App }, gap_4(), Stack)}>
                     for unit in &ordered {
                         let health = triage.units.iter().find(|h| h.unit_key == unit.unit_key);
                         let items = [
@@ -846,7 +850,7 @@ fn Jobs<'a>(t: Cat, p: Pilot, req: &'a Req, model: &'a Model, key: &'a str, cont
                                                         detail={None}
                                                     />
                                                 </summary>
-                                                <div class={Stack}>
+                                                <div class={(KitStack { gap: Gap::App }, gap_4(), Stack)}>
                                                     <Outcome t={t} job={job} />
                                                     if manage && (job.retry_available || job.resume_available || job.cancel_available) {
                                                         <JobActions t={t} p={p} job={job} key={key} context={context} />

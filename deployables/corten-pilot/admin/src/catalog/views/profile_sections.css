@@ -3,8 +3,6 @@
    facts are one column on a phone and two from a tablet up, and its fields one column on a phone
    and two from a desktop up, each as wide as its column. */
 .stack {
-  display: grid;
-  gap: var(--space-4);
   min-width: 0;
 }
 .group-box {

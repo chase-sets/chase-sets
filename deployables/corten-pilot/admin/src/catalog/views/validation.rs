@@ -5,13 +5,17 @@
 //! labelled lines. The evidence and activate forms post to the pilot and land back on the page; a
 //! refusal is the page's notice, patched in place with JavaScript.
 use corten::prelude::*;
-use platform::ui::{
-    accordion::Accordion,
-    button::{Button, ButtonSize, ButtonVariant},
-    input::Input,
-    table::{CellLabel, Table, TableLayout},
-    textarea::Textarea,
-    visually_hidden::VisuallyHidden,
+use platform::{
+    theme::gap_4,
+    ui::{
+        accordion::Accordion,
+        button::{Button, ButtonSize, ButtonVariant},
+        input::Input,
+        stack::{Gap, Stack as KitStack},
+        table::{CellLabel, Table, TableLayout},
+        textarea::Textarea,
+        visually_hidden::VisuallyHidden,
+    },
 };
 
 use super::integrations_page::{Banner, Blockers, Cell, Empty, Evidence, Metric, Module, Pairs, Pill, blocker, transport};
@@ -57,7 +61,7 @@ pub fn Validation<'a>(
     manage: bool,
 ) -> impl Render {
     html! {
-        <div class={Stack} data-catalog-validation-readiness="true">
+        <div class={(KitStack { gap: Gap::App }, gap_4(), Stack)} data-catalog-validation-readiness="true">
             <ProviderReadiness t={t} p={p} model={model} />
             <Fixtures t={t} p={p} model={model} />
             <DryRuns t={t} p={p} model={model} />
@@ -748,7 +752,7 @@ fn DecisionModule<'a>(
                 />
             </dl>
             <div class={Columns}>
-                <div class={Stack}>
+                <div class={(KitStack { gap: Gap::App }, gap_4(), Stack)}>
                     <Pairs items={&items} />
                     <Listed
                         t={t}
@@ -766,7 +770,7 @@ fn DecisionModule<'a>(
                         </div>
                     }
                 </div>
-                <div class={Stack}>
+                <div class={(KitStack { gap: Gap::App }, gap_4(), Stack)}>
                     <EvidenceForm t={t} decision={d} recorded_at={&evidence_when} key={key} context={context} manage={manage} />
                     <ActivateForm t={t} decision={d} key={key} context={context} manage={manage} />
                 </div>

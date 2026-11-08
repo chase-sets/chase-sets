@@ -9,7 +9,13 @@
 //! stack on a phone, a row a block of labelled lines.
 use corten::prelude::*;
 use corten_ui::{CopyButton, Tab as UiTab, TabGroup};
-use platform::ui::table::{CellLabel, Table as KitTable, TableLayout};
+use platform::{
+    theme::gap_3,
+    ui::{
+        stack::{Gap, Stack as KitStack},
+        table::{CellLabel, Table as KitTable, TableLayout},
+    },
+};
 
 use super::access_page::when;
 use crate::{
@@ -353,7 +359,7 @@ fn Team<'a>(t: Acc, p: Pilot, viewer: &'a Viewer, hub: &'a Hub) -> impl Render {
                     </button>
                 </div>
                 <dialog class={Confirm} id={&invite} aria-label={t.account_invite_title()}>
-                    <form class={Stack} method="post" action={action(id)}>
+                    <form class={(KitStack { gap: Gap::App }, gap_3())} method="post" action={action(id)}>
                         <input type="hidden" name={f.intent} value="create-invitation">
                         <h3>{t.account_invite_title()}</h3>
                         <p>{t.account_invite_description(name)}</p>

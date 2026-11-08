@@ -9,6 +9,10 @@
 //! back does not (`formnovalidate`). Marketplace's order protection module, which repeats the
 //! verified order's three facts, is left out. One column; from 48rem the facts sit in a row.
 use corten::prelude::*;
+use platform::{
+    theme::gap_2,
+    ui::stack::{Gap, Stack as KitStack},
+};
 
 use super::on_marketplace;
 use crate::{
@@ -155,7 +159,7 @@ fn ReviewForm<'a>(t: ReviewsMsg, p: Pilot, screen: &'a OrderReviewScreen) -> imp
                     </textarea>
                     <span class={Faint}>{t.write_tell_the_account_what_went_well()}</span>
                 </label>
-                <div class={Stack}>
+                <div class={(KitStack { gap: Gap::App }, gap_2(), Stack)}>
                     <p class={Muted}>{t.guidance_description()}</p>
                     <p class={Inline}>
                         <a href={&on_marketplace("/help/buying/community-guidelines-and-enforcement")}>

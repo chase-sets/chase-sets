@@ -136,8 +136,10 @@ pub use support_page::SupportPage;
 pub use team_page::TeamPage;
 
 /// Every component with a stylesheet or a script that pages in both areas render, tokens first.
+/// The kit's `Stack` is most screens' columns, so it is here rather than in each area's list.
 pub const COMPONENTS: &[Component] = &[
     theme::TOKENS,
+    platform::ui::stack::Stack,
     platform::ui::icon::Icon,
     platform::ui::input::Input,
     platform::ui::input_group::InputGroup,
@@ -299,11 +301,10 @@ pub const BULK_REPRICE: &[Component] = &[BulkRepricePage, platform::ui::stats::S
 pub const OFFER_MATCHES: &[Component] = &[OfferMatchesPage];
 pub const SUBMITTED_OFFERS: &[Component] = &[SubmittedOffersPage, submitted_offers_page::handlers::COMPONENT];
 
-/// The account's orders (`/account/purchases` and `/account/sales`), and the kit's Stack for the
-/// order page's columns.
-pub const ORDERS: &[Component] = &[OrderPage, OrderReviewPage, platform::ui::stack::Stack];
-/// The buyer's shipment pages (Fulfillment's), and the kit's Stack for their columns.
-pub const SHIPMENTS: &[Component] = &[ShipmentPage, platform::ui::stack::Stack];
+/// The account's orders (`/account/purchases` and `/account/sales`).
+pub const ORDERS: &[Component] = &[OrderPage, OrderReviewPage];
+/// The buyer's shipment pages (Fulfillment's).
+pub const SHIPMENTS: &[Component] = &[ShipmentPage];
 /// The seller's: the command center, a shipment's page, the packing page with its script, which
 /// the command center and the shipment page's Start packing form also use, and the packing slips
 /// with Print's. Not the buyer's, whose pages never pack.
@@ -313,7 +314,6 @@ pub const SALE_SHIPMENTS: &[Component] = &[
     PackingPage,
     platform::ui::steps::Steps,
     platform::ui::progress::Progress,
-    platform::ui::stack::Stack,
     packing_page::handlers::COMPONENT,
     corten_ui::CopyButton,
     PackingSlipsPage,

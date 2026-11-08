@@ -15,6 +15,10 @@ use corten::{
     i18n::{Currency, DateStyle, Decimal, TimeStyle, parse_timestamp},
     prelude::*,
 };
+use platform::{
+    theme::gap_3,
+    ui::stack::{Gap, Stack as KitStack},
+};
 
 use crate::{
     api::{ListingEvidence, OfferReview, SellListConfirmation, SellTerms},
@@ -647,7 +651,7 @@ fn LineCard<'a>(t: SellListMsg, line: &'a Line, surface: Surface, selectable: bo
             }
             <details class={More}>
                 <summary class={(Button, Secondary)} aria-label={&review_label}>{t.page_review_offers_and_terms()}</summary>
-                <div class={Stack}>
+                <div class={(KitStack { gap: Gap::App }, gap_3(), Stack)}>
                     <p class={Hint}>{t.page_drawer_description()}</p>
                     if !line.picks.is_empty() {
                         <ul class={Picks}>

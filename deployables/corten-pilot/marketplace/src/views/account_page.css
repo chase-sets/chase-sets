@@ -48,8 +48,6 @@
   overflow-wrap: anywhere;
 }
 .stack {
-  display: grid;
-  gap: var(--space-2);
   min-width: 0;
 }
 .inline {
@@ -243,7 +241,7 @@
   justify-items: center;
 }
 .review-actions > .stack {
-  justify-items: center;
+  align-items: center;
   width: 100%;
 }
 .banner {

@@ -12,6 +12,10 @@ use corten::{
     i18n::{Currency, DateStyle, parse_timestamp},
     prelude::*,
 };
+use platform::{
+    theme::gap_3,
+    ui::stack::{Gap, Stack as KitStack},
+};
 
 use super::listing_page::options;
 use crate::{
@@ -222,7 +226,7 @@ fn Filters<'a>(t: SubmittedOffersMsg, screen: &'a OffersScreen) -> impl Patch {
 fn Rows<'a>(t: SubmittedOffersMsg, p: Pilot, screen: &'a OffersScreen) -> impl Patch {
     let items = &screen.offers.items;
     html! {
-        <div id={SubmittedRowsId} class={Stack}>
+        <div id={SubmittedRowsId} class={(KitStack { gap: Gap::App }, gap_3(), Stack)}>
             if items.is_empty() {
                 <div class={Card}>
                     match screen.place.status() {

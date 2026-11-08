@@ -44,7 +44,7 @@ pub use status_badge::StatusBadge;
 /// The components every page renders (the frame and the shared parts), tokens first: their
 /// stylesheets are `components.css`. The kit's `NavBar` is the top bar's, before `AdminNav`'s own rules,
 /// and its `Table` is every area's lists' (one stylesheet, so no area links another's), as its `Stats`
-/// is every dashboard's counts, its `VisuallyHidden` every table's hidden caption, and its `Icon`
+/// is every dashboard's counts, its `Stack` most screens' columns, its `VisuallyHidden` every table's hidden caption, and its `Icon`
 /// in an `InputGroup` a search field's glyph (`platform::search`). The layout's
 /// toaster is the kit's `Toasts` around corten-ui's `Toaster`. The home's (`IndexPage`) is here
 /// because no area can be at `/`.
@@ -53,6 +53,7 @@ pub const COMPONENTS: &[Component] = &[
     platform::ui::nav_bar::NavBar,
     platform::ui::table::Table,
     platform::ui::stats::Stats,
+    platform::ui::stack::Stack,
     platform::ui::visually_hidden::VisuallyHidden,
     platform::ui::icon::Icon,
     platform::ui::input_group::InputGroup,
