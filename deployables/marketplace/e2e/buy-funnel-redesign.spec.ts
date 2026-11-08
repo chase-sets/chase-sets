@@ -359,6 +359,77 @@ test.describe("buy funnel redesign — defect verification", () => {
     await captureScreenshot(page, "cart-with-lines");
   });
 
+  test("captures populated cart lines and actions at 390px @marketplace-checkout @browser-e2e-seed", async ({
+    page,
+  }, testInfo) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await authenticateSeededBuyer(page);
+    await waitForAccountRoute(page, "/account/cart");
+    const cartLines = page.locator("[data-marketplace-cart-line]");
+    await expect(cartLines).toHaveCount(marketplaceBrowserE2eSeedContract.cart.lineCount);
+    for (const line of await cartLines.all()) {
+      await expect(line).toBeVisible();
+      await expect(line.getByRole("button", { name: "Increase" })).toBeVisible();
+      await expect(line.getByRole("button", { name: "Remove" })).toBeVisible();
+      const badge = line.getByText("Ready", { exact: true });
+      await expect(badge).toBeVisible();
+      await expect(badge).toHaveClass(/bg-success-soft/);
+      await expect(line.getByRole("link", { name: "Find alternatives" })).toHaveCount(0);
+      await expect(line.getByText("from", { exact: true })).toHaveCount(0);
+      await expect(line.getByText("Priced at checkout", { exact: true })).toHaveCount(0);
+    }
+    await captureResponsiveEvidence({ page, testInfo, claimId: "checkout-cart-lines-390" });
+  });
+
+  test("captures populated cart lines and actions at 1024px @marketplace-checkout @browser-e2e-seed", async ({
+    page,
+  }, testInfo) => {
+    await page.setViewportSize({ width: 1024, height: 900 });
+    await authenticateSeededBuyer(page);
+    await waitForAccountRoute(page, "/account/cart");
+    const cartLines = page.locator("[data-marketplace-cart-line]");
+    await expect(cartLines).toHaveCount(marketplaceBrowserE2eSeedContract.cart.lineCount);
+    for (const line of await cartLines.all()) {
+      await expect(line).toBeVisible();
+      await expect(line.getByRole("button", { name: "Increase" })).toBeVisible();
+      await expect(line.getByRole("button", { name: "Remove" })).toBeVisible();
+      const badge = line.getByText("Ready", { exact: true });
+      await expect(badge).toBeVisible();
+      await expect(badge).toHaveClass(/bg-success-soft/);
+      await expect(line.getByRole("link", { name: "Find alternatives" })).toHaveCount(0);
+      await expect(line.getByText("from", { exact: true })).toHaveCount(0);
+      await expect(line.getByText("Priced at checkout", { exact: true })).toHaveCount(0);
+    }
+    await captureResponsiveEvidence({ page, testInfo, claimId: "checkout-cart-lines-1024" });
+  });
+
+  test("shows a pending quantity edit and corrected cart read @marketplace-checkout @browser-e2e-seed", async ({
+    page,
+  }) => {
+    await authenticateSeededBuyer(page);
+    await waitForAccountRoute(page, "/account/cart");
+    const line = page
+      .locator("[data-marketplace-cart-line]")
+      .filter({ has: page.getByText("Charizard", { exact: true }) });
+    await expect(line).toBeVisible();
+    const quantity = line.getByRole("spinbutton", { name: "Quantity" });
+    const before = Number(await quantity.inputValue());
+    await line.getByRole("button", { name: "Increase" }).click();
+    await expect(line.getByText("Updating cart")).toBeVisible();
+    await expect(line.getByText("Updating cart")).not.toHaveClass(/bg-success-soft/);
+    await expect(line.getByText("Priced at checkout", { exact: true })).toBeVisible();
+    await expect(line.getByText("Ready", { exact: true })).toHaveCount(0);
+    await expect(quantity).toHaveValue(String(before + 1));
+    await expect(line.getByText("Updating cart")).toHaveCount(0, { timeout: 30_000 });
+    await expect(quantity).toHaveValue(String(before + 1));
+    await expect(line.getByText("Ready", { exact: true })).toBeVisible();
+    await expect(line.getByText("Ready", { exact: true })).toHaveClass(/bg-success-soft/);
+    await expect(line.getByText(`$${((39999 * (before + 1)) / 100).toFixed(2)}`, { exact: true })).toBeVisible();
+    await expect(line.getByText("from", { exact: true })).toHaveCount(0);
+    await expect(line.getByText("Priced at checkout", { exact: true })).toHaveCount(0);
+    await expect(line.getByRole("link", { name: "Find alternatives" })).toHaveCount(0);
+  });
+
   async function assertCartFallbackResponsive(page: Page, width: number, height: number) {
     await page.setViewportSize({ width, height });
     await page.setExtraHTTPHeaders({ "Cache-Control": "no-cache" });

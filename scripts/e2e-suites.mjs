@@ -543,7 +543,7 @@ const boundedContextRouteSuiteOwnership = [
     // Also covers the item-detail-market-history.tsx resource route (m111
     // market panel): its Sales-tab range/data fetch is exercised by the same
     // spec's Sales-tab assertion.
-    pattern: /^bounded-contexts\/discovery\/routes\/item-detail(?:\.|-market-history\.)/,
+    pattern: /^bounded-contexts\/discovery\/routes\/item-detail(?:\.|-market-history\.|-rail-analytics\.)/,
     suites: ["marketplace_browse"],
   },
   {

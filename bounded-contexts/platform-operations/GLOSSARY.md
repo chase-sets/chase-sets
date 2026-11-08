@@ -277,6 +277,10 @@ It is an observation, not a verdict. It asserts no statutory applicability, eval
 
 A **Seller Compliance Cohort** is the policy-configured rolling-window membership and disclosure band computed from Seller Compliance Sales. Its guarded state row and immutable transition ledger retain the causal effective instant separately from the observation instant and identify the policy revision that produced each transition. It is not statutory applicability or a Risk Alert. Inactive or uncovered policy inputs freeze persisted state; the approved default remains inert.
 
+## Seller Compliance Cohort Replay
+
+**Seller Compliance Cohort Replay** consumes complete policy history through a fixed event-store horizon before evaluating seller sales at the scheduled tick. It retains raw policy identity on decode failures, records deduplicated durable failures, and resumes bounded seller changes from its retained snapshot and page cursors. Later policy revisions apply prospectively without rewriting prior transition envelopes.
+
 ## Appealable Enforcement Action
 
 An **Appealable Enforcement Action** is one Identity account enforcement (suspension, reactivation, or closure, keyed `enf_`) or Marketplace listing enforcement (operator or automatic unlisting, keyed `lea_`) that Platform Operations has recorded as a complete registry tuple: the owning account, the source event type, and the source stream id and version, all taken from the published fact and never from a caller.
