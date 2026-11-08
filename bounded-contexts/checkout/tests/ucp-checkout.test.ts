@@ -156,6 +156,7 @@ function fixture(overrides: Partial<CheckoutSessionRow> = {}) {
   const sessions = {
     ...writes,
     resolveEntryAttempt,
+    firstPreviewShippingAddress: vi.fn<CheckoutSessionServices["firstPreviewShippingAddress"]>(async () => null),
     getLastRecordedQuote: vi.fn(async () => ({
       revision: "retained_quote_revision",
       readyLineKeys: ["lst_1:0"],
@@ -267,6 +268,29 @@ describe("UCP buy-now readiness AC1", () => {
       context,
     );
     expect(ports.previewBuyNowCheckoutSupplyThroughOrdering).toHaveBeenCalledTimes(1);
+  });
+  // The buyer confirms on the web checkout, which preselects this address (#10798).
+  it("previews the create for the buyer's first saved address", async () => {
+    const f = fixture();
+    const saved = {
+      shippingAddressId: "adr_home" as never,
+      name: "Demo Collector",
+      line1: "42 Binder Lane",
+      line2: null,
+      city: "Evanston",
+      state: "IL",
+      postalCode: "60201",
+      country: "US",
+    };
+    vi.mocked(f.sessions.firstPreviewShippingAddress).mockResolvedValueOnce(saved);
+    const request = input(dto());
+    request.request.headers.set("Idempotency-Key", "retry_saved_address");
+    expect((await f.restHandlers.create_checkout(request)).ucp.status).toBe("success");
+    expect(f.sessions.firstPreviewShippingAddress).toHaveBeenCalledExactlyOnceWith(request.actor!.accountId);
+    expect(ports.previewBuyNowCheckoutSupplyThroughOrdering).toHaveBeenCalledExactlyOnceWith(
+      expect.anything(),
+      expect.objectContaining({ shippingAddress: saved }),
+    );
   });
   it.each([
     ["unknown", dto(), "item_unavailable"],
