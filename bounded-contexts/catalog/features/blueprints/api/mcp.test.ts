@@ -7,7 +7,7 @@ import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import { createMcpRoutes, type McpAuditSink } from "@chase-sets/platform-runtime/mcp";
 import { flattenMcpTools } from "@chase-sets/platform-runtime/mcp-contracts";
-import manifest from "../../../context.json";
+import { contextManifest as manifest } from "../../../index";
 import type { CatalogAuthoringBulkJob } from "../../../support/authoring-support/bulk-authoring-jobs";
 import { decideBlueprint, evolveBlueprint, initialBlueprintState, type BlueprintEvent } from "../domain/domain";
 import { getBlueprintDetail, type BlueprintRow } from "../read-model/queries";
