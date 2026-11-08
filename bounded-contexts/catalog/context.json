@@ -149,6 +149,21 @@
   ],
   "mcpCapabilities": {
     "tools": [
+      { "name": "catalog.archive-blueprint", "ownerSlice": "blueprints" },
+      { "name": "catalog.attach-component", "ownerSlice": "blueprints" },
+      { "name": "catalog.confirm-bulk-blueprint-lifecycle", "ownerSlice": "blueprints" },
+      { "name": "catalog.create-blueprint", "ownerSlice": "blueprints" },
+      { "name": "catalog.deprecate-blueprint", "ownerSlice": "blueprints" },
+      { "name": "catalog.detach-component", "ownerSlice": "blueprints" },
+      { "name": "catalog.get-authoring-job", "ownerSlice": "blueprints" },
+      { "name": "catalog.get-blueprint", "ownerSlice": "blueprints" },
+      { "name": "catalog.list-blueprints", "ownerSlice": "blueprints" },
+      { "name": "catalog.preview-bulk-blueprint-lifecycle", "ownerSlice": "blueprints" },
+      { "name": "catalog.publish-blueprint", "ownerSlice": "blueprints" },
+      { "name": "catalog.revise-blueprint", "ownerSlice": "blueprints" },
+      { "name": "catalog.set-blueprint-dimensions", "ownerSlice": "blueprints" },
+      { "name": "catalog.set-blueprint-fields", "ownerSlice": "blueprints" },
+      { "name": "catalog.set-blueprint-product-resolution-rules", "ownerSlice": "blueprints" },
       { "name": "catalog.list-provider-refresh-schedules", "ownerSlice": "provider-scope-discovery" },
       { "name": "catalog.run-provider-refresh", "ownerSlice": "provider-scope-discovery" },
       { "name": "catalog.pause-provider-refresh", "ownerSlice": "provider-scope-discovery" },
@@ -174,8 +189,12 @@
     "resources": []
   },
   "agentCoverage": {
-    "blueprints": { "pending": "#9238" },
-    "blueprints-detail": { "pending": "#9238" },
+    "blueprints": {
+      "tools": ["catalog.list-blueprints", "catalog.create-blueprint", "catalog.preview-bulk-blueprint-lifecycle", "catalog.confirm-bulk-blueprint-lifecycle", "catalog.get-authoring-job"]
+    },
+    "blueprints-detail": {
+      "tools": ["catalog.get-blueprint", "catalog.publish-blueprint", "catalog.deprecate-blueprint", "catalog.archive-blueprint", "catalog.revise-blueprint", "catalog.attach-component", "catalog.detach-component", "catalog.set-blueprint-product-resolution-rules", "catalog.set-blueprint-fields", "catalog.set-blueprint-dimensions"]
+    },
     "catalog-items": { "pending": "#9238" },
     "catalog-items-detail": { "pending": "#9238" },
     "categories": { "pending": "#9238" },
