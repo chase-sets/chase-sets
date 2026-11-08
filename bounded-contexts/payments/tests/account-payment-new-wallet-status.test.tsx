@@ -407,6 +407,53 @@ describe("Start payment authoritative wallet status", () => {
     },
   );
 
+  it("waits for committed Continue after the router reports recovered idle", async () => {
+    const api = harness();
+    const router = mount();
+    await ready();
+    let finishFresh!: (response: Response) => void;
+    api.setFresh(
+      () =>
+        new Promise((resolve) => {
+          finishFresh = resolve;
+        }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Accept Terms of Service" }));
+    await waitFor(() => {
+      expect(router.state.navigation.state).toBe("loading");
+      expect((screen.getAllByRole("button", { name: "Continue to payment" })[1] as HTMLButtonElement).disabled).toBe(
+        true,
+      );
+    });
+    expect(api.creates()).toHaveLength(0);
+    let disabledAtIdle: boolean | undefined;
+    const unsubscribe = router.subscribe((state) => {
+      if (state.navigation.state === "idle") {
+        disabledAtIdle = (
+          screen.getAllByRole("button", { name: "Continue to payment" })[1] as HTMLButtonElement
+        ).disabled;
+      }
+    });
+    try {
+      await act(async () => {
+        finishFresh(jsonResponse(status()));
+        await waitFor(() => expect(router.state.navigation.state).toBe("idle"));
+        expect(await screen.findAllByRole("button", { name: "Continue to payment" })).toHaveLength(2);
+        expect(
+          (screen.getAllByRole("button", { name: "Continue to payment" })[1] as HTMLButtonElement).disabled,
+        ).toBe(false);
+      });
+    } finally {
+      unsubscribe();
+    }
+    expect(disabledAtIdle).toBe(true);
+    controls(true);
+    fireEvent.click(screen.getAllByRole("button", { name: "Continue to payment" })[1]!);
+    await screen.findByText("Payment destination");
+    expect(api.creates()).toHaveLength(1);
+    expect(api.accepts()).toHaveLength(1);
+  });
+
   it("keeps withheld credit honest when terms recovery does not complete", async () => {
     for (const failure of [
       "inactive",
