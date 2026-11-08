@@ -112,7 +112,7 @@ pub use packing_slips_page::PackingSlipsPage;
 pub use page_actions::PageActions;
 pub use payment_methods_page::PaymentMethodsPage;
 pub use payment_page::{PaymentContent, PaymentNotice, PaymentPage, PaymentWatch};
-pub use payment_start_page::{PaymentStartMissing, PaymentStartPage};
+pub use payment_start_page::{PaymentStartMissing, PaymentStartPage, PaymentStartRefused};
 pub use payout_setup_page::{PayoutSetupAccessRequired, PayoutSetupPage};
 pub use pricing_health_page::PricingHealthPage;
 pub use recommendations_page::{RecommendationsPage, recommendations_notice, recommendations_part};

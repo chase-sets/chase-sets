@@ -96,7 +96,11 @@
     "sale_pending": "We are preparing your sale. Refresh in a moment and it should appear.",
     "purchase_unverified": "Purchase handoff is no longer valid.",
     "sale_unverified": "Sale handoff is no longer valid.",
-    "evidence_alt": "{title} evidence"
+    "evidence_alt": "{title} evidence",
+    "verify_to_pay_title": "Verify your email to pay for or cancel this {label}",
+    "verify_to_pay_description": "Paying and cancelling need a verified email. We will email you a link; opening it verifies your email and brings you back here.",
+    "cannot_pay": "This account cannot pay for purchases.",
+    "pay_needs_verified_email": "Verify your email before you pay. The purchase's page has the link that verifies it."
   },
   "shipments": {
     "line": "{count} line",

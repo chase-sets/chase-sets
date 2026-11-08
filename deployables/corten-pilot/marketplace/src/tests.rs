@@ -6282,15 +6282,36 @@ async fn the_orders_sign_in_and_need_their_permissions() {
 }
 
 #[tokio::test]
+async fn pay_now_is_offered_only_to_a_buyer_who_may_pay_and_the_others_are_told_why() {
+    let pilot = Pilot::new().await;
+    let pay = r#"href="/account/payments/new?orderIds=ord_open""#;
+    let (_, _, html) = pilot.send(get("/account/purchases/ord_open", Some("shopper"))).await;
+    assert!(html.contains(pay), "{html}");
+    assert!(!text(&html).contains("cannot pay"), "{html}");
+    // Without orders.manage: no Pay now, and a line that says so (chase-sets/chase-sets#11170).
+    let (status, _, html) = pilot.send(get("/account/purchases/ord_open", Some("looker"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(!html.contains(pay) && !text(&html).contains("Pay now"), "{html}");
+    assert!(text(&html).contains("This account cannot pay for purchases."), "{html}");
+    // Awaiting email verification: no Pay now, and Verify email names paying too.
+    let (_, _, html) = pilot.send(get("/account/purchases/ord_open", Some("unverified"))).await;
+    let shown = text(&html);
+    assert!(!html.contains(pay) && !shown.contains("Pay now"), "{html}");
+    assert!(shown.contains("Verify your email to pay for or cancel this purchase"), "{shown}");
+    assert!(shown.contains("Paying and cancelling need a verified email."), "{shown}");
+    assert!(!shown.contains("cannot pay"), "{shown}");
+}
+
+#[tokio::test]
 async fn a_cancel_awaiting_email_verification_offers_the_sign_in_that_verifies_it() {
     let pilot = Pilot::new().await;
     let link = "/sign-in?returnTo=%2Faccount%2Fpurchases%2Ford_open%3FverifyEmail%3Dcancel-purchase&amp;signInMethod=magic-link";
-    // An owner whose orders.manage Auth withheld: no Cancel, and Verify email in its place.
+    // An owner whose orders.manage Auth withheld: no Cancel, and Verify email in its place. The
+    // purchase awaits payment, so it names paying too.
     let (status, _, html) = pilot.send(get("/account/purchases/ord_open", Some("unverified"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");
     let shown = text(&html);
-    assert!(shown.contains("Verify your email to cancel this purchase"), "{shown}");
-    assert!(shown.contains("Cancelling needs a verified email."), "{shown}");
+    assert!(shown.contains("Verify your email to pay for or cancel this purchase"), "{shown}");
     assert!(html.contains(&format!(r#"href="{link}""#)) && shown.contains("Verify email"), "{html}");
     assert!(!html.contains("/cancel\"") && !shown.contains("Cancel purchase"), "{html}");
     // Not when the order cannot be cancelled anyway, not for an agent, and not for a member whose
@@ -12816,12 +12837,24 @@ async fn starting_a_payment_needs_orders_and_orders_manage() {
     let (status, _, html) = pilot.send(get("/account/payments/new?orderIds=ord_gone", Some("payer"))).await;
     assert_eq!(status, StatusCode::NOT_FOUND, "{html}");
     assert!(text(&html).contains("Purchase not found."), "{html}");
-    // Seeing payments is not enough to start one.
-    let (status, _, _) = pilot.send(get("/account/payments/new?orderIds=ord_pay", Some("card_reader"))).await;
+    // Seeing payments is not enough to start one, and the page says why with the purchase's page
+    // (chase-sets/chase-sets#11170), not a bare Forbidden.
+    let (status, _, html) = pilot.send(get("/account/payments/new?orderIds=ord_pay", Some("card_reader"))).await;
     assert_eq!(status, StatusCode::FORBIDDEN);
+    assert!(text(&html).contains("This account cannot pay for purchases."), "{html}");
+    assert!(html.contains(r#"href="/account/purchases/ord_pay""#), "{html}");
     let form = "order_ids=ord_pay&payment_method_category=card&balance_credit_mode=none&requested_balance_credit_amount=";
-    let (status, _, _) = pilot.send(post("/account/payments/new", "card_reader", form, false)).await;
+    let (status, _, html) = pilot.send(post("/account/payments/new", "card_reader", form, false)).await;
     assert_eq!(status, StatusCode::FORBIDDEN);
+    assert!(text(&html).contains("This account cannot pay for purchases."), "{html}");
+    // One whose orders.manage awaits email verification is told to verify it from the purchase.
+    let (status, _, html) = pilot.send(get("/account/payments/new?orderIds=ord_pay", Some("unverified"))).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    assert!(text(&html).contains("Verify your email before you pay."), "{html}");
+    assert!(html.contains(r#"href="/account/purchases/ord_pay""#), "{html}");
+    // More than one order: no single purchase to open.
+    let (_, _, html) = pilot.send(get("/account/payments/new?orderIds=ord_pay,ord_open", Some("card_reader"))).await;
+    assert!(!html.contains(r#"href="/account/purchases/ord_"#), "{html}");
     let (status, headers, _) = pilot.send(get("/account/payments/new?orderIds=ord_pay", None)).await;
     assert_eq!(
         (status, headers[header::LOCATION].to_str().unwrap()),

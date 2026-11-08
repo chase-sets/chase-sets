@@ -27,8 +27,9 @@ use crate::{
     api::{ApiError, CheckoutSessions as _, PaymentCalls as _, PaymentOrder, PaymentPreview, Wallet},
     app::{ORDERS_MANAGE, Shared, read_failed, url},
     auth::{PaymentBuyer, Viewer},
+    email_verification,
     payment::Place,
-    text::PaymentStartMsg,
+    text::{PaymentStartMsg, Pilot},
     views::{self, Layout},
 };
 
@@ -150,9 +151,34 @@ fn read_answer(req: &Req, viewer: &Viewer, read: Read) -> HtmlResult {
     }
 }
 
-/// Starting a payment needs `orders.manage`, as marketplace's loader and action require.
-fn may_start(viewer: &Viewer) -> Result<(), corten::Error> {
-    if viewer.actor.can(ORDERS_MANAGE) { Ok(()) } else { Err(corten::Error::status(StatusCode::FORBIDDEN)) }
+/// Starting a payment needs `orders.manage`, as marketplace's loader and action require. A buyer
+/// without it is told why, 403, not shown a bare Forbidden (chase-sets/chase-sets#11170): one
+/// whose `orders.manage` awaits email verification is sent to the purchase's page, which has the
+/// link that verifies it.
+fn refused(req: &Req, viewer: &Viewer, ids: &[String]) -> Option<HtmlResult> {
+    if viewer.actor.can(ORDERS_MANAGE) {
+        return None;
+    }
+    let p: Pilot = req.t();
+    let t: PaymentStartMsg = req.t();
+    let message = if email_verification::awaits(&viewer.actor, ORDERS_MANAGE) {
+        p.orders_pay_needs_verified_email()
+    } else {
+        p.orders_cannot_pay()
+    };
+    let purchase = match ids {
+        [id] => Some(url::Purchase { id, after: Default::default() }.href()),
+        _ => None,
+    };
+    let head = html! { <meta name="robots" content="noindex"> };
+    Some(req.page_with_status(
+        StatusCode::FORBIDDEN,
+        html! {
+            <Layout req={req} viewer={Some(viewer)} title={t.start_payment_marketplace()} head={head}>
+                <views::PaymentStartRefused t={t} message={message} purchase={purchase.as_deref()} />
+            </Layout>
+        },
+    ))
 }
 
 /// The page for the orders in its address; none is the purchases.
@@ -163,8 +189,10 @@ pub(crate) async fn page(
     headers: HeaderMap,
     Params(route): Params<url::payments::BuyerPaymentNew>,
 ) -> HtmlResult {
-    may_start(&viewer)?;
     let ids = order_ids(route.place.order_ids.as_deref().unwrap_or_default());
+    if let Some(answer) = refused(&req, &viewer, &ids) {
+        return answer;
+    }
     if ids.is_empty() {
         return req.redirect(&url::Purchases::default());
     }
@@ -196,9 +224,11 @@ pub(crate) async fn start(
     headers: HeaderMap,
     Form(form): Form<StartForm>,
 ) -> HtmlResult {
-    may_start(&viewer)?;
     let t: PaymentStartMsg = req.t();
     let ids = order_ids(&form.order_ids);
+    if let Some(answer) = refused(&req, &viewer, &ids) {
+        return answer;
+    }
     if ids.is_empty() {
         return req.redirect(&url::Purchases::default());
     }

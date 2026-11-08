@@ -330,6 +330,28 @@ fn Purchase<'a>(t: PaymentStartMsg, order: &'a PaymentOrder) -> impl Render {
     }
 }
 
+/// Why this account cannot start a payment, with the purchase's page when one order was asked for.
+#[component(css = PaymentStartPage)]
+pub fn PaymentStartRefused<'a>(t: PaymentStartMsg, message: &'a str, purchase: Option<&'a str>) -> impl Render {
+    html! {
+        <div class={Page}>
+            <header class={Header}>
+                <div class={Tight}>
+                    <p class={Eyebrow}>{t.secure_checkout()}</p>
+                    <h1 class={Title}>{t.start_payment()}</h1>
+                </div>
+                <a class={(Button, Secondary)} href={url::Purchases::default()}>{t.back_to_purchases()}</a>
+            </header>
+            <div class={Banner} data-tone="warning" role="status">
+                <p class={Strong}>{message}</p>
+                if let Some(purchase) = purchase {
+                    <p><a href={purchase}>{t.open_purchase()}</a></p>
+                }
+            </div>
+        </div>
+    }
+}
+
 /// Orders the account does not have (marketplace's 404 Purchase not found).
 #[component(css = PaymentStartPage)]
 pub fn PaymentStartMissing(t: PaymentStartMsg) -> impl Render {
