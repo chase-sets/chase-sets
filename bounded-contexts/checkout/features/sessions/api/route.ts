@@ -9,6 +9,7 @@ import {
 import { parseOptionalTypedIdBoundary } from "@chase-sets/http/typed-id";
 import type { ShippingAddressId, AccountId, CheckoutSessionId } from "@chase-sets/primitives/typed-ids";
 import type { CheckoutApiEnv } from "../../../api";
+import { checkoutConfirmationNeedsPaymentStart, checkoutPaymentStartRefusalCode } from "./payment-start-eligibility";
 import {
   checkoutEntryAttemptKey,
   checkoutEntryPayload,
@@ -72,6 +73,28 @@ function requireCheckoutAccess(c: { get(key: "actor"): CheckoutApiEnv["Variables
   }
 
   return { actor, response: null };
+}
+
+/**
+ * The 403 body for a buyer who cannot start a payment (`checkoutPaymentStartRefusalCode`), or null
+ * when they can. Confirm sends it before it reserves stock, creates orders or resumes a committed
+ * order's cart cleanup.
+ */
+export function checkoutPaymentStartRefusal(actor: NonNullable<CheckoutApiEnv["Variables"]["actor"]>) {
+  const code = checkoutPaymentStartRefusalCode(actor);
+  if (!code) {
+    return null;
+  }
+
+  return {
+    error: {
+      code,
+      message:
+        code === "email_verification_required"
+          ? t("checkout.features.sessions.api.route.payment.email.verification.required")
+          : t("checkout.features.sessions.api.route.payment.authority.required"),
+    },
+  };
 }
 
 function errorMessage(error: unknown) {
@@ -794,7 +817,7 @@ export function createAccountCheckoutSessionRoutes(
       return access.response;
     }
 
-    const paymentSummary = await services.getPaymentSummary(c.req.param("paymentId"));
+    const paymentSummary = await services.getPaymentSummary(c.req.param("paymentId"), access.actor.accountId);
     if (!paymentSummary) {
       return c.json(
         { error: { code: "not_found", message: t("checkout.features.sessions.api.route.payment.summary.not.found") } },
@@ -1215,6 +1238,15 @@ export function createAccountCheckoutSessionRoutes(
             },
             409,
           );
+        }
+      }
+
+      // A confirmation that would still start a payment is refused before any owner write, the
+      // committed orders' retained cart cleanup included; a paid, cancelled or offer Session replays.
+      if (checkoutConfirmationNeedsPaymentStart(session)) {
+        const paymentStartRefusal = checkoutPaymentStartRefusal(access.actor);
+        if (paymentStartRefusal) {
+          return c.json(paymentStartRefusal, 403);
         }
       }
 

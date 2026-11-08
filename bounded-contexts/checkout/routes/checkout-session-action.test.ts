@@ -166,7 +166,11 @@ function confirmCheckoutForm(overrides: Record<string, string> = {}) {
 
 describe("checkout web routes: checkout session action", () => {
   it("AC6 refuses an expired covered handoff before confirm or checkout mutations", async () => {
-    mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", roleKey: "owner", permissions: [] });
+    mockResolveActorFromAuthApi.mockResolvedValue({
+      accountId: "acc_buyer",
+      roleKey: "owner",
+      permissions: ["orders.manage"],
+    });
     mockGetCheckoutSession.mockResolvedValue({
       source_type: "buy-now",
       order_ids: [],
@@ -212,7 +216,7 @@ describe("checkout web routes: checkout session action", () => {
       mockResolveActorFromAuthApi.mockResolvedValue({
         accountId: "acc_buyer",
         roleKey: "owner",
-        permissions: ["accounts.view", "accounts.manage"],
+        permissions: ["accounts.view", "accounts.manage", "orders.manage"],
       });
       mockCreateIdentityRequestApiClient.mockReturnValue({ createShippingAddress });
       mockGetCheckoutSession.mockResolvedValue({ source_type: "cart", payment_id: null });
@@ -265,7 +269,7 @@ describe("checkout web routes: checkout session action", () => {
     mockResolveActorFromAuthApi.mockResolvedValue({
       accountId: "acc_buyer",
       roleKey: "owner",
-      permissions: ["accounts.view", "accounts.manage"],
+      permissions: ["accounts.view", "accounts.manage", "orders.manage"],
     });
     mockCreateIdentityRequestApiClient.mockReturnValue({ updateShippingAddress });
     mockListSellListShipFromAddresses.mockResolvedValue({
@@ -337,7 +341,7 @@ describe("checkout web routes: checkout session action", () => {
     mockResolveActorFromAuthApi.mockResolvedValue({
       accountId: "acc_buyer",
       roleKey: "owner",
-      permissions: ["accounts.view", "accounts.manage"],
+      permissions: ["accounts.view", "accounts.manage", "orders.manage"],
     });
     mockCreateIdentityRequestApiClient.mockReturnValue({ createShippingAddress });
     mockGetCheckoutSession.mockResolvedValue({ source_type: "cart", payment_id: null });
@@ -388,12 +392,67 @@ describe("checkout web routes: checkout session action", () => {
     );
   });
 
+  it.each([
+    [
+      "an owner whose email is unverified",
+      "owner",
+      "checkout.features.sessions.api.route.payment.email.verification.required",
+    ],
+    ["a role that never pays", "viewer", "checkout.features.sessions.api.route.payment.authority.required"],
+  ] as const)(
+    "refuses Pay now for %s before the address book, the Session or confirm is written",
+    async (_label, roleKey, messageKey) => {
+      const createShippingAddress = vi.fn(async () => ({ id: "adr_new_checkout" }));
+      const updateShippingAddress = vi.fn(async () => ({ id: "adr_saved" }));
+      mockResolveActorFromAuthApi.mockResolvedValue({
+        accountId: "acc_buyer",
+        roleKey,
+        permissions: ["accounts.view", "accounts.manage", "orders.view"],
+      });
+      mockCreateIdentityRequestApiClient.mockReturnValue({ createShippingAddress, updateShippingAddress });
+      mockGetCheckoutSession.mockResolvedValue(checkoutSessionForReviewedPreview());
+      mockCreateCheckoutRequestApiClient.mockReturnValue({
+        getCheckoutSession: mockGetCheckoutSession,
+        listSellListShipFromAddresses: mockListSellListShipFromAddresses,
+        previewCheckoutFulfillment: mockPreviewCheckoutFulfillment,
+        recordFulfillmentPreview: mockRecordFulfillmentPreview,
+        selectShippingAddress: mockSelectShippingAddress,
+        selectShippingOption: mockSelectShippingOption,
+        selectAuthenticityCheckOptIn: mockSelectAuthenticityCheckOptIn,
+        confirmCheckoutSession: mockConfirmCheckoutSession,
+      });
+      mockListSellListShipFromAddresses.mockResolvedValue({ items: [] });
+
+      // A new address and a changed shipping option: without the refusal this form saves the
+      // address, rewrites the Session's delivery and records a fresh preview.
+      const form = confirmCheckoutForm({
+        addressBookAction: "save-new",
+        shippingOption: "priority",
+        reviewedShippingOption: "standard",
+      });
+      const result = await checkoutSessionAction({
+        request: new Request("http://localhost/checkout/buy/session/chk_1", { method: "POST", body: form }),
+        params: { sessionId: "chk_1" },
+        context: undefined,
+      } as never);
+
+      expect(result).toEqual({ error: t(messageKey) });
+      expect(createShippingAddress).not.toHaveBeenCalled();
+      expect(updateShippingAddress).not.toHaveBeenCalled();
+      expect(mockSelectShippingAddress).not.toHaveBeenCalled();
+      expect(mockSelectShippingOption).not.toHaveBeenCalled();
+      expect(mockSelectAuthenticityCheckOptIn).not.toHaveBeenCalled();
+      expect(mockRecordFulfillmentPreview).not.toHaveBeenCalled();
+      expect(mockConfirmCheckoutSession).not.toHaveBeenCalled();
+    },
+  );
+
   it("pre-calls and reselects a saved new address around the review refresh", async () => {
     const createShippingAddress = vi.fn(async () => ({ id: "adr_new_checkout" }));
     mockResolveActorFromAuthApi.mockResolvedValue({
       accountId: "acc_buyer",
       roleKey: "owner",
-      permissions: ["accounts.view", "accounts.manage"],
+      permissions: ["accounts.view", "accounts.manage", "orders.manage"],
     });
     mockCreateIdentityRequestApiClient.mockReturnValue({ createShippingAddress });
     mockGetCheckoutSession.mockResolvedValue({ source_type: "cart", payment_id: null });
@@ -443,7 +502,7 @@ describe("checkout web routes: checkout session action", () => {
     mockResolveActorFromAuthApi.mockResolvedValue({
       accountId: "acc_buyer",
       roleKey: "owner",
-      permissions: ["accounts.view", "accounts.manage"],
+      permissions: ["accounts.view", "accounts.manage", "orders.manage"],
     });
     mockCreateIdentityRequestApiClient.mockReturnValue({ createShippingAddress });
     mockGetCheckoutSession.mockResolvedValue({ source_type: "cart", payment_id: null });
@@ -489,7 +548,7 @@ describe("checkout web routes: checkout session action", () => {
     mockResolveActorFromAuthApi.mockResolvedValue({
       accountId: "acc_buyer",
       roleKey: "owner",
-      permissions: ["accounts.view", "accounts.manage"],
+      permissions: ["accounts.view", "accounts.manage", "orders.manage"],
     });
     mockCreateIdentityRequestApiClient.mockReturnValue({ updateShippingAddress });
     mockListSellListShipFromAddresses.mockResolvedValue({
@@ -563,7 +622,7 @@ describe("checkout web routes: checkout session action", () => {
     mockResolveActorFromAuthApi.mockResolvedValue({
       accountId: "acc_buyer",
       roleKey: "owner",
-      permissions: ["accounts.view", "accounts.manage"],
+      permissions: ["accounts.view", "accounts.manage", "orders.manage"],
     });
     mockCreateIdentityRequestApiClient.mockReturnValue({ createShippingAddress });
     mockGetCheckoutSession.mockResolvedValue({ source_type: "cart", payment_id: null });
@@ -599,7 +658,7 @@ describe("checkout web routes: checkout session action", () => {
     mockResolveActorFromAuthApi.mockResolvedValue({
       accountId: "acc_buyer",
       roleKey: "owner",
-      permissions: ["accounts.view", "accounts.manage"],
+      permissions: ["accounts.view", "accounts.manage", "orders.manage"],
     });
     mockCreateIdentityRequestApiClient.mockReturnValue({ createShippingAddress });
     mockGetCheckoutSession.mockResolvedValue({
@@ -638,7 +697,7 @@ describe("checkout web routes: checkout session action", () => {
     mockResolveActorFromAuthApi.mockResolvedValue({
       accountId: "acc_buyer",
       roleKey: "owner",
-      permissions: ["accounts.view", "accounts.manage"],
+      permissions: ["accounts.view", "accounts.manage", "orders.manage"],
     });
     mockCreateIdentityRequestApiClient.mockReturnValue({ createShippingAddress });
     mockGetCheckoutSession.mockResolvedValue({ source_type: "cart", payment_id: null });
@@ -670,7 +729,7 @@ describe("checkout web routes: checkout session action", () => {
     mockResolveActorFromAuthApi.mockResolvedValue({
       accountId: "acc_buyer",
       roleKey: "owner",
-      permissions: ["accounts.view", "accounts.manage"],
+      permissions: ["accounts.view", "accounts.manage", "orders.manage"],
     });
     mockCreateIdentityRequestApiClient.mockReturnValue({ createShippingAddress });
     mockGetCheckoutSession.mockResolvedValue({ source_type: "cart", payment_id: "pay_1", order_ids: ["ord_1"] });
@@ -702,7 +761,11 @@ describe("checkout web routes: checkout session action", () => {
   });
 
   it("only Pay commits a fresh checkout", async () => {
-    mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", roleKey: "owner", permissions: [] });
+    mockResolveActorFromAuthApi.mockResolvedValue({
+      accountId: "acc_buyer",
+      roleKey: "owner",
+      permissions: ["orders.manage"],
+    });
     mockSelectShippingOption.mockResolvedValue({});
     mockConfirmCheckoutSession.mockResolvedValue({ payment_id: "pay_1", order_ids: ["ord_1"], status: "confirmed" });
     mockCreateCheckoutRequestApiClient.mockReturnValue({
@@ -765,7 +828,11 @@ describe("checkout web routes: checkout session action", () => {
   });
 
   it("forwards visible fulfillment preview acknowledgement to checkout confirmation", async () => {
-    mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", roleKey: "owner", permissions: [] });
+    mockResolveActorFromAuthApi.mockResolvedValue({
+      accountId: "acc_buyer",
+      roleKey: "owner",
+      permissions: ["orders.manage"],
+    });
     mockSelectShippingOption.mockResolvedValue({});
     mockConfirmCheckoutSession.mockResolvedValue({ payment_id: "pay_1", order_ids: ["ord_1"], status: "confirmed" });
     mockCreateCheckoutRequestApiClient.mockReturnValue({
@@ -810,7 +877,11 @@ describe("checkout web routes: checkout session action", () => {
   });
 
   it("preserves payment freshness metadata on the confirmation handoff", async () => {
-    mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", roleKey: "owner", permissions: [] });
+    mockResolveActorFromAuthApi.mockResolvedValue({
+      accountId: "acc_buyer",
+      roleKey: "owner",
+      permissions: ["orders.manage"],
+    });
     mockSelectShippingOption.mockResolvedValue({});
     mockConfirmCheckoutSession.mockResolvedValue({
       payment_id: "pay_1",
@@ -868,7 +939,11 @@ describe("checkout web routes: checkout session action", () => {
   });
 
   it("starts payment from checkout review for accelerated saved-payment confirmation", async () => {
-    mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", roleKey: "owner", permissions: [] });
+    mockResolveActorFromAuthApi.mockResolvedValue({
+      accountId: "acc_buyer",
+      roleKey: "owner",
+      permissions: ["orders.manage"],
+    });
     mockSelectShippingOption.mockResolvedValue({});
     mockConfirmCheckoutSession.mockResolvedValue({ payment_id: "pay_1", order_ids: ["ord_1"], status: "confirmed" });
     mockCreateCheckoutRequestApiClient.mockReturnValue({
@@ -918,7 +993,7 @@ describe("checkout web routes: checkout session action", () => {
     mockResolveActorFromAuthApi.mockResolvedValue({
       accountId: "acc_buyer",
       roleKey: "owner",
-      permissions: ["accounts.view", "accounts.manage"],
+      permissions: ["accounts.view", "accounts.manage", "orders.manage"],
     });
     mockCreateIdentityRequestApiClient.mockReturnValue({
       createShippingAddress,
@@ -1004,7 +1079,11 @@ describe("checkout web routes: checkout session action", () => {
   });
 
   it("starts payment when a trusted-step saved instrument is selected", async () => {
-    mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", roleKey: "owner", permissions: [] });
+    mockResolveActorFromAuthApi.mockResolvedValue({
+      accountId: "acc_buyer",
+      roleKey: "owner",
+      permissions: ["orders.manage"],
+    });
     mockSelectShippingOption.mockResolvedValue({});
     mockConfirmCheckoutSession.mockResolvedValue({ payment_id: "pay_1", order_ids: ["ord_1"], status: "confirmed" });
     mockCreateCheckoutRequestApiClient.mockReturnValue({
@@ -1143,7 +1222,11 @@ describe("checkout web routes: checkout session action", () => {
       "Use a street address before continuing to payment. PO boxes are not supported for this shipping service.",
     ],
   ] as const)("maps a Checkout API refusal for %s to a delivery correction", async (code, error) => {
-    mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", roleKey: "owner", permissions: [] });
+    mockResolveActorFromAuthApi.mockResolvedValue({
+      accountId: "acc_buyer",
+      roleKey: "owner",
+      permissions: ["orders.manage"],
+    });
     mockSelectShippingOption.mockResolvedValue({});
     mockSelectShippingAddress.mockResolvedValue({});
     mockConfirmCheckoutSession.mockRejectedValue(
@@ -1195,7 +1278,11 @@ describe("checkout web routes: checkout session action", () => {
       "Use a street address before continuing to payment. PO boxes are not supported for this shipping service.",
     ],
   ] as const)("maps a Checkout API refusal during refresh for %s to a delivery correction", async (code, error) => {
-    mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", roleKey: "owner", permissions: [] });
+    mockResolveActorFromAuthApi.mockResolvedValue({
+      accountId: "acc_buyer",
+      roleKey: "owner",
+      permissions: ["orders.manage"],
+    });
     mockSelectShippingOption.mockResolvedValue({});
     mockSelectShippingAddress.mockRejectedValue(
       new MockCheckoutApiError(400, { error: { code, message: "Address refused by Checkout." } }),
@@ -1236,7 +1323,11 @@ describe("checkout web routes: checkout session action", () => {
   });
 
   it("maps checkout API delivery failures to customer-safe correction copy", async () => {
-    mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", roleKey: "owner", permissions: [] });
+    mockResolveActorFromAuthApi.mockResolvedValue({
+      accountId: "acc_buyer",
+      roleKey: "owner",
+      permissions: ["orders.manage"],
+    });
     mockSelectShippingOption.mockResolvedValue({});
     mockConfirmCheckoutSession.mockRejectedValue(
       new MockCheckoutApiError(400, {
@@ -1294,7 +1385,11 @@ describe("checkout web routes: checkout session action", () => {
   });
 
   it("returns shipping correction before checkout mutations when the shipping method is unavailable", async () => {
-    mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", roleKey: "owner", permissions: [] });
+    mockResolveActorFromAuthApi.mockResolvedValue({
+      accountId: "acc_buyer",
+      roleKey: "owner",
+      permissions: ["orders.manage"],
+    });
     mockSelectShippingOption.mockRejectedValue(
       new MockCheckoutApiError(400, {
         error: {
@@ -1346,7 +1441,11 @@ describe("checkout web routes: checkout session action", () => {
   });
 
   it("returns cart recovery when active checkout readiness is stale during review refresh", async () => {
-    mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", roleKey: "owner", permissions: [] });
+    mockResolveActorFromAuthApi.mockResolvedValue({
+      accountId: "acc_buyer",
+      roleKey: "owner",
+      permissions: ["orders.manage"],
+    });
     mockSelectShippingOption.mockRejectedValue(
       new MockCheckoutApiError(400, {
         error: {
@@ -1403,7 +1502,11 @@ describe("checkout web routes: checkout session action", () => {
   });
 
   it("returns cart recovery when split-group handoff is stale during confirmation", async () => {
-    mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", roleKey: "owner", permissions: [] });
+    mockResolveActorFromAuthApi.mockResolvedValue({
+      accountId: "acc_buyer",
+      roleKey: "owner",
+      permissions: ["orders.manage"],
+    });
     mockSelectShippingOption.mockResolvedValue({});
     mockConfirmCheckoutSession.mockRejectedValue(
       new MockCheckoutApiError(400, {
@@ -1465,7 +1568,11 @@ describe("checkout web routes: checkout session action", () => {
   });
 
   it("refreshes checkout review when confirmation is missing the payment quote", async () => {
-    mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", roleKey: "owner", permissions: [] });
+    mockResolveActorFromAuthApi.mockResolvedValue({
+      accountId: "acc_buyer",
+      roleKey: "owner",
+      permissions: ["orders.manage"],
+    });
     mockSelectShippingOption.mockResolvedValue({});
     mockSelectShippingAddress.mockResolvedValue({});
     mockGetCheckoutSession.mockResolvedValue({ source_type: "cart", payment_id: null });
@@ -1512,7 +1619,11 @@ describe("checkout web routes: checkout session action", () => {
   it.each(["payment_quote_required", "fee_quote_stale"])(
     "refreshes checkout review when confirmation reports %s",
     async (errorCode) => {
-      mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", roleKey: "owner", permissions: [] });
+      mockResolveActorFromAuthApi.mockResolvedValue({
+        accountId: "acc_buyer",
+        roleKey: "owner",
+        permissions: ["orders.manage"],
+      });
       mockSelectShippingOption.mockResolvedValue({});
       mockConfirmCheckoutSession.mockRejectedValue(
         new MockCheckoutApiError(409, {
@@ -1588,7 +1699,11 @@ describe("checkout web routes: checkout session action", () => {
   );
 
   it("refreshes checkout review when payment start is waiting on newly created orders", async () => {
-    mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", roleKey: "owner", permissions: [] });
+    mockResolveActorFromAuthApi.mockResolvedValue({
+      accountId: "acc_buyer",
+      roleKey: "owner",
+      permissions: ["orders.manage"],
+    });
     mockSelectShippingOption.mockResolvedValue({});
     mockConfirmCheckoutSession.mockRejectedValue(
       new MockCheckoutApiError(409, {
@@ -1673,7 +1788,11 @@ describe("checkout web routes: checkout session action", () => {
   });
 
   it("retries payment start without editing shipping once checkout orders are committed", async () => {
-    mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", roleKey: "owner", permissions: [] });
+    mockResolveActorFromAuthApi.mockResolvedValue({
+      accountId: "acc_buyer",
+      roleKey: "owner",
+      permissions: ["orders.manage"],
+    });
     mockGetCheckoutSession.mockResolvedValue(
       checkoutSessionForReviewedPreview({ order_ids: ["ord_1"], payment_id: null }),
     );
@@ -1753,7 +1872,11 @@ describe("checkout web routes: checkout session action", () => {
   });
 
   it("retries payment start when the checkout review compact post-write token expired", async () => {
-    mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", roleKey: "owner", permissions: [] });
+    mockResolveActorFromAuthApi.mockResolvedValue({
+      accountId: "acc_buyer",
+      roleKey: "owner",
+      permissions: ["orders.manage"],
+    });
     mockGetCheckoutSession.mockResolvedValue(
       checkoutSessionForReviewedPreview({ order_ids: ["ord_1"], payment_id: null }),
     );
@@ -1806,7 +1929,11 @@ describe("checkout web routes: checkout session action", () => {
   });
 
   it("committed continuation keeps identity", async () => {
-    mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", roleKey: "owner", permissions: [] });
+    mockResolveActorFromAuthApi.mockResolvedValue({
+      accountId: "acc_buyer",
+      roleKey: "owner",
+      permissions: ["orders.manage"],
+    });
     mockGetCheckoutSession.mockResolvedValue(
       checkoutSessionForReviewedPreview({ order_ids: ["ord_1"], payment_id: null }),
     );
@@ -1902,7 +2029,11 @@ describe("checkout web routes: checkout session action", () => {
   });
 
   it("starts payment from a reviewed checkout even when the payment-start retry has no fresh-write token", async () => {
-    mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", roleKey: "owner", permissions: [] });
+    mockResolveActorFromAuthApi.mockResolvedValue({
+      accountId: "acc_buyer",
+      roleKey: "owner",
+      permissions: ["orders.manage"],
+    });
     mockGetCheckoutSession.mockResolvedValue(
       checkoutSessionForReviewedPreview({ order_ids: ["ord_1"], payment_id: null }),
     );
@@ -1977,7 +2108,7 @@ describe("checkout web routes: checkout session action", () => {
   });
 
   it("revalidates an unavailable wallet with incomplete edited fields without writing or starting payment", async () => {
-    mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", permissions: [] });
+    mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", permissions: ["orders.manage"] });
     const form = new URLSearchParams({
       intent: "retry-wallet-balance",
       shippingEmail: "edited-buyer@example.com",
@@ -2004,7 +2135,7 @@ describe("checkout web routes: checkout session action", () => {
   });
 
   it("refreshes checkout totals by saving the current shipping address without confirming", async () => {
-    mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", permissions: [] });
+    mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", permissions: ["orders.manage"] });
     mockSelectShippingOption.mockResolvedValue({});
     mockSelectShippingAddress.mockResolvedValue({});
     mockCreateCheckoutRequestApiClient.mockReturnValue({
@@ -2057,7 +2188,7 @@ describe("checkout web routes: checkout session action", () => {
   });
 
   it("records the reviewed fulfillment preview revision when refreshing checkout totals", async () => {
-    mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", permissions: [] });
+    mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", permissions: ["orders.manage"] });
     mockGetCheckoutSession.mockResolvedValue(checkoutSessionForReviewedPreview());
     mockSelectShippingOption.mockResolvedValue(checkoutCommit("41", "evt_shipping_option"));
     mockSelectShippingAddress.mockResolvedValue(checkoutCommit("42", "evt_shipping_address"));
@@ -2164,7 +2295,7 @@ describe("checkout web routes: checkout session action", () => {
   });
 
   it("refreshes checkout totals instead of confirming when the visible payment method changed", async () => {
-    mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", permissions: [] });
+    mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", permissions: ["orders.manage"] });
     mockSelectShippingOption.mockResolvedValue({});
     mockSelectShippingAddress.mockResolvedValue({});
     mockCreateCheckoutRequestApiClient.mockReturnValue({
@@ -2207,7 +2338,7 @@ describe("checkout web routes: checkout session action", () => {
   });
 
   it("refreshes checkout review instead of confirming when submitted shipping differs from the visible preview", async () => {
-    mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", permissions: [] });
+    mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", permissions: ["orders.manage"] });
     mockSelectShippingOption.mockResolvedValue({});
     mockSelectShippingAddress.mockResolvedValue({});
     mockCreateCheckoutRequestApiClient.mockReturnValue({
@@ -2259,7 +2390,7 @@ describe("checkout web routes: checkout session action", () => {
   });
 
   it("keeps checkout review refresh fallback freshness-aware", async () => {
-    mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", permissions: [] });
+    mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", permissions: ["orders.manage"] });
     mockSelectShippingOption.mockResolvedValue(checkoutCommit("43", "evt_shipping_option"));
     mockSelectShippingAddress.mockResolvedValue(checkoutCommit("44", "evt_shipping_address"));
     mockGetCheckoutSession.mockResolvedValue({ source_type: "cart", payment_id: null });
@@ -2315,7 +2446,7 @@ describe("checkout web routes: checkout session action", () => {
   });
 
   it("records the reviewed fulfillment preview revision when confirmation refreshes checkout review", async () => {
-    mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", permissions: [] });
+    mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", permissions: ["orders.manage"] });
     mockSelectShippingOption.mockResolvedValue(checkoutCommit("51", "evt_shipping_option"));
     mockSelectShippingAddress.mockResolvedValue(checkoutCommit("52", "evt_shipping_address"));
     mockGetCheckoutSession.mockResolvedValue(checkoutSessionForReviewedPreview());
@@ -2475,7 +2606,11 @@ describe("checkout web routes: checkout session action", () => {
   ] as const)(
     "still writes the authenticity check opt-in for buy-now and cart confirms (%s, selected=%s)",
     async (sourceType, selected, fingerprint) => {
-      mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", roleKey: "owner", permissions: [] });
+      mockResolveActorFromAuthApi.mockResolvedValue({
+        accountId: "acc_buyer",
+        roleKey: "owner",
+        permissions: ["orders.manage"],
+      });
       mockGetCheckoutSession.mockResolvedValue(checkoutSessionForReviewedPreview({ source_type: sourceType }));
       mockConfirmCheckoutSession.mockResolvedValue({ payment_id: "pay_1", order_ids: ["ord_1"], status: "confirmed" });
       mockCreateCheckoutRequestApiClient.mockReturnValue({
@@ -2582,7 +2717,11 @@ describe("checkout web routes: checkout session action", () => {
   });
 
   it("submits purchase intent instead of bouncing to review updated when shipping changed", async () => {
-    mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", roleKey: "owner", permissions: [] });
+    mockResolveActorFromAuthApi.mockResolvedValue({
+      accountId: "acc_buyer",
+      roleKey: "owner",
+      permissions: ["orders.manage"],
+    });
     mockSelectShippingOption.mockResolvedValue(checkoutCommit("43", "evt_shipping_option"));
     mockGetCheckoutSession.mockResolvedValue({ source_type: "offer-intent", payment_id: null });
     mockConfirmCheckoutSession.mockResolvedValue({
@@ -2649,7 +2788,11 @@ describe("checkout web routes: checkout session action", () => {
   });
 
   it("submits purchase intent instead of bouncing to review updated when shipping changed", async () => {
-    mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", roleKey: "owner", permissions: [] });
+    mockResolveActorFromAuthApi.mockResolvedValue({
+      accountId: "acc_buyer",
+      roleKey: "owner",
+      permissions: ["orders.manage"],
+    });
     mockSelectShippingOption.mockResolvedValue(checkoutCommit("43", "evt_shipping_option"));
     mockGetCheckoutSession.mockResolvedValue({ source_type: "offer-intent", payment_id: null });
     mockConfirmCheckoutSession.mockResolvedValue({ offer_id: "off_chk_1", status: "purchase-intent-submitted" });
@@ -2703,7 +2846,11 @@ describe("checkout session day-after confirm replay matrix", () => {
 
   beforeEach(() => {
     applyCheckoutRouteMockDefaults();
-    mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", roleKey: "owner", permissions: [] });
+    mockResolveActorFromAuthApi.mockResolvedValue({
+      accountId: "acc_buyer",
+      roleKey: "owner",
+      permissions: ["orders.manage"],
+    });
     mockCreateCheckoutRequestApiClient.mockReturnValue({
       getCheckoutSession: mockGetCheckoutSession,
       selectShippingOption: mockSelectShippingOption,

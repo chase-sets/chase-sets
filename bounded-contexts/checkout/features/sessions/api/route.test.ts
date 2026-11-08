@@ -328,6 +328,76 @@ describe("checkout session routes", () => {
     mockPreviewCheckoutFulfillmentThroughOrdering.mockResolvedValue(readyBuyNowSupplyPreview());
   });
 
+  it("returns the owner's payment summary and hides it from another account", async () => {
+    const summary = { payment_id: "pay_1", amount: "27.29", currency_code: "usd", status: "pending-confirmation" };
+    mockCreateCheckoutOrdersThroughOrdering.mockResolvedValue({
+      orderIds: ["ord_1"],
+      readyLineKeys: ["cli_1"],
+      writeResult: orderingApiWriteResult,
+    });
+    mockCreateCheckoutPaymentThroughPayments.mockResolvedValue(createPaymentResult(summary.payment_id));
+    const getPaymentSummary = vi.fn<CheckoutSessionServices["getPaymentSummary"]>(async (paymentId, accountId) =>
+      paymentId === summary.payment_id && accountId === "acc_buyer" ? summary : null,
+    );
+    const services = createServices({ getPaymentSummary });
+    const owner = buildApp(services);
+    const started = await owner.fetch(
+      new Request("http://checkout.test/account/checkout-sessions/chk_1/confirm", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ shippingAddress, marketplaceCheckoutFeeQuoteFingerprint: "quote_1" }),
+      }),
+    );
+    expect(started.status).toBe(200);
+    expect(await started.json()).toMatchObject({ payment_id: summary.payment_id });
+    expect(mockCreateCheckoutPaymentThroughPayments).toHaveBeenCalledTimes(1);
+
+    const path = `http://checkout.test/account/checkout-payment-summaries/${summary.payment_id}`;
+    const owned = await owner.fetch(new Request(path));
+    expect(owned.status).toBe(200);
+    expect(await owned.json()).toEqual(summary);
+    expect(getPaymentSummary).toHaveBeenLastCalledWith(summary.payment_id, "acc_buyer");
+
+    const other = buildApp(services, createBuyerActor({ accountId: "acc_other" }));
+    const foreign = await other.fetch(new Request(`${path}?accountId=acc_buyer&buyer_account_id=acc_buyer`));
+    expect(foreign.status).toBe(404);
+    expect(await foreign.json()).toEqual({ error: { code: "not_found", message: "Payment summary not found." } });
+    expect(getPaymentSummary).toHaveBeenLastCalledWith(summary.payment_id, "acc_other");
+  });
+
+  it("hides foreign, unowned and missing payment summaries identically", async () => {
+    const buyers = new Map<string, string | null>([
+      ["pay_foreign", "acc_other"],
+      ["pay_unowned", null],
+    ]);
+    const getPaymentSummary = vi.fn<CheckoutSessionServices["getPaymentSummary"]>(async (paymentId, accountId) =>
+      buyers.get(paymentId) === accountId
+        ? { payment_id: paymentId, amount: "27.29", currency_code: "usd", status: "captured" }
+        : null,
+    );
+    const app = buildApp(createServices({ getPaymentSummary }));
+    for (const paymentId of ["pay_foreign", "pay_unowned", "pay_missing"]) {
+      const response = await app.fetch(
+        new Request(`http://checkout.test/account/checkout-payment-summaries/${paymentId}`),
+      );
+      expect(response.status).toBe(404);
+      expect(await response.json()).toEqual({ error: { code: "not_found", message: "Payment summary not found." } });
+      expect(getPaymentSummary).toHaveBeenLastCalledWith(paymentId, "acc_buyer");
+    }
+  });
+
+  it("requires authentication before reading a payment summary", async () => {
+    const services = createServices();
+    const response = await buildApp(services, null).fetch(
+      new Request("http://checkout.test/account/checkout-payment-summaries/pay_1"),
+    );
+    expect(response.status).toBe(401);
+    expect(await response.json()).toEqual({
+      error: { code: "authentication_required", message: "Authentication required." },
+    });
+    expect(services.getPaymentSummary).not.toHaveBeenCalled();
+  });
+
   it("loads inline payment confirmation through the buyer-owned checkout composite", async () => {
     const getPaymentConfirmation = vi.fn(async () => ({
       payment_id: "pay_1",
@@ -2614,6 +2684,177 @@ describe("checkout session routes", () => {
       expect.any(Object),
     );
     expect(services.recordPaymentStarted).not.toHaveBeenCalled();
+  });
+
+  // #10785: Payments starts a payment only for orders.manage or guest-checkout.manage, so confirm
+  // refuses before it reserves stock or creates orders the buyer could not pay for.
+  it.each([
+    ["an owner whose email is unverified", "owner", "email_verification_required", "Verify your email before you pay."],
+    ["a role without order management", "viewer", "authorization_forbidden", "This account cannot pay for purchases."],
+  ])("refuses Pay now for %s before any reservation or order", async (_label, roleKey, code, message) => {
+    const services = createServices({ getSession: vi.fn(async () => createSession()) });
+    const app = buildApp(services, createBuyerActor({ roleKey, permissions: ["orders.view"] }));
+
+    const response = await app.fetch(
+      new Request("http://checkout.test/account/checkout-sessions/chk_1/confirm", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          paymentMethodCategory: "card",
+          shippingAddress,
+          marketplaceCheckoutFeeQuoteFingerprint: "marketplace-checkout-fee-v1|card|6.81|0.00|6.81|0.52|7.33|7.33",
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(403);
+    await expect(response.json()).resolves.toEqual({
+      error: { code, message: expect.stringContaining(message) },
+    });
+    expect(services.setShippingAddress).not.toHaveBeenCalled();
+    expect(mockCreateCheckoutInventoryReservations).not.toHaveBeenCalled();
+    expect(mockCreateCheckoutOrdersThroughOrdering).not.toHaveBeenCalled();
+    expect(mockCreateCheckoutPaymentThroughPayments).not.toHaveBeenCalled();
+  });
+
+  it("answers a repeat Pay now on orders the buyer cannot pay for with the reason, not a 400", async () => {
+    const services = createServices({
+      getSession: vi.fn(async () => createSession({ order_ids: ["ord_1"] })),
+      resumeOrderCartCleanup: vi.fn(async ({ sessionId }) => ({
+        sessionId,
+        session: createSession({ order_ids: ["ord_1"] }),
+      })),
+    });
+    const app = buildApp(services, createBuyerActor({ roleKey: "owner", permissions: ["orders.view"] }));
+
+    const response = await app.fetch(
+      new Request("http://checkout.test/account/checkout-sessions/chk_1/confirm", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          paymentMethodCategory: "card",
+          shippingAddress,
+          marketplaceCheckoutFeeQuoteFingerprint: "marketplace-checkout-fee-v1|card|6.81|0.00|6.81|0.52|7.33|7.33",
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(403);
+    await expect(response.json()).resolves.toMatchObject({ error: { code: "email_verification_required" } });
+    expect(services.resumeOrderCartCleanup).not.toHaveBeenCalled();
+    expect(mockCreateCheckoutPaymentThroughPayments).not.toHaveBeenCalled();
+  });
+
+  /** The route wired to the real retained cart cleanup, counting its cart attempts and its completion write. */
+  async function retainedCleanupRoute(actor: ReturnType<typeof createBuyerActor>) {
+    const { createCheckoutSessionCleanupService } = await import("./session-cleanup");
+    const { eventStore } = createInMemoryEventStore();
+    const row = createSession({ order_ids: ["ord_1"] });
+    let state = {
+      ...initialCheckoutSessionState,
+      sessionId: "chk_1",
+      buyerAccountId: "acc_buyer",
+      sourceType: "cart",
+      orderIds: ["ord_1"],
+      lines: row.lines,
+      orderCartCleanup: {
+        status: "pending",
+        plan: { buyerAccountId: "acc_buyer", sourceOwnerKeys: ["acc_buyer"], lineIds: ["cli_1"] },
+      },
+    };
+    const cartAttempts = vi.fn(async () => ({
+      result: { ownerStatus: "committed", vector: [{ outcome: "succeeded" }] },
+    }));
+    const cleanupCompletions = vi.fn(async () => {
+      state = { ...state, orderCartCleanup: { ...state.orderCartCleanup, status: "complete" } };
+      return { sessionId: "chk_1", session: row };
+    });
+    const cleanup = createCheckoutSessionCleanupService({
+      eventStore,
+      cart: { listClaimedOwnerKeys: async () => [], executeCartAttempt: cartAttempts },
+      repository: { load: async () => ({ state }) },
+      loadSessionStateForBuyer: async () => state,
+      applySessionCommandForBuyer: cleanupCompletions,
+      stateToCheckoutSessionRow: () => row,
+    } as never);
+    const services = createServices({
+      getSession: vi.fn(async () => row),
+      resumeOrderCartCleanup: cleanup.resumeOrderCartCleanup,
+    });
+    const response = await buildApp(services, actor).fetch(
+      new Request("http://checkout.test/account/checkout-sessions/chk_1/confirm", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          paymentMethodCategory: "card",
+          shippingAddress,
+          marketplaceCheckoutFeeQuoteFingerprint: "marketplace-checkout-fee-v1|card|6.81|0.00|6.81|0.52|7.33|7.33",
+        }),
+      }),
+    );
+    return { response, cartAttempts, cleanupCompletions };
+  }
+
+  it.each([
+    ["an owner whose email is unverified", "owner", "email_verification_required"],
+    ["a role without order management", "viewer", "authorization_forbidden"],
+  ])(
+    "refuses a repeat Pay now for %s before the committed orders' retained cart cleanup",
+    async (_label, roleKey, code) => {
+      const { response, cartAttempts, cleanupCompletions } = await retainedCleanupRoute(
+        createBuyerActor({ roleKey, permissions: ["orders.view"] }),
+      );
+
+      expect(response.status).toBe(403);
+      await expect(response.json()).resolves.toMatchObject({ error: { code } });
+      expect(cartAttempts).not.toHaveBeenCalled();
+      expect(cleanupCompletions).not.toHaveBeenCalled();
+      expect(mockCreateCheckoutPaymentThroughPayments).not.toHaveBeenCalled();
+    },
+  );
+
+  it("finishes the retained cart cleanup once and resumes payment for a buyer who may pay", async () => {
+    mockCreateCheckoutPaymentThroughPayments.mockResolvedValue(createPaymentResult("pay_1"));
+    const { response, cartAttempts, cleanupCompletions } = await retainedCleanupRoute(
+      createBuyerActor({ roleKey: "owner", permissions: ["orders.view", "orders.manage"] }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(cartAttempts).toHaveBeenCalledTimes(1);
+    expect(cleanupCompletions).toHaveBeenCalledTimes(1);
+    expect(mockCreateCheckoutOrdersThroughOrdering).not.toHaveBeenCalled();
+    expect(mockCreateCheckoutPaymentThroughPayments).toHaveBeenCalledTimes(1);
+  });
+
+  it("still lets a guest buyer pay", async () => {
+    mockCreateCheckoutOrdersThroughOrdering.mockResolvedValue({
+      orderIds: ["ord_1"],
+      readyLineKeys: ["cli_1"],
+      writeResult: orderingWriteResult,
+    });
+    const services = createServices({
+      getSession: vi.fn(async () => createSession({ buyer_account_id: "acc_guest" })),
+      recordOrdersCreated: vi.fn(async ({ sessionId }) => ({
+        sessionId,
+        session: createSession({ buyer_account_id: "acc_guest", order_ids: ["ord_1"] }),
+      })),
+    });
+    const app = buildApp(services, createGuestBuyerActor());
+
+    const response = await app.fetch(
+      new Request("http://checkout.test/account/checkout-sessions/chk_1/confirm", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          paymentMethodCategory: "card",
+          shippingAddress,
+          marketplaceCheckoutFeeQuoteFingerprint: "marketplace-checkout-fee-v1|card|6.81|0.00|6.81|0.52|7.33|7.33",
+        }),
+      }),
+    );
+
+    expect(response.status).not.toBe(403);
+    expect(mockCreateCheckoutPaymentThroughPayments).toHaveBeenCalledTimes(1);
   });
 
   it("asks checkout review to retry when Payments has not observed newly created orders", async () => {
