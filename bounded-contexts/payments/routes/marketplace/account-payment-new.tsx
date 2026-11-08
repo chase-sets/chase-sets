@@ -184,7 +184,11 @@ export async function loader({ request }: LoaderFunctionArgs) {
       isNotFound: () => false,
       retryDelaysMs: [],
     });
-    if (result.kind === "permanent-failure") throw result.error;
+    if (result.kind === "permanent-failure") {
+      throw result.reason === "fresh-write-read-permanent"
+        ? result.error
+        : new Error(t("payments.routes.marketplace.accountPaymentNew.wallet.status.invalid"));
+    }
     // Keep the orders visible without turning a stale read into a wallet-eligibility claim.
     const checkoutStatus = result.kind === "data" ? result.data : null;
     return {
