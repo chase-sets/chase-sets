@@ -543,7 +543,7 @@ const boundedContextRouteSuiteOwnership = [
     // Also covers the item-detail-market-history.tsx resource route (m111
     // market panel): its Sales-tab range/data fetch is exercised by the same
     // spec's Sales-tab assertion.
-    pattern: /^bounded-contexts\/discovery\/routes\/item-detail(?:\.|-market-history\.)/,
+    pattern: /^bounded-contexts\/discovery\/routes\/item-detail(?:\.|-market-history\.|-rail-analytics\.)/,
     suites: ["marketplace_browse"],
   },
   {
@@ -745,6 +745,11 @@ function boundedContextSuiteIdsForChangedFile(filePath, contextName) {
 
 function ordinaryE2eSuiteIdsForChangedFile(filePath) {
   const normalized = normalizeFilePath(filePath);
+
+  // Any platform-pr.yml edit intentionally runs admin_auth; no hunk parsing.
+  if (normalized === ".github/workflows/platform-pr.yml" || normalized === "scripts/playwright-chromium-install.mjs") {
+    return ["admin_auth"];
+  }
 
   if (
     normalized.startsWith("deployables/tcgplayer-operator-extension/") ||

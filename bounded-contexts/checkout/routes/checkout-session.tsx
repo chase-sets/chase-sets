@@ -56,6 +56,10 @@ import { type PaymentElementDefaultValues, type PaymentsSavedCheckoutInstrument 
 import { StripeConfirmationCard } from "@chase-sets/payments/web";
 import { checkoutSessionSourceCreatesOrders } from "@chase-sets/checkout-order-source";
 import { normalizeRequestedBalanceCreditAmount } from "../support/request-support/balance-credit";
+import {
+  checkoutConfirmationNeedsPaymentStart,
+  checkoutPaymentStartRefusalCode,
+} from "../features/sessions/api/payment-start-eligibility";
 import { CheckoutSessionPage, type CheckoutEditSection } from "../features/sessions/ui/checkout-page";
 import { CheckoutSessionRecoveryPage } from "../features/sessions/ui/checkout-recovery-page";
 import {
@@ -741,6 +745,44 @@ function loadPaymentPreview(
   });
 }
 
+/**
+ * Once confirm has created the orders, Checkout clears the session's fulfillment
+ * preview. The orders keep the preview revision they were bound to, and the session
+ * keeps the quote it last recorded, so Pay now is quoted from that quote when the
+ * two revisions match, the same way the pre-order path quotes the live preview. A
+ * repeat confirm then starts the payment at that quote; Payments still checks its
+ * fingerprint. A missing quote or another revision gives no quote, which keeps the
+ * totals notice. Checkout reads no other context here.
+ */
+function loadCommittedOrderPaymentPreview(
+  actor: Awaited<ReturnType<typeof resolveActorFromAuthApi>>,
+  session: Readonly<{
+    payment_id: string | null;
+    order_ids: readonly string[];
+    fulfillment_preview_revision: string | null;
+    last_recorded_quote?: CheckoutFulfillmentPreview | null;
+  }>,
+  wallet: WalletRead | null,
+  paymentMethodCategory: string,
+): CheckoutPaymentPreviewStatus | null {
+  if (!actor || session.payment_id || session.order_ids.length === 0 || wallet?.status === "unavailable") {
+    return null;
+  }
+
+  const quote = session.last_recorded_quote ?? null;
+  if (!quote || !session.fulfillment_preview_revision || quote.revision !== session.fulfillment_preview_revision) {
+    return null;
+  }
+
+  return buildCheckoutPaymentPreviewStatus({
+    orderIds: session.order_ids,
+    amount: quote.totals.totalAmount,
+    currencyCode: wallet?.status === "available" ? wallet.balance.currency_code : "usd",
+    requestedBalanceCreditAmount: wallet?.status === "available" ? wallet.balance.available_balance_amount : "0.00",
+    paymentMethodCategory,
+  });
+}
+
 function reloadForRealtimeSync() {
   if (typeof window !== "undefined") {
     window.location.reload();
@@ -810,9 +852,10 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
     : guestCheckoutContact?.contactEmail
       ? { billingDetails: { email: guestCheckoutContact.contactEmail } }
       : null;
-  const { fulfillmentPreview, previewError } = expiredCheckout
+  const loadedFulfillmentPreview = expiredCheckout
     ? { fulfillmentPreview: null, previewError: null }
     : await loadFulfillmentPreview(session);
+  const { fulfillmentPreview } = loadedFulfillmentPreview;
   const searchParams = new URL(resolvedRequest.url).searchParams;
   const defaultSavedPaymentMethodCategory =
     savedCheckoutInstruments.find((instrument) => instrument.is_default && instrument.readiness === "ready")
@@ -820,9 +863,15 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
     savedCheckoutInstruments.find((instrument) => instrument.readiness === "ready")?.payment_method_category;
   const selectedPaymentMethodCategory =
     searchParams.get("paymentMethodCategory") ?? defaultSavedPaymentMethodCategory ?? "card";
+  const committedOrderPaymentPreview =
+    expiredCheckout || fulfillmentPreview
+      ? null
+      : loadCommittedOrderPaymentPreview(actor, session, wallet, selectedPaymentMethodCategory);
+  const previewError = committedOrderPaymentPreview ? null : loadedFulfillmentPreview.previewError;
   const paymentPreview = expiredCheckout
     ? null
-    : loadPaymentPreview(actor, fulfillmentPreview, wallet, selectedPaymentMethodCategory, session.order_ids);
+    : (committedOrderPaymentPreview ??
+      loadPaymentPreview(actor, fulfillmentPreview, wallet, selectedPaymentMethodCategory, session.order_ids));
   const reservationUnavailableLines = loadReservationUnavailableLines(searchParams, session, fulfillmentPreview);
 
   return {
@@ -968,6 +1017,25 @@ async function handleAction(intent: string, { request, params, formData }: FormA
         // shows the Session as it stands.
         return redirect(`/checkout/buy/session/${params.sessionId}`);
       }
+      // A buyer who cannot start a payment is refused before the address book or the Session is
+      // written, as confirm refuses before any owner call; a stale or hand-posted form gets here
+      // even though the page offers no Pay now. A Session whose source is unknown here is left to
+      // confirm, which keeps the authoritative check.
+      const knownSession =
+        session ??
+        (formData.get("sourceType") ? { source_type: String(formData.get("sourceType")), payment_id: null } : null);
+      const paymentStartRefusalCode =
+        actor && Array.isArray(actor.permissions) && knownSession && checkoutConfirmationNeedsPaymentStart(knownSession)
+          ? checkoutPaymentStartRefusalCode(actor)
+          : null;
+      if (paymentStartRefusalCode) {
+        return {
+          error:
+            paymentStartRefusalCode === "email_verification_required"
+              ? t("checkout.features.sessions.api.route.payment.email.verification.required")
+              : t("checkout.features.sessions.api.route.payment.authority.required"),
+        };
+      }
       const hasCommittedSideEffects = hasCommittedCheckoutSideEffects(session);
       const pendingAddressBookWrite = shippingAddressResolution.pendingAddressBookWrite;
       if (pendingAddressBookWrite && !hasCommittedSideEffects) {
@@ -1010,13 +1078,14 @@ async function handleAction(intent: string, { request, params, formData }: FormA
         : await writeApi.selectShippingOption(params.sessionId, {
             shippingOption,
           });
-      const authenticityCheckOptInResult = hasCommittedSideEffects
-        ? null
-        : await writeApi.selectAuthenticityCheckOptIn(params.sessionId, {
-            selected: String(formData.get("authenticityCheckOptIn") ?? "") === "true",
-            quoteFingerprint: String(formData.get("authenticityCheckOptInQuoteFingerprint") ?? "") || null,
-          });
       const sourceType = session?.source_type ?? String(formData.get("sourceType") ?? "");
+      const authenticityCheckOptInResult =
+        hasCommittedSideEffects || sourceType === "offer-intent"
+          ? null
+          : await writeApi.selectAuthenticityCheckOptIn(params.sessionId, {
+              selected: String(formData.get("authenticityCheckOptIn") ?? "") === "true",
+              quoteFingerprint: String(formData.get("authenticityCheckOptInQuoteFingerprint") ?? "") || null,
+            });
       const visibleReviewChanged =
         visiblePaymentMethodCategory !== quotedPaymentMethodCategory ||
         (reviewedShippingOption !== null && reviewedShippingOption !== shippingOption) ||

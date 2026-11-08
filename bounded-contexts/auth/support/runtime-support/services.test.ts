@@ -77,6 +77,7 @@ function syntheticSessionState() {
     authenticationMethod: "password",
     status: "active",
     expiresAt: SYNTHETIC_EXPIRES_AT,
+    sessionGeneration: 0,
   } as AuthenticatedSessionRead["state"];
 }
 

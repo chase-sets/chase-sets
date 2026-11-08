@@ -11,7 +11,7 @@ export type CheckoutFormLevelHiddenFieldsProps = Readonly<{
   sourceType: string;
   shippingOption: string;
   addressDefaults: CheckoutAddressDefaults;
-  hasAcknowledgedVisibleFulfillmentPreview: boolean;
+  acknowledgedMaterialChanges: boolean;
 }>;
 
 /** Hidden fields mirroring checkout-wide form state that every submission
@@ -25,7 +25,7 @@ export function CheckoutFormLevelHiddenFields({
   sourceType,
   shippingOption,
   addressDefaults,
-  hasAcknowledgedVisibleFulfillmentPreview,
+  acknowledgedMaterialChanges,
 }: CheckoutFormLevelHiddenFieldsProps) {
   return (
     <>
@@ -49,11 +49,7 @@ export function CheckoutFormLevelHiddenFields({
         name="reviewedShippingAddressSignature"
         value={normalizedAddressSignature(addressDefaults)}
       />
-      <HiddenInput
-        type="hidden"
-        name="acknowledgedMaterialChanges"
-        value={hasAcknowledgedVisibleFulfillmentPreview ? "true" : ""}
-      />
+      <HiddenInput type="hidden" name="acknowledgedMaterialChanges" value={acknowledgedMaterialChanges ? "true" : ""} />
     </>
   );
 }

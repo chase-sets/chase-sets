@@ -106,6 +106,7 @@ export type {
   IdentityAuthMutationClient,
   IdentityCommandSnapshot,
 } from "./support/request-support/auth-mutation-client";
+export { type SocialLoginSubjectResolution } from "./features/users/api/social-login-ownership";
 import type { IdentityAuthMutationClient } from "./support/request-support/auth-mutation-client";
 
 async function parseJsonResponse<T>(response: Response): Promise<T> {
@@ -155,6 +156,7 @@ export function createIdentityAuthRequestClient(request: Request): IdentityAuthM
         providerSubject,
         email,
       }),
+    resolveSocialLoginSubject: (params) => postJson("social-login-subjects/resolve", params),
     claimGuestAccount: ({ accountId, userId, roleKey }) =>
       postJson(`guest-accounts/${accountId}/claim`, {
         userId,

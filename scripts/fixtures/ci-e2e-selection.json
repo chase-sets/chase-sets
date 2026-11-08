@@ -1248,7 +1248,7 @@
     },
     {
       "family": "boundedContextRouteSuiteOwnership:45",
-      "pattern": "/^bounded-contexts\\/discovery\\/routes\\/item-detail(?:\\.|-market-history\\.)/",
+      "pattern": "/^bounded-contexts\\/discovery\\/routes\\/item-detail(?:\\.|-market-history\\.|-rail-analytics\\.)/",
       "suites": ["marketplace_browse"],
       "path": "bounded-contexts/discovery/routes/item-detail-market-history.tsx",
       "trackedCandidates": 2,
@@ -1416,8 +1416,13 @@
     },
     {
       "changedFiles": [".github/workflows/platform-pr.yml"],
-      "suiteIds": [],
-      "batches": []
+      "suiteIds": ["admin_auth"],
+      "batches": ["admin_auth"]
+    },
+    {
+      "changedFiles": ["scripts/playwright-chromium-install.mjs"],
+      "suiteIds": ["admin_auth"],
+      "batches": ["admin_auth"]
     },
     {
       "changedFiles": [".npmrc"],

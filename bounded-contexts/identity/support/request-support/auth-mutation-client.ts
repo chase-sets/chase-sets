@@ -3,6 +3,7 @@ import type {
   SignedRegistrationConsentResolution,
 } from "../../features/consents/domain/registration-consent";
 import type { InvitationAcceptanceOperation } from "../../features/invitations/api/acceptance-operation";
+import type { SocialLoginSubjectResolution } from "../../features/users/api/social-login-ownership";
 
 /**
  * The Auth-to-Identity mutation contract.
@@ -81,6 +82,13 @@ export type IdentityAuthMutationClient = Readonly<{
       email: string;
     }>,
   ) => Promise<Readonly<{ ok: true; userId: string; snapshots: readonly IdentityCommandSnapshot[] }>>;
+  /** The Social Login Ownership Claim for one provider subject; Auth's only owner decision. */
+  resolveSocialLoginSubject: (
+    params: Readonly<{
+      providerName: "google" | "facebook";
+      providerSubject: string;
+    }>,
+  ) => Promise<SocialLoginSubjectResolution>;
   claimGuestAccount: (
     params: Readonly<{
       accountId: string;
