@@ -7738,6 +7738,13 @@ fn daily_surface(location: &str) -> Response {
                 { "key": "observation.reject", "state": "available", "blockers": [] }]
         }
     });
+    // `candidatePromote=versioned` is an API that checks a candidate's promote against the version
+    // read, and builds it (chase-sets/chase-sets#11143).
+    if location.contains("candidatePromote=versioned") {
+        surface["readModel"]["mergeCandidateReview"]["rows"][0]["actions"][0]["commandPreview"] = json!({
+            "commandKind": "promote-catalog-merge-candidate",
+            "body": { "reason": "Promote from the scope-first Catalog sync workbench.", "expectedVersion": 4 } });
+    }
     // The read builds the promotion's selection and confirmation (chase-sets/chase-sets#11142);
     // `providerKey=legacy` is an API from before it, whose promotion opens on admin-web.
     if !location.contains("providerKey=legacy") {
@@ -7930,7 +7937,9 @@ fn daily_command(method: &Method, path: &str, body: &str) -> Option<Response> {
         "/integration-jobs" => queued("job_9"),
         "/reapply" => queued("job_10"),
         "/admin/merge-candidates/cand_1/ignore" | "/admin/merge-candidates/cand_1/defer" => written(StatusCode::OK, "cand_1"),
-        "/admin/merge-candidates/cand_1/split" | "/admin/merge-candidates/cand_1/update" => {
+        "/admin/merge-candidates/cand_1/split"
+        | "/admin/merge-candidates/cand_1/update"
+        | "/admin/merge-candidates/cand_1/promote" => {
             if sent["expectedVersion"] == json!(4) {
                 written(StatusCode::OK, "cand_1")
             } else {
@@ -8809,6 +8818,39 @@ async fn a_review_rows_evidence_opens_the_apis_evidence_in_a_sheet() {
     assert_eq!(status, StatusCode::OK, "{html}");
     assert!(html.contains(r#"data-catalog-observation-evidence="error""#), "{html}");
     assert!(html.contains("disabled") && !html.contains("preview-checked"), "{html}");
+}
+
+#[tokio::test]
+async fn a_candidates_promote_sends_the_version_read_once_the_api_checks_it() {
+    let pilot = Pilot::new().await;
+    // Before the API checks the version, Promote is admin-web's.
+    let (_, _, html) = pilot.send(get("/catalog/integrations?providerKey=tcgplayer", Some("staff"))).await;
+    assert!(!html.contains(r#"value="promote""#), "{html}");
+    let at = "/catalog/integrations?providerKey=tcgplayer&candidatePromote=versioned";
+    let (_, _, html) = pilot.send(get(at, Some("staff"))).await;
+    assert!(
+        html.contains(r#"data-catalog-primary-workbench-command="candidate-promote""#)
+            && html.contains(r#"<input type="hidden" name="version" value="4">"#)
+            && html.contains(r#"value="promote""#),
+        "{html}"
+    );
+    let post_to = "/catalog/integrations/candidates/cand_1?providerKey=tcgplayer&candidatePromote=versioned";
+    let reason = "reason=Promote+from+the+scope-first+Catalog+sync+workbench.";
+    let (status, headers, _) = pilot.send(post(post_to, &format!("command=promote&version=4&{reason}"), false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert!(headers[header::LOCATION].to_str().unwrap().contains("done=queued"));
+    assert_eq!(
+        last_write(&pilot, "/admin/merge-candidates/cand_1/promote"),
+        json!({ "reason": "Promote from the scope-first Catalog sync workbench.", "expectedVersion": 4, "conflictResolutions": [] })
+    );
+    // A candidate that moved since the read is admin-web's stale message; no version is not offered.
+    let (status, _, html) = pilot.send(post(post_to, &format!("command=promote&version=3&{reason}"), false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(html.contains("The merge candidate changed after this page loaded it"), "{html}");
+    let before = daily_writes(&pilot).len();
+    let (status, _, _) = pilot.send(post(post_to, "command=promote", false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(daily_writes(&pilot).len(), before);
 }
 
 /// The daily surface reads the address names, decoded: the last one.

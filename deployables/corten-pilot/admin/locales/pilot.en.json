@@ -162,7 +162,7 @@
     "sync_run_targets": "Provider targets",
     "sync_run_no_child": "No child job",
     "sync_run_caption": "Catalog sync child jobs",
-    "candidates_elsewhere": "Candidate evidence, edits, splits and promotion run on admin-web.",
+    "candidates_elsewhere": "Candidate evidence and conflict resolution run on admin-web, and so does Promote until the Catalog API checks it against the version read.",
     "candidates_open": "Open the candidates on admin-web",
     "workset_elsewhere": "Previewing a unit's promotion runs on admin-web until the Catalog API builds the promotion's selection and confirmation.",
     "workset_open": "Preview {unit} on admin-web",

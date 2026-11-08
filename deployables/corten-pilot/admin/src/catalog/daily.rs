@@ -820,6 +820,15 @@ impl Candidate {
         let ids = body.split_observation_ids.as_slice();
         Some((action, body.expected_version?, ids)).filter(|(_, _, ids)| !ids.is_empty())
     }
+
+    /// The promote the API offers with the version it read (its `commandPreview`,
+    /// chase-sets/chase-sets#11143), when the command may run and no blocking conflict needs a
+    /// resolution first; a promote that resolves conflicts stays on admin-web's conflict form.
+    pub fn promote(&self) -> Option<(&Action, u64)> {
+        let action = self.actions.iter().find(|a| a.key == "candidate.promote" && a.open())?;
+        let version = action.command_preview.as_ref()?.body.expected_version?;
+        (self.conflicts.blocking == 0).then_some((action, version))
+    }
 }
 
 /// A candidate's typed edit (`CatalogPrimaryWorkbenchMergeCandidateEditFormReadModel`): what the
@@ -1835,9 +1844,9 @@ pub struct CandidateInput {
     pub drop_product_ref: Vec<String>,
 }
 
-/// The merge candidate commands the row's buttons send; promote stays on admin-web, since the API
-/// does not check it against the version the page read (chase-sets/chase-sets#11143), and the edit is
-/// its own form.
+/// The merge candidate commands the row's buttons send. Split and promote are each their own form
+/// with the version the page read (a promote only once the API checks it against that version,
+/// chase-sets/chase-sets#11143), and the edit is its dialog's.
 pub const CANDIDATE_COMMANDS: [(&str, &str); 3] =
     [("candidate.ignore", "ignore"), ("candidate.defer", "defer"), ("candidate.split", "split")];
 
@@ -1863,6 +1872,13 @@ impl CandidateInput {
                 let typed = self.reason.trim();
                 let reason = if typed.is_empty() { reason(t.wb_merge_action_split()) } else { typed.to_owned() };
                 Some(("split", json!({ "reason": reason, "expectedVersion": version, "splitObservationIds": ids })))
+            }
+            "promote" => {
+                let version = self.version()?;
+                let typed = self.reason.trim();
+                let reason = if typed.is_empty() { reason(t.wb_merge_action_promote()) } else { typed.to_owned() };
+                // No conflict to resolve: the row offers Promote only without blocking conflicts.
+                Some(("promote", json!({ "reason": reason, "expectedVersion": version, "conflictResolutions": [] })))
             }
             "update" => {
                 let version = self.version()?;

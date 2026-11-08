@@ -1061,7 +1061,8 @@ fn candidate_tone(status: &str) -> &'static str {
 
 /// Merged candidate review (`CatalogIntegrationMergeCandidateReviewModule`): each candidate's
 /// identity, sources, status and readiness, and the ignore, defer, split and edit the API offers
-/// it; its evidence and promotion open on admin-web.
+/// it, and its promote once the API checks it against the version read; its evidence and conflict
+/// resolution open on admin-web.
 #[component(css = DailyPage)]
 fn CandidatesModule<'a>(t: Cat, p: Pilot, model: &'a Daily, context: &'a str, manage: bool) -> impl Render {
     let merge = &model.merge_candidate_review;
@@ -1234,6 +1235,32 @@ fn CandidateRow<'a>(t: Cat, p: Pilot, row: &'a Candidate, context: &'a str, mana
                                 aria-label={&aria}
                             >
                                 {t.wb_merge_action_split()}
+                            </button>
+                        </form>
+                    }
+                    if let (true, Some((promote, version))) = (manage, row.promote()) {
+                        <form
+                            method="post"
+                            action={&action}
+                            class={Row}
+                            data-patch
+                            data-catalog-primary-workbench-command="candidate-promote"
+                        >
+                            <input type="hidden" name={CandidateInput::FIELDS.version} value={version}>
+                            if let Some(preview) = &promote.command_preview {
+                                if !preview.body.reason.is_empty() {
+                                    <input type="hidden" name={CandidateInput::FIELDS.reason} value={&preview.body.reason}>
+                                }
+                            }
+                            let aria = t.wb_merge_action_aria(crate::text::cat::WbMergeActionAria { action: t.wb_merge_action_promote(), candidate: &row.identity_label }).to_string();
+                            <button
+                                type="submit"
+                                class={Button { variant: ButtonVariant::Primary, size: ButtonSize::Sm }}
+                                name={CandidateInput::FIELDS.command}
+                                value="promote"
+                                aria-label={&aria}
+                            >
+                                {t.wb_merge_action_promote()}
                             </button>
                         </form>
                     }

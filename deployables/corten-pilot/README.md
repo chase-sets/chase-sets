@@ -150,8 +150,9 @@ checked rows, an observation's evidence or a unit's scope) and Create or update 
 selection and confirmation the Catalog API builds for the read ([chase-sets/chase-sets#11142 [catalog] Return the daily workbench's promotion selection and confirmation from the surface read: admin-web builds the promotion scope and confirmation from its route context](https://github.com/chase-sets/chase-sets/issues/11142)); the commit presents the
 token the preview answered, with the draft choice it bound. Against an API without them, those previews
 open on admin-web. Whether a held preview may be committed is worked out from the read until the API
-says ([chase-sets/chase-sets#11175 [catalog] Say in the daily read whether the held promotion preview may be committed: admin-web decides from its preview receipt with its own coverage rule](https://github.com/chase-sets/chase-sets/issues/11175)). A candidate's Promote stays on admin-web until the API checks it against the
-version read ([chase-sets/chase-sets#11143 [catalog] A merge candidate's promote is not checked against the version the operator read, as its split and edit are](https://github.com/chase-sets/chase-sets/issues/11143)). Its import context
+says ([chase-sets/chase-sets#11175 [catalog] Say in the daily read whether the held promotion preview may be committed: admin-web decides from its preview receipt with its own coverage rule](https://github.com/chase-sets/chase-sets/issues/11175)). A merge candidate's Promote sends the version the page read once the API checks
+it against that version ([chase-sets/chase-sets#11143 [catalog] A merge candidate's promote is not checked against the version the operator read, as its split and edit are](https://github.com/chase-sets/chase-sets/issues/11143)); before, and for a promote with conflicts to resolve, it stays
+on admin-web. Its import context
 bar chooses the provider, unit, scope and profile version from synced source options and reloads or
 force-refreshes them; which field each option kind drives is copied from admin-web until the API
 returns it
