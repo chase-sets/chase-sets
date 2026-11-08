@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { ResolvedActor } from "@chase-sets/platform-runtime/auth";
 import { findMcpTool } from "@chase-sets/platform-runtime/mcp-contracts";
 import type { ApiKeyServices } from "./runtime";
+import { getApiKey as queryApiKey } from "../read-model/queries";
 import { createApiKeyMcpHandlers } from "./mcp";
 import { buildPaginationClause } from "@chase-sets/event-core-postgres";
 import { createUserMcpHandlers } from "../../users/api/mcp";
@@ -128,7 +129,7 @@ describe("identity API-key MCP handlers", () => {
 
   it("returns not found and preserves read failures rather than degrading to empty success", async () => {
     const { handlers, getApiKey, listApiKeys, query } = readFixture();
-    getApiKey.mockResolvedValueOnce(null);
+    getApiKey.mockImplementationOnce((apiKeyId) => queryApiKey({ query: async () => ({ rows: [] }) }, apiKeyId));
     await expect(handlers["identity.get-api-key"]!(request({ apiKeyId: "key_missing" }))).rejects.toThrow(
       "API key not found",
     );
