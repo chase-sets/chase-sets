@@ -317,11 +317,11 @@
         "routeId": "account-payment-new",
         "apiContextName": "payments",
         "apiRoutePath": "/account/checkout/status",
-        "readModelTables": ["payments_order_inputs", "identity_consent_current_states"],
+        "readModelTables": ["payments_order_inputs"],
         "helperUses": ["loadAfterWrite"],
         "transientRecovery": {
           "kinds": "refreshable-catching-up",
-          "behavior": "Terms acceptance carries Identity's receipt; Payments checkout status waits for the Identity consent projection before restoring wallet eligibility, retaining orders and manual recovery on timeout."
+          "behavior": "Terms acceptance carries Identity's receipt. The matching Payments readFreshnessRoutes entry also declares targetContextName identity and readModelTable identity_consent_current_states; the exact-dependency gate waits on that Identity projection before this status read. This inventory table list names the Payments-owned dependency only. Timeout retains orders and manual recovery without restoring wallet eligibility."
         }
       },
       "proof": {
@@ -416,6 +416,28 @@
   ],
   "mutationConsistencyInventory": [
     {
+      "id": "payments.terms-accept-to-wallet-status-fresh-read",
+      "owner": "payments",
+      "risk": "critical",
+      "strategy": "fresh-read",
+      "surfaces": [
+        "post-form:bounded-contexts/payments/routes/marketplace/account-payment-new.tsx:Hb08a81ecfd73#1"
+      ],
+      "visibleDestination": {
+        "routeId": "account-payment-new",
+        "apiContextName": "payments",
+        "apiRoutePath": "/account/checkout/status",
+        "readModelTables": ["payments_order_inputs"],
+        "transientRecovery": {
+          "kinds": "refreshable-catching-up",
+          "behavior": "Terms acceptance carries Identity's receipt. The matching Payments readFreshnessRoutes entry also declares targetContextName identity and readModelTable identity_consent_current_states; the exact-dependency gate waits on that Identity projection before this status read. This inventory table list names the Payments-owned dependency only. Timeout retains orders and manual recovery without restoring wallet eligibility."
+        }
+      },
+      "proof": {
+        "tests": ["bounded-contexts/payments/tests/account-payment-new-wallet-status.test.tsx"]
+      }
+    },
+    {
       "id": "payments.wallet-funding-command-snapshots",
       "owner": "payments",
       "risk": "critical",
@@ -459,7 +481,7 @@
       "risk": "critical",
       "strategy": "fresh-read",
       "surfaces": [
-        "post-form:bounded-contexts/payments/routes/marketplace/account-payment-new.tsx:H2a1272bf8c6b#1",
+        "post-form:bounded-contexts/payments/routes/marketplace/account-payment-new.tsx:Hb2c20eae8fce#1",
         "route-action:bounded-contexts/payments/routes/marketplace/account-payment-new.tsx"
       ],
       "visibleDestination": {
