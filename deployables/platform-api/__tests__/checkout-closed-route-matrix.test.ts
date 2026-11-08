@@ -1032,7 +1032,7 @@ describe("checkout-closed-session-lifecycle", () => {
     expect(
       orderStore.allEvents.some((event) => event.eventType === "ordering.order.ready-for-fulfillment-recorded"),
     ).toBe(true);
-    expect(await sessions.getPaymentSummary(paymentRow.payment_id)).toMatchObject({
+    expect(await sessions.getPaymentSummary(paymentRow.payment_id, "acc_synthetic")).toMatchObject({
       payment_id: paymentRow.payment_id,
       status: "captured",
     });

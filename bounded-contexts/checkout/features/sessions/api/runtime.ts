@@ -242,7 +242,7 @@ export type CheckoutSessionServices = Readonly<{
   getSession: (sessionId: string, accountId: string) => ReturnType<typeof getCheckoutSession>;
   /** The buyer's session's last recorded quote, read from its stream; null when unknown or never quoted. */
   getLastRecordedQuote: (sessionId: string, accountId: string) => Promise<CheckoutFulfillmentPreview | null>;
-  getPaymentSummary: (paymentId: string) => Promise<CheckoutPaymentSummaryRow | null>;
+  getPaymentSummary: (paymentId: string, buyerAccountId: string) => Promise<CheckoutPaymentSummaryRow | null>;
   getPaymentConfirmation: (sessionId: string, accountId: string) => Promise<CheckoutPaymentConfirmation | null>;
   listSavedPaymentInstruments: (accountId: AccountId) => Promise<CheckoutSavedPaymentInstrumentRow[]>;
   projectors: readonly ProjectionHandlerSet[];
@@ -458,7 +458,7 @@ export function createCheckoutSessionRuntime(deps: CheckoutSessionRuntimeDeps): 
       }
       return { status: "cancellable", session };
     },
-    getPaymentSummary: (paymentId) => getCheckoutPaymentSummary(deps.db, paymentId),
+    getPaymentSummary: (paymentId, buyerAccountId) => getCheckoutPaymentSummary(deps.db, paymentId, buyerAccountId),
     getPaymentConfirmation: async (sessionId, accountId) => {
       const payment = await getCheckoutPaymentConfirmationProjection(deps.db, sessionId, accountId);
       return payment ? exposeCheckoutPaymentConfirmation(payment, deps.paymentProcessorPublicConfiguration) : null;
