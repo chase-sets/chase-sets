@@ -675,12 +675,18 @@ export function createAccountCheckoutSessionRoutes(
             return c.json(checkoutSessionStartedResponse(result), 201);
           }
 
+          // The first preview is computed for the address the page will send, so Pay now matches it.
           const fulfillmentPreviewResult = await recordCheckoutFulfillmentPreviewSnapshot(
             c.req.raw,
             services,
             session,
             access.actor.accountId as AccountId,
             context,
+            {
+              shippingAddress:
+                session.shipping_address ??
+                (await services.firstPreviewShippingAddress(access.actor.accountId as AccountId)),
+            },
           );
           return c.json(
             checkoutSessionStartedResponse({
@@ -765,6 +771,7 @@ export function createAccountCheckoutSessionRoutes(
         sellerPreferenceId,
         shippingOption: buyNowShippingOption,
         optimizationGoal,
+        previewShippingAddress: await services.firstPreviewShippingAddress(access.actor.accountId as AccountId),
       });
       return c.json(
         checkoutSessionStartedResponse({ ...prepared, ...checkoutCommitMetadataFromSources(prepared.writeSources) }),
