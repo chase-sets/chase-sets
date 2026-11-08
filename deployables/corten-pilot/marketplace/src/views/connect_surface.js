@@ -7,7 +7,7 @@
 // one. Settlement's step_up_required shows Sign in again. Leaving Stripe's setup form (onExit)
 // sends the page's Refresh setup status, as marketplace refreshes after it. Loading has one
 // deadline over the whole chain, as the payment steps do.
-import { connectAppearance, connectScriptUrl } from "./stripe.js";
+import { connectScriptUrl } from "./stripe.js";
 
 /** As the payment steps': half the account-payment UAT's 60 s readiness ceiling. */
 const DEADLINE_MS = 30_000;
@@ -130,7 +130,6 @@ export async function mount(target, parts, key, session, couldNotLoad, noSession
         return secret(session, noSession);
       },
       locale: document.documentElement.lang || "en-US",
-      appearance: connectAppearance(target),
     });
     const element = instance.create(component(session));
     element.setOnLoaderStart?.(() => {
