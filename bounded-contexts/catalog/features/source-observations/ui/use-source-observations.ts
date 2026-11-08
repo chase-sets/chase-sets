@@ -167,18 +167,39 @@ export function activateSourceObservationProviderProfile(providerKey: string, pr
   return api.activateSourceObservationProviderProfile<CatalogProviderProfileVersionReview>(providerKey, profileVersion);
 }
 
-export function rollbackSourceObservationProviderProfile(providerKey: string, profileVersion: string) {
-  return api.rollbackSourceObservationProviderProfile<CatalogProviderProfileVersionReview>(providerKey, profileVersion);
+export function rollbackSourceObservationProviderProfile(
+  providerKey: string,
+  profileVersion: string,
+  lifecycleConfirmation: string | null,
+) {
+  return api.rollbackSourceObservationProviderProfile<CatalogProviderProfileVersionReview>(
+    providerKey,
+    profileVersion,
+    lifecycleConfirmation,
+  );
 }
 
-export function retireSourceObservationProviderProfile(providerKey: string, profileVersion: string) {
-  return api.retireSourceObservationProviderProfile<CatalogProviderProfileVersionReview>(providerKey, profileVersion);
+export function retireSourceObservationProviderProfile(
+  providerKey: string,
+  profileVersion: string,
+  lifecycleConfirmation: string | null,
+) {
+  return api.retireSourceObservationProviderProfile<CatalogProviderProfileVersionReview>(
+    providerKey,
+    profileVersion,
+    lifecycleConfirmation,
+  );
 }
 
-export function deprecateSourceObservationProviderProfile(providerKey: string, profileVersion: string) {
+export function deprecateSourceObservationProviderProfile(
+  providerKey: string,
+  profileVersion: string,
+  lifecycleConfirmation: string | null,
+) {
   return api.deprecateSourceObservationProviderProfile<CatalogProviderProfileVersionReview>(
     providerKey,
     profileVersion,
+    lifecycleConfirmation,
   );
 }
 

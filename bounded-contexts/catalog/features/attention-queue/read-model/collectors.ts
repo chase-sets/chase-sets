@@ -8,10 +8,10 @@
 // The assembler runs the real queries and feeds the rows here.
 // ---------------------------------------------------------------------------
 
-import type { CatalogAliasCandidateRow } from "../../alias-equivalence/read-model/queries";
-import type { ProviderScopeMappingRow } from "../../provider-scope-mapping/read-model/queries";
-import type { CatalogScopeRecordRow } from "../../scope-registry/read-model/queries";
-import type { CatalogMergeCandidateListRow } from "../../source-observations/read-model/queries";
+import type { CatalogAliasCandidateAttentionRow } from "../../alias-equivalence/read-model/queries";
+import type { ProviderScopeMappingAttentionRow } from "../../provider-scope-mapping/read-model/queries";
+import type { CatalogScopeRecordAttentionRow } from "../../scope-registry/read-model/queries";
+import type { CatalogMergeCandidateAttentionRow } from "../../source-observations/read-model/queries";
 import type { CatalogIntegrationControlPlaneUnitReadiness } from "../../source-observations/api/runtime";
 import type { CatalogIntegrationUnitActivity } from "../../source-observations/api/admin-control-plane-overview";
 import type { CatalogAttentionItem, CatalogAttentionResolution } from "./attention-item";
@@ -47,7 +47,7 @@ function commandResolution(
 // --- Source 1: unmapped provider scopes ------------------------------------
 // Provider scope mappings still awaiting review (`proposed`) are the "this
 // provider unit produced a scope nobody has mapped yet" case.
-export function collectUnmappedScopeItems(rows: readonly ProviderScopeMappingRow[]): CatalogAttentionItem[] {
+export function collectUnmappedScopeItems(rows: readonly ProviderScopeMappingAttentionRow[]): CatalogAttentionItem[] {
   return rows
     .filter((row) => row.review_status === "proposed")
     .map((row) => {
@@ -80,11 +80,11 @@ export function collectUnmappedScopeItems(rows: readonly ProviderScopeMappingRow
 }
 
 // --- Source 2: merge candidates in has-conflicts / stale --------------------
-export function collectMergeConflictItems(rows: readonly CatalogMergeCandidateListRow[]): CatalogAttentionItem[] {
+export function collectMergeConflictItems(rows: readonly CatalogMergeCandidateAttentionRow[]): CatalogAttentionItem[] {
   return rows
     .filter((row) => row.status === "has-conflicts" || row.status === "stale")
     .map((row) => {
-      const blocking = row.conflicts_json.filter((conflict) => conflict.severity === "blocking").length;
+      const blocking = row.blocking_conflict_count;
       const isConflict = row.status === "has-conflicts";
       return {
         itemKey: `merge-conflict:${row.candidate_id}`,
@@ -209,7 +209,7 @@ function importJobSeverity(operatorStatus: string): CatalogAttentionItem["severi
 }
 
 // --- Source 5: pending alias-equivalence candidates -------------------------
-export function collectAliasCandidateItems(rows: readonly CatalogAliasCandidateRow[]): CatalogAttentionItem[] {
+export function collectAliasCandidateItems(rows: readonly CatalogAliasCandidateAttentionRow[]): CatalogAttentionItem[] {
   return rows
     .filter((row) => row.review_status === "pending")
     .map((row) => ({
@@ -217,9 +217,13 @@ export function collectAliasCandidateItems(rows: readonly CatalogAliasCandidateR
       kind: "alias-candidate" as const,
       severity: "info" as const,
       titleKey: "catalog.features.attentionQueue.item.aliasCandidate.title",
-      titleParams: { alias: row.alias_text, type: row.alias_type },
+      titleParams: { alias: row.alias_text },
       detailKey: "catalog.features.attentionQueue.item.aliasCandidate.detail",
-      detailParams: { provider: row.provider_key, confidence: row.confidence },
+      detailParams: {
+        provider: row.provider_key,
+        type: row.alias_type,
+        confidence: row.confidence,
+      },
       providerKey: row.provider_key,
       unitKey: null,
       observedAt: row.first_observed_at,
@@ -251,7 +255,7 @@ export function collectAliasCandidateItems(rows: readonly CatalogAliasCandidateR
 // record whose projection has not been refreshed within the freshness window is
 // a scope whose provider sync has gone stale.
 export function collectStaleScopeSyncItems(
-  rows: readonly CatalogScopeRecordRow[],
+  rows: readonly CatalogScopeRecordAttentionRow[],
   options: Readonly<{ now: string; stalenessThresholdMs: number }>,
 ): CatalogAttentionItem[] {
   const nowMs = Date.parse(options.now);

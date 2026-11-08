@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import type { ResolvedActor } from "@chase-sets/auth-context";
 import { t } from "@chase-sets/localization";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { createDurableJobEventStream } from "@chase-sets/platform-runtime/durable-job-events";
@@ -23,7 +24,9 @@ import { operatorSessionAdminRoutes } from "../../features/operator-session/api/
 
 export type CatalogAuthoringEnv = {
   Variables: {
-    actor: Readonly<{ permissions: readonly string[] }> | null;
+    actor:
+      | (Pick<ResolvedActor, "permissions"> & Partial<Pick<ResolvedActor, "roleKey" | "userId" | "membershipId">>)
+      | null;
     context: EventStoreContext;
   };
 };
@@ -97,8 +100,17 @@ export function buildCatalogAuthoringApi(services: CatalogServices) {
   app.route("/product-contents", productContentRoutes(services.productContents));
   app.route(
     "/source-observations",
-    sourceObservationRoutes(services.sourceObservations, services.providerIntegrationProfiles, () =>
-      services.scopeSyncBatches.countSpend({}),
+    sourceObservationRoutes(
+      services.sourceObservations,
+      services.providerIntegrationProfiles,
+      () => services.scopeSyncBatches.countSpend({}),
+      // Partial service compositions remain fail-soft at request time.
+      async () => {
+        if (typeof services.providerScopeDiscovery.listRefreshSchedules !== "function") {
+          throw new Error("Provider refresh schedules unavailable.");
+        }
+        return services.providerScopeDiscovery.listRefreshSchedules();
+      },
     ),
   );
   app.route("/alias-review", catalogAliasRoutes(services.catalogAliases));

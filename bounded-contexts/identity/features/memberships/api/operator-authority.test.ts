@@ -61,7 +61,12 @@ describe("Identity operator authority", () => {
 
     expect(decision).toMatchObject({ kind: "granted", membershipId: "mem_admin", roleKey: "platform-admin" });
     expect(decision.kind === "granted" ? decision.rolePermissions : []).toEqual(
-      expect.arrayContaining([...projectionPermissions, "insights-dashboards.view", "catalog.manage"]),
+      expect.arrayContaining([
+        ...projectionPermissions,
+        "insights-dashboards.view",
+        "catalog.manage",
+        "customer-feedback.privacy.export-sensitive-feedback",
+      ]),
     );
   });
 

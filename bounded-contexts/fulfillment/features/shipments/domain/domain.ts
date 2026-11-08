@@ -1220,6 +1220,7 @@ export const decideFulfillmentShipment: AggregateDecider<
         state.status !== "delivered" && state.status !== "returned",
         "Delivered or returned shipments cannot enter exception state.",
       );
+      assert(state.status !== "cancelled", "Cancelled shipments cannot enter exception state.");
       return [
         {
           type: "fulfillment.shipment.exception-raised",

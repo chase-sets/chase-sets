@@ -176,6 +176,47 @@ jobs:
       - uses: ${uses}
 `;
 
+  const restoreSha = "caa296126883cff596d87d8935842f9db880ef25";
+
+  it("accepts the exact restore-only Node 24 action pin and documented release", () => {
+    const rootDir = workflowRootWith(workflowUsing(`actions/cache/restore@${restoreSha} # v5.1.0`));
+
+    expect(checkGithubActionsRuntime({ rootDir })).toEqual({ passed: true, violations: [] });
+  });
+
+  it.each(["actions/cache/save", "actions/cache/restore/extra", "digitalocean/action-doctl/unadmitted"])(
+    "rejects unadmitted sub-action %s with the same otherwise-valid SHA and release",
+    (actionName) => {
+      const rootDir = workflowRootWith(workflowUsing(`${actionName}@${restoreSha} # v5.1.0`));
+
+      expect(checkGithubActionsRuntime({ rootDir })).toEqual({
+        passed: false,
+        violations: [
+          expect.stringContaining(`external action '${actionName}' is not in the Node 24 compatibility allowlist`),
+        ],
+      });
+    },
+  );
+
+  it.each([
+    ["mutable tag", "v5.1.0 # v5.1.0", "must be pinned to a full 40-character commit SHA"],
+    ["short SHA", `${restoreSha.slice(0, 7)} # v5.1.0`, "must be pinned to a full 40-character commit SHA"],
+    ["missing release", restoreSha, "must include an inline '# vX.Y.Z' release comment"],
+    ["malformed release", `${restoreSha} # v5.1`, "must include an inline '# vX.Y.Z' release comment"],
+    [
+      "below restore floor",
+      `${restoreSha} # v5.0.0`,
+      "is documented as v5.0.0; keep the release comment on v5.1.0 or newer",
+    ],
+  ])("rejects restore-only action with %s", (_name, ref, error) => {
+    const rootDir = workflowRootWith(workflowUsing(`actions/cache/restore@${ref}`));
+
+    expect(checkGithubActionsRuntime({ rootDir })).toEqual({
+      passed: false,
+      violations: [expect.stringContaining(error)],
+    });
+  });
+
   it("accepts only the exact trusted composite Docker Hub guard pin without a release comment", () => {
     const rootDir = workflowRootWith(workflowUsing(`${trustedGuardAction}@${trustedGuardSha}`));
 

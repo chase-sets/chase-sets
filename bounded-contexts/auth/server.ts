@@ -24,6 +24,11 @@ export {
 } from "./support/runtime-support/production-bootstrap";
 export { resolveActorFromSessionId } from "./support/runtime-support/services";
 export {
+  SESSION_GENERATION_CAPABILITY_VERSION,
+  sessionGenerationCapabilityReport,
+  type SessionGenerationCapabilityReport,
+} from "./features/sessions/domain/session-generation";
+export {
   AUTH_GUEST_CHECKOUT_PERMISSIONS,
   AUTH_GUEST_CHECKOUT_ROLE_KEY,
   AUTH_GUEST_CHECKOUT_USER_ID,
