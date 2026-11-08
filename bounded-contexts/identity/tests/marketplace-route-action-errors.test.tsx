@@ -51,6 +51,7 @@ const routes = [
     forms: [
       { intent: "update-user", displayName: "Alex", givenName: "Alex", familyName: "Collector" },
       { intent: "create-api-key", name: "Ops" },
+      { intent: "unlink-social-login", linkKey: "a".repeat(64) },
       { intent: "rotate-api-key", apiKeyId: "key_identity" },
       { intent: "revoke-api-key", apiKeyId: "key_identity" },
     ],
@@ -134,7 +135,7 @@ afterEach(() => {
 });
 
 describe("Identity marketplace route action errors", () => {
-  it("derives the complete ten-intent caller partition from the route sources", () => {
+  it("derives the complete eleven-intent caller partition from the route sources", () => {
     for (const route of routes) {
       const source = readFileSync(
         path.resolve(import.meta.dirname, `../routes/marketplace/${route.source}.tsx`),
@@ -158,7 +159,7 @@ describe("Identity marketplace route action errors", () => {
       visit(file);
       expect(intents.sort()).toEqual(route.forms.map((form) => form.intent).sort());
     }
-    expect(cases).toHaveLength(10);
+    expect(cases).toHaveLength(11);
   });
 
   it.each(cases)(

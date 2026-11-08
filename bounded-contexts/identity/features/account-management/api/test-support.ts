@@ -19,6 +19,7 @@ export function syntheticMutationResult(
     "create-api-key": "api-key",
     "rotate-api-key": "api-key",
     "revoke-api-key": "api-key",
+    "unlink-social-login": "user",
     "create-invitation": "invitation",
     "cancel-invitation": "invitation",
     "change-role": "membership",
@@ -39,7 +40,9 @@ export function syntheticMutationResult(
     options.target === undefined
       ? ["create", "create-api-key", "create-invitation"].includes(action)
         ? null
-        : generated
+        : action === "unlink-social-login"
+          ? "c".repeat(64)
+          : generated
       : options.target;
   const id = target ?? generated;
   const status = category === "invitation" ? "pending" : category === "consent" ? "withdrawn" : "active";
@@ -58,7 +61,7 @@ export function syntheticMutationResult(
       action,
       target,
       category,
-      owner: `identity.${category}-${category === "shipping-address-book" ? binding.accountId : id}`,
+      owner: `identity.${category}-${category === "shipping-address-book" ? binding.accountId : action === "unlink-social-login" ? binding.userId : id}`,
       hash: "b".repeat(64),
       priorVersion: 6,
       committedVersion: version,

@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { readCompleteStream } from "@chase-sets/event-core/complete-stream";
 import {
   compareGlobalPosition,
@@ -15,7 +14,10 @@ import type { JsonObject } from "@chase-sets/primitives/json";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import type { IdentityMutationPersistence, IdentityMutationTransaction } from "../../account-management/api/fences";
 import { normalizeLabel } from "../../../support/runtime-support/common";
-import { decideUser, evolveUser, initialUserState, type UserEvent, type UserState } from "../domain/domain";
+import { decideUser, evolveUser, type UserState } from "../domain/domain";
+import { socialLoginLinkKey, type SocialLoginLinkState } from "../domain/social-login-link";
+import { validateOwnerHistory } from "../../account-management/api/owners";
+export { socialLoginLinkKey } from "../domain/social-login-link";
 
 /**
  * Social Login Ownership Claim: one stream per provider subject decides which
@@ -35,11 +37,12 @@ const SIGNAL_USER_ID_LIMIT = 10;
 export type SocialLoginProviderName = "google" | "facebook";
 export type SocialLoginSubjectResolution =
   | Readonly<{ status: "unclaimed" }>
-  | Readonly<{ status: "owned"; userId: string }>
+  | Readonly<{ status: "owned"; userId: string; linkState: SocialLoginLinkState }>
   | Readonly<{ status: "repair-required" }>;
 export type SocialLoginLinkOutcome =
   | Readonly<{ outcome: "linked"; userId: string; version: number; state: UserState }>
   | Readonly<{ outcome: "already-linked" }>
+  | Readonly<{ outcome: "revoked" }>
   | Readonly<{ outcome: "repair-required" }>;
 export type SocialLoginOwnershipDeps = Readonly<{
   mutationPersistence: IdentityMutationPersistence;
@@ -58,12 +61,6 @@ export class SocialLoginOwnershipHistoryError extends Error {
     super("Social login ownership history is invalid.");
     this.name = "SocialLoginOwnershipHistoryError";
   }
-}
-
-export function socialLoginLinkKey(providerName: string, providerSubject: string): string {
-  return createHash("sha256")
-    .update(`${providerName}:${normalizeLabel(providerSubject)}`, "utf8")
-    .digest("hex");
 }
 
 function claimStreamId(linkKey: string) {
@@ -292,7 +289,7 @@ export async function resolveSocialLoginSubject(
 ): Promise<SocialLoginSubjectResolution> {
   if (await hasLinkHistoryPastHorizon(deps.pool)) {
     await deps.mutationPersistence.transaction([CATCH_UP_SCOPE], (tx) =>
-      catchUpSocialLoginOwnership(deps, tx, context),
+      catchUpSocialLoginOwnership(deps, tx, context, { recordUnchanged: false }),
     );
   }
   const linkKey = socialLoginLinkKey(input.providerName, input.providerSubject);
@@ -301,14 +298,23 @@ export async function resolveSocialLoginSubject(
     maxEvents: 2,
   });
   const claim = readClaim(history, linkKey, input.providerName);
-  return claim.status === "owned" ? { status: "owned", userId: claim.userId } : { status: claim.status };
+  if (claim.status !== "owned") return { status: claim.status };
+  const userHistory = await readCompleteStream(deps.mutationPersistence.eventStore, {
+    streamId: `${USER_STREAM_PREFIX}${claim.userId}`,
+    maxEvents: 10000,
+  });
+  const user = foldUser(userHistory, context.tenantId);
+  const link = user.socialLoginLinks.find(
+    (candidate) => socialLoginLinkKey(candidate.providerName, candidate.providerSubject) === linkKey,
+  );
+  if (!link) throw new SocialLoginOwnershipHistoryError();
+  return { status: "owned", userId: claim.userId, linkState: link.state ?? "active" };
 }
 
-function foldUser(history: readonly StoredEvent[]): UserState {
-  return history.reduce(
-    (state, event) => evolveUser(state, { type: event.eventType, data: event.payload } as UserEvent),
-    initialUserState,
-  );
+function foldUser(history: readonly StoredEvent[], tenantId: string): UserState {
+  const owner = validateOwnerHistory("user", history, tenantId);
+  if (owner.kind !== "user") throw new SocialLoginOwnershipHistoryError();
+  return owner.state;
 }
 
 /**
@@ -334,7 +340,11 @@ export async function linkSocialLogin(
 
       const userStreamId = `${USER_STREAM_PREFIX}${input.userId}`;
       const userHistory = await tx.read(userStreamId);
-      const prior = foldUser(userHistory);
+      const prior = foldUser(userHistory, context.tenantId);
+      const existing = prior.socialLoginLinks.find(
+        (link) => socialLoginLinkKey(link.providerName, link.providerSubject) === linkKey,
+      );
+      if (existing && (existing.state ?? "active") !== "active") return { outcome: "revoked" };
       const linked = prior.socialLoginLinks.some(
         (link) => link.providerName === input.providerName && link.providerSubject === providerSubject,
       );

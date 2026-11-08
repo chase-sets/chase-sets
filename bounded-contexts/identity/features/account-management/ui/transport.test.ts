@@ -2,8 +2,63 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import * as router from "react-router";
 import { syntheticMutationResult } from "../api/test-support";
 import { resolveClientState, sendMutation } from "./transport";
+import { actionEventTypes } from "../domain/contract";
 const binding = { tenantId: "tnt_test", userId: "usr_test", accountId: "acc_test" };
 afterEach(() => vi.restoreAllMocks());
+
+describe("unlink receipt transport", () => {
+  const target = "c".repeat(64);
+  const args = {
+    route: "/account/security",
+    action: "unlink-social-login",
+    target,
+    key: "9230f01b-7871-420b-9c32-37139f80f749",
+    form: new FormData(),
+    binding,
+  };
+  it.each([2, 3])("accepts exactly bound unlink receipts with %s proofs", async (length) => {
+    const result = syntheticMutationResult("unlink-social-login", binding, { target });
+    if (result.outcome !== "committed") throw new Error("Synthetic fixture must commit");
+    const value =
+      length === 2
+        ? result
+        : {
+            ...result,
+            receipt: {
+              ...result.receipt,
+              committedVersion: 9,
+              events: [
+                ...result.receipt.events,
+                { id: "evt_disabled", type: "identity.user.auth-method-disabled", digest: "d".repeat(64) },
+              ],
+              result: { ...result.receipt.result, version: 9 },
+            },
+            current: { ...result.current, version: 9 },
+          };
+    vi.spyOn(router, "UNSAFE_decodeViaTurboStream").mockResolvedValue({ value: { data: value } } as never);
+    const fetch = vi.fn().mockResolvedValue(new Response("synthetic"));
+    expect(await sendMutation({ ...args, fetch })).toEqual({ state: "succeeded" });
+    expect(fetch).toHaveBeenCalledTimes(1);
+    for (const action of Object.keys(actionEventTypes))
+      if (action !== "unlink-social-login")
+        expect(resolveClientState({ ...value, receipt: { ...value.receipt, action } }, 200)).toBe("ambiguous");
+  });
+  it.each(["target", "actor"])("rejects wrong unlink %s and confirms read-only", async (field) => {
+    const result = syntheticMutationResult(
+      "unlink-social-login",
+      field === "actor" ? { ...binding, userId: "usr_other" } : binding,
+      { target: field === "target" ? "d".repeat(64) : target },
+    );
+    vi.spyOn(router, "UNSAFE_decodeViaTurboStream").mockResolvedValue({ value: { data: result } } as never);
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce(new Response("synthetic"))
+      .mockResolvedValueOnce(Response.json({ outcome: "not-recorded", code: "not-recorded" }));
+    expect(await sendMutation({ ...args, fetch })).toEqual({ state: "failed-safe" });
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(fetch.mock.calls[1][1].method).toBe("GET");
+  });
+});
 
 describe("issue-9909 failure details", () => {
   const target = "adr_01ARZ3NDEKTSV4RRFFQ69G5FAV";

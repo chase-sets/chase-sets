@@ -45,6 +45,13 @@ export const action = requireInterruptionSafeClient(
     ...createAccountActionErrorHandling().options,
     authorization: ({ request }) => requireActorFromIdentityApi({ request, permission: "security.manage" }),
     intents: {
+      "unlink-social-login": async ({ request, actor, formData }) => {
+        const result = await createIdentityRequestApiClient(request).unlinkSocialLogin<MutationResult>(
+          actor!.userId,
+          String(formData.get("linkKey") ?? ""),
+        );
+        return accountMutationResponse(result, "/account/security");
+      },
       "update-user": async ({ request, actor, formData }) => {
         const result = await createIdentityRequestApiClient(request).updateUser<MutationResult>(actor!.userId, {
           displayName: String(formData.get("displayName") ?? ""),

@@ -20,6 +20,38 @@ afterEach(() => {
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
+
+describe("mapped account mutation targets", () => {
+  const actor = { tenantId: "tnt_test", userId: "usr_test", accountId: "acc_test" };
+  it.each([
+    ["/account", "update-profile", null, actor.accountId],
+    ["/account/security", "update-user", null, actor.userId],
+    ["/account/shipping-addresses", "archive", "shippingAddressId", "adr_test"],
+    ["/account/consents", "withdraw", "consentId", "cns_test"],
+    ["/account/security", "revoke-api-key", "apiKeyId", "key_test"],
+    ["/account/team", "cancel-invitation", "invitationId", "ivt_test"],
+    ["/account/team", "revoke", "membershipId", "mbr_test"],
+    ["/account/security", "unlink-social-login", "linkKey", "c".repeat(64)],
+  ] as const)("preserves %s %s exact receipt target and revalidation", async (route, action, field, target) => {
+    const transport = stubHeldAccountManagementTransport();
+    const { loads } = renderHeldAccountManagementRoute(route, { value: "old" }, () => (
+      <AccountMutationForm method="post">
+        <HiddenInput name="intent" value={action} />
+        {field ? <HiddenInput name={field} value={target} /> : null}
+        <Button type="submit">Submit mapped action</Button>
+      </AccountMutationForm>
+    ));
+    const button = screen.getByRole("button", { name: "Submit mapped action" });
+    await waitFor(() => expect(button.matches(":disabled")).toBe(false));
+    fireEvent.click(button);
+    await waitFor(() => expect(transport.posts()).toHaveLength(1));
+    transport.posts()[0].respond(syntheticMutationResult(action, actor, { target }));
+    await waitFor(() => expect(loads).toHaveLength(1));
+    loads[0]({ value: "new" });
+    await waitFor(() => expect(button.getAttribute("aria-busy")).toBeNull());
+    expect(transport.requests).toHaveLength(1);
+  });
+});
 describe("issue-9909 controller hand-off", () => {
   const target = "adr_01ARZ3NDEKTSV4RRFFQ69G5FAV";
   const otherTarget = "adr_01ARZ3NDEKTSV4RRFFQ69G5FAT";

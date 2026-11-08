@@ -144,6 +144,16 @@ const schemas: Readonly<Record<string, Validator>> = {
     email: text,
     linkedAt: instant,
   }),
+  "identity.user.social-login-revocation-requested": object({
+    providerName: enumeration("google", "facebook"),
+    linkKey: (value) => typeof value === "string" && /^[a-f0-9]{64}$/.test(value),
+    requestedAt: instant,
+  }),
+  "identity.user.social-login-revoked": object({
+    providerName: enumeration("google", "facebook"),
+    linkKey: (value) => typeof value === "string" && /^[a-f0-9]{64}$/.test(value),
+    revokedAt: instant,
+  }),
   "identity.user.suspended": object({}),
   "identity.user.reactivated": object({}),
   "identity.shipping-address.added": object({

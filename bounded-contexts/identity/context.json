@@ -1301,7 +1301,7 @@
       "strategy": "snapshot-return",
       "surfaces": [
         "post-form:bounded-contexts/identity/features/api-keys/ui/account-security-page.tsx:H2df726441e2a#2",
-        "post-form:bounded-contexts/identity/features/api-keys/ui/account-security-page.tsx:H2df726441e2a#3",
+        "post-form:bounded-contexts/identity/features/api-keys/ui/account-security-page.tsx:H2df726441e2a#4",
         "route-action:bounded-contexts/identity/routes/marketplace/account-security.tsx"
       ],
       "visibleDestination": {
@@ -1325,7 +1325,7 @@
       "risk": "critical",
       "strategy": "fresh-read",
       "surfaces": [
-        "post-form:bounded-contexts/identity/features/api-keys/ui/account-security-page.tsx:H2df726441e2a#4",
+        "post-form:bounded-contexts/identity/features/api-keys/ui/account-security-page.tsx:H2df726441e2a#5",
         "route-action:bounded-contexts/identity/routes/marketplace/account-security.tsx"
       ],
       "visibleDestination": {
@@ -1340,6 +1340,33 @@
       },
       "proof": {
         "tests": ["bounded-contexts/identity/tests/mutation-consistency-route-actions.test.ts"]
+      }
+    },
+    {
+      "id": "identity.account-security-unlink-browser-fresh-read",
+      "owner": "identity",
+      "risk": "critical",
+      "strategy": "fresh-read",
+      "surfaces": [
+        "post-form:bounded-contexts/identity/features/api-keys/ui/account-security-page.tsx:H2df726441e2a#3"
+      ],
+      "visibleDestination": {
+        "routeId": "account-security",
+        "apiContextName": "identity",
+        "apiRoutePath": "/users/:id",
+        "readModelTables": ["identity_users"],
+        "transientRecovery": {
+          "kinds": "refreshable-catching-up",
+          "behavior": "Confirmed unlink returns an actor-bound MutationResult receipt and commit-position destination. The existing controller performs a confirming Account security GET and revalidates the User through identity-user-projection before removing the control."
+        }
+      },
+      "proof": {
+        "tests": [
+          "bounded-contexts/identity/features/account-management/ui/controller.test.tsx",
+          "bounded-contexts/identity/features/account-management/ui/transport.test.ts",
+          "bounded-contexts/identity/tests/account-security-page.test.tsx",
+          "bounded-contexts/identity/tests/mutation-consistency-route-actions.test.ts"
+        ]
       }
     },
     {
@@ -1605,10 +1632,10 @@
       "strategy": "snapshot-return",
       "surfaces": ["api-route:bounded-contexts/identity/api.ts:POST /internal/auth/social-login-subjects/resolve"],
       "visibleDestination": {
-        "description": "Auth receives the Social Login Ownership Claim decision for one provider subject (unclaimed, owned with its User id, or repair-required) from Identity's claim stream after a bounded horizon catch-up; no projection is read and the response grants no Session authority."
+        "description": "Auth receives the retained Social Login Ownership Claim decision for one provider subject (unclaimed, owned with its User id and explicit linkState, or repair-required). Owned state also folds authoritative bounded User history; no projection is read and the response grants no Session authority."
       },
       "proof": {
-        "authoritativeResponse": "resolveSocialLoginSubject catches up event-store link history past the recorded horizon only when a lock-free probe finds any, then folds the subject's claim stream and returns only the claim decision.",
+        "authoritativeResponse": "resolveSocialLoginSubject catches up event-store link history past the recorded horizon only when a lock-free probe finds any, folds the retained subject claim, then validates the owning User history and returns its active, revocation-requested, or revoked linkState (legacy links are active). Neither projections nor Sessions decide ownership or link state.",
         "tests": [
           "bounded-contexts/identity/features/users/api/social-login-ownership.db.test.ts",
           "bounded-contexts/auth/support/api-support/social-login-routes.test.ts"
@@ -1720,6 +1747,27 @@
         "authoritativeResponse": "shippingAddressRoutes returns command result versions and scoped operation statuses for add, update, set default, and archive without reading the Shipping Address projection in the write response.",
         "tests": [
           "bounded-contexts/identity/tests/api-mutation-snapshots.test.ts proves Shipping Address writes return id/version/status receipts."
+        ]
+      }
+    },
+    {
+      "id": "identity.social-login-unlink-api-receipt",
+      "owner": "identity",
+      "risk": "critical",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "api-route:bounded-contexts/identity/features/users/api/route.ts:POST /:id/social-login/unlink"
+      ],
+      "visibleDestination": {
+        "description": "Authenticated unlink returns a bounded MutationResult with the existing atomic attempt receipt, ordered User lifecycle event proofs and confirming-read destination, never a User snapshot, event payload, provider subject or email. Same-key replay and receipt lookup return the first recorded result."
+      },
+      "proof": {
+        "authoritativeResponse": "userRoutes requires the actor's exact User URL, closed linkKey body and explicit attempt key before submitAccountManagement. The runtime atomically appends User revocation facts and one receipt; refusals append neither. Receipt proof counts admit three only for last-link unlink, preserving other action caps and exact actor/action/target equality.",
+        "tests": [
+          "bounded-contexts/identity/features/users/api/social-login-ownership.db.test.ts",
+          "bounded-contexts/identity/features/account-management/api/runtime.test.ts",
+          "bounded-contexts/identity/features/account-management/domain/contract.test.ts",
+          "bounded-contexts/identity/features/account-management/ui/transport.test.ts"
         ]
       }
     },

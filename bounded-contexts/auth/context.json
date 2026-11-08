@@ -38,16 +38,19 @@
     {
       "sourceContextName": "identity",
       "projectionName": "auth-identity-user-projection",
-      "subscriptionVersion": 1,
+      "subscriptionVersion": 2,
       "eventTypes": [
         "identity.user.created",
         "identity.user.profile-updated",
         "identity.user.contact-method-added",
         "identity.user.contact-method-verified",
         "identity.user.auth-method-enabled",
+        "identity.user.auth-method-disabled",
         "identity.user.password-credential-attached",
         "identity.user.passkey-registered",
         "identity.user.social-login-linked",
+        "identity.user.social-login-revocation-requested",
+        "identity.user.social-login-revoked",
         "identity.user.suspended",
         "identity.user.reactivated"
       ],

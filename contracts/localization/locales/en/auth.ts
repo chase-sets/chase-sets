@@ -1,4 +1,6 @@
 export const authEnglishTranslations = {
+  "auth.support.apiSupport.socialLoginRoutes.provider.link.revoked":
+    "This Social Login Link has been removed. Use another sign-in method.",
   "auth.invitationAttempt.invalid": "Invitation acceptance attempt is invalid.",
   "auth.invitationAttempt.notActive": "Invitation acceptance attempts are not active.",
   "auth.invitationAttempt.required": "Invitation acceptance attempt is required.",

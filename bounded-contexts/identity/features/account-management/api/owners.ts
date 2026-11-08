@@ -2,7 +2,13 @@ import type { DomainEvent } from "@chase-sets/event-core";
 import type { StoredEvent } from "@chase-sets/event-core/storage";
 import { parseTypedId } from "@chase-sets/primitives/typed-ids";
 import { decideAccount, evolveAccount, initialAccountState, type AccountEvent } from "../../accounts/domain/domain";
-import { decideUser, evolveUser, initialUserState, type UserEvent } from "../../users/domain/domain";
+import {
+  assertUserSocialLoginEventSequence,
+  decideUser,
+  evolveUser,
+  initialUserState,
+  type UserEvent,
+} from "../../users/domain/domain";
 import {
   decideMembership,
   evolveMembership,
@@ -57,37 +63,26 @@ export type OwnerKind =
   | "membership"
   | "invitation";
 
-function fold<State, Event extends DomainEvent>(
-  history: readonly StoredEvent[],
-  initial: State,
-  evolve: (state: State, event: Event) => State,
-): State {
-  return history.reduce(
-    (state, event) => evolve(state, { type: event.eventType, data: event.payload } as Event),
-    initial,
-  );
-}
-
 export function ownerState(kind: OwnerKind, history: readonly StoredEvent[]) {
   switch (kind) {
     case "account":
-      return { kind, state: fold<AccountState, AccountEvent>(history, initialAccountState, evolveAccount) } as const;
+      return replayAccountHistory(history);
     case "shipping-address-book":
-      return { kind, state: fold(history, initialShippingAddressBookState, evolveShippingAddressBook) } as const;
+      return replayShippingAddressBookHistory(history);
     case "consent":
-      return { kind, state: fold(history, initialConsentState, evolveConsent) } as const;
+      return replayConsentHistory(history);
     case "user":
-      return { kind, state: fold(history, initialUserState, evolveUser) } as const;
+      return replayUserHistory(history);
     case "api-key":
-      return { kind, state: fold(history, initialApiKeyState, evolveApiKey) } as const;
+      return replayApiKeyHistory(history);
     case "membership":
-      return { kind, state: fold(history, initialMembershipState, evolveMembership) } as const;
+      return replayMembershipHistory(history);
     case "invitation":
-      return { kind, state: fold(history, initialInvitationState, evolveInvitation) } as const;
+      return replayInvitationHistory(history);
   }
 }
-type AccountState = typeof initialAccountState;
 export type Owner = ReturnType<typeof ownerState>;
+export type OwnerSummary = Owner["summary"];
 
 export function ownerForRequest(
   request: CanonicalRequest,
@@ -110,6 +105,7 @@ export function ownerForRequest(
     case "withdraw":
       return { kind: "consent", id: target, streamId: `identity.consent-${target}` };
     case "update-user":
+    case "unlink-social-login":
       return { kind: "user", id: actor.userId, streamId: `identity.user-${actor.userId}` };
     case "create-api-key":
     case "rotate-api-key":
@@ -139,7 +135,7 @@ export function assertOwnerAuthorization(owner: Owner, request: CanonicalRequest
       if (owner.state.id && owner.state.accountId !== actor.accountId) throw new Error("authorization_forbidden");
       break;
     case "api-key":
-      if (owner.state.id && owner.state.userId !== actor.userId) throw new Error("authorization_forbidden");
+      if (owner.apiKeyState.id && owner.apiKeyState.userId !== actor.userId) throw new Error("authorization_forbidden");
       break;
     case "consent":
       if (
@@ -181,8 +177,8 @@ export async function planOwnerMutation(
   const roleKey = parseGrantableRoleKey(fields.roleKey);
   const actorRole = parseRoleKey(actor.roleKey);
   const assignmentAuthority = actorRole ? { type: "actor" as const, roleKey: actorRole } : null;
+  if (owner.kind === "api-key") return planApiKeyMutation(owner, request, actor, id, services);
   let events: readonly DomainEvent[];
-  let secret: string | undefined;
   switch (owner.kind) {
     case "account": {
       events = decideAccount(owner.state, {
@@ -195,6 +191,15 @@ export async function planOwnerMutation(
       break;
     }
     case "user": {
+      if (request.action === "unlink-social-login") {
+        events = decideUser(owner.state, {
+          type: "UnlinkSocialLogin",
+          linkKey: request.target!,
+          authenticationMethod: actor.authenticationMethod,
+          authenticatedAt: actor.authenticatedAt,
+        });
+        break;
+      }
       events = decideUser(owner.state, {
         type: "UpdateUserProfile",
         displayName: text("displayName"),
@@ -257,34 +262,6 @@ export async function planOwnerMutation(
             throw new Error("conflict");
           events = decideInvitation(owner.state, { type: "CancelInvitation" });
         }
-      }
-      break;
-    case "api-key":
-      if (request.action === "revoke-api-key")
-        events =
-          owner.state.id && owner.state.status === "revoked" ? [] : decideApiKey(owner.state, { type: "RevokeApiKey" });
-      else {
-        if (request.action === "rotate-api-key" && (!owner.state.id || owner.state.status !== "active"))
-          throw new Error("conflict");
-        secret = services.auth.issueOpaqueToken("key");
-        const keyPrefix = secret.slice(0, 12);
-        const business =
-          request.action === "create-api-key"
-            ? decideApiKey(owner.state, {
-                type: "CreateApiKey",
-                apiKeyId: parseTypedId(id, "key"),
-                userId: parseTypedId(actor.userId, "usr"),
-                name: text("name"),
-                keyPrefix,
-              })
-            : decideApiKey(owner.state, { type: "RotateApiKey", keyPrefix });
-        events = [
-          ...business,
-          {
-            type: "identity.api-key.verifier-recorded",
-            data: { keyPrefix, secretHash: services.auth.hashSecret(secret) },
-          },
-        ];
       }
       break;
     case "shipping-address-book": {
@@ -361,14 +338,72 @@ export async function planOwnerMutation(
       break;
     }
   }
-  return { events, secret };
+  return { kind: "owner" as const, events };
+}
+
+function planApiKeyMutation(
+  owner: Extract<Owner, { kind: "api-key" }>,
+  request: CanonicalRequest,
+  actor: ResolvedActor,
+  id: string,
+  services: Pick<IdentityServices, "auth">,
+) {
+  const state = owner.apiKeyState;
+  if (request.action === "revoke-api-key") {
+    const apiKeyEvents = state.id && state.status === "revoked" ? [] : decideApiKey(state, { type: "RevokeApiKey" });
+    return { kind: "api-key" as const, apiKeyEvents };
+  }
+  if (request.action === "rotate-api-key" && (!state.id || state.status !== "active")) throw new Error("conflict");
+  const secret = services.auth.issueOpaqueToken("key");
+  const keyPrefix = secret.slice(0, 12);
+  const business =
+    request.action === "create-api-key"
+      ? decideApiKey(state, {
+          type: "CreateApiKey",
+          apiKeyId: parseTypedId(id, "key"),
+          userId: parseTypedId(actor.userId, "usr"),
+          name: String(request.fields.name ?? ""),
+          keyPrefix,
+        })
+      : decideApiKey(state, { type: "RotateApiKey", keyPrefix });
+  const apiKeyEvents: readonly ApiKeyEvent[] = [
+    ...business,
+    { type: "identity.api-key.verifier-recorded", data: { keyPrefix, secretHash: services.auth.hashSecret(secret) } },
+  ];
+  return { kind: "api-key" as const, apiKeyEvents, delivery: { secret } };
 }
 
 export function validateOwnerHistory(kind: OwnerKind, history: readonly StoredEvent[], tenantId: string): Owner {
+  switch (kind) {
+    case "account":
+      return replayAccountHistory(history, tenantId);
+    case "shipping-address-book":
+      return replayShippingAddressBookHistory(history, tenantId);
+    case "consent":
+      return replayConsentHistory(history, tenantId);
+    case "user":
+      return replayUserHistory(history, tenantId);
+    case "api-key":
+      return replayApiKeyHistory(history, tenantId);
+    case "membership":
+      return replayMembershipHistory(history, tenantId);
+    case "invitation":
+      return replayInvitationHistory(history, tenantId);
+  }
+}
+
+export function assertOwnerHistoryFamily(kind: OwnerKind, history: readonly StoredEvent[]): void {
+  const prefix = kind === "shipping-address-book" ? "identity.shipping-address." : `identity.${kind}.`;
+  for (const event of history) {
+    if (!event.eventType.startsWith(prefix)) throw new Error("INDETERMINATE");
+  }
+}
+
+function validateHistoryEnvelope(kind: OwnerKind, history: readonly StoredEvent[], tenantId: string): void {
   if (history.length > 10000) throw new Error("INDETERMINATE");
+  assertOwnerHistoryFamily(kind, history);
   const ids = new Set<string>();
   let created = false;
-  let current = ownerState(kind, []);
   for (let index = 0; index < history.length; index++) {
     const event = history[index];
     if (
@@ -379,8 +414,6 @@ export function validateOwnerHistory(kind: OwnerKind, history: readonly StoredEv
     )
       throw new Error("INDETERMINATE");
     ids.add(event.eventId);
-    const prefix = kind === "shipping-address-book" ? "identity.shipping-address." : `identity.${kind}.`;
-    if (!event.eventType.startsWith(prefix)) throw new Error("INDETERMINATE");
     const isCreation =
       event.eventType.endsWith(".created") ||
       event.eventType.endsWith(".granted") ||
@@ -404,57 +437,119 @@ export function validateOwnerHistory(kind: OwnerKind, history: readonly StoredEv
     }[kind];
     if ((isCreation || kind === "shipping-address-book") && event.payload[identityField] !== ownerId)
       throw new Error("INDETERMINATE");
-    if (current.kind === "account") {
+  }
+}
+
+function replayAccountHistory(history: readonly StoredEvent[], tenantId?: string) {
+  if (tenantId !== undefined) validateHistoryEnvelope("account", history, tenantId);
+  let state = initialAccountState;
+  for (const event of history) {
+    if (tenantId !== undefined) {
       if (
-        (event.eventType === "identity.account.suspended" && current.state.status !== "active") ||
-        (event.eventType === "identity.account.reactivated" && current.state.status !== "suspended") ||
-        (!isCreation && current.state.status === "closed")
+        (event.eventType === "identity.account.suspended" && state.status !== "active") ||
+        (event.eventType === "identity.account.reactivated" && state.status !== "suspended") ||
+        (event.eventType !== "identity.account.created" && state.status === "closed")
       )
         throw new Error("INDETERMINATE");
     }
-    if (current.kind === "membership") {
-      if (event.eventType === "identity.membership.revoked" && current.state.status !== "active")
+    state = evolveAccount(state, { type: event.eventType, data: event.payload } as AccountEvent);
+  }
+  const status = state.status === "active" ? "active" : state.status === "suspended" ? "suspended" : "closed";
+  return { kind: "account", state, summary: { status } } as const;
+}
+
+function replayMembershipHistory(history: readonly StoredEvent[], tenantId?: string) {
+  if (tenantId !== undefined) validateHistoryEnvelope("membership", history, tenantId);
+  let state = initialMembershipState;
+  for (const event of history) {
+    if (tenantId !== undefined) {
+      if (event.eventType === "identity.membership.revoked" && state.status !== "active")
         throw new Error("INDETERMINATE");
-      if (event.eventType === "identity.membership.reinstated" && current.state.status !== "revoked")
+      if (event.eventType === "identity.membership.reinstated" && state.status !== "revoked")
         throw new Error("INDETERMINATE");
       if (
         event.eventType === "identity.membership.role-changed" &&
-        (current.state.status !== "active" || current.state.roleKey === event.payload.roleKey)
+        (state.status !== "active" || state.roleKey === event.payload.roleKey)
       )
         throw new Error("INDETERMINATE");
     }
-    if (
-      current.kind === "consent" &&
-      event.eventType === "identity.consent.withdrawn" &&
-      current.state.status !== "recorded"
-    )
-      throw new Error("INDETERMINATE");
-    if (current.kind === "consent" && event.eventType === "identity.consent.withdrawn") {
+    state = evolveMembership(state, { type: event.eventType, data: event.payload } as MembershipEvent);
+  }
+  const status = state.status === "active" ? "active" : "revoked";
+  return { kind: "membership", state, summary: { status } } as const;
+}
+
+function replayConsentHistory(history: readonly StoredEvent[], tenantId?: string) {
+  if (tenantId !== undefined) validateHistoryEnvelope("consent", history, tenantId);
+  let state = initialConsentState;
+  for (const event of history) {
+    if (tenantId !== undefined && event.eventType === "identity.consent.withdrawn") {
+      if (state.status !== "recorded") throw new Error("INDETERMINATE");
       for (const field of ["consentId", "subjectType", "userId", "accountId", "policyKey", "policyVersion"] as const) {
-        const expected = field === "consentId" ? current.state.id : current.state[field];
+        const expected = field === "consentId" ? state.id : state[field];
         if (event.payload[field] !== expected) throw new Error("INDETERMINATE");
       }
     }
-    if (current.kind === "api-key" && !isCreation && current.state.status !== "active")
+    state = evolveConsent(state, { type: event.eventType, data: event.payload } as ConsentEvent);
+  }
+  const status = state.status === "recorded" ? "recorded" : state.status === "withdrawn" ? "withdrawn" : "unrecorded";
+  return { kind: "consent", state, summary: { status } } as const;
+}
+
+function replayApiKeyHistory(history: readonly StoredEvent[], tenantId?: string) {
+  if (tenantId !== undefined) validateHistoryEnvelope("api-key", history, tenantId);
+  let apiKeyState = initialApiKeyState;
+  for (let index = 0; index < history.length; index++) {
+    const event = history[index];
+    if (tenantId !== undefined) {
+      if (event.eventType !== "identity.api-key.created" && apiKeyState.status !== "active")
+        throw new Error("INDETERMINATE");
+      if (
+        event.eventType === "identity.api-key.verifier-recorded" &&
+        (!["identity.api-key.created", "identity.api-key.rotated"].includes(history[index - 1]?.eventType) ||
+          apiKeyState.keyPrefix !== event.payload.keyPrefix)
+      )
+        throw new Error("INDETERMINATE");
+    }
+    apiKeyState = evolveApiKey(apiKeyState, { type: event.eventType, data: event.payload } as ApiKeyEvent);
+  }
+  const status = apiKeyState.status === "active" ? "active" : "revoked";
+  return { kind: "api-key", apiKeyState, summary: { status } } as const;
+}
+
+function replayInvitationHistory(history: readonly StoredEvent[], tenantId?: string) {
+  if (tenantId !== undefined) validateHistoryEnvelope("invitation", history, tenantId);
+  let state = initialInvitationState;
+  for (const event of history) {
+    if (tenantId !== undefined && event.eventType !== "identity.invitation.created" && state.status !== "pending")
       throw new Error("INDETERMINATE");
-    if (
-      current.kind === "api-key" &&
-      event.eventType === "identity.api-key.verifier-recorded" &&
-      (!["identity.api-key.created", "identity.api-key.rotated"].includes(history[index - 1]?.eventType) ||
-        current.state.keyPrefix !== event.payload.keyPrefix)
-    )
-      throw new Error("INDETERMINATE");
-    if (current.kind === "invitation" && !isCreation && current.state.status !== "pending")
-      throw new Error("INDETERMINATE");
-    if (current.kind === "shipping-address-book") {
-      const existing = current.state.addresses.find(
-        (address) => address.shippingAddressId === event.payload.shippingAddressId,
-      );
+    state = evolveInvitation(state, { type: event.eventType, data: event.payload } as InvitationEvent);
+  }
+  const status =
+    state.status === "pending"
+      ? "pending"
+      : state.status === "accepted"
+        ? "accepted"
+        : state.status === "declined"
+          ? "declined"
+          : state.status === "cancelled"
+            ? "cancelled"
+            : "expired";
+  return { kind: "invitation", state, summary: { status } } as const;
+}
+
+function replayShippingAddressBookHistory(history: readonly StoredEvent[], tenantId?: string) {
+  if (tenantId !== undefined) validateHistoryEnvelope("shipping-address-book", history, tenantId);
+  let state = initialShippingAddressBookState;
+  for (const event of history) {
+    if (tenantId !== undefined) {
+      const existing = state.addresses.find((address) => address.shippingAddressId === event.payload.shippingAddressId);
+      const isCreation = event.eventType === "identity.shipping-address.added";
       if (isCreation ? existing !== undefined : !existing || existing.isArchived) throw new Error("INDETERMINATE");
       if (event.eventType === "identity.shipping-address.default-set" && existing?.isDefault)
         throw new Error("INDETERMINATE");
       if (event.eventType === "identity.shipping-address.archived") {
-        const proposed = decideShippingAddressBook(current.state, {
+        const proposed = decideShippingAddressBook(state, {
           type: "ArchiveShippingAddress",
           shippingAddressId: parseTypedId(String(event.payload.shippingAddressId), "adr"),
           archivedAt: String(event.payload.archivedAt),
@@ -462,27 +557,28 @@ export function validateOwnerHistory(kind: OwnerKind, history: readonly StoredEv
         if (digest(proposed[0].data) !== digest(event.payload)) throw new Error("INDETERMINATE");
       }
     }
-    current = evolveOwner(current, event);
+    state = evolveShippingAddressBook(state, { type: event.eventType, data: event.payload } as ShippingAddressEvent);
   }
-  return current;
+  return { kind: "shipping-address-book", state, summary: { status: "active" } } as const;
 }
 
-function evolveOwner(owner: Owner, event: StoredEvent): Owner {
-  const domainEvent = { type: event.eventType, data: event.payload };
-  switch (owner.kind) {
-    case "account":
-      return { kind: owner.kind, state: evolveAccount(owner.state, domainEvent as AccountEvent) };
-    case "shipping-address-book":
-      return { kind: owner.kind, state: evolveShippingAddressBook(owner.state, domainEvent as ShippingAddressEvent) };
-    case "consent":
-      return { kind: owner.kind, state: evolveConsent(owner.state, domainEvent as ConsentEvent) };
-    case "user":
-      return { kind: owner.kind, state: evolveUser(owner.state, domainEvent as UserEvent) };
-    case "api-key":
-      return { kind: owner.kind, state: evolveApiKey(owner.state, domainEvent as ApiKeyEvent) };
-    case "membership":
-      return { kind: owner.kind, state: evolveMembership(owner.state, domainEvent as MembershipEvent) };
-    case "invitation":
-      return { kind: owner.kind, state: evolveInvitation(owner.state, domainEvent as InvitationEvent) };
+function replayUserHistory(history: readonly StoredEvent[], tenantId?: string) {
+  if (tenantId !== undefined) validateHistoryEnvelope("user", history, tenantId);
+  let state = initialUserState;
+  for (let index = 0; index < history.length; index++) {
+    const event = history[index];
+    if (tenantId !== undefined) {
+      const previous = history[index - 1];
+      const next = history[index + 1];
+      assertUserSocialLoginEventSequence(
+        state,
+        { type: event.eventType, data: event.payload },
+        previous && { type: previous.eventType, data: previous.payload },
+        next && { type: next.eventType, data: next.payload },
+      );
+    }
+    state = evolveUser(state, { type: event.eventType, data: event.payload } as UserEvent);
   }
+  const status = state.status === "active" ? "active" : "suspended";
+  return { kind: "user", state, summary: { status } } as const;
 }
