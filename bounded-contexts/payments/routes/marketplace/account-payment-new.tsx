@@ -7,21 +7,29 @@ import {
   trySignedMoneyToCents,
 } from "@chase-sets/primitives/money";
 import { useEffect, useRef } from "react";
-import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
+import type { ActionFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useActionData, useLoaderData, useNavigation, useSubmit } from "react-router";
 import { RouterForm } from "@chase-sets/design-system/react-router";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
-import { createForwardedAuthFetch, resolveRequestApiBaseUrl } from "@chase-sets/platform-runtime/http";
-import { navigateAfterWriteWithPlatformPostWriteToken } from "@chase-sets/platform-runtime/post-write-tokens";
+import {
+  createForwardedAuthFetch,
+  defineResourceRoute,
+  resolveRequestApiBaseUrl,
+} from "@chase-sets/platform-runtime/http";
+import {
+  navigateAfterWriteWithPlatformPostWriteToken,
+  resolvePlatformPostWriteRequest,
+} from "@chase-sets/platform-runtime/post-write-tokens";
 import {
   attachResponseMetadata,
   classifyFreshWriteReadError,
   getMutationResultCommandReceipt,
-  loadAfterWrite,
   preserveFreshWriteMetadata,
 } from "@chase-sets/http/responses";
 import { z } from "zod";
 import type { PaymentsCheckoutStatus } from "../../client";
+import contextManifest from "../../context.json";
+import { paymentsApiErrorAdapter } from "../../support/request-support/route-api-error";
 import {
   HiddenInput,
   Badge,
@@ -149,70 +157,74 @@ async function loadWalletBalance(request: Request) {
   }>;
 }
 
-export async function loader({ request }: LoaderFunctionArgs) {
-  await requireActorFromAuthApi({
-    request,
-    permission: "orders.manage",
-  });
+async function loadPaymentInputs(request: Request) {
   const url = new URL(request.url);
   const orderIds = parseOrderIds(url.searchParams.get("orderIds"));
+  const { orders } = await createPaymentsRequestApiClient(request).listAccountOrderInputs({ orderIds });
+  const wallet = await loadWalletBalance(request);
+  return {
+    orderIds,
+    orders,
+    autostart: url.searchParams.get("autostart") === "1",
+    wallet,
+    walletStatusRefreshUrl: preserveFreshWriteMetadata(
+      `/account/payments/new?${new URLSearchParams({ orderIds: orderIds.join(",") })}`,
+      request,
+    ),
+  };
+}
 
-  if (orderIds.length === 0) {
-    throw redirect("/account/purchases");
-  }
-
-  const paymentsApi = createPaymentsRequestApiClient(request);
-
-  try {
-    const { orders } = await paymentsApi.listAccountOrderInputs({ orderIds });
-    const wallet = await loadWalletBalance(request);
+export const loader = defineResourceRoute({
+  manifest: contextManifest,
+  routeId: "account-payment-new",
+  prepare: async (args) => ({ ...args, request: await resolvePlatformPostWriteRequest(args.request) }),
+  authorization: async ({ request }) => {
+    const actor = await requireActorFromAuthApi({ request, permission: "orders.manage" });
+    if (parseOrderIds(new URL(request.url).searchParams.get("orderIds")).length === 0) {
+      throw redirect("/account/purchases");
+    }
+    return actor;
+  },
+  errorAdapter: paymentsApiErrorAdapter,
+  load: async ({ request }) => {
+    const inputs = await loadPaymentInputs(request);
+    const { orders, wallet, orderIds } = inputs;
     const totalAmount = sumOrderAmounts(orders.map((order) => order.total_amount));
     const { maxBalanceCreditAmount: requestedBalanceCreditAmount } = calculateBalanceCredit(
       totalAmount,
       wallet?.available_balance_amount ?? null,
     );
-    const result = await loadAfterWrite({
-      request,
-      load: async () =>
-        validateCheckoutStatus(
-          await paymentsApi.getCheckoutStatus({
-            orderIds,
-            requestedBalanceCreditAmount,
-            paymentMethodCategory: "card",
-          }),
-        ),
-      isNotFound: () => false,
-      retryDelaysMs: [],
-    });
-    if (result.kind === "permanent-failure") {
-      throw result.reason === "fresh-write-read-permanent"
-        ? result.error
-        : new Error(t("payments.routes.marketplace.accountPaymentNew.wallet.status.invalid"));
-    }
-    // Keep the orders visible without turning a stale read into a wallet-eligibility claim.
-    const checkoutStatus = result.kind === "data" ? result.data : null;
     return {
-      orderIds,
-      orders,
-      autostart: url.searchParams.get("autostart") === "1",
-      wallet,
-      checkoutStatus,
-      walletStatusPending: result.kind === "pending",
-      walletStatusRefreshUrl: preserveFreshWriteMetadata(
-        `/account/payments/new?${new URLSearchParams({ orderIds: orderIds.join(",") })}`,
-        request,
+      ...inputs,
+      checkoutStatus: validateCheckoutStatus(
+        await createPaymentsRequestApiClient(request).getCheckoutStatus({
+          orderIds,
+          requestedBalanceCreditAmount,
+          paymentMethodCategory: "card",
+        }),
       ),
     };
-  } catch (error) {
+  },
+  map: (data) => ({ ...data, walletStatusPending: false }),
+  // Keep orders visible without turning a stale read into a wallet-eligibility claim.
+  onPending: async (_result, { request }) => ({
+    ...(await loadPaymentInputs(request)),
+    checkoutStatus: null,
+    walletStatusPending: true,
+  }),
+  onPermanentFailure: (result) => {
+    const error = "error" in result ? result.error : null;
     if (error instanceof Error && "status" in error && error.status === 404) {
       throw new Response(t("payments.routes.marketplace.accountPaymentNew.purchase.not.found"), { status: 404 });
     }
 
-    throw error;
-  }
-}
+    if (error) throw error;
+    throw new Error(t("payments.routes.marketplace.accountPaymentNew.wallet.status.invalid"));
+  },
+});
 
 export async function action({ request }: ActionFunctionArgs) {
+  request = await resolvePlatformPostWriteRequest(request);
   await requireActorFromAuthApi({
     request,
     permission: "orders.manage",

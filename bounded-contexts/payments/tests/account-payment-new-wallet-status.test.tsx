@@ -13,7 +13,6 @@ import {
   encodeCommitReceipt,
   encodeFreshWriteReceipt,
 } from "@chase-sets/http/responses";
-import { resolvePlatformPostWriteRequest } from "@chase-sets/platform-runtime/post-write-tokens";
 import MarketplaceAccountPaymentNewRoute, { action, loader } from "../routes/marketplace/account-payment-new";
 import { jsonResponse, requestUrl } from "./test-support/http";
 
@@ -149,7 +148,7 @@ function harness(initial: State = "withheld") {
   };
 }
 
-function mount(autostart = false) {
+function mount(autostart = false, entry = "/account/payments/new?orderIds=ord_1") {
   const authenticated = (request: Request) => {
     const headers = new Headers(request.headers);
     headers.set("cookie", "session=synthetic-payment-test");
@@ -162,16 +161,15 @@ function mount(autostart = false) {
         path: "/account/payments/new",
         Component: MarketplaceAccountPaymentNewRoute,
         action: async (args) => {
-          const request = await resolvePlatformPostWriteRequest(authenticated(args.request));
+          const request = authenticated(args.request);
           expect(request.headers.get("content-type")).toBe(args.request.headers.get("content-type"));
           return action({ ...args, request });
         },
-        loader: async (args) =>
-          loader({ ...args, request: await resolvePlatformPostWriteRequest(authenticated(args.request)) }),
+        loader: async (args) => loader({ ...args, request: authenticated(args.request) }),
       },
       { path: "/account/payments/:id", element: <div>Payment destination</div> },
     ],
-    { initialEntries: [`/account/payments/new?orderIds=ord_1${autostart ? "&autostart=1" : ""}`] },
+    { initialEntries: [`${entry}${autostart ? "&autostart=1" : ""}`] },
   );
   render(
     <ChaseRoot linkComponent={RouterLinkAdapter}>
@@ -343,6 +341,11 @@ describe("Start payment authoritative wallet status", () => {
         }),
       );
     });
+    await waitFor(() =>
+      expect(
+        api.calls.find((c) => c.path.endsWith("/checkout/status") && c.headers.has(CHASE_SETS_READ_AFTER_WRITE_HEADER)),
+      ).toBeTruthy(),
+    );
     await waitFor(() => expect(router.state.navigation.state).toBe("loading"));
     controls(true);
     expect(api.creates()).toHaveLength(0);
@@ -365,6 +368,42 @@ describe("Start payment authoritative wallet status", () => {
     expect(fresh!.url.searchParams.get("orderIds")).toBe("ord_1");
     expect(fresh!.headers.get("Chase-Sets-Read-Target-Context")).toBe("payments");
   });
+
+  it.each(["form", "sticky", "autostart"] as const)(
+    "carries the Identity receipt through a post-accept %s payment preflight",
+    async (trigger) => {
+      const api = harness();
+      const router = mount();
+      await ready();
+      api.setState("full");
+      fireEvent.click(screen.getByRole("button", { name: "Accept Terms of Service" }));
+      await waitFor(() => expect(option("max").disabled).toBe(false));
+      expect(api.creates()).toHaveLength(0);
+      const beforeSubmit = api.calls.length;
+      if (trigger === "autostart") {
+        const entry = `${router.state.location.pathname}${router.state.location.search}`;
+        expect(entry).toContain("postWriteToken=");
+        cleanup();
+        mount(true, entry);
+      } else {
+        fireEvent.click(screen.getAllByRole("button", { name: "Continue to payment" })[trigger === "form" ? 0 : 1]!);
+      }
+      await screen.findByText("Payment destination");
+      expect(api.accepts()).toHaveLength(1);
+      expect(api.creates()).toHaveLength(1);
+      const preflight = api.calls
+        .slice(beforeSubmit)
+        .filter((call) => call.path.endsWith("/checkout/status"))
+        .at(-1)!;
+      expect(decodeFreshWriteReceipt(preflight.headers.get(CHASE_SETS_READ_AFTER_WRITE_HEADER))).toMatchObject({
+        sources: [identityPosition],
+      });
+      expect(preflight.headers.get("Chase-Sets-Read-Target-Context")).toBe("payments");
+      expect(preflight.headers.get("cookie")).toBe("session=synthetic-payment-test");
+      expect(preflight.headers.get("authorization")).toBe("Bearer synthetic-payment-test");
+      expect(preflight.url.searchParams.get("orderIds")).toBe("ord_1");
+    },
+  );
 
   it("keeps withheld credit honest when terms recovery does not complete", async () => {
     for (const failure of [

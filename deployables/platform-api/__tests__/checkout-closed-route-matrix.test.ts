@@ -15,6 +15,7 @@ import { UCP_MCP_TOOLS, UCP_VERSION } from "@chase-sets/platform-runtime/ucp";
 import { module as paymentsModule } from "@chase-sets/payments";
 import { module as checkoutModule } from "@chase-sets/checkout";
 import { module as orderingModule } from "@chase-sets/ordering";
+import { module as identityModule } from "@chase-sets/identity";
 import type { ResolvedActor } from "@chase-sets/auth-context";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
@@ -211,7 +212,7 @@ function fixture(checkoutServices?: ReturnType<typeof checkoutModule.createServi
     })),
     mountedModules,
     services: { payments, checkout, ordering, auth: {}, identity: {} },
-    projectionGroups: mountedModules.flatMap(({ module }) =>
+    projectionGroups: [...mountedModules, { module: identityModule }].flatMap(({ module }) =>
       (module.projectionGroups ?? []).map((group) => ({
         ...group,
         projectionRevision: group.projectionRevision ?? 1,

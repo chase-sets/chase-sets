@@ -40,5 +40,6 @@ export const paymentsWakeRegistryEntry = registryEntry({
     "payments.checkout-status-order-input-fresh-read",
     "payments.create-to-detail",
     "payments.detail-self-refresh",
+    "payments.terms-accept-to-wallet-status",
   ],
 });

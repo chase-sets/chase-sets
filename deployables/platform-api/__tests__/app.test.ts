@@ -2565,7 +2565,10 @@ function createPaymentsHostRuntime(
         identity: {},
         payments: paymentsServices,
       },
-      projectionGroups: mountedProjectionGroups(mountedContexts),
+      projectionGroups: mountedProjectionGroups([
+        ...mountedContexts,
+        { contextName: "identity", module: identityModule },
+      ]),
       subscriptionRunners: [],
     } as never,
   };
