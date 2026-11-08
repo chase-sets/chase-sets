@@ -9,10 +9,7 @@ import {
 import { parseOptionalTypedIdBoundary } from "@chase-sets/http/typed-id";
 import type { ShippingAddressId, AccountId, CheckoutSessionId } from "@chase-sets/primitives/typed-ids";
 import type { CheckoutApiEnv } from "../../../api";
-import {
-  checkoutConfirmationNeedsPaymentStart,
-  checkoutPaymentStartRefusalCode,
-} from "./payment-start-eligibility";
+import { checkoutConfirmationNeedsPaymentStart, checkoutPaymentStartRefusalCode } from "./payment-start-eligibility";
 import {
   checkoutEntryAttemptKey,
   checkoutEntryPayload,
