@@ -272,6 +272,10 @@
           "dependencies": [
             {
               "readModelTable": "payments_order_inputs"
+            },
+            {
+              "targetContextName": "identity",
+              "readModelTable": "identity_consent_current_states"
             }
           ]
         }
@@ -294,6 +298,36 @@
     "resources": [{ "uriTemplate": "chase-sets://payments/{accountId}/payments/{paymentId}", "ownerSlice": "payments" }]
   },
   "readAfterWriteRouteInventory": [
+    {
+      "id": "payments.terms-accept-to-wallet-status",
+      "owner": "payments",
+      "risk": "critical",
+      "freshnessSlo": {
+        "flowClass": "critical-customer-handoff",
+        "p95Ms": 1000,
+        "p99Ms": 2250
+      },
+      "source": {
+        "routeId": "account-payment-new",
+        "actions": ["Accept current Terms of Service before using wallet credit"],
+        "command": "Identity Terms of Service acceptance command",
+        "helperUses": ["navigateAfterWriteWithPlatformPostWriteToken"]
+      },
+      "destination": {
+        "routeId": "account-payment-new",
+        "apiContextName": "payments",
+        "apiRoutePath": "/account/checkout/status",
+        "readModelTables": ["payments_order_inputs", "identity_consent_current_states"],
+        "helperUses": ["loadAfterWrite"],
+        "transientRecovery": {
+          "kinds": "refreshable-catching-up",
+          "behavior": "Terms acceptance carries Identity's receipt; Payments checkout status waits for the Identity consent projection before restoring wallet eligibility, retaining orders and manual recovery on timeout."
+        }
+      },
+      "proof": {
+        "tests": ["bounded-contexts/payments/tests/account-payment-new-wallet-status.test.tsx"]
+      }
+    },
     {
       "id": "payments.create-to-detail",
       "owner": "payments",
