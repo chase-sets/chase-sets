@@ -226,6 +226,8 @@ describe("Start payment authoritative wallet status", () => {
     for (const amount of ["26.83", "10.00", "99999.00"]) {
       const result = await action({
         request: new Request("http://localhost/account/payments/new", { method: "POST", body: form(amount) }),
+        url: new URL("http://localhost/account/payments/new"),
+        pattern: "/account/payments/new",
         params: {},
         context: {},
       });
@@ -299,7 +301,7 @@ describe("Start payment authoritative wallet status", () => {
     ]);
     const { helperUses: _helpers, ...destination } = inventory.destination;
     expect(mutation.visibleDestination).toEqual(destination);
-    expect(mutation.proof.tests).toContain(
+    expect(mutation.proof?.tests).toContain(
       "bounded-contexts/payments/tests/account-payment-new-wallet-status.test.tsx",
     );
     const api = harness();
@@ -611,7 +613,7 @@ describe("Start payment authoritative wallet status", () => {
         sources: [identityPosition],
       }),
     };
-    const pending = app.request("/api/marketplace/account/checkout/status", { headers });
+    const pending = Promise.resolve(app.request("/api/marketplace/account/checkout/status", { headers }));
     await Promise.race([
       lagObserved,
       pending.then(() => {
