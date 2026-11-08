@@ -6,6 +6,7 @@
 //! the rows' boxes sit inside their form, so a defer, a reject or a sync sends the checked ones
 //! without JavaScript. Each table stacks on a phone, a row a block of labelled lines.
 use corten::prelude::*;
+use corten::{Href, Local};
 use platform::ui::{
     accordion::Accordion,
     alert::{Alert, AlertEmphasis, AlertVariant, FormAlert},
@@ -13,6 +14,7 @@ use platform::ui::{
     checkbox::Checkbox,
     dialog::{Dialog, DialogFooter, DialogHeader, DialogSize},
     input::Input,
+    pagination::PreviousNext,
     radio_group::{Radio, RadioGroup},
     sheet::{Sheet, SheetHeader, SheetWidth, Side},
     steps::{Step, StepState, Steps, StepsLayout},
@@ -1384,7 +1386,8 @@ fn ReviewModule<'a>(
     let narrowed = status != "all" && total > 0 && review.freshness != "unavailable";
     let pagination = &review.pagination;
     // The read model's links to the neighbouring pages, on this page.
-    let page_link = |href: &Option<String>| href.as_deref().and_then(|href| daily::rebase(context, href));
+    let page_link =
+        |href: &Option<String>| href.as_deref().and_then(|href| daily::rebase(context, href)).and_then(|to| Local::parse(&to));
     let (previous, next) = (page_link(&pagination.previous_href), page_link(&pagination.next_href));
     let limit = pagination.limit.max(1);
     let pages = pagination.total.div_ceil(limit).max(1) as usize;
@@ -1483,28 +1486,14 @@ fn ReviewModule<'a>(
                 if pagination.total > limit {
                     <div class={Pager}>
                         <small>{pager_summary}</small>
-                        // Workaround (corten-run/corten#1073): the kit's Pagination needs every page's
-                        // link, and the read model gives the previous and the next.
-                        <nav class={Row} aria-label={t.wb_review_pager_label()}>
-                            if let Some(href) = &previous {
-                                <a
-                                    class={Button { variant: ButtonVariant::Outline, size: ButtonSize::Sm }}
-                                    href={href}
-                                    rel="prev"
-                                >
-                                    {t.wb_review_pager_previous()}
-                                </a>
-                            }
-                            if let Some(href) = &next {
-                                <a
-                                    class={Button { variant: ButtonVariant::Outline, size: ButtonSize::Sm }}
-                                    href={href}
-                                    rel="next"
-                                >
-                                    {t.wb_review_pager_next()}
-                                </a>
-                            }
-                        </nav>
+                        // The read model gives only the neighbouring pages' links.
+                        <PreviousNext
+                            label={t.wb_review_pager_label()}
+                            previous_label={t.wb_review_pager_previous()}
+                            next_label={t.wb_review_pager_next()}
+                            previous={previous.as_ref().map(|l| l as &dyn Href)}
+                            next={next.as_ref().map(|l| l as &dyn Href)}
+                        />
                     </div>
                 }
                 if manage && reviewable {
