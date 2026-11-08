@@ -38,13 +38,6 @@
   overflow-wrap: anywhere;
   word-break: break-word;
 }
-.stack {
-  display: grid;
-  gap: var(--space-1);
-  align-content: start;
-  justify-items: start;
-  min-width: 0;
-}
 .inline {
   display: flex;
   flex-wrap: wrap;

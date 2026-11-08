@@ -43,11 +43,6 @@
 .words {
   overflow-wrap: anywhere;
 }
-.stack {
-  display: grid;
-  gap: var(--space-1);
-  justify-items: start;
-}
 .line {
   display: flex;
   flex-wrap: wrap;

@@ -249,7 +249,7 @@ registered files.
 
 ## Corten pin
 
-`Cargo.toml` pins Corten to `513814eb` (Corten `main` on 2026-11-08), whose framework package is
+`Cargo.toml` pins Corten to `31d9668c` (Corten `main` on 2026-11-08), whose framework package is
 `corten-run` (the library is still `corten`). No release is tagged. The
 pin follows Corten's latest `main` (Todd, 2026-11-02), and each move is its own commit that says
 what changed; the workarounds a move lets go follow it in commits of their own. The history of every move is in the
@@ -301,7 +301,6 @@ but keep their own bordered choice rows, which are the design system's `Checkbox
 | [corten-run/corten#1082 Kit RadioGroup and Checkboxes print their fieldset's gap and legend margin as literals kept equal by hand, so a theme with tighter choice lists edits both copies](https://github.com/corten-run/corten/issues/1082) | [platform/src/ui/radio_group.css](platform/src/ui/radio_group.css) and [platform/src/ui/checkboxes.css](platform/src/ui/checkboxes.css) set the design system's .5rem legend gap and choice gap |
 | [corten-run/corten#1065 Kit Stack and Cluster always print a literal gap, so an app on its own token spacing scale cannot use them with its gap utility](https://github.com/corten-run/corten/issues/1065) | closed by Corten's `Gap::App` (pinned since `f4f37f95`); not ported yet: 25 page stylesheets keep their own grid `.stack` on the `--space-*` scale, most with grid alignment (`justify-items: start`, `align-items: end`) the kit's flex column does not set, so each move to `Stack { gap: Gap::App }` and a page rule needs that page's browser pass |
 | [corten-run/corten#1070 Kit StatusDot has no live form, so a corten-live stream's Live badge keeps its own pulsing dot and reduced-motion rule](https://github.com/corten-run/corten/issues/1070) | [admin/src/views/live_status.css](admin/src/views/live_status.css) keeps its own `.dot` and pulse; the kit's `status_dot` is not taken |
-| [corten-run/corten#1060 Kit Segmented draws only as wide as its choices, so a phone's full-width choice bar (equal parts across the row) keeps its own segmented rules](https://github.com/corten-run/corten/issues/1060) | [marketplace/src/views/item_detail.css](marketplace/src/views/item_detail.css) keeps its own `.segmented` grid for the rail's side and the chart's ranges |
 
 Every Corten gap the pilot found and how it closed is in the [README before it was cut](https://github.com/chase-sets/chase-sets/blob/5a683c4eb5/deployables/corten-pilot/README.md) ("Corten gaps").
 

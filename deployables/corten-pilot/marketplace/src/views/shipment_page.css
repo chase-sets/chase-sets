@@ -35,13 +35,6 @@
   font-weight: 600;
   overflow-wrap: anywhere;
 }
-.stack {
-  display: grid;
-  gap: var(--space-1);
-  align-content: start;
-  justify-items: start;
-  min-width: 0;
-}
 .list {
   display: grid;
   gap: var(--space-3);
