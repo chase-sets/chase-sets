@@ -164,7 +164,7 @@ checksum = "4e7648175b45a9a48536d676f68d918270699102aa8dab5496df06904c914600"
 [[package]]
 name = "corten-macros"
 version = "0.1.0"
-source = "git+https://github.com/corten-run/corten?rev=8f0fc061ad955c2bee1edc9b9b53f3936dc48472#8f0fc061ad955c2bee1edc9b9b53f3936dc48472"
+source = "git+https://github.com/corten-run/corten?rev=513814eb90e5f77d5ebb6e94d1f91af55048f332#513814eb90e5f77d5ebb6e94d1f91af55048f332"
 
 [[package]]
 name = "corten-pilot-admin"
@@ -248,7 +248,7 @@ dependencies = [
 [[package]]
 name = "corten-run"
 version = "0.1.0"
-source = "git+https://github.com/corten-run/corten?rev=8f0fc061ad955c2bee1edc9b9b53f3936dc48472#8f0fc061ad955c2bee1edc9b9b53f3936dc48472"
+source = "git+https://github.com/corten-run/corten?rev=513814eb90e5f77d5ebb6e94d1f91af55048f332#513814eb90e5f77d5ebb6e94d1f91af55048f332"
 dependencies = [
  "axum",
  "axum-core",
@@ -277,7 +277,7 @@ dependencies = [
 [[package]]
 name = "corten-ui"
 version = "0.1.0"
-source = "git+https://github.com/corten-run/corten?rev=8f0fc061ad955c2bee1edc9b9b53f3936dc48472#8f0fc061ad955c2bee1edc9b9b53f3936dc48472"
+source = "git+https://github.com/corten-run/corten?rev=513814eb90e5f77d5ebb6e94d1f91af55048f332#513814eb90e5f77d5ebb6e94d1f91af55048f332"
 dependencies = [
  "corten-run",
 ]

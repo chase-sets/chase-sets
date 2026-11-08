@@ -4371,7 +4371,7 @@ async fn the_watch_tab_is_the_pilots_with_a_form_for_listings_and_one_for_offers
     let (status, _, html) = pilot.send(get(WATCH_PAGE, None)).await;
     assert_eq!(status, StatusCode::OK, "{html}");
     // Watch is a tab of this page now, current on it.
-    assert!(html.contains(r#"href="/items/charizard?market=watch&amp;dimension.dim_condition=chc_nm&amp;dimension.dim_form=chc_raw" aria-current="true""#), "{html}");
+    assert!(html.contains(r#"href="/items/charizard?market=watch&amp;dimension.dim_condition=chc_nm&amp;dimension.dim_form=chc_raw" aria-current="page""#), "{html}");
     let page = text(&html);
     assert!(page.contains("Watch listings Listings at or below your target."), "{page}");
     assert!(page.contains("Watch offers Offers at or above your target."), "{page}");
@@ -4995,7 +4995,7 @@ async fn the_sales_tab_reads_the_products_market_history_with_the_page_and_draws
     );
     assert!(series.headers.get("chase-sets-read-after-write").is_none());
     // The range is links, the year chosen; the chart is a line, a band and one verified sale.
-    assert!(book.contains(r#"aria-current="true">1 year</a>"#), "{book}");
+    assert!(book.contains(r#"aria-current="page">1 year</a>"#), "{book}");
     assert_eq!(hrefs(book, "90 days"), ["/items/charizard?book=sales&amp;dimension.dim_form=chc_raw"]);
     assert!(book.contains(r#"<svg viewBox="0 0 640 220" role="img" aria-label="Trade price history for Charizard""#), "{book}");
     assert!(book.contains(r#"class="time-series__chart-line" d="M12.00,"#), "{book}");

@@ -178,14 +178,15 @@ pub const CHECKOUT: &[Component] = &[CheckoutPage, checkout_page::handlers::COMP
 /// Checkout start's components (`/checkout/buy/readiness`).
 pub const CHECKOUT_START: &[Component] = &[CheckoutStartPage];
 
-/// The item page's components (`/items`): its stylesheet, the Sales tab's chart and the kit's
-/// Stats for its figures, corten-ui's handler that makes Add to List's dialog modal when the server
+/// The item page's components (`/items`): its stylesheet, the Sales tab's chart, the kit's
+/// Stats for its figures and its Segmented for the rail's side and the chart's range, corten-ui's handler that makes Add to List's dialog modal when the server
 /// draws it open, the analytics, and checkout start's page, which a guest's Buy now draws when it
 /// cannot start (`checkout_start::buy_as_guest`).
 pub const ITEM: &[Component] = &[
     ItemDetail,
     platform::chart::TimeSeries,
     platform::ui::stats::Stats,
+    platform::ui::segmented::Segmented,
     corten_ui::dialog::COMPONENT,
     item_detail::analytics::COMPONENT,
     CheckoutStartPage,

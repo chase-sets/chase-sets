@@ -544,45 +544,6 @@
 .panel:not(.panel-hero) .form {
   gap: var(--space-4);
 }
-.segments {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: var(--space-1);
-  margin: 0;
-  padding: var(--space-1);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  background: var(--color-surface-2);
-}
-.segment {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: var(--space-2);
-  min-height: 2.75rem;
-  border-radius: var(--radius-md);
-  color: var(--color-text-secondary);
-  font-size: 0.875rem;
-  font-weight: 600;
-  cursor: pointer;
-}
-.segment input {
-  position: absolute;
-  opacity: 0;
-  inset: 0;
-  margin: 0;
-  cursor: pointer;
-}
-.segment:has(input:checked) {
-  background: var(--color-surface);
-  color: var(--color-primary);
-  box-shadow: var(--shadow-sm);
-}
-.segment:has(input:focus-visible) {
-  outline: 2px solid var(--color-ring);
-  outline-offset: 2px;
-}
 .field {
   display: grid;
   gap: var(--space-1);

@@ -6,7 +6,10 @@
 use corten::prelude::*;
 use platform::{
     chart::{self, Chart, TimeSeries},
-    ui::stats::{Stat, StatTone, Stats as KitStats, StatsSurface},
+    ui::{
+        segmented::{SegmentedLinks, SegmentedWidth},
+        stats::{Stat, StatTone, Stats as KitStats, StatsSurface},
+    },
 };
 use serde_json::{Value, json};
 
@@ -742,17 +745,18 @@ fn SalesRead<'a>(
     }
 }
 
-/// The chart's time range, each a link to the page with it (`SegmentedControl`). Marketplace
+/// The chart's time range, each a link to the page with it (`SegmentedControl`, as wide as its
+/// choices: the kit's `SegmentedLinks`). Marketplace
 /// draws it only above a plot; the pilot draws it above an empty chart too, since a wider range
 /// may have the sales a narrow one lacks.
 #[component(css = ItemDetail)]
 fn Ranges<'a>(t: ItemMsg, address: &'a Address, slug: &'a str) -> impl Render {
     let range = move |r: Range| url::Item { slug, state: address.with_range(r), after: Default::default() }.href();
-    let current = move |r: Range| (address.range == r).then_some("true");
+    let current = move |r: Range| (address.range == r).then_some("page");
     html! {
-        <nav class={(Segmented, ChartRanges)} aria-label={t.panel_range_selector_label()}>
+        <nav class={(SegmentedLinks { width: SegmentedWidth::Fit }, ChartRanges)} aria-label={t.panel_range_selector_label()}>
             for r in Range::EVERY {
-                <a class={Segment} href={&range(r)} aria-current={current(r)}>{range_label(t, r)}</a>
+                <a href={&range(r)} aria-current={current(r)}>{range_label(t, r)}</a>
             }
         </nav>
     }
@@ -907,25 +911,25 @@ fn Stale<'a>(title: &'a str, text: &'a str) -> impl Render {
 }
 
 /// Buy, Sell or Watch (`SegmentedControl` "Choose market intent"), each a link to the same page
-/// on that side.
+/// on that side, sharing the rail's width (the kit's `SegmentedLinks` with `Fill`).
 #[component(css = ItemDetail)]
 fn Intent<'a>(t: ItemMsg, screen: &'a ItemScreen, address: &'a Address, slug: &'a str) -> impl Render {
     let link = move |market: Market| url::Item { slug, state: address.with_market(market), after: Default::default() }.href();
-    let current = move |market: Market| (screen.market == market).then_some("true");
+    let current = move |market: Market| (screen.market == market).then_some("page");
     let track = move |market: Market| {
         let (workflow, selection) = screen.rail_labels(market);
         let changed = screen.market != market;
         analytics::railIntent(changed, market.as_str(), workflow, selection, screen.rail_viewer(), "desktop_rail")
     };
     html! {
-        <nav class={Segmented} aria-label={t.page_choose_market_intent()}>
-            <a class={Segment} href={&link(Market::Buy)} aria-current={current(Market::Buy)} on:click={track(Market::Buy)}>
+        <nav class={SegmentedLinks { width: SegmentedWidth::Fill }} aria-label={t.page_choose_market_intent()}>
+            <a href={&link(Market::Buy)} aria-current={current(Market::Buy)} on:click={track(Market::Buy)}>
                 {t.page_buy()}
             </a>
-            <a class={Segment} href={&link(Market::Sell)} aria-current={current(Market::Sell)} on:click={track(Market::Sell)}>
+            <a href={&link(Market::Sell)} aria-current={current(Market::Sell)} on:click={track(Market::Sell)}>
                 {t.page_sell()}
             </a>
-            <a class={Segment} href={&link(Market::Watch)} aria-current={current(Market::Watch)} on:click={track(Market::Watch)}>
+            <a href={&link(Market::Watch)} aria-current={current(Market::Watch)} on:click={track(Market::Watch)}>
                 {t.page_watch()}
             </a>
         </nav>

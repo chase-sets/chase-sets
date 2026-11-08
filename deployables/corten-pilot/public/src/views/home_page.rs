@@ -11,7 +11,10 @@
 use corten::prelude::*;
 use platform::{
     glyphs,
-    ui::{icon::Icon as KitIcon, visually_hidden::VisuallyHidden},
+    ui::{
+        icon::Icon as KitIcon,
+        segmented::{Legend, SegmentedRadio, SegmentedRadios, SegmentedWidth},
+    },
 };
 
 use crate::{
@@ -215,22 +218,14 @@ fn SignupPanel<'a>(t: HomeMsg, screen: &'a Screen, panel: Panel) -> impl Render 
             >
                 <input type="hidden" name="panel" value={panel.as_str()}>
                 if hero {
-                    <fieldset class={Segments}>
-                        <legend class={VisuallyHidden {}}>{t.waitlist_hero_intent_label()}</legend>
+                    <SegmentedRadios legend={Legend::Hidden(t.waitlist_hero_intent_label())} width={SegmentedWidth::Fill}>
                         for role in Role::HERO {
-                            <label class={Segment}>
+                            <SegmentedRadio label={role_label(t, role)}>
                                 <input type="radio" name="role" value={role.as_str()} checked={screen.role == role}>
                                 <SegmentIcon role={role} />
-                                <span>
-                                    match role {
-                                        Role::Sell => { {t.waitlist_hero_intent_sell()} }
-                                        Role::Buy => { {t.waitlist_hero_intent_buy()} }
-                                        Role::Both => { {t.waitlist_hero_intent_both()} }
-                                    }
-                                </span>
-                            </label>
+                            </SegmentedRadio>
                         }
-                    </fieldset>
+                    </SegmentedRadios>
                 }
                 <div class={Field}>
                     <label class={Label} for={&email_id}>
@@ -334,6 +329,15 @@ fn SignupPanel<'a>(t: HomeMsg, screen: &'a Screen, panel: Panel) -> impl Render 
                 }
             </form>
         </div>
+    }
+}
+
+/// The hero segments' words (`heroIntentItems`).
+fn role_label(t: HomeMsg, role: Role) -> &'static str {
+    match role {
+        Role::Sell => t.waitlist_hero_intent_sell(),
+        Role::Buy => t.waitlist_hero_intent_buy(),
+        Role::Both => t.waitlist_hero_intent_both(),
     }
 }
 
