@@ -75,7 +75,6 @@ test("derives every heavy artifact entry point and requires a reachable guard ac
     "contracts/tcgplayer-market-observations/vitest.config.ts",
     "deployables/platform-api/vitest.config.ts",
     "deployables/tcgplayer-operator-extension/vitest.config.ts",
-    "infrastructure/stripe-appearance/vitest.config.ts",
     "playwright.config.ts",
     "scripts/browser-e2e-probe.mjs",
     // The handoff command performs two connector builds and therefore uses build admission.

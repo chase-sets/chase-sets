@@ -991,33 +991,38 @@ describe("shared E2E setup selection", () => {
       }),
   );
 
-  it("preserves every product and near-miss input, with only the enumerated setup and analytics ownership deltas", () => {
+  it("preserves every product and near-miss input except enumerated ownership deltas and the retired UAT exclusion", () => {
     const captured = JSON.parse(
       execFileSync("git", ["show", `${baseSha}:scripts/fixtures/ci-e2e-selection.json`], { encoding: "utf8" }),
     );
     const candidate = JSON.parse(readFileSync("scripts/fixtures/ci-e2e-selection.json", "utf8"));
+    const retired = "deployables/marketplace/e2e/payout-connect-appearance.uat.spec.ts";
+    const fallback = captured.cases.find(({ changedFiles }) =>
+      changedFiles.includes("deployables/marketplace/e2e/unmapped.spec.ts"),
+    );
     expect(captured.cases).toHaveLength(150);
     expect(candidate.cases).toHaveLength(151);
     expect(candidate.families).toEqual(
-      captured.families.map((family) =>
+      captured.families.filter((family) => family.path !== retired).map((family) =>
         family.family === "boundedContextRouteSuiteOwnership:45"
           ? {
               ...family,
               pattern:
                 "/^bounded-contexts\\/discovery\\/routes\\/item-detail(?:\\.|-market-history\\.|-rail-analytics\\.)/",
             }
-          : family,
+          : family.family === "e2eNoSuiteExclusions:4" ? { ...family, family: "e2eNoSuiteExclusions:3" } : family,
       ),
     );
-    expect(candidate.families).toHaveLength(143);
+    expect(candidate.families).toHaveLength(142);
     for (const entry of captured.cases) {
       const old = baseline.classifyChanges({ changedFiles: entry.changedFiles });
       const next = classifyChanges({ changedFiles: entry.changedFiles, workspaces });
       const ownsSetup = entry.changedFiles.some((file) => setupPaths.includes(file));
-      expect(next).toEqual(ownsSetup ? { ...old, e2eSuiteIds: ["admin_auth"], e2eTestsRequired: true } : old);
+      const ownsRetired = entry.changedFiles.includes(retired);
+      expect(next).toEqual(ownsRetired ? { ...old, e2eSuiteIds: fallback.suiteIds, e2eTestsRequired: true } : ownsSetup ? { ...old, e2eSuiteIds: ["admin_auth"], e2eTestsRequired: true } : old);
       expect(
         candidate.cases.find((item) => JSON.stringify(item.changedFiles) === JSON.stringify(entry.changedFiles)),
-      ).toEqual(ownsSetup ? { ...entry, suiteIds: ["admin_auth"], batches: ["admin_auth"] } : entry);
+      ).toEqual(ownsRetired ? { ...entry, suiteIds: fallback.suiteIds, batches: fallback.batches } : ownsSetup ? { ...entry, suiteIds: ["admin_auth"], batches: ["admin_auth"] } : entry);
     }
     for (const file of nearMisses) {
       const scope = classifyChanges({ changedFiles: [file], workspaces });
@@ -1431,7 +1436,6 @@ const baseCapturedSchedulerFanoutWorkspaces = [
   "@chase-sets/seller-desk",
   "@chase-sets/ses-email",
   "@chase-sets/settlement",
-  "@chase-sets/stripe-appearance",
   "@chase-sets/stripe-config",
   "@chase-sets/stripe-connect",
   "@chase-sets/stripe-payments",

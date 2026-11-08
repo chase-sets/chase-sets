@@ -11,11 +11,7 @@ import {
   Stack,
   Surface,
   Text,
-  resolveEmbeddedSurfaceTheme,
-  observeEmbeddedSurfaceTheme,
-  embeddedSurfaceThemeSnapshot,
 } from "@chase-sets/design-system";
-import { createStripeElementsAppearance } from "@chase-sets/stripe-appearance";
 import { createPaymentsApiClient, type PaymentsSavedCheckoutSetupSession } from "../../../../client";
 
 const POLL_INTERVAL_MS = 2_000;
@@ -31,26 +27,8 @@ export function StripeSetupCard({ setup, onSaved }: { setup: PaymentsSavedChecko
   const elementsRef = useRef<StripeElements | null>(null);
   const elementRef = useRef<StripePaymentElement | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [appearanceVersion, setAppearanceVersion] = useState(0);
   const [isReady, setIsReady] = useState(false);
   const [setupPhase, setSetupPhase] = useState<SetupPhase>("idle");
-
-  useEffect(() => {
-    const container = containerRef.current;
-    if (!container) {
-      return;
-    }
-
-    let currentSnapshot = embeddedSurfaceThemeSnapshot({ scope: container });
-    return observeEmbeddedSurfaceTheme({ scope: container }, () => {
-      const nextSnapshot = embeddedSurfaceThemeSnapshot({ scope: container });
-      if (nextSnapshot === currentSnapshot) {
-        return;
-      }
-      currentSnapshot = nextSnapshot;
-      setAppearanceVersion((version) => version + 1);
-    });
-  }, []);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -77,7 +55,6 @@ export function StripeSetupCard({ setup, onSaved }: { setup: PaymentsSavedChecko
 
         const elements = stripe.elements({
           clientSecret,
-          appearance: createStripeElementsAppearance({ theme: resolveEmbeddedSurfaceTheme({ scope: container }) }),
         });
         const paymentElement = elements.create("payment");
         paymentElement.mount(container);
@@ -110,21 +87,6 @@ export function StripeSetupCard({ setup, onSaved }: { setup: PaymentsSavedChecko
       setIsReady(false);
     };
   }, [setup.processor_client_secret, setup.processor_publishable_key, setup.setup_reference_id]);
-
-  // Update the mounted element instead of remounting it so a theme change
-  // never clears partially entered payment details.
-  useEffect(() => {
-    if (appearanceVersion === 0 || !isReady) {
-      return;
-    }
-    const container = containerRef.current;
-    if (!container) {
-      return;
-    }
-    void elementsRef.current?.update({
-      appearance: createStripeElementsAppearance({ theme: resolveEmbeddedSurfaceTheme({ scope: container }) }),
-    });
-  }, [appearanceVersion, isReady]);
 
   async function reconcileUntilSaved() {
     const paymentsApi = createPaymentsApiClient({ fetch: (input, init) => globalThis.fetch(input, init) });

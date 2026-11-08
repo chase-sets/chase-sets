@@ -4,13 +4,9 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   EmbeddedProviderSurface,
   Banner,
-  resolveEmbeddedSurfaceTheme,
   LoadingSpinner,
-  observeEmbeddedSurfaceTheme,
   Stack,
-  embeddedSurfaceThemeSnapshot,
 } from "@chase-sets/design-system";
-import { createStripeConnectAppearance } from "@chase-sets/stripe-appearance";
 
 type StripeConnectNotificationBannerElement = ConnectHTMLElementRecord["notification-banner"];
 
@@ -43,26 +39,14 @@ export async function fetchNotificationBannerClientSecret() {
 export function StripeConnectNotificationBanner({ publishableKey }: { publishableKey: string | null }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const componentRef = useRef<StripeConnectNotificationBannerElement | null>(null);
-  const [appearanceScope, setAppearanceScope] = useState<HTMLDivElement | null>(null);
-  const [appearanceVersion, setAppearanceVersion] = useState<string | null>(null);
+  const [container, setContainerNode] = useState<HTMLDivElement | null>(null);
   const [status, setStatus] = useState<"loading" | "visible" | "error">("loading");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const setContainer = useCallback((node: HTMLDivElement | null) => {
     containerRef.current = node;
-    setAppearanceScope(node);
-    setAppearanceVersion(node ? embeddedSurfaceThemeSnapshot({ scope: node }) : null);
+    setContainerNode(node);
   }, []);
-
-  useEffect(() => {
-    if (!appearanceScope) {
-      return undefined;
-    }
-
-    return observeEmbeddedSurfaceTheme({ scope: appearanceScope }, () => {
-      setAppearanceVersion(embeddedSurfaceThemeSnapshot({ scope: appearanceScope }));
-    });
-  }, [appearanceScope]);
 
   useEffect(() => {
     if (!publishableKey) {
@@ -71,7 +55,7 @@ export function StripeConnectNotificationBanner({ publishableKey }: { publishabl
       return undefined;
     }
 
-    if (!appearanceScope || appearanceVersion === null) {
+    if (!container) {
       return undefined;
     }
 
@@ -83,7 +67,7 @@ export function StripeConnectNotificationBanner({ publishableKey }: { publishabl
     const mount = async () => {
       const clientSecret = await fetchNotificationBannerClientSecret();
       let preflightClientSecretAvailable = true;
-      if (cancelled || containerRef.current !== appearanceScope) {
+      if (cancelled || containerRef.current !== container) {
         return;
       }
 
@@ -98,7 +82,6 @@ export function StripeConnectNotificationBanner({ publishableKey }: { publishabl
           return fetchNotificationBannerClientSecret();
         },
         locale: "en-US",
-        appearance: createStripeConnectAppearance({ theme: resolveEmbeddedSurfaceTheme({ scope: appearanceScope }) }),
       });
       const component = connect.create("notification-banner");
       component.setOnLoaderStart(() => {
@@ -116,7 +99,7 @@ export function StripeConnectNotificationBanner({ publishableKey }: { publishabl
         }
       });
 
-      appearanceScope.replaceChildren(component);
+      container.replaceChildren(component);
       componentRef.current = component;
       mountedComponent = component;
       setStatus("visible");
@@ -135,9 +118,9 @@ export function StripeConnectNotificationBanner({ publishableKey }: { publishabl
       if (componentRef.current === mountedComponent) {
         componentRef.current = null;
       }
-      appearanceScope.replaceChildren();
+      container.replaceChildren();
     };
-  }, [appearanceScope, appearanceVersion, publishableKey]);
+  }, [container, publishableKey]);
 
   return (
     <Stack gap={2}>
