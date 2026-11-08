@@ -33,7 +33,9 @@ export function buildReviewedSurfaceInventory(input) {
   for (const filePath of new Set(paths)) {
     const ruling =
       registryStatus === "valid"
-        ? registry.reviewedNonPersistentSurfaces.find((entry) => entry.pattern.test(filePath))
+        ? registry.reviewedNonPersistentSurfaces.find((entry) =>
+            new RegExp(entry.pattern.source, entry.pattern.flags).test(filePath),
+          )
         : null;
     const applicabilityKind = ruling?.applicability.kind ?? null;
     let applies = applicabilityKind === "path-scope/v0";

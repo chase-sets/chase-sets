@@ -166,6 +166,49 @@ describe("reviewed surface inventory", () => {
     expect(Reflect.ownKeys(inventory.counts)).toEqual(["discovered", "persistentRequired", "ruled"]);
   });
 
+  it.each(
+    ["g", "y"].flatMap((flags) =>
+      [0, 7].flatMap((lastIndex) => [false, true].map((frozen) => ({ flags, lastIndex, frozen }))),
+    ),
+  )(
+    "AC1 preserves stateful ruling purity ($flags, lastIndex=$lastIndex, frozen=$frozen)",
+    ({ flags, lastIndex, frozen }) => {
+      const { input } = corpus();
+      const pattern = new RegExp(
+        "^bounded-contexts/synthetic/features/referrals/domain/(?:algebra|other)\\.ts$",
+        flags,
+      );
+      pattern.lastIndex = lastIndex;
+      if (frozen) Object.freeze(pattern);
+      const registry = registryFor(freeze({ kind: "path-scope/v0" }));
+      registry.reviewedNonPersistentSurfaces[0].pattern = pattern;
+      const evaluateApplicability = vi.fn(() => {
+        throw new Error("path-scope evaluator must not run");
+      });
+      const request = { ...input, registry, evaluateApplicability };
+
+      const first = buildReviewedSurfaceInventory(request);
+      const firstLastIndex = pattern.lastIndex;
+      const second = buildReviewedSurfaceInventory(request);
+
+      expect(second).toEqual(first);
+      expect(firstLastIndex).toBe(lastIndex);
+      expect(pattern.lastIndex).toBe(lastIndex);
+      expect(first.registryStatus).toBe("valid");
+      expect(first.counts).toEqual({ discovered: 1, persistentRequired: 0, ruled: 1 });
+      expect(first.misses).toEqual([]);
+      expect(first.records[0]).toMatchObject({ matchedPattern: pattern.source, expectedClass: "isolated" });
+
+      const multiple = buildReviewedSurfaceInventory({ ...request, paths: [ruledPath, siblingPath] });
+      expect(multiple.counts).toEqual({ discovered: 2, persistentRequired: 0, ruled: 2 });
+      expect(multiple.misses).toEqual([]);
+      expect(multiple.records.map((record) => record.matchedPattern)).toEqual([pattern.source, pattern.source]);
+      expect(multiple.records.map((record) => record.expectedClass)).toEqual(["isolated", "isolated"]);
+      expect(pattern.lastIndex).toBe(lastIndex);
+      expect(evaluateApplicability).not.toHaveBeenCalled();
+    },
+  );
+
   it("AC1 requires every capability, with no evaluator default", () => {
     const { input } = corpus();
     admittedCheck(buildReviewedSurfaceInventory, input);
