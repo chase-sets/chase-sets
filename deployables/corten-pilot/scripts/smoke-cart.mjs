@@ -100,13 +100,17 @@ async function shown(page) {
     );
     // A card merged from several lines (its quantity more than its first line's) adds their
     // prices, so only a card of one line is held to its presentation's price.
-    const expected = !p?.price || p.price.state === "deferred"
-      ? "Priced at checkout"
-      : `${p.price.state === "indicative" ? "from " : ""}${money(p.price)}`;
+    const expected =
+      !p?.price || p.price.state === "deferred"
+        ? "Priced at checkout"
+        : `${p.price.state === "indicative" ? "from " : ""}${money(p.price)}`;
     if (Number(line.quantity) === item?.quantity) {
       check(line.price === expected, `${line.title}: the price is the API's (${line.price}, ${expected})`);
     } else {
-      check(/^(from )?\$[\d,]+\.\d{2}$|^Priced at checkout$/.test(line.price ?? ""), `${line.title}: a merged line's price (${line.price})`);
+      check(
+        /^(from )?\$[\d,]+\.\d{2}$|^Priced at checkout$/.test(line.price ?? ""),
+        `${line.title}: a merged line's price (${line.price})`,
+      );
     }
   }
   check(total === money(cart.readiness.estimatedSubtotal), `the total is the API's estimated subtotal (${total})`);
