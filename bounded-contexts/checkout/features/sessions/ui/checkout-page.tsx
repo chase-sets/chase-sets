@@ -143,7 +143,7 @@ export function CheckoutSessionPage(props: CheckoutSessionPageProps) {
         >
           <Stack gap={4}>
             <CheckoutFormLevelHiddenFields
-              fulfillmentPreviewRevision={model.preview?.revision}
+              fulfillmentPreviewRevision={model.confirmationPreviewRevision}
               marketplaceCheckoutFeeQuoteFingerprint={model.payment?.marketplace_checkout_fee.quote_fingerprint}
               requestedBalanceCreditAmount={
                 model.walletUnavailable
@@ -155,7 +155,7 @@ export function CheckoutSessionPage(props: CheckoutSessionPageProps) {
               sourceType={model.session.source_type}
               shippingOption={model.session.shipping_option}
               addressDefaults={model.addressDefaults}
-              hasAcknowledgedVisibleFulfillmentPreview={model.hasAcknowledgedVisibleFulfillmentPreview}
+              acknowledgedMaterialChanges={model.confirmationAcknowledgedMaterialChanges}
             />
 
             <CheckoutSavedInfoSection
