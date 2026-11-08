@@ -472,6 +472,13 @@ function dtcgColor(text) {
     hex: `#${bytes.map((byte) => byte.toString(16).padStart(2, "0")).join("")}`,
   };
 }
+// A letter spacing in ems as the number the kit's tracking tokens are (`0.025em` is 0.025).
+function ems(text) {
+  if (text === "0") return 0;
+  const match = /^(-?[\d.]+)em$/.exec(text);
+  if (!match) throw new Error(`styles.css: ${text} is not a letter spacing in em`);
+  return Number(match[1]);
+}
 function dtcgDimension(text) {
   if (text === "0") return { value: 0, unit: "rem" };
   const match = /^(-?[\d.]+)(px|rem)$/.exec(text);
@@ -604,6 +611,16 @@ function tokens() {
     "card-heading-font-size": { $type: "dimension", $value: dtcgDimension(value("font-size-base")) },
     // The toaster's gap from the bottom, the kit's 1rem; marketplace lifts it above its phone bar on <body>.
     "toasts-inset-bottom": { $type: "dimension", $value: dtcgDimension("1rem") },
+    // The design system's Stat (stat.tsx): the label text-xs, semibold and tracking-wide, the value
+    // font-heading text-3xl semibold with no tracking (text-2xl on a phone, where two sit in a row).
+    "stat-label-font-size": { $type: "dimension", $value: dtcgDimension(value("font-size-xs")) },
+    "stat-label-font-weight": { $type: "fontWeight", $value: 600 },
+    "stat-label-tracking": { $type: "number", $value: ems(value("letter-spacing-wide")) },
+    "stat-value-font-family": { $type: "fontFamily", $value: "{font.display}" },
+    "stat-value-font-size": { $type: "dimension", $value: dtcgDimension(value("font-size-3xl")) },
+    "stat-value-font-size-narrow": { $type: "dimension", $value: dtcgDimension(value("font-size-2xl")) },
+    "stat-value-font-weight": { $type: "fontWeight", $value: 600 },
+    "stat-value-tracking": { $type: "number", $value: ems(value("letter-spacing-none")) },
   };
   return {
     base,
