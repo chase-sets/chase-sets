@@ -2671,7 +2671,89 @@ describe("checkout session routes", () => {
 
     expect(response.status).toBe(403);
     await expect(response.json()).resolves.toMatchObject({ error: { code: "email_verification_required" } });
+    expect(services.resumeOrderCartCleanup).not.toHaveBeenCalled();
     expect(mockCreateCheckoutPaymentThroughPayments).not.toHaveBeenCalled();
+  });
+
+  /** The route wired to the real retained cart cleanup, counting its cart attempts and its completion write. */
+  async function retainedCleanupRoute(actor: ReturnType<typeof createBuyerActor>) {
+    const { createCheckoutSessionCleanupService } = await import("./session-cleanup");
+    const { eventStore } = createInMemoryEventStore();
+    const row = createSession({ order_ids: ["ord_1"] });
+    let state = {
+      ...initialCheckoutSessionState,
+      sessionId: "chk_1",
+      buyerAccountId: "acc_buyer",
+      sourceType: "cart",
+      orderIds: ["ord_1"],
+      lines: row.lines,
+      orderCartCleanup: {
+        status: "pending",
+        plan: { buyerAccountId: "acc_buyer", sourceOwnerKeys: ["acc_buyer"], lineIds: ["cli_1"] },
+      },
+    };
+    const cartAttempts = vi.fn(async () => ({
+      result: { ownerStatus: "committed", vector: [{ outcome: "succeeded" }] },
+    }));
+    const cleanupCompletions = vi.fn(async () => {
+      state = { ...state, orderCartCleanup: { ...state.orderCartCleanup, status: "complete" } };
+      return { sessionId: "chk_1", session: row };
+    });
+    const cleanup = createCheckoutSessionCleanupService({
+      eventStore,
+      cart: { listClaimedOwnerKeys: async () => [], executeCartAttempt: cartAttempts },
+      repository: { load: async () => ({ state }) },
+      loadSessionStateForBuyer: async () => state,
+      applySessionCommandForBuyer: cleanupCompletions,
+      stateToCheckoutSessionRow: () => row,
+    } as never);
+    const services = createServices({
+      getSession: vi.fn(async () => row),
+      resumeOrderCartCleanup: cleanup.resumeOrderCartCleanup,
+    });
+    const response = await buildApp(services, actor).fetch(
+      new Request("http://checkout.test/account/checkout-sessions/chk_1/confirm", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          paymentMethodCategory: "card",
+          shippingAddress,
+          marketplaceCheckoutFeeQuoteFingerprint: "marketplace-checkout-fee-v1|card|6.81|0.00|6.81|0.52|7.33|7.33",
+        }),
+      }),
+    );
+    return { response, cartAttempts, cleanupCompletions };
+  }
+
+  it.each([
+    ["an owner whose email is unverified", "owner", "email_verification_required"],
+    ["a role without order management", "viewer", "authorization_forbidden"],
+  ])(
+    "refuses a repeat Pay now for %s before the committed orders' retained cart cleanup",
+    async (_label, roleKey, code) => {
+      const { response, cartAttempts, cleanupCompletions } = await retainedCleanupRoute(
+        createBuyerActor({ roleKey, permissions: ["orders.view"] }),
+      );
+
+      expect(response.status).toBe(403);
+      await expect(response.json()).resolves.toMatchObject({ error: { code } });
+      expect(cartAttempts).not.toHaveBeenCalled();
+      expect(cleanupCompletions).not.toHaveBeenCalled();
+      expect(mockCreateCheckoutPaymentThroughPayments).not.toHaveBeenCalled();
+    },
+  );
+
+  it("finishes the retained cart cleanup once and resumes payment for a buyer who may pay", async () => {
+    mockCreateCheckoutPaymentThroughPayments.mockResolvedValue(createPaymentResult("pay_1"));
+    const { response, cartAttempts, cleanupCompletions } = await retainedCleanupRoute(
+      createBuyerActor({ roleKey: "owner", permissions: ["orders.view", "orders.manage"] }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(cartAttempts).toHaveBeenCalledTimes(1);
+    expect(cleanupCompletions).toHaveBeenCalledTimes(1);
+    expect(mockCreateCheckoutOrdersThroughOrdering).not.toHaveBeenCalled();
+    expect(mockCreateCheckoutPaymentThroughPayments).toHaveBeenCalledTimes(1);
   });
 
   it("still lets a guest buyer pay", async () => {

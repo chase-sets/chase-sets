@@ -56,6 +56,10 @@ import { type PaymentElementDefaultValues, type PaymentsSavedCheckoutInstrument 
 import { StripeConfirmationCard } from "@chase-sets/payments/web";
 import { checkoutSessionSourceCreatesOrders } from "@chase-sets/checkout-order-source";
 import { normalizeRequestedBalanceCreditAmount } from "../support/request-support/balance-credit";
+import {
+  checkoutConfirmationNeedsPaymentStart,
+  checkoutPaymentStartRefusalCode,
+} from "../features/sessions/api/payment-start-eligibility";
 import { CheckoutSessionPage, type CheckoutEditSection } from "../features/sessions/ui/checkout-page";
 import { CheckoutSessionRecoveryPage } from "../features/sessions/ui/checkout-recovery-page";
 import {
@@ -1012,6 +1016,25 @@ async function handleAction(intent: string, { request, params, formData }: FormA
         // A cancelled Session is final: a replayed confirm sends nothing and
         // shows the Session as it stands.
         return redirect(`/checkout/buy/session/${params.sessionId}`);
+      }
+      // A buyer who cannot start a payment is refused before the address book or the Session is
+      // written, as confirm refuses before any owner call; a stale or hand-posted form gets here
+      // even though the page offers no Pay now. A Session whose source is unknown here is left to
+      // confirm, which keeps the authoritative check.
+      const knownSession =
+        session ??
+        (formData.get("sourceType") ? { source_type: String(formData.get("sourceType")), payment_id: null } : null);
+      const paymentStartRefusalCode =
+        actor && Array.isArray(actor.permissions) && knownSession && checkoutConfirmationNeedsPaymentStart(knownSession)
+          ? checkoutPaymentStartRefusalCode(actor)
+          : null;
+      if (paymentStartRefusalCode) {
+        return {
+          error:
+            paymentStartRefusalCode === "email_verification_required"
+              ? t("checkout.features.sessions.api.route.payment.email.verification.required")
+              : t("checkout.features.sessions.api.route.payment.authority.required"),
+        };
       }
       const hasCommittedSideEffects = hasCommittedCheckoutSideEffects(session);
       const pendingAddressBookWrite = shippingAddressResolution.pendingAddressBookWrite;
