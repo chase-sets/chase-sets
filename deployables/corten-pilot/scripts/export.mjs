@@ -1277,6 +1277,9 @@ const outputs = [
         ["checkout.features.sessions.ui.buyCheckoutConfirmationPage.", "confirmation"],
         ["checkout.routes.buyCheckoutConfirmation.", "confirmation_route"],
         ["checkout.routes.checkoutStart.", "start"],
+        // Checkout's refusal of Pay now for a buyer who cannot start a payment, which the page
+        // gives before it writes anything.
+        ["checkout.features.sessions.api.route.payment.", "payment"],
       ]),
     ),
   ],

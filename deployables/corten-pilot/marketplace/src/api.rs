@@ -1657,6 +1657,14 @@ pub struct CheckoutSession {
     pub split_group_handoff: Option<serde_json::Value>,
     #[serde(default)]
     pub cart_readiness_snapshot: Option<serde_json::Value>,
+    /// The quote the session last recorded, present while its orders wait for payment: confirm's
+    /// address write cleared the live preview (`last_recorded_quote`).
+    #[serde(default)]
+    pub last_recorded_quote: Option<FulfillmentPreview>,
+    /// The material-change acknowledgement the orders were bound to, in the same window; none for
+    /// orders recorded before it was kept (`order_acknowledged_material_changes`).
+    #[serde(default)]
+    pub order_acknowledged_material_changes: Option<bool>,
 }
 
 /// The address a session keeps (`CheckoutShippingAddressInput`), and the one a write sends.

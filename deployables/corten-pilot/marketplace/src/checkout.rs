@@ -45,7 +45,7 @@ use crate::{
         ApiError, CheckoutSession, CheckoutSessions as _, ConfirmBody, FulfillmentPreview, PaymentPreview, PaymentSummary,
         SavedAddress, SavedInstrument, SellerGroup, SessionAddress, Wallet,
     },
-    app::{ACCOUNTS_VIEW, ORDERS_MANAGE, PAYOUTS_VIEW, Shared, sign_in, url},
+    app::{ACCOUNTS_VIEW, GUEST_CHECKOUT, ORDERS_MANAGE, PAYOUTS_VIEW, Shared, sign_in, url},
     auth::{CheckoutBuyer, Viewer},
     email_verification::{self, Purpose},
     text::{CheckoutMsg, Pilot},
@@ -335,7 +335,10 @@ pub struct Screen {
     pub steps: Steps,
     pub can_confirm: bool,
     pub needs_quote: bool,
-    pub acknowledged: bool,
+    /// The preview revision Pay now posts: the live preview's, else the one the orders kept.
+    pub confirm_revision: Option<String>,
+    /// The material-change acknowledgement Pay now posts.
+    pub confirm_acknowledged: bool,
     pub notice: Option<Notice>,
     pub expired: bool,
     pub error: Option<String>,
@@ -370,6 +373,48 @@ fn committed(session: &CheckoutSession) -> bool {
     session.payment_id.is_some() || session.submitted_offer_id.is_some() || !session.order_ids.is_empty()
 }
 
+/// Why a buyer cannot start a payment (`CheckoutPaymentStartRefusalCode`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum PaymentStartRefusal {
+    /// Auth withholds `orders.manage` until the email is verified: the buyer can lift it.
+    EmailVerification,
+    /// The role never pays.
+    Authority,
+}
+
+/// Why this buyer cannot start a payment, or none: Payments starts one only for `orders.manage`
+/// or `guest-checkout.manage` (`checkoutPaymentStartRefusalCode`).
+fn payment_start_refusal(actor: &platform::api::Actor) -> Option<PaymentStartRefusal> {
+    if actor.can(ORDERS_MANAGE) || actor.can(GUEST_CHECKOUT) {
+        return None;
+    }
+    Some(if email_verification::awaits(actor, ORDERS_MANAGE) {
+        PaymentStartRefusal::EmailVerification
+    } else {
+        PaymentStartRefusal::Authority
+    })
+}
+
+/// Whether Pay now on this session would still start a payment (`checkoutConfirmationNeedsPaymentStart`).
+fn needs_payment_start(session: &CheckoutSession) -> bool {
+    session.source_type != "offer-intent"
+        && session.payment_id.is_none()
+        && session.submitted_offer_id.is_none()
+        && session.cancelled_at.is_none()
+}
+
+/// The quote Pay now is priced from once the orders exist and no payment started: the session's
+/// last recorded quote, only when its revision is the one the orders kept
+/// (`loadCommittedOrderPaymentPreview`).
+fn committed_quote(session: &CheckoutSession) -> Option<&FulfillmentPreview> {
+    if session.payment_id.is_some() || session.order_ids.is_empty() {
+        return None;
+    }
+    let quote = session.last_recorded_quote.as_ref()?;
+    let kept = session.fulfillment_preview_revision.as_deref()?;
+    (quote.revision.as_deref() == Some(kept)).then_some(quote)
+}
+
 /// The method the address asks for, or the default saved method's, or a card.
 fn asked_method(place: &Place, instruments: &[SavedInstrument]) -> String {
     let ready = |i: &&SavedInstrument| i.readiness == "ready";
@@ -387,7 +432,7 @@ impl Screen {
         let offer = session.source_type == "offer-intent";
         let creates_orders = !offer;
         let preview = if expired || !creates_orders { None } else { session.fulfillment_preview_snapshot.clone() };
-        let preview_missing = !expired && creates_orders && preview.is_none();
+        let preview_missing = !expired && creates_orders && preview.is_none() && committed_quote(&session).is_none();
         let (addresses, instruments) = if offer { (Vec::new(), Vec::new()) } else { (addresses, instruments) };
         let wallet_unavailable = matches!(wallet, WalletRead::Unavailable);
         let wallet = match wallet {
@@ -466,6 +511,18 @@ impl Screen {
         };
         let reasons = preview.as_ref().map(|p| p.material_change_reasons.join(" ")).filter(|r| !r.is_empty());
         let acknowledged = reasons.is_some() || changed;
+        // While orders wait for payment, Pay now posts the revision and acknowledgement they were
+        // bound to, as the session kept them (`confirmationPreviewRevision`,
+        // `confirmationAcknowledgedMaterialChanges`).
+        let waiting = !has_payment && !session.order_ids.is_empty();
+        let confirm_revision = preview
+            .as_ref()
+            .and_then(|p| p.revision.clone())
+            .or_else(|| if waiting { session.fulfillment_preview_revision.clone() } else { None });
+        let confirm_acknowledged = match session.order_acknowledged_material_changes {
+            Some(kept) if waiting => kept,
+            _ => acknowledged,
+        };
         let fast = !offer && saved.is_some() && instrument.is_some() && !has_payment;
         let accelerated = fast
             && !wallet_unavailable
@@ -515,7 +572,8 @@ impl Screen {
             steps,
             can_confirm,
             needs_quote,
-            acknowledged,
+            confirm_revision,
+            confirm_acknowledged,
             notice,
             expired,
             error,
@@ -680,8 +738,13 @@ async fn render(
         })
     };
     let (wallet, addresses, instruments) = tokio::join!(wallet, addresses, instruments);
-    // Payments' quote for the preview's total, the wallet's balance applied (`loadPaymentPreview`).
-    let total = session.fulfillment_preview_snapshot.as_ref().and_then(|p| p.totals.total_amount.clone());
+    // Payments' quote for the preview's total, the wallet's balance applied (`loadPaymentPreview`),
+    // or once the orders exist for the quote they were bound to.
+    let total = session
+        .fulfillment_preview_snapshot
+        .as_ref()
+        .or_else(|| committed_quote(&session))
+        .and_then(|p| p.totals.total_amount.clone());
     let payment = match (&total, &wallet, expired) {
         (Some(_), WalletRead::Unavailable, _) | (None, _, _) | (_, _, true) => None,
         (Some(total), wallet, false) => {
@@ -941,6 +1004,19 @@ pub(crate) async fn write(
             // A cancelled session is final: a confirm sent again sends nothing and shows it as it is.
             if session.cancelled_at.is_some() {
                 return back(here);
+            }
+            // A buyer who cannot start a payment is refused before the session is written, as
+            // Checkout refuses Pay now before any owner write (`checkoutPaymentStartRefusalCode`);
+            // a stale or hand-sent form gets here though the page offers no Pay now.
+            if needs_payment_start(&session)
+                && let Some(refusal) = payment_start_refusal(&viewer.actor)
+            {
+                let message = match refusal {
+                    PaymentStartRefusal::EmailVerification => t.payment_email_verification_required(),
+                    PaymentStartRefusal::Authority => t.payment_authority_required(),
+                };
+                let refused = Answer::Refused(StatusCode::FORBIDDEN, message.to_owned());
+                return render(&req, &viewer, &config, &headers, &id, here, refused).await;
             }
             let committed = committed(&session);
             let mut receipts = Vec::new();
@@ -1218,7 +1294,7 @@ mod tests {
             p.revision = Some("r2".into());
         }
         let screen = Screen::new(r, Place::default(), None);
-        assert!(screen.acknowledged);
+        assert!(screen.confirm_acknowledged);
         assert_eq!(screen.notice, Some(Notice::FulfillmentChanged(None)));
     }
 

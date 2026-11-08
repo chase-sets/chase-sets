@@ -391,7 +391,7 @@ fn CheckoutFormPart<'a>(t: CheckoutMsg, screen: &'a Screen) -> impl Render {
             <input
                 type="hidden"
                 name={f.fulfillment_preview_revision}
-                value={screen.preview.as_ref().and_then(|p| p.revision.as_deref()).unwrap_or("")}
+                value={screen.confirm_revision.as_deref().unwrap_or("")}
             >
             <input
                 type="hidden"
@@ -402,7 +402,11 @@ fn CheckoutFormPart<'a>(t: CheckoutMsg, screen: &'a Screen) -> impl Render {
             <input type="hidden" name={f.payment_method_category} value={&screen.method}>
             <input type="hidden" name={f.reviewed_shipping_option} value={option}>
             <input type="hidden" name={f.reviewed_shipping_address_signature} value={signature(a)}>
-            <input type="hidden" name={f.acknowledged_material_changes} value={if screen.acknowledged { "true" } else { "" }}>
+            <input
+                type="hidden"
+                name={f.acknowledged_material_changes}
+                value={if screen.confirm_acknowledged { "true" } else { "" }}
+            >
             <input type="hidden" name={f.accelerated_saved_payment} value={if screen.accelerated { "true" } else { "" }}>
             if steps.rows() {
                 <SavedRows t={t} screen={screen} />

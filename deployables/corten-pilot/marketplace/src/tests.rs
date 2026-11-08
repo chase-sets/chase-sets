@@ -857,6 +857,21 @@ fn checkout_session(id: &str) -> Value {
             session["source_type"] = json!("offer-intent");
             session["submitted_offer_id"] = json!("ofr_1");
         }
+        // Its orders exist and wait for payment: confirm's address write cleared the live preview,
+        // and the session keeps the quote and acknowledgement the orders were bound to.
+        "chk_ordered" => {
+            session["order_ids"] = json!(["ord_1"]);
+            session["last_recorded_quote"] = session["fulfillment_preview_snapshot"].clone();
+            session["fulfillment_preview_snapshot"] = Value::Null;
+            session["order_acknowledged_material_changes"] = json!(true);
+        }
+        // The same, but the kept quote is of another revision: no quote, as the loader gives none.
+        "chk_ordered_other" => {
+            session["order_ids"] = json!(["ord_1"]);
+            session["last_recorded_quote"] = session["fulfillment_preview_snapshot"].clone();
+            session["last_recorded_quote"]["revision"] = json!("lowest-total#other");
+            session["fulfillment_preview_snapshot"] = Value::Null;
+        }
         "chk_paid" => session["payment_id"] = json!("pay_1"),
         "chk_paydown" => session["payment_id"] = json!("pay_down"),
         "chk_cancelled" => session["cancelled_at"] = json!("2026-10-28T00:00:00.000Z"),
@@ -12331,6 +12346,24 @@ async fn pay_now_confirms_what_was_reviewed_and_the_page_shows_the_payment() {
 }
 
 #[tokio::test]
+async fn a_repeat_pay_now_on_orders_waiting_for_payment_is_quoted_from_the_kept_quote_and_posts_what_they_kept() {
+    let pilot = Pilot::new().await;
+    // chase-sets/chase-sets#11151: the orders kept their revision and acknowledgement, and the
+    // session the quote it last recorded, so Pay now is quoted and posts both back.
+    let (status, _, html) = pilot.send(get("/checkout/buy/session/chk_ordered", Some("payer"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains(r#"data-commit="pay""#), "Pay now: {html}");
+    assert!(html.contains(r#"value="lowest-total#lst_seed_lugia#620.00""#), "the kept revision: {html}");
+    assert!(html.contains(r#"name="acknowledgedMaterialChanges" value="true""#), "the kept acknowledgement: {html}");
+    assert!(html.contains(r#"value="fq_card""#), "quoted: {html}");
+    assert!(!text(&html).contains("temporarily unavailable"), "no missing-preview banner: {html}");
+    // A kept quote of another revision gives no quote, and the page says the totals are not ready.
+    let (status, _, html) = pilot.send(get("/checkout/buy/session/chk_ordered_other", Some("payer"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(!html.contains(r#"value="fq_card""#), "no quote: {html}");
+}
+
+#[tokio::test]
 async fn a_buyer_whose_payment_awaits_email_verification_is_offered_the_sign_in_that_verifies_it() {
     let pilot = Pilot::new().await;
     let link = "/sign-in?returnTo=%2Fcheckout%2Fbuy%2Fsession%2Fchk_1%3FverifyEmail%3Dpay-checkout&amp;signInMethod=magic-link";
@@ -12352,6 +12385,16 @@ async fn a_buyer_whose_payment_awaits_email_verification_is_offered_the_sign_in_
     assert_eq!(status, StatusCode::FORBIDDEN, "{html}");
     assert!(text(&html).contains("Verify your email before you pay. Nothing was reserved or ordered."), "{html}");
     assert!(html.contains("verifyEmail%3Dpay-checkout"), "{html}");
+    // The page refuses before it writes the session: no shipping option, opt-in, address,
+    // preview or confirm reached Checkout (chase-sets/chase-sets#10959).
+    let writes = checkout_writes(&pilot);
+    assert!(writes.is_empty(), "nothing written: {writes:?}");
+    // A role that never pays gets its own words, with nothing written either.
+    let (status, _, html) =
+        pilot.send(post(CHECKOUT_SCREEN, "card_reader", &checkout_body("intent=confirm-checkout"), false)).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{html}");
+    assert!(text(&html).contains("This account cannot pay for purchases. Nothing was reserved or ordered."), "{html}");
+    assert!(checkout_writes(&pilot).is_empty(), "nothing written");
 }
 
 #[tokio::test]
