@@ -3,7 +3,7 @@
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "reconcile-production-marker",
-      "stepAnchor": "name:Derive source registry identity#6",
+      "stepAnchor": "name:Derive source registry identity#8",
       "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
       "purpose": "terraform-infra"
     },
@@ -38,7 +38,7 @@
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "reconcile-production-marker",
-      "stepAnchor": "name:Reconcile retained production marker#9",
+      "stepAnchor": "name:Reconcile retained production marker#11",
       "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
       "purpose": "terraform-infra"
     },
