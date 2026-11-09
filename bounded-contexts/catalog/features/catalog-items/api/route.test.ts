@@ -11,6 +11,7 @@ import type { CatalogAuthoringEnv } from "../../../support/authoring-support/api
 import type { CatalogAuthoringBulkJobServices } from "../../../support/authoring-support/bulk-authoring-jobs";
 import type { BulkSelection } from "../../../support/runtime-support/bulk-lifecycle";
 import type { CatalogItemListParams } from "../read-model/queries";
+import { createBulkRemoveDraftsHarness } from "./bulk-remove-drafts-test-harness";
 
 const context: EventStoreContext = {
   tenantId: "tnt_test" as never,
@@ -544,6 +545,94 @@ describe("catalog item routes", () => {
       selection,
       context,
     });
+  });
+
+  it("T1: normalizes filter preview without browser pagination and passes through its body", async () => {
+    const result = {
+      mode: "filter" as const,
+      item_ids: ["d1"],
+      total: 1,
+      ready_count: 1,
+      blocked_count: 0,
+      candidates: [],
+    };
+    const previewBulkRemoveDrafts = vi.fn().mockResolvedValue(result);
+    const app = buildApp(createServices({ previewBulkRemoveDrafts }));
+    const response = await app.fetch(
+      new Request("http://catalog.test/items/bulk-remove-drafts/preview", {
+        method: "POST",
+        body: JSON.stringify({
+          selection: {
+            mode: "filter",
+            query: { search: "  match  ", language: "en", status: "draft", source: "", page: 3, pageSize: 50 },
+          },
+        }),
+      }),
+    );
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual(result);
+    expect(previewBulkRemoveDrafts).toHaveBeenCalledWith({
+      mode: "filter",
+      query: {
+        search: "match",
+        status: "draft",
+        language: "en",
+        source: undefined,
+        blueprintId: undefined,
+        tag: undefined,
+        blueprintState: undefined,
+        hasImages: undefined,
+        hasSourceReferences: undefined,
+        missingRequiredFields: undefined,
+      },
+    });
+  });
+
+  it.each([
+    { mode: "ids", ids: ["d1", "d2"] },
+    { mode: "filter", query: { language: "en" } },
+  ])("T2: confirm re-resolves $mode selection instead of trusting preview set A", async (selection) => {
+    const previewBulkRemoveDrafts = vi
+      .fn()
+      .mockResolvedValueOnce({ item_ids: ["d1"] })
+      .mockResolvedValueOnce({ item_ids: ["d2", "d3"] });
+    const enqueue = vi.fn(createJobServices().enqueue);
+    const app = buildApp(createServices({ previewBulkRemoveDrafts }), createJobServices({ enqueue }));
+    const request = (phase: string) =>
+      new Request(`http://catalog.test/items/bulk-remove-drafts/${phase}`, {
+        method: "POST",
+        body: JSON.stringify({ selection }),
+      });
+    expect((await app.fetch(request("preview"))).status).toBe(200);
+    const response = await app.fetch(request("confirm"));
+    expect(response.status).toBe(202);
+    expect(previewBulkRemoveDrafts).toHaveBeenCalledTimes(2);
+    expect(enqueue).toHaveBeenCalledWith(
+      expect.objectContaining({ itemIds: ["d2", "d3"], context, kind: "catalog.authoring.items.remove-drafts" }),
+    );
+    expect(await response.json()).toEqual(await enqueue.mock.results[0]!.value);
+  });
+
+  it("T3: route enqueue preserves aggregate authority after stale-draft publication", async () => {
+    const h = createBulkRemoveDraftsHarness([{ id: "d1" }, { id: "d2" }]);
+    await h.seed();
+    const enqueue = vi.fn(createJobServices().enqueue);
+    const app = buildApp(h.services, createJobServices({ enqueue }));
+    const request = (phase: string) =>
+      new Request(`http://catalog.test/items/bulk-remove-drafts/${phase}`, {
+        method: "POST",
+        body: JSON.stringify({ selection: { mode: "ids", ids: ["d2", "d1"] } }),
+      });
+    expect((await (await app.fetch(request("preview"))).json()).ready_count).toBe(2);
+    await h.publish("d2");
+    expect((await app.fetch(request("confirm"))).status).toBe(202);
+    const input = enqueue.mock.calls[0]![0];
+    expect(input.itemIds).toEqual(["d2", "d1"]);
+    const result = await h.services.removeDraftsBulk(input.itemIds!, input.context);
+    expect(result).toMatchObject({ succeeded_count: 1, failed_count: 1 });
+    expect(result.candidates[0]).toMatchObject({ catalog_item_id: "d2", reason: "Only draft items can be removed." });
+    expect(h.removalEvents("d2")).toHaveLength(0);
+    expect(h.removalEvents("d1")).toHaveLength(1);
   });
 
   it("removes a draft Catalog Item", async () => {

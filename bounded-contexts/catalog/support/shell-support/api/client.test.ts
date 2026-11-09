@@ -38,6 +38,54 @@ describe("provider profile lifecycle confirmation serialization", () => {
 });
 
 describe("catalog API durable job client", () => {
+  it("C1: posts bulk removal preview selection and parses the response", async () => {
+    const selection = { mode: "ids", ids: ["cat_1", "cat_2"] };
+    const result = { item_ids: selection.ids, ready_count: 1, blocked_count: 1, total: 2, candidates: [] };
+    const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(Response.json(result));
+    const client = createCatalogApiClient({ baseUrl: "/api/catalog", fetch });
+    expect(await client.previewBulkRemoveDrafts(selection)).toEqual(result);
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(String(fetch.mock.calls[0]![0])).toBe("/api/catalog/items/bulk-remove-drafts/preview");
+    expect(fetch.mock.calls[0]![1]).toMatchObject({ method: "POST", body: JSON.stringify({ selection }) });
+  });
+
+  it("C2: confirms one removal job, streams progress and reconnects to its retained result", async () => {
+    const selection = { mode: "filter", query: { language: "en" } };
+    const result = {
+      item_ids: ["cat_1", "cat_2"],
+      total: 2,
+      succeeded_count: 1,
+      skipped_count: 1,
+      failed_count: 0,
+      candidates: [{ catalog_item_id: "cat_2", outcome: "skipped", reason: "Only draft items can be removed." }],
+    };
+    const snapshot = (status: "queued" | "running" | "completed") => ({
+      jobId: "job_removal",
+      kind: "catalog.authoring.items.remove-drafts",
+      status,
+      progress: { phase: status, completed: status === "completed" ? 2 : 0, total: 2, currentName: null, status: null },
+      result: status === "completed" ? result : null,
+      errorMessage: null,
+    });
+    const fetch = vi
+      .fn<typeof globalThis.fetch>()
+      .mockResolvedValueOnce(Response.json(snapshot("queued"), { status: 202 }))
+      .mockResolvedValueOnce(sseResponse(`id: 7\nevent: status\ndata: ${JSON.stringify(snapshot("running"))}\n\n`))
+      .mockResolvedValueOnce(sseResponse(`id: 8\nevent: status\ndata: ${JSON.stringify(snapshot("completed"))}\n\n`));
+    const progress = vi.fn();
+    const client = createCatalogApiClient({ baseUrl: "/api/catalog", fetch });
+    expect(await client.confirmBulkRemoveDrafts(selection, { onProgress: progress })).toEqual(result);
+    expect(fetch).toHaveBeenCalledTimes(3);
+    expect(String(fetch.mock.calls[0]![0])).toBe("/api/catalog/items/bulk-remove-drafts/confirm");
+    expect(fetch.mock.calls[0]![1]).toMatchObject({ method: "POST", body: JSON.stringify({ selection }) });
+    expect(fetch.mock.calls.slice(1).map(([url]) => String(url))).toEqual([
+      "/api/catalog/bulk-authoring-jobs/job_removal/events",
+      "/api/catalog/bulk-authoring-jobs/job_removal/events",
+    ]);
+    expect(fetch.mock.calls[2]![1]?.headers).toMatchObject({ "last-event-id": "7" });
+    expect(progress.mock.calls.map(([value]) => value.phase)).toEqual(["queued", "running", "completed"]);
+  });
+
   it.each(["merge-candidate-promote", "merge-candidate-defer"] as const)(
     "posts %s with the scope, headers and configured credentials",
     async (kind) => {

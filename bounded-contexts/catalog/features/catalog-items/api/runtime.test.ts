@@ -17,6 +17,94 @@ import type { ItemFieldValue } from "../domain/domain";
 import { resolveCatalogItemDisplayIdentity } from "../read-model/display-identity";
 import { catalogItemRoutes } from "./route";
 import { createCatalogItemRuntime, type CatalogItemServices } from "./runtime";
+import { createBulkRemoveDraftsHarness, removalContext } from "./bulk-remove-drafts-test-harness";
+import { listCatalogItemIds } from "../read-model/queries";
+
+describe("bulk draft removal runtime", () => {
+  it("R1: classifies distinct ids, non-drafts and missing records", async () => {
+    const h = createBulkRemoveDraftsHarness([{ id: "d1" }, { id: "a1", status: "active" }]);
+    await h.seed();
+    const result = await h.services.previewBulkRemoveDrafts({ mode: "ids", ids: ["d1", "a1", "nope", "d1"] });
+    expect(result).toMatchObject({ item_ids: ["d1", "a1", "nope"], total: 3, ready_count: 1, blocked_count: 2 });
+    expect(result.candidates).toEqual([
+      expect.objectContaining({ catalog_item_id: "d1", outcome: "ready", reason: null }),
+      expect.objectContaining({
+        catalog_item_id: "a1",
+        outcome: "blocked",
+        reason: "Only draft items can be removed.",
+      }),
+      expect.objectContaining({ catalog_item_id: "nope", outcome: "blocked", reason: "Catalog Item was not found." }),
+    ]);
+    await expect(h.services.previewBulkRemoveDrafts({ mode: "ids", ids: [] })).rejects.toThrow(
+      "Choose at least one Catalog Item to remove.",
+    );
+  });
+
+  it("R2: uses the owning normalized filter query without pagination and includes draft 51", async () => {
+    const h = createBulkRemoveDraftsHarness([
+      ...Array.from({ length: 51 }, (_, index) => ({
+        id: `d${index}`,
+        title: `Match ${String(index).padStart(2, "0")}`,
+      })),
+      { id: "excluded", language: "ja" },
+    ]);
+    await h.seed();
+    const query = { language: "en", status: "draft", limit: 50, offset: 100 };
+    const ownerQuery = vi.fn(async <T>(_sql: string, _values?: readonly unknown[]) => ({ rows: [] as T[] }));
+    await listCatalogItemIds({ query: ownerQuery }, query);
+    const result = await h.services.previewBulkRemoveDrafts({ mode: "filter", query });
+    expect(h.statements[0]).toEqual({ sql: ownerQuery.mock.calls[0]![0], values: ownerQuery.mock.calls[0]![1] });
+    expect(h.statements[0]!.sql).not.toMatch(/\b(?:LIMIT|OFFSET)\b/i);
+    expect(h.statements[0]!.values).toEqual(["en", "draft"]);
+    expect(result.item_ids).toHaveLength(51);
+    expect(result.candidates[50]).toMatchObject({ catalog_item_id: "d50", outcome: "ready" });
+    expect(result.item_ids).not.toContain("excluded");
+  });
+
+  it("R3: aggregate publication defeats stale draft preview while later drafts still remove", async () => {
+    const h = createBulkRemoveDraftsHarness([{ id: "d1" }, { id: "d2" }, { id: "d3" }, { id: "a1", status: "active" }]);
+    await h.seed();
+    const preview = await h.services.previewBulkRemoveDrafts({ mode: "ids", ids: ["d1", "d2", "a1", "d3"] });
+    expect(preview).toMatchObject({ ready_count: 3, blocked_count: 1 });
+    await h.publish("d2");
+    expect(h.projections.get("d2")!.status).toBe("draft");
+    const result = await h.services.removeDraftsBulk(preview.item_ids, removalContext);
+    expect(result).toMatchObject({ total: 4, succeeded_count: 2, skipped_count: 1, failed_count: 1 });
+    expect(result.candidates).toEqual([
+      expect.objectContaining({ catalog_item_id: "d1", outcome: "succeeded", status: "removed" }),
+      expect.objectContaining({ catalog_item_id: "d2", outcome: "failed", reason: "Only draft items can be removed." }),
+      expect.objectContaining({
+        catalog_item_id: "a1",
+        outcome: "skipped",
+        reason: "Only draft items can be removed.",
+      }),
+      expect.objectContaining({ catalog_item_id: "d3", outcome: "succeeded", status: "removed" }),
+    ]);
+    expect(h.removalEvents("d2")).toHaveLength(0);
+    expect(h.removalEvents("a1")).toHaveLength(0);
+    expect(h.removalEvents("d1")).toHaveLength(1);
+    expect(h.removalEvents("d3")).toHaveLength(1);
+    expect(result.succeeded_count + result.skipped_count + result.failed_count).toBe(result.total);
+  });
+
+  it("R4: repeated removal never emits a second event", async () => {
+    const h = createBulkRemoveDraftsHarness([{ id: "d1" }]);
+    await h.seed();
+    expect((await h.services.removeDraftsBulk(["d1"], removalContext)).succeeded_count).toBe(1);
+    const repeated = await h.services.removeDraftsBulk(["d1"], removalContext);
+    expect(repeated.candidates[0]!.outcome).not.toBe("succeeded");
+    expect(h.removalEvents("d1")).toHaveLength(1);
+  });
+
+  it("R5: does not expose a non-domain append error", async () => {
+    const h = createBulkRemoveDraftsHarness([{ id: "d1" }]);
+    await h.seed();
+    h.failAppends(new Error("synthetic internal database failure"));
+    const result = await h.services.removeDraftsBulk(["d1"], removalContext);
+    expect(result.candidates[0]).toMatchObject({ outcome: "failed", reason: "Catalog Item removal failed." });
+    expect(JSON.stringify(result)).not.toContain("synthetic internal database failure");
+  });
+});
 
 const context = {
   tenantId: "tnt_test" as never,
