@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://chase-sets.com/schemas/ink-foil-candidate-tokens/v1.json",
   "title": "Ink & Foil candidate token values",
-  "description": "The single value authority for the Ink & Foil replacement graph. Carries, for each colour mode, the currently shipped value and the candidate value of every custom property the value cutover will change, plus every custom property the Stripe appearance factories consume. Data only: nothing here ships a value into styles.css.",
+  "description": "The single value authority for the Ink & Foil application tokens. Carries, for each colour mode, the currently shipped value and the candidate value of every custom property the value cutover will change. Data only: nothing here ships a value into styles.css or configures embedded provider appearance.",
   "type": "object",
   "additionalProperties": false,
   "required": ["schemaVersion", "shippedHead", "proposalSource", "light", "dark", "preAuthorisedSubstitutions"],
@@ -28,7 +28,7 @@
     "light": { "$ref": "#/$defs/modeValues" },
     "dark": { "$ref": "#/$defs/modeValues" },
     "preAuthorisedSubstitutions": {
-      "description": "Substitutions the ratified anchor table authorises in advance. The dark alpha border carries an opaque equivalent for surfaces that reject alpha; applying one is recorded here and in the acceptance receipt.",
+      "description": "Substitutions the ratified application anchor table authorises in advance. The dark alpha border carries an opaque equivalent for application surfaces that require it; applying one is recorded here.",
       "type": "array",
       "items": { "$ref": "#/$defs/substitution" }
     }
@@ -70,7 +70,7 @@
         "ratified": { "type": "string", "minLength": 1 },
         "opaqueEquivalent": { "type": "string", "minLength": 1 },
         "applied": {
-          "description": "True only when the provider rejected the ratified value and the pre-authorised opaque equivalent was substituted in the candidate map above.",
+          "description": "True only when the pre-authorised opaque equivalent was substituted for the ratified application value in the candidate map above.",
           "type": "boolean"
         }
       }

@@ -97,7 +97,11 @@
         "selected": true,
         "reason": "payments-provider API retains old marketplace_account ownership despite provider spelling"
       },
-      { "path": "tsconfig.base.json", "selected": true, "reason": "root browser runtime retains all owning suites" },
+      {
+        "path": "tsconfig.base.json",
+        "selected": true,
+        "reason": "root browser runtime retains all owning suites"
+      },
       {
         "path": "deployables/marketplace/app/smoke-auth-support.test.ts",
         "selected": false,
@@ -808,14 +812,6 @@
     },
     {
       "family": "e2eNoSuiteExclusions:3",
-      "pattern": "/^deployables\\/marketplace\\/e2e\\/payout-connect-appearance\\.uat\\.spec\\.ts$/",
-      "suites": null,
-      "path": "deployables/marketplace/e2e/payout-connect-appearance.uat.spec.ts",
-      "trackedCandidates": 1,
-      "synthetic": false
-    },
-    {
-      "family": "e2eNoSuiteExclusions:4",
       "pattern": "/^deployables\\/public-web\\/e2e\\/.*\\.spec\\.ts$/",
       "suites": null,
       "path": "deployables/public-web/e2e/landing-disclosure.spec.ts",
@@ -1248,7 +1244,7 @@
     },
     {
       "family": "boundedContextRouteSuiteOwnership:45",
-      "pattern": "/^bounded-contexts\\/discovery\\/routes\\/item-detail(?:\\.|-market-history\\.)/",
+      "pattern": "/^bounded-contexts\\/discovery\\/routes\\/item-detail(?:\\.|-market-history\\.|-rail-analytics\\.)/",
       "suites": ["marketplace_browse"],
       "path": "bounded-contexts/discovery/routes/item-detail-market-history.tsx",
       "trackedCandidates": 2,
@@ -2013,8 +2009,28 @@
     },
     {
       "changedFiles": ["deployables/marketplace/e2e/payout-connect-appearance.uat.spec.ts"],
-      "suiteIds": [],
-      "batches": []
+      "suiteIds": [
+        "marketplace_browse",
+        "marketplace_account",
+        "marketplace_checkout",
+        "marketplace_seller",
+        "catalog_admin_integrations",
+        "catalog_admin_modeling",
+        "admin_growth",
+        "admin_commerce",
+        "admin_support",
+        "admin_platform",
+        "admin_auth",
+        "admin_access"
+      ],
+      "batches": [
+        "catalog_admin_integrations,admin_auth",
+        "catalog_admin_modeling,admin_platform",
+        "marketplace_checkout,admin_support",
+        "marketplace_browse,marketplace_account",
+        "admin_commerce,admin_access",
+        "marketplace_seller,admin_growth"
+      ]
     },
     {
       "changedFiles": ["deployables/marketplace/e2e/responsive-evidence-contract.spec.ts"],

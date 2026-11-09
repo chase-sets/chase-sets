@@ -908,11 +908,11 @@ describe("real repository execution membership", () => {
 
     expect(result.violations, result.violations.join("\n")).toEqual([]);
     expect(result.inventory.parserVersion).toBe("6.0.3");
-    expect(result.inventory.declarations).toHaveLength(135);
+    expect(result.inventory.declarations).toHaveLength(137);
     expect(result.inventory.partition).toEqual({
       "node-enforced": 57,
-      "vite-excluded": 53,
-      "vitest-excluded": 25,
+      "vite-excluded": 54,
+      "vitest-excluded": 26,
       "manifest-only": 0,
       indeterminate: 0,
     });
@@ -927,7 +927,7 @@ describe("real repository execution membership", () => {
       }),
     );
     expect(createHash("sha256").update(JSON.stringify(normalized)).digest("hex")).toBe(
-      "ffbc641c1fbbd64cc206f4520d3bb11c9b53082d772c71caa375eec32f5c3ee0",
+      "336e5f138367db71d10fd760aab18416c26bdf9ea350455a0ab38ff84a5d1e9d",
     );
     expect(
       normalized.filter(

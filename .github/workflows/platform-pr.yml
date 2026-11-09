@@ -1071,6 +1071,12 @@ jobs:
         with:
           terraform_wrapper: false
 
+      - name: Acquire lock-bound provider proof material (not a matrix verdict)
+        run: bash scripts/digitalocean-terraform-provider-cache-proof.sh acquire "$RUNNER_TEMP/terraform-provider-proof-material"
+
+      - name: Prove lock-verified provider cache in loopback-only namespace
+        run: bash scripts/digitalocean-terraform-provider-cache-proof.sh prove "$RUNNER_TEMP/terraform-provider-proof-material"
+
       - name: Terraform init platform without remote backend
         working-directory: infrastructure/digitalocean/platform
         run: terraform init -backend=false
