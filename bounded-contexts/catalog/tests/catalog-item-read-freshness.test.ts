@@ -44,6 +44,9 @@ function catalogManifest(): CatalogManifest {
   ) as CatalogManifest;
 }
 
+// Response census: catalog-items/read-model/queries.ts:182,194,196,214,426,427,588,609;
+// catalog-items/read-model/display-identity.ts:976,993,1099 (authoritative reference history);
+// alias-equivalence/read-model/queries.ts:268,359; product-contents/read-model/queries.ts:121,140.
 const expectedRoutes = [
   {
     routePath: "/items/:id",
@@ -91,7 +94,7 @@ function manifestMount(manifest: CatalogManifest) {
   const mount = manifest.apiMounts.find(
     (candidate) => candidate.mountPath === "/api/catalog" && candidate.kind === "primary",
   );
-  if (!mount?.readFreshnessRoutes) throw new Error("Catalog primary mount is missing freshness routes.");
+  if (!mount) throw new Error("Catalog primary mount is missing.");
   return mount;
 }
 
@@ -114,7 +117,7 @@ function groupsForManifest(manifest: CatalogManifest, status: ReadonlyMap<string
   });
 }
 
-function requestFor(path: string, method: "GET" | "HEAD", receipt: string) {
+function requestFor(path: string, method: "GET" | "HEAD", receipt?: string) {
   return {
     req: {
       method,
@@ -167,7 +170,9 @@ describe("Catalog item read freshness", () => {
       sources: [{ sourceContextName: "catalog", maxGlobalPosition: "10", eventIds: ["evt_catalog_10"] }],
     });
 
-    for (const expected of expectedRoutes) {
+    for (const [expected, method] of expectedRoutes.flatMap((route) =>
+      (["GET", "HEAD"] as const).map((method) => [route, method] as const),
+    )) {
       const required = new Set<string>(expected.groups);
       const status = new Map<string, "caught-up" | "behind">(
         manifest.projectionGroups.map((group) => [
@@ -176,6 +181,7 @@ describe("Catalog item read freshness", () => {
         ]),
       );
       const groups = groupsForManifest(manifest, status);
+      const requestWake = vi.fn(async () => 0);
       const audits: unknown[] = [];
       const middlewares: ((context: unknown, next: () => Promise<void>) => Promise<unknown>)[] = [];
       attachReadConsistencyMiddleware(
@@ -188,56 +194,73 @@ describe("Catalog item read freshness", () => {
           },
         ],
         groups,
-        { timeoutMs: 0, pollIntervalMs: 1, recordReadConsistencyAudit: (audit) => audits.push(audit) },
+        {
+          timeoutMs: 0,
+          pollIntervalMs: 1,
+          workSignalGateway: { requestWake },
+          recordReadConsistencyAudit: (audit) => audits.push(audit),
+        },
       );
 
       let nextCalls = 0;
       const result = await middlewares[0]!(
-        requestFor(`${routeRequestPath(expected.routePath)}/`, "GET", receipt),
+        requestFor(`${routeRequestPath(expected.routePath)}/`, method, receipt),
         async () => {
           nextCalls += 1;
         },
       );
       expect(result).toBeUndefined();
       expect(nextCalls).toBe(1);
+      expect(requestWake).not.toHaveBeenCalled();
       expect(audits[0]).toMatchObject({
         outcome: "fresh",
         waitMode: "exact-dependency",
         routePaths: [expected.routePath],
       });
+      for (const laggingGroup of expected.groups) {
+        for (const state of ["behind", "error"] as const) {
+          const lagging = new Map<string, "caught-up" | "behind" | "error">(
+            manifest.projectionGroups.map((group) => [group.projectionName, "caught-up"]),
+          ).set(laggingGroup, state);
+          const timeoutGroups = groupsForManifest(manifest, lagging);
+          const timeoutMiddlewares: ((context: unknown, next: () => Promise<void>) => Promise<unknown>)[] = [];
+          const timeoutAudits: unknown[] = [];
+          attachReadConsistencyMiddleware(
+            { use: (_path, middleware) => void timeoutMiddlewares.push(middleware) },
+            [
+              {
+                contextName: "catalog",
+                mountPath: mount.mountPath,
+                readFreshnessRoutes: mount.readFreshnessRoutes as unknown as readonly ReadConsistencyRouteDependency[],
+              },
+            ],
+            timeoutGroups,
+            { timeoutMs: 0, pollIntervalMs: 1, recordReadConsistencyAudit: (audit) => timeoutAudits.push(audit) },
+          );
+          const handler = vi.fn(async () => undefined);
+          const timeout = await timeoutMiddlewares[0]!(
+            requestFor(routeRequestPath(expected.routePath), method, receipt),
+            handler,
+          );
+          expect(
+            timeout,
+            JSON.stringify({ laggingGroup, state, handlerCalls: handler.mock.calls.length }),
+          ).toMatchObject({
+            status: 503,
+            body: { error: { code: "projection_freshness_timeout", waitMode: "exact-dependency" } },
+          });
+          expect(handler).not.toHaveBeenCalled();
+          expect(timeoutAudits[0]).toMatchObject({ outcome: "timeout", waitMode: "exact-dependency" });
+          expect(timeoutAudits[0]).toMatchObject({
+            pending: [expect.objectContaining({ projectionName: laggingGroup, state })],
+          });
+        }
+      }
       expect((audits[0] as { dependencies: readonly unknown[] }).dependencies).toHaveLength(expected.groups.length);
       for (const group of groups) {
         const calls = group.subscriptionRunners[0]!.refreshStatus;
         if (required.has(group.projectionName)) expect(calls).toHaveBeenCalledTimes(1);
         else expect(calls).not.toHaveBeenCalled();
-      }
-
-      for (const laggingGroup of expected.groups) {
-        const lagging = new Map(status).set(laggingGroup, "behind");
-        const timeoutGroups = groupsForManifest(manifest, lagging);
-        const timeoutMiddlewares: ((context: unknown, next: () => Promise<void>) => Promise<unknown>)[] = [];
-        const timeoutAudits: unknown[] = [];
-        attachReadConsistencyMiddleware(
-          { use: (_path, middleware) => void timeoutMiddlewares.push(middleware) },
-          [
-            {
-              contextName: "catalog",
-              mountPath: mount.mountPath,
-              readFreshnessRoutes: mount.readFreshnessRoutes as unknown as readonly ReadConsistencyRouteDependency[],
-            },
-          ],
-          timeoutGroups,
-          { timeoutMs: 0, pollIntervalMs: 1, recordReadConsistencyAudit: (audit) => timeoutAudits.push(audit) },
-        );
-        const timeout = await timeoutMiddlewares[0]!(
-          requestFor(routeRequestPath(expected.routePath), "HEAD", receipt),
-          async () => undefined,
-        );
-        expect(timeout).toMatchObject({
-          status: 503,
-          body: { error: { code: "projection_freshness_timeout", waitMode: "exact-dependency" } },
-        });
-        expect(timeoutAudits[0]).toMatchObject({ outcome: "timeout", waitMode: "exact-dependency" });
       }
     }
   });
@@ -341,8 +364,35 @@ describe("Catalog item read freshness", () => {
     });
   });
 
-  it("catalog exact routes preserve receipt and snapshot fallback contracts", () => {
+  it("catalog exact routes preserve receipt and snapshot fallback contracts", async () => {
     const manifest = catalogManifest();
+    const mount = manifestMount(manifest);
+    const expiredReceipt = encodeFreshWriteReceipt({
+      observedAtMs: 1,
+      sources: [{ sourceContextName: "catalog", maxGlobalPosition: "10", eventIds: ["evt_catalog_10"] }],
+    });
+    for (const expected of expectedRoutes) {
+      for (const receipt of [undefined, "malformed-receipt", expiredReceipt]) {
+        const groups = groupsForManifest(manifest, new Map());
+        const requestWake = vi.fn(async () => 0);
+        const audits: unknown[] = [];
+        const middlewares: ((context: unknown, next: () => Promise<void>) => Promise<unknown>)[] = [];
+        attachReadConsistencyMiddleware(
+          { use: (_path, middleware) => void middlewares.push(middleware) },
+          [{ contextName: "catalog", ...mount }],
+          groups,
+          { workSignalGateway: { requestWake }, recordReadConsistencyAudit: (audit) => audits.push(audit) },
+        );
+        const handler = vi.fn(async () => undefined);
+        expect(
+          await middlewares[0]!(requestFor(routeRequestPath(expected.routePath), "GET", receipt), handler),
+        ).toBeUndefined();
+        expect(handler).toHaveBeenCalledTimes(1);
+        expect(requestWake).not.toHaveBeenCalled();
+        for (const group of groups) expect(group.subscriptionRunners[0]!.refreshStatus).not.toHaveBeenCalled();
+        expect(audits).toEqual([expect.objectContaining({ outcome: "missing-receipt", wakeRequestCount: 0 })]);
+      }
+    }
     const inventory = manifest.readAfterWriteRouteInventory ?? [];
     expect(inventory.map((entry) => entry.id)).toEqual([
       "catalog.item-detail-self-refresh",
