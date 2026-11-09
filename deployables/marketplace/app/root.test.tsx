@@ -96,10 +96,7 @@ function rootPolicyViolations(source: string) {
   const violations: string[] = [];
   const policyNames = new Set(["resolveCartCount", "resolveCurrentActorDisplay", "resolveMarketplaceRootTheme"]);
   const visit = (node: ts.Node) => {
-    if (
-      ts.isStringLiteralLike(node) &&
-      (node.text === "guest-buyer" || node.text === "guest-checkout.manage")
-    ) {
+    if (ts.isStringLiteralLike(node) && (node.text === "guest-buyer" || node.text === "guest-checkout.manage")) {
       violations.push(node.text);
     }
     if (
@@ -384,11 +381,11 @@ describe("marketplace root layout", () => {
     vi.stubGlobal("fetch", fetch);
 
     const result = await loader({
-        ...createLoaderArgs("https://marketplace.chasesets.com/checkout/buy/session/chk_1"),
-        request: new Request("https://marketplace.chasesets.com/checkout/buy/session/chk_1", {
-          headers: { cookie: "chase_sets_anonymous_cart=anon_cart_1; chase_sets_color_mode=dark" },
-        }),
-      });
+      ...createLoaderArgs("https://marketplace.chasesets.com/checkout/buy/session/chk_1"),
+      request: new Request("https://marketplace.chasesets.com/checkout/buy/session/chk_1", {
+        headers: { cookie: "chase_sets_anonymous_cart=anon_cart_1; chase_sets_color_mode=dark" },
+      }),
+    });
     const data = unwrapLoaderData(result);
 
     expect(data.actor?.roleKey).toBe("guest-buyer");
@@ -499,13 +496,16 @@ describe("marketplace root layout", () => {
         roleKey: "manager",
         permissions: ["accounts.view"],
       };
-      vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
-        const pathname = requestPath(input);
-        if (pathname === "/api/auth/session") return Response.json({ actor });
-        if (pathname.startsWith("/api/identity/")) return Response.json({}, { status: 503 });
-        if (pathname === "/api/marketplace/account/cart") return Response.json({ count: 7, items: [] });
-        throw new Error(`Unexpected request: ${pathname}`);
-      }));
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (input: RequestInfo | URL) => {
+          const pathname = requestPath(input);
+          if (pathname === "/api/auth/session") return Response.json({ actor });
+          if (pathname.startsWith("/api/identity/")) return Response.json({}, { status: 503 });
+          if (pathname === "/api/marketplace/account/cart") return Response.json({ count: 7, items: [] });
+          throw new Error(`Unexpected request: ${pathname}`);
+        }),
+      );
       const result = await loader({
         ...createLoaderArgs("https://marketplace.chasesets.com/account"),
         request: new Request("https://marketplace.chasesets.com/account", { headers: { cookie } }),
