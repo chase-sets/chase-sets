@@ -353,7 +353,7 @@ export function validateCapturePair(m, current, paired, baselineValue, readSourc
   requireThat(hex(baselineValue.bindingsSha256, 64), "baseline binding digest missing");
 }
 
-export async function admitProfile(m, { objectRoot = root, dispatchSha, helperSha } = {}) {
+export async function admitProfile(m, { objectRoot = root, dispatchSha, helperSha, requireUnmerged = true } = {}) {
   same(dispatchSha, m.D.commit, "wrong dispatch head");
   same(helperSha, m.T.commit, "wrong helper checkout");
   for (const role of ["S", "W", "E", "T", "D"]) {
@@ -366,10 +366,17 @@ export async function admitProfile(m, { objectRoot = root, dispatchSha, helperSh
   }
   git(objectRoot, ["merge-base", "--is-ancestor", m.T.commit, "origin/main"]);
   git(objectRoot, ["merge-base", "--is-ancestor", m.S.commit, m.E.commit]);
+  if (requireUnmerged) {
+    const mergedInput = spawnSync("git", ["-C", objectRoot, "merge-base", "--is-ancestor", m.E.commit, "origin/main"], {
+      windowsHide: true,
+      env: { ...process.env, GIT_NO_LAZY_FETCH: "1", GIT_NO_REPLACE_OBJECTS: "1", GIT_TERMINAL_PROMPT: "0" },
+    });
+    requireThat(!mergedInput.error && mergedInput.status === 1, "E must be an unmerged enrollment projection");
+  }
   same(git(objectRoot, ["show", "-s", "--format=%P", m.W.commit]).trim(), m.S.commit, "W sole S parent");
   same(
-    git(objectRoot, ["diff", "--no-renames", "--name-only", m.S.commit, m.W.commit]).trim(),
-    ".github/workflows/10365-bootstrap-db-input-capture.yml",
+    git(objectRoot, ["diff", "--no-renames", "--name-status", m.S.commit, m.W.commit]).trim(),
+    "A\t.github/workflows/10365-bootstrap-db-input-capture.yml",
     "W capture-only delta",
   );
   same(
@@ -378,7 +385,10 @@ export async function admitProfile(m, { objectRoot = root, dispatchSha, helperSh
     "D workflow not reviewed T bytes",
   );
   for (const role of ["T", "D"]) {
-    requireThat(git(objectRoot, ["ls-tree", m[role].commit, "--", WORKFLOW]).startsWith("100644 blob "), "workflow must be a regular reviewed file");
+    requireThat(
+      git(objectRoot, ["ls-tree", m[role].commit, "--", WORKFLOW]).startsWith("100644 blob "),
+      "workflow must be a regular reviewed file",
+    );
   }
   if (m.D.commit !== m.E.commit) {
     same(git(objectRoot, ["show", "-s", "--format=%P", m.D.commit]).trim(), m.E.commit, "D sole E parent");
@@ -425,7 +435,11 @@ export async function admitProfile(m, { objectRoot = root, dispatchSha, helperSh
   const original = await inspectChecker(blob(root, baseline, CHECKER).toString("utf8"));
   same(actual.skeleton, original.skeleton, "checker token/order/algorithm/control-base change");
   for (const name of LITERALS) {
-    same(canonical(actual.values[name]), canonical(m.checkerLiterals[name]), `reviewed checker literals/order differ: ${name}`);
+    same(
+      canonical(actual.values[name]),
+      canonical(m.checkerLiterals[name]),
+      `reviewed checker literals/order differ: ${name}`,
+    );
   }
   const fixtures = Object.fromEntries(
     Object.entries(m.fixtures).map(([key, entry]) => {
@@ -450,10 +464,15 @@ export function cleanInput(directory, m) {
 }
 
 export async function validateWorkloadBaseline(m, current, baselineValue, derivation) {
-  const { checkBootstrapDbWorkloadFreshness } = await import("../deployables/platform-api/scripts/db-enrollment-workload.mjs");
+  const { checkBootstrapDbWorkloadFreshness } =
+    await import("../deployables/platform-api/scripts/db-enrollment-workload.mjs");
   const result = checkBootstrapDbWorkloadFreshness({
     baseline: baselineValue,
-    capture: { fileName: m.fixtures.current.path.split("/").at(-1), fixtureSha256: m.fixtures.current.sha256, provenance: current.provenance },
+    capture: {
+      fileName: m.fixtures.current.path.split("/").at(-1),
+      fixtureSha256: m.fixtures.current.sha256,
+      provenance: current.provenance,
+    },
     derivation,
   });
   same(result.violations, [], "canonical baseline/workload drift");
@@ -647,7 +666,10 @@ export function readArtifactZip(zip) {
       same(zip.readUInt32LE(finish + 8), expanded, "ZIP descriptor expanded size differs");
       finish += 12;
     }
-    requireThat(!ranges.some(([start, previousEnd]) => offset < previousEnd && finish > start), "ZIP overlapping descriptors");
+    requireThat(
+      !ranges.some(([start, previousEnd]) => offset < previousEnd && finish > start),
+      "ZIP overlapping descriptors",
+    );
     ranges.push([offset, finish]);
     const input = zip.subarray(data, data + compressed);
     const bytes = method === 8 ? inflateRawSync(input, { maxOutputLength: max }) : input;
@@ -698,6 +720,7 @@ export function acceptCompletedArtifact({ m, manifestSha256, run, jobs, artifact
   requireThat(
     Number.isSafeInteger(job.id) &&
       job.run_id === run.id &&
+      job.run_attempt === 1 &&
       job.head_sha === m.D.commit &&
       job.status === "completed" &&
       job.conclusion === "success" &&
@@ -724,6 +747,12 @@ export function acceptCompletedArtifact({ m, manifestSha256, run, jobs, artifact
     Date.parse(job.started_at) <= Date.parse(receipt.producer.startedAt) &&
       Date.parse(job.completed_at) >= Date.parse(receipt.producer.completedAt),
     "receipt outside executed job",
+  );
+  const producerStep = job.steps.find((step) => step.name === "Run fixed producer");
+  requireThat(
+    Date.parse(producerStep.started_at) <= Date.parse(receipt.producer.startedAt) &&
+      Date.parse(producerStep.completed_at) + 1000 > Date.parse(receipt.producer.completedAt),
+    "receipt outside executed producer step",
   );
   return {
     kind: "accepted-deterministic-derivation",
@@ -843,13 +872,21 @@ async function main(args) {
   const { m, manifestSha256 } = environmentManifest();
   same(git(root, ["status", "--porcelain", "--untracked-files=normal"]).trim(), "", "dirty helper T checkout");
   if (command === "accept") {
-    await admitProfile(m, { dispatchSha: m.D.commit, helperSha: git(root, ["rev-parse", "HEAD"]).trim() });
+    await admitProfile(m, {
+      dispatchSha: m.D.commit,
+      helperSha: git(root, ["rev-parse", "HEAD"]).trim(),
+      requireUnmerged: false,
+    });
     requireThat(rest.length === 2 && rest.every(id), "accept requires numeric run and artifact IDs");
     console.log(canonical(completedAcceptance(m, manifestSha256, ...rest)));
     return;
   }
   if (command === "application") {
-    await admitProfile(m, { dispatchSha: m.D.commit, helperSha: git(root, ["rev-parse", "HEAD"]).trim() });
+    await admitProfile(m, {
+      dispatchSha: m.D.commit,
+      helperSha: git(root, ["rev-parse", "HEAD"]).trim(),
+      requireUnmerged: false,
+    });
     requireThat(rest.length === 3, "application requires immutable P, run ID and artifact ID");
     const accepted = completedAcceptance(m, manifestSha256, rest[1], rest[2]);
     console.log(canonical(checkApplication(m, rest[0], { acceptedMemoSha256: accepted.memoSha256 })));

@@ -81,6 +81,8 @@ guess the later publication commit's hash.
    step must have executed successfully. Retain the returned run/job URLs,
    artifact ID/digest, memo/receipt/sums digests and original downloaded bytes.
    No mid-run job or PR inference is authority.
+   Derivation requires unmerged E; read-only acceptance/application may inspect
+   historical E after publication lands, without authorizing another derivation.
 5. The canonical author alone copies the accepted memo into P and updates the
    ordinary enrollment test pin. Run the read-only application probe from T:
    `node scripts/bootstrap-db-oracle-memo-artifact.mjs application P RUN_ID ARTIFACT_ID`.

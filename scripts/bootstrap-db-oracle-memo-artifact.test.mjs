@@ -53,7 +53,7 @@ const inspected = await inspectChecker(source);
 const workflow = read(WORKFLOW).toString("utf8");
 const workflowValue = parse(workflow);
 
-async function syntheticProfile(runId, offset) {
+async function syntheticProfile(runId, offset, workflowInSource = false) {
   const directory = mkdtempSync(join(tmpdir(), "synthetic-memo-profile-"));
   directories.push(directory);
   const put = (path, bytes) => {
@@ -84,12 +84,13 @@ async function syntheticProfile(runId, offset) {
   for (const fileName of Object.keys(inspected.values.bootstrapDbEnrollmentManifest)) {
     put(`${PLATFORM}/__tests__/${fileName}`, "synthetic source, never executed\n");
   }
+  if (workflowInSource) put(WORKFLOW, workflow);
   const S = commit("Synthetic product source, not hosted evidence");
   put(".github/workflows/10365-bootstrap-db-input-capture.yml", "name: Synthetic capture, never executed\n");
   const W = commit("Synthetic capture-only child");
   git(directory, ["switch", "--quiet", "--detach", S.commit]);
   put(WORKFLOW, workflow);
-  const T = commit("Synthetic reviewed landed route");
+  const T = workflowInSource ? S : commit("Synthetic reviewed landed route");
   git(directory, ["update-ref", "refs/remotes/origin/main", T.commit]);
   git(directory, ["switch", "--quiet", "--detach", S.commit]);
   const literals = copy(inspected.values);
@@ -147,7 +148,7 @@ async function syntheticProfile(runId, offset) {
   for (const [path, bytes] of Object.values(entries)) put(path, bytes);
   const E = commit("Synthetic accepted input projection");
   put(WORKFLOW, workflow);
-  const D = commit("Synthetic dispatch-only workflow child");
+  const D = workflowInSource ? E : commit("Synthetic dispatch-only workflow child");
   git(directory, ["switch", "--quiet", "--detach", E.commit]);
   const changed = git(directory, ["diff", "--name-only", S.commit, E.commit]).split("\n").sort();
   const m = {
@@ -179,7 +180,7 @@ async function syntheticProfile(runId, offset) {
 }
 
 const first = await syntheticProfile("999000001", 0);
-const second = await syntheticProfile("999000101", 11);
+const second = await syntheticProfile("999000101", 11, true);
 const options = (profile) => ({
   objectRoot: profile.directory,
   dispatchSha: profile.m.D.commit,
@@ -263,8 +264,10 @@ function zipFiles(files, { names = [...files.keys()], mode = 0x81a4, deflate = f
     local.push(header, filename, compressed);
     const trailer = Buffer.alloc(descriptor ? 16 : 0);
     if (descriptor) {
-      trailer.writeUInt32LE(0x08074b50); trailer.writeUInt32LE(crc32(bytes), 4);
-      trailer.writeUInt32LE(compressed.length, 8); trailer.writeUInt32LE(bytes.length, 12);
+      trailer.writeUInt32LE(0x08074b50);
+      trailer.writeUInt32LE(crc32(bytes), 4);
+      trailer.writeUInt32LE(compressed.length, 8);
+      trailer.writeUInt32LE(bytes.length, 12);
       local.push(trailer);
     }
     const entry = Buffer.alloc(46);
@@ -317,11 +320,18 @@ describe("immutable hosted memo artifacts (synthetic controls, no producer execu
     wrong.checkerLiterals.bootstrapDbScheduleModel.testFileFixedCostMs++;
     await expect(admitProfile(wrong, options(first))).rejects.toThrow("reviewed checker literals");
     const reordered = copy(first.m);
-    reordered.checkerLiterals.bootstrapDbEnrollmentManifest = Object.fromEntries(Object.entries(reordered.checkerLiterals.bootstrapDbEnrollmentManifest).reverse());
+    reordered.checkerLiterals.bootstrapDbEnrollmentManifest = Object.fromEntries(
+      Object.entries(reordered.checkerLiterals.bootstrapDbEnrollmentManifest).reverse(),
+    );
     await expect(admitProfile(reordered, options(first))).rejects.toThrow("literals/order");
     await expect(admitProfile(first.m, { ...options(first), dispatchSha: first.m.S.commit })).rejects.toThrow(
       "wrong dispatch",
     );
+    expect(second.m.D).toEqual(second.m.E);
+    git(second.directory, ["update-ref", "refs/remotes/origin/main", second.m.E.commit]);
+    await expect(admitProfile(second.m, options(second))).rejects.toThrow("unmerged enrollment");
+    await expect(admitProfile(second.m, { ...options(second), requireUnmerged: false })).resolves.toBeDefined();
+    git(second.directory, ["update-ref", "refs/remotes/origin/main", second.m.T.commit]);
   });
 
   it("binds captured-real inputs without replacing externally owned identities", async () => {
@@ -354,7 +364,9 @@ describe("immutable hosted memo artifacts (synthetic controls, no producer execu
     const derivation = { gaps: [], bindings: baselineValue.bindings };
     await expect(validateWorkloadBaseline(m, current, baselineValue, derivation)).resolves.toBeUndefined();
     const syntheticCorruption = { ...baselineValue, selectorsSha256: "0".repeat(64) };
-    await expect(validateWorkloadBaseline(m, current, syntheticCorruption, derivation)).rejects.toThrow("canonical baseline/workload drift");
+    await expect(validateWorkloadBaseline(m, current, syntheticCorruption, derivation)).rejects.toThrow(
+      "canonical baseline/workload drift",
+    );
   });
 
   it("admits only fixed producer and output", () => {
@@ -383,6 +395,8 @@ describe("immutable hosted memo artifacts (synthetic controls, no producer execu
       ["${{ inputs.input_sha }}", false],
     ]);
     const run = job.steps.find(({ name }) => name === "Run fixed producer");
+    expect(job.env.MEMO_CHECK_RUN_ID).toBeUndefined();
+    expect(run.env.MEMO_CHECK_RUN_ID).toBe("${{ job.check_run_id }}");
     expect(run.run).toBe(
       "node trusted/scripts/bootstrap-db-oracle-memo-artifact.mjs derive --out artifacts/bootstrap-db-oracle-memo/bootstrap-db-oracle-schedule-memo.json",
     );
@@ -406,7 +420,8 @@ describe("immutable hosted memo artifacts (synthetic controls, no producer execu
     const a = artifactFor(first.m);
     expect(validateArtifact(a.files, first.m, a.manifestSha256)).toEqual(a.receipt);
     for (const deflate of [false, true]) {
-      for (const descriptor of [false, true]) expect(readArtifactZip(zipFiles(a.files, { deflate, descriptor }))).toEqual(a.files);
+      for (const descriptor of [false, true])
+        expect(readArtifactZip(zipFiles(a.files, { deflate, descriptor }))).toEqual(a.files);
     }
     for (const path of PAYLOADS) {
       const files = new Map(a.files);
@@ -474,6 +489,7 @@ describe("immutable hosted memo artifacts (synthetic controls, no producer execu
     const job = {
       id: 999000303,
       run_id: run.id,
+      run_attempt: 1,
       head_sha: run.head_sha,
       name: "Derive Canonical Bootstrap Memo",
       status: "completed",
@@ -508,6 +524,10 @@ describe("immutable hosted memo artifacts (synthetic controls, no producer execu
     for (const status of ["queued", "in_progress"])
       expect(() => acceptCompletedArtifact({ ...input, run: { ...run, status } })).toThrow("completed");
     expect(() => acceptCompletedArtifact({ ...input, run: { ...run, run_attempt: 2 } })).toThrow("attempt 1");
+    expect(() => acceptCompletedArtifact({ ...input, jobs: [{ ...job, run_attempt: 2 }] })).toThrow("numeric job");
+    const wrongStepTime = copy(job);
+    wrongStepTime.steps.find(({ name }) => name === "Run fixed producer").started_at = "2026-11-09T00:01:02Z";
+    expect(() => acceptCompletedArtifact({ ...input, jobs: [wrongStepTime] })).toThrow("producer step");
     expect(() => acceptCompletedArtifact({ ...input, jobs: [{ ...job, conclusion: "skipped" }] })).toThrow(
       "numeric job",
     );

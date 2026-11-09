@@ -1022,9 +1022,16 @@ describe("caller inventory (seed/bootstrap/import/reconciliation) — issue #583
     expect(inventory.misses).toEqual([]);
     expect(discovered).toContain("bounded-contexts/identity/support/seed-support/account-management-browser.ts");
     expect(discovered).toContain("bounded-contexts/pricing/support/runtime-support/pricing-health-browser-seed.ts");
+    expect(discovered).toContain("scripts/bootstrap-db-oracle-memo-artifact.mjs");
+    expect(
+      inventory.records.find(({ path }) => path === "scripts/bootstrap-db-oracle-memo-artifact.mjs"),
+    ).toMatchObject({
+      class: "persistent_required",
+      matchedPattern: null,
+    });
     expect({ discovered: discovered.length, persistentCount, ruledCount }).toEqual({
-      discovered: 169,
-      persistentCount: 163,
+      discovered: 170,
+      persistentCount: 164,
       ruledCount: 6,
     });
   });

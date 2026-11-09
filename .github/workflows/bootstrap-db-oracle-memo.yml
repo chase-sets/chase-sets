@@ -39,7 +39,6 @@ jobs:
       INPUT_SHA: ${{ inputs.input_sha }}
       MEMO_MANIFEST_JSON: ${{ inputs.manifest_json }}
       MEMO_MANIFEST_SHA256: ${{ inputs.manifest_sha256 }}
-      MEMO_CHECK_RUN_ID: ${{ job.check_run_id }}
     steps:
       - name: Refuse reruns and mutable selectors
         shell: bash
@@ -97,6 +96,8 @@ jobs:
         run: node trusted/scripts/bootstrap-db-oracle-memo-artifact.mjs verify-input
 
       - name: Run fixed producer
+        env:
+          MEMO_CHECK_RUN_ID: ${{ job.check_run_id }}
         run: node trusted/scripts/bootstrap-db-oracle-memo-artifact.mjs derive --out artifacts/bootstrap-db-oracle-memo/bootstrap-db-oracle-schedule-memo.json
 
       - name: Validate canonical payloads
