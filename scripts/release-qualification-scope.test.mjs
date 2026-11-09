@@ -29,6 +29,9 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), ".."
 const fixturesDir = path.join(repoRoot, "scripts", "fixtures", "release-qualification-scope");
 const classifierPath = path.join(repoRoot, "scripts", "release-qualification-scope.mjs");
 const hash = (value) => createHash("sha256").update(value).digest("hex");
+it("registers hosted bootstrap memo derivation as ci", () => {
+  expect(releaseQualificationScopeRegistry.workflows["bootstrap-db-oracle-memo.yml"]).toBe("ci");
+});
 it("registers the production lock monitor as advisory, not release selection or deployment", () => {
   expect(releaseQualificationScopeRegistry.workflows["platform-production-lock-monitor.yml"]).toBe("ci");
 });

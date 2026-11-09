@@ -1,0 +1,121 @@
+name: Bootstrap DB Oracle Memo
+
+on:
+  workflow_dispatch:
+    inputs:
+      helper_sha:
+        description: Reviewed route T, already on main (full commit SHA)
+        required: true
+        type: string
+      input_sha:
+        description: Reviewed immutable enrollment input E (full commit SHA)
+        required: true
+        type: string
+      manifest_json:
+        description: Canonical bootstrap-db-oracle-memo-input/v1 JSON including final LF
+        required: true
+        type: string
+      manifest_sha256:
+        description: Host-reviewed manifest UTF-8 byte SHA-256
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bootstrap-db-oracle-memo-global
+  cancel-in-progress: false
+
+jobs:
+  deriveMemo:
+    name: Derive Canonical Bootstrap Memo
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    env:
+      HELPER_SHA: ${{ inputs.helper_sha }}
+      INPUT_SHA: ${{ inputs.input_sha }}
+      MEMO_MANIFEST_JSON: ${{ inputs.manifest_json }}
+      MEMO_MANIFEST_SHA256: ${{ inputs.manifest_sha256 }}
+      MEMO_CHECK_RUN_ID: ${{ job.check_run_id }}
+    steps:
+      - name: Refuse reruns and mutable selectors
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_RUN_ATTEMPT" = 1
+          [[ "$HELPER_SHA" =~ ^[a-f0-9]{40}$ ]]
+          [[ "$INPUT_SHA" =~ ^[a-f0-9]{40}$ ]]
+          [[ "$MEMO_MANIFEST_SHA256" =~ ^[a-f0-9]{64}$ ]]
+
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          ref: ${{ inputs.helper_sha }}
+          path: trusted
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify landed helper before executing code
+        working-directory: trusted
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$HELPER_SHA"
+          git merge-base --is-ancestor "$HELPER_SHA" origin/main
+          test "$(git rev-parse "$GITHUB_SHA:.github/workflows/bootstrap-db-oracle-memo.yml")" = "$(git rev-parse "$HELPER_SHA:.github/workflows/bootstrap-db-oracle-memo.yml")"
+
+      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+        with:
+          version: 11.0.9
+          run_install: false
+
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "24.22.1"
+
+      - name: Install locked trusted tools
+        working-directory: trusted
+        run: pnpm install --frozen-lockfile --ignore-scripts --ignore-pnpmfile
+
+      - name: Admit immutable profile
+        run: node trusted/scripts/bootstrap-db-oracle-memo-artifact.mjs admit
+
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          ref: ${{ inputs.input_sha }}
+          path: input
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Install locked input dependencies
+        working-directory: input
+        run: pnpm install --frozen-lockfile --ignore-scripts --ignore-pnpmfile
+
+      - name: Verify clean input
+        run: node trusted/scripts/bootstrap-db-oracle-memo-artifact.mjs verify-input
+
+      - name: Run fixed producer
+        run: node trusted/scripts/bootstrap-db-oracle-memo-artifact.mjs derive --out artifacts/bootstrap-db-oracle-memo/bootstrap-db-oracle-schedule-memo.json
+
+      - name: Validate canonical payloads
+        shell: bash
+        run: |
+          set -euo pipefail
+          node trusted/scripts/bootstrap-db-oracle-memo-artifact.mjs validate
+          test -s artifacts/bootstrap-db-oracle-memo/bootstrap-db-oracle-schedule-memo.json
+          test -s artifacts/bootstrap-db-oracle-memo/receipt.json
+          test -s artifacts/bootstrap-db-oracle-memo/SHA256SUMS
+
+      - name: Upload canonical memo
+        id: canonical-upload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: bootstrap-db-oracle-memo-${{ github.run_id }}-1
+          path: |
+            artifacts/bootstrap-db-oracle-memo/bootstrap-db-oracle-schedule-memo.json
+            artifacts/bootstrap-db-oracle-memo/receipt.json
+            artifacts/bootstrap-db-oracle-memo/SHA256SUMS
+          if-no-files-found: error
+          retention-days: 30
