@@ -79,7 +79,8 @@ jobs:
         run: pnpm install --frozen-lockfile --ignore-scripts --ignore-pnpmfile
 
       - name: Admit immutable profile
-        run: node trusted/scripts/bootstrap-db-oracle-memo-artifact.mjs admit
+        working-directory: trusted
+        run: node ./scripts/bootstrap-db-oracle-memo-artifact.mjs admit
 
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
@@ -93,21 +94,24 @@ jobs:
         run: pnpm install --frozen-lockfile --ignore-scripts --ignore-pnpmfile
 
       - name: Verify clean input
-        run: node trusted/scripts/bootstrap-db-oracle-memo-artifact.mjs verify-input
+        working-directory: trusted
+        run: node ./scripts/bootstrap-db-oracle-memo-artifact.mjs verify-input
 
       - name: Run fixed producer
+        working-directory: trusted
         env:
           MEMO_CHECK_RUN_ID: ${{ job.check_run_id }}
-        run: node trusted/scripts/bootstrap-db-oracle-memo-artifact.mjs derive --out artifacts/bootstrap-db-oracle-memo/bootstrap-db-oracle-schedule-memo.json
+        run: node ./scripts/bootstrap-db-oracle-memo-artifact.mjs derive --out ../artifacts/bootstrap-db-oracle-memo/bootstrap-db-oracle-schedule-memo.json
 
       - name: Validate canonical payloads
+        working-directory: trusted
         shell: bash
         run: |
           set -euo pipefail
-          node trusted/scripts/bootstrap-db-oracle-memo-artifact.mjs validate
-          test -s artifacts/bootstrap-db-oracle-memo/bootstrap-db-oracle-schedule-memo.json
-          test -s artifacts/bootstrap-db-oracle-memo/receipt.json
-          test -s artifacts/bootstrap-db-oracle-memo/SHA256SUMS
+          node ./scripts/bootstrap-db-oracle-memo-artifact.mjs validate
+          test -s ../artifacts/bootstrap-db-oracle-memo/bootstrap-db-oracle-schedule-memo.json
+          test -s ../artifacts/bootstrap-db-oracle-memo/receipt.json
+          test -s ../artifacts/bootstrap-db-oracle-memo/SHA256SUMS
 
       - name: Upload canonical memo
         id: canonical-upload

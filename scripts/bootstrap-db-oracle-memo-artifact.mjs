@@ -831,7 +831,7 @@ export function parseCommand(args) {
   if (command === "derive")
     same(
       rest,
-      ["--out", "artifacts/bootstrap-db-oracle-memo/bootstrap-db-oracle-schedule-memo.json"],
+      ["--out", "../artifacts/bootstrap-db-oracle-memo/bootstrap-db-oracle-schedule-memo.json"],
       "fixed output only",
     );
   if (command === "accept") requireThat(rest.length === 2 && rest.every(id), "numeric run and artifact IDs required");
@@ -932,7 +932,7 @@ async function main(args) {
   }
   same(
     rest,
-    ["--out", "artifacts/bootstrap-db-oracle-memo/bootstrap-db-oracle-schedule-memo.json"],
+    ["--out", "../artifacts/bootstrap-db-oracle-memo/bootstrap-db-oracle-schedule-memo.json"],
     "fixed output only",
   );
   same(process.env.GITHUB_RUN_ATTEMPT, "1", "rerun refused");

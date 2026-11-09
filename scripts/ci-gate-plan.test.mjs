@@ -109,10 +109,12 @@ describe("hosted bootstrap oracle memo gate", () => {
     expect(job["timeout-minutes"]).toBe(30);
     expect(job.steps.filter(({ run }) => run?.includes("bootstrap-db-oracle-schedule-memo.mjs"))).toEqual([
       expect.objectContaining({
-        "working-directory": "deployables/platform-api",
-        run: "node __tests__/fixtures/bootstrap-db-oracle-schedule-memo.mjs --check",
+        run: "node deployables/platform-api/__tests__/fixtures/bootstrap-db-oracle-schedule-memo.mjs --check",
       }),
     ]);
+    expect(
+      job.steps.find(({ name }) => name === "Check memo against raw pinned oracle")["working-directory"],
+    ).toBeUndefined();
   });
 });
 const scopedCases = selectionFixture.cases.map((entry) => ({

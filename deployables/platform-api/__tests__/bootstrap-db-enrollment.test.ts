@@ -4160,6 +4160,9 @@ describe("Platform API bootstrap DB enrollment", () => {
       expect(callers.sort()).toEqual([
         "deployables/platform-api/__tests__/bootstrap-db-enrollment.test.ts",
         "deployables/platform-api/scripts/db-enrollment-workload.mjs",
+        // The hosted memo derivation helper checks its input's workload freshness; it is not the test:db guard.
+        "scripts/bootstrap-db-oracle-memo-artifact.mjs",
+        "scripts/bootstrap-db-oracle-memo-artifact.test.mjs",
         "scripts/change-scope.mjs",
         "scripts/change-scope.test.mjs",
       ]);

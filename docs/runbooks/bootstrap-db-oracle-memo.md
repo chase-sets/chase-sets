@@ -91,7 +91,7 @@ guess the later publication commit's hash.
    pending. It never writes or grants publication/landing authority.
 6. Require exact-P hosted enrollment assertions with zero exits and the selected
    `Bootstrap DB Oracle Memo Check` job. The latter executes the raw CLI
-   `node __tests__/fixtures/bootstrap-db-oracle-schedule-memo.mjs --check` once,
+   `node deployables/platform-api/__tests__/fixtures/bootstrap-db-oracle-schedule-memo.mjs --check` once,
    independently of Unit shards, under a 30-minute bound. Preserve its job/head,
    raw command and zero exit in durable logs. The same selected check must pass
    in the merge group. Any W1-W5 drift stops; other read-closure movement from E

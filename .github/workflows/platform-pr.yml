@@ -293,8 +293,7 @@ jobs:
           install: true
 
       - name: Check memo against raw pinned oracle
-        working-directory: deployables/platform-api
-        run: node __tests__/fixtures/bootstrap-db-oracle-schedule-memo.mjs --check
+        run: node deployables/platform-api/__tests__/fixtures/bootstrap-db-oracle-schedule-memo.mjs --check
 
   canonical-proof-sets:
     name: Canonical Proof Sets

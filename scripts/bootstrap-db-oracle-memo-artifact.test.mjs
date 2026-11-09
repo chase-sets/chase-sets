@@ -5,6 +5,7 @@ import { dirname, join } from "node:path";
 import { crc32, deflateRawSync } from "node:zlib";
 import { afterAll, describe, expect, it } from "vitest";
 import { parse } from "yaml";
+import { literalOutPaths } from "./workflow-canonical-artifacts.mjs";
 import {
   INPUT_SCHEMA,
   MEMO_SCHEMA,
@@ -379,6 +380,20 @@ describe("immutable hosted memo artifacts (synthetic controls, no producer execu
     ]) {
       expect(() => parseCommand(args)).toThrow();
     }
+    expect(
+      parseCommand(["derive", "--out", "../artifacts/bootstrap-db-oracle-memo/bootstrap-db-oracle-schedule-memo.json"])
+        .command,
+    ).toBe("derive");
+    expect(() =>
+      parseCommand(["derive", "--out", "artifacts/bootstrap-db-oracle-memo/bootstrap-db-oracle-schedule-memo.json"]),
+    ).toThrow("fixed output only");
+    const helper = read("scripts/bootstrap-db-oracle-memo-artifact.mjs").toString("utf8");
+    expect(
+      helper.split('"../artifacts/bootstrap-db-oracle-memo/bootstrap-db-oracle-schedule-memo.json"').length - 1,
+    ).toBe(2);
+    expect(helper.split('"artifacts/bootstrap-db-oracle-memo/bootstrap-db-oracle-schedule-memo.json"').length - 1).toBe(
+      0,
+    );
     expect(Object.keys(workflowValue.on)).toEqual(["workflow_dispatch"]);
     expect(Object.keys(workflowValue.jobs)).toEqual(["deriveMemo"]);
     expect(workflowValue.permissions).toEqual({ contents: "read" });
@@ -395,10 +410,24 @@ describe("immutable hosted memo artifacts (synthetic controls, no producer execu
       ["${{ inputs.input_sha }}", false],
     ]);
     const run = job.steps.find(({ name }) => name === "Run fixed producer");
+    const helperSteps = job.steps.filter(({ run }) => run?.includes("bootstrap-db-oracle-memo-artifact.mjs"));
+    expect(helperSteps).toHaveLength(4);
+    for (const step of helperSteps) {
+      expect(step["working-directory"]).toBe("trusted");
+      expect(step.run).toMatch(
+        /^(?:set -euo pipefail\n)?node \.\/scripts\/bootstrap-db-oracle-memo-artifact\.mjs (?:admit|verify-input|derive|validate)\b/,
+      );
+    }
+    for (const step of job.steps) {
+      expect(step.run ?? "").not.toMatch(/trusted\/scripts|\$GITHUB_WORKSPACE/);
+    }
+    expect(literalOutPaths(run.run, { workingDirectory: run["working-directory"] })).toEqual([
+      "artifacts/bootstrap-db-oracle-memo/bootstrap-db-oracle-schedule-memo.json",
+    ]);
     expect(job.env.MEMO_CHECK_RUN_ID).toBeUndefined();
     expect(run.env.MEMO_CHECK_RUN_ID).toBe("${{ job.check_run_id }}");
     expect(run.run).toBe(
-      "node trusted/scripts/bootstrap-db-oracle-memo-artifact.mjs derive --out artifacts/bootstrap-db-oracle-memo/bootstrap-db-oracle-schedule-memo.json",
+      "node ./scripts/bootstrap-db-oracle-memo-artifact.mjs derive --out ../artifacts/bootstrap-db-oracle-memo/bootstrap-db-oracle-schedule-memo.json",
     );
     expect(job.steps.find(({ name }) => name === "Refuse reruns and mutable selectors").run).toContain(
       'test "$GITHUB_RUN_ATTEMPT" = 1',
@@ -408,12 +437,7 @@ describe("immutable hosted memo artifacts (synthetic controls, no producer execu
     expect(upload.with.path.trim().split("\n")).toEqual(
       PAYLOADS.map((name) => `artifacts/bootstrap-db-oracle-memo/${name}`),
     );
-    const helper = read("scripts/bootstrap-db-oracle-memo-artifact.mjs").toString("utf8");
     expect(helper).toMatch(/spawnSync\(\s*process\.execPath,\s*\[resolve\(inputRoot, PRODUCER\)\]/);
-    expect(
-      parseCommand(["derive", "--out", "artifacts/bootstrap-db-oracle-memo/bootstrap-db-oracle-schedule-memo.json"])
-        .command,
-    ).toBe("derive");
   });
 
   it("rejects partial artifact", () => {
