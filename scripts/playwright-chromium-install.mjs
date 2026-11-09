@@ -46,6 +46,28 @@ const officialArchive = "https://archive.ubuntu.com/ubuntu";
 const officialSecurity = "https://security.ubuntu.com/ubuntu";
 const digest = (value) => createHash("sha256").update(value).digest("hex");
 
+export function classifyAptBoolean(value) {
+  if (typeof value !== "string") return null;
+  switch (value.toLowerCase()) {
+    case "1":
+    case "yes":
+    case "true":
+    case "with":
+    case "on":
+    case "enable":
+      return true;
+    case "0":
+    case "no":
+    case "false":
+    case "without":
+    case "off":
+    case "disable":
+      return false;
+    default:
+      return null;
+  }
+}
+
 function sourceEntries(text, filename) {
   if (filename.endsWith(".sources")) {
     return text
@@ -325,6 +347,7 @@ export function prepareE2eApt({
       write(
         `playwright-e2e-apt-refusal ${JSON.stringify({ guard, key, value: redactAptConfig(value), configEntries })}`,
       );
+      write(`playwright-e2e-apt-refusal-dump ${JSON.stringify({ guard, key, effective: redactAptConfig(effective) })}`);
       throw new Error(reason);
     };
     for (const [name, value] of [
@@ -347,11 +370,11 @@ export function prepareE2eApt({
       if (!option) continue;
       const [, name, value] = option;
       if (
-        (/::Verify-(?:Peer|Host)$/i.test(name) && value !== "true") ||
+        (/::Verify-(?:Peer|Host)$/i.test(name) && classifyAptBoolean(value) !== true) ||
         (/(?:^|::)Allow(?:Unauthenticated|InsecureRepositories|WeakRepositories|DowngradeToInsecureRepositories)$/i.test(
           name,
         ) &&
-          value !== "false")
+          classifyAptBoolean(value) !== false)
       )
         refuse("trust-option", name, value, "trust-bypass");
       if (

@@ -18,6 +18,7 @@ import {
   projectUbuntuSources,
   validateUbuntuProjection,
   prepareE2eApt,
+  classifyAptBoolean,
   resolveE2eCache,
 } from "./playwright-chromium-install.mjs";
 import { runInstaller } from "./provider-browser-install-timeout.mjs";
@@ -967,6 +968,9 @@ Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
       ["Dir::Etc", "etc/apt"],
       ["Dir::Etc::sourcelist", "sources.list"],
       ["Dir::Etc::sourceparts", "sources.list.d"],
+      ["Acquire::AllowInsecureRepositories", "0"],
+      ["Acquire::AllowWeakRepositories", "0"],
+      ["Acquire::AllowDowngradeToInsecureRepositories", "0"],
     ]);
     const parts = [...files.keys()].filter((file) => file.startsWith("/etc/apt/apt.conf.d/")).sort();
     for (const file of parts)
@@ -1040,7 +1044,13 @@ Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
 
   it("logged runner state projects with effective 30/30/1 bounds despite image zz-retries", () => {
     const m = machine({ runnerState: true });
-    const apt = prepareE2eApt(m.options);
+    let apt;
+    try {
+      apt = prepareE2eApt(m.options);
+    } catch (error) {
+      for (const line of m.lines.filter((line) => line.startsWith("playwright-e2e-apt-refusal "))) console.error(line);
+      throw error;
+    }
     expect(apt.projected).toBe(true);
     const effective = JSON.parse(
       m.lines
@@ -1055,6 +1065,114 @@ Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
     expect(effective.configEntries).toEqual(["zz-retries", "zzz-chase-sets-e2e"]);
     apt.restore();
     expect(m.files).toEqual(m.original);
+  });
+
+  const allowKeys = [
+    "Acquire::AllowInsecureRepositories",
+    "Acquire::AllowWeakRepositories",
+    "Acquire::AllowDowngradeToInsecureRepositories",
+    "APT::Get::AllowUnauthenticated",
+  ];
+  const verifyKeys = ["Acquire::https::Verify-Peer", "Acquire::https::archive.ubuntu.com::Verify-Host"];
+  const trueSpellings = ["1", "true", "TRUE", "True", "yes", "on", "with", "enable"];
+  const falseSpellings = ["0", "false", "FALSE", "False", "no", "off", "without", "disable"];
+  const unknownSpellings = ["", "2", "-1", "00", "0x0", "+0", " 0", "0 ", "maybe"];
+
+  it("apt 2.7.14 strutl.cc:824-851 truth table classifies only the admitted whole-string spellings", () => {
+    for (const value of trueSpellings) expect(classifyAptBoolean(value), JSON.stringify(value)).toBe(true);
+    for (const value of falseSpellings) expect(classifyAptBoolean(value), JSON.stringify(value)).toBe(false);
+    for (const value of unknownSpellings) expect(classifyAptBoolean(value), JSON.stringify(value)).toBeNull();
+    for (const value of ["YES", "WITH", "ON", "ENABLE"]) expect(classifyAptBoolean(value)).toBe(true);
+    for (const value of ["NO", "WITHOUT", "OFF", "DISABLE"]) expect(classifyAptBoolean(value)).toBe(false);
+  });
+
+  it("apt-default control admits all three repository-security zero defaults", () => {
+    const m = machine({ runnerState: true });
+    const apt = prepareE2eApt(m.options);
+    expect(apt.projected).toBe(true);
+    const effective = JSON.parse(
+      m.lines
+        .find((line) => line.startsWith("playwright-e2e-apt-effective "))
+        .slice("playwright-e2e-apt-effective ".length),
+    );
+    for (const key of allowKeys.slice(0, 3)) expect(effective.effective).toContain(`${key} "0";`);
+    expect(m.lines.some((line) => line.startsWith("playwright-e2e-apt-refusal "))).toBe(false);
+    apt.restore();
+    expect(m.files).toEqual(m.original);
+  });
+
+  function expectTrustRefusal(key, value) {
+    const m = machine({ runnerState: true });
+    m.files.set("/etc/apt/apt.conf.d/zzzz-trust", `${key} "${value}";\n`);
+    m.original = new Map(m.files);
+    expect(() => prepareE2eApt(m.options)).toThrow("trust-bypass");
+    expect(m.files).toEqual(m.original);
+    const refusals = m.lines.filter((line) => line.startsWith("playwright-e2e-apt-refusal "));
+    expect(refusals).toHaveLength(1);
+    expect(JSON.parse(refusals[0].slice("playwright-e2e-apt-refusal ".length))).toEqual({
+      guard: "trust-option",
+      key,
+      value,
+      configEntries: ["zz-retries", "zzz-chase-sets-e2e", "zzzz-trust"],
+    });
+  }
+
+  it.each([
+    ...allowKeys.flatMap((key) => trueSpellings.map((value) => [key, value])),
+    ...verifyKeys.flatMap((key) => falseSpellings.map((value) => [key, value])),
+  ])("weakening spellings: %s %s refuses and restores every byte", expectTrustRefusal);
+
+  it.each([allowKeys[0], verifyKeys[0]].flatMap((key) => unknownSpellings.map((value) => [key, value])))(
+    "unclassifiable spellings: %s %s refuses and restores every byte",
+    expectTrustRefusal,
+  );
+
+  it.each([
+    ...allowKeys.flatMap((key) => falseSpellings.map((value) => [key, value])),
+    ...verifyKeys.flatMap((key) => trueSpellings.map((value) => [key, value])),
+  ])("secure spellings: %s %s is admitted", (key, value) => {
+    const m = machine({ runnerState: true });
+    m.files.set("/etc/apt/apt.conf.d/zzzz-trust", `${key} "${value}";\n`);
+    m.original = new Map(m.files);
+    const apt = prepareE2eApt(m.options);
+    expect(apt.projected).toBe(true);
+    expect(m.lines.some((line) => line.startsWith("playwright-e2e-apt-effective "))).toBe(true);
+    expect(m.lines.some((line) => line.startsWith("playwright-e2e-apt-refusal "))).toBe(false);
+    apt.restore();
+    expect(m.files).toEqual(m.original);
+  });
+
+  it("refusal dump retains the full redacted dump between refusal and restoration", () => {
+    const m = machine({ runnerState: true });
+    m.files.set("/etc/apt/apt.conf.d/zzzz-trust", `${allowKeys[0]} "1";\n`);
+    m.files.set(
+      "/etc/apt/apt.conf.d/10-proxy",
+      'Acquire::http::Proxy "https://fixture-user:fixture-password@example.invalid/proxy";\n',
+    );
+    m.original = new Map(m.files);
+    let effective;
+    const command = m.options.command;
+    m.options.command = (name, args, input) => {
+      const result = command(name, args, input);
+      if (args[1] === "apt-config") effective = result;
+      return result;
+    };
+    expect(() => prepareE2eApt(m.options)).toThrow("trust-bypass");
+    expect(m.files).toEqual(m.original);
+    const dumps = m.lines.filter((line) => line.startsWith("playwright-e2e-apt-refusal-dump "));
+    expect(dumps).toHaveLength(1);
+    expect(JSON.parse(dumps[0].slice("playwright-e2e-apt-refusal-dump ".length))).toEqual({
+      guard: "trust-option",
+      key: allowKeys[0],
+      effective: effective.replace("fixture-user:fixture-password", "[redacted]"),
+    });
+    expect(m.lines.indexOf(dumps[0])).toBeGreaterThan(
+      m.lines.findIndex((line) => line.startsWith("playwright-e2e-apt-refusal ")),
+    );
+    expect(m.lines.indexOf(dumps[0])).toBeLessThan(
+      m.lines.findIndex((line) => line.startsWith("playwright-e2e-apt-restore ")),
+    );
+    expect(m.lines.join("\n")).not.toMatch(/fixture-user|fixture-password/);
   });
 
   it("M-later-override: later 15-second timeout refuses with bounds-value and restores all bytes", () => {
