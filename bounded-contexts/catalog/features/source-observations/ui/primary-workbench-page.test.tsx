@@ -43,6 +43,48 @@ function jsonClone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
 }
 
+describe("Daily API answer rendering", () => {
+  afterEach(cleanup);
+  it("renders API stage and banner sentinels contrary to raw facts", () => {
+    const base = buildCatalogPrimaryWorkbenchReadModelForSurface("daily", {
+      requestUrl: "https://admin.example/catalog/integrations",
+      scopes: { items: [], total: 0, count: 0 },
+      profileReviews: { items: [], total: 0, count: 0 },
+      controlPlaneOverview: null,
+      canManageCatalog: true,
+    });
+    const stages = base.flow.stages.map((stage) => ({
+      ...stage,
+      state: stage.key === "create-items" ? ("current" as const) : ("complete" as const),
+    }));
+    const readModel = {
+      ...base,
+      readiness: {
+        ...base.readiness,
+        rbacAllowed: true,
+        rolloutEnabled: true,
+        blockers: [],
+        providerTransport: [],
+        freshness: "fresh" as const,
+      },
+      actions: base.actions.map((action) => ({ ...action, state: "available" as const })),
+      dailyStatus: { governance: "stopped" as const, health: "blocked" as const },
+      flow: {
+        ...base.flow,
+        openStage: "run-sync" as const,
+        stages,
+        stagesByOpenStage: { ...base.flow.stagesByOpenStage, "run-sync": stages },
+      },
+    };
+    render(<CatalogIntegrationsSurfacePage surface="daily" readModel={readModel} />);
+    const progress = screen.getByRole("list", { name: "Progress" });
+    expect(progress.querySelector('[aria-current="step"]')?.textContent).toContain("Create");
+    expect(document.querySelector('[data-catalog-daily-governance-status="stopped"]')).not.toBeNull();
+    expect(document.querySelector('[data-catalog-daily-health-status="blocked"]')).not.toBeNull();
+    expect(routeSubmit).not.toHaveBeenCalled();
+  });
+});
+
 // The import-context controls (provider/unit/guided-scope/profile) now live in the
 // collapsible "Step 0" bar (#1973). With a scope already chosen the bar renders
 // COLLAPSED to a summary, so its form internals are mounted but `hidden`. Expand it

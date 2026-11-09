@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { renderToString } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -159,6 +159,273 @@ describe("checkout cart page", () => {
     expect(markup).toContain("4 items need fulfillment");
   });
 
+  it("renders the returned currency-mismatch answer even when raw seller options look ready", () => {
+    const apiRead = createCartReadinessRead([cartLine]);
+    const mismatchPresentation = {
+      lineId: cartLine.line_id,
+      reason: "currency-mismatch" as const,
+      fulfillmentAvailable: true,
+      listingId: "lst_card_vault",
+      price: { state: "indicative" as const, amount: "778.00", currency: "USD" },
+    };
+    const readiness = {
+      ...apiRead,
+      loaded: { ...apiRead.loaded, linePresentations: [mismatchPresentation] },
+      declined: { ...apiRead.declined, linePresentations: [mismatchPresentation], status: "needs-resolution" as const },
+    };
+
+    const markup = renderToString(<CheckoutCartPage cartLines={[cartLine]} readiness={readiness} />);
+
+    expect(markup).toContain("Needs review");
+    expect(markup).not.toContain(">Ready</span>");
+    expect(markup).not.toContain("bg-success-soft");
+    expect(markup).toContain('href="/checkout/buy/readiness"');
+  });
+
+  it("renders each returned reason, eligibility, and price independently of seller options", () => {
+    const apiRead = createCartReadinessRead([cartLine]);
+    const withPresentation = (presentation: NonNullable<(typeof apiRead.loaded.linePresentations)[number]>) => ({
+      ...apiRead,
+      loaded: { ...apiRead.loaded, linePresentations: [presentation] },
+      declined: { ...apiRead.declined, linePresentations: [presentation] },
+    });
+    const rowFrom = (markup: string) => {
+      const container = document.createElement("div");
+      container.innerHTML = markup;
+      const row = container.querySelector<HTMLElement>("[data-marketplace-cart-line]");
+      expect(row).not.toBeNull();
+      return row!;
+    };
+
+    const readyWithoutPath = renderToString(
+      <CheckoutCartPage
+        cartLines={[cartLine]}
+        readiness={withPresentation({
+          lineId: cartLine.line_id,
+          reason: "ready",
+          fulfillmentAvailable: false,
+          listingId: "lst_card_vault",
+          price: { state: "exact", amount: "778.00", currency: "USD" },
+        })}
+      />,
+    );
+    const withoutPathRow = rowFrom(readyWithoutPath);
+    expect(within(withoutPathRow).getByRole("link", { name: "Find alternatives" })).toBeTruthy();
+    expect(within(withoutPathRow).getByText("Ready").className).not.toContain("bg-success-soft");
+
+    const mismatchWithPath = rowFrom(
+      renderToString(
+        <CheckoutCartPage
+          cartLines={[cartLine]}
+          readiness={withPresentation({
+            lineId: cartLine.line_id,
+            reason: "currency-mismatch",
+            fulfillmentAvailable: true,
+            listingId: "lst_card_vault",
+            price: { state: "exact", amount: "778.00", currency: "USD" },
+          })}
+        />,
+      ),
+    );
+    expect(within(mismatchWithPath).getByText("Needs review").className).not.toContain("bg-success-soft");
+    expect(within(mismatchWithPath).queryByRole("link", { name: "Find alternatives" })).toBeNull();
+    const mismatchWithoutPath = rowFrom(
+      renderToString(
+        <CheckoutCartPage
+          cartLines={[cartLine]}
+          readiness={withPresentation({
+            lineId: cartLine.line_id,
+            reason: "currency-mismatch",
+            fulfillmentAvailable: false,
+            listingId: "lst_card_vault",
+            price: { state: "exact", amount: "778.00", currency: "USD" },
+          })}
+        />,
+      ),
+    );
+    expect(within(mismatchWithoutPath).getByRole("link", { name: "Find alternatives" })).toBeTruthy();
+
+    const unpriced = renderToString(
+      <CheckoutCartPage
+        cartLines={[cartLine]}
+        readiness={withPresentation({
+          lineId: cartLine.line_id,
+          reason: "ready",
+          fulfillmentAvailable: true,
+          listingId: "lst_card_vault",
+          price: null,
+        })}
+      />,
+    );
+    const unpricedRow = rowFrom(unpriced);
+    expect(within(unpricedRow).getByText("Priced at checkout")).toBeTruthy();
+    expect(within(unpricedRow).queryByText("$778.00")).toBeNull();
+    expect(within(unpricedRow).queryByRole("link", { name: "Find alternatives" })).toBeNull();
+
+    const indicative = renderToString(
+      <CheckoutCartPage
+        cartLines={[cartLine]}
+        readiness={withPresentation({
+          lineId: cartLine.line_id,
+          reason: "ready",
+          fulfillmentAvailable: true,
+          listingId: "lst_card_vault",
+          price: { state: "indicative", amount: "778.00", currency: "USD" },
+        })}
+      />,
+    );
+    expect(within(rowFrom(indicative)).getByText("from")).toBeTruthy();
+    expect(within(rowFrom(indicative)).getByText("$778.00")).toBeTruthy();
+
+    const exact = renderToString(
+      <CheckoutCartPage
+        cartLines={[cartLine]}
+        readiness={withPresentation({
+          lineId: cartLine.line_id,
+          reason: "ready",
+          fulfillmentAvailable: true,
+          listingId: "lst_card_vault",
+          price: { state: "exact", amount: "778.00", currency: "USD" },
+        })}
+      />,
+    );
+    expect(within(rowFrom(exact)).queryByText("from")).toBeNull();
+    expect(within(rowFrom(exact)).getByText("$778.00")).toBeTruthy();
+
+    const warning = renderToString(
+      <CheckoutCartPage
+        cartLines={[cartLine]}
+        readiness={withPresentation({
+          lineId: cartLine.line_id,
+          reason: "shipping-measure-missing",
+          fulfillmentAvailable: true,
+          listingId: "lst_card_vault",
+          price: { state: "exact", amount: "778.00", currency: "USD" },
+        })}
+      />,
+    );
+    const warningRow = rowFrom(warning);
+    expect(within(warningRow).getByText("Shipping measure missing").className).not.toContain("bg-success-soft");
+    expect(within(warningRow).queryByText("Ready")).toBeNull();
+  });
+
+  it.each([
+    ["ready-first", ["ready", "currency-mismatch"]],
+    ["warning-first", ["currency-mismatch", "ready"]],
+  ] as const)("keeps grouped member warnings visible in %s order", (_order, reasons) => {
+    const lines = [0, 1].map((index) => ({
+      ...cartLine,
+      line_id: `cart_line_warning_${index}`,
+      quantity: 1,
+      updated_at: `2026-05-0${index + 1}T00:00:00.000Z`,
+    }));
+    const base = createCartReadinessRead(lines);
+    const presentations = lines.map((line, index) => ({
+      lineId: line.line_id,
+      reason: reasons[index]!,
+      fulfillmentAvailable: true,
+      listingId: "lst_card_vault",
+      price: { state: "exact" as const, amount: "389.00", currency: "USD" },
+    }));
+    const readiness = {
+      ...base,
+      loaded: { ...base.loaded, linePresentations: presentations },
+      declined: { ...base.declined, linePresentations: presentations },
+    };
+    const markup = renderToString(<CheckoutCartPage cartLines={lines} readiness={readiness} />);
+    expect(markup).toContain("Needs review");
+    expect(markup).toContain("Ready");
+  });
+
+  it.each([
+    ["loaded-only", true, false, false],
+    ["declined-only", false, true, false],
+    ["both", true, true, false],
+    ["loaded wrong-ID", true, false, true],
+    ["declined wrong-ID", false, true, true],
+    ["both wrong-ID", true, true, true],
+  ] as const)(
+    "fails closed for incomplete %s presentations despite ready aggregates",
+    (_case, loaded, declined, wrongId) => {
+      const lines = [0, 1].map((index) => ({
+        ...cartLine,
+        line_id: `cart_line_partial_${index}`,
+        quantity: 1,
+        updated_at: `2026-05-1${index}T00:00:00.000Z`,
+      }));
+      const base = createCartReadinessRead(lines);
+      const answer = {
+        lineId: lines[0]!.line_id,
+        reason: "ready" as const,
+        fulfillmentAvailable: true,
+        listingId: "lst_card_vault",
+        price: { state: "exact" as const, amount: "389.00", currency: "USD" },
+      };
+      const complete = [answer, { ...answer, lineId: lines[1]!.line_id }];
+      const incomplete = wrongId ? [answer, { ...answer, lineId: "not-a-source-line" }] : [answer];
+      expect(base.loaded.status).toBe("ready");
+      expect(base.declined.status).toBe("ready");
+      expect(base.declined.unresolvedLineIds).toEqual([]);
+      mockUseFetcher.mockImplementation(() => ({ state: "idle", data: null, submit: mockFetcherSubmit }));
+      const completeReadiness = {
+        ...base,
+        loaded: { ...base.loaded, linePresentations: complete },
+        declined: { ...base.declined, linePresentations: complete },
+      };
+      const readiness = {
+        ...completeReadiness,
+        loaded: { ...base.loaded, linePresentations: loaded ? incomplete : complete },
+        declined: { ...base.declined, linePresentations: declined ? incomplete : complete },
+      };
+      const { container, rerender } = render(<CheckoutCartPage cartLines={lines} readiness={completeReadiness} />);
+      expect(screen.getByRole("button", { name: "Check out" }).hasAttribute("disabled")).toBe(false);
+      rerender(<CheckoutCartPage cartLines={lines} readiness={readiness} />);
+      if (loaded) {
+        const missingRow = container
+          .querySelector('[data-optimistic-resource*="cart_line_partial_1"]')
+          ?.closest<HTMLElement>("[data-marketplace-cart-line]");
+        expect(missingRow).toBeTruthy();
+        expect(within(missingRow!).getByText("Priced at checkout")).toBeTruthy();
+        expect(within(missingRow!).getByText("Needs review").className).not.toContain("bg-success-soft");
+        expect(within(missingRow!).queryByText("Ready")).toBeNull();
+        expect(within(missingRow!).queryByText("$389.00")).toBeNull();
+        const answeredRow = container
+          .querySelector('[data-optimistic-resource*="cart_line_partial_0"]')
+          ?.closest<HTMLElement>("[data-marketplace-cart-line]");
+        expect(within(answeredRow!).getByText("Ready").className).toContain("bg-success-soft");
+        expect(within(answeredRow!).getByText("$389.00")).toBeTruthy();
+      }
+      expect(container.querySelector('form[method="post"][action="/checkout/buy/readiness"]')).toBeNull();
+      expect(screen.queryByRole("button", { name: "Check out" })).toBeNull();
+      expect(screen.getByRole("link", { name: "Continue to checkout" }).getAttribute("href")).toBe(
+        "/checkout/buy/readiness",
+      );
+      rerender(<CheckoutCartPage cartLines={lines} readiness={completeReadiness} />);
+      expect(container.querySelectorAll('form[action="/checkout/buy/readiness"]')).toHaveLength(1);
+      expect(screen.getByRole("button", { name: "Check out" }).hasAttribute("disabled")).toBe(false);
+    },
+  );
+
+  it("allows complete returned presentations with deferred price without adding a client readiness policy", () => {
+    const base = createCartReadinessRead([cartLine]);
+    expect(base.loaded.status).toBe("ready");
+    expect(base.declined.status).toBe("ready");
+    const presentations = [
+      { ...base.loaded.linePresentations[0]!, reason: "changed" as const, fulfillmentAvailable: false, price: null },
+    ];
+    const readiness = {
+      ...base,
+      loaded: { ...base.loaded, linePresentations: presentations },
+      declined: { ...base.declined, linePresentations: presentations },
+    };
+    const { container } = render(<CheckoutCartPage cartLines={[cartLine]} readiness={readiness} />);
+    const row = container.querySelector<HTMLElement>("[data-marketplace-cart-line]")!;
+    expect(within(row).getByText("Priced at checkout")).toBeTruthy();
+    expect(within(row).getByText("Needs review")).toBeTruthy();
+    expect(container.querySelectorAll('form[action="/checkout/buy/readiness"]')).toHaveLength(1);
+    expect(screen.getByRole("button", { name: "Check out" }).hasAttribute("disabled")).toBe(false);
+  });
+
   it("uses each API line listing even when readiness is unresolved, grouped, or mixed-currency", () => {
     const unavailableLine: CheckoutCartLine = {
       ...cartLine,
@@ -220,7 +487,7 @@ describe("checkout cart page", () => {
     expect(mixedMarkup).toContain("€389.00");
   });
 
-  it("defers the API total while a removal is pending instead of showing the pre-removal total", async () => {
+  it("updates the indicative row and total while a removal is pending instead of showing the pre-removal total", async () => {
     const user = userEvent.setup();
     const secondLine: CheckoutCartLine = {
       ...cartLine,
@@ -235,7 +502,7 @@ describe("checkout cart page", () => {
     expect(screen.getAllByText("$1,167.00").length).toBeGreaterThan(0);
     await user.click(screen.getAllByRole("button", { name: "Remove" })[1]!);
 
-    await waitFor(() => expect(screen.getAllByText("Priced at checkout").length).toBeGreaterThan(0));
+    await waitFor(() => expect(screen.getAllByText("$778.00").length).toBeGreaterThan(0));
     expect(screen.queryByText("$1,167.00")).toBeNull();
   });
 
@@ -368,6 +635,20 @@ describe("checkout cart page", () => {
     expect(markup).not.toContain("cat_charizard");
   });
 
+  it("sums every grouped member's returned presentation price", () => {
+    const duplicateLines = [1, 3, 2].map((quantity, index) => ({
+      ...cartLine,
+      line_id: `cart_line_duplicate_${index}`,
+      quantity,
+      updated_at: `2026-04-${29 + index}T00:00:00.000Z`,
+    }));
+
+    const markup = renderToString(<TestCheckoutCartPage cartLines={duplicateLines} />);
+
+    expect(markup.match(/\$2,334\.00/g)?.length).toBeGreaterThanOrEqual(3);
+    expect(markup).not.toContain("$389.00");
+  });
+
   it("updates quantity and estimated total optimistically before loader correction returns", async () => {
     const user = userEvent.setup();
     render(<TestCheckoutCartPage cartLines={[cartLine]} />);
@@ -376,6 +657,7 @@ describe("checkout cart page", () => {
 
     await waitFor(() => expect(quantitySpinbutton().value).toBe("3"));
     expect(screen.getAllByText("$1,167.00").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Updating cart").length).toBeGreaterThan(0);
     expect(mockFetcherSubmit).toHaveBeenCalledTimes(1);
 
     const formData = submittedFormData();
@@ -385,6 +667,52 @@ describe("checkout cart page", () => {
     expect(formData.get("correctionSource")).toBe("fresh-read:loader-revalidation");
     expect(formData.get("optimisticSequence")).toBe("1");
     expect(formData.getAll("lineId")).toEqual(["cart_line_1"]);
+  });
+
+  it("scopes pending indicative and exact-price assertions to their own rows", async () => {
+    const user = userEvent.setup();
+    render(<TestCheckoutCartPage cartLines={[cartLine]} />);
+    await user.click(screen.getByRole("button", { name: "Increase" }));
+
+    await waitFor(() => expect(screen.getByText("Updating cart")).toBeTruthy());
+    const indicativeRow = screen.getByText("Updating cart").closest<HTMLElement>("[data-marketplace-cart-line]");
+    expect(indicativeRow).not.toBeNull();
+    expect(within(indicativeRow!).getByText("from")).toBeTruthy();
+    expect(within(indicativeRow!).getByText("$1,167.00")).toBeTruthy();
+    expect(within(indicativeRow!).queryByText("Ready")).toBeNull();
+    expect(within(indicativeRow!).getByText("Updating cart").className).not.toContain("bg-success-soft");
+    expect(document.querySelector('form[action="/checkout/buy/readiness"]')).toBeNull();
+
+    cleanup();
+    const lockedLine: CheckoutCartLine = {
+      ...cartLine,
+      fulfillment_mode: "locked-listing",
+      locked_listing_id: "lst_hobby_shop",
+    };
+    render(<TestCheckoutCartPage cartLines={[lockedLine]} />);
+    await user.click(screen.getByRole("button", { name: "Increase" }));
+    await waitFor(() => expect(screen.getByText("Updating cart")).toBeTruthy());
+    const lockedRow = screen.getByText("Updating cart").closest<HTMLElement>("[data-marketplace-cart-line]");
+    expect(lockedRow).not.toBeNull();
+    expect(within(lockedRow!).getByText("Priced at checkout")).toBeTruthy();
+    expect(within(lockedRow!).queryByText("$1,185.00")).toBeNull();
+    expect(within(lockedRow!).queryByText("$790.00")).toBeNull();
+    expect(within(lockedRow!).queryByText("Ready")).toBeNull();
+    expect(within(lockedRow!).queryByText("from")).toBeNull();
+    expect(within(lockedRow!).getByText("Updating cart").className).not.toContain("bg-success-soft");
+    expect(document.querySelector('form[action="/checkout/buy/readiness"]')).toBeNull();
+  });
+
+  it("defers a locked row whose returned stream version is invalid", () => {
+    const invalidLockedLine: CheckoutCartLine = {
+      ...cartLine,
+      fulfillment_mode: "locked-listing",
+      locked_listing_id: "lst_card_vault",
+      seller_options: [{ ...cartLine.seller_options[0]!, listing_stream_version: null }],
+    };
+    const markup = renderToString(<TestCheckoutCartPage cartLines={[invalidLockedLine]} />);
+    expect(markup).toContain("Priced at checkout");
+    expect(markup).not.toContain("$778.00");
   });
 
   it("coalesces rapid repeated quantity clicks for one line", async () => {
@@ -924,6 +1252,48 @@ describe("checkout cart page", () => {
     const primaryStamps = markup.match(/data-primary-action-count="1"/g) ?? [];
     expect(primaryStamps.length).toBe(1);
     expect(markup).not.toContain("allocation");
+
+    const base = createCartReadinessRead([expensiveLine]);
+    expect(base.loaded.status).toBe("ready");
+    expect(base.declined.status).toBe("ready");
+    expect(base.declined.optimization.available).toBe(true);
+    expect(base.accepted?.status).toBe("ready");
+    const accepted = base.accepted!;
+    for (const snapshot of ["loaded", "declined", "accepted"] as const) {
+      for (const wrongId of [false, true]) {
+        const readiness = {
+          ...base,
+          [snapshot]: {
+            ...base[snapshot],
+            linePresentations: wrongId
+              ? [{ ...base[snapshot]!.linePresentations[0]!, lineId: "not-a-source-line" }]
+              : [],
+          },
+        };
+        const container = document.createElement("div");
+        container.innerHTML = renderToString(<CheckoutCartPage cartLines={[expensiveLine]} readiness={readiness} />);
+        const forms = container.querySelectorAll('form[method="post"][action="/checkout/buy/readiness"]');
+        expect(forms, `${snapshot}, wrongId=${wrongId}`).toHaveLength(snapshot === "accepted" ? 1 : 0);
+        expect(within(container).queryByRole("button", { name: "Use lower price" })).toBeNull();
+        if (snapshot === "accepted") {
+          expect(within(container).getByRole("button", { name: "Check out" }).hasAttribute("disabled")).toBe(false);
+          expect(forms[0]!.querySelector('input[name="readinessSnapshotId"]')?.getAttribute("value")).toBe(
+            base.declined.snapshotId,
+          );
+          expect(forms[0]!.querySelector('input[name="readinessDecisions"]')?.getAttribute("value")).toContain(
+            '"decision":"declined"',
+          );
+        } else {
+          expect(within(container).queryByRole("button", { name: "Check out" })).toBeNull();
+        }
+      }
+    }
+    const completeContainer = document.createElement("div");
+    completeContainer.innerHTML = markup;
+    const acceptedForm = within(completeContainer).getByRole("button", { name: "Use lower price" }).closest("form")!;
+    expect(acceptedForm.querySelector('input[name="readinessSnapshotId"]')?.getAttribute("value")).toBe(
+      accepted.snapshotId,
+    );
   });
 
   it("shows the selected listing's seller rating on the cart line", () => {

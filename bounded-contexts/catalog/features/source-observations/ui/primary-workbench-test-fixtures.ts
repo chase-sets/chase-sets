@@ -71,6 +71,14 @@ export function syntheticPromotionReceipt(
   };
 }
 
+/** A preview as the Catalog API answers it: with the token its receipt carries as `previewId`. */
+export function syntheticPromotionPreviewResponse(
+  preview: SourceObservationPromotionReceipt["preview"] = syntheticPromotionReceipt().preview,
+  previewToken = "synthetic-preview-token",
+): SourceObservationPromotionReceipt["preview"] {
+  return { ...preview, previewToken };
+}
+
 export function sourceObservationScope(
   overrides: Partial<SourceObservationIntegrationScope> = {},
 ): SourceObservationIntegrationScope {

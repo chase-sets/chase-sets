@@ -292,6 +292,7 @@ describe("Catalog integrations route", () => {
       terminal: 0,
       validation: emptyPromotionValidation(),
       scope: { provider: "tcgdex", language: "ja", setId: "sv8", status: "", search: "" },
+      previewToken: "spp1.ja-sv8",
     });
     mockCreateCatalogRequestApiClient.mockReturnValue({ previewBulkPromoteSourceObservations });
     const previewResponse = await runDailyAction(
@@ -314,13 +315,18 @@ describe("Catalog integrations route", () => {
       expansionId: "sv8",
       setId: "sv8",
     };
+    const confirmation = {
+      unitKey: "tcgdex:pokemon:single-card:source-observation-import",
+      importScope: "ja:SV:SV8",
+      profileVersion: "2026.06.04",
+      scope: selectedScopePromotionFilter,
+    };
     expect(previewBulkPromoteSourceObservations).toHaveBeenCalledWith(selectedScopePromotionFilter, {
       promoteAsDraft: false,
+      confirmation,
     });
     expect(previewResponse.feedback.result).toBe("preview-ready");
-    expect(promotionPreviewId).toBe(
-      "preview-tcgdex_tcgdex_pokemon_single-card_source-observation-import_ja_SV_SV8_2026.06.04_ja_sv8_all_none_filtered-130-130-no-fingerprint-publishable-complete.blocked0.811c9dc5",
-    );
+    expect(promotionPreviewId).toBe("spp1.ja-sv8");
 
     const bulkPromoteSourceObservationsByScope = vi.fn().mockResolvedValue({ jobId: "job_promote_ja_sv8" });
     mockCreateCatalogRequestApiClient.mockReturnValue({
@@ -343,6 +349,8 @@ describe("Catalog integrations route", () => {
 
     expect(bulkPromoteSourceObservationsByScope).toHaveBeenCalledWith(selectedScopePromotionFilter, {
       promoteAsDraft: false,
+      previewToken: "spp1.ja-sv8",
+      confirmation,
     });
     const promoteLocation = redirectLocation(promoteResponse);
     expect(promoteLocation.searchParams.get("jobId")).toBe("job_promote_ja_sv8");

@@ -5,11 +5,13 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { describe, expect, it, vi } from "vitest";
-import { enumerateGuardImportCandidates } from "./check-structure/module-resolution.mjs";
+import { enumerateGuardImportCandidates, loadModuleResolutionContext } from "./check-structure/module-resolution.mjs";
 import { deriveGuardCandidateProvenance } from "./check-structure/guard-candidate-provenance.mjs";
-import { listNonTestTypeScriptModules } from "./check-structure/sql-execution-surface.mjs";
+import { classifySqlExecutionSurface, listNonTestTypeScriptModules } from "./check-structure/sql-execution-surface.mjs";
 import { enumerateTrackedRoots } from "./check-structure/authoritative-stream-read-classification.mjs";
 import { GIT_LISTING_MAX_BUFFER } from "./lib/git-listing.mjs";
+import { buildReviewedSurfaceInventory } from "./release-qualification-scope-inventory.mjs";
+import { evaluateReleaseQualificationApplicability } from "./release-qualification-scope-applicability.mjs";
 import {
   RELEASE_QUALIFICATION_APPLICABILITY_KINDS,
   RELEASE_QUALIFICATION_APPLICABILITY_BINDINGS,
@@ -983,39 +985,38 @@ describe("caller inventory (seed/bootstrap/import/reconciliation) — issue #583
 
   it("classifies every discovered caller persistent_required unless a reviewed ruling covers it", () => {
     expect(discovered.length).toBeGreaterThanOrEqual(40);
-    const misses = [];
-    let persistentCount = 0;
-    let ruledCount = 0;
-    for (const filePath of discovered) {
-      const ruling = releaseQualificationScopeRegistry.reviewedNonPersistentSurfaces.find((entry) =>
-        entry.pattern.test(filePath),
-      );
-      const expected = ruling?.expectedClass ?? "persistent_required";
-      const record = classifyReleaseQualificationScope({
-        base: DUMMY_BASE,
-        candidate: DUMMY_CANDIDATE,
-        changedFiles: [{ path: filePath, status: "modified" }],
-        readFileAt: realReadFileAt,
-        releaseWorkflowScriptReferences,
-        now: () => 1753100000000,
-      });
-      // The fail-closed direction is always acceptable: a reviewed ruling
-      // documents that a surface MAY classify below persistent_required, but a
-      // stronger (persistent) result is never a miss. Only a surface drifting
-      // BELOW its expectation — the false-isolated trip-wire — fails.
-      if (record.class !== expected && record.class !== "persistent_required") {
-        misses.push(`${filePath}: expected ${expected}, got ${record.class} (${record.reasonCodes.join(", ")})`);
-      } else if (record.class === "persistent_required") {
-        persistentCount += 1;
-      } else {
-        ruledCount += 1;
-      }
-    }
+    const inventory = buildReviewedSurfaceInventory({
+      paths: discovered,
+      readFileAt: realReadFileAt,
+      registry: releaseQualificationScopeRegistry,
+      classify: classifyReleaseQualificationScope,
+      evaluateApplicability: (input) =>
+        evaluateReleaseQualificationApplicability({
+          ...input,
+          repoRoot,
+          readFile: (file) => realReadFileAt("candidate", file),
+          resolutionContext: loadModuleResolutionContext(repoRoot),
+          sqlClassifier: classifySqlExecutionSurface,
+        }),
+      releaseWorkflowScriptReferences,
+      base: DUMMY_BASE,
+      candidate: DUMMY_CANDIDATE,
+      now: () => 1753100000000,
+    });
+    const { persistentRequired: persistentCount, ruled: ruledCount } = inventory.counts;
     // eslint-disable-next-line no-console
     console.log(
       `caller inventory: discovered ${discovered.length} entry points; ${persistentCount} persistent_required, ${ruledCount} covered by reviewed rulings`,
     );
-    expect(misses).toEqual([]);
+    for (const record of inventory.records.filter((entry) => entry.matchedPattern !== null)) {
+      emit("CALLER_INVENTORY_REVIEWED_PATH", {
+        path: record.path,
+        pattern: record.matchedPattern,
+        kind: record.applicabilityKind,
+      });
+    }
+    expect(inventory.registryStatus).toBe("valid");
+    expect(inventory.misses).toEqual([]);
     expect(discovered).toContain("bounded-contexts/identity/support/seed-support/account-management-browser.ts");
     expect(discovered).toContain("bounded-contexts/pricing/support/runtime-support/pricing-health-browser-seed.ts");
     expect({ discovered: discovered.length, persistentCount, ruledCount }).toEqual({
@@ -1254,9 +1255,8 @@ describe("registration contract drift (fail-closed registration)", () => {
     expect(releaseQualificationScopeRegistry.contracts["google-shopping-export"]).toBe("live-provider");
   });
 
-  it("registers the extracted theme contract and appearance adapter as runtime libraries", () => {
+  it("registers the neutral theme contract as a runtime library", () => {
     expect(releaseQualificationScopeRegistry.contracts["embedded-surface-theme"]).toBe("runtime-library");
-    expect(releaseQualificationScopeRegistry.infrastructure["stripe-appearance"]).toBe("runtime-library");
   });
 
   it("classifies the managed Postgres authority action and a real consumer as persistent release surfaces", () => {

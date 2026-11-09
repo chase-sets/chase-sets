@@ -30,6 +30,7 @@ export {
   displayRole,
 } from "./support/shell-support/current-actor-display";
 export { resolveIdentityShellViewer } from "./support/shell-support/viewer";
+export { resolveCurrentActorDisplay, resolveMarketplaceRootTheme } from "./support/shell-support/marketplace-root";
 export type { IdentityShellViewer, IdentityShellViewerPreferences } from "./support/shell-support/viewer";
 export {
   USER_PREFERENCES_COLOR_MODE_COOKIE_NAME,

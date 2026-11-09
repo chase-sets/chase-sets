@@ -2,13 +2,16 @@ import { describe, expect, it, vi } from "vitest";
 import type { SourceObservationRouteServices } from "../route";
 import { CatalogMergeCandidateReviewCommandError } from "../runtime";
 import type { CatalogProviderIntegrationProfileVersionStore } from "../providers/provider-integration-profile-store";
-import { buildApp, context, profileVersion, viewOnlyActor } from "./route-test-harness";
+import { buildApp, context, profileVersion, promotionPreviewFixture, viewOnlyActor } from "./route-test-harness";
 import {
   listSourceObservations,
   previewSourceObservationPromotionScope,
   listSourceObservationIdsForPromotion,
 } from "../../read-model/queries";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import { localizedTextMapFromEnglish } from "@chase-sets/localization";
+import { sourceObservationListItem } from "../../ui/primary-workbench-test-fixtures";
+import { sourceObservationEvidenceFor } from "../admin/source-observation-evidence-read";
 
 describe("source observation routes: review and control-plane reads", () => {
   it("passes Eligible through the authorized list route to the bounded query and preserves promotion-scope parity", async () => {
@@ -518,6 +521,55 @@ describe("source observation routes: review and control-plane reads", () => {
     expect(getSourceObservationDetail).toHaveBeenCalledWith("obs_1");
   });
 
+  it("composes a Source Observation's evidence sheet for the actor and answers 404 for an unknown one", async () => {
+    const observation = sourceObservationListItem({ observation_id: "obs_evidence", status: "changed" });
+    const labels = {
+      contentTypes: [
+        {
+          content_type_id: "pct_booster",
+          key: "booster-pack",
+          display_name: localizedTextMapFromEnglish("Booster pack"),
+        },
+      ],
+      inclusionPolicies: [
+        { inclusion_policy_id: "pip_sealed", key: "sealed", display_name: localizedTextMapFromEnglish("") },
+      ],
+    };
+    const services = {
+      getSourceObservationDetail: vi.fn(async (id: string) => (id === "obs_evidence" ? observation : null)),
+      listProductContentsEvidenceLabels: vi.fn(async () => labels),
+    } as unknown as SourceObservationRouteServices;
+
+    const managed = await buildApp(services).request("/source-observations/obs_evidence/evidence");
+    expect(managed.status).toBe(200);
+    expect(await managed.json()).toEqual(
+      JSON.parse(
+        JSON.stringify({
+          observationId: "obs_evidence",
+          detail: sourceObservationEvidenceFor({ observation, canManage: true, labels }),
+        }),
+      ),
+    );
+
+    // Promotion readiness is the actor's: a viewer is not offered the commands.
+    const viewed = await buildApp(services, undefined, viewOnlyActor).request(
+      "/source-observations/obs_evidence/evidence",
+    );
+    expect(viewed.status).toBe(200);
+    expect(await viewed.json()).toEqual(
+      JSON.parse(
+        JSON.stringify({
+          observationId: "obs_evidence",
+          detail: sourceObservationEvidenceFor({ observation, canManage: false, labels }),
+        }),
+      ),
+    );
+
+    const missing = await buildApp(services).request("/source-observations/obs_gone/evidence");
+    expect(missing.status).toBe(404);
+    await expect(missing.json()).resolves.toMatchObject({ error: { code: "not_found" } });
+  });
+
   it("returns replay/reapply impact previews from the control-plane impact service", async () => {
     const previewReplayReapplyImpact = vi.fn(async () => ({
       generatedAt: "2026-06-08T00:00:00.000Z",
@@ -644,18 +696,20 @@ describe("source observation routes: review and control-plane reads", () => {
   });
 
   it("previews filter-scoped bulk promotion", async () => {
-    const previewPromoteObservationScope = vi.fn(async () => ({
-      matched: 102,
-      eligible: 100,
-      terminal: 2,
-      scope: {
-        search: "",
-        status: "observed",
-        provider: "",
-        language: "en",
-        setId: "base1",
-      },
-    }));
+    const previewPromoteObservationScope = vi.fn(async () =>
+      promotionPreviewFixture({
+        matched: 102,
+        eligible: 100,
+        terminal: 2,
+        scope: {
+          search: "",
+          status: "observed",
+          provider: "",
+          language: "en",
+          setId: "base1",
+        },
+      }),
+    );
     const services = {
       previewPromoteObservationScope,
     } as unknown as SourceObservationRouteServices;
@@ -674,6 +728,7 @@ describe("source observation routes: review and control-plane reads", () => {
       matched: 102,
       eligible: 100,
       terminal: 2,
+      previewToken: expect.stringMatching(/^spp1\./),
     });
     expect(previewPromoteObservationScope).toHaveBeenCalledWith({
       scope: {
@@ -757,18 +812,13 @@ describe("source observation routes: review and control-plane reads", () => {
   });
 
   it("previews selected Source Observation promotion without using the filter scope", async () => {
-    const previewPromoteObservations = vi.fn(async () => ({
-      matched: 2,
-      eligible: 1,
-      terminal: 1,
-      scope: {
-        search: "",
-        status: "",
-        provider: "",
-        language: "",
-        setId: "",
-      },
-    }));
+    const previewPromoteObservations = vi.fn(async () =>
+      promotionPreviewFixture({
+        matched: 2,
+        eligible: 1,
+        terminal: 1,
+      }),
+    );
     const previewPromoteObservationScope = vi.fn();
     const services = {
       previewPromoteObservations,

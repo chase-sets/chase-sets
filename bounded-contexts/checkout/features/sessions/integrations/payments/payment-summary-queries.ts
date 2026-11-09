@@ -10,6 +10,7 @@ export type CheckoutPaymentSummaryRow = Readonly<{
 export async function getCheckoutPaymentSummary(
   db: PgQueryable,
   paymentId: string,
+  buyerAccountId: string,
 ): Promise<CheckoutPaymentSummaryRow | null> {
   const result = await db.query<CheckoutPaymentSummaryRow>(
     `SELECT payment_id,
@@ -17,8 +18,8 @@ export async function getCheckoutPaymentSummary(
             currency_code,
             status
        FROM checkout_payment_summary_pages
-      WHERE payment_id = $1`,
-    [paymentId],
+      WHERE payment_id = $1 AND buyer_account_id = $2`,
+    [paymentId, buyerAccountId],
   );
 
   return result.rows[0] ?? null;

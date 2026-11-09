@@ -3,7 +3,7 @@ import type {
   SourceObservationPromotionPreview,
   SourceObservationPromotionScope,
 } from "../../client-support/contracts";
-import { ApiError as CatalogApiError } from "../../shell-support/api/client";
+import { ApiError as CatalogApiError, type CatalogPromotionConfirmation } from "../../shell-support/api/client";
 import type {
   CatalogSyncScope,
   CatalogSyncScopeReferenceKind,
@@ -13,19 +13,16 @@ import type { SourceObservationIntegrationJobScope } from "../../../features/sou
 import type { createCatalogRequestApiClient } from "../../../support/request-support/api-client";
 import { parseCatalogPrimaryWorkbenchRouteContext } from "../../../features/source-observations/ui/primary-workbench-route-context";
 import {
-  canSelectStandaloneProductCoordinate,
   importScopeFromScopeContext,
+  integrationJobScopeForUnit,
+  reapplyScopeForUnit,
+  type CatalogPrimaryWorkbenchReapplyScope,
   scopeContextFromFormData,
   scopeContextFromRouteContext,
-  scopeContextToIntegrationJobScope,
   scopeContextToObservationFilterScope,
 } from "../../../features/source-observations/ui/primary-workbench-scope-context";
 import type { CatalogPrimaryWorkbenchCommandFeedback } from "../../../features/source-observations/ui/primary-workbench-command-feedback";
 import { recordValue, stringValue } from "./integrations-form-values";
-import {
-  getActiveCatalogProviderIntegrationProfileVersion,
-  catalogProviderProfileVersionIngestionUnitKey,
-} from "../../../features/source-observations/api/providers/registry";
 
 export type CatalogPrimaryWorkbenchFormIntent = CatalogControlPlaneActionId;
 
@@ -111,44 +108,16 @@ export function observationIdsFromFormData(formData: FormData, fallback: readonl
   return values.length > 0 ? [...new Set(values)] : fallback;
 }
 
+// Whether the product coordinate may be imported on its own is the Catalog API's rule
+// (assertProductCoordinateImportAllowed). The page only refuses a review filter whose
+// language contradicts the product coordinate it was asked to import.
 export function integrationScopeFromContext(context: RouteContext): SourceObservationIntegrationJobScope {
   const scope = context.scope ?? scopeContextFromRouteContext(context);
   const filterLanguage = context.sourceObservationFilters.language;
-  const languageCode = filterLanguage ?? scope.languageCode;
-  if (scope.productId) {
-    const profile =
-      context.providerKey && context.unitKey
-        ? getActiveCatalogProviderIntegrationProfileVersion(context.providerKey, { ingestionUnitKey: context.unitKey })
-        : null;
-    if (
-      !profile?.active ||
-      catalogProviderProfileVersionIngestionUnitKey(profile) !== context.unitKey ||
-      !canSelectStandaloneProductCoordinate(profile) ||
-      (context.profileVersion && context.profileVersion !== profile.profileVersion) ||
-      Boolean(filterLanguage && scope.languageCode && filterLanguage !== scope.languageCode) ||
-      (profile.profile.languageOptions.length > 0 &&
-        (!languageCode || !profile.profile.languageOptions.includes(languageCode))) ||
-      scope.expansionId ||
-      scope.expansionName ||
-      scope.seriesId ||
-      scope.seriesName ||
-      scope.productLineId ||
-      scope.productLineName ||
-      context.sourceObservationFilters.setId ||
-      context.sourceObservationFilters.expansionId
-    ) {
-      throw new Error(
-        "Product import requires the selected active product-scope unit and an unmixed product coordinate.",
-      );
-    }
+  if (scope.productId && filterLanguage && scope.languageCode && filterLanguage !== scope.languageCode) {
+    throw new Error("Product import requires an unmixed product coordinate.");
   }
-  return scopeContextToIntegrationJobScope({
-    ...scope,
-    ingestionUnitKey: context.unitKey ?? undefined,
-    languageCode,
-    expansionId:
-      context.sourceObservationFilters.setId ?? context.sourceObservationFilters.expansionId ?? scope.expansionId,
-  });
+  return integrationJobScopeForUnit(scope, context.unitKey, context.sourceObservationFilters);
 }
 
 export function catalogSyncScopeFromContext(context: RouteContext, formData: FormData): CatalogSyncScope | null {
@@ -194,49 +163,31 @@ export function hasExplicitPromotionScope(context: RouteContext): boolean {
   return Boolean(context.providerKey && context.unitKey && importScopeFromScopeContext(scope));
 }
 
-export function reapplyScopeFromContext(context: RouteContext): SourceObservationPromotionScope {
+export function reapplyScopeFromContext(context: RouteContext): CatalogPrimaryWorkbenchReapplyScope {
+  return reapplyScopeForUnit(scopeContextFromRouteContext(context), context.unitKey, context.sourceObservationFilters);
+}
+
+/** The Catalog API's refusal of a promotion whose preview token is missing or stale. */
+export function isStalePromotionPreviewError(error: unknown): boolean {
+  return (
+    error instanceof CatalogApiError &&
+    error.status === 409 &&
+    recordValue(recordValue(error.body)?.error)?.code === "stale_promotion_preview"
+  );
+}
+
+/**
+ * The page a promotion is previewed from and confirmed on: its unit, import
+ * scope, profile version and page scope. admin-web sends it with the preview
+ * and with the execution; the Catalog API binds it into the token and compares.
+ */
+export function promotionConfirmationFromContext(context: RouteContext): CatalogPromotionConfirmation {
   return {
-    ...promotionScopeFromContext(context),
-    status: context.sourceObservationFilters.status ?? "promoted",
+    unitKey: context.unitKey ?? null,
+    importScope: context.importScope ?? null,
+    profileVersion: context.profileVersion ?? null,
+    scope: promotionScopeFromContext(context),
   };
-}
-
-// The promotion preview checkpoint token. It carries a genuine content
-// fingerprint of the eligible observations the preview was computed from (see
-// `SourceObservationPromotionPreview.fingerprint`), not just aggregate counts:
-// two previews with the same matched/eligible counts but different underlying
-// observation content (a re-import changed a field, an observation entered or
-// left the eligible set) produce different tokens, so `confirmsFreshPromotionPreview`
-// below rejects execution against the stale one — self-invalidation is a server-side
-// guarantee, not a UI nicety the operator can bypass by resubmitting a stale token.
-// The token also binds the explicit promote-as-draft choice and the validation
-// verdict of the covered page: toggling the choice, or a covered observation
-// changing between blocked and eligible, invalidates the confirmation.
-export function promotionPreviewIdFor(
-  preview: SourceObservationPromotionPreview,
-  context: RouteContext,
-  selectedObservationIds: readonly string[],
-): string {
-  return [
-    "preview",
-    promotionPreviewScopeToken(context, selectedObservationIds),
-    preview.matched,
-    preview.eligible,
-    preview.fingerprint || "no-fingerprint",
-    preview.validation.promoteAsDraft ? "draft" : "publishable",
-    promotionValidationToken(preview.validation),
-  ].join("-");
-}
-
-export async function confirmsFreshPromotionPreview(
-  api: ReturnType<typeof createCatalogRequestApiClient>,
-  context: RouteContext,
-  selectedObservationIds: readonly string[],
-): Promise<boolean> {
-  const preview = await previewPromotionForContext(api, context, selectedObservationIds);
-  const expectedPreviewId = promotionPreviewIdFor(preview, context, selectedObservationIds);
-
-  return context.promotionPreviewId === expectedPreviewId;
 }
 
 export async function previewPromotionForContext(
@@ -244,7 +195,10 @@ export async function previewPromotionForContext(
   context: RouteContext,
   selectedObservationIds: readonly string[],
 ): Promise<SourceObservationPromotionPreview> {
-  const options = { promoteAsDraft: context.promoteAsDraft === true };
+  const options = {
+    promoteAsDraft: context.promoteAsDraft === true,
+    confirmation: promotionConfirmationFromContext(context),
+  };
   return selectedObservationIds.length > 0
     ? api.previewBulkPromoteSourceObservationIds<SourceObservationPromotionPreview>(
         [...selectedObservationIds],
@@ -254,27 +208,6 @@ export async function previewPromotionForContext(
         promotionScopeFromContext(context),
         options,
       );
-}
-
-/** Coverage plus a digest of the blocked observation ids, so a validation change re-previews. */
-function promotionValidationToken(validation: SourceObservationPromotionPreview["validation"]): string {
-  const blocked = [
-    ...new Set(
-      validation.diagnostics.filter((diagnostic) => diagnostic.blocking).map((diagnostic) => diagnostic.observationId),
-    ),
-  ].sort();
-  return [validation.coverage, `blocked${blocked.length}`, fnv1aDigest(blocked.join(","))].join(".");
-}
-
-// Isomorphic 32-bit FNV-1a digest: the token must be computable without
-// Node-only modules and only needs to detect a changed blocked set.
-function fnv1aDigest(value: string): string {
-  let hash = 0x811c9dc5;
-  for (let index = 0; index < value.length; index += 1) {
-    hash ^= value.charCodeAt(index);
-    hash = Math.imul(hash, 0x01000193) >>> 0;
-  }
-  return hash.toString(16).padStart(8, "0");
 }
 
 export async function runProviderProfileLifecycleCommand(
@@ -341,24 +274,6 @@ export function lifecycleFailureResult(
   return "command-failed";
 }
 
-function promotionPreviewScopeToken(context: RouteContext, selectedObservationIds: readonly string[]): string {
-  const scope = promotionScopeFromContext(context);
-
-  return [
-    scope.provider ?? "all",
-    context.unitKey ?? "none",
-    context.importScope ?? "none",
-    context.profileVersion ?? "none",
-    scope.language ?? "all",
-    scope.setId ?? "all",
-    scope.status ?? "all",
-    scope.search ?? "none",
-    selectedObservationIds.join(".") || "filtered",
-  ]
-    .map(tokenSegment)
-    .join("_");
-}
-
 // A Catalog sync scope v2 reference is a canonical scope record id plus its
 // classification kind. Provider coordinates are no longer assembled here: the
 // server resolves them from the scope record's accepted Provider Scope Mappings.
@@ -379,8 +294,4 @@ function catalogSyncReferenceFromContext(
   }
 
   return { kind, scopeRecordId };
-}
-
-function tokenSegment(value: string): string {
-  return value.replace(/[^A-Za-z0-9_.-]+/g, "_") || "none";
 }
