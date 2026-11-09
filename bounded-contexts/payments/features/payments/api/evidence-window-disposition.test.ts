@@ -338,7 +338,15 @@ describe("evidence window disposition synthetic controls", () => {
         case "cancelled":
         case "already-terminal":
         case "disposition-failed":
-          initial = [row(objectClass)];
+          initial = [
+            row(
+              objectClass,
+              1,
+              entry.state === "disposition-failed" && objectClass !== 3
+                ? { providerReference: "seti_SYNTHETIC_INVALID" }
+                : {},
+            ),
+          ];
           break;
         case "remedy-requested":
         case "retained-reused":
@@ -383,7 +391,6 @@ describe("evidence window disposition synthetic controls", () => {
             reason: "provider-rejected",
             httpStatus: 400,
           });
-        else initial[0]!.providerReference = "seti_SYNTHETIC_INVALID";
       }
       return subject.dispose(windowId);
     }
