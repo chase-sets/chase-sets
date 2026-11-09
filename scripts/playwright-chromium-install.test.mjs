@@ -7,6 +7,7 @@ import { pathToFileURL } from "node:url";
 import { PassThrough } from "node:stream";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { parse } from "yaml";
+import { gitListingOptions } from "./lib/git-listing.mjs";
 import {
   inspectCache,
   installPlaywrightChromium as realInstallPlaywrightChromium,
@@ -1125,7 +1126,11 @@ describe("E2E payload authority and retirement", () => {
   });
 
   it("AC4 tracked-inventory/registry/runtime preflight rejects stale diagnostic paths and policy", () => {
-    const tracked = execFileSync("git", ["ls-files", "--", ".github/workflows"], { encoding: "utf8" })
+    const tracked = execFileSync(
+      "git",
+      ["ls-files", "--", ".github/workflows"],
+      gitListingOptions({ encoding: "utf8" }),
+    )
       .trim()
       .split(/\r?\n/)
       .filter((file) => existsSync(file));
