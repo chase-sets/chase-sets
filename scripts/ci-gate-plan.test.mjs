@@ -42,6 +42,45 @@ try {
 }
 const { createCiGatePlan: priorCreateCiGatePlan, ciGatePlanOutputMap: priorOutputMap } = priorPlanner;
 const workspaces = listWorkspacePackages();
+
+describe("hosted bootstrap oracle memo gate", () => {
+  it("selects memo check only for generator changes", () => {
+    const prefix = "deployables/platform-api/";
+    const selected = [
+      `${prefix}__tests__/fixtures/bootstrap-db-oracle-schedule-memo.json`,
+      `${prefix}__tests__/fixtures/bootstrap-db-oracle-schedule-memo.mjs`,
+      `${prefix}__tests__/fixtures/bootstrap-db-schedule-before-subset-reuse.mjs`,
+      `${prefix}scripts/check-bootstrap-db-enrollment.mjs`,
+    ];
+    for (const mode of ["pull-request", "merge-group"]) {
+      for (const file of [...selected, "README.md", "scripts/bootstrap-db-oracle-memo-artifact.mjs"]) {
+        const scope = classifyChanges({ changedFiles: [file], workspaces });
+        const plan = createCiGatePlan({ mode, scope, provenance: "same-repository", labels: ["full-ci"] });
+        expect(plan.gates.find(({ id }) => id === "bootstrap-db-oracle-memo-check"), file).toMatchObject({
+          selection: selected.includes(file) ? "REQUIRED" : "NOT_REQUIRED",
+          executability: "HOSTED_ONLY",
+        });
+      }
+    }
+  });
+
+  it("PR Required fails missing memo check", () => {
+    const workflow = parseYaml(readFileSync(".github/workflows/platform-pr.yml", "utf8"));
+    expect(workflow.jobs["pr-required"].needs).toContain("bootstrap-db-oracle-memo-check");
+    const run = workflow.jobs["pr-required"].steps.find(({ name }) => name === "Verify required jobs").run;
+    expect(run).toContain(
+      'require_job "Bootstrap DB Oracle Memo Check" "${{ needs[\'bootstrap-db-oracle-memo-check\'].result }}" "${{ needs[\'change-scope\'].outputs.bootstrap_db_oracle_memo_check_required }}"',
+    );
+    const job = workflow.jobs["bootstrap-db-oracle-memo-check"];
+    expect(job["timeout-minutes"]).toBe(30);
+    expect(job.steps.filter(({ run }) => run?.includes("bootstrap-db-oracle-schedule-memo.mjs"))).toEqual([
+      expect.objectContaining({
+        "working-directory": "deployables/platform-api",
+        run: "node __tests__/fixtures/bootstrap-db-oracle-schedule-memo.mjs --check",
+      }),
+    ]);
+  });
+});
 const scopedCases = selectionFixture.cases.map((entry) => ({
   ...entry,
   scope: classifyChanges({ changedFiles: entry.changedFiles, workspaces }),
