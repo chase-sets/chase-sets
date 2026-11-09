@@ -6,6 +6,7 @@ import {
   CatalogIntegrationCommandActionProvider,
   useCatalogIntegrationCommandHref,
   useCatalogIntegrationSurfaceHref,
+  useCatalogIntegrationHrefRebase,
 } from "./command-action-context";
 
 afterEach(cleanup);
@@ -27,6 +28,22 @@ function ReviewPagerProbe() {
 }
 
 describe("Catalog integration command action context", () => {
+  it.each(["/catalog/scopes/sentinel", "/catalog/providers/sentinel"])(
+    "rebases only pathname onto %s",
+    (actionPath) => {
+      const query = "?section=source-observation-review&filter.status=eligible&sentinel=a%20b&reviewOffset=50";
+      function Sentinel() {
+        const rebase = useCatalogIntegrationHrefRebase();
+        return <a data-testid="sentinel" href={rebase(`/catalog/integrations${query}`)} />;
+      }
+      const { getByTestId } = render(
+        <CatalogIntegrationCommandActionProvider actionPath={actionPath}>
+          <Sentinel />
+        </CatalogIntegrationCommandActionProvider>,
+      );
+      expect(getByTestId("sentinel").getAttribute("href")).toBe(`${actionPath}${query}`);
+    },
+  );
   it("uses the daily integrations action by default", () => {
     const { getByTestId } = render(<Probe />);
     const action = new URL((getByTestId("command-form") as HTMLFormElement).action);

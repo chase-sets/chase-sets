@@ -197,7 +197,12 @@ function checkoutSession(overrides: Partial<CheckoutSessionRow> = {}): CheckoutS
   };
 }
 
-const signedInActor = { accountId: "acc_buyer", roleKey: "owner", permissions: ["orders.view", "payouts.view"] };
+// An owner who may pay: Auth grants orders.manage once the email is verified (#10785).
+const signedInActor = {
+  accountId: "acc_buyer",
+  roleKey: "owner",
+  permissions: ["orders.view", "orders.manage", "payouts.view"],
+};
 const sessionPath = "/checkout/buy/session/chk_recovery";
 const startPath =
   "/checkout/buy/readiness?source=buy-now&listingId=lst_1&catalogItemId=cat_1&productId=prod_1&itemTitle=Charizard&quantity=2&fulfillmentMode=locked-listing&lockedListingId=lst_1";

@@ -6610,42 +6610,6 @@ export const mcpToolCatalog = [
     expectedUsage: ["Use as the first step in account-scoped agent flows."],
   },
   {
-    name: "catalog.get-blueprint",
-    title: "Get Blueprint",
-    description: "Read blueprint dimensions, components, and product resolution rules.",
-    availability: "planned",
-    serviceId: "catalog",
-    risk: "read",
-    inputSchema: {
-      type: "object",
-      additionalProperties: false,
-      required: ["blueprintId"],
-      properties: {
-        blueprintId: {
-          type: "string",
-          description: "Blueprint identifier.",
-        },
-      },
-    },
-    permissionBoundary: {
-      scope: "account",
-      requiredPermissions: ["catalog.view"],
-      requiredScopes: ["catalog:read"],
-      accountScoped: true,
-      auditPrincipal: "actor",
-    },
-    guardrails: {
-      confirmation: {
-        required: false,
-      },
-      idempotencyKey: "not-applicable",
-      idempotencyAuthority: "platform",
-      dryRunSupported: false,
-      notes: ["Return only account-scoped data that the actor can already view."],
-    },
-    expectedUsage: ["Use to understand valid product metadata and dimensions."],
-  },
-  {
     name: "catalog.publish-item",
     title: "Publish Catalog Item",
     description: "Publish a catalog item for marketplace use.",

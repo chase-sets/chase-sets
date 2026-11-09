@@ -149,6 +149,21 @@
   ],
   "mcpCapabilities": {
     "tools": [
+      { "name": "catalog.archive-blueprint", "ownerSlice": "blueprints" },
+      { "name": "catalog.attach-component", "ownerSlice": "blueprints" },
+      { "name": "catalog.confirm-bulk-blueprint-lifecycle", "ownerSlice": "blueprints" },
+      { "name": "catalog.create-blueprint", "ownerSlice": "blueprints" },
+      { "name": "catalog.deprecate-blueprint", "ownerSlice": "blueprints" },
+      { "name": "catalog.detach-component", "ownerSlice": "blueprints" },
+      { "name": "catalog.get-authoring-job", "ownerSlice": "blueprints" },
+      { "name": "catalog.get-blueprint", "ownerSlice": "blueprints" },
+      { "name": "catalog.list-blueprints", "ownerSlice": "blueprints" },
+      { "name": "catalog.preview-bulk-blueprint-lifecycle", "ownerSlice": "blueprints" },
+      { "name": "catalog.publish-blueprint", "ownerSlice": "blueprints" },
+      { "name": "catalog.revise-blueprint", "ownerSlice": "blueprints" },
+      { "name": "catalog.set-blueprint-dimensions", "ownerSlice": "blueprints" },
+      { "name": "catalog.set-blueprint-fields", "ownerSlice": "blueprints" },
+      { "name": "catalog.set-blueprint-product-resolution-rules", "ownerSlice": "blueprints" },
       { "name": "catalog.list-provider-refresh-schedules", "ownerSlice": "provider-scope-discovery" },
       { "name": "catalog.run-provider-refresh", "ownerSlice": "provider-scope-discovery" },
       { "name": "catalog.pause-provider-refresh", "ownerSlice": "provider-scope-discovery" },
@@ -174,8 +189,12 @@
     "resources": []
   },
   "agentCoverage": {
-    "blueprints": { "pending": "#9238" },
-    "blueprints-detail": { "pending": "#9238" },
+    "blueprints": {
+      "tools": ["catalog.list-blueprints", "catalog.create-blueprint", "catalog.preview-bulk-blueprint-lifecycle", "catalog.confirm-bulk-blueprint-lifecycle", "catalog.get-authoring-job"]
+    },
+    "blueprints-detail": {
+      "tools": ["catalog.get-blueprint", "catalog.publish-blueprint", "catalog.deprecate-blueprint", "catalog.archive-blueprint", "catalog.revise-blueprint", "catalog.attach-component", "catalog.detach-component", "catalog.set-blueprint-product-resolution-rules", "catalog.set-blueprint-fields", "catalog.set-blueprint-dimensions"]
+    },
     "catalog-items": { "pending": "#9238" },
     "catalog-items-detail": { "pending": "#9238" },
     "categories": { "pending": "#9238" },
@@ -720,7 +739,8 @@
       "expectedConsumers": [
         "provider-scope-mapping",
         "Internal catalog module composition",
-        "Platform worker scheduled runners"
+        "Platform worker scheduled runners",
+        "source-observations"
       ]
     },
     "source-observations": {
@@ -1140,10 +1160,10 @@
         "api-route:bounded-contexts/catalog/features/source-observations/api/route-modules/catalog-merge-candidate-routes.ts:POST /admin/merge-candidates/:candidateId/promote",
         "api-route:bounded-contexts/catalog/features/source-observations/api/route-modules/catalog-merge-candidate-routes.ts:POST /admin/merge-candidates/:candidateId/split",
         "api-route:bounded-contexts/catalog/features/source-observations/api/route-modules/catalog-merge-candidate-routes.ts:POST /admin/merge-candidates/:candidateId/update",
-        "api-client:bounded-contexts/catalog/features/source-observations/api/promotion/catalog-merge-candidate-review-command-payloads.ts:POST Ha7da7073f776#1",
-        "api-client:bounded-contexts/catalog/features/source-observations/api/promotion/catalog-merge-candidate-review-command-payloads.ts:POST H3ed75dd87de3#1",
-        "api-client:bounded-contexts/catalog/features/source-observations/api/promotion/catalog-merge-candidate-review-command-payloads.ts:POST Hb4707c42a8f4#1",
-        "api-client:bounded-contexts/catalog/features/source-observations/api/promotion/catalog-merge-candidate-review-command-payloads.ts:POST H6e2a3b4d7d87#1",
+        "api-client:bounded-contexts/catalog/features/source-observations/api/promotion/catalog-merge-candidate-review-command-payloads.ts:POST H865d458e6139#1",
+        "api-client:bounded-contexts/catalog/features/source-observations/api/promotion/catalog-merge-candidate-review-command-payloads.ts:POST H8aaf2790a5e3#1",
+        "api-client:bounded-contexts/catalog/features/source-observations/api/promotion/catalog-merge-candidate-review-command-payloads.ts:POST Hbfe1b7ff4330#1",
+        "api-client:bounded-contexts/catalog/features/source-observations/api/promotion/catalog-merge-candidate-review-command-payloads.ts:POST He6cacbccf5d1#1",
         "api-route:bounded-contexts/catalog/features/source-observations/api/route-modules/promotion-review-routes.ts:POST /bulk-promote/preview",
         "api-route:bounded-contexts/catalog/features/source-observations/api/route-modules/promotion-review-routes.ts:POST /reapply/impact",
         "api-route:bounded-contexts/catalog/features/source-observations/api/route-modules/promotion-review-routes.ts:POST /reapply/preview",
@@ -1201,8 +1221,8 @@
         "api-client:bounded-contexts/catalog/support/shell-support/api/client.ts:POST H17cd86e76cd7#1",
         "api-client:bounded-contexts/catalog/support/shell-support/api/client.ts:POST H2ccae70b986c#1",
         "api-client:bounded-contexts/catalog/support/shell-support/api/client.ts:POST H4713b23308ae#1",
-        "api-client:bounded-contexts/catalog/support/shell-support/api/client.ts:POST H5916ed4aed53#1",
-        "api-client:bounded-contexts/catalog/support/shell-support/api/client.ts:POST H5951cf447e8c#1",
+        "api-client:bounded-contexts/catalog/support/shell-support/api/client.ts:POST H49906495e168#1",
+        "api-client:bounded-contexts/catalog/support/shell-support/api/client.ts:POST H8d43e99581ed#1",
         "api-client:bounded-contexts/catalog/support/shell-support/api/client.ts:POST H5f1753bd561a#1",
         "api-client:bounded-contexts/catalog/support/shell-support/api/client.ts:POST H6646e478f939#1",
         "api-client:bounded-contexts/catalog/support/shell-support/api/client.ts:POST H6c60f0691cb7#1",
@@ -1212,7 +1232,7 @@
         "api-client:bounded-contexts/catalog/support/shell-support/api/client.ts:POST H8acc70cf4320#1",
         "api-client:bounded-contexts/catalog/support/shell-support/api/client.ts:POST H8ca59b7e95dc#1",
         "api-client:bounded-contexts/catalog/support/shell-support/api/client.ts:POST H8fb4eb8e717e#1",
-        "api-client:bounded-contexts/catalog/support/shell-support/api/client.ts:POST H9d96152ce165#1",
+        "api-client:bounded-contexts/catalog/support/shell-support/api/client.ts:POST He563b1cdce47#1",
         "api-client:bounded-contexts/catalog/support/shell-support/api/client.ts:POST Hc9176fca9b33#1",
         "api-client:bounded-contexts/catalog/support/shell-support/api/client.ts:POST Hd82bcf180987#1",
         "api-client:bounded-contexts/catalog/support/shell-support/api/client.ts:POST He3dad3268adf#1",

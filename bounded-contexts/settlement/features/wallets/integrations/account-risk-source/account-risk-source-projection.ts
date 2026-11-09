@@ -40,11 +40,13 @@ async function refreshSharedInstrumentClusters(db: PgQueryable, accountId: strin
     `INSERT INTO settlement_account_risk_sources (
        account_id,
        shared_instrument_cluster_count,
+       revision,
        updated_at
      )
      SELECT
        $1,
        COUNT(DISTINCT account_instruments.instrument_cluster_key)::integer,
+       1,
        $2
      FROM settlement_account_instrument_risk_sources account_instruments
      WHERE account_instruments.account_id = $1
@@ -59,6 +61,7 @@ async function refreshSharedInstrumentClusters(db: PgQueryable, accountId: strin
        )
      ON CONFLICT (account_id) DO UPDATE SET
        shared_instrument_cluster_count = EXCLUDED.shared_instrument_cluster_count,
+       revision = settlement_account_risk_sources.revision + 1,
        updated_at = EXCLUDED.updated_at`,
     [accountId, updatedAt],
   );
@@ -89,11 +92,13 @@ async function refreshSharedAddressClusters(db: PgQueryable, accountId: string, 
     `INSERT INTO settlement_account_risk_sources (
        account_id,
        shared_address_cluster_count,
+       revision,
        updated_at
      )
      SELECT
        $1,
        COUNT(DISTINCT account_addresses.address_cluster_key)::integer,
+       1,
        $2
      FROM settlement_account_address_risk_sources account_addresses
      WHERE account_addresses.account_id = $1
@@ -108,6 +113,7 @@ async function refreshSharedAddressClusters(db: PgQueryable, accountId: string, 
        )
      ON CONFLICT (account_id) DO UPDATE SET
        shared_address_cluster_count = EXCLUDED.shared_address_cluster_count,
+       revision = settlement_account_risk_sources.revision + 1,
        updated_at = EXCLUDED.updated_at`,
     [accountId, updatedAt],
   );
@@ -245,6 +251,7 @@ async function refreshVelocityCounters(
        buyer_order_24h_count,
        buyer_spend_24h_cents,
        velocity_alert_flags,
+       revision,
        updated_at
      )
      WITH counters AS (
@@ -332,6 +339,7 @@ async function refreshVelocityCounters(
          youngBuyerAgeDays: "$14",
          youngBuyerMinSpendCents: "$15",
        })},
+       1,
        $2
      FROM rollup
      ON CONFLICT (account_id) DO UPDATE SET
@@ -345,6 +353,7 @@ async function refreshVelocityCounters(
        buyer_order_24h_count = EXCLUDED.buyer_order_24h_count,
        buyer_spend_24h_cents = EXCLUDED.buyer_spend_24h_cents,
        velocity_alert_flags = EXCLUDED.velocity_alert_flags,
+       revision = settlement_account_risk_sources.revision + 1,
        updated_at = EXCLUDED.updated_at`,
     [
       accountId,
@@ -447,12 +456,14 @@ async function refreshAccountReviews(db: PgQueryable, accountId: string, updated
        account_id,
        review_count,
        average_rating,
+       revision,
        updated_at
      )
      SELECT
        $1,
        COUNT(*)::integer,
        CASE WHEN COUNT(*) = 0 THEN NULL ELSE ROUND(AVG(rating)::numeric, 2) END,
+       1,
        $2
      FROM settlement_account_review_sources
      INNER JOIN settlement_order_trust_signal_sources trust_source
@@ -468,6 +479,7 @@ async function refreshAccountReviews(db: PgQueryable, accountId: string, updated
      ON CONFLICT (account_id) DO UPDATE SET
        review_count = EXCLUDED.review_count,
        average_rating = EXCLUDED.average_rating,
+       revision = settlement_account_risk_sources.revision + 1,
        updated_at = EXCLUDED.updated_at`,
     [accountId, updatedAt],
   );
@@ -486,10 +498,12 @@ async function updateBadge(
     `INSERT INTO settlement_account_risk_sources (
        account_id,
        ${columnName},
+       revision,
        updated_at
-     ) VALUES ($1, $2, $3)
+     ) VALUES ($1, $2, 1, $3)
      ON CONFLICT (account_id) DO UPDATE SET
        ${columnName} = EXCLUDED.${columnName},
+       revision = settlement_account_risk_sources.revision + 1,
        updated_at = EXCLUDED.updated_at`,
     [params.accountId, params.assigned, params.updatedAt],
   );
@@ -508,10 +522,12 @@ export function buildSettlementIdentityAccountRiskSourceProjectionHandlers(
         `INSERT INTO settlement_account_risk_sources (
            account_id,
            account_created_at,
+           revision,
            updated_at
-         ) VALUES ($1, $2, $2)
+         ) VALUES ($1, $2, 1, $2)
          ON CONFLICT (account_id) DO UPDATE SET
            account_created_at = COALESCE(settlement_account_risk_sources.account_created_at, EXCLUDED.account_created_at),
+           revision = settlement_account_risk_sources.revision + 1,
            updated_at = EXCLUDED.updated_at`,
         [data.accountId, createdAt],
       );
@@ -912,8 +928,9 @@ export function buildSettlementPaymentsAccountRiskSourceProjectionHandlers(
            stripe_fraud_flag,
            stripe_fraud_flagged_at,
            stripe_fraud_signal_count,
+           revision,
            updated_at
-         ) VALUES ($1, TRUE, $2, 1, $2)
+         ) VALUES ($1, TRUE, $2, 1, 1, $2)
          ON CONFLICT (account_id) DO UPDATE SET
            stripe_fraud_flag = TRUE,
            stripe_fraud_flagged_at = COALESCE(
@@ -921,6 +938,7 @@ export function buildSettlementPaymentsAccountRiskSourceProjectionHandlers(
              EXCLUDED.stripe_fraud_flagged_at
            ),
            stripe_fraud_signal_count = settlement_account_risk_sources.stripe_fraud_signal_count + 1,
+           revision = settlement_account_risk_sources.revision + 1,
            updated_at = EXCLUDED.updated_at`,
         [data.buyerAccountId, data.receivedAt],
       );
@@ -933,8 +951,9 @@ export function buildSettlementPaymentsAccountRiskSourceProjectionHandlers(
            stripe_fraud_flag,
            stripe_fraud_flagged_at,
            stripe_review_open_count,
+           revision,
            updated_at
-         ) VALUES ($1, TRUE, $2, 1, $2)
+         ) VALUES ($1, TRUE, $2, 1, 1, $2)
          ON CONFLICT (account_id) DO UPDATE SET
            stripe_fraud_flag = TRUE,
            stripe_fraud_flagged_at = COALESCE(
@@ -942,6 +961,7 @@ export function buildSettlementPaymentsAccountRiskSourceProjectionHandlers(
              EXCLUDED.stripe_fraud_flagged_at
            ),
            stripe_review_open_count = settlement_account_risk_sources.stripe_review_open_count + 1,
+           revision = settlement_account_risk_sources.revision + 1,
            updated_at = EXCLUDED.updated_at`,
         [data.buyerAccountId, data.openedAt],
       );
@@ -953,14 +973,16 @@ export function buildSettlementPaymentsAccountRiskSourceProjectionHandlers(
            account_id,
            stripe_fraud_flag,
            stripe_review_open_count,
+           revision,
            updated_at
-         ) VALUES ($1, $2, 0, $3)
+         ) VALUES ($1, $2, 0, 1, $3)
          ON CONFLICT (account_id) DO UPDATE SET
            stripe_fraud_flag = CASE
              WHEN $2 = FALSE AND settlement_account_risk_sources.stripe_fraud_signal_count = 0 THEN FALSE
              ELSE settlement_account_risk_sources.stripe_fraud_flag
            END,
            stripe_review_open_count = GREATEST(0, settlement_account_risk_sources.stripe_review_open_count - 1),
+           revision = settlement_account_risk_sources.revision + 1,
            updated_at = EXCLUDED.updated_at`,
         [data.buyerAccountId, data.outcome !== "approved", data.closedAt],
       );

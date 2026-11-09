@@ -15,76 +15,27 @@ import {
 import { ChaseRoot, Container, LinkButton, MarketplaceEmptyState, Page, Stack } from "@chase-sets/design-system";
 import { buildCanonicalUrl, resolvePublicOrigin, shouldIndexPublicWeb } from "./seo";
 import { publicPresenceT as t, waitlistAnalyticsEventNames } from "@chase-sets/public-presence/web";
+import { buildAnalyticsBridgeScript } from "@chase-sets/platform-runtime/analytics-bridge";
 
-export const waitlistAnalyticsBridgeScript = `
-(() => {
-  const endpoint = "/api/public-presence/analytics/waitlist";
-  const allowedEvents = new Set(${JSON.stringify(waitlistAnalyticsEventNames)});
-
-  function readBounded(value) {
-    if (typeof value !== "string") {
-      return null;
-    }
-    const text = value.trim();
-    return text.length > 0 && text.length <= 80 && /^[a-zA-Z0-9_.-]+$/.test(text) ? text : null;
-  }
-
-  function readAttribution(value) {
-    if (typeof value !== "string") {
-      return null;
-    }
-    const text = value.trim();
-    return text.length > 0 && text.length <= 120 && /^[a-zA-Z0-9][a-zA-Z0-9 _%+.-]*$/.test(text) ? text : null;
-  }
-
-  function readPath(value) {
-    if (typeof value !== "string") {
-      return null;
-    }
-    const text = value.trim();
-    return text.length > 0 && text.length <= 160 && text.startsWith("/") && /^[/a-zA-Z0-9_.~%=&?-]+$/.test(text)
-      ? text
-      : null;
-  }
-
-  window.addEventListener("chase-sets:waitlist-analytics", (event) => {
-    const detail = event instanceof CustomEvent ? event.detail : null;
-    if (!detail || typeof detail.event !== "string" || !allowedEvents.has(detail.event)) {
-      return;
-    }
-
-    const payload = {
-      event: detail.event,
-      section: readBounded(detail.section),
-      target: readBounded(detail.target),
-      field: readBounded(detail.field),
-      role: readBounded(detail.role),
-      interest: readBounded(detail.interest),
-      variant: readBounded(detail.variant),
-      status: readBounded(detail.status),
-      page_path: readPath(detail.page_path),
-      utm_source: readAttribution(detail.utm_source),
-      utm_medium: readAttribution(detail.utm_medium),
-      utm_campaign: readAttribution(detail.utm_campaign),
-      checked: typeof detail.checked === "boolean" ? detail.checked : null,
-    };
-    const body = JSON.stringify(payload);
-
-    if (navigator.sendBeacon) {
-      navigator.sendBeacon(endpoint, new Blob([body], { type: "application/json" }));
-      return;
-    }
-
-    fetch(endpoint, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body,
-      credentials: "same-origin",
-      keepalive: true,
-    }).catch(() => undefined);
-  });
-})();
-`.trim();
+export const waitlistAnalyticsBridgeScript = buildAnalyticsBridgeScript({
+  endpoint: "/api/public-presence/analytics/waitlist",
+  eventName: "chase-sets:waitlist-analytics",
+  allowedEvents: waitlistAnalyticsEventNames,
+  fields: {
+    section: "bounded",
+    target: "bounded",
+    field: "bounded",
+    role: "bounded",
+    interest: "bounded",
+    variant: "bounded",
+    status: "bounded",
+    page_path: "path",
+    utm_source: "attribution",
+    utm_medium: "attribution",
+    utm_campaign: "attribution",
+    checked: "boolean",
+  },
+});
 
 export function loader(_args: LoaderFunctionArgs) {
   return {

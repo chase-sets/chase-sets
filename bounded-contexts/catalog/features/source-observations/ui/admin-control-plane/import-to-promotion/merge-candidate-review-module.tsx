@@ -26,7 +26,7 @@ import type {
   CatalogPrimaryWorkbenchMergeCandidateReviewRow,
   CatalogPrimaryWorkbenchReadModel,
 } from "../../../api/primary-workbench-admin-contracts";
-import { CommandFormButton, CommandHiddenInputs } from "./command-controls";
+import { CommandFormButton, CommandHiddenInputs, type CandidateCommandFields } from "./command-controls";
 import { useCatalogIntegrationCommandHref } from "./command-action-context";
 import { CatalogMergeCandidateEditForm } from "./candidate-edit-form";
 import { CatalogScopeBulkReviewActions, catalogMergeCandidateReviewAnchorId } from "./scope-bulk-review-actions";
@@ -520,10 +520,8 @@ function MergeCandidateActionButton({
       readModel={readModel}
       intent={actionKey}
       candidateId={row.candidateId}
-      reason={candidateActionReason(actionKey)}
-      mergeCandidateCommandBody={
-        actionEntry.commandPreview ? JSON.stringify(actionEntry.commandPreview.body) : undefined
-      }
+      reason={actionEntry.commandPreview?.body.reason ?? candidateActionReason(actionKey)}
+      candidateCommand={actionEntry.commandPreview ? candidateCommandFor(actionEntry.commandPreview.body) : undefined}
       size="sm"
       tone={actionKey === "candidate.promote" ? "primary" : "secondary"}
       disabled={disabled}
@@ -535,6 +533,14 @@ function MergeCandidateActionButton({
       {candidateActionLabel(actionKey)}
     </CommandFormButton>
   );
+}
+
+function candidateCommandFor(
+  body: NonNullable<MergeCandidateRow["actions"][number]["commandPreview"]>["body"],
+): CandidateCommandFields {
+  return "splitObservationIds" in body
+    ? { version: body.expectedVersion, splitObservationIds: body.splitObservationIds }
+    : { version: body.expectedVersion };
 }
 
 function candidateActionLabel(actionKey: CatalogPrimaryWorkbenchMergeCandidateActionKey): string {

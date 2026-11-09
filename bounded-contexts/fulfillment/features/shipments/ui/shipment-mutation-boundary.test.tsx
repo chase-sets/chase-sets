@@ -12,7 +12,7 @@ import type { FulfillmentShipmentDetail } from "./contracts";
 import ShipmentsRoute from "../../../routes/marketplace/account-sale-shipments";
 import ShipmentRoute from "../../../routes/marketplace/account-sale-shipment";
 import PackingRoute from "../../../routes/marketplace/account-sale-shipment-packing";
-import { buildFulfillmentCommandCenter } from "./command-center-route-adapter";
+import { buildFulfillmentCommandCenter } from "../read-model/command-center";
 
 const submit = vi.hoisted(() => vi.fn<(data: FormData, options: unknown) => Promise<void>>(async () => undefined));
 const loaderData = vi.hoisted(() => vi.fn());

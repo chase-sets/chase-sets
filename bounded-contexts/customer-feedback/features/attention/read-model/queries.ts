@@ -8,7 +8,8 @@ import {
 
 export type FeedbackAttentionQueueFilters = Readonly<{
   ownerId?: string | null;
-  limit?: number;
+  /** null selects the full export; interactive queues remain bounded. */
+  limit?: number | null;
   now?: string;
   overdueOnly?: boolean;
 }>;
@@ -54,7 +55,7 @@ export async function listFeedbackAttention(
   db: PgQueryable,
   filters: FeedbackAttentionQueueFilters = {},
 ): Promise<readonly FeedbackAttentionQueueItem[]> {
-  const limit = Math.min(Math.max(filters.limit ?? 100, 1), 500);
+  const limit = filters.limit === null ? null : Math.min(Math.max(filters.limit ?? 100, 1), 500);
   const now = filters.now ?? new Date().toISOString();
   const values: unknown[] = [now];
   const ownerClause = filters.ownerId === undefined ? "" : 'AND attention_queue."ownerId" = $2';

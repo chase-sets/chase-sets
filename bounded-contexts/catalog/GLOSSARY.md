@@ -92,6 +92,16 @@ The catalog is composed of four primary concepts:
 
 ## Authoring Model
 
+**Blueprint MCP actions.** Operators inspect Blueprints through `catalog.list-blueprints` and `catalog.get-blueprint`.
+`catalog.create-blueprint`, `catalog.revise-blueprint`, `catalog.attach-component`,
+`catalog.detach-component`, `catalog.set-blueprint-fields`, `catalog.set-blueprint-dimensions`,
+and `catalog.set-blueprint-product-resolution-rules` author the same Blueprint aggregate as Admin.
+`catalog.publish-blueprint`, `catalog.deprecate-blueprint`, and `catalog.archive-blueprint`
+retain its lifecycle rules. `catalog.preview-bulk-blueprint-lifecycle` inspects an explicit or
+filtered selection; `catalog.confirm-bulk-blueprint-lifecycle` queues the existing authoring job.
+`catalog.get-authoring-job` returns its current snapshot, not an event stream.
+All require live operator authority; writes require title-bound confirmation and platform idempotency.
+
 The current implementation also uses four supporting authoring concepts:
 
 - `Blueprint` — the structural definition that determines applicable Fields, applicable Dimensions, and canonical Dimension order for Product resolution

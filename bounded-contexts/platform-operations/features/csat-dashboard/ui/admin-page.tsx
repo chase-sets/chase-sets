@@ -1,4 +1,5 @@
 import { formatDateTime, t } from "@chase-sets/localization";
+import { useRef, useState } from "react";
 import { useMatches } from "react-router";
 import {
   ActionBar,
@@ -25,6 +26,7 @@ import type {
   CsatAdminQueuePage,
   CsatAnalyticsSnapshot,
 } from "../../../support/request-support/customer-feedback-csat";
+import { createExperienceApiClient } from "../../../support/request-support/platform-feedback-client";
 
 type DashboardData = Readonly<{
   analytics: CsatAnalyticsSnapshot;
@@ -55,7 +57,7 @@ const consentItems = [
   { value: "granted", label: t("experience.csatAdmin.granted") },
   { value: "not-granted", label: t("experience.csatAdmin.notGranted") },
 ];
-const surveyItems = [...allItem, { value: "v1", label: t("experience.csatAdmin.versionV1") }];
+const surveyItems = [...allItem, { value: "csat.v1", label: t("experience.csatAdmin.versionV1") }];
 const outcomeItems = [
   ...allItem,
   { value: "checkout.completed", label: t("experience.csatAdmin.outcome.checkoutCompleted") },
@@ -131,11 +133,39 @@ function queueSurveyVersion(item: CsatAdminQueueItem) {
 
 export function CsatAdminPage({ data }: { data: DashboardData }) {
   const matches = useMatches();
-  const canExport = actorHasPermission(matches, "platform-feedback.export");
+  const canExport = actorHasPermission(matches, "customer-feedback.privacy.export-sensitive-feedback");
+  const [reason, setReason] = useState("");
+  const [exportState, setExportState] = useState<"idle" | "pending" | "completed" | "failed">("idle");
+  const exportPending = useRef(false);
   const seven = data.analytics.windows["trailing-7d"];
   const thirty = data.analytics.windows["trailing-30d"];
   const distribution = Object.entries(thirty.ratingDistribution).map(([rating, count]) => ({ rating, count }));
-  const exportHref = `/api/customer-feedback/export${queryWith(data, {})}`;
+  async function exportCsv() {
+    if (!reason || exportPending.current) return;
+    exportPending.current = true;
+    setExportState("pending");
+    try {
+      const api = createExperienceApiClient();
+      const created = await api.createCsatExport(queryWith(data, { reason }).slice(1));
+      const csv = await api.downloadCsatExport(created.exportId);
+      const href = URL.createObjectURL(csv);
+      try {
+        const link = document.createElement("a");
+        link.href = href;
+        link.download = "customer-feedback-export.csv";
+        document.body.append(link);
+        link.click();
+        link.remove();
+      } finally {
+        URL.revokeObjectURL(href);
+      }
+      setExportState("completed");
+    } catch {
+      setExportState("failed");
+    } finally {
+      exportPending.current = false;
+    }
+  }
 
   return (
     <Page>
@@ -213,14 +243,38 @@ export function CsatAdminPage({ data }: { data: DashboardData }) {
               <Button type="submit" leadingIcon="filter">
                 {t("experience.csatAdmin.apply")}
               </Button>
-              {canExport ? (
-                <LinkButton href={exportHref} tone="secondary" leadingIcon="externalLink">
-                  {t("experience.csatAdmin.export")}
-                </LinkButton>
-              ) : null}
             </ActionBar>
           </Stack>
         </Form>
+        {canExport ? (
+          <Stack gap={3}>
+            <NativeSelect
+              label={t("experience.csatAdmin.exportReason")}
+              value={reason}
+              onChange={(event) => setReason(event.currentTarget.value)}
+              disabled={exportState === "pending"}
+              items={[
+                { value: "", label: t("experience.csatAdmin.chooseExportReason") },
+                { value: "case-review", label: t("experience.csatAdmin.caseReview") },
+                { value: "quality-review", label: t("experience.csatAdmin.qualityReview") },
+              ]}
+            />
+            <ActionBar>
+              <Button
+                type="button"
+                tone="secondary"
+                leadingIcon="externalLink"
+                disabled={!reason || exportState === "pending"}
+                onClick={() => void exportCsv()}
+              >
+                {t("experience.csatAdmin.export")}
+              </Button>
+              <Text role="status" aria-label={t("experience.csatAdmin.export")} aria-live="polite">
+                {exportState === "idle" ? "" : t(`experience.csatAdmin.exportState.${exportState}`)}
+              </Text>
+            </ActionBar>
+          </Stack>
+        ) : null}
       </PageSection>
 
       <PageSection title={t("experience.csatAdmin.trend")}>

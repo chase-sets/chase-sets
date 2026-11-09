@@ -1,5 +1,5 @@
-import { Suspense, type ReactElement } from "react";
-import { Await } from "react-router";
+import { Suspense, useMemo, useState, type ReactElement } from "react";
+import { Await, type Location } from "react-router";
 import { OperationalStatusBanner, ProgressiveDisclosure } from "@chase-sets/design-system";
 import { t } from "@chase-sets/localization";
 import type { CatalogControlPlaneRouteSurfaceKey } from "./admin-control-plane/information-architecture";
@@ -8,6 +8,8 @@ import type {
   CatalogScopeSyncUnitStateReadModel,
   CatalogSyncRun,
   SourceObservationIntegrationImportPreview,
+  CatalogIntegrationsCommandResult,
+  SourceObservationImportJobReceipt,
 } from "./contracts";
 import type { CatalogAliasReviewReadModel } from "../../alias-equivalence/api/alias-review-admin-contracts";
 import type { CatalogDeferredAttentionQueueResult } from "../../attention-queue/api/contracts";
@@ -17,6 +19,12 @@ import { CatalogIntegrationsSurfacePage } from "./integrations-surface-page";
 import { CatalogIntegrationAliasReviewWorkspace } from "./admin-control-plane/alias-review/alias-review-workspace";
 import { DeferredSupplementaryPanel } from "./deferred-supplementary-panel";
 import { catalogPrimaryWorkbenchHref } from "./primary-workbench-route-context";
+import {
+  projectPromotionReceipt,
+  promotionReceiptHasCompleteCoverage,
+  promotionReceiptMatchesContext,
+  promotionValidationFor,
+} from "./primary-workbench-source-observation-review";
 
 // The data every integrations surface loader returns. The server owns read-model
 // composition; keeping the raw backing inputs out of the browser prevents large
@@ -53,6 +61,10 @@ export function CatalogIntegrationsSurfaceRouteView({
   surface,
   routeData,
   commandFeedback,
+  commandResult = null,
+  actionPending = false,
+  receiptLocation,
+  submissionPending = actionPending,
 }: Readonly<{
   surface: CatalogControlPlaneRouteSurfaceKey;
   routeData: CatalogIntegrationsRouteData;
@@ -61,7 +73,18 @@ export function CatalogIntegrationsSurfaceRouteView({
   // renders in place; the other surfaces leave it undefined and read the feedback
   // their loader parsed from the post-command redirect query.
   commandFeedback?: CatalogPrimaryWorkbenchCommandFeedback | null;
+  commandResult?: CatalogIntegrationsCommandResult | null;
+  actionPending?: boolean;
+  receiptLocation?: Pick<Location, "pathname" | "search" | "hash" | "key">;
+  submissionPending?: boolean;
 }>) {
+  const readModel = useOriginalPromotionReceipt(routeData, surface === "daily" ? commandResult : null, actionPending);
+  const importJobReceipt = useOriginalImportJobReceipt(
+    surface === "daily" ? commandResult : null,
+    receiptLocation,
+    actionPending,
+    submissionPending,
+  );
   // The alias-review workspace POSTs its accept/reject/revoke forms to the daily
   // integrations route action (the composition root supplies this href), which
   // dispatches the aggregate commands. Only the daily loader streams the
@@ -73,17 +96,15 @@ export function CatalogIntegrationsSurfaceRouteView({
   ) : null;
 
   const attentionQueue = routeData.deferredAttentionQueue ? (
-    <DeferredAttentionQueueSlot
-      deferredAttentionQueue={routeData.deferredAttentionQueue}
-      readModel={routeData.readModel}
-    />
+    <DeferredAttentionQueueSlot deferredAttentionQueue={routeData.deferredAttentionQueue} readModel={readModel} />
   ) : null;
 
   return (
     <CatalogIntegrationsSurfacePage
       surface={surface}
-      readModel={routeData.readModel}
+      readModel={readModel}
       commandFeedback={commandFeedback ?? routeData.commandFeedback}
+      importJobReceipt={importJobReceipt}
       aliasVisibility={aliasVisibility}
       attentionQueue={attentionQueue}
       deferredSourceOptions={routeData.deferredSourceOptions ?? null}
@@ -92,6 +113,180 @@ export function CatalogIntegrationsSurfaceRouteView({
       deferredScopeSyncState={routeData.deferredScopeSyncState ?? null}
     />
   );
+}
+
+function useOriginalImportJobReceipt(
+  result: CatalogIntegrationsCommandResult | null,
+  location: Pick<Location, "pathname" | "search" | "hash" | "key"> | undefined,
+  pending: boolean,
+  submitting: boolean,
+): SourceObservationImportJobReceipt | null {
+  const source =
+    result?.feedback.status === "success" &&
+    result.feedback.intent === "scope.import" &&
+    result.feedback.result === "job-queued"
+      ? (result.importJobReceipt ?? null)
+      : null;
+  const locationKey = location
+    ? JSON.stringify([location.pathname, location.search, location.hash, location.key])
+    : null;
+  const [snapshot, setSnapshot] = useState({
+    locationKey,
+    source,
+    submitting,
+    receipt: pending ? null : source,
+  });
+  const reset = snapshot.locationKey !== locationKey || (submitting && !snapshot.submitting);
+  const settledSource = pending && !reset ? snapshot.source : source;
+  // A settled POST commits a new location key together with its own receipt.
+  const receipt = !pending && source && source !== snapshot.source ? source : reset ? null : snapshot.receipt;
+  if (
+    snapshot.locationKey !== locationKey ||
+    snapshot.submitting !== submitting ||
+    snapshot.source !== settledSource ||
+    snapshot.receipt !== receipt
+  ) {
+    setSnapshot({ locationKey, source: settledSource, submitting, receipt });
+  }
+  return receipt;
+}
+
+export function useOriginalPromotionReceipt(
+  routeData: CatalogIntegrationsRouteData,
+  result: CatalogIntegrationsCommandResult | null,
+  pending: boolean,
+): CatalogPrimaryWorkbenchReadModel {
+  const model = routeData.readModel;
+  const activeProfileVersion = model.importJobs.selectedScope?.profileVersion ?? null;
+  const evidence = JSON.stringify([
+    model.routeContext,
+    model.sourceObservationReview,
+    model.promotionPreview.validation,
+    model.promotionPreview.currentFingerprint,
+    activeProfileVersion,
+  ]);
+  const [binding, setBinding] = useState({
+    result,
+    requestUrl: routeData.requestUrl,
+    evidence,
+    submittedEvidence: null as string | null,
+    submissionDrift: false,
+    stale: false,
+    settled: !pending,
+  });
+  let current = binding;
+  if (binding.result !== result) {
+    const submittedEvidence = binding.settled ? null : binding.submittedEvidence;
+    current = {
+      result,
+      requestUrl: routeData.requestUrl,
+      evidence,
+      submittedEvidence,
+      submissionDrift: false,
+      stale: binding.submissionDrift || (submittedEvidence !== null && submittedEvidence !== evidence),
+      settled: !pending,
+    };
+    setBinding(current);
+  } else if (pending && binding.settled) {
+    current = { ...binding, submittedEvidence: evidence, submissionDrift: false, settled: false, stale: true };
+    setBinding(current);
+  } else if (!binding.settled && !binding.submissionDrift && binding.submittedEvidence !== evidence) {
+    // Keep an observed pending change even if the loader restores before settlement.
+    current = { ...binding, submissionDrift: true };
+    setBinding(current);
+  } else if (
+    !binding.stale &&
+    (binding.requestUrl !== routeData.requestUrl || (binding.settled && binding.evidence !== evidence))
+  ) {
+    current = { ...binding, stale: true };
+    setBinding(current);
+  } else if (!binding.settled && !pending) {
+    current = {
+      ...binding,
+      settled: true,
+      evidence,
+      stale: binding.stale || (binding.submittedEvidence !== null && binding.submittedEvidence !== evidence),
+    };
+    setBinding(current);
+  }
+  const original =
+    result?.feedback.status === "success" && result.feedback.result === "preview-ready"
+      ? result.promotionReceipt
+      : null;
+  const receipt = useMemo(() => (original ? projectPromotionReceipt(original) : null), [original]);
+  if (!receipt || !result) {
+    return model;
+  }
+  const sameIds =
+    JSON.stringify([...receipt.selection.observationIds].sort()) ===
+    JSON.stringify([...result.context.selectedObservationIds].sort());
+  const sameContext = promotionReceiptMatchesContext(receipt, model.routeContext);
+  const sameActiveProfile = activeProfileVersion !== null && receipt.selection.profileVersion === activeProfileVersion;
+  const currentFingerprint = model.promotionPreview.currentFingerprint;
+  const valid =
+    !pending &&
+    !current.stale &&
+    sameIds &&
+    receipt.previewId === result.context.promotionPreviewId &&
+    receipt.selection.promoteAsDraft === (result.context.promoteAsDraft === true) &&
+    promotionReceiptMatchesContext(receipt, result.context) &&
+    sameContext &&
+    sameActiveProfile &&
+    (!model.promotionPreview.previewId || model.promotionPreview.previewId === receipt.previewId) &&
+    (!currentFingerprint || currentFingerprint === receipt.preview.fingerprint) &&
+    promotionReceiptHasCompleteCoverage(receipt) &&
+    model.readiness.rbacAllowed &&
+    model.sourceObservationReview.freshness === "fresh" &&
+    model.promotionPreview.blockers.length === 0;
+  return {
+    ...model,
+    // Only loader/URL context seeds the working selection; action context binds the receipt.
+    // The token belongs to the POST only. Generated links never serialize it.
+    routeContext: { ...model.routeContext, promotionPreviewId: null },
+    flow: {
+      ...model.flow,
+      openStage: model.flow.openStageWithHeldPreview,
+      stages: model.flow.stagesByOpenStage[model.flow.openStageWithHeldPreview],
+    },
+    sourceObservationReview: {
+      ...model.sourceObservationReview,
+      statusFilters: model.sourceObservationReview.statusFilters.map((filter) => ({
+        ...filter,
+        href: withoutPromotionPreviewId(filter.href),
+      })),
+      pagination: {
+        ...model.sourceObservationReview.pagination,
+        previousHref: withoutPromotionPreviewId(model.sourceObservationReview.pagination.previousHref),
+        nextHref: withoutPromotionPreviewId(model.sourceObservationReview.pagination.nextHref),
+      },
+    },
+    promotionPreview: {
+      ...model.promotionPreview,
+      previewId: receipt.previewId,
+      receipt,
+      validation: promotionValidationFor(result.context, receipt.preview.validation),
+      freshness: pending ? "unavailable" : valid ? "fresh" : "stale",
+      scope: {
+        ...model.promotionPreview.scope,
+        kind: receipt.selection.observationIds.length > 0 ? "explicit-rows" : "matching-filter",
+        selectedObservationIds: receipt.selection.observationIds,
+      },
+      executionSafeguards: {
+        ...model.promotionPreview.executionSafeguards,
+        previewFresh: valid,
+        stalePreviewRejected: !valid,
+      },
+    },
+  };
+}
+
+function withoutPromotionPreviewId(href: string): string;
+function withoutPromotionPreviewId(href: string | null): string | null;
+function withoutPromotionPreviewId(href: string | null): string | null {
+  if (href === null) return null;
+  const url = new URL(href, "https://catalog.invalid");
+  url.searchParams.delete("promotionPreviewId");
+  return `${url.pathname}${url.search}${url.hash}`;
 }
 
 // Stream the supplementary alias-review workspace behind a Suspense/Await

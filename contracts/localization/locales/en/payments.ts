@@ -1,4 +1,20 @@
 export const paymentsEnglishTranslations = {
+  "payments.routes.marketplace.accountPaymentNew.wallet.status.invalid":
+    "Wallet status could not be confirmed. Refresh before using wallet balance.",
+  "payments.routes.marketplace.accountPaymentNew.terms.review": "Review Terms of Service",
+  "payments.routes.marketplace.accountPaymentNew.terms.accept": "Accept Terms of Service",
+  "payments.routes.marketplace.accountPaymentNew.terms.accepting": "Accepting Terms...",
+  "payments.routes.marketplace.accountPaymentNew.terms.accept.failed":
+    "Terms acceptance could not be confirmed. Review the Terms or continue without wallet balance.",
+  "payments.routes.marketplace.accountPaymentNew.wallet.unavailable":
+    "Wallet balance is not available for this payment",
+  "payments.routes.marketplace.accountPaymentNew.wallet.credit.applied": "Wallet credit applied",
+  "payments.routes.marketplace.accountPaymentNew.wallet.external.only":
+    "Continue without wallet balance to pay the quoted external charge.",
+  "payments.routes.marketplace.accountPaymentNew.wallet.catching.up":
+    "Wallet status is catching up. Refresh before using wallet balance.",
+  "payments.routes.marketplace.accountPaymentNew.wallet.refresh": "Refresh wallet status",
+  "payments.routes.marketplace.accountPaymentNew.quote.pending": "Awaiting fresh quote",
   "payments.features.payments.api.route.authentication.context.missing": "Authentication context missing.",
   "payments.features.payments.api.route.authentication.context.missing.2": "Authentication context missing.",
   "payments.features.payments.api.route.authentication.required": "Authentication required.",

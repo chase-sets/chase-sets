@@ -2,6 +2,13 @@ import { describe, expect, it, vi } from "vitest";
 import { fileURLToPath } from "node:url";
 import { readFileSync } from "node:fs";
 import { EVENT_STORE_MAX_PAYLOAD_BYTES } from "@chase-sets/event-core-postgres";
+import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
+import type { SourceObservationListRow } from "../read-model/queries";
+import type { ProviderScopeMappingRow } from "../../provider-scope-mapping/read-model/queries";
+import type { ProviderAdapter } from "./provider-adapters/provider-adapter";
+import { staticCatalogProviderIntegrationProfileVersions } from "./source-observation-runtime-contracts";
+import { buildCatalogMergeCandidatesFromObservations } from "./promotion/catalog-merge-candidate-matcher";
+import { catalogMergeCandidateStreamId } from "./source-observation-stream-identity";
 import { SOURCE_OBSERVATION_INLINE_EVENT_TARGET_BYTES } from "../domain/source-observation-payload-chunks";
 import type { CatalogRuntimeDeps } from "../../../support/authoring-support/runtime-support";
 import type { CatalogItemServices } from "../../catalog-items/api/runtime";
@@ -46,7 +53,7 @@ function acceptedScopeMappingRow(
     setId?: string | null;
     setName?: string | null;
   }>,
-): Record<string, unknown> {
+): ProviderScopeMappingRow {
   return {
     mapping_id: `mapping_${overrides.providerKey}_${overrides.unitKey}`,
     scope_record_id: BASE_SET_SCOPE_RECORD_ID,
@@ -1031,6 +1038,192 @@ describe("source observation runtime: provider integration jobs", () => {
       ]),
     );
   });
+
+  it.each([false, true])(
+    "AC2 two child imports share one syncRunId without candidate projection catch-up; missing member=%s",
+    async (missingMember) => {
+      const { eventStore, streams } = createInMemoryEventStore();
+      const storedRows = new Map<string, SourceObservationListRow>();
+      const readableRows = new Map<string, SourceObservationListRow>();
+      const memberReadIds: string[] = [];
+      const mappings = ["scryfall", "mtgjson"].map((provider) => ({
+        ...acceptedScopeMappingRow({
+          providerKey: provider,
+          unitKey: `${provider}:mtg:single-card:reference-data`,
+          setId: provider === "mtgjson" ? "TSP" : "tsp",
+          setName: "Time Spiral",
+        }),
+        scope_record_id: "scope_time_spiral",
+      }));
+      const db: CatalogRuntimeDeps["db"] = {
+        query: async <Row>(sql: string, values: readonly unknown[] = []) => {
+          if (sql.includes("FROM catalog_provider_scope_mappings"))
+            return { rows: mappings as Row[], rowCount: mappings.length };
+          if (sql.includes("FROM catalog_source_observations")) {
+            const ids = values[0];
+            if (Array.isArray(ids)) memberReadIds.push(...ids);
+            const rows = [...readableRows.values()].filter(
+              (row) => Array.isArray(ids) && ids.includes(row.observation_id),
+            );
+            return { rows: rows as Row[], rowCount: rows.length };
+          }
+          return { rows: [] as Row[], rowCount: 0 };
+        },
+      };
+      const deps: CatalogRuntimeDeps = {
+        db,
+        eventStore,
+        checkpointStore: { loadCheckpoint: async () => "0" as never, saveCheckpoint: async () => undefined },
+      };
+      const profiles = staticCatalogProviderIntegrationProfileVersions;
+      const mergeCandidates = createSourceObservationMergeCandidateRuntime({ deps, profileVersions: profiles });
+      const referenceData = {} as ReferenceDataServices;
+      const services = createSourceObservationRuntime(deps, {} as CatalogItemServices, referenceData);
+      const importRuntime = createSourceObservationProviderImportRuntime({
+        deps,
+        items: {} as CatalogItemServices,
+        referenceData,
+        aliasCandidateSink: async () => undefined,
+        providerAdapterRegistry: services.providerAdapterRegistry,
+        mergeCandidates,
+        commandHandler: async (input) => {
+          const result = await services.commandHandler(input);
+          if (input.command.type === "RecordSourceObservation")
+            storedRows.set(
+              input.command.observationId,
+              mergeCandidates.sourceObservationRecordToCandidateRow(input.command),
+            );
+          return result;
+        },
+      });
+      const snapshots: SourceObservationListRow[] = [];
+      const fetch = vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("No network permitted by this fixture"));
+      try {
+        for (const provider of ["scryfall", "mtgjson"]) {
+          const unitKey = `${provider}:mtg:single-card:reference-data`;
+          const version = (await profiles.listProfileVersions(provider)).find(
+            (item) =>
+              item.profileVersion === "2026.06.19" && catalogProviderProfileVersionIngestionUnitKey(item) === unitKey,
+          )!;
+          const payload =
+            provider === "scryfall"
+              ? {
+                  kind: "single-card",
+                  card: {
+                    id: "synthetic-scryfall-card",
+                    uri: "https://provider.example/scryfall",
+                    name: "Fury Sliver",
+                    lang: "en",
+                    set: "tsp",
+                    set_id: "c1d109bc-ffd8-428f-8d7d-3f8d7e648046",
+                    set_name: "Time Spiral",
+                    collector_number: "157",
+                    rarity: "rare",
+                    tcgplayer_id: 14240,
+                    released_at: "2006-10-06",
+                  },
+                }
+              : {
+                  kind: "single-card",
+                  sourceUrl: "https://provider.example/mtgjson",
+                  meta: { date: "2026-07-14" },
+                  set: { code: "TSP", name: "Time Spiral", releaseDate: "2006-10-06" },
+                  card: {
+                    uuid: "synthetic-mtgjson-card",
+                    name: "Fury Sliver",
+                    number: "157",
+                    rarity: "uncommon",
+                    identifiers: { scryfallId: "synthetic-scryfall-card" },
+                  },
+                };
+          const adapter: ProviderAdapter = {
+            providerKey: provider,
+            capabilities: { supportsOptionQueries: false, supportsImportPlanning: true, supportsPayloadFetch: true },
+            listIntegrationUnits: async () => [],
+            listOptions: async () => ({ items: [] }),
+            planImport: async (scope) => ({
+              unitKey: scope.unitKey,
+              planKey: `synthetic-${provider}`,
+              scope,
+              transportSteps: [],
+              estimatedPayloads: 1,
+            }),
+            fetchPayloads: async function* (plan) {
+              yield {
+                unitKey: plan.unitKey,
+                providerKey: provider,
+                externalKey: "synthetic-157",
+                payload,
+                provenance: { fetchedAt: "2026-07-14T12:00:00.000Z" },
+              };
+            },
+            getCredentialReadiness: async () => [],
+            getTransportDiagnostics: async () => [],
+          };
+          // Prior units may be queryable, but the current import is never
+          // projected. Candidate discovery stays empty across both units.
+          readableRows.clear();
+          if (!missingMember) {
+            for (const [id, row] of storedRows) readableRows.set(id, row);
+          }
+          const outcome = await importRuntime.importProviderAdapterIntegrationTarget({
+            target: {
+              targetId: "tsp",
+              name: "Time Spiral",
+              scopeKey: "set",
+              values: { setId: "tsp", languageCode: "en" },
+              languageCode: "en",
+            },
+            providerProfile: version.profile,
+            providerProfileVersion: version,
+            syncRunId: "job_shared_time_spiral",
+            context,
+            adapterOverride: adapter,
+            observedAtForEnvelope: () => "2026-07-14T12:00:00.000Z",
+          });
+          if (missingMember && provider === "mtgjson") {
+            expect(outcome).toMatchObject({
+              status: "failed",
+              reason: expect.stringContaining("could not prove every existing member row"),
+            });
+            expect(
+              [...streams.values()]
+                .filter((events) => events[0]?.eventType === "catalog.merge-candidate.created")
+                .flat(),
+            ).toHaveLength(1);
+          } else {
+            expect(outcome, outcome.reason ?? "import outcome").toMatchObject({ status: "imported", observed: 1 });
+            snapshots.splice(0, snapshots.length, ...storedRows.values());
+            const oracle = buildCatalogMergeCandidatesFromObservations(snapshots, {
+              addedAt: "2026-07-14T12:00:00.000Z",
+              acceptedScopeMappings: mappings,
+              providerUnitKeyByObservationId: Object.fromEntries(
+                snapshots.map((row) => [row.observation_id, `${row.provider_key}:mtg:single-card:reference-data`]),
+              ),
+            });
+            expect(oracle.candidates).toHaveLength(1);
+            const loaded = await mergeCandidates.loadCatalogMergeCandidateForReview(oracle.candidates[0]!.candidateId);
+            const withoutAddedAt = (snapshot: unknown) =>
+              JSON.parse(JSON.stringify(snapshot, (key, value: unknown) => (key === "addedAt" ? undefined : value)));
+            expect(withoutAddedAt(loaded.state.snapshot)).toEqual(withoutAddedAt(oracle.candidates[0]!.snapshot));
+            expect(
+              streams
+                .get(catalogMergeCandidateStreamId(oracle.candidates[0]!.candidateId))
+                ?.map((event) => event.eventType),
+            ).toEqual(
+              provider === "scryfall"
+                ? ["catalog.merge-candidate.created"]
+                : ["catalog.merge-candidate.created", "catalog.merge-candidate.refreshed"],
+            );
+          }
+        }
+        expect(fetch).not.toHaveBeenCalled();
+        expect(memberReadIds).not.toContain("mtgjson_card_en_synthetic-mtgjson-card");
+      } finally {
+        fetch.mockRestore();
+      }
+    },
+  );
 
   it("imports an MTGJSON set document larger than 64 KiB as bounded Source Observation events", async () => {
     const originalFetch = globalThis.fetch;

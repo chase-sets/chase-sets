@@ -1559,10 +1559,11 @@ export function CatalogItemDetailPage({
           </Button>
         }
       >
-        <TextInput
+        <Textarea
           label={t("catalog.features.catalogItems.ui.catalogItemDetailPage.image.urls.2")}
           value={imageUrlsInput}
           onChange={(e) => setImageUrlsInput(e.target.value)}
+          rows={4}
         />
       </Dialog>
 
