@@ -451,7 +451,7 @@ export const privacyProductTruthBindings: readonly PrivacyProductTruthBinding[] 
     evidenceRefs: [
       "deployables/marketplace/app/pwa/service-worker-source.ts:34",
       "deployables/marketplace/app/pwa/service-worker-source.ts:8-24",
-      "deployables/marketplace/app/root.tsx:184",
+      "deployables/marketplace/app/root.tsx:111",
       "deployables/marketplace/app/routes/service-worker.ts:4",
     ],
     factualSummary:
