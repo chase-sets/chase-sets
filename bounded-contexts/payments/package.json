@@ -27,7 +27,6 @@
     "@chase-sets/bounded-context-runtime": "workspace:*",
     "@chase-sets/customer-feedback": "workspace:*",
     "@chase-sets/design-system": "workspace:*",
-    "@chase-sets/embedded-surface-theme": "workspace:*",
     "@chase-sets/event-core": "workspace:*",
     "@chase-sets/event-core-postgres": "workspace:*",
     "@chase-sets/http": "workspace:*",
@@ -42,10 +41,9 @@
     "@chase-sets/platform-runtime": "workspace:*",
     "@chase-sets/primitives": "workspace:*",
     "@chase-sets/provider-webhook-inbox": "workspace:*",
-    "@chase-sets/stripe-appearance": "workspace:*",
     "@stripe/stripe-js": "9.9.0",
     "hono": "^4.13.13",
-    "zod": "^4.4.3"
+    "zod": "^4.6.6"
   },
   "devDependencies": {
     "@chase-sets/stripe-payments": "workspace:*",

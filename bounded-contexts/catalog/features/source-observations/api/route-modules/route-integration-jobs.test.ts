@@ -8,9 +8,31 @@ import {
   integrationJob,
   integrationJobFixture,
   jobEvent,
+  promotionPreviewFixture,
   readSseData,
   rolloutDenied,
 } from "./route-test-harness";
+
+// Bulk promotion requires the token of a fresh preview; these tests cover what
+// the routes hand the admission (bulk-promote-preview-token.test.ts covers the
+// admission itself), so they confirm through a preview that never changes.
+function withPromotionPreview(services: Record<string, unknown>): SourceObservationRouteServices {
+  return {
+    previewPromoteObservations: vi.fn(async () => promotionPreviewFixture()),
+    previewPromoteObservationScope: vi.fn(async () => promotionPreviewFixture()),
+    ...services,
+  } as unknown as SourceObservationRouteServices;
+}
+
+async function previewed(app: ReturnType<typeof buildApp>, body: Record<string, unknown>) {
+  const response = await app.request("/source-observations/bulk-promote/preview", {
+    method: "POST",
+    body: JSON.stringify(body),
+    headers: { "content-type": "application/json" },
+  });
+  const { previewToken } = (await response.json()) as { previewToken: string };
+  return { ...body, previewToken };
+}
 
 describe("source observation routes: integration and bulk review jobs", () => {
   it("enqueues provider integration jobs with normalized scope aliases", async () => {
@@ -583,17 +605,16 @@ describe("source observation routes: integration and bulk review jobs", () => {
       selectionMode: "filter",
       scope: { status: "observed", language: "en", setId: "base1" },
     });
-    const enqueueBulkReviewJob = vi.fn(async () => job);
-    const services = {
-      enqueueBulkReviewJob,
-    } as unknown as SourceObservationRouteServices;
-    const app = buildApp(services);
+    const admitBulkPromotionJob = vi.fn(async () => job);
+    const app = buildApp(withPromotionPreview({ admitBulkPromotionJob }));
 
     const response = await app.request("/source-observations/bulk-promote", {
       method: "POST",
-      body: JSON.stringify({
-        scope: { status: "observed", language: "en", setId: "base1" },
-      }),
+      body: JSON.stringify(
+        await previewed(app, {
+          scope: { status: "observed", language: "en", setId: "base1" },
+        }),
+      ),
       headers: { "content-type": "application/json" },
     });
 
@@ -603,8 +624,7 @@ describe("source observation routes: integration and bulk review jobs", () => {
       action: "promote",
       status: "queued",
     });
-    expect(enqueueBulkReviewJob).toHaveBeenCalledWith({
-      action: "promote",
+    expect(admitBulkPromotionJob).toHaveBeenCalledWith({
       observationIds: [],
       scope: {
         search: undefined,
@@ -614,12 +634,19 @@ describe("source observation routes: integration and bulk review jobs", () => {
         setId: "base1",
       },
       promoteAsDraft: false,
+      previewToken: expect.stringMatching(/^spp1\./),
+      confirmation: {
+        unitKey: null,
+        importScope: null,
+        profileVersion: null,
+        scope: { search: undefined, status: undefined, provider: undefined, language: undefined, setId: undefined },
+      },
       context,
     });
   });
 
   it("carries only an explicit boolean promote-as-draft choice into the promotion job", async () => {
-    const enqueueBulkReviewJob = vi.fn(async () =>
+    const admitBulkPromotionJob = vi.fn(async () =>
       bulkJobFixture({
         jobId: "job_promote_draft",
         action: "promote",
@@ -627,7 +654,7 @@ describe("source observation routes: integration and bulk review jobs", () => {
         observationIds: ["obs_1"],
       }),
     );
-    const app = buildApp({ enqueueBulkReviewJob } as unknown as SourceObservationRouteServices);
+    const app = buildApp(withPromotionPreview({ admitBulkPromotionJob }));
 
     for (const body of [
       { observationIds: ["obs_1"], promoteAsDraft: true },
@@ -636,13 +663,13 @@ describe("source observation routes: integration and bulk review jobs", () => {
     ]) {
       const response = await app.request("/source-observations/bulk-promote", {
         method: "POST",
-        body: JSON.stringify(body),
+        body: JSON.stringify(await previewed(app, body)),
         headers: { "content-type": "application/json" },
       });
       expect(response.status).toBe(202);
     }
 
-    expect(enqueueBulkReviewJob.mock.calls.map((call) => (call as unknown[])[0])).toEqual([
+    expect(admitBulkPromotionJob.mock.calls.map((call) => (call as unknown[])[0])).toEqual([
       expect.objectContaining({ promoteAsDraft: true }),
       expect.objectContaining({ promoteAsDraft: false }),
       expect.objectContaining({ promoteAsDraft: false }),
@@ -650,19 +677,18 @@ describe("source observation routes: integration and bulk review jobs", () => {
   });
 
   it("returns rollout evidence when bulk promotion is disabled", async () => {
-    const enqueueBulkReviewJob = vi.fn(async () => {
+    const admitBulkPromotionJob = vi.fn(async () => {
       throw rolloutDenied({ capability: "promotion", providerKey: "tcgdex" });
     });
-    const services = {
-      enqueueBulkReviewJob,
-    } as unknown as SourceObservationRouteServices;
-    const app = buildApp(services);
+    const app = buildApp(withPromotionPreview({ admitBulkPromotionJob }));
 
     const response = await app.request("/source-observations/bulk-promote", {
       method: "POST",
-      body: JSON.stringify({
-        scope: { source: "tcgdex", status: "observed", language: "en", setId: "base1" },
-      }),
+      body: JSON.stringify(
+        await previewed(app, {
+          scope: { source: "tcgdex", status: "observed", language: "en", setId: "base1" },
+        }),
+      ),
       headers: { "content-type": "application/json" },
     });
 
@@ -869,15 +895,12 @@ describe("source observation routes: integration and bulk review jobs", () => {
       action: "promote",
       observationIds: ["obs_1", "obs_2"],
     });
-    const enqueueBulkReviewJob = vi.fn(async () => job);
-    const services = {
-      enqueueBulkReviewJob,
-    } as unknown as SourceObservationRouteServices;
-    const app = buildApp(services);
+    const admitBulkPromotionJob = vi.fn(async () => job);
+    const app = buildApp(withPromotionPreview({ admitBulkPromotionJob }));
 
     const response = await app.request("/source-observations/bulk-promote", {
       method: "POST",
-      body: JSON.stringify({ observationIds: ["obs_1", "obs_2"] }),
+      body: JSON.stringify(await previewed(app, { observationIds: ["obs_1", "obs_2"] })),
       headers: { "content-type": "application/json" },
     });
 
@@ -887,11 +910,17 @@ describe("source observation routes: integration and bulk review jobs", () => {
       action: "promote",
       status: "queued",
     });
-    expect(enqueueBulkReviewJob).toHaveBeenCalledWith({
-      action: "promote",
+    expect(admitBulkPromotionJob).toHaveBeenCalledWith({
       observationIds: ["obs_1", "obs_2"],
       scope: undefined,
       promoteAsDraft: false,
+      previewToken: expect.stringMatching(/^spp1\./),
+      confirmation: {
+        unitKey: null,
+        importScope: null,
+        profileVersion: null,
+        scope: { search: undefined, status: undefined, provider: undefined, language: undefined, setId: undefined },
+      },
       context,
     });
   });
@@ -1060,6 +1089,76 @@ describe("source observation routes: integration and bulk review jobs", () => {
     expect(services.rejectObservations).not.toHaveBeenCalled();
   });
 
+  it.each(["/source-observations/bulk-reject", "/source-observations/bulk-reject/jobs"])(
+    "refuses %s without explicit Source Observation ids or review scope",
+    async (path) => {
+      const enqueueBulkReviewJob = vi.fn();
+      const services = {
+        enqueueBulkReviewJob,
+      } as unknown as SourceObservationRouteServices;
+      const app = buildApp(services);
+
+      for (const body of [{ reason: "Duplicate provider row." }, { observationIds: [], scope: {}, reason: "x" }]) {
+        const response = await app.request(path, {
+          method: "POST",
+          body: JSON.stringify(body),
+          headers: { "content-type": "application/json" },
+        });
+
+        expect(response.status).toBe(400);
+        await expect(response.json()).resolves.toEqual({
+          error: {
+            code: "selection_required",
+            message: "Bulk rejection requires selected observations or an explicit review scope.",
+          },
+        });
+      }
+      expect(enqueueBulkReviewJob).not.toHaveBeenCalled();
+    },
+  );
+  it.each(["/source-observations/bulk-reject", "/source-observations/bulk-reject/jobs"])(
+    "refuses %s with a body that is not a JSON object",
+    async (path) => {
+      const enqueueBulkReviewJob = vi.fn();
+      const app = buildApp({ enqueueBulkReviewJob } as unknown as SourceObservationRouteServices);
+
+      for (const body of ["null", "[]", "false", '"synthetic-body"', "{not json"]) {
+        const response = await app.request(path, {
+          method: "POST",
+          body,
+          headers: { "content-type": "application/json" },
+        });
+
+        expect(response.status).toBe(400);
+        await expect(response.json()).resolves.toMatchObject({ error: { code: "invalid_json_body" } });
+      }
+      expect(enqueueBulkReviewJob).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(
+    ["/source-observations/bulk-reject", "/source-observations/bulk-reject/jobs"].flatMap((path) => [
+      [path, { seriesId: "synthetic-series" }] as const,
+      [path, { productLineId: "synthetic-line" }] as const,
+    ]),
+  )("enqueues %s for a coordinate-only scope %j", async (path, scope) => {
+    const enqueueBulkReviewJob = vi.fn(async () =>
+      bulkJobFixture({ jobId: "job_reject_coordinate", action: "reject" }),
+    );
+    const app = buildApp({ enqueueBulkReviewJob } as unknown as SourceObservationRouteServices);
+
+    const response = await app.request(path, {
+      method: "POST",
+      body: JSON.stringify({ scope, reason: "Out of scope." }),
+      headers: { "content-type": "application/json" },
+    });
+
+    expect(response.status).toBe(202);
+    expect(enqueueBulkReviewJob).toHaveBeenCalledWith(
+      expect.objectContaining({ action: "reject", observationIds: [], scope: expect.objectContaining(scope) }),
+    );
+  });
+
   it("enqueues bulk rejection jobs for explicit observation ids with the shared reason", async () => {
     const job = bulkJobFixture({
       jobId: "job_reject_ids",
@@ -1198,7 +1297,10 @@ describe("source observation routes: integration and bulk review jobs", () => {
 
     expect(response.status).toBe(400);
     await expect(response.json()).resolves.toEqual({
-      error: "Bulk deferral requires selected observations or an explicit review scope.",
+      error: {
+        code: "selection_required",
+        message: "Bulk deferral requires selected observations or an explicit review scope.",
+      },
     });
     expect(enqueueBulkReviewJob).not.toHaveBeenCalled();
   });

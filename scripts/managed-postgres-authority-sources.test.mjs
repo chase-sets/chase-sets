@@ -582,6 +582,24 @@ const reviewedStepInsertions = [
     occurrence: 6,
   },
 ];
+// #11174: cache preparation and restore shift only anchors, including the existing staging cache occurrence.
+const reviewedTerraformProviderCacheStepInsertions = [
+  ["decommission-live-plan", 3, 4],
+  ["reconcile-production-marker", 4, 5],
+  ["reconcile-managed-postgres-ca-staging", 4, 5],
+  ["reconcile-managed-postgres-ca-production", 5, 6],
+  ["deploy-staging", 9, 10],
+  ["deploy-production", 10, 11],
+].flatMap(([jobId, preparePosition, restorePosition]) => [
+  { file: workflowPath, jobId, position: preparePosition },
+  {
+    file: workflowPath,
+    jobId,
+    position: restorePosition,
+    uses: "actions/cache@caa296126883cff596d87d8935842f9db880ef25",
+    occurrence: 1,
+  },
+]);
 const previewStateRetirementDelta = [
   ["DIGITALOCEAN_ACCESS_TOKEN", "terraform-infra"],
   ["SPACES_ACCESS_ID", "terraform-infra"],
@@ -598,7 +616,15 @@ const previewStateRetirementDelta = [
 }));
 
 function applyReviewedStepInsertions(record) {
-  return reviewedStepInsertions.reduce((current, insertion) => {
+  return applyStepInsertions(record, reviewedStepInsertions);
+}
+
+function applyTerraformProviderCacheStepInsertions(record) {
+  return applyStepInsertions(record, reviewedTerraformProviderCacheStepInsertions);
+}
+
+function applyStepInsertions(record, insertions) {
+  return insertions.reduce((current, insertion) => {
     if (current.file !== insertion.file || current.jobId !== insertion.jobId) return current;
     const named = /^(name:.*#)(\d+)$/.exec(current.stepAnchor);
     if (named) {
@@ -764,6 +790,26 @@ const registryCleanupResolverDelta = [
     purpose: "digitalocean-ops",
   },
 ];
+// #11006: the production marker App key reaches only its three mint steps. The retry and publication mints in
+// deploy-production (final positions 28 and 54) and the marker-only mint (position 8) shift later positional anchors.
+const productionMarkerAppKeyDelta = [
+  ["deploy-production", "uses:actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1"],
+  ["deploy-production", "uses:actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1#2"],
+  ["reconcile-production-marker", "uses:actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1"],
+].map(([jobId, stepAnchor]) => ({
+  file: ".github/workflows/platform-production.yml",
+  jobId,
+  stepAnchor,
+  secretName: "PRODUCTION_MARKER_APP_PRIVATE_KEY",
+  purpose: "release-marker-publication",
+}));
+function applyProductionMarkerMintInsertions(record) {
+  const positions = { "deploy-production": [28, 54], "reconcile-production-marker": [8] }[record.jobId];
+  const match = /^(name:.*#)(\d+)$/.exec(record.stepAnchor);
+  if (record.file !== ".github/workflows/platform-production.yml" || !positions || !match) return record;
+  const position = positions.reduce((index, inserted) => (index >= inserted ? index + 1 : index), Number(match[2]));
+  return { ...record, stepAnchor: `${match[1]}${position}` };
+}
 function applyRegistryCleanupStepInsertion(record) {
   return record.file === ".github/workflows/platform-registry-cleanup.yml" &&
     record.jobId === "cleanup" &&
@@ -1006,7 +1052,10 @@ describe("managed Postgres authority source generator", () => {
         )
         .concat(productionMarkerRecoveryDelta)
         .concat(registryGarbageCollectionGateCredentialDelta)
-        .concat(registryCleanupResolverDelta),
+        .concat(registryCleanupResolverDelta)
+        .map(applyProductionMarkerMintInsertions)
+        .concat(productionMarkerAppKeyDelta)
+        .map(applyTerraformProviderCacheStepInsertions),
     };
     // Exact stable-record multiset parity below is the authority; a whole-corpus total would only re-conflict.
     const isCatalogKeyring = ({ secretName }) => secretName === "CATALOG_OPERATOR_SESSION_KEYRING_JSON";
@@ -1075,6 +1124,15 @@ describe("managed Postgres authority source generator", () => {
     }
     await writeJson(root, fragmentPath, { grants: [grant()], dockerConsumers: [] });
     expect(await generateManagedPostgresAuthority(root)).not.toHaveProperty("dockerConsumers");
+  });
+
+  it("grants release-marker-publication only to the production marker App key at its mint steps", async () => {
+    const generated = await generateManagedPostgresAuthority(repositoryRoot);
+    const markerApp = ({ secretName, purpose }) =>
+      secretName === "PRODUCTION_MARKER_APP_PRIVATE_KEY" || purpose === "release-marker-publication";
+    expect(generated.grants.filter(markerApp)).toEqual(productionMarkerAppKeyDelta);
+    const schema = await readJson(repositoryRoot, schemaPath);
+    expect(schema.properties.grants.items.properties.purpose.enum).toContain("release-marker-publication");
   });
 
   it("missing authority fragment cannot authorize ingress", async () => {

@@ -104,6 +104,8 @@ export type CheckoutSessionPageProps = {
   canManageShippingAddresses?: boolean;
   canSavePaymentMethods?: boolean;
   isSignedInBuyer?: boolean;
+  /** Set while Auth withholds payment pending email verification: Pay now becomes this link. */
+  paymentVerifyEmailHref?: string | null;
   initialEditSection?: CheckoutEditSection | null;
   preparedPaymentEntry?: ReactNode;
 };

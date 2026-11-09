@@ -184,6 +184,7 @@
   "page.no.available.supply": "No available supply",
   "page.place.purchase.intent": "Submit offer",
   "page.pay.now": "Pay now",
+  "page.verify.email.to.pay": "Verify your email to pay",
   "page.pay.now.with.saved.payment": "Pay now with {paymentMethodCategory}",
   "page.pending": "Pending",
   "page.placing.purchase.intent": "Submitting offer",

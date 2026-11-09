@@ -1,5 +1,6 @@
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { inflateSync } from "node:zlib";
 import { scenarioSeedFallbackAssetPaths } from "@chase-sets/catalog-seed";
 import { describe, expect, it, vi } from "vitest";
 
@@ -7,7 +8,8 @@ vi.mock("@react-router/dev/vite", () => ({ reactRouter: () => [] }));
 vi.mock("@tailwindcss/vite", () => ({ default: () => [] }));
 
 /**
- * Static correspondence coverage for #5879. `contracts/catalog-seed` exports
+ * Static correspondence coverage for the cart and Discovery fallback assets.
+ * `contracts/catalog-seed` exports
  * the full `/fake-cdn/assets/` fallback-path list the scenario seed
  * references; this deployable owns `public/` and is the only place that can
  * verify each path actually resolves to a file, without the seed context
@@ -19,7 +21,63 @@ vi.mock("@tailwindcss/vite", () => ({ default: () => [] }));
  * default) means this guard breaks the moment marketplace ever points
  * `publicDir` somewhere else, instead of silently checking the wrong folder.
  */
-describe("marketplace fake-cdn fallback asset correspondence (#5879)", () => {
+describe("marketplace fake-cdn fallback asset correspondence", () => {
+  const fallbackAssetExpectations = [
+    {
+      path: "/fake-cdn/assets/pokemon-card-back.png",
+      originalWidth: 1495,
+      originalHeight: 2072,
+    },
+    {
+      path: "/fake-cdn/assets/pokemon_tcg_back.png",
+      originalWidth: 1000,
+      originalHeight: 1400,
+    },
+  ] as const;
+  const fallbackByteBudget = 65_536;
+  const pngSignature = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+
+  function decodeIndexedPng(bytes: Buffer) {
+    expect(bytes.subarray(0, 8)).toEqual(pngSignature);
+    let width = 0;
+    let height = 0;
+    let bitDepth = 0;
+    let colorType = 0;
+    let idat = Buffer.alloc(0);
+    let sawIend = false;
+
+    for (let offset = 8; offset < bytes.length; ) {
+      const length = bytes.readUInt32BE(offset);
+      const type = bytes.subarray(offset + 4, offset + 8).toString("ascii");
+      const value = bytes.subarray(offset + 8, offset + 8 + length);
+      if (type === "IHDR") {
+        width = value.readUInt32BE(0);
+        height = value.readUInt32BE(4);
+        bitDepth = value[8];
+        colorType = value[9];
+      } else if (type === "IDAT") {
+        idat = Buffer.concat([idat, value]);
+      } else if (type === "IEND") {
+        sawIend = true;
+      }
+      offset += length + 12;
+    }
+
+    expect(bitDepth).toBe(8);
+    // The optimized payloads intentionally use indexed PNG encoding to meet the
+    // transfer budget while retaining the original aspect and artwork identity.
+    expect(colorType).toBe(3);
+    expect(sawIend).toBe(true);
+    const scanlines = inflateSync(idat);
+    expect(scanlines.byteLength).toBe(height * (width + 1));
+    return { width, height, scanlines };
+  }
+
+  function assertBudgetedDecodedPng(bytes: Buffer, path: string) {
+    expect(bytes.byteLength, `${path} must fit the fallback transfer budget`).toBeLessThanOrEqual(fallbackByteBudget);
+    return decodeIndexedPng(bytes);
+  }
+
   async function resolvePublicAssetPath(urlPath: string): Promise<string> {
     const { default: viteConfig } = await import("../vite.config");
     const publicDir = viteConfig.publicDir ?? "public";
@@ -50,6 +108,33 @@ describe("marketplace fake-cdn fallback asset correspondence (#5879)", () => {
     for (const fallbackPath of scenarioSeedFallbackAssetPaths) {
       const resolved = await resolvePublicAssetPath(fallbackPath);
       expect(existsSync(resolved)).toBe(true);
+    }
+  });
+
+  it("keeps both card backs decodable, detailed, aspect-correct, and within the transfer budget", async () => {
+    const decodedAssets: Buffer[] = [];
+
+    for (const expected of fallbackAssetExpectations) {
+      const resolved = await resolvePublicAssetPath(expected.path);
+      const bytes = readFileSync(resolved);
+      const decoded = assertBudgetedDecodedPng(bytes, expected.path);
+      const { width, height } = decoded;
+
+      expect(width, expected.path + " must retain enough detail for the 2x 308px consumer").toBeGreaterThanOrEqual(616);
+      expect(height).toBe(Math.round((width * expected.originalHeight) / expected.originalWidth));
+      decodedAssets.push(decoded.scanlines);
+    }
+
+    expect(Buffer.compare(decodedAssets[0], decodedAssets[1])).not.toBe(0);
+  });
+
+  it("rejects oversized and invalid-PNG controls instead of passing by presence", async () => {
+    expect(() => assertBudgetedDecodedPng(Buffer.alloc(fallbackByteBudget + 1), "oversized control")).toThrow();
+    expect(() => assertBudgetedDecodedPng(Buffer.from("not a PNG"), "invalid PNG control")).toThrow();
+
+    for (const expected of fallbackAssetExpectations) {
+      const resolved = await resolvePublicAssetPath(expected.path);
+      assertBudgetedDecodedPng(readFileSync(resolved), expected.path);
     }
   });
 });

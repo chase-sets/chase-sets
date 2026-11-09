@@ -33,6 +33,12 @@ import { accountRoutes } from "./features/accounts/api/route";
 import { accountCapabilityRoutes } from "./features/account-capabilities/api/route";
 import { accessHubRoutes } from "./features/access-hub/api/route";
 import { userRoutes } from "./features/users/api/route";
+import {
+  linkSocialLogin,
+  parseSocialLoginLinkBody,
+  parseSocialLoginResolveBody,
+  resolveSocialLoginSubject,
+} from "./features/users/api/social-login-ownership";
 import { membershipRoutes } from "./features/memberships/api/route";
 import { invitationRoutes } from "./features/invitations/api/route";
 import { validateInvitationAcceptanceToken } from "./features/invitations/domain/domain";
@@ -1290,12 +1296,6 @@ async function enableSmsCodeForAuth(
   return { userId: params.userId, snapshots: [mutationSnapshot("user", params.userId, result)] };
 }
 
-class SocialLoginLinkConflictError extends Error {
-  constructor() {
-    super("Social login is already linked to another user.");
-  }
-}
-
 function roleKeyValidationError() {
   return {
     error: {
@@ -1303,45 +1303,6 @@ function roleKeyValidationError() {
       message: `Role key is invalid. Valid role keys: ${formatGrantableRoleKeys()}.`,
     },
   };
-}
-
-async function linkSocialLoginForAuth(
-  services: IdentityServices,
-  params: Readonly<{
-    userId: string;
-    providerName: "google" | "facebook";
-    providerSubject: string;
-    email: string;
-    context: EventStoreContext;
-  }>,
-) {
-  const existingLink = await services.users.getUserBySocialLogin({
-    providerName: params.providerName,
-    providerSubject: params.providerSubject,
-  });
-
-  if (existingLink && existingLink.user_id !== params.userId) {
-    throw new SocialLoginLinkConflictError();
-  }
-
-  await services.users.commandHandler({
-    streamId: `identity.user-${params.userId}`,
-    command: { type: "EnableAuthMethod", authMethod: "social-login" },
-    context: params.context,
-  });
-
-  const result = await services.users.commandHandler({
-    streamId: `identity.user-${params.userId}`,
-    command: {
-      type: "LinkSocialLogin",
-      providerName: params.providerName,
-      providerSubject: params.providerSubject,
-      email: params.email,
-      linkedAt: new Date().toISOString(),
-    },
-    context: params.context,
-  });
-  return { userId: params.userId, snapshots: [mutationSnapshot("user", params.userId, result)] };
 }
 
 async function verifyEmailContactMethodForAuth(
@@ -1740,44 +1701,35 @@ export function buildIdentityApi(
   });
 
   app.post("/internal/auth/users/:id/social-login-link", async (c) => {
-    const body = await c.req.json();
-    const providerName = String(body.providerName ?? "");
-    if (providerName !== "google" && providerName !== "facebook") {
+    const input = parseSocialLoginLinkBody(await c.req.json().catch(() => null));
+    if (!input) {
+      return c.json({ error: { code: "validation_failed", message: "Social login link request is invalid." } }, 400);
+    }
+
+    const userId = c.req.param("id");
+    const link = await linkSocialLogin(services, { userId, ...input }, getBootstrapContext(c));
+    if (link.outcome === "already-linked") {
       return c.json(
-        {
-          error: {
-            code: "validation_failed",
-            message: "Social login provider is unsupported.",
-          },
-        },
-        400,
+        { error: { code: "social_login_already_linked", message: "Social login is already linked to another user." } },
+        409,
       );
     }
-
-    try {
-      const link = await linkSocialLoginForAuth(services, {
-        userId: c.req.param("id"),
-        providerName,
-        providerSubject: String(body.providerSubject ?? ""),
-        email: String(body.email ?? ""),
-        context: getBootstrapContext(c),
-      });
-      return c.json({ ok: true, ...link });
-    } catch (error) {
-      if (error instanceof SocialLoginLinkConflictError) {
-        return c.json(
-          {
-            error: {
-              code: "social_login_already_linked",
-              message: "Social login is already linked to another user.",
-            },
-          },
-          409,
-        );
-      }
-
-      throw error;
+    if (link.outcome === "repair-required") {
+      return c.json(
+        { error: { code: "social_login_repair_required", message: "Social login ownership requires repair." } },
+        409,
+      );
     }
+    return c.json({ ok: true, userId, snapshots: [mutationSnapshot("user", userId, link)] });
+  });
+
+  app.post("/internal/auth/social-login-subjects/resolve", async (c) => {
+    const input = parseSocialLoginResolveBody(await c.req.json().catch(() => null));
+    if (!input) {
+      return c.json({ error: { code: "validation_failed", message: "Social login resolve request is invalid." } }, 400);
+    }
+
+    return c.json(await resolveSocialLoginSubject(services, input, getBootstrapContext(c)));
   });
 
   app.post("/internal/auth/users/:id/email-verification", async (c) => {
