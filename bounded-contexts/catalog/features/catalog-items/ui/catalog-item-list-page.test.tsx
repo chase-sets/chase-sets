@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { t } from "@chase-sets/localization";
@@ -7,6 +7,8 @@ import { CatalogRealtimeReloadActionBar } from "./realtime-reload-action-bar";
 import { CatalogItemListPage } from "./catalog-item-list-page";
 import type { CatalogListQuery } from "../../../support/shell-support/list-query-state";
 import type { CatalogItemListItem } from "./contracts";
+import type { BulkRemoveDraftResult } from "./contracts";
+import type { BulkLifecycleProgressOptions } from "../../../support/shell-support/ui/bulk-lifecycle-actions";
 
 const {
   mockConfirmBulkCatalogItemEdit,
@@ -18,6 +20,7 @@ const {
   mockPreviewBulkPublishCatalogItems,
   mockPreviewBulkRemoveDrafts,
   mockConfirmBulkRemoveDrafts,
+  mockRemoveDraftCatalogItem,
   mockUseNavigation,
   mockUseRevalidator,
   mockUseSearchParams,
@@ -31,6 +34,7 @@ const {
   mockPreviewBulkPublishCatalogItems: vi.fn(),
   mockPreviewBulkRemoveDrafts: vi.fn(),
   mockConfirmBulkRemoveDrafts: vi.fn(),
+  mockRemoveDraftCatalogItem: vi.fn(),
   mockUseNavigation: vi.fn(),
   mockUseRevalidator: vi.fn(),
   mockUseSearchParams: vi.fn(),
@@ -54,6 +58,7 @@ vi.mock("./use-catalog-items", () => ({
   previewBulkPublishCatalogItems: mockPreviewBulkPublishCatalogItems,
   previewBulkRemoveDrafts: mockPreviewBulkRemoveDrafts,
   confirmBulkRemoveDrafts: mockConfirmBulkRemoveDrafts,
+  removeDraftCatalogItem: mockRemoveDraftCatalogItem,
 }));
 
 const catalogItem: CatalogItemListItem = {
@@ -109,6 +114,9 @@ describe("CatalogItemListPage", () => {
   afterEach(() => {
     cleanup();
     vi.clearAllMocks();
+    mockPreviewBulkRemoveDrafts.mockReset();
+    mockConfirmBulkRemoveDrafts.mockReset();
+    mockRemoveDraftCatalogItem.mockReset();
   });
 
   it.each([0, 1, 50, 51])("renders the independent server total %i for populated and empty pages", (total) => {
@@ -790,6 +798,96 @@ describe("CatalogItemListPage", () => {
       );
     });
     expect(await screen.findByText("Bulk Assign Blueprint Preview")).toBeTruthy();
+  });
+
+  it("P2: shows removal progress in the populated dialog and confirms once while pending", async () => {
+    const revalidate = vi.fn();
+    mockUseNavigation.mockReturnValue({ state: "idle" });
+    mockUseRevalidator.mockReturnValue({ revalidate });
+    mockUseSearchParams.mockReturnValue([new URLSearchParams(), vi.fn()]);
+    const candidates = [
+      { catalog_item_id: "cat_1", title: "Draft one", status: "draft", outcome: "ready" as const, reason: null },
+      { catalog_item_id: "cat_2", title: "Draft two", status: "draft", outcome: "ready" as const, reason: null },
+    ];
+    mockPreviewBulkRemoveDrafts.mockResolvedValueOnce({
+      mode: "ids",
+      item_ids: ["cat_1", "cat_2"],
+      total: 2,
+      ready_count: 2,
+      blocked_count: 0,
+      candidates,
+    });
+    let complete!: (result: BulkRemoveDraftResult) => void;
+    const pending = new Promise<BulkRemoveDraftResult>((resolve) => {
+      complete = resolve;
+    });
+    mockConfirmBulkRemoveDrafts.mockImplementationOnce(
+      (_selection: unknown, options?: BulkLifecycleProgressOptions) => {
+        options?.onProgress?.({
+          phase: "running",
+          completed: 1,
+          total: 2,
+          currentName: "Worker item",
+          status: "running",
+        });
+        return pending;
+      },
+    );
+    render(
+      <CatalogItemListPage
+        data={{ items: [catalogItem, { ...catalogItem, catalog_item_id: "cat_2" }], total: 2, count: 2 }}
+        query={defaultQuery}
+      />,
+    );
+    fireEvent.click(screen.getAllByLabelText("Select row cat_1")[0]!);
+    fireEvent.click(screen.getAllByLabelText("Select row cat_2")[0]!);
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: t("catalog.features.catalogItems.ui.catalogItemListPage.remove.drafts.from.selected"),
+      }),
+    );
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByRole("cell", { name: "Draft one" })).toBeTruthy();
+    expect(within(dialog).getByRole("cell", { name: "Draft two" })).toBeTruthy();
+    const confirm = within(dialog).getByRole("button", {
+      name: t("catalog.features.catalogItems.ui.catalogItemListPage.remove.drafts"),
+    });
+    fireEvent.click(confirm);
+    expect(
+      within(dialog).getByText(
+        t("catalog.support.shellSupport.ui.bulkLifecycleActions.progress", {
+          completed: 1,
+          total: 2,
+        }),
+      ),
+    ).toBeTruthy();
+    expect(
+      within(dialog).getByText(
+        t("catalog.support.shellSupport.ui.bulkLifecycleActions.progress.current", {
+          name: "Worker item",
+        }),
+      ),
+    ).toBeTruthy();
+    expect(confirm.getAttribute("aria-busy")).toBe("true");
+    expect((confirm as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(confirm);
+    expect(mockConfirmBulkRemoveDrafts).toHaveBeenCalledTimes(1);
+    expect(mockConfirmBulkRemoveDrafts).toHaveBeenCalledWith(
+      { mode: "ids", ids: ["cat_1", "cat_2"] },
+      expect.objectContaining({ onProgress: expect.any(Function) }),
+    );
+    expect(mockRemoveDraftCatalogItem).not.toHaveBeenCalled();
+    expect(revalidate).not.toHaveBeenCalled();
+    await act(async () =>
+      complete({
+        item_ids: ["cat_1", "cat_2"],
+        total: 2,
+        succeeded_count: 2,
+        skipped_count: 0,
+        failed_count: 0,
+        candidates: candidates.map((candidate) => ({ ...candidate, status: "removed", outcome: "succeeded" })),
+      }),
+    );
   });
 
   it("removes selected draft items from the grid", async () => {

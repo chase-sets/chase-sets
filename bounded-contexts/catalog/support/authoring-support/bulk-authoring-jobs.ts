@@ -313,7 +313,6 @@ const CATALOG_AUTHORING_PARENT_CLAIM_KINDS: readonly CatalogAuthoringBulkJobKind
   "catalog.authoring.reference-types.lifecycle",
   "catalog.authoring.reference-records.lifecycle",
   "catalog.authoring.items.lifecycle",
-  "catalog.authoring.items.remove-drafts",
   "catalog.authoring.items.edit",
 ];
 
@@ -381,7 +380,12 @@ async function processNextCatalogAuthoringWorkUnit(input: {
         claimToken: claim.claimToken,
         state: itemResult.failed_count > 0 ? "failed" : itemResult.skipped_count > 0 ? "skipped" : "completed",
         unitResult: { itemId: claim.unit.payload.itemId, result: itemResult },
-        errorMessage: itemResult.failed_count > 0 ? "Catalog Item publish failed." : null,
+        errorMessage:
+          itemResult.failed_count > 0
+            ? claim.job.payload.kind === "catalog.authoring.items.remove-drafts"
+              ? "Catalog Item removal failed."
+              : "Catalog Item publish failed."
+            : null,
         parentProgress: claim.job.progress,
         parentResult: claim.job.result,
         resolveParentUpdate: (queryable) => catalogAuthoringParentUpdateFromWorkUnits(queryable, claim.job),

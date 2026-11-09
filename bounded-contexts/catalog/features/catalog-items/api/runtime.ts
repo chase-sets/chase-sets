@@ -742,11 +742,14 @@ async function resolveBulkPublishItemIds(deps: CatalogRuntimeDeps, selection: Bu
   return listCatalogItemIdsForBulkPublishFilter(deps.db, selection.query);
 }
 
-function normalizeRequestedItemIds(itemIds: readonly string[]): string[] {
+function normalizeRequestedItemIds(
+  itemIds: readonly string[],
+  emptyMessage = "Choose at least one draft Catalog Item to publish.",
+): string[] {
   const normalized = Array.from(new Set(itemIds.map((itemId) => itemId.trim()).filter(Boolean)));
 
   if (normalized.length === 0) {
-    throw new CatalogDomainError("Choose at least one draft Catalog Item to publish.");
+    throw new CatalogDomainError(emptyMessage);
   }
 
   return normalized;
@@ -884,6 +887,7 @@ async function previewBulkRemoveDrafts(
 ): Promise<BulkRemoveDraftPreview> {
   const itemIds = normalizeRequestedItemIds(
     selection.mode === "ids" ? selection.ids : await listCatalogItemIds(deps.db, selection.query),
+    "Choose at least one Catalog Item to remove.",
   );
   const rows = await listCatalogItemBulkRows(deps.db, itemIds);
   const byId = new Map(rows.map((row) => [row.id, row]));
@@ -944,7 +948,7 @@ async function removeDraftsBulk(
         command: { type: "RemoveDraftCatalogItem" },
         context,
       });
-      candidates.push({ ...candidate, outcome: "succeeded", reason: null });
+      candidates.push({ ...candidate, status: "removed", outcome: "succeeded", reason: null });
       completed += 1;
       await options.onProgress?.({
         completed,
@@ -956,7 +960,7 @@ async function removeDraftsBulk(
       candidates.push({
         ...candidate,
         outcome: "failed",
-        reason: error instanceof Error ? error.message : "Catalog Item removal failed.",
+        reason: error instanceof CatalogDomainError ? error.message : "Catalog Item removal failed.",
       });
       completed += 1;
       await options.onProgress?.({ completed, total: preview.total, currentName: candidate.title, status: "failed" });
