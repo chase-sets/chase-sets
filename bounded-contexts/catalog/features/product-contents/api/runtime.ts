@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
-import { readCompleteStream } from "@chase-sets/event-core/complete-stream";
+import { readCompleteStream, type CompleteStreamReader } from "@chase-sets/event-core/complete-stream";
 import { createEventStoreError } from "@chase-sets/event-core/event-store";
-import type { PgQueryable, PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import type { PgQueryable, PgTransactionalPool, PostgresEventStore } from "@chase-sets/event-core-postgres";
 import { withPgTransaction } from "@chase-sets/event-core-postgres";
 import {
   createProjectionHandlerSet,
@@ -326,13 +326,21 @@ async function readProductContentsAuthoringState(
   deps: CatalogRuntimeDeps,
   containerCatalogItemId: string,
   selectedOptions?: readonly ProductContentSelectedOption[],
+  transactionDb?: PgQueryable,
 ): Promise<ProductContentsAuthoringReadResult> {
   const normalizedSelectedOptions = normalizeOptionalSelectedOptions(selectedOptions);
   const streamId = `catalog.product-contents-${normalizeRequiredId(
     containerCatalogItemId,
     "Product Contents require a container Catalog Item.",
   )}`;
-  const events = await readCompleteStream(deps.eventStore, { streamId });
+  const eventStore = deps.eventStore as CatalogRuntimeDeps["eventStore"] &
+    Partial<Pick<PostgresEventStore, "readStreamInTransaction">>;
+  const readInTransaction = eventStore.readStreamInTransaction;
+  const reader: CompleteStreamReader =
+    transactionDb && readInTransaction
+      ? { readStream: (input) => readInTransaction(transactionDb, input) }
+      : eventStore;
+  const events = await readCompleteStream(reader, { streamId });
   const version = events.at(-1)?.streamVersion ?? 0;
   const resolved = [...events]
     .reverse()
@@ -628,6 +636,7 @@ async function shouldWriteResolvedProductContents(
       deps,
       fact.containerCatalogItemId,
       fact.containerSelectedOptions ?? undefined,
+      db,
     )
   ).events;
   return (latestEvents.at(-1)?.streamVersion ?? 0) <= factVersion;

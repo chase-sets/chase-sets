@@ -20,7 +20,7 @@ import {
 } from "@chase-sets/design-system";
 import { useToasts } from "../../../support/shell-support/ui/toasts";
 import { useFetch } from "../../../support/shell-support/ui/use-fetch";
-import { CatalogItemPublicationApiError } from "../../../support/shell-support/api/client";
+import { ApiError, CatalogItemPublicationApiError } from "../../../support/shell-support/api/client";
 import { EntityDetailPage } from "../../../support/shell-support/ui/entity-detail-page";
 import { toCatalogAdminHref } from "../../../support/shell-support/ui/catalog-admin-hrefs";
 import { sourceObservationsForProviderHref } from "./catalog-item-provenance-links";
@@ -739,6 +739,10 @@ export function CatalogItemDetailPage({
       refreshAuthoringProductContents();
       refreshProductContainers();
     } catch (error) {
+      if (error instanceof ApiError && error.status === 409) {
+        setAuthoritativeProductContents(null);
+        refreshAuthoringProductContents();
+      }
       const message = messageFromError(error);
       setProductContentError(message);
       addToast(
@@ -769,6 +773,10 @@ export function CatalogItemDetailPage({
       refreshAuthoringProductContents();
       refreshProductContainers();
     } catch (error) {
+      if (error instanceof ApiError && error.status === 409) {
+        setAuthoritativeProductContents(null);
+        refreshAuthoringProductContents();
+      }
       const message = messageFromError(error);
       setProductContentError(message);
       addToast(

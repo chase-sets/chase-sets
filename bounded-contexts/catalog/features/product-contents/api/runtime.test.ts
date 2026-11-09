@@ -4,7 +4,12 @@ import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
 import type { AppendToStreamInput, ReadStreamInput, StoredEvent } from "@chase-sets/event-core/storage";
 import { ZERO_GLOBAL_POSITION } from "@chase-sets/event-core/storage";
 import type { ProjectionCheckpointStore } from "@chase-sets/event-core/projector";
-import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import type {
+  PgPoolClient,
+  PgQueryable,
+  PgTransactionalPool,
+  PostgresEventStore,
+} from "@chase-sets/event-core-postgres";
 import { localizedTextMapFromEnglish } from "../../../support/runtime-support/common";
 import { createProductContentRuntime } from "./runtime";
 
@@ -250,6 +255,106 @@ const context = {
 };
 
 describe("product content runtime", () => {
+  it("reuses the capped seed transaction for the projection revision guard", async () => {
+    const { db, resolved } = createContentDb([
+      {
+        catalog_item_id: "cat_box",
+        status: "active",
+        blueprint_id: "bp_plain",
+        canonical_dimension_order: [],
+        dimension_rules: [],
+      },
+      {
+        catalog_item_id: "cat_card",
+        status: "active",
+        blueprint_id: "bp_plain",
+        canonical_dimension_order: [],
+        dimension_rules: [],
+      },
+    ]);
+    let leased = false;
+    const client: PgPoolClient = {
+      query: db.query,
+      release: () => {
+        leased = false;
+      },
+    };
+    const pool: PgTransactionalPool & { totalCount: number } = {
+      totalCount: 1,
+      query: async (sql, params) => {
+        if (leased) throw new Error("D-10538-POOL: capped seed pool cannot acquire a second connection");
+        return db.query(sql, params);
+      },
+      connect: async () => {
+        if (leased) throw new Error("D-10538-POOL: capped seed pool cannot acquire a second connection");
+        leased = true;
+        return client;
+      },
+    };
+    const store = createEventStore();
+    let beforeReturningSnapshot: (() => Promise<void>) | undefined;
+    const readStreamInTransaction = vi.fn<PostgresEventStore["readStreamInTransaction"]>(async (reader, input) => {
+      expect(reader).toBe(client);
+      return store.eventStore.readStream(input);
+    });
+    const eventStore: EventStore & Pick<PostgresEventStore, "readStreamInTransaction"> = {
+      ...store.eventStore,
+      readStream: async (input) => {
+        await pool.query("SELECT 1");
+        const snapshot = await store.eventStore.readStream(input);
+        const interleave = beforeReturningSnapshot;
+        beforeReturningSnapshot = undefined;
+        await interleave?.();
+        return snapshot;
+      },
+      readStreamInTransaction,
+    };
+    const services = createProductContentRuntime({ db: pool, eventStore, checkpointStore: createCheckpointStore() });
+    await services.upsertContentType({
+      contentTypeId: "pct_included_item",
+      key: "included-item",
+      displayName: localizedTextMapFromEnglish("Included item"),
+    });
+    const input = {
+      containerCatalogItemId: "cat_box" as never,
+      expectedVersion: 0,
+      lines: [{ containedCatalogItemId: "cat_card" as never, quantity: 1, contentTypeId: "pct_included_item" }],
+    };
+    const first = await services.replaceProductContents(input, context);
+    expect(first.version).toBe(2);
+    resolved.clear();
+    await expect(
+      services.replaceProductContents({ ...input, expectedVersion: first.version }, context),
+    ).resolves.toMatchObject({ version: 2 });
+    expect(resolved.size).toBe(1);
+    expect(store.appended).toHaveLength(1);
+    expect(readStreamInTransaction).toHaveBeenCalledTimes(2);
+    expect(leased).toBe(false);
+
+    beforeReturningSnapshot = async () => {
+      await services.replaceProductContents(
+        {
+          ...input,
+          expectedVersion: 2,
+          lines: [{ ...input.lines[0]!, quantity: 2 }],
+        },
+        context,
+      );
+    };
+    await services.replaceProductContents({ ...input, expectedVersion: 2 }, context);
+    expect([...resolved.values()].map((row) => row.quantity)).toEqual([2]);
+    expect((await services.readProductContentsAuthoringState("cat_box")).version).toBe(4);
+    for (const command of [
+      () => services.replaceProductContents({ ...input, expectedVersion: 2 }, context),
+      () => services.replaceProductContents({ ...input, expectedVersion: 2, lines: [] }, context),
+      () => services.removeProductContents({ containerCatalogItemId: "cat_box" as never, expectedVersion: 2 }, context),
+    ]) {
+      await expect(command()).rejects.toMatchObject({ code: "concurrency_conflict" });
+    }
+    expect(await store.eventStore.readStream({ streamId: "catalog.product-contents-cat_box" })).toHaveLength(4);
+    expect([...resolved.values()].map((row) => row.quantity)).toEqual([2]);
+  });
+
   it("publishes resolved product contents and projects forward and reverse lookup rows", async () => {
     const { db, resolved } = createContentDb([
       {
