@@ -649,8 +649,7 @@ function assertPinnedExtractionNeutrality(readGit = git, output = emit) {
       refuse(code);
     }
   };
-  const nulFields = (args, code) => {
-    const bytes = read(args, code);
+  const nulFields = (bytes, code) => {
     try {
       if (bytes.at(-1) !== 0) refuse(code);
       return new TextDecoder("utf-8", { fatal: true }).decode(bytes).slice(0, -1).split("\0");
@@ -667,7 +666,10 @@ function assertPinnedExtractionNeutrality(readGit = git, output = emit) {
   if (JSON.stringify(parentage) !== JSON.stringify([neutralityLanding, neutralityFork]))
     refuse("INVENTORY_PINNED_PARENTAGE_MISMATCH");
   const changes = nulFields(
-    ["diff", "--name-status", "-z", "--no-renames", neutralityFork, neutralityLanding],
+    read(
+      ["diff", "--name-status", "-z", "--no-renames", neutralityFork, neutralityLanding],
+      "INVENTORY_PINNED_CHANGED_SET_MISMATCH",
+    ),
     "INVENTORY_PINNED_CHANGED_SET_MISMATCH",
   );
   if (JSON.stringify(changes) !== JSON.stringify(extractionChanges)) refuse("INVENTORY_PINNED_CHANGED_SET_MISMATCH");
@@ -690,9 +692,17 @@ function assertPinnedExtractionNeutrality(readGit = git, output = emit) {
     if (!counts || JSON.stringify(counts.slice(1)) !== JSON.stringify(["169", "163", "6"]))
       refuse("INVENTORY_PINNED_COUNTS_MISMATCH");
   }
-  const names = [neutralityFork, neutralityLanding].map((sha) =>
-    nulFields(["ls-tree", "-r", "-z", "--name-only", "--full-tree", sha], "INVENTORY_PINNED_RAW_NAMES_MISMATCH"),
-  );
+  let names;
+  try {
+    names = [neutralityFork, neutralityLanding].map((sha) =>
+      nulFields(
+        readGit(["ls-tree", "-r", "-z", "--name-only", "--full-tree", sha]),
+        "INVENTORY_PINNED_RAW_NAMES_MISMATCH",
+      ),
+    );
+  } catch {
+    refuse("INVENTORY_PINNED_RAW_NAMES_MISMATCH");
+  }
   if (
     names.some((files) => files.some((file) => !file) || new Set(files).size !== files.length) ||
     JSON.stringify(names[1].slice().sort()) !== JSON.stringify([...names[0], ...extractionAdditions].sort())
@@ -797,7 +807,7 @@ it("pinned extraction reads only exact ordered immutable Git objects", () => {
   const calls = [];
   const proof = assertPinnedExtractionNeutrality((args) => {
     calls.push(args);
-    return git(args);
+    return execFileSync("git", args, { cwd: repoRoot, maxBuffer: 32 * 1024 * 1024, windowsHide: true });
   });
   const { landing, fork } = expectedHistory;
   expect(calls).toEqual([
