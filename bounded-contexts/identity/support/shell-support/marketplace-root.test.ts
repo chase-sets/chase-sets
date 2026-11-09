@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ResolvedActor } from "@chase-sets/platform-runtime/auth";
 import { CHASE_SETS_READ_TARGET_CONTEXT_HEADER } from "@chase-sets/http/responses";
-import { resolveCurrentActorDisplay, resolveMarketplaceRootTheme, type CurrentActorDisplay } from "../../server";
+import type { CurrentActorDisplay } from "./current-actor-display";
+import { resolveCurrentActorDisplay, resolveMarketplaceRootTheme } from "./marketplace-root";
 
 const actor: ResolvedActor = {
   userId: "usr_identity_root",

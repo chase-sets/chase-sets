@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ResolvedActor } from "@chase-sets/platform-runtime/auth";
-import { resolveCartCount } from "../../server";
+import { resolveCartCount } from "./marketplace-root";
 
 const signedInActor: ResolvedActor = {
   userId: "usr_cart",
