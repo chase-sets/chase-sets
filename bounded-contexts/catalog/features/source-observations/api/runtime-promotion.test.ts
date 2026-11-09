@@ -35,7 +35,7 @@ import { buildCatalogScopeRegistryProjectionHandlers } from "../../scope-registr
 describe("source observation runtime: promotion and reapply", () => {
   it("product contents promotion forwards its captured version and propagates conflict", async () => {
     const store = createInMemoryEventStore();
-    const query = vi.fn(async <T>(sql: string, params?: readonly unknown[]) => {
+    const query = async <T>(sql: string, params?: readonly unknown[]) => {
       if (sql.includes("FROM catalog_items"))
         return {
           rows: [
@@ -62,7 +62,7 @@ describe("source observation runtime: promotion and reapply", () => {
           ] as T[],
         };
       return { rows: [] as T[] };
-    });
+    };
     const productContents = createProductContentRuntime({
       db: { query },
       eventStore: store.eventStore,

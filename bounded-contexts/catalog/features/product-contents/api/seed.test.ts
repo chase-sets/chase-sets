@@ -37,7 +37,9 @@ describe("product contents seed", () => {
     const store = createInMemoryEventStore();
     const ids = [catalogSeedIds.items.prismaticEvolutionsBoosterPack, catalogSeedIds.items.pikachuPrismaticEvolutions];
     let projectedRows: readonly Record<string, unknown>[] = [];
-    const query = vi.fn(async <T>(sql: string, params?: readonly unknown[]) => {
+    const queryCalls = vi.fn((_sql: string, _params?: readonly unknown[]) => undefined);
+    const query = async <T>(sql: string, params?: readonly unknown[]) => {
+      queryCalls(sql, params);
       if (sql.includes("FROM catalog_items")) {
         const itemIds = sql.includes("ANY($1") ? ids : [params?.[0]];
         return {
@@ -77,7 +79,7 @@ describe("product contents seed", () => {
         };
       if (sql.includes("FROM catalog_resolved_product_contents")) return { rows: projectedRows as T[] };
       return { rows: [] as T[] };
-    });
+    };
     const productContents = createProductContentRuntime({
       db: { query },
       eventStore: store.eventStore,
@@ -114,12 +116,12 @@ describe("product contents seed", () => {
       return captured;
     });
     read.mockClear();
-    query.mockClear();
+    queryCalls.mockClear();
     await expect(seedProductContentScenario(services)).rejects.toMatchObject({ code: "concurrency_conflict" });
     expect(read).toHaveBeenCalledTimes(1);
     expect(replace).toHaveBeenLastCalledWith(expect.objectContaining({ expectedVersion: 2 }), expect.anything());
     expect(store.readAllEvents()).toHaveLength(4);
-    const writes = query.mock.calls.filter(([sql]) =>
+    const writes = queryCalls.mock.calls.filter(([sql]) =>
       /(?:INSERT INTO|DELETE FROM) catalog_resolved_product_contents/.test(sql),
     );
     expect(writes).toHaveLength(2);

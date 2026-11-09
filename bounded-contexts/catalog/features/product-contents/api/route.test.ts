@@ -70,7 +70,9 @@ function createServices(overrides: Partial<ProductContentServices> = {}): Produc
 describe("product content routes", () => {
   it("maps stale expectedVersion to 409 and rejects missing or wildcard versions", async () => {
     const store = createInMemoryEventStore();
-    const query = vi.fn(async <T>(sql: string, params?: readonly unknown[]) => {
+    const queryCalls = vi.fn((_sql: string, _params?: readonly unknown[]) => undefined);
+    const query = async <T>(sql: string, params?: readonly unknown[]) => {
+      queryCalls(sql, params);
       if (sql.includes("FROM catalog_items"))
         return {
           rows: [
@@ -97,7 +99,7 @@ describe("product content routes", () => {
           ] as T[],
         };
       return { rows: [] as T[] };
-    });
+    };
     const services = createProductContentRuntime({
       db: { query },
       eventStore: store.eventStore,
@@ -118,17 +120,19 @@ describe("product content routes", () => {
     expect((await request("PUT", { lines, expectedVersion: 0 })).status).toBe(200);
     const committedEvents = store.readAllEvents();
     for (const staleLines of [[{ ...lines[0]!, quantity: 2 }], lines, []]) {
-      query.mockClear();
+      queryCalls.mockClear();
       expect((await request("PUT", { lines: staleLines, expectedVersion: 0 })).status).toBe(409);
       expect(
-        query.mock.calls.some(([sql]) => /(?:INSERT INTO|DELETE FROM) catalog_resolved_product_contents/.test(sql)),
+        queryCalls.mock.calls.some(([sql]) =>
+          /(?:INSERT INTO|DELETE FROM) catalog_resolved_product_contents/.test(sql),
+        ),
       ).toBe(false);
       expect(store.readAllEvents()).toEqual(committedEvents);
     }
-    query.mockClear();
+    queryCalls.mockClear();
     expect((await request("DELETE", { expectedVersion: 0 })).status).toBe(409);
     expect(
-      query.mock.calls.some(([sql]) => /(?:INSERT INTO|DELETE FROM) catalog_resolved_product_contents/.test(sql)),
+      queryCalls.mock.calls.some(([sql]) => /(?:INSERT INTO|DELETE FROM) catalog_resolved_product_contents/.test(sql)),
     ).toBe(false);
     expect(store.readAllEvents()).toEqual(committedEvents);
     replace.mockClear();
