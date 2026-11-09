@@ -1,4 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
+import { ZERO_GLOBAL_POSITION } from "@chase-sets/event-core/storage";
+import { createProductContentRuntime } from "../../product-contents/api/runtime";
 import type { CatalogRuntimeDeps } from "../../../support/authoring-support/runtime-support";
 import type { SourceObservationYugiohSealedProductNormalized } from "../domain/domain";
 import { decideSourceObservation, evolveSourceObservation, initialSourceObservationState } from "../domain/domain";
@@ -30,6 +33,117 @@ import { syntheticCurrentCatalogItem } from "./seeding/synthetic-display-identit
 import { buildCatalogScopeRegistryProjectionHandlers } from "../../scope-registry/read-model/projection";
 
 describe("source observation runtime: promotion and reapply", () => {
+  it("product contents promotion forwards its captured version and propagates conflict", async () => {
+    const store = createInMemoryEventStore();
+    const query = vi.fn(async <T>(sql: string, params?: readonly unknown[]) => {
+      if (sql.includes("FROM catalog_items"))
+        return {
+          rows: [
+            {
+              catalog_item_id: params?.[0],
+              status: "active",
+              blueprint_id: "bp_plain",
+              dimension_rules: [],
+              canonical_dimension_order: [],
+            },
+          ] as T[],
+        };
+      if (sql.includes("FROM catalog_product_content_types"))
+        return {
+          rows: [
+            {
+              content_type_id: "pct_card",
+              key: "card",
+              display_name: { defaultLocale: "en", values: { en: "Card" } },
+              status: "active",
+              sort_order: 10,
+              discovery_search_weight: null,
+            },
+          ] as T[],
+        };
+      return { rows: [] as T[] };
+    });
+    const productContents = createProductContentRuntime({
+      db: { query },
+      eventStore: store.eventStore,
+      checkpointStore: { loadCheckpoint: async () => ZERO_GLOBAL_POSITION, saveCheckpoint: async () => undefined },
+    });
+    const input = {
+      containerCatalogItemId: "cat_existing" as never,
+      expectedVersion: 0,
+      lines: [{ containedCatalogItemId: "cat_card" as never, contentTypeId: "pct_card", quantity: 1 }],
+    };
+    await productContents.replaceProductContents(input, context);
+    const originalRead = productContents.readProductContentsAuthoringState;
+    const originalReplace = productContents.replaceProductContents;
+    const read = vi.spyOn(productContents, "readProductContentsAuthoringState");
+    const replace = vi.spyOn(productContents, "replaceProductContents");
+    const normalized = {
+      ...pokemonObservation({ expansionName: "Ascended Heroes Updated", seriesName: "Mega Evolution" }),
+      productContentsPromotion: {
+        lines: [{ containedCatalogItemId: "cat_card", contentTypeId: "pct_card", quantity: 3 }],
+      },
+    };
+    const harness = createChangedObservationRefreshHarness({ normalized });
+    const services = createSourceObservationRuntime(
+      harness.deps,
+      harness.items,
+      harness.referenceData,
+      undefined,
+      undefined,
+      undefined,
+      null,
+      productContents,
+    );
+    await expect(services.promoteObservation({ observationId: "obs_changed", context })).resolves.toMatchObject({
+      catalogItemId: "cat_existing",
+    });
+    expect(read).toHaveBeenCalledExactlyOnceWith("cat_existing", undefined);
+    expect(replace).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({
+        containerCatalogItemId: "cat_existing",
+        expectedVersion: 2,
+        lines: [expect.objectContaining({ quantity: 3, containedCatalogItemId: "cat_card" })],
+      }),
+      context,
+    );
+    expect(store.readAllEvents()).toHaveLength(4);
+
+    read.mockClear();
+    replace.mockClear();
+    read.mockImplementationOnce(async (...args) => {
+      const captured = await originalRead(...args);
+      await originalReplace(
+        { ...input, expectedVersion: captured.version, lines: [{ ...input.lines[0]!, quantity: 7 }] },
+        context,
+      );
+      return captured;
+    });
+    const conflictingHarness = createChangedObservationRefreshHarness({ normalized });
+    const conflictingServices = createSourceObservationRuntime(
+      conflictingHarness.deps,
+      conflictingHarness.items,
+      conflictingHarness.referenceData,
+      undefined,
+      undefined,
+      undefined,
+      null,
+      productContents,
+    );
+    await expect(
+      conflictingServices.promoteObservation({ observationId: "obs_changed", context }),
+    ).rejects.toMatchObject({ code: "concurrency_conflict" });
+    expect(read).toHaveBeenCalledExactlyOnceWith("cat_existing", undefined);
+    expect(replace).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ expectedVersion: 4 }), context);
+    expect(store.readAllEvents()).toHaveLength(6);
+    await expect(originalRead("cat_existing")).resolves.toMatchObject({ version: 6, lines: [{ quantity: 7 }] });
+    expect(
+      conflictingHarness.appendedSourceEvents.some(
+        (event) => event.eventType === "catalog.source-observation.promoted",
+      ),
+    ).toBe(false);
+  });
+
   it("resolves exactly one YGOJSON boxed Set Reference Record and blocks missing or ambiguous evidence", async () => {
     const normalized = yugiohSealedProductObservation();
     const resolved = await resolveYugiohSealedProductSetReference({
