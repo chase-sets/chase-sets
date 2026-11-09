@@ -1,5 +1,5 @@
 import type { BcSchemaMigration } from "@chase-sets/bounded-context-module";
-import type { PgQueryResult, PgQueryable, PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import type { PgPoolClient, PgQueryResult, PgQueryable, PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { bootstrapContextDatabase, SCHEMA_MIGRATIONS_TABLE, type SchemaBootstrapOptions } from "./schema";
 import {
@@ -99,22 +99,195 @@ describeDb("applies a migration data step atomically", () => {
     expect(await writes()).toEqual(["prior-schema-business-row"]);
   });
 
-  it("leaves no write or ledger row when the step throws after writing, then applies once", async () => {
-    let failStep = true;
-    const migration = dataStepMigration(async (db) => {
-      await writeFromStep(db, "step");
-      if (failStep) throw new Error("data step failed after writing");
-    });
+  it.each([undefined, "40P01"])(
+    "leaves no write or ledger row after a step failure (%s), then applies once",
+    async (code) => {
+      let stepCalls = 0;
+      const failure = Object.assign(new Error("data step failed after writing"), { code });
+      const migration = dataStepMigration(async (db) => {
+        stepCalls += 1;
+        if (stepCalls === 2) {
+          expect(await writes()).toEqual([]);
+          expect(await ledgerRows()).toEqual([]);
+        }
+        await writeFromStep(db, "step");
+        if (stepCalls === 1) throw failure;
+      });
 
-    await expect(bootstrap([migration], pool)).rejects.toThrow("data step failed after writing");
-    expect(await writes()).toEqual([]);
-    expect(await ledgerRows()).toEqual([]);
+      if (code === undefined) {
+        await expect(bootstrap([migration], pool)).rejects.toBe(failure);
+        expect(await writes()).toEqual([]);
+        expect(await ledgerRows()).toEqual([]);
+      }
 
-    failStep = false;
-    await bootstrap([migration], pool);
-    await bootstrap([migration], pool);
-    expect(await writes()).toEqual(["statement", "step"]);
-    expect(await ledgerRows()).toEqual([migrationId]);
+      await bootstrap([migration], pool, { lockTimeoutRetryBaseDelayMs: 1, lockTimeoutRetryJitterMs: 0 });
+      await bootstrap([migration], pool);
+      expect(stepCalls).toBe(2);
+      expect(await writes()).toEqual(["statement", "step"]);
+      expect(await ledgerRows()).toEqual([migrationId]);
+    },
+  );
+
+  it("retries a schema bootstrap aborted as a deadlock victim", async () => {
+    await pool.query("CREATE TABLE schema_deadlock_a (id text); CREATE TABLE schema_deadlock_b (id text)");
+    const writer = await pool.connect();
+    let gate: PgPoolClient | undefined;
+    let writerPid = 0;
+    const backendIds: number[] = [];
+    const failures: { code: unknown; rolledBack: boolean }[] = [];
+    let writerResult: Promise<unknown> | undefined;
+    let bootstrapResult: Promise<unknown> | undefined;
+    const observedPool: PgTransactionalPool = {
+      query: pool.query.bind(pool),
+      async connect() {
+        const client = await pool.connect();
+        try {
+          await client.query("SET deadlock_timeout = '1s'; SET statement_timeout = '8s'");
+          const pid = (await client.query<{ pid: number }>("SELECT pg_backend_pid() AS pid")).rows[0]!.pid;
+          backendIds.push(pid);
+        } catch (error) {
+          client.release(error);
+          throw error;
+        }
+        return {
+          async query<Row = Record<string, unknown>>(
+            sql: string,
+            values?: readonly unknown[],
+          ): Promise<PgQueryResult<Row>> {
+            try {
+              return await client.query<Row>(sql, values);
+            } catch (error) {
+              if (sql.includes("ADD COLUMN IF NOT EXISTS before_deadlock")) {
+                const columns = await pool.query(
+                  "SELECT 1 FROM information_schema.columns WHERE table_name = 'schema_deadlock_a' AND column_name = 'before_deadlock'",
+                );
+                failures.push({ code: (error as { code?: unknown }).code, rolledBack: columns.rows.length === 0 });
+                expect(await writerResult).toBeUndefined();
+              }
+              throw error;
+            }
+          },
+          release: (error?: unknown) => client.release(error),
+        };
+      },
+    };
+
+    async function waitForLocks(predicate: (locks: readonly Lock[]) => boolean): Promise<readonly Lock[]> {
+      const deadline = Date.now() + 5_000;
+      while (Date.now() < deadline) {
+        const result = await pool.query<Lock>(
+          `SELECT pid, relation::regclass::text AS relation, mode, granted, locktype
+           FROM pg_locks WHERE pid = ANY($1::int[])`,
+          [[writerPid, ...backendIds]],
+        );
+        if (predicate(result.rows)) return result.rows;
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      throw new Error("Schema deadlock fixture did not reach its required lock graph within 5000ms.");
+    }
+
+    type Lock = { pid: number; relation: string | null; mode: string; granted: boolean; locktype: string };
+    try {
+      gate = await pool.connect();
+      writerPid = (await writer.query<{ pid: number }>("SELECT pg_backend_pid() AS pid")).rows[0]!.pid;
+      await writer.query("BEGIN; SET LOCAL deadlock_timeout = '30s'; SET LOCAL statement_timeout = '8s'");
+      await writer.query("LOCK TABLE schema_deadlock_b IN ACCESS EXCLUSIVE MODE");
+      await writer.query("INSERT INTO schema_deadlock_b VALUES ('writer committed')");
+      await gate.query("SELECT pg_advisory_lock(11198, 1)");
+      bootstrapResult = bootstrapContextDatabase(
+        {
+          contextName,
+          schemaSql: `ALTER TABLE schema_deadlock_a ADD COLUMN IF NOT EXISTS before_deadlock text;
+          SELECT pg_advisory_xact_lock(11198, 1);
+          ALTER TABLE schema_deadlock_b ADD COLUMN IF NOT EXISTS after_deadlock text;`,
+        },
+        observedPool,
+        { lockTimeoutRetryBaseDelayMs: 1, lockTimeoutRetryJitterMs: 0 },
+      ).then(
+        () => undefined,
+        (error: unknown) => error,
+      );
+
+      await waitForLocks((locks) =>
+        locks.some((lock) => lock.pid === backendIds[0] && lock.locktype === "advisory" && !lock.granted),
+      );
+      writerResult = writer
+        .query("INSERT INTO schema_deadlock_a VALUES ('writer committed')")
+        .then(async () => {
+          await writer.query("COMMIT");
+        })
+        .then(
+          () => undefined,
+          (error: unknown) => error,
+        );
+      await waitForLocks((locks) =>
+        locks.some(
+          (lock) =>
+            lock.pid === writerPid &&
+            lock.relation === "schema_deadlock_a" &&
+            lock.mode === "RowExclusiveLock" &&
+            !lock.granted,
+        ),
+      );
+      await gate.query("SELECT pg_advisory_unlock(11198, 1)");
+      const graph = await waitForLocks((locks) =>
+        locks.some((lock) => lock.pid === backendIds[0] && lock.relation === "schema_deadlock_b" && !lock.granted),
+      );
+      expect(graph).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            pid: backendIds[0],
+            relation: "schema_deadlock_a",
+            mode: "AccessExclusiveLock",
+            granted: true,
+          }),
+          expect.objectContaining({
+            pid: backendIds[0],
+            relation: "schema_deadlock_b",
+            mode: "AccessExclusiveLock",
+            granted: false,
+          }),
+          expect.objectContaining({
+            pid: writerPid,
+            relation: "schema_deadlock_b",
+            mode: "AccessExclusiveLock",
+            granted: true,
+          }),
+          expect.objectContaining({
+            pid: writerPid,
+            relation: "schema_deadlock_a",
+            mode: "RowExclusiveLock",
+            granted: false,
+          }),
+        ]),
+      );
+      expect(await bootstrapResult).toBeUndefined();
+      expect(failures).toEqual([{ code: "40P01", rolledBack: true }]);
+      expect(backendIds).toHaveLength(2);
+      expect(new Set([...backendIds, writerPid]).size).toBe(3);
+      expect((await pool.query("SELECT * FROM schema_deadlock_a")).rows).toEqual([
+        { id: "writer committed", before_deadlock: null },
+      ]);
+      expect((await pool.query("SELECT * FROM schema_deadlock_b")).rows).toEqual([
+        { id: "writer committed", after_deadlock: null },
+      ]);
+      console.log(
+        `schema deadlock regression: code=40P01 bootstrapBackends=${backendIds.join(",")} writerBackend=${writerPid} rolledBack=true writerCommitted=true ddlComplete=true`,
+      );
+    } finally {
+      try {
+        if (gate) await gate.query("SELECT pg_advisory_unlock_all()");
+      } finally {
+        try {
+          if (writerResult) await writerResult;
+          await writer.query("ROLLBACK");
+        } finally {
+          writer.release(true);
+          gate?.release(true);
+          if (bootstrapResult) await bootstrapResult;
+        }
+      }
+    }
   });
 
   it("leaves no write or ledger row when a statement fails after writes, then applies once", async () => {
