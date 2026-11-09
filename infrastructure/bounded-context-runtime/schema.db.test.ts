@@ -1,5 +1,11 @@
 import type { BcSchemaMigration } from "@chase-sets/bounded-context-module";
-import type { PgPoolClient, PgQueryResult, PgQueryable, PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import {
+  createPgPool,
+  type PgPoolClient,
+  type PgQueryResult,
+  type PgQueryable,
+  type PgTransactionalPool,
+} from "@chase-sets/event-core-postgres";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { bootstrapContextDatabase, SCHEMA_MIGRATIONS_TABLE, type SchemaBootstrapOptions } from "./schema";
 import {
@@ -28,19 +34,28 @@ type ForwardedSql = Readonly<{ sql: string; values?: readonly unknown[] }>;
 describeDb("applies a migration data step atomically", () => {
   let pool: PgTransactionalPool;
   let pools: Readonly<Record<typeof contextName, PgTransactionalPool>>;
+  // deadlock_timeout is superuser-only, so the deadlock fixture's writer runs as the harness admin on this test database.
+  let adminOnRuntime: PgTransactionalPool | undefined;
 
   beforeAll(async () => {
     const urls = createMultiContextTestDatabaseUrls(databaseUrl!, [contextName], "schema_data_step");
     await ensureMultiContextTestDatabases(databaseUrl!, urls);
     pools = createMultiContextTestPools(urls);
     pool = pools[contextName];
+    const adminUrl = new URL(databaseUrl!);
+    adminUrl.pathname = new URL(urls[contextName]).pathname;
+    adminOnRuntime = createPgPool(adminUrl.toString(), { max: 1 });
   });
   beforeEach(async () => {
     await resetMultiContextTestSchemas(pools);
     await bootstrap([], pool);
   });
   afterAll(async () => {
-    await closeMultiContextTestPools(pools);
+    try {
+      await (adminOnRuntime as unknown as { end: () => Promise<void> } | undefined)?.end();
+    } finally {
+      await closeMultiContextTestPools(pools);
+    }
   });
 
   it("applies the step, its statements and its ledger row once", async () => {
@@ -130,10 +145,11 @@ describeDb("applies a migration data step atomically", () => {
 
   it("retries a schema bootstrap aborted as a deadlock victim", async () => {
     await pool.query("CREATE TABLE schema_deadlock_a (id text); CREATE TABLE schema_deadlock_b (id text)");
-    const writer = await pool.connect();
+    const writer = await adminOnRuntime!.connect();
     let gate: PgPoolClient | undefined;
     let writerPid = 0;
     const backendIds: number[] = [];
+    const bootstrapDeadlockTimeoutsMs: number[] = [];
     const failures: { code: unknown; rolledBack: boolean }[] = [];
     let writerResult: Promise<unknown> | undefined;
     let bootstrapResult: Promise<unknown> | undefined;
@@ -142,9 +158,15 @@ describeDb("applies a migration data step atomically", () => {
       async connect() {
         const client = await pool.connect();
         try {
-          await client.query("SET deadlock_timeout = '1s'; SET statement_timeout = '8s'");
-          const pid = (await client.query<{ pid: number }>("SELECT pg_backend_pid() AS pid")).rows[0]!.pid;
-          backendIds.push(pid);
+          await client.query("SET statement_timeout = '8s'");
+          const backend = (
+            await client.query<{ pid: number; deadlock_timeout_ms: number }>(
+              "SELECT pg_backend_pid() AS pid, setting::int AS deadlock_timeout_ms FROM pg_settings WHERE name = 'deadlock_timeout'",
+            )
+          ).rows[0]!;
+          expect(backend.deadlock_timeout_ms).toBe(1_000);
+          backendIds.push(backend.pid);
+          bootstrapDeadlockTimeoutsMs.push(backend.deadlock_timeout_ms);
         } catch (error) {
           client.release(error);
           throw error;
@@ -191,6 +213,9 @@ describeDb("applies a migration data step atomically", () => {
       gate = await pool.connect();
       writerPid = (await writer.query<{ pid: number }>("SELECT pg_backend_pid() AS pid")).rows[0]!.pid;
       await writer.query("BEGIN; SET LOCAL deadlock_timeout = '30s'; SET LOCAL statement_timeout = '8s'");
+      expect(
+        (await writer.query<{ deadlock_timeout: string }>("SHOW deadlock_timeout")).rows[0]?.deadlock_timeout,
+      ).toBe("30s");
       await writer.query("LOCK TABLE schema_deadlock_b IN ACCESS EXCLUSIVE MODE");
       await writer.query("INSERT INTO schema_deadlock_b VALUES ('writer committed')");
       await gate.query("SELECT pg_advisory_lock(11198, 1)");
@@ -264,6 +289,7 @@ describeDb("applies a migration data step atomically", () => {
       expect(await bootstrapResult).toBeUndefined();
       expect(failures).toEqual([{ code: "40P01", rolledBack: true }]);
       expect(backendIds).toHaveLength(2);
+      expect(bootstrapDeadlockTimeoutsMs).toEqual([1_000, 1_000]);
       expect(new Set([...backendIds, writerPid]).size).toBe(3);
       expect((await pool.query("SELECT * FROM schema_deadlock_a")).rows).toEqual([
         { id: "writer committed", before_deadlock: null },
@@ -272,7 +298,7 @@ describeDb("applies a migration data step atomically", () => {
         { id: "writer committed", after_deadlock: null },
       ]);
       console.log(
-        `schema deadlock regression: code=40P01 bootstrapBackends=${backendIds.join(",")} writerBackend=${writerPid} rolledBack=true writerCommitted=true ddlComplete=true`,
+        `schema deadlock regression: code=40P01 bootstrapBackends=${backendIds.join(",")} writerBackend=${writerPid} rolledBack=true writerCommitted=true ddlComplete=true bootstrapDeadlockTimeoutMs=${bootstrapDeadlockTimeoutsMs.join(",")} writerDeadlockTimeout=30s`,
       );
     } finally {
       try {
