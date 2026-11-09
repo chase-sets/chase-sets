@@ -892,6 +892,87 @@ describe("Ubuntu acquisition projection", () => {
     sources: { [ubuntuPath]: ubuntu, [thirdPartyPath]: thirdParty },
     mirrors,
   });
+  // Runner state logged by the owning head-2 E2E job, before acquisition.
+  const loggedRunner = {
+    releaseText:
+      'PRETTY_NAME="Ubuntu 24.04.5 LTS"\nNAME="Ubuntu"\nVERSION_ID="24.04"\nVERSION="24.04.5 LTS (Noble Numbat)"\nVERSION_CODENAME=noble\nID=ubuntu\nID_LIKE=debian\nHOME_URL="https://www.ubuntu.com/"\nSUPPORT_URL="https://help.ubuntu.com/"\nBUG_REPORT_URL="https://bugs.launchpad.net/ubuntu/"\nPRIVACY_POLICY_URL="https://www.ubuntu.com/legal/terms-and-policies/privacy-policy"\nUBUNTU_CODENAME=noble\nLOGO=ubuntu-logo\n',
+    sources: {
+      "/etc/apt/sources.list":
+        "# Ubuntu sources have moved to the /etc/apt/sources.list.d/ubuntu.sources\n# file, which uses the deb822 format. Use deb822-formatted .sources files\n# to manage package sources in the /etc/apt/sources.list.d/ directory.\n# See the sources.list(5) manual page for details.\n",
+      "/etc/apt/sources.list.d/microsoft-prod.list":
+        "deb [arch=amd64,arm64,armhf signed-by=/usr/share/keyrings/microsoft-prod.gpg] https://packages.microsoft.com/ubuntu/24.04/prod noble main\n",
+      [ubuntuPath]: `## Note, this file is written by cloud-init on first boot of an instance
+## modifications made here will not survive a re-bundle.
+##
+## If you wish to make changes you can:
+## a.) add 'apt_preserve_sources_list: true' to /etc/cloud/cloud.cfg
+##     or do the same in user-data
+## b.) add supplemental sources in /etc/apt/sources.list.d
+## c.) make changes to template file
+##      /etc/cloud/templates/sources.list.ubuntu.deb822.tmpl
+##
+
+# See http://help.ubuntu.com/community/UpgradeNotes for how to upgrade to
+# newer versions of the distribution.
+
+## Ubuntu distribution repository
+##
+## The following settings can be adjusted to configure which packages to use from Ubuntu.
+## Mirror your choices (except for URIs and Suites) in the security section below to
+## ensure timely security updates.
+##
+## Types: Append deb-src to enable the fetching of source package.
+## URIs: A URL to the repository (you may add multiple URLs)
+## Suites: The following additional suites can be configured
+##   <name>-updates   - Major bug fix updates produced after the final release of the
+##                      distribution.
+##   <name>-backports - software from this repository may not have been tested as
+##                      extensively as that contained in the main release, although it includes
+##                      newer versions of some applications which may provide useful features.
+##                      Also, please note that software in backports WILL NOT receive any review
+##                      or updates from the Ubuntu security team.
+## Components: Aside from main, the following components can be added to the list
+##   restricted  - Software that may not be under a free license, or protected by patents.
+##   universe    - Community maintained packages. Software in this repository receives maintenance
+##                 from volunteers in the Ubuntu community, or a 10 year security maintenance
+##                 commitment from Canonical when an Ubuntu Pro subscription is attached.
+##   multiverse  - Community maintained of restricted. Software from this repository is
+##                 ENTIRELY UNSUPPORTED by the Ubuntu team, and may not be under a free
+##                 licence. Please satisfy yourself as to your rights to use the software.
+##                 Also, please note that software in multiverse WILL NOT receive any
+##                 review or updates from the Ubuntu security team.
+##
+## See the sources.list(5) manual page for further settings.
+Types: deb
+URIs: mirror+file:/etc/apt/apt-mirrors.txt
+Suites: noble noble-updates noble-backports
+Components: main universe restricted multiverse
+Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
+
+## Ubuntu security updates. Aside from URIs and Suites,
+## this should mirror your choices in the previous section.
+Types: deb
+URIs: mirror+file:/etc/apt/apt-mirrors.txt
+Suites: noble-security
+Components: main universe restricted multiverse
+Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
+`,
+    },
+    env: { RUNNER_ARCH: "X64", ImageOS: "ubuntu24", ImageVersion: "20261101.360.1" },
+  };
+
+  function aptConfigDump(files) {
+    const values = new Map([
+      ["Dir", "/"],
+      ["Dir::Etc", "etc/apt"],
+      ["Dir::Etc::sourcelist", "sources.list"],
+      ["Dir::Etc::sourceparts", "sources.list.d"],
+    ]);
+    const parts = [...files.keys()].filter((file) => file.startsWith("/etc/apt/apt.conf.d/")).sort();
+    for (const file of parts)
+      for (const match of files.get(file).matchAll(/^(\S+) "([^"\n]*)";$/gm)) values.set(match[1], match[2]);
+    return [...values].map(([key, value]) => `${key} "${value}";\n`).join("");
+  }
 
   function machine({
     effective,
@@ -899,6 +980,7 @@ describe("Ubuntu acquisition projection", () => {
     failRestore,
     version = "20261101.360.1",
     thirdPartyKey = "original-key",
+    runnerState = false,
   } = {}) {
     const input = fixture();
     const files = new Map(
@@ -908,8 +990,18 @@ describe("Ubuntu acquisition projection", () => {
         "/etc/apt/apt-mirrors.txt": mirrors[mirrorUri],
         "/usr/share/keyrings/ubuntu-archive-keyring.gpg": "ubuntu-key",
         "/usr/share/keyrings/microsoft.gpg": thirdPartyKey,
+        ...(runnerState
+          ? {
+              ...loggedRunner.sources,
+              "/etc/os-release": loggedRunner.releaseText,
+              "/usr/share/keyrings/microsoft-prod.gpg": thirdPartyKey,
+              "/etc/apt/apt.conf.d/zz-retries":
+                'Acquire::Retries "1";\nAcquire::http::Timeout "15";\nAcquire::https::Timeout "15";\n',
+            }
+          : {}),
       }),
     );
+    if (runnerState) files.delete(thirdPartyPath);
     const original = new Map(files);
     const command = vi.fn((_command, args, text) => {
       expect(_command).toBe("sudo");
@@ -917,7 +1009,7 @@ describe("Ubuntu acquisition projection", () => {
       if (args[1] === "tee") {
         if (failRestore && text?.toString() === ubuntu) throw new Error("restore denied");
         files.set(args[2], Buffer.isBuffer(text) ? text.toString() : text);
-        if (failWrite && args[2].includes("99-chase")) throw new Error("partial write");
+        if (failWrite && args[2].endsWith("-chase-sets-e2e")) throw new Error("partial write");
         return "";
       }
       if (args[1] === "rm") {
@@ -925,26 +1017,142 @@ describe("Ubuntu acquisition projection", () => {
         return "";
       }
       expect(args).toEqual(["-n", "apt-config", "dump"]);
-      return (
-        effective ??
-        'Dir "/";\nDir::Etc "etc/apt";\nDir::Etc::sourcelist "sources.list";\nDir::Etc::sourceparts "sources.list.d";\nAcquire::http::Timeout "30";\nAcquire::https::Timeout "30";\nAcquire::Retries "1";\n'
-      );
+      return effective ?? aptConfigDump(files);
     });
     const lines = [];
     const options = {
-      env: { RUNNER_ARCH: "X64", ImageOS: "ubuntu24", ImageVersion: version },
+      env: runnerState ? loggedRunner.env : { RUNNER_ARCH: "X64", ImageOS: "ubuntu24", ImageVersion: version },
       read: (file, encoding) => {
         if (!files.has(file)) throw new Error("missing fixture");
         const bytes = Buffer.from(files.get(file));
         return encoding ? bytes.toString(encoding) : bytes;
       },
-      list: () => ["ubuntu.sources", "microsoft.sources"],
+      list: (directory) =>
+        [...files.keys()]
+          .filter((file) => path.posix.dirname(file) === directory)
+          .map((file) => path.posix.basename(file)),
       exists: (file) => files.has(file),
       command,
       write: (line) => lines.push(line),
     };
     return { files, original, options, lines, command };
   }
+
+  it("logged runner state projects with effective 30/30/1 bounds despite image zz-retries", () => {
+    const m = machine({ runnerState: true });
+    const apt = prepareE2eApt(m.options);
+    expect(apt.projected).toBe(true);
+    const effective = JSON.parse(
+      m.lines
+        .find((line) => line.startsWith("playwright-e2e-apt-effective "))
+        .split(" ")
+        .slice(1)
+        .join(" "),
+    );
+    expect(effective.effective).toContain('Acquire::http::Timeout "30";');
+    expect(effective.effective).toContain('Acquire::https::Timeout "30";');
+    expect(effective.effective).toContain('Acquire::Retries "1";');
+    expect(effective.configEntries).toEqual(["zz-retries", "zzz-chase-sets-e2e"]);
+    apt.restore();
+    expect(m.files).toEqual(m.original);
+  });
+
+  it("M-later-override: later 15-second timeout refuses with bounds-value and restores all bytes", () => {
+    const m = machine({ runnerState: true });
+    const later = "/etc/apt/apt.conf.d/zzzz-later-override";
+    const text = 'Acquire::http::Timeout "15";\n';
+    m.files.set(later, text);
+    m.original.set(later, text);
+    expect(() => prepareE2eApt(m.options)).toThrow("ineffective-elevated-config");
+    expect(m.files).toEqual(m.original);
+    const refusals = m.lines.filter((line) => line.startsWith("playwright-e2e-apt-refusal "));
+    expect(refusals).toHaveLength(1);
+    expect(JSON.parse(refusals[0].slice("playwright-e2e-apt-refusal ".length))).toEqual({
+      guard: "bounds-value",
+      key: "Acquire::http::Timeout",
+      value: "15",
+      configEntries: ["zz-retries", "zzz-chase-sets-e2e", "zzzz-later-override"],
+    });
+    expect(m.lines.indexOf(refusals[0])).toBeLessThan(
+      m.lines.findIndex((line) => line.startsWith("playwright-e2e-apt-restore ")),
+    );
+    console.log("MUTANT_RED M-later-override");
+  });
+
+  it.each([
+    [
+      'Dir::Etc "https://fixture-user:fixture-password@example.invalid/apt";',
+      "dir-root",
+      "Dir::Etc",
+      "ineffective-elevated-config",
+    ],
+    [
+      'Acquire::http::Timeout "https://fixture-user:fixture-password@example.invalid/apt";',
+      "bounds-value",
+      "Acquire::http::Timeout",
+      "ineffective-elevated-config",
+    ],
+    [
+      'Acquire::https::example.invalid::Timeout "https://fixture-user:fixture-password@example.invalid/apt";',
+      "option-bound",
+      "Acquire::https::example.invalid::Timeout",
+      "ineffective-elevated-config",
+    ],
+    [
+      'Acquire::https::example.invalid::Verify-Peer "https://fixture-user:fixture-password@example.invalid/apt";',
+      "trust-option",
+      "Acquire::https::example.invalid::Verify-Peer",
+      "trust-bypass",
+    ],
+  ])("refusal record redacts URL userinfo for %s", (override, guard, key, reason) => {
+    const m = machine();
+    m.files.set("/etc/apt/apt.conf.d/zzzz-refusal", `${override}\n`);
+    m.original = new Map(m.files);
+    expect(() => prepareE2eApt(m.options)).toThrow(reason);
+    expect(m.files).toEqual(m.original);
+    const refusals = m.lines.filter((line) => line.startsWith("playwright-e2e-apt-refusal "));
+    expect(refusals).toHaveLength(1);
+    expect(JSON.parse(refusals[0].slice("playwright-e2e-apt-refusal ".length))).toEqual({
+      guard,
+      key,
+      value: "https://[redacted]@example.invalid/apt",
+      configEntries: ["zzz-chase-sets-e2e", "zzzz-refusal"],
+    });
+    expect(m.lines.join("\n")).not.toMatch(/fixture-user|fixture-password/);
+    console.log(`MUTANT_RED M-refusal-redaction-${guard}`);
+  });
+
+  it("success record redacts URL userinfo in effective apt-config values", () => {
+    const m = machine();
+    m.files.set(
+      "/etc/apt/apt.conf.d/10-proxy",
+      'Acquire::http::Proxy "https://fixture-user:fixture-password@example.invalid/proxy";\n',
+    );
+    m.original = new Map(m.files);
+    const apt = prepareE2eApt(m.options);
+    expect(m.lines.join("\n")).toContain("https://[redacted]@example.invalid/proxy");
+    expect(m.lines.join("\n")).not.toMatch(/fixture-user|fixture-password/);
+    apt.restore();
+    expect(m.files).toEqual(m.original);
+  });
+
+  it("absent effective bounds produce a named refusal before restore", () => {
+    const m = machine({ effective: "" });
+    expect(() => prepareE2eApt(m.options)).toThrow("ineffective-elevated-config");
+    expect(m.files).toEqual(m.original);
+    expect(
+      JSON.parse(
+        m.lines
+          .find((line) => line.startsWith("playwright-e2e-apt-refusal "))
+          .slice("playwright-e2e-apt-refusal ".length),
+      ),
+    ).toEqual({
+      guard: "bounds-value",
+      key: "Acquire::http::Timeout",
+      value: "absent",
+      configEntries: ["zzz-chase-sets-e2e"],
+    });
+  });
 
   it("projects every Ubuntu metadata/package URI, preserving suites/components/source-relative keys and untouched third-party bytes", () => {
     const input = fixture();

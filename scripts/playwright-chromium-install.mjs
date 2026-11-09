@@ -41,7 +41,7 @@ export const PLAYWRIGHT_NATIVE_FONT_PACKAGES = [
 ];
 
 const aptBounds = 'Acquire::http::Timeout "30";\nAcquire::https::Timeout "30";\nAcquire::Retries "1";\n';
-const aptBoundsPath = "/etc/apt/apt.conf.d/99-chase-sets-e2e";
+const aptBoundsPath = "/etc/apt/apt.conf.d/zzz-chase-sets-e2e";
 const officialArchive = "https://archive.ubuntu.com/ubuntu";
 const officialSecurity = "https://security.ubuntu.com/ubuntu";
 const digest = (value) => createHash("sha256").update(value).digest("hex");
@@ -208,6 +208,10 @@ function aptCommand(command, args, input) {
   return result.stdout;
 }
 
+function redactAptConfig(value) {
+  return value.replace(/([a-z][a-z\d+.-]*:\/\/)[^/\s"<>]*@/gi, "$1[redacted]@");
+}
+
 export function prepareE2eApt({
   env = process.env,
   read = readFileSync,
@@ -303,12 +307,32 @@ export function prepareE2eApt({
     validateUbuntuProjection(sources, effectiveSources, mirrors);
     for (const key of ubuntuKeys) if (digest(read(key)) !== keys[key]) throw new Error("projected-key-swap");
     const effective = command("sudo", ["-n", "apt-config", "dump"]);
+    const configEntries = list("/etc/apt/apt.conf.d").sort((left, right) =>
+      Buffer.compare(Buffer.from(left), Buffer.from(right)),
+    );
+    const effectiveValues = new Map(
+      effective.split("\n").flatMap((line) => {
+        const option = /^(\S+) "([^"\n]*)";$/.exec(line.trim());
+        return option ? [[option[1], option[2]]] : [];
+      }),
+    );
+    const refuse = (
+      guard,
+      key,
+      value = effectiveValues.get(key) ?? "absent",
+      reason = "ineffective-elevated-config",
+    ) => {
+      write(
+        `playwright-e2e-apt-refusal ${JSON.stringify({ guard, key, value: redactAptConfig(value), configEntries })}`,
+      );
+      throw new Error(reason);
+    };
     for (const [name, value] of [
       ["Acquire::http::Timeout", "30"],
       ["Acquire::https::Timeout", "30"],
       ["Acquire::Retries", "1"],
     ]) {
-      if (!effective.includes(`${name} "${value}";`)) throw new Error("ineffective-elevated-config");
+      if (!effective.includes(`${name} "${value}";`)) refuse("bounds-value", name);
     }
     for (const [name, values] of [
       ["Dir", ["/"]],
@@ -316,8 +340,7 @@ export function prepareE2eApt({
       ["Dir::Etc::sourcelist", ["sources.list", "/etc/apt/sources.list"]],
       ["Dir::Etc::sourceparts", ["sources.list.d", "/etc/apt/sources.list.d"]],
     ]) {
-      if (!values.some((value) => effective.includes(`${name} "${value}";`)))
-        throw new Error("ineffective-elevated-config");
+      if (!values.some((value) => effective.includes(`${name} "${value}";`))) refuse("dir-root", name);
     }
     for (const line of effective.split("\n")) {
       const option = /^(\S+) "([^"\n]*)";$/.exec(line.trim());
@@ -330,15 +353,17 @@ export function prepareE2eApt({
         ) &&
           value !== "false")
       )
-        throw new Error("trust-bypass");
+        refuse("trust-option", name, value, "trust-bypass");
       if (
         (/Acquire::https?::.*Timeout/i.test(name) && (!/^\d+$/.test(value) || Number(value) > 30)) ||
         (/Acquire::Retries$/i.test(name) && (!/^\d+$/.test(value) || Number(value) > 1)) ||
         /^Binary::apt-get::Dir(?:::|$)/i.test(name)
       )
-        throw new Error("ineffective-elevated-config");
+        refuse("option-bound", name, value);
     }
-    write(`playwright-e2e-apt-effective ${JSON.stringify({ sources: effectiveSources, keys, effective })}`);
+    write(
+      `playwright-e2e-apt-effective ${JSON.stringify({ sources: effectiveSources, keys, effective: redactAptConfig(effective), configEntries })}`,
+    );
     return { projected: true, restore };
   } catch (error) {
     restore();
