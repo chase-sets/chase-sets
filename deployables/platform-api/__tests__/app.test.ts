@@ -315,7 +315,6 @@ function createIdentityRuntime(services: Record<string, unknown>) {
       listUsers: emptyList,
       getUser: vi.fn(async () => null),
       getUserState: vi.fn(async () => null),
-      getUserBySocialLogin: vi.fn(async () => null),
       projectors: [],
     },
     memberships: {
@@ -1992,6 +1991,7 @@ describe("platform api app wiring", () => {
             createFromCart: vi.fn(),
             createBuyNow,
             resolveEntryAttempt: vi.fn(async () => null),
+            firstPreviewShippingAddress: vi.fn(async () => null),
             createOfferIntent: vi.fn(),
             selectShippingOption: vi.fn(),
             selectOptimizationGoal: vi.fn(),
@@ -2566,7 +2566,10 @@ function createPaymentsHostRuntime(
         identity: {},
         payments: paymentsServices,
       },
-      projectionGroups: mountedProjectionGroups(mountedContexts),
+      projectionGroups: mountedProjectionGroups([
+        ...mountedContexts,
+        { contextName: "identity", module: identityModule },
+      ]),
       subscriptionRunners: [],
     } as never,
   };

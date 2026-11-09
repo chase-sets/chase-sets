@@ -185,6 +185,17 @@ export function createAccountSaleShipmentRoutes(services: FulfillmentShipmentSer
     });
   });
 
+  // The seller's command center, built here from every shipment that needs them, so a client
+  // draws the buckets, order and action plans Fulfillment decides rather than restating them.
+  app.get("/sales/shipments/command-center", async (c) => {
+    const access = requireShipmentAccess(c, "fulfillment.view");
+    if (access.response) {
+      return access.response;
+    }
+
+    return c.json(await services.getSellerCommandCenter({ sellerAccountId: access.actor.accountId }));
+  });
+
   app.get("/sales/shipments/packing-slips", async (c) => {
     const access = requireShipmentAccess(c, "fulfillment.view");
     if (access.response) {

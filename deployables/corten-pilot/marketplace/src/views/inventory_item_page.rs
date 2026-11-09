@@ -65,6 +65,7 @@ fn reason(t: InventoryMsg, code: &str) -> String {
         "correction" => t.item_adjustment_reason_correction().to_owned(),
         "intake" => t.item_adjustment_reason_intake().to_owned(),
         "return-restocked" => t.item_adjustment_reason_return_restocked().to_owned(),
+        "sale-consumed" => t.item_adjustment_reason_sale_consumed().to_owned(),
         other => other.to_owned(),
     }
 }

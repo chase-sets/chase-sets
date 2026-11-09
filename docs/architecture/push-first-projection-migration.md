@@ -310,6 +310,7 @@ Every route inventory entry keeps its exact durable wait or carries an owner-app
 | `payments.checkout-status-order-input-fresh-read` | payments | critical | exact wait | push-accelerated |
 | `payments.create-to-detail` | payments | critical | exact wait | push-accelerated |
 | `payments.detail-self-refresh` | payments | important | exact wait | push-accelerated |
+| `payments.terms-accept-to-wallet-status` | payments | critical | exact wait | push-accelerated |
 | `platform-operations.platform-feedback-detail-fresh-read` | platform-operations | important | exact wait | push-accelerated |
 | `platform-operations.platform-feedback-list-fresh-read` | platform-operations | important | exact wait | push-accelerated |
 | `platform-operations.support-request-detail-fresh-read` | platform-operations | important | exact wait | push-accelerated |

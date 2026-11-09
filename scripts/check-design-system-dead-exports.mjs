@@ -176,6 +176,21 @@ const defaultAllowedZeroConsumerExports = [
     symbol: "Sparkline",
     reason: "m111 chart primitive (#4306); first consumer is the item-detail market panel (#4307), landing after this",
   },
+  {
+    symbol: "embeddedSurfaceThemeSnapshot",
+    reason:
+      "#11183 removed custom Stripe appearance, its last production consumer; the neutral embedded-surface-theme/v1 snapshot stays per that issue's AC-03/AC-04 scope until a separate removal",
+  },
+  {
+    symbol: "observeEmbeddedSurfaceTheme",
+    reason:
+      "#11183 removed custom Stripe appearance, its last production consumer; the neutral embedded-surface-theme/v1 scope observer stays per that issue's AC-03/AC-04 scope until a separate removal",
+  },
+  {
+    symbol: "resolveEmbeddedSurfaceTheme",
+    reason:
+      "#11183 removed custom Stripe appearance, its last production consumer; the neutral embedded-surface-theme/v1 resolver stays per that issue's AC-03/AC-04 scope until a separate removal",
+  },
 ];
 
 function isSourceFile(filePath) {

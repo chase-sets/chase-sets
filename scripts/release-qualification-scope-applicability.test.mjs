@@ -471,7 +471,11 @@ describe("release qualification applicability evaluator", () => {
       .split(/\r?\n/)
       .filter(Boolean)
       .filter((file) => readFileSync(file, "utf8").includes('from "./release-qualification-scope-applicability.mjs"'));
-    expect(imports).toEqual(["scripts/release-qualification-scope-applicability.test.mjs"]);
+    expect(imports).toEqual([
+      "scripts/release-qualification-scope-applicability.test.mjs",
+      "scripts/release-qualification-scope-inventory.test.mjs",
+      "scripts/release-qualification-scope.test.mjs",
+    ]);
   });
 
   it.each([
@@ -861,7 +865,11 @@ describe("release qualification applicability evaluator", () => {
       .split(/\r?\n/)
       .filter(Boolean)
       .filter((file) => readFileSync(file, "utf8").includes('from "./release-qualification-scope-applicability.mjs"'));
-    expect(trackedImports).toEqual(["scripts/release-qualification-scope-applicability.test.mjs"]);
+    expect(trackedImports).toEqual([
+      "scripts/release-qualification-scope-applicability.test.mjs",
+      "scripts/release-qualification-scope-inventory.test.mjs",
+      "scripts/release-qualification-scope.test.mjs",
+    ]);
 
     const staticClosure = new Set();
     const visit = (file) => {

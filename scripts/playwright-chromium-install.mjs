@@ -1,4 +1,5 @@
-import { accessSync, constants, existsSync, lstatSync, readdirSync, rmSync } from "node:fs";
+import { existsSync, lstatSync, readdirSync, rmSync } from "node:fs";
+import { performance } from "node:perf_hooks";
 import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { pathToFileURL } from "node:url";
@@ -11,13 +12,6 @@ export const PLAYWRIGHT_INSTALL_SITE = "playwright-chromium";
 export const PLAYWRIGHT_INSTALL_TIMEOUT_SECONDS = 180;
 export const PLAYWRIGHT_INSTALL_ENVELOPE_SECONDS = 390;
 export const PLAYWRIGHT_INSTALL_RETRY_DELAY_MS = 5_000;
-
-// Playwright marks each browser directory it finishes with INSTALLATION_COMPLETE;
-// registry extras such as .links and ffmpeg carry no marker and are not browsers.
-const PLAYWRIGHT_BROWSER_DIRECTORIES = [
-  { directory: /^chromium-\d+$/, payload: /^chrome(?:\.exe)?$/ },
-  { directory: /^chromium_headless_shell-\d+$/, payload: /^(?:chrome-headless-shell|headless_shell)(?:\.exe)?$/ },
-];
 
 function safeField(value, fallback) {
   return typeof value === "string" && /^[A-Za-z0-9._:-]{1,120}$/.test(value) ? value : fallback;
@@ -51,53 +45,28 @@ function cacheEntries(root, { lstat = lstatSync, readdir = readdirSync } = {}) {
 
 export function inspectCache(
   cachePath,
-  {
-    exists = existsSync,
-    lstat = lstatSync,
-    readdir = readdirSync,
-    access = accessSync,
-    ownerUid = process.getuid?.(),
-  } = {},
+  { exists = existsSync, lstat = lstatSync, readdir = readdirSync, ownerUid = process.getuid?.() } = {},
 ) {
-  if (!exists(cachePath)) return { state: "cold", complete: false, owned: true };
+  if (!exists(cachePath)) return { state: "cold", complete: false, owned: true, manifestCount: 0 };
   let entries;
   try {
     entries = cacheEntries(cachePath, { lstat, readdir });
   } catch {
-    return { state: "mismatched", complete: false, owned: false };
+    return { state: "mismatched", complete: false, owned: false, manifestCount: 0 };
   }
   const owned = entries.every(({ stat }) => {
     if (stat.isSymbolicLink?.()) return false;
     return ownerUid === undefined || stat.uid === undefined || stat.uid === ownerUid;
   });
-  const readable = entries.every(({ path: entryPath, stat }) => {
-    try {
-      access(entryPath, stat.isDirectory() ? constants.R_OK | constants.X_OK : constants.R_OK);
-      return true;
-    } catch {
-      return false;
-    }
-  });
-  if (!owned || !readable) return { state: "mismatched", complete: false, owned };
-  const files = entries.filter(({ stat }) => !stat.isDirectory()).map(({ path: entryPath }) => entryPath);
-  const browsersComplete = PLAYWRIGHT_BROWSER_DIRECTORIES.every(({ directory, payload }) => {
-    const browserDirectories = entries.filter(
-      ({ path: entryPath, stat }) =>
-        stat.isDirectory() && path.dirname(entryPath) === cachePath && directory.test(path.basename(entryPath)),
-    );
-    return (
-      browserDirectories.length > 0 &&
-      browserDirectories.every(({ path: browserDirectory }) => {
-        const browserFiles = files.filter((file) => file.startsWith(`${browserDirectory}${path.sep}`));
-        return (
-          browserFiles.includes(path.join(browserDirectory, "INSTALLATION_COMPLETE")) &&
-          browserFiles.some((file) => payload.test(path.basename(file)))
-        );
-      })
-    );
-  });
-  if (!browsersComplete) return { state: "incomplete", complete: false, owned };
-  return { state: "complete", complete: true, owned };
+  const manifestCount = entries.filter(
+    ({ path: entryPath, stat }) => !stat.isDirectory() && /(?:^|[\\/])(?:package|pnpm-lock)\.json$/.test(entryPath),
+  ).length;
+  const payload = entries.some(
+    ({ path: entryPath, stat }) => !stat.isDirectory() && /(?:^|[\\/])chrome(?:\.exe)?$/.test(entryPath),
+  );
+  if (!owned) return { state: "mismatched", complete: false, owned, manifestCount };
+  if (!payload) return { state: "incomplete", complete: false, owned, manifestCount };
+  return { state: "complete", complete: true, owned, manifestCount };
 }
 
 export function removeCache(cachePath, { remove = rmSync, exists = existsSync } = {}) {
@@ -119,10 +88,6 @@ function identityFromEnvironment(env) {
 
 function diagnostic(site, attempt, reason, cache) {
   return `Playwright Chromium install failed ${JSON.stringify({ site, attempt, reason, cache })}`;
-}
-
-function retryDiagnostic(site, attempt, installerAttempt, reason, cache) {
-  return `Playwright Chromium install retry ${JSON.stringify({ site, attempt, installerAttempt, reason, cache })}`;
 }
 
 function refusal({ site, attempt, reason, cache, write }) {
@@ -155,18 +120,26 @@ export async function installPlaywrightChromium({
   }
   const site = safeField(rawSite, PLAYWRIGHT_INSTALL_SITE);
   const attempt = safeField(rawAttempt, "1");
-  const policy = env.PLAYWRIGHT_INSTALL_POLICY ?? "e2e-retry";
-  if (!["single-attempt", "e2e-retry"].includes(policy)) {
+  const policy = env.PLAYWRIGHT_INSTALL_POLICY ?? "single-attempt";
+  if (!["single-attempt", "diagnostic-retry"].includes(policy)) {
     return refusal({ site, attempt, reason: "invalid-policy", cache: "invalid", write });
   }
-  const timeoutSeconds = policy === "single-attempt" ? 600 : PLAYWRIGHT_INSTALL_TIMEOUT_SECONDS;
-  const maxAttempts = policy === "single-attempt" ? 1 : 2;
   let cachePath;
   try {
     cachePath = validateCachePath(env.PLAYWRIGHT_BROWSERS_PATH);
   } catch {
     return refusal({ site, attempt, reason: "invalid-path", cache: "invalid", write });
   }
+  const diagnosticRetry = policy === "diagnostic-retry";
+  const timeoutSeconds = diagnosticRetry ? PLAYWRIGHT_INSTALL_TIMEOUT_SECONDS : 600;
+  const maxAttempts = diagnosticRetry ? 2 : 1;
+  const clockMs = () => {
+    const value = typeof now === "function" ? now() : performance.now();
+    return value instanceof Date ? value.getTime() : Number(value);
+  };
+  const envelopeEndsAt = clockMs() + PLAYWRIGHT_INSTALL_ENVELOPE_SECONDS * 1000;
+  const fits = (delayMs = 0) =>
+    clockMs() + delayMs + timeoutSeconds * 1000 + INSTALLER_TIMEOUT_GRACE_MS <= envelopeEndsAt;
   const callerEnv = {
     ...env,
     INSTALLER_TIMEOUT_SECONDS: "600",
@@ -176,21 +149,20 @@ export async function installPlaywrightChromium({
     PLAYWRIGHT_INSTALL_SITE: site,
     PLAYWRIGHT_INSTALL_ATTEMPT: attempt,
   };
-  const clock = () => (typeof now === "function" ? now() : new Date());
-  const clockMs = () => {
-    const value = clock();
-    return value instanceof Date ? value.getTime() : Number(value);
-  };
-  const envelopeEndsAt = clockMs() + PLAYWRIGHT_INSTALL_ENVELOPE_SECONDS * 1000;
-  const attemptBudgetMs = timeoutSeconds * 1000 + INSTALLER_TIMEOUT_GRACE_MS;
-  // A retry starts only when its whole bound and kill grace still end inside the envelope.
-  const retryFits = (reservedMs) => clockMs() + reservedMs + attemptBudgetMs <= envelopeEndsAt;
-  for (let installerAttempt = 1; ; installerAttempt += 1) {
+  for (let installerAttempt = 1; installerAttempt <= maxAttempts; installerAttempt += 1) {
     const cacheBefore = inspectCacheImpl(cachePath);
     let result;
     let timingLine;
+    const fail = (reason, cache = cacheBefore.state) => {
+      if (diagnosticRetry && timingLine) write(timingLine);
+      return refusal({ site, attempt, reason, cache, write });
+    };
+    if (cancelSignal?.aborted) return fail("cancelled");
+    if (diagnosticRetry && !fits()) return fail("timeout");
     try {
       const invocation = buildInvocationImpl(PLAYWRIGHT_INSTALL_COMMAND, { env: callerEnv });
+      if (cancelSignal?.aborted) return fail("cancelled");
+      if (diagnosticRetry && !fits()) return fail("timeout");
       result = await runInstallerImpl({
         identity: identityFromEnvironment(callerEnv),
         env: callerEnv,
@@ -202,46 +174,46 @@ export async function installPlaywrightChromium({
         cancelSignal,
         timeoutSeconds,
         now,
-        // A job keeps one timing record: the attempt that decides its outcome.
         write: (line) => {
           if (typeof line === "string" && line.startsWith(TIMING_RECORD_PREFIX)) timingLine = line;
           else write(line);
         },
       });
     } catch {
-      result = undefined;
+      return fail("authority-refusal");
     }
+    if (!result) return fail("authority-refusal");
     const cacheAfter = result?.status === 0 ? inspectCacheImpl(cachePath) : cacheBefore;
-    const fail = (reason) => {
-      if (timingLine) write(timingLine);
-      return refusal({ site, attempt, reason, cache: cacheAfter.state, write });
-    };
-    if (result?.status === 0 && cacheAfter.complete) {
-      if (timingLine) write(timingLine);
-      return { ...result, reason: "success", cache: cacheAfter.state };
-    }
-    const reason = !result
-      ? "authority-refusal"
-      : result.startRefused === true
-        ? "start-refusal"
-        : result.status === 0
-          ? "incomplete-cache"
-          : (result.record?.terminalOutcome ?? "refused");
-    // An installer group not proven gone may still write the tree; the red job never saves it.
-    if (reason === "cleanup-failure") return fail(reason);
+    const outcome = result?.record?.terminalOutcome;
+    let reason = result?.startRefused === true ? "start-refusal" : (outcome ?? "incomplete-cache");
+    if (["cleanup-failure", "cleanup-refusal"].includes(outcome)) return fail(outcome, cacheAfter.state);
+    if (cancelSignal?.aborted || outcome === "cancelled") reason = "cancelled";
+    else if (diagnosticRetry && clockMs() > envelopeEndsAt) reason = "timeout";
+    else if (result?.status === 0 && cacheAfter.complete) {
+      if (diagnosticRetry && timingLine) write(timingLine);
+      timingLine = undefined;
+      if (diagnosticRetry && clockMs() > envelopeEndsAt) reason = "timeout";
+      else return { ...result, reason: "success", cache: cacheAfter.state };
+    } else if (result?.status === 0) reason = "incomplete-cache";
     try {
       removeCacheImpl(cachePath);
     } catch {
-      return fail("cleanup-refusal");
+      return fail("cleanup-refusal", cacheAfter.state);
     }
-    // Refused authority, a refused start and cancellation are terminal under either policy.
-    if (["authority-refusal", "start-refusal", "cancelled"].includes(reason) || installerAttempt === maxAttempts)
-      return fail(reason);
-    if (!retryFits(PLAYWRIGHT_INSTALL_RETRY_DELAY_MS)) return fail("timeout");
-    write(retryDiagnostic(site, attempt, installerAttempt, reason, cacheAfter.state));
-    await delayImpl(PLAYWRIGHT_INSTALL_RETRY_DELAY_MS);
-    if (cancelSignal?.aborted) return fail("cancelled");
-    if (!retryFits(0)) return fail("timeout");
+    if (["start-refusal", "cancelled", "cleanup-refusal"].includes(reason) || installerAttempt === maxAttempts)
+      return fail(reason, cacheAfter.state);
+    if (cancelSignal?.aborted) return fail("cancelled", cacheAfter.state);
+    if (!fits(PLAYWRIGHT_INSTALL_RETRY_DELAY_MS)) return fail("timeout", cacheAfter.state);
+    write(
+      `Playwright Chromium install retry ${JSON.stringify({ site, attempt, installerAttempt, reason, cache: cacheAfter.state })}`,
+    );
+    try {
+      await delayImpl(PLAYWRIGHT_INSTALL_RETRY_DELAY_MS);
+    } catch {
+      return fail("cancelled", cacheAfter.state);
+    }
+    if (cancelSignal?.aborted) return fail("cancelled", cacheAfter.state);
+    if (!fits()) return fail("timeout", cacheAfter.state);
   }
 }
 
