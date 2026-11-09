@@ -1,6 +1,10 @@
 import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { pathToFileURL, fileURLToPath } from "node:url";
+import { spawn } from "node:child_process";
+import { runInNewContext } from "node:vm";
+import { parse as parseYaml } from "yaml";
 import { afterEach, describe, expect, it } from "vitest";
 import { scrydexCacheCaptureUnits } from "../bounded-contexts/catalog/features/scope-sync-batches/domain/scrydex-cache-capture.ts";
 import {
@@ -8,6 +12,8 @@ import {
   runScrydexOptionRefresh,
   writeRefreshArtifact,
 } from "./catalog-staging-scrydex-option-refresh.mjs";
+import * as refresh from "./catalog-staging-scrydex-option-refresh.mjs";
+import * as refreshDomain from "../bounded-contexts/catalog/features/scope-sync-batches/domain/scrydex-option-refresh.ts";
 import {
   classifyScrydexOptionRefreshRequest,
   evaluateScrydexUsagePreflight,
@@ -126,6 +132,10 @@ function runnerInput(overrides = {}) {
 async function temporaryWorkspace() {
   const workspace = await mkdtemp(join(tmpdir(), "scrydex-option-refresh-test-"));
   temporaryWorkspaces.push(workspace);
+  await writeFile(
+    join(workspace, "package.json"),
+    JSON.stringify({ name: "scrydex-refresh-isolated-input", private: true }),
+  );
   return workspace;
 }
 
@@ -251,6 +261,494 @@ describe("refresh artifact contract", () => {
     await expect(writeRefreshArtifact(receipt, {}, workspace)).rejects.toThrow(
       "scrydex-option-refresh-refused:artifact-directory-not-empty",
     );
+  });
+});
+
+const runnerUrl = new URL("./catalog-staging-scrydex-option-refresh.mjs", import.meta.url);
+const source = () => readFile(runnerUrl, "utf8");
+async function functionSource(name) {
+  const original = await source();
+  const start = original.indexOf(`export async function ${name}(`);
+  expect(start).toBeGreaterThan(-1);
+  const end = original.indexOf("\nexport ", start + 1);
+  return original
+    .slice(start, end === -1 ? undefined : end)
+    .trim()
+    .replace(/^export /, "");
+}
+const runnerEnv = (workspace) => ({
+  ...process.env,
+  GITHUB_ACTIONS: "true",
+  ADMIN_WEB_URL: "https://admin.staging.chasesets.com",
+  GITHUB_SHA: sha,
+  EXPECTED_SHA: sha,
+  GITHUB_RUN_ID: "1",
+  GITHUB_RUN_ATTEMPT: "1",
+  CATALOG_STAGING_PROVIDER_UAT_SCOPE: "scrydex-force-refresh-bounded",
+  RUNNER_TEMP: workspace,
+  TEMP: workspace,
+  TMP: workspace,
+  TMPDIR: workspace,
+  TSX_DISABLE_CACHE: "1",
+  FORCE_COLOR: undefined,
+  GITHUB_OUTPUT: join(workspace, "output"),
+  CATALOG_ADMIN_E2E_EMAIL: "",
+  CATALOG_ADMIN_E2E_PASSWORD: "",
+  GH_TOKEN: "",
+});
+
+async function tsx(args, cwd, env) {
+  const windows = process.platform === "win32";
+  const command = windows ? `pnpm exec tsx ${args.map((arg) => `"${arg}"`).join(" ")}` : "pnpm";
+  const argv = windows ? [] : ["exec", "tsx", ...args];
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, argv, {
+      cwd,
+      env,
+      shell: windows,
+      windowsHide: true,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (data) => {
+      stdout += data;
+    });
+    child.stderr.on("data", (data) => {
+      stderr += data;
+    });
+    child.on("error", reject);
+    child.on("close", (code) => resolve({ code, stdout, stderr }));
+  });
+}
+
+async function mutantModule(workspace, before, after) {
+  const original = await source();
+  expect(original).toContain(before);
+  const changed = original
+    .replace(before, after)
+    .replace(/from "(\.[^"]+)"/g, (_, specifier) => `from "${new URL(specifier, runnerUrl).href}"`);
+  const path = join(workspace, "mutant.mjs");
+  await writeFile(path, changed);
+  return path;
+}
+
+async function fourAttemptReceipt() {
+  let count = 0;
+  const input = runnerInput();
+  const read = input.read;
+  input.read = (path) =>
+    path.includes("forceRefresh=true") && ++count === 4 ? Promise.resolve({ status: 500, body: null }) : read(path);
+  const receipt = await runScrydexOptionRefresh(input);
+  expect(receipt.requests.forced).toBe(4);
+  expect(receipt.creditsSpentUpperBound).toBe(7);
+  expect(validateScrydexOptionRefreshReceipt(receipt)).toEqual([]);
+  return receipt;
+}
+
+describe("serialized bounded page reader", () => {
+  async function probe(readerSource, kind) {
+    const timers = [];
+    const calls = [];
+    let signal;
+    let cancel = 0;
+    let reads = 0;
+    const body = {
+      items: Array.from({ length: 100 }, (_, index) => ({
+        providerKey: "scrydex",
+        queryKind: "sets",
+        value: `synthetic-set-${index}`,
+        label: `Synthetic set ${index}`,
+        description: "",
+        parentValue: null,
+        imageUrl: null,
+        aliases: [],
+        metadata: { setId: `synthetic-set-${index}`, languageCode: "en" },
+      })),
+      total: 1000,
+      count: 100,
+      page: { cursor: null, nextCursor: "offset:100", limit: 100, hasMore: true },
+      cache: {
+        ...responseBody().body.cache,
+        cacheKey: "synthetic-cache-key",
+        cacheOnly: false,
+        forceRefresh: true,
+        degraded: false,
+        diagnostics: [],
+      },
+    };
+    const emptyBytes = Buffer.byteLength(JSON.stringify(body));
+    body.items[0].description = "x".repeat(scrydexOptionRefreshMaxBytes - emptyBytes);
+    const encoded = new TextEncoder().encode(JSON.stringify(body));
+    expect(encoded.byteLength).toBe(scrydexOptionRefreshMaxBytes);
+    const pending = () =>
+      new Promise((_, reject) => signal.addEventListener("abort", () => reject(new Error("aborted"))));
+    const fetchImpl = async (path, init) => {
+      calls.push([path, init]);
+      signal = init.signal;
+      if (kind === "fetch-stall") return pending();
+      return {
+        ok: true,
+        status: 200,
+        body: {
+          getReader: () => ({
+            read: async () => {
+              reads += 1;
+              if (kind === "body-stall") return pending();
+              if (reads === 1) return { done: false, value: encoded };
+              if (kind === "cap" && reads === 2) return { done: false, value: new Uint8Array([32]) };
+              if (reads > 2) throw new Error("unbounded-read");
+              return { done: true };
+            },
+            cancel: async () => {
+              cancel += 1;
+            },
+            releaseLock: () => {},
+          }),
+        },
+      };
+    };
+    const reader = runInNewContext(`(${readerSource})`, {
+      fetch: fetchImpl,
+      AbortController,
+      TextDecoder,
+      JSON,
+      setTimeout: (fn, ms) => {
+        timers.push({ fn, ms });
+        return 1;
+      },
+      clearTimeout: () => {},
+      console: {
+        log: () => {
+          throw new Error("body-logged");
+        },
+        error: () => {
+          throw new Error("body-logged");
+        },
+      },
+    });
+    let settled;
+    const result = reader({ path: "/synthetic", byteCap: scrydexOptionRefreshMaxBytes, deadlineMs: 30_000 }).then(
+      (value) => {
+        settled = { value };
+      },
+      (error) => {
+        settled = { error };
+      },
+    );
+    for (let i = 0; i < 15; i += 1) await Promise.resolve();
+    if (kind.endsWith("stall")) {
+      expect(settled).toBeUndefined();
+      expect(timers.map(({ ms }) => ms)).toEqual([30_000]);
+      timers[0].fn();
+      for (let i = 0; i < 15; i += 1) await Promise.resolve();
+      expect(signal.aborted).toBe(true);
+      expect(settled?.error).toBeDefined();
+    }
+    await result;
+    if (kind === "valid") expect(settled).toEqual({ value: { status: 200, body } });
+    if (kind === "cap") {
+      expect(settled?.error?.message).toBe("refresh-read-refused");
+      expect(reads).toBe(2);
+      expect(cancel).toBe(1);
+    }
+    expect(calls).toHaveLength(1);
+    expect(calls[0][1]).toMatchObject({
+      method: "GET",
+      credentials: "same-origin",
+      redirect: "error",
+      cache: "no-store",
+    });
+  }
+
+  it.each(["valid", "cap", "fetch-stall", "body-stall"])("executes source in a fresh VM: %s", async (kind) => {
+    expect(refresh.readRefreshJsonInPage).toBeTypeOf("function");
+    await probe(refresh.readRefreshJsonInPage.toString(), kind);
+  });
+  it.each([
+    ["closure", "bytes > byteCap", "bytes > scrydexOptionRefreshMaxBytes", "valid"],
+    ["cap-bypass", "bytes > byteCap", "false", "cap"],
+    ["deadline-bypass", "controller.abort()", "undefined", "fetch-stall"],
+    ["body-deadline-bypass", "controller.abort()", "undefined", "body-stall"],
+  ])("rejects the %s mutant with the unchanged oracle", async (_, before, after, kind) => {
+    const original = refresh.readRefreshJsonInPage.toString();
+    expect(original).toContain(before);
+    await expect(probe(original.replace(before, after), kind)).rejects.toThrow();
+  });
+});
+
+describe("support-safe refusal and stopped diagnostics", () => {
+  async function errorOracle(run, stage, name) {
+    const error = new Error("page.waitForURL: Timeout 30000ms exceeded.\nCall log:\n  synthetic-secret-bearing text");
+    error.name = name;
+    const input = runnerInput();
+    if (stage === "sign-in")
+      input.signIn = async () => {
+        throw error;
+      };
+    else
+      input.read = async () => {
+        throw error;
+      };
+    const receipt = await run(input);
+    expect(receipt).toMatchObject({ outcome: "refused", reason: `runner-error:${name}`, requests: { forced: 0 } });
+    expect(validateScrydexOptionRefreshReceipt(receipt)).toEqual([]);
+    const workspace = await temporaryWorkspace();
+    expect((await writeRefreshArtifact(receipt, {}, workspace)).path).toBe(
+      join(workspace, scrydexOptionRefreshDiagnosticArtifactPath),
+    );
+  }
+  it.each(
+    ["TimeoutError", "ReferenceError", "TypeError"].flatMap((name) =>
+      ["sign-in", "overview"].map((stage) => [stage, name]),
+    ),
+  )("writes a valid diagnostic for %s %s", async (stage, name) => errorOracle(runScrydexOptionRefresh, stage, name));
+
+  it("rejects the raw-message mutant with the unchanged oracle", async () => {
+    const original = await functionSource("runScrydexOptionRefresh");
+    expect(original).toContain("runner-error:");
+    const globals = {
+      ...refreshDomain,
+      scrydexCacheCaptureUnits,
+      selectRefreshRequests: refresh.selectRefreshRequests,
+      refused: (reason) => new Error(`scrydex-option-refresh-refused:${reason}`),
+      Error,
+    };
+    await errorOracle(runInNewContext(`(${original})`, globals), "overview", "TimeoutError");
+    const run = runInNewContext(`(${original.replace(/`runner-error:\$\{[^`]+\}`/, "error.message")})`, globals);
+    await expect(errorOracle(run, "overview", "TimeoutError")).rejects.toThrow();
+  });
+
+  it("retains first success and marks the second interrupted forced unit uncertain with null evidence", async () => {
+    const input = runnerInput();
+    const read = input.read;
+    let forced = 0;
+    input.read = async (path) => {
+      if (path.includes("forceRefresh=true") && ++forced === 2)
+        return {
+          get status() {
+            throw new ReferenceError("synthetic private page details\nnot a reason");
+          },
+        };
+      return read(path);
+    };
+    const receipt = await runScrydexOptionRefresh(input);
+    expect(receipt).toMatchObject({
+      outcome: "stopped",
+      reason: "runner-error:ReferenceError",
+      requests: { forced: 2 },
+      creditsSpentUpperBound: 3,
+    });
+    expect(receipt.units[0].status).toBe("live");
+    expect(receipt.units[1]).toMatchObject({
+      status: "uncertain",
+      httpStatus: null,
+      cache: null,
+      total: null,
+      providerPagesUpperBound: null,
+      completedAt: null,
+    });
+    expect(validateScrydexOptionRefreshReceipt(receipt)).toEqual([]);
+    const workspace = await temporaryWorkspace();
+    expect((await writeRefreshArtifact(receipt, {}, workspace)).path).toBe(
+      join(workspace, scrydexOptionRefreshDiagnosticArtifactPath),
+    );
+  });
+});
+
+describe("independent artifact guards", () => {
+  async function rejectionOracle(kind, mutation) {
+    const workspace = await temporaryWorkspace();
+    const receipt = await fourAttemptReceipt();
+    const secret = "synthetic-secret-not-for-output-11200";
+    if (kind === "schema") receipt.reason = "invalid reason\nprivate";
+    if (kind === "credential") receipt.assumptions.push(secret);
+    expect(validateScrydexOptionRefreshReceipt(receipt).length > 0).toBe(kind === "schema");
+    const env = { ...runnerEnv(workspace), GH_TOKEN: kind === "credential" ? secret : "" };
+    const module = mutation ? await mutantModule(workspace, ...mutation) : fileURLToPath(runnerUrl);
+    await writeFile(join(workspace, "input.json"), JSON.stringify(receipt));
+    const script = join(workspace, "write.mjs");
+    await writeFile(
+      script,
+      `import {readFile} from 'node:fs/promises'; import {writeRefreshArtifact} from '${pathToFileURL(module).href}';
+try { await writeRefreshArtifact(JSON.parse(await readFile(new URL('./input.json', import.meta.url))), process.env, ${JSON.stringify(workspace)}, {maxBytes: ${kind === "size" ? 1 : scrydexOptionRefreshMaxBytes}}); }
+catch (error) { console.error(error.message); process.exitCode = 1; }`,
+    );
+    const result = await tsx([script], process.cwd(), env);
+    expect(result.code, result.stderr.slice(0, 2000)).toBe(1);
+    expect(result.stdout).toBe("");
+    const lines = result.stderr
+      .trim()
+      .split(/\r?\n/)
+      .filter((line) => !line.includes("NO_COLOR") && !line.includes("trace-warnings"));
+    expect(lines, result.stderr.slice(0, 2000)).toHaveLength(1);
+    expect(lines[0]).toContain(`"class":"${kind}"`);
+    expect(lines[0]).toContain('"forced":4');
+    expect(lines[0]).toContain('"creditsSpentUpperBound":7');
+    expect(lines[0].length).toBeLessThan(2500);
+    expect(lines[0]).not.toContain(secret);
+    expect(JSON.parse(lines[0].slice(lines[0].indexOf("{"))).errors.length).toBeLessThanOrEqual(20);
+    await expect(readFile(join(workspace, scrydexOptionRefreshDiagnosticArtifactPath))).rejects.toThrow();
+    await expect(readFile(join(workspace, scrydexOptionRefreshArtifactPath))).rejects.toThrow();
+  }
+  it.each(["schema", "size", "credential"])("refuses only the %s guard with bounded counts and no file", (kind) =>
+    rejectionOracle(kind),
+  );
+  it.each([
+    ["schema", "errors.length > 0", "false"],
+    ["size", "Buffer.byteLength(serialized) > maxBytes", "false"],
+    ["credential", "forbiddenNames.some((name) => env[name] && serialized.includes(env[name]))", "false"],
+  ])("rejects the %s bypass mutant with its unchanged oracle", async (kind, before, after) => {
+    expect(await source()).toContain(before);
+    await expect(rejectionOracle(kind, [before, after])).rejects.toThrow();
+  });
+});
+
+describe("spawned tsx upload validator", () => {
+  async function validateOracle(kind, mutation) {
+    const workspace = await temporaryWorkspace();
+    const receipt = kind === "diagnostic" ? await stoppedReceipt() : await completeReceipt();
+    const complete = join(workspace, scrydexOptionRefreshArtifactPath);
+    const diagnostic = join(workspace, scrydexOptionRefreshDiagnosticArtifactPath);
+    if (kind === "nested") receipt.units[0].cache.unknown = true;
+    if (kind === "wrong-shape") receipt.requests = [];
+    if (kind === "runner-sha") receipt.runner.sha = "c".repeat(40);
+    if (kind === "runner-run") receipt.runner.runId = "2";
+    if (kind === "runner-attempt") receipt.runner.runAttempt = "2";
+    const path = kind === "diagnostic" ? diagnostic : complete;
+    if (kind !== "neither") {
+      await mkdir(join(path, ".."), { recursive: true });
+      await writeFile(
+        path,
+        kind === "malformed"
+          ? "{"
+          : kind === "over-cap"
+            ? " ".repeat(scrydexOptionRefreshMaxBytes + 1)
+            : JSON.stringify(receipt),
+      );
+    }
+    if (kind === "both") {
+      await mkdir(join(diagnostic, ".."), { recursive: true });
+      await writeFile(diagnostic, JSON.stringify(await stoppedReceipt()));
+    }
+    const module = mutation ? await mutantModule(workspace, ...mutation) : fileURLToPath(runnerUrl);
+    const result = await tsx([module, "validate"], workspace, runnerEnv(workspace));
+    if (["complete", "diagnostic"].includes(kind)) {
+      expect(result.code, (result.stdout + result.stderr).slice(0, 2000)).toBe(0);
+      expect(await readFile(join(workspace, "output"), "utf8")).toBe(`refresh_outcome=${receipt.outcome}\n`);
+    } else {
+      expect(result.code).toBe(1);
+      expect(result.stderr).toContain("scrydex-option-refresh-refused:");
+      await expect(readFile(join(workspace, "output"))).rejects.toThrow();
+    }
+  }
+  it.each([
+    "complete",
+    "diagnostic",
+    "neither",
+    "both",
+    "malformed",
+    "over-cap",
+    "wrong-shape",
+    "nested",
+    "runner-sha",
+    "runner-run",
+    "runner-attempt",
+  ])("validates isolated %s input", (kind) => validateOracle(kind));
+  it.each([
+    ["no-op-stub", "complete", "await validateRefreshUpload();", "process.exitCode = 0;"],
+    ["both-paths-accepted", "both", "candidates.length !== 1", "candidates.length === 0"],
+    ["runner-binding-bypass", "runner-run", "JSON.stringify(receipt.runner) !== JSON.stringify(identity)", "false"],
+  ])("rejects the %s mutant with the unchanged oracle", async (_, kind, before, after) => {
+    expect(await source()).toContain(before);
+    await expect(validateOracle(kind, [before, after])).rejects.toThrow();
+  });
+});
+
+describe("isolated sign-in and workflow wiring", () => {
+  async function signInOracle(signIn, offered = true) {
+    const calls = [];
+    const page = {
+      goto: async (url) => {
+        calls.push(["goto", url]);
+      },
+      getByRole: (role, { name }) => ({
+        fill: async () => {
+          calls.push(["fill", role]);
+        },
+        click: async () => {
+          calls.push(["click", String(name)]);
+        },
+        isVisible: async () => {
+          calls.push(["radio-visible"]);
+          return offered;
+        },
+        check: async () => {
+          calls.push(["radio-check", role, String(name)]);
+        },
+      }),
+      locator: () => ({
+        first: () => ({
+          fill: async () => {
+            calls.push(["password"]);
+          },
+        }),
+      }),
+      waitForURL: async (url) => {
+        calls.push(["wait", url]);
+      },
+    };
+    await signIn(page, { CATALOG_ADMIN_E2E_EMAIL: "synthetic", CATALOG_ADMIN_E2E_PASSWORD: "synthetic" }, () =>
+      calls.push(["refresh"]),
+    );
+    expect(new URL(calls[0][1]).searchParams.get("returnTo")).toBe("/catalog/scopes/sync-batches");
+    if (offered) expect(calls.findIndex(([call]) => call === "radio-check")).toBeGreaterThan(-1);
+    if (offered)
+      expect(calls.find(([call]) => call === "radio-check")).toEqual(["radio-check", "radio", "/^Password$/"]);
+    expect(calls.findIndex(([call]) => call === "radio-visible")).toBeLessThan(
+      calls.findIndex(([call]) => call === "password"),
+    );
+    expect(calls.filter(([call]) => call === "refresh")).toHaveLength(1);
+    expect(calls.slice(-2)).toEqual([
+      ["wait", "https://admin.staging.chasesets.com/catalog/scopes/sync-batches"],
+      ["refresh"],
+    ]);
+  }
+  it.each([true, false])("selects Password when offered (%s), then waits before refresh", async (offered) => {
+    expect(refresh.signInForRefresh).toBeTypeOf("function");
+    await signInOracle(refresh.signInForRefresh, offered);
+  });
+  it.each([
+    ["phase-before-waitForURL", "await page.waitForURL", "enterRefresh(); await page.waitForURL"],
+    ["skipped-radio", "await passwordChoice.check()", "undefined"],
+    ["integrations-landing", "scrydexCacheCaptureLandingPath", '"/catalog/integrations"'],
+  ])("rejects the %s mutant with the unchanged oracle", async (_, before, after) => {
+    const original = await functionSource("signInForRefresh");
+    expect(original).toContain(before);
+    const globals = {
+      scrydexOptionRefreshOrigin: "https://admin.staging.chasesets.com",
+      scrydexCacheCaptureLandingPath: "/catalog/scopes/sync-batches",
+    };
+    await signInOracle(runInNewContext(`(${original})`, globals));
+    const signIn = runInNewContext(`(${original.replaceAll(before, after)})`, globals);
+    await expect(signInOracle(signIn)).rejects.toThrow();
+  });
+  it("unconditionally pins the actual reader, phase transition, validator command and step-4 authority anchor", async () => {
+    const runnerSource = await source();
+    expect(runnerSource).toContain("page.evaluate(readRefreshJsonInPage, {");
+    expect(runnerSource).toContain("await signInForRefresh(page, env, () => {");
+    const workflowSource = await readFile(
+      new URL("../.github/workflows/catalog-staging-provider-uat.yml", import.meta.url),
+      "utf8",
+    );
+    const workflow = parseYaml(workflowSource);
+    const steps = workflow.jobs["scrydex-force-refresh-bounded"].steps;
+    expect(steps[3].id).toBe("refresh");
+    expect(steps.find((step) => step.id === "refresh-receipt").run.trim()).toBe(
+      "pnpm exec tsx scripts/catalog-staging-scrydex-option-refresh.mjs validate",
+    );
+    for (const job of Object.values(workflow.jobs))
+      for (const step of job.steps ?? []) expect(step.run ?? "").not.toMatch(/\bnode\b[^\n]*import[^\n]*\.ts['"]/);
   });
 });
 
