@@ -7,7 +7,7 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { buildModuleResolutionContextFixture } from "./check-structure/module-resolution.mjs";
-import { classifySqlExecutionSurface, listNonTestTypeScriptModules } from "./check-structure/sql-execution-surface.mjs";
+import { classifySqlExecutionSurface } from "./check-structure/sql-execution-surface.mjs";
 import { deriveGuardCandidateProvenance } from "./check-structure/guard-candidate-provenance.mjs";
 import { evaluateReleaseQualificationApplicability } from "./release-qualification-scope-applicability.mjs";
 import {
@@ -617,86 +617,119 @@ const neutralityAuthorityPaths = [
   fileURLToPath(new URL("../packages/typescript-compiler-api/package.json", import.meta.url)),
 ].map((file) => path.relative(repoRoot, file).split(path.sep).join("/"));
 
-function checkMergeBaseNeutrality({
-  head,
-  fork,
-  inputs,
-  inventory,
-  execGit = git,
-  loadInputs = discoveredInputs,
-  output = emit,
-}) {
-  const comparedFiles = new TextDecoder("utf-8", { fatal: true })
-    .decode(execGit(["diff", "--name-only", "-z", "--no-renames", fork, head]))
-    .split("\0")
-    .filter(Boolean);
-  if (!comparedFiles.some((file) => neutralityAuthorityPaths.includes(file))) {
-    output("INVENTORY_MERGE_BASE_NEUTRALITY_NOT_APPLICABLE", {
-      head,
-      mergeBase: fork,
-      reason: "candidate changes no classifier, inventory or pinned-count authority",
-      comparedFiles,
-      authorityFiles: neutralityAuthorityPaths,
-    });
-    return;
-  }
-  const before = head === fork ? inputs : loadInputs(fork);
-  const classifier = (input) =>
-    input.paths
-      .slice()
-      .sort()
-      .map((file) => ({
-        path: file,
-        ...input.classify({ ...input, changedFiles: [{ path: file, status: "modified" }] }),
-      }));
-  const records = classifier(inputs);
-  const original = classifier(before);
-  expect(records).toEqual(original);
-  const histogram = (rows) =>
-    Object.fromEntries(
-      RELEASE_QUALIFICATION_SCOPE_CLASSES.map((kind) => [kind, rows.filter((row) => row.class === kind).length]),
-    );
-  expect(histogram(records)).toEqual(histogram(original));
-  expect(digest(JSON.stringify(records))).toBe(digest(JSON.stringify(original)));
-  expect(execGit(["show", `${head}:scripts/release-qualification-scope.mjs`])).toEqual(
-    execGit(["show", `${fork}:scripts/release-qualification-scope.mjs`]),
-  );
-  const pinned = /discovered: (\d+),\s+persistentCount: (\d+),\s+ruledCount: (\d+)/.exec(
-    execGit(["show", `${fork}:scripts/release-qualification-scope.test.mjs`]).toString("utf8"),
-  );
-  expect(pinned).not.toBeNull();
-  expect(inventory.counts).toEqual({
-    discovered: Number(pinned[1]),
-    persistentRequired: Number(pinned[2]),
-    ruled: Number(pinned[3]),
-  });
-  const tree = (sha) =>
-    execGit(["rev-parse", `${sha}^{tree}`])
-      .toString("utf8")
-      .trim();
-  if (head !== fork) expect(tree(head)).not.toBe(tree(fork));
-  const raw = (sha) => execGit(["ls-tree", "-r", "-z", "--name-only", "--full-tree", sha]);
-  const governed = (sha) => {
-    const bytes = raw(sha);
-    const names = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
-    expect(bytes.at(-1)).toBe(0);
-    return listNonTestTypeScriptModules(repoRoot, { execGit: () => names });
+const neutralityLanding = "f20b825d973d485aac601c88d15af2a84483307c";
+const neutralityFork = "0d0f2d9c7efb28f5f3217b801c4c8abd6bea64ce";
+const extractionChanges = [
+  "M",
+  "scripts/release-qualification-scope-applicability.test.mjs",
+  "A",
+  "scripts/release-qualification-scope-inventory.mjs",
+  "A",
+  "scripts/release-qualification-scope-inventory.test.mjs",
+  "M",
+  "scripts/release-qualification-scope.test.mjs",
+];
+const extractionAdditions = [
+  "scripts/release-qualification-scope-inventory.mjs",
+  "scripts/release-qualification-scope-inventory.test.mjs",
+];
+const changedAuthorities = [
+  "scripts/release-qualification-scope-inventory.mjs",
+  "scripts/release-qualification-scope.test.mjs",
+];
+
+function assertPinnedExtractionNeutrality(readGit = git, output = emit) {
+  const refuse = (code) => {
+    throw Object.assign(new Error(code), { code });
   };
-  expect(governed(head)).toEqual(governed(fork));
-  output("INVENTORY_MERGE_BASE_NEUTRALITY", {
-    head,
-    mergeBase: fork,
-    headTree: tree(head),
-    baseTree: tree(fork),
-    counts: inventory.counts,
-    histogram: histogram(records),
-    canonicalSha256: digest(JSON.stringify(records)),
-    comparedPaths: inventory.records.length,
-    governedMembers: governed(head).length,
-  });
+  const read = (args, code) => {
+    try {
+      return readGit(args);
+    } catch {
+      refuse(code);
+    }
+  };
+  const nulFields = (bytes, code) => {
+    try {
+      if (bytes.at(-1) !== 0) refuse(code);
+      return new TextDecoder("utf-8", { fatal: true }).decode(bytes).slice(0, -1).split("\0");
+    } catch {
+      refuse(code);
+    }
+  };
+  for (const sha of [neutralityFork, neutralityLanding])
+    read(["cat-file", "-e", `${sha}^{commit}`], "INVENTORY_PINNED_OBJECT_MISSING");
+  const parentage = read(["rev-list", "--parents", "-n", "1", neutralityLanding], "INVENTORY_PINNED_PARENTAGE_MISMATCH")
+    .toString("utf8")
+    .trim()
+    .split(/\s+/);
+  if (JSON.stringify(parentage) !== JSON.stringify([neutralityLanding, neutralityFork]))
+    refuse("INVENTORY_PINNED_PARENTAGE_MISMATCH");
+  const changes = nulFields(
+    read(
+      ["diff", "--name-status", "-z", "--no-renames", neutralityFork, neutralityLanding],
+      "INVENTORY_PINNED_CHANGED_SET_MISMATCH",
+    ),
+    "INVENTORY_PINNED_CHANGED_SET_MISMATCH",
+  );
+  if (JSON.stringify(changes) !== JSON.stringify(extractionChanges)) refuse("INVENTORY_PINNED_CHANGED_SET_MISMATCH");
+  const authorityBlobs = [];
+  for (const file of neutralityAuthorityPaths.filter((file) => !changedAuthorities.includes(file))) {
+    const blobs = [neutralityFork, neutralityLanding].map((sha) =>
+      read(["rev-parse", `${sha}:${file}`], "INVENTORY_PINNED_AUTHORITY_BLOB_MISMATCH")
+        .toString("utf8")
+        .trim(),
+    );
+    if (!/^[a-f0-9]{40}$/.test(blobs[0]) || blobs[0] !== blobs[1]) refuse("INVENTORY_PINNED_AUTHORITY_BLOB_MISMATCH");
+    authorityBlobs.push({ file, blob: blobs[0] });
+  }
+  for (const sha of [neutralityFork, neutralityLanding]) {
+    const sweep = read(
+      ["show", `${sha}:scripts/release-qualification-scope.test.mjs`],
+      "INVENTORY_PINNED_COUNTS_MISMATCH",
+    );
+    const counts = /discovered: (\d+),\s+persistentCount: (\d+),\s+ruledCount: (\d+)/.exec(sweep.toString("utf8"));
+    if (!counts || JSON.stringify(counts.slice(1)) !== JSON.stringify(["169", "163", "6"]))
+      refuse("INVENTORY_PINNED_COUNTS_MISMATCH");
+  }
+  let names;
+  try {
+    names = [neutralityFork, neutralityLanding].map((sha) =>
+      nulFields(
+        readGit(["ls-tree", "-r", "-z", "--name-only", "--full-tree", sha]),
+        "INVENTORY_PINNED_RAW_NAMES_MISMATCH",
+      ),
+    );
+  } catch {
+    refuse("INVENTORY_PINNED_RAW_NAMES_MISMATCH");
+  }
+  if (
+    names.some((files) => files.some((file) => !file) || new Set(files).size !== files.length) ||
+    JSON.stringify(names[1].slice().sort()) !== JSON.stringify([...names[0], ...extractionAdditions].sort())
+  )
+    refuse("INVENTORY_PINNED_RAW_NAMES_MISMATCH");
+  // Accepted merge-group evidence, not a recomputation under today's classifier:
+  // https://github.com/chase-sets/chase-sets/actions/runs/42475185780/job/128715144001
+  const proof = {
+    landing: neutralityLanding,
+    fork: neutralityFork,
+    objectsVerified: [neutralityFork, neutralityLanding],
+    parentage,
+    changes,
+    authorityBlobs,
+    rawNames: { fork: names[0].length, landing: names[1].length, additions: extractionAdditions },
+    recordedMergeGroup: {
+      counts: { discovered: 169, persistentRequired: 163, ruled: 6 },
+      histogram: { not_applicable: 5, isolated: 1, persistent_required: 163 },
+      canonicalSha256: "2188450a40f78193636aa80c9b436786673cba630fcdea5fa8ad0181a8f68607",
+      governedMembers: 3091,
+    },
+  };
+  output("INVENTORY_PINNED_EXTRACTION_NEUTRALITY", proof);
+  return proof;
 }
 
-// Required cases are independent of neutralityAuthorityPaths so deleting an authority cannot delete its control.
+// Independent requirements survive omission from either the reader's list or its controls.
 const requiredNeutralityAuthorityPaths = [
   "scripts/release-qualification-scope.mjs",
   "scripts/release-qualification-scope-inventory.mjs",
@@ -710,61 +743,217 @@ const requiredNeutralityAuthorityPaths = [
   "packages/typescript-compiler-api/package.json",
 ];
 
-describe.each(requiredNeutralityAuthorityPaths)("merge-base neutrality authority %s", (authority) => {
-  it.each(["modified", "deleted", "mode-only", "renamed-away"])(
-    "rejects an added governed member when %s",
-    (change) => {
-      const head = candidate.sha;
-      const fork = base.sha;
-      const inputs = { paths: [ruledPath], classify: () => ({ class: "isolated" }) };
-      const inventory = { counts: { discovered: 1, persistentRequired: 0, ruled: 1 }, records: [{}] };
-      const output = vi.fn();
-      const execGit = (args) => {
-        if (args[0] === "diff") {
-          const destination = "scripts/SYNTHETIC-renamed-authority.mjs";
-          const names =
-            change === "renamed-away"
-              ? [...(args.includes("--no-renames") ? [authority] : []), destination, siblingPath]
-              : [authority, siblingPath];
-          return Buffer.from(`${names.join("\0")}\0`);
-        }
-        if (args[0] === "show") {
-          // Synthetic neutral classifier bytes isolate applicability from the later byte-equality assertion.
-          return Buffer.from(
-            args[1].endsWith(".test.mjs") ? "discovered: 1, persistentCount: 0, ruledCount: 1" : cleanSource,
-          );
-        }
-        if (args[0] === "rev-parse") return Buffer.from(args[1]);
-        if (args[0] === "ls-tree")
-          return Buffer.from(`${ruledPath}\0${args.at(-1) === head ? `${siblingPath}\0` : ""}`);
-        throw new Error(`Unexpected synthetic Git call: ${JSON.stringify(args)}`);
-      };
-      expect(() =>
-        checkMergeBaseNeutrality({ head, fork, inputs, inventory, execGit, loadInputs: () => inputs, output }),
-      ).toThrowError(expect.objectContaining({ actual: [ruledPath, siblingPath], expected: [ruledPath] }));
-      expect(output).not.toHaveBeenCalled();
-    },
-  );
+it("pinned extraction retains every independently required authority", () => {
+  expect(neutralityAuthorityPaths).toEqual(requiredNeutralityAuthorityPaths);
+  expect(changedAuthorities).toEqual([
+    "scripts/release-qualification-scope-inventory.mjs",
+    "scripts/release-qualification-scope.test.mjs",
+  ]);
 });
 
-it("merge-base neutrality emits NOT_APPLICABLE with the compared files for an unrelated module addition", () => {
+const expectedHistory = {
+  landing: "f20b825d973d485aac601c88d15af2a84483307c",
+  fork: "0d0f2d9c7efb28f5f3217b801c4c8abd6bea64ce",
+};
+function historicalFixture() {
+  const { landing, fork } = expectedHistory;
+  const nul = (fields) => Buffer.from(`${fields.join("\0")}\0`);
+  const names = [ruledPath, siblingPath, "scripts/release-qualification-scope.mjs"];
+  return (args) => {
+    if (
+      JSON.stringify(args) === JSON.stringify(["cat-file", "-e", `${fork}^{commit}`]) ||
+      JSON.stringify(args) === JSON.stringify(["cat-file", "-e", `${landing}^{commit}`])
+    )
+      return Buffer.alloc(0);
+    if (JSON.stringify(args) === JSON.stringify(["rev-list", "--parents", "-n", "1", landing]))
+      return Buffer.from(`${landing} ${fork}\n`);
+    if (args[0] === "diff" && args.at(-2) === fork && args.at(-1) === landing)
+      return nul([
+        "M",
+        "scripts/release-qualification-scope-applicability.test.mjs",
+        "A",
+        "scripts/release-qualification-scope-inventory.mjs",
+        "A",
+        "scripts/release-qualification-scope-inventory.test.mjs",
+        "M",
+        "scripts/release-qualification-scope.test.mjs",
+      ]);
+    if (
+      args[0] === "rev-parse" &&
+      [fork, landing].some((sha) => args[1].startsWith(`${sha}:`)) &&
+      requiredNeutralityAuthorityPaths.includes(args[1].slice(41))
+    )
+      return Buffer.from(`${"a".repeat(40)}\n`);
+    if (
+      args[0] === "show" &&
+      [fork, landing].some((sha) => args[1] === `${sha}:scripts/release-qualification-scope.test.mjs`)
+    )
+      return Buffer.from("discovered: 169, persistentCount: 163, ruledCount: 6");
+    if (args[0] === "ls-tree" && [fork, landing].includes(args.at(-1)))
+      return nul([
+        ...names,
+        ...(args.at(-1) === landing
+          ? [
+              "scripts/release-qualification-scope-inventory.mjs",
+              "scripts/release-qualification-scope-inventory.test.mjs",
+            ]
+          : []),
+      ]);
+    throw new Error(`Unexpected synthetic Git call: ${JSON.stringify(args)}`);
+  };
+}
+
+it("pinned extraction reads only exact ordered immutable Git objects", () => {
+  const calls = [];
+  const proof = assertPinnedExtractionNeutrality((args) => {
+    calls.push(args);
+    return execFileSync("git", args, { cwd: repoRoot, maxBuffer: 32 * 1024 * 1024, windowsHide: true });
+  });
+  const { landing, fork } = expectedHistory;
+  expect(calls).toEqual([
+    ["cat-file", "-e", `${fork}^{commit}`],
+    ["cat-file", "-e", `${landing}^{commit}`],
+    ["rev-list", "--parents", "-n", "1", landing],
+    ["diff", "--name-status", "-z", "--no-renames", fork, landing],
+    ...requiredNeutralityAuthorityPaths
+      .filter(
+        (file) =>
+          ![
+            "scripts/release-qualification-scope-inventory.mjs",
+            "scripts/release-qualification-scope.test.mjs",
+          ].includes(file),
+      )
+      .flatMap((file) => [
+        ["rev-parse", `${fork}:${file}`],
+        ["rev-parse", `${landing}:${file}`],
+      ]),
+    ["show", `${fork}:scripts/release-qualification-scope.test.mjs`],
+    ["show", `${landing}:scripts/release-qualification-scope.test.mjs`],
+    ["ls-tree", "-r", "-z", "--name-only", "--full-tree", fork],
+    ["ls-tree", "-r", "-z", "--name-only", "--full-tree", landing],
+  ]);
+  expect(proof.rawNames).toEqual({
+    fork: 9692,
+    landing: 9694,
+    additions: [
+      "scripts/release-qualification-scope-inventory.mjs",
+      "scripts/release-qualification-scope-inventory.test.mjs",
+    ],
+  });
+});
+
+it.each(["fork", "landing"])("pinned extraction missing %s object refuses, never skips", (role) => {
+  const fixture = historicalFixture();
   const output = vi.fn();
-  const execGit = vi.fn((args) => {
-    expect(args).toEqual(["diff", "--name-only", "-z", "--no-renames", base.sha, candidate.sha]);
-    return Buffer.from(`${siblingPath}\0`);
-  });
-  checkMergeBaseNeutrality({ head: candidate.sha, fork: base.sha, execGit, output });
-  expect(execGit).toHaveBeenCalledTimes(1);
-  expect(output).toHaveBeenCalledExactlyOnceWith("INVENTORY_MERGE_BASE_NEUTRALITY_NOT_APPLICABLE", {
-    head: candidate.sha,
-    mergeBase: base.sha,
-    reason: "candidate changes no classifier, inventory or pinned-count authority",
-    comparedFiles: [siblingPath],
-    authorityFiles: requiredNeutralityAuthorityPaths,
-  });
+  expect(() =>
+    assertPinnedExtractionNeutrality((args) => {
+      if (args[0] === "cat-file" && args[2] === `${expectedHistory[role]}^{commit}`) throw new Error("missing object");
+      return fixture(args);
+    }, output),
+  ).toThrowError(expect.objectContaining({ code: "INVENTORY_PINNED_OBJECT_MISSING" }));
+  expect(output).not.toHaveBeenCalled();
 });
 
-it("AC8/AC10/AC12 real inventory stays monotonic and canonical classifier records equal merge-base", () => {
+it("pinned extraction wrong parentage refuses instead of self-comparing", () => {
+  const fixture = historicalFixture();
+  expect(() =>
+    assertPinnedExtractionNeutrality((args) =>
+      args[0] === "rev-list" ? Buffer.from(`${expectedHistory.landing} ${expectedHistory.landing}\n`) : fixture(args),
+    ),
+  ).toThrowError(expect.objectContaining({ code: "INVENTORY_PINNED_PARENTAGE_MISMATCH" }));
+});
+
+it.each(["modified", "deleted", "mode-only", "renamed-away"])(
+  "pinned extraction changed set refuses %s authority, including rename sources",
+  (change) => {
+    const fixture = historicalFixture();
+    expect(() =>
+      assertPinnedExtractionNeutrality((args) => {
+        if (args[0] !== "diff") return fixture(args);
+        const status = change === "deleted" || change === "renamed-away" ? "D" : "M";
+        const extra =
+          `${status}\0scripts/release-qualification-scope.mjs\0` +
+          (change === "renamed-away" ? "A\0scripts/SYNTHETIC-renamed-authority.mjs\0" : "");
+        return Buffer.concat([fixture(args), Buffer.from(extra)]);
+      }),
+    ).toThrowError(expect.objectContaining({ code: "INVENTORY_PINNED_CHANGED_SET_MISMATCH" }));
+  },
+);
+
+it.each(
+  requiredNeutralityAuthorityPaths.filter(
+    (file) =>
+      !["scripts/release-qualification-scope-inventory.mjs", "scripts/release-qualification-scope.test.mjs"].includes(
+        file,
+      ),
+  ),
+)("pinned extraction changed authority blob refuses: %s", (file) => {
+  const fixture = historicalFixture();
+  expect(() =>
+    assertPinnedExtractionNeutrality((args) =>
+      args[0] === "rev-parse" && args[1] === `${expectedHistory.landing}:${file}`
+        ? Buffer.from("b".repeat(40))
+        : fixture(args),
+    ),
+  ).toThrowError(expect.objectContaining({ code: "INVENTORY_PINNED_AUTHORITY_BLOB_MISMATCH" }));
+});
+
+it.each(["fork", "landing"])("pinned extraction %s sweep must retain 169/163/6", (role) => {
+  const fixture = historicalFixture();
+  expect(() =>
+    assertPinnedExtractionNeutrality((args) =>
+      args[0] === "show" && args[1].startsWith(expectedHistory[role])
+        ? Buffer.from("discovered: 168, persistentCount: 162, ruledCount: 6")
+        : fixture(args),
+    ),
+  ).toThrowError(expect.objectContaining({ code: "INVENTORY_PINNED_COUNTS_MISMATCH" }));
+});
+
+it.each(["added", "removed", "same-count move", "invalid UTF-8", "missing NUL"])(
+  "pinned extraction complete raw names refuse %s, not merely count drift",
+  (mode) => {
+    const fixture = historicalFixture();
+    expect(() =>
+      assertPinnedExtractionNeutrality((args) => {
+        const bytes = fixture(args);
+        if (args[0] !== "ls-tree" || args.at(-1) !== expectedHistory.landing) return bytes;
+        if (mode === "added") return Buffer.concat([bytes, Buffer.from("SYNTHETIC-extra.ts\0")]);
+        if (mode === "invalid UTF-8") return Buffer.from([0xff, 0]);
+        if (mode === "missing NUL") return bytes.subarray(0, -1);
+        return Buffer.from(
+          bytes.toString("utf8").replace(`${siblingPath}\0`, mode === "removed" ? "" : "SYNTHETIC-moved.ts\0"),
+        );
+      }),
+    ).toThrowError(expect.objectContaining({ code: "INVENTORY_PINNED_RAW_NAMES_MISMATCH" }));
+  },
+);
+
+it("pinned extraction ignores ambient classifier-byte edits, governed-member removal and HEAD/event changes", () => {
+  const fixture = historicalFixture();
+  const baseline = assertPinnedExtractionNeutrality(fixture, () => {});
+  const calls = [];
+  const ambientReader = (args) => {
+    calls.push(args);
+    if (args[0] === "rev-parse" && args[1] === "HEAD") return Buffer.from(candidate.sha);
+    if (args[0] === "show" && args[1] === `${candidate.sha}:scripts/release-qualification-scope.mjs`)
+      return Buffer.from(`${cleanSource}// ambient classifier edit\n`);
+    if (args[0] === "ls-tree" && args.at(-1) === candidate.sha) return Buffer.from(`${ruledPath}\0`);
+    return fixture(args);
+  };
+  vi.stubEnv("GITHUB_EVENT_NAME", "pull_request");
+  vi.stubEnv("GITHUB_SHA", candidate.sha);
+  vi.stubEnv("GITHUB_EVENT_PATH", "SYNTHETIC-ambient-event.json");
+  try {
+    expect(assertPinnedExtractionNeutrality(ambientReader, () => {})).toEqual(baseline);
+    expect(
+      calls.some((args) => args.some((arg) => arg.includes(candidate.sha) || arg.includes(base.sha) || arg === "HEAD")),
+    ).toBe(false);
+  } finally {
+    vi.unstubAllEnvs();
+  }
+});
+
+it("AC8/AC10/AC12 real inventory stays monotonic", () => {
   let provenance;
   try {
     provenance = deriveGuardCandidateProvenance();
@@ -774,11 +963,17 @@ it("AC8/AC10/AC12 real inventory stays monotonic and canonical classifier record
   }
   emit("INVENTORY_CANDIDATE_ROLES", { environment: provenance.environment, roles: provenance.roles });
   const head = provenance.roles.landingCandidate.sha;
-  const fork = provenance.roles.forkPoint.sha;
   const inputs = discoveredInputs(head);
+  expect(inputs.paths.length).toBeGreaterThan(0);
+  expect(inputs.readFileAt("candidate", inputs.paths[0])).toBe(
+    git(["show", `${head}:${inputs.paths[0]}`]).toString("utf8"),
+  );
   const inventory = buildReviewedSurfaceInventory(inputs);
   expect(inventory.registryStatus).toBe("valid");
   expect(inventory.misses).toEqual([]);
+  expect(health(inventory)).toBe(true);
+  expect(health({ ...inventory, registryStatus: "unreadable" })).toBe(false);
+  expect(health({ ...inventory, misses: ["SYNTHETIC current-health miss"] })).toBe(false);
   const without = buildReviewedSurfaceInventory({
     ...inputs,
     evaluateApplicability: () => ({ applies: true, withdrawalCodes: [] }),
@@ -789,5 +984,4 @@ it("AC8/AC10/AC12 real inventory stays monotonic and canonical classifier record
       RELEASE_QUALIFICATION_SCOPE_CLASSES.indexOf(without.records[index].expectedClass),
     );
   }
-  checkMergeBaseNeutrality({ head, fork, inputs, inventory });
 });
