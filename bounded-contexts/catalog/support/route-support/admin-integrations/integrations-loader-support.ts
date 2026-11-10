@@ -2,8 +2,6 @@ import type { LoaderFunctionArgs } from "react-router";
 import type {
   CatalogSyncRun,
   CatalogScopeSyncUnitStateReadModel,
-  SourceObservationIntegrationImportPreview,
-  SourceObservationIntegrationJobScope,
 } from "../../../features/source-observations/ui/contracts";
 import type { CatalogSyncScope } from "../../../features/source-observations/api/catalog-sync-scope-planner";
 import type {
@@ -27,10 +25,8 @@ import {
   type CatalogDeferredAttentionQueueResult,
 } from "./attention-queue-result";
 import { createCatalogRequestApiClient } from "../../../support/request-support/api-client";
-import { integrationScopeFromContext } from "./integrations-command-context";
+import type { CatalogDailyImportPreview } from "../../../features/source-observations/api/admin/daily-import-preview";
 import { commandFeedbackFromUrl } from "./integrations-command-feedback";
-
-const IMPORT_PREVIEW_TIMEOUT_MS = 2_500;
 
 // The integrations surfaces read their workbench from the Catalog API, which
 // composes it from its own services (see `primary-workbench-surface-read.ts`).
@@ -106,7 +102,7 @@ export async function loadDailySurfaceForRequest(request: Request) {
     // transient failure resolves to an absent or visibly degraded panel rather
     // than rejecting the boundary into an error page.
     deferredSourceOptions: sourceOptionsRead.then((sourceOptions) => sourceOptions ?? readModel.sourceOptions),
-    deferredImportPreview: selectedImportPreview(api, readModel.routeContext),
+    deferredImportPreview: settledImportPreviewRead(api, request),
     deferredCatalogSyncRun: selectedCatalogSyncRun(api, readModel.routeContext),
     deferredScopeSyncState: selectedCatalogScopeSyncState(api, surfaceRead.catalogSyncScope),
     deferredAliasReview: selectedScopeAliasReview(api, readModel.routeContext),
@@ -179,74 +175,16 @@ async function selectedAttentionQueue(
   return resolveCatalogAttentionQueueResult(response);
 }
 
-async function selectedImportPreview(
+// The supplementary read owns every preview rule; transport failure stays absent.
+async function settledImportPreviewRead(
   api: ReturnType<typeof createCatalogRequestApiClient>,
-  context: CatalogPrimaryWorkbenchRouteContext,
-): Promise<SourceObservationIntegrationImportPreview | null> {
-  if (!context.providerKey || !context.unitKey || !context.importScope) {
-    return null;
-  }
-  if (typeof api.previewSourceObservationIntegrationImport !== "function") {
-    return null;
-  }
-
+  request: Request,
+): Promise<CatalogDailyImportPreview> {
   try {
-    const expectedScope = integrationScopeFromContext(context);
-    const preview = await withImportPreviewTimeout(
-      api.previewSourceObservationIntegrationImport<SourceObservationIntegrationImportPreview>(expectedScope),
-      IMPORT_PREVIEW_TIMEOUT_MS,
-    );
-
-    return importPreviewMatchesSelectedScope(preview, expectedScope) ? preview : null;
-  } catch (error) {
-    if (error instanceof CatalogImportPreviewTimeoutError) {
-      throw error;
-    }
+    return await api.getCatalogPrimaryWorkbenchDeferredImportPreview(requestLocation(request));
+  } catch {
     return null;
   }
-}
-
-export function importPreviewMatchesSelectedScope(
-  preview: SourceObservationIntegrationImportPreview,
-  expectedScope: SourceObservationIntegrationJobScope,
-): boolean {
-  return (
-    scopeFieldMatches(preview.providerKey, expectedScope.provider) &&
-    scopeFieldMatches(preview.scope.provider, expectedScope.provider) &&
-    scopeFieldMatches(preview.scope.ingestionUnitKey, expectedScope.ingestionUnitKey) &&
-    scopeFieldMatches(preview.scope.language, expectedScope.language) &&
-    scopeFieldMatches(preview.scope.productLineId, expectedScope.productLineId) &&
-    scopeFieldMatches(preview.scope.seriesId, expectedScope.seriesId) &&
-    scopeAnyFieldMatches([preview.scope.setId, preview.scope.setName], [expectedScope.setId, expectedScope.setName]) &&
-    (preview.scope.productId ?? null) === (expectedScope.productId ?? null)
-  );
-}
-
-function scopeFieldMatches(actual: string | null | undefined, expected: string | null | undefined): boolean {
-  const expectedValue = normalizedScopeValue(expected);
-  if (!expectedValue) {
-    return true;
-  }
-
-  return normalizedScopeValue(actual) === expectedValue;
-}
-
-function scopeAnyFieldMatches(
-  actuals: readonly (string | null | undefined)[],
-  expecteds: readonly (string | null | undefined)[],
-): boolean {
-  const expectedValues = expecteds.map(normalizedScopeValue).filter((value): value is string => Boolean(value));
-  if (expectedValues.length === 0) {
-    return true;
-  }
-  const actualValues = new Set(actuals.map(normalizedScopeValue).filter((value): value is string => Boolean(value)));
-
-  return expectedValues.some((expected) => actualValues.has(expected));
-}
-
-function normalizedScopeValue(value: string | null | undefined): string | null {
-  const normalized = value?.trim().toLowerCase();
-  return normalized || null;
 }
 
 async function selectedCatalogSyncRun(
@@ -311,42 +249,4 @@ async function selectedScopeAliasReview(
   } catch {
     return null;
   }
-}
-
-class CatalogImportPreviewTimeoutError extends Error {
-  readonly code = "catalog_provider_option_query_timeout";
-
-  constructor(readonly timeoutMs: number) {
-    super(
-      `Provider source option query did not finish within ${Math.round(
-        timeoutMs / 1_000,
-      )} seconds, so the importer kept the page usable with degraded source options.`,
-    );
-    this.name = "CatalogImportPreviewTimeoutError";
-  }
-}
-
-function withImportPreviewTimeout<T>(operation: Promise<T>, timeoutMs: number): Promise<T> {
-  let timeout: ReturnType<typeof setTimeout> | null = null;
-  return new Promise<T>((resolve, reject) => {
-    timeout = setTimeout(() => {
-      timeout = null;
-      reject(new CatalogImportPreviewTimeoutError(timeoutMs));
-    }, timeoutMs);
-
-    operation.then(
-      (value) => {
-        if (timeout) {
-          clearTimeout(timeout);
-        }
-        resolve(value);
-      },
-      (error) => {
-        if (timeout) {
-          clearTimeout(timeout);
-        }
-        reject(error);
-      },
-    );
-  });
 }
