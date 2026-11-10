@@ -1,13 +1,14 @@
 import { readFile } from "node:fs/promises";
 import { afterEach, expect, it, vi } from "vitest";
 import type { LoaderFunctionArgs } from "react-router";
-import { loader } from "../../../support/route-support/admin-scope-sync-batches/scope-sync-batches-route";
+import { loader } from "../../../routes/admin/scope-sync-batches";
 import {
   scrydexCacheCaptureLandingPath,
   scrydexCacheCaptureUnits,
 } from "../../scope-sync-batches/domain/scrydex-cache-capture";
 import { providerPagesUpperBound } from "../../scope-sync-batches/domain/scrydex-option-refresh";
 import { buildCatalogPrimaryWorkbenchSourceOptionRequests } from "../ui/primary-workbench-source-options";
+import type { CatalogProviderProfileVersionReview as WorkbenchProfileReview } from "../ui/contracts";
 import { createScrydexOnePieceProviderAdapter } from "./providers/scrydex/adapter";
 import { ProviderAdapterRegistry } from "./provider-adapters/registry";
 import { buildCatalogIntegrationControlPlaneReadiness } from "./governance/catalog-integration-control-plane-readiness";
@@ -75,11 +76,14 @@ it("bounds the whole refresh journey with separate cold adapters: landing, overv
   }
 
   cold("landing");
+  const landingRequest = new Request(`https://admin.staging.chasesets.com${scrydexCacheCaptureLandingPath}`);
   expect(
     await loader({
-      request: new Request(`https://admin.staging.chasesets.com${scrydexCacheCaptureLandingPath}`),
+      request: landingRequest,
       params: {},
       context: {},
+      url: new URL(landingRequest.url),
+      pattern: scrydexCacheCaptureLandingPath,
     } satisfies LoaderFunctionArgs),
   ).toEqual({ batch: null, countQuote: null });
   expect(calls).toEqual([]);
@@ -115,7 +119,7 @@ it("bounds the whole refresh journey with separate cold adapters: landing, overv
   expect(calls.filter(({ path }) => path === "/account/v1/usage")).toHaveLength(1);
 
   cold("profiles");
-  const profiles = await listCatalogProviderProfileVersionReviews(store);
+  const profiles = (await listCatalogProviderProfileVersionReviews(store)).map(workbenchProfile);
   expect(calls).toHaveLength(1);
   for (const { unitKey } of scrydexCacheCaptureUnits) {
     const requests = buildCatalogPrimaryWorkbenchSourceOptionRequests({
@@ -128,7 +132,9 @@ it("bounds the whole refresh journey with separate cold adapters: landing, overv
       (request) => request.scope === "set-name" && request.parentScope === null && request.queryKind === "sets",
     );
     expect(requests).toHaveLength(1);
-    const params = new URL(requests[0]!.refreshHref, "https://admin.staging.chasesets.com").searchParams;
+    const refreshHref = requests[0]?.refreshHref;
+    if (typeof refreshHref !== "string") throw new Error(`${unitKey} set-name request has no refresh href`);
+    const params = new URL(refreshHref, "https://admin.staging.chasesets.com").searchParams;
     const page = await queryProviderIntegrationOptions(
       {
         providerKey: "scrydex",
@@ -154,3 +160,22 @@ it("bounds the whole refresh journey with separate cold adapters: landing, overv
   expect(calls).toHaveLength(51);
   expect(1 + scrydexCacheCaptureUnits.length * providerPagesUpperBound(1000)!).toBe(56);
 });
+
+function workbenchProfile(
+  review: Awaited<ReturnType<typeof listCatalogProviderProfileVersionReviews>>[number],
+): WorkbenchProfileReview {
+  const { coveredFlows, liveProviderCallsAllowed, ...fixtures } = review.fixtures;
+  if (liveProviderCallsAllowed !== false) throw new Error(`${review.profileKey} fixtures allow live provider calls`);
+  return {
+    ...review,
+    fixtures: { ...fixtures, coveredFlows: [...coveredFlows], liveProviderCallsAllowed },
+    capabilities: [...review.capabilities],
+    supportedScopes: [...review.supportedScopes],
+    languageOptions: [...review.languageOptions],
+    sourceOptionKinds: review.sourceOptionKinds.map((kind) => ({
+      ...kind,
+      queryKeySynonyms: [...kind.queryKeySynonyms],
+    })),
+    validation: { ...review.validation, diagnostics: [...review.validation.diagnostics] },
+  };
+}
