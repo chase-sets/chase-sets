@@ -1,6 +1,7 @@
 import type {
   CatalogPrimaryWorkbenchRouteContext,
   CatalogPrimaryWorkbenchScopeContext,
+  CatalogPrimaryWorkbenchPromotionCommandPreview,
 } from "../api/primary-workbench-admin-contracts";
 import {
   providerImportScopeSecondSegmentIsExpansion,
@@ -303,6 +304,24 @@ export function scopeContextToObservationFilterScope(
     status: filters.status ?? scope.status ?? undefined,
     search: filters.search ?? undefined,
   });
+}
+
+// The API composes both selected and per-unit promotion request data.
+export function promotionCommandPreviewFor(
+  context: CatalogPrimaryWorkbenchRouteContext,
+): CatalogPrimaryWorkbenchPromotionCommandPreview {
+  const selectedScope = scopeContextFromRouteContext(context);
+  const scope = scopeContextToObservationFilterScope(selectedScope, context.sourceObservationFilters);
+  return {
+    scope,
+    confirmation: {
+      unitKey: context.unitKey ?? null,
+      importScope: context.importScope ?? null,
+      profileVersion: context.profileVersion ?? null,
+      scope,
+    },
+    allowScopeSelection: Boolean(context.providerKey && context.unitKey && importScopeFromScopeContext(selectedScope)),
+  };
 }
 
 export function importScopeMatchesProviderScope(

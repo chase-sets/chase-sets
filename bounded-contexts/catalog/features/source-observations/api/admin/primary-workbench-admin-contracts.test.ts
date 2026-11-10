@@ -25,6 +25,7 @@ import * as outerWorkbenchFacade from "../primary-workbench-admin-contracts";
 import * as workbenchFacade from "./primary-workbench-admin-contracts";
 import type {
   CatalogPrimaryWorkbenchActionReadModel,
+  CatalogPrimaryWorkbenchPromotionCommandPreview,
   CatalogPrimaryWorkbenchSecurityPrivacyReadModel,
   CatalogPrimaryWorkbenchInstrumentationReadModel,
   CatalogPrimaryWorkbenchActionState,
@@ -1745,7 +1746,7 @@ describe("Catalog primary workbench admin contracts", () => {
     ).toBe("");
     const reexports = facadeReexports(facadeSource);
     expect(reexports.filter((entry) => !entry.typeOnly).flatMap((entry) => entry.names)).toHaveLength(13);
-    expect(reexports.filter((entry) => entry.typeOnly).flatMap((entry) => entry.names)).toHaveLength(111);
+    expect(reexports.filter((entry) => entry.typeOnly).flatMap((entry) => entry.names)).toHaveLength(112);
     expect(
       reexports
         .flatMap(({ typeOnly, names, from }) => names.map((name) => `${typeOnly ? "type " : ""}${name} <- ${from}`))
@@ -3068,6 +3069,7 @@ const workbenchOwnerCensus: Readonly<Record<WorkbenchOwner, WorkbenchOwnerCensus
     types: [
       "CatalogPrimaryWorkbenchReadModel",
       "CatalogPrimaryWorkbenchActionReadModel",
+      "CatalogPrimaryWorkbenchPromotionCommandPreview",
       "CatalogPrimaryWorkbenchFlowStageKey",
       "CatalogPrimaryWorkbenchFlowStageState",
       "CatalogPrimaryWorkbenchFlowReadModel",

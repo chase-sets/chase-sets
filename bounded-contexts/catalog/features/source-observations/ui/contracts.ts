@@ -1,6 +1,9 @@
 import type { JsonValue } from "@chase-sets/primitives/json";
 import type { CatalogPrimaryWorkbenchCommandFeedback } from "./primary-workbench-command-feedback";
-import type { CatalogPrimaryWorkbenchRouteContext } from "../api/primary-workbench-admin-contracts";
+import type {
+  CatalogPrimaryWorkbenchRouteContext,
+  CatalogPrimaryWorkbenchPromotionCommandPreview,
+} from "../api/primary-workbench-admin-contracts";
 import type { ProviderOptionAliasRecord } from "../api/provider-option-aliases";
 import type {
   CatalogMergeCandidateConflict,
@@ -728,6 +731,7 @@ export type CatalogIntegrationsCommandResult = Readonly<{
   commandSection?: string;
   attentionItemKey?: string;
   promotionReceipt?: SourceObservationPromotionReceipt | null;
+  promotionCommandPreview?: CatalogPrimaryWorkbenchPromotionCommandPreview | null;
   importJobReceipt?: SourceObservationImportJobReceipt | null;
 }>;
 
