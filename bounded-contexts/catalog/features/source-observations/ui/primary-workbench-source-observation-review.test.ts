@@ -29,6 +29,7 @@ import {
 } from "./primary-workbench-source-observation-review";
 import { syntheticPromotionReceipt, loaderData } from "./primary-workbench-test-fixtures";
 import { parseCatalogPrimaryWorkbenchRouteContext } from "./primary-workbench-route-context";
+import { promotionCommandPreviewFor } from "./primary-workbench-scope-context";
 import type { CatalogPrimaryWorkbenchRouteContext } from "../api/primary-workbench-admin-contracts";
 
 const slimRowRouteContext: CatalogPrimaryWorkbenchRouteContext = {
@@ -195,12 +196,47 @@ describe("Catalog primary workbench read model - source observation review", () 
     ).toBe(false);
   });
 
+  // Issue #11142: matching the original receipt uses API scope, not browser reconstruction.
+  it("matches a distinctive API descriptor at fixed identities and refuses independent descriptor drift", () => {
+    const receipt = syntheticPromotionReceipt();
+    const context = parseCatalogPrimaryWorkbenchRouteContext(
+      "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&importScope=en:3:base:base1&profileVersion=2026.06.04",
+    );
+    const scope = { provider: "tcgdex", language: "synthetic-api-language", search: "synthetic-api-query" };
+    receipt.selection.scope = scope;
+    const commandPreview = {
+      scope,
+      confirmation: {
+        unitKey: context.unitKey,
+        importScope: context.importScope,
+        profileVersion: context.profileVersion,
+        scope,
+      },
+      allowScopeSelection: true,
+    };
+    expect(promotionReceiptMatchesContext(receipt, context, commandPreview)).toBe(true);
+    expect(
+      promotionReceiptMatchesContext(receipt, context, {
+        ...commandPreview,
+        scope: { ...scope, search: "synthetic-drift" },
+      }),
+    ).toBe(false);
+    expect(
+      promotionReceiptMatchesContext(receipt, context, {
+        ...commandPreview,
+        confirmation: { ...commandPreview.confirmation, profileVersion: "synthetic-drift" },
+      }),
+    ).toBe(false);
+    expect(promotionReceiptMatchesContext(receipt, context, undefined)).toBe(false);
+  });
+
   it("keeps helper-built models receipt-free and matches every governing context coordinate", () => {
     expect(loaderData().readModel.promotionPreview.receipt).toBeNull();
     const receipt = syntheticPromotionReceipt();
     const url =
       "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&importScope=en:3:base:base1&profileVersion=2026.06.04";
-    expect(promotionReceiptMatchesContext(receipt, parseCatalogPrimaryWorkbenchRouteContext(url))).toBe(true);
+    const context = parseCatalogPrimaryWorkbenchRouteContext(url);
+    expect(promotionReceiptMatchesContext(receipt, context, promotionCommandPreviewFor(context))).toBe(true);
     for (const [key, value] of [
       ["providerKey", "synthetic-other-provider"],
       ["unitKey", "synthetic-other-unit"],
@@ -212,9 +248,10 @@ describe("Catalog primary workbench read model - source observation review", () 
     ]) {
       const changed = new URL(url);
       changed.searchParams.set(key!, value!);
-      expect(
-        promotionReceiptMatchesContext(receipt, parseCatalogPrimaryWorkbenchRouteContext(changed.toString())),
-      ).toBe(false);
+      const changedContext = parseCatalogPrimaryWorkbenchRouteContext(changed.toString());
+      expect(promotionReceiptMatchesContext(receipt, changedContext, promotionCommandPreviewFor(changedContext))).toBe(
+        false,
+      );
     }
   });
 

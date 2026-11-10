@@ -13,7 +13,17 @@ import {
 } from "../admin/primary-workbench-surface-read";
 import type { CatalogPrimaryWorkbenchRouteContext } from "../primary-workbench-admin-contracts";
 import { buildCatalogPrimaryWorkbenchReadModelForSurface } from "../../ui/primary-workbench-read-model";
-import { parseCatalogPrimaryWorkbenchRouteContext } from "../../ui/primary-workbench-route-context";
+import {
+  catalogPrimaryWorkbenchHref,
+  parseCatalogPrimaryWorkbenchRouteContext,
+} from "../../ui/primary-workbench-route-context";
+import {
+  catalogProviderIntegrationProfileVersions,
+  type CatalogProviderIntegrationProfileVersionRecord,
+  type CatalogProviderScope,
+} from "../provider-integration-profiles";
+import { importPreviewMatchesRouteContext } from "../../ui/admin-control-plane/import-jobs/import-jobs-module";
+import type { SourceObservationIntegrationImportPreview } from "../../ui/contracts";
 import {
   controlPlaneOverview,
   sourceObservationListItem,
@@ -119,6 +129,203 @@ afterEach(() => {
 });
 
 describe("Catalog primary workbench surface routes", () => {
+  // Issue #11080: real HTTP reads own effective scope and guided import answers.
+  it("returns inferred scope equal to the explicit daily scope without fetching default review", async () => {
+    const services = surfaceServices();
+    const app = buildApp(services, mutableProfileStore());
+    const inferred = (await getJson(app, surfacePath("daily", "/catalog/integrations"))).readModel;
+    expect(services.listSourceObservations).not.toHaveBeenCalled();
+    expect(inferred.routeContext.scope).toEqual({
+      providerKey: "tcgdex",
+      productId: null,
+      languageCode: "en",
+      productLineId: "3",
+      productLineName: null,
+      seriesId: "base",
+      seriesName: null,
+      expansionId: "base1",
+      expansionName: null,
+      status: null,
+    });
+    const explicit = (
+      await getJson(app, surfacePath("daily", "/catalog/integrations?providerKey=tcgdex&importScope=en:3:base:base1"))
+    ).readModel;
+    expect(inferred.routeContext.scope).toEqual(explicit.routeContext.scope);
+    expect(buildDailyMergeCandidateQuery(inferred.routeContext)).toBe(
+      buildDailyMergeCandidateQuery(explicit.routeContext),
+    );
+    expect(catalogPrimaryWorkbenchHref(inferred.routeContext)).toBe(catalogPrimaryWorkbenchHref(explicit.routeContext));
+    expect(
+      inferred.actions.find((action: { key: string }) => action.key === "observation.promote").commandPreview,
+    ).toEqual(explicit.actions.find((action: { key: string }) => action.key === "observation.promote").commandPreview);
+    const preview: SourceObservationIntegrationImportPreview = {
+      action: "import",
+      providerKey: "tcgdex",
+      scope: {
+        provider: "tcgdex",
+        ingestionUnitKey: TCGDEX_UNIT,
+        language: "en",
+        productLineId: "3",
+        seriesId: "base",
+        setId: "base1",
+      },
+      profileSnapshot: null,
+      targetCount: 0,
+      targets: [],
+    };
+    expect(importPreviewMatchesRouteContext(preview, inferred.routeContext)).toBe(true);
+    expect(importPreviewMatchesRouteContext(preview, inferred.routeContext)).toBe(
+      importPreviewMatchesRouteContext(preview, explicit.routeContext),
+    );
+    expect(
+      importPreviewMatchesRouteContext(
+        { ...preview, scope: { ...preview.scope, setId: "sibling" } },
+        inferred.routeContext,
+      ),
+    ).toBe(false);
+  });
+
+  it.each([
+    ["importScope=en:base", { languageCode: "en", seriesId: "base", expansionId: null }],
+    ["importScope=en:base:base1", { languageCode: "en", seriesId: "base", expansionId: "base1" }],
+    ["importScope=en:3:base:base1", { languageCode: "en", productLineId: "3", seriesId: "base", expansionId: "base1" }],
+    ["languageCode=fr", { languageCode: "fr", seriesId: null, expansionId: null }],
+    [`unitKey=${TCGDEX_UNIT}`, { languageCode: null, seriesId: null, expansionId: null }],
+    [
+      "importScope=en:base:base1&languageCode=fr&expansionId=other&expansionName=Other",
+      { languageCode: "fr", expansionId: "other", expansionName: "Other" },
+    ],
+    [
+      "unitKey=lorcanajson:lorcana:set:reference-data&importScope=en:base:base1",
+      { languageCode: null, seriesId: null, expansionId: null },
+    ],
+  ])("preserves effective HTTP scope for %s", async (query, scope) => {
+    const body = await getJson(
+      buildApp(surfaceServices(), mutableProfileStore()),
+      surfacePath("daily", `/catalog/integrations?providerKey=tcgdex&${query}`),
+    );
+    expect(body.readModel.routeContext.scope).toMatchObject({ providerKey: "tcgdex", ...scope });
+  });
+
+  // Issue #11142: promotion request composition belongs to the daily API answer.
+  it("returns the selected promotion descriptor with exact filters and incomplete-scope ids support", async () => {
+    const app = buildApp(surfaceServices(), mutableProfileStore());
+    const location = `/catalog/integrations?providerKey=tcgdex&unitKey=${TCGDEX_UNIT}&importScope=en:3:base:base1&profileVersion=synthetic-profile&filter.language=fr&filter.productLineId=synthetic-line&filter.seriesId=synthetic-series&filter.setId=synthetic-set&filter.status=changed&filter.search=synthetic-query`;
+    const body = await getJson(app, surfacePath("daily", location));
+    const scope = {
+      search: "synthetic-query",
+      status: "changed",
+      provider: "tcgdex",
+      language: "fr",
+      productLineId: "synthetic-line",
+      seriesId: "synthetic-series",
+      expansionId: "synthetic-set",
+      setId: "synthetic-set",
+    };
+    expect(
+      body.readModel.actions.find((entry: { key: string }) => entry.key === "observation.promote").commandPreview,
+    ).toEqual({
+      scope,
+      confirmation: {
+        unitKey: TCGDEX_UNIT,
+        importScope: "en:3:base:base1",
+        profileVersion: "synthetic-profile",
+        scope,
+      },
+      allowScopeSelection: true,
+    });
+    expect(body.readModel.sourceScopeWorkset.units.length).toBeGreaterThan(0);
+    for (const row of body.readModel.sourceScopeWorkset.units) {
+      const rowScope = Object.fromEntries(
+        Object.entries({
+          provider: row.providerKey,
+          language: row.commandContext.languageCode,
+          productLineId: row.commandContext.productLineId,
+          seriesId: row.commandContext.seriesId,
+          expansionId: row.commandContext.expansionId ?? row.commandContext.expansionName,
+          setId: row.commandContext.expansionId ?? row.commandContext.expansionName,
+        }).filter(([, value]) => value),
+      );
+      expect(row.actions.previewPromotion.commandPreview).toEqual({
+        scope: rowScope,
+        confirmation: {
+          unitKey: row.unitKey,
+          importScope: row.importScope,
+          profileVersion: row.profileVersion,
+          scope: rowScope,
+        },
+        allowScopeSelection: Boolean(row.importScope),
+      });
+    }
+    const emptyApp = buildApp(
+      surfaceServices({
+        listIntegrationScopes: vi.fn(async () => []),
+        getCatalogIntegrationControlPlaneReadiness: vi.fn(async () => readiness([])),
+      }),
+      mutableProfileStore([]),
+    );
+    const sparse = await getJson(
+      emptyApp,
+      surfacePath("daily", "/catalog/integrations?selectedObservationIds=synthetic-id"),
+    );
+    expect(
+      sparse.readModel.actions.find((entry: { key: string }) => entry.key === "observation.promote").commandPreview,
+    ).toEqual({
+      scope: {},
+      confirmation: { unitKey: null, importScope: null, profileVersion: null, scope: {} },
+      allowScopeSelection: false,
+    });
+    const empty = await getJson(
+      emptyApp,
+      surfacePath(
+        "daily",
+        `/catalog/integrations?providerKey=tcgdex&unitKey=${TCGDEX_UNIT}&importScope=&languageCode=&productLineId=&seriesId=&expansionId=&status=&profileVersion=`,
+      ),
+    );
+    expect(
+      empty.readModel.actions.find((entry: { key: string }) => entry.key === "observation.promote").commandPreview,
+    ).toEqual({
+      scope: { provider: "tcgdex" },
+      confirmation: { unitKey: TCGDEX_UNIT, importScope: null, profileVersion: null, scope: { provider: "tcgdex" } },
+      allowScopeSelection: false,
+    });
+    for (const alias of ["setId", "expansionId"]) {
+      const answer = await getJson(
+        app,
+        surfacePath(
+          "daily",
+          `/catalog/integrations?providerKey=tcgdex&unitKey=${TCGDEX_UNIT}&languageCode=en&productLineId=3&seriesId=base&${alias}=base1&profileVersion=synthetic-profile`,
+        ),
+      );
+      expect(
+        answer.readModel.actions.find((entry: { key: string }) => entry.key === "observation.promote").commandPreview,
+      ).toEqual({
+        scope: {
+          provider: "tcgdex",
+          language: "en",
+          productLineId: "3",
+          seriesId: "base",
+          expansionId: "base1",
+          setId: "base1",
+        },
+        confirmation: {
+          unitKey: TCGDEX_UNIT,
+          importScope: "en:3:base:base1",
+          profileVersion: "synthetic-profile",
+          scope: {
+            provider: "tcgdex",
+            language: "en",
+            productLineId: "3",
+            seriesId: "base",
+            expansionId: "base1",
+            setId: "base1",
+          },
+        },
+        allowScopeSelection: true,
+      });
+    }
+  });
+
   // Issue #11050: provider detail composes from its own path, not the first scope/profile.
   it("matches explicit provider selection while preserving profile, unit, job and selected observations", async () => {
     const services = surfaceServices({
@@ -500,6 +707,234 @@ describe("Catalog primary workbench surface routes", () => {
     const app = buildApp(surfaceServices(), mutableProfileStore());
 
     expect((await app.request(path)).status).toBe(status);
+  });
+});
+
+describe("Catalog HTTP guided import scope answers", () => {
+  // These option lists are synthetic controls, not provider observations.
+  function syntheticProfile(
+    providerKey = "tcgdex",
+    scopes: readonly CatalogProviderScope[] = [
+      "language",
+      "product-line/category",
+      "series",
+      "expansion",
+      "set-name",
+      "product/card",
+    ],
+  ): CatalogProviderIntegrationProfileVersionRecord {
+    const base = catalogProviderIntegrationProfileVersions.find(
+      (profile) => profile.providerKey === providerKey && profile.active,
+    )!;
+    return {
+      ...base,
+      profile: {
+        ...base.profile,
+        optionQueries: scopes.map((scope, index) => ({
+          queryKind: `synthetic-${scope}`,
+          displayName: `Synthetic ${scope}`,
+          scope,
+          parentScope: index === 2 ? "language" : index === 3 ? "series" : null,
+          ...(index === 2 || index === 3
+            ? {
+                parentValue: {
+                  required: true,
+                  valueKind: "series-id" as const,
+                  diagnosticText: "Synthetic choose parent",
+                },
+              }
+            : {}),
+          operation: "catalog-provider-profiles",
+          output: { valuePath: "value", labelPath: "label", metadataPaths: {} },
+        })),
+      },
+    };
+  }
+
+  function setup(profile = syntheticProfile(), fail = false) {
+    const queryIntegrationOptions = vi.fn(async (query: { queryKind: string }) => {
+      if (fail) throw new Error("Synthetic options unavailable");
+      const items = [
+        { value: "chosen", label: "Wrong same-valued sibling", parentValue: "other", aliases: [] },
+        {
+          value: "chosen",
+          label: "Native chosen",
+          parentValue: "BASE",
+          aliases: [
+            { aliasText: "English chosen", aliasLanguageCode: "en", confidence: "high", reviewStatus: "accepted" },
+          ],
+        },
+        { value: "sibling", label: "Synthetic sibling", parentValue: "other", aliases: [] },
+        { value: "unparented", label: "Synthetic unparented", parentValue: null, aliases: [] },
+      ].map((item) => ({
+        ...item,
+        providerKey: profile.providerKey,
+        queryKind: query.queryKind,
+        description: null,
+        imageUrl: null,
+        metadata: {},
+      }));
+      return {
+        items,
+        total: 4,
+        count: 4,
+        page: { cursor: null, nextCursor: null, limit: 200, hasMore: false },
+        cache: {
+          status: "fresh",
+          source: "cache",
+          cacheKey: `synthetic:${query.queryKind}`,
+          fetchedAt: NOW,
+          expiresAt: NOW,
+          staleUntil: NOW,
+          cacheOnly: true,
+          forceRefresh: false,
+          degraded: false,
+          diagnostics: [],
+        },
+      };
+    });
+    const app = buildApp(surfaceServices({ queryIntegrationOptions }), mutableProfileStore([profile]));
+    return { app, queryIntegrationOptions };
+  }
+
+  async function both(app: ReturnType<typeof buildApp>, location: string) {
+    const skeleton = (await getJson(app, surfacePath("daily", location))).readModel.sourceOptions;
+    const deferred = await getJson(
+      app,
+      `/source-observations/workbench-surfaces/daily/source-options?${new URLSearchParams({ location })}`,
+    );
+    return { skeleton, deferred };
+  }
+
+  it("returns all mapped fields in profile order, inferred leaf, gate and a distinct context summary", async () => {
+    const { app, queryIntegrationOptions } = setup();
+    const skeleton = (await getJson(app, surfacePath("daily", "/catalog/integrations"))).readModel.sourceOptions;
+    expect(queryIntegrationOptions).not.toHaveBeenCalled();
+    expect(skeleton.guidedFields.map((field: { fieldName: string }) => field.fieldName)).toEqual([
+      "languageCode",
+      "productLineId",
+      "seriesId",
+      "expansionId",
+      "expansionId",
+    ]);
+    expect(skeleton.guidedFields[0]).toMatchObject({
+      queryKind: "synthetic-language",
+      scope: "language",
+      label: "Synthetic language",
+      selectedValue: "en",
+      selectedLabel: "English",
+      options: [{ value: "en", label: "English" }],
+    });
+    expect(skeleton.guidedFields[3]).toMatchObject({
+      fieldName: "expansionId",
+      labelFieldName: "expansionName",
+      selectedValue: "base1",
+      parentScope: "series",
+      parentMissing: false,
+    });
+    expect(skeleton.freeTextApplicable).toBe(false);
+    expect(skeleton.contextSummary).toBe(
+      `tcgdex · ${TCGDEX_UNIT} · en/3/base/base1 · profile ${skeleton.selectedProfile.profileVersion}`,
+    );
+    expect(skeleton.summary.declaredKinds).toBe(6);
+    const { deferred } = await both(app, "/catalog/integrations");
+    expect(deferred.guidedFields[3].selectedValue).toBe("base1");
+    expect(deferred.contextSummary).toBe(skeleton.contextSummary);
+  });
+
+  it.each([
+    ["tcgdex", ["chosen", "unparented"]],
+    ["lorcanajson", ["unparented"]],
+  ])("narrows mixed parents for %s without treating selected fallback as completeness", async (providerKey, values) => {
+    const { app } = setup(syntheticProfile(providerKey));
+    const { deferred } = await both(
+      app,
+      `/catalog/integrations?providerKey=${providerKey}&languageCode=en&seriesId=base&expansionId=absent&expansionName=Synthetic+absent`,
+    );
+    const field = deferred.guidedFields.find((field: { scope: string }) => field.scope === "expansion");
+    expect(field.options.map((option: { value: string }) => option.value)).toEqual(["absent", ...values]);
+    expect(field.selectedLabel).toBe("Synthetic absent");
+    expect(field.options[0]).toEqual({ value: "absent", label: "absent", description: null, parentValue: null });
+  });
+
+  it("reports missing parents, hydrates only explicit descendants and never hydrates a parent-only choice", async () => {
+    const { app } = setup();
+    const parentOnly = await both(
+      app,
+      `/catalog/integrations?providerKey=tcgdex&unitKey=${TCGDEX_UNIT}&languageCode=fr`,
+    );
+    expect(parentOnly.deferred.guidedFields[2]).toMatchObject({ selectedValue: "", parentMissing: false });
+    expect(parentOnly.deferred.guidedFields[3]).toMatchObject({
+      selectedValue: "",
+      parentMissing: true,
+      parentDiagnostic: "Synthetic choose parent",
+    });
+    const childOnly = await both(
+      app,
+      `/catalog/integrations?providerKey=tcgdex&unitKey=${TCGDEX_UNIT}&expansionId=base1`,
+    );
+    expect(childOnly.deferred.guidedFields[0].selectedValue).toBe("en");
+    expect(childOnly.deferred.guidedFields[2].selectedValue).toBe("base");
+  });
+
+  it("returns language and accepted alias labels without browser label derivation", async () => {
+    const { app } = setup();
+    const { deferred } = await both(
+      app,
+      "/catalog/integrations?providerKey=tcgdex&languageCode=en&seriesId=base&expansionId=chosen",
+    );
+    expect(deferred.guidedFields[0]).toMatchObject({ selectedValue: "en", selectedLabel: "English" });
+    expect(deferred.guidedFields[3]).toMatchObject({
+      selectedValue: "chosen",
+      selectedLabel: "English chosen (Native chosen)",
+    });
+  });
+
+  it("keeps deferred failures visibly unavailable beside the selected display fallback", async () => {
+    const { app } = setup(syntheticProfile(), true);
+    const { deferred } = await both(app, "/catalog/integrations");
+    expect(deferred.pages.some((page: { state: string }) => page.state === "unavailable")).toBe(true);
+    expect(deferred.guidedFields[3].selectedValue).toBe("base1");
+    expect(deferred.status).not.toBe("ready");
+  });
+
+  it("returns free text and null summary for an unmapped-only unit", async () => {
+    const { app } = setup(syntheticProfile("tcgdex", ["product/card"]));
+    const { skeleton, deferred } = await both(app, `/catalog/integrations?providerKey=tcgdex&unitKey=${TCGDEX_UNIT}`);
+    for (const answer of [skeleton, deferred]) {
+      expect(answer.guidedFields).toEqual([]);
+      expect(answer.freeTextApplicable).toBe(true);
+      expect(answer.contextSummary).toBeNull();
+    }
+  });
+
+  it("keeps products distinct from sets over both HTTP reads", async () => {
+    const profile = catalogProviderIntegrationProfileVersions.find(
+      (profile) =>
+        profile.providerKey === "ygojson" &&
+        profile.profile.supportedScopes.includes("product") &&
+        profile.active &&
+        profile.executableMappingContract?.normalizedObservation.outputKind === "yugioh-sealed-product",
+    );
+    expect(profile).toMatchObject({
+      profileKey: "yugioh-sealed-product-reference-data",
+      ingestionUnitIdentity: { productForm: "sealed-product" },
+      executableMappingContract: { normalizedObservation: { outputKind: "yugioh-sealed-product" } },
+    });
+    if (!profile || !("ingestionUnitIdentity" in profile) || !profile.ingestionUnitIdentity) {
+      throw new Error("Expected the sealed-product profile to declare its ingestion unit.");
+    }
+    const { app } = setup(profile);
+    const unit = profile.ingestionUnitIdentity.unitKey;
+    const location = `/catalog/integrations?providerKey=ygojson&unitKey=${unit}&languageCode=en&productId=synthetic-product`;
+    const body = await getJson(app, surfacePath("daily", location));
+    expect(body.readModel.routeContext.scope).toMatchObject({ productId: "synthetic-product", expansionId: null });
+    const { skeleton, deferred } = await both(app, location);
+    for (const answer of [skeleton, deferred]) {
+      expect(answer.guidedFields).toContainEqual(
+        expect.objectContaining({ fieldName: "productId", labelFieldName: null, selectedValue: "synthetic-product" }),
+      );
+    }
   });
 });
 

@@ -422,19 +422,21 @@ export function createSourceObservationMergeCandidateRuntime({
 
   const services: CatalogMergeCandidateServices = {
     generateCatalogMergeCandidates,
-    promoteCatalogMergeCandidate: (input) =>
-      dispatchCatalogMergeCandidateCommand({
-        candidateId: input.candidateId,
-        action: "promote",
-        command: {
-          type: "PromoteCatalogMergeCandidate",
-          reason: input.reason,
-          actor: catalogMergeCandidateReviewActor(input.context),
-          promotedAt: new Date().toISOString(),
-          conflictResolutions: input.conflictResolutions,
-        },
-        context: input.context,
-      }),
+    promoteCatalogMergeCandidate: async (input) => {
+      const read = await loadCatalogMergeCandidateAtVersion(input.candidateId, input.expectedVersion);
+      const events = decideCatalogMergeCandidate(read.state, {
+        type: "PromoteCatalogMergeCandidate",
+        reason: input.reason,
+        actor: catalogMergeCandidateReviewActor(input.context),
+        promotedAt: new Date().toISOString(),
+        conflictResolutions: input.conflictResolutions,
+      });
+      const [promoted] = await commitAtReadVersions(
+        [{ candidateId: input.candidateId, read, events }],
+        input.context,
+      ).catch(staleOnConcurrencyConflict);
+      return actionResult(input.candidateId, "promote", promoted!);
+    },
     splitCatalogMergeCandidate: async (input) => {
       const splitAt = new Date().toISOString();
       const original = await loadCatalogMergeCandidateAtVersion(input.candidateId, input.expectedVersion);

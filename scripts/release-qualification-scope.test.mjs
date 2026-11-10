@@ -1255,9 +1255,8 @@ describe("registration contract drift (fail-closed registration)", () => {
     expect(releaseQualificationScopeRegistry.contracts["google-shopping-export"]).toBe("live-provider");
   });
 
-  it("registers the extracted theme contract and appearance adapter as runtime libraries", () => {
+  it("registers the neutral theme contract as a runtime library", () => {
     expect(releaseQualificationScopeRegistry.contracts["embedded-surface-theme"]).toBe("runtime-library");
-    expect(releaseQualificationScopeRegistry.infrastructure["stripe-appearance"]).toBe("runtime-library");
   });
 
   it("classifies the managed Postgres authority action and a real consumer as persistent release surfaces", () => {

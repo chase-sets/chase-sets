@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+import ts from "@chase-sets/typescript-compiler-api";
 import { renderToString } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -88,6 +91,43 @@ function loaderHeaders(value: unknown) {
 function requestPath(input: RequestInfo | URL) {
   return input instanceof Request ? new URL(input.url).pathname : new URL(String(input)).pathname;
 }
+
+function rootPolicyViolations(source: string) {
+  const violations: string[] = [];
+  const policyNames = new Set(["resolveCartCount", "resolveCurrentActorDisplay", "resolveMarketplaceRootTheme"]);
+  const visit = (node: ts.Node) => {
+    if (ts.isStringLiteralLike(node) && (node.text === "guest-buyer" || node.text === "guest-checkout.manage")) {
+      violations.push(node.text);
+    }
+    if (
+      (ts.isFunctionDeclaration(node) || ts.isVariableDeclaration(node)) &&
+      node.name &&
+      ts.isIdentifier(node.name) &&
+      policyNames.has(node.name.text)
+    ) {
+      violations.push(node.name.text);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(ts.createSourceFile("root.tsx", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX));
+  return violations;
+}
+
+describe("marketplace root holds no checkout or identity policy", () => {
+  it("contains no owner policy literals or local resolver definitions", () => {
+    expect(rootPolicyViolations(readFileSync(resolve(process.cwd(), "app/root.tsx"), "utf8"))).toEqual([]);
+  });
+
+  it.each([
+    ['const role = "guest-buyer";', "guest-buyer"],
+    ['const permission = "guest-checkout.manage";', "guest-checkout.manage"],
+    ["async function resolveCartCount() {}", "resolveCartCount"],
+    ["function resolveCurrentActorDisplay() {}", "resolveCurrentActorDisplay"],
+    ["const resolveMarketplaceRootTheme = () => null;", "resolveMarketplaceRootTheme"],
+  ])("rejects synthetic forbidden policy: %s", (source, violation) => {
+    expect(rootPolicyViolations(source)).toEqual([violation]);
+  });
+});
 
 describe("marketplace root layout", () => {
   beforeEach(() => {
@@ -340,18 +380,20 @@ describe("marketplace root layout", () => {
     });
     vi.stubGlobal("fetch", fetch);
 
-    const data = unwrapLoaderData(
-      await loader({
-        ...createLoaderArgs("https://marketplace.chasesets.com/checkout/buy/session/chk_1"),
-        request: new Request("https://marketplace.chasesets.com/checkout/buy/session/chk_1", {
-          headers: { cookie: "chase_sets_anonymous_cart=anon_cart_1" },
-        }),
+    const result = await loader({
+      ...createLoaderArgs("https://marketplace.chasesets.com/checkout/buy/session/chk_1"),
+      request: new Request("https://marketplace.chasesets.com/checkout/buy/session/chk_1", {
+        headers: { cookie: "chase_sets_anonymous_cart=anon_cart_1; chase_sets_color_mode=dark" },
       }),
-    );
+    });
+    const data = unwrapLoaderData(result);
 
     expect(data.actor?.roleKey).toBe("guest-buyer");
     expect(data.actorDisplay).toBeNull();
     expect(data.cartCount).toBe(2);
+    expect(data.colorMode).toBe("system");
+    expect(data.viewer).toBeNull();
+    expect(loaderHeaders(result).get("Set-Cookie")).toBeNull();
     expect(fetch.mock.calls.map(([input]) => new URL(String(input)).pathname)).not.toContain(
       "/api/identity/current-actor-display",
     );
@@ -360,7 +402,7 @@ describe("marketplace root layout", () => {
     );
   });
 
-  it("resolves signed-in color mode from Identity preferences and refreshes the cookie mirror", async () => {
+  it("marketplace root loader preserves context results and cookie seed headers", async () => {
     const fetch = vi.fn(async (input: RequestInfo | URL) => {
       const pathname = requestPath(input);
       if (pathname === "/api/auth/session") {
@@ -409,11 +451,75 @@ describe("marketplace root layout", () => {
     });
     const data = unwrapLoaderData(result);
 
+    expect(data.actorDisplay).toEqual({
+      account: { account_id: "acc_card_vault", display_name: "Card Vault", name: "Card Vault LLC", badges: [] },
+      membership: { membership_id: "mbr_card_vault_alex", role_key: "manager" },
+      user: { user_id: "usr_alex", display_name: "Alex Clerk", primary_email: "alex@example.com" },
+    });
+    expect(data.cartCount).toBe(1);
+    expect(data.viewer).toEqual({
+      actor: {
+        userId: "usr_alex",
+        accountId: "acc_card_vault",
+        tenantId: "acc_card_vault",
+        sessionId: "ses_alex",
+        membershipId: "mbr_card_vault_alex",
+        roleKey: "manager",
+        permissions: ["accounts.view"],
+      },
+      preferences: { colorMode: "dark", reducedMotion: "user" },
+    });
     expect(data.colorMode).toBe("dark");
     expect(data.viewer?.preferences?.colorMode).toBe("dark");
     expect(data.viewer?.preferences?.reducedMotion).toBe("user");
     expect(loaderHeaders(result).get("Set-Cookie")).toContain("chase_sets_color_mode=dark");
+
+    const equalCookieResult = await loader({
+      ...createLoaderArgs("https://marketplace.chasesets.com/account"),
+      request: new Request("https://marketplace.chasesets.com/account", {
+        headers: { cookie: "chase_sets_color_mode=dark" },
+      }),
+    });
+    expect(unwrapLoaderData(equalCookieResult)).toEqual(data);
+    expect(loaderHeaders(equalCookieResult).get("Set-Cookie")).toBeNull();
   });
+
+  it.each(["chase_sets_color_mode=light", ""])(
+    "preserves Identity failure viewer and no seed for cookie %s",
+    async (cookie) => {
+      const actor = {
+        userId: "usr_failure",
+        accountId: "acc_failure",
+        tenantId: "acc_failure",
+        sessionId: "ses_failure",
+        membershipId: "mbr_failure",
+        roleKey: "manager",
+        permissions: ["accounts.view"],
+      };
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (input: RequestInfo | URL) => {
+          const pathname = requestPath(input);
+          if (pathname === "/api/auth/session") return Response.json({ actor });
+          if (pathname.startsWith("/api/identity/")) return Response.json({}, { status: 503 });
+          if (pathname === "/api/marketplace/account/cart") return Response.json({ count: 7, items: [] });
+          throw new Error(`Unexpected request: ${pathname}`);
+        }),
+      );
+      const result = await loader({
+        ...createLoaderArgs("https://marketplace.chasesets.com/account"),
+        request: new Request("https://marketplace.chasesets.com/account", { headers: { cookie } }),
+      });
+      expect(unwrapLoaderData(result)).toMatchObject({
+        actor,
+        actorDisplay: null,
+        cartCount: 7,
+        colorMode: cookie ? "light" : "system",
+        viewer: cookie ? { actor, preferences: { colorMode: "light", reducedMotion: "user" } } : null,
+      });
+      expect(loaderHeaders(result).get("Set-Cookie")).toBeNull();
+    },
+  );
 
   it("keeps signed-out first paint on system so localStorage fallback can apply after hydration", async () => {
     const fetch = vi.fn(async (input: RequestInfo | URL) => {
@@ -438,6 +544,9 @@ describe("marketplace root layout", () => {
     const data = unwrapLoaderData(result);
 
     expect(data.actor).toBeNull();
+    expect(data.actorDisplay).toBeNull();
+    expect(data.cartCount).toBe(0);
+    expect(data.viewer).toBeNull();
     expect(data.colorMode).toBe("system");
     expect(loaderHeaders(result).get("Set-Cookie")).toBeNull();
   });

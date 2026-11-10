@@ -502,8 +502,6 @@ describe("shared E2E setup regression and enforcement", () => {
 
   it("preserves matrix, budgets, retries and success-only publication wiring", () => {
     const workflow = parseYaml(headWorkflow);
-    const gate = workflow.jobs["pr-required"].steps.find(({ name }) => name === "Verify required jobs");
-    const prior = parseYaml(execFileSync("git", ["show", `${baseSha}:${workflowPath}`], { encoding: "utf8" }));
     const job = workflow.jobs["e2e-tests"];
     expect(job.name).toBe("E2E Tests (${{ matrix.suite_batch }})");
     expect(job["timeout-minutes"]).toBe(25);
@@ -511,12 +509,43 @@ describe("shared E2E setup regression and enforcement", () => {
       "fail-fast": false,
       matrix: { suite_batch: "${{ fromJson(needs['change-scope'].outputs.e2e_suite_batches_json) }}" },
     });
-    expect(job.steps).toEqual(prior.jobs["e2e-tests"].steps);
-    expect(gate).toEqual(prior.jobs["pr-required"].steps.find(({ name }) => name === "Verify required jobs"));
     expect(job.steps.find(({ id }) => id === "e2e-producer")["continue-on-error"]).toBeUndefined();
     expect(job.steps.find(({ name }) => name === "Upload successful responsive evidence").if).toBe(
       "steps.responsive-evidence.outputs.publish == 'true'",
     );
+
+    const pinned = {
+      landing: "ff0d9dba9bec81852185bf0a76caac58e2eeb102",
+      parent: "8f227bbda3c2a3379c694d41f3c2a6b4286a7193",
+      baseline: baseSha,
+    };
+    for (const [role, sha] of Object.entries(pinned)) {
+      expect(sha, `E2E_NEUTRALITY_PINNED_ROLE_INVALID: ${role}`).toMatch(/^[a-f0-9]{40}$/);
+      expect(
+        spawnSync("git", ["cat-file", "-e", `${sha}^{commit}`], { encoding: "utf8" }).status,
+        `E2E_NEUTRALITY_OBJECT_MISSING: ${role}`,
+      ).toBe(0);
+    }
+    const parents = execFileSync("git", ["show", "-s", "--format=%P", pinned.landing], { encoding: "utf8" })
+      .trim()
+      .split(" ");
+    expect(parents, "E2E_NEUTRALITY_PARENTAGE_MISMATCH").toEqual([pinned.parent]);
+    const rows = execFileSync("git", ["diff", "--no-renames", "--name-status", pinned.parent, pinned.landing], {
+      encoding: "utf8",
+      maxBuffer: GIT_LISTING_MAX_BUFFER,
+    })
+      .trim()
+      .split(/\r?\n/);
+    expect(rows, "E2E_NEUTRALITY_CHANGED_ROWS_MISMATCH").toEqual([
+      "M\tscripts/change-scope.test.mjs",
+      "M\tscripts/ci-gate-plan.test.mjs",
+      "M\tscripts/e2e-suites.mjs",
+      "M\tscripts/fixtures/ci-e2e-selection.json",
+    ]);
+    for (const [role, sha] of Object.entries(pinned)) {
+      const blob = execFileSync("git", ["rev-parse", `${sha}:${workflowPath}`], { encoding: "utf8" }).trim();
+      expect(blob, `E2E_NEUTRALITY_WORKFLOW_BLOB_MISMATCH: ${role}`).toBe("849088b6d52a1dd508985ec337c4a83ff19988ae");
+    }
   });
 
   it.each(["failure", "skipped"])("publishes no responsive evidence for a selected %s producer", async (outcome) => {

@@ -16,7 +16,6 @@ import { scrydexOnePieceSealedProductProviderProfile } from "../api/providers/sc
 import { scrydexOnePieceSealedProductSourceObservationMappingContract } from "../api/providers/scrydex/one-piece-executable-mapping-contract";
 import type { CatalogProviderIntegrationProfile } from "../api/providers/profile-types";
 import type { CatalogProviderExecutableMappingContract } from "../api/providers/provider-integration-mapping-contract";
-import { guidedSourceScopeFields } from "./primary-workbench-source-scope-fields";
 import { scopeContextFromFormData, scopeContextToIntegrationJobScope } from "./primary-workbench-scope-context";
 
 function sealedProductProfile(): CatalogProviderProfileVersionReview {
@@ -65,6 +64,44 @@ function activeProfileReview(
 describe("Catalog source-scope workset", () => {
   afterEach(() => cleanup());
 
+  // Issue #11142: every row owns its promotion identity, even at equal coordinates.
+  it("returns each equal-coordinate unit's own promotion descriptor without page filters", () => {
+    const profiles = magicProfiles();
+    const model = buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
+      requestUrl:
+        "https://admin.example/catalog/integrations?providerKey=mtgjson&unitKey=mtgjson:mtg:set:reference-data&languageCode=en&productLineId=magic&productLineName=Magic%3A%20The%20Gathering&expansionId=5DN&expansionName=Fifth%20Dawn&profileVersion=2026.06.19&filter.status=changed&filter.search=synthetic-search",
+      scopes: { items: magicSetScopes(), total: 3, count: 3 },
+      profileReviews: { items: profiles, total: profiles.length, count: profiles.length },
+      controlPlaneOverview: overviewForProfiles(profiles, "mtg"),
+      canManageCatalog: true,
+    });
+    expect(model.sourceScopeWorkset.units).toHaveLength(3);
+    for (const row of model.sourceScopeWorkset.units) {
+      const scope = {
+        provider: row.providerKey,
+        language: row.commandContext.languageCode,
+        productLineId: row.commandContext.productLineId,
+        expansionId: row.commandContext.expansionId ?? row.commandContext.expansionName,
+        setId: row.commandContext.expansionId ?? row.commandContext.expansionName,
+      };
+      expect(row.actions.previewPromotion.commandPreview).toEqual({
+        scope,
+        confirmation: {
+          unitKey: row.unitKey,
+          importScope: row.importScope,
+          profileVersion: row.profileVersion,
+          scope,
+        },
+        allowScopeSelection: true,
+      });
+    }
+    expect(
+      new Set(
+        model.sourceScopeWorkset.units.map((row) => row.actions.previewPromotion.commandPreview?.confirmation.unitKey),
+      ).size,
+    ).toBe(3);
+  });
+
   it("carries two product coordinates through the active profile, real workset, guided field, URL and command form", () => {
     const profile = sealedProductProfile();
     const identities: string[] = [];
@@ -80,7 +117,10 @@ describe("Catalog source-scope workset", () => {
       expect(readModel.routeContext.scope).toMatchObject({ productId, languageCode: "en", expansionId: null });
       expect(readModel.sourceOptions.pages[0]).toMatchObject({ queryKind: "sealed-products", scope: "product" });
       expect(readModel.sourceOptions.selectedUnitKey).toBe(profile.ingestionUnitKey);
-      expect(guidedSourceScopeFields(readModel)[0]).toMatchObject({ fieldName: "productId", selectedValue: productId });
+      expect(readModel.sourceOptions.guidedFields[0]).toMatchObject({
+        fieldName: "productId",
+        selectedValue: productId,
+      });
       const row = readModel.sourceScopeWorkset.units.find((unit) => unit.unitKey === profile.ingestionUnitKey)!;
       expect(row.commandContext.productId).toBe(productId);
       expect(
@@ -146,7 +186,7 @@ describe("Catalog source-scope workset", () => {
 
     expect(readModel.routeContext.scope?.productId).toBeNull();
     expect(readModel.sourceOptions.pages.some((page) => page.scope === "product")).toBe(false);
-    expect(guidedSourceScopeFields(readModel).some((field) => field.fieldName === "productId")).toBe(false);
+    expect(readModel.sourceOptions.guidedFields.some((field) => field.fieldName === "productId")).toBe(false);
     const unit = readModel.sourceScopeWorkset.units.find((candidate) => candidate.unitKey === profile.ingestionUnitKey);
     expect(unit).toBeDefined();
     expect(unit?.commandContext.productId).toBeNull();

@@ -117,6 +117,175 @@ describe("source observation merge candidate bounded stream contracts", () => {
   });
 });
 
+describe("source observation merge candidate version-bound promote", () => {
+  it("approves a fresh conflict-resolving snapshot with the supplied review evidence", async () => {
+    const harness = createHarness();
+    const generated = (await harness.generate()).candidates[0]!;
+    const candidate = await harness.seedCandidate("cand_conflicting", {
+      ...generated.snapshot,
+      conflicts: [
+        {
+          code: "name-conflict",
+          severity: "blocking",
+          message: "Choose name",
+          fieldPath: "name",
+          observationIds: [generated.snapshot.membership[0]!.observationId],
+          existingValue: "Old",
+          proposedValue: "New",
+        },
+      ],
+    });
+    const conflictResolutions = [
+      {
+        conflictCode: "name-conflict",
+        fieldPath: "name",
+        observationIds: [generated.snapshot.membership[0]!.observationId],
+        chosenValue: "New",
+        reason: "Correct printed name",
+      },
+    ];
+    const result = await harness.services.promoteCatalogMergeCandidate({
+      candidateId: candidate.candidateId,
+      expectedVersion: candidate.version,
+      reason: "Approve reviewed candidate",
+      conflictResolutions,
+      context,
+    });
+    expect(result.status).toBe("promoted");
+    const events = harness.streams.get(catalogMergeCandidateStreamId(candidate.candidateId))!;
+    expect(events.map((event) => event.eventType)).toEqual([
+      "catalog.merge-candidate.created",
+      "catalog.merge-candidate.promoted",
+    ]);
+    expect(events.at(-1)?.payload).toMatchObject({
+      audit: {
+        reason: "Approve reviewed candidate",
+        conflictResolutions,
+        actor: { userId: "usr_reviewer", accountId: "acc_catalog" },
+      },
+    });
+  });
+
+  it.each(["refresh", "edit", "split"] as const)(
+    "refuses promote after a competing %s before load without approving the newer snapshot",
+    async (change) => {
+      const harness = createHarness();
+      const generated = (await harness.generate()).candidates[0]!;
+      const candidate =
+        change === "split"
+          ? await harness.seedCandidate("cand_promote_split", {
+              ...generated.snapshot,
+              proposedExternalCatalogItemReferences: generated.snapshot.membership.map((member) => ({
+                providerKey: member.providerKey,
+                externalKey: member.externalKey,
+              })),
+            })
+          : generated;
+      const streamId = catalogMergeCandidateStreamId(candidate.candidateId);
+      const expectedVersion = harness.streams.get(streamId)!.length;
+      if (change === "refresh") await harness.generate();
+      else if (change === "edit")
+        await harness.services.updateCatalogMergeCandidate({
+          candidateId: candidate.candidateId,
+          expectedVersion,
+          edit: { catalogItemId: "cat_competing" },
+          reason: "Competing edit",
+          context,
+        });
+      else
+        await harness.services.splitCatalogMergeCandidate({
+          candidateId: candidate.candidateId,
+          expectedVersion,
+          splitObservationIds: [candidate.snapshot.membership[1]!.observationId],
+          reason: "Competing split",
+          context,
+        });
+      const before = [...harness.streams.get(streamId)!];
+      const app = buildApp({
+        promoteCatalogMergeCandidate: harness.services.promoteCatalogMergeCandidate,
+      } as SourceObservationRouteServices);
+
+      const response = await app.request(
+        `/source-observations/admin/merge-candidates/${candidate.candidateId}/promote`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ reason: "Approve reviewed snapshot", expectedVersion }),
+        },
+      );
+
+      expect(response.status).toBe(409);
+      await expect(response.json()).resolves.toMatchObject({ error: { code: "stale_merge_candidate" } });
+      expect(harness.streams.get(streamId)).toEqual(before);
+    },
+  );
+
+  it("refuses promote after a competing edit between load and append, preserving only the winning write", async () => {
+    const harness = createHarness();
+    const candidate = (await harness.generate()).candidates[0]!;
+    const streamId = catalogMergeCandidateStreamId(candidate.candidateId);
+    const expectedVersion = harness.streams.get(streamId)!.length;
+    const append = harness.eventStore.appendToStream.bind(harness.eventStore);
+    vi.spyOn(harness.eventStore, "appendToStream").mockImplementationOnce(async (input) => {
+      await harness.services.updateCatalogMergeCandidate({
+        candidateId: candidate.candidateId,
+        expectedVersion,
+        edit: { catalogItemId: "cat_competing" },
+        reason: "Competing edit",
+        context,
+      });
+      return append(input);
+    });
+
+    await expect(
+      harness.services.promoteCatalogMergeCandidate({
+        candidateId: candidate.candidateId,
+        expectedVersion,
+        reason: "Approve reviewed snapshot",
+        context,
+      }),
+    ).rejects.toMatchObject({ code: "stale_merge_candidate" });
+    expect(harness.streams.get(streamId)!.map((event) => event.eventType)).toEqual([
+      "catalog.merge-candidate.created",
+      "catalog.merge-candidate.updated",
+    ]);
+    const promoted = await harness.services.promoteCatalogMergeCandidate({
+      candidateId: candidate.candidateId,
+      expectedVersion: expectedVersion + 1,
+      reason: "Approve fresh snapshot",
+      context,
+    });
+    expect(promoted.status).toBe("promoted");
+    expect(promoted.snapshot?.matches.catalogItemId).toBe("cat_competing");
+    expect(harness.streams.get(streamId)!.map((event) => event.eventType)).toEqual([
+      "catalog.merge-candidate.created",
+      "catalog.merge-candidate.updated",
+      "catalog.merge-candidate.promoted",
+    ]);
+  });
+
+  it("keeps the domain refusal for an ineligible candidate at the matching version", async () => {
+    const harness = createHarness();
+    const candidate = (await harness.generate()).candidates[0]!;
+    await harness.services.ignoreCatalogMergeCandidate({
+      candidateId: candidate.candidateId,
+      reason: "Reject candidate",
+      context,
+    });
+    const streamId = catalogMergeCandidateStreamId(candidate.candidateId);
+    const expectedVersion = harness.streams.get(streamId)!.length;
+    await expect(
+      harness.services.promoteCatalogMergeCandidate({
+        candidateId: candidate.candidateId,
+        expectedVersion,
+        reason: "Approve reviewed snapshot",
+        context,
+      }),
+    ).rejects.toThrow("Terminal Catalog Merge Candidates cannot be changed.");
+    expect(harness.streams.get(streamId)).toHaveLength(expectedVersion);
+  });
+});
+
 describe("source observation merge candidate update and split", () => {
   it("applies an update's edit to the stored snapshot at the version the page read", async () => {
     const harness = createHarness();
@@ -255,6 +424,7 @@ describe("source observation merge candidate edit", () => {
     // Promotion carries the corrected value.
     const promoted = await harness.services.promoteCatalogMergeCandidate({
       candidateId: original.candidateId,
+      expectedVersion: harness.streams.get(streamId)!.length,
       reason: "Promote the corrected candidate",
       context,
     });

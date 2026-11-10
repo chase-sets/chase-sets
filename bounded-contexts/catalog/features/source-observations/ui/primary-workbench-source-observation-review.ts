@@ -2,6 +2,7 @@ import type { ListResponse } from "@chase-sets/http/responses";
 import { t } from "@chase-sets/localization";
 import type {
   CatalogPrimaryWorkbenchActionReadModel,
+  CatalogPrimaryWorkbenchPromotionCommandPreview,
   CatalogPrimaryWorkbenchBlockerCategory,
   CatalogPrimaryWorkbenchProductContentsEvidenceLine,
   CatalogPrimaryWorkbenchProductContentsEvidenceReview,
@@ -104,18 +105,23 @@ export function projectPromotionReceipt(receipt: SourceObservationPromotionRecei
 export function promotionReceiptMatchesContext(
   receipt: SourceObservationPromotionReceipt,
   context: CatalogPrimaryWorkbenchRouteContext,
+  commandPreview: CatalogPrimaryWorkbenchPromotionCommandPreview | null | undefined,
 ): boolean {
   const selection = receipt.selection;
-  const scope = scopeContextToObservationFilterScope(
-    scopeContextFromRouteContext(context),
-    context.sourceObservationFilters,
-  );
+  if (!commandPreview) return false;
+  const { scope, confirmation } = commandPreview;
   return (
+    (selection.observationIds.length > 0 || commandPreview.allowScopeSelection) &&
     selection.providerKey === context.providerKey &&
     selection.unitKey === context.unitKey &&
     selection.importScope === context.importScope &&
     selection.profileVersion === context.profileVersion &&
     selection.scopeRecordId === (context.scopeRecordId ?? null) &&
+    selection.unitKey === confirmation.unitKey &&
+    selection.importScope === confirmation.importScope &&
+    selection.profileVersion === confirmation.profileVersion &&
+    JSON.stringify(projectPromotionScope(selection.scope)) ===
+      JSON.stringify(projectPromotionScope(confirmation.scope)) &&
     JSON.stringify(projectPromotionScope(selection.scope)) === JSON.stringify(projectPromotionScope(scope))
   );
 }

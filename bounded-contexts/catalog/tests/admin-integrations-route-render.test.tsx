@@ -301,7 +301,8 @@ describe("Catalog integrations route", () => {
     const profileReviews = { items: [profileReview({ active: true, lifecycle: "active" })], total: 1, count: 1 };
     const requestUrl =
       "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&importScope=en:3:base:base1&profileVersion=2026.06.04";
-    mockUseLoaderData.mockReturnValue(loaderData({ data: scopes, profileReviews, requestUrl, commandFeedback: null }));
+    const data = loaderData({ data: scopes, profileReviews, requestUrl, commandFeedback: null });
+    mockUseLoaderData.mockReturnValue(data);
     mockUseRouteLoaderData.mockReturnValue({
       actor: { permissions: ["catalog.view", "catalog.manage"] },
     });
@@ -313,6 +314,8 @@ describe("Catalog integrations route", () => {
       ),
       section: "import-to-promotion",
       promotionReceipt: receipt,
+      promotionCommandPreview: data.readModel.actions.find((entry) => entry.key === "observation.promote")
+        ?.commandPreview,
     });
 
     const { rerender } = render(<IntegrationsRoute />);

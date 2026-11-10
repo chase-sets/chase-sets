@@ -1,4 +1,5 @@
 export { createCheckoutRequestApiClient } from "./support/request-support/api-client";
+export { resolveCartCount } from "./support/request-support/marketplace-root";
 export { createCheckoutInventoryReservationAuthority } from "./features/sessions/api/inventory-reservation-authority";
 export type { CheckoutSessionRow } from "./support/request-support/api-client";
 export { ACCOUNT_CART_ADD_LINE_HANDOFF } from "./support/request-support/account-cart-handoffs";
