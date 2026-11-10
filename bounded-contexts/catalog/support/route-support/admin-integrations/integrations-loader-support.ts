@@ -10,6 +10,7 @@ import type {
   CatalogPrimaryWorkbenchReadModel,
   CatalogPrimaryWorkbenchRouteContext,
 } from "../../../features/source-observations/api/primary-workbench-admin-contracts";
+import { assertPrimaryWorkbenchSourceOptions } from "../../../features/source-observations/api/admin/primary-workbench-selection-contracts";
 import type {
   CatalogPrimaryWorkbenchSurfaceKey,
   CatalogPrimaryWorkbenchSurfaceRead,
@@ -40,10 +41,28 @@ async function loadSurface(
   surface: CatalogPrimaryWorkbenchSurfaceKey,
   api: ReturnType<typeof createCatalogRequestApiClient> = createCatalogRequestApiClient(request),
 ) {
-  const surfaceRead = await api.getCatalogPrimaryWorkbenchSurface<CatalogPrimaryWorkbenchSurfaceRead>(
+  let surfaceRead = await api.getCatalogPrimaryWorkbenchSurface<CatalogPrimaryWorkbenchSurfaceRead>(
     surface,
     requestLocation(request),
   );
+  try {
+    assertPrimaryWorkbenchSourceOptions(surfaceRead.readModel.sourceOptions);
+  } catch {
+    surfaceRead = {
+      ...surfaceRead,
+      readModel: {
+        ...surfaceRead.readModel,
+        sourceOptions: {
+          ...surfaceRead.readModel.sourceOptions,
+          guidedFields: [],
+          freeTextApplicable: false,
+          contextSummary: null,
+          status: "unavailable",
+          freshness: "unavailable",
+        },
+      },
+    };
+  }
   await recordCatalogControlPlaneEvents(api, loaderTelemetryEvents(surfaceRead.readModel));
 
   return { api, surfaceRead };
@@ -127,9 +146,11 @@ async function settledSourceOptionsRead(
   request: Request,
 ): Promise<CatalogPrimaryWorkbenchReadModel["sourceOptions"] | null> {
   try {
-    return await api.getCatalogPrimaryWorkbenchDeferredSourceOptions<CatalogPrimaryWorkbenchReadModel["sourceOptions"]>(
-      requestLocation(request),
-    );
+    const sourceOptions = await api.getCatalogPrimaryWorkbenchDeferredSourceOptions<
+      CatalogPrimaryWorkbenchReadModel["sourceOptions"]
+    >(requestLocation(request));
+    assertPrimaryWorkbenchSourceOptions(sourceOptions);
+    return sourceOptions;
   } catch {
     return null;
   }

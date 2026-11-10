@@ -52,6 +52,7 @@ import type {
   CatalogPrimaryWorkbenchRouteContext,
   CatalogPrimaryWorkbenchRouteContextKey,
   CatalogPrimaryWorkbenchScopeContext,
+  CatalogPrimaryWorkbenchGuidedScopeField,
   CatalogPrimaryWorkbenchSourceOptionKindReadModel,
   CatalogPrimaryWorkbenchSourceOptionPageReadModel,
   CatalogPrimaryWorkbenchSourceOptionPageState,
@@ -691,6 +692,9 @@ describe("Catalog primary workbench admin contracts", () => {
         ],
       },
       sourceOptions: {
+        guidedFields: [],
+        freeTextApplicable: true,
+        contextSummary: null,
         status: "ready",
         freshness: "fresh",
         generatedAt: "2026-06-09T00:00:00.000Z",
@@ -1731,6 +1735,109 @@ describe("Catalog primary workbench admin contracts", () => {
     }
   });
 
+  it("rejects absent and malformed guided import scope answers", () => {
+    const base = minimalWorkbenchComposite();
+    for (const patch of [
+      { guidedFields: undefined },
+      { freeTextApplicable: undefined },
+      { contextSummary: undefined },
+    ]) {
+      const candidate = structuredClone(base);
+      Object.assign(candidate.sourceOptions!, patch);
+      expect(() => validateCatalogPrimaryWorkbenchReadModelContract(candidate)).toThrow(
+        "Primary workbench source options must answer guided fields, free text and context summary.",
+      );
+    }
+    for (const field of [
+      null,
+      { fieldName: "legacy" },
+      {
+        queryKind: "synthetic",
+        scope: "series",
+        label: "Synthetic",
+        fieldName: "seriesId",
+        labelFieldName: null,
+        options: [null],
+        selectedValue: "",
+        selectedLabel: "",
+        parentMissing: false,
+        parentScope: null,
+        parentDiagnostic: null,
+      },
+    ]) {
+      const candidate = structuredClone(base);
+      Object.assign(candidate.sourceOptions!, { guidedFields: [field] });
+      expect(() => validateCatalogPrimaryWorkbenchReadModelContract(candidate)).toThrow(
+        "Primary workbench guided scope fields must preserve typed selections and parent diagnostics.",
+      );
+    }
+    for (const option of [
+      null,
+      "synthetic",
+      1,
+      true,
+      { value: 1, label: "V", description: null, parentValue: null },
+      { value: "v", label: true, description: null, parentValue: null },
+      { value: "v", label: "V", description: 1, parentValue: null },
+      { value: "v", label: "V", description: null, parentValue: true },
+    ]) {
+      const candidate = minimalWorkbenchComposite();
+      const field: CatalogPrimaryWorkbenchGuidedScopeField = {
+        queryKind: "synthetic",
+        scope: "series",
+        label: "Synthetic",
+        fieldName: "seriesId",
+        labelFieldName: null,
+        options: [],
+        selectedValue: "",
+        selectedLabel: "",
+        parentMissing: false,
+        parentScope: null,
+        parentDiagnostic: null,
+      };
+      Object.assign(field, { options: [option] });
+      Object.assign(candidate.sourceOptions!, { guidedFields: [field] });
+      expect(() => validateCatalogPrimaryWorkbenchReadModelContract(candidate)).toThrow(
+        "Primary workbench guided scope fields must preserve typed selections and parent diagnostics.",
+      );
+    }
+  });
+
+  it("rejects non-string guided scope metadata", () => {
+    const field: CatalogPrimaryWorkbenchGuidedScopeField = {
+      queryKind: "synthetic",
+      scope: "series",
+      label: "Synthetic",
+      fieldName: "seriesId",
+      labelFieldName: null,
+      options: [{ value: "v", label: "V", description: null, parentValue: null }],
+      selectedValue: "",
+      selectedLabel: "",
+      parentMissing: false,
+      parentScope: null,
+      parentDiagnostic: null,
+    };
+    const valid = minimalWorkbenchComposite();
+    Object.assign(valid.sourceOptions!, { guidedFields: [field] });
+    expect(() => validateCatalogPrimaryWorkbenchReadModelContract(valid)).not.toThrow();
+    for (const patch of [
+      { queryKind: 1 },
+      { scope: true },
+      { label: { synthetic: true } },
+      { queryKind: "" },
+      { scope: "" },
+      { label: "" },
+    ]) {
+      const candidate = minimalWorkbenchComposite();
+      const malformedField = structuredClone(field);
+      Object.assign(malformedField, patch);
+      Object.assign(candidate.sourceOptions!, { guidedFields: [malformedField] });
+      expect(() => validateCatalogPrimaryWorkbenchReadModelContract(candidate)).toThrow(
+        "Primary workbench guided scope fields must preserve typed selections and parent diagnostics.",
+      );
+    }
+  });
+
   it("workbench exported symbol and validator ownership is complete", () => {
     const adminFiles = readdirSync(adminDirectory).filter((file) => file.startsWith("primary-workbench-"));
     expect(adminFiles.filter((file) => file.endsWith("-implementation.ts"))).toEqual([]);
@@ -1742,6 +1849,7 @@ describe("Catalog primary workbench admin contracts", () => {
         // The API's composition of the workbench for one surface; it builds the read model the
         // contracts above validate rather than owning any of them.
         "primary-workbench-surface-read.ts",
+        "primary-workbench-import-scope-controls.ts",
       ].sort(),
     );
 
@@ -1778,7 +1886,7 @@ describe("Catalog primary workbench admin contracts", () => {
     ).toBe("");
     const reexports = facadeReexports(facadeSource);
     expect(reexports.filter((entry) => !entry.typeOnly).flatMap((entry) => entry.names)).toHaveLength(13);
-    expect(reexports.filter((entry) => entry.typeOnly).flatMap((entry) => entry.names)).toHaveLength(112);
+    expect(reexports.filter((entry) => entry.typeOnly).flatMap((entry) => entry.names)).toHaveLength(113);
     expect(
       reexports
         .flatMap(({ typeOnly, names, from }) => names.map((name) => `${typeOnly ? "type " : ""}${name} <- ${from}`))
@@ -1802,7 +1910,7 @@ describe("Catalog primary workbench admin contracts", () => {
       }
     }
     expect(thrownMessages).toEqual(baselineThrownMessages);
-    expect(Object.values(baselineThrownMessages).flat()).toHaveLength(177);
+    expect(Object.values(baselineThrownMessages).flat()).toHaveLength(179);
     expect(Object.values(baselineThrownMessages).filter((messages) => messages.length > 0)).toHaveLength(19);
 
     // The base composite omits only the optional promotion result, which the composer accepts.
@@ -3036,6 +3144,9 @@ function minimalWorkbenchComposite(): Partial<CatalogPrimaryWorkbenchReadModel> 
     importJobs: { jobs: [] },
     conflictResolution: conflictResolutionFixture(),
     sourceOptions: {
+      guidedFields: [],
+      freeTextApplicable: true,
+      contextSummary: null,
       status: "ready",
       freshness: "fresh",
       optionKinds: [],
@@ -3154,6 +3265,7 @@ const workbenchOwnerCensus: Readonly<Record<WorkbenchOwner, WorkbenchOwnerCensus
   },
   "selection-contracts": {
     types: [
+      "CatalogPrimaryWorkbenchGuidedScopeField",
       "CatalogPrimaryWorkbenchContractVersion",
       "CatalogPrimaryWorkbenchProviderScopeReadModel",
       "CatalogPrimaryWorkbenchProviderTransportCategory",
@@ -3466,6 +3578,8 @@ const baselineThrownMessages: Readonly<Record<string, readonly string[]>> = {
   ],
   assertPrimaryWorkbenchSourceOptions: [
     "Primary workbench source options contract is required.",
+    "Primary workbench source options must answer guided fields, free text and context summary.",
+    "Primary workbench guided scope fields must preserve typed selections and parent diagnostics.",
     "Primary workbench source options status must be explicit.",
     "Primary workbench source options freshness must be explicit.",
     "Primary workbench source option kinds must expose canonical query metadata.",

@@ -25,6 +25,7 @@ import {
   scopeKey,
 } from "./primary-workbench-scope-context";
 import { sourceOptionDisplayLabel } from "./primary-workbench-source-option-labels";
+import { buildCatalogPrimaryWorkbenchImportScopeControls } from "../api/admin/primary-workbench-import-scope-controls";
 
 export type CatalogPrimaryWorkbenchSourceOptionRequest = Readonly<{
   providerKey: string;
@@ -132,6 +133,7 @@ export function buildCatalogPrimaryWorkbenchSourceOptions(input: {
     summary,
     optionKinds,
     pages,
+    ...buildCatalogPrimaryWorkbenchImportScopeControls(input.routeContext, { optionKinds, pages }),
     refresh: {
       state: actionStateForBlockers(refreshBlockers, input.canManage ? "available" : "denied"),
       blockers: refreshBlockers,

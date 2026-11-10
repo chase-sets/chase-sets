@@ -16,7 +16,6 @@ import { scrydexOnePieceSealedProductProviderProfile } from "../api/providers/sc
 import { scrydexOnePieceSealedProductSourceObservationMappingContract } from "../api/providers/scrydex/one-piece-executable-mapping-contract";
 import type { CatalogProviderIntegrationProfile } from "../api/providers/profile-types";
 import type { CatalogProviderExecutableMappingContract } from "../api/providers/provider-integration-mapping-contract";
-import { guidedSourceScopeFields } from "./primary-workbench-source-scope-fields";
 import { scopeContextFromFormData, scopeContextToIntegrationJobScope } from "./primary-workbench-scope-context";
 
 function sealedProductProfile(): CatalogProviderProfileVersionReview {
@@ -118,7 +117,10 @@ describe("Catalog source-scope workset", () => {
       expect(readModel.routeContext.scope).toMatchObject({ productId, languageCode: "en", expansionId: null });
       expect(readModel.sourceOptions.pages[0]).toMatchObject({ queryKind: "sealed-products", scope: "product" });
       expect(readModel.sourceOptions.selectedUnitKey).toBe(profile.ingestionUnitKey);
-      expect(guidedSourceScopeFields(readModel)[0]).toMatchObject({ fieldName: "productId", selectedValue: productId });
+      expect(readModel.sourceOptions.guidedFields[0]).toMatchObject({
+        fieldName: "productId",
+        selectedValue: productId,
+      });
       const row = readModel.sourceScopeWorkset.units.find((unit) => unit.unitKey === profile.ingestionUnitKey)!;
       expect(row.commandContext.productId).toBe(productId);
       expect(
@@ -184,7 +186,7 @@ describe("Catalog source-scope workset", () => {
 
     expect(readModel.routeContext.scope?.productId).toBeNull();
     expect(readModel.sourceOptions.pages.some((page) => page.scope === "product")).toBe(false);
-    expect(guidedSourceScopeFields(readModel).some((field) => field.fieldName === "productId")).toBe(false);
+    expect(readModel.sourceOptions.guidedFields.some((field) => field.fieldName === "productId")).toBe(false);
     const unit = readModel.sourceScopeWorkset.units.find((candidate) => candidate.unitKey === profile.ingestionUnitKey);
     expect(unit).toBeDefined();
     expect(unit?.commandContext.productId).toBeNull();

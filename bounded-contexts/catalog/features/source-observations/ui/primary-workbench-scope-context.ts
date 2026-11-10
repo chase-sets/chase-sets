@@ -1,4 +1,5 @@
 import type {
+  CatalogPrimaryWorkbenchGuidedScopeField,
   CatalogPrimaryWorkbenchRouteContext,
   CatalogPrimaryWorkbenchScopeContext,
   CatalogPrimaryWorkbenchPromotionCommandPreview,
@@ -11,16 +12,7 @@ import type { SourceObservationIntegrationJobScope, SourceObservationIntegration
 
 export { canSelectStandaloneProductCoordinate } from "../api/providers/product-coordinate-import";
 
-export type CatalogPrimaryWorkbenchScopeQueryKey =
-  | "productId"
-  | "languageCode"
-  | "productLineId"
-  | "productLineName"
-  | "seriesId"
-  | "seriesName"
-  | "expansionId"
-  | "expansionName"
-  | "status";
+export type CatalogPrimaryWorkbenchScopeQueryKey = CatalogPrimaryWorkbenchGuidedScopeField["fieldName"];
 
 export const catalogPrimaryWorkbenchScopeQueryKeys: readonly CatalogPrimaryWorkbenchScopeQueryKey[] = [
   "productId",
