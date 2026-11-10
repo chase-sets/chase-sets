@@ -64,7 +64,7 @@ function activeProfileReview(
 describe("Catalog source-scope workset", () => {
   afterEach(() => cleanup());
 
-  // Issue #11142: every row owns its promotion identity, even at equal coordinates.
+  // Issue #11152: equal-coordinate rows keep their own command identity and unchanged form transport.
   it("returns each equal-coordinate unit's own promotion descriptor without page filters", () => {
     const profiles = magicProfiles();
     const model = buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
@@ -76,6 +76,7 @@ describe("Catalog source-scope workset", () => {
       canManageCatalog: true,
     });
     expect(model.sourceScopeWorkset.units).toHaveLength(3);
+    render(<CatalogSourceScopeWorksetModule readModel={model} />);
     for (const row of model.sourceScopeWorkset.units) {
       const scope = {
         provider: row.providerKey,
@@ -94,6 +95,30 @@ describe("Catalog source-scope workset", () => {
         },
         allowScopeSelection: true,
       });
+      expect(row.commandScopes).not.toBeNull();
+      expect(row.commandScopes?.import).toEqual({
+        provider: row.providerKey,
+        ingestionUnitKey: row.unitKey,
+        language: "en",
+        productLineId: row.commandContext.productLineId,
+        setId: row.commandContext.expansionId,
+        setName: "Fifth Dawn",
+      });
+      expect(row.commandScopes?.reapply).toEqual({ ...scope, ingestionUnitKey: row.unitKey });
+      for (const intent of ["scope.import", "observation.reapply"]) {
+        const form = sourceScopeCommandForm(intent, row.unitKey!)!;
+        expect(form).not.toBeNull();
+        expect(form.getAttribute("action")).toBe(row.currentWorkbenchHref);
+        for (const [key, value] of Object.entries(row.commandContext)) {
+          expect(hiddenValue(form, key), key).toBe(String(value ?? ""));
+        }
+        expect(hiddenValue(form, "seriesId")).toBe("");
+        expect(hiddenValue(form, "selectedObservationIds")).toBe("");
+        expect(form.querySelector('[name="status"], [name^="filter."]')).toBeNull();
+        const query = new URL(row.currentWorkbenchHref, "https://admin.example").searchParams;
+        expect(query.has("status")).toBe(false);
+        expect([...query.keys()].some((key) => key.startsWith("filter."))).toBe(false);
+      }
     }
     expect(
       new Set(
@@ -662,6 +687,7 @@ describe("Catalog source-scope workset", () => {
       state: "disabled",
       blockers: ["import-scope-required"],
     });
+    expect(unit?.commandScopes).toBeNull();
 
     render(<CatalogSourceScopeWorksetModule readModel={readModel} />);
 

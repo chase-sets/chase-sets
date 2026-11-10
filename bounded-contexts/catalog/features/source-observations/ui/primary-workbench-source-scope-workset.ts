@@ -429,23 +429,18 @@ function sourceScopeUnitRow(
       "import-to-promotion",
     ),
     commandContext,
-    // What admin-web's handlers post for this row's form: its scope with the page's review filters.
+    // The row form posts currentWorkbenchHref plus commandContext: no review filters and no status.
     commandScopes: importScope
       ? {
-          import: integrationJobScopeForUnit(
-            routeScope,
-            candidate.unitKey,
-            input.routeContext.sourceObservationFilters,
-          ),
+          import: integrationJobScopeForUnit(routeScope, candidate.unitKey),
           reapply: reapplyScopeForUnit(
             scopeContextFromRouteContext({
               providerKey: candidate.providerKey,
               importScope,
-              scope: routeScope,
-              sourceObservationFilters: input.routeContext.sourceObservationFilters,
+              scope: { ...routeScope, status: null },
+              sourceObservationFilters: {},
             }),
             candidate.unitKey,
-            input.routeContext.sourceObservationFilters,
           ),
         }
       : null,
