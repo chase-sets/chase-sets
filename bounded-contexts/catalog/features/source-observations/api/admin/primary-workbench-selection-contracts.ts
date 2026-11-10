@@ -349,11 +349,18 @@ export function assertPrimaryWorkbenchSourceOptions(
     if (
       !field ||
       typeof field !== "object" ||
-      !field.queryKind ||
-      !field.scope ||
-      !field.label ||
+      typeof field.queryKind !== "string" ||
+      field.queryKind.length === 0 ||
+      typeof field.scope !== "string" ||
+      field.scope.length === 0 ||
+      typeof field.label !== "string" ||
+      field.label.length === 0 ||
+      typeof field.fieldName !== "string" ||
       !queryFields.includes(field.fieldName) ||
-      !(field.labelFieldName === null || queryFields.includes(field.labelFieldName)) ||
+      !(
+        field.labelFieldName === null ||
+        (typeof field.labelFieldName === "string" && queryFields.includes(field.labelFieldName))
+      ) ||
       !Array.isArray(field.options) ||
       typeof field.selectedValue !== "string" ||
       typeof field.selectedLabel !== "string" ||
@@ -361,8 +368,9 @@ export function assertPrimaryWorkbenchSourceOptions(
       !(field.parentScope === null || typeof field.parentScope === "string") ||
       !(field.parentDiagnostic === null || typeof field.parentDiagnostic === "string") ||
       field.options.some(
-        (option) =>
+        (option: CatalogPrimaryWorkbenchGuidedScopeField["options"][number]) =>
           !option ||
+          typeof option !== "object" ||
           typeof option.value !== "string" ||
           typeof option.label !== "string" ||
           !(option.description === null || typeof option.description === "string") ||

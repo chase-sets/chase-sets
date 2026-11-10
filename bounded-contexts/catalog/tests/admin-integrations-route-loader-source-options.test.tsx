@@ -138,13 +138,11 @@ describe("Catalog integrations route", () => {
       };
       const resolved = { ...skeleton, contextSummary: "Synthetic loader resolved" };
       mockCreateCatalogRequestApiClient.mockReturnValue({
-        getCatalogPrimaryWorkbenchSurface: vi
-          .fn()
-          .mockResolvedValue({
-            readModel: { ...model, sourceOptions: skeleton },
-            catalogSyncScope: null,
-            readModelFailures: [],
-          }),
+        getCatalogPrimaryWorkbenchSurface: vi.fn().mockResolvedValue({
+          readModel: { ...model, sourceOptions: skeleton },
+          catalogSyncScope: null,
+          readModelFailures: [],
+        }),
         getCatalogPrimaryWorkbenchDeferredSourceOptions:
           state === "rejected"
             ? vi.fn().mockRejectedValue(new Error("Synthetic deferred failure"))
@@ -170,13 +168,11 @@ describe("Catalog integrations route", () => {
       canManageCatalog: true,
     });
     mockCreateCatalogRequestApiClient.mockReturnValue({
-      getCatalogPrimaryWorkbenchSurface: vi
-        .fn()
-        .mockResolvedValue({
-          readModel: { ...model, sourceOptions: { ...model.sourceOptions, guidedFields: undefined } },
-          catalogSyncScope: null,
-          readModelFailures: [],
-        }),
+      getCatalogPrimaryWorkbenchSurface: vi.fn().mockResolvedValue({
+        readModel: { ...model, sourceOptions: { ...model.sourceOptions, guidedFields: undefined } },
+        catalogSyncScope: null,
+        readModelFailures: [],
+      }),
       getCatalogPrimaryWorkbenchDeferredSourceOptions: vi
         .fn()
         .mockRejectedValue(new Error("Synthetic absent endpoint")),

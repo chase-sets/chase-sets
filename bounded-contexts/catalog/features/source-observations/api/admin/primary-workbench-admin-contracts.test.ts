@@ -50,6 +50,7 @@ import type {
   CatalogPrimaryWorkbenchRouteContext,
   CatalogPrimaryWorkbenchRouteContextKey,
   CatalogPrimaryWorkbenchScopeContext,
+  CatalogPrimaryWorkbenchGuidedScopeField,
   CatalogPrimaryWorkbenchSourceOptionKindReadModel,
   CatalogPrimaryWorkbenchSourceOptionPageReadModel,
   CatalogPrimaryWorkbenchSourceOptionPageState,
@@ -1734,6 +1735,71 @@ describe("Catalog primary workbench admin contracts", () => {
     ]) {
       const candidate = structuredClone(base);
       Object.assign(candidate.sourceOptions!, { guidedFields: [field] });
+      expect(() => validateCatalogPrimaryWorkbenchReadModelContract(candidate)).toThrow(
+        "Primary workbench guided scope fields must preserve typed selections and parent diagnostics.",
+      );
+    }
+    for (const option of [
+      null,
+      "synthetic",
+      1,
+      true,
+      { value: 1, label: "V", description: null, parentValue: null },
+      { value: "v", label: true, description: null, parentValue: null },
+      { value: "v", label: "V", description: 1, parentValue: null },
+      { value: "v", label: "V", description: null, parentValue: true },
+    ]) {
+      const candidate = minimalWorkbenchComposite();
+      const field: CatalogPrimaryWorkbenchGuidedScopeField = {
+        queryKind: "synthetic",
+        scope: "series",
+        label: "Synthetic",
+        fieldName: "seriesId",
+        labelFieldName: null,
+        options: [],
+        selectedValue: "",
+        selectedLabel: "",
+        parentMissing: false,
+        parentScope: null,
+        parentDiagnostic: null,
+      };
+      Object.assign(field, { options: [option] });
+      Object.assign(candidate.sourceOptions!, { guidedFields: [field] });
+      expect(() => validateCatalogPrimaryWorkbenchReadModelContract(candidate)).toThrow(
+        "Primary workbench guided scope fields must preserve typed selections and parent diagnostics.",
+      );
+    }
+  });
+
+  it("rejects non-string guided scope metadata", () => {
+    const field: CatalogPrimaryWorkbenchGuidedScopeField = {
+      queryKind: "synthetic",
+      scope: "series",
+      label: "Synthetic",
+      fieldName: "seriesId",
+      labelFieldName: null,
+      options: [{ value: "v", label: "V", description: null, parentValue: null }],
+      selectedValue: "",
+      selectedLabel: "",
+      parentMissing: false,
+      parentScope: null,
+      parentDiagnostic: null,
+    };
+    const valid = minimalWorkbenchComposite();
+    Object.assign(valid.sourceOptions!, { guidedFields: [field] });
+    expect(() => validateCatalogPrimaryWorkbenchReadModelContract(valid)).not.toThrow();
+    for (const patch of [
+      { queryKind: 1 },
+      { scope: true },
+      { label: { synthetic: true } },
+      { queryKind: "" },
+      { scope: "" },
+      { label: "" },
+    ]) {
+      const candidate = minimalWorkbenchComposite();
+      const malformedField = structuredClone(field);
+      Object.assign(malformedField, patch);
+      Object.assign(candidate.sourceOptions!, { guidedFields: [malformedField] });
       expect(() => validateCatalogPrimaryWorkbenchReadModelContract(candidate)).toThrow(
         "Primary workbench guided scope fields must preserve typed selections and parent diagnostics.",
       );

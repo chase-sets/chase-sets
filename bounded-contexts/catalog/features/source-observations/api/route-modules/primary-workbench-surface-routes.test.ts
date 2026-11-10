@@ -911,8 +911,16 @@ describe("Catalog HTTP guided import scope answers", () => {
   it("keeps products distinct from sets over both HTTP reads", async () => {
     const profile = catalogProviderIntegrationProfileVersions.find(
       (profile) =>
-        profile.providerKey === "ygojson" && profile.profile.supportedScopes.includes("product") && profile.active,
+        profile.providerKey === "ygojson" &&
+        profile.profile.supportedScopes.includes("product") &&
+        profile.active &&
+        profile.executableMappingContract?.normalizedObservation.outputKind === "yugioh-sealed-product",
     )!;
+    expect(profile).toMatchObject({
+      profileKey: "yugioh-sealed-product-reference-data",
+      ingestionUnitIdentity: { productForm: "sealed-product" },
+      executableMappingContract: { normalizedObservation: { outputKind: "yugioh-sealed-product" } },
+    });
     const { app } = setup(profile);
     const unit = profile.ingestionUnitIdentity!.unitKey;
     const location = `/catalog/integrations?providerKey=ygojson&unitKey=${unit}&languageCode=en&productId=synthetic-product`;
