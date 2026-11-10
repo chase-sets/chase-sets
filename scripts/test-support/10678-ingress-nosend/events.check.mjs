@@ -1,5 +1,6 @@
 // Pure event adapter controls; no collector, runner, subprocess or network execution.
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import ts from "@chase-sets/typescript-compiler-api";
@@ -36,8 +37,14 @@ import {
   measurementPublicationRehearsal,
   measurementPublicationRoles,
   validateExecutionHead,
+  bootstrapComparisonComponents,
+  bootstrapComparisonPredicates,
+  bootstrapComparisonCodes,
+  createBootstrapComparison,
+  bootstrapComparisonResult,
 } from "./inventory.mjs";
 const protocol = JSON.parse(readFileSync(new URL("./protocol.json", import.meta.url)));
+const probeFunctions = ["distribution", "validateClosureDescriptor", "scriptClosureFingerprint", "validateScriptClosure", "validateToolPin", "validateToolObservation", "compareIdentity", "identityFingerprint", "enforceExecutables", "enforceIdentityPins"];
 const head = "a".repeat(40);
 const event = {
   repository: { full_name: "chase-sets/chase-sets" },
@@ -267,6 +274,7 @@ assert.equal(
 // Resolve query/wrapper expressions from the production AST and the production role table.
 // No test-owned list of query sites can omit a new production call.
 const source = readFileSync(new URL("./inventory.mjs", import.meta.url), "utf8");
+const immutableH2Source = execFileSync("git", ["show", "7400687eb03a26212b17998145ede703340a971f:scripts/test-support/10678-ingress-nosend/inventory.mjs"], { encoding: "utf8", windowsHide: true });
 const executableRoles = [
   ...Object.values(inventoryOperations.tools),
   inventoryOperations.runtime,
@@ -1304,6 +1312,7 @@ const syntaxShape = (node) => {
 };
 // A closed writer census plus value origins: unknown writes cannot silently escape the trace.
 function identityWriteClosure(inventoryText, runnerText, pinSource = true) {
+  inventoryText = eraseProbeAnnotations(inventoryText, true);
   const rows = [];
   const productionTrees = [];
   for (const [file, text] of [
@@ -1312,7 +1321,13 @@ function identityWriteClosure(inventoryText, runnerText, pinSource = true) {
   ]) {
     const tree = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
     assert.equal(tree.parseDiagnostics.length, 0);
-    productionTrees.push(syntaxShape(tree));
+    if (file === "inventory.mjs" && pinSource) {
+      const frozen = ts.createSourceFile(file, immutableH2Source, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
+      assert.deepEqual(tree.statements.map(syntaxShape), frozen.statements.map(syntaxShape), "annotation-only whole-module AST equals immutable H2");
+      // SourceFile.text includes whitespace/comments. Retain the old exact-byte pin only
+      // after proving every normalized candidate production node equals immutable H2.
+      productionTrees.push(syntaxShape(frozen));
+    } else productionTrees.push(syntaxShape(tree));
     const all = descendants(tree, () => true);
     const declarations = all.filter((node) => ts.isVariableDeclaration(node) || ts.isParameter(node));
     const scopes = new Map();
@@ -1544,7 +1559,55 @@ for (const row of writerClosure.filter((row) => row.origins))
   console.log(`P1 WRITE ${row.file}:${row.line} ${row.writer} origins=${JSON.stringify(row.origins)}`);
 console.log("CONTROL 3 PASS: full writer census and value-origin closure; five discriminating mutants rejected");
 
+// Erase only the audited annotation grammar, never an acceptance expression.
+function eraseProbeAnnotations(text, removeSeam = false) {
+  const tree = ts.createSourceFile("inventory.mjs", text, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
+  const edits = [];
+  const walk = (node) => {
+    if (ts.isForOfStatement(node) && ts.isBlock(node.statement) && node.statement.statements.length === 2 && node.statement.statements[0].getText(tree) === "comparisonStock(diagnostic, name);" && node.statement.statements[1].getText(tree).startsWith("validateToolObservation(tools[name], actual.tools[name], diagnostic)")) {
+      edits.push([node.statement.getStart(tree), node.statement.getStart(tree) + 1, ""]);
+      edits.push([node.statement.end - 1, node.statement.end, ""]);
+    }
+    if (ts.isCallExpression(node) && node.expression.getText(tree) === "comparisonAt") {
+      assert.equal(node.arguments[0].getText(tree), "diagnostic");
+      assert.equal(node.arguments.length, 3);
+      const operation = node.arguments[2];
+      assert(ts.isArrowFunction(operation) && operation.parameters.length === 0 && !ts.isBlock(operation.body));
+      edits.push([node.getStart(tree), node.end, operation.body.getText(tree)]);
+      return;
+    }
+    if (ts.isExpressionStatement(node) && ts.isCallExpression(node.expression) && ["comparisonComponent", "comparisonStock"].includes(node.expression.expression.getText(tree))) {
+      assert.equal(node.expression.arguments[0].getText(tree), "diagnostic");
+      edits.push([node.getStart(tree), node.end, ""]);
+      return;
+    }
+    if (ts.isFunctionDeclaration(node) && node.parameters.at(-1)?.name.getText(tree) === "diagnostic") {
+      const parameter = node.parameters.at(-1);
+      edits.push([node.parameters.length === 1 ? parameter.getStart(tree) : node.parameters.at(-2).end, parameter.end, ""]);
+    }
+    if (ts.isCallExpression(node) && node.arguments.at(-1)?.getText(tree) === "diagnostic") {
+      const previous = node.expression.getText(tree) === "validateScriptClosure" && node.arguments.length === 4 && node.arguments[2].getText(tree) === "false" ? node.arguments[1] : node.arguments.at(-2);
+      edits.push([previous.end, node.arguments.at(-1).end, ""]);
+    }
+    if (ts.isCallExpression(node) && node.expression.getText(tree) === "comparisonEqual") {
+      edits.push([node.expression.getStart(tree), node.expression.end, "equal"]);
+      edits.push([node.arguments[0].getStart(tree), node.arguments[1].getStart(tree), ""]);
+    }
+    ts.forEachChild(node, walk);
+  };
+  // The seam implementation itself is audited separately, not normalized into H2.
+  for (const node of tree.statements) {
+    if (ts.isFunctionDeclaration(node) && probeFunctions.includes(node.name.text)) walk(node);
+    else if (removeSeam && ts.isFunctionDeclaration(node) && ["createBootstrapComparison", "comparisonComponent", "comparisonStock", "comparisonAt", "comparisonEqual", "bootstrapComparisonResult", "bootstrapComparisonCategory"].includes(node.name.text)) edits.push([node.getStart(tree), node.end, ""]);
+    else if (removeSeam && ts.isVariableStatement(node) && node.declarationList.declarations.some((declaration) => ["bootstrapComparisonComponents", "bootstrapComparisonPredicates", "bootstrapComparisonCodes", "comparisonStates", "stockComparisonComponents", "comparisonPredicateCodes"].includes(declaration.name.getText(tree)))) edits.push([node.getStart(tree), node.end, ""]);
+  }
+  let result = text;
+  for (const [start, end, replacement] of edits.sort((a, b) => b[0] - a[0])) result = result.slice(0, start) + replacement + result.slice(end);
+  return result;
+}
+
 function identityBehavior(text) {
+  text = eraseProbeAnnotations(text);
   const tree = ts.createSourceFile("inventory.mjs", text, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
   assert.equal(tree.parseDiagnostics.length, 0);
   const shape = (node) => {
@@ -1773,5 +1836,303 @@ assert.throws(
   /all subprocesses must use/,
 );
 console.log(
-  `PASS pure push/branch-creation matrix; ${expectedCodes.length} exact categories, ${sites.length} operation wrappers, ${queries.length} query sites and ${registrations.length * 2 + spawns.length + 2} source-registration bypass controls; 28 executable/2 service/2 daemon roles, ${invariantFields.length} invariant-literal bypasses, version/argument resolution and H1'' measurement behavior preserved; no collector or subprocess execution`,
+  `PASS pure push/branch-creation matrix; ${expectedCodes.length} exact categories, ${sites.length} operation wrappers, ${queries.length} query sites and ${registrations.length * 2 + spawns.length + 2} source-registration bypass controls; 28 executable/2 service/2 daemon roles, ${invariantFields.length} invariant-literal bypasses, version/argument resolution and H1'' measurement behavior preserved; no collector or provider execution`,
 );
+
+// Compile only the named production comparison graph with in-memory filesystem/query
+// stubs. Neither module entrypoint, observer, collector nor workflow is executed.
+const comparisonHelpers = ["createBootstrapComparison", "comparisonComponent", "comparisonStock", "comparisonAt", "comparisonEqual", "bootstrapComparisonResult", "bootstrapComparisonCategory"];
+const comparisonVariables = ["record", "canonical", "equal", "bootstrapTools", "scriptClosureDescriptor", "compareClosurePaths", "bootstrapComparisonComponents", "bootstrapComparisonPredicates", "bootstrapComparisonCodes", "comparisonStates", "stockComparisonComponents", "comparisonPredicateCodes"];
+const comparisonFactories = new Map();
+function comparisonGraph(text, bindings) {
+  if (comparisonFactories.has(text)) return comparisonFactories.get(text)(...Object.values(bindings));
+  const tree = ts.createSourceFile("inventory.mjs", text, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
+  const declarations = tree.statements.flatMap((node) => {
+    if (ts.isFunctionDeclaration(node) && [...probeFunctions, ...comparisonHelpers].includes(node.name.text)) return [node.getText(tree).replace(/^export /, "")];
+    if (ts.isVariableStatement(node)) return node.declarationList.declarations.filter((d) => comparisonVariables.includes(d.name.getText(tree))).map((d) => `const ${d.getText(tree)};`);
+    return [];
+  });
+  const exports = [...probeFunctions, ...comparisonHelpers].filter((name) => declarations.some((text) => new RegExp(`(?:function|const) ${name}\\b`).test(text)));
+  const factory = new Function(...Object.keys(bindings), `${declarations.join("\n")}\nreturn {${exports.join(",")}};`);
+  comparisonFactories.set(text, factory);
+  return factory(...Object.values(bindings));
+}
+const closurePairs = JSON.parse(readFileSync(new URL("./pnpm-11.0.9.closure.json", import.meta.url)));
+const nativeBytes = Buffer.from([0x7f, 0x45, 0x4c, 0x46, 0x31]);
+const scriptBytes = Buffer.from("#!/usr/bin/env node\nSYNTHETIC_PRIVATE_SCRIPT\n");
+const distributionPin = { version: "SYNTHETIC", architecture: "x64", publicReference: "https://synthetic.invalid/public", archiveSha256: "a".repeat(64) };
+const servicePin = (name) => ({ path: `/synthetic/${name}.service`, realTarget: `/synthetic/${name}.service`, sha256: "a".repeat(64) });
+function comparisonFixture() {
+  const tools = Object.fromEntries(stockTools.map((name) => [name, { path: `/synthetic/${name}`, realTarget: `/synthetic/${name}`, sha256: sha256(nativeBytes), format: "native", package: { name: "SYNTHETIC_PRIVATE_PACKAGE" }, distribution: structuredClone(distributionPin) }]));
+  const runner = { image: "ubuntu-24.04", imageVersion: "SYNTHETIC", imageOS: "ubuntu24", architecture: "x64", kernel: "SYNTHETIC", os: "SYNTHETIC", codename: "synthetic", engine: { version: "1", apiVersion: "1", gitCommit: "synthetic" }, containerd: { version: "1", gitCommit: "synthetic" }, runc: { version: "1", gitCommit: "synthetic" }, dockerInit: { version: "1", gitCommit: "synthetic" } };
+  const services = { docker: servicePin("docker"), containerd: servicePin("containerd") };
+  const actual = { imageVersion: runner.imageVersion, imageOS: runner.imageOS, architecture: runner.architecture, kernel: runner.kernel, osRelease: 'PRETTY_NAME="SYNTHETIC"\nVERSION_CODENAME=synthetic\n', tools: structuredClone(tools), versions: { node: "SYNTHETIC_PRIVATE_BANNER" }, daemon: { executable: structuredClone(tools.docker), containerdExecutable: structuredClone(tools.containerd), defaultRuntime: "runc", activeRuntime: structuredClone(tools.runc), server: { Version: "1", ApiVersion: "1", GitCommit: "synthetic", Components: ["containerd", "runc", "docker-init"].map((Name) => ({ Name, Version: "1", Details: { GitCommit: "synthetic" } })) }, unitFiles: [services.docker], containerdUnitFiles: [services.containerd] } };
+  const config = { tools, bootstrapTools: { node: tools.node }, daemonTools: { docker: structuredClone(tools.docker), containerd: structuredClone(tools.containerd) }, runnerIdentity: runner, servicePins: structuredClone(services), bootstrapIdentity: identityFingerprint(actual), expectedIdentity: identityFingerprint(actual) };
+  return { config, actual, targets: Object.fromEntries(stockTools.map((name) => [`/synthetic/${name}`, `/synthetic/${name}`])), bytes: Object.fromEntries(stockTools.map((name) => [`/synthetic/${name}`, nativeBytes])), closure: closurePairs };
+}
+function traced(value, log, prefix = "input", seen = new WeakMap()) {
+  if (value === null || typeof value !== "object" || Buffer.isBuffer(value)) return value;
+  if (seen.has(value)) return seen.get(value);
+  const proxy = new Proxy(value, {
+    get(target, key, receiver) { log.push(`get:${prefix}.${String(key)}`); return traced(Reflect.get(target, key, receiver), log, `${prefix}.${String(key)}`, seen); },
+    ownKeys(target) { log.push(`keys:${prefix}`); return Reflect.ownKeys(target); },
+    getOwnPropertyDescriptor(target, key) { log.push(`descriptor:${prefix}.${String(key)}`); return Reflect.getOwnPropertyDescriptor(target, key); },
+    set() { throw new Error("SYNTHETIC_INPUT_MUTATION_REFUSED"); },
+    defineProperty() { throw new Error("SYNTHETIC_INPUT_MUTATION_REFUSED"); },
+    deleteProperty() { throw new Error("SYNTHETIC_INPUT_MUTATION_REFUSED"); },
+  });
+  seen.set(value, proxy);
+  return proxy;
+}
+function graphRun(text, fixture, call, optIn) {
+  const log = [];
+  const f = traced(fixture, log);
+  const bindings = {
+    Buffer, path: path.posix, stockTools, measurementTools: stockTools, inventoryOperations, sha256, invariant, supportPath: "scripts/test-support/10678-ingress-nosend", WeakMap: fixture.WeakMap ?? WeakMap,
+    isHash: (value) => typeof value === "string" && /^[a-f0-9]{64}$/.test(value),
+    process: { execPath: fixture.processPath ?? "/synthetic/node" },
+    realpathSync: (file) => { log.push(`realpath:${file}`); if (fixture.rawOp !== "read" && fixture.rawAt === file) throw fixture.rawError; return fixture.targets[file] ?? file; },
+    readFileSync: (file) => { log.push(`read:${file}`); if (fixture.rawOp !== "realpath" && fixture.rawAt === file) throw fixture.rawError; return fixture.bytes[file] ?? nativeBytes; },
+    resolveTool: (site, name) => { log.push(`resolve:${name}`); if (fixture.rawOp === "resolve" && fixture.rawAt === name) throw fixture.rawError; return fixture.resolved?.[name] ?? `/synthetic/${name}`; },
+    scriptDistribution: (root) => { log.push(`distribution:${root}`); if (fixture.rawOp === "distribution") throw fixture.rawError; return fixture.closure; },
+  };
+  const graph = comparisonGraph(text, bindings);
+  const diagnostic = optIn ? fixture.handle ?? graph.createBootstrapComparison() : undefined;
+  let result, error;
+  try { result = call(graph, f, diagnostic); } catch (caught) { error = caught; }
+  const beforeReport = [...log];
+  const context = optIn ? graph.bootstrapComparisonResult(diagnostic) : "AUTHORITY_BOOTSTRAP_REFUSED";
+  const category = optIn && error ? graph.bootstrapComparisonCategory(diagnostic, error) : "OTHER";
+  assert.deepEqual(log, beforeReport, "report never retraverses raw operands or re-observes inputs");
+  return { result, error, log, context, category };
+}
+let comparisonControls = 0;
+function equivalent(label, mutate, call, predicate, component) {
+  const runs = [false, true].map((optIn) => {
+    const oldFixture = comparisonFixture(); mutate(oldFixture);
+    const fixture = comparisonFixture(); mutate(fixture);
+    const old = graphRun(immutableH2Source, oldFixture, call, false);
+    const current = graphRun(source, fixture, call, optIn);
+    assert.deepEqual(current.log, old.log, `${label}: exact ordered query/filesystem/operand access and multiplicity`);
+    assert.deepEqual(current.result, old.result, `${label}: successful return semantics`);
+    assert.equal(current.error?.message, old.error?.message, `${label}: original refusal code`);
+    if (oldFixture.rawError && old.error === oldFixture.rawError) assert.equal(current.error, fixture.rawError, `${label}: identical raw thrown object`);
+    if (predicate && optIn) {
+      assert(current.error, `${label}: refusing control`);
+      assert(current.context.includes(`predicate=${predicate}`), `${label}: fixed predicate ${predicate}`);
+      if (component) assert(current.context.includes(`component=${component}`), `${label}: fixed component`);
+      assert(!current.context.includes("SYNTHETIC_PRIVATE"), `${label}: no private marker`);
+      assert.equal(current.category, old.error === oldFixture.rawError ? "OTHER" : old.error.message, `${label}: only an actually failed predicate authenticates its fixed code`);
+      assert.throws(() => assert(current.context.replace(predicate, "OTHER").includes(`predicate=${predicate}`)), undefined, `${label}: misattribution mutant discriminates`);
+    }
+    comparisonControls++;
+    return current;
+  });
+  return runs[1];
+}
+const executableCall = (g, f, d) => g.enforceExecutables(f.config.tools, stockTools, false, d);
+const identityCall = (g, f, d) => g.enforceIdentityPins(f.config, f.actual, true, d);
+equivalent("executable success", () => {}, executableCall);
+equivalent("identity success", () => {}, identityCall);
+for (const name of stockTools) {
+  const component = `STOCK_${name.replaceAll("-", "_").toUpperCase()}`;
+  equivalent(`${name} byte mismatch`, (f) => { f.config.tools[name].sha256 = "b".repeat(64); }, executableCall, "OBSERVED_HASH", component);
+  equivalent(`${name} resolved target mismatch`, (f) => { f.targets[`/synthetic/${name}`] = "/synthetic/SYNTHETIC_PRIVATE_TARGET"; }, executableCall, "OBSERVED_TARGET", component);
+  if (name !== "node") equivalent(`${name} stock resolution`, (f) => { f.resolved = { [name]: "/synthetic/SYNTHETIC_PRIVATE_PATH" }; }, executableCall, "STOCK_RESOLVE", component);
+  for (const [field, value, predicate] of [["path", "/synthetic/SYNTHETIC_PRIVATE_PATH", "OBSERVED_PATH"], ["realTarget", "/synthetic/SYNTHETIC_PRIVATE_TARGET", "OBSERVED_TARGET"], ["sha256", "b".repeat(64), "OBSERVED_HASH"], ["format", "script", "OBSERVED_FORMAT"], ["package", { name: "OTHER_SYNTHETIC_PRIVATE_PACKAGE" }, "OBSERVED_PACKAGE"]]) {
+    equivalent(`${name} observed ${field}`, (f) => { f.actual.tools[name][field] = value; f.config.bootstrapIdentity = identityFingerprint(f.actual); }, identityCall, predicate, component);
+  }
+}
+for (const [field, value, predicate] of [["path", 1, "PIN_PATH_TYPE"], ["path", "relative", "PIN_PATH"], ["realTarget", "relative", "PIN_TARGET"], ["sha256", "bad", "PIN_HASH"], ["format", "unknown", "PIN_FORMAT"]]) equivalent(`pin ${field}`, (f) => { f.config.tools.curl[field] = value; }, executableCall, predicate, "STOCK_CURL");
+for (const [field, value, predicate] of [["version", 1, "DISTRIBUTION_VERSION_TYPE"], ["version", "", "DISTRIBUTION_VERSION"], ["architecture", 1, "DISTRIBUTION_ARCH_TYPE"], ["architecture", "", "DISTRIBUTION_ARCH"], ["publicReference", "SYNTHETIC_PRIVATE_URL", "DISTRIBUTION_REFERENCE"], ["archiveSha256", "bad", "DISTRIBUTION_HASH"]]) equivalent(`distribution ${field}`, (f) => { f.config.tools.curl.distribution[field] = value; }, executableCall, predicate, "STOCK_CURL");
+equivalent("pin absent", (f) => { f.config.tools.curl = null; }, executableCall, "PIN_RECORD", "STOCK_CURL");
+equivalent("distribution absent", (f) => { f.config.tools.curl.distribution = null; }, executableCall, "DISTRIBUTION_RECORD", "STOCK_CURL");
+for (const field of ["imageVersion", "imageOS", "architecture", "kernel", "osReleaseSha256", "toolsSha256", "versionsSha256", "daemonSha256", "identitySha256"]) {
+  const result = equivalent(`fingerprint ${field}`, (f) => { f.config.bootstrapIdentity[field] = "SYNTHETIC_PRIVATE_MISMATCH"; }, identityCall, "FINGERPRINT_EQUAL", "FINGERPRINT");
+  assert.equal(result.context.split("mismatches=")[1], ({ imageVersion: "FINGERPRINT_IMAGE_VERSION", imageOS: "FINGERPRINT_IMAGE_OS", architecture: "FINGERPRINT_ARCHITECTURE", kernel: "FINGERPRINT_KERNEL", osReleaseSha256: "FINGERPRINT_OS_RELEASE", toolsSha256: "FINGERPRINT_TOOLS", versionsSha256: "FINGERPRINT_VERSIONS", daemonSha256: "FINGERPRINT_DAEMON", identitySha256: "FINGERPRINT_IDENTITY" })[field]);
+}
+const isolateIdentity = (mutate) => (f) => { mutate(f); f.config.bootstrapIdentity = identityFingerprint(f.actual); };
+for (const [name, actualField] of [["docker", "executable"], ["containerd", "containerdExecutable"]]) equivalent(`daemon ${name}`, isolateIdentity((f) => { f.actual.daemon[actualField].sha256 = "b".repeat(64); }), identityCall, "OBSERVED_HASH", `DAEMON_${name.toUpperCase()}`);
+equivalent("active runtime default", isolateIdentity((f) => { f.actual.daemon.defaultRuntime = "synthetic-other"; }), identityCall, "ACTIVE_RUNTIME_DEFAULT", "ACTIVE_RUNTIME");
+equivalent("active runtime absent", isolateIdentity((f) => { f.actual.daemon.activeRuntime = null; }), identityCall, "ACTIVE_RUNTIME_PRESENT", "ACTIVE_RUNTIME");
+equivalent("active runtime hash", isolateIdentity((f) => { f.actual.daemon.activeRuntime.sha256 = "b".repeat(64); }), identityCall, "OBSERVED_HASH", "ACTIVE_RUNTIME");
+for (const [field, predicate] of [["image", "RUNNER_IMAGE"], ["imageVersion", "RUNNER_IMAGE_VERSION"], ["imageOS", "RUNNER_IMAGE_OS"], ["architecture", "RUNNER_ARCHITECTURE"], ["kernel", "RUNNER_KERNEL"], ["os", "RUNNER_OS"], ["codename", "RUNNER_CODENAME"]]) equivalent(`runner ${field}`, (f) => { f.config.runnerIdentity[field] = "SYNTHETIC_PRIVATE_MISMATCH"; }, identityCall, predicate, "RUNNER");
+for (const [field, predicate] of [["version", "RUNNER_ENGINE_VERSION"], ["apiVersion", "RUNNER_ENGINE_API"], ["gitCommit", "RUNNER_ENGINE_COMMIT"]]) equivalent(`engine ${field}`, (f) => { f.config.runnerIdentity.engine[field] = "SYNTHETIC_PRIVATE_MISMATCH"; }, identityCall, predicate, "RUNNER");
+for (const [index, component] of ["COMPONENT_CONTAINERD", "COMPONENT_RUNC", "COMPONENT_DOCKER_INIT"].entries()) for (const predicate of ["COMPONENT_COUNT", "COMPONENT_VERSION", "COMPONENT_COMMIT"]) equivalent(`${component} ${predicate}`, isolateIdentity((f) => {
+  if (predicate === "COMPONENT_COUNT") f.actual.daemon.server.Components.splice(index, 1);
+  else if (predicate === "COMPONENT_VERSION") f.actual.daemon.server.Components[index].Version = "SYNTHETIC_PRIVATE_MISMATCH";
+  else f.actual.daemon.server.Components[index].Details.GitCommit = "SYNTHETIC_PRIVATE_MISMATCH";
+}), identityCall, predicate, component);
+for (const name of ["docker", "containerd"]) equivalent(`service ${name}`, (f) => { f.config.servicePins[name].sha256 = "b".repeat(64); }, identityCall, "SERVICE_EQUAL", `SERVICE_${name.toUpperCase()}`);
+const rawError = new Error("SYNTHETIC_PRIVATE_RAW token: syntheticMarker");
+equivalent("raw executable read", (f) => { f.rawAt = "/synthetic/curl"; f.rawError = rawError; }, executableCall, "EXECUTABLE_REALPATH", "STOCK_CURL");
+equivalent("hostile fingerprint getter", (f) => { Object.defineProperty(f.actual, "imageVersion", { get() { throw rawError; }, enumerable: true }); f.rawError = rawError; }, identityCall, "FINGERPRINT_IMAGE_VERSION", "FINGERPRINT");
+equivalent("hostile serialization getter", (f) => { Object.defineProperty(f.config.bootstrapIdentity, "kernel", { get() { throw rawError; }, enumerable: true }); f.rawError = rawError; }, identityCall, "FINGERPRINT_EXPECTED_SERIALIZE", "FINGERPRINT");
+assert.equal(bootstrapComparisonResult(new Proxy({}, { get() { throw rawError; }, getOwnPropertyDescriptor() { throw rawError; } })), "component=OTHER predicate=OTHER");
+assert.equal(bootstrapComparisonResult(createBootstrapComparison()), "component=OTHER predicate=OTHER", "no context crosses invocation handles");
+equivalent("opaque recorder cannot invoke hostile caller getters", (f) => { f.handle = new Proxy({}, { get() { throw rawError; }, getOwnPropertyDescriptor() { throw rawError; } }); }, identityCall);
+class BrokenDiagnosticStore extends WeakMap { get() { throw rawError; } set() { throw rawError; } has() { throw rawError; } }
+equivalent("recorder fault cannot mask original comparison refusal", (f) => { f.WeakMap = BrokenDiagnosticStore; f.config.tools.curl.sha256 = "b".repeat(64); }, executableCall);
+equivalent("recorder fault cannot mask raw thrown object", (f) => { f.WeakMap = BrokenDiagnosticStore; f.rawError = rawError; f.rawAt = "/synthetic/curl"; }, executableCall);
+equivalent("recorder fault cannot alter success", (f) => { f.WeakMap = BrokenDiagnosticStore; }, identityCall);
+equivalent("forged exact comparison message from raw getter is OTHER", (f) => { const error = new Error("RUNNER_OS_DAEMON_OR_TOOL_DRIFT"); Object.defineProperty(f.actual, "kernel", { get() { throw error; }, enumerable: true }); f.rawError = error; }, identityCall, "FINGERPRINT_KERNEL", "FINGERPRINT");
+const fixedClosureDescriptor = fixtureMeasurementPayload().publicInputs.publicExecutables.pnpm.closure;
+function scriptFixture(f) {
+  Object.assign(f.config.tools.curl, { format: "script", sha256: sha256(scriptBytes), interpreter: { tool: "node", shebang: "#!/usr/bin/env node" }, distributionRoot: "/synthetic", closure: structuredClone(fixedClosureDescriptor) });
+  f.bytes["/synthetic/curl"] = scriptBytes;
+}
+equivalent("synthetic stock script success (reviewed stocks remain native)", scriptFixture, executableCall);
+for (const [label, mutate, predicate] of [
+  ["tool", (f) => { f.config.tools.curl.interpreter.tool = "other"; }, "SCRIPT_TOOL"],
+  ["shebang pin", (f) => { f.config.tools.curl.interpreter.shebang = "SYNTHETIC_PRIVATE_SHEBANG"; }, "SCRIPT_SHEBANG"],
+  ["root pin", (f) => { f.config.tools.curl.distributionRoot = "relative"; }, "SCRIPT_ROOT"],
+  ["descriptor", (f) => { f.config.tools.curl.closure.fileCount = 1; }, "CLOSURE_DESCRIPTOR"],
+  ["resolved root", (f) => { f.targets["/synthetic"] = "/synthetic/other"; }, "DISTRIBUTION_ROOT"],
+  ["outside root", (f) => { f.config.tools.curl.distributionRoot = "/other"; }, "DISTRIBUTION_TARGET"],
+  ["observed shebang", (f) => { const bytes = Buffer.from("#!/synthetic/private\n"); f.bytes["/synthetic/curl"] = bytes; f.config.tools.curl.sha256 = sha256(bytes); }, "OBSERVED_SHEBANG"],
+  ["closure nonarray", (f) => { f.closure = null; }, "CLOSURE_PAIRS"],
+  ["pair nonarray", (f) => { f.closure = [null]; }, "CLOSURE_PAIR_ARRAY"],
+  ["pair length", (f) => { f.closure = [["x"]]; }, "CLOSURE_PAIR_LENGTH"],
+  ["path type", (f) => { f.closure = [[1, "a".repeat(64)]]; }, "CLOSURE_PATH_TYPE"],
+  ["hash type", (f) => { f.closure = [["x", 1]]; }, "CLOSURE_HASH_TYPE"],
+  ["empty path", (f) => { f.closure = [["", "a".repeat(64)]]; }, "CLOSURE_PATH_NONEMPTY"],
+  ["path controls", (f) => { f.closure = [["x\\private", "a".repeat(64)]]; }, "CLOSURE_PATH_CHARACTERS"],
+  ["path UTF8", (f) => { f.closure = [["x\ud800", "a".repeat(64)]]; }, "CLOSURE_PATH_UTF8"],
+  ["path segments", (f) => { f.closure = [["x/./private", "a".repeat(64)]]; }, "CLOSURE_PATH_SEGMENTS"],
+  ["path duplicate", (f) => { f.closure = [["x", "a".repeat(64)], ["x", "a".repeat(64)]]; }, "CLOSURE_PATH_UNIQUE"],
+  ["bad hash", (f) => { f.closure = [["x", "bad"]]; }, "CLOSURE_HASH"],
+  ["count", (f) => { f.closure = closurePairs.slice(1); }, "CLOSURE_COUNT"],
+  ["digest", (f) => { f.closure = structuredClone(closurePairs); f.closure[0][1] = "b".repeat(64); }, "CLOSURE_DIGEST"],
+]) equivalent(`script ${label}`, (f) => { scriptFixture(f); mutate(f); }, executableCall, predicate, "STOCK_CURL");
+equivalent("stored sidecar order; not a runtime stock-script claim", (f) => { f.closure = [...closurePairs].reverse(); }, (g, f, d) => g.validateScriptClosure(f.closure, fixedClosureDescriptor, true, d), "CLOSURE_ORDER", "OTHER");
+for (const [field, value, predicate] of [["format", "script", "INVOCATION_FORMAT"], ["invocation", "wrong", "INVOCATION_NAME"], ["multicall", false, "INVOCATION_MULTICALL"]]) equivalent(`multicall ${field}`, (f) => {
+  Object.assign(f.config.tools.curl, { realTarget: "/synthetic/multicall", invocation: "curl", multicall: true }); f.config.tools.curl[field] = value;
+}, executableCall, predicate, "STOCK_CURL");
+equivalent("native magic", (f) => { f.bytes["/synthetic/curl"] = Buffer.from("SYNTHETIC_PRIVATE_NOT_ELF"); }, executableCall, "EXECUTABLE_FORMAT", "STOCK_CURL");
+equivalent("interpreter process", (f) => { f.processPath = "/synthetic/other-node"; }, executableCall, "INTERPRETER_PROCESS", "INTERPRETER");
+equivalent("interpreter path operand when explicitly enabled", () => {}, (g, f, d) => g.enforceExecutables(f.config.tools, stockTools, true, d), "INTERPRETER_PATH", "INTERPRETER");
+equivalent("interpreter enabled success", (f) => { f.targets["/usr/local/bin/node"] = "/synthetic/node"; }, (g, f, d) => g.enforceExecutables(f.config.tools, stockTools, true, d));
+equivalent("interpreter search keeps caught first-path refusal and next-path search", (f) => { f.rawAt = "/usr/local/bin/node"; f.rawError = rawError; }, executableCall);
+for (const [field, predicate] of [["imageOS", "FINGERPRINT_IMAGE_OS"], ["architecture", "FINGERPRINT_ARCHITECTURE"], ["kernel", "FINGERPRINT_KERNEL"], ["osRelease", "FINGERPRINT_OS_RELEASE"], ["tools", "FINGERPRINT_TOOLS"], ["versions", "FINGERPRINT_VERSIONS"], ["daemon", "FINGERPRINT_DAEMON"]]) equivalent(`raw fingerprint ${field}`, (f) => { Object.defineProperty(f.actual, field, { get() { throw rawError; }, enumerable: true }); f.rawError = rawError; }, identityCall, predicate, "FINGERPRINT");
+equivalent("raw full fingerprint serialization", (f) => { Object.defineProperty(f.actual, "extra", { get() { throw rawError; }, enumerable: true }); f.rawError = rawError; }, identityCall, "FINGERPRINT_IDENTITY", "FINGERPRINT");
+equivalent("raw materialized fingerprint serialization without retraversal", (f) => {
+  let count = 0;
+  f.actual.imageVersion = Object.defineProperty({}, "synthetic", { get() { if (++count === 2) throw rawError; return "SYNTHETIC"; }, enumerable: true });
+  f.rawError = rawError;
+}, identityCall, "FINGERPRINT_ACTUAL_SERIALIZE", "FINGERPRINT");
+for (const [predicate, setup] of [
+  ["EXECUTABLE_READ", (f) => { f.rawOp = "read"; f.rawAt = "/synthetic/curl"; }],
+  ["STOCK_RESOLVE", (f) => { f.rawOp = "resolve"; f.rawAt = "curl"; }],
+  ["DISTRIBUTION_REALPATH", (f) => { scriptFixture(f); f.rawAt = "/synthetic"; }],
+  ["DISTRIBUTION_READ", (f) => { scriptFixture(f); f.rawOp = "distribution"; }],
+  ["INTERPRETER_PROCESS", (f) => { f.processPath = "/synthetic/process-node"; f.rawAt = f.processPath; }],
+]) equivalent(`raw boundary ${predicate}`, (f) => { setup(f); f.rawError = rawError; }, executableCall, predicate);
+equivalent("raw component selection after materialized fingerprint", (f) => {
+  const components = f.actual.daemon.server.Components; let count = 0;
+  Object.defineProperty(f.actual.daemon.server, "Components", { enumerable: true, get() { if (++count === 3) throw rawError; return components; } }); f.rawError = rawError;
+}, identityCall, "COMPONENT_SELECT", "COMPONENT_CONTAINERD");
+equivalent("raw service pin getter", (f) => { Object.defineProperty(f.config.servicePins, "docker", { get() { throw rawError; }, enumerable: true }); f.rawError = rawError; }, identityCall, "SERVICE_PINS", "SERVICE_DOCKER");
+equivalent("per-invocation state does not leak after a refusal", (f) => { f.config.tools.curl.sha256 = "b".repeat(64); }, (g, f, d) => {
+  let original; try { g.enforceExecutables(f.config.tools, stockTools, false, d); } catch (error) { original = error; }
+  if (g.createBootstrapComparison) assert.equal(g.bootstrapComparisonResult(g.createBootstrapComparison()), "component=OTHER predicate=OTHER");
+  throw original;
+}, "OBSERVED_HASH", "STOCK_CURL");
+const inventoryProbe = fixtureMeasurementPayload(); inventoryProbe.phase = "inventory";
+const inventoryExpanded = measurementConfig(inventoryProbe);
+const measurementExpanded = measurementConfig({ ...inventoryProbe, phase: "measurement" });
+assert.deepEqual({ ...inventoryExpanded, phase: "measurement" }, measurementExpanded, "existing API losslessly expands unchanged public inputs in inventory phase");
+assert(stockTools.every((name) => inventoryExpanded.tools[name].format === "native"), "reviewed bootstrap stock scripts are unreachable, not observed or repinned");
+console.log(`PROBE GREEN: ${comparisonControls} immutable-H2/no-opt-in/opt-in execution controls; synthetic later gates isolated; no observer or collector invoked`);
+
+function comparisonPartition(text, expectedBinding) {
+  const tree = ts.createSourceFile("inventory.mjs", text, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
+  const registry = (name) => {
+    const variable = descendants(tree, (node) => ts.isVariableDeclaration(node) && node.name.getText(tree) === name)[0];
+    assert.equal(variable.initializer.expression.getText(tree), "Object.freeze");
+    return variable.initializer.arguments[0].elements.flatMap((node) => {
+      if (ts.isStringLiteral(node)) return [node.text];
+      assert.equal(name, "bootstrapComparisonComponents");
+      assert.equal(node.getText(tree).replace(/\s/g, ""), '...stockTools.map((name)=>`STOCK_${name.replaceAll("-","_").toUpperCase()}`)');
+      return stockTools.map((name) => `STOCK_${name.replaceAll("-", "_").toUpperCase()}`);
+    });
+  };
+  const registeredPredicates = registry("bootstrapComparisonPredicates");
+  const registeredComponents = registry("bootstrapComparisonComponents");
+  const registeredCodes = registry("bootstrapComparisonCodes");
+  for (const values of [registeredPredicates, registeredComponents, registeredCodes]) assert.equal(new Set(values).size, values.length);
+  const annotations = [];
+  const componentBindings = [];
+  const components = new Set(["OTHER", ...stockTools.map((name) => `STOCK_${name.replaceAll("-", "_").toUpperCase()}`)]);
+  const codes = new Set();
+  const predicates = new Set(["OTHER", "FINGERPRINT_EQUAL"]);
+  const productionCodes = new Map();
+  for (const fn of tree.statements.filter((node) => ts.isFunctionDeclaration(node) && [...probeFunctions, "comparisonEqual"].includes(node.name.text))) {
+    for (const call of descendants(fn, (node) => ts.isCallExpression(node))) {
+      if (call.expression.getText(tree) === "invariant") { assert(ts.isStringLiteral(call.arguments[1])); codes.add(call.arguments[1].text); }
+      if (["comparisonComponent", "comparisonStock"].includes(call.expression.getText(tree))) {
+        const context = call.arguments[1];
+        if (call.expression.getText(tree) === "comparisonStock") assert.equal(context.getText(tree), "name");
+        else if (ts.isStringLiteral(context)) components.add(context.text);
+        else {
+          const values = descendants(context, ts.isPropertyAssignment).map((property) => property.initializer);
+          assert(values.length > 0 && values.every(ts.isStringLiteral));
+          values.forEach((value) => components.add(value.text));
+        }
+        componentBindings.push({ owner: fn.name.text, expression: syntaxShape(call) });
+      }
+      if (call.expression.getText(tree) !== "comparisonAt") continue;
+      const token = call.arguments[1];
+      const tokens = ts.isStringLiteral(token) ? [token.text] : descendants(token, ts.isStringLiteral).map((node) => node.text);
+      assert(tokens.length > 0);
+      tokens.forEach((token) => { assert(registeredPredicates.includes(token), `unregistered predicate ${token}`); predicates.add(token); });
+      const operation = call.arguments[2];
+      assert(ts.isArrowFunction(operation) && !ts.isBlock(operation.body) && operation.parameters.length === 0);
+      annotations.push({ owner: fn.name.text, tokens, expression: syntaxShape(operation.body) });
+      for (let parent = call.parent; parent && parent !== fn; parent = parent.parent) if (ts.isCallExpression(parent) && parent.expression.getText(tree) === "invariant") {
+        tokens.forEach((token) => productionCodes.set(token, parent.arguments[1].text)); break;
+      }
+    }
+  }
+  assert.deepEqual(predicates, new Set(registeredPredicates), "every registered predicate is used, none omitted");
+  assert.deepEqual(components, new Set(registeredComponents), "every fixed component has a source binding");
+  assert.deepEqual(codes, new Set(registeredCodes), "every reached existing comparison refusal remains source-owned");
+  productionCodes.set("FINGERPRINT_EQUAL", "RUNNER_OS_DAEMON_OR_TOOL_DRIFT");
+  const mappingNode = descendants(tree, (node) => ts.isVariableDeclaration(node) && node.name.getText(tree) === "comparisonPredicateCodes")[0];
+  const mappings = descendants(mappingNode, ts.isPropertyAssignment).flatMap((property) => {
+    assert(ts.isArrayLiteralExpression(property.initializer));
+    return property.initializer.elements.map((token) => { assert(ts.isStringLiteral(token)); return [token.text, property.name.getText(tree)]; });
+  });
+  assert.equal(new Map(mappings).size, mappings.length);
+  assert.deepEqual(new Map(mappings), productionCodes, "safe-code authentication is derived from each production invariant, not a forged message");
+  const binding = sha256(JSON.stringify({ annotations, componentBindings }));
+  if (expectedBinding) assert.equal(binding, expectedBinding, "production expression/call-site classification binding");
+  return { annotations, binding };
+}
+const partition = comparisonPartition(source, "65ca1fa7548a92a7a9424a2e6d5c34c0ca2b2d1133aae170b4fbde83405b0acc");
+console.log(`PROBE PARTITION ${partition.annotations.length} source expression bindings SHA-256=${partition.binding}`);
+for (const row of partition.annotations) {
+  const before = `"${row.tokens[0]}"`;
+  const owner = source.indexOf(`function ${row.owner}(`);
+  const site = source.indexOf(before, owner);
+  assert(site >= owner);
+  assert.throws(() => comparisonPartition(source.slice(0, site) + '"OTHER"' + source.slice(site + before.length), partition.binding), undefined, `${row.owner}/${row.tokens[0]} bypass or misbinding refuses`);
+}
+for (const name of ["bootstrapComparisonPredicates", "bootstrapComparisonComponents", "bootstrapComparisonCodes"]) {
+  const marker = `export const ${name} = Object.freeze([`;
+  assert(source.includes(marker));
+  assert.throws(() => comparisonPartition(source.replace(marker, `${marker}\n"UNUSED_SYNTHETIC_MEMBER",`), partition.binding));
+}
+assert.throws(() => comparisonPartition(source.replace('TOOL_PACKAGE_DRIFT: ["OBSERVED_PACKAGE"]', 'TOOL_PACKAGE_DRIFT: ["OBSERVED_HASH"]'), partition.binding));
+const seamTree = ts.createSourceFile("inventory.mjs", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
+const seamCalls = new Set(["Object.freeze", "comparisonStates.set", "comparisonStates.get", "comparisonStates.has", "bootstrapComparisonComponents.includes", "bootstrapComparisonPredicates.includes", "comparisonComponent", "stockComparisonComponents.get", "operation", "comparisonPredicateCodes.get", "comparisonAt", "canonical", "Object.getOwnPropertyDescriptor", "state.fingerprint.map", "JSON.parse", "fields.flatMap"]);
+for (const fn of seamTree.statements.filter((node) => ts.isFunctionDeclaration(node) && comparisonHelpers.includes(node.name.text))) for (const call of descendants(fn, ts.isCallExpression)) {
+  const fixedTokenJoin = ts.isPropertyAccessExpression(call.expression) && call.expression.name.text === "join" && ts.isCallExpression(call.expression.expression) && call.expression.expression.expression.getText(seamTree) === "fields.flatMap" && call.arguments.length === 1 && ts.isStringLiteral(call.arguments[0]) && call.arguments[0].text === ",";
+  assert(fixedTokenJoin || seamCalls.has(call.expression.getText(seamTree)), `no I/O, logging or caller sink in attribution helper ${fn.name.text}`);
+}
+for (const predicate of bootstrapComparisonPredicates) {
+  const result = graphRun(source, comparisonFixture(), (g, _f, d) => g.comparisonAt(d, predicate, () => { throw rawError; }), true);
+  assert.equal(result.error, rawError, "each registered annotation preserves its original raw thrown object");
+  assert.equal(result.category, "OTHER", "no entered-but-uncompleted predicate authenticates a refusal");
+  assert.equal(result.context, `component=OTHER predicate=${predicate}`);
+}
+console.log(`PROBE COMPLETE: ${bootstrapComparisonPredicates.length} annotation-boundary raw controls, full component/code closure and unused/member/misbinding mutants; helpers contain no I/O or logging`);

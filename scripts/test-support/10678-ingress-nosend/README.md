@@ -2,7 +2,56 @@
 
 Temporary, synthetic, **DO NOT MERGE** test support for [#10678 Fix staging Admin-origin catalog generation edge routing](https://github.com/chase-sets/chase-sets/issues/10678). Not a product repair, staging probe, controller release proof or live acceptance receipt. The [B ruling](https://github.com/chase-sets/chase-sets/issues/10678#issuecomment-6703833284) and [D1/D2/D3 supplement](https://github.com/chase-sets/chase-sets/issues/10678#issuecomment-6705206613) govern. No local harness/container/cluster execution. Chase Sets never contacts TCGplayer servers and never stores or uses TCGplayer auth cookies or credentials.
 
-## Host Job Contract
+## Current Bootstrap-Only Probe
+
+The prepared workflow is bootstrap-only, not the historical H2 measurement workflow
+described below. It has exactly immutable checkout and one bootstrap step. It contains
+no install, inventory CLI/receipt/provenance collection, runner phase, cluster/network
+setup, measurement row or artifact upload. Success is exactly
+`BOOTSTRAP_ONLY_COMPLETE MEASUREMENT_NOT_EXECUTED rows=0`, not product proof.
+
+Fresh external authority uses the existing inventory phase, eleven-key P and schema-2
+E, a new complete committed census, the unchanged original public inputs and measurement
+constants, and the unchanged 48000-byte maximum. `measurementConfig` only expands those
+reviewed constants for existing bootstrap executable/identity comparisons; it does not
+select or run measurement. No expected value comes from observation. The host builds
+new P and obtains fresh COMPLETE exact-head/exact-P review and real D/F/R/C/S/E decoder
+proof before separate publication admission. Historical H2 E/P/PASS are not authority
+for this head. There is no PR, dispatch, rerun, new inventory grant or automatic successor.
+
+Every bootstrap boundary has a finite source-owned stage. Recognized operation/role
+codes are preserved as fixed tokens. Unknown, raw, getter and serialization failures
+remain the fixed stage plus OTHER, nonzero, with no raw exception or private upload.
+The opt-in comparison handle is opaque, frozen and per invocation; it accepts no sink
+or observer callback. Existing callers opt into nothing. Comparisons preserve H2's
+evaluation order, short circuits, queries/options, pins, refusal and successful values.
+A recognized comparison refusal names its fixed component and first evaluated failing
+predicate. Later conjunction operands are NOT_EVALUATED, not additional failures.
+Fingerprint mismatches name fixed projection fields from the two already-serialized
+operands, never another observation or raw getter traversal. Hash-field labels do not
+identify an unobserved leaf cause. OTHER output does not claim comparison or drift cause.
+Raw metadata stays private under runner temp; Node startup stderr is suppressed and the
+shell reports only fixed SHELL_NODE/SHELL_EXEC fallback tokens.
+
+The pure checks retain immutable H2 as the execution comparator and its coarse catch
+as the failing attribution control. Synthetic later gates, scripts and interpreter-PATH
+controls are deliberately isolated; reviewed bootstrap stock tools are native and the
+probe disables only the second interpreter operand, not its preceding path search.
+No local check invokes the real observer, collector or bootstrap. All thirteen prior
+notes remain review obligations, not blanket-repaired observations.
+
+One later admitted probe result returns to the host: deterministic source defects for
+a bounded causal remedy; established drift for H2-C4's ISSUE-level CHANGE_METHOD;
+success with historical cause still UNKNOWN; OTHER/missing/unclassified evidence with
+no repeat probe grant. Independent runner destruction remains UNKNOWN absent actual
+evidence. Terminal Actions cleanup is not destruction. Measurement, staging/sibling
+acceptance, landing and closure are not released by this preparation.
+
+## Historical Host Job Contract
+
+The phase/install/upload descriptions in this section and below preserve the original
+H1/H4/H2 method history. They are not capabilities or execution authority of the current
+bootstrap-only workflow.
 
 Host or its explicitly delegated single writer authors the standalone `.github/workflows/ingress-nosend-diagnostic.yml` and exact `"ingress-nosend-diagnostic.yml":"ci"` registry entry. The [D4/D5 supplement](https://github.com/chase-sets/chase-sets/issues/10678#issuecomment-6706307888) replaces the earlier PR transport and close step. Host retains publication, variables, P construction, review dispatch, execution and custody. Audit all exact-head and trusted-main push/completion subscriptions before publication. **No PR is opened or closed.** Preserve ordinary Platform PR bytes, required gates, classifier/planner and unknown-workflow fail-closed behavior. No branch exemptions. Do not push during capture. No dispatch/retry/rerun-to-green/queue/auto-merge/environment/deploy/secrets/OIDC.
 
