@@ -162,7 +162,7 @@ describe("Catalog integrations route workbench states", () => {
       profileVersion: profile.profileVersion,
       ingestionUnitKey: unit,
       profile: profile.profile,
-      supportedScopes: profile.profile.supportedScopes,
+      supportedScopes: [...profile.profile.supportedScopes],
       active: true,
       lifecycle: "active",
       mappingOutputKind: "yugioh-sealed-product",

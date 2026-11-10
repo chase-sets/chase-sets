@@ -139,7 +139,7 @@ describe("Catalog daily selected import preview", () => {
     seriesId: "base",
     setId: "base1",
   };
-  const preview: SourceObservationIntegrationImportPreview = {
+  const preview: Awaited<ReturnType<SourceObservationRouteServices["previewIntegrationImport"]>> = {
     action: "import",
     providerKey: "tcgdex",
     scope,
@@ -408,7 +408,7 @@ describe("Catalog daily selected import preview", () => {
       });
     });
     let settled = false;
-    const result = app.request(path()).then(async (response) => {
+    const result = Promise.resolve(app.request(path())).then(async (response) => {
       settled = true;
       return response.json();
     });
