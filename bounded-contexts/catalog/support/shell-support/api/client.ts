@@ -1330,6 +1330,18 @@ export function createCatalogApiClient({
       );
       return parseJsonResponse<T>(response);
     },
+    async getCatalogPrimaryWorkbenchDeferredImportPreview(
+      location: string,
+    ): Promise<
+      import("../../../features/source-observations/api/admin/daily-import-preview").CatalogDailyImportPreview
+    > {
+      const query = new URLSearchParams({ location });
+      const response = await configuredFetch(
+        `${baseUrl.replace(/\/$/, "")}/source-observations/workbench-surfaces/daily/import-preview?${query}`,
+        { method: "GET", headers: headersToRecord(headers) },
+      );
+      return parseJsonResponse(response);
+    },
     async recordCatalogControlPlaneEvent<T>(event: unknown): Promise<T> {
       const response = await configuredFetch(`${baseUrl.replace(/\/$/, "")}/source-observations/control-plane-events`, {
         method: "POST",

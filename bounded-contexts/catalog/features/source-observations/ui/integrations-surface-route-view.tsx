@@ -1,3 +1,4 @@
+import type { CatalogDailyImportPreview } from "../api/admin/daily-import-preview";
 import { Suspense, useMemo, useState, type ReactElement } from "react";
 import { Await, type Location } from "react-router";
 import { OperationalStatusBanner, ProgressiveDisclosure } from "@chase-sets/design-system";
@@ -7,7 +8,6 @@ import type { CatalogPrimaryWorkbenchReadModel } from "../api/primary-workbench-
 import type {
   CatalogScopeSyncUnitStateReadModel,
   CatalogSyncRun,
-  SourceObservationIntegrationImportPreview,
   CatalogIntegrationsCommandResult,
   SourceObservationImportJobReceipt,
 } from "./contracts";
@@ -42,7 +42,7 @@ export type CatalogIntegrationsRouteData = Readonly<{
   // option snapshots never reach the browser payload. Each promise resolves
   // null/empty on absence/error, so the streamed boundary stays fail-soft.
   deferredSourceOptions?: Promise<CatalogPrimaryWorkbenchReadModel["sourceOptions"]> | null;
-  deferredImportPreview?: Promise<SourceObservationIntegrationImportPreview | null> | null;
+  deferredImportPreview?: Promise<CatalogDailyImportPreview> | null;
   deferredCatalogSyncRun?: Promise<CatalogSyncRun | null> | null;
   deferredScopeSyncState?: Promise<readonly CatalogScopeSyncUnitStateReadModel[] | null> | null;
   deferredAliasReview?: Promise<CatalogAliasReviewReadModel | null> | null;
