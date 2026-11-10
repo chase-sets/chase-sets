@@ -1,4 +1,5 @@
 import type { JsonValue } from "@chase-sets/primitives/json";
+import type { CatalogPrimaryWorkbenchScopeQueryKey } from "../../ui/primary-workbench-scope-context";
 import type { CatalogAdminControlPlaneFreshnessState } from "./admin-control-plane-read-model-slos";
 import type { CatalogAdminProfileVersionPointer } from "./admin-control-plane-read-model-contracts";
 import type { CatalogIntegrationUnitKey } from "../governance/integration-unit";
@@ -210,6 +211,25 @@ export type CatalogPrimaryWorkbenchSourceOptionPageReadModel = Readonly<{
   nextPageHref: string | null;
 }>;
 
+export type CatalogPrimaryWorkbenchGuidedScopeField = Readonly<{
+  queryKind: string;
+  scope: string;
+  label: string;
+  fieldName: CatalogPrimaryWorkbenchScopeQueryKey;
+  labelFieldName: CatalogPrimaryWorkbenchScopeQueryKey | null;
+  options: readonly Readonly<{
+    value: string;
+    label: string;
+    description: string | null;
+    parentValue: string | null;
+  }>[];
+  selectedValue: string;
+  selectedLabel: string;
+  parentMissing: boolean;
+  parentScope: string | null;
+  parentDiagnostic: string | null;
+}>;
+
 export type CatalogPrimaryWorkbenchSourceOptionsReadModel = Readonly<{
   status: CatalogPrimaryWorkbenchSourceOptionsStatus;
   freshness: CatalogAdminControlPlaneFreshnessState;
@@ -217,6 +237,9 @@ export type CatalogPrimaryWorkbenchSourceOptionsReadModel = Readonly<{
   selectedProviderKey: string | null;
   selectedUnitKey: CatalogIntegrationUnitKey | null;
   selectedProfile: CatalogAdminProfileVersionPointer | null;
+  guidedFields: readonly CatalogPrimaryWorkbenchGuidedScopeField[];
+  freeTextApplicable: boolean;
+  contextSummary: string | null;
   summary: Readonly<{
     declaredKinds: number;
     loadedPages: number;
@@ -303,6 +326,51 @@ export function assertPrimaryWorkbenchSourceOptions(
 ): void {
   if (!value) {
     throw new Error("Primary workbench source options contract is required.");
+  }
+  if (
+    !Array.isArray(value.guidedFields) ||
+    typeof value.freeTextApplicable !== "boolean" ||
+    !(value.contextSummary === null || typeof value.contextSummary === "string")
+  ) {
+    throw new Error("Primary workbench source options must answer guided fields, free text and context summary.");
+  }
+  const queryFields = [
+    "productId",
+    "languageCode",
+    "productLineId",
+    "productLineName",
+    "seriesId",
+    "seriesName",
+    "expansionId",
+    "expansionName",
+    "status",
+  ];
+  for (const field of value.guidedFields) {
+    if (
+      !field ||
+      typeof field !== "object" ||
+      !field.queryKind ||
+      !field.scope ||
+      !field.label ||
+      !queryFields.includes(field.fieldName) ||
+      !(field.labelFieldName === null || queryFields.includes(field.labelFieldName)) ||
+      !Array.isArray(field.options) ||
+      typeof field.selectedValue !== "string" ||
+      typeof field.selectedLabel !== "string" ||
+      typeof field.parentMissing !== "boolean" ||
+      !(field.parentScope === null || typeof field.parentScope === "string") ||
+      !(field.parentDiagnostic === null || typeof field.parentDiagnostic === "string") ||
+      field.options.some(
+        (option) =>
+          !option ||
+          typeof option.value !== "string" ||
+          typeof option.label !== "string" ||
+          !(option.description === null || typeof option.description === "string") ||
+          !(option.parentValue === null || typeof option.parentValue === "string"),
+      )
+    ) {
+      throw new Error("Primary workbench guided scope fields must preserve typed selections and parent diagnostics.");
+    }
   }
   if (!["ready", "degraded", "blocked", "unavailable"].includes(value.status)) {
     throw new Error("Primary workbench source options status must be explicit.");

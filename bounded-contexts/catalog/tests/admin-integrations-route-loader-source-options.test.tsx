@@ -105,6 +105,97 @@ describe("Catalog integrations route", () => {
       permissions: ["catalog.view", "catalog.manage"],
     });
   });
+  // Issue #11080: loaders pass owner answers through, never derive from route/pages.
+  it.each(["success", "rejected", "malformed"])(
+    "passes through guided scope answers and retains skeleton on deferred %s",
+    async (state) => {
+      const model = buildCatalogPrimaryWorkbenchReadModelForSurface("daily", {
+        requestUrl: "https://admin.example/catalog/integrations",
+        scopes: { items: [], total: 0, count: 0 },
+        profileReviews: { items: [], total: 0, count: 0 },
+        controlPlaneOverview: null,
+        canManageCatalog: true,
+      });
+      const skeleton = {
+        ...model.sourceOptions,
+        contextSummary: "Synthetic loader skeleton",
+        freeTextApplicable: false,
+        guidedFields: [
+          {
+            queryKind: "synthetic-loader",
+            scope: "expansion",
+            label: "Loader API answer",
+            fieldName: "expansionId" as const,
+            labelFieldName: "expansionName" as const,
+            options: [{ value: "api-only", label: "API only", description: null, parentValue: null }],
+            selectedValue: "api-only",
+            selectedLabel: "API only",
+            parentScope: null,
+            parentMissing: false,
+            parentDiagnostic: null,
+          },
+        ],
+      };
+      const resolved = { ...skeleton, contextSummary: "Synthetic loader resolved" };
+      mockCreateCatalogRequestApiClient.mockReturnValue({
+        getCatalogPrimaryWorkbenchSurface: vi
+          .fn()
+          .mockResolvedValue({
+            readModel: { ...model, sourceOptions: skeleton },
+            catalogSyncScope: null,
+            readModelFailures: [],
+          }),
+        getCatalogPrimaryWorkbenchDeferredSourceOptions:
+          state === "rejected"
+            ? vi.fn().mockRejectedValue(new Error("Synthetic deferred failure"))
+            : vi.fn().mockResolvedValue(state === "malformed" ? { ...resolved, guidedFields: null } : resolved),
+        recordCatalogControlPlaneEvent: vi.fn().mockResolvedValue({ status: "recorded" }),
+      });
+      const result = await loader({
+        request: new Request("https://admin.example/catalog/integrations?expansionId=not-api"),
+        params: {},
+        context: {},
+      } as Parameters<typeof loader>[0]);
+      expect(result.readModel.sourceOptions).toBe(skeleton);
+      expect(await result.deferredSourceOptions).toBe(state === "success" ? resolved : skeleton);
+    },
+  );
+
+  it("marks absent synchronous guided answers unavailable instead of restoring page rules", async () => {
+    const model = buildCatalogPrimaryWorkbenchReadModelForSurface("daily", {
+      requestUrl: "https://admin.example/catalog/integrations",
+      scopes: { items: [], total: 0, count: 0 },
+      profileReviews: { items: [], total: 0, count: 0 },
+      controlPlaneOverview: null,
+      canManageCatalog: true,
+    });
+    mockCreateCatalogRequestApiClient.mockReturnValue({
+      getCatalogPrimaryWorkbenchSurface: vi
+        .fn()
+        .mockResolvedValue({
+          readModel: { ...model, sourceOptions: { ...model.sourceOptions, guidedFields: undefined } },
+          catalogSyncScope: null,
+          readModelFailures: [],
+        }),
+      getCatalogPrimaryWorkbenchDeferredSourceOptions: vi
+        .fn()
+        .mockRejectedValue(new Error("Synthetic absent endpoint")),
+      recordCatalogControlPlaneEvent: vi.fn().mockResolvedValue({ status: "recorded" }),
+    });
+    const result = await loader({
+      request: new Request("https://admin.example/catalog/integrations"),
+      params: {},
+      context: {},
+    } as Parameters<typeof loader>[0]);
+    expect(result.readModel.sourceOptions).toMatchObject({
+      status: "unavailable",
+      guidedFields: [],
+      freeTextApplicable: false,
+      contextSummary: null,
+    });
+    expect(await result.deferredSourceOptions).toBe(result.readModel.sourceOptions);
+  });
+
   it("keeps an explicit YGOJSON set selection clean when stale Pokemon scope params remain in the URL", async () => {
     const selectedSetId = "9baa1b43-8a60-44dd-a144-dbef99c8c7a4";
     const profileReviews = {
