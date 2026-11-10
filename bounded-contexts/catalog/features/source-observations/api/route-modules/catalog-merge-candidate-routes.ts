@@ -97,14 +97,19 @@ export function catalogMergeCandidateRoutes(services: CatalogMergeCandidateRoute
       return c.json({ error: { code: "reason_required", message: reason.error } }, 400);
     }
 
-    const result = await services.promoteCatalogMergeCandidate({
-      candidateId: c.req.param("candidateId"),
-      reason: reason.value,
-      conflictResolutions: conflictResolutions(body),
-      context: c.get("context"),
-    });
-
-    return c.json(result);
+    const expectedVersion = expectedVersionFrom(body);
+    if (expectedVersion === null) {
+      return expectedVersionRequired(c);
+    }
+    return reviewCommandResponse(c, () =>
+      services.promoteCatalogMergeCandidate({
+        candidateId: c.req.param("candidateId"),
+        expectedVersion,
+        reason: reason.value,
+        conflictResolutions: conflictResolutions(body),
+        context: c.get("context"),
+      }),
+    );
   });
 
   app.post("/admin/merge-candidates/:candidateId/split", async (c) => {
@@ -337,7 +342,7 @@ function isStringArray(value: unknown): value is readonly string[] {
   return Array.isArray(value) && value.every((entry) => typeof entry === "string");
 }
 
-// The candidate version an update or split names as the one the operator saw.
+// The candidate version a promote, update or split names as the one the operator saw.
 function expectedVersionFrom(body: Record<string, unknown>): number | null {
   const value = body.expectedVersion;
   return typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : null;
@@ -355,7 +360,7 @@ function expectedVersionRequired(c: Context<CatalogAuthoringEnv>) {
   );
 }
 
-// An update or split, answered with its result, or with the reason the Catalog API refused it: a
+// A review command, answered with its result, or with the reason the Catalog API refused it: a
 // candidate that moved on since the operator read it is a 409 the page can say so for; a split or
 // edit the candidate cannot take is a 400.
 async function reviewCommandResponse(c: Context<CatalogAuthoringEnv>, run: () => Promise<unknown>): Promise<Response> {

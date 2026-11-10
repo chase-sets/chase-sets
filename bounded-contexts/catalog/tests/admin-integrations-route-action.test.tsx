@@ -339,7 +339,7 @@ function recordSyntheticReceipt(label: string, result: CatalogIntegrationsComman
 
 // The review page every promotion in these tests is previewed and confirmed on,
 // which admin-web sends with the preview and the execution for the Catalog API
-// to bind into its token (promotionConfirmationFromContext).
+// to bind into its token using the daily API's commandPreview descriptor.
 function pick(page: { unitKey: string; importScope: string; profileVersion: string }) {
   return { unitKey: page.unitKey, importScope: page.importScope, profileVersion: page.profileVersion };
 }
@@ -352,6 +352,192 @@ const reviewPage = {
 };
 
 describe("Catalog integrations route", () => {
+  // Issue #11142: accepted status URLs must survive the action's descriptor read.
+  it.each([
+    ["&status=changed", "changed"],
+    ["&status=eligible&filter.status=changed", "changed"],
+  ])("round-trips scope status through the real daily read: %s", async (query, status) => {
+    const requestUrl = receiptRequestUrl + query;
+    const previewBulkPromoteSourceObservations = vi.fn().mockResolvedValue(syntheticPromotionPreviewResponse());
+    mockCreateCatalogRequestApiClient.mockReturnValue({
+      listSourceObservationIntegrationScopes: vi.fn().mockResolvedValue({
+        items: [sourceObservationScope()],
+        total: 1,
+        count: 1,
+      }),
+      listSourceObservationProviderProfiles: vi.fn().mockResolvedValue({
+        items: [profileReview({ active: true, lifecycle: "active", profileVersion: "2026.06.04" })],
+        total: 1,
+        count: 1,
+      }),
+      getCatalogIntegrationControlPlaneOverview: vi.fn().mockResolvedValue(null),
+      listSourceObservations: vi.fn().mockResolvedValue({ items: [], total: 0, count: 0 }),
+      previewBulkPromoteSourceObservations,
+    });
+    const result = await runDailyAction(
+      {
+        _intent: "observation.promote",
+        promotionPhase: "preview",
+        providerKey: "tcgdex",
+        unitKey: "tcgdex:pokemon:card:import",
+        importScope: "en:3:base:base1",
+        profileVersion: "2026.06.04",
+      },
+      requestUrl,
+    );
+    expect(previewBulkPromoteSourceObservations).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ status }), {
+      promoteAsDraft: false,
+      confirmation: expect.objectContaining({ scope: expect.objectContaining({ status }) }),
+    });
+    const data = loaderData({ requestUrl, readModel: receiptRouteModel("2026.06.04", requestUrl) });
+    const probe = renderHook(() => useOriginalPromotionReceipt(data, result, false));
+    expect(probe.result.current.promotionPreview.executionSafeguards.previewFresh).toBe(true);
+    probe.unmount();
+  });
+
+  // Issue #11142: distinctive API values reveal any remaining route-side promotion authority.
+  it("forwards the submitted row's API descriptor and keeps its original receipt confirmable", async () => {
+    const requestUrl = receiptRequestUrl;
+    const readModel = receiptRouteModel();
+    const scope = {
+      provider: "tcgdex",
+      language: "synthetic-api-language",
+      search: "synthetic-api-query",
+      status: "eligible",
+    };
+    const commandPreview = {
+      scope,
+      confirmation: {
+        unitKey: "tcgdex:pokemon:card:import",
+        importScope: "en:3:base:base1",
+        profileVersion: "2026.06.04",
+        scope,
+      },
+      allowScopeSelection: false,
+    };
+    const authoritative = {
+      ...readModel,
+      actions: readModel.actions.map((entry) =>
+        entry.key === "observation.promote" ? { ...entry, commandPreview } : entry,
+      ),
+    };
+    const getCatalogPrimaryWorkbenchSurface = vi.fn().mockResolvedValue({ readModel: authoritative });
+    const previewBulkPromoteSourceObservationIds = vi.fn().mockResolvedValue(syntheticPromotionPreviewResponse());
+    const previewBulkPromoteSourceObservations = vi.fn();
+    mockCreateCatalogRequestApiClient.mockReturnValue({
+      getCatalogPrimaryWorkbenchSurface,
+      previewBulkPromoteSourceObservationIds,
+      previewBulkPromoteSourceObservations,
+    });
+    const result = await runDailyAction(
+      {
+        _intent: "observation.promote",
+        promotionPhase: "preview",
+        providerKey: "tcgdex",
+        unitKey: "tcgdex:pokemon:card:import",
+        importScope: "en:3:base:base1",
+        profileVersion: "2026.06.04",
+        selectedObservationIds: "obs_001",
+        commandPreview: JSON.stringify({ ...commandPreview, scope: { provider: "synthetic-forged-provider" } }),
+      },
+      "https://admin.example/catalog/integrations?providerKey=synthetic-stale-provider&profileVersion=synthetic-stale-profile&promotionPreviewId=synthetic-held-token",
+    );
+    expect(getCatalogPrimaryWorkbenchSurface).toHaveBeenCalledTimes(1);
+    const [surface, location] = getCatalogPrimaryWorkbenchSurface.mock.calls[0]!;
+    expect(surface).toBe("daily");
+    const submitted = new URL(location, "https://admin.example");
+    expect(submitted.searchParams.get("providerKey")).toBe("tcgdex");
+    expect(submitted.searchParams.get("profileVersion")).toBe("2026.06.04");
+    expect(submitted.searchParams.get("promotionPreviewId")).toBeNull();
+    expect(previewBulkPromoteSourceObservationIds).toHaveBeenCalledWith(["obs_001"], {
+      promoteAsDraft: false,
+      confirmation: commandPreview.confirmation,
+    });
+    expect(previewBulkPromoteSourceObservations).not.toHaveBeenCalled();
+    expect(result.promotionReceipt?.selection.scope).toEqual(scope);
+    const data = loaderData({ requestUrl, readModel: authoritative });
+    const positive = renderHook(() => useOriginalPromotionReceipt(data, result, false));
+    expect(positive.result.current.promotionPreview.executionSafeguards.previewFresh).toBe(true);
+    positive.unmount();
+    const changed = { ...commandPreview, scope: { ...scope, search: "synthetic-descriptor-drift" } };
+    for (const [currentModel, actionResult] of [
+      [
+        {
+          ...authoritative,
+          actions: authoritative.actions.map((entry) =>
+            entry.key === "observation.promote" ? { ...entry, commandPreview: changed } : entry,
+          ),
+        },
+        result,
+      ],
+      [authoritative, { ...result, promotionCommandPreview: changed }],
+    ] as const) {
+      const probe = renderHook(() =>
+        useOriginalPromotionReceipt({ ...data, readModel: currentModel }, actionResult, false),
+      );
+      expect(probe.result.current.promotionPreview.executionSafeguards.previewFresh).toBe(false);
+      expect(probe.result.current.promotionPreview.receipt).toEqual(result.promotionReceipt);
+      probe.unmount();
+    }
+  });
+
+  it("fails closed on missing promotion reads or descriptors and refuses disallowed scope selection", async () => {
+    for (const phase of ["preview", "execute"]) {
+      for (const answer of [
+        null,
+        { readModel: { actions: [] } },
+        { readModel: { actions: [{ key: "observation.promote" }] } },
+        new Error("synthetic read failure"),
+      ]) {
+        const getCatalogPrimaryWorkbenchSurface =
+          answer instanceof Error ? vi.fn().mockRejectedValue(answer) : vi.fn().mockResolvedValue(answer);
+        const previewBulkPromoteSourceObservationIds = vi.fn();
+        const bulkPromoteSourceObservations = vi.fn();
+        mockCreateCatalogRequestApiClient.mockReturnValue({
+          getCatalogPrimaryWorkbenchSurface,
+          previewBulkPromoteSourceObservationIds,
+          bulkPromoteSourceObservations,
+        });
+        const result = await runDailyAction({
+          _intent: "observation.promote",
+          promotionPhase: phase,
+          selectedObservationIds: "obs_001",
+          promotionPreviewId: "synthetic-original-token",
+        });
+        expect(result.feedback).toMatchObject({
+          status: "error",
+          result: phase === "preview" ? "command-failed" : "preview-required",
+        });
+        expect(result.context.promotionPreviewId).toBeNull();
+        expect(result.promotionReceipt).toBeUndefined();
+        expect(previewBulkPromoteSourceObservationIds).not.toHaveBeenCalled();
+        expect(bulkPromoteSourceObservations).not.toHaveBeenCalled();
+      }
+    }
+    const commandPreview = {
+      scope: { provider: "synthetic-api-provider" },
+      confirmation: { unitKey: null, importScope: null, profileVersion: null, scope: {} },
+      allowScopeSelection: false,
+    };
+    const getCatalogPrimaryWorkbenchSurface = vi
+      .fn()
+      .mockResolvedValue({ readModel: { actions: [{ key: "observation.promote", commandPreview }] } });
+    const previewBulkPromoteSourceObservations = vi.fn();
+    mockCreateCatalogRequestApiClient.mockReturnValue({
+      getCatalogPrimaryWorkbenchSurface,
+      previewBulkPromoteSourceObservations,
+    });
+    const result = await runDailyAction({
+      _intent: "observation.promote",
+      promotionPhase: "preview",
+      providerKey: "tcgdex",
+      unitKey: "tcgdex:pokemon:card:import",
+      importScope: "en:3:base:base1",
+    });
+    expect(result.feedback.result).toBe("command-failed");
+    expect(previewBulkPromoteSourceObservations).not.toHaveBeenCalled();
+  });
+
   it.each([null, "synthetic-scope-record"])(
     "preserves working selection B when deferred Preview A settles under scope %s",
     async (scopeRecordId) => {

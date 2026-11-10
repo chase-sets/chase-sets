@@ -1,9 +1,8 @@
 import type {
   CatalogProviderProfileVersionReview,
-  SourceObservationPromotionPreview,
   SourceObservationPromotionScope,
 } from "../../client-support/contracts";
-import { ApiError as CatalogApiError, type CatalogPromotionConfirmation } from "../../shell-support/api/client";
+import { ApiError as CatalogApiError } from "../../shell-support/api/client";
 import type {
   CatalogSyncScope,
   CatalogSyncScopeReferenceKind,
@@ -153,14 +152,8 @@ export function catalogSyncScopeFromContext(context: RouteContext, formData: For
   };
 }
 
-export function promotionScopeFromContext(context: RouteContext): SourceObservationPromotionScope {
+export function observationDecisionScopeFromContext(context: RouteContext): SourceObservationPromotionScope {
   return scopeContextToObservationFilterScope(scopeContextFromRouteContext(context), context.sourceObservationFilters);
-}
-
-export function hasExplicitPromotionScope(context: RouteContext): boolean {
-  const scope = scopeContextFromRouteContext(context);
-
-  return Boolean(context.providerKey && context.unitKey && importScopeFromScopeContext(scope));
 }
 
 export function reapplyScopeFromContext(context: RouteContext): CatalogPrimaryWorkbenchReapplyScope {
@@ -174,40 +167,6 @@ export function isStalePromotionPreviewError(error: unknown): boolean {
     error.status === 409 &&
     recordValue(recordValue(error.body)?.error)?.code === "stale_promotion_preview"
   );
-}
-
-/**
- * The page a promotion is previewed from and confirmed on: its unit, import
- * scope, profile version and page scope. admin-web sends it with the preview
- * and with the execution; the Catalog API binds it into the token and compares.
- */
-export function promotionConfirmationFromContext(context: RouteContext): CatalogPromotionConfirmation {
-  return {
-    unitKey: context.unitKey ?? null,
-    importScope: context.importScope ?? null,
-    profileVersion: context.profileVersion ?? null,
-    scope: promotionScopeFromContext(context),
-  };
-}
-
-export async function previewPromotionForContext(
-  api: ReturnType<typeof createCatalogRequestApiClient>,
-  context: RouteContext,
-  selectedObservationIds: readonly string[],
-): Promise<SourceObservationPromotionPreview> {
-  const options = {
-    promoteAsDraft: context.promoteAsDraft === true,
-    confirmation: promotionConfirmationFromContext(context),
-  };
-  return selectedObservationIds.length > 0
-    ? api.previewBulkPromoteSourceObservationIds<SourceObservationPromotionPreview>(
-        [...selectedObservationIds],
-        options,
-      )
-    : api.previewBulkPromoteSourceObservations<SourceObservationPromotionPreview>(
-        promotionScopeFromContext(context),
-        options,
-      );
 }
 
 export async function runProviderProfileLifecycleCommand(

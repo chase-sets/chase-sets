@@ -318,7 +318,8 @@ export async function applyContextSchema(
       SCHEMA_BOOTSTRAP_LOCK_TIMEOUT_RETRY_BUDGET_MS,
       "lockTimeoutRetryBudgetMs",
     );
-  let lastLockTimeoutError: unknown;
+  let lastRetryableError: unknown;
+  let lastRetryCondition: SchemaBootstrapRetryCondition = { condition: "lock_timeout", code: "none" };
   let attempts = 0;
 
   while (Date.now() < deadlineAt) {
@@ -327,12 +328,17 @@ export async function applyContextSchema(
       await applyContextSchemaOnce(pool, schemaSql, moduleSchemaMigrations, options);
       return;
     } catch (error) {
-      if (!isPostgresSchemaBootstrapRetryableError(error)) {
+      const retryCondition = classifyPostgresSchemaBootstrapRetryableError(error);
+      if (!retryCondition) {
         throw error;
       }
 
-      lastLockTimeoutError = error;
+      lastRetryableError = error;
+      lastRetryCondition = retryCondition;
       const remainingBudgetMs = deadlineAt - Date.now();
+      console.log(
+        `Schema bootstrap retryable failure: condition=${retryCondition.condition} code=${retryCondition.code} attempt=${attempts} remainingBudgetMs=${Math.max(0, remainingBudgetMs)}.`,
+      );
       if (remainingBudgetMs > 0) {
         await sleep(Math.min(schemaBootstrapLockTimeoutRetryDelayMs(attempts, options), remainingBudgetMs));
       }
@@ -341,8 +347,8 @@ export async function applyContextSchema(
 
   const elapsedMs = Date.now() - startedAt;
   throw new Error(
-    `Schema bootstrap hit PostgreSQL lock_timeout for ${attempts} attempts over ${elapsedMs}ms while applying idempotent schema SQL. Another database session may be holding a relation lock; retry the deploy after the lock clears or inspect active database sessions if this persists.`,
-    { cause: lastLockTimeoutError },
+    `Schema bootstrap hit PostgreSQL ${lastRetryCondition.condition} for ${attempts} attempts over ${elapsedMs}ms while applying idempotent schema SQL. Another database session may be holding a relation lock; retry the deploy after the lock clears or inspect active database sessions if this persists.`,
+    { cause: lastRetryableError },
   );
 }
 
@@ -485,17 +491,26 @@ function nonNegativeIntegerMsOrDefault(value: number | undefined, defaultValue: 
   return value;
 }
 
-function isPostgresSchemaBootstrapRetryableError(error: unknown): boolean {
+type SchemaBootstrapRetryCondition = Readonly<{
+  condition: "deadlock" | "lock_timeout" | "query_wait_timeout" | "advisory_lock_query_timeout";
+  code: "40P01" | "55P03" | "08P01" | "none";
+}>;
+
+function classifyPostgresSchemaBootstrapRetryableError(error: unknown): SchemaBootstrapRetryCondition | undefined {
   if (!error || typeof error !== "object") {
-    return false;
+    return undefined;
   }
 
   const errorLike = error as { code?: unknown; message?: unknown; cause?: unknown };
+  if (errorLike.code === "40P01") {
+    return { condition: "deadlock", code: "40P01" };
+  }
+
   if (
     errorLike.code === "55P03" ||
     (typeof errorLike.message === "string" && errorLike.message.includes("canceling statement due to lock timeout"))
   ) {
-    return true;
+    return { condition: "lock_timeout", code: errorLike.code === "55P03" ? "55P03" : "none" };
   }
 
   if (
@@ -503,14 +518,14 @@ function isPostgresSchemaBootstrapRetryableError(error: unknown): boolean {
     typeof errorLike.message === "string" &&
     errorLike.message.includes("query_wait_timeout")
   ) {
-    return true;
+    return { condition: "query_wait_timeout", code: "08P01" };
   }
 
   if (error instanceof SchemaBootstrapLockQueryTimeoutError) {
-    return true;
+    return { condition: "advisory_lock_query_timeout", code: "none" };
   }
 
-  return isPostgresSchemaBootstrapRetryableError(errorLike.cause);
+  return classifyPostgresSchemaBootstrapRetryableError(errorLike.cause);
 }
 
 async function acquireSchemaBootstrapLock(
