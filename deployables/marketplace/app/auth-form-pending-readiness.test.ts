@@ -1,4 +1,6 @@
 import { readFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { runInNewContext } from "node:vm";
 import ts from "@chase-sets/typescript-compiler-api";
 import { describe, expect, it } from "vitest";
@@ -6,7 +8,10 @@ import { hasIdentifierSubmitHandler } from "../e2e/support/sign-in-readiness";
 
 type Stage = "identifier" | "password";
 type Journey = { title: string; run: (fixtures: { page: object }) => Promise<void> };
-const source = readFileSync(new URL("../e2e/auth-form-pending.spec.ts", import.meta.url), "utf8");
+const source = readFileSync(
+  resolve(dirname(fileURLToPath(import.meta.url)), "../e2e/auth-form-pending.spec.ts"),
+  "utf8",
+);
 const titles = [
   "sign-in pointer submit blocks double submission and keeps focus on the submitter @marketplace-account @browser-e2e-seed",
   "sign-in Enter submit blocks double submission and keeps focus on the password field @marketplace-account @browser-e2e-seed",
