@@ -248,6 +248,23 @@ function artifactFor(m) {
   return { manifestSha256, memo, receipt, files, refresh };
 }
 
+function expectBoundedRefusal(action, reason) {
+  let error;
+  try {
+    action();
+  } catch (caught) {
+    error = caught;
+  }
+  const semanticRefusal =
+    error instanceof Error && error.code === "ERR_ASSERTION" && error.message.split("\n", 1)[0] === reason;
+  console.info(`bounded refusal semantic precondition: ${semanticRefusal}`);
+  expect(error instanceof Error, "public call must reject with an Error").toBe(true);
+  expect(error.code === "ERR_ASSERTION", "semantic refusal uses ERR_ASSERTION").toBe(true);
+  expect(semanticRefusal, "semantic refusal has the expected first-line reason").toBe(true);
+  expect(error.message === reason, "diagnostic contains only the semantic reason, no raw payload").toBe(true);
+  expect(error.message.length <= 1024, "diagnostic is bounded to 1024 characters").toBe(true);
+}
+
 function zipFiles(files, { names = [...files.keys()], mode = 0x81a4, deflate = false, descriptor = false } = {}) {
   const local = [];
   const central = [];
@@ -460,6 +477,36 @@ describe("immutable hosted memo artifacts (synthetic controls, no producer execu
     expect(() => validateArtifact(files, first.m, a.manifestSha256)).toThrow("extra paths");
   });
 
+  it("rejects synthetic one-byte checksum drift with a bounded semantic diagnostic", () => {
+    const a = artifactFor(first.m);
+    expect(validateArtifact(a.files, first.m, a.manifestSha256).manifestSha256 === a.manifestSha256).toBe(true);
+    const original = a.files.get("SHA256SUMS");
+    const corrupted = Buffer.from(original);
+    corrupted[0] ^= 1;
+    expect(corrupted.length === original.length, "one-byte control preserves length").toBe(true);
+    expect(
+      corrupted.filter((byte, index) => byte !== original[index]).length === 1,
+      "one-byte control changes exactly one byte",
+    ).toBe(true);
+    const files = new Map(a.files);
+    files.set("SHA256SUMS", corrupted);
+    expectBoundedRefusal(() => validateArtifact(files, first.m, a.manifestSha256), "payload checksum bytes differ");
+    expect(validateArtifact(a.files, first.m, a.manifestSha256).manifestSha256 === a.manifestSha256).toBe(true);
+  });
+
+  it("rejects synthetic checksum length drift with a bounded semantic diagnostic", () => {
+    const a = artifactFor(first.m);
+    expect(validateArtifact(a.files, first.m, a.manifestSha256).manifestSha256 === a.manifestSha256).toBe(true);
+    const original = a.files.get("SHA256SUMS");
+    const corrupted = Buffer.concat([original, Buffer.from("\n")]);
+    expect(corrupted.length === original.length + 1, "length control appends exactly one inert byte").toBe(true);
+    expect(corrupted.subarray(0, original.length).equals(original), "length control preserves the prefix").toBe(true);
+    const files = new Map(a.files);
+    files.set("SHA256SUMS", corrupted);
+    expectBoundedRefusal(() => validateArtifact(files, first.m, a.manifestSha256), "payload checksum bytes differ");
+    expect(validateArtifact(a.files, first.m, a.manifestSha256).manifestSha256 === a.manifestSha256).toBe(true);
+  });
+
   it("rejects wrong bytes paths keys provenance", () => {
     const a = artifactFor(first.m);
     const bad = Buffer.from(a.memo);
@@ -565,7 +612,10 @@ describe("immutable hosted memo artifacts (synthetic controls, no producer execu
     expect(() => acceptCompletedArtifact({ ...input, jobs: [job, job] })).toThrow("join");
     const applicationOptions = { objectRoot: first.directory, acceptedMemoSha256: sha256(read(MEMO)) };
     expect(checkApplication(first.m, first.m.E.commit, applicationOptions).rawCheck).toBe("PENDING_HOST");
-    expect(() => checkApplication(first.m, first.m.S.commit, applicationOptions)).toThrow("publication input drift");
+    expectBoundedRefusal(
+      () => checkApplication(first.m, first.m.S.commit, applicationOptions),
+      `publication input drift: ${CHECKER}`,
+    );
   });
 
   it("serializes without cancellation and invalidates drift", async () => {

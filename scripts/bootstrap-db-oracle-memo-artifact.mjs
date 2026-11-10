@@ -36,7 +36,12 @@ const limits = Object.freeze({
 });
 export const sha256 = (bytes) => createHash("sha256").update(bytes).digest("hex");
 export const canonical = (value) => `${JSON.stringify(value, null, 2)}\n`;
-const same = (left, right, reason) => assert.deepEqual(left, right, reason);
+const same = (left, right, reason) => {
+  if (Buffer.isBuffer(left) && Buffer.isBuffer(right)) {
+    return assert.ok(left.equals(right), reason);
+  }
+  return assert.deepEqual(left, right, reason);
+};
 const requireThat = (condition, reason) => assert.ok(condition, reason);
 const hex = (value, size) => typeof value === "string" && new RegExp(`^[a-f0-9]{${size}}$`).test(value);
 const id = (value) => typeof value === "string" && /^[1-9][0-9]{0,19}$/.test(value);
