@@ -5,6 +5,7 @@ import { dirname, join } from "node:path";
 import { crc32, deflateRawSync } from "node:zlib";
 import { afterAll, describe, expect, it } from "vitest";
 import { parse } from "yaml";
+import { gitListingOptions } from "./lib/git-listing.mjs";
 import { literalOutPaths } from "./workflow-canonical-artifacts.mjs";
 import {
   INPUT_SCHEMA,
@@ -170,7 +171,9 @@ async function syntheticProfile(runId, offset, workflowInSource = false) {
       beforeSha256: path === CHECKER ? sha256(read(CHECKER)) : null,
       afterSha256: sha256(readFileSync(join(directory, path))),
     })),
-    readClosureSha256: sha256(execFileSync("git", ["-C", directory, "ls-tree", "-rz", "--full-tree", E.commit])),
+    readClosureSha256: sha256(
+      execFileSync("git", ["-C", directory, "ls-tree", "-rz", "--full-tree", E.commit], gitListingOptions({})),
+    ),
     toolchain: {
       node: "v24.22.1",
       pnpm: "11.0.9",
