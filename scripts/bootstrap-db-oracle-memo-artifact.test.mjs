@@ -2,6 +2,7 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { runInNewContext } from "node:vm";
 import { crc32, deflateRawSync } from "node:zlib";
 import { afterAll, describe, expect, it } from "vitest";
 import { parse } from "yaml";
@@ -317,6 +318,83 @@ function zipFiles(files, { names = [...files.keys()], mode = 0x81a4, deflate = f
 }
 
 describe("immutable hosted memo artifacts (synthetic controls, no producer execution)", () => {
+  it.each([
+    ["default branch", "workflow_dispatch", "branch", "refs/heads/main", "main", false],
+    ["renamed default branch", "workflow_dispatch", "branch", "refs/heads/trunk", "trunk", false],
+    ["tag", "workflow_dispatch", "tag", "refs/tags/synthetic-memo", "main", false],
+    ["nondefault branch", "workflow_dispatch", "branch", "refs/heads/synthetic-memo", "main", true],
+    ["other event", "push", "branch", "refs/heads/synthetic-memo", "main", false],
+  ])("dispatch branch namespace: %s", (_label, eventName, refType, ref, defaultBranch, eligible) => {
+    const predicate = workflowValue.jobs.deriveMemo.if;
+    expect(predicate).toBe(
+      "${{ github.event_name == 'workflow_dispatch' && github.ref_type == 'branch' && github.ref != format('refs/heads/{0}', github.event.repository.default_branch) }}",
+    );
+    expect(
+      runInNewContext(predicate.slice(3, -2), {
+        github: {
+          event_name: eventName,
+          ref_type: refType,
+          ref,
+          event: { repository: { default_branch: defaultBranch } },
+        },
+        format: (pattern, value) => pattern.replace("{0}", value),
+      }),
+    ).toBe(eligible);
+  });
+
+  it("refuses unsafe branch namespaces before checkout or tool installation", () => {
+    const job = workflowValue.jobs.deriveMemo;
+    expect(job.env.DEFAULT_BRANCH_REF).toBe("${{ format('refs/heads/{0}', github.event.repository.default_branch) }}");
+    expect(job.steps.map((step) => step.name ?? step.uses.split("@")[0])).toEqual([
+      "Refuse reruns and mutable selectors",
+      "actions/checkout",
+      "Verify landed helper before executing code",
+      "pnpm/action-setup",
+      "actions/setup-node",
+      "Install locked trusted tools",
+      "Admit immutable profile",
+      "actions/checkout",
+      "Install locked input dependencies",
+      "Verify clean input",
+      "Run fixed producer",
+      "Validate canonical payloads",
+      "Upload canonical memo",
+    ]);
+    expect(job.steps[0].shell).toBe("bash");
+    expect(job.steps[0].run.trim().split("\n")).toEqual([
+      "set -euo pipefail",
+      'test "$GITHUB_REF_TYPE" = branch',
+      'test "$GITHUB_REF" != "$DEFAULT_BRANCH_REF"',
+      'test "$GITHUB_RUN_ATTEMPT" = 1',
+      '[[ "$HELPER_SHA" =~ ^[a-f0-9]{40}$ ]]',
+      '[[ "$INPUT_SHA" =~ ^[a-f0-9]{40}$ ]]',
+      '[[ "$MEMO_MANIFEST_SHA256" =~ ^[a-f0-9]{64}$ ]]',
+    ]);
+    expect(job.steps.find(({ name }) => name === "Verify landed helper before executing code").run).toBe(
+      'set -euo pipefail\ntest "$(git rev-parse HEAD)" = "$HELPER_SHA"\ngit merge-base --is-ancestor "$HELPER_SHA" origin/main\ntest "$(git rev-parse "$GITHUB_SHA:.github/workflows/bootstrap-db-oracle-memo.yml")" = "$(git rev-parse "$HELPER_SHA:.github/workflows/bootstrap-db-oracle-memo.yml")"\n',
+    );
+  });
+
+  it("keeps implicit and explicit setup caches disabled", () => {
+    const steps = workflowValue.jobs.deriveMemo.steps;
+    expect(steps.find(({ uses }) => uses?.startsWith("pnpm/action-setup@")).with).toEqual({
+      version: "11.0.9",
+      run_install: false,
+      cache: false,
+    });
+    expect(steps.find(({ uses }) => uses?.startsWith("actions/setup-node@")).with).toEqual({
+      "node-version": "24.22.1",
+      "package-manager-cache": false,
+    });
+    for (const step of steps) {
+      expect(step.uses ?? "").not.toMatch(/^actions\/cache(?:\/|@)/);
+      if (!step.uses?.startsWith("pnpm/action-setup@")) {
+        expect(step.with ?? {}).not.toHaveProperty("cache");
+      }
+      expect(step.with ?? {}).not.toHaveProperty("cache-dependency-path");
+    }
+  });
+
   it("binds two profiles and rejects stale foreign dirty widened input", async () => {
     for (const profile of [first, second]) {
       const bytes = Buffer.from(canonical(profile.m));

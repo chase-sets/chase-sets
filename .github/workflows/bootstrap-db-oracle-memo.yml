@@ -30,11 +30,13 @@ concurrency:
 jobs:
   deriveMemo:
     name: Derive Canonical Bootstrap Memo
+    if: ${{ github.event_name == 'workflow_dispatch' && github.ref_type == 'branch' && github.ref != format('refs/heads/{0}', github.event.repository.default_branch) }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
       contents: read
     env:
+      DEFAULT_BRANCH_REF: ${{ format('refs/heads/{0}', github.event.repository.default_branch) }}
       HELPER_SHA: ${{ inputs.helper_sha }}
       INPUT_SHA: ${{ inputs.input_sha }}
       MEMO_MANIFEST_JSON: ${{ inputs.manifest_json }}
@@ -44,6 +46,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          test "$GITHUB_REF_TYPE" = branch
+          test "$GITHUB_REF" != "$DEFAULT_BRANCH_REF"
           test "$GITHUB_RUN_ATTEMPT" = 1
           [[ "$HELPER_SHA" =~ ^[a-f0-9]{40}$ ]]
           [[ "$INPUT_SHA" =~ ^[a-f0-9]{40}$ ]]
@@ -69,10 +73,12 @@ jobs:
         with:
           version: 11.0.9
           run_install: false
+          cache: false
 
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: "24.22.1"
+          package-manager-cache: false
 
       - name: Install locked trusted tools
         working-directory: trusted
