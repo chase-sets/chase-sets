@@ -570,7 +570,7 @@ describe("independent artifact guards", () => {
     const script = join(workspace, "write.mjs");
     await writeFile(
       script,
-      `import {readFile} from 'node:fs/promises'; import {writeRefreshArtifact} from '${pathToFileURL(module).href}';
+      `import {readFile} from ${JSON.stringify("node:fs/promises")}; import {writeRefreshArtifact} from ${JSON.stringify(pathToFileURL(module).href)};
 try { await writeRefreshArtifact(JSON.parse(await readFile(new URL('./input.json', import.meta.url))), process.env, ${JSON.stringify(workspace)}, {maxBytes: ${kind === "size" ? 1 : scrydexOptionRefreshMaxBytes}}); }
 catch (error) { console.error(error.message); process.exitCode = 1; }`,
     );
