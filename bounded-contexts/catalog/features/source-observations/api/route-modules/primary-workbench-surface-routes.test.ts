@@ -915,14 +915,17 @@ describe("Catalog HTTP guided import scope answers", () => {
         profile.profile.supportedScopes.includes("product") &&
         profile.active &&
         profile.executableMappingContract?.normalizedObservation.outputKind === "yugioh-sealed-product",
-    )!;
+    );
     expect(profile).toMatchObject({
       profileKey: "yugioh-sealed-product-reference-data",
       ingestionUnitIdentity: { productForm: "sealed-product" },
       executableMappingContract: { normalizedObservation: { outputKind: "yugioh-sealed-product" } },
     });
+    if (!profile || !("ingestionUnitIdentity" in profile) || !profile.ingestionUnitIdentity) {
+      throw new Error("Expected the sealed-product profile to declare its ingestion unit.");
+    }
     const { app } = setup(profile);
-    const unit = profile.ingestionUnitIdentity!.unitKey;
+    const unit = profile.ingestionUnitIdentity.unitKey;
     const location = `/catalog/integrations?providerKey=ygojson&unitKey=${unit}&languageCode=en&productId=synthetic-product`;
     const body = await getJson(app, surfacePath("daily", location));
     expect(body.readModel.routeContext.scope).toMatchObject({ productId: "synthetic-product", expansionId: null });

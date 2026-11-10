@@ -1,5 +1,4 @@
 import type { JsonValue } from "@chase-sets/primitives/json";
-import type { CatalogPrimaryWorkbenchScopeQueryKey } from "../../ui/primary-workbench-scope-context";
 import type { CatalogAdminControlPlaneFreshnessState } from "./admin-control-plane-read-model-slos";
 import type { CatalogAdminProfileVersionPointer } from "./admin-control-plane-read-model-contracts";
 import type { CatalogIntegrationUnitKey } from "../governance/integration-unit";
@@ -113,6 +112,17 @@ export type CatalogPrimaryWorkbenchScopeContext = Readonly<{
   expansionName: string | null;
   status: string | null;
 }>;
+
+type CatalogPrimaryWorkbenchScopeQueryKey =
+  | "productId"
+  | "languageCode"
+  | "productLineId"
+  | "productLineName"
+  | "seriesId"
+  | "seriesName"
+  | "expansionId"
+  | "expansionName"
+  | "status";
 
 export type CatalogPrimaryWorkbenchProviderScopeReadModel = Readonly<{
   providers: readonly Readonly<{

@@ -4,7 +4,6 @@ import type {
   CatalogPrimaryWorkbenchRouteContext,
   CatalogPrimaryWorkbenchSourceOptionsReadModel,
 } from "./primary-workbench-selection-contracts";
-import type { CatalogPrimaryWorkbenchScopeQueryKey } from "../../ui/primary-workbench-scope-context";
 import { scopeContextFromRouteContext } from "../../ui/primary-workbench-scope-context";
 import { sourceOptionDisplayLabel } from "../../ui/primary-workbench-source-option-labels";
 
@@ -12,8 +11,8 @@ const scopeQueryFields: Readonly<
   Record<
     string,
     Readonly<{
-      fieldName: CatalogPrimaryWorkbenchScopeQueryKey;
-      labelFieldName: CatalogPrimaryWorkbenchScopeQueryKey | null;
+      fieldName: CatalogPrimaryWorkbenchGuidedScopeField["fieldName"];
+      labelFieldName: CatalogPrimaryWorkbenchGuidedScopeField["labelFieldName"];
     }>
   >
 > = {
