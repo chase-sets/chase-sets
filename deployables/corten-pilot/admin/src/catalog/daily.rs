@@ -1149,8 +1149,7 @@ pub fn rebase(context: &str, href: &str) -> Option<String> {
 }
 
 /// The daily surface's location for the working set, less the pilot's `home`: the scope's page its
-/// `home` names, whose journey the Catalog API composes from the Scope Record
-/// (chase-sets/chase-sets#11131), or the daily route.
+/// `home` names, whose journey the Catalog API composes from the Scope Record, or the daily route.
 pub fn location(context: &str) -> String {
     let rest = with_query(context, &[(HOME, None)]);
     match context_value(context, HOME).filter(|id| !id.is_empty()) {
