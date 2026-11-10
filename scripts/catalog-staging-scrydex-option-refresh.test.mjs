@@ -752,7 +752,7 @@ describe("independent artifact guards", () => {
     const script = join(workspace, "write.mjs");
     await writeFile(
       script,
-      `import {readFile} from "node:fs/promises";
+      `import {readFile} from ${JSON.stringify("node:fs/promises")};
 import {writeRefreshArtifact} from ${JSON.stringify(runnerUrl.href)};
 const inputs = JSON.parse(await readFile(new URL('./input.json', import.meta.url)));
 for (const input of inputs) {
