@@ -55,9 +55,8 @@
 //! Above the steps the import context bar ([`super::views::ImportContext`]) chooses the provider,
 //! the unit, the scope and the profile version from the surface's provider scope and its deferred
 //! source options read (`GET .../workbench-surfaces/daily/source-options?location=`), and posts the
-//! options' Reload and Force refresh to `POST /catalog/integrations/source-options?<context>`. Which
-//! field each option kind drives and which options a level offers are copied from admin-web until the
-//! API returns them (chase-sets/chase-sets#11080).
+//! options' Reload and Force refresh to `POST /catalog/integrations/source-options?<context>`. Both
+//! reads carry the scope selects, which options each level offers and the bar's summary line.
 //!
 //! Beside the surface the page reads the Catalog sync run the address's `jobId` names
 //! (`GET .../catalog-sync-scope/runs/{id}`), where a sync lands, and then the durable sync state of the
@@ -69,10 +68,11 @@
 //! health banners (`dailyStatus`), and the review queue's status filter and pager links; a scope's
 //! page draws those links on itself ([`rebase`]).
 use corten::{
-    Local,
+    LiveResponse, Local,
     http::{HeaderMap, Uri},
     prelude::*,
 };
+use futures_util::stream;
 use platform::receipt::Receipt;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -135,6 +135,11 @@ pub mod url {
     /// Reloads or refreshes the provider's source options, then lands on the working set.
     #[route("/catalog/integrations/source-options", post = crate::catalog::daily::source_options_refresh)]
     pub struct SourceOptions;
+
+    /// The jobs stage's import preflight for the working set, sent once when it reads
+    /// (`<corten-live>`).
+    #[route("/catalog/integrations/import-preview", get = crate::catalog::daily::import_preview)]
+    pub struct ImportPreview;
 
     /// An alias candidate's command in the review stage's alias review.
     #[route("/catalog/integrations/aliases", post = crate::catalog::daily::aliases)]
@@ -556,6 +561,85 @@ pub struct ImportJobs {
     pub jobs: Vec<ImportJob>,
     /// The import scope's readiness, which provider detail's validation readiness shows.
     pub selected_scope: Option<super::validation::SelectedScope>,
+}
+
+/// `CatalogDailyImportPreview`: the working set's import preflight, which the Catalog API plans for
+/// the selected scope, bounds in time, checks against the route and summarizes
+/// (`GET .../workbench-surfaces/daily/import-preview?location=`). The API answers `null` when the
+/// location names no import scope or the plan does not match it.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(tag = "status", rename_all = "lowercase")]
+pub enum ImportPreview {
+    Ready(Box<ReadyPreflight>),
+    /// The provider did not answer in time.
+    Unavailable,
+}
+
+/// A preflight the API planned for the selected scope, with its usage summarized.
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct ReadyPreflight {
+    pub preview: Preflight,
+    pub usage_summary: PreflightUsage,
+}
+
+/// `SourceObservationIntegrationImportPreview`, the parts the jobs stage draws.
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct Preflight {
+    pub provider_key: String,
+    pub scope: PreflightScope,
+    pub target_count: u64,
+    pub targets: Vec<PreflightTarget>,
+}
+
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct PreflightScope {
+    pub ingestion_unit_key: Option<String>,
+    pub language: Option<String>,
+    pub product_line_id: Option<String>,
+    pub series_id: Option<String>,
+    pub set_id: Option<String>,
+    pub set_name: Option<String>,
+    pub product_id: Option<String>,
+}
+
+impl PreflightScope {
+    /// The scope's levels joined, as admin-web's `importPreviewScopeKey` writes them.
+    pub fn key(&self) -> String {
+        let set = self.set_id.as_deref().or(self.set_name.as_deref());
+        [self.language.as_deref(), self.product_line_id.as_deref(), self.series_id.as_deref(), set, self.product_id.as_deref()]
+            .into_iter()
+            .flatten()
+            .filter(|level| !level.is_empty())
+            .collect::<Vec<_>>()
+            .join(":")
+    }
+}
+
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct PreflightTarget {
+    pub plan_key: String,
+    pub estimated_payloads: Option<u64>,
+    pub transport_steps: Vec<String>,
+}
+
+/// `CatalogImportPreviewUsageSummary`: the targets' provider usage, summarized by the API.
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct PreflightUsage {
+    pub request_strategy: Option<String>,
+    pub estimate_state: Option<String>,
+    pub estimated_request_count: Option<u64>,
+    pub estimate_reason: Option<String>,
+    pub usage_check_state: Option<String>,
+    pub page_size: Option<u64>,
+    pub selected_fields: Vec<String>,
+    pub per_record_fallback_reason: Option<String>,
+    pub credit_diagnostic: Option<String>,
+    pub degraded_diagnostic: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize, ToJson)]
@@ -1265,6 +1349,29 @@ async fn source_options(config: &Shared, headers: &HeaderMap, location: &str) ->
             None
         }
     }
+}
+
+/// The working set's import preflight, one fragment sent when the Catalog API answers it, which
+/// replaces the jobs stage's loading line: the preflight, that the provider did not answer in time,
+/// or nothing when there is none or the read fails (admin-web's deferred `settledImportPreviewRead`).
+/// The API bounds the provider's answer, so the stream ends within its deadline.
+pub(crate) async fn import_preview(
+    req: Req,
+    corten::Caller(_): corten::Caller<Staff<CatalogAccess>>,
+    State(config): State<Shared>,
+    headers: HeaderMap,
+    uri: Uri,
+) -> LiveResponse {
+    let t: Cat = req.t();
+    let rest = format!("/workbench-surfaces/daily/import-preview?location={}", segment(&location(&context_of(&uri))));
+    corten::live(stream::once(async move {
+        let caller = config.platform.caller(&headers, config.proto, None);
+        let answer = caller.read_at::<Option<ImportPreview>>(Kind::SourceObservations, &rest).await.unwrap_or_else(|error| {
+            tracing::warn!("the daily import preflight could not be read: {error}");
+            None
+        });
+        html! { <super::views::ImportPreflight t={t} answer={answer.as_ref()} /> }.to_html()
+    }))
 }
 
 /// The durable sync state of the scope the surface names (admin-web's

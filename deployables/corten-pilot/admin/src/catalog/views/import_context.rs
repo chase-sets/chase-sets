@@ -1,8 +1,8 @@
-//! The daily workbench's import context bar (admin-web's \`CatalogImportContextBar\`), above the
+//! The daily workbench's import context bar (admin-web's `CatalogImportContextBar`), above the
 //! steps: a disclosure, open until a scope is chosen and then one summary line, holding the context
 //! form and the source options panel.
 //!
-//! The form is a \`GET\` of the workbench: Select source scope sends the provider, the unit, the
+//! The form is a `GET` of the workbench: Select source scope sends the provider, the unit, the
 //! scope selects and the profile version, so it works without JavaScript. With it, changing a
 //! select clears what depends on it and sends the form at once, as admin-web's selects do: a new
 //! provider clears the unit, the profile version and the scope; a scope level fills in the parents
@@ -68,17 +68,19 @@ fn page_state_label(t: Cat, state: &str) -> &'static str {
     }
 }
 
-/// The bar: the summary line (or the step's title), then the form and the options panel.
+/// The bar: the summary line (or the step's title), then the form and the options panel. The line
+/// and whether the scope is free text are the surface's (`skeleton`), as admin-web's bar takes
+/// them; the selects and the panel are the populated options when they read (`options`).
 #[component(css, js)]
 pub fn ImportContext<'a>(
     t: Cat,
     route: &'a RouteContext,
     providers: &'a ProviderScope,
+    skeleton: &'a SourceOptions,
     options: &'a SourceOptions,
     context: &'a str,
 ) -> impl Render {
-    let scope = route.scope.clone().unwrap_or_default();
-    let import_scope = route.import_scope.as_deref().filter(|s| !s.trim().is_empty());
+    let import_scope = route.import_scope.as_deref().unwrap_or("");
     let selected_provider = route
         .provider_key
         .as_deref()
@@ -93,10 +95,8 @@ pub fn ImportContext<'a>(
         .clone()
         .or_else(|| selected_unit.and_then(|u| u.active_profile.as_ref()).map(|p| p.profile_version.clone()))
         .unwrap_or_default();
-    let profile_part = route.profile_version.as_deref().map(|v| t.wb_ctx_step_profile(v).to_string());
-    let summary =
-        import_context::summary(route.provider_key.as_deref(), route.unit_key.as_deref(), &scope, import_scope, profile_part);
-    let fields = import_context::guided_fields(&scope, import_scope.is_some(), options);
+    let summary = skeleton.context_summary.as_deref().filter(|line| !line.is_empty());
+    let fields = if options.guided_fields.is_empty() { &skeleton.guided_fields } else { &options.guided_fields };
     let clears_provider = ["unitKey", "profileVersion", "importScope"]
         .into_iter()
         .chain(import_context::SCOPE_FIELDS)
@@ -111,8 +111,8 @@ pub fn ImportContext<'a>(
             <summary>
                 <span class={Head}>
                     <span class={Title}>{t.wb_ctx_step_title()}</span>
-                    match &summary {
-                        Some(line) => { <span class={Line}>{t.wb_ctx_step_summary(line.as_str()).to_string()}</span> }
+                    match summary {
+                        Some(line) => { <span class={Line}>{t.wb_ctx_step_summary(line).to_string()}</span> }
                         None => { <span class={Line}>{t.wb_ctx_step_description()}</span> }
                     }
                 </span>
@@ -138,10 +138,10 @@ pub fn ImportContext<'a>(
                                 }
                             </select>
                         </label>
-                        if fields.is_empty() {
+                        if skeleton.free_text_applicable {
                             <label class={Field}>
                                 <span class={Label}>{t.wb_ctx_scope()}</span>
-                                <input class={Input {}} name="importScope" value={import_scope.unwrap_or("")}>
+                                <input class={Input {}} name="importScope" value={import_scope}>
                             </label>
                         }
                     </div>
@@ -177,27 +177,28 @@ pub fn ImportContext<'a>(
 /// One guided scope select: its options, the parent each names (so the script can fill the parents
 /// in), and the hidden field its name rides in.
 #[component(css = ImportContext)]
-fn ScopeSelect<'a>(t: Cat, field: &'a GuidedField<'a>, index: usize) -> impl Render {
-    let placeholder = t.wb_options_scope_select(field.label).to_string();
+fn ScopeSelect<'a>(t: Cat, field: &'a GuidedField, index: usize) -> impl Render {
+    let placeholder = t.wb_options_scope_select(&field.label).to_string();
     let index = index.to_string();
+    let id = format!("ctx-{}", field.field_name);
     html! {
         <div class={Field}>
-            <label class={Label} for={&format!("ctx-{}", field.field)}>{field.label}</label>
+            <label class={Label} for={&id}>{&field.label}</label>
             <select
-                id={&format!("ctx-{}", field.field)}
-                name={field.field}
+                id={&id}
+                name={&field.field_name}
                 class={Select {}}
                 disabled={field.parent_missing}
                 data-guided={&index}
-                data-query-kind={field.query_kind}
-                data-label-field={field.label_field.unwrap_or("")}
+                data-query-kind={&field.query_kind}
+                data-label-field={field.label_field_name.as_deref().unwrap_or("")}
             >
-                <option value="" selected={field.selected.is_empty()}>{&placeholder}</option>
+                <option value="" selected={field.selected_value.is_empty()}>{&placeholder}</option>
                 for option in &field.options {
                     <option
                         value={&option.value}
-                        selected={option.value == field.selected}
-                        data-parent={option.parent.as_deref()}
+                        selected={option.value == field.selected_value}
+                        data-parent={option.parent_value.as_deref()}
                     >
                         {&option.label}
                     </option>
@@ -206,14 +207,14 @@ fn ScopeSelect<'a>(t: Cat, field: &'a GuidedField<'a>, index: usize) -> impl Ren
             if let Some(text) = &field.parent_diagnostic {
                 <p class={Muted}>{text}</p>
             }
-            if let Some(name) = field.label_field {
-                <input type="hidden" name={name} value={&field.selected_label} disabled data-label-for={field.field}>
+            if let Some(name) = &field.label_field_name {
+                <input type="hidden" name={name} value={&field.selected_label} disabled data-label-for={&field.field_name}>
             }
         </div>
     }
 }
 
-/// The synced source options (admin-web's \`SourceOptionsStatusPanel\`): how many are loaded, each
+/// The synced source options (admin-web's `SourceOptionsStatusPanel`): how many are loaded, each
 /// kind's state, and its Reload and Force refresh.
 #[component(css = ImportContext)]
 fn OptionsPanel<'a>(t: Cat, options: &'a SourceOptions, refresh: &'a str) -> impl Render {

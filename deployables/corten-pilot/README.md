@@ -154,16 +154,15 @@ says ([chase-sets/chase-sets#11175 [catalog] Say in the daily read whether the h
 it against that version ([chase-sets/chase-sets#11143 [catalog] A merge candidate's promote is not checked against the version the operator read, as its split and edit are](https://github.com/chase-sets/chase-sets/issues/11143)); before, and for a promote with conflicts to resolve, it stays
 on admin-web. Its import context
 bar chooses the provider, unit, scope and profile version from synced source options and reloads or
-force-refreshes them; which field each option kind drives is copied from admin-web until the API
-returns it
-([chase-sets/chase-sets#11080 [catalog] Work out the daily workbench's import scope selects in the Catalog API: admin-web maps option kinds to fields, narrows their options and parses importScope itself](https://github.com/chase-sets/chase-sets/issues/11080)).
+force-refreshes them; the scope selects, their options and the bar's summary line are the Catalog
+API's.
 Below the bar the selected source scope's workset lists each provider unit with its state, counts and
 scope link. A unit's Sync and Reapply post the scopes the API builds for it (`commandScopes`,
 [chase-sets/chase-sets#11082 [catalog] Accept the daily workset unit's import and reapply in the Catalog API: admin-web builds their job and reapply scope from the unit's commandContext with its own rules](https://github.com/chase-sets/chase-sets/issues/11082)),
 read again for the working set when the form posts, and land on the unit's working set with the job
 they queued; its Preview previews the unit's scope with the unit's own promotion. The jobs stage's
-import preview stays on admin-web until the API composes it
-([chase-sets/chase-sets#11130 [catalog] Serve the daily workbench's selected import preview from the Catalog API: admin-web builds its scope, bounds it, matches it to the route and summarizes target usage itself](https://github.com/chase-sets/chase-sets/issues/11130)). The review stage folds the alias review of the provider and profile version the surface
+import preflight is the Catalog API's for the working set, sent in one `<corten-live>` fragment when it
+is read, so a slow provider does not hold the page; without JavaScript its loading line stays. The review stage folds the alias review of the provider and profile version the surface
 names, with the same candidate commands and bulk bar as the scopes list's.
 Provider detail,
 `/catalog/providers/{providerKey}` ([admin/src/catalog/provider.rs](admin/src/catalog/provider.rs)),
@@ -325,8 +324,6 @@ instead. Remove the workaround when the issue closes.
 | [chase-sets/chase-sets#11142 [catalog] Return the daily workbench's promotion selection and confirmation from the surface read: admin-web builds the promotion scope and confirmation from its route context](https://github.com/chase-sets/chase-sets/issues/11142) | [admin/src/catalog/daily.rs](admin/src/catalog/daily.rs), [admin/src/catalog/views/daily_page.rs](admin/src/catalog/views/daily_page.rs) |
 | [chase-sets/chase-sets#11143 [catalog] A merge candidate's promote is not checked against the version the operator read, as its split and edit are](https://github.com/chase-sets/chase-sets/issues/11143) | [admin/src/catalog/daily.rs](admin/src/catalog/daily.rs) |
 | [chase-sets/chase-sets#11175 [catalog] Say in the daily read whether the held promotion preview may be committed: admin-web decides from its preview receipt with its own coverage rule](https://github.com/chase-sets/chase-sets/issues/11175) | [admin/src/catalog/daily.rs](admin/src/catalog/daily.rs) |
-| [chase-sets/chase-sets#11080 [catalog] Work out the daily workbench's import scope selects in the Catalog API: admin-web maps option kinds to fields, narrows their options and parses importScope itself](https://github.com/chase-sets/chase-sets/issues/11080) | [admin/src/catalog/import_context.rs](admin/src/catalog/import_context.rs) |
-| [chase-sets/chase-sets#11130 [catalog] Serve the daily workbench's selected import preview from the Catalog API: admin-web builds its scope, bounds it, matches it to the route and summarizes target usage itself](https://github.com/chase-sets/chase-sets/issues/11130) | [admin/src/catalog/daily.rs](admin/src/catalog/daily.rs) |
 | [chase-sets/chase-sets#11051 [catalog] Provider detail's Pause, Resume and Run now say nothing when the API refuses them or the run fails](https://github.com/chase-sets/chase-sets/issues/11051) | [admin/src/catalog/provider.rs](admin/src/catalog/provider.rs) |
 | [chase-sets/chase-sets#11068 [catalog] Record provider profile migration evidence as a Catalog command: admin-web fills a blank text with a fixed sentence that satisfies activation](https://github.com/chase-sets/chase-sets/issues/11068) | [admin/src/catalog/validation.rs](admin/src/catalog/validation.rs), [admin/src/catalog/sections.rs](admin/src/catalog/sections.rs) |
 | [chase-sets/chase-sets#11074 [catalog] Provider profile section edits are merged and defaulted in admin-web, with no concurrency check: the API should own the section command's defaults and require the section's fingerprint](https://github.com/chase-sets/chase-sets/issues/11074) | [admin/src/catalog/sections.rs](admin/src/catalog/sections.rs) |

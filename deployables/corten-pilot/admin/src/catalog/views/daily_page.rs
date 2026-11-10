@@ -35,9 +35,9 @@ use crate::{
         api::AliasReview,
         daily::{
             self, CANDIDATE_COMMANDS, Candidate, CandidateInput, ContentsLine, Daily, DailyScreen, EditForm, EvidenceDetail,
-            Governance, Health, ImportJob, JobInput, ObservationEvidence, PROMOTION_INTENTS, PromotionInput, PromotionPreview,
-            Ran, ReviewInput, ReviewRow, Said, Stage, StageState, SyncInput, SyncRun, UnitInput, UnitState, WorksetUnit, at,
-            with_query,
+            Governance, Health, ImportJob, ImportPreview, JobInput, ObservationEvidence, PROMOTION_INTENTS, PromotionInput,
+            PromotionPreview, Ran, ReviewInput, ReviewRow, Said, Stage, StageState, SyncInput, SyncRun, UnitInput, UnitState,
+            WorksetUnit, at, with_query,
         },
         integrations,
         views::AliasReviewPart,
@@ -154,6 +154,7 @@ pub fn DailyPage<'a>(
                 t={t}
                 route={&model.route_context}
                 providers={&model.provider_scope}
+                skeleton={&model.source_options}
                 options={screen.source_options()}
                 context={context}
             />
@@ -887,13 +888,20 @@ fn usage(t: Cat, job: &ImportJob) -> Vec<String> {
     lines
 }
 
-/// The import jobs (`CatalogIntegrationImportJobsModule`): each with its progress, failure groups
-/// and usage, and the retry, resume and cancel the API offers it.
+/// The import jobs (`CatalogIntegrationImportJobsModule`): the selected scope's import preflight, then
+/// each job with its progress, failure groups and usage, and the retry, resume and cancel the API
+/// offers it.
 #[component(css = DailyPage)]
 fn JobsModule<'a>(t: Cat, req: &'a Req, model: &'a Daily, context: &'a str, manage: bool) -> impl Render {
     let jobs = &model.import_jobs;
     let status = t.wb_import_operations_status(jobs.active_job_count).to_string();
     let none = t.wb_none();
+    // The preflight the API plans for a provider, unit and import scope (it answers none without them).
+    let route = &model.route_context;
+    let named = |value: &Option<String>| value.as_deref().is_some_and(|v| !v.is_empty());
+    let preflight =
+        (jobs.selected_scope.is_some() && named(&route.provider_key) && named(&route.unit_key) && named(&route.import_scope))
+            .then(|| at(&daily::url::ImportPreview.href(), context));
     html! {
         <Module
             id="wb-jobs"
@@ -902,6 +910,11 @@ fn JobsModule<'a>(t: Cat, req: &'a Req, model: &'a Daily, context: &'a str, mana
             status={status}
             tone={if jobs.active_job_count > 0 { "warning" } else { "success" }}
         >
+            if let Some(src) = &preflight {
+                <corten-live src={src}>
+                    <div id={ImportPreflightId}><p class={Muted}>{t.wb_import_preview_loading()}</p></div>
+                </corten-live>
+            }
             if jobs.jobs.is_empty() {
                 <Empty title={t.wb_jobs_empty_title()} description={t.wb_jobs_empty_description()} />
             } else {
@@ -1048,6 +1061,127 @@ fn JobsModule<'a>(t: Cat, req: &'a Req, model: &'a Daily, context: &'a str, mana
                 </Table>
             }
         </Module>
+    }
+}
+
+/// Where the import preflight goes in the jobs stage, replaced by the fragment that answers it.
+#[derive(Id, Clone, Copy)]
+pub struct ImportPreflightId;
+
+fn strategy_tone(strategy: Option<&str>) -> &'static str {
+    match strategy {
+        Some("bulk-first") => "success",
+        Some("single-record") => "warning",
+        _ => "neutral",
+    }
+}
+
+fn usage_check_tone(state: Option<&str>) -> &'static str {
+    match state {
+        Some("checked") => "success",
+        Some("unavailable") => "danger",
+        Some("not-configured" | "unknown") => "warning",
+        _ => "neutral",
+    }
+}
+
+/// The import preflight (admin-web's `ImportPreviewEvidence`): the targets the provider's plan
+/// would fetch, its request strategy and usage check, and the estimate, fields, fallback, transport
+/// steps, diagnostics and plan keys; that the provider did not answer in time; or nothing.
+#[component(css = DailyPage)]
+pub fn ImportPreflight<'a>(t: Cat, answer: Option<&'a ImportPreview>) -> impl Render {
+    html! {
+        <div id={ImportPreflightId}>
+            match answer {
+                Some(ImportPreview::Ready(ready)) => {
+                    <PreflightPanel t={t} preview={&ready.preview} usage={&ready.usage_summary} />
+                }
+                Some(ImportPreview::Unavailable) => {
+                    <div data-catalog-deferred-panel="unavailable" role="status">
+                        <Banner tone="warning" title={t.wb_import_preview_title()} description={t.alias_review_unavailable()} />
+                    </div>
+                }
+                None => {}
+            }
+        </div>
+    }
+}
+
+#[component(css = DailyPage)]
+fn PreflightPanel<'a>(t: Cat, preview: &'a daily::Preflight, usage: &'a daily::PreflightUsage) -> impl Render {
+    let not_selected = || t.wb_not_selected().to_owned();
+    let unknown = state_label("unknown");
+    let strategy = usage.request_strategy.as_deref();
+    let check = usage.usage_check_state.as_deref();
+    let requests = match (usage.estimated_request_count, usage.estimate_state.as_deref()) {
+        (Some(count), _) => count.to_string(),
+        (None, Some("estimate-unavailable")) => t.wb_import_preview_estimate_unavailable().to_owned(),
+        (None, _) => not_selected(),
+    };
+    let payloads = if preview.targets.is_empty() || preview.targets.iter().any(|target| target.estimated_payloads.is_none()) {
+        not_selected()
+    } else {
+        preview.targets.iter().filter_map(|target| target.estimated_payloads).sum::<u64>().to_string()
+    };
+    let mut steps: Vec<&str> = Vec::new();
+    for step in preview.targets.iter().flat_map(|target| &target.transport_steps) {
+        if !step.is_empty() && !steps.contains(&step.as_str()) {
+            steps.push(step);
+        }
+    }
+    let or = |value: &Option<String>, otherwise: &str| value.clone().unwrap_or_else(|| otherwise.to_owned());
+    let estimate = [
+        (t.wb_import_preview_estimated_requests(), requests),
+        (t.wb_import_preview_estimate_reason(), or(&usage.estimate_reason, t.wb_import_preview_no_estimate_reason())),
+        (t.wb_import_preview_estimated_payloads(), payloads),
+        (t.wb_import_preview_page_size(), usage.page_size.map_or_else(not_selected, |size| size.to_string())),
+    ];
+    let plan = [
+        (
+            t.wb_import_preview_selected_fields(),
+            if usage.selected_fields.is_empty() { t.wb_none().to_owned() } else { usage.selected_fields.join(", ") },
+        ),
+        (t.wb_import_preview_fallback(), or(&usage.per_record_fallback_reason, t.wb_import_preview_bulk_first())),
+        (t.wb_import_preview_transport_steps(), if steps.is_empty() { t.wb_none().to_owned() } else { steps.join(" / ") }),
+    ];
+    let diagnostics = [
+        (t.wb_import_preview_credit_diagnostic(), or(&usage.credit_diagnostic, t.wb_import_preview_no_credit_diagnostic())),
+        (t.wb_import_preview_degraded_diagnostic(), or(&usage.degraded_diagnostic, t.wb_import_preview_no_degraded_diagnostic())),
+        (
+            t.wb_import_preview_plan_keys(),
+            preview.targets.iter().map(|target| target.plan_key.as_str()).collect::<Vec<_>>().join(", "),
+        ),
+    ];
+    let targets = t.wb_import_preview_targets(preview.target_count).to_string();
+    let strategy_text = t.wb_import_preview_strategy(&strategy.map_or_else(|| unknown.clone(), state_label)).to_string();
+    let check_text = t.wb_import_preview_usage_check(&check.map_or_else(|| unknown.clone(), state_label)).to_string();
+    html! {
+        <div
+            class={Panel}
+            data-catalog-import-preview="ready"
+            data-catalog-import-preview-provider={&preview.provider_key}
+            data-catalog-import-preview-unit={preview.scope.ingestion_unit_key.as_deref().unwrap_or("")}
+            data-catalog-import-preview-scope={&preview.scope.key()}
+            data-catalog-import-preview-strategy={strategy.unwrap_or("none")}
+            data-catalog-import-preview-usage-state={check.unwrap_or("none")}
+        >
+            <div class={Row}>
+                <div>
+                    <p class={Strong}>{t.wb_import_preview_title()}</p>
+                    <p class={Muted}>{t.wb_import_preview_description()}</p>
+                </div>
+                <span class={Badges}>
+                    <Pill text={&targets} tone="info" />
+                    <Pill text={&strategy_text} tone={strategy_tone(strategy)} />
+                    <Pill text={&check_text} tone={usage_check_tone(check)} />
+                </span>
+            </div>
+            <div class={Columns}>
+                <Pairs items={&estimate} />
+                <Pairs items={&plan} />
+                <Pairs items={&diagnostics} />
+            </div>
+        </div>
     }
 }
 
