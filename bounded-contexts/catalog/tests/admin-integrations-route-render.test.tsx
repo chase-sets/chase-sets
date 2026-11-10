@@ -626,6 +626,7 @@ describe("Catalog integrations route", () => {
     });
     mockCreateCatalogRequestApiClient.mockReturnValue({
       getCatalogPrimaryWorkbenchSurface,
+      getCatalogPrimaryWorkbenchDeferredImportPreview: vi.fn().mockResolvedValue(null),
       getCatalogPrimaryWorkbenchDeferredSourceOptions: vi.fn().mockRejectedValue(new Error("not under test")),
       recordCatalogControlPlaneEvent: vi.fn().mockResolvedValue({ status: "recorded" }),
     });

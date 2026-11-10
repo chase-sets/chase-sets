@@ -493,13 +493,16 @@ describe("Catalog integrations route", () => {
       routeData.readModel.actions.find((actionEntry) => actionEntry.key === "scope.import")?.blockers,
     ).not.toContain("import-scope-required");
     await expect(routeData.deferredImportPreview).resolves.toMatchObject({
-      providerKey: "scrydex",
-      targetCount: 1,
-      targets: [
-        expect.objectContaining({
-          usageEstimate: expect.objectContaining({ requestStrategy: "bulk-first" }),
-        }),
-      ],
+      status: "ready",
+      preview: {
+        providerKey: "scrydex",
+        targetCount: 1,
+        targets: [
+          expect.objectContaining({
+            usageEstimate: expect.objectContaining({ requestStrategy: "bulk-first" }),
+          }),
+        ],
+      },
     });
     expect(previewSourceObservationIntegrationImport).toHaveBeenCalledWith({
       provider: "scrydex",
@@ -571,18 +574,21 @@ describe("Catalog integrations route", () => {
       importScope: "en:TFC",
     });
     await expect(routeData.deferredImportPreview).resolves.toMatchObject({
-      providerKey: "scrydex",
-      scope: expect.objectContaining({
-        provider: "scrydex",
-        ingestionUnitKey: unitKey,
-        language: "en",
-        setId: "TFC",
-      }),
-      targets: [
-        expect.objectContaining({
-          usageEstimate: expect.objectContaining({ requestStrategy: "bulk-first" }),
+      status: "ready",
+      preview: {
+        providerKey: "scrydex",
+        scope: expect.objectContaining({
+          provider: "scrydex",
+          ingestionUnitKey: unitKey,
+          language: "en",
+          setId: "TFC",
         }),
-      ],
+        targets: [
+          expect.objectContaining({
+            usageEstimate: expect.objectContaining({ requestStrategy: "bulk-first" }),
+          }),
+        ],
+      },
     });
     expect(previewSourceObservationIntegrationImport).toHaveBeenCalledWith({
       provider: "scrydex",
@@ -674,6 +680,7 @@ describe("Catalog integrations route", () => {
       providerKey: "scrydex",
       importScope: "en:OP09",
     });
+    await expect(routeData.deferredImportPreview).resolves.toBeNull();
     expect(previewSourceObservationIntegrationImport).toHaveBeenCalledWith({
       provider: "scrydex",
       ingestionUnitKey: unitKey,
@@ -1253,6 +1260,38 @@ describe("Catalog integrations route", () => {
     }
   });
 
+  // Issue #11130: the shell never waits for the selected preview or reconstructs its scope.
+  it("forwards location to the deferred preview read and returns the shell before settlement", async () => {
+    let release!: (value: { status: "unavailable" }) => void;
+    const getCatalogPrimaryWorkbenchDeferredImportPreview = vi.fn(
+      () =>
+        new Promise<{ status: "unavailable" }>((resolve) => {
+          release = resolve;
+        }),
+    );
+    const raw = vi.fn();
+    mockCreateCatalogRequestApiClient.mockReturnValue({
+      listSourceObservationIntegrationScopes: async () => ({ items: [], total: 0, count: 0 }),
+      listSourceObservationProviderProfiles: async () => ({ items: [], total: 0, count: 0 }),
+      getCatalogIntegrationControlPlaneOverview: async () => null,
+      listSourceObservations: async () => ({ items: [], total: 0, count: 0 }),
+      recordCatalogControlPlaneEvent: async () => ({ status: "recorded" }),
+      getCatalogPrimaryWorkbenchDeferredImportPreview,
+      previewSourceObservationIntegrationImport: raw,
+    });
+    const location = "/catalog/integrations?productId=synthetic-A&languageCode=en";
+    const data = await loader({
+      request: new Request(`https://admin.example${location}`),
+      params: {},
+      context: {},
+    } as Parameters<typeof loader>[0]);
+    expect(data.readModel).toBeTruthy();
+    expect(getCatalogPrimaryWorkbenchDeferredImportPreview).toHaveBeenCalledExactlyOnceWith(location);
+    expect(raw).not.toHaveBeenCalled();
+    release({ status: "unavailable" });
+    await expect(data.deferredImportPreview).resolves.toEqual({ status: "unavailable" });
+  });
+
   it("resolves a rejected selected import preview to null", async () => {
     const unitKey = "scrydex:one-piece:single-card:source-observation-import";
     const previewSourceObservationIntegrationImport = vi.fn().mockRejectedValue(new Error("preview transport failed"));
@@ -1338,21 +1377,21 @@ describe("Catalog integrations route", () => {
       expect(preview).not.toBeNull();
 
       let settled = false;
-      let rejectionCode: string | undefined;
+      let answer: unknown;
       void preview?.then(
-        () => {
+        (value) => {
           settled = true;
+          answer = value;
         },
         (error: unknown) => {
-          settled = true;
-          rejectionCode = error instanceof Error && "code" in error ? String(error.code) : undefined;
+          throw error;
         },
       );
       await vi.advanceTimersByTimeAsync(2_499);
       expect(settled).toBe(false);
       await vi.advanceTimersByTimeAsync(1);
       await vi.runAllTicks();
-      expect(rejectionCode).toBe("catalog_provider_option_query_timeout");
+      expect(answer).toEqual({ status: "unavailable" });
       expect(previewSourceObservationIntegrationImport).toHaveBeenCalledTimes(1);
     } finally {
       vi.useRealTimers();

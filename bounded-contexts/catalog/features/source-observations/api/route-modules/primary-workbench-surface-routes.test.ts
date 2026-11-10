@@ -22,7 +22,7 @@ import {
   type CatalogProviderIntegrationProfileVersionRecord,
   type CatalogProviderScope,
 } from "../provider-integration-profiles";
-import { importPreviewMatchesRouteContext } from "../../ui/admin-control-plane/import-jobs/import-jobs-module";
+import { catalogImportPreviewMatchesSelection } from "../admin/daily-import-preview";
 import type { SourceObservationIntegrationImportPreview } from "../../ui/contracts";
 import {
   controlPlaneOverview,
@@ -128,6 +128,306 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
+// Issue #11130: selected preview rules execute through the real Catalog HTTP read.
+describe("Catalog daily selected import preview", () => {
+  const location = `/catalog/integrations?providerKey=tcgdex&unitKey=${TCGDEX_UNIT}&languageCode=en&productLineId=3&seriesId=base&expansionId=base1`;
+  const scope = {
+    provider: "tcgdex",
+    ingestionUnitKey: TCGDEX_UNIT,
+    language: "en",
+    productLineId: "3",
+    seriesId: "base",
+    setId: "base1",
+  };
+  const preview: Awaited<ReturnType<SourceObservationRouteServices["previewIntegrationImport"]>> = {
+    action: "import",
+    providerKey: "tcgdex",
+    scope,
+    profileSnapshot: null,
+    targetCount: 0,
+    targets: [],
+  };
+  const path = (value = location) => surfacePath("daily/import-preview", value);
+  const emptySummary = {
+    requestStrategy: null,
+    estimateState: null,
+    estimatedRequestCount: null,
+    estimateReason: null,
+    usageCheckState: null,
+    pageSize: null,
+    selectedFields: [],
+    perRecordFallbackReason: null,
+    creditDiagnostic: null,
+    degradedDiagnostic: null,
+  };
+  const estimate = {
+    requestStrategy: "bulk-first" as const,
+    estimateState: "estimated" as const,
+    estimatedRequestCount: 2,
+    estimateReason: "first ordinary reason",
+    usageCheckState: "checked" as const,
+    pageSize: 100,
+    selectedFields: ["id", "name"],
+    perRecordFallbackReason: null,
+    creditDiagnostic: null,
+    degradedDiagnostic: null,
+  };
+  function target(
+    usageEstimate: SourceObservationIntegrationImportPreview["targets"][number]["usageEstimate"],
+  ): SourceObservationIntegrationImportPreview["targets"][number] {
+    return {
+      targetId: "synthetic",
+      name: "Synthetic",
+      languageCode: "en",
+      scopeKey: "synthetic",
+      planKey: "synthetic",
+      transportSteps: [],
+      estimatedPayloads: null,
+      usageEstimate,
+    };
+  }
+  function setup(value = preview, actor = viewOnlyActor) {
+    const plan = vi.fn<SourceObservationRouteServices["previewIntegrationImport"]>().mockResolvedValue(value);
+    return { plan, app: buildApp(surfaceServices({ previewIntegrationImport: plan }), mutableProfileStore(), actor) };
+  }
+  it("derives the scope once and passes the request context for a view-only actor", async () => {
+    const { app, plan } = setup();
+    expect(await getJson(app, path())).toEqual({ status: "ready", preview, usageSummary: emptySummary });
+    expect(plan).toHaveBeenCalledExactlyOnceWith({ scope, context });
+  });
+  it.each([
+    undefined,
+    "https://admin.example/catalog/integrations",
+    "/other",
+    "//elsewhere/catalog/integrations",
+    "/catalog/../../other",
+  ])("refuses invalid location %s without planning", async (value) => {
+    const { app, plan } = setup();
+    const response = await app.request(
+      value === undefined ? "/source-observations/workbench-surfaces/daily/import-preview" : path(value),
+    );
+    expect(response.status).toBe(400);
+    expect(plan).not.toHaveBeenCalled();
+  });
+  it("denies an actor without catalog.view before planning", async () => {
+    const { app, plan } = setup(preview, { permissions: [] });
+    expect((await app.request(path())).status).toBe(403);
+    expect(plan).not.toHaveBeenCalled();
+  });
+  it.each([`/catalog/integrations?providerKey=tcgdex&unitKey=${TCGDEX_UNIT}`])(
+    "does not plan an incomplete selection %s",
+    async (value) => {
+      const { app, plan } = setup();
+      expect(await getJson(app, path(value))).toBeNull();
+      expect(plan).not.toHaveBeenCalled();
+    },
+  );
+  it("does not plan without any provider or unit selection", async () => {
+    const { plan } = setup();
+    const app = buildApp(
+      surfaceServices({
+        previewIntegrationImport: plan,
+        listIntegrationScopes: async () => [],
+        getCatalogIntegrationControlPlaneReadiness: async () => readiness([]),
+      }),
+      mutableProfileStore([]),
+    );
+    expect(await getJson(app, path("/catalog/integrations"))).toBeNull();
+    expect(plan).not.toHaveBeenCalled();
+  });
+  it("fails soft when the planner capability is absent or throws", async () => {
+    expect(await getJson(buildApp(surfaceServices(), mutableProfileStore()), path())).toBeNull();
+    const { app, plan } = setup();
+    plan.mockRejectedValue(new Error("Synthetic private failure"));
+    expect(await getJson(app, path())).toBeNull();
+    expect(plan).toHaveBeenCalledTimes(1);
+  });
+  it.each([
+    "providerKey",
+    "provider",
+    "ingestionUnitKey",
+    "language",
+    "productLineId",
+    "seriesId",
+    "setId",
+    "productId",
+  ] as const)("rejects mismatched %s echo", async (field) => {
+    const mismatched =
+      field === "providerKey"
+        ? { ...preview, providerKey: "other" }
+        : { ...preview, scope: { ...scope, [field]: "other" } };
+    const { app, plan } = setup(mismatched);
+    expect(await getJson(app, path())).toBeNull();
+    expect(plan).toHaveBeenCalledTimes(1);
+  });
+  it("accepts folded strings and set intersection but does not constrain absent expected strings", async () => {
+    const echoed = {
+      ...preview,
+      providerKey: " TCGDEX ",
+      scope: {
+        ...scope,
+        provider: " TCGDEX ",
+        ingestionUnitKey: ` ${TCGDEX_UNIT.toUpperCase()} `,
+        language: " EN ",
+        productLineId: " 3 ",
+        seriesId: " BASE ",
+        setId: "different",
+        setName: " BASE1 ",
+      },
+    };
+    const { app } = setup(echoed);
+    expect(await getJson(app, path())).toMatchObject({ status: "ready", preview: echoed });
+    expect(
+      await getJson(app, path(`/catalog/integrations?providerKey=tcgdex&unitKey=${TCGDEX_UNIT}&languageCode=en`)),
+    ).toMatchObject({ status: "ready" });
+  });
+  it("keeps filter precedence and the route match as a conjunction", async () => {
+    const { app, plan } = setup({ ...preview, scope: { ...scope, language: "fr" } });
+    expect(await getJson(app, path(`${location}&filter.language=fr`))).toBeNull();
+    expect(plan).toHaveBeenCalledExactlyOnceWith({ scope: { ...scope, language: "fr" }, context });
+  });
+  it("uses a set name and the normalized inferred default selection", async () => {
+    const { app, plan } = setup({ ...preview, scope: { ...scope, setId: undefined, setName: "Synthetic set" } });
+    expect(
+      await getJson(
+        app,
+        path(
+          `/catalog/integrations?providerKey=tcgdex&unitKey=${TCGDEX_UNIT}&languageCode=en&expansionName=Synthetic+set`,
+        ),
+      ),
+    ).toMatchObject({ status: "ready" });
+    expect(plan.mock.calls[0]?.[0].scope).toMatchObject({ setName: "Synthetic set" });
+    plan.mockResolvedValue(preview);
+    expect(await getJson(app, path("/catalog/integrations"))).toMatchObject({ status: "ready" });
+    expect(plan.mock.calls[1]?.[0].scope).toEqual(scope);
+  });
+  it("keeps exact product identity, deselection and mixed-language refusal at the HTTP boundary", async () => {
+    const profile = catalogProviderIntegrationProfileVersions.find(
+      (item) =>
+        item.providerKey === "ygojson" &&
+        item.profile.supportedScopes.includes("product") &&
+        item.active &&
+        item.executableMappingContract?.normalizedObservation.outputKind === "yugioh-sealed-product",
+    );
+    if (!profile || !("ingestionUnitIdentity" in profile) || !profile.ingestionUnitIdentity)
+      throw new Error("Synthetic product test requires the registered sealed-product profile.");
+    const unit = profile.ingestionUnitIdentity.unitKey;
+    const productScope = {
+      provider: "ygojson",
+      ingestionUnitKey: unit,
+      language: "en",
+      productId: "synthetic-product-A",
+    };
+    const productPreview = { ...preview, providerKey: "ygojson", scope: productScope };
+    const plan = vi.fn<SourceObservationRouteServices["previewIntegrationImport"]>().mockResolvedValue(productPreview);
+    const app = buildApp(
+      surfaceServices({ previewIntegrationImport: plan, listIntegrationScopes: async () => [] }),
+      mutableProfileStore([profile]),
+    );
+    const selected = `/catalog/integrations?providerKey=ygojson&unitKey=${unit}&languageCode=en&productId=synthetic-product-A`;
+    expect(await getJson(app, path(selected))).toMatchObject({ status: "ready", preview: productPreview });
+    expect(plan).toHaveBeenCalledExactlyOnceWith({ scope: productScope, context });
+    for (const productId of ["synthetic-product-a", "synthetic-product-B", undefined]) {
+      plan.mockResolvedValue({ ...productPreview, scope: { ...productScope, productId } });
+      expect(await getJson(app, path(selected))).toBeNull();
+    }
+    plan.mockResolvedValue(productPreview);
+    expect(await getJson(app, path(selected.replace("&productId=synthetic-product-A", "")))).toBeNull();
+    plan.mockClear();
+    expect(await getJson(app, path(`${selected}&filter.language=fr`))).toBeNull();
+    expect(plan).not.toHaveBeenCalled();
+  });
+  it.each([[[]], [[target(null)]], [[target(estimate), target(null)]]])(
+    "summarizes zero/all-null/mixed estimates independently",
+    async (targets) => {
+      const { app } = setup({ ...preview, targets, targetCount: targets.length });
+      const result = await getJson(app, path());
+      expect(result.usageSummary).toEqual(targets.some((item) => item.usageEstimate) ? estimate : emptySummary);
+    },
+  );
+  it("folds disagreement, partial counts, unavailable reason priority and ordered unique fields", async () => {
+    const targets = [
+      target(estimate),
+      target({
+        ...estimate,
+        requestStrategy: "single-record",
+        estimateState: "estimate-unavailable",
+        estimatedRequestCount: null,
+        estimateReason: "first unavailable reason",
+        usageCheckState: "unavailable",
+        pageSize: 50,
+        selectedFields: ["name", "image", ""],
+        perRecordFallbackReason: "fallback one",
+        creditDiagnostic: "credit one",
+        degradedDiagnostic: "degraded one",
+      }),
+      target({
+        ...estimate,
+        estimateState: "estimate-unavailable",
+        estimateReason: "later unavailable reason",
+        selectedFields: ["image", "last"],
+        perRecordFallbackReason: "fallback two",
+        creditDiagnostic: "credit two",
+        degradedDiagnostic: "degraded two",
+      }),
+    ];
+    const { app } = setup({ ...preview, targets, targetCount: 3 });
+    expect((await getJson(app, path())).usageSummary).toEqual({
+      requestStrategy: null,
+      estimateState: "estimate-unavailable",
+      estimatedRequestCount: null,
+      estimateReason: "first unavailable reason",
+      usageCheckState: null,
+      pageSize: null,
+      selectedFields: ["id", "name", "image", "last"],
+      perRecordFallbackReason: "fallback one",
+      creditDiagnostic: "credit one",
+      degradedDiagnostic: "degraded one",
+    });
+  });
+  it("sums complete counts and keeps the first ordinary reason", async () => {
+    const { app } = setup({
+      ...preview,
+      targets: [target(estimate), target({ ...estimate, estimatedRequestCount: 3, estimateReason: "second" })],
+      targetCount: 2,
+    });
+    expect((await getJson(app, path())).usageSummary).toEqual({ ...estimate, estimatedRequestCount: 5 });
+  });
+  it("returns unavailable at 2500ms, not 2499ms, and consumes late rejection", async () => {
+    vi.useFakeTimers();
+    let reject!: (error: Error) => void;
+    let started!: () => void;
+    const planning = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    const { app, plan } = setup();
+    plan.mockImplementation(() => {
+      started();
+      return new Promise((_resolve, fail) => {
+        reject = fail;
+      });
+    });
+    let settled = false;
+    const result = Promise.resolve(app.request(path())).then(async (response) => {
+      settled = true;
+      return response.json();
+    });
+    await Promise.race([
+      planning,
+      result.then(() => {
+        throw new Error("Preview read settled before planning started.");
+      }),
+    ]);
+    await vi.advanceTimersByTimeAsync(2499);
+    expect(settled).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(await result).toEqual({ status: "unavailable" });
+    reject(new Error("Synthetic late private failure"));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(plan).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("Catalog primary workbench surface routes", () => {
   // Issue #11080: real HTTP reads own effective scope and guided import answers.
   it("returns inferred scope equal to the explicit daily scope without fetching default review", async () => {
@@ -173,13 +473,14 @@ describe("Catalog primary workbench surface routes", () => {
       targetCount: 0,
       targets: [],
     };
-    expect(importPreviewMatchesRouteContext(preview, inferred.routeContext)).toBe(true);
-    expect(importPreviewMatchesRouteContext(preview, inferred.routeContext)).toBe(
-      importPreviewMatchesRouteContext(preview, explicit.routeContext),
+    expect(catalogImportPreviewMatchesSelection(preview, preview.scope, inferred.routeContext)).toBe(true);
+    expect(catalogImportPreviewMatchesSelection(preview, preview.scope, inferred.routeContext)).toBe(
+      catalogImportPreviewMatchesSelection(preview, preview.scope, explicit.routeContext),
     );
     expect(
-      importPreviewMatchesRouteContext(
+      catalogImportPreviewMatchesSelection(
         { ...preview, scope: { ...preview.scope, setId: "sibling" } },
+        preview.scope,
         inferred.routeContext,
       ),
     ).toBe(false);
