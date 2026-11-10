@@ -22,8 +22,6 @@ jobs:
     timeout-minutes: 30
     permissions:
       contents: read
-    env:
-      MEMO_BOOTSTRAP: ${{ runner.temp }}/bootstrap-db-oracle-memo.json
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
@@ -35,6 +33,7 @@ jobs:
       - name: Bind opened data before selected code
         id: bootstrap
         env:
+          MEMO_BOOTSTRAP: ${{ runner.temp }}/bootstrap-db-oracle-memo.json
           GH_TOKEN: ${{ github.token }}
           MEMO_WORKFLOW_REF: ${{ github.workflow_ref }}
           MEMO_WORKFLOW_SHA: ${{ github.workflow_sha }}
@@ -129,6 +128,8 @@ jobs:
 
       - name: Admit immutable profile
         working-directory: trusted
+        env:
+          MEMO_BOOTSTRAP: ${{ runner.temp }}/bootstrap-db-oracle-memo.json
         run: node ./scripts/bootstrap-db-oracle-memo-artifact.mjs admit
 
       - name: Install locked input dependencies
@@ -137,16 +138,21 @@ jobs:
 
       - name: Verify clean input
         working-directory: trusted
+        env:
+          MEMO_BOOTSTRAP: ${{ runner.temp }}/bootstrap-db-oracle-memo.json
         run: node ./scripts/bootstrap-db-oracle-memo-artifact.mjs verify-input
 
       - name: Run fixed producer
         working-directory: trusted
         env:
+          MEMO_BOOTSTRAP: ${{ runner.temp }}/bootstrap-db-oracle-memo.json
           MEMO_CHECK_RUN_ID: ${{ job.check_run_id }}
         run: node ./scripts/bootstrap-db-oracle-memo-artifact.mjs derive --out ../artifacts/bootstrap-db-oracle-memo/bootstrap-db-oracle-schedule-memo.json
 
       - name: Validate canonical payloads
         working-directory: trusted
+        env:
+          MEMO_BOOTSTRAP: ${{ runner.temp }}/bootstrap-db-oracle-memo.json
         shell: bash
         run: |
           set -euo pipefail

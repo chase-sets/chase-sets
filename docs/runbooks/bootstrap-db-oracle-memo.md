@@ -30,7 +30,7 @@ Historical v1 JSON remains readable but cannot authorize v2 acceptance.
 ## Open Once
 
 1. Under the unchanged host admission, run `node scripts/bootstrap-db-oracle-memo-artifact.mjs preflight` from the clean T checkout. Retain actual workflow ID, path, active state, observation time and complete bounded run inventory. Any pending, queued, requested, waiting or running entry refuses opening. An incomplete inventory is unknown, never empty.
-2. Create `D`, the sole E child adding `.github/bootstrap-db-oracle-memo-input.json` and, only if absent from E, the byte-identical T workflow. The manifest must remain absent from E and main. Never merge D.
+2. Create `D`, the sole E child, with a new `bootstrap-db-oracle-memo-input.json` manifest inside its `.github` directory and, only if absent from E, the byte-identical T workflow. This data-only manifest is created only in D and must remain absent from E and main. Never merge D.
 3. Before opening, independently retain a host freeze containing `head` D, `base` B, `input` E, `manifestSha256`, `bodySha256`, `observedAt` (canonical UTC), and `preflight` (the complete preflight result). Reconcile those values with the accepted source/pair inventory, not E-derived authority. Keep the manifest/body bytes and their hashes with that freeze.
 4. Open one same-repository `memo-derivation/` PR into main. Its entire body is `bootstrap-db-oracle-memo-input-sha256: <64 lowercase hex>` followed by one actual LF, exactly 104 UTF-8 bytes. The prefix is not an authority grant. Do not synchronize, reopen, dispatch, rerun, cancel, or auto-apply.
 
