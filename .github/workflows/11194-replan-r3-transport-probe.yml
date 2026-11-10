@@ -1,0 +1,169 @@
+name: 11194 R3 Opened Body Transport Probe
+on:
+  pull_request:
+    types: [opened]
+    branches: [main]
+permissions: {}
+jobs:
+  captureOpenedBody:
+    name: Capture opened body transport r3
+    if: >-
+      github.event.pull_request.draft == true &&
+      github.event.pull_request.head.repo.full_name == 'chase-sets/chase-sets' &&
+      github.event.pull_request.head.ref == 'memo-derivation/11194-replan-r3-transport-probe'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - name: Capture and test immutable opened transport r3
+        shell: bash
+        env:
+          PROBE_TOKEN: ${{ github.token }}
+          PROBE_CHECK_RUN_ID: ${{ job.check_run_id }}
+        run: |
+          node --input-type=module <<'NODE'
+          import { readFile, stat, writeFile } from 'node:fs/promises';
+          import { createHash } from 'node:crypto';
+          const e = process.env;
+          const repo = 'chase-sets/chase-sets';
+          const branch = 'memo-derivation/11194-replan-r3-transport-probe';
+          const workflow = '.github/workflows/11194-replan-r3-transport-probe.yml';
+          const input = '.github/bootstrap-db-oracle-memo-input.json';
+          const sha = b => createHash('sha256').update(b).digest('hex');
+          const need = (ok, code) => { if (!ok) throw Error(code); };
+          const hex40 = s => typeof s === 'string' && /^[0-9a-f]{40}$/.test(s);
+          const id = s => typeof s === 'string' && /^[1-9][0-9]{0,19}$/.test(s);
+          async function api(path, code) {
+            const response = await fetch('https://api.github.com' + path, {
+              headers: { Authorization: 'Bearer ' + e.PROBE_TOKEN,
+                Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28' },
+              redirect: 'error', signal: AbortSignal.timeout(20000)
+            });
+            need(response.ok, code + '-read-unavailable');
+            const parts = []; let size = 0;
+            for await (const part of response.body) {
+              size += part.length; need(size <= 4194304, code + '-read-bound'); parts.push(part);
+            }
+            return JSON.parse(Buffer.concat(parts).toString('utf8'));
+          }
+          async function blob(path, ref, limit, code) {
+            need(hex40(ref), code + '-immutable-ref');
+            const value = await api('/repos/' + repo + '/contents/' + path + '?ref=' + ref, code);
+            need(value.type === 'file' && value.path === path && value.encoding === 'base64'
+              && Number.isSafeInteger(value.size) && value.size > 0 && value.size <= limit
+              && typeof value.content === 'string' && value.content.length <= 4 * limit,
+              code + '-regular-bounded-blob');
+            const bytes = Buffer.from(value.content, 'base64');
+            need(bytes.length === value.size && hex40(value.sha), code + '-blob-identity');
+            const framed = Buffer.concat([Buffer.from('blob ' + bytes.length + '\0'), bytes]);
+            need(createHash('sha1').update(framed).digest('hex') === value.sha, code + '-blob-hash');
+            return { bytes, gitBlob: value.sha, sha256: sha(bytes) };
+          }
+          function admitBody(body, manifest) {
+            need(Buffer.isBuffer(body) && body.length <= 256, 'body-bound');
+            const match = /^bootstrap-db-oracle-memo-input-sha256: ([0-9a-f]{64})\n$/.exec(body.toString('utf8'));
+            need(match && Buffer.from(match[0]).equals(body), 'body-shape');
+            need(match[1] === sha(manifest), 'body-digest-mismatch');
+            return match[1];
+          }
+          need((await stat(e.GITHUB_EVENT_PATH)).size <= 2097152, 'event-bound');
+          const raw = await readFile(e.GITHUB_EVENT_PATH);
+          need(raw.length <= 2097152, 'event-read-bound');
+          const event = JSON.parse(raw.toString('utf8'));
+          const pr = event.pull_request;
+          need(e.GITHUB_EVENT_NAME === 'pull_request' && event.action === 'opened'
+            && e.GITHUB_REPOSITORY === repo && event.repository?.full_name === repo
+            && pr?.head?.repo?.full_name === repo && pr?.base?.repo?.full_name === repo
+            && pr.head.ref === branch && pr.base.ref === 'main' && pr.draft === true,
+            'event-eligibility');
+          need(Number.isSafeInteger(pr.number) && pr.number > 0 && typeof pr.body === 'string', 'pr-shape');
+          const D = pr.head.sha, B = pr.base.sha, G = e.GITHUB_SHA;
+          const M = pr.merge_commit_sha;
+          const eventMergeState = !Object.hasOwn(pr, 'merge_commit_sha') ? 'absent' : M === null ? 'null' : 'sha';
+          const shapeFailures = [];
+          if (!hex40(D)) shapeFailures.push('D');
+          if (!hex40(B)) shapeFailures.push('B');
+          if (eventMergeState === 'sha' && !hex40(M)) shapeFailures.push('M');
+          if (!hex40(G)) shapeFailures.push('GITHUB_SHA');
+          if (!hex40(e.GITHUB_WORKFLOW_SHA)) shapeFailures.push('GITHUB_WORKFLOW_SHA');
+          need(shapeFailures.length === 0, 'sha-shape-members:' + shapeFailures.join(','));
+          need(eventMergeState !== 'sha' || M === G, 'M-present-not-GITHUB_SHA');
+          need(e.GITHUB_REF === `refs/pull/${pr.number}/merge`, 'GITHUB_REF-not-pr-merge');
+          need(e.GITHUB_WORKFLOW_REF === `${repo}/${workflow}@${e.GITHUB_REF}`, 'GITHUB_WORKFLOW_REF-mismatch');
+          need(e.GITHUB_RUN_ATTEMPT === '1', 'GITHUB_RUN_ATTEMPT-not-one');
+          need(e.GITHUB_JOB === 'captureOpenedBody', 'GITHUB_JOB-mismatch');
+          need(id(e.GITHUB_RUN_ID), 'GITHUB_RUN_ID-shape');
+          need(id(e.PROBE_CHECK_RUN_ID), 'PROBE_CHECK_RUN_ID-shape');
+          const merge = await api(`/repos/${repo}/git/commits/${G}`, 'GITHUB_SHA-commit');
+          need(merge.sha === G && hex40(merge.tree?.sha), 'GITHUB_SHA-commit-identity');
+          need(Array.isArray(merge.parents) && merge.parents.length === 2
+            && new Set(merge.parents.map(p => p.sha)).size === 2
+            && merge.parents.some(p => p.sha === B) && merge.parents.some(p => p.sha === D),
+            'GITHUB_SHA-parents-not-B-D');
+          const body = Buffer.from(pr.body, 'utf8');
+          const manifest = await blob(input, D, 262144, 'manifest-D');
+          const mergedManifest = await blob(input, G, 262144, 'manifest-G');
+          need(manifest.bytes.equals(mergedManifest.bytes), 'manifest-D-G-mismatch');
+          const openedDigest = admitBody(body, manifest.bytes);
+          const changed = openedDigest[0] === '0' ? '1' : '0';
+          const syntheticBody = Buffer.from('bootstrap-db-oracle-memo-input-sha256: '
+            + changed + openedDigest.slice(1) + '\n');
+          let wrongDigestRefused = false;
+          try { admitBody(syntheticBody, manifest.bytes); }
+          catch (error) { need(error.message === 'body-digest-mismatch', 'negative-wrong-cause'); wrongDigestRefused = true; }
+          need(wrongDigestRefused, 'negative-accepted');
+          need(admitBody(body, manifest.bytes) === openedDigest, 'restored-positive');
+          const workflowAtContext = await blob(workflow, e.GITHUB_WORKFLOW_SHA, 32768, 'workflow-context');
+          const workflowAtHead = await blob(workflow, D, 32768, 'workflow-D');
+          const workflowAtMerge = await blob(workflow, G, 32768, 'workflow-G');
+          need(workflowAtContext.bytes.equals(workflowAtHead.bytes), 'workflow-context-D-mismatch');
+          need(workflowAtContext.bytes.equals(workflowAtMerge.bytes), 'workflow-context-G-mismatch');
+          const jobs = []; let total;
+          for (let page = 1; page <= 10; page++) {
+            const data = await api(`/repos/${repo}/actions/runs/${e.GITHUB_RUN_ID}/attempts/1/jobs?per_page=100&page=${page}`, 'owning-jobs');
+            need(Number.isSafeInteger(data.total_count) && data.total_count > 0
+              && data.total_count <= 1000 && Array.isArray(data.jobs) && data.jobs.length <= 100,
+              'jobs-bound');
+            if (total === undefined) total = data.total_count;
+            need(total === data.total_count, 'jobs-changing'); jobs.push(...data.jobs);
+            if (data.jobs.length < 100) break;
+            need(page < 10, 'jobs-cap');
+          }
+          need(jobs.length === total && new Set(jobs.map(j=>j.id)).size === total, 'jobs-incomplete');
+          need(total === 1, 'jobs-not-exactly-one');
+          const matches = jobs.filter(j => j.check_run_url ===
+            `https://api.github.com/repos/${repo}/check-runs/${e.PROBE_CHECK_RUN_ID}`);
+          need(matches.length === 1, 'job-check-join');
+          const job = matches[0];
+          need(Number.isSafeInteger(job.id) && job.id > 0 && String(job.run_id) === e.GITHUB_RUN_ID
+            && job.run_attempt === 1 && job.head_sha === D && job.status === 'in_progress'
+            && job.name === 'Capture opened body transport r3', 'executing-owner');
+          const result = {
+            schema: 'opened-memo-transport-probe/v3', observedAt: new Date().toISOString(),
+            repository: repo, eventName: e.GITHUB_EVENT_NAME, action: event.action,
+            prNumber: pr.number, headRef: pr.head.ref, baseRef: pr.base.ref,
+            head: D, base: B, eventMergeState, eventMergeSha: eventMergeState === 'sha' ? M : null,
+            githubSha: G, mergeTree: merge.tree.sha, mergeParents: merge.parents.map(p => p.sha), ref: e.GITHUB_REF,
+            workflowRef: e.GITHUB_WORKFLOW_REF, workflowSha: e.GITHUB_WORKFLOW_SHA,
+            runId: e.GITHUB_RUN_ID, attempt: 1, jobKey: e.GITHUB_JOB,
+            jobId: String(job.id), checkRunId: e.PROBE_CHECK_RUN_ID, jobStartedAt: job.started_at,
+            eventSha256: sha(raw), eventBytes: raw.length, bodySha256: sha(body), bodyBytes: body.length,
+            manifestSha256: manifest.sha256, manifestGitBlob: manifest.gitBlob,
+            mergedManifestGitBlob: mergedManifest.gitBlob,
+            workflowSha256: workflowAtContext.sha256, workflowGitBlob: workflowAtContext.gitBlob,
+            headWorkflowGitBlob: workflowAtHead.gitBlob, mergeWorkflowGitBlob: workflowAtMerge.gitBlob,
+            positive: 'admitted', restoredPositive: 'admitted',
+            negative: { kind: 'SYNTHETIC_WRONG_BODY_DIGEST', bodySha256: sha(syntheticBody),
+              sameManifestSha256: manifest.sha256, result: 'body-digest-mismatch' }
+          };
+          await writeFile(e.RUNNER_TEMP + '/opened-memo-transport-r3.json', JSON.stringify(result,null,2)+'\n', {flag:'wx'});
+          NODE
+      - name: Upload sanitized probe r3
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: opened-memo-transport-r3-${{ github.run_id }}-1
+          path: ${{ runner.temp }}/opened-memo-transport-r3.json
+          if-no-files-found: error
+          retention-days: 7
