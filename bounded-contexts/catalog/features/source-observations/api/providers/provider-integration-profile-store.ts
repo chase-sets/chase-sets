@@ -45,8 +45,14 @@ export type CatalogProviderIntegrationProfileVersionStore = Readonly<{
   seedProfileVersions: (
     versions?: readonly CatalogProviderIntegrationProfileVersionRecord[],
   ) => Promise<readonly CatalogProviderIntegrationProfileVersionRecord[]>;
+  /**
+   * Writes the version over any row with its provider, profile key and version. `guard` sees that
+   * persisted row (or null) under the provider's write lock, before the write, and refuses it by
+   * throwing.
+   */
   upsertProfileVersion: (
     version: CatalogProviderIntegrationProfileVersionRecord,
+    guard?: CatalogProviderProfileVersionWriteGuard,
   ) => Promise<CatalogProviderIntegrationProfileVersionRecord>;
   listProfileVersions: (
     providerKey?: string | null,
@@ -78,13 +84,17 @@ export type CatalogProviderIntegrationProfileVersionStore = Readonly<{
   countProfileVersionReferences: (providerKey: string, profileVersion: string) => Promise<number>;
 }>;
 
+export type CatalogProviderProfileVersionWriteGuard = (
+  persisted: CatalogProviderIntegrationProfileVersionRecord | null,
+) => void;
+
 export function createCatalogProviderIntegrationProfileVersionStore(
   db: PgQueryable,
 ): CatalogProviderIntegrationProfileVersionStore {
   return {
     seedProfileVersions: (versions = catalogProviderIntegrationProfileVersions) =>
       withProfileVersionTransaction(db, (queryable) => seedProfileVersionsInTransaction(queryable, versions)),
-    upsertProfileVersion: (version) => upsertProfileVersion(db, version),
+    upsertProfileVersion: (version, guard) => upsertProfileVersion(db, version, guard),
     listProfileVersions: (providerKey) => listProfileVersions(db, providerKey),
     getProfileVersion: (providerKey, profileVersion, selector) =>
       getProfileVersion(db, providerKey, profileVersion, selector),
@@ -147,11 +157,30 @@ async function seedProfileVersionsInTransaction(
 async function upsertProfileVersion(
   db: PgQueryable,
   version: CatalogProviderIntegrationProfileVersionRecord,
+  guard?: CatalogProviderProfileVersionWriteGuard,
 ): Promise<CatalogProviderIntegrationProfileVersionRecord> {
   return withProfileVersionTransaction(db, async (queryable) => {
     await lockProviderProfileVersionRows(queryable, [version.providerKey]);
+    if (guard) {
+      guard(await getPersistedProfileVersion(queryable, version));
+    }
     return upsertProfileVersionSnapshot(queryable, version);
   });
+}
+
+/** The row a write of `version` would replace: the one with its provider, profile key and version. */
+async function getPersistedProfileVersion(
+  db: PgQueryable,
+  version: CatalogProviderIntegrationProfileVersionRecord,
+): Promise<CatalogProviderIntegrationProfileVersionRecord | null> {
+  const result = await db.query<CatalogProviderIntegrationProfileVersionRow>(
+    `SELECT *
+     FROM catalog_provider_integration_profile_versions
+     WHERE provider_key = $1 AND profile_key = $2 AND profile_version = $3`,
+    [version.providerKey, version.profileKey, version.profileVersion],
+  );
+  const row = result.rows[0];
+  return row ? rowToProfileVersion(row) : null;
 }
 
 async function upsertProfileVersionSnapshot(

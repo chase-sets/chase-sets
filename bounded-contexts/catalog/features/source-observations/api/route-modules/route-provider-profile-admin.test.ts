@@ -1246,6 +1246,90 @@ describe("source observation routes: integration discovery and profile administr
     expect(upsert).not.toHaveBeenCalled();
   });
 
+  describe.each(["active", "deprecated", "retired"] as const)("onto an existing %s profile version", (lifecycle) => {
+    const evidence = { evidenceText: "Recorded before activation.", recordedAt: "2026-11-01T00:00:00.000Z" };
+    const destination = () =>
+      profileVersion("tcgdex", {
+        profileVersion: "2026.11.01",
+        lifecycle,
+        active: lifecycle === "active",
+        migrationEvidence: evidence,
+      });
+
+    it("refuses a create with a 409 and leaves the version as it was", async () => {
+      const store = mutableProfileStore([destination()]);
+      const app = buildApp({} as SourceObservationRouteServices, store);
+
+      const response = await app.request("/source-observations/provider-profiles", {
+        method: "POST",
+        body: JSON.stringify({
+          version: profileVersion("tcgdex", { profileVersion: "2026.11.01", lifecycle: "draft" }),
+        }),
+        headers: { "content-type": "application/json" },
+      });
+
+      expect(response.status).toBe(409);
+      await expect(response.json()).resolves.toEqual({
+        error: {
+          code: "profile_version_immutable",
+          message: `Only draft or test Catalog provider profile versions can be edited; '${lifecycle}' is immutable.`,
+          lifecycle,
+        },
+      });
+      await expect(store.getProfileVersion("tcgdex", "2026.11.01")).resolves.toMatchObject({
+        lifecycle,
+        active: lifecycle === "active",
+        migrationEvidence: evidence,
+      });
+    });
+
+    it("refuses a clone with a 409 and leaves the version as it was", async () => {
+      const store = mutableProfileStore([profileVersion("tcgdex", { profileVersion: "2026.06.03" }), destination()]);
+      const app = buildApp({} as SourceObservationRouteServices, store);
+
+      const response = await app.request("/source-observations/provider-profiles/tcgdex/2026.06.03/clone", {
+        method: "POST",
+        body: JSON.stringify({ targetProfileVersion: "2026.11.01" }),
+        headers: { "content-type": "application/json" },
+      });
+
+      expect(response.status).toBe(409);
+      await expect(response.json()).resolves.toMatchObject({ error: { code: "profile_version_immutable", lifecycle } });
+      await expect(store.getProfileVersion("tcgdex", "2026.11.01")).resolves.toMatchObject({
+        lifecycle,
+        active: lifecycle === "active",
+        migrationEvidence: evidence,
+      });
+    });
+  });
+
+  it("still replaces a draft profile version on create", async () => {
+    const store = mutableProfileStore([profileVersion("tcgdex", { profileVersion: "2026.11.01", lifecycle: "draft" })]);
+    const app = buildApp({} as SourceObservationRouteServices, store);
+
+    const response = await app.request("/source-observations/provider-profiles", {
+      method: "POST",
+      body: JSON.stringify({ version: profileVersion("tcgdex", { profileVersion: "2026.11.01", lifecycle: "test" }) }),
+      headers: { "content-type": "application/json" },
+    });
+
+    expect(response.status).toBe(201);
+    await expect(store.getProfileVersion("tcgdex", "2026.11.01")).resolves.toMatchObject({ lifecycle: "test" });
+  });
+
+  it("answers a clone of an unknown profile version with not found", async () => {
+    const app = buildApp({} as SourceObservationRouteServices, mutableProfileStore([]));
+
+    const response = await app.request("/source-observations/provider-profiles/tcgdex/missing/clone", {
+      method: "POST",
+      body: JSON.stringify({ targetProfileVersion: "2026.11.01" }),
+      headers: { "content-type": "application/json" },
+    });
+
+    expect(response.status).toBe(404);
+    await expect(response.json()).resolves.toMatchObject({ error: { code: "profile_version_not_found" } });
+  });
+
   it("returns structured bad requests for empty deep profile section commands", async () => {
     const services = {} as SourceObservationRouteServices;
     const store = mutableProfileStore([

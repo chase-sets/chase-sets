@@ -604,11 +604,14 @@ export async function createCatalogProviderProfileVersionForReview(input: {
   audit?: CatalogProviderIntegrationProfileAuthoringAudit | null;
 }): Promise<CatalogProviderProfileVersionReview> {
   assertMutableLifecycle(input.version.lifecycle);
-  const saved = await input.store.upsertProfileVersion({
-    ...assertProfileVersionIdentity(input.version),
-    active: false,
-    authoringAudit: mergeAuthoringAudit(null, input.audit),
-  });
+  const saved = await input.store.upsertProfileVersion(
+    {
+      ...assertProfileVersionIdentity(input.version),
+      active: false,
+      authoringAudit: mergeAuthoringAudit(null, input.audit),
+    },
+    refuseImmutableDestination,
+  );
   return toProfileVersionReview(saved);
 }
 
@@ -644,7 +647,7 @@ export async function cloneCatalogProviderProfileVersionForReview(input: {
     authoringAudit: mergeAuthoringAudit(null, input.audit),
   });
   assertMutableLifecycle(cloned.lifecycle);
-  const saved = await input.store.upsertProfileVersion(cloned);
+  const saved = await input.store.upsertProfileVersion(cloned, refuseImmutableDestination);
   return toProfileVersionReview(saved);
 }
 
@@ -691,7 +694,7 @@ export async function updateCatalogProviderProfileVersionForReview(input: {
       : (existing.migrationEvidence ?? null),
     authoringAudit: mergeAuthoringAudit(existing.authoringAudit ?? null, input.audit),
   });
-  const saved = await input.store.upsertProfileVersion(updated);
+  const saved = await input.store.upsertProfileVersion(updated, refuseImmutableDestination);
   return toProfileVersionReview(saved);
 }
 
@@ -1606,6 +1609,17 @@ function profileVersionSelectorFromInput(
 function assertMutableLifecycle(lifecycle: CatalogProviderIntegrationProfileVersionRecord["lifecycle"]): void {
   if (lifecycle !== "draft" && lifecycle !== "test") {
     throw new CatalogProviderProfileVersionImmutableError(lifecycle);
+  }
+}
+
+/**
+ * An authoring write (create, clone, edit) replaces the row with its provider, profile key and
+ * version, so the persisted row must be draft or test too, as the store reads it under its lock.
+ * Activation, deprecation, retirement and seeding write without it.
+ */
+function refuseImmutableDestination(persisted: CatalogProviderIntegrationProfileVersionRecord | null): void {
+  if (persisted) {
+    assertMutableLifecycle(persisted.lifecycle);
   }
 }
 

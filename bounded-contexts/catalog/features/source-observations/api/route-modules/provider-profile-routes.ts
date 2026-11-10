@@ -360,17 +360,27 @@ export function providerProfileRoutes(
     if (body instanceof Response) {
       return body;
     }
-    const result = await cloneCatalogProviderProfileVersionForReview({
-      store: profileVersions,
-      providerKey: c.req.param("providerKey"),
-      profileVersion: c.req.param("profileVersion"),
-      ...profileVersionSelectorFromRequest(c),
-      targetProfileVersion: String(body.targetProfileVersion ?? ""),
-      lifecycle: body.lifecycle === "test" ? "test" : "draft",
-      audit: authoringAuditFromContext(c.get("context")),
-    });
+    try {
+      const result = await cloneCatalogProviderProfileVersionForReview({
+        store: profileVersions,
+        providerKey: c.req.param("providerKey"),
+        profileVersion: c.req.param("profileVersion"),
+        ...profileVersionSelectorFromRequest(c),
+        targetProfileVersion: String(body.targetProfileVersion ?? ""),
+        lifecycle: body.lifecycle === "test" ? "test" : "draft",
+        audit: authoringAuditFromContext(c.get("context")),
+      });
 
-    return c.json(result, 201);
+      return c.json(result, 201);
+    } catch (error) {
+      if (error instanceof CatalogProviderProfileVersionImmutableError) {
+        return immutableProfileVersionResponse(c, error);
+      }
+      if (error instanceof CatalogProviderProfileVersionNotFoundError) {
+        return c.json({ error: { code: error.code, message: error.message } }, 404);
+      }
+      throw error;
+    }
   });
 
   app.post("/provider-profiles/:providerKey/:profileVersion/rollback", async (c) => {
