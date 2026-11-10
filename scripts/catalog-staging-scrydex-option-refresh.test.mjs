@@ -1,7 +1,8 @@
-import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { mkdtemp, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { pathToFileURL, fileURLToPath } from "node:url";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
 import { runInNewContext } from "node:vm";
 import { parse as parseYaml } from "yaml";
@@ -557,50 +558,221 @@ describe("support-safe refusal and stopped diagnostics", () => {
 });
 
 describe("independent artifact guards", () => {
-  async function rejectionOracle(kind, mutation) {
-    const workspace = await temporaryWorkspace();
+  const secret = "synthetic-secret-not-for-output-11200";
+  const refusalPrefix = "scrydex-option-refresh-refused:receipt-invalid:";
+
+  class ArtifactGuardBypass extends Error {
+    constructor(kind) {
+      super(`artifact-guard-bypass:${kind}`);
+      this.kind = kind;
+    }
+  }
+
+  async function guardInput(kind) {
     const receipt = await fourAttemptReceipt();
-    const secret = "synthetic-secret-not-for-output-11200";
     if (kind === "schema") receipt.reason = "invalid reason\nprivate";
     if (kind === "credential") receipt.assumptions.push(secret);
-    expect(validateScrydexOptionRefreshReceipt(receipt).length > 0).toBe(kind === "schema");
-    const env = { ...runnerEnv(workspace), GH_TOKEN: kind === "credential" ? secret : "" };
-    const module = mutation ? await mutantModule(workspace, ...mutation) : fileURLToPath(runnerUrl);
-    await writeFile(join(workspace, "input.json"), JSON.stringify(receipt));
-    const script = join(workspace, "write.mjs");
-    await writeFile(
-      script,
-      `import {readFile} from ${JSON.stringify("node:fs/promises")}; import {writeRefreshArtifact} from ${JSON.stringify(pathToFileURL(module).href)};
-try { await writeRefreshArtifact(JSON.parse(await readFile(new URL('./input.json', import.meta.url))), process.env, ${JSON.stringify(workspace)}, {maxBytes: ${kind === "size" ? 1 : scrydexOptionRefreshMaxBytes}}); }
-catch (error) { console.error(error.message); process.exitCode = 1; }`,
-    );
-    const result = await tsx([script], process.cwd(), env);
-    expect(result.code, result.stderr.slice(0, 2000)).toBe(1);
-    expect(result.stdout).toBe("");
-    const lines = result.stderr
-      .trim()
-      .split(/\r?\n/)
-      .filter((line) => !line.includes("NO_COLOR") && !line.includes("trace-warnings"));
-    expect(lines, result.stderr.slice(0, 2000)).toHaveLength(1);
-    expect(lines[0]).toContain(`"class":"${kind}"`);
-    expect(lines[0]).toContain('"forced":4');
-    expect(lines[0]).toContain('"creditsSpentUpperBound":7');
-    expect(lines[0].length).toBeLessThan(2500);
-    expect(lines[0]).not.toContain(secret);
-    expect(JSON.parse(lines[0].slice(lines[0].indexOf("{"))).errors.length).toBeLessThanOrEqual(20);
-    await expect(readFile(join(workspace, scrydexOptionRefreshDiagnosticArtifactPath))).rejects.toThrow();
-    await expect(readFile(join(workspace, scrydexOptionRefreshArtifactPath))).rejects.toThrow();
+    const serialized = JSON.stringify(receipt);
+    expect(validateScrydexOptionRefreshReceipt(JSON.parse(serialized)).length > 0).toBe(kind === "schema");
+    expect(Buffer.byteLength(serialized)).toBeLessThanOrEqual(scrydexOptionRefreshMaxBytes);
+    expect(Buffer.byteLength(serialized)).toBeGreaterThan(1);
+    expect(serialized.includes(secret)).toBe(kind === "credential");
+    return Object.freeze({
+      serialized,
+      env: Object.freeze({ GH_TOKEN: kind === "credential" ? secret : "" }),
+      options: Object.freeze(kind === "size" ? { maxBytes: 1 } : {}),
+    });
   }
-  it.each(["schema", "size", "credential"])("refuses only the %s guard with bounded counts and no file", (kind) =>
-    rejectionOracle(kind),
+
+  function assertRefusal(message, kind) {
+    expect(message.startsWith(refusalPrefix)).toBe(true);
+    expect(message.length).toBeLessThan(2500);
+    expect(message).not.toContain(secret);
+    const diagnostic = JSON.parse(message.slice(refusalPrefix.length));
+    expect(diagnostic).toEqual({
+      class: kind,
+      errors: expect.any(Array),
+      requests: { forced: 4 },
+      creditsSpentUpperBound: 7,
+    });
+    expect(diagnostic.errors.length).toBeLessThanOrEqual(20);
+    expect(diagnostic.errors.length > 0).toBe(kind === "schema");
+  }
+
+  async function assertAbsent(path, read = readFile) {
+    try {
+      await read(path);
+    } catch (error) {
+      if (error.code === "ENOENT") return;
+      throw error;
+    }
+    expect.fail(`unexpected artifact: ${path}`);
+  }
+
+  async function rejectionOracle(
+    kind,
+    input,
+    { loadWriter = async () => writeRefreshArtifact, createWorkspace = temporaryWorkspace, read = readFile } = {},
+  ) {
+    const workspace = await createWorkspace();
+    const writer = await loadWriter();
+    let refusal;
+    try {
+      await writer(JSON.parse(input.serialized), input.env, workspace, input.options);
+    } catch (error) {
+      if (!error.message?.startsWith(refusalPrefix)) throw error;
+      refusal = error;
+    }
+    if (!refusal) throw new ArtifactGuardBypass(kind);
+    assertRefusal(refusal.message, kind);
+    await assertAbsent(join(workspace, scrydexOptionRefreshDiagnosticArtifactPath), read);
+    await assertAbsent(join(workspace, scrydexOptionRefreshArtifactPath), read);
+  }
+
+  async function guardBypassVerdict(kind, oracle) {
+    try {
+      await oracle();
+    } catch (error) {
+      if (!(error instanceof ArtifactGuardBypass)) throw error;
+      expect(error.kind).toBe(kind);
+      expect(error.message).toBe(`artifact-guard-bypass:${kind}`);
+      return;
+    }
+    expect.fail(`missing semantic guard bypass: ${kind}`);
+  }
+
+  async function bypassWriter(before, after) {
+    const original = await functionSource("writeRefreshArtifact");
+    expect(original).toContain(before);
+    return runInNewContext(`(${original.replace(before, after)})`, {
+      ...refreshDomain,
+      Buffer,
+      JSON,
+      Error,
+      dirname,
+      resolve,
+      mkdir,
+      readdir,
+      writeFile,
+      forbiddenNames: ["CATALOG_ADMIN_E2E_EMAIL", "CATALOG_ADMIN_E2E_PASSWORD", "GH_TOKEN"],
+      refused: (reason) => new Error(`scrydex-option-refresh-refused:${reason}`),
+      sha256: (value) => createHash("sha256").update(value).digest("hex"),
+    });
+  }
+
+  it("unrelated setup import and I/O failures are not guard bypass kills", async () => {
+    for (const kind of ["schema", "size", "credential"]) {
+      const input = await guardInput(kind);
+      for (const stage of ["setup", "launch/import", "writer I/O"]) {
+        const sentinel = new Error(`unrelated ${stage} sentinel`);
+        const fail = async () => {
+          throw sentinel;
+        };
+        const controls = {
+          setup: { createWorkspace: fail },
+          "launch/import": { loadWriter: fail },
+          "writer I/O": { loadWriter: async () => fail },
+        };
+        await expect(guardBypassVerdict(kind, () => rejectionOracle(kind, input, controls[stage]))).rejects.toBe(
+          sentinel,
+        );
+      }
+      for (const relativePath of [scrydexOptionRefreshDiagnosticArtifactPath, scrydexOptionRefreshArtifactPath]) {
+        const sentinel = Object.assign(new Error("unrelated artifact permission sentinel"), { code: "EACCES" });
+        let attempted = false;
+        await expect(
+          guardBypassVerdict(kind, () =>
+            rejectionOracle(kind, input, {
+              read: async (path) => {
+                if (path.endsWith(join(relativePath))) {
+                  attempted = true;
+                  throw sentinel;
+                }
+                return readFile(path);
+              },
+            }),
+          ),
+        ).rejects.toBe(sentinel);
+        expect(attempted).toBe(true);
+      }
+      await expect(
+        guardBypassVerdict(kind, () =>
+          rejectionOracle(kind, input, {
+            loadWriter: async () => async () => {
+              throw new Error(`${refusalPrefix}{`);
+            },
+          }),
+        ),
+      ).rejects.toBeInstanceOf(SyntaxError);
+      const impostor = new Error(`artifact-guard-bypass:${kind}`);
+      await expect(
+        guardBypassVerdict(kind, async () => {
+          throw impostor;
+        }),
+      ).rejects.toBe(impostor);
+    }
+  });
+
+  it.each(["schema", "size", "credential"])("refuses only the %s guard with bounded counts and no file", async (kind) =>
+    rejectionOracle(kind, await guardInput(kind)),
   );
   it.each([
     ["schema", "errors.length > 0", "false"],
     ["size", "Buffer.byteLength(serialized) > maxBytes", "false"],
     ["credential", "forbiddenNames.some((name) => env[name] && serialized.includes(env[name]))", "false"],
   ])("rejects the %s bypass mutant with its unchanged oracle", async (kind, before, after) => {
-    expect(await source()).toContain(before);
-    await expect(rejectionOracle(kind, [before, after])).rejects.toThrow();
+    const input = await guardInput(kind);
+    await rejectionOracle(kind, input);
+    let completed = false;
+    await guardBypassVerdict(kind, () =>
+      rejectionOracle(kind, input, {
+        loadWriter: async () => {
+          const writer = await bypassWriter(before, after);
+          return async (...args) => {
+            const result = await writer(...args);
+            completed = true;
+            return result;
+          };
+        },
+      }),
+    );
+    expect(completed).toBe(true);
+  });
+
+  it("retains isolated writer import serialization and refusal output", async () => {
+    const workspace = await temporaryWorkspace();
+    const inputs = await Promise.all(
+      ["schema", "size", "credential"].map(async (kind) => ({
+        kind,
+        ...(await guardInput(kind)),
+        workspace: join(workspace, kind),
+      })),
+    );
+    await writeFile(join(workspace, "input.json"), JSON.stringify(inputs));
+    const script = join(workspace, "write.mjs");
+    await writeFile(
+      script,
+      `import {readFile} from "node:fs/promises";
+import {writeRefreshArtifact} from ${JSON.stringify(runnerUrl.href)};
+const inputs = JSON.parse(await readFile(new URL('./input.json', import.meta.url)));
+for (const input of inputs) {
+  try { await writeRefreshArtifact(JSON.parse(input.serialized), input.env, input.workspace, input.options); }
+  catch (error) { console.error(error.message); process.exitCode = 1; }
+}`,
+    );
+    const result = await tsx([script], process.cwd(), runnerEnv(workspace));
+    expect(result.code, result.stderr.slice(0, 2000)).toBe(1);
+    expect(result.stdout).toBe("");
+    const lines = result.stderr
+      .trim()
+      .split(/\r?\n/)
+      .filter((line) => !line.includes("NO_COLOR") && !line.includes("trace-warnings"));
+    expect(lines, result.stderr.slice(0, 2000)).toHaveLength(inputs.length);
+    for (const [index, input] of inputs.entries()) {
+      assertRefusal(lines[index], input.kind);
+      await assertAbsent(join(input.workspace, scrydexOptionRefreshDiagnosticArtifactPath));
+      await assertAbsent(join(input.workspace, scrydexOptionRefreshArtifactPath));
+    }
   });
 });
 
