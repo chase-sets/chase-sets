@@ -50,7 +50,35 @@ function isReadinessBarrier(node: ts.Node, locator: string) {
   );
 }
 
-function collectJourneys(browserExpect: object, removeBarrier?: Stage) {
+function isFirstPostBarrier(node: ts.Node) {
+  if (!ts.isExpressionStatement(node) || !ts.isAwaitExpression(node.expression)) return false;
+  const assertion = node.expression.expression;
+  if (!ts.isCallExpression(assertion) || !ts.isPropertyAccessExpression(assertion.expression)) return false;
+  const expected = assertion.arguments[0];
+  if (
+    assertion.expression.name.text !== "toBe" ||
+    assertion.arguments.length !== 1 ||
+    !expected ||
+    !ts.isNumericLiteral(expected) ||
+    expected.text !== "1"
+  )
+    return false;
+  const poll = assertion.expression.expression;
+  if (!ts.isCallExpression(poll) || !ts.isPropertyAccessExpression(poll.expression)) return false;
+  const receiver = poll.expression.expression;
+  const probe = poll.arguments[0];
+  return (
+    ts.isIdentifier(receiver) &&
+    receiver.text === "expect" &&
+    poll.expression.name.text === "poll" &&
+    poll.arguments.length === 1 &&
+    probe !== undefined &&
+    ts.isIdentifier(probe) &&
+    probe.text === "posts"
+  );
+}
+
+function collectJourneys(browserExpect: object, removeBarrier?: Stage | "first-post") {
   const journeys: Journey[] = [];
   const register = Object.assign((title: string, run: Journey["run"]) => journeys.push({ title, run }), {
     describe: (_title: string, body: () => void) => body(),
@@ -62,7 +90,11 @@ function collectJourneys(browserExpect: object, removeBarrier?: Stage) {
       before: [
         (context) => {
           const visit: ts.Visitor = (node) => {
-            if (removeBarrier && isReadinessBarrier(node, removeBarrier === "identifier" ? "identifierForm" : "form")) {
+            if (
+              removeBarrier === "first-post"
+                ? isFirstPostBarrier(node)
+                : removeBarrier && isReadinessBarrier(node, removeBarrier === "identifier" ? "identifierForm" : "form")
+            ) {
               removed++;
               return context.factory.createEmptyStatement();
             }
@@ -97,11 +129,17 @@ function browserControl(
     cleanupError?: Error;
     nativePost?: boolean;
     finishContinuation?: Promise<void>;
+    deferInterception?: boolean;
   } = {},
 ) {
   const unready = deferred();
   const hydrated = deferred();
   const continuing = deferred();
+  const interceptionGate = deferred();
+  const queued = deferred();
+  const observationWaiting = deferred();
+  const delivered = deferred();
+  const prematureCount = deferred();
   const forms = { identifier: document.createElement("form"), password: document.createElement("form") };
   const hydrate = (stage: Stage) => Object.assign(forms[stage], { __reactProps$control: { onSubmit() {} } });
   hydrate(delayed === "identifier" ? "password" : "identifier");
@@ -115,6 +153,10 @@ function browserControl(
   let continued = false;
   let disposed = false;
   let busyChecked = false;
+  let interceptionQueued = false;
+  let interceptionDelivered = false;
+  let cleanupStarted = false;
+  let prematureError: unknown;
 
   function submit(stage: Stage, focus: string) {
     actions.push(`${stage}:submit`);
@@ -122,7 +164,6 @@ function browserControl(
     if (stage === "identifier" || busy) return;
     busy = true;
     focused = focus;
-    posts++;
     const route = {
       request: () => ({
         method: () => "POST",
@@ -137,8 +178,21 @@ function browserControl(
         busy = false;
       },
     };
-    if (!intercept) throw new Error("Password submit was not intercepted");
-    const handler = intercept(route);
+    const interceptor = intercept;
+    if (!interceptor) throw new Error("Password submit was not intercepted");
+    const deliver = () => {
+      posts++;
+      const handler = interceptor(route);
+      interceptionDelivered = true;
+      delivered.resolve();
+      return handler;
+    };
+    let handler: Promise<void>;
+    if (options.deferInterception) {
+      interceptionQueued = true;
+      queued.resolve();
+      handler = interceptionGate.promise.then(deliver);
+    } else handler = deliver();
     handlers.push(handler);
     void handler.catch(() => {});
   }
@@ -174,6 +228,7 @@ function browserControl(
       intercept = handler;
     },
     unrouteAll: async () => {
+      cleanupStarted = true;
       await Promise.all(handlers);
       disposed = true;
       if (options.cleanupError) throw options.cleanupError;
@@ -181,7 +236,17 @@ function browserControl(
   };
   const browserExpect = Object.assign(
     (actual: unknown) => ({
-      toBe: (expected: unknown) => expect(actual).toBe(expected),
+      toBe: (expected: unknown) => {
+        try {
+          expect(actual).toBe(expected);
+        } catch (error) {
+          if (interceptionQueued && !interceptionDelivered && actual === 0 && expected === 1) {
+            prematureError = error;
+            prematureCount.resolve();
+          }
+          throw error;
+        }
+      },
       toHaveAttribute: async () => {
         busyChecked = true;
         if (options.assertionError) throw options.assertionError;
@@ -198,11 +263,17 @@ function browserControl(
       },
     }),
     {
-      poll: (probe: () => Promise<boolean>) => ({
-        toBe: async (expected: boolean) => {
-          if ((await probe()) !== expected) {
-            unready.resolve();
-            await hydrated.promise;
+      poll: (probe: () => boolean | number | Promise<boolean | number>) => ({
+        toBe: async (expected: boolean | number) => {
+          const actual = await probe();
+          if (actual !== expected) {
+            if (actual === 0 && expected === 1) {
+              observationWaiting.resolve();
+              await delivered.promise;
+            } else {
+              unready.resolve();
+              await hydrated.promise;
+            }
           }
           expect(await probe()).toBe(expected);
         },
@@ -216,6 +287,18 @@ function browserControl(
     handlers,
     unready,
     continuing,
+    queued,
+    observationWaiting,
+    prematureCount,
+    releaseInterception: interceptionGate.resolve,
+    interceptionState: () => ({
+      busy,
+      queued: interceptionQueued,
+      delivered: interceptionDelivered,
+      cleanupStarted,
+      passwordActivations: actions.filter((action) => action === "password:submit").length,
+      prematureError,
+    }),
     releaseHydration: () => {
       hydrate(delayed);
       hydrated.resolve();
@@ -245,6 +328,45 @@ async function exercise(index: number, stage: Stage, removeBarrier?: Stage) {
   return removed;
 }
 
+async function exerciseInterception(index: number, removeBarrier?: "first-post") {
+  const control = browserControl("password", { deferInterception: true });
+  control.releaseHydration();
+  const { journeys, removed } = collectJourneys(control.browserExpect, removeBarrier);
+  if (removeBarrier) expect(removed).toBe(2);
+  const run = journeys[index].run({ page: control.page });
+  const terminal = run.then(
+    () => "settled",
+    () => "settled",
+  );
+  try {
+    expect(
+      await Promise.race([
+        control.observationWaiting.promise.then(() => "post-observation-waiting"),
+        control.prematureCount.promise.then(() => "premature-count"),
+        terminal,
+      ]),
+    ).toBe(removeBarrier ? "premature-count" : "post-observation-waiting");
+    await control.queued.promise;
+    const checkpoint = control.interceptionState();
+    expect(checkpoint).toEqual({
+      busy: true,
+      queued: true,
+      delivered: false,
+      cleanupStarted: !!removeBarrier,
+      passwordActivations: removeBarrier ? 2 : 1,
+      prematureError: removeBarrier ? expect.objectContaining({ actual: 0, expected: 1 }) : undefined,
+    });
+    expect(control.state()).toEqual({ posts: 0, continued: false, disposed: false, busyChecked: true });
+  } finally {
+    control.releaseInterception();
+    await terminal;
+  }
+  if (removeBarrier) await expect(run).rejects.toBe(control.interceptionState().prematureError);
+  else await run;
+  expect(control.interceptionState().passwordActivations).toBe(2);
+  expect(control.state()).toEqual({ posts: 1, continued: true, disposed: true, busyChecked: true });
+}
+
 describe("auth pending callable form readiness", () => {
   it.each<[string, object]>([
     ["SSR", {}],
@@ -268,6 +390,14 @@ describe("auth pending callable form readiness", () => {
   });
 
   for (const [index, journey] of ["pointer", "Enter"].entries()) {
+    it(`${journey} waits for the first intercepted POST before repeating submission`, async () => {
+      await exerciseInterception(index);
+    });
+
+    it(`${journey} detects removal of only the first-POST observation barrier`, async () => {
+      await exerciseInterception(index, "first-post");
+    });
+
     for (const stage of ["identifier", "password"] as const) {
       it(`${journey} waits without interaction for delayed ${stage} hydration, then submits`, async () => {
         await exercise(index, stage);

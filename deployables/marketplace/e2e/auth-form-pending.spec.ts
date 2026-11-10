@@ -59,6 +59,7 @@ test.describe("marketplace auth form pending state", () => {
       await expect(submitter).toHaveAttribute("aria-busy", "true");
       await expect(submitter).toBeEnabled();
       await expect(submitter).toBeFocused();
+      await expect.poll(posts).toBe(1);
       await submitter.click();
       expect(posts()).toBe(1);
       release();
@@ -87,6 +88,7 @@ test.describe("marketplace auth form pending state", () => {
       await password.press("Enter");
       await expect(form).toHaveAttribute("aria-busy", "true");
       await expect(password).toBeFocused();
+      await expect.poll(posts).toBe(1);
       await password.press("Enter");
       expect(posts()).toBe(1);
       release();
