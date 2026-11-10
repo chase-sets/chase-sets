@@ -52,72 +52,200 @@ export const measurementTools = [...new Set([...stockTools, "kind", "helm", "kub
 
 // Opaque per-invocation state. No recorder, observed value or callback is accepted.
 export const bootstrapComparisonComponents = Object.freeze([
-  "OTHER", "FINGERPRINT", "INTERPRETER", "RUNNER", "ACTIVE_RUNTIME",
+  "OTHER",
+  "FINGERPRINT",
+  "INTERPRETER",
+  "RUNNER",
+  "ACTIVE_RUNTIME",
   ...stockTools.map((name) => `STOCK_${name.replaceAll("-", "_").toUpperCase()}`),
-  "DAEMON_DOCKER", "DAEMON_CONTAINERD", "COMPONENT_CONTAINERD", "COMPONENT_RUNC", "COMPONENT_DOCKER_INIT",
-  "SERVICE_DOCKER", "SERVICE_CONTAINERD",
+  "DAEMON_DOCKER",
+  "DAEMON_CONTAINERD",
+  "COMPONENT_CONTAINERD",
+  "COMPONENT_RUNC",
+  "COMPONENT_DOCKER_INIT",
+  "SERVICE_DOCKER",
+  "SERVICE_CONTAINERD",
 ]);
 export const bootstrapComparisonPredicates = Object.freeze([
-  "OTHER", "PIN_RECORD", "PIN_PATH_TYPE", "PIN_PATH", "PIN_TARGET", "PIN_HASH",
-  "DISTRIBUTION_RECORD", "DISTRIBUTION_VERSION_TYPE", "DISTRIBUTION_VERSION", "DISTRIBUTION_ARCH_TYPE",
-  "DISTRIBUTION_ARCH", "DISTRIBUTION_REFERENCE", "DISTRIBUTION_HASH", "PIN_FORMAT", "INVOCATION_FORMAT",
-  "INVOCATION_NAME", "INVOCATION_MULTICALL", "CLOSURE_DESCRIPTOR", "SCRIPT_TOOL", "SCRIPT_SHEBANG",
-  "SCRIPT_ROOT", "STOCK_RESOLVE", "EXECUTABLE_REALPATH", "EXECUTABLE_READ", "EXECUTABLE_FORMAT",
-  "DISTRIBUTION_REALPATH", "DISTRIBUTION_ROOT", "DISTRIBUTION_TARGET", "DISTRIBUTION_READ",
-  "OBSERVED_PATH", "OBSERVED_TARGET", "OBSERVED_HASH", "OBSERVED_FORMAT", "OBSERVED_PACKAGE",
-  "OBSERVED_SHEBANG", "CLOSURE_PAIRS", "CLOSURE_PAIR_ARRAY", "CLOSURE_PAIR_LENGTH", "CLOSURE_PATH_TYPE",
-  "CLOSURE_HASH_TYPE", "CLOSURE_PATH_NONEMPTY", "CLOSURE_PATH_CHARACTERS", "CLOSURE_PATH_UTF8",
-  "CLOSURE_PATH_SEGMENTS", "CLOSURE_PATH_UNIQUE", "CLOSURE_HASH", "CLOSURE_ORDER", "CLOSURE_COUNT",
-  "CLOSURE_DIGEST", "INTERPRETER_SEARCH", "INTERPRETER_PROCESS", "INTERPRETER_PATH",
-  "FINGERPRINT_IMAGE_VERSION", "FINGERPRINT_IMAGE_OS", "FINGERPRINT_ARCHITECTURE", "FINGERPRINT_KERNEL",
-  "FINGERPRINT_OS_RELEASE", "FINGERPRINT_TOOLS", "FINGERPRINT_VERSIONS", "FINGERPRINT_DAEMON",
-  "FINGERPRINT_IDENTITY", "FINGERPRINT_EXPECTED_SERIALIZE", "FINGERPRINT_ACTUAL_SERIALIZE", "FINGERPRINT_EQUAL",
-  "ACTIVE_RUNTIME_DEFAULT", "ACTIVE_RUNTIME_PRESENT", "RUNNER_IMAGE", "RUNNER_IMAGE_VERSION", "RUNNER_IMAGE_OS",
-  "RUNNER_ARCHITECTURE", "RUNNER_KERNEL", "RUNNER_OS", "RUNNER_CODENAME", "RUNNER_ENGINE_VERSION",
-  "RUNNER_ENGINE_API", "RUNNER_ENGINE_COMMIT", "COMPONENT_SELECT", "COMPONENT_COUNT", "COMPONENT_VERSION",
-  "COMPONENT_COMMIT", "SERVICE_PINS", "SERVICE_EQUAL",
+  "OTHER",
+  "PIN_RECORD",
+  "PIN_PATH_TYPE",
+  "PIN_PATH",
+  "PIN_TARGET",
+  "PIN_HASH",
+  "DISTRIBUTION_RECORD",
+  "DISTRIBUTION_VERSION_TYPE",
+  "DISTRIBUTION_VERSION",
+  "DISTRIBUTION_ARCH_TYPE",
+  "DISTRIBUTION_ARCH",
+  "DISTRIBUTION_REFERENCE",
+  "DISTRIBUTION_HASH",
+  "PIN_FORMAT",
+  "INVOCATION_FORMAT",
+  "INVOCATION_NAME",
+  "INVOCATION_MULTICALL",
+  "CLOSURE_DESCRIPTOR",
+  "SCRIPT_TOOL",
+  "SCRIPT_SHEBANG",
+  "SCRIPT_ROOT",
+  "STOCK_RESOLVE",
+  "EXECUTABLE_REALPATH",
+  "EXECUTABLE_READ",
+  "EXECUTABLE_FORMAT",
+  "DISTRIBUTION_REALPATH",
+  "DISTRIBUTION_ROOT",
+  "DISTRIBUTION_TARGET",
+  "DISTRIBUTION_READ",
+  "OBSERVED_PATH",
+  "OBSERVED_TARGET",
+  "OBSERVED_HASH",
+  "OBSERVED_FORMAT",
+  "OBSERVED_PACKAGE",
+  "OBSERVED_SHEBANG",
+  "CLOSURE_PAIRS",
+  "CLOSURE_PAIR_ARRAY",
+  "CLOSURE_PAIR_LENGTH",
+  "CLOSURE_PATH_TYPE",
+  "CLOSURE_HASH_TYPE",
+  "CLOSURE_PATH_NONEMPTY",
+  "CLOSURE_PATH_CHARACTERS",
+  "CLOSURE_PATH_UTF8",
+  "CLOSURE_SEGMENT_NONEMPTY",
+  "CLOSURE_SEGMENT_NOT_DOT",
+  "CLOSURE_SEGMENT_NOT_DOT_DOT",
+  "CLOSURE_PATH_UNIQUE",
+  "CLOSURE_HASH",
+  "CLOSURE_ORDER",
+  "CLOSURE_COUNT",
+  "CLOSURE_DIGEST",
+  "INTERPRETER_SEARCH",
+  "INTERPRETER_PROCESS",
+  "INTERPRETER_PATH",
+  "FINGERPRINT_IMAGE_VERSION",
+  "FINGERPRINT_IMAGE_OS",
+  "FINGERPRINT_ARCHITECTURE",
+  "FINGERPRINT_KERNEL",
+  "FINGERPRINT_OS_RELEASE",
+  "FINGERPRINT_TOOLS",
+  "FINGERPRINT_VERSIONS",
+  "FINGERPRINT_DAEMON",
+  "FINGERPRINT_IDENTITY",
+  "FINGERPRINT_EXPECTED_SERIALIZE",
+  "FINGERPRINT_ACTUAL_SERIALIZE",
+  "FINGERPRINT_EQUAL",
+  "ACTIVE_RUNTIME_DEFAULT",
+  "ACTIVE_RUNTIME_PRESENT",
+  "RUNNER_IMAGE",
+  "RUNNER_IMAGE_VERSION",
+  "RUNNER_IMAGE_OS",
+  "RUNNER_ARCHITECTURE",
+  "RUNNER_KERNEL",
+  "RUNNER_OS",
+  "RUNNER_CODENAME",
+  "RUNNER_ENGINE_VERSION",
+  "RUNNER_ENGINE_API",
+  "RUNNER_ENGINE_COMMIT",
+  "COMPONENT_SELECT",
+  "COMPONENT_COUNT",
+  "COMPONENT_VERSION",
+  "COMPONENT_COMMIT",
+  "SERVICE_PINS",
+  "SERVICE_EQUAL",
 ]);
 export const bootstrapComparisonCodes = Object.freeze([
-  "REAL_TOOL_PIN_REQUIRED", "REVIEWED_DISTRIBUTION_REQUIRED", "EXECUTABLE_FORMAT_REQUIRED",
-  "AUTHENTICATED_INVOCATION_REQUIRED", "FIXED_SCRIPT_CLOSURE_DESCRIPTOR_REQUIRED",
-  "SCRIPT_INTERPRETER_CLOSURE_REQUIRED", "STOCK_INVOCATION_PATH_DRIFT",
-  "NATIVE_EXECUTABLE_OR_REVIEWED_SCRIPT_REQUIRED", "SCRIPT_DISTRIBUTION_ESCAPE",
-  "EXECUTABLE_DRIFT_OR_SHIM", "TOOL_PACKAGE_DRIFT", "INTERPRETER_OR_DISTRIBUTION_DRIFT",
-  "SCRIPT_CLOSURE_PAIRS_REQUIRED", "SCRIPT_CLOSURE_PAIR_REQUIRED", "SCRIPT_CLOSURE_PATH_OR_HASH_REFUSED",
-  "SCRIPT_CLOSURE_ORDER_REFUSED", "SCRIPT_DISTRIBUTION_DRIFT", "TOOL_INTERPRETER_MISMATCH",
-  "RUNNER_OS_DAEMON_OR_TOOL_DRIFT", "ACTIVE_RUNC_IDENTITY_REQUIRED", "REVIEWED_RUNNER_IDENTITY_DRIFT",
-  "REVIEWED_DAEMON_IDENTITY_DRIFT", "REVIEWED_SERVICE_FILE_DRIFT",
+  "REAL_TOOL_PIN_REQUIRED",
+  "REVIEWED_DISTRIBUTION_REQUIRED",
+  "EXECUTABLE_FORMAT_REQUIRED",
+  "AUTHENTICATED_INVOCATION_REQUIRED",
+  "FIXED_SCRIPT_CLOSURE_DESCRIPTOR_REQUIRED",
+  "SCRIPT_INTERPRETER_CLOSURE_REQUIRED",
+  "STOCK_INVOCATION_PATH_DRIFT",
+  "NATIVE_EXECUTABLE_OR_REVIEWED_SCRIPT_REQUIRED",
+  "SCRIPT_DISTRIBUTION_ESCAPE",
+  "EXECUTABLE_DRIFT_OR_SHIM",
+  "TOOL_PACKAGE_DRIFT",
+  "INTERPRETER_OR_DISTRIBUTION_DRIFT",
+  "SCRIPT_CLOSURE_PAIRS_REQUIRED",
+  "SCRIPT_CLOSURE_PAIR_REQUIRED",
+  "SCRIPT_CLOSURE_PATH_OR_HASH_REFUSED",
+  "SCRIPT_CLOSURE_ORDER_REFUSED",
+  "SCRIPT_DISTRIBUTION_DRIFT",
+  "TOOL_INTERPRETER_MISMATCH",
+  "RUNNER_OS_DAEMON_OR_TOOL_DRIFT",
+  "ACTIVE_RUNC_IDENTITY_REQUIRED",
+  "REVIEWED_RUNNER_IDENTITY_DRIFT",
+  "REVIEWED_DAEMON_IDENTITY_DRIFT",
+  "REVIEWED_SERVICE_FILE_DRIFT",
 ]);
 const comparisonStates = new WeakMap();
-const stockComparisonComponents = new Map(stockTools.map((name) => [name, `STOCK_${name.replaceAll("-", "_").toUpperCase()}`]));
-const comparisonPredicateCodes = new Map(Object.entries({
-  REAL_TOOL_PIN_REQUIRED: ["PIN_RECORD", "PIN_PATH_TYPE", "PIN_PATH", "PIN_TARGET", "PIN_HASH"],
-  REVIEWED_DISTRIBUTION_REQUIRED: ["DISTRIBUTION_RECORD", "DISTRIBUTION_VERSION_TYPE", "DISTRIBUTION_VERSION", "DISTRIBUTION_ARCH_TYPE", "DISTRIBUTION_ARCH", "DISTRIBUTION_REFERENCE", "DISTRIBUTION_HASH"],
-  EXECUTABLE_FORMAT_REQUIRED: ["PIN_FORMAT"],
-  AUTHENTICATED_INVOCATION_REQUIRED: ["INVOCATION_FORMAT", "INVOCATION_NAME", "INVOCATION_MULTICALL"],
-  FIXED_SCRIPT_CLOSURE_DESCRIPTOR_REQUIRED: ["CLOSURE_DESCRIPTOR"],
-  SCRIPT_INTERPRETER_CLOSURE_REQUIRED: ["SCRIPT_TOOL", "SCRIPT_SHEBANG", "SCRIPT_ROOT"],
-  STOCK_INVOCATION_PATH_DRIFT: ["STOCK_RESOLVE"],
-  NATIVE_EXECUTABLE_OR_REVIEWED_SCRIPT_REQUIRED: ["EXECUTABLE_FORMAT"],
-  SCRIPT_DISTRIBUTION_ESCAPE: ["DISTRIBUTION_ROOT", "DISTRIBUTION_TARGET"],
-  EXECUTABLE_DRIFT_OR_SHIM: ["OBSERVED_PATH", "OBSERVED_TARGET", "OBSERVED_HASH", "OBSERVED_FORMAT"],
-  TOOL_PACKAGE_DRIFT: ["OBSERVED_PACKAGE"],
-  INTERPRETER_OR_DISTRIBUTION_DRIFT: ["OBSERVED_SHEBANG"],
-  SCRIPT_CLOSURE_PAIRS_REQUIRED: ["CLOSURE_PAIRS"],
-  SCRIPT_CLOSURE_PAIR_REQUIRED: ["CLOSURE_PAIR_ARRAY", "CLOSURE_PAIR_LENGTH", "CLOSURE_PATH_TYPE", "CLOSURE_HASH_TYPE"],
-  SCRIPT_CLOSURE_PATH_OR_HASH_REFUSED: ["CLOSURE_PATH_NONEMPTY", "CLOSURE_PATH_CHARACTERS", "CLOSURE_PATH_UTF8", "CLOSURE_PATH_SEGMENTS", "CLOSURE_PATH_UNIQUE", "CLOSURE_HASH"],
-  SCRIPT_CLOSURE_ORDER_REFUSED: ["CLOSURE_ORDER"],
-  SCRIPT_DISTRIBUTION_DRIFT: ["CLOSURE_COUNT", "CLOSURE_DIGEST"],
-  TOOL_INTERPRETER_MISMATCH: ["INTERPRETER_PROCESS", "INTERPRETER_PATH"],
-  RUNNER_OS_DAEMON_OR_TOOL_DRIFT: ["FINGERPRINT_EQUAL"],
-  ACTIVE_RUNC_IDENTITY_REQUIRED: ["ACTIVE_RUNTIME_DEFAULT", "ACTIVE_RUNTIME_PRESENT"],
-  REVIEWED_RUNNER_IDENTITY_DRIFT: ["RUNNER_IMAGE", "RUNNER_IMAGE_VERSION", "RUNNER_IMAGE_OS", "RUNNER_ARCHITECTURE", "RUNNER_KERNEL", "RUNNER_OS", "RUNNER_CODENAME", "RUNNER_ENGINE_VERSION", "RUNNER_ENGINE_API", "RUNNER_ENGINE_COMMIT"],
-  REVIEWED_DAEMON_IDENTITY_DRIFT: ["COMPONENT_COUNT", "COMPONENT_VERSION", "COMPONENT_COMMIT"],
-  REVIEWED_SERVICE_FILE_DRIFT: ["SERVICE_EQUAL"],
-}).flatMap(([code, predicates]) => predicates.map((predicate) => [predicate, code])));
+const stockComparisonComponents = new Map(
+  stockTools.map((name) => [name, `STOCK_${name.replaceAll("-", "_").toUpperCase()}`]),
+);
+const comparisonPredicateCodes = new Map(
+  Object.entries({
+    REAL_TOOL_PIN_REQUIRED: ["PIN_RECORD", "PIN_PATH_TYPE", "PIN_PATH", "PIN_TARGET", "PIN_HASH"],
+    REVIEWED_DISTRIBUTION_REQUIRED: [
+      "DISTRIBUTION_RECORD",
+      "DISTRIBUTION_VERSION_TYPE",
+      "DISTRIBUTION_VERSION",
+      "DISTRIBUTION_ARCH_TYPE",
+      "DISTRIBUTION_ARCH",
+      "DISTRIBUTION_REFERENCE",
+      "DISTRIBUTION_HASH",
+    ],
+    EXECUTABLE_FORMAT_REQUIRED: ["PIN_FORMAT"],
+    AUTHENTICATED_INVOCATION_REQUIRED: ["INVOCATION_FORMAT", "INVOCATION_NAME", "INVOCATION_MULTICALL"],
+    FIXED_SCRIPT_CLOSURE_DESCRIPTOR_REQUIRED: ["CLOSURE_DESCRIPTOR"],
+    SCRIPT_INTERPRETER_CLOSURE_REQUIRED: ["SCRIPT_TOOL", "SCRIPT_SHEBANG", "SCRIPT_ROOT"],
+    STOCK_INVOCATION_PATH_DRIFT: ["STOCK_RESOLVE"],
+    NATIVE_EXECUTABLE_OR_REVIEWED_SCRIPT_REQUIRED: ["EXECUTABLE_FORMAT"],
+    SCRIPT_DISTRIBUTION_ESCAPE: ["DISTRIBUTION_ROOT", "DISTRIBUTION_TARGET"],
+    EXECUTABLE_DRIFT_OR_SHIM: ["OBSERVED_PATH", "OBSERVED_TARGET", "OBSERVED_HASH", "OBSERVED_FORMAT"],
+    TOOL_PACKAGE_DRIFT: ["OBSERVED_PACKAGE"],
+    INTERPRETER_OR_DISTRIBUTION_DRIFT: ["OBSERVED_SHEBANG"],
+    SCRIPT_CLOSURE_PAIRS_REQUIRED: ["CLOSURE_PAIRS"],
+    SCRIPT_CLOSURE_PAIR_REQUIRED: [
+      "CLOSURE_PAIR_ARRAY",
+      "CLOSURE_PAIR_LENGTH",
+      "CLOSURE_PATH_TYPE",
+      "CLOSURE_HASH_TYPE",
+    ],
+    SCRIPT_CLOSURE_PATH_OR_HASH_REFUSED: [
+      "CLOSURE_PATH_NONEMPTY",
+      "CLOSURE_PATH_CHARACTERS",
+      "CLOSURE_PATH_UTF8",
+      "CLOSURE_SEGMENT_NONEMPTY",
+      "CLOSURE_SEGMENT_NOT_DOT",
+      "CLOSURE_SEGMENT_NOT_DOT_DOT",
+      "CLOSURE_PATH_UNIQUE",
+      "CLOSURE_HASH",
+    ],
+    SCRIPT_CLOSURE_ORDER_REFUSED: ["CLOSURE_ORDER"],
+    SCRIPT_DISTRIBUTION_DRIFT: ["CLOSURE_COUNT", "CLOSURE_DIGEST"],
+    TOOL_INTERPRETER_MISMATCH: ["INTERPRETER_PROCESS", "INTERPRETER_PATH"],
+    RUNNER_OS_DAEMON_OR_TOOL_DRIFT: ["FINGERPRINT_EQUAL"],
+    ACTIVE_RUNC_IDENTITY_REQUIRED: ["ACTIVE_RUNTIME_DEFAULT", "ACTIVE_RUNTIME_PRESENT"],
+    REVIEWED_RUNNER_IDENTITY_DRIFT: [
+      "RUNNER_IMAGE",
+      "RUNNER_IMAGE_VERSION",
+      "RUNNER_IMAGE_OS",
+      "RUNNER_ARCHITECTURE",
+      "RUNNER_KERNEL",
+      "RUNNER_OS",
+      "RUNNER_CODENAME",
+      "RUNNER_ENGINE_VERSION",
+      "RUNNER_ENGINE_API",
+      "RUNNER_ENGINE_COMMIT",
+    ],
+    REVIEWED_DAEMON_IDENTITY_DRIFT: ["COMPONENT_COUNT", "COMPONENT_VERSION", "COMPONENT_COMMIT"],
+    REVIEWED_SERVICE_FILE_DRIFT: ["SERVICE_EQUAL"],
+  }).flatMap(([code, predicates]) => predicates.map((predicate) => [predicate, code])),
+);
 export function createBootstrapComparison() {
   const handle = Object.freeze({});
-  try { comparisonStates.set(handle, { component: "OTHER", predicate: "OTHER", fingerprint: null, refusal: null }); } catch {}
+  try {
+    comparisonStates.set(handle, { component: "OTHER", predicate: "OTHER", fingerprint: null, refusal: null });
+  } catch {}
   return handle;
 }
 function comparisonComponent(diagnostic, component) {
@@ -132,12 +260,17 @@ function comparisonComponent(diagnostic, component) {
   } catch {}
 }
 function comparisonStock(diagnostic, name) {
-  try { if (comparisonStates.has(diagnostic)) comparisonComponent(diagnostic, stockComparisonComponents.get(name)); } catch {}
+  try {
+    if (comparisonStates.has(diagnostic)) comparisonComponent(diagnostic, stockComparisonComponents.get(name));
+  } catch {}
 }
 function comparisonAt(diagnostic, predicate, operation) {
   try {
     const state = comparisonStates.get(diagnostic);
-    if (state) { state.predicate = bootstrapComparisonPredicates.includes(predicate) ? predicate : "OTHER"; state.refusal = null; }
+    if (state) {
+      state.predicate = bootstrapComparisonPredicates.includes(predicate) ? predicate : "OTHER";
+      state.refusal = null;
+    }
   } catch {}
   const value = operation();
   try {
@@ -151,7 +284,11 @@ function comparisonEqual(diagnostic, expected, actual) {
   const right = comparisonAt(diagnostic, "FINGERPRINT_ACTUAL_SERIALIZE", () => canonical(actual));
   try {
     const state = comparisonStates.get(diagnostic);
-    if (state) { state.predicate = "FINGERPRINT_EQUAL"; state.fingerprint = [left, right]; state.refusal = left === right ? null : "RUNNER_OS_DAEMON_OR_TOOL_DRIFT"; }
+    if (state) {
+      state.predicate = "FINGERPRINT_EQUAL";
+      state.fingerprint = [left, right];
+      state.refusal = left === right ? null : "RUNNER_OS_DAEMON_OR_TOOL_DRIFT";
+    }
   } catch {}
   return left === right;
 }
@@ -160,7 +297,9 @@ export function bootstrapComparisonCategory(diagnostic, error) {
     const state = comparisonStates.get(diagnostic);
     const descriptor = Object.getOwnPropertyDescriptor(error, "message");
     return state?.refusal && descriptor?.value === state.refusal ? state.refusal : "OTHER";
-  } catch { return "OTHER"; }
+  } catch {
+    return "OTHER";
+  }
 }
 export function bootstrapComparisonResult(diagnostic) {
   try {
@@ -169,12 +308,34 @@ export function bootstrapComparisonResult(diagnostic) {
     let suffix = "";
     if (state.predicate === "FINGERPRINT_EQUAL" && state.fingerprint) {
       const [expected, actual] = state.fingerprint.map((text) => JSON.parse(text));
-      const fields = ["imageVersion", "imageOS", "architecture", "kernel", "osReleaseSha256", "toolsSha256", "versionsSha256", "daemonSha256", "identitySha256"];
-      const tokens = ["FINGERPRINT_IMAGE_VERSION", "FINGERPRINT_IMAGE_OS", "FINGERPRINT_ARCHITECTURE", "FINGERPRINT_KERNEL", "FINGERPRINT_OS_RELEASE", "FINGERPRINT_TOOLS", "FINGERPRINT_VERSIONS", "FINGERPRINT_DAEMON", "FINGERPRINT_IDENTITY"];
-      suffix = ` mismatches=${fields.flatMap((field, i) => expected[field] === actual[field] ? [] : [tokens[i]]).join(",")}`;
+      const fields = [
+        "imageVersion",
+        "imageOS",
+        "architecture",
+        "kernel",
+        "osReleaseSha256",
+        "toolsSha256",
+        "versionsSha256",
+        "daemonSha256",
+        "identitySha256",
+      ];
+      const tokens = [
+        "FINGERPRINT_IMAGE_VERSION",
+        "FINGERPRINT_IMAGE_OS",
+        "FINGERPRINT_ARCHITECTURE",
+        "FINGERPRINT_KERNEL",
+        "FINGERPRINT_OS_RELEASE",
+        "FINGERPRINT_TOOLS",
+        "FINGERPRINT_VERSIONS",
+        "FINGERPRINT_DAEMON",
+        "FINGERPRINT_IDENTITY",
+      ];
+      suffix = ` mismatches=${fields.flatMap((field, i) => (expected[field] === actual[field] ? [] : [tokens[i]])).join(",")}`;
     }
     return `component=${state.component} predicate=${state.predicate}${suffix}`;
-  } catch { return "component=OTHER predicate=OTHER"; }
+  } catch {
+    return "component=OTHER predicate=OTHER";
+  }
 }
 
 // Categories are made only from this module's fixed roles, never observed names or values.
@@ -878,25 +1039,45 @@ export const scriptClosureDescriptor = Object.freeze({
 });
 
 export function validateClosureDescriptor(descriptor, diagnostic) {
-  invariant(comparisonAt(diagnostic, "CLOSURE_DESCRIPTOR", () => equal(descriptor, scriptClosureDescriptor)), "FIXED_SCRIPT_CLOSURE_DESCRIPTOR_REQUIRED");
+  invariant(
+    comparisonAt(diagnostic, "CLOSURE_DESCRIPTOR", () => equal(descriptor, scriptClosureDescriptor)),
+    "FIXED_SCRIPT_CLOSURE_DESCRIPTOR_REQUIRED",
+  );
 }
 
 const compareClosurePaths = (a, b) => Buffer.compare(Buffer.from(a[0], "utf8"), Buffer.from(b[0], "utf8"));
 
 export function scriptClosureFingerprint(pairs, stored = false, diagnostic) {
-  invariant(comparisonAt(diagnostic, "CLOSURE_PAIRS", () => Array.isArray(pairs)), "SCRIPT_CLOSURE_PAIRS_REQUIRED");
+  invariant(
+    comparisonAt(diagnostic, "CLOSURE_PAIRS", () => Array.isArray(pairs)),
+    "SCRIPT_CLOSURE_PAIRS_REQUIRED",
+  );
   const names = new Set();
   for (const pair of pairs) {
     invariant(
-      comparisonAt(diagnostic, "CLOSURE_PAIR_ARRAY", () => Array.isArray(pair)) && comparisonAt(diagnostic, "CLOSURE_PAIR_LENGTH", () => pair.length === 2) && comparisonAt(diagnostic, "CLOSURE_PATH_TYPE", () => typeof pair[0] === "string") && comparisonAt(diagnostic, "CLOSURE_HASH_TYPE", () => typeof pair[1] === "string"),
+      comparisonAt(diagnostic, "CLOSURE_PAIR_ARRAY", () => Array.isArray(pair)) &&
+        comparisonAt(diagnostic, "CLOSURE_PAIR_LENGTH", () => pair.length === 2) &&
+        comparisonAt(diagnostic, "CLOSURE_PATH_TYPE", () => typeof pair[0] === "string") &&
+        comparisonAt(diagnostic, "CLOSURE_HASH_TYPE", () => typeof pair[1] === "string"),
       "SCRIPT_CLOSURE_PAIR_REQUIRED",
     );
     const [relative, hash] = pair;
     invariant(
       comparisonAt(diagnostic, "CLOSURE_PATH_NONEMPTY", () => relative.length > 0) &&
         comparisonAt(diagnostic, "CLOSURE_PATH_CHARACTERS", () => !/[\\\x00-\x1f\x7f]/.test(relative)) &&
-        comparisonAt(diagnostic, "CLOSURE_PATH_UTF8", () => Buffer.from(relative, "utf8").toString("utf8") === relative) &&
-        comparisonAt(diagnostic, "CLOSURE_PATH_SEGMENTS", () => relative.split("/").every((part) => part.length > 0 && part !== "." && part !== "..")) &&
+        comparisonAt(
+          diagnostic,
+          "CLOSURE_PATH_UTF8",
+          () => Buffer.from(relative, "utf8").toString("utf8") === relative,
+        ) &&
+        relative
+          .split("/")
+          .every(
+            (part) =>
+              comparisonAt(diagnostic, "CLOSURE_SEGMENT_NONEMPTY", () => part.length > 0) &&
+              comparisonAt(diagnostic, "CLOSURE_SEGMENT_NOT_DOT", () => part !== ".") &&
+              comparisonAt(diagnostic, "CLOSURE_SEGMENT_NOT_DOT_DOT", () => part !== ".."),
+          ) &&
         comparisonAt(diagnostic, "CLOSURE_PATH_UNIQUE", () => !names.has(relative)) &&
         comparisonAt(diagnostic, "CLOSURE_HASH", () => /^[a-f0-9]{64}$/.test(hash)),
       "SCRIPT_CLOSURE_PATH_OR_HASH_REFUSED",
@@ -905,7 +1086,9 @@ export function scriptClosureFingerprint(pairs, stored = false, diagnostic) {
   }
   if (stored)
     invariant(
-      comparisonAt(diagnostic, "CLOSURE_ORDER", () => pairs.every((pair, i) => i === 0 || compareClosurePaths(pairs[i - 1], pair) < 0)),
+      comparisonAt(diagnostic, "CLOSURE_ORDER", () =>
+        pairs.every((pair, i) => i === 0 || compareClosurePaths(pairs[i - 1], pair) < 0),
+      ),
       "SCRIPT_CLOSURE_ORDER_REFUSED",
     );
   const ordered = [...pairs].sort(compareClosurePaths);
@@ -916,7 +1099,8 @@ export function validateScriptClosure(pairs, descriptor, stored = false, diagnos
   validateClosureDescriptor(descriptor, diagnostic);
   const actual = scriptClosureFingerprint(pairs, stored, diagnostic);
   invariant(
-    comparisonAt(diagnostic, "CLOSURE_COUNT", () => actual.fileCount === descriptor.fileCount) && comparisonAt(diagnostic, "CLOSURE_DIGEST", () => actual.sha256 === descriptor.sha256),
+    comparisonAt(diagnostic, "CLOSURE_COUNT", () => actual.fileCount === descriptor.fileCount) &&
+      comparisonAt(diagnostic, "CLOSURE_DIGEST", () => actual.sha256 === descriptor.sha256),
     "SCRIPT_DISTRIBUTION_DRIFT",
   );
   return actual;
@@ -1139,10 +1323,15 @@ export function validateToolPin(pin, diagnostic) {
     "REAL_TOOL_PIN_REQUIRED",
   );
   distribution(pin.distribution, diagnostic);
-  invariant(comparisonAt(diagnostic, "PIN_FORMAT", () => ["native", "script"].includes(pin.format)), "EXECUTABLE_FORMAT_REQUIRED");
+  invariant(
+    comparisonAt(diagnostic, "PIN_FORMAT", () => ["native", "script"].includes(pin.format)),
+    "EXECUTABLE_FORMAT_REQUIRED",
+  );
   if (pin.path !== pin.realTarget)
     invariant(
-      comparisonAt(diagnostic, "INVOCATION_FORMAT", () => pin.format === "native") && comparisonAt(diagnostic, "INVOCATION_NAME", () => pin.invocation === path.posix.basename(pin.path)) && comparisonAt(diagnostic, "INVOCATION_MULTICALL", () => pin.multicall === true),
+      comparisonAt(diagnostic, "INVOCATION_FORMAT", () => pin.format === "native") &&
+        comparisonAt(diagnostic, "INVOCATION_NAME", () => pin.invocation === path.posix.basename(pin.path)) &&
+        comparisonAt(diagnostic, "INVOCATION_MULTICALL", () => pin.multicall === true),
       "AUTHENTICATED_INVOCATION_REQUIRED",
     );
   if (pin.format === "script") {
@@ -1165,16 +1354,25 @@ export function validateToolObservation(pin, actual, diagnostic) {
       comparisonAt(diagnostic, "OBSERVED_FORMAT", () => actual.format === pin.format),
     "EXECUTABLE_DRIFT_OR_SHIM",
   );
-  invariant(comparisonAt(diagnostic, "OBSERVED_PACKAGE", () => equal(actual.package, pin.package)), "TOOL_PACKAGE_DRIFT");
+  invariant(
+    comparisonAt(diagnostic, "OBSERVED_PACKAGE", () => equal(actual.package, pin.package)),
+    "TOOL_PACKAGE_DRIFT",
+  );
   if (pin.format === "script") {
-    invariant(comparisonAt(diagnostic, "OBSERVED_SHEBANG", () => actual.shebang === pin.interpreter.shebang), "INTERPRETER_OR_DISTRIBUTION_DRIFT");
+    invariant(
+      comparisonAt(diagnostic, "OBSERVED_SHEBANG", () => actual.shebang === pin.interpreter.shebang),
+      "INTERPRETER_OR_DISTRIBUTION_DRIFT",
+    );
     validateScriptClosure(actual.closure, pin.closure, false, diagnostic);
   }
 }
 
 export function compareIdentity(expected, actual, diagnostic) {
   comparisonComponent(diagnostic, "FINGERPRINT");
-  invariant(comparisonEqual(diagnostic, expected, identityFingerprint(actual, diagnostic)), "RUNNER_OS_DAEMON_OR_TOOL_DRIFT");
+  invariant(
+    comparisonEqual(diagnostic, expected, identityFingerprint(actual, diagnostic)),
+    "RUNNER_OS_DAEMON_OR_TOOL_DRIFT",
+  );
 }
 
 export const bootstrapTools = (config) => ({ ...config.tools, ...config.bootstrapTools });
@@ -1543,12 +1741,23 @@ export function enforceExecutables(tools, names = measurementTools, verifyPathNo
     const pin = tools?.[name];
     validateToolPin(pin, diagnostic);
     if (stockTools.includes(name) && name !== "node")
-      invariant(comparisonAt(diagnostic, "STOCK_RESOLVE", () => resolveTool(inventoryOperations.tools[name].process, name) === pin.path), "STOCK_INVOCATION_PATH_DRIFT");
+      invariant(
+        comparisonAt(
+          diagnostic,
+          "STOCK_RESOLVE",
+          () => resolveTool(inventoryOperations.tools[name].process, name) === pin.path,
+        ),
+        "STOCK_INVOCATION_PATH_DRIFT",
+      );
     const target = comparisonAt(diagnostic, "EXECUTABLE_REALPATH", () => realpathSync(pin.path));
     const bytes = comparisonAt(diagnostic, "EXECUTABLE_READ", () => readFileSync(target));
     const script = bytes.subarray(0, 2).toString() === "#!";
     invariant(
-      comparisonAt(diagnostic, "EXECUTABLE_FORMAT", () => script || bytes.subarray(0, 4).equals(Buffer.from([0x7f, 0x45, 0x4c, 0x46]))),
+      comparisonAt(
+        diagnostic,
+        "EXECUTABLE_FORMAT",
+        () => script || bytes.subarray(0, 4).equals(Buffer.from([0x7f, 0x45, 0x4c, 0x46])),
+      ),
       "NATIVE_EXECUTABLE_OR_REVIEWED_SCRIPT_REQUIRED",
     );
     const actual = {
@@ -1561,8 +1770,14 @@ export function enforceExecutables(tools, names = measurementTools, verifyPathNo
     if (script) {
       actual.shebang = bytes.toString("utf8").split("\n")[0];
       const root = comparisonAt(diagnostic, "DISTRIBUTION_REALPATH", () => realpathSync(pin.distributionRoot));
-      invariant(comparisonAt(diagnostic, "DISTRIBUTION_ROOT", () => root === pin.distributionRoot), "SCRIPT_DISTRIBUTION_ESCAPE");
-      invariant(comparisonAt(diagnostic, "DISTRIBUTION_TARGET", () => target.startsWith(`${root}/`)), "SCRIPT_DISTRIBUTION_ESCAPE");
+      invariant(
+        comparisonAt(diagnostic, "DISTRIBUTION_ROOT", () => root === pin.distributionRoot),
+        "SCRIPT_DISTRIBUTION_ESCAPE",
+      );
+      invariant(
+        comparisonAt(diagnostic, "DISTRIBUTION_TARGET", () => target.startsWith(`${root}/`)),
+        "SCRIPT_DISTRIBUTION_ESCAPE",
+      );
       actual.closure = comparisonAt(diagnostic, "DISTRIBUTION_READ", () => scriptDistribution(root));
     }
     validateToolObservation(pin, actual, diagnostic);
@@ -1578,7 +1793,8 @@ export function enforceExecutables(tools, names = measurementTools, verifyPathNo
   });
   invariant(
     comparisonAt(diagnostic, "INTERPRETER_PROCESS", () => realpathSync(process.execPath) === tools.node.realTarget) &&
-      (!verifyPathNode || comparisonAt(diagnostic, "INTERPRETER_PATH", () => realpathSync(pathNode) === tools.node.realTarget)),
+      (!verifyPathNode ||
+        comparisonAt(diagnostic, "INTERPRETER_PATH", () => realpathSync(pathNode) === tools.node.realTarget)),
     "TOOL_INTERPRETER_MISMATCH",
   );
 }
@@ -1595,15 +1811,32 @@ export function enforceIdentityPins(config, actual, bootstrap = false, diagnosti
   comparisonComponent(diagnostic, "DAEMON_CONTAINERD");
   validateToolObservation(config.daemonTools.containerd, actual.daemon.containerdExecutable, diagnostic);
   comparisonComponent(diagnostic, "ACTIVE_RUNTIME");
-  invariant(comparisonAt(diagnostic, "ACTIVE_RUNTIME_DEFAULT", () => actual.daemon.defaultRuntime === "runc") && comparisonAt(diagnostic, "ACTIVE_RUNTIME_PRESENT", () => actual.daemon.activeRuntime), "ACTIVE_RUNC_IDENTITY_REQUIRED");
+  invariant(
+    comparisonAt(diagnostic, "ACTIVE_RUNTIME_DEFAULT", () => actual.daemon.defaultRuntime === "runc") &&
+      comparisonAt(diagnostic, "ACTIVE_RUNTIME_PRESENT", () => actual.daemon.activeRuntime),
+    "ACTIVE_RUNC_IDENTITY_REQUIRED",
+  );
   validateToolObservation(tools.runc, actual.daemon.activeRuntime, diagnostic);
   comparisonComponent(diagnostic, "RUNNER");
   const r = config.runnerIdentity;
   invariant(
     comparisonAt(diagnostic, "RUNNER_IMAGE", () => r.image === "ubuntu-24.04") &&
-      ["imageVersion", "imageOS", "architecture", "kernel"].every((key) => comparisonAt(diagnostic, ({ imageVersion: "RUNNER_IMAGE_VERSION", imageOS: "RUNNER_IMAGE_OS", architecture: "RUNNER_ARCHITECTURE", kernel: "RUNNER_KERNEL" })[key], () => actual[key] === r[key])) &&
+      ["imageVersion", "imageOS", "architecture", "kernel"].every((key) =>
+        comparisonAt(
+          diagnostic,
+          {
+            imageVersion: "RUNNER_IMAGE_VERSION",
+            imageOS: "RUNNER_IMAGE_OS",
+            architecture: "RUNNER_ARCHITECTURE",
+            kernel: "RUNNER_KERNEL",
+          }[key],
+          () => actual[key] === r[key],
+        ),
+      ) &&
       comparisonAt(diagnostic, "RUNNER_OS", () => actual.osRelease.includes(`PRETTY_NAME="${r.os}"\n`)) &&
-      comparisonAt(diagnostic, "RUNNER_CODENAME", () => actual.osRelease.includes(`VERSION_CODENAME=${r.codename}\n`)) &&
+      comparisonAt(diagnostic, "RUNNER_CODENAME", () =>
+        actual.osRelease.includes(`VERSION_CODENAME=${r.codename}\n`),
+      ) &&
       comparisonAt(diagnostic, "RUNNER_ENGINE_VERSION", () => actual.daemon.server.Version === r.engine.version) &&
       comparisonAt(diagnostic, "RUNNER_ENGINE_API", () => actual.daemon.server.ApiVersion === r.engine.apiVersion) &&
       comparisonAt(diagnostic, "RUNNER_ENGINE_COMMIT", () => actual.daemon.server.GitCommit === r.engine.gitCommit),
@@ -1614,8 +1847,13 @@ export function enforceIdentityPins(config, actual, bootstrap = false, diagnosti
     ["runc", r.runc],
     ["docker-init", r.dockerInit],
   ]) {
-    comparisonComponent(diagnostic, ({ containerd: "COMPONENT_CONTAINERD", runc: "COMPONENT_RUNC", "docker-init": "COMPONENT_DOCKER_INIT" })[name]);
-    const components = comparisonAt(diagnostic, "COMPONENT_SELECT", () => actual.daemon.server.Components.filter((component) => component.Name === name));
+    comparisonComponent(
+      diagnostic,
+      { containerd: "COMPONENT_CONTAINERD", runc: "COMPONENT_RUNC", "docker-init": "COMPONENT_DOCKER_INIT" }[name],
+    );
+    const components = comparisonAt(diagnostic, "COMPONENT_SELECT", () =>
+      actual.daemon.server.Components.filter((component) => component.Name === name),
+    );
     invariant(
       comparisonAt(diagnostic, "COMPONENT_COUNT", () => components.length === 1) &&
         comparisonAt(diagnostic, "COMPONENT_VERSION", () => components[0].Version === expected.version) &&
@@ -1627,9 +1865,16 @@ export function enforceIdentityPins(config, actual, bootstrap = false, diagnosti
     ["docker", actual.daemon.unitFiles],
     ["containerd", actual.daemon.containerdUnitFiles],
   ]) {
-    comparisonComponent(diagnostic, ({ docker: "SERVICE_DOCKER", containerd: "SERVICE_CONTAINERD" })[name]);
-    const { path: logical, realTarget, sha256: hash } = comparisonAt(diagnostic, "SERVICE_PINS", () => config.servicePins[name]);
-    invariant(comparisonAt(diagnostic, "SERVICE_EQUAL", () => equal(files, [{ path: logical, realTarget, sha256: hash }])), "REVIEWED_SERVICE_FILE_DRIFT");
+    comparisonComponent(diagnostic, { docker: "SERVICE_DOCKER", containerd: "SERVICE_CONTAINERD" }[name]);
+    const {
+      path: logical,
+      realTarget,
+      sha256: hash,
+    } = comparisonAt(diagnostic, "SERVICE_PINS", () => config.servicePins[name]);
+    invariant(
+      comparisonAt(diagnostic, "SERVICE_EQUAL", () => equal(files, [{ path: logical, realTarget, sha256: hash }])),
+      "REVIEWED_SERVICE_FILE_DRIFT",
+    );
   }
 }
 
