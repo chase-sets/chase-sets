@@ -13,7 +13,7 @@
 //!
 //! The create and edit dialogs read the active types and up to 500 records (admin-web's loaders
 //! read the same on every list and page load); here only opening a dialog reads them.
-use corten::{LiveResponse, LiveSince, axum::http::HeaderMap, prelude::*};
+use corten::{LiveResponse, LiveSince, http::HeaderMap, prelude::*};
 use futures_util::future::join;
 use platform::receipt::Receipt;
 use serde_json::Value;
@@ -56,12 +56,11 @@ fn api_query(query: &url::RefRecordQuery, page: u32) -> String {
 #[corten::routes(state = crate::app::Shared, area = crate::catalog::url::Catalog, caller = crate::auth::Staff<crate::auth::CatalogAccess>)]
 pub mod url {
     use corten::{Fields, Route};
-    use serde::Deserialize;
 
     pub use crate::catalog::{blueprints::url::Opened, url::ListNotice};
 
     /// The list's filters (the filter form's fields) and page (from 1).
-    #[derive(Clone, Debug, Default, Deserialize, Fields, Route)]
+    #[derive(Clone, Debug, Default, Fields, Route)]
     #[route(query)]
     pub struct RefRecordQuery {
         pub search: Option<String>,
@@ -225,9 +224,9 @@ async fn page_list(
     req.screen(
         &screen,
         html! {
-            <crate::views::Layout req={req} viewer={Some(viewer)} title={t.route_ref_records()} head="">
+            <crate::views::OwnToastLayout req={req} viewer={Some(viewer)} title={t.route_ref_records()} head="">
                 {view}
-            </crate::views::Layout>
+            </crate::views::OwnToastLayout>
         },
     )
 }
@@ -357,9 +356,9 @@ async fn record_page(
     req.screen(
         &record,
         html! {
-            <crate::views::Layout req={req} viewer={Some(viewer)} title={t.route_ref_record()} head="">
+            <crate::views::OwnToastLayout req={req} viewer={Some(viewer)} title={t.route_ref_record()} head="">
                 {view}
-            </crate::views::Layout>
+            </crate::views::OwnToastLayout>
         },
     )
 }

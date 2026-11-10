@@ -12,22 +12,23 @@
 //! | `POST /catalog/scopes/attention/dismiss?<filters>`, `.../defer` | parks the item (a reason; defer for 24 h) |
 //! | `POST /catalog/scopes/attention/restore?<filters>` | brings a parked item back |
 //! | `POST /catalog/scopes/attention/alias/accept?<filters>`, `.../reject` | an alias candidate's one-click command |
+//! | `POST /catalog/scopes/aliases?<filters>` | a candidate's command in the all-scopes alias review |
 //!
-//! The panel trusts the API's counts. admin-web recomputes them from the items and rejects a
-//! queue whose counts differ, which chase-sets/chase-sets#10507 removes.
+//! The panel trusts the API's counts and coverage. admin-web's loader checks them against each
+//! other (counts against each kind's coverage, coverage against the window and the items) and
+//! rejects a queue where they disagree; the pilot leaves that to the API that computed them.
 use std::fmt::Display;
 
 use corten::{
-    axum::http::HeaderMap,
+    http::HeaderMap,
     i18n::{Args, Found},
     prelude::*,
 };
-use serde::Deserialize;
 use serde_json::{Map, Value, json};
 
 use super::{
     Sent,
-    api::{AttentionItem, AttentionKind, Kind},
+    api::{AliasReview, AttentionItem, AttentionKind, Catalog, Kind},
     command, receipt,
     scopes::{self, ScopeBack, url::ScopeQuery},
     views::{self, Draft},
@@ -93,10 +94,17 @@ pub mod url {
         #[route(query)]
         pub query: ScopeQuery,
     }
+
+    /// A candidate's command in the all-scopes alias review.
+    #[route("/catalog/scopes/aliases", post = alias_review)]
+    pub struct AliasReviewCommand {
+        #[route(query)]
+        pub query: ScopeQuery,
+    }
 }
 
 /// Dismiss or defer: the item, its kind (the API keys the parking by both) and why.
-#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[derive(Clone, Debug, Default, Fields)]
 #[serde(default)]
 pub struct ParkInput {
     pub item_key: String,
@@ -111,7 +119,7 @@ impl ParkInput {
 }
 
 /// Restore: the item a park took out of the queue.
-#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[derive(Clone, Debug, Default, Fields)]
 #[serde(default)]
 pub struct RestoreInput {
     pub item_key: String,
@@ -119,7 +127,7 @@ pub struct RestoreInput {
 
 /// An alias candidate's command: its hashes (comma separated, as the API takes them) and, for a
 /// reject, the reason admin-web sends (the button's label).
-#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[derive(Clone, Debug, Default, Fields)]
 #[serde(default)]
 pub struct AliasInput {
     pub alias_hashes: String,
@@ -146,11 +154,12 @@ async fn review(
     let key = item.item.unwrap_or_default();
     if req.mode == Mode::Action {
         let caller = config.platform.caller(&headers, config.proto, None);
-        let queue = scopes::read_queue(&caller).await;
+        let queue = scopes::read_queue(&caller, &query).await;
         let found = queue.as_ref().ok().and_then(|q| q.items.iter().find(|i| i.item_key == key));
-        let t: Cat = req.t();
+        let (t, p): (Cat, Pilot) = (req.t(), req.t());
         return req.patch(views::AttentionSheet {
             t,
+            p,
             query: &query,
             item: found,
             parked: None,
@@ -302,6 +311,84 @@ async fn alias(req: Req, config: Shared, headers: HeaderMap, query: ScopeQuery, 
     queued(&req, &config, &headers, query, Kind::AliasReview, &body).await
 }
 
+/// A candidate's command in the all-scopes alias review (`handleAliasReviewCommand`): accept,
+/// reject or revoke post the alias review's command; defer writes nothing (the candidate stays
+/// pending) and says queued, as admin-web's does. A reject or revoke with no reason, or no
+/// candidate, is the failed banner. The bulk bar posts its checked boxes as `picked`, and its
+/// Auto-accept eligible (`alias.accept-eligible`) accepts only those the review marks eligible,
+/// read again here: admin-web's sends every picked candidate (chase-sets/chase-sets#11024).
+async fn alias_review(
+    req: Req,
+    _: corten::Caller<Staff<CatalogAccess>>,
+    State(config): State<Shared>,
+    headers: HeaderMap,
+    corten::Params(route): corten::Params<crate::catalog::attention::url::AliasReviewCommand>,
+    Form(input): Form<crate::catalog::scope::url::AliasCommand>,
+) -> HtmlResult {
+    let query = route.query;
+    let caller = config.platform.caller(&headers, config.proto, None);
+    match alias_command_body(&caller, &input, "?limit=200").await {
+        Ok(Some(body)) => queued(&req, &config, &headers, query, Kind::AliasReview, &body).await,
+        Ok(None) => {
+            let notice = scopes::url::ScopeNotice { done: Some(scopes::url::AttentionDone::Queued), ..Default::default() };
+            req.redirect(&scopes::url::Scopes { query, notice })
+        }
+        Err(()) => failed(&req, query),
+    }
+}
+
+/// What an alias review command sends (`handleAliasReviewCommand`): the alias review's command
+/// body, `None` for a defer (it writes nothing), or `Err` for one it cannot send: no candidate, a
+/// reject or revoke without its reason, an intent it does not offer, or an Auto-accept eligible
+/// with none eligible. Auto-accept eligible keeps the picked candidates the review read with
+/// `review_query` marks eligible: admin-web's sends every picked one (chase-sets/chase-sets#11024).
+pub(crate) async fn alias_command_body(
+    caller: &crate::api::Caller<'_>,
+    input: &crate::catalog::scope::url::AliasCommand,
+    review_query: &str,
+) -> Result<Option<Value>, ()> {
+    let mut hashes: Vec<&str> = Vec::new();
+    let named = input.alias_hashes.split(',').chain(input.picked.iter().map(String::as_str));
+    for hash in named.map(str::trim).filter(|h| !h.is_empty()) {
+        if !hashes.contains(&hash) {
+            hashes.push(hash);
+        }
+    }
+    let reason = input.reason.trim();
+    let eligible_only = input.intent == ACCEPT_ELIGIBLE;
+    let intent = match input.intent.as_str() {
+        "alias.accept" | ACCEPT_ELIGIBLE => "accept",
+        "alias.reject" => "reject",
+        "alias.revoke" => "revoke",
+        "alias.defer" => "defer",
+        _ => return Err(()),
+    };
+    if hashes.is_empty() || (matches!(intent, "reject" | "revoke") && reason.is_empty()) {
+        return Err(());
+    }
+    if intent == "defer" {
+        return Ok(None);
+    }
+    if eligible_only {
+        // Workaround for chase-sets/chase-sets#11024: remove once the API's command takes the rule.
+        match caller.read_at::<AliasReview>(Kind::AliasReview, review_query).await {
+            Ok(review) => hashes.retain(|hash| review.candidates.iter().any(|c| c.alias_hash == *hash && c.auto_accept.eligible)),
+            Err(error) => {
+                tracing::warn!("the alias review could not be read for Auto-accept eligible: {error}");
+                return Err(());
+            }
+        }
+        if hashes.is_empty() {
+            return Err(());
+        }
+    }
+    let mut body = json!({ "intent": intent, "aliasHashes": hashes.join(",") });
+    if !reason.is_empty() {
+        body["reason"] = json!(reason);
+    }
+    Ok(Some(body))
+}
+
 /// A one-click command: the list after it, with admin-web's banner (queued, or the command failed).
 async fn queued(req: &Req, config: &Shared, headers: &HeaderMap, query: ScopeQuery, kind: Kind, body: &Value) -> HtmlResult {
     let caller = config.platform.caller(headers, config.proto, None);
@@ -320,6 +407,9 @@ async fn queued(req: &Req, config: &Shared, headers: &HeaderMap, query: ScopeQue
     }
 }
 
+/// The bulk bar's Auto-accept eligible: an accept of the picked candidates the review marks eligible.
+pub const ACCEPT_ELIGIBLE: &str = "alias.accept-eligible";
+
 fn failed(req: &Req, query: ScopeQuery) -> HtmlResult {
     let notice = scopes::url::ScopeNotice { done: Some(scopes::url::AttentionDone::Failed), ..Default::default() };
     req.redirect(&scopes::url::Scopes { query, notice })
@@ -337,36 +427,32 @@ fn catalog_key(key: &str) -> Option<String> {
     Some(out)
 }
 
-/// An item's message arguments as the API sends them, for `t.by_key`: the item's own and, for a
-/// name they lack, its title's. The title's are a workaround for chase-sets/chase-sets#10569 (an
-/// alias candidate's detail has `{type}`, which the API sends only with the title); remove them
-/// when it lands.
+/// An item's message arguments as the API sends them, for `t.by_key`.
 pub struct Params<'a> {
     own: &'a Map<String, Value>,
-    title: Option<&'a Map<String, Value>>,
 }
 
 impl<'a> Params<'a> {
     /// A title's arguments.
     pub fn title(item: &'a AttentionItem) -> Self {
-        Params { own: &item.title_params, title: None }
+        Params { own: &item.title_params }
     }
 
-    /// A detail's arguments, then the title's.
+    /// A detail's arguments.
     pub fn detail(item: &'a AttentionItem) -> Self {
-        Params { own: &item.detail_params, title: Some(&item.title_params) }
+        Params { own: &item.detail_params }
     }
 
     /// A resolution's label, which has none.
     pub fn none() -> Self {
         static EMPTY: std::sync::LazyLock<Map<String, Value>> = std::sync::LazyLock::new(Map::new);
-        Params { own: &EMPTY, title: None }
+        Params { own: &EMPTY }
     }
 }
 
 impl Args for Params<'_> {
     fn arg(&self, name: &str, write: &mut dyn FnMut(&dyn Display)) -> bool {
-        self.own.arg(name, write) || self.title.is_some_and(|title| title.arg(name, write))
+        self.own.arg(name, write)
     }
 }
 
@@ -425,6 +511,7 @@ mod tests {
                 fields: Default::default(),
                 href: None,
                 requires_reason: false,
+                unavailable: false,
             },
             secondary_resolutions: vec![],
         }
@@ -437,7 +524,7 @@ mod tests {
             "catalog.features.attentionQueue.item.aliasCandidate.title",
             json!({ "alias": "Elsa & Anna", "type": "printed-name" }),
             "catalog.features.attentionQueue.item.aliasCandidate.detail",
-            json!({ "provider": "tcgplayer", "confidence": 0.92 }),
+            json!({ "provider": "tcgplayer", "type": "printed-name", "confidence": 0.92 }),
         );
         let title = Params::title(&alias);
         assert_eq!(shown(t, &alias.title_key, &title).to_string(), "Review alias Elsa & Anna", "a string without its quotes");
@@ -448,7 +535,19 @@ mod tests {
         assert_eq!(
             shown(t, &alias.detail_key, &detail).to_string(),
             "tcgplayer · printed-name · confidence 0.92",
-            "{{type}} from the title's params"
+            "the detail's own {{type}}"
+        );
+        let title_only = item(
+            "catalog.features.attentionQueue.item.aliasCandidate.title",
+            json!({ "alias": "Elsa & Anna", "type": "printed-name" }),
+            "catalog.features.attentionQueue.item.aliasCandidate.detail",
+            json!({ "provider": "tcgplayer", "confidence": 0.92 }),
+        );
+        let detail = Params::detail(&title_only);
+        assert_eq!(
+            shown(t, &title_only.detail_key, &detail).to_string(),
+            title_only.detail_key,
+            "a detail is drawn from its own arguments, not the title's"
         );
 
         let stale = item(

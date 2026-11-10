@@ -23,7 +23,7 @@
 //! (chase-sets/chase-sets#10530 asks for a bulk route).
 use std::collections::HashSet;
 
-use corten::{Fragment, LiveResponse, LiveSince, axum::http::HeaderMap, prelude::*};
+use corten::{Fragment, LiveResponse, LiveSince, http::HeaderMap, prelude::*};
 use futures_util::StreamExt;
 use platform::{realtime::Tick, receipt::Receipt};
 use serde_json::{Value, json};
@@ -72,7 +72,7 @@ pub mod url {
     use serde::Deserialize;
 
     /// What a write did, for the list it redirects to.
-    #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, corten::UrlValue)]
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, corten::UrlValue)]
     #[serde(rename_all = "snake_case")]
     pub enum ItemDone {
         Created,
@@ -81,7 +81,7 @@ pub mod url {
 
     /// The list's filters (the filter form's fields) and page (from 1): what the list, its live
     /// rows, its bulk preview, the drafts' removal and their confirms all carry.
-    #[derive(Clone, Debug, Default, Deserialize, Fields, Route)]
+    #[derive(Clone, Debug, Default, Fields, Route)]
     #[route(query)]
     pub struct ItemQuery {
         pub search: Option<String>,
@@ -270,7 +270,9 @@ async fn item_list(
     req.screen(
         &screen,
         html! {
-            <crate::views::Layout req={req} viewer={Some(viewer)} title={t.route_items()} head="">{view}</crate::views::Layout>
+            <crate::views::OwnToastLayout req={req} viewer={Some(viewer)} title={t.route_items()} head="">
+                {view}
+            </crate::views::OwnToastLayout>
         },
     )
 }

@@ -46,12 +46,59 @@ pub struct ScopeRecord {
     pub product_domain: String,
     pub scope_kind: String,
     pub name: String,
+    /// The product line and series the scope sits under (a set's, an expansion's), none for the
+    /// levels above.
+    #[serde(default)]
+    pub product_line_scope_record_id: Option<String>,
+    #[serde(default)]
+    pub series_scope_record_id: Option<String>,
     #[serde(default)]
     pub official_set_code: Option<String>,
     #[serde(default)]
     pub language_editions: Vec<String>,
     pub lifecycle_status: String,
     pub updated_at: String,
+    /// Whether the scope can promote Catalog Items yet, as the API derives it from the lifecycle.
+    pub promotion_readiness: Promotion,
+    /// Whether the record changed lately, as the API measures it against its generation time.
+    pub sync_freshness: Sync,
+}
+
+/// Whether a scope's canonical record can promote Catalog Items yet (`CatalogScopePromotionReadiness`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize, ToJson)]
+#[serde(rename_all = "lowercase")]
+pub enum Promotion {
+    Unpublished,
+    Live,
+    Deprecated,
+    Archived,
+}
+
+/// Whether a scope's record changed in the API's stale window (`CatalogScopeSyncFreshness`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize, ToJson)]
+#[serde(rename_all = "lowercase")]
+pub enum Sync {
+    Fresh,
+    Stale,
+}
+
+/// A page of Scope Records (`CatalogScopeRecordListResponse`): the page, the filtered total and the
+/// language editions across every page of that filter.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct ScopePage {
+    pub items: Vec<ScopeRecord>,
+    #[serde(default)]
+    pub total: u32,
+    #[serde(default)]
+    pub facets: ScopeFacets,
+}
+
+/// The list's facets.
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ScopeFacets {
+    #[serde(default)]
+    pub language_editions: Vec<String>,
 }
 
 /// A scope's provider coverage (`ScopeCoverageMatrix`, features/provider-scope-mapping): each
@@ -86,15 +133,42 @@ pub struct CoverageMapping {
     pub confidence: String,
 }
 
-/// The alias review read model (`CatalogAliasReviewReadModel`), the candidates only.
-#[derive(Clone, Debug, Deserialize, Serialize, ToJson)]
+/// The alias review read model (`CatalogAliasReviewReadModel`): the candidates, and the counts and
+/// coverage the all-scopes review on the scopes list shows (a scope's page reads only candidates).
+#[derive(Clone, Debug, Default, Deserialize, Serialize, ToJson)]
 #[serde(rename_all = "camelCase")]
 pub struct AliasReview {
     pub candidates: Vec<AliasCandidate>,
+    #[serde(default)]
+    pub counts: AliasCounts,
+    #[serde(default)]
+    pub coverage: AliasCoverage,
+}
+
+/// `CatalogAliasReviewCounts`, the ones the review shows.
+#[derive(Clone, Debug, Default, Deserialize, Serialize, ToJson)]
+#[serde(rename_all = "camelCase")]
+pub struct AliasCounts {
+    pub total: u64,
+    pub accepted: u64,
+    pub auto_accepted: u64,
+    pub needs_review: u64,
+    pub auto_accept_eligible: u64,
+    pub warned: u64,
+}
+
+/// `CatalogAliasCoverageReadModel`'s counters.
+#[derive(Clone, Debug, Default, Deserialize, Serialize, ToJson)]
+#[serde(rename_all = "camelCase")]
+pub struct AliasCoverage {
+    pub cards_with_accepted_english_alias: u64,
+    pub cards_with_only_species_aliases: u64,
+    pub cards_needing_review: u64,
+    pub expansions_and_series_needing_review: u64,
 }
 
 /// `CatalogAliasReviewCandidateSummary`, the fields a scope's page shows.
-#[derive(Clone, Debug, Deserialize, Serialize, ToJson)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize, ToJson)]
 #[serde(rename_all = "camelCase")]
 pub struct AliasCandidate {
     pub alias_hash: String,
@@ -105,17 +179,44 @@ pub struct AliasCandidate {
     pub proposed_alias: String,
     pub alias_language_code: String,
     pub confidence: String,
+    #[serde(default)]
+    pub alias_type: String,
+    #[serde(default)]
+    pub source_category: String,
+    #[serde(default)]
+    pub provider_key: String,
+    /// `generated-translation`, `low-confidence-evidence`, `never-official-source`,
+    /// `indonesian-id-not-english`.
+    #[serde(default)]
+    pub warnings: Vec<String>,
+    /// Operator-readable evidence lines (never raw provider bodies).
+    #[serde(default)]
+    pub evidence: Vec<EvidenceLine>,
     pub review_status: String,
     pub auto_accept: AutoAccept,
     /// `alias.accept`, `alias.reject`, `alias.defer`, `alias.revoke`.
     #[serde(default)]
     pub available_actions: Vec<String>,
+    /// Pending, so it may be picked for a bulk command.
+    #[serde(default)]
+    pub reviewable: bool,
+}
+
+/// `CatalogAliasReviewEvidenceLine`.
+#[derive(Clone, Debug, Default, Deserialize, Serialize, ToJson)]
+#[serde(rename_all = "camelCase")]
+pub struct EvidenceLine {
+    pub label: String,
+    pub value: String,
 }
 
 /// Why a pending candidate did not auto-accept (`CatalogAliasReviewAutoAcceptEligibility`).
 #[derive(Clone, Debug, Default, Deserialize, Serialize, ToJson)]
 #[serde(rename_all = "camelCase")]
 pub struct AutoAccept {
+    /// A pending candidate the governance policy would auto-accept.
+    #[serde(default)]
+    pub eligible: bool,
     #[serde(default)]
     pub reasons: Vec<String>,
 }
@@ -173,31 +274,116 @@ pub struct ReviewOutcome {
     pub catalog_item_id: Option<String>,
 }
 
-/// The Catalog attention queue (`CatalogAttentionQueueReadModel`, features/attention-queue): every
-/// item that needs an operator, most important first, with the API's counts. The kinds and
-/// severities are closed sets, so an answer with another one does not read and the page says the
-/// queue is unavailable, as admin-web's `resolveCatalogAttentionQueueResult` does.
+/// The Catalog attention queue (`CatalogAttentionQueueReadModel`, features/attention-queue): one
+/// window of the items that need an operator, most important first, with the API's counts of every
+/// kind's whole cohort, whether each count is exact or a lower bound, and where the window sits in
+/// each kind. The kinds and severities are closed sets, so an answer with another one, or without
+/// its coverage, does not read and the page says the queue is unavailable, as admin-web's
+/// `resolveCatalogAttentionQueueResult` does.
 #[derive(Clone, Debug, Deserialize, Serialize, ToJson)]
 #[serde(rename_all = "camelCase")]
 pub struct AttentionQueue {
     pub generated_at: String,
+    /// Only a complete zero: no work anywhere and every count exact.
     pub empty: bool,
     pub items: Vec<AttentionItem>,
     pub counts: AttentionCounts,
+    pub count_basis: CountBasis,
+    pub coverage: AttentionCoverage,
+    pub window: AttentionWindow,
+}
+
+impl AttentionQueue {
+    /// Nothing counted while a source could not be fully checked: unknown work, not an empty queue.
+    pub fn incomplete_zero(&self) -> bool {
+        self.counts.total == 0 && self.count_basis.total == TotalKind::LowerBound
+    }
+}
+
+/// `CatalogAttentionTotalKind`: a count is the whole cohort, or a lower bound when a source (the
+/// import jobs' snapshot) could not be fully checked.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize, ToJson)]
+#[serde(rename_all = "kebab-case")]
+pub enum TotalKind {
+    Exact,
+    LowerBound,
+}
+
+/// `CatalogAttentionQueueCountBasis`: which counts are lower bounds.
+#[derive(Clone, Debug, Deserialize, Serialize, ToJson)]
+#[serde(rename_all = "camelCase")]
+pub struct CountBasis {
+    pub total: TotalKind,
+    pub by_severity: BasisBySeverity,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, ToJson)]
+pub struct BasisBySeverity {
+    pub critical: TotalKind,
+    pub warning: TotalKind,
+    pub info: TotalKind,
+}
+
+/// `CatalogAttentionQueueWindow`: the kind paged (none for the summary of every kind), and where.
+#[derive(Clone, Debug, Deserialize, Serialize, ToJson)]
+pub struct AttentionWindow {
+    pub kind: Option<AttentionKind>,
+    pub offset: u64,
+    pub limit: u64,
+}
+
+/// `CatalogAttentionQueueCoverage`: each kind's window inside its cohort.
+#[derive(Clone, Debug, Deserialize, Serialize, ToJson)]
+#[serde(rename_all = "kebab-case")]
+pub struct AttentionCoverage {
+    pub unmapped_scope: KindCoverage,
+    pub merge_conflict: KindCoverage,
+    pub provider_health: KindCoverage,
+    pub import_job: KindCoverage,
+    pub alias_candidate: KindCoverage,
+    pub stale_scope_sync: KindCoverage,
+}
+
+impl AttentionCoverage {
+    /// Each kind with its coverage, in the queue's order (`CATALOG_ATTENTION_ITEM_KINDS`).
+    pub fn kinds(&self) -> [(AttentionKind, &KindCoverage); 6] {
+        [
+            (AttentionKind::UnmappedScope, &self.unmapped_scope),
+            (AttentionKind::MergeConflict, &self.merge_conflict),
+            (AttentionKind::ProviderHealth, &self.provider_health),
+            (AttentionKind::ImportJob, &self.import_job),
+            (AttentionKind::AliasCandidate, &self.alias_candidate),
+            (AttentionKind::StaleScopeSync, &self.stale_scope_sync),
+        ]
+    }
+}
+
+/// `CatalogAttentionKindCoverage`: a kind's count, whether it is exact, its window, how many of
+/// it the window returned, and where its next page starts (none when the counted cohort ends).
+#[derive(Clone, Debug, Deserialize, Serialize, ToJson)]
+#[serde(rename_all = "camelCase")]
+pub struct KindCoverage {
+    pub total: u64,
+    pub total_kind: TotalKind,
+    pub offset: u64,
+    pub limit: u64,
+    pub returned: u64,
+    pub truncated: bool,
+    pub next_offset: Option<u64>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, ToJson)]
 #[serde(rename_all = "camelCase")]
 pub struct AttentionCounts {
-    pub total: u32,
+    pub total: u64,
     pub by_severity: BySeverity,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, ToJson)]
 pub struct BySeverity {
-    pub critical: u32,
-    pub warning: u32,
-    pub info: u32,
+    pub critical: u64,
+    pub warning: u64,
+    pub info: u64,
 }
 
 /// `CatalogAttentionItem`: its title and detail are the API's message keys and arguments.
@@ -234,6 +420,10 @@ pub struct Resolution {
     pub href: Option<String>,
     #[serde(default)]
     pub requires_reason: bool,
+    /// The API's word that the item's target is missing, so its command cannot run and its sheet
+    /// has no page to open.
+    #[serde(default)]
+    pub unavailable: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize, ToJson)]
@@ -256,6 +446,20 @@ pub enum AttentionKind {
 }
 
 impl AttentionKind {
+    /// A kind by the API's name, or none for another word.
+    pub fn parse(text: &str) -> Option<Self> {
+        [
+            AttentionKind::UnmappedScope,
+            AttentionKind::MergeConflict,
+            AttentionKind::ProviderHealth,
+            AttentionKind::ImportJob,
+            AttentionKind::AliasCandidate,
+            AttentionKind::StaleScopeSync,
+        ]
+        .into_iter()
+        .find(|kind| kind.as_str() == text)
+    }
+
     /// The kind as the API names it (the dismiss and defer commands send it back).
     pub fn as_str(self) -> &'static str {
         match self {
@@ -998,6 +1202,7 @@ pub enum Kind {
     AliasReview,
     ProviderScopeMappings,
     SourceObservations,
+    ProviderScopeDiscovery,
 }
 
 impl Kind {
@@ -1018,6 +1223,7 @@ impl Kind {
             Kind::AliasReview => "alias-review",
             Kind::ProviderScopeMappings => "provider-scope-mappings",
             Kind::SourceObservations => "source-observations",
+            Kind::ProviderScopeDiscovery => "provider-scope-discovery",
         }
     }
 }
@@ -1037,6 +1243,9 @@ pub trait Catalog {
     /// A `POST` to `/api/catalog/{kind}{rest}` that answers with `T`: a catalog item bulk
     /// change's preview, or its job.
     async fn post<T: DeserializeOwned>(&self, kind: Kind, rest: &str, body: &Value) -> Result<T, ApiError>;
+    /// A `POST` like `post` that creates what it answers with (a provider profile's draft): the
+    /// answer, and the receipt the next read waits for.
+    async fn post_written<T: DeserializeOwned>(&self, kind: Kind, rest: &str, body: &Value) -> Result<(T, Written), ApiError>;
     async fn job<R: DeserializeOwned>(&self, id: &str) -> Result<Job<R>, ApiError>;
     /// A read of `/api/catalog/{kind}{rest}`, `rest` encoded by the caller (`under`).
     async fn read_at<T: DeserializeOwned>(&self, kind: Kind, rest: &str) -> Result<T, ApiError>;
@@ -1076,6 +1285,12 @@ impl Catalog for Caller<'_> {
         let req = self.request(Method::POST, &format!("{API}/{}{rest}", kind.path()), CATALOG);
         let (answer, _) = self.write(req.json(body)).await?;
         Ok(answer)
+    }
+
+    async fn post_written<T: DeserializeOwned>(&self, kind: Kind, rest: &str, body: &Value) -> Result<(T, Written), ApiError> {
+        let req = self.request(Method::POST, &format!("{API}/{}{rest}", kind.path()), CATALOG);
+        let (answer, receipt) = self.write(req.json(body)).await?;
+        Ok((answer, Written { receipt }))
     }
 
     async fn job<R: DeserializeOwned>(&self, id: &str) -> Result<Job<R>, ApiError> {

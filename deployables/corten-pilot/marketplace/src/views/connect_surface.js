@@ -7,10 +7,8 @@
 // one. Settlement's step_up_required shows Sign in again. Leaving Stripe's setup form (onExit)
 // sends the page's Refresh setup status, as marketplace refreshes after it. Loading has one
 // deadline over the whole chain, as the payment steps do.
-import { connectAppearance } from "./stripe.js";
+import { connectAppearance, connectScriptUrl } from "./stripe.js";
 
-/** Connect.js for @stripe/connect-js 3.x (its V1_URL). */
-const CONNECT_JS = "https://connect-js.stripe.com/v1.0/connect.js";
 /** As the payment steps': half the account-payment UAT's 60 s readiness ceiling. */
 const DEADLINE_MS = 30_000;
 
@@ -23,7 +21,7 @@ function loadConnect() {
   if (page.StripeConnect && typeof page.StripeConnect.init === "function") return Promise.resolve(page.StripeConnect);
   loading ??= new Promise((resolve, reject) => {
     const script = document.createElement("script");
-    script.src = CONNECT_JS;
+    script.src = connectScriptUrl();
     script.async = true;
     script.addEventListener("load", () =>
       page.StripeConnect && typeof page.StripeConnect.init === "function"

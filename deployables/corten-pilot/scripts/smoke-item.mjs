@@ -238,7 +238,7 @@ let id = "";
     (i) => i.description === `Smoke ${stamp} described`,
   );
 
-  // Tags, and image URLs on two lines (admin-web's input keeps one).
+  // Tags, and image URLs on two lines.
   await page.locator("summary", { hasText: "Tags" }).click();
   await dialog(page, "item-tags-dialog", "Set Tags", [["Tags", ` smoke , ${stamp} `]], "Save");
   await done(page, "tags_updated");

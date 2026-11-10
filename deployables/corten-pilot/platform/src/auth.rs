@@ -12,7 +12,7 @@ use std::time::{Duration, SystemTime};
 
 use corten::{
     ClientIp, Local,
-    axum::http::{HeaderMap, StatusCode},
+    http::{HeaderMap, StatusCode},
     i18n::parse_timestamp,
     security::cookie::{self, SetCookie},
 };

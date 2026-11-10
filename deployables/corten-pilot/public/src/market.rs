@@ -8,7 +8,7 @@
 //! policy reaches its JSON API but not its page; here it reaches both.
 use std::time::Duration;
 
-use corten::{axum::http::StatusCode, prelude::*, seo};
+use corten::{http::StatusCode, prelude::*, seo};
 use serde_json::{Value, json};
 
 use crate::{

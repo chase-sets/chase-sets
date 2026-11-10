@@ -49,7 +49,9 @@ pub struct WebhookErrorId;
 fn machine(t: AgentsMsg, known: Option<&'static str>, family: &str, value: &str) -> String {
     match (known, humanized(value)) {
         (Some(word), _) => word.to_owned(),
-        (None, Some(human)) => t.value_unrecognized_with_value(family, &human).to_string(),
+        (None, Some(human)) => t
+            .value_unrecognized_with_value(crate::text::agents_msg::ValueUnrecognizedWithValue { family, value: &human })
+            .to_string(),
         (None, None) => t.value_unrecognized(family).to_string(),
     }
 }
@@ -86,9 +88,12 @@ fn when(t: AgentsMsg, at: &str) -> String {
 /// The list's spend line (`agentGrantSpendSummary`): today's spend of the daily cap.
 fn spend_summary(t: AgentsMsg, grant: &AgentGrant) -> String {
     match (&grant.spending_mandate, &grant.spend) {
-        (Some(mandate), Some(spend)) => {
-            t.presentation_daily_spend_summary(&dollars(t, spend.daily_cents), &cap_words(t, mandate.daily_cap_cents)).to_string()
-        }
+        (Some(mandate), Some(spend)) => t
+            .presentation_daily_spend_summary(crate::text::agents_msg::PresentationDailySpendSummary {
+                spent: &dollars(t, spend.daily_cents),
+                cap: &cap_words(t, mandate.daily_cap_cents),
+            })
+            .to_string(),
         _ => t.presentation_no_spend_data().to_owned(),
     }
 }
@@ -289,8 +294,12 @@ pub fn AgentPage<'a>(t: AgentsMsg, p: Pilot, screen: &'a GrantScreen) -> impl Re
             <h2 id="spend-title" class={PartTitle}>{t.detail_spend()}</h2>
             match (&grant.spending_mandate, &grant.spend) {
                 (Some(mandate), Some(spend)) => {
-                    <p>{t.detail_spend_today(&dollars(t, spend.daily_cents), &cap_words(t, mandate.daily_cap_cents))}</p>
-                    <p>{t.detail_spend_this_month(&dollars(t, spend.monthly_cents), &cap_words(t, mandate.monthly_cap_cents))}</p>
+                    <p>
+                        {t.detail_spend_today(crate::text::agents_msg::DetailSpendToday { spent: &dollars(t, spend.daily_cents), cap: &cap_words(t, mandate.daily_cap_cents) })}
+                    </p>
+                    <p>
+                        {t.detail_spend_this_month(crate::text::agents_msg::DetailSpendThisMonth { spent: &dollars(t, spend.monthly_cents), cap: &cap_words(t, mandate.monthly_cap_cents) })}
+                    </p>
                     <p class={Muted}>{t.detail_spend_per_order_cap(&cap_words(t, mandate.max_per_order_cents))}</p>
                 }
                 _ => { <p class={Muted}>{t.detail_no_spend_data()}</p> }
