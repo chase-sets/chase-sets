@@ -763,39 +763,54 @@ describe("CatalogPrimaryWorkbenchPage", () => {
         surface="daily"
         readModel={readModel}
         deferredImportPreview={Promise.resolve({
-          action: "import",
-          providerKey: "scrydex",
-          scope: {
-            provider: "scrydex",
-            ingestionUnitKey: "scrydex:one-piece:single-card:source-observation-import",
-            language: "en",
-            setId: "op-01",
-          },
-          profileSnapshot: null,
-          targetCount: 1,
-          targets: [
-            {
-              targetId: "set:op-01",
-              name: "op-01",
-              languageCode: "en",
-              scopeKey: "expansion-cards",
-              planKey: "scrydex:one-piece:expansion:op-01:cards",
-              estimatedPayloads: null,
-              transportSteps: ["Fetch Scrydex One Piece expansion cards with max page size"],
-              usageEstimate: {
-                requestStrategy: "bulk-first",
-                estimateState: "estimate-unavailable",
-                estimatedRequestCount: null,
-                estimateReason: "Card page count is available only after the first Scrydex paged response.",
-                pageSize: 250,
-                selectedFields: ["id", "name", "number", "expansion"],
-                perRecordFallbackReason: null,
-                usageCheckState: "not-configured",
-                creditDiagnostic: "Scrydex usage endpoint is not configured for this environment.",
-                degradedDiagnostic: null,
-              },
+          status: "ready",
+          preview: {
+            action: "import",
+            providerKey: "scrydex",
+            scope: {
+              provider: "scrydex",
+              ingestionUnitKey: "scrydex:one-piece:single-card:source-observation-import",
+              language: "en",
+              setId: "op-01",
             },
-          ],
+            profileSnapshot: null,
+            targetCount: 1,
+            targets: [
+              {
+                targetId: "set:op-01",
+                name: "op-01",
+                languageCode: "en",
+                scopeKey: "expansion-cards",
+                planKey: "scrydex:one-piece:expansion:op-01:cards",
+                estimatedPayloads: null,
+                transportSteps: ["Fetch Scrydex One Piece expansion cards with max page size"],
+                usageEstimate: {
+                  requestStrategy: "bulk-first",
+                  estimateState: "estimate-unavailable",
+                  estimatedRequestCount: null,
+                  estimateReason: "Card page count is available only after the first Scrydex paged response.",
+                  pageSize: 250,
+                  selectedFields: ["id", "name", "number", "expansion"],
+                  perRecordFallbackReason: null,
+                  usageCheckState: "not-configured",
+                  creditDiagnostic: "Scrydex usage endpoint is not configured for this environment.",
+                  degradedDiagnostic: null,
+                },
+              },
+            ],
+          },
+          usageSummary: {
+            requestStrategy: "bulk-first",
+            estimateState: "estimate-unavailable",
+            estimatedRequestCount: null,
+            estimateReason: "Card page count is available only after the first Scrydex paged response.",
+            pageSize: 250,
+            selectedFields: ["id", "name", "number", "expansion"],
+            perRecordFallbackReason: null,
+            usageCheckState: "not-configured",
+            creditDiagnostic: "Scrydex usage endpoint is not configured for this environment.",
+            degradedDiagnostic: null,
+          },
         })}
       />,
     );
@@ -815,7 +830,7 @@ describe("CatalogPrimaryWorkbenchPage", () => {
     expect(screen.getByText("id, name, number, expansion")).toBeTruthy();
   });
 
-  it("suppresses stale import preflight evidence from a previous selected scope", async () => {
+  it("renders the API absence for a previous selected scope", async () => {
     const requestUrl =
       "https://admin.example/catalog/integrations?providerKey=scrydex&unitKey=scrydex:one-piece:sealed-product:source-observation-import&languageCode=en&expansionName=OP09&profileVersion=2026.06.22";
     const profile = profileReview({
@@ -862,41 +877,7 @@ describe("CatalogPrimaryWorkbenchPage", () => {
       <CatalogIntegrationsSurfacePage
         surface="daily"
         readModel={readModel}
-        deferredImportPreview={Promise.resolve({
-          action: "import",
-          providerKey: "scrydex",
-          scope: {
-            provider: "scrydex",
-            ingestionUnitKey: "scrydex:one-piece:sealed-product:source-observation-import",
-            language: "en",
-            setName: "OP16",
-          },
-          profileSnapshot: null,
-          targetCount: 1,
-          targets: [
-            {
-              targetId: "set:OP16",
-              name: "OP16",
-              languageCode: "en",
-              scopeKey: "sealed-products",
-              planKey: "scrydex:one-piece:expansion:op16:sealed",
-              estimatedPayloads: null,
-              transportSteps: ["Fetch Scrydex One Piece sealed products"],
-              usageEstimate: {
-                requestStrategy: "bulk-first",
-                estimateState: "estimate-unavailable",
-                estimatedRequestCount: null,
-                estimateReason: "Provider estimate is unavailable.",
-                pageSize: 250,
-                selectedFields: ["id", "name", "expansion"],
-                perRecordFallbackReason: null,
-                usageCheckState: "not-configured",
-                creditDiagnostic: null,
-                degradedDiagnostic: null,
-              },
-            },
-          ],
-        })}
+        deferredImportPreview={Promise.resolve(null)}
       />,
     );
 
@@ -960,41 +941,7 @@ describe("CatalogPrimaryWorkbenchPage", () => {
       <CatalogIntegrationsSurfacePage
         surface="daily"
         readModel={readModel}
-        deferredImportPreview={Promise.resolve({
-          action: "import",
-          providerKey: "scrydex",
-          scope: {
-            provider: "scrydex",
-            ingestionUnitKey: "scrydex:one-piece:sealed-product:source-observation-import",
-            language: "en",
-            setName: "OP16",
-          },
-          profileSnapshot: null,
-          targetCount: 1,
-          targets: [
-            {
-              targetId: "set:OP16",
-              name: "OP16",
-              languageCode: "en",
-              scopeKey: "sealed-products",
-              planKey: "scrydex:one-piece:expansion:op16:sealed",
-              estimatedPayloads: null,
-              transportSteps: ["Fetch Scrydex One Piece sealed products"],
-              usageEstimate: {
-                requestStrategy: "bulk-first",
-                estimateState: "estimate-unavailable",
-                estimatedRequestCount: null,
-                estimateReason: "Provider estimate is unavailable.",
-                pageSize: 250,
-                selectedFields: ["id", "name", "expansion"],
-                perRecordFallbackReason: null,
-                usageCheckState: "not-configured",
-                creditDiagnostic: null,
-                degradedDiagnostic: null,
-              },
-            },
-          ],
-        })}
+        deferredImportPreview={Promise.resolve(null)}
       />,
     );
 

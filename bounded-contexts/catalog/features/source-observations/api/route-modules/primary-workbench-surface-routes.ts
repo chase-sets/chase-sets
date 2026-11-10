@@ -15,6 +15,7 @@ import {
   CatalogSourceOptionQueryRefusedError,
   catalogPrimaryWorkbenchSurfaceKeys,
   readCatalogPrimaryWorkbenchDeferredSourceOptions,
+  readCatalogPrimaryWorkbenchDeferredImportPreview,
   readCatalogPrimaryWorkbenchSurface,
   type CatalogPrimaryWorkbenchSurfaceKey,
   type CatalogPrimaryWorkbenchSurfaceSources,
@@ -55,6 +56,17 @@ export type PrimaryWorkbenchSurfaceRouteDeps = Readonly<{
 // populated source-options slice the daily status panel streams.
 export function primaryWorkbenchSurfaceRoutes(deps: PrimaryWorkbenchSurfaceRouteDeps) {
   const app = new Hono<CatalogAuthoringEnv>();
+
+  // The API owns selection, deadline, acceptance and usage summary.
+  app.get("/workbench-surfaces/daily/import-preview", async (c) => {
+    const permissionError = requireCatalogIntegrationControlPlanePermission(c, "integration-control-plane-read");
+    if (permissionError) return permissionError;
+    const requested = workbenchLocation(c.req.query("location"));
+    if (!requested) return invalidLocationResponse(c);
+    const location = await dailyLocation(requested, deps);
+    if (!location) return scopeRecordNotFoundResponse(c);
+    return c.json(await readCatalogPrimaryWorkbenchDeferredImportPreview(location, surfaceSources(deps, c)));
+  });
 
   app.get("/workbench-surfaces/daily/source-options", async (c) => {
     const permissionError = requireCatalogIntegrationControlPlanePermission(c, "integration-control-plane-read");
@@ -170,6 +182,10 @@ function surfaceSources(
   const context = c.get("context");
 
   return {
+    previewIntegrationImport:
+      typeof services.previewIntegrationImport === "function"
+        ? async (scope) => wireShape(await services.previewIntegrationImport({ scope, context }))
+        : undefined,
     actor: c.get("actor"),
     listRefreshSchedules: listRefreshSchedules ? async () => wireShape(await listRefreshSchedules()) : undefined,
     canManageCatalog: c.get("actor")?.permissions.includes("catalog.manage") ?? false,

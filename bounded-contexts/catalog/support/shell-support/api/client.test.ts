@@ -1,6 +1,24 @@
 import { describe, expect, it, vi } from "vitest";
 import { ApiError, CatalogItemPublicationApiError, createCatalogApiClient } from "./client";
 
+// Issue #11130: only the location, not a web-authored preview scope, crosses the read boundary.
+it("forwards the selected import preview location and request transport unchanged", async () => {
+  const answer = { status: "unavailable" };
+  const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(Response.json(answer));
+  const client = createCatalogApiClient({
+    baseUrl: "/api/catalog/",
+    fetch,
+    headers: { "x-test": "synthetic" },
+    credentials: "same-origin",
+  });
+  const location = "/catalog/integrations?productId=synthetic+A&languageCode=en";
+  await expect(client.getCatalogPrimaryWorkbenchDeferredImportPreview(location)).resolves.toEqual(answer);
+  expect(fetch).toHaveBeenCalledExactlyOnceWith(
+    `/api/catalog/source-observations/workbench-surfaces/daily/import-preview?${new URLSearchParams({ location })}`,
+    { method: "GET", headers: { "x-test": "synthetic" }, credentials: "same-origin" },
+  );
+});
+
 describe("provider profile lifecycle confirmation serialization", () => {
   it.each([
     ["rollback", "rollbackSourceObservationProviderProfile"],

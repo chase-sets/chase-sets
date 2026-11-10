@@ -1,4 +1,16 @@
 import type { ListResponse } from "@chase-sets/http/responses";
+import {
+  boundCatalogImportPreview,
+  CatalogImportPreviewTimeoutError,
+  catalogImportPreviewMatchesSelection,
+  summarizeCatalogImportPreviewUsage,
+  type CatalogDailyImportPreview,
+} from "./daily-import-preview";
+import type {
+  SourceObservationIntegrationImportPreview,
+  SourceObservationIntegrationJobScope,
+} from "../../ui/contracts";
+import { integrationJobScopeForUnit } from "../../ui/primary-workbench-scope-context";
 import type { ResolvedActor } from "@chase-sets/auth-context";
 import type { ProviderScopeDiscoveryServices } from "../../../provider-scope-discovery/api/runtime";
 import type { ProviderRefreshSchedulePanelItem } from "../../../provider-scope-discovery/ui/provider-refresh-schedule-panel";
@@ -101,6 +113,9 @@ export class CatalogSourceOptionQueryRefusedError extends Error {
 // shape its HTTP route returns (the `ui/contracts` records). Query-string inputs
 // are parsed by the same functions the HTTP routes use.
 export type CatalogPrimaryWorkbenchSurfaceSources = Readonly<{
+  previewIntegrationImport?: (
+    scope: SourceObservationIntegrationJobScope,
+  ) => Promise<SourceObservationIntegrationImportPreview>;
   actor?: Partial<Pick<ResolvedActor, "roleKey" | "userId" | "membershipId">> | null;
   listRefreshSchedules?: ProviderScopeDiscoveryServices["listRefreshSchedules"];
   canManageCatalog: boolean;
@@ -307,6 +322,33 @@ export async function readCatalogPrimaryWorkbenchDeferredSourceOptions(
     sourceOptionPages,
     canManageCatalog: baseline.canManageCatalog,
   });
+}
+
+// A supplementary read, never part of the daily shell's critical path.
+export async function readCatalogPrimaryWorkbenchDeferredImportPreview(
+  location: URL,
+  sources: CatalogPrimaryWorkbenchSurfaceSources,
+): Promise<CatalogDailyImportPreview> {
+  const baseline = await loadIntegrationsBaseline(location, sources, "daily");
+  const { routeContext: context } = normalizedDailyRouteContext(
+    location,
+    baseline,
+    parseCatalogPrimaryWorkbenchRouteContext(location),
+  );
+  if (!context.providerKey || !context.unitKey || !context.importScope || !sources.previewIntegrationImport)
+    return null;
+  try {
+    const scope = context.scope ?? scopeContextFromRouteContext(context);
+    const filterLanguage = context.sourceObservationFilters.language;
+    if (scope.productId && filterLanguage && scope.languageCode && filterLanguage !== scope.languageCode) return null;
+    const expected = integrationJobScopeForUnit(scope, context.unitKey, context.sourceObservationFilters);
+    const preview = await boundCatalogImportPreview(sources.previewIntegrationImport(expected));
+    return catalogImportPreviewMatchesSelection(preview, expected, context)
+      ? { status: "ready", preview, usageSummary: summarizeCatalogImportPreviewUsage(preview.targets) }
+      : null;
+  } catch (error) {
+    return error instanceof CatalogImportPreviewTimeoutError ? { status: "unavailable" } : null;
+  }
 }
 
 async function loadIntegrationsBaseline(
