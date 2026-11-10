@@ -23,7 +23,7 @@ import {
   type CatalogProviderScope,
 } from "../provider-integration-profiles";
 import { catalogImportPreviewMatchesSelection } from "../admin/daily-import-preview";
-import type { SourceObservationIntegrationImportPreview, SourceObservationPromotionPreview } from "../../ui/contracts";
+import type { SourceObservationIntegrationImportPreview } from "../../ui/contracts";
 import {
   controlPlaneOverview,
   sourceObservationListItem,
@@ -132,9 +132,14 @@ afterEach(() => {
 // Literal predicates exercise the real HTTP preview binding, never admission.
 describe("Catalog held promotion commit verdict", () => {
   const location = `/catalog/integrations?providerKey=tcgdex&unitKey=${TCGDEX_UNIT}&languageCode=en&productLineId=3&seriesId=base&expansionId=base1&promotionPreviewId=held-token&selectedObservationIds=obs_001`;
-  const base = syntheticPromotionPreviewResponse();
+  type PromotionPreview = Awaited<ReturnType<SourceObservationRouteServices["previewPromoteObservations"]>>;
+  const fixture = syntheticPromotionPreviewResponse();
+  const base: PromotionPreview = {
+    ...fixture,
+    scope: { ...fixture.scope, syncRunId: "", normalizedKind: "" },
+  };
   const validation = base.validation;
-  const cases: readonly [string, Partial<SourceObservationPromotionPreview>, string, boolean][] = [
+  const cases: readonly [string, Partial<PromotionPreview>, string, boolean][] = [
     ["explicit ids", {}, "", true],
     ["scope selection", {}, "scope", true],
     ["draft selection", { validation: { ...validation, promoteAsDraft: true } }, "draft", true],

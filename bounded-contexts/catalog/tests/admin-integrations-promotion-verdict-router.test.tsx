@@ -158,20 +158,22 @@ describe("held promotion verdict router transitions", () => {
       await act(async () => {
         render(<RouterProvider router={router} />);
       });
-      const submit = () =>
-        router.navigate(location, {
-          formMethod: "post",
-          formData: new URLSearchParams({
-            _intent: "observation.promote",
-            promotionPhase: "preview",
-            providerKey: "tcgdex",
-            unitKey: "tcgdex:pokemon:card:import",
-            importScope: "en:3:base:base1",
-            profileVersion: "2026.06.04",
-            selectedObservationIds: ids.join(","),
-            ...(surface === "scope" ? { scopeRecordId: "synthetic-scope" } : {}),
-          }),
-        });
+      const submit = () => {
+        const formData = new FormData();
+        for (const [key, value] of Object.entries({
+          _intent: "observation.promote",
+          promotionPhase: "preview",
+          providerKey: "tcgdex",
+          unitKey: "tcgdex:pokemon:card:import",
+          importScope: "en:3:base:base1",
+          profileVersion: "2026.06.04",
+          selectedObservationIds: ids.join(","),
+          ...(surface === "scope" ? { scopeRecordId: "synthetic-scope" } : {}),
+        })) {
+          formData.set(key, value);
+        }
+        return router.navigate(location, { formMethod: "post", formData });
+      };
       await act(async () => {
         await submit();
       });
