@@ -462,6 +462,7 @@ export type CatalogPrimaryWorkbenchPromotionIdentityDiagnostic = Readonly<{
 
 export type CatalogPrimaryWorkbenchPromotionPreviewReadModel = Readonly<{
   previewId: string | null;
+  previewCommittable: boolean;
   /** Absent on loader-only models; current summaries are not original evidence. */
   receipt?: SourceObservationPromotionReceipt | null;
   /** Current loader evidence for drift detection, not the original Preview. */
@@ -622,6 +623,9 @@ export function assertPrimaryWorkbenchPromotionPreview(
   }
   if (!value.scope) {
     throw new Error("Primary workbench promotion preview scope is required.");
+  }
+  if (typeof value.previewCommittable !== "boolean") {
+    throw new Error("Primary workbench promotion preview commit verdict must be explicit.");
   }
   if (
     value.receipt &&

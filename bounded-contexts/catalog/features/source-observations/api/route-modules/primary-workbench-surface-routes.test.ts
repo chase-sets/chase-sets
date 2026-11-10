@@ -23,11 +23,12 @@ import {
   type CatalogProviderScope,
 } from "../provider-integration-profiles";
 import { catalogImportPreviewMatchesSelection } from "../admin/daily-import-preview";
-import type { SourceObservationIntegrationImportPreview } from "../../ui/contracts";
+import type { SourceObservationIntegrationImportPreview, SourceObservationPromotionPreview } from "../../ui/contracts";
 import {
   controlPlaneOverview,
   sourceObservationListItem,
   sourceObservationScope,
+  syntheticPromotionPreviewResponse,
 } from "../../ui/primary-workbench-test-fixtures";
 
 const NOW = "2026-07-14T12:00:00.000Z";
@@ -126,6 +127,132 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.useRealTimers();
+});
+
+// Literal predicates exercise the real HTTP preview binding, never admission.
+describe("Catalog held promotion commit verdict", () => {
+  const location = `/catalog/integrations?providerKey=tcgdex&unitKey=${TCGDEX_UNIT}&languageCode=en&productLineId=3&seriesId=base&expansionId=base1&promotionPreviewId=held-token&selectedObservationIds=obs_001`;
+  const base = syntheticPromotionPreviewResponse();
+  const validation = base.validation;
+  const cases: readonly [string, Partial<SourceObservationPromotionPreview>, string, boolean][] = [
+    ["explicit ids", {}, "", true],
+    ["scope selection", {}, "scope", true],
+    ["draft selection", { validation: { ...validation, promoteAsDraft: true } }, "draft", true],
+    ["eligible and terminal selection", { matched: 2, terminal: 1 }, "mixed", true],
+    ["empty fingerprint", { fingerprint: "" }, "", false],
+    ["draft mismatch", { validation: { ...validation, promoteAsDraft: true } }, "", false],
+    ["partial coverage", { validation: { ...validation, coverage: "partial" } }, "", false],
+    ["continuation", { validation: { ...validation, continuation: "next" } }, "", false],
+    ["zero page limit", { validation: { ...validation, pageLimit: 0 } }, "", false],
+    ["negative page limit", { validation: { ...validation, pageLimit: -1 } }, "", false],
+    ["no eligible observations", { eligible: 0 }, "", false],
+    [
+      "covered ids above limit",
+      {
+        eligible: 2,
+        matched: 2,
+        validation: { ...validation, pageLimit: 1, coveredObservationIds: ["obs_001", "obs_002"] },
+      },
+      "scope",
+      false,
+    ],
+    [
+      "duplicate covered ids",
+      { validation: { ...validation, coveredObservationIds: ["obs_001", "obs_001"] } },
+      "",
+      false,
+    ],
+    ["eligible count differs", { eligible: 2 }, "", false],
+    ["empty covered ids", { validation: { ...validation, coveredObservationIds: [] } }, "", false],
+    ["duplicate selected ids", {}, "duplicates", false],
+    ["selected count differs from matched", { matched: 2 }, "", false],
+    ["covered id outside selection", { validation: { ...validation, coveredObservationIds: ["other"] } }, "", false],
+    [
+      "blocking diagnostic",
+      {
+        validation: {
+          ...validation,
+          diagnostics: [
+            {
+              observationId: "obs_001",
+              code: "synthetic",
+              path: "facts",
+              diagnosticText: "Synthetic blocker",
+              blocking: true,
+            },
+          ],
+        },
+      },
+      "",
+      false,
+    ],
+    [
+      "nonblocking diagnostic",
+      {
+        validation: {
+          ...validation,
+          diagnostics: [
+            {
+              observationId: "obs_001",
+              code: "synthetic",
+              path: "facts",
+              diagnosticText: "Synthetic warning",
+              blocking: false,
+            },
+          ],
+        },
+      },
+      "",
+      true,
+    ],
+    ["no held token", {}, "no-token", false],
+    ["stale profile", {}, "stale", false],
+    ["no manage permission", {}, "no-manage", false],
+    ["failed preview", {}, "failed", false],
+  ];
+  it.each(cases)("returns the literal verdict for %s", async (_name, override, variant, expected) => {
+    const url = new URL(location, "https://catalog.example");
+    if (variant === "scope") url.searchParams.delete("selectedObservationIds");
+    if (variant === "duplicates") url.searchParams.set("selectedObservationIds", "obs_001,obs_001");
+    if (variant === "mixed") url.searchParams.set("selectedObservationIds", "obs_001,synthetic-terminal-id");
+    if (variant === "draft") url.searchParams.set("promoteAsDraft", "true");
+    if (variant === "no-token") url.searchParams.delete("promotionPreviewId");
+    if (variant === "stale") url.searchParams.set("profileVersion", "stale-profile");
+    const preview = { ...base, ...override };
+    const ids = vi.fn<SourceObservationRouteServices["previewPromoteObservations"]>().mockResolvedValue(preview);
+    const scope = vi.fn<SourceObservationRouteServices["previewPromoteObservationScope"]>().mockResolvedValue(preview);
+    if (variant === "failed") ids.mockRejectedValue(new Error("Synthetic preview failure"));
+    const admission = vi.fn();
+    const jobs = vi.fn();
+    const services = surfaceServices({
+      previewPromoteObservations: ids,
+      previewPromoteObservationScope: scope,
+      admitBulkPromotionJob: admission,
+      enqueueBulkReviewJob: jobs,
+      enqueueIntegrationJob: jobs,
+      getBulkReviewJob: jobs,
+      getBulkReviewPromotionOutcome: jobs,
+    });
+    const app = buildApp(services, mutableProfileStore(), variant === "no-manage" ? viewOnlyActor : undefined);
+    const body = await getJson(app, surfacePath("daily", `${url.pathname}${url.search}`));
+    expect(body.readModel.promotionPreview.previewCommittable).toBe(expected);
+    expect(admission).not.toHaveBeenCalled();
+    expect(jobs).not.toHaveBeenCalled();
+    if (["no-token", "no-manage"].includes(variant)) {
+      expect(ids).not.toHaveBeenCalled();
+      expect(scope).not.toHaveBeenCalled();
+    } else if (variant === "scope") {
+      expect(scope).toHaveBeenCalledTimes(1);
+      expect(ids).not.toHaveBeenCalled();
+    } else {
+      expect(ids).toHaveBeenCalledExactlyOnceWith({
+        observationIds: variant === "mixed" ? ["obs_001", "synthetic-terminal-id"] : ["obs_001"],
+        promoteAsDraft: variant === "draft",
+        validationAfter: null,
+      });
+      expect(scope).not.toHaveBeenCalled();
+    }
+  });
 });
 
 // Issue #11130: selected preview rules execute through the real Catalog HTTP read.
