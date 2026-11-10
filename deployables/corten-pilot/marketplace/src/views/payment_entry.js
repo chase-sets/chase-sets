@@ -95,7 +95,7 @@ function buttons(scope, label, off) {
 }
 
 /**
- * When the fields' place joins the page: load Stripe, mount its fields with the page's theme and
+ * When the fields' place joins the page: load Stripe, mount its fields in Stripe's own appearance with
  * the buyer's details, and turn Confirm payment on; any failure, or no answer within the deadline,
  * says Stripe could not load (or what Stripe said). Leaving the page unmounts them.
  *
