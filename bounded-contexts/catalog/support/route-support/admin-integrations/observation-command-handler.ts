@@ -1,15 +1,19 @@
 import type { createCatalogRequestApiClient } from "../../../support/request-support/api-client";
 import {
-  confirmsFreshPromotionPreview,
-  hasExplicitPromotionScope,
-  previewPromotionForContext,
-  promotionPreviewIdFor,
-  promotionScopeFromContext,
+  isStalePromotionPreviewError,
+  observationDecisionScopeFromContext,
   reapplyScopeFromContext,
   type CatalogCommandJobResponse,
 } from "./integrations-command-context";
 import type { CatalogIntegrationsCommandResult } from "./integrations-command-result";
 import { stringValue } from "./integrations-form-values";
+import { projectPromotionReceipt } from "../../../features/source-observations/ui/primary-workbench-source-observation-review";
+import { serializeCatalogPrimaryWorkbenchRouteContext } from "../../../features/source-observations/ui/primary-workbench-route-context";
+import type {
+  CatalogPrimaryWorkbenchPromotionCommandPreview,
+  CatalogPrimaryWorkbenchReadModel,
+} from "../../../features/source-observations/api/primary-workbench-admin-contracts";
+import type { SourceObservationPromotionPreview } from "../../../features/source-observations/ui/contracts";
 
 type Api = ReturnType<typeof createCatalogRequestApiClient>;
 type RouteContext = CatalogIntegrationsCommandResult["context"];
@@ -70,51 +74,106 @@ async function handlePromotion(
     });
   }
 
-  if (selectedObservationIds.length === 0 && !hasExplicitPromotionScope(context)) {
-    return observationResult(
-      "observation.promote",
-      "error",
-      phase === "preview" ? "command-failed" : "preview-required",
-      {
-        ...context,
-        selectedObservationIds,
-        promotionPreviewId: null,
-      },
+  const unavailable = () =>
+    observationResult("observation.promote", "error", phase === "preview" ? "command-failed" : "preview-required", {
+      ...context,
+      selectedObservationIds,
+      promotionPreviewId: null,
+    });
+  let commandPreview: CatalogPrimaryWorkbenchPromotionCommandPreview | undefined;
+  try {
+    // Read the effective submitted row, never a posted descriptor or loader closure.
+    // Do not send the held token: the read must not request another preview.
+    const query = serializeCatalogPrimaryWorkbenchRouteContext({ ...context, promotionPreviewId: null, jobId: null });
+    if (context.scope?.status) query.set("status", context.scope.status);
+    const location = `/catalog/integrations?${query}`;
+    const answer = await api.getCatalogPrimaryWorkbenchSurface<{ readModel: CatalogPrimaryWorkbenchReadModel }>(
+      "daily",
+      location,
     );
+    commandPreview = answer?.readModel?.actions?.find((entry) => entry.key === "observation.promote")?.commandPreview;
+  } catch {
+    return unavailable();
+  }
+  if (!commandPreview || (selectedObservationIds.length === 0 && !commandPreview.allowScopeSelection)) {
+    return unavailable();
   }
 
   // `context.promoteAsDraft` already reflects the submitted form choice (see
-  // commandContextFromFormData): the preview binds it into the token, and an
-  // execution whose choice differs from the previewed one fails the freshness
-  // check below and must re-preview.
+  // commandContextFromFormData). The Catalog API binds it into the preview
+  // token, so an execution whose choice differs from the previewed one is
+  // refused there and must re-preview.
   const promoteAsDraft = context.promoteAsDraft === true;
-  if (phase === "preview") {
-    const preview = await previewPromotionForContext(api, context, selectedObservationIds);
-    return observationResult("observation.promote", "success", "preview-ready", {
-      ...context,
-      selectedObservationIds,
-      promoteAsDraft,
-      promotionPreviewId: promotionPreviewIdFor(preview, context, selectedObservationIds),
-    });
-  }
-
-  if (!context.promotionPreviewId || !(await confirmsFreshPromotionPreview(api, context, selectedObservationIds))) {
-    return observationResult("observation.promote", "error", "preview-required", {
+  const previewRequired = () =>
+    observationResult("observation.promote", "error", "preview-required", {
       ...context,
       selectedObservationIds,
       promoteAsDraft,
       promotionPreviewId: null,
     });
+  if (phase === "preview") {
+    const options = { promoteAsDraft, confirmation: commandPreview.confirmation };
+    const preview =
+      selectedObservationIds.length > 0
+        ? await api.previewBulkPromoteSourceObservationIds<SourceObservationPromotionPreview>(
+            [...selectedObservationIds],
+            options,
+          )
+        : await api.previewBulkPromoteSourceObservations<SourceObservationPromotionPreview>(
+            commandPreview.scope,
+            options,
+          );
+    // A first-page preview always carries the Catalog API's token; without
+    // one the execution is refused and asks for a preview again.
+    const previewId = preview.previewToken ?? "";
+    const result = observationResult("observation.promote", "success", "preview-ready", {
+      ...context,
+      selectedObservationIds,
+      promoteAsDraft,
+      promotionPreviewId: previewId,
+    });
+    return {
+      ...result,
+      promotionCommandPreview: commandPreview,
+      promotionReceipt: projectPromotionReceipt({
+        schemaVersion: "source-observation-promotion-receipt/v1",
+        previewId,
+        selection: {
+          providerKey: context.providerKey,
+          unitKey: context.unitKey,
+          importScope: context.importScope,
+          profileVersion: context.profileVersion,
+          scopeRecordId: context.scopeRecordId ?? null,
+          observationIds: selectedObservationIds,
+          promoteAsDraft,
+          scope: commandPreview.scope,
+        },
+        preview,
+      }),
+    };
   }
 
-  const job =
-    selectedObservationIds.length > 0
-      ? await api.bulkPromoteSourceObservations<CatalogCommandJobResponse>([...selectedObservationIds], {
-          promoteAsDraft,
-        })
-      : await api.bulkPromoteSourceObservationsByScope<CatalogCommandJobResponse>(promotionScopeFromContext(context), {
-          promoteAsDraft,
-        });
+  if (!context.promotionPreviewId) {
+    return previewRequired();
+  }
+
+  const options = {
+    promoteAsDraft,
+    previewToken: context.promotionPreviewId,
+    confirmation: commandPreview.confirmation,
+  };
+  let job: CatalogCommandJobResponse;
+  try {
+    job =
+      selectedObservationIds.length > 0
+        ? await api.bulkPromoteSourceObservations<CatalogCommandJobResponse>([...selectedObservationIds], options)
+        : await api.bulkPromoteSourceObservationsByScope<CatalogCommandJobResponse>(commandPreview.scope, options);
+  } catch (error) {
+    if (isStalePromotionPreviewError(error)) {
+      return previewRequired();
+    }
+    throw error;
+  }
   return observationResult("observation.promote", "success", "job-queued", {
     ...context,
     jobId: stringValue(job.jobId) ?? context.jobId,
@@ -140,7 +199,7 @@ async function rejectObservations(
     selectedObservationIds.length > 0
       ? await api.bulkRejectSourceObservations<CatalogCommandJobResponse>([...selectedObservationIds], reason)
       : await api.bulkRejectSourceObservationsByScope<CatalogCommandJobResponse>(
-          promotionScopeFromContext(context),
+          observationDecisionScopeFromContext(context),
           reason,
         );
   return observationResult("observation.reject", "success", "job-queued", {
@@ -161,7 +220,10 @@ async function deferObservations(
   const job =
     selectedObservationIds.length > 0
       ? await api.deferSourceObservations<CatalogCommandJobResponse>([...selectedObservationIds], reason)
-      : await api.deferSourceObservationsByScope<CatalogCommandJobResponse>(promotionScopeFromContext(context), reason);
+      : await api.deferSourceObservationsByScope<CatalogCommandJobResponse>(
+          observationDecisionScopeFromContext(context),
+          reason,
+        );
   return observationResult("observation.defer", "success", "job-queued", {
     ...context,
     selectedObservationIds: [],

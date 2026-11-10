@@ -12,6 +12,10 @@ use corten::{
     i18n::{Currency, DateStyle, parse_timestamp},
     prelude::*,
 };
+use platform::{
+    theme::gap_3,
+    ui::stack::{Gap, Stack as KitStack},
+};
 
 use super::listing_page::options;
 use crate::{
@@ -222,7 +226,7 @@ fn Filters<'a>(t: SubmittedOffersMsg, screen: &'a OffersScreen) -> impl Patch {
 fn Rows<'a>(t: SubmittedOffersMsg, p: Pilot, screen: &'a OffersScreen) -> impl Patch {
     let items = &screen.offers.items;
     html! {
-        <div id={SubmittedRowsId} class={Stack}>
+        <div id={SubmittedRowsId} class={(KitStack { gap: Gap::App }, gap_3(), Stack)}>
             if items.is_empty() {
                 <div class={Card}>
                     match screen.place.status() {
@@ -370,7 +374,11 @@ fn Seller<'a>(t: SubmittedOffersMsg, p: Pilot, offer: &'a SubmittedOffer, seller
             <span class={Strong}>{seller}</span>
             match rating.filter(|_| reviews > 0) {
                 Some(r) => {
-                    <span class={Hint} aria-label={p.submitted_offers_rating(&format!("{r:.1}"), reviews).to_string()}>
+                    <span
+                        class={Hint}
+                        role="img"
+                        aria-label={p.submitted_offers_rating(crate::text::pilot::SubmittedOffersRating { rating: &format!("{r:.1}"), reviews }).to_string()}
+                    >
                         <span aria-hidden="true">"\u{2605} " {format!("{r:.1}")} " (" {reviews} ")"</span>
                     </span>
                 }
@@ -389,7 +397,9 @@ fn Outcomes<'a>(t: SubmittedOffersMsg, outcomes: &'a [LifecycleOutcome], offers:
     html! {
         <div class={Banner} data-tone={if rejected > 0 { "warning" } else { "success" }} role="status" tabindex="-1">
             <p class={Strong}>{t.lifecycle_outcomes_title()}</p>
-            <p>{t.lifecycle_outcomes_summary(count("changed"), count("unchanged"), rejected)}</p>
+            <p>
+                {t.lifecycle_outcomes_summary(crate::text::submitted_offers_msg::LifecycleOutcomesSummary { changed: count("changed"), unchanged: count("unchanged"), rejected })}
+            </p>
             <ul class={Outcome}>
                 for outcome in outcomes {
                     <li>{outcome_line(t, outcome, title(&outcome.offer_id))}</li>
@@ -402,8 +412,12 @@ fn Outcomes<'a>(t: SubmittedOffersMsg, outcomes: &'a [LifecycleOutcome], offers:
 fn outcome_line(t: SubmittedOffersMsg, outcome: &LifecycleOutcome, offer: &str) -> String {
     let status = status_label(t, outcome.status.as_deref().unwrap_or_default());
     match (outcome.outcome.as_str(), outcome.code.as_deref()) {
-        ("changed", _) => t.lifecycle_outcome_changed(offer, &status).to_string(),
-        ("unchanged", _) => t.lifecycle_outcome_unchanged(offer, &status).to_string(),
+        ("changed", _) => t
+            .lifecycle_outcome_changed(crate::text::submitted_offers_msg::LifecycleOutcomeChanged { offer, status: &status })
+            .to_string(),
+        ("unchanged", _) => t
+            .lifecycle_outcome_unchanged(crate::text::submitted_offers_msg::LifecycleOutcomeUnchanged { offer, status: &status })
+            .to_string(),
         (_, Some("not_found")) => t.lifecycle_outcome_not_found(offer).to_string(),
         (_, Some("offer_transition_rejected")) => t.lifecycle_outcome_offer_transition_rejected(offer).to_string(),
         (_, Some("offer_conflict")) => t.lifecycle_outcome_offer_conflict(offer).to_string(),

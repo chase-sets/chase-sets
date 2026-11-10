@@ -1419,3 +1419,23 @@ describe("source observation routes: integration discovery and profile administr
     );
   });
 });
+
+describe("source observation routes: provider profile review without a profile store", () => {
+  it.each([
+    ["/source-observations/provider-profiles", "{}"],
+    ["/source-observations/provider-profiles/tcgdex/v1/dry-run", "{}"],
+  ])("answers %s with the error envelope", async (path, body) => {
+    const app = buildApp({} as SourceObservationRouteServices);
+
+    const response = await app.request(path, {
+      method: "POST",
+      body,
+      headers: { "content-type": "application/json" },
+    });
+
+    expect(response.status).toBe(503);
+    await expect(response.json()).resolves.toMatchObject({
+      error: { code: "profile_review_unavailable", message: expect.any(String) },
+    });
+  });
+});

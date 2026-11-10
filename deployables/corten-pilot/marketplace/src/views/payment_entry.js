@@ -31,8 +31,8 @@ const SESSION_OWNED_EMAIL_REFUSAL =
  */
 
 /**
- * What Stripe's fields start with.
- * @typedef {{ billingDetails: { email: string, name?: string, address?: object } }} Defaults
+ * What Stripe's fields start with: the Rust `payment::Defaults`, declared by `corten::types`.
+ * @typedef {import("../../types/app").Defaults} Defaults
  */
 
 /**

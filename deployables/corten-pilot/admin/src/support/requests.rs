@@ -22,10 +22,8 @@ use std::time::SystemTime;
 
 use corten::{
     Relay,
-    axum::{
-        body::Body,
-        http::{HeaderMap, HeaderName, HeaderValue, StatusCode},
-    },
+    answer::Body,
+    http::{HeaderMap, HeaderName, HeaderValue, StatusCode},
     prelude::*,
 };
 use platform::receipt::Receipt;
@@ -51,7 +49,7 @@ pub mod url {
     use serde::Deserialize;
 
     /// The queue's filters and page, as admin-web names them.
-    #[derive(Clone, Debug, Default, Deserialize, Fields, Route)]
+    #[derive(Clone, Debug, Default, Fields, Route)]
     #[serde(rename_all = "camelCase")]
     #[route(query)]
     pub struct Queue {
@@ -766,7 +764,7 @@ fn refused(req: &Req, error: ApiError) -> Refused {
 }
 
 /// A case action's fields (admin-web's form names).
-#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[derive(Clone, Debug, Default, Fields)]
 #[serde(default, rename_all = "camelCase")]
 pub struct ActionForm {
     pub intent: String,

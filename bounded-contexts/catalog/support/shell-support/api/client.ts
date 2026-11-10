@@ -74,23 +74,45 @@ export type CatalogBulkActionProgressOptions = Readonly<{
   signal?: AbortSignal;
 }>;
 
+/**
+ * The review page a promotion is previewed from and confirmed on. The Catalog
+ * API binds it into the preview token, so a preview and its execution must
+ * name the same page.
+ */
+export type CatalogPromotionConfirmation = Readonly<{
+  unitKey: string | null;
+  importScope: string | null;
+  profileVersion: string | null;
+  scope: unknown;
+}>;
+
 /** Promotion execution options: the explicit draft choice defaults to false. */
 export type CatalogPromotionActionOptions = CatalogBulkActionProgressOptions &
   Readonly<{
     promoteAsDraft?: boolean;
+    /** The `previewToken` of the preview this promotion confirms; the API refuses a missing or stale one. */
+    previewToken?: string | null;
+    /** The page that preview was taken on. */
+    confirmation?: CatalogPromotionConfirmation | null;
   }>;
 
-/** Promotion preview options: draft choice plus the bounded validation page cursor. */
+/** Promotion preview options: draft choice, the bounded validation page cursor, and the page. */
 export type CatalogPromotionPreviewOptions = Readonly<{
   promoteAsDraft?: boolean;
   validationAfter?: string | null;
+  confirmation?: CatalogPromotionConfirmation | null;
 }>;
 
 function promotionPreviewBody(options: CatalogPromotionPreviewOptions): {
   promoteAsDraft: boolean;
   validationAfter: string | null;
+  confirmation: CatalogPromotionConfirmation | null;
 } {
-  return { promoteAsDraft: options.promoteAsDraft === true, validationAfter: options.validationAfter ?? null };
+  return {
+    promoteAsDraft: options.promoteAsDraft === true,
+    validationAfter: options.validationAfter ?? null,
+    confirmation: options.confirmation ?? null,
+  };
 }
 
 export type CatalogBulkReviewJob<T = unknown> = Readonly<{
@@ -1281,6 +1303,33 @@ export function createCatalogApiClient({
       );
       return parseJsonResponse<T>(response);
     },
+    // The Catalog API composes the integrations workbench for one audience
+    // surface from the admin route location (path and query).
+    async getCatalogPrimaryWorkbenchSurface<T>(
+      surface: "daily" | "governance" | "health",
+      location: string,
+    ): Promise<T> {
+      const query = new URLSearchParams({ location });
+      const response = await configuredFetch(
+        `${baseUrl.replace(/\/$/, "")}/source-observations/workbench-surfaces/${encodeURIComponent(surface)}?${query.toString()}`,
+        {
+          method: "GET",
+          headers: headersToRecord(headers),
+        },
+      );
+      return parseJsonResponse<T>(response);
+    },
+    async getCatalogPrimaryWorkbenchDeferredSourceOptions<T>(location: string): Promise<T> {
+      const query = new URLSearchParams({ location });
+      const response = await configuredFetch(
+        `${baseUrl.replace(/\/$/, "")}/source-observations/workbench-surfaces/daily/source-options?${query.toString()}`,
+        {
+          method: "GET",
+          headers: headersToRecord(headers),
+        },
+      );
+      return parseJsonResponse<T>(response);
+    },
     async recordCatalogControlPlaneEvent<T>(event: unknown): Promise<T> {
       const response = await configuredFetch(`${baseUrl.replace(/\/$/, "")}/source-observations/control-plane-events`, {
         method: "POST",
@@ -1454,6 +1503,13 @@ export function createCatalogApiClient({
       });
       return parseJsonResponse<T>(response);
     },
+    async getSourceObservationEvidence<T>(id: string): Promise<T> {
+      const response = await client["source-observations"][":id"].evidence.$get({
+        param: { id },
+        header: headers,
+      });
+      return parseJsonResponse<T>(response);
+    },
     async listCatalogMergeCandidates<T>(query = ""): Promise<T> {
       const search = query ? `?${new URLSearchParams(queryFromString(query)).toString()}` : "";
       const response = await configuredFetch(
@@ -1534,13 +1590,15 @@ export function createCatalogApiClient({
       options: CatalogPromotionActionOptions = {},
     ): Promise<T> {
       const promoteAsDraft = options.promoteAsDraft === true;
+      const previewToken = options.previewToken ?? null;
+      const confirmation = options.confirmation ?? null;
       if (options.onProgress) {
         const job = await startBulkJob<T>({
           baseUrl,
           fetch: configuredFetch,
           headers,
           path: "/source-observations/bulk-promote/jobs",
-          body: { observationIds, promoteAsDraft },
+          body: { observationIds, promoteAsDraft, previewToken, confirmation },
           errorMessage: "Bulk Source Observation promotion failed.",
         });
         return streamBulkJob<T>({
@@ -1555,7 +1613,7 @@ export function createCatalogApiClient({
       }
 
       const response = await client["source-observations"]["bulk-promote"].$post({
-        json: { observationIds, promoteAsDraft },
+        json: { observationIds, promoteAsDraft, previewToken, confirmation },
         header: headers,
       });
       return parseJsonResponse<T>(response);
@@ -1585,13 +1643,15 @@ export function createCatalogApiClient({
       options: CatalogPromotionActionOptions = {},
     ): Promise<T> {
       const promoteAsDraft = options.promoteAsDraft === true;
+      const previewToken = options.previewToken ?? null;
+      const confirmation = options.confirmation ?? null;
       if (options.onProgress) {
         const job = await startBulkJob<T>({
           baseUrl,
           fetch: configuredFetch,
           headers,
           path: "/source-observations/bulk-promote/jobs",
-          body: { scope, promoteAsDraft },
+          body: { scope, promoteAsDraft, previewToken, confirmation },
           errorMessage: "Bulk Source Observation promotion failed.",
         });
         return streamBulkJob<T>({
@@ -1606,7 +1666,7 @@ export function createCatalogApiClient({
       }
 
       const response = await client["source-observations"]["bulk-promote"].$post({
-        json: { scope, promoteAsDraft },
+        json: { scope, promoteAsDraft, previewToken, confirmation },
         header: headers,
       });
       return parseJsonResponse<T>(response);

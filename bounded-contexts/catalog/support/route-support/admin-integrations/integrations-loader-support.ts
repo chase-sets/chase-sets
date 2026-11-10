@@ -1,58 +1,24 @@
-import type { ListResponse } from "@chase-sets/http/responses";
-import { isTransientAuthResolutionError, resolveActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import type { LoaderFunctionArgs } from "react-router";
 import type {
-  CatalogProviderProfileVersionReview,
-  SourceObservationIntegrationScope,
-  SourceObservationListItem,
-} from "../../client-support/contracts";
-import type {
-  CatalogSyncProviderParticipationPreview,
-  CatalogSyncScope,
-} from "../../../features/source-observations/api/catalog-sync-scope-planner";
-import type {
-  CatalogPrimaryWorkbenchLifecycleOperation,
-  CatalogPrimaryWorkbenchRouteContext,
-} from "../../../features/source-observations/api/primary-workbench-admin-contracts";
-import type { CatalogAdminRollbackRetirementImpactSummaryReadModel } from "../../../features/source-observations/api/admin-control-plane-read-model-contracts";
-import type {
-  CatalogProviderProfileAuthoringModel,
-  CatalogIntegrationControlPlaneOverview,
-  CatalogMergeCandidateListItem,
-  CatalogScopeSyncUnitStateReadModel,
   CatalogSyncRun,
+  CatalogScopeSyncUnitStateReadModel,
   SourceObservationIntegrationImportPreview,
   SourceObservationIntegrationJobScope,
-  SourceObservationIntegrationOptionResponse,
-  SourceObservationPromotionValidation,
 } from "../../../features/source-observations/ui/contracts";
-import type { SourceObservationPromotionOutcomeRecord } from "../../../features/source-observations/api/runtime";
+import type { CatalogSyncScope } from "../../../features/source-observations/api/catalog-sync-scope-planner";
+import type {
+  CatalogPrimaryWorkbenchReadModel,
+  CatalogPrimaryWorkbenchRouteContext,
+} from "../../../features/source-observations/api/primary-workbench-admin-contracts";
+import { assertPrimaryWorkbenchSourceOptions } from "../../../features/source-observations/api/admin/primary-workbench-selection-contracts";
+import type {
+  CatalogPrimaryWorkbenchSurfaceKey,
+  CatalogPrimaryWorkbenchSurfaceRead,
+} from "../../../features/source-observations/api/admin/primary-workbench-surface-read";
 import {
   loaderTelemetryEvents,
   recordCatalogControlPlaneEvents,
 } from "../../../features/source-observations/ui/primary-workbench-telemetry";
-import {
-  buildCatalogPrimaryWorkbenchDeferredSourceOptions,
-  buildCatalogPrimaryWorkbenchReadModelForSurface,
-  buildCatalogPrimaryWorkbenchSourceOptionRequests,
-  buildCatalogPrimaryWorkbenchSourceObservationReviewQuery,
-  type CatalogPrimaryWorkbenchSourceOptionPageSnapshot,
-} from "../../../features/source-observations/ui/primary-workbench-read-model";
-import type {
-  CatalogPrimaryWorkbenchInput,
-  CatalogPrimaryWorkbenchReadModelFailure,
-} from "../../../features/source-observations/ui/primary-workbench-read-model-input";
-import type { CatalogPrimaryWorkbenchReadModel } from "../../../features/source-observations/api/primary-workbench-admin-contracts";
-import {
-  catalogPrimaryWorkbenchHref,
-  parseCatalogPrimaryWorkbenchRouteContext,
-} from "../../../features/source-observations/ui/primary-workbench-route-context";
-import {
-  catalogPrimaryWorkbenchSourceOptionForcesRefresh,
-  parseCatalogPrimaryWorkbenchSourceOptionIntent,
-} from "../../../features/source-observations/ui/primary-workbench-source-option-refresh";
-import type { CatalogControlPlaneRouteSurfaceKey } from "../../../features/source-observations/ui/admin-control-plane/information-architecture";
-import type { CatalogPrimaryWorkbenchCommandFeedback } from "../../../features/source-observations/ui/primary-workbench-command-feedback";
 import type { CatalogAliasReviewReadModel } from "../../../features/alias-equivalence/api/alias-review-admin-contracts";
 import type { CatalogAttentionQueueReadModel } from "../../../features/attention-queue/api/contracts";
 import {
@@ -60,241 +26,78 @@ import {
   resolveCatalogAttentionQueueResult,
   type CatalogDeferredAttentionQueueResult,
 } from "./attention-queue-result";
-import { ApiError as CatalogApiError } from "../../shell-support/api/client";
 import { createCatalogRequestApiClient } from "../../../support/request-support/api-client";
-import { integrationScopeFromContext, previewPromotionForContext } from "./integrations-command-context";
-import {
-  loadCatalogListRouteData,
-  readCatalogListQuery,
-  type CatalogListRouteData,
-} from "../../../support/shell-support/list-query-state";
+import { integrationScopeFromContext } from "./integrations-command-context";
 import { commandFeedbackFromUrl } from "./integrations-command-feedback";
 
-const SOURCE_OPTION_CACHE_PAGE_TIMEOUT_MS = 2_500;
-const SOURCE_OPTION_LIVE_REFRESH_TIMEOUT_MS = 20_000;
-const SOURCE_OPTION_CONTINUATION_PAGE_LIMIT = 200;
-const MAX_SOURCE_OPTION_CONTINUATION_PAGES = 100;
-const AUTH_RESOLUTION_RETRY_DELAYS_MS = [250, 1_000, 2_500] as const;
+const IMPORT_PREVIEW_TIMEOUT_MS = 2_500;
 
-// Provider profiles + the control plane overview are the shared baseline every
-// integrations surface route needs: the cross-surface metric strip, navigation,
-// and readiness summary are derived from them on all four routes. Each route adds
-// only the extra API waves its own surface slices consume (daily → review
-// observations; providers → the selected authoring model; governance → lifecycle
-// impacts; health → none beyond the baseline).
-type CatalogIntegrationsBaseline = Readonly<{
-  routeData: Awaited<ReturnType<typeof loadCatalogListRouteData<SourceObservationIntegrationScope>>>;
-  profileReviews: ListResponse<CatalogProviderProfileVersionReview>;
-  controlPlaneOverview: CatalogIntegrationControlPlaneOverview | null;
-  readModelFailures: readonly CatalogPrimaryWorkbenchReadModelFailure[];
-  canManageCatalog: boolean;
-}>;
-
-// The daily import surface consumes only `readiness`, `unitActivity`, and
-// `providerReadiness` from the control-plane overview (the metric strip, the
-// import-jobs activity strip, and the provider-scope selector); it never reads the
-// audit-lifecycle entries, which feed only the governance/release evidence slices.
-// So the daily loader requests the audit-trimmed `daily` overview — skipping
-// the server-side audit projection and ~11% of the at-scale payload — while the
-// providers/governance/release surfaces keep fetching the `full` overview their
-// evidence slices cite.
-type CatalogIntegrationsBaselineAudience = "full" | "daily";
-
-async function loadIntegrationsBaseline(
+// The integrations surfaces read their workbench from the Catalog API, which
+// composes it from its own services (see `primary-workbench-surface-read.ts`).
+// These loaders pass the route location, record loader telemetry, and stream the
+// supplementary panels behind Suspense so the shell paints first.
+async function loadSurface(
   request: Request,
-  audience: CatalogIntegrationsBaselineAudience = "full",
-): Promise<{
-  api: ReturnType<typeof createCatalogRequestApiClient>;
-  baseline: CatalogIntegrationsBaseline;
-  routeContext: CatalogPrimaryWorkbenchRouteContext;
-}> {
-  const api = createCatalogRequestApiClient(request);
-  const [routeDataResult, profileReviewsResult, controlPlaneOverviewResult, actor] = await Promise.all([
-    catalogApiResult(
-      () =>
-        loadCatalogListRouteData<SourceObservationIntegrationScope>(request, (query) =>
-          api.listSourceObservationIntegrationScopes(query),
-        ),
-      emptyListRouteData<SourceObservationIntegrationScope>(request),
-    ),
-    catalogApiResult(
-      () => api.listSourceObservationProviderProfiles<ListResponse<CatalogProviderProfileVersionReview>>(),
-      emptyListResponse<CatalogProviderProfileVersionReview>(),
-    ),
-    catalogApiResult(
-      () => api.getCatalogIntegrationControlPlaneOverview<CatalogIntegrationControlPlaneOverview>(audience),
-      null,
-    ),
-    resolveCatalogIntegrationsActor(request),
-  ]);
-  const readModelFailures: CatalogPrimaryWorkbenchReadModelFailure[] = [];
-  if (routeDataResult.failed) {
-    readModelFailures.push("integration-scopes");
+  surface: CatalogPrimaryWorkbenchSurfaceKey,
+  api: ReturnType<typeof createCatalogRequestApiClient> = createCatalogRequestApiClient(request),
+) {
+  let surfaceRead = await api.getCatalogPrimaryWorkbenchSurface<CatalogPrimaryWorkbenchSurfaceRead>(
+    surface,
+    requestLocation(request),
+  );
+  try {
+    assertPrimaryWorkbenchSourceOptions(surfaceRead.readModel.sourceOptions);
+  } catch {
+    surfaceRead = {
+      ...surfaceRead,
+      readModel: {
+        ...surfaceRead.readModel,
+        sourceOptions: {
+          ...surfaceRead.readModel.sourceOptions,
+          guidedFields: [],
+          freeTextApplicable: false,
+          contextSummary: null,
+          status: "unavailable",
+          freshness: "unavailable",
+        },
+      },
+    };
   }
-  if (controlPlaneOverviewResult.failed) {
-    readModelFailures.push("control-plane-overview");
-  }
-  if (profileReviewsResult.failed) {
-    readModelFailures.push("provider-profiles");
-  }
+  await recordCatalogControlPlaneEvents(api, loaderTelemetryEvents(surfaceRead.readModel));
 
-  return {
-    api,
-    baseline: {
-      routeData: routeDataResult.value,
-      profileReviews: profileReviewsResult.value,
-      controlPlaneOverview: controlPlaneOverviewResult.value,
-      readModelFailures,
-      canManageCatalog: actor?.permissions.includes("catalog.manage") ?? false,
-    },
-    routeContext: parseCatalogPrimaryWorkbenchRouteContext(request.url),
-  };
+  return { api, surfaceRead };
 }
 
-async function resolveCatalogIntegrationsActor(request: Request): ReturnType<typeof resolveActorFromAuthApi> {
-  for (let attempt = 0; attempt <= AUTH_RESOLUTION_RETRY_DELAYS_MS.length; attempt += 1) {
-    try {
-      return await resolveActorFromAuthApi({ request });
-    } catch (error) {
-      if (!isTransientAuthResolutionError(error) || attempt === AUTH_RESOLUTION_RETRY_DELAYS_MS.length) {
-        throw error;
-      }
-
-      await delay(AUTH_RESOLUTION_RETRY_DELAYS_MS[attempt] ?? 0);
-    }
-  }
-
-  return null;
+function requestLocation(request: Request): string {
+  const url = new URL(request.url);
+  return `${url.pathname}${url.search}`;
 }
 
-function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-// Finalize a surface read model: record loader telemetry and return the route
-// data shape the shared surface route view consumes. The per-surface read-model
-// builder computes only the slices the given surface renders.
-async function finalizeSurfaceLoad(input: {
-  api: ReturnType<typeof createCatalogRequestApiClient>;
-  request: Request;
-  surface: CatalogControlPlaneRouteSurfaceKey;
-  baseline: CatalogIntegrationsBaseline;
-  profileAuthoringModel?: CatalogProviderProfileAuthoringModel | null;
-  lifecycleImpacts?: Partial<
-    Record<CatalogPrimaryWorkbenchLifecycleOperation, CatalogAdminRollbackRetirementImpactSummaryReadModel>
-  > | null;
-  reviewObservations?: ListResponse<SourceObservationListItem> | null;
-  mergeCandidates?: ListResponse<CatalogMergeCandidateListItem> | null;
-  promotionOutcome?: SourceObservationPromotionOutcomeRecord | null;
-  promotionValidation?: SourceObservationPromotionValidation | null;
-  reviewPagination?: Readonly<{ limit: number; offset: number }>;
-  readModelFailures?: readonly CatalogPrimaryWorkbenchReadModelFailure[];
-}) {
-  // The source-option fan-out is not fetched here: every surface builds its
-  // read model without the option pages, so `sourceOptions` is the structural
-  // skeleton. The daily surface streams the populated slice separately;
-  // the other surfaces do not render the status panel at all.
-  const readModelInput: BuildSurfaceReadModelInput = {
-    surface: input.surface,
-    baseline: input.baseline,
-    requestUrl: input.request.url,
-    profileAuthoringModel: input.profileAuthoringModel ?? null,
-    lifecycleImpacts: input.lifecycleImpacts ?? null,
-    readModelFailures: input.readModelFailures ?? input.baseline.readModelFailures,
-    reviewObservations: input.reviewObservations ?? null,
-    mergeCandidates: input.mergeCandidates ?? null,
-    promotionOutcome: input.promotionOutcome ?? null,
-    promotionValidation: input.promotionValidation ?? null,
-    reviewPagination: input.reviewPagination,
-    sourceOptionPages: null,
-    catalogSyncPreview: null,
-    canManageCatalog: input.baseline.canManageCatalog,
-  };
-  let readModel = buildSurfaceReadModelFailSoft(readModelInput);
-  const catalogSyncPreview =
-    input.surface === "daily" ? await selectedCatalogSyncPreview(input.api, readModel.catalogSync) : null;
-  if (catalogSyncPreview) {
-    readModel = buildSurfaceReadModelFailSoft({
-      ...readModelInput,
-      catalogSyncPreview,
-    });
-  }
-  await recordCatalogControlPlaneEvents(input.api, loaderTelemetryEvents(readModel));
-
-  return {
-    readModel,
-    requestUrl: input.request.url,
-    commandFeedback: commandFeedbackFromUrl(input.request.url),
-  };
-}
-
-// Daily import-to-promotion surface (/admin/integrations). Awaits only the
-// baseline plus the paginated Source Observation review wave — the data the
-// shell, metric strip, and 3-stage flow paint from — and DEFERS the supplementary
-// loads behind streamed promises: the source-option fan-out (~150–250 KB,
-// feeds only the secondary status panel) and the alias-review read model
-// (supplementary pre-promotion context). The read model is built without the
-// option pages, so `sourceOptions` is its structural skeleton (declared kinds +
-// not-loaded pages) at first paint; the populated slice streams in behind a
-// Suspense boundary. It never fetches the selected authoring model or lifecycle
-// impacts, and the read model never computes the governance, lifecycle, release,
-// or audit sub-models.
+// Daily import-to-promotion surface (/catalog/integrations). Awaits only the
+// surface read, the data the shell, metric strip, and 3-stage flow paint from,
+// and DEFERS the supplementary loads behind streamed promises: the populated
+// source-option slice (~150-250 KB, feeds only the secondary status panel), the
+// import preview, the sync run and scope sync state, the alias-review read model,
+// and the attention queue. The read model's `sourceOptions` is its structural
+// skeleton at first paint.
 export async function loadDailySurface({ request }: LoaderFunctionArgs) {
   return loadDailySurfaceForRequest(request);
 }
 
 // Scope Detail composes the same daily journey against a synthetic, canonical
-// Scope Record URL. Keeping the request-level entry point here avoids duplicating
-// the baseline, review, candidate, sync-preview, and live-job query choreography.
+// Scope Record URL, so it shares this request-level entry point.
 export async function loadDailySurfaceForRequest(request: Request) {
-  const { api, baseline, routeContext } = await loadIntegrationsBaseline(request, "daily");
-  const normalized = normalizedDailyRouteContext(request, baseline, routeContext);
-  const normalizedRouteContext = normalized.routeContext;
-  const reviewRouteContext = routeContext.providerKey ? normalizedRouteContext : routeContext;
-  const reviewPagination = dailyReviewPaginationFor(reviewRouteContext);
-  const reviewQuery = buildCatalogPrimaryWorkbenchSourceObservationReviewQuery(
-    reviewRouteContext,
-    reviewPagination,
-    normalized.selectedScope,
-  );
-  const reviewObservationPromise = reviewQuery
-    ? catalogApiResult(() => api.listSourceObservations<ListResponse<SourceObservationListItem>>(reviewQuery), null)
-    : Promise.resolve({ value: null, failed: false } as const);
-  const mergeCandidateQuery = buildDailyMergeCandidateQuery(normalizedRouteContext);
-  const [reviewObservationResult, mergeCandidateResult, promotionOutcome, promotionValidation] = await Promise.all([
-    reviewObservationPromise,
-    catalogApiResult(
-      () => api.listCatalogMergeCandidates<ListResponse<CatalogMergeCandidateListItem>>(mergeCandidateQuery),
-      null,
-    ),
-    selectedPromotionOutcome(api, normalizedRouteContext),
-    selectedPromotionValidation(api, normalizedRouteContext),
-  ]);
-  const readModelFailures: CatalogPrimaryWorkbenchReadModelFailure[] = [...normalized.readModelFailures];
-  if (reviewObservationResult.failed) {
-    readModelFailures.push("source-observation-review");
-  }
-  if (mergeCandidateResult.failed) {
-    readModelFailures.push("merge-candidate-review");
-  }
-
-  const { readModel, requestUrl, commandFeedback } = await finalizeSurfaceLoad({
-    api,
-    request,
-    surface: "daily",
-    baseline,
-    reviewObservations: reviewObservationResult.value,
-    mergeCandidates: mergeCandidateResult.value,
-    promotionOutcome,
-    promotionValidation,
-    reviewPagination,
-    readModelFailures,
-  });
+  const api = createCatalogRequestApiClient(request);
+  // The source-option read starts alongside the surface read rather than after
+  // it, so the status panel streams in as soon as the option pages resolve.
+  const sourceOptionsRead = settledSourceOptionsRead(api, request);
+  const { surfaceRead } = await loadSurface(request, "daily", api);
+  const { readModel } = surfaceRead;
 
   return {
     readModel,
-    requestUrl,
-    commandFeedback,
+    requestUrl: request.url,
+    commandFeedback: commandFeedbackFromUrl(request.url),
     // Streamed supplementary values. Each is a plain promise the route view
     // renders behind <Suspense>/<Await>; react-router serializes them so the
     // document flushes the shell first and the panels stream in. The fail-soft
@@ -302,19 +105,55 @@ export async function loadDailySurfaceForRequest(request: Request) {
     // `unavailable` branch) lives INSIDE each promise, so a missing endpoint or
     // transient failure resolves to an absent or visibly degraded panel rather
     // than rejecting the boundary into an error page.
-    deferredSourceOptions: deferredSourceOptionsSlice(
-      api,
-      request,
-      baseline,
-      readModel.routeContext,
-      readModel.sourceOptions,
-    ),
+    deferredSourceOptions: sourceOptionsRead.then((sourceOptions) => sourceOptions ?? readModel.sourceOptions),
     deferredImportPreview: selectedImportPreview(api, readModel.routeContext),
     deferredCatalogSyncRun: selectedCatalogSyncRun(api, readModel.routeContext),
-    deferredScopeSyncState: selectedCatalogScopeSyncState(api, readModel.catalogSync),
+    deferredScopeSyncState: selectedCatalogScopeSyncState(api, surfaceRead.catalogSyncScope),
     deferredAliasReview: selectedScopeAliasReview(api, readModel.routeContext),
     deferredAttentionQueue: selectedAttentionQueue(api),
   };
+}
+
+// Govern-and-recover surface (/catalog/integrations/governance and settings).
+export async function loadGovernanceSurface({ request }: LoaderFunctionArgs) {
+  const { surfaceRead } = await loadSurface(request, "governance");
+  return surfaceRouteData(request, surfaceRead);
+}
+
+// Integration health surface (/catalog/integrations/health and the provider
+// detail page, which composes from health).
+export async function loadHealthSurface({ request }: LoaderFunctionArgs) {
+  const { surfaceRead } = await loadSurface(request, "health");
+  return surfaceRouteData(request, surfaceRead);
+}
+
+function surfaceRouteData(request: Request, surfaceRead: CatalogPrimaryWorkbenchSurfaceRead) {
+  return {
+    readModel: surfaceRead.readModel,
+    providerRefreshSchedules: surfaceRead.providerRefreshSchedules,
+    operatorSession: surfaceRead.operatorSession,
+    operatorSessionActorKey: surfaceRead.operatorSessionActorKey,
+    requestUrl: request.url,
+    commandFeedback: commandFeedbackFromUrl(request.url),
+  };
+}
+
+// The populated source-options slice, composed by the Catalog API from the
+// complete option lists. Null when the read fails, so the panel keeps the
+// skeleton the shell painted.
+async function settledSourceOptionsRead(
+  api: ReturnType<typeof createCatalogRequestApiClient>,
+  request: Request,
+): Promise<CatalogPrimaryWorkbenchReadModel["sourceOptions"] | null> {
+  try {
+    const sourceOptions = await api.getCatalogPrimaryWorkbenchDeferredSourceOptions<
+      CatalogPrimaryWorkbenchReadModel["sourceOptions"]
+    >(requestLocation(request));
+    assertPrimaryWorkbenchSourceOptions(sourceOptions);
+    return sourceOptions;
+  } catch {
+    return null;
+  }
 }
 
 // Fetch the unified attention queue for the daily home surface. Like the
@@ -340,69 +179,6 @@ async function selectedAttentionQueue(
   return resolveCatalogAttentionQueueResult(response);
 }
 
-function normalizedDailyRouteContext(
-  request: Request,
-  baseline: CatalogIntegrationsBaseline,
-  routeContext: CatalogPrimaryWorkbenchRouteContext,
-): Readonly<{
-  routeContext: CatalogPrimaryWorkbenchRouteContext;
-  readModelFailures: readonly CatalogPrimaryWorkbenchReadModelFailure[];
-  selectedScope: CatalogPrimaryWorkbenchReadModel["sourceScopeWorkset"]["selectedScope"]["scope"];
-}> {
-  const readModel = buildSurfaceReadModelFailSoft({
-    surface: "daily",
-    baseline,
-    requestUrl: request.url,
-    profileAuthoringModel: null,
-    lifecycleImpacts: null,
-    readModelFailures: baseline.readModelFailures,
-    reviewObservations: null,
-    mergeCandidates: null,
-    reviewPagination: dailyReviewPaginationFor(routeContext),
-    sourceOptionPages: null,
-    catalogSyncPreview: null,
-    canManageCatalog: baseline.canManageCatalog,
-  });
-  return {
-    routeContext: readModel.routeContext,
-    selectedScope: readModel.sourceScopeWorkset.selectedScope.scope,
-    readModelFailures:
-      readModel.readiness.freshness === "unavailable"
-        ? [...new Set([...baseline.readModelFailures, "control-plane-overview" as const])]
-        : baseline.readModelFailures,
-  };
-}
-
-// Resolve the streamed source-options slice: fetch the option fan-out (fail-soft
-// per page, as `selectedProviderSourceOptionPages` already guarantees) and build
-// the populated `sourceOptions` slice from the same baseline inputs the shell's
-// skeleton was derived from. Returning the fully-built slice (not the raw pages)
-// keeps the large provider option snapshots out of the browser payload while the
-// status panel consumes a ready-to-render value behind its Await boundary.
-async function deferredSourceOptionsSlice(
-  api: ReturnType<typeof createCatalogRequestApiClient>,
-  request: Request,
-  baseline: CatalogIntegrationsBaseline,
-  routeContext: CatalogPrimaryWorkbenchRouteContext,
-  fallbackSourceOptions: CatalogPrimaryWorkbenchReadModel["sourceOptions"],
-): Promise<CatalogPrimaryWorkbenchReadModel["sourceOptions"]> {
-  try {
-    const sourceOptionPages = await selectedProviderSourceOptionPages(api, request, baseline, routeContext);
-    const normalizedRequestUrl = new URL(catalogPrimaryWorkbenchHref(routeContext), request.url).toString();
-
-    return buildCatalogPrimaryWorkbenchDeferredSourceOptions({
-      requestUrl: normalizedRequestUrl,
-      scopes: baseline.routeData.data,
-      profileReviews: baseline.profileReviews,
-      controlPlaneOverview: baseline.controlPlaneOverview,
-      sourceOptionPages,
-      canManageCatalog: baseline.canManageCatalog,
-    });
-  } catch {
-    return fallbackSourceOptions;
-  }
-}
-
 async function selectedImportPreview(
   api: ReturnType<typeof createCatalogRequestApiClient>,
   context: CatalogPrimaryWorkbenchRouteContext,
@@ -416,75 +192,18 @@ async function selectedImportPreview(
 
   try {
     const expectedScope = integrationScopeFromContext(context);
-    const preview = await withSourceOptionPageTimeout(
+    const preview = await withImportPreviewTimeout(
       api.previewSourceObservationIntegrationImport<SourceObservationIntegrationImportPreview>(expectedScope),
-      SOURCE_OPTION_CACHE_PAGE_TIMEOUT_MS,
+      IMPORT_PREVIEW_TIMEOUT_MS,
     );
 
     return importPreviewMatchesSelectedScope(preview, expectedScope) ? preview : null;
   } catch (error) {
-    if (error instanceof CatalogSourceOptionPageTimeoutError) {
+    if (error instanceof CatalogImportPreviewTimeoutError) {
       throw error;
     }
     return null;
   }
-}
-
-async function selectedCatalogSyncPreview(
-  api: ReturnType<typeof createCatalogRequestApiClient>,
-  catalogSync: CatalogPrimaryWorkbenchReadModel["catalogSync"],
-): Promise<CatalogSyncProviderParticipationPreview | null> {
-  if (typeof api.previewCatalogSyncScope !== "function") {
-    return null;
-  }
-
-  const scope = catalogSyncScopeFromReadModel(catalogSync);
-  if (!scope) {
-    return null;
-  }
-
-  try {
-    return await api.previewCatalogSyncScope<CatalogSyncProviderParticipationPreview>(scope);
-  } catch {
-    return null;
-  }
-}
-
-function catalogSyncScopeFromReadModel(
-  catalogSync: CatalogPrimaryWorkbenchReadModel["catalogSync"],
-): CatalogSyncScope | null {
-  const selectedUnitKeys = catalogSync.preview.units
-    .filter((unit) => unit.selected && unit.unitKey)
-    .map((unit) => unit.unitKey as string);
-  const excludedUnitKeys = catalogSync.preview.units
-    .filter((unit) => unit.unitKey && !selectedUnitKeys.includes(unit.unitKey))
-    .map((unit) => unit.unitKey as string);
-
-  if (
-    !catalogSync.scope.productDomain ||
-    !catalogSync.scope.productForm ||
-    !catalogSync.scope.languageCode ||
-    !catalogSync.scope.reference.kind ||
-    !catalogSync.scope.reference.scopeRecordId
-  ) {
-    return null;
-  }
-
-  return {
-    scopeVersion: "catalog-sync-scope-v2",
-    productDomain: catalogSync.scope.productDomain,
-    productForm: catalogSync.scope.productForm,
-    languageCode: catalogSync.scope.languageCode,
-    reference: {
-      kind: catalogSync.scope.reference.kind,
-      scopeRecordId: catalogSync.scope.reference.scopeRecordId,
-    },
-    providerParticipation: {
-      requiredUnitKeys: [],
-      selectedUnitKeys,
-      excludedUnitKeys,
-    },
-  };
 }
 
 export function importPreviewMatchesSelectedScope(
@@ -545,56 +264,14 @@ async function selectedCatalogSyncRun(
   }
 }
 
-async function selectedPromotionOutcome(
-  api: ReturnType<typeof createCatalogRequestApiClient>,
-  context: CatalogPrimaryWorkbenchRouteContext,
-): Promise<SourceObservationPromotionOutcomeRecord | null> {
-  if (!context.jobId || typeof api.getSourceObservationPromotionOutcome !== "function") {
-    return null;
-  }
-
-  try {
-    const response = await api.getSourceObservationPromotionOutcome<{
-      outcome: SourceObservationPromotionOutcomeRecord | null;
-    }>(context.jobId);
-    return response.outcome;
-  } catch {
-    return null;
-  }
-}
-
-// The read-only pre-write validation for the route's promotion preview token.
-// Re-fetched on load so the create/update stage always paints the current
-// per-observation verdicts (identity blockers, draft-only carries) rather than
-// a count-only eligibility. Fail-soft: absence renders as not-previewed.
-async function selectedPromotionValidation(
-  api: ReturnType<typeof createCatalogRequestApiClient>,
-  context: CatalogPrimaryWorkbenchRouteContext,
-): Promise<SourceObservationPromotionValidation | null> {
-  if (!context.promotionPreviewId) {
-    return null;
-  }
-
-  try {
-    const preview = await previewPromotionForContext(api, context, context.selectedObservationIds);
-    return preview.validation;
-  } catch {
-    return null;
-  }
-}
-
-// The durable per-scope sync state (survives across runs), keyed off the same
-// scope the "Sync scope" action itself submits — so the scope page's state
-// panel and the "Sync scope" fan-out always agree on which scope they mean.
+// The durable per-scope sync state (survives across runs), keyed off the Catalog
+// sync scope the surface read names: the same scope the "Sync scope" action
+// submits, so the state panel and the fan-out always agree on which scope they mean.
 async function selectedCatalogScopeSyncState(
   api: ReturnType<typeof createCatalogRequestApiClient>,
-  catalogSync: CatalogPrimaryWorkbenchReadModel["catalogSync"],
+  scope: CatalogSyncScope | null,
 ): Promise<readonly CatalogScopeSyncUnitStateReadModel[] | null> {
-  if (typeof api.getCatalogSyncScopeState !== "function") {
-    return null;
-  }
-  const scope = catalogSyncScopeFromReadModel(catalogSync);
-  if (!scope) {
+  if (!scope || typeof api.getCatalogSyncScopeState !== "function") {
     return null;
   }
 
@@ -605,218 +282,6 @@ async function selectedCatalogScopeSyncState(
     return response.items ?? null;
   } catch {
     return null;
-  }
-}
-
-async function catalogApiResult<T>(
-  operation: () => Promise<T>,
-  fallback: T,
-): Promise<Readonly<{ value: T; failed: boolean }>> {
-  try {
-    return { value: await operation(), failed: false };
-  } catch {
-    return { value: fallback, failed: true };
-  }
-}
-
-type BuildSurfaceReadModelInput = Readonly<{
-  surface: CatalogControlPlaneRouteSurfaceKey;
-  baseline: CatalogIntegrationsBaseline;
-  requestUrl: string;
-  profileAuthoringModel: CatalogProviderProfileAuthoringModel | null;
-  lifecycleImpacts: Partial<
-    Record<CatalogPrimaryWorkbenchLifecycleOperation, CatalogAdminRollbackRetirementImpactSummaryReadModel>
-  > | null;
-  readModelFailures: readonly CatalogPrimaryWorkbenchReadModelFailure[];
-  reviewObservations: ListResponse<SourceObservationListItem> | null;
-  mergeCandidates: ListResponse<CatalogMergeCandidateListItem> | null;
-  promotionOutcome?: SourceObservationPromotionOutcomeRecord | null;
-  promotionValidation?: SourceObservationPromotionValidation | null;
-  reviewPagination: Readonly<{ limit: number; offset: number }> | undefined;
-  sourceOptionPages: readonly CatalogPrimaryWorkbenchSourceOptionPageSnapshot[] | null;
-  catalogSyncPreview: CatalogSyncProviderParticipationPreview | null;
-  canManageCatalog: boolean;
-}>;
-
-function buildSurfaceReadModelFailSoft(input: BuildSurfaceReadModelInput): CatalogPrimaryWorkbenchReadModel {
-  const initialFailures = uniqueReadModelFailures(input.readModelFailures);
-  const fallbackKeys = optionalProjectionFallbackKeys(input, initialFailures);
-  const fallbackMasks = projectionFallbackMasks(fallbackKeys.length);
-  let lastError: unknown = null;
-
-  for (const mask of fallbackMasks) {
-    const readModelFailures = uniqueReadModelFailures([
-      ...initialFailures,
-      ...fallbackKeys.filter((_, index) => (mask & (1 << index)) !== 0),
-    ]);
-
-    try {
-      return buildCatalogPrimaryWorkbenchReadModelForSurface(
-        input.surface,
-        surfaceReadModelInput(input, readModelFailures),
-      );
-    } catch (error) {
-      lastError = error;
-    }
-  }
-
-  throw lastError;
-}
-
-function surfaceReadModelInput(
-  input: BuildSurfaceReadModelInput,
-  readModelFailures: readonly CatalogPrimaryWorkbenchReadModelFailure[],
-): CatalogPrimaryWorkbenchInput {
-  const failures = new Set(readModelFailures);
-
-  return {
-    requestUrl: input.requestUrl,
-    scopes: failures.has("integration-scopes")
-      ? emptyListResponse<SourceObservationIntegrationScope>()
-      : input.baseline.routeData.data,
-    profileReviews: input.baseline.profileReviews,
-    profileAuthoringModel: input.profileAuthoringModel,
-    lifecycleImpacts: input.lifecycleImpacts,
-    controlPlaneOverview: failures.has("control-plane-overview") ? null : input.baseline.controlPlaneOverview,
-    readModelFailures,
-    reviewObservations: failures.has("source-observation-review") ? null : input.reviewObservations,
-    mergeCandidates: failures.has("merge-candidate-review") ? null : input.mergeCandidates,
-    promotionOutcome: input.promotionOutcome,
-    promotionValidation: input.promotionValidation ?? null,
-    reviewPagination: input.reviewPagination,
-    sourceOptionPages: input.sourceOptionPages,
-    catalogSyncPreview: input.catalogSyncPreview,
-    canManageCatalog: input.canManageCatalog,
-  };
-}
-
-function uniqueReadModelFailures(
-  failures: readonly CatalogPrimaryWorkbenchReadModelFailure[],
-): readonly CatalogPrimaryWorkbenchReadModelFailure[] {
-  return [...new Set(failures)];
-}
-
-function optionalProjectionFallbackKeys(
-  input: BuildSurfaceReadModelInput,
-  initialFailures: readonly CatalogPrimaryWorkbenchReadModelFailure[],
-): readonly CatalogPrimaryWorkbenchReadModelFailure[] {
-  const failures = new Set(initialFailures);
-  const keys: CatalogPrimaryWorkbenchReadModelFailure[] = [];
-  if (input.reviewObservations && !failures.has("source-observation-review")) {
-    keys.push("source-observation-review");
-  }
-  if (input.mergeCandidates && !failures.has("merge-candidate-review")) {
-    keys.push("merge-candidate-review");
-  }
-  if (input.baseline.controlPlaneOverview && !failures.has("control-plane-overview")) {
-    keys.push("control-plane-overview");
-  }
-  if (!failures.has("integration-scopes")) {
-    keys.push("integration-scopes");
-  }
-
-  return keys;
-}
-
-function projectionFallbackMasks(count: number): readonly number[] {
-  return Array.from({ length: 1 << count }, (_, mask) => mask).sort(
-    (left, right) => selectedBitCount(left) - selectedBitCount(right),
-  );
-}
-
-function selectedBitCount(value: number): number {
-  let count = 0;
-  for (let remaining = value; remaining > 0; remaining >>= 1) {
-    count += remaining & 1;
-  }
-
-  return count;
-}
-
-function emptyListResponse<T>(): ListResponse<T> {
-  return { items: [], total: 0, count: 0 };
-}
-
-function emptyListRouteData<T>(request: Request): CatalogListRouteData<T> {
-  return {
-    data: { items: [], total: 0, count: 0 },
-    query: readCatalogListQuery(request),
-  };
-}
-
-// Resolve the Source Observation review page window from the durable, URL-backed
-// pager cursor (reviewOffset/reviewLimit) the route context carries. The offset
-// and limit are already parsed and validated as non-negative/positive integers;
-// here we only clamp the page size to a sane band and snap the offset onto a page
-// boundary so the daily loader and the pager hrefs agree on every reachable page.
-const dailyReviewPageSize = 25;
-const dailyReviewMaxPageSize = 100;
-
-function dailyReviewPaginationFor(
-  routeContext: CatalogPrimaryWorkbenchRouteContext,
-): Readonly<{ limit: number; offset: number }> {
-  const limit = Math.min(Math.max(routeContext.reviewLimit ?? dailyReviewPageSize, 1), dailyReviewMaxPageSize);
-  const requestedOffset = Math.max(routeContext.reviewOffset ?? 0, 0);
-  const offset = Math.floor(requestedOffset / limit) * limit;
-
-  return { limit, offset };
-}
-
-export function buildDailyMergeCandidateQuery(routeContext: CatalogPrimaryWorkbenchRouteContext): string {
-  const params = new URLSearchParams();
-  params.set("limit", String(dailyReviewPageSize));
-  params.set("offset", "0");
-  const scope = routeContext.scope;
-  const hasSelectedScope = Boolean(
-    scope?.providerKey || scope?.languageCode || scope?.productLineId || scope?.expansionId || scope?.expansionName,
-  );
-  if (scope?.providerKey) {
-    params.set("provider", scope.providerKey);
-  }
-  if (scope?.languageCode) {
-    params.set("language", scope.languageCode);
-  }
-  if (scope?.productLineId) {
-    params.set("productLineId", scope.productLineId);
-  }
-  if (scope?.productLineName) {
-    params.set("productLineName", scope.productLineName);
-  }
-  if (routeContext.scopeRecordId) {
-    params.set("scopeRecordId", routeContext.scopeRecordId);
-  } else if (scope?.expansionId) {
-    params.set("expansionId", scope.expansionId);
-    params.set("setId", scope.expansionId);
-  } else if (scope?.expansionName) {
-    params.set("expansionId", scope.expansionName);
-    params.set("setId", scope.expansionName);
-  }
-  if (routeContext.jobId && !hasSelectedScope) {
-    params.set("syncRunId", routeContext.jobId);
-  }
-  const status = candidateStatusFromReviewStatus(routeContext.sourceObservationFilters.status);
-  if (status) {
-    params.set("status", status);
-  }
-  const search = routeContext.sourceObservationFilters.search?.trim();
-  if (search) {
-    params.set("search", search);
-  }
-
-  return params.toString();
-}
-
-function candidateStatusFromReviewStatus(status: string | undefined): string | null {
-  switch (status) {
-    case "ready":
-    case "has-conflicts":
-    case "stale":
-    case "deferred":
-    case "rejected":
-    case "promoted":
-      return status;
-    default:
-      return null;
   }
 }
 
@@ -848,228 +313,7 @@ async function selectedScopeAliasReview(
   }
 }
 
-// Govern-and-recover surface (/admin/integrations/governance). Loads the baseline
-// plus the selected profile lifecycle impacts and authoring model. Lifecycle
-// recovery's activation operation folds in validation readiness, which derives
-// from the authoring model, so it is fetched here to render identically; the
-// review wave is not.
-export async function loadGovernanceSurface({ request }: LoaderFunctionArgs) {
-  const { api, baseline, routeContext } = await loadIntegrationsBaseline(request);
-  const [profileAuthoringModel, lifecycleImpacts] = await Promise.all([
-    selectedProviderProfileAuthoringModel(api, routeContext),
-    selectedProviderProfileLifecycleImpacts(api, routeContext),
-  ]);
-
-  return finalizeSurfaceLoad({
-    api,
-    request,
-    surface: "governance",
-    baseline,
-    profileAuthoringModel,
-    lifecycleImpacts,
-  });
-}
-
-// Integration health surface (/admin/integrations/health). Loads the baseline
-// plus the selected profile authoring model and lifecycle impacts that the audit
-// timeline slice folds in (it cites validation readiness and lifecycle
-// recovery); the review wave is not fetched.
-export async function loadHealthSurface({ request }: LoaderFunctionArgs) {
-  const { api, baseline, routeContext } = await loadIntegrationsBaseline(request);
-  const [profileAuthoringModel, lifecycleImpacts] = await Promise.all([
-    selectedProviderProfileAuthoringModel(api, routeContext),
-    selectedProviderProfileLifecycleImpacts(api, routeContext),
-  ]);
-
-  return finalizeSurfaceLoad({
-    api,
-    request,
-    surface: "health",
-    baseline,
-    profileAuthoringModel,
-    lifecycleImpacts,
-  });
-}
-
-async function selectedProviderProfileAuthoringModel(
-  api: ReturnType<typeof createCatalogRequestApiClient>,
-  context: CatalogPrimaryWorkbenchRouteContext,
-): Promise<CatalogProviderProfileAuthoringModel | null> {
-  if (!context.providerKey || !context.profileVersion) {
-    return null;
-  }
-
-  try {
-    return await api.getSourceObservationProviderProfileAuthoringModel<CatalogProviderProfileAuthoringModel>(
-      context.providerKey,
-      context.profileVersion,
-    );
-  } catch (error) {
-    // A deep-link from a missing/invalid-profile blocker can carry a provider +
-    // a stale/unknown profileVersion. The backend answers that with 404; treat
-    // it as the existing "no authoring model" absent state so the providers,
-    // governance, and health surfaces render the author-a-profile path instead
-    // of crashing. Genuine 5xx / unexpected errors still propagate.
-    if (error instanceof CatalogApiError && error.status === 404) {
-      return null;
-    }
-    throw error;
-  }
-}
-
-async function selectedProviderSourceOptionPages(
-  api: ReturnType<typeof createCatalogRequestApiClient>,
-  request: Request,
-  baseline: CatalogIntegrationsBaseline,
-  routeContext: CatalogPrimaryWorkbenchRouteContext,
-): Promise<readonly CatalogPrimaryWorkbenchSourceOptionPageSnapshot[]> {
-  if (typeof api.listSourceObservationIntegrationOptions !== "function") {
-    return [];
-  }
-
-  const requests = buildCatalogPrimaryWorkbenchSourceOptionRequests({
-    requestUrl: request.url,
-    scopes: baseline.routeData.data.items,
-    profiles: baseline.profileReviews.items,
-    routeContext,
-    cacheOnly: true,
-  });
-  // A workbench reload stays cache-only; a per-group or refresh-all intent escalates
-  // the matching request(s) to the force-refresh (live) query the read model exposes.
-  const refreshIntent = parseCatalogPrimaryWorkbenchSourceOptionIntent(request.url);
-  const requestsToResolve =
-    refreshIntent?.queryKind && refreshIntent.action !== "force-refresh-all"
-      ? requests.filter((sourceOptionRequest) => sourceOptionRequest.queryKind === refreshIntent.queryKind)
-      : requests;
-
-  return Promise.all(
-    requestsToResolve.map(async (sourceOptionRequest): Promise<CatalogPrimaryWorkbenchSourceOptionPageSnapshot> => {
-      if (
-        sourceOptionRequest.parentRequired &&
-        sourceOptionRequest.parentScope !== null &&
-        !sourceOptionRequest.selectedParentValue
-      ) {
-        return { request: sourceOptionRequest };
-      }
-
-      const forceRefresh =
-        catalogPrimaryWorkbenchSourceOptionForcesRefresh(refreshIntent, sourceOptionRequest.queryKind) &&
-        !(refreshIntent?.action === "force-refresh-all" && sourceOptionRequest.scope === "product/card");
-      const href =
-        forceRefresh && sourceOptionRequest.refreshHref
-          ? sourceOptionRequest.refreshHref
-          : sourceOptionRequest.queryHref;
-
-      try {
-        const query = new URL(href, request.url).searchParams.toString();
-        const firstResponse = await withSourceOptionPageTimeout(
-          api.listSourceObservationIntegrationOptions<SourceObservationIntegrationOptionResponse>(query),
-          forceRefresh ? SOURCE_OPTION_LIVE_REFRESH_TIMEOUT_MS : SOURCE_OPTION_CACHE_PAGE_TIMEOUT_MS,
-        );
-        const response = await completeSourceOptionResponse(api, request, sourceOptionRequest, href, firstResponse);
-        return { request: sourceOptionRequest, response };
-      } catch (error) {
-        return { request: sourceOptionRequest, error: sourceOptionPageError(error) };
-      }
-    }),
-  );
-}
-
-// Guided selectors need the complete provider-neutral option list, while the
-// option API intentionally exposes bounded cursor pages. Resolve the first page
-// using the requested cache/live semantics, then exhaust continuation cursors
-// from that same cache snapshot. In particular, a force refresh happens once;
-// continuation requests never repeat provider I/O or mutate refresh timestamps.
-async function completeSourceOptionResponse(
-  api: ReturnType<typeof createCatalogRequestApiClient>,
-  request: Request,
-  sourceOptionRequest: CatalogPrimaryWorkbenchSourceOptionPageSnapshot["request"],
-  firstHref: string,
-  firstResponse: SourceObservationIntegrationOptionResponse,
-): Promise<SourceObservationIntegrationOptionResponse> {
-  if (!firstResponse.page?.hasMore) {
-    return firstResponse;
-  }
-
-  const items = [...firstResponse.items];
-  const seenCursors = new Set<string>();
-  let continuationPageCount = 0;
-  let response = firstResponse;
-
-  while (response.page?.hasMore) {
-    if (continuationPageCount >= MAX_SOURCE_OPTION_CONTINUATION_PAGES) {
-      throw new CatalogSourceOptionPaginationError(
-        sourceOptionRequest.queryKind,
-        `the response exceeded ${MAX_SOURCE_OPTION_CONTINUATION_PAGES} continuation pages`,
-      );
-    }
-    const cursor = response.page.nextCursor?.trim();
-    if (!cursor || seenCursors.has(cursor)) {
-      throw new CatalogSourceOptionPaginationError(sourceOptionRequest.queryKind, "the cursor did not advance");
-    }
-    seenCursors.add(cursor);
-
-    const query = sourceOptionContinuationQuery(firstHref, request.url, cursor);
-    const continuationResponse = await withSourceOptionPageTimeout(
-      api.listSourceObservationIntegrationOptions<SourceObservationIntegrationOptionResponse>(query),
-      SOURCE_OPTION_CACHE_PAGE_TIMEOUT_MS,
-    );
-    continuationPageCount += 1;
-    assertSourceOptionContinuation(firstResponse, continuationResponse, cursor, sourceOptionRequest.queryKind);
-    response = continuationResponse;
-    items.push(...response.items);
-  }
-
-  return {
-    ...firstResponse,
-    items,
-    total: Math.max(firstResponse.total, response.total, items.length),
-    count: items.length,
-    page: {
-      cursor: firstResponse.page.cursor,
-      nextCursor: null,
-      limit: Math.max(firstResponse.page.limit, items.length),
-      hasMore: false,
-    },
-  };
-}
-
-function sourceOptionContinuationQuery(href: string, requestUrl: string, cursor: string): string {
-  const continuation = new URL(href, requestUrl);
-  continuation.searchParams.set("cursor", cursor);
-  continuation.searchParams.set("limit", String(SOURCE_OPTION_CONTINUATION_PAGE_LIMIT));
-  continuation.searchParams.set("cacheOnly", "true");
-  continuation.searchParams.delete("forceRefresh");
-  return continuation.searchParams.toString();
-}
-
-function assertSourceOptionContinuation(
-  firstResponse: SourceObservationIntegrationOptionResponse,
-  response: SourceObservationIntegrationOptionResponse,
-  expectedCursor: string,
-  queryKind: string,
-): void {
-  if (!response.page || response.page.cursor !== expectedCursor) {
-    throw new CatalogSourceOptionPaginationError(queryKind, "the continuation page did not match its cursor");
-  }
-  if (response.total !== firstResponse.total) {
-    throw new CatalogSourceOptionPaginationError(queryKind, "the cached option count changed between pages");
-  }
-  if (firstResponse.cache?.cacheKey && response.cache?.cacheKey !== firstResponse.cache.cacheKey) {
-    throw new CatalogSourceOptionPaginationError(queryKind, "the option cache changed between pages");
-  }
-}
-
-class CatalogSourceOptionPaginationError extends Error {
-  readonly code = "catalog_provider_option_pagination_invalid";
-
-  constructor(queryKind: string, reason: string) {
-    super(`Provider source option query '${queryKind}' could not load every option because ${reason}.`);
-    this.name = "CatalogSourceOptionPaginationError";
-  }
-}
-
-class CatalogSourceOptionPageTimeoutError extends Error {
+class CatalogImportPreviewTimeoutError extends Error {
   readonly code = "catalog_provider_option_query_timeout";
 
   constructor(readonly timeoutMs: number) {
@@ -1078,16 +322,16 @@ class CatalogSourceOptionPageTimeoutError extends Error {
         timeoutMs / 1_000,
       )} seconds, so the importer kept the page usable with degraded source options.`,
     );
-    this.name = "CatalogSourceOptionPageTimeoutError";
+    this.name = "CatalogImportPreviewTimeoutError";
   }
 }
 
-function withSourceOptionPageTimeout<T>(operation: Promise<T>, timeoutMs: number): Promise<T> {
+function withImportPreviewTimeout<T>(operation: Promise<T>, timeoutMs: number): Promise<T> {
   let timeout: ReturnType<typeof setTimeout> | null = null;
   return new Promise<T>((resolve, reject) => {
     timeout = setTimeout(() => {
       timeout = null;
-      reject(new CatalogSourceOptionPageTimeoutError(timeoutMs));
+      reject(new CatalogImportPreviewTimeoutError(timeoutMs));
     }, timeoutMs);
 
     operation.then(
@@ -1105,112 +349,4 @@ function withSourceOptionPageTimeout<T>(operation: Promise<T>, timeoutMs: number
       },
     );
   });
-}
-
-function sourceOptionPageError(error: unknown): CatalogPrimaryWorkbenchSourceOptionPageSnapshot["error"] {
-  if (error instanceof CatalogApiError) {
-    const parsed = catalogApiErrorBody(error.body);
-    return {
-      status: error.status,
-      code: parsed.code,
-      message: parsed.message,
-      rolloutBlocked: error.status === 403 && parsed.code === "catalog_integration_rollout_control_denied",
-    };
-  }
-  if (error instanceof CatalogSourceOptionPageTimeoutError) {
-    return {
-      status: null,
-      code: error.code,
-      message: error.message,
-      rolloutBlocked: false,
-    };
-  }
-  if (error instanceof CatalogSourceOptionPaginationError) {
-    return {
-      status: null,
-      code: error.code,
-      message: error.message,
-      rolloutBlocked: false,
-    };
-  }
-
-  return {
-    status: null,
-    code: "catalog_provider_option_query_unavailable",
-    message: error instanceof Error ? error.message : "Provider source options are unavailable.",
-    rolloutBlocked: false,
-  };
-}
-
-function catalogApiErrorBody(body: unknown): Readonly<{ code: string; message: string }> {
-  if (typeof body !== "object" || body === null || !("error" in body)) {
-    return {
-      code: "catalog_provider_option_query_unavailable",
-      message: "Provider source options are unavailable.",
-    };
-  }
-
-  const errorBody = (body as Readonly<{ error?: unknown }>).error;
-  if (typeof errorBody !== "object" || errorBody === null) {
-    return {
-      code: "catalog_provider_option_query_unavailable",
-      message: String(errorBody ?? "Provider source options are unavailable."),
-    };
-  }
-
-  const fields = errorBody as Readonly<Record<string, unknown>>;
-  return {
-    code:
-      typeof fields.code === "string" && fields.code.trim()
-        ? fields.code.trim()
-        : "catalog_provider_option_query_unavailable",
-    message:
-      typeof fields.message === "string" && fields.message.trim()
-        ? fields.message.trim()
-        : "Provider source options are unavailable.",
-  };
-}
-
-async function selectedProviderProfileLifecycleImpacts(
-  api: ReturnType<typeof createCatalogRequestApiClient>,
-  context: CatalogPrimaryWorkbenchRouteContext,
-): Promise<Partial<
-  Record<CatalogPrimaryWorkbenchLifecycleOperation, CatalogAdminRollbackRetirementImpactSummaryReadModel>
-> | null> {
-  if (!context.providerKey || !context.profileVersion) {
-    return null;
-  }
-  if (typeof api.getSourceObservationProviderProfileLifecycleImpact !== "function") {
-    return null;
-  }
-
-  const providerKey = context.providerKey;
-  const profileVersion = context.profileVersion;
-  const operations: readonly CatalogPrimaryWorkbenchLifecycleOperation[] = [
-    "activation",
-    "rollback",
-    "deprecate",
-    "retire",
-  ];
-  const results = await Promise.allSettled(
-    operations.map(async (operation) => ({
-      operation,
-      impact:
-        await api.getSourceObservationProviderProfileLifecycleImpact<CatalogAdminRollbackRetirementImpactSummaryReadModel>(
-          providerKey,
-          profileVersion,
-          operation,
-        ),
-    })),
-  );
-  const impacts: Partial<
-    Record<CatalogPrimaryWorkbenchLifecycleOperation, CatalogAdminRollbackRetirementImpactSummaryReadModel>
-  > = {};
-  for (const result of results) {
-    if (result.status === "fulfilled") {
-      impacts[result.value.operation] = result.value.impact;
-    }
-  }
-
-  return impacts;
 }

@@ -26,7 +26,7 @@ Do not rebuild `deployables/design-system-showcase` as the default answer to com
 - Styling system: Tailwind CSS v4
 - Primitive behavior layer: Base UI Shadcn-compatible primitives
 - Theme model: Chase Sets marketplace theme with light, dark, and system semantic tokens
-- Embedded surfaces: `embedded-surface-theme/v1` is the closed 34-slot neutral theme input; `resolveEmbeddedSurfaceTheme`, `embeddedSurfaceThemeSnapshot`, and `observeEmbeddedSurfaceTheme` read the nearest theme scope. Provider-specific mapping and invalid-value fallbacks belong to browser adapters, not this package.
+- Embedded surfaces: `embedded-surface-theme/v1` is the closed 34-slot neutral theme input; `resolveEmbeddedSurfaceTheme`, `embeddedSurfaceThemeSnapshot`, and `observeEmbeddedSurfaceTheme` read the nearest theme scope. The contract and host chrome do not promise provider theme parity or require provider-specific appearance mapping.
 - Typography: IBM Plex Sans with tabular numerals for price, rating, quantity, fee, and total displays
 - Motion runtime: Motion for React, configured centrally through `ChaseRoot`
 

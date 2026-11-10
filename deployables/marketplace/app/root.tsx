@@ -26,23 +26,18 @@ import {
   Stack,
   type ColorMode,
 } from "@chase-sets/design-system";
-import { createCheckoutRequestApiClient, readAnonymousCartId } from "@chase-sets/checkout/server";
+import { resolveCartCount } from "@chase-sets/checkout/server";
 import { itemDetailRailAnalyticsEventNames } from "@chase-sets/discovery/web";
+import { buildAnalyticsBridgeScript } from "@chase-sets/platform-runtime/analytics-bridge";
 import {
-  createIdentityRequestApiClient,
   createUserPreferencesColorModeCookieSeedHeaders,
-  readUserPreferencesColorModeCookie,
-  resolveIdentityShellViewer,
+  resolveCurrentActorDisplay,
+  resolveMarketplaceRootTheme,
   type CurrentActorDisplay,
   type IdentityShellViewer,
 } from "@chase-sets/identity/server";
 
 type MarketplaceRootActor = Awaited<ReturnType<typeof resolveMarketplaceActor>>;
-type MarketplaceRootTheme = Readonly<{
-  colorMode: ColorMode;
-  cookieSeedColorMode: ColorMode | null;
-  viewer: IdentityShellViewer | null;
-}>;
 type MarketplaceRootLoaderData = Readonly<{
   actor: MarketplaceRootActor;
   actorDisplay: CurrentActorDisplay | null;
@@ -53,128 +48,24 @@ type MarketplaceRootLoaderData = Readonly<{
   viewer: IdentityShellViewer | null;
 }>;
 
-export const itemDetailRailAnalyticsBridgeScript = `
-(() => {
-  const endpoint = "/analytics/item-detail-rail";
-  const allowedEvents = new Set(${JSON.stringify(itemDetailRailAnalyticsEventNames)});
-
-  function readBounded(value) {
-    if (typeof value !== "string") {
-      return null;
-    }
-    const text = value.trim();
-    return text.length > 0 && text.length <= 80 && /^[a-zA-Z0-9_.-]+$/.test(text) ? text : null;
-  }
-
-  function readSha256(value) {
-    const text = readBounded(value);
-    return text && /^[a-f0-9]{64}$/.test(text) ? text : null;
-  }
-
-  window.addEventListener("chase-sets:item-detail-rail-analytics", (event) => {
-    const detail = event instanceof CustomEvent ? event.detail : null;
-    if (!detail || typeof detail.event !== "string" || !allowedEvents.has(detail.event)) {
-      return;
-    }
-
-    const payload = {
-      event: detail.event,
-      intent: readBounded(detail.intent),
-      workflow: readBounded(detail.workflow),
-      selection: readBounded(detail.selection),
-      topic: readBounded(detail.topic),
-      outcome: readBounded(detail.outcome),
-      gate: readBounded(detail.gate),
-      viewer: readBounded(detail.viewer),
-      surface: readBounded(detail.surface),
-      position: Number.isInteger(detail.position) && detail.position > 0 ? detail.position : null,
-      queryHash: readSha256(detail.queryHash),
-      resultSetKey: readSha256(detail.resultSetKey),
-    };
-    const body = JSON.stringify(payload);
-
-    if (navigator.sendBeacon) {
-      navigator.sendBeacon(endpoint, new Blob([body], { type: "application/json" }));
-      return;
-    }
-
-    fetch(endpoint, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body,
-      credentials: "same-origin",
-      keepalive: true,
-    }).catch(() => undefined);
-  });
-})();
-`.trim();
-
-async function resolveCartCount(request: Request, actor: MarketplaceRootActor) {
-  try {
-    const checkoutApi = createCheckoutRequestApiClient(request);
-
-    if (actor && actor.roleKey !== "guest-buyer" && !actor.permissions.includes("guest-checkout.manage")) {
-      const cart = await checkoutApi.getCart();
-      return cart.count;
-    }
-
-    const anonymousCartId = readAnonymousCartId(request);
-    if (!anonymousCartId) {
-      return 0;
-    }
-
-    const cart = await checkoutApi.getGuestCart(anonymousCartId);
-    return cart.count;
-  } catch {
-    return 0;
-  }
-}
-
-async function resolveCurrentActorDisplay(request: Request, actor: MarketplaceRootActor) {
-  if (!actor || actor.roleKey === "guest-buyer") {
-    return null;
-  }
-
-  try {
-    const identityApi = createIdentityRequestApiClient(request);
-    return await identityApi.getCurrentActorDisplay<CurrentActorDisplay>();
-  } catch {
-    return null;
-  }
-}
-
-async function resolveMarketplaceRootTheme(
-  request: Request,
-  actor: MarketplaceRootActor,
-): Promise<MarketplaceRootTheme> {
-  if (!actor || actor.roleKey === "guest-buyer") {
-    return { colorMode: "system", cookieSeedColorMode: null, viewer: null };
-  }
-
-  const cookieColorMode = readUserPreferencesColorModeCookie(request);
-
-  try {
-    const viewer = await resolveIdentityShellViewer(createIdentityRequestApiClient(request), actor);
-    const colorMode = viewer.preferences?.colorMode ?? cookieColorMode ?? "system";
-
-    return {
-      colorMode,
-      cookieSeedColorMode: viewer.preferences?.colorMode ?? null,
-      viewer,
-    };
-  } catch {
-    return {
-      colorMode: cookieColorMode ?? "system",
-      cookieSeedColorMode: null,
-      viewer: cookieColorMode
-        ? {
-            actor,
-            preferences: { colorMode: cookieColorMode, reducedMotion: "user" },
-          }
-        : null,
-    };
-  }
-}
+export const itemDetailRailAnalyticsBridgeScript = buildAnalyticsBridgeScript({
+  endpoint: "/analytics/item-detail-rail",
+  eventName: "chase-sets:item-detail-rail-analytics",
+  allowedEvents: itemDetailRailAnalyticsEventNames,
+  fields: {
+    intent: "bounded",
+    workflow: "bounded",
+    selection: "bounded",
+    topic: "bounded",
+    outcome: "bounded",
+    gate: "bounded",
+    viewer: "bounded",
+    surface: "bounded",
+    position: "positive-integer",
+    queryHash: "sha256",
+    resultSetKey: "sha256",
+  },
+});
 
 export async function loader({ request }: LoaderFunctionArgs) {
   const { registerMarketplacePostWriteConsistencyRecorder } = await import("./observability.server");

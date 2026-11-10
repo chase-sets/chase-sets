@@ -92,29 +92,6 @@
   border-color: var(--color-danger);
   background: var(--color-danger-soft);
 }
-.stats {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(8rem, 1fr));
-  gap: var(--space-3);
-  margin: 0;
-}
-.stat {
-  padding: var(--space-3);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  background: var(--color-surface-2);
-}
-.stat dt {
-  font-size: 0.75rem;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--color-text-secondary);
-}
-.stat dd {
-  margin: 0;
-  font: 600 1.25rem/1.4 var(--font-display);
-}
 /* The journey's stages: a row on a wide screen, a list on a phone. */
 .stages {
   display: grid;
@@ -267,8 +244,6 @@
   border-bottom: 0;
 }
 .stack {
-  display: grid;
-  gap: var(--space-1);
   min-width: 0;
   overflow-wrap: anywhere;
 }
@@ -304,8 +279,72 @@
 .reasons .label {
   margin: 0;
 }
+/* The all-scopes alias review on the scopes list: folded, as admin-web's is. */
+.all-scopes {
+  margin-block-end: var(--space-5);
+  background: var(--color-surface);
+}
+.all-scopes > summary {
+  justify-content: space-between;
+  align-items: center;
+}
+.inner {
+  display: grid;
+  gap: var(--space-3);
+  min-width: 0;
+}
+.sub-title {
+  margin: 0;
+  font: 600 1rem/1.4 var(--font-display);
+}
+/* The bulk bar: the reason and Reject first in the form (Enter rejects), drawn under the buttons. */
+.bulk-bar {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+.bulk-reject {
+  order: 1;
+}
+.picked {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: var(--space-2);
+  align-items: start;
+}
+.pick-box {
+  margin-block-start: var(--space-3);
+  inline-size: 1.25rem;
+  block-size: 1.25rem;
+}
+.evidence > summary {
+  cursor: pointer;
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+.evidence dl {
+  display: grid;
+  gap: var(--space-1);
+  margin: var(--space-2) 0 0;
+}
+.evidence dl > div {
+  display: grid;
+  grid-template-columns: minmax(0, 10rem) minmax(0, 1fr);
+  gap: var(--space-2);
+  font-size: 0.875rem;
+}
+.evidence dt {
+  color: var(--color-text-secondary);
+}
+.evidence dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
 
-@media (max-width: 40rem) {
+@media not (--md) {
   .part {
     padding: var(--space-3);
   }

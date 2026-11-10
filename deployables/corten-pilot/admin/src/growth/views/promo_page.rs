@@ -1,10 +1,11 @@
 //! Promo Bar (`PromoBarAdminPage`). Top to bottom: the header, what the last write did, the public
 //! preview of the messages live now, Create message, and the messages with their status and
-//! actions, which scroll on their own on a phone. Edit opens a sheet and Delete a confirmation, each
-//! an open `<dialog>` closed by a link back to the page; corten-ui's dialog makes it modal with
-//! JavaScript. Every write is a plain post.
+//! actions, which stack on a phone, a row a block of labelled lines. Edit opens a sheet and Delete
+//! a confirmation, each an open `<dialog>` closed by a link back to the page; corten-ui's dialog
+//! makes it modal with JavaScript. Every write is a plain post.
 use corten::prelude::*;
 use jiff::Timestamp;
+use platform::ui::table::{CellLabel, Table as KitTable, TableLayout};
 
 use crate::{
     growth::promo::{Message, MessageForm, PromoScreen, Status, TONES, url},
@@ -233,35 +234,48 @@ pub fn PromoPage<'a>(t: Gro, screen: &'a PromoScreen, marketplace: Option<&'a st
                     </div>
                 } else {
                     <div class={Scroll}>
-                        <table class={Table}>
-                            <thead>
-                                <tr>
-                                    <th scope="col">{t.promo_column_status()}</th>
-                                    <th scope="col">{t.promo_column_message()}</th>
-                                    <th scope="col">{t.promo_column_order()}</th>
-                                    <th scope="col">{t.promo_column_actions()}</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                for message in &screen.messages {
+                        <KitTable layout={TableLayout::Stack}>
+                            <table class={Table}>
+                                <thead>
                                     <tr>
-                                        <td>
-                                            <span class={Pill} data-status={format!("{:?}", message.status(now)).to_lowercase()}>
-                                                {status_words(t, message.status(now))}
-                                            </span>
-                                        </td>
-                                        <td class={Words}>
-                                            <p class={Strong}>{&message.title}</p>
-                                            if let Some(description) = &message.description {
-                                                <p class={Muted}>{description}</p>
-                                            }
-                                        </td>
-                                        <td>{t.number(message.display_order).to_string()}</td>
-                                        <td><RowActions t={t} message={message} /></td>
+                                        <th scope="col">{t.promo_column_status()}</th>
+                                        <th scope="col">{t.promo_column_message()}</th>
+                                        <th scope="col">{t.promo_column_order()}</th>
+                                        <th scope="col">{t.promo_column_actions()}</th>
                                     </tr>
-                                }
-                            </tbody>
-                        </table>
+                                </thead>
+                                <tbody>
+                                    for message in &screen.messages {
+                                        <tr>
+                                            <td>
+                                                <CellLabel>{t.promo_column_status()}</CellLabel>
+                                                <span
+                                                    class={Pill}
+                                                    data-status={format!("{:?}", message.status(now)).to_lowercase()}
+                                                >
+                                                    {status_words(t, message.status(now))}
+                                                </span>
+                                            </td>
+                                            <td class={Words}>
+                                                <CellLabel>{t.promo_column_message()}</CellLabel>
+                                                <p class={Strong}>{&message.title}</p>
+                                                if let Some(description) = &message.description {
+                                                    <p class={Muted}>{description}</p>
+                                                }
+                                            </td>
+                                            <td>
+                                                <CellLabel>{t.promo_column_order()}</CellLabel>
+                                                {t.number(message.display_order).to_string()}
+                                            </td>
+                                            <td>
+                                                <CellLabel>{t.promo_column_actions()}</CellLabel>
+                                                <RowActions t={t} message={message} />
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </KitTable>
                     </div>
                 }
             </section>

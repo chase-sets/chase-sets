@@ -69,6 +69,8 @@ export type SourceObservationFilterScope = Readonly<{
   seriesId?: string;
   expansionId?: string;
   setId?: string;
+  /** The normalized observation kind a profile's mapping takes, which keeps a unit's work to its own observations. */
+  normalizedKind?: string;
 }>;
 
 export type CatalogMergeCandidateListRow = Readonly<{
@@ -97,6 +99,9 @@ export type CatalogMergeCandidateListRow = Readonly<{
   created_at: string;
   updated_at: string;
   stale_at: string | null;
+  // The candidate's stream version the row shows: an update or split names it as the one the
+  // operator saw, and the Catalog API refuses it once the candidate has moved on.
+  last_stream_version: number;
   observation_count: number;
 }>;
 
@@ -306,6 +311,7 @@ export async function listCatalogMergeCandidates(
                           ${catalogIsoUtcTimestamp("c.created_at", "created_at")},
                           ${catalogIsoUtcTimestamp("c.updated_at", "updated_at")},
                           ${catalogIsoUtcTimestamp("c.stale_at", "stale_at")},
+                          c.last_stream_version::integer AS last_stream_version,
                           COALESCE(m.observation_count, 0)::integer AS observation_count,
                           COALESCE(m.membership_json, '[]'::jsonb) AS membership_json
                    FROM catalog_merge_candidates c
@@ -645,6 +651,48 @@ export async function listSourceObservationIdsForPromotion(
   );
 
   return result.rows.map((row) => row.observation_id);
+}
+
+/**
+ * Locks, in the caller's transaction, the rows a promotion of `selection`
+ * would take (the selected ids, or the scope's eligible rows), so none can
+ * change before the admission that checked them commits. As the first
+ * statement of a repeatable-read admission it also fixes the snapshot its
+ * preview reads; a row changed by a transaction that committed after that
+ * snapshot fails the lock with a serialization failure instead.
+ */
+export async function lockSourceObservationsForPromotion(
+  db: PgQueryable,
+  selection: Readonly<{ scope: SourceObservationFilterScope } | { observationIds: readonly string[] }>,
+): Promise<void> {
+  if ("observationIds" in selection) {
+    const uniqueIds = [
+      ...new Set(selection.observationIds.map((observationId) => observationId.trim()).filter(Boolean)),
+    ];
+    await db.query(
+      `SELECT observation_id FROM catalog_source_observations
+       WHERE observation_id = ANY($1)
+       ORDER BY observation_id
+       FOR SHARE`,
+      [uniqueIds],
+    );
+    return;
+  }
+
+  const scope = normalizeSourceObservationFilterScope(selection.scope);
+  const eligibleStatuses = reviewableStatusesForScope(scope);
+  if (eligibleStatuses.length === 0) {
+    return;
+  }
+  const filter = buildSourceObservationFilter(scope, {
+    includeListFilters: true,
+    statuses: eligibleStatuses,
+  });
+  const where = filter.conditions.length > 0 ? `WHERE ${filter.conditions.join(" AND ")}` : "";
+  await db.query(
+    `SELECT observation_id FROM catalog_source_observations ${where} ORDER BY observation_id FOR SHARE`,
+    filter.values,
+  );
 }
 
 /**
@@ -1185,6 +1233,11 @@ function buildSourceObservationFilter(
     );
   }
 
+  if (scope.normalizedKind) {
+    values.push(scope.normalizedKind);
+    conditions.push(`normalized->>'kind' = $${values.length}`);
+  }
+
   if (options.statuses && options.statuses.length > 0) {
     values.push(options.statuses);
     conditions.push(`status = ANY($${values.length}::text[])`);
@@ -1263,6 +1316,7 @@ function normalizeSourceObservationFilterScope(
     seriesId: params.seriesId?.trim() ?? "",
     expansionId,
     setId: expansionId,
+    normalizedKind: params.normalizedKind?.trim() ?? "",
   };
 }
 

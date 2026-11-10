@@ -1,9 +1,16 @@
+import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { BRIEF_MAX_BYTES, lintBrief, main, parseSupersedesSection } from "./brief-lint.mjs";
+import {
+  ISSUE_READINESS_RULES,
+  PROSPECTIVE_ISSUE_READINESS_RUN_SCHEMA_VERSION,
+  consumeIssueReadinessReceipt,
+  main as readinessMain,
+} from "./issue-readiness.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const issueReadinessFixture = JSON.parse(
@@ -850,6 +857,785 @@ describe("quality-surface planning contract mirrors", () => {
       ),
     ]) {
       expect(hasCanonicalPairs(mutation)).toBe(false);
+    }
+  });
+});
+
+describe("product pre-registration preflight", () => {
+  const skillPaths = [".agents/skills/planning/SKILL.md", ".claude/skills/planning/SKILL.md"];
+  const readSkills = () => skillPaths.map((relativePath) => readFileSync(path.join(repoRoot, relativePath), "utf8"));
+  const SECTION_HEADING = "### Pre-registration checks";
+  const LINT_COMMAND = "node ./scripts/brief-lint.mjs <path-to-brief.md>";
+  const READINESS_COMMAND =
+    "node ./scripts/issue-readiness.mjs --prospective-body <path-to-brief.md> --prospective-metadata <path-to-metadata.json> --checker-sha <40-character-checker-commit>";
+  const LINT_ONLY_SENTENCE = "Before registration, render the prospective issue body to a Markdown file and run:";
+  const LINT_ONLY_INSTRUCTION = `Before registration, render the prospective issue body to a Markdown\nfile and run:\n\n\`\`\`powershell\n${LINT_COMMAND}\n\`\`\`\n`;
+  const ENTRY_PATHS = [
+    "fast and full path",
+    "Issues tier",
+    "Epic and Milestone children",
+    "host and review follow-ups",
+    "replan or repair rounds",
+  ];
+  // Each metadata key the prospective evaluator requires, with the qualifier the
+  // instruction must state for it.
+  const METADATA_FIELDS = {
+    repository: "`repository`",
+    number: "`number`",
+    state: "`state`",
+    issueType: "the enabled native `issueType`",
+    milestone: "the full `milestone` with its outcome-policy description",
+    labels: "`labels`",
+    parentNumber: "`parentNumber`",
+    dependencies: "the complete native `dependencies` (Blocked by) set",
+  };
+  const ROUTE_CLAUSES = {
+    "product-scope":
+      "Every `chase-sets/chase-sets` brief runs two checks on its exact prospective tuple before the issue is created or a repaired or replanned body is adopted:",
+    "both-required": "Every product path runs both checks, and neither replaces the other.",
+  };
+  const BOUNDARY_CLAUSES = {
+    "controller-route":
+      "A `chase-sets/chase-sets-controller` brief keeps the same body standard, lint and pressure test, but follows that repository's readiness and release contracts, not this eleven-rule check.",
+    "controller-refusal":
+      "Never move controller work into a product brief, or hide a controller footprint, to pass: the product checker refuses a footprint that names tracked controller source (`FOOTPRINT_IN_CONTROLLER_REPOSITORY`).",
+  };
+  const TUPLE_CLAUSES = {
+    "tuple-exact":
+      "Render the exact body bytes to a Markdown file and the intended metadata to a JSON file, then run both checks with the scripts of the inspected `origin/main` commit:",
+    "tuple-number": "Use a disclosed positive placeholder `number` for a new issue and the actual number for a repair.",
+    "tuple-truthful":
+      "Mark each value as a proposal or a captured live fact; never omit or fabricate a blocker or identity to pass.",
+    "checker-sha": "`--checker-sha` is the 40-character commit whose scripts ran.",
+    "tuple-retention": "Retain both inputs, their SHA-256 hashes, the checker commit, and both complete outputs.",
+    "tuple-invalidation": "Any edit to the body or metadata invalidates the proof: rerun both checks.",
+    "issue-authored-text": "Never execute the brief's own verification text as part of either check.",
+  };
+  const INSPECTION_CLAUSES = {
+    "lint-pass": "Lint must pass.",
+    "not-exit-code": "Judge the readiness JSON, not its exit code, which is 0 even for `not-ready`:",
+    "every-rule-once":
+      "`checkedRules` must list each of the eleven `issue-readiness/v1` rule IDs exactly once, with its status and reason codes.",
+    "dispatch-ready":
+      "A brief intended to become dispatchable needs status `ready`, all eleven rules `pass`, and no reason codes.",
+    "lawful-record":
+      "A lawful blocked or candidate registration keeps its genuine metadata and records, before creation, each expected failure with its rule ID, exact reason codes, and lifecycle, dependency or decision reason.",
+    "lawful-only": "Only these failures are lawful:",
+    "lawful-placement":
+      "`ready-00-placed-classified` for intentional non-runnable placement or lifecycle, listing every reason code it reports;",
+    "lawful-dependency":
+      "`ready-00-dependencies-resolved` with `OPEN_NATIVE_DEPENDENCY` for genuine open native blockers;",
+    "lawful-decision":
+      "`ready-06-decisions-resolved` with `UNRESOLVED_DECISION_DECLARED` for a linked unresolved decision that is also an open native blocker, recording both the decision and dependency diagnostics.",
+    "no-other-waiver": "Every other rule must pass, and no other `ready-06` failure is waived.",
+    "withhold-dispatch": "Register the issue blocked or candidate and withhold dispatch.",
+    "fail-closed":
+      "Any other failure, an `unknown` status or rule, malformed or incomplete output, or a missing or duplicate rule ID returns the brief to drafting.",
+    authority:
+      "This prospective proof grants neither dispatch authority nor a semantic pass: the fresh pressure test and a current trusted-default-branch readiness receipt (Enforcement below) still decide dispatch.",
+  };
+  // A sentence that names one of the checks next to skip/omit/exempt/optional or
+  // lint-only vocabulary exempts a path; the guard fails closed on it anywhere.
+  const CHECK_NAME =
+    /\b(?:brief-lint|issue-readiness|pre-registration|lint|preflight|(?:both|two|readiness) checks?)\b/i;
+  const EXEMPTION_GRANT =
+    /\b(?:skip|skips|skipped|omit|omits|exempt|optional|optionally|instead of|need not|not required|only (?:the )?lint|lint(?: check)? only)\b/i;
+
+  const activeMarkdown = (markdown) => markdown.replace(/<!--[\s\S]*?(?:-->|$)/g, "");
+  const normalize = (text) => text.replace(/\s+/g, " ").trim();
+
+  function splitFences(markdown) {
+    const prose = [];
+    const fenced = [];
+    let fence = false;
+    for (const line of markdown.split(/\r?\n/)) {
+      if (/^\s*```/.test(line)) {
+        fence = !fence;
+        continue;
+      }
+      (fence ? fenced : prose).push(line);
+    }
+    return { prose: normalize(prose.join("\n")), fenced: fenced.map((line) => line.trim()) };
+  }
+
+  function preflightSection(active) {
+    const starts = [...active.matchAll(/^### Pre-registration checks[ \t]*$/gm)];
+    if (starts.length !== 1) return null;
+    const bodyStart = starts[0].index + starts[0][0].length;
+    const next = active.slice(bodyStart).search(/^#{1,3} /m);
+    return active.slice(bodyStart, next === -1 ? active.length : bodyStart + next);
+  }
+
+  function preflightViolations(skill) {
+    const active = activeMarkdown(skill);
+    const section = preflightSection(active);
+    const { prose, fenced } = splitFences(section ?? "");
+    const once = (clause) => prose.split(clause).length === 2;
+    const metadataSentence = prose.match(/The metadata names [^.]*\./)?.[0] ?? "";
+    const violations = section === null ? ["section"] : [];
+    if (!fenced.includes(LINT_COMMAND)) violations.push("lint-command");
+    if (!fenced.includes(READINESS_COMMAND)) violations.push("readiness-command");
+    for (const entryPath of ENTRY_PATHS) if (!once(entryPath)) violations.push(`entry-path:${entryPath}`);
+    for (const [key, phrase] of Object.entries(METADATA_FIELDS)) {
+      if (metadataSentence.split(phrase).length !== 2) violations.push(`tuple-field:${key}`);
+    }
+    for (const clauses of [ROUTE_CLAUSES, BOUNDARY_CLAUSES, TUPLE_CLAUSES, INSPECTION_CLAUSES]) {
+      for (const [name, clause] of Object.entries(clauses)) if (!once(clause)) violations.push(name);
+    }
+    if (normalize(active).includes(LINT_ONLY_SENTENCE)) violations.push("lint-only");
+    const sentences = splitFences(active).prose.split(/(?<=[.!?;])\s+/);
+    if (sentences.some((sentence) => CHECK_NAME.test(sentence) && EXEMPTION_GRANT.test(sentence))) {
+      violations.push("product-path-exemption");
+    }
+    return violations;
+  }
+
+  const escapeRegExp = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  function mutate(source, from, to) {
+    const pattern = typeof from === "string" ? new RegExp(escapeRegExp(from).replace(/ /g, "\\s+")) : from;
+    const mutant = source.replace(pattern, () => to);
+    expect(mutant, `mutation anchor not found: ${from}`).not.toBe(source);
+    return mutant;
+  }
+  function expectClauseDeletionsRed(clauses) {
+    for (const source of readSkills()) {
+      for (const [name, clause] of Object.entries(clauses)) {
+        expect(preflightViolations(mutate(source, clause, "")), name).toEqual([name]);
+      }
+    }
+  }
+
+  // Synthetic tuple inputs: identities are unmistakably synthetic, the number is
+  // a disclosed placeholder, and only each case's governing variable changes.
+  const CHECKER_SHA = "c".repeat(40);
+  const CHECKED_AT = new Date("2026-01-01T00:00:00.000Z");
+  const RULE_IDS = ISSUE_READINESS_RULES.map(({ id }) => id);
+  const committedOutcome = Object.freeze({
+    id: "synthetic-committed-outcome",
+    number: 9001,
+    title: "Synthetic committed outcome",
+    description: '<!-- outcome: {"version":1,"track":"delivery","order":1,"status":"committed"} -->',
+    state: "open",
+  });
+  const candidateOutcome = Object.freeze({
+    ...committedOutcome,
+    id: "synthetic-candidate-outcome",
+    number: 9002,
+    title: "Synthetic candidate outcome",
+    description: committedOutcome.description.replace('"committed"', '"candidate"'),
+  });
+  const openBlocker = (number) => ({
+    nodeId: `synthetic-blocker-${number}`,
+    number,
+    state: "open",
+    updatedAt: "2026-01-01T00:00:00Z",
+    issueTypeName: "Slice",
+  });
+  const tuple = (overrides = {}) => ({
+    repository: "chase-sets/chase-sets",
+    number: 1,
+    state: "open",
+    issueType: { nodeId: "synthetic-slice-type", name: "Slice", isEnabled: true },
+    milestone: committedOutcome,
+    labels: ["area:ops", "kind:tech-debt", "priority:p1"],
+    parentNumber: null,
+    dependencies: [],
+    ...overrides,
+  });
+  const UNRESOLVED_DECISION =
+    "The retention decision is unresolved; it is tracked in #9101 and this issue is Blocked by #9101.";
+  const UNPROVEN_DECISION = "All retention decisions are settled.";
+  const EVIDENCE_MARKER = "Evidence: named test `emits ready through main`";
+
+  // The readiness fixture body plus the ready-10 declarations: lint-clean and
+  // structurally ready 11/11 under the committed tuple.
+  function preflightBody(fields = {}) {
+    let body = replaceIssueField(
+      issueReadinessFixture.readyBody,
+      "Scope fence",
+      "Add the structural receipt and consumer.\n\nNon-goals: do not score prose quality.",
+    );
+    body = replaceIssueField(body, "Glossary impact", issueReadinessFixture.explicitNone.glossary);
+    for (const [label, value] of Object.entries(fields)) body = replaceIssueField(body, label, value);
+    return [
+      "QUALITY_PROFILE: contract",
+      body.trimEnd(),
+      intentDeclaration,
+      qualitySections.simplest,
+      qualitySections.notBuilt,
+      qualitySections.ui,
+      qualitySections.data,
+      qualitySections.compatibility,
+      qualitySections.superseded,
+    ].join("\n\n");
+  }
+  const withoutEvidenceMarker = (body) => {
+    const mutant = body.replace(EVIDENCE_MARKER, "named test `emits ready through main`");
+    expect(mutant).not.toBe(body);
+    return mutant;
+  };
+
+  async function runPreflight(body, metadata, { checkerArgs = ["--checker-sha", CHECKER_SHA] } = {}) {
+    const metadataSource = JSON.stringify(metadata);
+    const files = new Map([
+      ["brief.md", body],
+      ["metadata.json", metadataSource],
+    ]);
+    const lintLog = [];
+    const lintExit = await main({
+      argv: ["brief.md"],
+      load: async (file) => files.get(file),
+      logger: { log: (line) => lintLog.push(line), error: (line) => lintLog.push(line) },
+    });
+    const requests = [];
+    const stdout = [];
+    const stderr = [];
+    const result = await readinessMain({
+      argv: ["--prospective-body", "brief.md", "--prospective-metadata", "metadata.json", ...checkerArgs],
+      env: {},
+      client: async (...args) => {
+        requests.push(args);
+        throw new Error("prospective preflight reached GitHub");
+      },
+      readTextFile: async (file) => files.get(file),
+      logger: { log: (line) => stdout.push(line), error: (line) => stderr.push(line) },
+      now: () => CHECKED_AT,
+    });
+    expect(requests).toEqual([]);
+    let record = null;
+    try {
+      record = stdout.length === 1 ? JSON.parse(stdout[0]) : null;
+    } catch {
+      record = null;
+    }
+    return {
+      body,
+      metadata,
+      metadataSource,
+      lintExit,
+      lintLog,
+      readiness: { exitCode: result.exitCode, record, stdout, stderr },
+    };
+  }
+
+  // The instruction's acceptance rule, applied to real lint and readiness output.
+  const LAWFUL_EXPECTED_FAILURES = {
+    "ready-00-placed-classified": { reasons: ["placement", "lifecycle"] },
+    "ready-00-dependencies-resolved": { reasons: ["dependency"], reasonCodes: ["OPEN_NATIVE_DEPENDENCY"] },
+    "ready-06-decisions-resolved": {
+      reasons: ["decision"],
+      reasonCodes: ["UNRESOLVED_DECISION_DECLARED"],
+      requires: "ready-00-dependencies-resolved",
+      blockedByDecision: true,
+    },
+  };
+  function judgePreflight({ intent, expected = [], intendedBlockers = [] }, run) {
+    const verdict = (decision, diagnostic = null) => ({ decision, diagnostic, dispatchAuthority: false });
+    if (run.lintExit !== 0) return verdict("drafting", "LINT_FAILED");
+    if (run.metadata.repository === "chase-sets/chase-sets-controller") return verdict("controller-contract");
+    if (run.metadata.repository !== "chase-sets/chase-sets") return verdict("drafting", "REPOSITORY_UNROUTED");
+    const { exitCode, record } = run.readiness;
+    if (
+      exitCode !== 0 ||
+      record?.schemaVersion !== PROSPECTIVE_ISSUE_READINESS_RUN_SCHEMA_VERSION ||
+      !Array.isArray(record.checkedRules) ||
+      !Array.isArray(record.reasonCodes)
+    ) {
+      return verdict("drafting", "OUTPUT_INVALID");
+    }
+    const declared = run.metadata.dependencies.map(({ number }) => number).sort((left, right) => left - right);
+    if (JSON.stringify(declared) !== JSON.stringify([...intendedBlockers].sort((left, right) => left - right))) {
+      return verdict("drafting", "TUPLE_NOT_TRUTHFUL");
+    }
+    const ids = record.checkedRules.map(({ id }) => id);
+    if (
+      ids.length !== RULE_IDS.length ||
+      new Set(ids).size !== ids.length ||
+      RULE_IDS.some((id) => !ids.includes(id))
+    ) {
+      return verdict("drafting", "RULE_SET_INVALID");
+    }
+    if (record.status === "unknown" || record.checkedRules.some(({ status }) => !["pass", "fail"].includes(status))) {
+      return verdict("drafting", "UNKNOWN");
+    }
+    if (intent === "dispatch" && expected.length > 0) return verdict("drafting", "DISPATCH_WITH_EXPECTED_FAILURES");
+    if (intent !== "dispatch" && expected.length === 0) return verdict("drafting", "EXPECTED_FAILURES_MISSING");
+    if (new Set(expected.map(({ ruleId }) => ruleId)).size !== expected.length) {
+      return verdict("drafting", "EXPECTED_FAILURES_DUPLICATED");
+    }
+    for (const entry of expected) {
+      const lawful = LAWFUL_EXPECTED_FAILURES[entry.ruleId];
+      if (
+        !lawful ||
+        !lawful.reasons.includes(entry.reason) ||
+        (lawful.reasonCodes && JSON.stringify(entry.reasonCodes) !== JSON.stringify(lawful.reasonCodes)) ||
+        (lawful.requires && !expected.some(({ ruleId }) => ruleId === lawful.requires)) ||
+        (lawful.blockedByDecision &&
+          !run.metadata.dependencies.some(({ number, state }) => number === entry.decisionIssue && state === "open"))
+      ) {
+        return verdict("drafting", `EXPECTED_FAILURE_UNLAWFUL:${entry.ruleId}`);
+      }
+    }
+    const failing = record.checkedRules.filter(({ status }) => status === "fail");
+    for (const rule of failing) {
+      const entry = expected.find(({ ruleId }) => ruleId === rule.id);
+      if (!entry || JSON.stringify(entry.reasonCodes) !== JSON.stringify(rule.reasonCodes)) {
+        return verdict("drafting", `UNEXPECTED_FAILURE:${rule.id}:${rule.reasonCodes.join(",")}`);
+      }
+    }
+    for (const entry of expected) {
+      if (!failing.some(({ id }) => id === entry.ruleId))
+        return verdict("drafting", `EXPECTED_FAILURE_ABSENT:${entry.ruleId}`);
+    }
+    if (intent === "dispatch") {
+      return record.status === "ready" && record.reasonCodes.length === 0
+        ? verdict("dispatchable-registration")
+        : verdict("drafting", "STATUS_INCONSISTENT");
+    }
+    return record.status === "not-ready"
+      ? verdict("non-dispatchable-registration")
+      : verdict("drafting", "STATUS_INCONSISTENT");
+  }
+
+  const dependencyFailure = (reason = "dependency") => ({
+    ruleId: "ready-00-dependencies-resolved",
+    reasonCodes: ["OPEN_NATIVE_DEPENDENCY"],
+    reason,
+  });
+  const decisionFailure = {
+    ruleId: "ready-06-decisions-resolved",
+    reasonCodes: ["UNRESOLVED_DECISION_DECLARED"],
+    reason: "decision",
+    decisionIssue: 9101,
+  };
+  const CANDIDATE_PLACEMENT_CODES = ["ISSUE_NOT_CLASSIFIED", "MILESTONE_CANDIDATE", "MILESTONE_NOT_EXECUTABLE"];
+  const lawfulStates = {
+    "unblocked dispatch candidate": {
+      body: preflightBody(),
+      metadata: tuple(),
+      plan: { intent: "dispatch" },
+      decision: "dispatchable-registration",
+    },
+    "honest serial successor": {
+      body: preflightBody(),
+      metadata: tuple({ dependencies: [openBlocker(9100)] }),
+      plan: { intent: "blocked", intendedBlockers: [9100], expected: [dependencyFailure()] },
+      decision: "non-dispatchable-registration",
+    },
+    "linked unresolved-decision draft": {
+      body: preflightBody({ "Decisions already made": UNRESOLVED_DECISION }),
+      metadata: tuple({ dependencies: [openBlocker(9101)] }),
+      plan: { intent: "blocked", intendedBlockers: [9101], expected: [dependencyFailure(), decisionFailure] },
+      decision: "non-dispatchable-registration",
+    },
+    "legitimate candidate outcome placement": {
+      body: preflightBody(),
+      metadata: tuple({ milestone: candidateOutcome }),
+      plan: {
+        intent: "candidate",
+        expected: [
+          { ruleId: "ready-00-placed-classified", reasonCodes: CANDIDATE_PLACEMENT_CODES, reason: "placement" },
+        ],
+      },
+      decision: "non-dispatchable-registration",
+    },
+  };
+
+  it("planning requires both product pre-registration checks", () => {
+    const sources = readSkills();
+    expect(sources[0]).toBe(sources[1]);
+    for (const source of sources) {
+      expect(preflightViolations(source)).toEqual([]);
+      expect(source.split(SECTION_HEADING)).toHaveLength(2);
+
+      // The superseded lint-only instruction fails the guard.
+      const section = source.slice(source.indexOf(SECTION_HEADING), source.indexOf("\n## Pipeline"));
+      const lintOnly = mutate(source, section, LINT_ONLY_INSTRUCTION);
+      expect(preflightViolations(lintOnly)).toEqual(
+        expect.arrayContaining(["section", "readiness-command", "lint-only"]),
+      );
+
+      // Lint stays mandatory beside readiness, and the checker SHA is explicit.
+      expect(preflightViolations(mutate(source, `${LINT_COMMAND}\n`, ""))).toEqual(["lint-command"]);
+      expect(
+        preflightViolations(mutate(source, READINESS_COMMAND, READINESS_COMMAND.replace(/ --checker-sha \S+$/, ""))),
+      ).toEqual(["readiness-command"]);
+      for (const entryPath of ENTRY_PATHS) {
+        expect(preflightViolations(mutate(source, entryPath, "")), entryPath).toEqual([`entry-path:${entryPath}`]);
+      }
+    }
+    expectClauseDeletionsRed(ROUTE_CLAUSES);
+  });
+
+  it("planning respects repository readiness boundaries", async () => {
+    for (const source of readSkills()) {
+      expect(preflightViolations(source)).toEqual([]);
+      const prose = normalize(source);
+      // Shared standard, controller-owned release, and trusted dispatch authority stay.
+      expect(prose).toContain(
+        "A `chase-sets/chase-sets-controller` issue uses the same brief standard and pressure test. Its milestone and release follow that repository's controller-orchestrator skill.",
+      );
+      expect(prose).toContain(
+        "The milestone orchestrator runs the trusted-default-branch `.github/workflows/issue-readiness.yml` only for the issue being considered",
+      );
+      expect(preflightViolations(mutate(source, "not this eleven-rule check.", "and this eleven-rule check."))).toEqual(
+        ["controller-route"],
+      );
+    }
+    expectClauseDeletionsRed(BOUNDARY_CLAUSES);
+
+    const controllerFootprint = preflightBody({
+      "Footprint & chain": "`.orchestrator/dispatch-lane.ps1`, `scripts/next-work.mjs`. Callers: the dispatch gate.",
+    });
+    const product = await runPreflight(controllerFootprint, tuple());
+    expect(product.lintExit).toBe(0);
+    expect(product.readiness.record.checkedRules.find(({ id }) => id === "ready-05-footprint-operators")).toEqual({
+      id: "ready-05-footprint-operators",
+      status: "fail",
+      reasonCodes: ["FOOTPRINT_IN_CONTROLLER_REPOSITORY"],
+    });
+    expect(judgePreflight({ intent: "dispatch" }, product)).toMatchObject({
+      decision: "drafting",
+      diagnostic: "UNEXPECTED_FAILURE:ready-05-footprint-operators:FOOTPRINT_IN_CONTROLLER_REPOSITORY",
+    });
+    expect(
+      judgePreflight(
+        {
+          intent: "blocked",
+          expected: [
+            {
+              ruleId: "ready-05-footprint-operators",
+              reasonCodes: ["FOOTPRINT_IN_CONTROLLER_REPOSITORY"],
+              reason: "placement",
+            },
+          ],
+        },
+        product,
+      ),
+    ).toMatchObject({ decision: "drafting", diagnostic: "EXPECTED_FAILURE_UNLAWFUL:ready-05-footprint-operators" });
+
+    // The same controller-routed brief is not-ready under the product rules, so
+    // product eleven-rule admission cannot be its authority.
+    const controller = await runPreflight(
+      controllerFootprint,
+      tuple({ repository: "chase-sets/chase-sets-controller" }),
+    );
+    expect(controller.readiness.record.status).toBe("not-ready");
+    expect(judgePreflight({ intent: "dispatch" }, controller)).toMatchObject({ decision: "controller-contract" });
+    const controllerLintRed = await runPreflight(
+      controllerFootprint.replace("QUALITY_PROFILE: contract", "QUALITY_PROFILE:"),
+      tuple({ repository: "chase-sets/chase-sets-controller" }),
+    );
+    expect(judgePreflight({ intent: "dispatch" }, controllerLintRed)).toMatchObject({ diagnostic: "LINT_FAILED" });
+  });
+
+  it("planning binds the exact prospective tuple", async () => {
+    expect(Object.keys(METADATA_FIELDS)).toEqual([
+      "repository",
+      "number",
+      "state",
+      "issueType",
+      "milestone",
+      "labels",
+      "parentNumber",
+      "dependencies",
+    ]);
+    for (const source of readSkills()) {
+      for (const [key, phrase] of Object.entries(METADATA_FIELDS)) {
+        expect(preflightViolations(mutate(source, phrase, "")), key).toEqual([`tuple-field:${key}`]);
+      }
+    }
+    expectClauseDeletionsRed(TUPLE_CLAUSES);
+
+    // Every key the instruction names is one the evaluator refuses to run without.
+    for (const key of Object.keys(METADATA_FIELDS)) {
+      const metadata = tuple();
+      delete metadata[key];
+      const run = await runPreflight(preflightBody(), metadata);
+      expect(run.readiness, key).toMatchObject({
+        exitCode: 2,
+        record: null,
+        stderr: ["PROSPECTIVE_METADATA_INCOMPLETE"],
+      });
+      expect(judgePreflight({ intent: "dispatch" }, run), key).toMatchObject({
+        decision: "drafting",
+        diagnostic: key === "repository" ? "REPOSITORY_UNROUTED" : "OUTPUT_INVALID",
+      });
+    }
+
+    // A disclosed placeholder and an actual repair number reduce identically; a
+    // non-positive number is refused.
+    const placeholder = await runPreflight(preflightBody(), tuple({ number: 1 }));
+    const actual = await runPreflight(preflightBody(), tuple({ number: 6253 }));
+    expect(placeholder.readiness.record.subject.number).toBe(1);
+    expect(actual.readiness.record.subject.number).toBe(6253);
+    expect(placeholder.readiness.record.checkedRules).toEqual(actual.readiness.record.checkedRules);
+    expect(judgePreflight({ intent: "dispatch" }, placeholder)).toMatchObject({
+      decision: "dispatchable-registration",
+    });
+    const zero = await runPreflight(preflightBody(), tuple({ number: 0 }));
+    expect(zero.readiness).toMatchObject({ exitCode: 2, stderr: ["ISSUE_NUMBER_INVALID"] });
+
+    // The checker commit is explicit and 40 characters.
+    for (const checkerArgs of [[], ["--checker-sha", "c".repeat(7)]]) {
+      const run = await runPreflight(preflightBody(), tuple(), { checkerArgs });
+      expect(run.readiness, checkerArgs.join(" ")).toMatchObject({ exitCode: 2, stderr: ["CHECKER_SHA_INVALID"] });
+    }
+    const upper = await runPreflight(preflightBody(), tuple(), { checkerArgs: ["--checker-sha", "C".repeat(40)] });
+    expect(upper.readiness.record.provenance.checkerSha).toBe(CHECKER_SHA);
+
+    // Retained proof binds body bytes, metadata bytes, checker and output; any
+    // edit invalidates it, and an edited tuple can reduce differently.
+    const sha256 = (text) => createHash("sha256").update(text, "utf8").digest("hex");
+    const retained = await runPreflight(preflightBody(), tuple());
+    const proof = {
+      bodySha256: sha256(retained.body),
+      metadataSha256: sha256(retained.metadataSource),
+      checkerSha: CHECKER_SHA,
+      outputSha256: sha256(retained.readiness.stdout[0]),
+    };
+    const proofCurrent = ({ body, metadataSource, checkerSha }) =>
+      proof.bodySha256 === sha256(body) &&
+      proof.metadataSha256 === sha256(metadataSource) &&
+      proof.checkerSha === checkerSha;
+    expect(proofCurrent({ ...retained, checkerSha: CHECKER_SHA })).toBe(true);
+    expect(proofCurrent({ ...retained, body: `${retained.body} `, checkerSha: CHECKER_SHA })).toBe(false);
+    const edited = await runPreflight(preflightBody(), tuple({ dependencies: [openBlocker(9100)] }));
+    expect(proofCurrent({ ...edited, checkerSha: CHECKER_SHA })).toBe(false);
+    expect(sha256(edited.readiness.stdout[0])).not.toBe(proof.outputSha256);
+    expect(edited.readiness.record.status).toBe("not-ready");
+    expect(proofCurrent({ ...retained, checkerSha: "d".repeat(40) })).toBe(false);
+  });
+
+  it("planning distinguishes lawful non-runnable drafts from defective bodies", async () => {
+    expect(RULE_IDS).toHaveLength(11);
+    expectClauseDeletionsRed(INSPECTION_CLAUSES);
+
+    for (const [name, state] of Object.entries(lawfulStates)) {
+      const run = await runPreflight(state.body, state.metadata);
+      expect(run.lintExit, name).toBe(0);
+      expect(run.readiness.exitCode, name).toBe(0);
+      const failing = run.readiness.record.checkedRules.filter(({ status }) => status !== "pass");
+      expect(
+        failing.map(({ id, reasonCodes }) => ({ ruleId: id, reasonCodes })),
+        name,
+      ).toEqual((state.plan.expected ?? []).map(({ ruleId, reasonCodes }) => ({ ruleId, reasonCodes })));
+      expect(judgePreflight(state.plan, run), name).toEqual({
+        decision: state.decision,
+        diagnostic: null,
+        dispatchAuthority: false,
+      });
+      expect(run.readiness.record).toMatchObject({
+        claim: "structural-only-prospective",
+        semanticPressureTest: "not-evaluated",
+      });
+
+      // An unrelated malformed AC is never masked by an expected lifecycle failure.
+      const defective = await runPreflight(withoutEvidenceMarker(state.body), state.metadata);
+      expect(judgePreflight(state.plan, defective), name).toMatchObject({
+        decision: "drafting",
+        diagnostic: "UNEXPECTED_FAILURE:ready-03-acceptance-evidence:AC_EVIDENCE_NOT_DISCRIMINATING",
+      });
+    }
+
+    const { "unblocked dispatch candidate": ready, "honest serial successor": successor } = lawfulStates;
+    const decision = lawfulStates["linked unresolved-decision draft"];
+    const candidate = lawfulStates["legitimate candidate outcome placement"];
+    const readyRun = await runPreflight(ready.body, ready.metadata);
+    const withRecord = (run, record) => ({ ...run, readiness: { ...run.readiness, record } });
+    const bypasses = [
+      ["omitted blocker", successor.plan, await runPreflight(successor.body, tuple()), "TUPLE_NOT_TRUTHFUL"],
+      [
+        "fabricated blocker",
+        { ...decision.plan, intendedBlockers: [] },
+        await runPreflight(decision.body, decision.metadata),
+        "TUPLE_NOT_TRUTHFUL",
+      ],
+      [
+        "unresolved decision without an open native blocker",
+        { intent: "blocked", expected: [decisionFailure] },
+        await runPreflight(decision.body, tuple()),
+        "EXPECTED_FAILURE_UNLAWFUL:ready-06-decisions-resolved",
+      ],
+      [
+        "unresolved decision blocked only by an unrelated issue",
+        { ...decision.plan, intendedBlockers: [9100] },
+        await runPreflight(decision.body, tuple({ dependencies: [openBlocker(9100)] })),
+        "EXPECTED_FAILURE_UNLAWFUL:ready-06-decisions-resolved",
+      ],
+      [
+        "unrelated ready-06 failure",
+        decision.plan,
+        await runPreflight(preflightBody({ "Decisions already made": UNPROVEN_DECISION }), decision.metadata),
+        "UNEXPECTED_FAILURE:ready-06-decisions-resolved:DECISION_RESOLUTION_UNPROVEN",
+      ],
+      [
+        "unexplained placement reason",
+        {
+          ...candidate.plan,
+          expected: [{ ...candidate.plan.expected[0], reasonCodes: CANDIDATE_PLACEMENT_CODES.slice(1) }],
+        },
+        await runPreflight(candidate.body, candidate.metadata),
+        `UNEXPECTED_FAILURE:ready-00-placed-classified:${CANDIDATE_PLACEMENT_CODES.join(",")}`,
+      ],
+      [
+        "unjustified expected failure",
+        { ...successor.plan, expected: [dependencyFailure("convenience")] },
+        await runPreflight(successor.body, successor.metadata),
+        "EXPECTED_FAILURE_UNLAWFUL:ready-00-dependencies-resolved",
+      ],
+      [
+        "arbitrary not-ready claim",
+        { intent: "blocked", expected: [dependencyFailure()] },
+        readyRun,
+        "EXPECTED_FAILURE_ABSENT:ready-00-dependencies-resolved",
+      ],
+      [
+        "unknown status",
+        successor.plan,
+        await runPreflight(`${successor.body}\n\n\`\`\`text\n`, successor.metadata),
+        "UNKNOWN",
+      ],
+      [
+        "missing rule",
+        ready.plan,
+        withRecord(readyRun, {
+          ...readyRun.readiness.record,
+          checkedRules: readyRun.readiness.record.checkedRules.slice(1),
+        }),
+        "RULE_SET_INVALID",
+      ],
+      [
+        "duplicate rule",
+        ready.plan,
+        withRecord(readyRun, {
+          ...readyRun.readiness.record,
+          checkedRules: [...readyRun.readiness.record.checkedRules.slice(1), readyRun.readiness.record.checkedRules[1]],
+        }),
+        "RULE_SET_INVALID",
+      ],
+      [
+        "incomplete output",
+        ready.plan,
+        withRecord(readyRun, { schemaVersion: readyRun.readiness.record.schemaVersion, status: "ready" }),
+        "OUTPUT_INVALID",
+      ],
+      [
+        "exit-0-only acceptance",
+        ready.plan,
+        await runPreflight(withoutEvidenceMarker(ready.body), ready.metadata),
+        "UNEXPECTED_FAILURE:ready-03-acceptance-evidence:AC_EVIDENCE_NOT_DISCRIMINATING",
+      ],
+      [
+        "local-as-dispatch",
+        { intent: "dispatch", intendedBlockers: [9100] },
+        await runPreflight(successor.body, successor.metadata),
+        "UNEXPECTED_FAILURE:ready-00-dependencies-resolved:OPEN_NATIVE_DEPENDENCY",
+      ],
+      [
+        "lint skipped",
+        ready.plan,
+        await runPreflight(ready.body.replace("QUALITY_PROFILE: contract", "QUALITY_PROFILE:"), ready.metadata),
+        "LINT_FAILED",
+      ],
+    ];
+    for (const [name, plan, run, diagnostic] of bypasses) {
+      expect(judgePreflight(plan, run), name).toEqual({ decision: "drafting", diagnostic, dispatchAuthority: false });
+    }
+    expect(bypasses.find(([name]) => name === "exit-0-only acceptance")[2].readiness.exitCode).toBe(0);
+
+    // A prospective record is never a dispatch receipt.
+    expect(
+      consumeIssueReadinessReceipt({
+        receipt: readyRun.readiness.record,
+        currentRevision: {
+          repository: "chase-sets/chase-sets",
+          number: 1,
+          nodeId: null,
+          updatedAt: null,
+          milestone: committedOutcome,
+        },
+        trustedCheckerSha: CHECKER_SHA,
+        semanticPressureTest: "pass",
+      }),
+    ).toMatchObject({ decision: "reject", reasonCode: "RECEIPT_MALFORMED" });
+  });
+
+  it("planning refuses incomplete prospective readiness proof", () => {
+    const exemptions = [
+      ["Stage 2-light for Issues still requires this check.", " The Issues tier may omit the readiness check."],
+      ["tier shortcuts never skip the supersession check or placement.", " Fast-path briefs skip the readiness check."],
+      ["Repair findings before registration.", " Full-path briefs need not run both checks."],
+      ["whatever the tier.", " Epic and Milestone children run lint only."],
+      [
+        "or Operations for machine-generated incidents;",
+        " host and review follow-ups are exempt from the pre-registration checks;",
+      ],
+      [
+        "**The pressure test is mandatory**, not tier-dependent.",
+        " Replacement briefs skip the prospective readiness check.",
+      ],
+      ["rerun both checks.", " A repaired body needs only the lint."],
+      ["(one parent per slice);", " the readiness check is optional for child issues;"],
+    ];
+    for (const source of readSkills()) {
+      expect(preflightViolations(source)).toEqual([]);
+      // Inert or prose-only command tokens are not a check.
+      expect(preflightViolations(mutate(source, READINESS_COMMAND, `<!-- ${READINESS_COMMAND} -->`))).toEqual([
+        "readiness-command",
+      ]);
+      expect(
+        preflightViolations(
+          mutate(
+            mutate(source, `${READINESS_COMMAND}\n`, ""),
+            "Lint must pass.",
+            `The readiness command is \`${READINESS_COMMAND}\`. Lint must pass.`,
+          ),
+        ),
+      ).toEqual(["readiness-command"]);
+      for (const [anchor, exemption] of exemptions) {
+        expect(preflightViolations(mutate(source, anchor, `${anchor}${exemption}`)), exemption).toEqual([
+          "product-path-exemption",
+        ]);
+      }
+    }
+  });
+
+  it("lint clean does not imply prospective readiness", async () => {
+    const clean = await runPreflight(preflightBody(), tuple());
+    expect(clean.lintExit).toBe(0);
+    expect(clean.readiness.exitCode).toBe(0);
+    expect(clean.readiness.record.status).toBe("ready");
+    expect(clean.readiness.record.checkedRules.map(({ id, status }) => [id, status])).toEqual(
+      RULE_IDS.map((id) => [id, "pass"]),
+    );
+
+    // Remove only one AC Evidence: marker; every other input stays frozen.
+    const defective = await runPreflight(withoutEvidenceMarker(preflightBody()), tuple());
+    expect(defective.lintExit).toBe(0);
+    expect(defective.lintLog).toEqual([expect.stringContaining("Brief lint passed")]);
+    expect(defective.readiness.exitCode).toBe(0);
+    expect(defective.readiness.record.status).toBe("not-ready");
+    expect(defective.readiness.record.reasonCodes).toEqual(["AC_EVIDENCE_NOT_DISCRIMINATING"]);
+    expect(defective.readiness.record.checkedRules.filter(({ status }) => status !== "pass")).toEqual([
+      { id: "ready-03-acceptance-evidence", status: "fail", reasonCodes: ["AC_EVIDENCE_NOT_DISCRIMINATING"] },
+    ]);
+    expect(defective.readiness.record.acceptanceDiagnostics[0]).toEqual({
+      index: 1,
+      status: "fail",
+      reasonCode: "EVIDENCE_MARKER_MISSING",
+    });
+    expect(judgePreflight({ intent: "dispatch" }, defective)).toMatchObject({
+      decision: "drafting",
+      diagnostic: "UNEXPECTED_FAILURE:ready-03-acceptance-evidence:AC_EVIDENCE_NOT_DISCRIMINATING",
+    });
+
+    // So lint alone cannot stand in for readiness: both mirrors require both.
+    for (const source of readSkills()) {
+      const violations = preflightViolations(source);
+      expect(violations).not.toContain("lint-command");
+      expect(violations).not.toContain("readiness-command");
+      expect(violations).not.toContain("lint-only");
     }
   });
 });

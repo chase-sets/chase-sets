@@ -340,6 +340,9 @@ describeDb("auth projection row identity", () => {
           // updated_at -- the recent-auth ("step-up") fact this row exists to
           // preserve.
           started_at: "2026-06-12T12:22:00.000Z",
+          // The started event above predates the Session Generation floor
+          // (no `sessionGeneration`), so the row projects generation 0.
+          session_generation: 0,
           updated_at: "2026-06-12T12:25:00.000Z",
         },
       ],

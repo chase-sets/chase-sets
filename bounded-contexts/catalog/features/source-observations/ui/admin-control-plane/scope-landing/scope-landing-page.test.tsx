@@ -43,6 +43,8 @@ function scope(overrides: Partial<CatalogScopeRecordDetail> = {}): CatalogScopeR
     languageEditions: ["en", "ja"],
     lifecycleStatus: "active",
     updatedAt: GENERATED_AT,
+    promotionReadiness: "live",
+    syncFreshness: "fresh",
     ...overrides,
   };
 }
@@ -243,7 +245,7 @@ describe("CatalogScopeLandingPage", () => {
 
   it("shows a stale-sync signal for a scope whose projection has not advanced recently", () => {
     renderLanding({
-      scopes: { items: [scope({ updatedAt: "2026-01-01T00:00:00.000Z" })], total: 1, count: 1 },
+      scopes: { items: [scope({ updatedAt: "2026-01-01T00:00:00.000Z", syncFreshness: "stale" })], total: 1, count: 1 },
     });
 
     expect(screen.getAllByText("Stale sync").length).toBeGreaterThan(0);

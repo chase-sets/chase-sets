@@ -114,6 +114,7 @@ export const catalogControlPlaneTelemetryPromotionResults = [
   "section-conflict",
   "section-invalid",
   "lifecycle-conflict",
+  "candidate-stale",
   "confirmation-required",
   "reason-required",
   "catalog-sync-blocked",

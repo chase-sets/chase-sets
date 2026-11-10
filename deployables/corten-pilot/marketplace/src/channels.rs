@@ -7,11 +7,11 @@
 //! `/account/channels/publication/{id}`): its settings, the listings recorded as blocked, and the
 //! mappings to review with Accept, Reject and Revoke.
 //!
-//! Reading needs `channels.view` and writing `channels.manage` (`ChannelsMember`). Which providers a
-//! seller may connect and which actions a connection allows are copied here from marketplace's
-//! web layer until the Channels API returns them
-//! ([chase-sets/chase-sets#10778](https://github.com/chase-sets/chase-sets/issues/10778)):
-//! `PROVIDERS` and `actions`. A write goes to the connection with its receipt; a refusal is the page
+//! Reading needs `channels.view` and writing `channels.manage` (`ChannelsMember`). Channels says
+//! which providers the seller may connect (`GET /api/channels/connections/providers`, read only for a
+//! seller with `channels.manage`, as Channels answers none to the rest) and which actions each
+//! connection allows (its `allowedActions`); Connect sends the provider chosen and Channels refuses
+//! one it cannot connect. A write goes to the connection with its receipt; a refusal is the page
 //! with Channels' words for it (422), a failure the same with a 502. A connection's drift, health,
 //! pairing and operation log are on marketplace for now.
 //!
@@ -19,10 +19,9 @@
 //! answer. Its writes post to `{id}/manual-sync` (an export's ingest, a file, to
 //! `{id}/manual-sync/ingest`) and go back to the connection, or draw it with what was refused; an
 //! ingest draws it with Channels' receipt. Clamp and download posts to `{id}/manual-sync/download`
-//! and answers Channels' CSV. A handler that answers a file cannot answer a page
-//! ([todd-skelton/corten#415](https://github.com/todd-skelton/corten/issues/415)), so a refused
-//! download is relayed as a redirect to the connection with `?manual=failed` (marketplace shows
-//! Channels' JSON instead, [chase-sets/chase-sets#10812](https://github.com/chase-sets/chase-sets/issues/10812)).
+//! and answers Channels' CSV, or, refused, the connection with what was refused, as the other
+//! writes do (`PageOr`; marketplace shows Channels' JSON instead,
+//! [chase-sets/chase-sets#10812](https://github.com/chase-sets/chase-sets/issues/10812)).
 //!
 //! A publication write is made at the configuration version the page was drawn with and answers
 //! the version it made, not a receipt: the page goes to its address with that version and reads
@@ -33,17 +32,14 @@
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use corten::{
-    Relay,
-    axum::{
-        body::Body,
-        http::{HeaderMap, HeaderName, HeaderValue, StatusCode, header},
-    },
+    PageOr, Relay,
+    answer::Body,
+    http::{HeaderMap, HeaderName, HeaderValue, StatusCode},
     prelude::*,
 };
 use platform::receipt::Receipt;
 use serde::Deserialize;
 
-use crate::chrome::Chrome;
 use crate::{
     api::{
         ApiError, ChannelCalls as _, ChannelConnection, ChannelConnectionPage, ChannelPublication, ChannelPublicationSummary,
@@ -62,36 +58,12 @@ use crate::{
 /// The statuses a connection has, in the filter's order.
 pub const STATUSES: [&str; 4] = ["pending-setup", "active", "paused", "disconnected"];
 
-/// The providers a seller may connect, and the environment each is for: marketplace's registry,
-/// whose setup is resolved on its server (#10778 asks the Channels API to answer this).
-const PROVIDERS: [(&str, &str); 2] = [("tcgplayer", "sandbox"), ("tcgplayer", "production")];
+/// The connection commands the page offers, of those Channels says a connection allows.
+pub const ACTIONS: [&str; 3] = ["pause", "resume", "disconnect"];
 
-/// The channel environment this deployment connects to (`mapDeploymentEnvironment`): production
-/// for `DEPLOYMENT_ENVIRONMENT=production`, the sandbox for every other.
-fn environment() -> &'static str {
-    match std::env::var("DEPLOYMENT_ENVIRONMENT").as_deref().map(str::trim) {
-        Ok("production") => "production",
-        _ => "sandbox",
-    }
-}
-
-/// The providers this seller may connect: none without `channels.manage`.
-pub fn providers(viewer: &Viewer) -> Vec<&'static str> {
-    if !viewer.actor.can(CHANNELS_MANAGE) {
-        return Vec::new();
-    }
-    let environment = environment();
-    PROVIDERS.iter().filter(|(_, e)| *e == environment).map(|(key, _)| *key).collect()
-}
-
-/// What a connection in `status` allows (`allowedChannelConnectionActions`; #10778).
-pub fn actions(status: &str) -> &'static [&'static str] {
-    match status {
-        "pending-setup" => &["disconnect"],
-        "active" => &["pause", "disconnect"],
-        "paused" => &["resume", "disconnect"],
-        _ => &[],
-    }
+/// The actions `connection` allows that the page offers, in Channels' order.
+pub fn actions(connection: &ChannelConnection) -> Vec<&'static str> {
+    connection.allowed_actions.iter().filter_map(|a| ACTIONS.iter().find(|known| **known == a.as_str()).copied()).collect()
 }
 
 /// The list's address: the status shown (none: every connection not disconnected) and the page.
@@ -128,13 +100,11 @@ impl ListPlace {
 #[route(query)]
 pub struct ConnectionPlace {
     pub after_write: Option<String>,
-    /// `failed`: a manual sync download Channels refused.
-    pub manual: Option<String>,
 }
 
 /// A manual sync write: its intent, the run and revision it was made at, and Upload attempt's
 /// and Verify's fields, in marketplace's names.
-#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[derive(Clone, Debug, Default, Fields)]
 #[serde(default)]
 pub struct ManualSyncForm {
     pub intent: String,
@@ -162,7 +132,7 @@ impl ManualSyncForm {
 }
 
 /// An export's ingest form: its surface (`live` or `staged`) and the file (`export`).
-#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[derive(Clone, Debug, Default, Fields)]
 #[serde(default)]
 pub struct IngestForm {
     pub surface: String,
@@ -190,7 +160,7 @@ pub enum ManualSaid {
 }
 
 /// Connect a channel.
-#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[derive(Clone, Debug, Default, Fields)]
 #[serde(default)]
 pub struct ConnectForm {
     #[serde(rename = "providerKey")]
@@ -198,7 +168,7 @@ pub struct ConnectForm {
 }
 
 /// A connection's write: `pause`, `resume`, `disconnect`, or `activate` on the locations checked.
-#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[derive(Clone, Debug, Default, Fields)]
 #[serde(default)]
 pub struct ConnectionForm {
     pub intent: String,
@@ -211,7 +181,8 @@ pub struct ChannelsScreen {
     /// Channels' page; `None` when the read failed.
     pub page: Option<ChannelConnectionPage>,
     pub place: ListPlace,
-    pub providers: Vec<&'static str>,
+    /// The providers Channels says the seller may connect.
+    pub providers: Vec<String>,
     /// What Connect was refused for.
     pub connect_error: Option<String>,
 }
@@ -249,25 +220,28 @@ async fn render_list(
     place: ListPlace,
     connect_error: Option<String>,
     status: StatusCode,
-    chrome: &Chrome,
 ) -> HtmlResult {
     let t: ChannelsMsg = req.t();
     let caller = config.platform.caller(headers, config.proto, None);
-    let (page, status) = match caller.channel_connections(place.status(), place.cursor()).await {
-        Ok(page) => (Some(page), status),
+    let manage = viewer.actor.can(CHANNELS_MANAGE);
+    let (connections, providers) = tokio::join!(caller.channel_connections(place.status(), place.cursor()), async {
+        if manage { caller.channel_providers().await } else { Ok(Vec::new()) }
+    });
+    let read = connections.and_then(|page| providers.map(|providers| (page, providers)));
+    let (page, providers, status) = match read {
+        Ok((page, providers)) => (Some(page), providers.into_iter().map(|p| p.provider_key).collect(), status),
         Err(error) if error.status() == Some(StatusCode::UNAUTHORIZED) => return sign_in(req),
         Err(error) if error.status() == Some(StatusCode::FORBIDDEN) => {
-            return read_failed(req, Some(viewer), error, None, chrome.cart().await);
+            return read_failed(req, Some(viewer), error, None);
         }
         Err(error) => {
             tracing::warn!("the channel connections' read failed: {error}");
-            (None, StatusCode::BAD_GATEWAY)
+            (None, Vec::new(), StatusCode::BAD_GATEWAY)
         }
     };
-    let screen = ChannelsScreen { page, place, providers: providers(viewer), connect_error };
-    let cart = chrome.cart().await;
+    let screen = ChannelsScreen { page, place, providers, connect_error };
     let page = html! {
-        <Layout req={req} viewer={Some(viewer)} cart={cart} title={t.connections_meta_title()} head={noindex()}>
+        <Layout req={req} viewer={Some(viewer)} title={t.connections_meta_title()} head={noindex()}>
             <views::ChannelsPage t={t} p={req.t()} screen={&screen} />
         </Layout>
     };
@@ -277,20 +251,18 @@ async fn render_list(
 /// The connections, of the status and page the address names.
 pub(crate) async fn list(
     req: Req,
-    chrome: Chrome,
     Caller(ChannelsMember(viewer)): Caller<ChannelsMember>,
     State(config): State<Shared>,
     headers: HeaderMap,
     Params(route): Params<url::channels::Channels>,
 ) -> HtmlResult {
-    render_list(&req, &viewer, &config, &headers, route.place, None, StatusCode::OK, &chrome).await
+    render_list(&req, &viewer, &config, &headers, route.place, None, StatusCode::OK).await
 }
 
 /// Connect a channel: the new connection's page with the write's receipt, or the list with what
 /// was refused.
 pub(crate) async fn connect(
     req: Req,
-    chrome: Chrome,
     Caller(ChannelsMember(viewer)): Caller<ChannelsMember>,
     State(config): State<Shared>,
     headers: HeaderMap,
@@ -307,18 +279,14 @@ pub(crate) async fn connect(
             ListPlace::default(),
             Some(t.connections_action_failed().to_owned()),
             status,
-            &chrome,
         )
     };
-    if !providers(&viewer).contains(&provider) {
-        return refused(StatusCode::UNPROCESSABLE_ENTITY).await;
-    }
     let caller = config.platform.caller(&headers, config.proto, None);
     match caller.connect_channel(provider).await {
         Ok((connection, receipt)) => req.redirect(&connection_url(&connection.connection_id, receipt.as_ref())),
         Err(error) => match error.status() {
             Some(StatusCode::UNAUTHORIZED) => sign_in(&req),
-            Some(StatusCode::FORBIDDEN) => Err(corten::Error::new(error).with_status(StatusCode::FORBIDDEN)),
+            Some(StatusCode::FORBIDDEN) => Err(crate::app::api_refused(error)),
             status => {
                 tracing::warn!("connecting a channel was refused: {error}");
                 refused(refusal_status(status)).await
@@ -332,7 +300,7 @@ fn refusal_status(status: Option<StatusCode>) -> StatusCode {
 }
 
 fn connection_url<'a>(id: &'a str, receipt: Option<&Receipt>) -> url::ChannelConnection<'a> {
-    url::ChannelConnection { id, place: ConnectionPlace { after_write: receipt.map(Receipt::param), manual: None } }
+    url::ChannelConnection { id, place: ConnectionPlace { after_write: receipt.map(Receipt::param) } }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -346,10 +314,8 @@ async fn render_connection(
     written: Option<ChannelConnection>,
     error: Option<String>,
     status: StatusCode,
-    chrome: &Chrome,
 ) -> HtmlResult {
-    let said = if place.manual.as_deref() == Some("failed") { ManualSaid::Failed } else { ManualSaid::Nothing };
-    render_connection_with(req, viewer, config, headers, id, place, written, error, said, status, chrome).await
+    render_connection_with(req, viewer, config, headers, id, place, written, error, ManualSaid::Nothing, status).await
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -364,7 +330,6 @@ async fn render_connection_with(
     error: Option<String>,
     said: ManualSaid,
     status: StatusCode,
-    chrome: &Chrome,
 ) -> HtmlResult {
     let t: ChannelsMsg = req.t();
     let receipt = Receipt::from_param(place.after_write.as_deref());
@@ -382,15 +347,14 @@ async fn render_connection_with(
                 <ReadAgain after={Duration::from_secs(2)} />
             };
             let here = connection_url(id, receipt.as_ref()).href();
-            let cart = chrome.cart().await;
             return req.page(html! {
-                <Layout req={req} viewer={Some(viewer)} cart={cart} title={t.connections_connection_meta_title()} head={head}>
+                <Layout req={req} viewer={Some(viewer)} title={t.connections_connection_meta_title()} head={head}>
                     <views::ChannelsPending t={t} p={p} words={p.channels_pending()} refresh={&here} />
                 </Layout>
             });
         }
         Err(read) if read.status() == Some(StatusCode::NOT_FOUND) => return Err(corten::Error::status(StatusCode::NOT_FOUND)),
-        Err(read) => return read_failed(req, Some(viewer), read, None, chrome.cart().await),
+        Err(read) => return read_failed(req, Some(viewer), read, None),
     };
     let manage = viewer.actor.can(CHANNELS_MANAGE);
     let caller = config.platform.caller(headers, config.proto, None);
@@ -414,9 +378,8 @@ async fn render_connection_with(
     });
     let manual = manual.map_err(|read| tracing::warn!("a connection's manual sync read failed: {read}")).ok();
     let screen = ConnectionScreen { connection, manage, locations, error, manual, said };
-    let cart = chrome.cart().await;
     let page = html! {
-        <Layout req={req} viewer={Some(viewer)} cart={cart} title={t.connections_connection_meta_title()} head={noindex()}>
+        <Layout req={req} viewer={Some(viewer)} title={t.connections_connection_meta_title()} head={noindex()}>
             <views::ChannelConnectionPage t={t} p={req.t()} screen={&screen} />
         </Layout>
     };
@@ -426,20 +389,18 @@ async fn render_connection_with(
 /// A connection, read after the write whose receipt the address carries.
 pub(crate) async fn connection(
     req: Req,
-    chrome: Chrome,
     Caller(ChannelsMember(viewer)): Caller<ChannelsMember>,
     State(config): State<Shared>,
     headers: HeaderMap,
     Params(route): Params<url::channels::ChannelConnection<'_>>,
 ) -> HtmlResult {
-    render_connection(&req, &viewer, &config, &headers, &route.id, &route.place, None, None, StatusCode::OK, &chrome).await
+    render_connection(&req, &viewer, &config, &headers, &route.id, &route.place, None, None, StatusCode::OK).await
 }
 
 /// Pause, Resume, Disconnect and Activate: the connection with the write's receipt, or the page
 /// with what was refused.
 pub(crate) async fn command(
     req: Req,
-    chrome: Chrome,
     Caller(ChannelsMember(viewer)): Caller<ChannelsMember>,
     State(config): State<Shared>,
     headers: HeaderMap,
@@ -468,7 +429,6 @@ pub(crate) async fn command(
                     None,
                     Some(words),
                     StatusCode::UNPROCESSABLE_ENTITY,
-                    &chrome,
                 )
                 .await;
             }
@@ -486,7 +446,6 @@ pub(crate) async fn command(
                 None,
                 Some(words),
                 StatusCode::UNPROCESSABLE_ENTITY,
-                &chrome,
             )
             .await;
         }
@@ -496,7 +455,7 @@ pub(crate) async fn command(
         // Disconnect sends no receipt to read after (chase-sets/chase-sets#10779): the page is the
         // connection the write returned, as marketplace's action draws it.
         Ok((connection, None)) => {
-            render_connection(&req, &viewer, &config, &headers, id, &here, Some(connection), None, StatusCode::OK, &chrome).await
+            render_connection(&req, &viewer, &config, &headers, id, &here, Some(connection), None, StatusCode::OK).await
         }
         Err(error) => match error.status() {
             Some(StatusCode::UNAUTHORIZED) => sign_in(&req),
@@ -504,8 +463,7 @@ pub(crate) async fn command(
             status => {
                 tracing::warn!("a channel connection's write was refused: {error}");
                 let words = t.connections_action_failed().to_owned();
-                render_connection(&req, &viewer, &config, &headers, id, &here, None, Some(words), refusal_status(status), &chrome)
-                    .await
+                render_connection(&req, &viewer, &config, &headers, id, &here, None, Some(words), refusal_status(status)).await
             }
         },
     }
@@ -521,9 +479,8 @@ async fn manual_page(
     id: &str,
     said: ManualSaid,
     status: StatusCode,
-    chrome: &Chrome,
 ) -> HtmlResult {
-    render_connection_with(req, viewer, config, headers, id, &ConnectionPlace::default(), None, None, said, status, chrome).await
+    render_connection_with(req, viewer, config, headers, id, &ConnectionPlace::default(), None, None, said, status).await
 }
 
 /// A manual sync write Channels refused: signed out goes to sign in, a forbidden or missing
@@ -536,7 +493,6 @@ async fn manual_refused(
     headers: &HeaderMap,
     id: &str,
     error: ApiError,
-    chrome: &Chrome,
 ) -> HtmlResult {
     match error.status() {
         Some(StatusCode::UNAUTHORIZED) => sign_in(req),
@@ -547,7 +503,7 @@ async fn manual_refused(
                 Some("staged-basis-stale" | "staged-basis-unavailable") => ManualSaid::StagedBasis,
                 _ => ManualSaid::Failed,
             };
-            manual_page(req, viewer, config, headers, id, said, refusal_status(status), chrome).await
+            manual_page(req, viewer, config, headers, id, said, refusal_status(status)).await
         }
     }
 }
@@ -556,7 +512,6 @@ async fn manual_refused(
 /// and Verify: the connection again, or the page with what was refused.
 pub(crate) async fn manual_sync(
     req: Req,
-    chrome: Chrome,
     Caller(ChannelsMember(viewer)): Caller<ChannelsMember>,
     State(config): State<Shared>,
     headers: HeaderMap,
@@ -574,17 +529,8 @@ pub(crate) async fn manual_sync(
         ("upload-attempt", Some(run)) => caller.record_upload_attempt(id, run, form.file_name.trim()).await,
         ("verify", Some(run)) => {
             let Ok(number_of_products) = form.number_of_products.trim().parse() else {
-                return manual_page(
-                    &req,
-                    &viewer,
-                    &config,
-                    &headers,
-                    id,
-                    ManualSaid::Failed,
-                    StatusCode::UNPROCESSABLE_ENTITY,
-                    &chrome,
-                )
-                .await;
+                return manual_page(&req, &viewer, &config, &headers, id, ManualSaid::Failed, StatusCode::UNPROCESSABLE_ENTITY)
+                    .await;
             };
             let summary = ImportSummary {
                 file_name: form.file_name.trim(),
@@ -594,22 +540,13 @@ pub(crate) async fn manual_sync(
             caller.verify_manual_sync(id, run, form.verification_snapshot_id.trim(), &summary).await
         }
         _ => {
-            return manual_page(
-                &req,
-                &viewer,
-                &config,
-                &headers,
-                id,
-                ManualSaid::Invalid,
-                StatusCode::UNPROCESSABLE_ENTITY,
-                &chrome,
-            )
-            .await;
+            return manual_page(&req, &viewer, &config, &headers, id, ManualSaid::Invalid, StatusCode::UNPROCESSABLE_ENTITY)
+                .await;
         }
     };
     match outcome {
         Ok(()) => req.redirect(&connection_url(id, None)),
-        Err(error) => manual_refused(&req, &viewer, &config, &headers, id, error, &chrome).await,
+        Err(error) => manual_refused(&req, &viewer, &config, &headers, id, error).await,
     }
 }
 
@@ -617,7 +554,6 @@ pub(crate) async fn manual_sync(
 /// was refused. A file over the ceiling is not sent (413).
 pub(crate) async fn manual_sync_ingest(
     req: Req,
-    chrome: Chrome,
     Caller(ChannelsMember(viewer)): Caller<ChannelsMember>,
     State(config): State<Shared>,
     headers: HeaderMap,
@@ -632,61 +568,48 @@ pub(crate) async fn manual_sync_ingest(
     let posted = match uploads::read(upload, INGEST_LIMITS).await {
         Ok(posted) => posted,
         Err(corten::UploadError::TooLarge { .. }) => {
-            return manual_page(&req, &viewer, &config, &headers, id, ManualSaid::Failed, StatusCode::PAYLOAD_TOO_LARGE, &chrome)
-                .await;
+            return manual_page(&req, &viewer, &config, &headers, id, ManualSaid::Failed, StatusCode::PAYLOAD_TOO_LARGE).await;
         }
         Err(other) => return Err(other.into()),
     };
     let surface = first(&posted.fields, f.surface.as_str());
     let file = posted.files.into_iter().find(|file| file.field == f.export.as_str() && !file.bytes.is_empty());
     let (Some(file), None) = (file, posted.over) else {
-        return manual_page(&req, &viewer, &config, &headers, id, ManualSaid::Failed, StatusCode::UNPROCESSABLE_ENTITY, &chrome)
-            .await;
+        return manual_page(&req, &viewer, &config, &headers, id, ManualSaid::Failed, StatusCode::UNPROCESSABLE_ENTITY).await;
     };
     let caller = config.platform.caller(&headers, config.proto, None);
     match caller.ingest_export(id, &surface, &file.filename, file.bytes).await {
         Ok(receipt) => {
-            manual_page(&req, &viewer, &config, &headers, id, ManualSaid::Ingested(Box::new(receipt)), StatusCode::OK, &chrome)
-                .await
+            manual_page(&req, &viewer, &config, &headers, id, ManualSaid::Ingested(Box::new(receipt)), StatusCode::OK).await
         }
-        Err(error) => manual_refused(&req, &viewer, &config, &headers, id, error, &chrome).await,
+        Err(error) => manual_refused(&req, &viewer, &config, &headers, id, error).await,
     }
 }
 
 /// Clamp and download CSV: Channels claims the composed run and sends its Staged batch, passed on
-/// with its type, file name and the run's new revision. A refused download goes back to the
-/// connection with `?manual=failed`: a handler that answers a file cannot answer a page
-/// (todd-skelton/corten#415).
+/// with its type, file name and the run's new revision. A refused download is the connection with
+/// what was refused, as the panel's other writes answer.
 pub(crate) async fn manual_sync_download(
-    _req: Req,
+    req: Req,
     Caller(ChannelsMember(viewer)): Caller<ChannelsMember>,
     State(config): State<Shared>,
     headers: HeaderMap,
     Params(route): Params<url::channels::ChannelManualSyncDownload<'_>>,
     Form(form): Form<ManualSyncForm>,
-) -> corten::Result<Relay> {
+) -> corten::Result<PageOr<Relay>> {
     if !viewer.actor.can(CHANNELS_MANAGE) {
         return Err(corten::Error::status(StatusCode::FORBIDDEN));
     }
     let id: &str = &route.id;
-    let refused = || {
-        let place = ConnectionPlace { after_write: None, manual: Some("failed".to_owned()) };
-        let to = url::ChannelConnection { id, place }.href();
-        let mut kept = HeaderMap::new();
-        kept.insert(header::LOCATION, HeaderValue::from_str(&to).map_err(corten::Error::new)?);
-        Ok(Relay::new(StatusCode::SEE_OTHER, kept, Body::empty()))
+    let Some(run) = form.run() else {
+        let page =
+            manual_page(&req, &viewer, &config, &headers, id, ManualSaid::Invalid, StatusCode::UNPROCESSABLE_ENTITY).await?;
+        return Ok(page.into());
     };
-    let Some(run) = form.run() else { return refused() };
     let caller = config.platform.caller(&headers, config.proto, None);
     let res = match caller.download_manual_sync(id, run).await {
         Ok(res) => res,
-        Err(error) if matches!(error.status(), Some(StatusCode::FORBIDDEN | StatusCode::UNAUTHORIZED)) => {
-            return Err(corten::Error::new(error).with_status(StatusCode::FORBIDDEN));
-        }
-        Err(error) => {
-            tracing::warn!("a manual sync download was refused: {error}");
-            return refused();
-        }
+        Err(error) => return Ok(manual_refused(&req, &viewer, &config, &headers, id, error).await?.into()),
     };
     let mut kept = HeaderMap::new();
     for name in ["content-type", "content-disposition", "x-channel-sync-run-revision"] {
@@ -695,13 +618,12 @@ pub(crate) async fn manual_sync_download(
         }
     }
     let bytes = res.bytes().await.map_err(|error| corten::Error::new(error).with_status(StatusCode::BAD_GATEWAY))?;
-    Ok(Relay::new(StatusCode::OK, kept, Body::from(bytes)))
+    Ok(Relay::new(StatusCode::OK, kept, Body::from(bytes)).into())
 }
 
 /// The publication list: each connection's settings and mappings to review.
 pub(crate) async fn publications(
     req: Req,
-    chrome: Chrome,
     Caller(ChannelsMember(viewer)): Caller<ChannelsMember>,
     State(config): State<Shared>,
     headers: HeaderMap,
@@ -710,13 +632,12 @@ pub(crate) async fn publications(
     let caller = config.platform.caller(&headers, config.proto, None);
     let connections: Vec<ChannelPublicationSummary> = match caller.channel_publications().await {
         Ok(connections) => connections,
-        Err(error) => return read_failed(&req, Some(&viewer), error, None, chrome.cart().await),
+        Err(error) => return read_failed(&req, Some(&viewer), error, None),
     };
     let p: Pilot = req.t();
     let (r, viewer, connections) = (&req, &viewer, &connections);
-    let cart = chrome.cart().await;
     let page = html! {
-        <Layout req={r} viewer={Some(viewer)} cart={cart} title={t.publication_meta_title()} head={noindex()}>
+        <Layout req={r} viewer={Some(viewer)} title={t.publication_meta_title()} head={noindex()}>
             <views::ChannelPublicationsPage t={t} p={p} connections={connections} />
         </Layout>
     };
@@ -768,7 +689,7 @@ impl PublicationPlace {
 
 /// A publication write, in marketplace's names: `replace-settings` with the settings, or
 /// `decide-mapping` with the mapping and its decision; each made at `expectedStreamVersion`.
-#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[derive(Clone, Debug, Default, Fields)]
 #[serde(rename_all = "camelCase", default)]
 pub struct PublicationForm {
     pub intent: String,
@@ -872,7 +793,6 @@ async fn render_publication(
     said: PublicationSaid,
     sent: Option<PublicationForm>,
     status: StatusCode,
-    chrome: &Chrome,
 ) -> HtmlResult {
     let t: ChannelsMsg = req.t();
     let caller = config.platform.caller(headers, config.proto, None);
@@ -880,7 +800,7 @@ async fn render_publication(
         Ok(detail) => (Some(detail), status),
         Err(error) if error.status() == Some(StatusCode::UNAUTHORIZED) => return sign_in(req),
         Err(error) if error.status() == Some(StatusCode::NOT_FOUND) => (None, StatusCode::NOT_FOUND),
-        Err(error) => return read_failed(req, Some(viewer), error, None, chrome.cart().await),
+        Err(error) => return read_failed(req, Some(viewer), error, None),
     };
     let behind = matches!((&detail, place.version), (Some(d), Some(v)) if d.configuration_stream_version < v);
     let said = match said {
@@ -894,9 +814,8 @@ async fn render_publication(
         <meta name="robots" content="noindex">
         {pending.then_some(ReadAgain { after: Duration::from_secs(2) })}
     };
-    let cart = chrome.cart().await;
     let page = html! {
-        <Layout req={req} viewer={Some(viewer)} cart={cart} title={t.publication_connection_meta_title()} head={head}>
+        <Layout req={req} viewer={Some(viewer)} title={t.publication_connection_meta_title()} head={head}>
             <views::ChannelPublicationPage t={t} p={req.t()} screen={&screen} />
         </Layout>
     };
@@ -907,25 +826,13 @@ async fn render_publication(
 /// until it shows the configuration version the write was made at.
 pub(crate) async fn publication(
     req: Req,
-    chrome: Chrome,
     Caller(ChannelsMember(viewer)): Caller<ChannelsMember>,
     State(config): State<Shared>,
     headers: HeaderMap,
     Params(route): Params<url::channels::ChannelPublication<'_>>,
 ) -> HtmlResult {
-    render_publication(
-        &req,
-        &viewer,
-        &config,
-        &headers,
-        &route.id,
-        route.place,
-        PublicationSaid::Nothing,
-        None,
-        StatusCode::OK,
-        &chrome,
-    )
-    .await
+    render_publication(&req, &viewer, &config, &headers, &route.id, route.place, PublicationSaid::Nothing, None, StatusCode::OK)
+        .await
 }
 
 /// Save publication settings or decide a mapping, at the version the page was drawn with: the page
@@ -933,7 +840,6 @@ pub(crate) async fn publication(
 /// settings as sent; a version that is no longer current is a 409 that says to reload.
 pub(crate) async fn publication_write(
     req: Req,
-    chrome: Chrome,
     Caller(ChannelsMember(viewer)): Caller<ChannelsMember>,
     State(config): State<Shared>,
     headers: HeaderMap,
@@ -948,7 +854,7 @@ pub(crate) async fn publication_write(
     let place = route.place.here();
     let sent = (form.intent == "replace-settings").then(|| form.clone());
     let refused = |said: PublicationSaid, status: StatusCode| {
-        render_publication(&req, &viewer, &config, &headers, id, place.clone(), said, sent.clone(), status, &chrome)
+        render_publication(&req, &viewer, &config, &headers, id, place.clone(), said, sent.clone(), status)
     };
     let Ok(expected) = form.expected_stream_version.trim().parse::<u64>() else {
         return refused(PublicationSaid::Refused(t.publication_action_failed().to_owned()), StatusCode::UNPROCESSABLE_ENTITY)
@@ -991,7 +897,7 @@ pub(crate) async fn publication_write(
         },
         Err(error) => match error.status() {
             Some(StatusCode::UNAUTHORIZED) => sign_in(&req),
-            Some(StatusCode::FORBIDDEN) => Err(corten::Error::new(error).with_status(StatusCode::FORBIDDEN)),
+            Some(StatusCode::FORBIDDEN) => Err(crate::app::api_refused(error)),
             Some(StatusCode::CONFLICT) => refused(PublicationSaid::Conflict, StatusCode::CONFLICT).await,
             status => {
                 tracing::warn!("a channel publication write was refused: {error}");

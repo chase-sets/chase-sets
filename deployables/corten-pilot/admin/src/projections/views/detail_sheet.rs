@@ -8,6 +8,7 @@
 //! `dialog::modalClosedBy` makes the sheet modal and sends Escape to the close link's address, so
 //! the address says what is open.
 use corten::prelude::*;
+use platform::ui::table::{CellLabel, Table as KitTable, TableLayout};
 use serde_json::Value;
 
 use super::{
@@ -123,7 +124,12 @@ fn detail<'a>(t: Ops, console: &'a Snapshot, record: &Record<'a>) -> Detail<'a> 
     let none = || t.projections_not_recorded().to_owned();
     match record {
         Record::Operation(o) => Detail {
-            title: t.projections_operation_detail_title(&o.operation_kind, &o.state).to_string(),
+            title: t
+                .projections_operation_detail_title(crate::text::ops::ProjectionsOperationDetailTitle {
+                    kind: &o.operation_kind,
+                    state: &o.state,
+                })
+                .to_string(),
             rows: vec![
                 (t.projections_operation_id(), o.operation_id.clone()),
                 (t.projections_context(), o.context_name.clone()),
@@ -138,7 +144,12 @@ fn detail<'a>(t: Ops, console: &'a Snapshot, record: &Record<'a>) -> Detail<'a> 
             poison: Vec::new(),
         },
         Record::Group(g) => Detail {
-            title: t.projections_projection_group_detail_title(&g.target_context_name, &g.projection_name).to_string(),
+            title: t
+                .projections_projection_group_detail_title(crate::text::ops::ProjectionsProjectionGroupDetailTitle {
+                    context: &g.target_context_name,
+                    projection: &g.projection_name,
+                })
+                .to_string(),
             rows: vec![
                 (t.projections_state(), g.state.clone()),
                 (t.projections_required_during_bootstrap(), yes_no(t, g.required_during_bootstrap).to_owned()),
@@ -150,10 +161,10 @@ fn detail<'a>(t: Ops, console: &'a Snapshot, record: &Record<'a>) -> Detail<'a> 
                 ),
                 (
                     t.projections_revision(),
-                    t.projections_revision_range(
-                        g.stored_projection_revision.map_or_else(|| t.projections_none().to_owned(), |r| r.to_string()),
-                        g.projection_revision,
-                    )
+                    t.projections_revision_range(crate::text::ops::ProjectionsRevisionRange {
+                        current: g.stored_projection_revision.map_or_else(|| t.projections_none().to_owned(), |r| r.to_string()),
+                        next: g.projection_revision,
+                    })
                     .to_string(),
                 ),
                 (t.projections_source_lag(), count(t, g.source_lag_event_count.as_ref().unwrap_or(&g.outstanding_event_count))),
@@ -175,7 +186,11 @@ fn detail<'a>(t: Ops, console: &'a Snapshot, record: &Record<'a>) -> Detail<'a> 
                 (t.projections_poison_events(), s.poison_event_count.to_string()),
                 (
                     t.projections_positions(),
-                    t.projections_position_range(&s.last_global_position.0, &s.source_head_global_position.0).to_string(),
+                    t.projections_position_range(crate::text::ops::ProjectionsPositionRange {
+                        current: &s.last_global_position.0,
+                        next: &s.source_head_global_position.0,
+                    })
+                    .to_string(),
                 ),
                 (t.projections_source_lag(), count(t, s.source_lag_event_count.as_ref().unwrap_or(&s.outstanding_event_count))),
                 (t.projections_applicable_lag(), lag(t, s.applicable_lag_estimate.as_ref())),
@@ -198,15 +213,23 @@ fn detail<'a>(t: Ops, console: &'a Snapshot, record: &Record<'a>) -> Detail<'a> 
             poison: vec![*event],
         },
         Record::Blocked { projection_key, stream, events } => Detail {
-            title: t.projections_blocked_stream_detail_title(*projection_key, &stream.stream_id).to_string(),
+            title: t
+                .projections_blocked_stream_detail_title(crate::text::ops::ProjectionsBlockedStreamDetailTitle {
+                    projection: *projection_key,
+                    stream: &stream.stream_id,
+                })
+                .to_string(),
             rows: vec![
                 (t.projections_state(), stream.state.clone()),
                 (t.projections_stream(), stream.stream_id.clone()),
                 (t.projections_first_version(), stream.first_blocked_stream_version.to_string()),
                 (
                     t.projections_positions(),
-                    t.projections_position_range(&stream.first_blocked_global_position.0, &stream.last_seen_global_position.0)
-                        .to_string(),
+                    t.projections_position_range(crate::text::ops::ProjectionsPositionRange {
+                        current: &stream.first_blocked_global_position.0,
+                        next: &stream.last_seen_global_position.0,
+                    })
+                    .to_string(),
                 ),
                 (t.projections_deferred(), stream.deferred_event_count.to_string()),
             ],
@@ -389,7 +412,9 @@ fn Repairs<'a>(
                 </div>
                 <dialog id={RebuildGroupId} class={Confirm} aria-labelledby="projections-rebuild-group-title">
                     <h3 id="projections-rebuild-group-title">{t.projections_confirm_rebuild_group_title()}</h3>
-                    <p>{t.projections_confirm_rebuild_group_description(&g.target_context_name, &g.projection_name)}</p>
+                    <p>
+                        {t.projections_confirm_rebuild_group_description(crate::text::ops::ProjectionsConfirmRebuildGroupDescription { context: &g.target_context_name, projection: &g.projection_name })}
+                    </p>
                     <p class={Muted}>{t.projections_confirm_rebuild_group_impact()}</p>
                     <form method="post" action={&rebuild_group}>
                         <input type="hidden" name={group_fields.context_name} value={&g.target_context_name}>
@@ -444,25 +469,39 @@ fn Repairs<'a>(
 #[component(css = DetailSheet)]
 fn PoisonTable<'a>(t: Ops, events: &'a [&'a PoisonEvent]) -> impl Render {
     html! {
-        <table class={Table}>
-            <thead>
-                <tr>
-                    <th scope="col">{t.projections_event_type()}</th>
-                    <th scope="col">{t.projections_state()}</th>
-                    <th scope="col">{t.projections_position()}</th>
-                    <th scope="col">{t.projections_error()}</th>
-                </tr>
-            </thead>
-            <tbody>
-                for event in events {
+        <KitTable layout={TableLayout::Stack}>
+            <table class={Table}>
+                <thead>
                     <tr>
-                        <td>{&event.event_type}</td>
-                        <td><Pill hue={state_hue(&event.state)} label={&event.state} /></td>
-                        <td class={Number}>{&event.global_position.0}</td>
-                        <td>{&event.error_message}</td>
+                        <th scope="col">{t.projections_event_type()}</th>
+                        <th scope="col">{t.projections_state()}</th>
+                        <th scope="col">{t.projections_position()}</th>
+                        <th scope="col">{t.projections_error()}</th>
                     </tr>
-                }
-            </tbody>
-        </table>
+                </thead>
+                <tbody>
+                    for event in events {
+                        <tr>
+                            <td>
+                                <CellLabel>{t.projections_event_type()}</CellLabel>
+                                {&event.event_type}
+                            </td>
+                            <td>
+                                <CellLabel>{t.projections_state()}</CellLabel>
+                                <Pill hue={state_hue(&event.state)} label={&event.state} />
+                            </td>
+                            <td class={Number}>
+                                <CellLabel>{t.projections_position()}</CellLabel>
+                                {&event.global_position.0}
+                            </td>
+                            <td>
+                                <CellLabel>{t.projections_error()}</CellLabel>
+                                {&event.error_message}
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </KitTable>
     }
 }

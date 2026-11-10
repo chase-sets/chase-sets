@@ -3,7 +3,7 @@
 //! context it reads (`Chase-Sets-Read-Target-Context`). Each app adds the calls its screens make.
 use std::{fmt, time::Duration};
 
-use corten::axum::http::{HeaderMap, StatusCode, header};
+use corten::http::{HeaderMap, StatusCode, header};
 use serde::{Deserialize, de::DeserializeOwned};
 
 use crate::receipt::Receipt;
@@ -148,6 +148,15 @@ pub struct Actor {
     pub role_key: String,
     #[serde(default)]
     pub permissions: Vec<String>,
+    /// Whether an agent acts through an OAuth grant (`agentGrant`): Auth's email-verification
+    /// rule never asks an agent to verify.
+    #[serde(default, rename = "agentGrant", deserialize_with = "present")]
+    pub agent: bool,
+}
+
+/// Whether a field is there and not null, whatever it holds.
+fn present<'de, D: serde::Deserializer<'de>>(d: D) -> Result<bool, D::Error> {
+    Ok(Option::<serde::de::IgnoredAny>::deserialize(d)?.is_some())
 }
 
 impl Actor {
@@ -257,9 +266,27 @@ struct ErrorBody {
     error: ErrorDetail,
 }
 
+/// The envelope's `error`: `{ code, message }`. A body that is not the envelope has no code and no
+/// message, so the screen says its own words.
 #[derive(Deserialize)]
 struct ErrorDetail {
     code: Option<String>,
     #[serde(default)]
     message: String,
+}
+
+#[cfg(test)]
+mod error_body_tests {
+    use super::ErrorBody;
+
+    #[test]
+    fn an_error_is_the_envelope_and_nothing_else() {
+        let parts = |text: &str| serde_json::from_str::<ErrorBody>(text).ok().map(|b| (b.error.code, b.error.message));
+        assert_eq!(
+            parts(r#"{"error":{"code":"reason_required","message":"Give a reason."}}"#),
+            Some((Some("reason_required".to_owned()), "Give a reason.".to_owned()))
+        );
+        assert_eq!(parts(r#"{"error":"Bulk rejection requires a reason."}"#), None);
+        assert_eq!(parts(r#"{"message":"no error key"}"#), None);
+    }
 }

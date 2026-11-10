@@ -36,6 +36,12 @@
   }
 }
 
+/* The design system's Stat label is uppercase (stat.tsx). The kit's Stats reads its case from
+   this property, which no design token type carries (corten-run/corten#1054). */
+:root {
+  --stat-label-text-transform: uppercase;
+}
+
 * {
   box-sizing: border-box;
 }

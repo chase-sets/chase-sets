@@ -9,6 +9,7 @@ import { reportedContentSchemaSql } from "../../features/reported-content/read-m
 import { riskAlertsSchemaSql } from "../../features/risk-alerts/read-model/schema";
 import { sellerComplianceSalesSchemaSql } from "../../features/seller-compliance-sales/read-model/schema";
 import { sellerComplianceCohortSchemaSql } from "../../features/seller-compliance-cohorts/read-model/cohort-schema";
+import { sellerComplianceRuntimeSchemaSql } from "../../features/seller-compliance-cohorts/read-model/runtime-schema";
 import { supportSourceProjectionSchemaSql } from "../../features/support-requests/integrations/source/source-schema";
 import { supportRequestSchemaSql } from "../../features/support-requests/read-model/schema";
 import { supportEvidenceCleanupLocatorSchemaSql } from "../../features/support-requests/read-model/cleanup-locator-schema";
@@ -25,6 +26,7 @@ export const platformOperationsSchemaSql = [
   riskAlertsSchemaSql,
   sellerComplianceSalesSchemaSql,
   sellerComplianceCohortSchemaSql,
+  sellerComplianceRuntimeSchemaSql,
   supportSourceProjectionSchemaSql,
   supportRequestSchemaSql,
   supportEvidenceCleanupLocatorSchemaSql,
