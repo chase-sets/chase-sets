@@ -539,8 +539,7 @@ jobs:
       - name: Validate bounded refresh receipt
         id: refresh-receipt
         if: ${{ always() && steps.refresh.outcome != 'skipped' }}
-        run: |
-          node --input-type=module -e "import fs from 'node:fs'; import { validateScrydexOptionRefreshReceipt } from './bounded-contexts/catalog/features/scope-sync-batches/domain/scrydex-option-refresh.ts'; const p = fs.existsSync('artifacts/catalog-scrydex-option-refresh/receipt.json') ? 'artifacts/catalog-scrydex-option-refresh/receipt.json' : 'artifacts/catalog-scrydex-option-refresh-diagnostic/receipt.json'; const r = JSON.parse(fs.readFileSync(p)); const e = validateScrydexOptionRefreshReceipt(r); if (e.length) throw new Error(e.join(';')); fs.appendFileSync(process.env.GITHUB_OUTPUT, 'refresh_outcome=' + r.outcome + '\\n');"
+        run: pnpm exec tsx scripts/catalog-staging-scrydex-option-refresh.mjs validate
       - name: Upload complete bounded refresh receipt
         if: ${{ always() && steps.refresh-receipt.outcome == 'success' && steps.refresh-receipt.outputs.refresh_outcome == 'complete' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
