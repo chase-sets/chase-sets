@@ -1,0 +1,168 @@
+name: Bootstrap DB Oracle Memo
+
+on:
+  pull_request:
+    types: [opened]
+
+permissions:
+  contents: read
+
+jobs:
+  deriveMemo:
+    name: Derive Canonical Bootstrap Memo
+    if: >-
+      github.event_name == 'pull_request' && github.event.action == 'opened' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.base.ref == 'main' &&
+      startsWith(github.event.pull_request.head.ref, 'memo-derivation/')
+    concurrency:
+      group: bootstrap-db-oracle-memo-global
+      cancel-in-progress: false
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    env:
+      MEMO_BOOTSTRAP: ${{ runner.temp }}/bootstrap-db-oracle-memo.json
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          ref: ${{ github.sha }}
+          path: objects
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Bind opened data before selected code
+        id: bootstrap
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MEMO_WORKFLOW_REF: ${{ github.workflow_ref }}
+          MEMO_WORKFLOW_SHA: ${{ github.workflow_sha }}
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          import {execFileSync} from 'node:child_process';
+          import {createHash} from 'node:crypto';
+          import {readFileSync,writeFileSync,appendFileSync} from 'node:fs';
+          const hash = bytes => createHash('sha256').update(bytes).digest('hex');
+          const git = args => execFileSync('git',['-C','objects',...args],{maxBuffer:8*1024*1024,stdio:['ignore','pipe','pipe'],env:{...process.env,GIT_NO_REPLACE_OBJECTS:'1',GIT_NO_LAZY_FETCH:'1'}});
+          const sha = s => typeof s === 'string' && /^[a-f0-9]{40}$/.test(s);
+          const workflow = '.github/workflows/bootstrap-db-oracle-memo.yml';
+          const manifestPath = '.github/bootstrap-db-oracle-memo-input.json';
+          const repository = 'chase-sets/chase-sets';
+          // Only built-in data operations precede the landed helper checkout/install.
+          function bootstrap(event, context, read, commit, ancestor) {
+            assert.equal(context.eventName,'pull_request');
+            assert.equal(context.attempt,'1');
+            assert.equal(event.action,'opened');
+            assert.equal(event.repository.full_name,repository);
+            const pr=event.pull_request;
+            assert.equal(pr.head.repo.full_name,repository);
+            assert.equal(pr.base.repo.full_name,repository);
+            assert.equal(pr.base.ref,'main');
+            assert.match(pr.head.ref,/^memo-derivation\/(?!.*(?:\.\.|\/\/|@\{|\/\.|\.lock(?:\/|$)))[A-Za-z0-9][A-Za-z0-9._/-]*[A-Za-z0-9_-]$/);
+            assert.ok(Number.isSafeInteger(pr.number) && pr.number>0);
+            const D=pr.head.sha,B=pr.base.sha,G=context.githubSha;
+            for(const s of [D,B,G,context.workflowSha]) assert.ok(sha(s));
+            assert.equal(context.ref,`refs/pull/${pr.number}/merge`);
+            assert.equal(context.workflowRef,`${repository}/${workflow}@${context.ref}`);
+            const g=commit(G);
+            assert.equal(g.sha,G);
+            assert.deepEqual(g.parents.map(p=>p.sha),[B,D]);
+            assert.notEqual(B,D);
+            const own=Object.hasOwn(pr,'merge_commit_sha');
+            const state=!own?'absent':pr.merge_commit_sha===null?'null':'sha';
+            if(state==='sha') {assert.ok(sha(pr.merge_commit_sha));assert.equal(pr.merge_commit_sha,G);}
+            const bytes=read(D,manifestPath,262144);
+            assert.ok(bytes.length>0 && bytes.length<=262144);
+            const digest=hash(bytes);
+            assert.equal(pr.body,`bootstrap-db-oracle-memo-input-sha256: ${digest}\n`);
+            const m=JSON.parse(bytes.toString('utf8'));
+            assert.deepEqual(bytes,Buffer.from(JSON.stringify(m,null,2)+'\n'));
+            assert.equal(m.schema,'bootstrap-db-oracle-memo-input/v2');
+            assert.equal(m.repository,repository);
+            for(const role of ['T','E']) {assert.ok(sha(m[role].commit));assert.ok(sha(m[role].tree));assert.equal(commit(m[role].commit).tree.sha,m[role].tree);}
+            ancestor(m.T.commit,B);
+            const t=read(m.T.commit,workflow,262144);
+            for(const s of [D,B,G,context.workflowSha]) assert.deepEqual(read(s,workflow,262144),t);
+            const d=commit(D),b=commit(B);
+            assert.deepEqual(d.parents.map(p=>p.sha),[m.E.commit]);
+            return {manifest:m,manifestSha256:digest,event:{eventName:'pull_request',action:'opened',repository,prNumber:pr.number,headRef:pr.head.ref,head:{commit:D,tree:d.tree.sha},base:{commit:B,tree:b.tree.sha},merge:{commit:G,tree:g.tree.sha},openedMergeState:state,openedMergeSha:state==='sha'?pr.merge_commit_sha:null,ref:context.ref,bodySha256:hash(Buffer.from(pr.body)),bodyBytes:Buffer.byteLength(pr.body)},workflowRef:context.workflowRef,workflowSha:context.workflowSha};
+          }
+          const context={eventName:process.env.GITHUB_EVENT_NAME,attempt:process.env.GITHUB_RUN_ATTEMPT,githubSha:process.env.GITHUB_SHA,ref:process.env.GITHUB_REF,workflowRef:process.env.MEMO_WORKFLOW_REF,workflowSha:process.env.MEMO_WORKFLOW_SHA};
+          const read=(s,p,max)=>{assert.ok(sha(s));assert.ok([workflow,manifestPath].includes(p));assert.match(git(['ls-tree',s,'--',p]).toString(),/^100644 blob /);const size=Number(git(['cat-file','-s',`${s}:${p}`]));assert.ok(size<=max);return git(['cat-file','blob',`${s}:${p}`]);};
+          const commit=s=>{assert.ok(sha(s));return JSON.parse(execFileSync('gh',['api',`repos/${repository}/git/commits/${s}`],{maxBuffer:1048576,stdio:['ignore','pipe','pipe']}));};
+          const record=bootstrap(JSON.parse(readFileSync(process.env.GITHUB_EVENT_PATH)),context,read,commit,(t,b)=>git(['merge-base','--is-ancestor',t,b]));
+          writeFileSync(process.env.MEMO_BOOTSTRAP,JSON.stringify(record,null,2)+'\n',{flag:'wx'});
+          appendFileSync(process.env.GITHUB_OUTPUT,`helper=${record.manifest.T.commit}\ninput=${record.manifest.E.commit}\n`);
+          NODE
+
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          ref: ${{ steps.bootstrap.outputs.helper }}
+          path: trusted
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+        with:
+          version: 11.0.9
+          run_install: false
+          cache: false
+
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "24.22.1"
+          package-manager-cache: false
+
+      - name: Install locked trusted tools
+        working-directory: trusted
+        run: pnpm install --frozen-lockfile --ignore-scripts --ignore-pnpmfile
+
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          ref: ${{ steps.bootstrap.outputs.input }}
+          path: input
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Admit immutable profile
+        working-directory: trusted
+        run: node ./scripts/bootstrap-db-oracle-memo-artifact.mjs admit
+
+      - name: Install locked input dependencies
+        working-directory: input
+        run: pnpm install --frozen-lockfile --ignore-scripts --ignore-pnpmfile
+
+      - name: Verify clean input
+        working-directory: trusted
+        run: node ./scripts/bootstrap-db-oracle-memo-artifact.mjs verify-input
+
+      - name: Run fixed producer
+        working-directory: trusted
+        env:
+          MEMO_CHECK_RUN_ID: ${{ job.check_run_id }}
+        run: node ./scripts/bootstrap-db-oracle-memo-artifact.mjs derive --out ../artifacts/bootstrap-db-oracle-memo/bootstrap-db-oracle-schedule-memo.json
+
+      - name: Validate canonical payloads
+        working-directory: trusted
+        shell: bash
+        run: |
+          set -euo pipefail
+          node ./scripts/bootstrap-db-oracle-memo-artifact.mjs validate
+          test -s ../artifacts/bootstrap-db-oracle-memo/bootstrap-db-oracle-schedule-memo.json
+          test -s ../artifacts/bootstrap-db-oracle-memo/receipt.json
+          test -s ../artifacts/bootstrap-db-oracle-memo/SHA256SUMS
+
+      - name: Upload canonical memo
+        id: canonical-upload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: bootstrap-db-oracle-memo-${{ github.run_id }}-1
+          path: |
+            artifacts/bootstrap-db-oracle-memo/bootstrap-db-oracle-schedule-memo.json
+            artifacts/bootstrap-db-oracle-memo/receipt.json
+            artifacts/bootstrap-db-oracle-memo/SHA256SUMS
+          if-no-files-found: error
+          retention-days: 30

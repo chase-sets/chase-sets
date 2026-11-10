@@ -81,6 +81,7 @@ jobs:
       static_required: ${{ steps.gate-plan.outputs.static_required }}
       typecheck_required: ${{ steps.gate-plan.outputs.typecheck_required }}
       unit_tests_required: ${{ steps.gate-plan.outputs.unit_tests_required }}
+      bootstrap_db_oracle_memo_check_required: ${{ steps.gate-plan.outputs.bootstrap_db_oracle_memo_check_required }}
       db_tests_required: ${{ steps.gate-plan.outputs.db_tests_required }}
       e2e_tests_required: ${{ steps.gate-plan.outputs.e2e_tests_required }}
       build_required: ${{ steps.gate-plan.outputs.build_required }}
@@ -272,6 +273,27 @@ jobs:
         run: |
           node ./scripts/run-workspaces.mjs test --exclude-test-profile=db --concurrency=4 --workspace-list="${{ needs['change-scope'].outputs.unit_test_workspaces }}" --shard=${{ matrix.shard }}/2
           node ./scripts/run-workspaces.mjs test:unit --test-profile=db --concurrency=4 --workspace-list="${{ needs['change-scope'].outputs.unit_test_workspaces }}" --shard=${{ matrix.shard }}/2
+
+  bootstrap-db-oracle-memo-check:
+    name: Bootstrap DB Oracle Memo Check
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: change-scope
+    if: needs['change-scope'].outputs.bootstrap_db_oracle_memo_check_required == 'true'
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup-pnpm-workspace
+        with:
+          install: true
+
+      - name: Check memo against raw pinned oracle
+        run: node deployables/platform-api/__tests__/fixtures/bootstrap-db-oracle-schedule-memo.mjs --check
 
   canonical-proof-sets:
     name: Canonical Proof Sets
@@ -1960,6 +1982,7 @@ jobs:
       - static
       - typecheck
       - unit-tests
+      - bootstrap-db-oracle-memo-check
       - canonical-proof-sets
       - db-tests
       - e2e-tests
@@ -2015,6 +2038,7 @@ jobs:
           require_job "Static Checks" "${{ needs.static.result }}" "${{ needs['change-scope'].outputs.static_required }}"
           require_job "Typecheck" "${{ needs.typecheck.result }}" "${{ needs['change-scope'].outputs.typecheck_required }}"
           require_job "Unit Tests" "${{ needs['unit-tests'].result }}" "${{ needs['change-scope'].outputs.unit_tests_required }}"
+          require_job "Bootstrap DB Oracle Memo Check" "${{ needs['bootstrap-db-oracle-memo-check'].result }}" "${{ needs['change-scope'].outputs.bootstrap_db_oracle_memo_check_required }}"
           require_job "DB Profile Tests" "${{ needs['db-tests'].result }}" "${{ needs['change-scope'].outputs.db_tests_required }}"
           require_job "E2E Tests" "${{ needs['e2e-tests'].result }}" "${{ needs['change-scope'].outputs.e2e_tests_required }}"
           capture_required="$(node --input-type=module -e '

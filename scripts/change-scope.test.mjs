@@ -14,6 +14,7 @@ import {
   resolveChangeScope,
   toGithubOutputMap,
   toOutputMap,
+  requiresBootstrapDbOracleMemoCheck,
 } from "./change-scope.mjs";
 import { estimatedE2eSuiteDurationSeconds } from "./e2e-suites.mjs";
 import { GIT_LISTING_MAX_BUFFER } from "./lib/git-listing.mjs";
@@ -31,6 +32,21 @@ import {
 } from "./lib/context-proof-sets.mjs";
 
 const REPOSITORY_SCAN_TEST_TIMEOUT_MS = 120_000;
+
+it("selects the raw memo check conservatively when the change set is unavailable", () => {
+  expect(
+    requiresBootstrapDbOracleMemoCheck({
+      changedFiles: [],
+      requiredProofSelectionMode: unavailableChangeSetSelectionMode,
+    }),
+  ).toBe(true);
+  expect(requiresBootstrapDbOracleMemoCheck({ changedFiles: ["README.md"] })).toBe(false);
+  expect(
+    requiresBootstrapDbOracleMemoCheck({
+      changedFiles: ["deployables/platform-api/scripts/check-bootstrap-db-enrollment.mjs"],
+    }),
+  ).toBe(true);
+});
 
 const settlementProofPaths = [
   "bounded-contexts/marketplace/features/offers/api/route.test.ts",
