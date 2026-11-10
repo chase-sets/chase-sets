@@ -11,6 +11,7 @@
 //! | `POST /catalog/integrations/jobs/{id}?<context>` | retries, resumes or cancels an import job |
 //! | `POST /catalog/integrations/units?<context>` | imports or reapplies a workset unit's scope |
 //! | `POST /catalog/integrations/review?<context>` | defers or rejects the checked Source Observations |
+//! | `POST /catalog/integrations/promotion?<context>` | previews the promotion of the checked Source Observations, or commits the preview the address holds |
 //! | `GET /catalog/integrations/evidence/{id}?<context>` | a Source Observation's evidence sheet, or without the script the page with it open |
 //! | `POST /catalog/integrations/candidates/{id}?<context>` | ignores or defers a merge candidate |
 //! | `POST /catalog/integrations/aliases?<context>` | accepts, rejects, revokes or defers alias candidates |
@@ -28,10 +29,14 @@
 //! (`commandScopes`, chase-sets/chase-sets#11082), to `POST .../integration-jobs` and
 //! `POST .../reapply`; the API refuses a scope it cannot import or reapply.
 //!
-//! Preview and promote stay on admin-web: the API checks the preview's token, but the selection and
-//! confirmation it binds are admin-web's own composition of the route (chase-sets/chase-sets#11142),
-//! so the pilot does not send a promotion, and the jobs stage's import
-//! preview opens there until the API composes it for the working set (chase-sets/chase-sets#11130).
+//! Preview promotion and Create or update Catalog Items send the selection and confirmation the read
+//! model built for `observation.promote` (its `commandPreview`, chase-sets/chase-sets#11142), read
+//! again for the working set when the form posts: the preview (`POST .../bulk-promote/preview`)
+//! answers a token, which the redirect puts on the address as `promotionPreviewId` with the
+//! selection and the draft choice, so the read previews the selection again for the create stage;
+//! the commit (`POST .../bulk-promote/jobs`) presents the token and lands on the job it queued.
+//! The jobs stage's import preview opens on admin-web until the API composes it for the working set
+//! (chase-sets/chase-sets#11130).
 //!
 //! A review row's Evidence opens the observation's evidence sheet from the API's detail
 //! (`GET /api/catalog/source-observations/{id}/evidence`, admin-web's lazy `SourceObservationEvidenceSheet`
@@ -109,6 +114,11 @@ pub mod url {
     /// Defers or rejects the checked Source Observations.
     #[route("/catalog/integrations/review", post = crate::catalog::daily::review)]
     pub struct Review;
+
+    /// Previews the promotion of the checked Source Observations (or the scope), or commits the
+    /// preview the address holds.
+    #[route("/catalog/integrations/promotion", post = crate::catalog::daily::promotion)]
+    pub struct Promotion;
 
     /// A Source Observation's evidence sheet, for the working set the address carries.
     #[route("/catalog/integrations/evidence/{id}", get = crate::catalog::daily::evidence)]
@@ -266,11 +276,17 @@ pub struct Action {
     pub command_preview: Option<CommandPreview>,
 }
 
-/// A command's body as the API built it (`CatalogMergeCandidateReviewCommandPreview`).
+/// A command's body as the API built it: a merge candidate's (`CatalogMergeCandidateReviewCommandPreview`),
+/// or a promotion's selection and confirmation (`CatalogPrimaryWorkbenchPromotionCommandPreview`,
+/// chase-sets/chase-sets#11142), passed back to the API as they are.
 #[derive(Clone, Debug, Default, Deserialize, Serialize, ToJson)]
 #[serde(default, rename_all = "camelCase")]
 pub struct CommandPreview {
     pub body: PreviewBody,
+    pub scope: Option<Value>,
+    pub confirmation: Option<Value>,
+    /// Whether the promotion may run on the scope with no observation checked.
+    pub allow_scope_selection: bool,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize, ToJson)]
@@ -335,6 +351,12 @@ impl WorksetUnit {
     /// (admin-web's `data-catalog-source-scope-unit`).
     pub fn key(&self) -> &str {
         self.unit_key.as_deref().unwrap_or(&self.provider_key)
+    }
+
+    /// Whether the read built the unit's own promotion preview (its `actions.previewPromotion`
+    /// `commandPreview`, chase-sets/chase-sets#11142), so its Preview posts to the pilot.
+    pub fn previewable(&self) -> bool {
+        self.actions.preview_promotion.command_preview.as_ref().is_some_and(|c| c.confirmation.is_some())
     }
 }
 
@@ -676,6 +698,12 @@ impl ReviewRow {
     pub fn reviewable(&self) -> bool {
         matches!(self.status.as_str(), "observed" | "changed")
     }
+
+    /// Whether the row can be checked for Preview promotion: reviewable, and eligible for it (the
+    /// rows admin-web's bar counts as `selectedEligibleObservationCount`).
+    pub fn eligible(&self) -> bool {
+        self.reviewable() && self.promotion_readiness.state == "eligible"
+    }
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize, ToJson)]
@@ -792,6 +820,15 @@ impl Candidate {
         let ids = body.split_observation_ids.as_slice();
         Some((action, body.expected_version?, ids)).filter(|(_, _, ids)| !ids.is_empty())
     }
+
+    /// The promote the API offers with the version it read (its `commandPreview`,
+    /// chase-sets/chase-sets#11143), when the command may run and no blocking conflict needs a
+    /// resolution first; a promote that resolves conflicts stays on admin-web's conflict form.
+    pub fn promote(&self) -> Option<(&Action, u64)> {
+        let action = self.actions.iter().find(|a| a.key == "candidate.promote" && a.open())?;
+        let version = action.command_preview.as_ref()?.body.expected_version?;
+        (self.conflicts.blocking == 0).then_some((action, version))
+    }
 }
 
 /// A candidate's typed edit (`CatalogPrimaryWorkbenchMergeCandidateEditFormReadModel`): what the
@@ -856,9 +893,101 @@ pub struct Mapping {
 #[derive(Clone, Debug, Default, Deserialize, Serialize, ToJson)]
 #[serde(default, rename_all = "camelCase")]
 pub struct PromotionPreview {
+    /// The preview token the address carries (`promotionPreviewId`), with which the API previewed
+    /// the selection again for this read.
     pub preview_id: Option<String>,
     pub blockers: Vec<String>,
     pub destructive_count: u64,
+    pub freshness: String,
+    pub scope: PromotionScope,
+    pub outcome_counts: OutcomeCounts,
+    pub command_plan_hash: Option<String>,
+    pub validation: PromotionValidation,
+    pub execution_safeguards: Safeguards,
+}
+
+impl PromotionPreview {
+    /// Whether the preview may be committed: a token is held, the API found it fresh, and it
+    /// validated every eligible observation in one page with no blocking identity. admin-web decides
+    /// this from the receipt its action keeps (`promotionReceiptHasCompleteCoverage`), which a
+    /// redirect does not carry, so this is that rule as the read can answer it until the read says it
+    /// (chase-sets/chase-sets#11175); the API refuses a stale token whatever the page offers.
+    pub fn fresh(&self) -> bool {
+        self.preview_id.is_some()
+            && self.execution_safeguards.preview_fresh
+            && self.validation.coverage == "complete"
+            && self.validation.continuation.is_none()
+            && self.scope.eligible_count > 0
+            && !self.validation.identity_diagnostics.iter().any(|d| d.blocking)
+    }
+
+    /// Whether an observation's display identity cannot be resolved, which no commit carries.
+    pub fn identity_blocked(&self) -> bool {
+        self.blockers.iter().any(|b| b == "display-identity-unresolvable")
+    }
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize, ToJson)]
+#[serde(default, rename_all = "camelCase")]
+pub struct PromotionScope {
+    pub label: String,
+    pub requested_count: u64,
+    pub eligible_count: u64,
+    pub selected_observation_ids: Vec<String>,
+    pub filter_summary: Vec<String>,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize, ToJson)]
+#[serde(default)]
+pub struct OutcomeCounts {
+    pub eligible: u64,
+    pub blocked: u64,
+    pub skipped: u64,
+    pub conflicting: u64,
+}
+
+/// The preview's read-only pre-write validation (`CatalogPrimaryWorkbenchPromotionValidationReadModel`).
+#[derive(Clone, Debug, Deserialize, Serialize, ToJson)]
+#[serde(default, rename_all = "camelCase")]
+pub struct PromotionValidation {
+    pub promote_as_draft: bool,
+    /// `complete`, `partial` or `not-previewed`.
+    pub coverage: String,
+    pub covered_count: u64,
+    pub identity_diagnostics: Vec<IdentityDiagnostic>,
+    pub other_blocked_observation_ids: Vec<String>,
+    /// The next page's cursor when the preview validated only its first page.
+    pub continuation: Option<String>,
+}
+
+impl Default for PromotionValidation {
+    fn default() -> Self {
+        PromotionValidation {
+            promote_as_draft: false,
+            coverage: "not-previewed".into(),
+            covered_count: 0,
+            identity_diagnostics: Vec::new(),
+            other_blocked_observation_ids: Vec::new(),
+            continuation: None,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize, ToJson)]
+#[serde(default, rename_all = "camelCase")]
+pub struct IdentityDiagnostic {
+    pub observation_id: String,
+    pub blocking: bool,
+    pub template_reason: String,
+    pub diagnostic_text: String,
+    pub missing_tokens: Vec<String>,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize, ToJson)]
+#[serde(default, rename_all = "camelCase")]
+pub struct Safeguards {
+    pub preview_fresh: bool,
+    pub stale_reasons: Vec<String>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize, ToJson)]
@@ -1517,6 +1646,179 @@ pub(crate) async fn review(
     answer(&req, &staff, &config, &headers, &context, sent, Ran::Queued).await
 }
 
+/// Preview promotion and Create or update Catalog Items (admin-web's `observation.promote`).
+///
+/// `phase` is `preview` (the create stage's: the checked observations, else the working set's
+/// `selectedObservationIds`, else the scope where the API allows it), `preview-checked` (the review
+/// bar's and the evidence sheet's: only the checked observations), `preview-unit` (a workset unit's,
+/// on that unit's own working set and descriptor) or `execute` (the create stage's commit, with the
+/// draft choice and the confirmation box).
+#[derive(Clone, Debug, Default, Fields)]
+#[serde(default)]
+pub struct PromotionInput {
+    pub phase: String,
+    pub observation: Vec<String>,
+    pub draft: String,
+    pub confirm: String,
+    pub unit: String,
+}
+
+/// The most checked observations the address carries, as admin-web's (`MAX_URL_SELECTED_OBSERVATION_IDS`).
+pub const MOST_SELECTED: usize = 50;
+
+/// The working set's selection (`selectedObservationIds`, comma separated).
+pub fn selected(context: &str) -> Vec<String> {
+    context_value(context, "selectedObservationIds")
+        .map(|csv| ids(std::slice::from_ref(&csv)).into_iter().map(str::to_owned).collect())
+        .unwrap_or_default()
+}
+
+/// The promotion's body: the descriptor's confirmation and the draft choice, with the selection, or
+/// the descriptor's scope when nothing is selected (`previewBulkPromoteSourceObservations`).
+pub fn promotion_body(descriptor: &CommandPreview, selection: &[String], draft: bool) -> Value {
+    let mut body = json!({ "promoteAsDraft": draft, "confirmation": descriptor.confirmation });
+    if selection.is_empty() {
+        body["scope"] = descriptor.scope.clone().unwrap_or(Value::Null);
+    } else {
+        body["observationIds"] = json!(selection);
+    }
+    body
+}
+
+pub(crate) async fn promotion(
+    req: Req,
+    corten::Caller(staff): corten::Caller<Staff<CatalogAccess>>,
+    State(config): State<Shared>,
+    headers: HeaderMap,
+    uri: Uri,
+    Form(input): Form<PromotionInput>,
+) -> HtmlResult {
+    let context = context_of(&uri);
+    let (t, p): (Cat, Pilot) = (req.t(), req.t());
+    // Without the held token, so the read does not preview again, and without the last job.
+    let bare = with_query(&context, &[("promotionPreviewId", None), ("jobId", None)]);
+    let refuse = |message: &str| {
+        let mut errors = Errors::new();
+        errors.add_form(message);
+        Sent::Refused(errors)
+    };
+    let phase = input.phase.as_str();
+    if !matches!(phase, "preview" | "preview-checked" | "preview-unit" | "execute") {
+        return answer(&req, &staff, &config, &headers, &bare, Sent::Refused(super::not_offered(p)), Ran::Queued).await;
+    }
+    let caller = config.platform.caller(&headers, config.proto, None);
+    let read = match read_with(&caller, &location(&bare)).await {
+        Ok(read) => read,
+        Err(error) => return read_failed(&req, error, false),
+    };
+    // A unit's Preview runs on the unit's own working set with the descriptor the read built for that
+    // unit (its `actions.previewPromotion`), never the selected unit's.
+    let (descriptor, working) = if phase == "preview-unit" {
+        let unit = read.read_model.source_scope_workset.units.iter().find(|unit| unit.key() == input.unit);
+        let unit = unit.filter(|unit| unit.previewable() && unit.actions.preview_promotion.open());
+        let descriptor = unit.and_then(|unit| unit.actions.preview_promotion.command_preview.as_ref());
+        let working = unit.map(|unit| unit_landing(&bare, &unit.current_workbench_href)).unwrap_or_default();
+        (descriptor, working)
+    } else {
+        let open = read.read_model.actions.iter().find(|a| a.key == "observation.promote").is_some_and(Action::open);
+        (promotion_command(&read.read_model).filter(|_| open), bare.clone())
+    };
+    let Some(descriptor) = descriptor else {
+        return answer(&req, &staff, &config, &headers, &bare, Sent::Refused(super::not_offered(p)), Ran::Queued).await;
+    };
+    let checked: Vec<String> = ids(&input.observation).into_iter().map(str::to_owned).collect();
+    let selection = match phase {
+        "preview-unit" => Vec::new(),
+        "preview-checked" => checked,
+        _ if checked.is_empty() => selected(&context),
+        _ => checked,
+    };
+    if phase == "preview-checked" && selection.is_empty() {
+        return answer(&req, &staff, &config, &headers, &bare, refuse(t.wb_review_bulk_preview_denied()), Ran::Queued).await;
+    }
+    if selection.is_empty() && !descriptor.allow_scope_selection {
+        let sent = refuse(p.integrations_promotion_select());
+        return answer(&req, &staff, &config, &headers, &bare, sent, Ran::Queued).await;
+    }
+    if selection.len() > MOST_SELECTED {
+        let sent = refuse(&p.integrations_promotion_over_limit(MOST_SELECTED).to_string());
+        return answer(&req, &staff, &config, &headers, &bare, sent, Ran::Queued).await;
+    }
+    let csv = selection.join(",");
+    let csv = Some(csv.as_str()).filter(|csv| !csv.is_empty());
+    let draft = input.draft == "true";
+    if phase != "execute" {
+        let body = promotion_body(descriptor, &selection, draft);
+        let sent = match caller.post::<Value>(Kind::SourceObservations, "/bulk-promote/preview", &body).await {
+            Ok(preview) => match preview.get("previewToken").and_then(Value::as_str).filter(|t| !t.is_empty()) {
+                Some(token) => {
+                    let set = [
+                        ("section", Some("promotion-preview")),
+                        ("selectedObservationIds", csv),
+                        ("promotionPreviewId", Some(token)),
+                        ("promoteAsDraft", draft.then_some("true")),
+                        ("jobId", None),
+                    ];
+                    let to = at(&home(&working), &with_query(&working, &set));
+                    return match Local::parse(&to) {
+                        Some(local) => req.redirect(&local),
+                        None => req.redirect(&url::Daily),
+                    };
+                }
+                // A first page's preview always carries a token; without one nothing can commit.
+                None => refuse(p.integrations_promotion_preview_again()),
+            },
+            Err(error) => match crate::app::refused(error) {
+                Ok(errors) => Sent::Refused(errors),
+                Err(denied) => Sent::Denied(denied),
+            },
+        };
+        return answer(&req, &staff, &config, &headers, &bare, sent, Ran::Queued).await;
+    }
+    // The commit presents the token the preview answered, with the selection and the draft choice
+    // the address kept from it; a refusal drops the token, so the page asks for a preview again.
+    let Some(token) = context_value(&context, "promotionPreviewId").filter(|t| !t.is_empty()) else {
+        return answer(&req, &staff, &config, &headers, &bare, refuse(p.integrations_promotion_preview_again()), Ran::Queued)
+            .await;
+    };
+    // The draft box sits in the commit's form: a choice other than the previewed one needs a new
+    // preview, as admin-web's stage holds the commit back until one binds it.
+    let previewed = context_value(&context, "promoteAsDraft").as_deref() == Some("true");
+    if draft != previewed {
+        let sent = refuse(t.wb_stage_create_preview_choice_changed());
+        return answer(&req, &staff, &config, &headers, &context, sent, Ran::Queued).await;
+    }
+    if input.confirm != "true" {
+        return answer(&req, &staff, &config, &headers, &context, refuse(p.integrations_promotion_confirm()), Ran::Queued).await;
+    }
+    let mut body = promotion_body(descriptor, &selection, draft);
+    body["previewToken"] = json!(token);
+    let sent = match caller.post_written::<Value>(Kind::SourceObservations, "/bulk-promote/jobs", &body).await {
+        Ok((job, written)) => {
+            let id = job.get("jobId").and_then(Value::as_str);
+            let set = [
+                ("jobId", id),
+                ("section", Some("promotion-result")),
+                ("promotionPreviewId", None),
+                ("promoteAsDraft", None),
+                ("selectedObservationIds", None),
+            ];
+            return landed(&req, &context, &set, &written, Ran::Queued);
+        }
+        Err(error) => match crate::app::refused(error) {
+            Ok(errors) => Sent::Refused(errors),
+            Err(denied) => Sent::Denied(denied),
+        },
+    };
+    answer(&req, &staff, &config, &headers, &bare, sent, Ran::Queued).await
+}
+
+/// The selection and confirmation the read model built for promoting observations, when it built one.
+pub fn promotion_command(model: &Daily) -> Option<&CommandPreview> {
+    let action = model.actions.iter().find(|a| a.key == "observation.promote")?;
+    action.command_preview.as_ref().filter(|c| c.confirmation.is_some())
+}
+
 /// A merge candidate's command: `ignore`, `defer`, `split` or `update` (its edit). A split
 /// and an edit name the candidate version the page read; the API applies them to the snapshot it
 /// holds and refuses a version it has moved on from.
@@ -1542,9 +1844,9 @@ pub struct CandidateInput {
     pub drop_product_ref: Vec<String>,
 }
 
-/// The merge candidate commands the row's buttons send; promote stays on admin-web, since the API
-/// does not check it against the version the page read (chase-sets/chase-sets#11143), and the edit is
-/// its own form.
+/// The merge candidate commands the row's buttons send. Split and promote are each their own form
+/// with the version the page read (a promote only once the API checks it against that version,
+/// chase-sets/chase-sets#11143), and the edit is its dialog's.
 pub const CANDIDATE_COMMANDS: [(&str, &str); 3] =
     [("candidate.ignore", "ignore"), ("candidate.defer", "defer"), ("candidate.split", "split")];
 
@@ -1570,6 +1872,13 @@ impl CandidateInput {
                 let typed = self.reason.trim();
                 let reason = if typed.is_empty() { reason(t.wb_merge_action_split()) } else { typed.to_owned() };
                 Some(("split", json!({ "reason": reason, "expectedVersion": version, "splitObservationIds": ids })))
+            }
+            "promote" => {
+                let version = self.version()?;
+                let typed = self.reason.trim();
+                let reason = if typed.is_empty() { reason(t.wb_merge_action_promote()) } else { typed.to_owned() };
+                // No conflict to resolve: the row offers Promote only without blocking conflicts.
+                Some(("promote", json!({ "reason": reason, "expectedVersion": version, "conflictResolutions": [] })))
             }
             "update" => {
                 let version = self.version()?;

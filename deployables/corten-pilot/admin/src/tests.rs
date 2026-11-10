@@ -7661,7 +7661,7 @@ fn daily_surface(location: &str) -> Response {
                 { "unitKey": "tcgplayer:pokemon:sealed", "productDomain": "pokemon", "productForm": "sealed", "activeProfile": null }] }
         ] },
         "sourceOptions": source_options(false),
-        "sourceScopeWorkset": workset(stopped)
+        "sourceScopeWorkset": workset(stopped, location.contains("unitPreview=open"))
     });
     let mut surface = json!({
         "readModelFailures": [],
@@ -7732,12 +7732,26 @@ fn daily_surface(location: &str) -> Response {
                         { "key": "rarity", "fieldPath": "catalogItem.rarity", "label": "rarity", "value": "Common" }],
                     "externalCatalogItemReferences": [{ "index": 0, "label": "tcgplayer:111" }],
                     "externalProductReferences": [] } }] },
-            "promotionPreview": { "previewId": null, "blockers": [], "destructiveCount": 0 },
+            "promotionPreview": promotion_preview(location),
             "promotionResult": null,
             "actions": [{ "key": "observation.defer", "state": "available", "blockers": [] },
                 { "key": "observation.reject", "state": "available", "blockers": [] }]
         }
     });
+    // `candidatePromote=versioned` is an API that checks a candidate's promote against the version
+    // read, and builds it (chase-sets/chase-sets#11143).
+    if location.contains("candidatePromote=versioned") {
+        surface["readModel"]["mergeCandidateReview"]["rows"][0]["actions"][0]["commandPreview"] = json!({
+            "commandKind": "promote-catalog-merge-candidate",
+            "body": { "reason": "Promote from the scope-first Catalog sync workbench.", "expectedVersion": 4 } });
+    }
+    // The read builds the promotion's selection and confirmation (chase-sets/chase-sets#11142);
+    // `providerKey=legacy` is an API from before it, whose promotion opens on admin-web.
+    if !location.contains("providerKey=legacy") {
+        let actions = surface["readModel"]["actions"].as_array_mut().expect("the actions are a list");
+        actions.push(json!({ "key": "observation.promote", "state": "available", "blockers": [],
+            "commandPreview": promotion_descriptor("tcgplayer:pokemon:card") }));
+    }
     let serde_json::Value::Object(context) = context else { unreachable!("the context is an object") };
     surface["readModel"].as_object_mut().expect("the read model is an object").extend(context);
     // What the API works out for this read (`flow`, `dailyStatus`, the review's links): it opens
@@ -7901,11 +7915,31 @@ fn daily_command(method: &Method, path: &str, body: &str) -> Option<Response> {
             }
         }
         "/bulk-defer/jobs" => written(StatusCode::ACCEPTED, "bulk_1"),
+        // A promotion's preview answers a token bound to the draft choice; its commit admits only
+        // that token with the same choice (the API's `stale_promotion_preview` otherwise).
+        "/bulk-promote/preview" if sent["confirmation"].is_object() => {
+            let token = if sent["promoteAsDraft"] == json!(true) { "tok_draft" } else { "tok_1" };
+            Json(json!({ "previewToken": token, "matched": 1, "eligible": 1 })).into_response()
+        }
+        "/bulk-promote/jobs" => {
+            let draft = sent["promoteAsDraft"] == json!(true);
+            match sent["previewToken"].as_str() {
+                Some("tok_1") if !draft => queued("job_p1"),
+                Some("tok_draft") if draft => queued("job_p2"),
+                _ => refusal(
+                    StatusCode::CONFLICT,
+                    "stale_promotion_preview",
+                    "The promotion preview is stale. Preview again before promoting.",
+                ),
+            }
+        }
         // A workset unit's import and reapply.
         "/integration-jobs" => queued("job_9"),
         "/reapply" => queued("job_10"),
         "/admin/merge-candidates/cand_1/ignore" | "/admin/merge-candidates/cand_1/defer" => written(StatusCode::OK, "cand_1"),
-        "/admin/merge-candidates/cand_1/split" | "/admin/merge-candidates/cand_1/update" => {
+        "/admin/merge-candidates/cand_1/split"
+        | "/admin/merge-candidates/cand_1/update"
+        | "/admin/merge-candidates/cand_1/promote" => {
             if sent["expectedVersion"] == json!(4) {
                 written(StatusCode::OK, "cand_1")
             } else {
@@ -8635,10 +8669,54 @@ async fn an_unreadable_projection_says_so_in_its_panel_and_a_failed_read_is_the_
     assert_eq!(status, StatusCode::FORBIDDEN, "catalog.view, as the API asks");
 }
 
+/// The promotion's selection and confirmation the read builds (`commandPreview`, chase-sets/chase-sets#11142):
+/// the working set's filter scope, and its unit, import scope and profile.
+fn promotion_descriptor(unit: &str) -> Value {
+    let scope = json!({ "provider": "tcgplayer", "language": "en", "setId": "sv1", "status": null });
+    json!({ "scope": scope, "allowScopeSelection": true,
+        "confirmation": { "unitKey": unit, "importScope": "en:sv1", "profileVersion": "3", "scope": scope } })
+}
+
+/// The promotion preview the read answers: none without a token; for `tok_1` or `tok_draft`, the
+/// selection previewed again, fresh and fully validated (the draft one carrying an unresolved
+/// identity as a draft); for `tok_stale`, one the API found stale; for `tok_blocked`, one an
+/// unresolvable identity blocks.
+fn promotion_preview(location: &str) -> Value {
+    let token = location.split(['?', '&']).find_map(|p| p.strip_prefix("promotionPreviewId="));
+    let Some(token) = token else {
+        return json!({ "previewId": null, "blockers": [], "destructiveCount": 0, "freshness": "partial",
+            "validation": { "promoteAsDraft": false, "coverage": "not-previewed", "coveredCount": 0,
+                "identityDiagnostics": [], "otherBlockedObservationIds": [], "continuation": null },
+            "executionSafeguards": { "previewFresh": false, "staleReasons": [] } });
+    };
+    let draft = token == "tok_draft";
+    let stale = token == "tok_stale";
+    let blocked = token == "tok_blocked";
+    let diagnostics = if draft || blocked {
+        json!([{ "observationId": "obs_1", "blocking": blocked, "templateReason": "unresolved-title-tokens",
+            "diagnosticText": "The title needs a card number.", "missingTokens": ["number"], "templateKey": "card" }])
+    } else {
+        json!([])
+    };
+    json!({
+        "previewId": token,
+        "blockers": if blocked { json!(["display-identity-unresolvable"]) } else if stale { json!(["stale-promotion-preview"]) } else { json!([]) },
+        "destructiveCount": 0,
+        "freshness": if stale { "stale" } else { "fresh" },
+        "scope": { "label": "Scarlet & Violet", "requestedCount": 1, "eligibleCount": 1,
+            "selectedObservationIds": ["obs_1"], "filterSummary": ["set sv1", "language en"] },
+        "outcomeCounts": { "eligible": 1, "blocked": 0, "skipped": 0, "conflicting": 0 },
+        "commandPlanHash": format!("preview:{token}:explicit:requested:1:eligible:1"),
+        "validation": { "promoteAsDraft": draft, "coverage": "complete", "coveredCount": 1,
+            "identityDiagnostics": diagnostics, "otherBlockedObservationIds": [], "continuation": null },
+        "executionSafeguards": { "previewFresh": !stale, "staleReasons": if stale { json!(["observations"]) } else { json!([]) } }
+    })
+}
+
 /// The daily surface's source scope workset: the selected scope with one unit whose import and
 /// reapply are open, with the scopes they post, and one blocked until a scope is chosen; none under
 /// the kill switch.
-fn workset(stopped: bool) -> Value {
+fn workset(stopped: bool, unit_preview: bool) -> Value {
     let open = json!({ "key": "scope.import", "state": "available", "blockers": [] });
     let blocked = |key: &str| json!({ "key": key, "state": "disabled", "blockers": ["import-scope-required"] });
     json!({
@@ -8656,7 +8734,13 @@ fn workset(stopped: bool) -> Value {
                   "import": { "provider": "tcgplayer", "ingestionUnitKey": "tcgplayer:pokemon:card", "language": "en", "setId": "sv1" },
                   "reapply": { "provider": "tcgplayer", "language": "en", "setId": "sv1", "ingestionUnitKey": "tcgplayer:pokemon:card" } },
               "actions": { "import": open,
-                  "previewPromotion": { "key": "observation.promote", "state": "disabled", "blockers": ["no-promotion-eligible-observations"] },
+                  "previewPromotion": if unit_preview {
+                      json!({ "key": "observation.promote", "state": "available", "blockers": [],
+                          "commandPreview": promotion_descriptor("tcgplayer:pokemon:card") })
+                  } else {
+                      json!({ "key": "observation.promote", "state": "disabled",
+                          "blockers": ["no-promotion-eligible-observations"] })
+                  },
                   "reapply": { "key": "observation.reapply", "state": "available", "blockers": [] } } },
             { "providerKey": "lorcast", "displayName": "Lorcast cards", "unitKey": null, "profileVersion": null,
               "state": "blocked", "counts": { "observed": 0, "changed": 0, "promoted": 0 },
@@ -8721,14 +8805,217 @@ async fn a_review_rows_evidence_opens_the_apis_evidence_in_a_sheet() {
         "{html}"
     );
     assert!(html.contains("Name differs from pokemontcgio") && html.contains("Observed by the nightly import"), "{html}");
-    assert!(html.contains("section=promotion-preview"), "an eligible row's Preview promotion: {html}");
+    assert!(
+        html.contains(r#"action="/catalog/integrations/promotion?providerKey=tcgplayer&amp;unitKey=pokemon""#)
+            && html.contains(r#"<input type="hidden" name="observation" value="obs_1">"#)
+            && html.contains(r#"value="preview-checked""#),
+        "an eligible row's Preview promotion previews it: {html}"
+    );
     assert!(!html.contains("disabled"), "{html}");
 
     // An observation the API has no evidence for is the sheet's error, its footer blocked.
     let (status, _, html) = pilot.send(opened(&format!("{EVIDENCE}/obs_missing?providerKey=tcgplayer&unitKey=pokemon"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");
     assert!(html.contains(r#"data-catalog-observation-evidence="error""#), "{html}");
-    assert!(html.contains("disabled") && !html.contains("section=promotion-preview"), "{html}");
+    assert!(html.contains("disabled") && !html.contains("preview-checked"), "{html}");
+}
+
+#[tokio::test]
+async fn a_candidates_promote_sends_the_version_read_once_the_api_checks_it() {
+    let pilot = Pilot::new().await;
+    // Before the API checks the version, Promote is admin-web's.
+    let (_, _, html) = pilot.send(get("/catalog/integrations?providerKey=tcgplayer", Some("staff"))).await;
+    assert!(!html.contains(r#"value="promote""#), "{html}");
+    let at = "/catalog/integrations?providerKey=tcgplayer&candidatePromote=versioned";
+    let (_, _, html) = pilot.send(get(at, Some("staff"))).await;
+    assert!(
+        html.contains(r#"data-catalog-primary-workbench-command="candidate-promote""#)
+            && html.contains(r#"<input type="hidden" name="version" value="4">"#)
+            && html.contains(r#"value="promote""#),
+        "{html}"
+    );
+    let post_to = "/catalog/integrations/candidates/cand_1?providerKey=tcgplayer&candidatePromote=versioned";
+    let reason = "reason=Promote+from+the+scope-first+Catalog+sync+workbench.";
+    let (status, headers, _) = pilot.send(post(post_to, &format!("command=promote&version=4&{reason}"), false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert!(headers[header::LOCATION].to_str().unwrap().contains("done=queued"));
+    assert_eq!(
+        last_write(&pilot, "/admin/merge-candidates/cand_1/promote"),
+        json!({ "reason": "Promote from the scope-first Catalog sync workbench.", "expectedVersion": 4, "conflictResolutions": [] })
+    );
+    // A candidate that moved since the read is admin-web's stale message; no version is not offered.
+    let (status, _, html) = pilot.send(post(post_to, &format!("command=promote&version=3&{reason}"), false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(html.contains("The merge candidate changed after this page loaded it"), "{html}");
+    let before = daily_writes(&pilot).len();
+    let (status, _, _) = pilot.send(post(post_to, "command=promote", false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(daily_writes(&pilot).len(), before);
+}
+
+/// The daily surface reads the address names, decoded: the last one.
+fn last_daily_read(pilot: &Pilot) -> String {
+    let calls = pilot.calls.lock().unwrap();
+    let read = calls.iter().rev().find(|c| c.path.contains("/workbench-surfaces/daily?")).expect("a daily read");
+    percent_encoding::percent_decode_str(read.path.split_once("location=").unwrap().1).decode_utf8_lossy().into_owned()
+}
+
+/// The body of the last write to `rest` under the Source Observations API.
+fn last_write(pilot: &Pilot, rest: &str) -> Value {
+    let path = format!("/api/catalog/source-observations{rest}");
+    let write = daily_writes(pilot).into_iter().rev().find(|c| c.path == path).unwrap_or_else(|| panic!("no write to {path}"));
+    serde_json::from_str(&write.body).unwrap()
+}
+
+#[tokio::test]
+async fn preview_promotion_sends_the_reads_selection_and_confirmation_and_the_commit_presents_its_token() {
+    let pilot = Pilot::new().await;
+    let promotion = "/catalog/integrations/promotion?providerKey=tcgplayer";
+    let (_, _, page) = pilot.send(get("/catalog/integrations?providerKey=tcgplayer", Some("staff"))).await;
+    assert!(
+        page.contains(r#"formaction="/catalog/integrations/promotion?providerKey=tcgplayer""#)
+            && page.contains(r#"value="preview-checked""#),
+        "the review bar's Preview promotion posts the checked rows to the pilot: {page}"
+    );
+    assert!(!page.contains("Preview on admin-web"), "{page}");
+    let promotes = |pilot: &Pilot| daily_writes(pilot).iter().filter(|c| c.path.contains("/bulk-promote/")).count();
+
+    // The checked row (the review form's other fields ride along), previewed with the read's confirmation.
+    let (status, headers, _) = pilot.send(post(promotion, "phase=preview-checked&observation=obs_1&reason=", false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let to = headers[header::LOCATION].to_str().unwrap().to_owned();
+    assert_eq!(
+        to,
+        "/catalog/integrations?providerKey=tcgplayer&section=promotion-preview&selectedObservationIds=obs_1&promotionPreviewId=tok_1"
+    );
+    let descriptor = promotion_descriptor("tcgplayer:pokemon:card");
+    assert_eq!(
+        last_write(&pilot, "/bulk-promote/preview"),
+        json!({ "promoteAsDraft": false, "confirmation": descriptor["confirmation"], "observationIds": ["obs_1"] })
+    );
+    assert!(!last_daily_read(&pilot).contains("promotionPreviewId"), "the command's read does not preview again");
+
+    // The landing previews again for the create stage: fresh, validated, the commit offered.
+    let (status, _, html) = pilot.send(get(&to, Some("staff"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(last_daily_read(&pilot).contains("promotionPreviewId=tok_1"), "the read previews the held token");
+    assert!(html.contains(r#"data-catalog-promotion-preview="fresh""#), "{html}");
+    assert!(html.contains("Validated every eligible observation (1) before any Catalog write."), "{html}");
+    assert!(html.contains("I confirm this will promote 1 eligible observation(s) from Scarlet &amp; Violet."), "{html}");
+    assert!(html.contains(r#"value="execute">"#), "the commit is not disabled: {html}");
+    assert!(html.contains(r#"href="/catalog/catalog-items?source=tcgplayer""#), "the Catalog Items handoff: {html}");
+
+    // A commit needs its box, and the draft choice the preview bound.
+    let held = to.replace("/catalog/integrations?", "/catalog/integrations/promotion?");
+    let before = promotes(&pilot);
+    let (status, _, html) = pilot.send(post(&held, "phase=execute", false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    assert!(html.contains("Confirm the previewed impact before creating or updating Catalog Items."), "{html}");
+    let (status, _, html) = pilot.send(post(&held, "phase=execute&draft=true&confirm=true", false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    assert!(html.contains("The promote-as-draft choice changed since this preview."), "{html}");
+    assert_eq!(promotes(&pilot), before, "neither was sent");
+
+    let (status, headers, _) = pilot.send(post(&held, "phase=execute&confirm=true", false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let landed = headers[header::LOCATION].to_str().unwrap().to_owned();
+    assert!(
+        landed.starts_with("/catalog/integrations?providerKey=tcgplayer&jobId=job_p1&section=promotion-result&done=queued"),
+        "{landed}"
+    );
+    assert!(!landed.contains("promotionPreviewId") && !landed.contains("selectedObservationIds"), "{landed}");
+    assert_eq!(
+        last_write(&pilot, "/bulk-promote/jobs"),
+        json!({ "promoteAsDraft": false, "confirmation": descriptor["confirmation"], "observationIds": ["obs_1"],
+            "previewToken": "tok_1" })
+    );
+
+    // A token the API finds stale is its refusal, and the page asks for a preview again.
+    let stale = "/catalog/integrations/promotion?providerKey=tcgplayer&section=promotion-preview\
+                 &selectedObservationIds=obs_1&promotionPreviewId=tok_stale";
+    let (status, _, html) = pilot.send(post(stale, "phase=execute&confirm=true", false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    assert!(html.contains("The promotion preview is stale. Preview again before promoting."), "{html}");
+    assert!(!html.contains("tok_stale"), "the refusal drops the token: {html}");
+    let (_, _, html) = pilot.send(get(&stale.replace("/promotion?", "?"), Some("staff"))).await;
+    assert!(html.contains(r#"data-catalog-promotion-preview="stale""#) && html.contains(r#"value="execute" disabled"#), "{html}");
+    // An identity the preview cannot resolve blocks the commit.
+    let (_, _, html) =
+        pilot.send(get(&stale.replace("/promotion?", "?").replace("tok_stale", "tok_blocked"), Some("staff"))).await;
+    assert!(html.contains(r#"value="execute" disabled"#) && html.contains("1 observation(s) blocked"), "{html}");
+
+    // The create stage's Preview: the working set's selection with the draft choice, or the scope.
+    let (status, headers, _) = pilot.send(post(&held, "phase=preview&draft=true", false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let to = headers[header::LOCATION].to_str().unwrap().to_owned();
+    assert!(to.ends_with("&selectedObservationIds=obs_1&promotionPreviewId=tok_draft&promoteAsDraft=true"), "{to}");
+    assert_eq!(last_write(&pilot, "/bulk-promote/preview")["observationIds"], json!(["obs_1"]));
+    let (_, _, html) = pilot.send(get(&to, Some("staff"))).await;
+    assert!(html.contains("1 observation(s) will be written as draft"), "{html}");
+    let (status, headers, _) = pilot
+        .send(post(
+            &to.replace("/catalog/integrations?", "/catalog/integrations/promotion?"),
+            "phase=execute&draft=true&confirm=true",
+            false,
+        ))
+        .await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert!(headers[header::LOCATION].to_str().unwrap().contains("jobId=job_p2"));
+    let (status, _, _) = pilot.send(post(promotion, "phase=preview", false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let sent = last_write(&pilot, "/bulk-promote/preview");
+    assert!(sent["observationIds"].is_null() && sent["scope"] == descriptor["scope"], "the scope: {sent}");
+
+    // Refused before any write: nothing checked from the review bar, more than the address carries, a phase it has not.
+    let before = promotes(&pilot);
+    let (status, _, html) = pilot.send(post(promotion, "phase=preview-checked&reason=", false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(html.contains("no selected observation is eligible for promotion preview"), "{html}");
+    let many: String = (0..51).map(|i| format!("&observation=obs_{i}")).collect();
+    let (status, _, html) = pilot.send(post(promotion, &format!("phase=preview{many}"), false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(html.contains("Check at most 50 Source Observations to preview at once."), "{html}");
+    let (status, _, _) = pilot.send(post(promotion, "phase=publish", false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    let (status, _, _) = pilot.send(post_as("catalog-viewer", promotion, "phase=preview", false)).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "catalog.manage is needed");
+    assert_eq!(promotes(&pilot), before);
+}
+
+#[tokio::test]
+async fn a_units_preview_runs_on_its_own_working_set_and_an_api_without_the_promotion_opens_admin_web() {
+    let pilot = Pilot::new().await;
+    let unit = "phase=preview-unit&unit=tcgplayer%3Apokemon%3Acard";
+    // The unit's preview the read disables is not offered.
+    let (status, _, html) = pilot.send(post("/catalog/integrations/promotion?providerKey=tcgplayer", unit, false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(html.contains("This action is not available here."), "{html}");
+    // An open one previews the unit's scope with the unit's descriptor, and lands on its working set.
+    let at = "/catalog/integrations/promotion?providerKey=tcgplayer&unitPreview=open";
+    let (_, _, page) = pilot.send(get(&at.replace("/promotion?", "?"), Some("staff"))).await;
+    assert!(page.contains(r#"value="preview-unit""#) && !page.contains("Preview TCGplayer singles on admin-web"), "{page}");
+    let (status, headers, _) = pilot.send(post(at, unit, false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert_eq!(
+        headers[header::LOCATION].to_str().unwrap(),
+        "/catalog/integrations?providerKey=tcgplayer&unitKey=tcgplayer%3Apokemon%3Acard&importScope=en%3Asv1\
+         &section=promotion-preview&promotionPreviewId=tok_1"
+    );
+    let sent = last_write(&pilot, "/bulk-promote/preview");
+    let descriptor = promotion_descriptor("tcgplayer:pokemon:card");
+    assert!(sent["observationIds"].is_null() && sent["confirmation"] == descriptor["confirmation"], "{sent}");
+
+    // Before the read builds the promotion, its preview and commit open on admin-web, and a post is not offered.
+    let (_, _, html) = pilot.send(get("/catalog/integrations?providerKey=legacy&section=promotion-preview", Some("staff"))).await;
+    assert!(html.contains("Open the promotion preview on admin-web") && !html.contains(r#"value="execute""#), "{html}");
+    let (_, _, html) = pilot.send(get("/catalog/integrations?providerKey=legacy", Some("staff"))).await;
+    assert!(html.contains("Preview on admin-web") && !html.contains(r#"value="preview-checked""#), "{html}");
+    let before = daily_writes(&pilot).len();
+    let (status, _, _) = pilot
+        .send(post("/catalog/integrations/promotion?providerKey=legacy", "phase=preview-checked&observation=obs_1", false))
+        .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(daily_writes(&pilot).len(), before);
 }
 
 #[tokio::test]
@@ -8789,8 +9076,8 @@ async fn the_daily_workbench_draws_the_apis_read_with_its_stages_and_commands() 
     // Each command's form patches the page with JavaScript and posts without it.
     assert_eq!(
         html.matches("data-patch").count(),
-        9,
-        "the sync's, a failed unit's retry, the job's, the candidate's, its split, the review's, its Evidence and a unit's Sync and Reapply: {html}"
+        10,
+        "the sync's, a failed unit's retry, the job's, the candidate's, its split, the review's, its Evidence, a unit's Sync and Reapply and the create stage's: {html}"
     );
     // The sync's form carries the working set, the scope and every unit, the eligible one checked.
     assert!(html.contains(r#"action="/catalog/integrations/catalog-sync?providerKey=tcgplayer&amp;unitKey=pokemon""#), "{html}");
