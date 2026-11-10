@@ -299,14 +299,12 @@ const runnerEnv = (workspace) => ({
 });
 
 async function tsx(args, cwd, env) {
-  const windows = process.platform === "win32";
-  const command = windows ? `pnpm exec tsx ${args.map((arg) => `"${arg}"`).join(" ")}` : "pnpm";
-  const argv = windows ? [] : ["exec", "tsx", ...args];
+  const argv = ["--import", import.meta.resolve("tsx"), ...args];
   return new Promise((resolve, reject) => {
-    const child = spawn(command, argv, {
+    const child = spawn(process.execPath, argv, {
       cwd,
       env,
-      shell: windows,
+      shell: false,
       windowsHide: true,
       stdio: ["ignore", "pipe", "pipe"],
     });
