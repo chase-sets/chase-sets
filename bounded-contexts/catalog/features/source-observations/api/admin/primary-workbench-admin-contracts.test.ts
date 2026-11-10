@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { syntheticPromotionReceipt } from "../../ui/primary-workbench-test-fixtures";
+import { syntheticPromotionReceipt, catalogMergeCandidateListItem } from "../../ui/primary-workbench-test-fixtures";
+import { previewCatalogMergeCandidateReviewCommand } from "../promotion/catalog-merge-candidate-review-command-payloads";
+import { buildCatalogPrimaryWorkbenchReadModelForSurface } from "../../ui/primary-workbench-read-model";
 import type { SourceObservationPromotionReceipt } from "../../ui/contracts";
 import { CATALOG_CONTROL_PLANE_ACTIONS } from "../../ui/admin-control-plane/information-architecture-v2";
 import {
@@ -136,6 +138,33 @@ import type {
 } from "./primary-workbench-admin-contracts";
 
 describe("Catalog primary workbench admin contracts", () => {
+  it.each(["ready", "has-conflicts", "stale", "promoted", "rejected", "deferred"] as const)(
+    "preserves promote preview and availability by row state %s and permission",
+    (status) => {
+      for (const canManageCatalog of [true, false]) {
+        const candidate = catalogMergeCandidateListItem({ status });
+        const model = buildCatalogPrimaryWorkbenchReadModelForSurface("daily", {
+          requestUrl: "https://admin.example/catalog/integrations",
+          scopes: { items: [], total: 0, count: 0 },
+          profileReviews: { items: [], total: 0, count: 0 },
+          controlPlaneOverview: null,
+          canManageCatalog,
+          mergeCandidates: { items: [candidate], total: 1, count: 1 },
+        });
+        const action = model.mergeCandidateReview.rows[0]!.actions.find((entry) => entry.key === "candidate.promote")!;
+        const previewExpected = status === "ready" || status === "has-conflicts";
+        expect(action.commandPreview !== null).toBe(previewExpected);
+        if (previewExpected)
+          expect(action.commandPreview?.body).toEqual({
+            expectedVersion: candidate.last_stream_version,
+            reason: "Promote from the scope-first Catalog sync workbench.",
+          });
+        expect(action.blockers.includes("permission-denied")).toBe(!canManageCatalog);
+        if (status === "ready" && canManageCatalog) expect(action.state).toBe("available");
+        validateCatalogPrimaryWorkbenchReadModelContract(model);
+      }
+    },
+  );
   it("defines the Stage 2 import-to-promotion workbench sections in primary-path order", () => {
     const expectedSections: readonly CatalogPrimaryWorkbenchSectionKey[] = [
       "provider-scope-selection",
@@ -1434,7 +1463,10 @@ describe("Catalog primary workbench admin contracts", () => {
                 state: "available",
                 blockers: [],
                 reasonRequired: true,
-                commandPreview: null,
+                commandPreview: previewCatalogMergeCandidateReviewCommand(
+                  catalogMergeCandidateListItem(),
+                  "candidate.promote",
+                ).preview,
               },
               {
                 key: "candidate.split",
@@ -3377,7 +3409,7 @@ const baselineThrownMessages: Readonly<Record<string, readonly string[]>> = {
     "Primary workbench merge candidate detail must expose source comparison and field provenance.",
     "Primary workbench merge candidate blocking conflict count must match its resolvable conflict detail.",
     "Primary workbench merge candidate rows must expose '${actionKey}'.",
-    "Primary workbench split/update merge candidate actions require typed command previews.",
+    "Primary workbench promote/split/update merge candidate actions require typed command previews.",
   ],
   assertPrimaryWorkbenchProfileAuthoring: [
     "Primary workbench profile authoring contract is required.",

@@ -732,11 +732,15 @@ export function assertPrimaryWorkbenchMergeCandidateReview(
       assertCatalogPrimaryWorkbenchActionState(actionEntry.state);
       assertPrimaryWorkbenchBlockers(actionEntry.blockers);
       if (
-        (actionEntry.key === "candidate.split" || actionEntry.key === "candidate.edit") &&
+        (actionEntry.key === "candidate.promote" ||
+          actionEntry.key === "candidate.split" ||
+          actionEntry.key === "candidate.edit") &&
         (actionEntry.state === "available" || actionEntry.state === "degraded") &&
         !actionEntry.commandPreview
       ) {
-        throw new Error("Primary workbench split/update merge candidate actions require typed command previews.");
+        throw new Error(
+          "Primary workbench promote/split/update merge candidate actions require typed command previews.",
+        );
       }
     }
   }
