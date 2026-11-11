@@ -14,12 +14,14 @@ import {
 } from "./scrydex-option-refresh";
 
 describe("Scrydex bounded option refresh", () => {
-  const admitPeriod = guardDisabledMutant<typeof evaluateScrydexOptionRefreshAdmission>(
-    "../domain/scrydex-option-refresh.ts",
-    ["const decision = evaluateScrydexBillingPeriod({", "const decision = periodGate({"],
-    "evaluateScrydexOptionRefreshAdmission",
-    { z, ...cacheCapture, ...period, periodGate: periodGateForTest() },
-  );
+  const admitPeriod = process.env.SCRYDEX_PERIOD_MUTANT
+    ? guardDisabledMutant<typeof evaluateScrydexOptionRefreshAdmission>(
+        "../domain/scrydex-option-refresh.ts",
+        ["const decision = evaluateScrydexBillingPeriod({", "const decision = periodGate({"],
+        "evaluateScrydexOptionRefreshAdmission",
+        { z, ...cacheCapture, ...period, periodGate: periodGateForTest() },
+      )
+    : evaluateScrydexOptionRefreshAdmission;
   const periodInput = (consumed = 49_944, reserve: unknown = periodReserve("1:1")) => ({
     provider: {
       providerKey: "scrydex",

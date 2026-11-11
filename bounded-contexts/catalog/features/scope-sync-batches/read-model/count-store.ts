@@ -610,7 +610,8 @@ export function createCountStore(db: PgTransactionalPool, slot: string, now = ()
         (SELECT DISTINCT ON (run_id) run_id,payload FROM catalog_scope_sync_count_capture_history ORDER BY run_id,position DESC) r,
         LATERAL jsonb_array_elements(r.payload->'sends') s
         WHERE r.run_id<>$1 AND s->>'category'='usage'
-        AND ((s->>'debitedAt')::timestamptz > $2::timestamptz OR s->>'status' IS NULL)`,
+        AND ((s->>'debitedAt')::timestamptz > $2::timestamptz
+          OR (s->>'status' IS NULL AND (s->>'debitedAt')::timestamptz >= $4::timestamptz))`,
         [runId, since, slot, current.snapshot?.billingPeriod?.startsAt ?? null],
       );
       const usageCredits = Number(usage.rows[0]?.credits);

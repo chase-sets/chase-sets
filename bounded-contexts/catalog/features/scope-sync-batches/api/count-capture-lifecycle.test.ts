@@ -37,6 +37,21 @@ const durable = (f: ReturnType<typeof createCaptureLifecycleFixture>) => {
   return (last?.payload ?? null) as CountCaptureRun | null;
 };
 const other = () => captureSession({ actor: captureActor({ sessionId: "synthetic-other-session" }) });
+const storeBindings = {
+  randomUUID,
+  z,
+  withPgTransaction,
+  ...transport,
+  ...acquisition,
+  ...plan,
+  ...period,
+  countCaptureAuthoritySchema: receipt.countCaptureAuthoritySchema,
+  countLifecycleReceiptSchema: receipt.countLifecycleReceiptSchema,
+  countLifecycleStopReceiptSchema: receipt.countLifecycleStopReceiptSchema,
+  SCRYDEX_ONE_PIECE_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+  SCRYDEX_ONE_PIECE_SET_REFERENCE_DATA_UNIT_KEY,
+  SCRYDEX_ONE_PIECE_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+};
 
 describe("producer-owned billing-period gate", () => {
   it("seeds synthetic phase admission at the run clock rather than the fixed fixture instant", async () => {
@@ -86,6 +101,16 @@ describe("producer-owned billing-period gate", () => {
   });
   async function noticed() {
     const f = createCaptureLifecycleFixture();
+    if (process.env.SCRYDEX_PERIOD_MUTANT === "terminal-send-count") {
+      const createStore = guardDisabledMutant<typeof createCountCaptureStore>(
+        "../read-model/count-capture-store.ts",
+        ["run.sends.some((send) => send.status === null)", "run.sends.length > 0"],
+        "createCountCaptureStore",
+        storeBindings,
+      );
+      f.store = createStore(f.memory.pool, () => f.clock.now);
+      f.lifecycle = createCountCaptureLifecycle({ ...f.deps, store: f.store });
+    }
     await f.lifecycle.baseline(captureSession(), input());
     await f.lifecycle.initialNotice(captureSession());
     return f;
@@ -115,11 +140,33 @@ describe("producer-owned billing-period gate", () => {
       status: "stopped",
       periodLedger: {
         decision: { admitted: false, reason: "usage-period-cap", plannedCredits: 11, consumedCredits: 49_990 },
-        terminal: { outcome: "uncertain" },
+        terminal: { outcome: "refused", unreflectedCredits: 1 },
       },
     });
     expect(f.usage.getUsageSnapshot).toHaveBeenCalledOnce();
     expect(durable(f)?.sends.map((send) => send.category)).toEqual(["usage"]);
+  });
+  it.each([null, 200, 299])("terminal outcome follows unresolved sends, not resolved status %s", async (status) => {
+    const f = await noticed();
+    await f.lifecycle.usage(captureSession());
+    const run = durable(f)!;
+    const binding = await f.store.begin(run.runId, "acquisition");
+    const sequence = await f.store.ledger.debit(binding, {
+      category: "cards",
+      requestFingerprint: "e".repeat(64),
+    });
+    if (status !== null) await f.store.ledger.result(binding, sequence, status);
+    await f.store.ledger.stop(binding);
+    const stopped = structuredClone(durable(f));
+    expect(stopped?.periodLedger?.terminal).toEqual({
+      outcome: status === null ? "uncertain" : "refused",
+      at: f.clock.now,
+      unreflectedCredits: 2,
+    });
+    const count = f.memory.history.length;
+    await f.store.ledger.stop(binding);
+    expect(f.memory.history).toHaveLength(count);
+    expect(durable(f)?.periodLedger).toEqual(stopped?.periodLedger);
   });
   it.each(["stale", "missing", "unknown-u"])(
     "refuses %s producer evidence before quote or acquisition",
@@ -288,21 +335,6 @@ describe("pre-spend stage machine", () => {
 // Original #9520 AC6 floor: each owned store guard, disabled alone at every point
 // that enforces it, admits its hostile case.
 describe("guard-disabled bypass mutants", () => {
-  const bindings = {
-    randomUUID,
-    z,
-    withPgTransaction,
-    ...transport,
-    ...acquisition,
-    ...plan,
-    ...period,
-    countCaptureAuthoritySchema: receipt.countCaptureAuthoritySchema,
-    countLifecycleReceiptSchema: receipt.countLifecycleReceiptSchema,
-    countLifecycleStopReceiptSchema: receipt.countLifecycleStopReceiptSchema,
-    SCRYDEX_ONE_PIECE_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
-    SCRYDEX_ONE_PIECE_SET_REFERENCE_DATA_UNIT_KEY,
-    SCRYDEX_ONE_PIECE_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
-  };
   const next = (dispatchId: string) => ({
     ...input(),
     authority: {
@@ -380,7 +412,7 @@ describe("guard-disabled bypass mutants", () => {
       "../read-model/count-capture-store.ts",
       replacements,
       "createCountCaptureStore",
-      bindings,
+      storeBindings,
     );
     const store = createStore(f.memory.pool, () => f.clock.now);
     const mutant = { ...f, store, lifecycle: createCountCaptureLifecycle({ ...f.deps, store }) };

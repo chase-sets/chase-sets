@@ -147,7 +147,7 @@ describe("closed count capture on PostgreSQL", () => {
       periodLedger: {
         plannedCredits: 11,
         decision: { reason: "usage-period-cap", consumedCredits: 49_940, unreflectedCredits: 56, plannedCredits: 11 },
-        terminal: { outcome: "uncertain" },
+        terminal: { outcome: "refused", unreflectedCredits: 1 },
       },
     });
     expect(f.fetch).toHaveBeenCalledOnce();
@@ -170,7 +170,32 @@ describe("closed count capture on PostgreSQL", () => {
     const stopped = await f.store.read(run.runId);
     await f.store.ledger.stop(binding);
     expect((await f.store.read(run.runId)).periodLedger).toEqual(stopped.periodLedger);
-    expect(stopped.periodLedger?.terminal?.outcome).toBe("uncertain");
+    expect(stopped.periodLedger?.terminal).toMatchObject({ outcome: "refused", unreflectedCredits: 3 });
+  });
+  it("excludes prior-period unresolved usage but retains sends at the period start", async () => {
+    const f = await createCountCaptureDbFixture(pools.catalog);
+    await f.lifecycle.baseline(captureSession(), { scopeRecordId: captureScope, authority: captureAuthority() });
+    await f.lifecycle.initialNotice(captureSession());
+    const run = await f.store.activeRun(countCaptureSessionOwner(captureSession(), "staging"));
+    const binding = await f.store.begin(run.runId, "bootstrap");
+    await f.store.ledger.debit(binding, {
+      category: "usage",
+      usage: { purpose: "bootstrap" },
+      requestFingerprint: "a".repeat(64),
+    });
+    await f.store.ledger.stop(binding);
+    f.clock.now = "2026-10-13T08:33:00.000Z";
+    const retain = (startsAt: string) =>
+      f.countStore.retainUsage({
+        ...usage(100, f.clock.now),
+        billingPeriod: { startsAt, endsAt: "2027-01-01T00:00:00.000Z", overageCreditsConsumed: 0 },
+      });
+    await retain("2026-10-13T08:02:00.001Z");
+    expect((await f.countStore.periodLedger("synthetic-next-run")).durableCredits).toBe(0);
+    await retain("2026-10-13T08:02:00.000Z");
+    expect((await f.countStore.periodLedger("synthetic-next-run")).durableCredits).toBe(1);
+    expect((await f.countStore.periodLedger(run.runId)).durableCredits).toBe(0);
+    expect(f.fetch).not.toHaveBeenCalled();
   });
   it("freezes a closed receipt", async () => {
     const f = await createCountCaptureDbFixture(pools.catalog);

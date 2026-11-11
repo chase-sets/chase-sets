@@ -381,7 +381,7 @@ export function createCountCaptureStore(pool: PgTransactionalPool, now = () => n
   const terminal = (run: CountCaptureRun, complete = false): CountCaptureRun => {
     if (run.periodLedger && !run.periodLedger.terminal) {
       run.periodLedger.terminal = {
-        outcome: complete ? "complete" : run.sends.length === 0 ? "refused" : "uncertain",
+        outcome: complete ? "complete" : run.sends.some((send) => send.status === null) ? "uncertain" : "refused",
         at: now(),
         unreflectedCredits: run.sends.length,
       };
