@@ -87,10 +87,7 @@ function tally(sel) {
   }
   sel.preview.disabled = n === 0;
   sel.clear.hidden = n === 0;
-  const checked = rows.filter((row) => row.checked);
-  for (const button of Array.from(sel.form.querySelectorAll("button[data-requires]"))) {
-    const status = button.getAttribute("data-requires");
-    /** @type {HTMLButtonElement} */ (button).disabled =
-      n === 0 || checked.some((row) => row.dataset.status !== status);
+  for (const button of Array.from(sel.form.querySelectorAll("button[data-checked]"))) {
+    /** @type {HTMLButtonElement} */ (button).disabled = n === 0;
   }
 }

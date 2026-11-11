@@ -30,7 +30,7 @@
 //! `POST .../reapply`; the API refuses a scope it cannot import or reapply.
 //!
 //! Preview promotion and Create or update Catalog Items send the selection and confirmation the read
-//! model built for `observation.promote` (its `commandPreview`, chase-sets/chase-sets#11142), read
+//! model built for `observation.promote` (its `commandPreview`), read
 //! again for the working set when the form posts: the preview (`POST .../bulk-promote/preview`)
 //! answers a token, which the redirect puts on the address as `promotionPreviewId` with the
 //! selection and the draft choice, so the read previews the selection again for the create stage;
@@ -282,8 +282,8 @@ pub struct Action {
 }
 
 /// A command's body as the API built it: a merge candidate's (`CatalogMergeCandidateReviewCommandPreview`),
-/// or a promotion's selection and confirmation (`CatalogPrimaryWorkbenchPromotionCommandPreview`,
-/// chase-sets/chase-sets#11142), passed back to the API as they are.
+/// or a promotion's selection and confirmation (`CatalogPrimaryWorkbenchPromotionCommandPreview`),
+/// passed back to the API as they are.
 #[derive(Clone, Debug, Default, Deserialize, Serialize, ToJson)]
 #[serde(default, rename_all = "camelCase")]
 pub struct CommandPreview {
@@ -359,7 +359,7 @@ impl WorksetUnit {
     }
 
     /// Whether the read built the unit's own promotion preview (its `actions.previewPromotion`
-    /// `commandPreview`, chase-sets/chase-sets#11142), so its Preview posts to the pilot.
+    /// `commandPreview`), so its Preview posts to the pilot.
     pub fn previewable(&self) -> bool {
         self.actions.preview_promotion.command_preview.as_ref().is_some_and(|c| c.confirmation.is_some())
     }
@@ -905,8 +905,8 @@ impl Candidate {
         Some((action, body.expected_version?, ids)).filter(|(_, _, ids)| !ids.is_empty())
     }
 
-    /// The promote the API offers with the version it read (its `commandPreview`,
-    /// chase-sets/chase-sets#11143), when the command may run and no blocking conflict needs a
+    /// The promote the API offers with the version it read (its `commandPreview`), when the
+    /// command may run and no blocking conflict needs a
     /// resolution first; a promote that resolves conflicts stays on admin-web's conflict form.
     pub fn promote(&self) -> Option<(&Action, u64)> {
         let action = self.actions.iter().find(|a| a.key == "candidate.promote" && a.open())?;
@@ -988,21 +988,16 @@ pub struct PromotionPreview {
     pub command_plan_hash: Option<String>,
     pub validation: PromotionValidation,
     pub execution_safeguards: Safeguards,
+    /// The API's verdict on the held token (`previewCommittable`): whether its own preview of the
+    /// address's selection and draft choice is fresh and covers every eligible observation. The
+    /// commit's admission still refuses a stale token whatever the page offers.
+    pub preview_committable: bool,
 }
 
 impl PromotionPreview {
-    /// Whether the preview may be committed: a token is held, the API found it fresh, and it
-    /// validated every eligible observation in one page with no blocking identity. admin-web decides
-    /// this from the receipt its action keeps (`promotionReceiptHasCompleteCoverage`), which a
-    /// redirect does not carry, so this is that rule as the read can answer it until the read says it
-    /// (chase-sets/chase-sets#11175); the API refuses a stale token whatever the page offers.
-    pub fn fresh(&self) -> bool {
-        self.preview_id.is_some()
-            && self.execution_safeguards.preview_fresh
-            && self.validation.coverage == "complete"
-            && self.validation.continuation.is_none()
-            && self.scope.eligible_count > 0
-            && !self.validation.identity_diagnostics.iter().any(|d| d.blocking)
+    /// Whether the preview may be committed, as the read says.
+    pub fn committable(&self) -> bool {
+        self.preview_id.is_some() && self.preview_committable
     }
 
     /// Whether an observation's display identity cannot be resolved, which no commit carries.
@@ -1956,8 +1951,8 @@ pub struct CandidateInput {
 }
 
 /// The merge candidate commands the row's buttons send. Split and promote are each their own form
-/// with the version the page read (a promote only once the API checks it against that version,
-/// chase-sets/chase-sets#11143), and the edit is its dialog's.
+/// with the version the page read (a promote only when the read offers it with that version), and
+/// the edit is its dialog's.
 pub const CANDIDATE_COMMANDS: [(&str, &str); 3] =
     [("candidate.ignore", "ignore"), ("candidate.defer", "defer"), ("candidate.split", "split")];
 
@@ -2249,6 +2244,6 @@ mod tests {
         assert_eq!(body["reason"], "Deferred from the primary workbench; observation remains in review.");
         let (path, body) = input("reject", " dupe ").command(t).unwrap();
         assert_eq!((path, body["reason"].as_str()), ("/bulk-reject/jobs", Some("dupe")));
-        assert!(input("promote", "").command(t).is_none(), "promotion stays on admin-web");
+        assert!(input("promote", "").command(t).is_none(), "a promote without the version read");
     }
 }

@@ -7,7 +7,8 @@
 //! | `GET /catalog/catalog-items/live?<filters>&page` | how many items changed since, on each change (`<corten-live>`) |
 //! | `POST /catalog/catalog-items/bulk?...` | a bulk preview: a publish's, an archive's or an edit's |
 //! | `POST /catalog/catalog-items/bulk/confirm?...` | starts it: a redirect to the list, following its job (`?job=`) |
-//! | `POST /catalog/catalog-items/drafts?...`, `.../drafts/confirm` | the checked drafts' removal; removes each |
+//! | `POST /catalog/catalog-items/drafts?...` | the checked rows' removal preview |
+//! | `POST /catalog/catalog-items/drafts/confirm?...` | starts it: a redirect to the list, following its job (`?job=`) |
 //!
 //! The list is live as admin-web's is (`useCatalogRealtimeRevalidation` in manual mode): a change
 //! to the topic `catalog:admin:catalog-items` is counted, not drawn, so a long list being edited
@@ -18,9 +19,8 @@
 //! The bulk bar's operations are the API's three bulk changes: a publish (its confirm takes the
 //! preview's items), an archive (the lifecycle change the other lists have), and the edits
 //! (`assignBlueprint`, `assignCategory`, `removeCategory`, `setTags`, `mergeTags`, `clearTags`).
-//! Each runs as a job, which the list's dialog follows. Remove drafts has no bulk route in the
-//! API: as admin-web does, the pilot removes each checked draft in turn
-//! (chase-sets/chase-sets#10530 asks for a bulk route).
+//! Each runs as a job, which the list's dialog follows, as does Remove drafts, the API's
+//! `bulk-remove-drafts`: the API decides which checked rows are drafts it may remove.
 use std::collections::HashSet;
 
 use corten::{Fragment, LiveResponse, LiveSince, http::HeaderMap, prelude::*};
@@ -30,12 +30,11 @@ use serde_json::{Value, json};
 
 use super::{
     Sent, action_label,
-    api::{Catalog as _, ItemRow, Job, Kind, List},
+    api::{Catalog as _, ItemRow, Job, Kind, RemovalPreview},
     command, filter_query, follow, list_query, receipt, screen,
     views::{self, Followed, ItemDialog, ItemPreview, ListScreen, Pending},
 };
 use super::{
-    api::under,
     form::{Family, ItemBulkInput, ItemInput},
     views::{DraftsDialog, ItemPreviewDialog},
 };
@@ -76,7 +75,6 @@ pub mod url {
     #[serde(rename_all = "snake_case")]
     pub enum ItemDone {
         Created,
-        DraftsRemoved,
     }
 
     /// The list's filters (the filter form's fields) and page (from 1): what the list, its live
@@ -126,14 +124,12 @@ pub mod url {
         }
     }
 
-    /// What the write before left on the list: its receipt and notice (and how many drafts it
-    /// removed), and the job the page follows.
+    /// What the write before left on the list: its receipt and notice, and the job the page follows.
     #[derive(Clone, Debug, Default, Deserialize, Route)]
     #[route(query)]
     pub struct ItemNotice {
         pub after_write: Option<String>,
         pub done: Option<ItemDone>,
-        pub removed: Option<u32>,
         pub job: Option<String>,
     }
 
@@ -175,14 +171,14 @@ pub mod url {
         pub query: ItemQuery,
     }
 
-    /// The checked drafts' removal: its dialog.
+    /// The checked rows' removal: its preview.
     #[route("/catalog/catalog-items/drafts", post = drafts)]
     pub struct ItemsDrafts {
         #[route(query)]
         pub query: ItemQuery,
     }
 
-    /// Its confirm: removes each.
+    /// Its confirm: starts the removal's job.
     #[route("/catalog/catalog-items/drafts/confirm", post = remove_drafts)]
     pub struct ItemsDraftsConfirm {
         #[route(query)]
@@ -199,7 +195,6 @@ fn api_query(query: &url::ItemQuery, page: u32) -> String {
 fn notice(t: Cat, notice: &url::ItemNotice) -> Option<String> {
     notice.done.map(|done| match done {
         url::ItemDone::Created => t.item_list_catalog_item_created().to_owned(),
-        url::ItemDone::DraftsRemoved => t.item_list_draft_catalog_items_removed(notice.removed.unwrap_or(0)).to_string(),
     })
 }
 
@@ -401,7 +396,9 @@ async fn answer(
             ItemDialog::Preview { input, preview, errors, confirm, label } => {
                 <ItemPreviewDialog t={t} p={p} input={input} preview={preview} errors={errors} confirm={confirm} label={label} />
             }
-            ItemDialog::Drafts { ids, errors, confirm } => <DraftsDialog t={t} p={p} ids={ids} errors={errors} confirm={confirm} />,
+            ItemDialog::Drafts { ids, preview, errors, confirm } => {
+                <DraftsDialog t={t} p={p} ids={ids} preview={preview} errors={errors} confirm={confirm} />
+            }
         }
     };
     let none = url::ItemNotice::default();
@@ -479,34 +476,22 @@ async fn confirm(
     answer(&req, &staff.viewer, &config, &headers, &query, dialog).await
 }
 
-/// The checked rows' statuses, from the list they were checked on: none checked, or one that is
-/// not a draft, is the form's message (admin-web enables Remove Drafts only when every checked row
-/// is a draft). Workaround for chase-sets/chase-sets#10530: this restates the Catalog's rule; remove
-/// it once the API previews the removal.
-async fn draft_refusal(
-    p: Pilot,
-    caller: &crate::api::Caller<'_>,
-    query: &url::ItemQuery,
-    ids: &[String],
-) -> Result<Option<Errors>, Denied> {
-    let mut errors = Errors::new();
-    if ids.is_empty() {
-        errors.add_form(p.bulk_none_selected());
-        return Ok(Some(errors));
-    }
-    let page = query.page.unwrap_or(1).max(1);
-    let list: List<ItemRow> = match caller.list(Kind::Items, &api_query(query, page)).await {
-        Ok(list) => list,
-        Err(error) => return refused(error).map(Some),
-    };
-    let draft = |id: &String| list.items.iter().any(|row| row.catalog_item_id == *id && row.status == "draft");
-    if !ids.iter().all(draft) {
-        errors.add_form(p.catalog_drafts_only());
-        return Ok(Some(errors));
-    }
-    Ok(None)
+/// The API's removal of the checked rows (`bulk-remove-drafts`): it previews which are drafts it
+/// may remove and starts a job that removes them.
+fn removal(ids: &[String]) -> Value {
+    json!({ "selection": { "mode": "ids", "ids": ids } })
 }
 
+/// What a removal preview came to: the preview, or the API's refusal (none checked).
+async fn removal_preview(caller: &crate::api::Caller<'_>, ids: &[String]) -> Result<(Option<RemovalPreview>, Errors), Denied> {
+    match caller.post(Kind::Items, "/bulk-remove-drafts/preview", &removal(ids)).await {
+        Ok(preview) => Ok((Some(preview), Errors::new())),
+        Err(error) => refused(error).map(|errors| (None, errors)),
+    }
+}
+
+/// The checked rows' removal preview (admin-web's Remove drafts dialog): which the API may remove
+/// and which it blocks, and why.
 async fn drafts(
     req: Req,
     corten::Caller(staff): corten::Caller<Staff<CatalogAccess>>,
@@ -518,16 +503,16 @@ async fn drafts(
     let query = route.query;
     let confirm = url::ItemsDraftsConfirm { query: query.clone() }.href();
     let caller = config.platform.caller(&headers, config.proto, None);
-    let errors = match draft_refusal(req.t(), &caller, &query, &input.ids).await {
-        Ok(errors) => errors.unwrap_or_default(),
+    let (preview, errors) = match removal_preview(&caller, &input.ids).await {
+        Ok(previewed) => previewed,
         Err(denied) => return denied.answer(&req),
     };
-    let dialog = ItemDialog::Drafts { ids: &input.ids, errors: &errors, confirm: &confirm };
+    let dialog = ItemDialog::Drafts { ids: &input.ids, preview: preview.as_ref(), errors: &errors, confirm: &confirm };
     answer(&req, &staff.viewer, &config, &headers, &query, dialog).await
 }
 
-/// Removes each checked draft in turn (`removeDraftCatalogItem`); the first refusal stops it and
-/// is the dialog's message (the drafts before it stay removed, as in admin-web).
+/// Starts the removal's job: a redirect to the list, following it (`?job=`). A refusal is the
+/// preview again, with the message.
 async fn remove_drafts(
     req: Req,
     corten::Caller(staff): corten::Caller<Staff<CatalogAccess>>,
@@ -539,38 +524,22 @@ async fn remove_drafts(
     let query = route.query;
     let action = url::ItemsDraftsConfirm { query: query.clone() }.href();
     let caller = config.platform.caller(&headers, config.proto, None);
-    let mut errors = match draft_refusal(req.t(), &caller, &query, &input.ids).await {
-        Ok(errors) => errors.unwrap_or_default(),
+    let started: Result<Job<Value>, _> = caller.post(Kind::Items, "/bulk-remove-drafts/confirm", &removal(&input.ids)).await;
+    let errors = match started {
+        Ok(job) => {
+            let after = url::ItemNotice { job: Some(job.job_id), ..Default::default() };
+            return req.redirect(&url::Items { query, notice: after });
+        }
+        Err(error) => match refused(error) {
+            Ok(errors) => errors,
+            Err(denied) => return denied.answer(&req),
+        },
+    };
+    let preview = match removal_preview(&caller, &input.ids).await {
+        Ok((preview, _)) => preview,
         Err(denied) => return denied.answer(&req),
     };
-    let mut last = None;
-    let mut removed = 0;
-    if errors.is_empty() {
-        for id in &input.ids {
-            match command(&caller, Method::DELETE, Kind::Items, &under(id, &[]), None).await {
-                Sent::Written(written) => {
-                    removed += 1;
-                    last = Some(written);
-                }
-                Sent::Refused(refusal) => {
-                    errors = refusal;
-                    break;
-                }
-                Sent::Denied(denied) => return denied.answer(&req),
-            }
-        }
-    }
-    if errors.is_empty() {
-        let after = url::ItemNotice {
-            after_write: last.as_ref().and_then(receipt),
-            done: Some(url::ItemDone::DraftsRemoved),
-            removed: Some(removed),
-            job: None,
-        };
-        let done = url::Items { query, notice: after };
-        return req.redirect(&done);
-    }
-    let dialog = ItemDialog::Drafts { ids: &input.ids, errors: &errors, confirm: &action };
+    let dialog = ItemDialog::Drafts { ids: &input.ids, preview: preview.as_ref(), errors: &errors, confirm: &action };
     answer(&req, &staff.viewer, &config, &headers, &query, dialog).await
 }
 

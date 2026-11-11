@@ -1169,9 +1169,13 @@ fn action_label(t: Cat, kind: Kind, action: &str) -> &str {
         Kind::ReferenceTypes => views::ref_type_actions(t).to_vec(),
         Kind::ReferenceRecords => views::ref_record_actions(t).to_vec(),
         // admin-web labels the archive with the item page's Archive.
-        Kind::Items => views::item_operations(t)
-            .map(|(value, label)| if value == "archive" { (value, t.item_archive()) } else { (value, label) })
-            .to_vec(),
+        Kind::Items => {
+            let mut operations = views::item_operations(t)
+                .map(|(value, label)| if value == "archive" { (value, t.item_archive()) } else { (value, label) })
+                .to_vec();
+            operations.push(("remove-drafts", t.item_list_operation_remove_drafts()));
+            operations
+        }
         // No bulk changes.
         Kind::DisplayTemplates
         | Kind::ProductContents

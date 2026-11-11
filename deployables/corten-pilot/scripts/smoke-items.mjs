@@ -160,9 +160,10 @@ const ids = [];
   check(await live.locator(".live-status__stale").isHidden(), "and is live again after it reconnects");
   await watcher.close();
 
-  // Remove drafts needs only drafts checked; the edit's value shows for the operations that take it.
+  // Remove drafts needs a row checked (the API decides which are drafts); the edit's value shows
+  // for the operations that take it.
   const drafts = page.getByRole("button", { name: "Remove drafts from selected" });
-  check(await drafts.isEnabled(), "Remove drafts is enabled while only drafts are checked");
+  check(await drafts.isEnabled(), "Remove drafts is enabled while a row is checked");
   const tags = page.locator("#catalog-bulk").getByLabel("Tags", { exact: true });
   check(await tags.isHidden(), "the tags input is hidden for a publish");
   await page.locator("#catalog-bulk select").selectOption("mergeTags");
@@ -185,11 +186,11 @@ const ids = [];
   check((await page.locator("#catalog-rows tbody tr").count()) === 1, "the tag filter finds the tagged item");
   await page.getByRole("checkbox", { name: "Select all rows" }).check();
   await page.getByRole("button", { name: "Remove drafts from selected" }).click();
-  await preview.getByText("Remove 1 draft Catalog Items from the grid.").waitFor();
-  await preview.getByRole("button", { name: "Remove drafts from selected" }).click();
-  await page.waitForURL((u) => u.searchParams.get("done") === "drafts_removed");
-  await navigated(page);
-  check(await page.getByText("1 draft Catalog Items removed").isVisible(), "the removal's toast");
+  await preview.getByText("1 ready, 0 blocked.").waitFor();
+  await preview.getByRole("button", { name: "Remove Drafts", exact: true }).click();
+  await page.waitForURL((u) => u.searchParams.has("job"));
+  await job.getByText("1 succeeded, 0 skipped, 0 failed.").waitFor({ timeout: 60_000 });
+  check(true, "the removal's job removed the draft");
   check(problems.length === 0, `no script errors (${problems.join(" | ")})`);
   await ctx.close();
 }
@@ -214,7 +215,7 @@ const ids = [];
     await preview.getByText(/^Matching drafts: \d+ ready, \d+ need attention\.$/).isVisible(),
     "with the API's counts",
   );
-  // Remove the second draft without the script: the server checks it is a draft.
+  // Remove the second draft without the script: the API previews it and runs the job.
   await page.goto(`${base}/catalog/catalog-items?search=${ids[1]}`);
   await navigated(page);
   await page
@@ -223,9 +224,9 @@ const ids = [];
     .check();
   await page.getByRole("button", { name: "Remove drafts from selected" }).click();
   await navigated(page);
-  await preview.getByRole("button", { name: "Remove drafts from selected" }).click();
+  await preview.getByRole("button", { name: "Remove Drafts", exact: true }).click();
   await navigated(page);
-  check(new URL(page.url()).searchParams.get("done") === "drafts_removed", "removed without the script");
+  check(new URL(page.url()).searchParams.has("job"), "the removal's job starts without the script");
   await ctx.close();
 }
 

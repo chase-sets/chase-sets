@@ -511,8 +511,9 @@ let id = "";
     .getByRole("checkbox")
     .check();
   await page.getByRole("button", { name: "Remove drafts from selected" }).click();
-  await page.locator("#catalog-bulk-preview").getByRole("button", { name: "Remove drafts from selected" }).click();
-  await page.waitForURL((u) => u.searchParams.get("done") === "drafts_removed");
+  await page.locator("#catalog-bulk-preview").getByRole("button", { name: "Remove Drafts", exact: true }).click();
+  await page.waitForURL((u) => u.searchParams.has("job"));
+  await page.locator("#catalog-bulk-job").getByText("1 succeeded, 0 skipped, 0 failed.").waitFor({ timeout: 60_000 });
   check(true, `the draft is removed (${id})`);
   await ctx.close();
 }
