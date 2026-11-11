@@ -11,7 +11,7 @@ use platform::ui::{
     alert::{Alert as KitAlert, AlertEmphasis, AlertVariant},
     badge::{Badge as KitBadge, BadgeEmphasis, BadgeTone},
     button::{Button as KitButton, ButtonSize, ButtonVariant},
-    card::{Card as KitCard, CardContent, CardHeader},
+    card::{Card as KitCard, CardContent, CardHeader, CardSize},
     table::{CellLabel, Table as KitTable, TableLayout},
 };
 
@@ -129,7 +129,7 @@ pub fn MoneyHealthPage<'a>(t: Com, screen: &'a MoneyHealth, marketplace: Option<
                     </a>
                 </div>
             </header>
-            <section class={KitCard {}} aria-labelledby="mh-forecast">
+            <section class={KitCard { size: CardSize::Md }} aria-labelledby="mh-forecast">
                 <header class={CardHeader {}}><h2 id="mh-forecast">{t.mh_platform_balance_forecast()}</h2></header>
                 <div class={CardContent {}}>
                     <div class={Facts}>
@@ -152,7 +152,7 @@ pub fn MoneyHealthPage<'a>(t: Com, screen: &'a MoneyHealth, marketplace: Option<
                     </div>
                 </div>
             </section>
-            <section class={KitCard {}} aria-labelledby="mh-provider">
+            <section class={KitCard { size: CardSize::Md }} aria-labelledby="mh-provider">
                 <header class={CardHeader {}}><h2 id="mh-provider">{t.mh_provider_diagnostics()}</h2></header>
                 <div class={CardContent {}}>
                     <KitTable layout={TableLayout::Stack}>
@@ -181,7 +181,7 @@ pub fn MoneyHealthPage<'a>(t: Com, screen: &'a MoneyHealth, marketplace: Option<
                     </KitTable>
                 </div>
             </section>
-            <section class={KitCard {}} aria-labelledby="mh-negative">
+            <section class={KitCard { size: CardSize::Md }} aria-labelledby="mh-negative">
                 <header class={CardHeader {}}><h2 id="mh-negative">{t.mh_negative_balance_accounts()}</h2></header>
                 <div class={CardContent {}}>
                     if screen.negative_balance_accounts.is_empty() {
@@ -231,7 +231,7 @@ pub fn MoneyHealthPage<'a>(t: Com, screen: &'a MoneyHealth, marketplace: Option<
                     }
                 </div>
             </section>
-            <section class={KitCard {}} aria-labelledby="mh-payouts">
+            <section class={KitCard { size: CardSize::Md }} aria-labelledby="mh-payouts">
                 <header class={CardHeader {}}><h2 id="mh-payouts">{t.mh_payouts_needing_attention()}</h2></header>
                 <div class={CardContent {}}>
                     if screen.payouts_needing_attention.is_empty() {
@@ -291,7 +291,7 @@ pub fn MoneyHealthPage<'a>(t: Com, screen: &'a MoneyHealth, marketplace: Option<
                     }
                 </div>
             </section>
-            <section class={KitCard {}} aria-labelledby="mh-runs">
+            <section class={KitCard { size: CardSize::Md }} aria-labelledby="mh-runs">
                 <header class={CardHeader {}}><h2 id="mh-runs">{t.mh_recent_reconciliation()}</h2></header>
                 <div class={CardContent {}}>
                     if screen.reconciliation_runs.is_empty() {
@@ -494,7 +494,7 @@ pub fn PayoutOperationsPage<'a>(
                 </div>
             </header>
             if screen.can_reconcile {
-                <section class={KitCard {}} aria-labelledby="po-run">
+                <section class={KitCard { size: CardSize::Md }} aria-labelledby="po-run">
                     <header class={CardHeader {}}><h2 id="po-run">{t.po_reconciliation()}</h2></header>
                     <div class={CardContent {}}>
                         if let Some(error) = &screen.error {
@@ -517,7 +517,7 @@ pub fn PayoutOperationsPage<'a>(
                     </div>
                 </section>
             }
-            <section class={KitCard {}} aria-labelledby="po-attention">
+            <section class={KitCard { size: CardSize::Md }} aria-labelledby="po-attention">
                 <header class={CardHeader {}}><h2 id="po-attention">{t.po_needs_attention()}</h2></header>
                 <div class={CardContent {}}>
                     <KitTable layout={TableLayout::Stack}>
@@ -682,7 +682,7 @@ pub fn PayoutOperationsPage<'a>(
                 </div>
             </section>
             if screen.can_reconcile {
-                <section class={KitCard {}} aria-labelledby="po-attempts">
+                <section class={KitCard { size: CardSize::Md }} aria-labelledby="po-attempts">
                     <header class={CardHeader {}}><h2 id="po-attempts">{t.po_recent_provider_attempts()}</h2></header>
                     <div class={CardContent {}}>
                         if screen.attempts.is_empty() {

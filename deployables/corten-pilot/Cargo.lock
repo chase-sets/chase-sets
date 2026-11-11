@@ -164,7 +164,7 @@ checksum = "4e7648175b45a9a48536d676f68d918270699102aa8dab5496df06904c914600"
 [[package]]
 name = "corten-macros"
 version = "0.1.0"
-source = "git+https://github.com/corten-run/corten?rev=c65c10ecb6ebc19efeea350351cf8ec6732ab78a#c65c10ecb6ebc19efeea350351cf8ec6732ab78a"
+source = "git+https://github.com/corten-run/corten?rev=7c7186d6a94aaf04e442a3bdb529c3185f95cd67#7c7186d6a94aaf04e442a3bdb529c3185f95cd67"
 
 [[package]]
 name = "corten-pilot-admin"
@@ -248,7 +248,7 @@ dependencies = [
 [[package]]
 name = "corten-run"
 version = "0.1.0"
-source = "git+https://github.com/corten-run/corten?rev=c65c10ecb6ebc19efeea350351cf8ec6732ab78a#c65c10ecb6ebc19efeea350351cf8ec6732ab78a"
+source = "git+https://github.com/corten-run/corten?rev=7c7186d6a94aaf04e442a3bdb529c3185f95cd67#7c7186d6a94aaf04e442a3bdb529c3185f95cd67"
 dependencies = [
  "axum",
  "axum-core",
@@ -263,7 +263,9 @@ dependencies = [
  "http-body",
  "hyper",
  "hyper-util",
+ "matchit",
  "memchr",
+ "percent-encoding",
  "serde",
  "serde_json",
  "tokio",
@@ -277,7 +279,7 @@ dependencies = [
 [[package]]
 name = "corten-ui"
 version = "0.1.0"
-source = "git+https://github.com/corten-run/corten?rev=c65c10ecb6ebc19efeea350351cf8ec6732ab78a#c65c10ecb6ebc19efeea350351cf8ec6732ab78a"
+source = "git+https://github.com/corten-run/corten?rev=7c7186d6a94aaf04e442a3bdb529c3185f95cd67#7c7186d6a94aaf04e442a3bdb529c3185f95cd67"
 dependencies = [
  "corten-run",
 ]

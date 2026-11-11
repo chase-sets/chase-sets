@@ -1694,6 +1694,7 @@ fn ReviewModule<'a>(
                             next_label={t.wb_review_pager_next()}
                             previous={previous.as_ref().map(|l| l as &dyn Href)}
                             next={next.as_ref().map(|l| l as &dyn Href)}
+                            on:link={None::<Handler>}
                         />
                     </div>
                 }

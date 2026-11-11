@@ -253,7 +253,7 @@ registered files.
 
 ## Corten pin
 
-`Cargo.toml` pins Corten to `c65c10ec` (Corten `main` on 2026-11-08), whose framework package is
+`Cargo.toml` pins Corten to `7c7186d6` (Corten `main` on 2026-11-10), whose framework package is
 `corten-run` (the library is still `corten`). No release is tagged. The
 pin follows Corten's latest `main` (Todd, 2026-11-02), and each move is its own commit that says
 what changed; the workarounds a move lets go follow it in commits of their own. The history of every move is in the
@@ -301,9 +301,7 @@ but keep their own bordered choice rows, which are the design system's `Checkbox
 
 | Issue | Workaround |
 | --- | --- |
-| [corten-run/corten#1082 Kit RadioGroup and Checkboxes print their fieldset's gap and legend margin as literals kept equal by hand, so a theme with tighter choice lists edits both copies](https://github.com/corten-run/corten/issues/1082) | [platform/src/ui/radio_group.css](platform/src/ui/radio_group.css) and [platform/src/ui/checkboxes.css](platform/src/ui/checkboxes.css) set the design system's .5rem legend gap and choice gap |
 | [corten-run/corten#1065 Kit Stack and Cluster always print a literal gap, so an app on its own token spacing scale cannot use them with its gap utility](https://github.com/corten-run/corten/issues/1065) | closed by Corten's `Gap::App` (pinned since `f4f37f95`). Every page column is the kit's `Stack { gap: Gap::App }` with the theme's `gap_N()`: the five whose children keep their own width (support requests, command center, order, packing, shipment) add `StackStart` (corten-run/corten#1119). A page's own `.stack` keeps only what the kit's does not set (`min-width: 0` in a grid track, a padding or margin) |
-| [corten-run/corten#1123 Kit Segmented and Tabs draw the chosen choice in --foreground at weight 500 as literals, so a theme whose chosen tab is its primary color edits both copies](https://github.com/corten-run/corten/issues/1123) | [platform/src/ui/segmented.css](platform/src/ui/segmented.css) draws the choices at 600 and the chosen one in `--primary`, as the design system's `SegmentedControl` does; `tabs.css` is the kit's, so the account workspace's tabs keep the kit's look |
 | [corten-run/corten#1124 Kit Stack drops a child dialog's or popover's margin: auto, so a modal written in a Stack opens at the top of the screen instead of centered](https://github.com/corten-run/corten/issues/1124) | [marketplace/src/views/reviews_page.css](marketplace/src/views/reviews_page.css) sets its dialog's `margin: auto` |
 | [corten-run/corten#1070 Kit StatusDot has no live form, so a corten-live stream's Live badge keeps its own pulsing dot and reduced-motion rule](https://github.com/corten-run/corten/issues/1070) | [admin/src/views/live_status.css](admin/src/views/live_status.css) keeps its own `.dot` and pulse; the kit's `status_dot` is not taken |
 

@@ -13,7 +13,7 @@ use platform::{
         accordion::Accordion,
         alert::{AlertEmphasis, FormAlert},
         button::{Button, ButtonSize, ButtonVariant},
-        card::{Card, CardContent},
+        card::{Card, CardContent, CardSize},
         checkbox::Checkbox,
         input::Input,
         stack::{Gap, Stack as KitStack},
@@ -267,7 +267,7 @@ fn Head<'a>(t: Cat, p: Pilot, model: &'a Model, key: &'a str) -> impl Render {
     let label = state_label(status);
     let _ = p;
     html! {
-        <section class={Card {}} aria-labelledby="pd-head">
+        <section class={Card { size: CardSize::Md }} aria-labelledby="pd-head">
             <div class={(CardContent {}, Stack)}>
                 <div class={CardHead}>
                     <h2 id="pd-head" class={Words}>{row.map_or(key, |r| r.provider_key.as_str())}</h2>

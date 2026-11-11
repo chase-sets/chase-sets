@@ -2,14 +2,13 @@
 //! that nothing about the visitor reaches the API.
 use std::sync::{Arc, Mutex};
 
-// The stand-in API is a plain router served on a port through `corten::axum`, as Corten keeps it for a
-// test (corten-run/corten#950); the rest names Corten.
+// The stand-in API is a plain axum router, with axum's own `State`, served on a port through
+// `corten::axum`, as Corten keeps it for a test (corten-run/corten#950); the rest names Corten.
 use corten::http::{HeaderMap, Request, StatusCode, Uri, header};
 use corten::{
     Json,
     answer::Body,
-    axum::Router,
-    extract::State,
+    axum::{Router, extract::State},
     middleware::{IntoResponse, Response},
 };
 use http_body_util::BodyExt;
@@ -166,7 +165,7 @@ fn policy_values() -> serde_json::Value {
 }
 
 struct Site {
-    router: Router,
+    router: corten::Router,
     calls: Calls,
 }
 

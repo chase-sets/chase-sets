@@ -5,14 +5,13 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-// The stand-in API is a plain router served on a port through `corten::axum`, as Corten keeps it for a
-// test (corten-run/corten#950); the rest names Corten.
+// The stand-in API is a plain axum router, with axum's own `State`, served on a port through
+// `corten::axum`, as Corten keeps it for a test (corten-run/corten#950); the rest names Corten.
 use corten::http::{HeaderMap, Method, Request, StatusCode, Uri, header};
 use corten::{
     Bytes, Json,
     answer::Body,
-    axum::Router,
-    extract::State,
+    axum::{Router, extract::State},
     middleware::{IntoResponse, Response},
 };
 use http_body_util::BodyExt;
@@ -2124,7 +2123,7 @@ fn auth(method: &Method, path: &str, body: &str) -> Option<Response> {
 
 /// The pilot, in front of a stand-in API on a loopback port.
 struct Pilot {
-    router: Router,
+    router: corten::Router,
     stand: Stand,
 }
 
