@@ -19,6 +19,30 @@ export interface CatalogItemListItem {
   updated_at: string;
 }
 
+export type BulkRemoveDraftCandidate = {
+  catalog_item_id: string;
+  title: string;
+  status: string;
+  outcome: "ready" | "blocked" | "succeeded" | "skipped" | "failed";
+  reason: string | null;
+};
+export type BulkRemoveDraftPreview = {
+  mode: "ids" | "filter";
+  item_ids: string[];
+  total: number;
+  ready_count: number;
+  blocked_count: number;
+  candidates: BulkRemoveDraftCandidate[];
+};
+export type BulkRemoveDraftResult = {
+  item_ids: string[];
+  total: number;
+  succeeded_count: number;
+  skipped_count: number;
+  failed_count: number;
+  candidates: BulkRemoveDraftCandidate[];
+};
+
 export interface CatalogItemImageFallback {
   url: string;
   alt: string;

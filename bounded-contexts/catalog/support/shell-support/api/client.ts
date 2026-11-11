@@ -1186,6 +1186,27 @@ export function createCatalogApiClient({
         job: await parseJsonResponse<CatalogAuthoringBulkJob<T>>(response),
       });
     },
+    async previewBulkRemoveDrafts<T>(selection: unknown): Promise<T> {
+      const response = await client.items["bulk-remove-drafts"].preview.$post({
+        json: { selection },
+        header: headers,
+      });
+      return parseJsonResponse<T>(response);
+    },
+    async confirmBulkRemoveDrafts<T>(selection: unknown, options: CatalogBulkActionProgressOptions = {}): Promise<T> {
+      const response = await client.items["bulk-remove-drafts"].confirm.$post({
+        json: { selection },
+        header: headers,
+      });
+      return waitForAuthoringBulkJobResult<T>({
+        baseUrl,
+        fetch: configuredFetch,
+        headers,
+        onProgress: options.onProgress,
+        signal: options.signal,
+        job: await parseJsonResponse<CatalogAuthoringBulkJob<T>>(response),
+      });
+    },
     async setTags<T>(id: string, tags: string[]): Promise<T> {
       const response = await client.items[":id"].tags.$put({
         param: { id },
@@ -1329,6 +1350,18 @@ export function createCatalogApiClient({
         },
       );
       return parseJsonResponse<T>(response);
+    },
+    async getCatalogPrimaryWorkbenchDeferredImportPreview(
+      location: string,
+    ): Promise<
+      import("../../../features/source-observations/api/admin/daily-import-preview").CatalogDailyImportPreview
+    > {
+      const query = new URLSearchParams({ location });
+      const response = await configuredFetch(
+        `${baseUrl.replace(/\/$/, "")}/source-observations/workbench-surfaces/daily/import-preview?${query}`,
+        { method: "GET", headers: headersToRecord(headers) },
+      );
+      return parseJsonResponse(response);
     },
     async recordCatalogControlPlaneEvent<T>(event: unknown): Promise<T> {
       const response = await configuredFetch(`${baseUrl.replace(/\/$/, "")}/source-observations/control-plane-events`, {

@@ -4,7 +4,7 @@ use std::sync::LazyLock;
 
 use corten::{
     Caller, Identify, Refused,
-    axum::http::{HeaderMap, Uri, request::Parts},
+    http::{HeaderMap, Uri, request::Parts},
 };
 pub use platform::{
     api::Actor,

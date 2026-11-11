@@ -24,11 +24,11 @@ import {
   sourceObservationEvidenceDetailFor,
   sourceObservationReviewCompositionFor,
   projectPromotionReceipt,
-  promotionReceiptHasCompleteCoverage,
   promotionReceiptMatchesContext,
 } from "./primary-workbench-source-observation-review";
 import { syntheticPromotionReceipt, loaderData } from "./primary-workbench-test-fixtures";
 import { parseCatalogPrimaryWorkbenchRouteContext } from "./primary-workbench-route-context";
+import { promotionCommandPreviewFor } from "./primary-workbench-scope-context";
 import type { CatalogPrimaryWorkbenchRouteContext } from "../api/primary-workbench-admin-contracts";
 
 const slimRowRouteContext: CatalogPrimaryWorkbenchRouteContext = {
@@ -148,51 +148,40 @@ describe("Catalog primary workbench read model - source observation review", () 
     expect(projected.preview.validation.diagnostics[0]?.diagnosticText).toBe(diagnostic.diagnosticText);
     raw.preview.validation.coveredObservationIds.push("synthetic-later-mutation");
     expect(projected.preview.validation.coveredObservationIds).toHaveLength(3);
-    expect(promotionReceiptHasCompleteCoverage(projected)).toBe(false);
   });
 
-  it("requires complete exact coverage, a fingerprint and the original draft choice", () => {
+  // Issue #11142: matching the original receipt uses API scope, not browser reconstruction.
+  it("matches a distinctive API descriptor at fixed identities and refuses independent descriptor drift", () => {
     const receipt = syntheticPromotionReceipt();
-    expect(promotionReceiptHasCompleteCoverage(receipt)).toBe(true);
-    for (const validation of [
-      { ...receipt.preview.validation, coveredObservationIds: [] },
-      { ...receipt.preview.validation, coveredObservationIds: ["synthetic-other-id"] },
-      { ...receipt.preview.validation, coveredObservationIds: ["obs_001", "obs_001"] },
-      { ...receipt.preview.validation, coverage: "partial" as const },
-      { ...receipt.preview.validation, continuation: "synthetic-continuation" },
-      { ...receipt.preview.validation, promoteAsDraft: true },
-      {
-        ...receipt.preview.validation,
-        diagnostics: [
-          {
-            observationId: "obs_001",
-            code: "synthetic-block",
-            path: "facts",
-            diagnosticText: "blocked",
-            blocking: true,
-          },
-        ],
-      },
-    ]) {
-      expect(promotionReceiptHasCompleteCoverage({ ...receipt, preview: { ...receipt.preview, validation } })).toBe(
-        false,
-      );
-    }
-    expect(promotionReceiptHasCompleteCoverage({ ...receipt, preview: { ...receipt.preview, fingerprint: "" } })).toBe(
-      false,
+    const context = parseCatalogPrimaryWorkbenchRouteContext(
+      "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&importScope=en:3:base:base1&profileVersion=2026.06.04",
     );
+    const scope = { provider: "tcgdex", language: "synthetic-api-language", search: "synthetic-api-query" };
+    receipt.selection.scope = scope;
+    const commandPreview = {
+      scope,
+      confirmation: {
+        unitKey: context.unitKey,
+        importScope: context.importScope,
+        profileVersion: context.profileVersion,
+        scope,
+      },
+      allowScopeSelection: true,
+    };
+    expect(promotionReceiptMatchesContext(receipt, context, commandPreview)).toBe(true);
     expect(
-      promotionReceiptHasCompleteCoverage({
-        ...receipt,
-        selection: { ...receipt.selection, observationIds: [] },
-        preview: {
-          ...receipt.preview,
-          matched: 0,
-          eligible: 0,
-          validation: { ...receipt.preview.validation, coveredObservationIds: [] },
-        },
+      promotionReceiptMatchesContext(receipt, context, {
+        ...commandPreview,
+        scope: { ...scope, search: "synthetic-drift" },
       }),
     ).toBe(false);
+    expect(
+      promotionReceiptMatchesContext(receipt, context, {
+        ...commandPreview,
+        confirmation: { ...commandPreview.confirmation, profileVersion: "synthetic-drift" },
+      }),
+    ).toBe(false);
+    expect(promotionReceiptMatchesContext(receipt, context, undefined)).toBe(false);
   });
 
   it("keeps helper-built models receipt-free and matches every governing context coordinate", () => {
@@ -200,7 +189,8 @@ describe("Catalog primary workbench read model - source observation review", () 
     const receipt = syntheticPromotionReceipt();
     const url =
       "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&importScope=en:3:base:base1&profileVersion=2026.06.04";
-    expect(promotionReceiptMatchesContext(receipt, parseCatalogPrimaryWorkbenchRouteContext(url))).toBe(true);
+    const context = parseCatalogPrimaryWorkbenchRouteContext(url);
+    expect(promotionReceiptMatchesContext(receipt, context, promotionCommandPreviewFor(context))).toBe(true);
     for (const [key, value] of [
       ["providerKey", "synthetic-other-provider"],
       ["unitKey", "synthetic-other-unit"],
@@ -212,9 +202,10 @@ describe("Catalog primary workbench read model - source observation review", () 
     ]) {
       const changed = new URL(url);
       changed.searchParams.set(key!, value!);
-      expect(
-        promotionReceiptMatchesContext(receipt, parseCatalogPrimaryWorkbenchRouteContext(changed.toString())),
-      ).toBe(false);
+      const changedContext = parseCatalogPrimaryWorkbenchRouteContext(changed.toString());
+      expect(promotionReceiptMatchesContext(receipt, changedContext, promotionCommandPreviewFor(changedContext))).toBe(
+        false,
+      );
     }
   });
 
@@ -227,11 +218,6 @@ describe("Catalog primary workbench read model - source observation review", () 
       promotionPreview: { ...model.promotionPreview, previewId: "synthetic-different-token", receipt },
     };
     expect(() => validateCatalogPrimaryWorkbenchReadModelContract(malformed)).toThrow("original promotion receipt");
-    const mixed = syntheticPromotionReceipt();
-    mixed.selection.observationIds = ["obs_001", "synthetic-terminal-id"];
-    mixed.preview.matched = 2;
-    mixed.preview.terminal = 1;
-    expect(promotionReceiptHasCompleteCoverage(mixed)).toBe(true);
   });
   it("keeps other scope and provider selections out of the Jungle review query", () => {
     for (const [providerKey, expansionId] of [

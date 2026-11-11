@@ -105,6 +105,93 @@ describe("Catalog integrations route", () => {
       permissions: ["catalog.view", "catalog.manage"],
     });
   });
+  // Issue #11080: loaders pass owner answers through, never derive from route/pages.
+  it.each(["success", "rejected", "malformed"])(
+    "passes through guided scope answers and retains skeleton on deferred %s",
+    async (state) => {
+      const model = buildCatalogPrimaryWorkbenchReadModelForSurface("daily", {
+        requestUrl: "https://admin.example/catalog/integrations",
+        scopes: { items: [], total: 0, count: 0 },
+        profileReviews: { items: [], total: 0, count: 0 },
+        controlPlaneOverview: null,
+        canManageCatalog: true,
+      });
+      const skeleton = {
+        ...model.sourceOptions,
+        contextSummary: "Synthetic loader skeleton",
+        freeTextApplicable: false,
+        guidedFields: [
+          {
+            queryKind: "synthetic-loader",
+            scope: "expansion",
+            label: "Loader API answer",
+            fieldName: "expansionId" as const,
+            labelFieldName: "expansionName" as const,
+            options: [{ value: "api-only", label: "API only", description: null, parentValue: null }],
+            selectedValue: "api-only",
+            selectedLabel: "API only",
+            parentScope: null,
+            parentMissing: false,
+            parentDiagnostic: null,
+          },
+        ],
+      };
+      const resolved = { ...skeleton, contextSummary: "Synthetic loader resolved" };
+      mockCreateCatalogRequestApiClient.mockReturnValue({
+        getCatalogPrimaryWorkbenchSurface: vi.fn().mockResolvedValue({
+          readModel: { ...model, sourceOptions: skeleton },
+          catalogSyncScope: null,
+          readModelFailures: [],
+        }),
+        getCatalogPrimaryWorkbenchDeferredSourceOptions:
+          state === "rejected"
+            ? vi.fn().mockRejectedValue(new Error("Synthetic deferred failure"))
+            : vi.fn().mockResolvedValue(state === "malformed" ? { ...resolved, guidedFields: null } : resolved),
+        recordCatalogControlPlaneEvent: vi.fn().mockResolvedValue({ status: "recorded" }),
+      });
+      const result = await loader({
+        request: new Request("https://admin.example/catalog/integrations?expansionId=not-api"),
+        params: {},
+        context: {},
+      } as Parameters<typeof loader>[0]);
+      expect(result.readModel.sourceOptions).toBe(skeleton);
+      expect(await result.deferredSourceOptions).toBe(state === "success" ? resolved : skeleton);
+    },
+  );
+
+  it("marks absent synchronous guided answers unavailable instead of restoring page rules", async () => {
+    const model = buildCatalogPrimaryWorkbenchReadModelForSurface("daily", {
+      requestUrl: "https://admin.example/catalog/integrations",
+      scopes: { items: [], total: 0, count: 0 },
+      profileReviews: { items: [], total: 0, count: 0 },
+      controlPlaneOverview: null,
+      canManageCatalog: true,
+    });
+    mockCreateCatalogRequestApiClient.mockReturnValue({
+      getCatalogPrimaryWorkbenchSurface: vi.fn().mockResolvedValue({
+        readModel: { ...model, sourceOptions: { ...model.sourceOptions, guidedFields: undefined } },
+        catalogSyncScope: null,
+        readModelFailures: [],
+      }),
+      getCatalogPrimaryWorkbenchDeferredSourceOptions: vi
+        .fn()
+        .mockRejectedValue(new Error("Synthetic absent endpoint")),
+      recordCatalogControlPlaneEvent: vi.fn().mockResolvedValue({ status: "recorded" }),
+    });
+    const result = await loader({
+      request: new Request("https://admin.example/catalog/integrations"),
+      params: {},
+      context: {},
+    } as Parameters<typeof loader>[0]);
+    expect(result.readModel.sourceOptions).toMatchObject({
+      status: "unavailable",
+      guidedFields: [],
+      freeTextApplicable: false,
+      contextSummary: null,
+    });
+    expect(await result.deferredSourceOptions).toBe(result.readModel.sourceOptions);
+  });
+
   it("keeps an explicit YGOJSON set selection clean when stale Pokemon scope params remain in the URL", async () => {
     const selectedSetId = "9baa1b43-8a60-44dd-a144-dbef99c8c7a4";
     const profileReviews = {
@@ -406,13 +493,16 @@ describe("Catalog integrations route", () => {
       routeData.readModel.actions.find((actionEntry) => actionEntry.key === "scope.import")?.blockers,
     ).not.toContain("import-scope-required");
     await expect(routeData.deferredImportPreview).resolves.toMatchObject({
-      providerKey: "scrydex",
-      targetCount: 1,
-      targets: [
-        expect.objectContaining({
-          usageEstimate: expect.objectContaining({ requestStrategy: "bulk-first" }),
-        }),
-      ],
+      status: "ready",
+      preview: {
+        providerKey: "scrydex",
+        targetCount: 1,
+        targets: [
+          expect.objectContaining({
+            usageEstimate: expect.objectContaining({ requestStrategy: "bulk-first" }),
+          }),
+        ],
+      },
     });
     expect(previewSourceObservationIntegrationImport).toHaveBeenCalledWith({
       provider: "scrydex",
@@ -484,18 +574,21 @@ describe("Catalog integrations route", () => {
       importScope: "en:TFC",
     });
     await expect(routeData.deferredImportPreview).resolves.toMatchObject({
-      providerKey: "scrydex",
-      scope: expect.objectContaining({
-        provider: "scrydex",
-        ingestionUnitKey: unitKey,
-        language: "en",
-        setId: "TFC",
-      }),
-      targets: [
-        expect.objectContaining({
-          usageEstimate: expect.objectContaining({ requestStrategy: "bulk-first" }),
+      status: "ready",
+      preview: {
+        providerKey: "scrydex",
+        scope: expect.objectContaining({
+          provider: "scrydex",
+          ingestionUnitKey: unitKey,
+          language: "en",
+          setId: "TFC",
         }),
-      ],
+        targets: [
+          expect.objectContaining({
+            usageEstimate: expect.objectContaining({ requestStrategy: "bulk-first" }),
+          }),
+        ],
+      },
     });
     expect(previewSourceObservationIntegrationImport).toHaveBeenCalledWith({
       provider: "scrydex",
@@ -587,6 +680,7 @@ describe("Catalog integrations route", () => {
       providerKey: "scrydex",
       importScope: "en:OP09",
     });
+    await expect(routeData.deferredImportPreview).resolves.toBeNull();
     expect(previewSourceObservationIntegrationImport).toHaveBeenCalledWith({
       provider: "scrydex",
       ingestionUnitKey: unitKey,
@@ -1166,6 +1260,38 @@ describe("Catalog integrations route", () => {
     }
   });
 
+  // Issue #11130: the shell never waits for the selected preview or reconstructs its scope.
+  it("forwards location to the deferred preview read and returns the shell before settlement", async () => {
+    let release!: (value: { status: "unavailable" }) => void;
+    const getCatalogPrimaryWorkbenchDeferredImportPreview = vi.fn(
+      () =>
+        new Promise<{ status: "unavailable" }>((resolve) => {
+          release = resolve;
+        }),
+    );
+    const raw = vi.fn();
+    mockCreateCatalogRequestApiClient.mockReturnValue({
+      listSourceObservationIntegrationScopes: async () => ({ items: [], total: 0, count: 0 }),
+      listSourceObservationProviderProfiles: async () => ({ items: [], total: 0, count: 0 }),
+      getCatalogIntegrationControlPlaneOverview: async () => null,
+      listSourceObservations: async () => ({ items: [], total: 0, count: 0 }),
+      recordCatalogControlPlaneEvent: async () => ({ status: "recorded" }),
+      getCatalogPrimaryWorkbenchDeferredImportPreview,
+      previewSourceObservationIntegrationImport: raw,
+    });
+    const location = "/catalog/integrations?productId=synthetic-A&languageCode=en";
+    const data = await loader({
+      request: new Request(`https://admin.example${location}`),
+      params: {},
+      context: {},
+    } as Parameters<typeof loader>[0]);
+    expect(data.readModel).toBeTruthy();
+    expect(getCatalogPrimaryWorkbenchDeferredImportPreview).toHaveBeenCalledExactlyOnceWith(location);
+    expect(raw).not.toHaveBeenCalled();
+    release({ status: "unavailable" });
+    await expect(data.deferredImportPreview).resolves.toEqual({ status: "unavailable" });
+  });
+
   it("resolves a rejected selected import preview to null", async () => {
     const unitKey = "scrydex:one-piece:single-card:source-observation-import";
     const previewSourceObservationIntegrationImport = vi.fn().mockRejectedValue(new Error("preview transport failed"));
@@ -1251,21 +1377,21 @@ describe("Catalog integrations route", () => {
       expect(preview).not.toBeNull();
 
       let settled = false;
-      let rejectionCode: string | undefined;
+      let answer: unknown;
       void preview?.then(
-        () => {
+        (value) => {
           settled = true;
+          answer = value;
         },
         (error: unknown) => {
-          settled = true;
-          rejectionCode = error instanceof Error && "code" in error ? String(error.code) : undefined;
+          throw error;
         },
       );
       await vi.advanceTimersByTimeAsync(2_499);
       expect(settled).toBe(false);
       await vi.advanceTimersByTimeAsync(1);
       await vi.runAllTicks();
-      expect(rejectionCode).toBe("catalog_provider_option_query_timeout");
+      expect(answer).toEqual({ status: "unavailable" });
       expect(previewSourceObservationIntegrationImport).toHaveBeenCalledTimes(1);
     } finally {
       vi.useRealTimers();

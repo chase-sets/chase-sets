@@ -4,6 +4,92 @@ import { handleCandidateCommand } from "./candidate-command-handler";
 import type { CatalogIntegrationsCommandResult } from "./integrations-command-result";
 
 describe("merge-candidate entity command handler", () => {
+  it.each([false, true])("promotes at the read version, preserving conflict resolutions=%s", async (resolve) => {
+    const promoteCatalogMergeCandidate = vi.fn(async () => ({ ok: true }));
+    const formData = new FormData();
+    formData.set("candidateId", "cand_1");
+    formData.set("candidateVersion", "4");
+    formData.set("reason", "Approve reviewed candidate");
+    if (resolve) {
+      formData.set(
+        "blockingConflictsJson",
+        JSON.stringify([
+          {
+            code: "name",
+            fieldPath: "name",
+            existingValueJson: '"Old"',
+            proposedValueJson: '"New"',
+            observationIds: ["obs_1"],
+          },
+        ]),
+      );
+      formData.set("resolution.name", "proposed");
+      formData.set("reason.name", "Use corrected name");
+    }
+    const result = await handleCandidateCommand({
+      api: { promoteCatalogMergeCandidate } as never,
+      intent: "candidate.promote",
+      context: commandContext(),
+      formData,
+      selectedObservationIds: [],
+    });
+    expect(promoteCatalogMergeCandidate).toHaveBeenCalledWith("cand_1", {
+      reason: "Approve reviewed candidate",
+      expectedVersion: 4,
+      conflictResolutions: resolve
+        ? [
+            {
+              conflictCode: "name",
+              fieldPath: "name",
+              chosenValue: "New",
+              reason: "Use corrected name",
+              observationIds: ["obs_1"],
+            },
+          ]
+        : undefined,
+    });
+    expect(result.feedback).toMatchObject({ status: "success", intent: "candidate.promote" });
+  });
+
+  it.each([null, "", "invalid", "-1", "0.5", "9007199254740992"])(
+    "refuses promote candidateVersion=%s without an API call",
+    async (version) => {
+      const promoteCatalogMergeCandidate = vi.fn();
+      const formData = new FormData();
+      formData.set("candidateId", "cand_1");
+      formData.set("reason", "Approve reviewed candidate");
+      if (version !== null) formData.set("candidateVersion", version);
+      const result = await handleCandidateCommand({
+        api: { promoteCatalogMergeCandidate } as never,
+        intent: "candidate.promote",
+        context: commandContext(),
+        formData,
+        selectedObservationIds: [],
+      });
+      expect(promoteCatalogMergeCandidate).not.toHaveBeenCalled();
+      expect(result.feedback).toMatchObject({ status: "error", result: "command-failed" });
+    },
+  );
+
+  it("shows candidate-stale rather than success when promote receives the API's 409", async () => {
+    const promoteCatalogMergeCandidate = vi.fn(async () => {
+      throw new CatalogApiError(409, { error: { code: "stale_merge_candidate" } });
+    });
+    const formData = new FormData();
+    formData.set("candidateId", "cand_1");
+    formData.set("candidateVersion", "4");
+    formData.set("reason", "Approve reviewed candidate");
+    const result = await handleCandidateCommand({
+      api: { promoteCatalogMergeCandidate } as never,
+      intent: "candidate.promote",
+      context: commandContext(),
+      formData,
+      selectedObservationIds: [],
+    });
+    expect(result.feedback).toMatchObject({ status: "error", intent: "candidate.promote", result: "candidate-stale" });
+    expect(promoteCatalogMergeCandidate).toHaveBeenCalledOnce();
+  });
+
   it("updates a candidate with the version the page read and an empty edit from the row's update button", async () => {
     const updateCatalogMergeCandidate = vi.fn(async () => ({ ok: true }));
     const formData = new FormData();

@@ -10,6 +10,20 @@ import { resolveRequiredProofPaths, unavailableChangeSetSelectionMode } from "./
 
 const rootDir = fileURLToPath(new URL("../", import.meta.url));
 
+export const bootstrapDbOracleMemoCheckPaths = Object.freeze([
+  "deployables/platform-api/__tests__/fixtures/bootstrap-db-oracle-schedule-memo.json",
+  "deployables/platform-api/__tests__/fixtures/bootstrap-db-oracle-schedule-memo.mjs",
+  "deployables/platform-api/__tests__/fixtures/bootstrap-db-schedule-before-subset-reuse.mjs",
+  "deployables/platform-api/scripts/check-bootstrap-db-enrollment.mjs",
+]);
+
+export function requiresBootstrapDbOracleMemoCheck(scope) {
+  return (
+    scope.requiredProofSelectionMode === unavailableChangeSetSelectionMode ||
+    scope.changedFiles.some((file) => bootstrapDbOracleMemoCheckPaths.includes(file))
+  );
+}
+
 // Kept local to avoid loading the TypeScript/Vitest-heavy enrollment authority
 // from release and static importers. A parity test pins this projection.
 export const platformApiEnrollmentSelectors = Object.freeze({

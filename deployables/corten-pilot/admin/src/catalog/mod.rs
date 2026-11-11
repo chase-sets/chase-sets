@@ -30,6 +30,7 @@
 //! | `GET /catalog/reference-types?...` and its writes | the reference types list and a type's page (`reference_types`) |
 //! | `GET /catalog/reference-records?...` and its writes | the reference records list and a record's page (`reference_records`) |
 //! | `GET /catalog/source-observations/{id}` and its review | a Source Observation (`observation`) |
+//! | `GET /catalog/providers/{key}` and its commands | a provider's page (`provider`) |
 //!
 //! The lists are kept current as admin-web's are (`useCatalogRealtimeRevalidation`): a change to
 //! the Catalog topic `catalog:admin:dimensions` (or `:fields`) reads the list again, and the
@@ -38,10 +39,9 @@
 //! A bulk change is admin-web's `BulkLifecycleActionBar`: the checked rows (or every record the
 //! filters match) and an action, previewed by the API, then confirmed; the API runs it as a job,
 //! whose progress the list's dialog follows from the job's own stream.
-use corten::{Fragment, LiveResponse, LiveSince, axum::http::HeaderMap, prelude::*};
+use corten::{Fragment, LiveResponse, LiveSince, http::HeaderMap, prelude::*};
 use futures_util::StreamExt;
 use platform::{jobs::Update, receipt::Receipt};
-use serde::Deserialize;
 use serde_json::{Map, Value};
 
 pub mod api;
@@ -50,16 +50,23 @@ pub mod blueprints;
 pub mod categories;
 pub mod components;
 pub mod coverage;
+pub mod daily;
 pub mod display_templates;
 pub mod form;
+pub mod import_context;
+pub mod integrations;
 pub mod item;
 pub mod items;
 pub mod observation;
+pub mod operator_session;
+pub mod provider;
 pub mod reference_records;
 pub mod reference_types;
 pub mod scope;
 pub mod scopes;
+pub mod sections;
 pub mod sync_batches;
+pub mod validation;
 pub mod views;
 
 use crate::{
@@ -105,7 +112,7 @@ pub mod url {
 
     /// The dimensions list's filters (the filter form's fields) and page (from 1): what the list,
     /// its live rows, its bulk preview and the preview's confirm all carry.
-    #[derive(Clone, Debug, Default, Deserialize, Fields, Route)]
+    #[derive(Clone, Debug, Default, Fields, Route)]
     #[route(query)]
     pub struct DimensionQuery {
         pub search: Option<String>,
@@ -192,7 +199,7 @@ pub mod url {
     }
 
     /// The fields list's filters and page; the flags are `true` or `false`.
-    #[derive(Clone, Debug, Default, Deserialize, Fields, Route)]
+    #[derive(Clone, Debug, Default, Fields, Route)]
     #[route(query)]
     pub struct FieldQuery {
         pub search: Option<String>,
@@ -272,7 +279,7 @@ pub mod url {
 }
 
 /// What a write did, for the page it redirects to: admin-web's success toasts.
-#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, corten::UrlValue)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, corten::UrlValue)]
 #[serde(rename_all = "snake_case")]
 pub enum Done {
     Created,
@@ -438,6 +445,9 @@ pub fn area(area: Area<url::Catalog>, shared: Shared) -> Area<url::Catalog> {
     let area = scope::url::area(area, shared.clone());
     let area = coverage::url::area(area, shared.clone());
     let area = observation::url::area(area, shared.clone());
+    let area = integrations::url::area(area, shared.clone());
+    let area = daily::url::area(area, shared.clone());
+    let area = provider::url::area(area, shared.clone());
     let area = sync_batches::url::area(area, shared.clone());
     let area = attention::url::area(area, shared.clone());
     let area = categories::url::area(area, shared.clone());
@@ -586,9 +596,9 @@ async fn dimension_list(
     req.screen(
         &screen,
         html! {
-            <crate::views::Layout req={req} viewer={Some(viewer)} title={t.route_dimensions()} head="">
+            <crate::views::OwnToastLayout req={req} viewer={Some(viewer)} title={t.route_dimensions()} head="">
                 {view}
-            </crate::views::Layout>
+            </crate::views::OwnToastLayout>
         },
     )
 }
@@ -682,9 +692,9 @@ async fn dimension_page(
     req.screen(
         &detail,
         html! {
-            <crate::views::Layout req={req} viewer={Some(viewer)} title={t.route_dimension()} head="">
+            <crate::views::OwnToastLayout req={req} viewer={Some(viewer)} title={t.route_dimension()} head="">
                 {view}
-            </crate::views::Layout>
+            </crate::views::OwnToastLayout>
         },
     )
 }
@@ -952,7 +962,9 @@ async fn field_list(
     req.screen(
         &screen,
         html! {
-            <crate::views::Layout req={req} viewer={Some(viewer)} title={t.route_fields()} head="">{view}</crate::views::Layout>
+            <crate::views::OwnToastLayout req={req} viewer={Some(viewer)} title={t.route_fields()} head="">
+                {view}
+            </crate::views::OwnToastLayout>
         },
     )
 }
@@ -1057,7 +1069,9 @@ async fn field_page(
     req.screen(
         &field,
         html! {
-            <crate::views::Layout req={req} viewer={Some(viewer)} title={t.route_field()} head="">{view}</crate::views::Layout>
+            <crate::views::OwnToastLayout req={req} viewer={Some(viewer)} title={t.route_field()} head="">
+                {view}
+            </crate::views::OwnToastLayout>
         },
     )
 }
@@ -1165,6 +1179,7 @@ fn action_label(t: Cat, kind: Kind, action: &str) -> &str {
         | Kind::AttentionQueue
         | Kind::AliasReview
         | Kind::ProviderScopeMappings
+        | Kind::ProviderScopeDiscovery
         | Kind::SourceObservations => Vec::new(),
     };
     actions.into_iter().find(|(value, _)| *value == action).map_or(action, |(_, label)| label)

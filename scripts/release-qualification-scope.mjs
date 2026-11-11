@@ -270,6 +270,7 @@ export const releaseQualificationScopeRegistry = Object.freeze({
   // Unknown workflows fail closed.
   workflows: Object.freeze({
     "backlog-roadmap-status.yml": "ci",
+    "bootstrap-db-oracle-memo.yml": "ci",
     "browser-boundary-diagnostics.yml": "ci",
     "browser-boundary-timeout-verifier.yml": "ci",
     "catalog-completion-report.yml": "ci",
