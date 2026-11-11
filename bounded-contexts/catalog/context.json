@@ -843,6 +843,7 @@
         "provider-scope-mapping",
         "reference-data",
         "scope-registry",
+        "scope-sync-batches",
         "scope-sync-state",
         "source-observations"
       ]
