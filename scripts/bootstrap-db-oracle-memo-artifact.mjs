@@ -334,16 +334,185 @@ function safePath(path) {
 }
 
 function git(directory, args, binary = false) {
-  return execFileSync("git", ["-C", directory, ...args], {
+  const options = {
     encoding: binary ? undefined : "utf8",
-    maxBuffer: /^(ls-tree|ls-files|diff)$/.test(args[0]) ? gitListingOptions({}).maxBuffer : 32 * 1024 * 1024,
+    maxBuffer: 32 * 1024 * 1024,
     windowsHide: true,
     env: { ...process.env, GIT_NO_LAZY_FETCH: "1", GIT_NO_REPLACE_OBJECTS: "1", GIT_TERMINAL_PROMPT: "0" },
     stdio: ["ignore", "pipe", "pipe"],
-  });
+  };
+  return execFileSync(
+    "git",
+    ["-C", directory, ...args],
+    /^(ls-tree|ls-files|diff)$/.test(args[0]) ? gitListingOptions(options) : options,
+  );
 }
 const blob = (directory, commit, path) => git(directory, ["cat-file", "blob", `${commit}:${safePath(path)}`], true);
 const treeClosure = (directory, commit) => sha256(git(directory, ["ls-tree", "-rz", "--full-tree", commit], true));
+
+function parseObjectBatch(output, entries) {
+  const values = [];
+  let cursor = 0;
+  for (const entry of entries) {
+    const end = output.indexOf(10, cursor);
+    requireThat(end >= cursor, "incomplete object batch header");
+    same(
+      output.subarray(cursor, end).toString("utf8"),
+      `${entry.oid} ${entry.type} ${entry.size}`,
+      "object batch identity/size differs",
+    );
+    cursor = end + 1;
+    requireThat(
+      cursor + entry.size < output.length && output[cursor + entry.size] === 10,
+      "incomplete object batch payload",
+    );
+    const bytes = output.subarray(cursor, cursor + entry.size);
+    same(
+      createHash("sha1").update(`${entry.type} ${entry.size}\0`).update(bytes).digest("hex"),
+      entry.oid,
+      "immutable object digest differs",
+    );
+    values.push(bytes);
+    cursor += entry.size + 1;
+  }
+  same(cursor, output.length, "extra object batch bytes");
+  return values;
+}
+
+function immutableReads() {
+  const repositories = new Map();
+  const state = (directory) => {
+    const key = resolve(directory);
+    if (!repositories.has(key)) repositories.set(key, { objects: new Map(), commits: new Map(), trees: new Map() });
+    return repositories.get(key);
+  };
+  const batch = (directory, args, entries) =>
+    execFileSync("git", ["-C", directory, "cat-file", ...args], {
+      input: entries.map(({ oid }) => `${oid}\n`).join(""),
+      maxBuffer: 32 * 1024 * 1024,
+      windowsHide: true,
+      env: { ...process.env, GIT_NO_LAZY_FETCH: "1", GIT_NO_REPLACE_OBJECTS: "1", GIT_TERMINAL_PROMPT: "0" },
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+  const load = (directory, requests) => {
+    const objects = state(directory).objects;
+    const missing = [...new Map(requests.map((r) => [r.oid, r])).values()].filter((r) => !objects.has(r.oid));
+    for (let start = 0; start < missing.length; start += 128) {
+      const group = missing.slice(start, start + 128);
+      for (const entry of group) requireThat(hex(entry.oid, 40), "full immutable object required");
+      const metadata = batch(directory, ["--batch-check"], group);
+      const rows = metadata.toString("utf8").split("\n");
+      same(rows.pop(), "", "incomplete object metadata");
+      same(rows.length, group.length, "object metadata count differs");
+      const entries = group.map((entry, i) => {
+        const match = rows[i].match(/^([a-f0-9]{40}) (commit|blob) (0|[1-9][0-9]*)$/);
+        requireThat(
+          match && match[1] === entry.oid && match[2] === entry.type,
+          "object metadata identity/type differs",
+        );
+        const size = Number(match[3]);
+        requireThat(Number.isSafeInteger(size) && size <= 32 * 1024 * 1024, "immutable object byte limit");
+        return { ...entry, size };
+      });
+      let pending = [];
+      let size = 0;
+      const flush = () => {
+        if (!pending.length) return;
+        const values = parseObjectBatch(batch(directory, ["--batch"], pending), pending);
+        pending.forEach((entry, i) => objects.set(entry.oid, { type: entry.type, bytes: values[i] }));
+        pending = [];
+        size = 0;
+      };
+      for (const entry of entries) {
+        if (entry.size > 16 * 1024 * 1024) {
+          flush();
+          const bytes = git(directory, ["cat-file", entry.type, entry.oid], true);
+          same(bytes.length, entry.size, "large immutable object size differs");
+          same(
+            createHash("sha1").update(`${entry.type} ${entry.size}\0`).update(bytes).digest("hex"),
+            entry.oid,
+            "immutable object digest differs",
+          );
+          objects.set(entry.oid, { type: entry.type, bytes });
+        } else {
+          if (size + entry.size > 16 * 1024 * 1024) flush();
+          pending.push(entry);
+          size += entry.size;
+        }
+      }
+      flush();
+    }
+    for (const entry of requests) same(objects.get(entry.oid).type, entry.type, "immutable object type differs");
+  };
+  const commits = (directory, ids) => {
+    load(
+      directory,
+      ids.map((oid) => ({ oid, type: "commit" })),
+    );
+    for (const oid of ids) {
+      const header = state(directory).objects.get(oid).bytes.toString("utf8").split("\n\n", 1)[0].split("\n");
+      requireThat(/^tree [a-f0-9]{40}$/.test(header[0]), "immutable commit tree header");
+      const parents = [];
+      let i = 1;
+      while (header[i]?.startsWith("parent ")) {
+        requireThat(/^parent [a-f0-9]{40}$/.test(header[i]), "immutable commit parent header");
+        parents.push(header[i++].slice(7));
+      }
+      requireThat(!header.slice(i).some((row) => /^(tree|parent) /.test(row)), "misplaced immutable commit header");
+      state(directory).commits.set(oid, { tree: header[0].slice(5), parents });
+    }
+  };
+  const tree = (directory, commit) => {
+    requireThat(hex(commit, 40), "immutable tree commit required");
+    const trees = state(directory).trees;
+    const oid = state(directory).commits.get(commit)?.tree ?? commit;
+    if (!trees.has(oid)) {
+      const raw = git(directory, ["ls-tree", "-rz", "--full-tree", oid], true);
+      const entries = new Map();
+      let cursor = 0;
+      while (cursor < raw.length) {
+        const end = raw.indexOf(0, cursor);
+        const tab = raw.indexOf(9, cursor);
+        requireThat(end > cursor && tab > cursor && tab < end, "incomplete immutable tree record");
+        const header = raw
+          .subarray(cursor, tab)
+          .toString("utf8")
+          .match(/^([0-7]{6}) (blob|commit) ([a-f0-9]{40})$/);
+        requireThat(header, "invalid immutable tree header");
+        const path = raw.subarray(tab + 1, end).toString("hex");
+        requireThat(path && !entries.has(path), "duplicate/empty immutable tree path");
+        entries.set(path, { mode: header[1], type: header[2], oid: header[3] });
+        cursor = end + 1;
+      }
+      trees.set(oid, { raw, entries });
+    }
+    return trees.get(oid);
+  };
+  const entry = (directory, commit, path) =>
+    tree(directory, commit).entries.get(Buffer.from(safePath(path)).toString("hex"));
+  const prepare = (directory, files) => {
+    const requests = files.map(([commit, path]) => {
+      const value = entry(directory, commit, path);
+      requireThat(
+        value?.type === "blob" && ["100644", "100755"].includes(value.mode),
+        `missing/nonregular immutable source: ${path}`,
+      );
+      return { oid: value.oid, type: "blob" };
+    });
+    load(directory, requests);
+  };
+  const source = (directory, commit, path) => {
+    const value = entry(directory, commit, path);
+    requireThat(
+      value?.type === "blob" && ["100644", "100755"].includes(value.mode),
+      `missing/nonregular immutable source: ${path}`,
+    );
+    const object = state(directory).objects.get(value.oid);
+    requireThat(object?.type === "blob", "immutable source not prepared");
+    return object.bytes;
+  };
+  return { commits, commit: (directory, oid) => state(directory).commits.get(oid), tree, entry, prepare, source };
+}
 
 async function hashLargeObject(directory, entry) {
   const child = spawn("git", ["-C", directory, "cat-file", "blob", entry.oid], {
@@ -628,14 +797,19 @@ export function readArtifactZip(zip) {
 export async function admitProfile(m, { objectRoot = root, helperSha, event, inputRoot } = {}) {
   parseManifest(Buffer.from(canonical(m)), sha256(Buffer.from(canonical(m))));
   same(helperSha, m.T.commit, "wrong helper T");
-  for (const role of ["S", "W", "E", "T"]) {
-    same(git(objectRoot, ["rev-parse", `${m[role].commit}^{commit}`]).trim(), m[role].commit, `${role} commit`);
-    same(git(objectRoot, ["rev-parse", `${m[role].commit}^{tree}`]).trim(), m[role].tree, `${role} tree`);
-  }
   requireThat(event, "opened event evidence required");
+  for (const key of ["head", "base", "merge"]) commitTree(event[key], `event ${key}`);
+  const reads = immutableReads();
+  reads.commits(objectRoot, [
+    ...["S", "W", "E", "T"].map((role) => m[role].commit),
+    ...["head", "base", "merge"].map((key) => event[key].commit),
+  ]);
+  for (const role of ["S", "W", "E", "T"]) {
+    requireThat(reads.commit(objectRoot, m[role].commit), `${role} commit`);
+    same(reads.commit(objectRoot, m[role].commit).tree, m[role].tree, `${role} tree`);
+  }
   for (const key of ["head", "base", "merge"]) {
-    commitTree(event[key], `event ${key}`);
-    same(git(objectRoot, ["rev-parse", `${event[key].commit}^{tree}`]).trim(), event[key].tree, `event ${key} tree`);
+    same(reads.commit(objectRoot, event[key].commit).tree, event[key].tree, `event ${key} tree`);
   }
   git(objectRoot, ["merge-base", "--is-ancestor", m.T.commit, event.base.commit]);
   git(objectRoot, ["merge-base", "--is-ancestor", m.S.commit, m.E.commit]);
@@ -643,32 +817,47 @@ export async function admitProfile(m, { objectRoot = root, helperSha, event, inp
     windowsHide: true,
   });
   requireThat(!merged.error && merged.status === 1, "E must remain unmerged");
-  same(git(objectRoot, ["show", "-s", "--format=%P", m.W.commit]).trim(), m.S.commit, "W sole S parent");
+  same(reads.commit(objectRoot, m.W.commit).parents.join(" "), m.S.commit, "W sole S parent");
   same(
     git(objectRoot, ["diff", "--no-renames", "--name-status", m.S.commit, m.W.commit]).trim(),
     "A\t.github/workflows/10365-bootstrap-db-input-capture.yml",
     "capture-only W",
   );
-  same(git(objectRoot, ["show", "-s", "--format=%P", event.head.commit]).trim(), m.E.commit, "D sole E parent");
+  same(reads.commit(objectRoot, event.head.commit).parents.join(" "), m.E.commit, "D sole E parent");
   const expectedD = [`A\t${MANIFEST}`];
-  if (!git(objectRoot, ["ls-tree", m.E.commit, "--", WORKFLOW]).trim()) expectedD.push(`A\t${WORKFLOW}`);
+  if (!reads.entry(objectRoot, m.E.commit, WORKFLOW)) expectedD.push(`A\t${WORKFLOW}`);
   same(
     git(objectRoot, ["diff", "--no-renames", "--name-status", m.E.commit, event.head.commit]).trim().split("\n"),
     expectedD.sort(),
     "D data-only delta",
   );
-  same(blob(objectRoot, event.head.commit, MANIFEST), Buffer.from(canonical(m)), "D manifest bytes");
-  for (const commit of [m.E.commit, "origin/main"])
-    same(git(objectRoot, ["ls-tree", commit, "--", MANIFEST]).trim(), "", "manifest absent from E/main");
+  const workflowCommits = [m.T.commit, event.base.commit, event.head.commit, event.merge.commit];
+  reads.prepare(objectRoot, [
+    [event.head.commit, MANIFEST],
+    ...workflowCommits.map((commit) => [commit, WORKFLOW]),
+    ...[
+      ...m.inputDelta.map((d) => d.path),
+      PRODUCER,
+      ORACLE,
+      MEMO,
+      "pnpm-lock.yaml",
+      CHECKER,
+      ...Object.values(m.fixtures).map((f) => f.path),
+    ].map((path) => [m.E.commit, path]),
+    ...[MEMO, ...m.inputDelta.filter((d) => reads.entry(objectRoot, m.S.commit, d.path)).map((d) => d.path)].map(
+      (path) => [m.S.commit, path],
+    ),
+  ]);
+  const source = (commit, path) => reads.source(objectRoot, commit, path);
+  same(source(event.head.commit, MANIFEST), Buffer.from(canonical(m)), "D manifest bytes");
+  same(reads.entry(objectRoot, m.E.commit, MANIFEST), undefined, "manifest absent from E/main");
+  same(git(objectRoot, ["ls-tree", "origin/main", "--", MANIFEST]).trim(), "", "manifest absent from E/main");
   for (const commit of [m.T.commit, event.base.commit, event.head.commit, event.merge.commit]) {
-    requireThat(
-      git(objectRoot, ["ls-tree", commit, "--", WORKFLOW]).startsWith("100644 blob "),
-      "regular workflow blob",
-    );
-    same(blob(objectRoot, commit, WORKFLOW), blob(objectRoot, m.T.commit, WORKFLOW), "workflow not T-identical");
+    requireThat(reads.entry(objectRoot, commit, WORKFLOW)?.mode === "100644", "regular workflow blob");
+    same(source(commit, WORKFLOW), source(m.T.commit, WORKFLOW), "workflow not T-identical");
   }
   same(
-    git(objectRoot, ["show", "-s", "--format=%P", event.merge.commit]).trim().split(" "),
+    reads.commit(objectRoot, event.merge.commit).parents,
     [event.base.commit, event.head.commit],
     "G exact B/D parents",
   );
@@ -683,30 +872,30 @@ export async function admitProfile(m, { objectRoot = root, helperSha, event, inp
     "E exact reviewed delta",
   );
   for (const d of m.inputDelta) {
-    requireThat(git(objectRoot, ["ls-tree", m.E.commit, "--", d.path]).startsWith("100644 blob "), "regular E input");
-    same(sha256(blob(objectRoot, m.E.commit, d.path)), d.afterSha256, "E after bytes");
-    const exists = git(objectRoot, ["ls-tree", m.S.commit, "--", d.path]).trim();
-    same(exists ? sha256(blob(objectRoot, m.S.commit, d.path)) : null, d.beforeSha256, "S before bytes");
+    requireThat(reads.entry(objectRoot, m.E.commit, d.path)?.mode === "100644", "regular E input");
+    same(sha256(source(m.E.commit, d.path)), d.afterSha256, "E after bytes");
+    const exists = reads.entry(objectRoot, m.S.commit, d.path);
+    same(exists ? sha256(source(m.S.commit, d.path)) : null, d.beforeSha256, "S before bytes");
   }
   for (const path of [PRODUCER, ORACLE])
-    same(blob(objectRoot, m.E.commit, path), blob(root, baseline, path), "baseline producer/oracle");
-  same(blob(objectRoot, m.E.commit, MEMO), blob(objectRoot, m.S.commit, MEMO), "old memo retained");
-  same(treeClosure(objectRoot, m.E.commit), m.readClosureSha256, "E complete read closure");
-  same(sha256(blob(objectRoot, m.E.commit, "pnpm-lock.yaml")), m.toolchain.lockSha256, "E locked dependencies");
+    same(source(m.E.commit, path), blob(root, baseline, path), "baseline producer/oracle");
+  same(source(m.E.commit, MEMO), source(m.S.commit, MEMO), "old memo retained");
+  same(sha256(reads.tree(objectRoot, m.E.commit).raw), m.readClosureSha256, "E complete read closure");
+  same(sha256(source(m.E.commit, "pnpm-lock.yaml")), m.toolchain.lockSha256, "E locked dependencies");
   for (const path of ["package.json", "pnpm-lock.yaml", "pnpm-workspace.yaml", ".npmrc"]) {
     same(
-      git(objectRoot, ["ls-tree", m.S.commit, "--", path]),
-      git(objectRoot, ["ls-tree", m.E.commit, "--", path]),
+      reads.entry(objectRoot, m.S.commit, path),
+      reads.entry(objectRoot, m.E.commit, path),
       "dependency/absence closure",
     );
   }
-  const actual = await inspectChecker(blob(objectRoot, m.E.commit, CHECKER).toString("utf8"));
+  const actual = await inspectChecker(source(m.E.commit, CHECKER).toString("utf8"));
   const original = await inspectChecker(blob(root, baseline, CHECKER).toString("utf8"));
   same(actual.skeleton, original.skeleton, "checker skeleton/control-base");
   same(canonical(actual.values), canonical(m.checkerLiterals), "E literal values/order");
   const fixtures = Object.fromEntries(
     Object.entries(m.fixtures).map(([key, f]) => {
-      const bytes = blob(objectRoot, m.E.commit, f.path);
+      const bytes = source(m.E.commit, f.path);
       requireThat(bytes.length <= limits.receipt, "capture fixture limit");
       same(sha256(bytes), f.sha256, "accepted fixture bytes");
       return [key, JSON.parse(bytes)];
@@ -714,7 +903,7 @@ export async function admitProfile(m, { objectRoot = root, helperSha, event, inp
   );
   requireThat(inputRoot, "independent S/input data checkout required");
   cleanInput(inputRoot, m);
-  await validateIndependentProfile(m, fixtures, { objectRoot, inputRoot });
+  await validateIndependentProfileWithReads(m, fixtures, { objectRoot, inputRoot }, reads);
   return fixtures;
 }
 
@@ -725,12 +914,27 @@ export function cleanInput(directory, m) {
 }
 
 export async function validateIndependentProfile(m, fixtures, { objectRoot, inputRoot }) {
+  return validateIndependentProfileWithReads(m, fixtures, { objectRoot, inputRoot }, immutableReads());
+}
+
+async function validateIndependentProfileWithReads(m, fixtures, { objectRoot, inputRoot }, reads) {
   const { default: ts } = await import("@chase-sets/typescript-compiler-api");
   const { deriveBootstrapDbCaseIdentities, derivePlatformApiDbTestCensus, deriveBootstrapDbMeasuredOneFewerUnitFloor } =
     await import("../deployables/platform-api/scripts/check-bootstrap-db-enrollment.mjs");
   const { parseCLI } = await import("vitest/node");
   const { bindFrozenSourceToCapture } = await import("../deployables/platform-api/scripts/db-enrollment-workload.mjs");
-  const source = (path) => blob(objectRoot, m.S.commit, path);
+  reads.prepare(
+    objectRoot,
+    [
+      CHECKER,
+      `${PLATFORM}/package.json`,
+      ...[fixtures.current, fixtures.paired].flatMap((capture) => [
+        ...[...(capture?.files ?? []), ...(capture?.nonBootstrapFiles ?? [])].map((f) => `${PLATFORM}/${f.testPath}`),
+        ...Object.keys(capture?.sourceBindings ?? {}),
+      ]),
+    ].map((path) => [m.S.commit, path]),
+  );
+  const source = (path) => reads.source(objectRoot, m.S.commit, path);
   const frozen = (await inspectChecker(source(CHECKER).toString("utf8"))).values;
   const census = derivePlatformApiDbTestCensus({ platformApiRoot: resolve(inputRoot, PLATFORM) });
   same(census.violations, [], "independent source census");

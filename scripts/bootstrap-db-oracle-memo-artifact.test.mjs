@@ -287,6 +287,23 @@ async function profile(runId, offset, mutate = () => {}) {
 
 const first = await profile("990000001", 0);
 const second = await profile("990000101", 11);
+const sameExtra = await profile("990000201", 23, (v) => {
+  Object.values(v.bootstrapDbEnrollmentManifest)[0].cases[0].unexpected = true;
+});
+const foreignMap = await profile("990000301", 31, (v) => {
+  v.platformApiNonBootstrapDbCensus.entries["__tests__/foreign.db.test.ts"] = "test:db:1";
+});
+const admissionPrefix = "admitProfile binds two profiles and rejects stale foreign dirty widened input";
+const nullFloorPrefix = "independently derived null floor is eligible but malformed or mismatched pairs are not";
+const nullFloorProfile = () => {
+  const m = copy(first.m);
+  const paired = copy(first.paired);
+  paired.files.forEach((f, i) => {
+    f.executionUnit = `test:db:${(i % 2) + 1}`;
+  });
+  m.checkerLiterals.bootstrapDbMeasuredOneFewerUnitFloor = null;
+  return { m, fixtures: { current: first.current, paired } };
+};
 const options = (p) => ({ objectRoot: p.directory, helperSha: p.m.T.commit, event: p.event, inputRoot: p.directory });
 
 function artifactFor(p) {
@@ -657,9 +674,7 @@ describe("PR-isolated canonical bootstrap memos", () => {
   });
 
   it("same extra E and manifest field cannot manufacture schema authority", async () => {
-    const p = await profile("990000201", 23, (v) => {
-      Object.values(v.bootstrapDbEnrollmentManifest)[0].cases[0].unexpected = true;
-    });
+    const p = sameExtra;
     const actual = await inspectChecker(readFileSync(join(p.directory, CHECKER), "utf8"));
     expect(Object.values(actual.values.bootstrapDbEnrollmentManifest)[0].cases[0].unexpected).toBe(true);
     expect(() => parseManifest(bytes(p.m), p.digest)).toThrow("unknown/missing");
@@ -667,9 +682,7 @@ describe("PR-isolated canonical bootstrap memos", () => {
   });
 
   it("independent source census rejects the same foreign map member in E and manifest", async () => {
-    const p = await profile("990000301", 31, (v) => {
-      v.platformApiNonBootstrapDbCensus.entries["__tests__/foreign.db.test.ts"] = "test:db:1";
-    });
+    const p = foreignMap;
     expect(parseManifest(bytes(p.m), p.digest)).toEqual(p.m);
     await expect(admitProfile(p.m, options(p))).rejects.toThrow("independently accepted S/pair keys/values/order");
   });
@@ -687,49 +700,120 @@ describe("PR-isolated canonical bootstrap memos", () => {
     await expect(validateWorkloadBaseline(m, current, baseline, bad)).rejects.toThrow("independent baseline values");
   });
 
-  it("admitProfile binds two profiles and rejects stale foreign dirty widened input", async () => {
-    for (const p of [first, second]) {
+  for (const [name, p] of [
+    ["first", first],
+    ["second", second],
+  ]) {
+    it(`${admissionPrefix}: ${name} positive`, async () => {
       expect(parseManifest(bytes(p.m), p.digest)).toEqual(p.m);
       expect(await admitProfile(p.m, options(p))).toMatchObject({ current: p.current, paired: p.paired });
       cleanInput(p.directory, p.m);
+    });
+
+    it(`${admissionPrefix}: ${name} wrong helper`, async () => {
       await expect(admitProfile(p.m, { ...options(p), helperSha: p.m.E.commit })).rejects.toThrow("wrong helper");
+    });
+
+    it(`${admissionPrefix}: ${name} stale tree`, async () => {
       const stale = copy(p.m);
       stale.E.tree = "a".repeat(40);
       await expect(admitProfile(stale, options(p))).rejects.toThrow("E tree");
+    });
+
+    it(`${admissionPrefix}: ${name} foreign repository`, () => {
       const foreign = copy(p.m);
       foreign.repository = "foreign/repository";
       expect(() => parseManifest(bytes(foreign), sha256(bytes(foreign)))).toThrow("repository");
-      p.put("dirty.txt", "untracked synthetic drift\n");
-      await expect(admitProfile(p.m, options(p))).rejects.toThrow("dirty E");
-      rmSync(join(p.directory, "dirty.txt"));
+    });
+
+    it(`${admissionPrefix}: ${name} dirty input`, async () => {
+      try {
+        p.put("dirty.txt", "untracked synthetic drift\n");
+        await expect(admitProfile(p.m, options(p))).rejects.toThrow("dirty E");
+      } finally {
+        rmSync(join(p.directory, "dirty.txt"));
+      }
+    });
+
+    it(`${admissionPrefix}: ${name} restored input`, async () => {
+      try {
+        p.put("dirty.txt", "untracked synthetic drift\n");
+      } finally {
+        rmSync(join(p.directory, "dirty.txt"));
+      }
       expect(await admitProfile(p.m, options(p))).toMatchObject({ current: p.current });
-    }
+    });
+  }
+
+  it(`${admissionPrefix}: wrong parent`, async () => {
     const wrongParent = copy(first.event);
     wrongParent.head = first.m.E;
     await expect(admitProfile(first.m, { ...options(first), event: wrongParent })).rejects.toThrow("D sole E");
+  });
+
+  it(`${admissionPrefix}: widened delta`, () => {
     const widened = copy(first.m);
     widened.inputDelta[0].path = "scripts/foreign.mjs";
     expect(() => parseManifest(bytes(widened), sha256(bytes(widened)))).toThrow("delta path");
+  });
+
+  it(`${admissionPrefix}: wrong merge`, async () => {
     const wrongMerge = copy(first.event);
     wrongMerge.merge = first.m.E;
     await expect(admitProfile(first.m, { ...options(first), event: wrongMerge })).rejects.toThrow();
   });
 
-  it("independently derived null floor is eligible but malformed or mismatched pairs are not", async () => {
-    const m = copy(first.m);
-    const paired = copy(first.paired);
-    paired.files.forEach((f, i) => {
-      f.executionUnit = `test:db:${(i % 2) + 1}`;
+  it("immutable object batches retain real bytes and refuse malformed framing", () => {
+    const source = readFileSync(new URL("./bootstrap-db-oracle-memo-artifact.mjs", import.meta.url), "utf8");
+    const parser = runInNewContext(
+      `${source.slice(source.indexOf("function parseObjectBatch("), source.indexOf("function immutableReads("))}; parseObjectBatch`,
+      {
+        createHash: process.getBuiltinModule("node:crypto").createHash,
+        same: assert.deepStrictEqual,
+        requireThat: assert,
+      },
+    );
+    const path = `${first.m.S.commit}:${CHECKER}`;
+    const oid = git(first.directory, ["rev-parse", path]);
+    const expected = execFileSync("git", ["-C", first.directory, "cat-file", "blob", oid]);
+    const framed = execFileSync("git", ["-C", first.directory, "cat-file", "--batch"], { input: `${oid}\n` });
+    const entries = [{ oid, type: "blob", size: expected.length }];
+    expect(parser(framed, entries)[0]).toEqual(expected);
+    for (const malformed of [
+      framed.subarray(0, 20),
+      framed.subarray(0, framed.indexOf(10)),
+      framed.subarray(0, framed.length - 1),
+      Buffer.concat([framed, Buffer.from("extra\n")]),
+      Buffer.from(framed.toString("utf8").replace(`${oid} blob`, `${"a".repeat(40)} blob`)),
+      Buffer.from(framed.toString("utf8").replace(`${oid} blob`, `${oid} tree`)),
+      Buffer.from(framed.toString("utf8").replace(`blob ${expected.length}`, `blob ${expected.length + 1}`)),
+    ])
+      expect(() => parser(malformed, entries)).toThrow();
+    const corrupt = Buffer.from(framed);
+    corrupt[corrupt.indexOf(10) + 1] ^= 1;
+    expect(() => parser(corrupt, entries)).toThrow("immutable object digest differs");
+  });
+
+  it(`${nullFloorPrefix}: valid null`, async () => {
+    const { m, fixtures } = nullFloorProfile();
+    const result = deriveBootstrapDbMeasuredOneFewerUnitFloor({
+      shippedCapture: first.current,
+      pairedCapture: fixtures.paired,
     });
-    const result = deriveBootstrapDbMeasuredOneFewerUnitFloor({ shippedCapture: first.current, pairedCapture: paired });
     expect(result.floor).toBeNull();
     expect(result.refusal).toMatch(/within the .* per-unit ceiling$/);
-    m.checkerLiterals.bootstrapDbMeasuredOneFewerUnitFloor = null;
-    const fixtures = { current: first.current, paired };
     await expect(validateIndependentProfile(m, fixtures, options(first))).resolves.toBeUndefined();
+  });
+
+  it(`${nullFloorPrefix}: malformed pair`, async () => {
+    const { m, fixtures } = nullFloorProfile();
     const malformed = copy(fixtures);
     malformed.paired.files[0].cases[0].durationMs = -1;
     await expect(validateIndependentProfile(m, malformed, options(first))).rejects.toThrow();
+  });
+
+  it(`${nullFloorPrefix}: mismatched pair`, async () => {
+    const { m, fixtures } = nullFloorProfile();
     const mismatch = copy(fixtures);
     mismatch.paired.model.executionUnitCeilingMs++;
     await expect(validateIndependentProfile(m, mismatch, options(first))).rejects.toThrow();
