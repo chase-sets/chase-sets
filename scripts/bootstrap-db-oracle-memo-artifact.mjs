@@ -1494,7 +1494,8 @@ function requireCommits(runGit, directory, oids, name) {
   same(rows.length, oids.length, `${name} objects: inventory count`);
   oids.forEach((oid, i) => {
     requireThat(rows[i] !== `${oid} missing`, `${name} missing object ${oid}`);
-    requireThat(new RegExp(`^${oid} commit [1-9][0-9]*$`).test(rows[i]), `${name} non-commit object ${oid}`);
+    const row = /^([a-f0-9]{40}) commit [1-9][0-9]*$/.exec(rows[i]);
+    requireThat(row?.[1] === oid, `${name} non-commit object ${oid}`);
   });
 }
 
