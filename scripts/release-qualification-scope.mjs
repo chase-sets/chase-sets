@@ -283,6 +283,7 @@ export const releaseQualificationScopeRegistry = Object.freeze({
     "collections-cutover-authority-capture.yml": "ci",
     "corten-pilot.yml": "ci",
     "ci-image-mirrors.yml": "release",
+    "discovery-voyage-9109.yml": "ci",
     "issue-form-labels.yml": "ci",
     "issue-readiness.yml": "ci",
     "marketplace-easypost-refund-event-replay.yml": "release",
