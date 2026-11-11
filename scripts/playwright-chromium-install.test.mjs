@@ -1,22 +1,57 @@
 import { EventEmitter } from "node:events";
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { PassThrough } from "node:stream";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { parse } from "yaml";
+import { gitListingOptions } from "./lib/git-listing.mjs";
 import {
   inspectCache,
-  installPlaywrightChromium,
+  installPlaywrightChromium as realInstallPlaywrightChromium,
   removeCache,
   validateCachePath,
+  PLAYWRIGHT_INSTALL_TIMEOUT_SECONDS,
+  PLAYWRIGHT_INSTALL_ENVELOPE_SECONDS,
+  projectUbuntuSources,
+  validateUbuntuProjection,
+  prepareE2eApt,
+  classifyAptBoolean,
+  resolveE2eCache,
 } from "./playwright-chromium-install.mjs";
 import { runInstaller } from "./provider-browser-install-timeout.mjs";
 import { classifyDeploymentRootCause } from "./platform-deploy-incident.mjs";
+import { checkGithubActionsRuntime } from "./check-github-actions-runtime.mjs";
+import {
+  releaseQualificationScopeRegistry,
+  validateReleaseQualificationScopeRegistry,
+} from "./release-qualification-scope.mjs";
 
 const directories = [];
+const installPlaywrightChromium = (options) =>
+  realInstallPlaywrightChromium({
+    ...(options.env?.PLAYWRIGHT_INSTALL_POLICY === "e2e-acquisition"
+      ? {
+          identity: { runId: "123", jobId: "456", runAttempt: 2, headSha: "a".repeat(40) },
+          inspectCacheImpl: inspectCache,
+          prepareAptImpl: () => ({ projected: false, restore: vi.fn() }),
+        }
+      : {}),
+    ...options,
+  });
+
+it("AC1/AC2 pre-fix regression: E2E acquisition reserves suites inside the unchanged 25-minute job", () => {
+  expect(PLAYWRIGHT_INSTALL_TIMEOUT_SECONDS).toBe(540);
+  expect(PLAYWRIGHT_INSTALL_ENVELOPE_SECONDS).toBe(570);
+  const job = parse(readFileSync(".github/workflows/platform-pr.yml", "utf8")).jobs["e2e-tests"];
+  const install = job.steps.find((step) => step.name === "Install Playwright Chromium");
+  expect(install["timeout-minutes"]).toBe(10);
+  expect(install.run).toBe("node scripts/playwright-chromium-install.mjs");
+  expect(install.env.PLAYWRIGHT_INSTALL_POLICY).toBe("e2e-acquisition");
+  expect(install["timeout-minutes"] * 60 + 60 + 780 + 60).toBeLessThanOrEqual(job["timeout-minutes"] * 60);
+});
 const makeCache = () => {
   const root = mkdtempSync(path.join(tmpdir(), "playwright-chromium-install-"));
   directories.push(root);
@@ -63,6 +98,7 @@ function supervisedInstall({ signalGroupImpl = vi.fn(), cancelSignal, removeCach
     env: { ...envFor(cache), ...(policy === undefined ? {} : { PLAYWRIGHT_INSTALL_POLICY: policy }) },
     cancelSignal,
     delayImpl,
+    now: () => new Date(),
     removeCacheImpl,
     runInstallerImpl: (options) => runInstaller({ ...options, spawnImpl, signalGroupImpl }),
     write: (line) => lines.push(line),
@@ -486,7 +522,7 @@ describe("Playwright Chromium installer primitive", () => {
     );
   });
 
-  it("restores direct E2E installation while preserving native dependencies and required gates", () => {
+  it("uses bounded E2E acquisition while preserving native dependencies and required gates", () => {
     const workflow = parse(readFileSync(".github/workflows/platform-pr.yml", "utf8"));
     const job = workflow.jobs["e2e-tests"];
     expect(job["timeout-minutes"]).toBe(25);
@@ -494,26 +530,52 @@ describe("Playwright Chromium installer primitive", () => {
     const at = job.steps.findIndex((step) => step.name === "Cache Playwright Chromium");
     const [cache, install, suites] = job.steps.slice(at, at + 3);
     expect(cache.with).toEqual({
-      path: "~/.cache/ms-playwright",
-      key: "playwright-chromium-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}",
-      "restore-keys": "playwright-chromium-${{ runner.os }}-\n",
+      path: "${{ steps.e2e-browser-cache.outputs.path }}",
+      key: "${{ steps.e2e-browser-cache.outputs.key }}",
     });
     expect(install).toEqual({
       name: "Install Playwright Chromium",
-      env: { PLAYWRIGHT_BROWSERS_PATH: "~/.cache/ms-playwright" },
-      run: "pnpm exec playwright install --with-deps chromium",
+      "timeout-minutes": 10,
+      env: {
+        PLAYWRIGHT_BROWSERS_PATH: "${{ steps.e2e-browser-cache.outputs.path }}",
+        PLAYWRIGHT_INSTALL_POLICY: "e2e-acquisition",
+        PLAYWRIGHT_INSTALL_JOB_NAME: "E2E Tests (${{ matrix.suite_batch }})",
+        GH_TOKEN: "${{ github.token }}",
+        BOUNDARY_HEAD_SHA: "${{ github.event.pull_request.head.sha || github.sha }}",
+      },
+      run: "node scripts/playwright-chromium-install.mjs",
     });
     expect(suites.name).toBe("Run marketplace e2e suites");
     expect(suites.env.PLAYWRIGHT_BROWSERS_PATH).toBe(install.env.PLAYWRIGHT_BROWSERS_PATH);
     expect(suites.if).toBeUndefined();
     expect(suites["continue-on-error"]).toBeUndefined();
     expect(suites.run.startsWith("set -o pipefail\n")).toBe(true);
-    expect(job.steps.some((step) => step.name === "Resolve Playwright Chromium cache")).toBe(false);
+    expect(job.steps.some((step) => step.name === "Resolve Playwright Chromium cache")).toBe(true);
     expect(workflow.jobs["pr-required"].needs).toContain("e2e-tests");
     expect(workflow.jobs["pr-required"].steps.map((step) => step.run ?? "").join("\n")).toContain(
       `require_job "E2E Tests" "\${{ needs['e2e-tests'].result }}" "\${{ needs['change-scope'].outputs.e2e_tests_required }}"`,
     );
   });
+
+  it.each(["success", "failure", "cancelled", "skipped", "unknown"])(
+    "AC3 forced E2E result %s preserves the real Required shell polarity",
+    (outcome) => {
+      const run = workflowJob("platform-pr.yml", "pr-required").steps.find(
+        (step) => step.name === "Verify required jobs",
+      ).run;
+      const boundary = run.indexOf('require_job "Known Failure Guard"');
+      expect(boundary).toBeGreaterThan(0);
+      const shell = `${run.slice(0, boundary)}\nrequire_job "E2E Tests" "${outcome}" "true"\n`;
+      const result = spawnSync(bash, ["-e", "-o", "pipefail", "-c", shell], {
+        encoding: "utf8",
+        env: { PATH: process.env.PATH, SYSTEMROOT: process.env.SYSTEMROOT },
+      });
+      expect(result.error).toBeUndefined();
+      expect(result.status === 0).toBe(outcome === "success");
+      if (outcome !== "success")
+        expect(result.stderr).toContain(`E2E Tests was required but finished with result '${outcome}'`);
+    },
+  );
 
   it.each(["relative/cache", "~/cache", path.parse(process.cwd()).root])(
     "refuses unsafe cache path: %s",
@@ -812,12 +874,1111 @@ describe("Playwright Chromium installer primitive", () => {
   });
 });
 
-describe("diagnostic-only bounded reuse", () => {
-  function diagnostic({ outcomes = ["timeout", "success"], inspect, remove, delay, build, cancelSignal } = {}) {
+describe("Ubuntu acquisition projection", () => {
+  const ubuntuPath = "/etc/apt/sources.list.d/ubuntu.sources";
+  const thirdPartyPath = "/etc/apt/sources.list.d/microsoft.sources";
+  const mirrorUri = "mirror+file:/etc/apt/apt-mirrors.txt";
+  const ubuntu = `Types: deb\nURIs: ${mirrorUri}\nSuites: noble noble-updates noble-backports noble-security\nComponents: main restricted universe multiverse\nSigned-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg\n`;
+  const thirdParty =
+    "Types: deb\nURIs: https://packages.microsoft.com/ubuntu/24.04/prod\nSuites: noble\nComponents: main\nSigned-By: /usr/share/keyrings/microsoft.gpg\n";
+  const mirrors = {
+    [mirrorUri]:
+      "http://azure.archive.ubuntu.com/ubuntu/\tpriority:1\nhttps://archive.ubuntu.com/ubuntu/\tpriority:2\nhttps://security.ubuntu.com/ubuntu/\tpriority:3\n",
+  };
+  const fixture = () => ({
+    distribution: "ubuntu",
+    release: "24.04",
+    codename: "noble",
+    architecture: "X64",
+    sources: { [ubuntuPath]: ubuntu, [thirdPartyPath]: thirdParty },
+    mirrors,
+  });
+  // Runner state logged by the owning head-2 E2E job, before acquisition.
+  const loggedRunner = {
+    releaseText:
+      'PRETTY_NAME="Ubuntu 24.04.5 LTS"\nNAME="Ubuntu"\nVERSION_ID="24.04"\nVERSION="24.04.5 LTS (Noble Numbat)"\nVERSION_CODENAME=noble\nID=ubuntu\nID_LIKE=debian\nHOME_URL="https://www.ubuntu.com/"\nSUPPORT_URL="https://help.ubuntu.com/"\nBUG_REPORT_URL="https://bugs.launchpad.net/ubuntu/"\nPRIVACY_POLICY_URL="https://www.ubuntu.com/legal/terms-and-policies/privacy-policy"\nUBUNTU_CODENAME=noble\nLOGO=ubuntu-logo\n',
+    sources: {
+      "/etc/apt/sources.list":
+        "# Ubuntu sources have moved to the /etc/apt/sources.list.d/ubuntu.sources\n# file, which uses the deb822 format. Use deb822-formatted .sources files\n# to manage package sources in the /etc/apt/sources.list.d/ directory.\n# See the sources.list(5) manual page for details.\n",
+      "/etc/apt/sources.list.d/microsoft-prod.list":
+        "deb [arch=amd64,arm64,armhf signed-by=/usr/share/keyrings/microsoft-prod.gpg] https://packages.microsoft.com/ubuntu/24.04/prod noble main\n",
+      [ubuntuPath]: `## Note, this file is written by cloud-init on first boot of an instance
+## modifications made here will not survive a re-bundle.
+##
+## If you wish to make changes you can:
+## a.) add 'apt_preserve_sources_list: true' to /etc/cloud/cloud.cfg
+##     or do the same in user-data
+## b.) add supplemental sources in /etc/apt/sources.list.d
+## c.) make changes to template file
+##      /etc/cloud/templates/sources.list.ubuntu.deb822.tmpl
+##
+
+# See http://help.ubuntu.com/community/UpgradeNotes for how to upgrade to
+# newer versions of the distribution.
+
+## Ubuntu distribution repository
+##
+## The following settings can be adjusted to configure which packages to use from Ubuntu.
+## Mirror your choices (except for URIs and Suites) in the security section below to
+## ensure timely security updates.
+##
+## Types: Append deb-src to enable the fetching of source package.
+## URIs: A URL to the repository (you may add multiple URLs)
+## Suites: The following additional suites can be configured
+##   <name>-updates   - Major bug fix updates produced after the final release of the
+##                      distribution.
+##   <name>-backports - software from this repository may not have been tested as
+##                      extensively as that contained in the main release, although it includes
+##                      newer versions of some applications which may provide useful features.
+##                      Also, please note that software in backports WILL NOT receive any review
+##                      or updates from the Ubuntu security team.
+## Components: Aside from main, the following components can be added to the list
+##   restricted  - Software that may not be under a free license, or protected by patents.
+##   universe    - Community maintained packages. Software in this repository receives maintenance
+##                 from volunteers in the Ubuntu community, or a 10 year security maintenance
+##                 commitment from Canonical when an Ubuntu Pro subscription is attached.
+##   multiverse  - Community maintained of restricted. Software from this repository is
+##                 ENTIRELY UNSUPPORTED by the Ubuntu team, and may not be under a free
+##                 licence. Please satisfy yourself as to your rights to use the software.
+##                 Also, please note that software in multiverse WILL NOT receive any
+##                 review or updates from the Ubuntu security team.
+##
+## See the sources.list(5) manual page for further settings.
+Types: deb
+URIs: mirror+file:/etc/apt/apt-mirrors.txt
+Suites: noble noble-updates noble-backports
+Components: main universe restricted multiverse
+Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
+
+## Ubuntu security updates. Aside from URIs and Suites,
+## this should mirror your choices in the previous section.
+Types: deb
+URIs: mirror+file:/etc/apt/apt-mirrors.txt
+Suites: noble-security
+Components: main universe restricted multiverse
+Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
+`,
+    },
+    env: { RUNNER_ARCH: "X64", ImageOS: "ubuntu24", ImageVersion: "20261101.360.1" },
+  };
+
+  function aptConfigDump(files) {
+    const values = new Map([
+      ["Dir", "/"],
+      ["Dir::Etc", "etc/apt"],
+      ["Dir::Etc::sourcelist", "sources.list"],
+      ["Dir::Etc::sourceparts", "sources.list.d"],
+      ["Acquire::AllowInsecureRepositories", "0"],
+      ["Acquire::AllowWeakRepositories", "0"],
+      ["Acquire::AllowDowngradeToInsecureRepositories", "0"],
+    ]);
+    const parts = [...files.keys()].filter((file) => file.startsWith("/etc/apt/apt.conf.d/")).sort();
+    for (const file of parts)
+      for (const match of files.get(file).matchAll(/^(\S+) "([^"\n]*)";$/gm)) values.set(match[1], match[2]);
+    return [...values].map(([key, value]) => `${key} "${value}";\n`).join("");
+  }
+
+  function machine({
+    effective,
+    failWrite,
+    failRestore,
+    version = "20261101.360.1",
+    thirdPartyKey = "original-key",
+    runnerState = false,
+  } = {}) {
+    const input = fixture();
+    const files = new Map(
+      Object.entries({
+        ...input.sources,
+        "/etc/os-release": 'ID=ubuntu\nVERSION_ID="24.04"\nVERSION_CODENAME=noble\n',
+        "/etc/apt/apt-mirrors.txt": mirrors[mirrorUri],
+        "/usr/share/keyrings/ubuntu-archive-keyring.gpg": "ubuntu-key",
+        "/usr/share/keyrings/microsoft.gpg": thirdPartyKey,
+        ...(runnerState
+          ? {
+              ...loggedRunner.sources,
+              "/etc/os-release": loggedRunner.releaseText,
+              "/usr/share/keyrings/microsoft-prod.gpg": thirdPartyKey,
+              "/etc/apt/apt.conf.d/zz-retries":
+                'Acquire::Retries "1";\nAcquire::http::Timeout "15";\nAcquire::https::Timeout "15";\n',
+            }
+          : {}),
+      }),
+    );
+    if (runnerState) files.delete(thirdPartyPath);
+    const original = new Map(files);
+    const command = vi.fn((_command, args, text) => {
+      expect(_command).toBe("sudo");
+      expect(args[0]).toBe("-n");
+      if (args[1] === "tee") {
+        if (failRestore && text?.toString() === ubuntu) throw new Error("restore denied");
+        files.set(args[2], Buffer.isBuffer(text) ? text.toString() : text);
+        if (failWrite && args[2].endsWith("-chase-sets-e2e")) throw new Error("partial write");
+        return "";
+      }
+      if (args[1] === "rm") {
+        files.delete(args[3]);
+        return "";
+      }
+      expect(args).toEqual(["-n", "apt-config", "dump", "--empty", "--format", '%F "%V";%n']);
+      return effective ?? aptConfigDump(files);
+    });
+    const lines = [];
+    const options = {
+      env: runnerState ? loggedRunner.env : { RUNNER_ARCH: "X64", ImageOS: "ubuntu24", ImageVersion: version },
+      read: (file, encoding) => {
+        if (!files.has(file)) throw new Error("missing fixture");
+        const bytes = Buffer.from(files.get(file));
+        return encoding ? bytes.toString(encoding) : bytes;
+      },
+      list: (directory) =>
+        [...files.keys()]
+          .filter((file) => path.posix.dirname(file) === directory)
+          .map((file) => path.posix.basename(file)),
+      exists: (file) => files.has(file),
+      command,
+      write: (line) => lines.push(line),
+    };
+    return { files, original, options, lines, command };
+  }
+
+  const sourceFormats = ["deb822", "trusted", "allow-insecure", "allow-weak", "allow-downgrade-to-insecure"];
+  const weakeningSourceValues = [
+    "on",
+    "On",
+    "ON",
+    "with",
+    "WITH",
+    "enable",
+    "Enable",
+    "01",
+    "0x1",
+    "0X1",
+    "+1",
+    "yes",
+    "YES",
+    "true",
+    "True",
+    "1",
+  ];
+  const unknownSourceValues = ["", "2", "-1", "maybe", "00", "0x0", "+0", "0b1"];
+  const secureSourceValues = ["0", "no", "No", "false", "FALSE", "off", "OFF", "without", "disable", "Disable"];
+  const sourceTokens = [
+    "tru%73ted=on",
+    "trusted=%31",
+    '"trusted=on"',
+    'trusted="no"',
+    't"r"usted=on',
+    "trusted%3Don",
+    "a=[x] trusted=on",
+  ];
+  const trustedTails = ["no maybe", "0 trailing", "off\n continued"];
+  const sourceListPath = "/etc/apt/sources.list";
+  const ubuntuLine = (options) =>
+    `deb [signed-by=/usr/share/keyrings/ubuntu-archive-keyring.gpg ${options}] http://azure.archive.ubuntu.com/ubuntu/ noble-security main\n`;
+  const sourceInput = (format, value) => ({
+    ...fixture(),
+    sources:
+      format === "deb822"
+        ? { [ubuntuPath]: `${ubuntu}Trusted: ${value}\n`, [thirdPartyPath]: thirdParty }
+        : { [sourceListPath]: ubuntuLine(`${format}=${value}`), [thirdPartyPath]: thirdParty },
+  });
+  const expectSourceRefusal = (label, run) => {
+    let error;
+    try {
+      run();
+    } catch (caught) {
+      error = caught;
+    }
+    console.log(`SOURCE_OUTCOME ${label}: ${error?.message ?? "admitted"}`);
+    expect(() => {
+      if (error) throw error;
+    }).toThrow("trust-bypass");
+  };
+
+  it.each(
+    sourceFormats.flatMap((format) =>
+      [...weakeningSourceValues, ...unknownSourceValues].map((value) => [format, value]),
+    ),
+  )("source trust: projection refuses %s value %j", (format, value) => {
+    expectSourceRefusal(`${format} ${JSON.stringify(value)}`, () => projectUbuntuSources(sourceInput(format, value)));
+  });
+
+  it("source trust: deb822 Allow-Weak on remains refused", () => {
+    const input = fixture();
+    input.sources[ubuntuPath] += "Allow-Weak: on\n";
+    expectSourceRefusal("deb822 Allow-Weak on", () => projectUbuntuSources(input));
+  });
+
+  it.each(sourceFormats.flatMap((format) => secureSourceValues.map((value) => [format, value])))(
+    "source trust: secure %s value %j retains source text and validates",
+    (format, value) => {
+      const input = sourceInput(format, value);
+      const plan = projectUbuntuSources(input);
+      expect(plan.projected).toBe(true);
+      expect(plan.sources[format === "deb822" ? ubuntuPath : sourceListPath]).toContain(
+        format === "deb822"
+          ? `Trusted: ${value}\n`
+          : `[signed-by=/usr/share/keyrings/ubuntu-archive-keyring.gpg ${format}=${value}]`,
+      );
+      expect(plan.sources[thirdPartyPath]).toBe(thirdParty);
+      expect(() => validateUbuntuProjection(input.sources, plan.sources, mirrors)).not.toThrow();
+    },
+  );
+
+  it.each(trustedTails)("source trust: whole deb822 field %j is unclassifiable at both sites", (value) => {
+    expect(classifyAptBoolean(value)).not.toBe(false);
+    expectSourceRefusal(`whole field projection ${JSON.stringify(value)}`, () =>
+      projectUbuntuSources(sourceInput("deb822", value)),
+    );
+  });
+
+  it.each(sourceTokens)("source trust: projection refuses ambiguous token %j", (token) => {
+    const input = fixture();
+    input.sources = { [sourceListPath]: ubuntuLine(token) };
+    expectSourceRefusal(`token ${token}`, () => projectUbuntuSources(input));
+  });
+
+  it.each([...weakeningSourceValues, ...sourceTokens])(
+    "source trust: third-party value %j is byte-unchanged",
+    (value) => {
+      const input = fixture();
+      const microsoftLine = `deb [signed-by=/usr/share/keyrings/microsoft.gpg ${value.includes("=") || value.includes("%") ? value : `trusted=${value}`}] https://packages.microsoft.com/ubuntu/24.04/prod noble main\n`;
+      input.sources[thirdPartyPath] = `${thirdParty}Trusted: ${value}\n`;
+      input.sources["/etc/apt/sources.list.d/microsoft.list"] = microsoftLine;
+      const plan = projectUbuntuSources(input);
+      expect(plan.projected).toBe(true);
+      expect(plan.sources[thirdPartyPath]).toBe(input.sources[thirdPartyPath]);
+      expect(plan.sources["/etc/apt/sources.list.d/microsoft.list"]).toBe(microsoftLine);
+      expect(plan.sources[ubuntuPath]).toContain("URIs: https://archive.ubuntu.com/ubuntu");
+      expect(() => validateUbuntuProjection(input.sources, plan.sources, mirrors)).not.toThrow();
+    },
+  );
+
+  it.each(["on", "0x1", "maybe", ...trustedTails])(
+    "source trust: validation-site deb822 %j with original frozen",
+    (value) => {
+      expect(classifyAptBoolean(value)).not.toBe(false);
+      const input = fixture();
+      const plan = projectUbuntuSources(input);
+      const projected = {
+        ...plan.sources,
+        [ubuntuPath]: plan.sources[ubuntuPath].replace("Types: deb", `Types: deb\nTrusted: ${value}`),
+      };
+      expectSourceRefusal(`validation deb822 ${JSON.stringify(value)}`, () =>
+        validateUbuntuProjection(input.sources, projected, mirrors),
+      );
+    },
+  );
+
+  it.each(["trusted=on", ...sourceTokens.filter((token) => token !== "a=[x] trusted=on")])(
+    "source trust: validation-site one-line %j with original frozen",
+    (token) => {
+      const input = fixture();
+      input.sources = { [sourceListPath]: ubuntuLine("") };
+      const plan = projectUbuntuSources(input);
+      const projected = { [sourceListPath]: plan.sources[sourceListPath].replace(".gpg ]", `.gpg ${token}]`) };
+      expectSourceRefusal(`validation one-line ${token}`, () =>
+        validateUbuntuProjection(input.sources, projected, mirrors),
+      );
+    },
+  );
+
+  it("source trust: absent options and logged runner still project and restore", () => {
+    expect(projectUbuntuSources(fixture()).projected).toBe(true);
+    for (const runnerState of [false, true]) {
+      const m = machine({ runnerState });
+      const apt = prepareE2eApt(m.options);
+      expect(apt.projected).toBe(true);
+      expect(m.lines.some((line) => line.startsWith("playwright-e2e-apt-effective "))).toBe(true);
+      apt.restore();
+      expect(m.files).toEqual(m.original);
+    }
+  });
+
+  it.each(
+    ["deb822", "trusted"].flatMap((format) => ["on", "with", "enable", "0x1", "no"].map((value) => [format, value])),
+  )("source trust: full prepare %s %j preserves every byte", (format, value) => {
+    const m = machine();
+    const filename = format === "deb822" ? ubuntuPath : sourceListPath;
+    const text = sourceInput(format, value).sources[filename];
+    m.files.set(filename, text);
+    m.original.set(filename, text);
+    if (value === "no") {
+      const apt = prepareE2eApt(m.options);
+      expect(apt.projected).toBe(true);
+      expect(m.lines.some((line) => line.startsWith("playwright-e2e-apt-effective "))).toBe(true);
+      apt.restore();
+      expect(m.lines.join("\n")).toContain('"state":"restored"');
+    } else {
+      expectSourceRefusal(`full prepare ${format} ${value}`, () => prepareE2eApt(m.options));
+      expect(m.command.mock.calls.some(([, args]) => args[1] === "tee")).toBe(false);
+    }
+    expect(m.files).toEqual(m.original);
+  });
+
+  it("source trust: full prepare encoded one-line name refuses before writes", () => {
+    const m = machine();
+    m.files.set(sourceListPath, ubuntuLine("tru%73ted=on"));
+    m.original.set(sourceListPath, ubuntuLine("tru%73ted=on"));
+    expectSourceRefusal("full prepare tru%73ted=on", () => prepareE2eApt(m.options));
+    expect(m.command.mock.calls.some(([, args]) => args[1] === "tee")).toBe(false);
+    expect(m.files).toEqual(m.original);
+  });
+
+  const effectiveSourceMachine = () => {
+    const m = machine();
+    const command = m.options.command;
+    m.options.command = (name, args, input) =>
+      command(
+        name,
+        args,
+        args[1] === "tee" && args[2] === ubuntuPath && typeof input === "string" && input.includes("URIs: https:")
+          ? `${input}Trusted: on\n`
+          : input,
+      );
+    return m;
+  };
+
+  it("source trust: effective-source validation refuses and restores", () => {
+    const m = effectiveSourceMachine();
+    expectSourceRefusal("effective-source prepare", () => prepareE2eApt(m.options));
+    expect(m.lines.join("\n")).toContain('playwright-e2e-apt-restore {"state":"restored"');
+    expect(m.files).toEqual(m.original);
+  });
+
+  it("source trust: installer reports effective-source refusal without install", async () => {
+    const m = effectiveSourceMachine();
+    const run = vi.fn();
+    const result = await installPlaywrightChromium({
+      env: { ...envFor(makeCache()), PLAYWRIGHT_INSTALL_POLICY: "e2e-acquisition" },
+      prepareAptImpl: () => prepareE2eApt(m.options),
+      runInstallerImpl: run,
+      write: () => {},
+    });
+    console.log(`SOURCE_OUTCOME installer effective-source: ${result.reason}`);
+    expect(result.reason).toBe("trust-bypass");
+    expect(run).not.toHaveBeenCalled();
+    expect(m.files).toEqual(m.original);
+    expect(m.lines.join("\n")).toContain('"state":"restored"');
+  });
+
+  const replaceDumpValue = (dump, key, value) => {
+    const line = `${key} "${value}";`;
+    return dump.includes(`${key} "0";`) ? dump.replace(`${key} "0";`, line) : `${dump}${line}\n`;
+  };
+  const dumpRefusals = [
+    ...[
+      ["Acquire::AllowInsecureRepositories", "\n1"],
+      ["Acquire::AllowWeakRepositories", "\n1"],
+      ["Acquire::AllowDowngradeToInsecureRepositories", "\n1"],
+      ["APT::Get::AllowUnauthenticated", "\n1"],
+      ["Acquire::https::Verify-Peer", "\n0"],
+      ["Acquire::https::archive.ubuntu.com::Verify-Host", "\n0"],
+      ["Acquire::AllowInsecureRepositories", "\t\n1"],
+      ["Acquire::AllowInsecureRepositories", "\n\n1"],
+    ].map(([key, value]) => [
+      "multiline " + key + " " + JSON.stringify(value),
+      (dump) => replaceDumpValue(dump, key, value),
+      "dump-parse",
+      key,
+      "unparsed",
+    ]),
+    ...[
+      "Acquire::AllowInsecureRepositories 1;",
+      'Acquire::AllowInsecureRepositories "0"1";',
+      'Acquire::http::Timeout "30"',
+      "garbage",
+    ].map((line) => ["unparseable " + line, (dump) => `${dump}${line}\n`, "dump-parse", null, "unparsed"]),
+    ...["Binary::apt-config", "BINARY::Apt-Config", "Binary::apt-config::Acquire::AllowInsecureRepositories"].map(
+      (key) => [
+        "binary-scope " + key,
+        (dump) => `${dump}${key} "${key.includes("Acquire") ? "0" : ""}";\n`,
+        "dump-scope",
+        key,
+        key.includes("Acquire") ? "0" : "",
+      ],
+    ),
+    ...[
+      ["RootDir", "/opt/x/"],
+      ["rootdir", "/opt/x"],
+      ["Binary::apt-get::RootDir", "/opt/x/"],
+    ].map(([key, value]) => [
+      "root-directory " + key,
+      (dump) => `${dump}${key} "${value}";\n`,
+      "dump-root",
+      key,
+      value,
+    ]),
+    [
+      "binding sourceparts",
+      (dump) =>
+        dump.replace('Dir::Etc::sourceparts "sources.list.d";', 'Dir::Etc::sourceparts "/opt/x.d";') +
+        'X::Dir::Etc::sourceparts "sources.list.d";\n',
+      "dump-bind",
+      "Dir::Etc::sourceparts",
+      "/opt/x.d",
+    ],
+    [
+      "binding Dir",
+      (dump) => dump.replace('Dir "/";', 'Dir "/opt/x/";') + 'X::Dir "/";\n',
+      "dump-bind",
+      "Dir",
+      "/opt/x/",
+    ],
+    [
+      "binding timeout",
+      (dump) => dump.replace('Acquire::http::Timeout "30";\n', "") + 'X::Acquire::http::Timeout "30";\n',
+      "dump-bind",
+      "Acquire::http::Timeout",
+      "absent",
+    ],
+  ];
+
+  it.each(dumpRefusals)(
+    "effective dump: refuses %s and restores with ordered records",
+    (label, transform, guard, key, value) => {
+      const m = machine();
+      const command = m.options.command;
+      let injected;
+      m.options.command = (name, args, input) => {
+        const result = command(name, args, input);
+        if (args[1] !== "apt-config") return result;
+        injected = transform(result);
+        return injected;
+      };
+      let error;
+      try {
+        prepareE2eApt(m.options);
+      } catch (caught) {
+        error = caught;
+      }
+      console.log(`DUMP_OUTCOME ${label}: ${error?.message ?? "projected"}`);
+      expect(() => {
+        if (error) throw error;
+      }).toThrow("ineffective-elevated-config");
+      const records = m.lines.filter((line) => /^playwright-e2e-apt-(?:refusal |refusal-dump |restore )/.test(line));
+      expect(records).toHaveLength(3);
+      const expectedKey =
+        guard === "dump-parse"
+          ? `line ${key ? injected.split("\n").findIndex((line) => line.startsWith(`${key} "`)) + 1 : injected.trimEnd().split("\n").length}`
+          : key;
+      expect(JSON.parse(records[0].slice("playwright-e2e-apt-refusal ".length))).toEqual({
+        guard,
+        key: expectedKey,
+        value,
+        configEntries: ["zzz-chase-sets-e2e"],
+      });
+      expect(JSON.parse(records[1].slice("playwright-e2e-apt-refusal-dump ".length))).toEqual({
+        guard,
+        key: expectedKey,
+        effective: injected,
+      });
+      expect(JSON.parse(records[2].slice("playwright-e2e-apt-restore ".length)).state).toBe("restored");
+      expect(m.lines.some((line) => line.startsWith("playwright-e2e-apt-effective "))).toBe(false);
+      expect(m.files).toEqual(m.original);
+    },
+  );
+
+  it("effective dump: escaped FR1 value refuses through unchanged trust-option", () => {
+    const m = machine();
+    const command = m.options.command;
+    m.options.command = (name, args, input) => {
+      const result = command(name, args, input);
+      return args[1] === "apt-config" ? replaceDumpValue(result, "Acquire::AllowInsecureRepositories", "%0a1") : result;
+    };
+    expect(() => prepareE2eApt(m.options)).toThrow("trust-bypass");
+    expect(m.lines).toContain(
+      'playwright-e2e-apt-refusal {"guard":"trust-option","key":"Acquire::AllowInsecureRepositories","value":"%0a1","configEntries":["zzz-chase-sets-e2e"]}',
+    );
+    expect(m.files).toEqual(m.original);
+  });
+
+  it.each([
+    [
+      "escaped format and hook",
+      'APT::Config::Dump::EmptyValue "1";\nAPT::Config::Dump::Format "%25F%20%22%25V%22;%25n";\nAPT::Update::Pre-Invoke:: "touch%20/tmp/x";\n',
+    ],
+    ["secure apt-get scope", 'Binary::apt-get::Acquire::AllowInsecureRepositories "0";\n'],
+    ["blank line", "\n"],
+    ["empty RootDir", 'RootDir "";\n'],
+  ])("effective dump: GREEN %s projects and restores", (_label, suffix) => {
+    const m = machine();
+    const command = m.options.command;
+    m.options.command = (name, args, input) => {
+      const result = command(name, args, input);
+      return args[1] === "apt-config" ? result + suffix : result;
+    };
+    const apt = prepareE2eApt(m.options);
+    expect(apt.projected).toBe(true);
+    expect(m.lines.some((line) => line.startsWith("playwright-e2e-apt-effective "))).toBe(true);
+    expect(m.lines.some((line) => line.startsWith("playwright-e2e-apt-refusal "))).toBe(false);
+    apt.restore();
+    expect(m.files).toEqual(m.original);
+    expect(m.lines.join("\n")).toContain('"state":"restored"');
+  });
+
+  it("logged runner state projects with effective 30/30/1 bounds despite image zz-retries", () => {
+    const m = machine({ runnerState: true });
+    let apt;
+    try {
+      apt = prepareE2eApt(m.options);
+    } catch (error) {
+      for (const line of m.lines.filter((line) => line.startsWith("playwright-e2e-apt-refusal "))) console.error(line);
+      throw error;
+    }
+    expect(apt.projected).toBe(true);
+    const effective = JSON.parse(
+      m.lines
+        .find((line) => line.startsWith("playwright-e2e-apt-effective "))
+        .split(" ")
+        .slice(1)
+        .join(" "),
+    );
+    expect(effective.effective).toContain('Acquire::http::Timeout "30";');
+    expect(effective.effective).toContain('Acquire::https::Timeout "30";');
+    expect(effective.effective).toContain('Acquire::Retries "1";');
+    expect(effective.configEntries).toEqual(["zz-retries", "zzz-chase-sets-e2e"]);
+    apt.restore();
+    expect(m.files).toEqual(m.original);
+  });
+
+  const allowKeys = [
+    "Acquire::AllowInsecureRepositories",
+    "Acquire::AllowWeakRepositories",
+    "Acquire::AllowDowngradeToInsecureRepositories",
+    "APT::Get::AllowUnauthenticated",
+  ];
+  const verifyKeys = ["Acquire::https::Verify-Peer", "Acquire::https::archive.ubuntu.com::Verify-Host"];
+  const trueSpellings = ["1", "true", "TRUE", "True", "yes", "on", "with", "enable"];
+  const falseSpellings = ["0", "false", "FALSE", "False", "no", "off", "without", "disable"];
+  const unknownSpellings = ["", "2", "-1", "00", "0x0", "+0", " 0", "0 ", "maybe"];
+
+  it("apt 2.7.14 strutl.cc:824-851 truth table classifies only the admitted whole-string spellings", () => {
+    for (const value of trueSpellings) expect(classifyAptBoolean(value), JSON.stringify(value)).toBe(true);
+    for (const value of falseSpellings) expect(classifyAptBoolean(value), JSON.stringify(value)).toBe(false);
+    for (const value of unknownSpellings) expect(classifyAptBoolean(value), JSON.stringify(value)).toBeNull();
+    for (const value of ["YES", "WITH", "ON", "ENABLE"]) expect(classifyAptBoolean(value)).toBe(true);
+    for (const value of ["NO", "WITHOUT", "OFF", "DISABLE"]) expect(classifyAptBoolean(value)).toBe(false);
+  });
+
+  it("apt-default control admits all three repository-security zero defaults", () => {
+    const m = machine({ runnerState: true });
+    const apt = prepareE2eApt(m.options);
+    expect(apt.projected).toBe(true);
+    const effective = JSON.parse(
+      m.lines
+        .find((line) => line.startsWith("playwright-e2e-apt-effective "))
+        .slice("playwright-e2e-apt-effective ".length),
+    );
+    for (const key of allowKeys.slice(0, 3)) expect(effective.effective).toContain(`${key} "0";`);
+    expect(m.lines.some((line) => line.startsWith("playwright-e2e-apt-refusal "))).toBe(false);
+    apt.restore();
+    expect(m.files).toEqual(m.original);
+  });
+
+  function expectTrustRefusal(key, value) {
+    const m = machine({ runnerState: true });
+    m.files.set("/etc/apt/apt.conf.d/zzzz-trust", `${key} "${value}";\n`);
+    m.original = new Map(m.files);
+    expect(() => prepareE2eApt(m.options)).toThrow("trust-bypass");
+    expect(m.files).toEqual(m.original);
+    const refusals = m.lines.filter((line) => line.startsWith("playwright-e2e-apt-refusal "));
+    expect(refusals).toHaveLength(1);
+    expect(JSON.parse(refusals[0].slice("playwright-e2e-apt-refusal ".length))).toEqual({
+      guard: "trust-option",
+      key,
+      value,
+      configEntries: ["zz-retries", "zzz-chase-sets-e2e", "zzzz-trust"],
+    });
+  }
+
+  it.each([
+    ...allowKeys.flatMap((key) => trueSpellings.map((value) => [key, value])),
+    ...verifyKeys.flatMap((key) => falseSpellings.map((value) => [key, value])),
+  ])("weakening spellings: %s %s refuses and restores every byte", expectTrustRefusal);
+
+  it.each([allowKeys[0], verifyKeys[0]].flatMap((key) => unknownSpellings.map((value) => [key, value])))(
+    "unclassifiable spellings: %s %s refuses and restores every byte",
+    expectTrustRefusal,
+  );
+
+  it.each([
+    ...allowKeys.flatMap((key) => falseSpellings.map((value) => [key, value])),
+    ...verifyKeys.flatMap((key) => trueSpellings.map((value) => [key, value])),
+  ])("secure spellings: %s %s is admitted", (key, value) => {
+    const m = machine({ runnerState: true });
+    m.files.set("/etc/apt/apt.conf.d/zzzz-trust", `${key} "${value}";\n`);
+    m.original = new Map(m.files);
+    const apt = prepareE2eApt(m.options);
+    expect(apt.projected).toBe(true);
+    expect(m.lines.some((line) => line.startsWith("playwright-e2e-apt-effective "))).toBe(true);
+    expect(m.lines.some((line) => line.startsWith("playwright-e2e-apt-refusal "))).toBe(false);
+    apt.restore();
+    expect(m.files).toEqual(m.original);
+  });
+
+  it("refusal dump retains the full redacted dump between refusal and restoration", () => {
+    const m = machine({ runnerState: true });
+    m.files.set("/etc/apt/apt.conf.d/zzzz-trust", `${allowKeys[0]} "1";\n`);
+    m.files.set(
+      "/etc/apt/apt.conf.d/10-proxy",
+      'Acquire::http::Proxy "https://fixture-user:fixture-password@example.invalid/proxy";\n',
+    );
+    m.original = new Map(m.files);
+    let effective;
+    const command = m.options.command;
+    m.options.command = (name, args, input) => {
+      const result = command(name, args, input);
+      if (args[1] === "apt-config") effective = result;
+      return result;
+    };
+    expect(() => prepareE2eApt(m.options)).toThrow("trust-bypass");
+    expect(m.files).toEqual(m.original);
+    const dumps = m.lines.filter((line) => line.startsWith("playwright-e2e-apt-refusal-dump "));
+    expect(dumps).toHaveLength(1);
+    expect(JSON.parse(dumps[0].slice("playwright-e2e-apt-refusal-dump ".length))).toEqual({
+      guard: "trust-option",
+      key: allowKeys[0],
+      effective: effective.replace("fixture-user:fixture-password", "[redacted]"),
+    });
+    expect(m.lines.indexOf(dumps[0])).toBeGreaterThan(
+      m.lines.findIndex((line) => line.startsWith("playwright-e2e-apt-refusal ")),
+    );
+    expect(m.lines.indexOf(dumps[0])).toBeLessThan(
+      m.lines.findIndex((line) => line.startsWith("playwright-e2e-apt-restore ")),
+    );
+    expect(m.lines.join("\n")).not.toMatch(/fixture-user|fixture-password/);
+  });
+
+  it("M-later-override: later 15-second timeout refuses with bounds-value and restores all bytes", () => {
+    const m = machine({ runnerState: true });
+    const later = "/etc/apt/apt.conf.d/zzzz-later-override";
+    const text = 'Acquire::http::Timeout "15";\n';
+    m.files.set(later, text);
+    m.original.set(later, text);
+    expect(() => prepareE2eApt(m.options)).toThrow("ineffective-elevated-config");
+    expect(m.files).toEqual(m.original);
+    const refusals = m.lines.filter((line) => line.startsWith("playwright-e2e-apt-refusal "));
+    expect(refusals).toHaveLength(1);
+    expect(JSON.parse(refusals[0].slice("playwright-e2e-apt-refusal ".length))).toEqual({
+      guard: "bounds-value",
+      key: "Acquire::http::Timeout",
+      value: "15",
+      configEntries: ["zz-retries", "zzz-chase-sets-e2e", "zzzz-later-override"],
+    });
+    expect(m.lines.indexOf(refusals[0])).toBeLessThan(
+      m.lines.findIndex((line) => line.startsWith("playwright-e2e-apt-restore ")),
+    );
+    console.log("MUTANT_RED M-later-override");
+  });
+
+  it.each([
+    [
+      'Dir::Etc "https://fixture-user:fixture-password@example.invalid/apt";',
+      "dir-root",
+      "Dir::Etc",
+      "ineffective-elevated-config",
+    ],
+    [
+      'Acquire::http::Timeout "https://fixture-user:fixture-password@example.invalid/apt";',
+      "bounds-value",
+      "Acquire::http::Timeout",
+      "ineffective-elevated-config",
+    ],
+    [
+      'Acquire::https::example.invalid::Timeout "https://fixture-user:fixture-password@example.invalid/apt";',
+      "option-bound",
+      "Acquire::https::example.invalid::Timeout",
+      "ineffective-elevated-config",
+    ],
+    [
+      'Acquire::https::example.invalid::Verify-Peer "https://fixture-user:fixture-password@example.invalid/apt";',
+      "trust-option",
+      "Acquire::https::example.invalid::Verify-Peer",
+      "trust-bypass",
+    ],
+  ])("refusal record redacts URL userinfo for %s", (override, guard, key, reason) => {
+    const m = machine();
+    m.files.set("/etc/apt/apt.conf.d/zzzz-refusal", `${override}\n`);
+    m.original = new Map(m.files);
+    expect(() => prepareE2eApt(m.options)).toThrow(reason);
+    expect(m.files).toEqual(m.original);
+    const refusals = m.lines.filter((line) => line.startsWith("playwright-e2e-apt-refusal "));
+    expect(refusals).toHaveLength(1);
+    expect(JSON.parse(refusals[0].slice("playwright-e2e-apt-refusal ".length))).toEqual({
+      guard,
+      key,
+      value: "https://[redacted]@example.invalid/apt",
+      configEntries: ["zzz-chase-sets-e2e", "zzzz-refusal"],
+    });
+    expect(m.lines.join("\n")).not.toMatch(/fixture-user|fixture-password/);
+    console.log(`MUTANT_RED M-refusal-redaction-${guard}`);
+  });
+
+  it("success record redacts URL userinfo in effective apt-config values", () => {
+    const m = machine();
+    m.files.set(
+      "/etc/apt/apt.conf.d/10-proxy",
+      'Acquire::http::Proxy "https://fixture-user:fixture-password@example.invalid/proxy";\n',
+    );
+    m.original = new Map(m.files);
+    const apt = prepareE2eApt(m.options);
+    expect(m.lines.join("\n")).toContain("https://[redacted]@example.invalid/proxy");
+    expect(m.lines.join("\n")).not.toMatch(/fixture-user|fixture-password/);
+    apt.restore();
+    expect(m.files).toEqual(m.original);
+  });
+
+  it("absent effective bounds produce a named refusal before restore", () => {
+    const m = machine({ effective: "" });
+    expect(() => prepareE2eApt(m.options)).toThrow("ineffective-elevated-config");
+    expect(m.files).toEqual(m.original);
+    expect(
+      JSON.parse(
+        m.lines
+          .find((line) => line.startsWith("playwright-e2e-apt-refusal "))
+          .slice("playwright-e2e-apt-refusal ".length),
+      ),
+    ).toEqual({
+      guard: "bounds-value",
+      key: "Acquire::http::Timeout",
+      value: "absent",
+      configEntries: ["zzz-chase-sets-e2e"],
+    });
+  });
+
+  it("projects every Ubuntu metadata/package URI, preserving suites/components/source-relative keys and untouched third-party bytes", () => {
+    const input = fixture();
+    const result = projectUbuntuSources(input);
+    expect(result.projected).toBe(true);
+    expect(result.sources[ubuntuPath]).not.toMatch(/azure|mirror\+/);
+    expect(result.sources[ubuntuPath]).toContain("URIs: https://archive.ubuntu.com/ubuntu");
+    expect(result.sources[ubuntuPath]).toContain("URIs: https://security.ubuntu.com/ubuntu");
+    expect(result.sources[thirdPartyPath]).toBe(thirdParty);
+    expect(() => validateUbuntuProjection(input.sources, result.sources, mirrors)).not.toThrow();
+    const azure = fixture();
+    azure.sources[ubuntuPath] = ubuntu.replace(mirrorUri, "http://azure.archive.ubuntu.com/ubuntu/");
+    expect(projectUbuntuSources(azure).sources[ubuntuPath]).not.toContain("azure");
+    const legacy = fixture();
+    legacy.sources = {
+      "/etc/apt/sources.list":
+        "deb [signed-by=/usr/share/keyrings/ubuntu-archive-keyring.gpg] http://azure.archive.ubuntu.com/ubuntu/ noble-security main\n",
+    };
+    expect(projectUbuntuSources(legacy).sources["/etc/apt/sources.list"]).toContain(
+      "https://security.ubuntu.com/ubuntu noble-security main",
+    );
+  });
+
+  it.each([
+    [
+      "M-azure-source",
+      (text) => text.replace("https://archive.ubuntu.com/ubuntu", "http://azure.archive.ubuntu.com/ubuntu"),
+      "mixed-sources",
+    ],
+    [
+      "M-projected-key-swap",
+      (text) => text.replaceAll("ubuntu-archive-keyring.gpg", "replacement.gpg"),
+      "projected-key-swap",
+    ],
+    ["M-trust-bypass", (text) => text.replace("Types: deb", "Types: deb\nTrusted: yes"), "trust-bypass"],
+    ["M-trust-on", (text) => text.replace("Types: deb", "Types: deb\nTrusted: on"), "trust-bypass"],
+    ["M-trust-0x1", (text) => text.replace("Types: deb", "Types: deb\nTrusted: 0x1"), "trust-bypass"],
+    ["M-trust-maybe", (text) => text.replace("Types: deb", "Types: deb\nTrusted: maybe"), "trust-bypass"],
+  ])("rejects governing projected-file mutant %s with other inputs frozen", (name, mutate, reason) => {
+    const input = fixture();
+    const plan = projectUbuntuSources(input);
+    const projected = { ...plan.sources, [ubuntuPath]: mutate(plan.sources[ubuntuPath]) };
+    expect(() => validateUbuntuProjection(input.sources, projected, mirrors)).toThrow(reason);
+    console.log(`MUTANT_RED ${name}`);
+  });
+
+  it("M-image-drift: Ubuntu 26 or missing official entry stays unmitigated and untouched, never refused", () => {
+    for (const delta of [{ release: "26.04", codename: "resolute" }, { architecture: "ARM64" }, { mirrors: {} }]) {
+      const input = { ...fixture(), ...delta };
+      const result = projectUbuntuSources(input);
+      expect(result).toEqual({ projected: false, sources: input.sources });
+    }
+    const m = machine();
+    m.files.set("/etc/os-release", 'VERSION_ID="26.04"\nVERSION_CODENAME=resolute\n');
+    expect(prepareE2eApt(m.options).projected).toBe(false);
+    expect(m.command).not.toHaveBeenCalled();
+    expect(m.lines.join("\n")).toContain("image-drift-unmitigated");
+    console.log("MUTANT_RED M-image-drift");
+  });
+
+  it("M-pinned-image-profile: changed ImageVersion and rotated third-party keys still project without drift/refusal", () => {
+    for (const delta of [{ version: "20261108.999.1" }, { thirdPartyKey: "rotated-key" }]) {
+      const m = machine(delta);
+      const apt = prepareE2eApt(m.options);
+      expect(apt.projected).toBe(true);
+      expect(m.files.get(thirdPartyPath)).toBe(thirdParty);
+      expect(m.lines.join("\n")).not.toContain("image-drift-unmitigated");
+      apt.restore();
+      expect(m.files).toEqual(m.original);
+    }
+    console.log("MUTANT_RED M-pinned-image-profile");
+  });
+
+  it("M-root-config-lost: ineffective elevated bounds refuse and restore all original bytes", () => {
+    const m = machine({ effective: 'Acquire::http::Timeout "120";\n' });
+    expect(() => prepareE2eApt(m.options)).toThrow("ineffective-elevated-config");
+    expect(m.files).toEqual(m.original);
+    console.log("MUTANT_RED M-root-config-lost");
+  });
+
+  it.each([
+    ['Binary::apt-get::Acquire::Retries "20";', "ineffective-elevated-config"],
+    ['Binary::apt-get::Dir::Etc::sourcelist "elsewhere";', "ineffective-elevated-config"],
+    ['Acquire::https::archive.ubuntu.com::Verify-Peer "false";', "trust-bypass"],
+  ])("effective elevated config includes nested override %s", (override, reason) => {
+    const m = machine();
+    const command = m.options.command;
+    m.options.command = (name, args, input) => {
+      const result = command(name, args, input);
+      return args[1] === "apt-config" ? `${result}\n${override}\n` : result;
+    };
+    expect(() => prepareE2eApt(m.options)).toThrow(reason);
+    expect(m.files).toEqual(m.original);
+  });
+
+  it("rolls partial projection back and makes failed restore red without retry", async () => {
+    const partial = machine({ failWrite: true });
+    expect(() => prepareE2eApt(partial.options)).toThrow("partial write");
+    expect(partial.files).toEqual(partial.original);
+    const broken = machine({ failWrite: true, failRestore: true });
+    expect(() => prepareE2eApt(broken.options)).toThrow("restore-failure");
+    expect(broken.lines.join("\n")).toContain('"state":"restore-failure"');
+    const run = vi.fn();
+    const result = await installPlaywrightChromium({
+      env: { ...envFor(makeCache()), PLAYWRIGHT_INSTALL_POLICY: "e2e-acquisition" },
+      prepareAptImpl: () => prepareE2eApt(machine({ failWrite: true, failRestore: true }).options),
+      runInstallerImpl: run,
+      write: () => {},
+    });
+    expect(result.reason).toBe("restore-failure");
+    expect(run).not.toHaveBeenCalled();
+    const malformed = fixture();
+    malformed.sources[ubuntuPath] = ubuntu.replace("Types: deb", "Types deb");
+    expect(() => projectUbuntuSources(malformed)).toThrow("malformed-sources");
+  });
+
+  it("M-projection-leaks-single-attempt: ordinary callers neither project nor change their 600-second bound", async () => {
+    const prepareAptImpl = vi.fn();
+    const run = vi.fn(async () => ({ status: 0, record: { terminalOutcome: "success" } }));
+    const result = await installPlaywrightChromium({
+      env: envFor(makeCache()),
+      prepareAptImpl,
+      runInstallerImpl: run,
+      inspectCacheImpl: () => ({ complete: true, state: "complete" }),
+      write: () => {},
+    });
+    expect(result.status).toBe(0);
+    expect(prepareAptImpl).not.toHaveBeenCalled();
+    expect(run.mock.calls[0][0].timeoutSeconds).toBe(600);
+    console.log("MUTANT_RED M-projection-leaks-single-attempt");
+  });
+});
+
+describe("E2E payload authority and retirement", () => {
+  const payloads = [
+    { name: "chromium", revision: "1" },
+    { name: "chromium_headless_shell", revision: "2" },
+    { name: "ffmpeg", revision: "3" },
+  ];
+  const completeCache = () => {
+    const cache = makeCache();
+    for (const [index, item] of payloads.entries()) {
+      const root = path.join(cache, `${item.name}-${item.revision}`);
+      mkdirSync(root);
+      writeFileSync(path.join(root, ["chrome", "chrome-headless-shell", "ffmpeg-linux"][index]), "payload");
+      writeFileSync(path.join(root, "INSTALLATION_COMPLETE"), "");
+    }
+    return cache;
+  };
+  it("M-incomplete-payload: cold/hit/incomplete/wrong-version/readability and ownership are distinct", () => {
+    expect(inspectCache(path.join(makeCache(), "absent"), { payloads }).state).toBe("cold");
+    const cache = completeCache();
+    expect(inspectCache(cache, { payloads })).toMatchObject({ state: "complete", complete: true, manifestCount: 3 });
+    expect(inspectCache(cache, { payloads: [{ ...payloads[0], revision: "99" }, ...payloads.slice(1)] }).complete).toBe(
+      false,
+    );
+    expect(
+      inspectCache(cache, {
+        payloads,
+        access: () => {
+          throw new Error("denied");
+        },
+      }).state,
+    ).toBe("unreadable");
+    expect(inspectCache(cache, { payloads, ownerUid: -1 }).owned).toBe(false);
+    rmSync(path.join(cache, "chromium_headless_shell-2", "INSTALLATION_COMPLETE"));
+    expect(inspectCache(cache, { payloads }).complete).toBe(false);
+    console.log("MUTANT_RED M-incomplete-payload");
+  });
+
+  it("M-broad-restore: installed-version/OS/arch identity is exact and HOME-derived, without fallback", () => {
+    const cache = resolveE2eCache({ HOME: makeCache(), RUNNER_OS: "Linux", RUNNER_ARCH: "X64" });
+    expect(cache.payloads).toHaveLength(3);
+    expect(cache.nativePackages).toHaveLength(9);
+    expect(path.isAbsolute(cache.cachePath)).toBe(true);
+    expect(cache.key).toMatch(/^e2e-playwright-Linux-X64-\d+\.\d+\.\d+-\d+-\d+-\d+$/);
+    const job = workflowJob("platform-pr.yml", "e2e-tests");
+    const step = job.steps.find((step) => step.name === "Cache Playwright Chromium");
+    expect(step.with["restore-keys"]).toBeUndefined();
+    expect(step.if).toBeUndefined();
+    console.log("MUTANT_RED M-broad-restore");
+  });
+
+  it("AC4 tracked-inventory/registry/runtime preflight rejects stale diagnostic paths and policy", () => {
+    const tracked = execFileSync(
+      "git",
+      ["ls-files", "--", ".github/workflows"],
+      gitListingOptions({ encoding: "utf8" }),
+    )
+      .trim()
+      .split(/\r?\n/)
+      .filter((file) => existsSync(file));
+    for (const file of tracked)
+      expect(releaseQualificationScopeRegistry.workflows[path.basename(file)], file).toBeTruthy();
+    expect(validateReleaseQualificationScopeRegistry(releaseQualificationScopeRegistry)).toEqual([]);
+    expect(checkGithubActionsRuntime()).toEqual({ passed: true, violations: [] });
+    const retired = "playwright-chromium-install-" + "diagnostics";
+    expect(Object.keys(releaseQualificationScopeRegistry.workflows).some((name) => name.includes(retired))).toBe(false);
+    const retiredPolicy = "diagnostic" + "-retry";
+    const references = spawnSync(
+      "git",
+      [
+        "grep",
+        "-n",
+        "-E",
+        `${retired}|${retiredPolicy}`,
+        "--",
+        ".github/workflows",
+        "scripts/playwright-chromium-install.mjs",
+        "scripts/playwright-chromium-install.test.mjs",
+        "scripts/release-qualification-scope.mjs",
+      ],
+      { encoding: "utf8" },
+    );
+    expect(references.stdout.trim()).toBe("");
+    expect(references.status).toBe(1);
+  });
+});
+
+describe("E2E bounded acquisition", () => {
+  it("M-180-cutoff/M-default-600-changed: E2E succeeds after 300s through the same supervisor", async () => {
+    const f = supervisedInstall({ policy: "e2e-acquisition" });
+    await vi.advanceTimersByTimeAsync(300_000);
+    expect(f.signalGroupImpl).not.toHaveBeenCalled();
+    mkdirSync(path.join(f.cache, "chromium-1"), { recursive: true });
+    writeFileSync(path.join(f.cache, "chromium-1", "chrome"), "payload");
+    f.children[0].emit("message", { installerStatus: 0 });
+    f.children[0].emit("close", 0);
+    expect(await f.result).toMatchObject({ status: 0, reason: "success" });
+    expect(f.lines.filter((line) => line.startsWith("provider-browser-install-timing/v1"))).toHaveLength(1);
+  });
+
+  it.each(["stall", "trickle", "resistant-child"])(
+    "F bounds %s with synchronous cleanup, no overlap or second timeout",
+    async (mode) => {
+      const f = supervisedInstall({ policy: "e2e-acquisition" });
+      for (let elapsed = 0; elapsed < 540_000; elapsed += 30_000) {
+        if (mode === "trickle") f.children[0].stdout.write("one more byte\n");
+        await vi.advanceTimersByTimeAsync(30_000);
+      }
+      if (mode === "resistant-child") f.children[0].emit("close", 0);
+      expect(f.signalGroupImpl.mock.calls).toEqual([[4567, "TERM"]]);
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(await f.result).toMatchObject({ status: 1, reason: "timeout" });
+      expect(f.signalGroupImpl.mock.calls).toEqual([
+        [4567, "TERM"],
+        [4567, "KILL"],
+      ]);
+      expect(f.elapsedMs()).toBe(545_000);
+      expect(f.children).toHaveLength(1);
+      expect(f.delayImpl).not.toHaveBeenCalled();
+    },
+  );
+
+  it("retains both attempt records and restores once, before success publication", async () => {
+    const events = [];
+    let attempt = 0;
+    const result = await installPlaywrightChromium({
+      env: { ...envFor(makeCache()), PLAYWRIGHT_INSTALL_POLICY: "e2e-acquisition" },
+      now: () => 0,
+      prepareAptImpl: () => ({ projected: false, restore: () => events.push("restore") }),
+      inspectCacheImpl: () => ({ state: "complete", complete: true, owned: true }),
+      removeCacheImpl: () => events.push("remove"),
+      delayImpl: async () => events.push("delay"),
+      runInstallerImpl: async ({ write }) => {
+        const outcome = ++attempt === 1 ? "partial-download" : "success";
+        write(`provider-browser-install-timing/v1 ${outcome}`);
+        return { status: attempt === 1 ? 1 : 0, record: { terminalOutcome: outcome } };
+      },
+      write: (line) => events.push(line),
+    });
+    expect(result.status).toBe(0);
+    expect(events.filter((line) => line.startsWith("provider-browser-install-timing/v1"))).toEqual([
+      "provider-browser-install-timing/v1 partial-download",
+      "provider-browser-install-timing/v1 success",
+    ]);
+    expect(events.indexOf("remove")).toBeLessThan(events.indexOf("delay"));
+    expect(events.filter((line) => line === "restore")).toHaveLength(1);
+    expect(events.indexOf("restore")).toBeLessThan(events.findIndex((line) => line.startsWith("playwright-e2e-whole")));
+  });
+
+  it("native/font superset gates only projected runs; restore failure prevents publication", async () => {
+    for (const [projected, restoreFails, expected] of [
+      [true, false, "native-validation-failure"],
+      [false, false, "success"],
+      [false, true, "restore-failure"],
+    ]) {
+      const result = await installPlaywrightChromium({
+        env: { ...envFor(makeCache()), PLAYWRIGHT_INSTALL_POLICY: "e2e-acquisition" },
+        prepareAptImpl: () => ({
+          projected,
+          restore() {
+            if (restoreFails) throw new Error("denied");
+          },
+        }),
+        nativeInventoryImpl: () => ({ packages: "", fonts: "" }),
+        nativePackages: ["fonts-unifont"],
+        inspectCacheImpl: () => ({ state: "complete", complete: true }),
+        removeCacheImpl: vi.fn(),
+        runInstallerImpl: async () => ({ status: 0, record: { terminalOutcome: "success" } }),
+        write: () => {},
+      });
+      expect(result.reason).toBe(expected);
+      expect(result.status).toBe(expected === "success" ? 0 : 1);
+    }
+  });
+
+  it("M-suite-budget-overrun/M-second-supervisor: one governing-input mutation breaks each composition assertion", () => {
+    const job = workflowJob("platform-pr.yml", "e2e-tests");
+    const step = job.steps.find((step) => step.name === "Install Playwright Chromium");
+    const assertBudget = (minutes) =>
+      expect(minutes * 60 + 60 + 780 + 60).toBeLessThanOrEqual(job["timeout-minutes"] * 60);
+    assertBudget(step["timeout-minutes"]);
+    expect(() => assertBudget(11)).toThrow();
+    const source = readFileSync("scripts/playwright-chromium-install.mjs", "utf8");
+    const assertOneSupervisor = (text) => expect(text).not.toMatch(/signalGroup|superviseInstaller|spawn\s*\(/);
+    assertOneSupervisor(source);
+    expect(() => assertOneSupervisor(`${source}\nsignalGroup(pid, 'TERM')`)).toThrow();
+  });
+
+  function acquisition({
+    outcomes = ["partial-download", "success"],
+    inspect,
+    remove,
+    delay,
+    build,
+    cancelSignal,
+  } = {}) {
     let ms = 0;
     let complete = false;
     const runInstallerImpl = vi.fn(async (options) => {
-      const outcome = outcomes[runInstallerImpl.mock.calls.length - 1] ?? "timeout";
+      const outcome = outcomes[runInstallerImpl.mock.calls.length - 1] ?? "partial-download";
       complete = outcome === "success";
       options.write(`provider-browser-install-timing/v1 ${outcome}`);
       return {
@@ -836,7 +1997,7 @@ describe("diagnostic-only bounded reuse", () => {
     const inspectCacheImpl = vi.fn(inspect ?? (() => ({ state: complete ? "complete" : "cold", complete })));
     const lines = [];
     const result = installPlaywrightChromium({
-      env: { ...envFor(path.resolve("synthetic-diagnostic-cache")), PLAYWRIGHT_INSTALL_POLICY: "diagnostic-retry" },
+      env: { ...envFor(path.resolve("synthetic-e2e-cache")), PLAYWRIGHT_INSTALL_POLICY: "e2e-acquisition" },
       now: () => ms,
       runInstallerImpl,
       inspectCacheImpl,
@@ -859,10 +2020,10 @@ describe("diagnostic-only bounded reuse", () => {
     };
   }
 
-  it("passes 180 only for explicit diagnostic policy, retrying once after cleanup and 5s delay", async () => {
-    const f = diagnostic();
+  it("passes 540 only for explicit E2E policy, retrying once after cleanup and 5s delay", async () => {
+    const f = acquisition();
     await expect(f.result).resolves.toMatchObject({ status: 0, reason: "success" });
-    expect(f.runInstallerImpl.mock.calls.map(([call]) => call.timeoutSeconds)).toEqual([180, 180]);
+    expect(f.runInstallerImpl.mock.calls.map(([call]) => call.timeoutSeconds)).toEqual([540, 540]);
     expect(f.runInstallerImpl.mock.calls.every(([call]) => call.env.INSTALLER_TIMEOUT_SECONDS === "600")).toBe(true);
     expect(f.removeCacheImpl).toHaveBeenCalledOnce();
     expect(f.delayImpl.mock.calls).toEqual([[5000]]);
@@ -872,7 +2033,7 @@ describe("diagnostic-only bounded reuse", () => {
   it.each(["start-refusal", "cancelled", "cleanup-failure", "cleanup-refusal"])(
     "never retries terminal %s",
     async (outcome) => {
-      const f = diagnostic({ outcomes: [outcome, "success"] });
+      const f = acquisition({ outcomes: [outcome, "success"] });
       await expect(f.result).resolves.toMatchObject({ status: 1, reason: outcome });
       expect(f.runInstallerImpl).toHaveBeenCalledOnce();
       expect(f.delayImpl).not.toHaveBeenCalled();
@@ -893,7 +2054,7 @@ describe("diagnostic-only bounded reuse", () => {
         },
       },
     ]) {
-      const f = diagnostic(options);
+      const f = acquisition(options);
       expect((await f.result).status).toBe(1);
       expect(f.runInstallerImpl.mock.calls.length).toBeLessThanOrEqual(1);
       expect(f.delayImpl).not.toHaveBeenCalled();
@@ -902,14 +2063,14 @@ describe("diagnostic-only bounded reuse", () => {
 
   it("reserves the whole attempt plus grace after inspection and invocation construction", async () => {
     for (const stage of ["inspect", "build"]) {
-      for (const elapsed of [205000, 205001]) {
+      for (const elapsed of [25000, 25001]) {
         let clock = 0;
         const runInstallerImpl = vi.fn(failedAttempt("timeout"));
         const consume = () => {
           clock = elapsed;
         };
         const result = await installPlaywrightChromium({
-          env: { ...envFor(path.resolve("synthetic-diagnostic-cache")), PLAYWRIGHT_INSTALL_POLICY: "diagnostic-retry" },
+          env: { ...envFor(path.resolve("synthetic-e2e-cache")), PLAYWRIGHT_INSTALL_POLICY: "e2e-acquisition" },
           now: () => clock,
           runInstallerImpl,
           removeCacheImpl: vi.fn(),
@@ -925,19 +2086,19 @@ describe("diagnostic-only bounded reuse", () => {
           write: () => {},
         });
         expect(result.status).toBe(1);
-        expect(runInstallerImpl).toHaveBeenCalledTimes(elapsed === 205000 ? 1 : 0);
+        expect(runInstallerImpl).toHaveBeenCalledTimes(elapsed === 25000 ? 1 : 0);
       }
     }
   });
 
-  it.each([200000, 200001])("reserves delay plus full retry at the %s ms boundary", async (elapsed) => {
+  it.each([20000, 20001])("reserves delay plus full retry at the %s ms boundary", async (elapsed) => {
     let clock = 0;
     const runInstallerImpl = vi.fn(async () => {
       clock += elapsed;
-      return { status: 1, record: { terminalOutcome: "timeout" } };
+      return { status: 1, record: { terminalOutcome: "partial-download" } };
     });
     const result = await installPlaywrightChromium({
-      env: { ...envFor(path.resolve("synthetic-diagnostic-cache")), PLAYWRIGHT_INSTALL_POLICY: "diagnostic-retry" },
+      env: { ...envFor(path.resolve("synthetic-e2e-cache")), PLAYWRIGHT_INSTALL_POLICY: "e2e-acquisition" },
       now: () => clock,
       runInstallerImpl,
       removeCacheImpl: vi.fn(),
@@ -948,7 +2109,7 @@ describe("diagnostic-only bounded reuse", () => {
       write: () => {},
     });
     expect(result.status).toBe(1);
-    expect(runInstallerImpl).toHaveBeenCalledTimes(elapsed === 200000 ? 2 : 1);
+    expect(runInstallerImpl).toHaveBeenCalledTimes(elapsed === 20000 ? 2 : 1);
   });
 
   it("rechecks after delay, cleanup overhead and next inspection without overlapping", async () => {
@@ -956,26 +2117,26 @@ describe("diagnostic-only bounded reuse", () => {
       let clock = 0;
       let inspections = 0;
       const runInstallerImpl = vi.fn(async () => {
-        clock += 190000;
-        return { status: 1, record: { terminalOutcome: "timeout" } };
+        clock += 19000;
+        return { status: 1, record: { terminalOutcome: "partial-download" } };
       });
       const result = await installPlaywrightChromium({
-        env: { ...envFor(path.resolve("synthetic-diagnostic-cache")), PLAYWRIGHT_INSTALL_POLICY: "diagnostic-retry" },
+        env: { ...envFor(path.resolve("synthetic-e2e-cache")), PLAYWRIGHT_INSTALL_POLICY: "e2e-acquisition" },
         now: () => clock,
         runInstallerImpl,
         removeCacheImpl: () => {
-          if (stage === "cleanup") clock += 10001;
+          if (stage === "cleanup") clock += 1001;
         },
         delayImpl: async () => {
-          clock += stage === "delay" ? 15001 : 5000;
+          clock += stage === "delay" ? 6001 : 5000;
         },
         inspectCacheImpl: () => {
-          if (++inspections === 2 && stage === "inspection") clock += 10001;
+          if (++inspections === 2 && stage === "inspection") clock += 1001;
           return { state: "cold", complete: false };
         },
         write: () => {},
       });
-      expect(result).toMatchObject({ status: 1, reason: "timeout" });
+      expect(result).toMatchObject({ status: 1, reason: "budget-exhausted" });
       expect(runInstallerImpl).toHaveBeenCalledOnce();
     }
   });
@@ -984,11 +2145,11 @@ describe("diagnostic-only bounded reuse", () => {
     let clock = 0;
     let inspections = 0;
     const result = await installPlaywrightChromium({
-      env: { ...envFor(path.resolve("synthetic-diagnostic-cache")), PLAYWRIGHT_INSTALL_POLICY: "diagnostic-retry" },
+      env: { ...envFor(path.resolve("synthetic-e2e-cache")), PLAYWRIGHT_INSTALL_POLICY: "e2e-acquisition" },
       now: () => clock,
       runInstallerImpl: async () => ({ status: 0, record: { terminalOutcome: "success" } }),
       inspectCacheImpl: () => {
-        if (++inspections === 2) clock = 390001;
+        if (++inspections === 2) clock = 570001;
         return { state: "complete", complete: true };
       },
       removeCacheImpl: vi.fn(),
@@ -1000,7 +2161,7 @@ describe("diagnostic-only bounded reuse", () => {
 
   it("cancellation during retry delay is terminal", async () => {
     const controller = new AbortController();
-    const f = diagnostic({ cancelSignal: controller.signal, delay: async () => controller.abort() });
+    const f = acquisition({ cancelSignal: controller.signal, delay: async () => controller.abort() });
     await expect(f.result).resolves.toMatchObject({ status: 1, reason: "cancelled" });
     expect(f.runInstallerImpl).toHaveBeenCalledOnce();
   });
@@ -1008,7 +2169,7 @@ describe("diagnostic-only bounded reuse", () => {
   it("cancellation before any attempt refuses without spawning", async () => {
     const controller = new AbortController();
     controller.abort();
-    const f = diagnostic({ cancelSignal: controller.signal });
+    const f = acquisition({ cancelSignal: controller.signal });
     await expect(f.result).resolves.toMatchObject({ status: 1, reason: "cancelled" });
     expect(f.runInstallerImpl).not.toHaveBeenCalled();
     expect(f.removeCacheImpl).not.toHaveBeenCalled();
@@ -1017,7 +2178,7 @@ describe("diagnostic-only bounded reuse", () => {
   it("does not label success within-bound when terminal evidence writing exceeds the envelope", async () => {
     let clock = 0;
     const result = await installPlaywrightChromium({
-      env: { ...envFor(path.resolve("synthetic-diagnostic-cache")), PLAYWRIGHT_INSTALL_POLICY: "diagnostic-retry" },
+      env: { ...envFor(path.resolve("synthetic-e2e-cache")), PLAYWRIGHT_INSTALL_POLICY: "e2e-acquisition" },
       now: () => clock,
       inspectCacheImpl: () => ({ state: "complete", complete: true }),
       runInstallerImpl: async ({ write }) => {
@@ -1026,8 +2187,8 @@ describe("diagnostic-only bounded reuse", () => {
       },
       removeCacheImpl: vi.fn(),
       delayImpl: vi.fn(),
-      write: () => {
-        clock = 390001;
+      write: (line) => {
+        if (line.startsWith("provider-browser-install-timing/v1")) clock = 570001;
       },
     });
     expect(result).toMatchObject({ status: 1, reason: "timeout" });
