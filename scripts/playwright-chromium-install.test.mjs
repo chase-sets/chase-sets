@@ -1020,7 +1020,7 @@ Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
         files.delete(args[3]);
         return "";
       }
-      expect(args).toEqual(["-n", "apt-config", "dump"]);
+      expect(args).toEqual(["-n", "apt-config", "dump", "--empty", "--format", '%F "%V";%n']);
       return effective ?? aptConfigDump(files);
     });
     const lines = [];
@@ -1041,6 +1041,382 @@ Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
     };
     return { files, original, options, lines, command };
   }
+
+  const sourceFormats = ["deb822", "trusted", "allow-insecure", "allow-weak", "allow-downgrade-to-insecure"];
+  const weakeningSourceValues = [
+    "on",
+    "On",
+    "ON",
+    "with",
+    "WITH",
+    "enable",
+    "Enable",
+    "01",
+    "0x1",
+    "0X1",
+    "+1",
+    "yes",
+    "YES",
+    "true",
+    "True",
+    "1",
+  ];
+  const unknownSourceValues = ["", "2", "-1", "maybe", "00", "0x0", "+0", "0b1"];
+  const secureSourceValues = ["0", "no", "No", "false", "FALSE", "off", "OFF", "without", "disable", "Disable"];
+  const sourceTokens = [
+    "tru%73ted=on",
+    "trusted=%31",
+    '"trusted=on"',
+    'trusted="no"',
+    't"r"usted=on',
+    "trusted%3Don",
+    "a=[x] trusted=on",
+  ];
+  const trustedTails = ["no maybe", "0 trailing", "off\n continued"];
+  const sourceListPath = "/etc/apt/sources.list";
+  const ubuntuLine = (options) =>
+    `deb [signed-by=/usr/share/keyrings/ubuntu-archive-keyring.gpg ${options}] http://azure.archive.ubuntu.com/ubuntu/ noble-security main\n`;
+  const sourceInput = (format, value) => ({
+    ...fixture(),
+    sources:
+      format === "deb822"
+        ? { [ubuntuPath]: `${ubuntu}Trusted: ${value}\n`, [thirdPartyPath]: thirdParty }
+        : { [sourceListPath]: ubuntuLine(`${format}=${value}`), [thirdPartyPath]: thirdParty },
+  });
+  const expectSourceRefusal = (label, run) => {
+    let error;
+    try {
+      run();
+    } catch (caught) {
+      error = caught;
+    }
+    console.log(`SOURCE_OUTCOME ${label}: ${error?.message ?? "admitted"}`);
+    expect(() => {
+      if (error) throw error;
+    }).toThrow("trust-bypass");
+  };
+
+  it.each(
+    sourceFormats.flatMap((format) =>
+      [...weakeningSourceValues, ...unknownSourceValues].map((value) => [format, value]),
+    ),
+  )("source trust: projection refuses %s value %j", (format, value) => {
+    expectSourceRefusal(`${format} ${JSON.stringify(value)}`, () => projectUbuntuSources(sourceInput(format, value)));
+  });
+
+  it("source trust: deb822 Allow-Weak on remains refused", () => {
+    const input = fixture();
+    input.sources[ubuntuPath] += "Allow-Weak: on\n";
+    expectSourceRefusal("deb822 Allow-Weak on", () => projectUbuntuSources(input));
+  });
+
+  it.each(sourceFormats.flatMap((format) => secureSourceValues.map((value) => [format, value])))(
+    "source trust: secure %s value %j retains source text and validates",
+    (format, value) => {
+      const input = sourceInput(format, value);
+      const plan = projectUbuntuSources(input);
+      expect(plan.projected).toBe(true);
+      expect(plan.sources[format === "deb822" ? ubuntuPath : sourceListPath]).toContain(
+        format === "deb822"
+          ? `Trusted: ${value}\n`
+          : `[signed-by=/usr/share/keyrings/ubuntu-archive-keyring.gpg ${format}=${value}]`,
+      );
+      expect(plan.sources[thirdPartyPath]).toBe(thirdParty);
+      expect(() => validateUbuntuProjection(input.sources, plan.sources, mirrors)).not.toThrow();
+    },
+  );
+
+  it.each(trustedTails)("source trust: whole deb822 field %j is unclassifiable at both sites", (value) => {
+    expect(classifyAptBoolean(value)).not.toBe(false);
+    expectSourceRefusal(`whole field projection ${JSON.stringify(value)}`, () =>
+      projectUbuntuSources(sourceInput("deb822", value)),
+    );
+  });
+
+  it.each(sourceTokens)("source trust: projection refuses ambiguous token %j", (token) => {
+    const input = fixture();
+    input.sources = { [sourceListPath]: ubuntuLine(token) };
+    expectSourceRefusal(`token ${token}`, () => projectUbuntuSources(input));
+  });
+
+  it.each([...weakeningSourceValues, ...sourceTokens])(
+    "source trust: third-party value %j is byte-unchanged",
+    (value) => {
+      const input = fixture();
+      const microsoftLine = `deb [signed-by=/usr/share/keyrings/microsoft.gpg ${value.includes("=") || value.includes("%") ? value : `trusted=${value}`}] https://packages.microsoft.com/ubuntu/24.04/prod noble main\n`;
+      input.sources[thirdPartyPath] = `${thirdParty}Trusted: ${value}\n`;
+      input.sources["/etc/apt/sources.list.d/microsoft.list"] = microsoftLine;
+      const plan = projectUbuntuSources(input);
+      expect(plan.projected).toBe(true);
+      expect(plan.sources[thirdPartyPath]).toBe(input.sources[thirdPartyPath]);
+      expect(plan.sources["/etc/apt/sources.list.d/microsoft.list"]).toBe(microsoftLine);
+      expect(plan.sources[ubuntuPath]).toContain("URIs: https://archive.ubuntu.com/ubuntu");
+      expect(() => validateUbuntuProjection(input.sources, plan.sources, mirrors)).not.toThrow();
+    },
+  );
+
+  it.each(["on", "0x1", "maybe", ...trustedTails])(
+    "source trust: validation-site deb822 %j with original frozen",
+    (value) => {
+      expect(classifyAptBoolean(value)).not.toBe(false);
+      const input = fixture();
+      const plan = projectUbuntuSources(input);
+      const projected = {
+        ...plan.sources,
+        [ubuntuPath]: plan.sources[ubuntuPath].replace("Types: deb", `Types: deb\nTrusted: ${value}`),
+      };
+      expectSourceRefusal(`validation deb822 ${JSON.stringify(value)}`, () =>
+        validateUbuntuProjection(input.sources, projected, mirrors),
+      );
+    },
+  );
+
+  it.each(["trusted=on", ...sourceTokens.filter((token) => token !== "a=[x] trusted=on")])(
+    "source trust: validation-site one-line %j with original frozen",
+    (token) => {
+      const input = fixture();
+      input.sources = { [sourceListPath]: ubuntuLine("") };
+      const plan = projectUbuntuSources(input);
+      const projected = { [sourceListPath]: plan.sources[sourceListPath].replace(".gpg ]", `.gpg ${token}]`) };
+      expectSourceRefusal(`validation one-line ${token}`, () =>
+        validateUbuntuProjection(input.sources, projected, mirrors),
+      );
+    },
+  );
+
+  it("source trust: absent options and logged runner still project and restore", () => {
+    expect(projectUbuntuSources(fixture()).projected).toBe(true);
+    for (const runnerState of [false, true]) {
+      const m = machine({ runnerState });
+      const apt = prepareE2eApt(m.options);
+      expect(apt.projected).toBe(true);
+      expect(m.lines.some((line) => line.startsWith("playwright-e2e-apt-effective "))).toBe(true);
+      apt.restore();
+      expect(m.files).toEqual(m.original);
+    }
+  });
+
+  it.each(
+    ["deb822", "trusted"].flatMap((format) => ["on", "with", "enable", "0x1", "no"].map((value) => [format, value])),
+  )("source trust: full prepare %s %j preserves every byte", (format, value) => {
+    const m = machine();
+    const filename = format === "deb822" ? ubuntuPath : sourceListPath;
+    const text = sourceInput(format, value).sources[filename];
+    m.files.set(filename, text);
+    m.original.set(filename, text);
+    if (value === "no") {
+      const apt = prepareE2eApt(m.options);
+      expect(apt.projected).toBe(true);
+      expect(m.lines.some((line) => line.startsWith("playwright-e2e-apt-effective "))).toBe(true);
+      apt.restore();
+      expect(m.lines.join("\n")).toContain('"state":"restored"');
+    } else {
+      expectSourceRefusal(`full prepare ${format} ${value}`, () => prepareE2eApt(m.options));
+      expect(m.command.mock.calls.some(([, args]) => args[1] === "tee")).toBe(false);
+    }
+    expect(m.files).toEqual(m.original);
+  });
+
+  it("source trust: full prepare encoded one-line name refuses before writes", () => {
+    const m = machine();
+    m.files.set(sourceListPath, ubuntuLine("tru%73ted=on"));
+    m.original.set(sourceListPath, ubuntuLine("tru%73ted=on"));
+    expectSourceRefusal("full prepare tru%73ted=on", () => prepareE2eApt(m.options));
+    expect(m.command.mock.calls.some(([, args]) => args[1] === "tee")).toBe(false);
+    expect(m.files).toEqual(m.original);
+  });
+
+  const effectiveSourceMachine = () => {
+    const m = machine();
+    const command = m.options.command;
+    m.options.command = (name, args, input) =>
+      command(
+        name,
+        args,
+        args[1] === "tee" && args[2] === ubuntuPath && typeof input === "string" && input.includes("URIs: https:")
+          ? `${input}Trusted: on\n`
+          : input,
+      );
+    return m;
+  };
+
+  it("source trust: effective-source validation refuses and restores", () => {
+    const m = effectiveSourceMachine();
+    expectSourceRefusal("effective-source prepare", () => prepareE2eApt(m.options));
+    expect(m.lines.join("\n")).toContain('playwright-e2e-apt-restore {"state":"restored"');
+    expect(m.files).toEqual(m.original);
+  });
+
+  it("source trust: installer reports effective-source refusal without install", async () => {
+    const m = effectiveSourceMachine();
+    const run = vi.fn();
+    const result = await installPlaywrightChromium({
+      env: { ...envFor(makeCache()), PLAYWRIGHT_INSTALL_POLICY: "e2e-acquisition" },
+      prepareAptImpl: () => prepareE2eApt(m.options),
+      runInstallerImpl: run,
+      write: () => {},
+    });
+    console.log(`SOURCE_OUTCOME installer effective-source: ${result.reason}`);
+    expect(result.reason).toBe("trust-bypass");
+    expect(run).not.toHaveBeenCalled();
+    expect(m.files).toEqual(m.original);
+    expect(m.lines.join("\n")).toContain('"state":"restored"');
+  });
+
+  const replaceDumpValue = (dump, key, value) => {
+    const line = `${key} "${value}";`;
+    return dump.includes(`${key} "0";`) ? dump.replace(`${key} "0";`, line) : `${dump}${line}\n`;
+  };
+  const dumpRefusals = [
+    ...[
+      ["Acquire::AllowInsecureRepositories", "\n1"],
+      ["Acquire::AllowWeakRepositories", "\n1"],
+      ["Acquire::AllowDowngradeToInsecureRepositories", "\n1"],
+      ["APT::Get::AllowUnauthenticated", "\n1"],
+      ["Acquire::https::Verify-Peer", "\n0"],
+      ["Acquire::https::archive.ubuntu.com::Verify-Host", "\n0"],
+      ["Acquire::AllowInsecureRepositories", "\t\n1"],
+      ["Acquire::AllowInsecureRepositories", "\n\n1"],
+    ].map(([key, value]) => [
+      "multiline " + key + " " + JSON.stringify(value),
+      (dump) => replaceDumpValue(dump, key, value),
+      "dump-parse",
+      key,
+      "unparsed",
+    ]),
+    ...[
+      "Acquire::AllowInsecureRepositories 1;",
+      'Acquire::AllowInsecureRepositories "0"1";',
+      'Acquire::http::Timeout "30"',
+      "garbage",
+    ].map((line) => ["unparseable " + line, (dump) => `${dump}${line}\n`, "dump-parse", null, "unparsed"]),
+    ...["Binary::apt-config", "BINARY::Apt-Config", "Binary::apt-config::Acquire::AllowInsecureRepositories"].map(
+      (key) => [
+        "binary-scope " + key,
+        (dump) => `${dump}${key} "${key.includes("Acquire") ? "0" : ""}";\n`,
+        "dump-scope",
+        key,
+        key.includes("Acquire") ? "0" : "",
+      ],
+    ),
+    ...[
+      ["RootDir", "/opt/x/"],
+      ["rootdir", "/opt/x"],
+      ["Binary::apt-get::RootDir", "/opt/x/"],
+    ].map(([key, value]) => [
+      "root-directory " + key,
+      (dump) => `${dump}${key} "${value}";\n`,
+      "dump-root",
+      key,
+      value,
+    ]),
+    [
+      "binding sourceparts",
+      (dump) =>
+        dump.replace('Dir::Etc::sourceparts "sources.list.d";', 'Dir::Etc::sourceparts "/opt/x.d";') +
+        'X::Dir::Etc::sourceparts "sources.list.d";\n',
+      "dump-bind",
+      "Dir::Etc::sourceparts",
+      "/opt/x.d",
+    ],
+    [
+      "binding Dir",
+      (dump) => dump.replace('Dir "/";', 'Dir "/opt/x/";') + 'X::Dir "/";\n',
+      "dump-bind",
+      "Dir",
+      "/opt/x/",
+    ],
+    [
+      "binding timeout",
+      (dump) => dump.replace('Acquire::http::Timeout "30";\n', "") + 'X::Acquire::http::Timeout "30";\n',
+      "dump-bind",
+      "Acquire::http::Timeout",
+      "absent",
+    ],
+  ];
+
+  it.each(dumpRefusals)(
+    "effective dump: refuses %s and restores with ordered records",
+    (label, transform, guard, key, value) => {
+      const m = machine();
+      const command = m.options.command;
+      let injected;
+      m.options.command = (name, args, input) => {
+        const result = command(name, args, input);
+        if (args[1] !== "apt-config") return result;
+        injected = transform(result);
+        return injected;
+      };
+      let error;
+      try {
+        prepareE2eApt(m.options);
+      } catch (caught) {
+        error = caught;
+      }
+      console.log(`DUMP_OUTCOME ${label}: ${error?.message ?? "projected"}`);
+      expect(() => {
+        if (error) throw error;
+      }).toThrow("ineffective-elevated-config");
+      const records = m.lines.filter((line) => /^playwright-e2e-apt-(?:refusal |refusal-dump |restore )/.test(line));
+      expect(records).toHaveLength(3);
+      const expectedKey =
+        guard === "dump-parse"
+          ? `line ${key ? injected.split("\n").findIndex((line) => line.startsWith(`${key} "`)) + 1 : injected.trimEnd().split("\n").length}`
+          : key;
+      expect(JSON.parse(records[0].slice("playwright-e2e-apt-refusal ".length))).toEqual({
+        guard,
+        key: expectedKey,
+        value,
+        configEntries: ["zzz-chase-sets-e2e"],
+      });
+      expect(JSON.parse(records[1].slice("playwright-e2e-apt-refusal-dump ".length))).toEqual({
+        guard,
+        key: expectedKey,
+        effective: injected,
+      });
+      expect(JSON.parse(records[2].slice("playwright-e2e-apt-restore ".length)).state).toBe("restored");
+      expect(m.lines.some((line) => line.startsWith("playwright-e2e-apt-effective "))).toBe(false);
+      expect(m.files).toEqual(m.original);
+    },
+  );
+
+  it("effective dump: escaped FR1 value refuses through unchanged trust-option", () => {
+    const m = machine();
+    const command = m.options.command;
+    m.options.command = (name, args, input) => {
+      const result = command(name, args, input);
+      return args[1] === "apt-config" ? replaceDumpValue(result, "Acquire::AllowInsecureRepositories", "%0a1") : result;
+    };
+    expect(() => prepareE2eApt(m.options)).toThrow("trust-bypass");
+    expect(m.lines).toContain(
+      'playwright-e2e-apt-refusal {"guard":"trust-option","key":"Acquire::AllowInsecureRepositories","value":"%0a1","configEntries":["zzz-chase-sets-e2e"]}',
+    );
+    expect(m.files).toEqual(m.original);
+  });
+
+  it.each([
+    [
+      "escaped format and hook",
+      'APT::Config::Dump::EmptyValue "1";\nAPT::Config::Dump::Format "%25F%20%22%25V%22;%25n";\nAPT::Update::Pre-Invoke:: "touch%20/tmp/x";\n',
+    ],
+    ["secure apt-get scope", 'Binary::apt-get::Acquire::AllowInsecureRepositories "0";\n'],
+    ["blank line", "\n"],
+    ["empty RootDir", 'RootDir "";\n'],
+  ])("effective dump: GREEN %s projects and restores", (_label, suffix) => {
+    const m = machine();
+    const command = m.options.command;
+    m.options.command = (name, args, input) => {
+      const result = command(name, args, input);
+      return args[1] === "apt-config" ? result + suffix : result;
+    };
+    const apt = prepareE2eApt(m.options);
+    expect(apt.projected).toBe(true);
+    expect(m.lines.some((line) => line.startsWith("playwright-e2e-apt-effective "))).toBe(true);
+    expect(m.lines.some((line) => line.startsWith("playwright-e2e-apt-refusal "))).toBe(false);
+    apt.restore();
+    expect(m.files).toEqual(m.original);
+    expect(m.lines.join("\n")).toContain('"state":"restored"');
+  });
 
   it("logged runner state projects with effective 30/30/1 bounds despite image zz-retries", () => {
     const m = machine({ runnerState: true });
@@ -1306,6 +1682,9 @@ Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
       "projected-key-swap",
     ],
     ["M-trust-bypass", (text) => text.replace("Types: deb", "Types: deb\nTrusted: yes"), "trust-bypass"],
+    ["M-trust-on", (text) => text.replace("Types: deb", "Types: deb\nTrusted: on"), "trust-bypass"],
+    ["M-trust-0x1", (text) => text.replace("Types: deb", "Types: deb\nTrusted: 0x1"), "trust-bypass"],
+    ["M-trust-maybe", (text) => text.replace("Types: deb", "Types: deb\nTrusted: maybe"), "trust-bypass"],
   ])("rejects governing projected-file mutant %s with other inputs frozen", (name, mutate, reason) => {
     const input = fixture();
     const plan = projectUbuntuSources(input);

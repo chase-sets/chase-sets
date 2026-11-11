@@ -128,6 +128,17 @@ function isUbuntuEntry(entry, mirrors) {
   );
 }
 
+// Admit an Ubuntu entry's trust options only when apt reads exactly the raw text and it classifies as false.
+function weakensSourceTrust(entry) {
+  if (entry.match && /["%[]/.test((entry.match[2] ?? "").slice(1))) return true;
+  if (entry.fields?.has("trusted") && classifyAptBoolean(entry.fields.get("trusted")) !== false) return true;
+  for (const [, value] of entry.block.matchAll(
+    /\b(?:trusted|allow-insecure|allow-weak|allow-downgrade-to-insecure)\s*[:=]\s*([^\s\]]*)/gi,
+  ))
+    if (classifyAptBoolean(value) !== false) return true;
+  return false;
+}
+
 // Classify Azure Ubuntu entries before projection; non-Ubuntu blocks remain byte-identical.
 export function projectUbuntuSources({ distribution, release, codename, architecture, sources, mirrors }) {
   if (distribution !== "ubuntu" || release !== "24.04" || codename !== "noble" || architecture !== "X64")
@@ -144,12 +155,7 @@ export function projectUbuntuSources({ distribution, release, codename, architec
     for (const entry of sourceEntries(text, filename)) {
       if (!isUbuntuEntry(entry, mirrors)) continue;
       ubuntuCount += 1;
-      if (
-        /\b(?:trusted|allow-insecure|allow-weak|allow-downgrade-to-insecure)(?:\s*[:=]\s*)(?:yes|true|1)\b/i.test(
-          entry.block,
-        )
-      )
-        throw new Error("trust-bypass");
+      if (weakensSourceTrust(entry)) throw new Error("trust-bypass");
       if (!entry.uris.every(Boolean) || !entry.suites.every((suite) => /^noble(?:-[\w-]+)?$/.test(suite)))
         throw new Error("malformed-sources");
       const groups = [
@@ -196,12 +202,7 @@ export function validateUbuntuProjection(original, projected, mirrors) {
       if (!match) throw new Error("projected-key-swap");
       actual.splice(actual.indexOf(match), 1);
       if (!isUbuntuEntry(entry, mirrors)) continue;
-      if (
-        /\b(?:trusted|allow-insecure|allow-weak|allow-downgrade-to-insecure)\s*[:=]\s*(?:yes|true|1)\b/i.test(
-          match.entry.block,
-        )
-      )
-        throw new Error("trust-bypass");
+      if (weakensSourceTrust(match.entry)) throw new Error("trust-bypass");
       if (entry.fields) {
         const invariantFields = (fields) => [...fields].filter(([name]) => !["uris", "suites"].includes(name));
         if (JSON.stringify(invariantFields(entry.fields)) !== JSON.stringify(invariantFields(match.entry.fields)))
@@ -328,7 +329,7 @@ export function prepareE2eApt({
     );
     validateUbuntuProjection(sources, effectiveSources, mirrors);
     for (const key of ubuntuKeys) if (digest(read(key)) !== keys[key]) throw new Error("projected-key-swap");
-    const effective = command("sudo", ["-n", "apt-config", "dump"]);
+    const effective = command("sudo", ["-n", "apt-config", "dump", "--empty", "--format", '%F "%V";%n']);
     const configEntries = list("/etc/apt/apt.conf.d").sort((left, right) =>
       Buffer.compare(Buffer.from(left), Buffer.from(right)),
     );
@@ -383,6 +384,24 @@ export function prepareE2eApt({
         /^Binary::apt-get::Dir(?:::|$)/i.test(name)
       )
         refuse("option-bound", name, value);
+    }
+    for (const [index, line] of effective.split("\n").entries()) {
+      if (!line.trim()) continue;
+      const option = /^(\S+) "([^"\n]*)";$/.exec(line.trim());
+      if (!option) refuse("dump-parse", `line ${index + 1}`, "unparsed");
+      else if (/^Binary::apt-config(?:::|$)/i.test(option[1])) refuse("dump-scope", option[1], option[2]);
+      else if (/(?:^|::)RootDir$/i.test(option[1]) && option[2]) refuse("dump-root", option[1], option[2]);
+    }
+    for (const [name, values] of [
+      ["Acquire::http::Timeout", ["30"]],
+      ["Acquire::https::Timeout", ["30"]],
+      ["Acquire::Retries", ["1"]],
+      ["Dir", ["/"]],
+      ["Dir::Etc", ["etc/apt", "/etc/apt"]],
+      ["Dir::Etc::sourcelist", ["sources.list", "/etc/apt/sources.list"]],
+      ["Dir::Etc::sourceparts", ["sources.list.d", "/etc/apt/sources.list.d"]],
+    ]) {
+      if (!values.includes(effectiveValues.get(name))) refuse("dump-bind", name);
     }
     write(
       `playwright-e2e-apt-effective ${JSON.stringify({ sources: effectiveSources, keys, effective: redactAptConfig(effective), configEntries })}`,
