@@ -1,0 +1,13 @@
+[
+  {
+    "id": "exception-f54532dad2ce9067",
+    "binding": {
+      "module": "bounded-contexts/catalog/features/source-observations/read-model/schema.ts",
+      "kind": "UPDATE",
+      "table": "catalog_merge_candidates",
+      "digest": "99f53a80f6de615898a9538b3ea6bfa1227ab7361294b783015ddba6636647b6"
+    },
+    "classification": "key-only but safe",
+    "reason": "The ledgered 20261106 migration copies each candidate stream's current version from event_store_streams onto rows still at 0; it runs once, and the projection writes every later version."
+  }
+]

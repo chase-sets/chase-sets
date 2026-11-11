@@ -25,7 +25,7 @@ export const scrydexCacheCaptureMaxBytes = 1_000_000;
 // A response must complete this long before the cached row's staleUntil, so
 // runner/server clock skew cannot turn a late read into a timely one.
 export const scrydexCacheCaptureClockSkewToleranceMs = 60_000;
-// integrations-loader-support.ts MAX_SOURCE_OPTION_CONTINUATION_PAGES.
+// source-observations/api/admin/primary-workbench-surface-read.ts MAX_SOURCE_OPTION_CONTINUATION_PAGES.
 export const scrydexCacheCaptureMaxContinuationPages = 100;
 // scope-registry/api/route.ts SCOPE_LIST_MAX_LIMIT.
 export const scrydexCacheCaptureScopePageLimit = 200;

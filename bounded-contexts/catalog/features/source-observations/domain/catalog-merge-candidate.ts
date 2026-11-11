@@ -478,6 +478,14 @@ export type CatalogMergeCandidateEvent =
   | CatalogMergeCandidatePromotionPlannedEvent
   | CatalogMergeCandidatePromotionAppliedEvent;
 
+// The facts an operator can correct as free text: the string-valued ones. Structured facts keep
+// their provider provenance.
+export function catalogMergeCandidateEditableFactKeys(facts: JsonObject): readonly string[] {
+  return Object.keys(facts)
+    .filter((key) => typeof facts[key] === "string")
+    .sort();
+}
+
 export const decideCatalogMergeCandidate: AggregateDecider<
   CatalogMergeCandidateState,
   CatalogMergeCandidateCommand,

@@ -1,5 +1,6 @@
-import { editedSnapshotFromFormData } from "../../../features/source-observations/api/catalog-merge-candidate-edit";
+import { catalogMergeCandidateEditRequestFromFormData } from "../../../features/source-observations/api/catalog-merge-candidate-edit";
 import type { createCatalogRequestApiClient } from "../../../support/request-support/api-client";
+import { ApiError as CatalogApiError } from "../../shell-support/api/client";
 import type { CatalogCommandJobResponse } from "./integrations-command-context";
 import type { CatalogIntegrationsCommandResult } from "./integrations-command-result";
 import { stringValue } from "./integrations-form-values";
@@ -54,11 +55,22 @@ export async function handleCandidateCommand(input: {
       }
 
       if (intent === "candidate.promote") {
+        const expectedVersion = candidateVersionFrom(formData);
+        if (expectedVersion === null) {
+          return candidateResult(intent, "error", "command-failed", { ...context, selectedObservationIds });
+        }
         const conflictResolutions = mergeCandidateConflictResolutionsFromFormData(formData);
         if (conflictResolutions === "missing-resolution") {
           return candidateResult(intent, "error", "reason-required", { ...context, selectedObservationIds });
         }
-        await api.promoteCatalogMergeCandidate(candidateId, { reason, conflictResolutions });
+        try {
+          await api.promoteCatalogMergeCandidate(candidateId, { reason, expectedVersion, conflictResolutions });
+        } catch (error) {
+          if (isStaleCandidateRefusal(error)) {
+            return candidateResult(intent, "error", "candidate-stale", { ...context, selectedObservationIds });
+          }
+          throw error;
+        }
       } else if (intent === "candidate.ignore") {
         await api.ignoreCatalogMergeCandidate(candidateId, { reason });
       } else {
@@ -66,30 +78,38 @@ export async function handleCandidateCommand(input: {
       }
       break;
     }
-    case "candidate.edit": {
-      const editedSnapshot = editedSnapshotFromFormData(formData);
-      if (editedSnapshot) {
-        const reason = String(formData.get("reason") ?? "").trim();
-        if (!reason) {
-          return candidateResult(intent, "error", "reason-required", { ...context, selectedObservationIds });
-        }
-        await api.updateCatalogMergeCandidate(candidateId, { reason, snapshot: editedSnapshot });
-        break;
-      }
-
-      const body = mergeCandidateCommandBody(formData);
-      if (!body) {
-        return candidateResult(intent, "error", "command-failed", { ...context, selectedObservationIds });
-      }
-      await api.updateCatalogMergeCandidate(candidateId, body);
-      break;
-    }
+    case "candidate.edit":
     case "candidate.split": {
-      const body = mergeCandidateCommandBody(formData);
-      if (!body) {
+      // The page names the candidate version it read and the operator's typed change; the Catalog
+      // API applies it to the snapshot it holds and refuses a version it has moved on from.
+      const expectedVersion = candidateVersionFrom(formData);
+      if (expectedVersion === null) {
         return candidateResult(intent, "error", "command-failed", { ...context, selectedObservationIds });
       }
-      await api.splitCatalogMergeCandidate(candidateId, body);
+      const reason = String(formData.get("reason") ?? "").trim();
+      if (!reason) {
+        return candidateResult(intent, "error", "reason-required", { ...context, selectedObservationIds });
+      }
+      const splitObservationIds = idList(formData.get("splitObservationIds"));
+      if (intent === "candidate.split" && splitObservationIds.length === 0) {
+        return candidateResult(intent, "error", "command-failed", { ...context, selectedObservationIds });
+      }
+      try {
+        if (intent === "candidate.edit") {
+          await api.updateCatalogMergeCandidate(candidateId, {
+            reason,
+            expectedVersion,
+            edit: catalogMergeCandidateEditRequestFromFormData(formData),
+          });
+        } else {
+          await api.splitCatalogMergeCandidate(candidateId, { reason, expectedVersion, splitObservationIds });
+        }
+      } catch (error) {
+        if (isStaleCandidateRefusal(error)) {
+          return candidateResult(intent, "error", "candidate-stale", { ...context, selectedObservationIds });
+        }
+        throw error;
+      }
       break;
     }
   }
@@ -140,18 +160,30 @@ async function handleCandidateScopeCommand(
   });
 }
 
-function mergeCandidateCommandBody(formData: FormData): Record<string, unknown> | null {
-  const value = String(formData.get("mergeCandidateCommandBody") ?? "").trim();
-  if (!value) {
-    return null;
-  }
+function candidateVersionFrom(formData: FormData): number | null {
+  const raw = String(formData.get("candidateVersion") ?? "").trim();
+  const version = raw === "" ? Number.NaN : Number(raw);
+  return Number.isSafeInteger(version) && version >= 0 ? version : null;
+}
 
-  try {
-    const parsed = JSON.parse(value) as unknown;
-    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : null;
-  } catch {
-    return null;
+function idList(value: FormDataEntryValue | null): readonly string[] {
+  return typeof value === "string"
+    ? value
+        .split(",")
+        .map((id) => id.trim())
+        .filter(Boolean)
+    : [];
+}
+
+// The Catalog API's answer for a candidate that changed after the page read it.
+function isStaleCandidateRefusal(error: unknown): boolean {
+  if (!(error instanceof CatalogApiError) || error.status !== 409) {
+    return false;
   }
+  const body = error.body;
+  const detail =
+    body && typeof body === "object" && !Array.isArray(body) ? (body as { error?: unknown }).error : undefined;
+  return !!detail && typeof detail === "object" && (detail as { code?: unknown }).code === "stale_merge_candidate";
 }
 
 type MergeCandidateBlockingConflictField = Readonly<{

@@ -1,4 +1,4 @@
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { GIT_LISTING_MAX_BUFFER } from "./lib/git-listing.mjs";
 import { createHash } from "node:crypto";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -7,6 +7,7 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { runInNewContext } from "node:vm";
 import { describe, expect, it } from "vitest";
+import { parse as parseYaml } from "yaml";
 import { classifyChanges, listChangedFiles, toOutputMap } from "./change-scope.mjs";
 import {
   CI_GATE_CATEGORIES,
@@ -22,6 +23,7 @@ import { batchBrowserE2eSuiteIds, batchE2eSuiteIds, e2eSuites } from "./e2e-suit
 import { renderedCopyTuples } from "../infrastructure/playwright-evidence/rendered-copy.ts";
 import { listWorkspacePackages } from "./lib/repo.mjs";
 import { ALWAYS_RUN, VERIFY_STATIC_SURFACES } from "./verify-static-surfaces.mjs";
+import { prepareHostedResponsiveEvidenceArtifact } from "./validate-responsive-evidence-artifacts.mjs";
 
 const REPOSITORY_SCAN_TEST_TIMEOUT_MS = 120_000;
 const selectionFixture = JSON.parse(readFileSync("scripts/fixtures/ci-e2e-selection.json", "utf8"));
@@ -40,6 +42,149 @@ try {
 }
 const { createCiGatePlan: priorCreateCiGatePlan, ciGatePlanOutputMap: priorOutputMap } = priorPlanner;
 const workspaces = listWorkspacePackages();
+
+describe("hosted bootstrap oracle memo gate", () => {
+  it("uses real Git add edit delete and both rename sides for only the four memo inputs", () => {
+    const directory = mkdtempSync(path.join(os.tmpdir(), "11214-impl-g7-scope-"));
+    const git = (args) =>
+      execFileSync("git", ["-C", directory, ...args], { encoding: "utf8", windowsHide: true }).trim();
+    const put = (name, value) => {
+      mkdirSync(path.dirname(path.join(directory, name)), { recursive: true });
+      writeFileSync(path.join(directory, name), value);
+    };
+    const commit = () => {
+      git(["add", "."]);
+      git([
+        "-c",
+        "user.name=Synthetic Test",
+        "-c",
+        "user.email=synthetic@example.invalid",
+        "commit",
+        "--quiet",
+        "-m",
+        "Synthetic scope corpus",
+      ]);
+      return git(["rev-parse", "HEAD"]);
+    };
+    try {
+      git(["init", "--quiet"]);
+      git(["config", "core.autocrlf", "false"]);
+      const selected = [
+        "deployables/platform-api/__tests__/fixtures/bootstrap-db-oracle-schedule-memo.json",
+        "deployables/platform-api/__tests__/fixtures/bootstrap-db-oracle-schedule-memo.mjs",
+        "deployables/platform-api/__tests__/fixtures/bootstrap-db-schedule-before-subset-reuse.mjs",
+        "deployables/platform-api/scripts/check-bootstrap-db-enrollment.mjs",
+      ];
+      put("README.md", "Synthetic baseline\n");
+      let base = commit();
+      for (const target of selected) {
+        for (const operation of ["add", "edit", "rename-out", "rename-in", "delete"]) {
+          if (operation === "add") put(target, "Synthetic canonical input\n");
+          if (operation === "edit") put(target, "Edited canonical input\n");
+          if (operation === "rename-out") git(["mv", target, "moved-input.txt"]);
+          if (operation === "rename-in") git(["mv", "moved-input.txt", target]);
+          if (operation === "delete") rmSync(path.join(directory, target));
+          const head = commit();
+          const changedFiles = listChangedFiles(base, head, { cwd: directory });
+          expect(changedFiles).toContain(target);
+          if (operation.startsWith("rename")) expect(changedFiles).toContain("moved-input.txt");
+          const scope = classifyChanges({ changedFiles, workspaces });
+          for (const mode of ["pull-request", "merge-group"]) {
+            expect(
+              createCiGatePlan({ mode, provenance: "same-repository", scope }).gates.find(
+                ({ id }) => id === "bootstrap-db-oracle-memo-check",
+              ),
+            ).toMatchObject({ selection: "REQUIRED", executability: "HOSTED_ONLY" });
+          }
+          base = head;
+        }
+      }
+      put("README.md", "Edited unrelated input\n");
+      const scope = classifyChanges({ changedFiles: listChangedFiles(base, commit(), { cwd: directory }), workspaces });
+      expect(
+        createCiGatePlan({ mode: "pull-request", provenance: "same-repository", scope }).gates.find(
+          ({ id }) => id === "bootstrap-db-oracle-memo-check",
+        ).selection,
+      ).toBe("NOT_REQUIRED");
+    } finally {
+      expect(directory.startsWith(path.join(os.tmpdir(), "11214-impl-g7-scope-"))).toBe(true);
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("selects memo check only for generator changes", () => {
+    const prefix = "deployables/platform-api/";
+    const selected = [
+      `${prefix}__tests__/fixtures/bootstrap-db-oracle-schedule-memo.json`,
+      `${prefix}__tests__/fixtures/bootstrap-db-oracle-schedule-memo.mjs`,
+      `${prefix}__tests__/fixtures/bootstrap-db-schedule-before-subset-reuse.mjs`,
+      `${prefix}scripts/check-bootstrap-db-enrollment.mjs`,
+    ];
+    for (const mode of ["pull-request", "merge-group"]) {
+      for (const file of [...selected, "README.md", "scripts/bootstrap-db-oracle-memo-artifact.mjs"]) {
+        const scope = classifyChanges({ changedFiles: [file], workspaces });
+        const plan = createCiGatePlan({ mode, scope, provenance: "same-repository", labels: ["full-ci"] });
+        expect(
+          plan.gates.find(({ id }) => id === "bootstrap-db-oracle-memo-check"),
+          file,
+        ).toMatchObject({
+          selection: selected.includes(file) ? "REQUIRED" : "NOT_REQUIRED",
+          executability: "HOSTED_ONLY",
+        });
+      }
+    }
+  });
+
+  it("PR Required fails missing memo check", () => {
+    const workflow = parseYaml(readFileSync(".github/workflows/platform-pr.yml", "utf8"));
+    expect(workflow.jobs["pr-required"].needs).toContain("bootstrap-db-oracle-memo-check");
+    const run = workflow.jobs["pr-required"].steps.find(({ name }) => name === "Verify required jobs").run;
+    expect(run).toContain(
+      'require_job "Bootstrap DB Oracle Memo Check" "${{ needs[\'bootstrap-db-oracle-memo-check\'].result }}" "${{ needs[\'change-scope\'].outputs.bootstrap_db_oracle_memo_check_required }}"',
+    );
+    const scope = classifyChanges({
+      changedFiles: ["deployables/platform-api/__tests__/fixtures/bootstrap-db-oracle-schedule-memo.json"],
+      workspaces,
+    });
+    const outputs = ciGatePlanOutputMap(
+      createCiGatePlan({ mode: "pull-request", provenance: "same-repository", scope }),
+    );
+    const bash =
+      process.platform === "win32"
+        ? path.resolve(execFileSync("git", ["--exec-path"], { encoding: "utf8" }).trim(), "../../../bin/bash.exe")
+        : "bash";
+    for (const result of ["success", "failure", "skipped", ""]) {
+      const script = run.replace(/\$\{\{\s*(.*?)\s*\}\}/g, (_, expression) => {
+        if (expression === "needs['bootstrap-db-oracle-memo-check'].result") return result;
+        if (expression.endsWith(".result")) return "success";
+        const key = expression.match(/^needs\['change-scope'\]\.outputs\.(\w+)$/)?.[1];
+        if (key && key in outputs) return outputs[key];
+        throw new Error(`Unexpected Required expression: ${expression}`);
+      });
+      const execution = spawnSync(bash, ["-c", script], {
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          AC4_E2E_REQUIRED: outputs.e2e_tests_required,
+          AC4_E2E_SUITES_JSON: toOutputMap(scope).e2e_suites_json,
+        },
+      });
+      if (execution.error) throw execution.error;
+      expect(execution.status, execution.stdout + execution.stderr).toBe(result === "success" ? 0 : 1);
+      if (result !== "success") expect(execution.stderr).toContain("Bootstrap DB Oracle Memo Check was required");
+    }
+    const job = workflow.jobs["bootstrap-db-oracle-memo-check"];
+    expect(job["timeout-minutes"]).toBe(30);
+    expect(job.steps.filter(({ run }) => run?.includes("bootstrap-db-oracle-schedule-memo.mjs"))).toEqual([
+      expect.objectContaining({
+        run: "node deployables/platform-api/__tests__/fixtures/bootstrap-db-oracle-schedule-memo.mjs --check",
+      }),
+    ]);
+    expect(
+      job.steps.find(({ name }) => name === "Check memo against raw pinned oracle")["working-directory"],
+    ).toBeUndefined();
+  });
+});
 const scopedCases = selectionFixture.cases.map((entry) => ({
   ...entry,
   scope: classifyChanges({ changedFiles: entry.changedFiles, workspaces }),
@@ -145,7 +290,10 @@ function assertPreservedSelection(planner = createCiGatePlan) {
       e2e.category = "scope-gated";
       e2e.selection = entry.suiteIds.length > 0 ? "REQUIRED" : "NOT_REQUIRED";
       e2e.reason = entry.suiteIds.length > 0 ? "scope" : "not-affected";
-      expect(candidate, `${JSON.stringify(entry.changedFiles)} ${JSON.stringify(scenario)}`).toEqual(expected);
+      expect(
+        { ...candidate, gates: candidate.gates.filter(({ id }) => id !== "bootstrap-db-oracle-memo-check") },
+        `${JSON.stringify(entry.changedFiles)} ${JSON.stringify(scenario)}`,
+      ).toEqual(expected);
       expect(executedSuiteIds(candidate)).toEqual(
         expectedRenderedCopyBatches(entry.batches)
           .flatMap((batch) => batch.split(","))
@@ -342,6 +490,261 @@ const scenarios = [
   ),
   { mode: "merge-group", labels: [], provenance: undefined },
 ];
+
+describe("shared E2E setup regression and enforcement", () => {
+  const baseSha = "4e22cd5906069f661bc129e7e15f4b43b3cdf780";
+  const workflowPath = ".github/workflows/platform-pr.yml";
+  const helperPath = "scripts/playwright-chromium-install.mjs";
+  const acquisitionRows = [
+    "M\t.github/workflows/platform-pr.yml",
+    "D\t.github/workflows/playwright-chromium-install-diagnostics.yml",
+    "M\tscripts/check-github-actions-runtime.mjs",
+    "M\tscripts/check-github-actions-runtime.test.mjs",
+    "D\tscripts/check-structure/playwright-chromium-install-diagnostics.test.mjs",
+    "D\tscripts/playwright-chromium-install-diagnostics.mjs",
+    "D\tscripts/playwright-chromium-install-diagnostics.test.mjs",
+    "M\tscripts/playwright-chromium-install.mjs",
+    "M\tscripts/playwright-chromium-install.test.mjs",
+    "M\tscripts/provider-browser-install-timeout.mjs",
+    "M\tscripts/provider-browser-install-timeout.test.mjs",
+    "M\tscripts/release-qualification-scope.mjs",
+  ];
+
+  it("turns the head-bound installation and revert regressions from unselected into required Chromium", async () => {
+    const historical = [
+      { sha: "6ffb36ec1cf50544038869348542157ad256f721", status: "A" },
+      { sha: "909dd142ae54a67f97be0b411ce7698b0b45a1b0", status: "D" },
+    ].map(({ sha, status }) => {
+      const rows = execFileSync(
+        "git",
+        ["diff-tree", "--no-commit-id", "--no-renames", "--name-status", "-r", `${sha}^`, sha],
+        { encoding: "utf8" },
+      )
+        .trim()
+        .split(/\r?\n/);
+      expect(rows).toEqual([
+        `M\t${workflowPath}`,
+        `${status}\tscripts/install-playwright-chromium.sh`,
+        `${status}\tscripts/install-playwright-chromium.test.mjs`,
+      ]);
+      return { head: sha, rows };
+    });
+    // The acquisition head is squash-prone: retain its independently captured rows, not a Git-object dependency.
+    expect(
+      createHash("sha256")
+        .update(`${acquisitionRows.join("\n")}\n`)
+        .digest("hex"),
+    ).toBe("8a526750040eb9cd9046f0d3f532b848e44d8bd25aacf4dd89158a330c8cba74");
+    const directory = mkdtempSync(path.join(os.tmpdir(), "setup-e2e-regression-"));
+    try {
+      const selectorFile = path.join(directory, "e2e-suites.mjs");
+      const classifierFile = path.join(directory, "change-scope.mjs");
+      writeFileSync(
+        selectorFile,
+        execFileSync("git", ["show", `${baseSha}:scripts/e2e-suites.mjs`], { encoding: "utf8" }).replace(
+          '"./lib/risk-policy-v1.mjs"',
+          JSON.stringify(pathToFileURL(path.resolve("scripts/lib/risk-policy-v1.mjs")).href),
+        ),
+      );
+      let source = execFileSync("git", ["show", `${baseSha}:scripts/change-scope.mjs`], { encoding: "utf8" });
+      for (const specifier of ["./lib/repo.mjs", "./lib/risk-policy-v1.mjs", "./lib/context-proof-sets.mjs"]) {
+        source = source.replace(
+          JSON.stringify(specifier),
+          JSON.stringify(pathToFileURL(path.resolve("scripts", specifier)).href),
+        );
+      }
+      source = source.replace(
+        'const rootDir = fileURLToPath(new URL("../", import.meta.url));',
+        `const rootDir = ${JSON.stringify(process.cwd())};`,
+      );
+      writeFileSync(
+        classifierFile,
+        source.replace('"./e2e-suites.mjs"', JSON.stringify(pathToFileURL(selectorFile).href)),
+      );
+      const baseline = await import(pathToFileURL(classifierFile).href);
+      const regressions = [...historical, { head: "31a3165b1c9ef49a1a0a903930a7a60f1b0314b9", rows: acquisitionRows }];
+      for (const { head, rows } of regressions) {
+        expect(
+          rows.every((row) => /^[AMD]\t[^\r\n]+$/.test(row)),
+          head,
+        ).toBe(true);
+        const files = rows.map((row) => row.split("\t")[1]);
+        for (const changedFiles of [files, [workflowPath]]) {
+          const previous = baseline.classifyChanges({ changedFiles, workspaces });
+          const scope = classifyChanges({ changedFiles, workspaces });
+          expect(previous.e2eSuiteIds, head).toEqual([]);
+          expect(baseline.toOutputMap(previous).e2e_suite_batches_json).toBe("[]");
+          expect(scope).toEqual({ ...previous, e2eSuiteIds: ["admin_auth"], e2eTestsRequired: true });
+          for (const mode of ["pull-request", "merge-group"]) {
+            const inputs = { mode, labels: [], provenance: "same-repository" };
+            expect(
+              createCiGatePlan({ ...inputs, scope: previous }).gates.find(({ id }) => id === "e2e-tests"),
+            ).toMatchObject({ selection: "NOT_REQUIRED", e2eBatches: [] });
+            const plan = createCiGatePlan({ ...inputs, scope });
+            expect(plan.gates.find(({ id }) => id === "e2e-tests")).toMatchObject({
+              selection: "REQUIRED",
+              e2eBatches: ["admin_auth"],
+            });
+            expect(ciGatePlanOutputMap(plan).e2e_tests_required).toBe("true");
+            expect(executedSuiteIds(plan)).toEqual(["admin_auth"]);
+          }
+        }
+      }
+      for (const changedFiles of [
+        ["scripts/install-playwright-chromium.sh", "scripts/install-playwright-chromium.test.mjs"],
+        [helperPath],
+      ]) {
+        expect(classifyChanges({ changedFiles }).e2eSuiteIds).toEqual(
+          changedFiles.includes(helperPath) ? ["admin_auth"] : [],
+        );
+      }
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it.each(
+    [[workflowPath], [helperPath], [workflowPath, helperPath], ["README.md"]].flatMap((changedFiles) =>
+      ["pull-request", "merge-group"].map((mode) => ({ changedFiles, mode })),
+    ),
+  )(
+    "enforces actual Required bash for $changedFiles in $mode, with unselected skip neutral",
+    ({ changedFiles, mode }) => {
+      const workflow = parseYaml(headWorkflow);
+      const gate = workflow.jobs["pr-required"].steps.find(({ name }) => name === "Verify required jobs");
+      const bash =
+        process.platform === "win32"
+          ? path.resolve(execFileSync("git", ["--exec-path"], { encoding: "utf8" }).trim(), "../../../bin/bash.exe")
+          : "bash";
+      const scope = classifyChanges({ changedFiles, workspaces });
+      const outputs = ciGatePlanOutputMap(createCiGatePlan({ mode, labels: [], provenance: "same-repository", scope }));
+      const selected = changedFiles.includes(workflowPath) || changedFiles.includes(helperPath);
+      expect(outputs.e2e_tests_required).toBe(String(selected));
+      for (const result of ["success", "failure", "skipped"]) {
+        const run = gate.run.replace(/\$\{\{\s*(.*?)\s*\}\}/g, (_, expression) => {
+          if (expression === "needs['e2e-tests'].result") return result;
+          if (expression.endsWith(".result")) return "success";
+          const key = expression.match(/^needs\['change-scope'\]\.outputs\.(\w+)$/)?.[1];
+          if (key && key in outputs) return outputs[key];
+          throw new Error(`Unexpected Required expression: ${expression}`);
+        });
+        const execution = spawnSync(bash, ["-c", run], {
+          encoding: "utf8",
+          env: {
+            ...process.env,
+            AC4_E2E_REQUIRED: outputs.e2e_tests_required,
+            AC4_E2E_SUITES_JSON: toOutputMap(scope).e2e_suites_json,
+          },
+        });
+        if (execution.error) throw execution.error;
+        expect(execution.status, execution.stdout + execution.stderr).toBe(
+          result === "success" || (!selected && result === "skipped") ? 0 : 1,
+        );
+        if (selected && result !== "success")
+          expect(execution.stderr).toContain(`E2E Tests was required but finished with result '${result}'`);
+      }
+    },
+  );
+
+  it("preserves matrix, budgets, retries and success-only publication wiring", () => {
+    const workflow = parseYaml(headWorkflow);
+    const job = workflow.jobs["e2e-tests"];
+    expect(job.name).toBe("E2E Tests (${{ matrix.suite_batch }})");
+    expect(job["timeout-minutes"]).toBe(25);
+    expect(job.strategy).toEqual({
+      "fail-fast": false,
+      matrix: { suite_batch: "${{ fromJson(needs['change-scope'].outputs.e2e_suite_batches_json) }}" },
+    });
+    expect(job.steps.find(({ id }) => id === "e2e-producer")["continue-on-error"]).toBeUndefined();
+    expect(job.steps.find(({ name }) => name === "Upload successful responsive evidence").if).toBe(
+      "steps.responsive-evidence.outputs.publish == 'true'",
+    );
+
+    const pinned = {
+      landing: "ff0d9dba9bec81852185bf0a76caac58e2eeb102",
+      parent: "8f227bbda3c2a3379c694d41f3c2a6b4286a7193",
+      baseline: baseSha,
+    };
+    for (const [role, sha] of Object.entries(pinned)) {
+      expect(sha, `E2E_NEUTRALITY_PINNED_ROLE_INVALID: ${role}`).toMatch(/^[a-f0-9]{40}$/);
+      expect(
+        spawnSync("git", ["cat-file", "-e", `${sha}^{commit}`], { encoding: "utf8" }).status,
+        `E2E_NEUTRALITY_OBJECT_MISSING: ${role}`,
+      ).toBe(0);
+    }
+    const parents = execFileSync("git", ["show", "-s", "--format=%P", pinned.landing], { encoding: "utf8" })
+      .trim()
+      .split(" ");
+    expect(parents, "E2E_NEUTRALITY_PARENTAGE_MISMATCH").toEqual([pinned.parent]);
+    const rows = execFileSync("git", ["diff", "--no-renames", "--name-status", pinned.parent, pinned.landing], {
+      encoding: "utf8",
+      maxBuffer: GIT_LISTING_MAX_BUFFER,
+    })
+      .trim()
+      .split(/\r?\n/);
+    expect(rows, "E2E_NEUTRALITY_CHANGED_ROWS_MISMATCH").toEqual([
+      "M\tscripts/change-scope.test.mjs",
+      "M\tscripts/ci-gate-plan.test.mjs",
+      "M\tscripts/e2e-suites.mjs",
+      "M\tscripts/fixtures/ci-e2e-selection.json",
+    ]);
+    for (const [role, sha] of Object.entries(pinned)) {
+      const blob = execFileSync("git", ["rev-parse", `${sha}:${workflowPath}`], { encoding: "utf8" }).trim();
+      expect(blob, `E2E_NEUTRALITY_WORKFLOW_BLOB_MISMATCH: ${role}`).toBe("849088b6d52a1dd508985ec337c4a83ff19988ae");
+    }
+  });
+
+  it.each(["failure", "skipped"])("publishes no responsive evidence for a selected %s producer", async (outcome) => {
+    const directory = mkdtempSync(path.join(os.tmpdir(), "setup-e2e-publication-"));
+    const sha = "a".repeat(40);
+    try {
+      const result = await prepareHostedResponsiveEvidenceArtifact({
+        repoRoot: directory,
+        selectedGreps: ["@admin-auth"],
+        outputRoot: "synthetic-hosted-output",
+        producer: {
+          outcome,
+          repository: "synthetic/example",
+          workflow: "Synthetic PR",
+          workflowRef: "synthetic/ref",
+          eventName: "pull_request",
+          job: "e2e-tests",
+          suiteBatch: "admin_auth",
+          runId: 1,
+          runAttempt: 1,
+          jobIndex: 0,
+          workflowSha: sha,
+          checkoutSha: sha,
+          checkoutTreeSha: sha,
+          checkoutParentShas: [sha, sha],
+          executedBaseSha: sha,
+          executedBaseTreeSha: sha,
+          sourceHeadSha: sha,
+          sourceHeadTreeSha: sha,
+          eventBaseSha: sha,
+        },
+        gitIdentity: {
+          checkoutCommit: sha,
+          checkoutTree: sha,
+          checkoutParents: [sha, sha],
+          executedBase: sha,
+          executedBaseTree: sha,
+          sourceHead: sha,
+          sourceHeadTree: sha,
+          shallow: false,
+        },
+      });
+      expect(result).toEqual({
+        publish: false,
+        violations: [`responsive evidence producer outcome must be 'success', got '${outcome}'.`],
+        expectedClaimIds: [],
+        files: [],
+      });
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+});
 
 describe("shared CI gate plan", () => {
   it("incident #8493 executes the complete 29-path suite set before merge queue admission", () => {
@@ -697,7 +1100,7 @@ describe("shared CI gate plan", () => {
       // all-DB sweep keeps its empty workspace list.
       expect(membership([])).toEqual({ selection: "NOT_REQUIRED", publicPresence: 0 });
       expect(membership([".github/workflows/platform-pr.yml"])).toEqual({
-        selection: "NOT_REQUIRED",
+        selection: "REQUIRED",
         publicPresence: 0,
       });
     },
@@ -723,8 +1126,18 @@ describe("shared CI gate plan", () => {
       for (const scenario of scenarios) {
         const plan = createCiGatePlan({ ...scenario, scope });
         for (const gate of plan.gates) {
-          const expectedRequired = baseSelection(gate.id, { ...scenario, scope });
-          const category = gate.id === "e2e-tests" ? "scope-gated" : baseCategories.get(gate.id);
+          const memo = gate.id === "bootstrap-db-oracle-memo-check";
+          const expectedRequired = memo
+            ? scope.changedFiles.some((file) =>
+                [
+                  "deployables/platform-api/__tests__/fixtures/bootstrap-db-oracle-schedule-memo.json",
+                  "deployables/platform-api/__tests__/fixtures/bootstrap-db-oracle-schedule-memo.mjs",
+                  "deployables/platform-api/__tests__/fixtures/bootstrap-db-schedule-before-subset-reuse.mjs",
+                  "deployables/platform-api/scripts/check-bootstrap-db-enrollment.mjs",
+                ].includes(file),
+              )
+            : baseSelection(gate.id, { ...scenario, scope });
+          const category = gate.id === "e2e-tests" || memo ? "scope-gated" : baseCategories.get(gate.id);
           const required = gate.id === "e2e-tests" ? scope.e2eTestsRequired : expectedRequired;
           const expected = required ? "REQUIRED" : "NOT_REQUIRED";
           const reason = expectedReason(gate.id, category, required, { ...scenario, scope });
@@ -800,8 +1213,9 @@ describe("shared CI gate plan", () => {
     ).toThrow("UNKNOWN_OR_MISSING_GATE_IDS");
   });
 
-  it("closes executability over exactly the same seventeen gates", () => {
+  it("adds only the hosted memo gate to the historical seventeen gates", () => {
     const universe = [...requiredNeeds(baseWorkflow), "pr-required"];
+    universe.splice(universe.indexOf("unit-tests") + 1, 0, "bootstrap-db-oracle-memo-check");
     expect(CI_GATE_DEFINITIONS.map(({ id }) => id)).toEqual(universe);
     expect(CI_GATE_DEFINITIONS.every(({ executability }) => CI_GATE_EXECUTABILITY.includes(executability))).toBe(true);
     expect(
@@ -813,7 +1227,7 @@ describe("shared CI gate plan", () => {
           ? typeof hostedOnlyReason === "string" && hostedOnlyReason.length > 0
           : hostedOnlyReason === null,
       ),
-    ).toHaveLength(17);
+    ).toHaveLength(18);
 
     const scope = classifyChanges({ changedFiles: ["README.md"] });
     const plan = createCiGatePlan({ mode: "merge-group", scope });

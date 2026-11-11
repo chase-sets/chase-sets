@@ -91,7 +91,7 @@ describe("FulfillmentCommandCenterPage", () => {
     expect(html).toContain('value="record-delivery"');
   });
 
-  it("renders cancellation only for the matching conflict and carries the advisory fact", () => {
+  it("renders cancellation only for the matching conflict and posts only the shipment", () => {
     const matching = {
       order_id: "ord_1",
       conflict_kind: "cancellation" as const,
@@ -102,8 +102,10 @@ describe("FulfillmentCommandCenterPage", () => {
     };
     const html = render([shipment({ shipment_id: "race", status: "packing", conflicts: [matching] })]);
     expect(html).toContain('value="cancel-shipment"');
-    expect(html).toContain('name="hasOrderCancellationConflict"');
-    expect(html).toContain('value="true"');
+    expect(html).toContain('name="shipmentId"');
+    for (const posted of ["status", "labelStatus", "hasOrderCancellationConflict"]) {
+      expect(html).not.toContain(`name="${posted}"`);
+    }
 
     const fraudOnly = render([
       shipment({
@@ -115,32 +117,22 @@ describe("FulfillmentCommandCenterPage", () => {
     expect(fraudOnly).not.toContain('value="cancel-shipment"');
   });
 
-  it("uses the form conflict only as a pre-check before the server-authoritative cancel", async () => {
+  it("sends the action to the API and ignores any state the form posts", async () => {
     const cancelShipment = vi.fn(async () => ({ id: "shp_race", version: 4 }));
-    const api = { cancelShipment } as never;
-    const matching = new FormData();
-    matching.set("shipmentId", "shp_race");
-    matching.set("status", "packing");
-    matching.set("labelStatus", "not-purchased");
-    matching.set("hasOrderCancellationConflict", "true");
-    matching.set("mutationAttemptId", "attempt-race");
-    await expect(runShipmentCommandCenterAction(api, "cancel-shipment", matching)).resolves.toEqual({ ok: true });
-    expect(cancelShipment).toHaveBeenCalledTimes(1);
-
-    const fraudOnly = new FormData();
-    fraudOnly.set("shipmentId", "shp_race");
-    fraudOnly.set("status", "packing");
-    fraudOnly.set("labelStatus", "not-purchased");
-    fraudOnly.set("hasOrderCancellationConflict", "false");
-    fraudOnly.set("mutationAttemptId", "attempt-fraud");
-    await expect(runShipmentCommandCenterAction(api, "cancel-shipment", fraudOnly)).resolves.toEqual({
-      ok: false,
-      error: "Cannot cancel shipment without an order cancellation conflict.",
-    });
-    expect(cancelShipment).toHaveBeenCalledTimes(1);
+    const form = new FormData();
+    form.set("shipmentId", "shp_race");
+    form.set("status", "delivered");
+    form.set("hasOrderCancellationConflict", "false");
+    form.set("mutationAttemptId", "attempt-race");
+    await expect(runShipmentCommandCenterAction({ cancelShipment } as never, "cancel-shipment", form)).resolves.toEqual(
+      {
+        ok: true,
+      },
+    );
+    expect(cancelShipment).toHaveBeenCalledWith("shp_race", "attempt-race");
   });
 
-  it("refuses a forged positive adapter fact when the aggregate records fraud only", async () => {
+  it("answers the aggregate's refusal when a forged form claims a cancellation conflict", async () => {
     const fraudOnlyState = {
       ...initialFulfillmentShipmentState,
       shipmentId: "shp_race" as never,
@@ -168,8 +160,6 @@ describe("FulfillmentCommandCenterPage", () => {
     });
     const forged = new FormData();
     forged.set("shipmentId", "shp_race");
-    forged.set("status", "packing");
-    forged.set("labelStatus", "not-purchased");
     forged.set("hasOrderCancellationConflict", "true");
     forged.set("mutationAttemptId", "attempt-forged");
 

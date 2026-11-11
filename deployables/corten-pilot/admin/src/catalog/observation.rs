@@ -13,7 +13,7 @@
 //! observation no longer reviewable) is the form's message here; admin-web shows nothing then
 //! (chase-sets/chase-sets#10896).
 //! Reject without a reason sends admin-web's default one, "Rejected during review.".
-use corten::{axum::http::HeaderMap, prelude::*};
+use corten::{http::HeaderMap, prelude::*};
 use platform::receipt::Receipt;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -42,7 +42,7 @@ pub mod url {
 }
 
 /// What a review did, for the page it redirects to (admin-web's toasts).
-#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, corten::UrlValue)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, corten::UrlValue)]
 #[serde(rename_all = "snake_case")]
 pub enum Reviewed {
     Promoted,
@@ -123,7 +123,7 @@ pub fn rejectable(status: &str) -> bool {
 
 /// The review form: the button's action, the reason a reject sends, and the status the form was
 /// drawn for (only to draw it again after a refusal; the API decides what the status allows).
-#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[derive(Clone, Debug, Default, Fields)]
 #[serde(default)]
 pub struct ReviewInput {
     pub action: String,
@@ -185,13 +185,13 @@ async fn render(
     } else {
         t.route_obs_named(&screen.observation.normalized.name).to_string()
     };
-    let view = views::observation_page(t, req.t(), &screen, notice.as_ref(), refused);
+    let view = views::observation_page(req, t, req.t(), &screen, notice.as_ref(), refused);
     req.screen(
         &screen,
         html! {
-            <crate::views::Layout req={req} viewer={Some(viewer)} title={&title} head="">
+            <crate::views::OwnToastLayout req={req} viewer={Some(viewer)} title={&title} head="">
                 {view}
-            </crate::views::Layout>
+            </crate::views::OwnToastLayout>
         },
     )
 }

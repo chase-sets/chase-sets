@@ -7,15 +7,31 @@ import {
   trySignedMoneyToCents,
 } from "@chase-sets/primitives/money";
 import { useEffect, useRef } from "react";
-import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
+import type { ActionFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useActionData, useLoaderData, useNavigation, useSubmit } from "react-router";
 import { RouterForm } from "@chase-sets/design-system/react-router";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
-import { createForwardedAuthFetch, resolveRequestApiBaseUrl } from "@chase-sets/platform-runtime/http";
-import { navigateAfterWriteWithPlatformPostWriteToken } from "@chase-sets/platform-runtime/post-write-tokens";
+import {
+  createForwardedAuthFetch,
+  defineResourceRoute,
+  resolveRequestApiBaseUrl,
+} from "@chase-sets/platform-runtime/http";
+import {
+  navigateAfterWriteWithPlatformPostWriteToken,
+  resolvePlatformPostWriteRequest,
+} from "@chase-sets/platform-runtime/post-write-tokens";
+import {
+  attachResponseMetadata,
+  classifyFreshWriteReadError,
+  getMutationResultCommandReceipt,
+  preserveFreshWriteMetadata,
+} from "@chase-sets/http/responses";
+import { z } from "zod";
+import type { PaymentsCheckoutStatus } from "../../client";
+import contextManifest from "../../context.json";
+import { paymentsApiErrorAdapter } from "../../support/request-support/route-api-error";
 import {
   HiddenInput,
-  Form,
   Badge,
   OrderProtectionModule,
   Button,
@@ -99,6 +115,33 @@ function requestedBalanceCreditFromForm(formData: FormData) {
   return normalizeRequestedBalanceCreditAmount(formData.get("requestedBalanceCreditAmount"));
 }
 
+// Payments' eligibility, not the raw wallet balance, controls wallet recovery and payment start.
+function walletTermsReason(status: PaymentsCheckoutStatus) {
+  return status.unavailable_reason_details.find((reason) => reason.code === "wallet-terms-not-accepted");
+}
+
+const termsAcceptanceSchema = z.object({ accepted: z.literal(true) });
+
+function validateCheckoutStatus(status: PaymentsCheckoutStatus) {
+  const amounts = [
+    status.amount,
+    status.wallet_credit.requested_amount,
+    status.wallet_credit.applied_amount,
+    status.wallet_credit.external_amount,
+    ...[status.marketplace_checkout_fee, ...status.payment_method_quotes].flatMap((quote) => [
+      quote.external_basis_amount,
+      quote.marketplace_checkout_fee_amount,
+      quote.marketplace_checkout_fee_reduction_amount,
+      quote.total_amount,
+      quote.processor_amount,
+    ]),
+  ];
+  if (!amounts.every(isCanonicalMoneyAmount)) {
+    throw new Error(t("payments.routes.marketplace.accountPaymentNew.wallet.status.invalid"));
+  }
+  return status;
+}
+
 async function loadWalletBalance(request: Request) {
   const response = await createForwardedAuthFetch(request, globalThis.fetch, { readTargetContextName: "settlement" })(
     `${resolveRequestApiBaseUrl(request, "/api/settlement")}/wallet`,
@@ -114,50 +157,74 @@ async function loadWalletBalance(request: Request) {
   }>;
 }
 
-export async function loader({ request }: LoaderFunctionArgs) {
-  await requireActorFromAuthApi({
-    request,
-    permission: "orders.manage",
-  });
+async function loadPaymentInputs(request: Request) {
   const url = new URL(request.url);
   const orderIds = parseOrderIds(url.searchParams.get("orderIds"));
+  const { orders } = await createPaymentsRequestApiClient(request).listAccountOrderInputs({ orderIds });
+  const wallet = await loadWalletBalance(request);
+  return {
+    orderIds,
+    orders,
+    autostart: url.searchParams.get("autostart") === "1",
+    wallet,
+    walletStatusRefreshUrl: preserveFreshWriteMetadata(
+      `/account/payments/new?${new URLSearchParams({ orderIds: orderIds.join(",") })}`,
+      request,
+    ),
+  };
+}
 
-  if (orderIds.length === 0) {
-    throw redirect("/account/purchases");
-  }
-
-  const paymentsApi = createPaymentsRequestApiClient(request);
-
-  try {
-    const { orders } = await paymentsApi.listAccountOrderInputs({ orderIds });
-    const wallet = await loadWalletBalance(request);
+export const loader = defineResourceRoute({
+  manifest: contextManifest,
+  routeId: "account-payment-new",
+  prepare: async (args) => ({ ...args, request: await resolvePlatformPostWriteRequest(args.request) }),
+  authorization: async ({ request }) => {
+    const actor = await requireActorFromAuthApi({ request, permission: "orders.manage" });
+    if (parseOrderIds(new URL(request.url).searchParams.get("orderIds")).length === 0) {
+      throw redirect("/account/purchases");
+    }
+    return actor;
+  },
+  errorAdapter: paymentsApiErrorAdapter,
+  load: async ({ request }) => {
+    const inputs = await loadPaymentInputs(request);
+    const { orders, wallet, orderIds } = inputs;
     const totalAmount = sumOrderAmounts(orders.map((order) => order.total_amount));
     const { maxBalanceCreditAmount: requestedBalanceCreditAmount } = calculateBalanceCredit(
       totalAmount,
       wallet?.available_balance_amount ?? null,
     );
-    const checkoutStatus = await paymentsApi.getCheckoutStatus({
-      orderIds,
-      requestedBalanceCreditAmount,
-      paymentMethodCategory: "card",
-    });
     return {
-      orderIds,
-      orders,
-      autostart: url.searchParams.get("autostart") === "1",
-      wallet,
-      checkoutStatus,
+      ...inputs,
+      checkoutStatus: validateCheckoutStatus(
+        await createPaymentsRequestApiClient(request).getCheckoutStatus({
+          orderIds,
+          requestedBalanceCreditAmount,
+          paymentMethodCategory: "card",
+        }),
+      ),
     };
-  } catch (error) {
+  },
+  map: (data) => ({ ...data, walletStatusPending: false }),
+  // Keep orders visible without turning a stale read into a wallet-eligibility claim.
+  onPending: async (_result, { request }) => ({
+    ...(await loadPaymentInputs(request)),
+    checkoutStatus: null,
+    walletStatusPending: true,
+  }),
+  onPermanentFailure: (result) => {
+    const error = "error" in result ? result.error : null;
     if (error instanceof Error && "status" in error && error.status === 404) {
       throw new Response(t("payments.routes.marketplace.accountPaymentNew.purchase.not.found"), { status: 404 });
     }
 
-    throw error;
-  }
-}
+    if (error) throw error;
+    throw new Error(t("payments.routes.marketplace.accountPaymentNew.wallet.status.invalid"));
+  },
+});
 
 export async function action({ request }: ActionFunctionArgs) {
+  request = await resolvePlatformPostWriteRequest(request);
   await requireActorFromAuthApi({
     request,
     permission: "orders.manage",
@@ -168,6 +235,34 @@ export async function action({ request }: ActionFunctionArgs) {
     return { error: t("payments.routes.marketplace.accountPaymentNew.choose.at.least.one.order.to") };
   }
 
+  if (formData.get("intent") === "accept-terms") {
+    try {
+      const response = await createForwardedAuthFetch(request, globalThis.fetch)(
+        `${resolveRequestApiBaseUrl(request, "/api/identity")}/consents/terms-of-service/accept`,
+        { method: "POST" },
+      );
+      if (!response.ok || !termsAcceptanceSchema.safeParse(await response.json()).success) {
+        return { error: t("payments.routes.marketplace.accountPaymentNew.terms.accept.failed") };
+      }
+      const receipt = attachResponseMetadata({}, response);
+      if (
+        !getMutationResultCommandReceipt(receipt)?.commitPositions?.some(
+          (position) => position.sourceContextName === "identity",
+        )
+      ) {
+        return { error: t("payments.routes.marketplace.accountPaymentNew.terms.accept.failed") };
+      }
+      return redirect(
+        await navigateAfterWriteWithPlatformPostWriteToken(
+          receipt,
+          `/account/payments/new?${new URLSearchParams({ orderIds: orderIds.join(",") })}`,
+        ),
+      );
+    } catch {
+      return { error: t("payments.routes.marketplace.accountPaymentNew.terms.accept.failed") };
+    }
+  }
+
   const paymentsApi = createPaymentsRequestApiClient(request);
 
   try {
@@ -175,11 +270,16 @@ export async function action({ request }: ActionFunctionArgs) {
       requestedBalanceCreditFromForm(formData),
     );
     const paymentMethodCategory = String(formData.get("paymentMethodCategory") ?? "card");
-    const checkoutStatus = await paymentsApi.getCheckoutStatus({
-      orderIds,
-      requestedBalanceCreditAmount,
-      paymentMethodCategory,
-    });
+    const checkoutStatus = validateCheckoutStatus(
+      await paymentsApi.getCheckoutStatus({
+        orderIds,
+        requestedBalanceCreditAmount,
+        paymentMethodCategory,
+      }),
+    );
+    if (compareMoneyAmounts(requestedBalanceCreditAmount ?? "0.00", "0.00") > 0 && walletTermsReason(checkoutStatus)) {
+      return { checkoutStatus };
+    }
     const payment = await paymentsApi.createAccountPayment({
       orderIds,
       requestedBalanceCreditAmount,
@@ -190,6 +290,9 @@ export async function action({ request }: ActionFunctionArgs) {
       await navigateAfterWriteWithPlatformPostWriteToken(payment, `/account/payments/${payment.payment_id}`),
     );
   } catch (error) {
+    if (classifyFreshWriteReadError({ request, error }).errorCode === "projection_freshness_timeout") {
+      return { error: t("payments.routes.marketplace.accountPaymentNew.wallet.catching.up") };
+    }
     return {
       error:
         error instanceof Error
@@ -209,10 +312,36 @@ export default function MarketplaceAccountPaymentNewRoute() {
   const submit = useSubmit();
   const formRef = useRef<HTMLFormElement | null>(null);
   const hasAutoSubmittedRef = useRef(false);
+  const lastTermsReasonRef = useRef<{ orderIds: string; message: string } | null>(null);
+  const checkoutStatus =
+    navigation.state === "loading" && actionData && "checkoutStatus" in actionData && actionData.checkoutStatus
+      ? actionData.checkoutStatus
+      : data.checkoutStatus;
+  const orderIdsKey = data.orderIds.join(",");
+  const currentTermsReason = checkoutStatus ? walletTermsReason(checkoutStatus) : null;
+  const termsReason =
+    currentTermsReason ??
+    (data.walletStatusPending && lastTermsReasonRef.current?.orderIds === orderIdsKey
+      ? lastTermsReasonRef.current
+      : null);
+  const walletWithheld = Boolean(termsReason) || Boolean(data.walletStatusPending);
+  const acceptingTerms = navigation.formData?.get("intent") === "accept-terms" && navigation.state !== "idle";
 
   useEffect(() => {
+    if (!data.walletStatusPending) {
+      lastTermsReasonRef.current = currentTermsReason
+        ? { orderIds: orderIdsKey, message: currentTermsReason.message }
+        : null;
+    }
+  }, [currentTermsReason, data.walletStatusPending, orderIdsKey]);
+
+  useEffect(() => {
+    if (data.autostart && walletWithheld) {
+      hasAutoSubmittedRef.current = true;
+    }
     if (
       !data.autostart ||
+      walletWithheld ||
       actionData?.error ||
       hasAutoSubmittedRef.current ||
       navigation.state !== "idle" ||
@@ -223,17 +352,19 @@ export default function MarketplaceAccountPaymentNewRoute() {
 
     hasAutoSubmittedRef.current = true;
     void submit(formRef.current, { method: "post" });
-  }, [actionData?.error, data.autostart, navigation.state, submit]);
+  }, [actionData?.error, data.autostart, navigation.state, submit, walletWithheld]);
 
   const totalAmount = sumOrderAmounts(data.orders.map((order) => order.total_amount));
   const marketplaceSalesFeeAmount = sumOrderAmounts(data.orders.map((order) => order.marketplace_sales_fee_amount));
   const sellerPayoutAmount = sumOrderAmounts(data.orders.map((order) => order.seller_payout_amount));
   const salesTaxAmount = sumOrderAmounts(data.orders.map((order) => order.sales_tax_amount ?? "0.00"));
-  const selectedCheckoutFee = data.checkoutStatus.marketplace_checkout_fee;
-  const { availableBalanceCents, maxBalanceCreditAmount, externalAfterMaxAmount } = calculateBalanceCredit(
-    totalAmount,
-    data.wallet?.available_balance_amount ?? null,
-  );
+  const selectedCheckoutFee = checkoutStatus?.marketplace_checkout_fee;
+  const maxBalanceCreditAmount = checkoutStatus?.wallet_credit.applied_amount ?? "0.00";
+  const externalAfterMaxAmount = checkoutStatus?.wallet_credit.external_amount;
+  const walletAvailable = !walletWithheld && compareMoneyAmounts(maxBalanceCreditAmount, "0.00") > 0;
+  const paymentTotal = selectedCheckoutFee
+    ? formatMoney(selectedCheckoutFee.total_amount)
+    : t("payments.routes.marketplace.accountPaymentNew.quote.pending");
 
   return (
     <Page>
@@ -269,7 +400,9 @@ export default function MarketplaceAccountPaymentNewRoute() {
                 },
                 {
                   label: t("payments.routes.marketplace.accountPaymentNew.marketplace.checkout.fee"),
-                  value: formatMoney(selectedCheckoutFee.marketplace_checkout_fee_amount),
+                  value: selectedCheckoutFee
+                    ? formatMoney(selectedCheckoutFee.marketplace_checkout_fee_amount)
+                    : paymentTotal,
                 },
                 ...(data.wallet
                   ? [
@@ -280,13 +413,17 @@ export default function MarketplaceAccountPaymentNewRoute() {
                     ]
                   : []),
                 {
+                  label: t("payments.routes.marketplace.accountPaymentNew.wallet.credit.applied"),
+                  value: formatMoney(maxBalanceCreditAmount),
+                },
+                {
                   label: t("payments.routes.marketplace.accountPaymentNew.payment.method.charge", {
-                    method: paymentMethodLabel(selectedCheckoutFee.payment_method_category),
+                    method: paymentMethodLabel(selectedCheckoutFee?.payment_method_category ?? "card"),
                   }),
-                  value: formatMoney(selectedCheckoutFee.processor_amount),
+                  value: selectedCheckoutFee ? formatMoney(selectedCheckoutFee.processor_amount) : paymentTotal,
                 },
               ]}
-              total={formatMoney(selectedCheckoutFee.total_amount)}
+              total={paymentTotal}
               totalLabel={t("payments.routes.marketplace.accountPaymentNew.total.due")}
               reassurance={
                 <SecurePaymentIndicator label={t("payments.routes.marketplace.accountPaymentNew.secure.payment")} />
@@ -345,6 +482,42 @@ export default function MarketplaceAccountPaymentNewRoute() {
         }
       >
         <Stack gap={4}>
+          {walletWithheld ? (
+            <MarketplaceNotice
+              tone="warning"
+              title={t("payments.routes.marketplace.accountPaymentNew.wallet.unavailable")}
+              description={
+                termsReason?.message ?? t("payments.routes.marketplace.accountPaymentNew.wallet.catching.up")
+              }
+            />
+          ) : null}
+          {data.walletStatusPending ? (
+            <Text>{t("payments.routes.marketplace.accountPaymentNew.wallet.catching.up")}</Text>
+          ) : null}
+          {walletWithheld ? (
+            <Stack gap={2}>
+              <LinkButton href="/terms" tone="secondary">
+                {t("payments.routes.marketplace.accountPaymentNew.terms.review")}
+              </LinkButton>
+              {data.walletStatusPending ? (
+                <LinkButton href={data.walletStatusRefreshUrl} tone="secondary">
+                  {t("payments.routes.marketplace.accountPaymentNew.wallet.refresh")}
+                </LinkButton>
+              ) : (
+                <RouterForm method="post" action={data.walletStatusRefreshUrl}>
+                  <HiddenInput name="orderIds" value={data.orderIds.join(",")} />
+                  <HiddenInput name="intent" value="accept-terms" />
+                  <Button type="submit" disabled={navigation.state !== "idle"}>
+                    {t(
+                      acceptingTerms
+                        ? "payments.routes.marketplace.accountPaymentNew.terms.accepting"
+                        : "payments.routes.marketplace.accountPaymentNew.terms.accept",
+                    )}
+                  </Button>
+                </RouterForm>
+              )}
+            </Stack>
+          ) : null}
           <MarketplaceNotice
             tone="info"
             title={t("payments.routes.marketplace.accountPaymentNew.transparent.totals")}
@@ -373,7 +546,14 @@ export default function MarketplaceAccountPaymentNewRoute() {
                   <Text>{actionData.error}</Text>
                 </Inset>
               ) : null}
-              <RouterForm id="payment-start-form" method="post" ref={formRef} spacing="none">
+              <RouterForm
+                key={`${walletWithheld}:${maxBalanceCreditAmount}`}
+                id="payment-start-form"
+                method="post"
+                action={data.walletStatusRefreshUrl}
+                ref={formRef}
+                spacing="none"
+              >
                 <Stack gap={3}>
                   <HiddenInput type="hidden" name="orderIds" value={data.orderIds.join(",")} />
                   <HiddenInput type="hidden" name="totalAmount" value={totalAmount} />
@@ -392,7 +572,7 @@ export default function MarketplaceAccountPaymentNewRoute() {
                       {
                         value: "platform-credit",
                         label: t("payments.routes.marketplace.accountPaymentNew.platform.credit.only"),
-                        disabled: compareMoneyAmounts(externalAfterMaxAmount, "0.00") > 0,
+                        disabled: walletWithheld || externalAfterMaxAmount !== "0.00",
                       },
                     ]}
                     description={t(
@@ -402,7 +582,7 @@ export default function MarketplaceAccountPaymentNewRoute() {
                   <NativeSelect
                     label={t("payments.routes.marketplace.accountPaymentNew.wallet.balance")}
                     name="balanceCreditMode"
-                    defaultValue={availableBalanceCents > 0n ? "max" : "none"}
+                    defaultValue={walletAvailable ? "max" : "none"}
                     items={[
                       { value: "none", label: t("payments.routes.marketplace.accountPaymentNew.do.not.use.balance") },
                       {
@@ -410,22 +590,26 @@ export default function MarketplaceAccountPaymentNewRoute() {
                         label: t("payments.routes.marketplace.accountPaymentNew.use.up.to.amount", {
                           amount: formatMoney(maxBalanceCreditAmount),
                         }),
-                        disabled: availableBalanceCents <= 0n,
+                        disabled: !walletAvailable,
                       },
                       {
                         value: "custom",
                         label: t("payments.routes.marketplace.accountPaymentNew.use.a.custom.amount"),
+                        disabled: !walletAvailable,
                       },
                     ]}
                     description={
-                      data.wallet
-                        ? t("payments.routes.marketplace.accountPaymentNew.maximum.leaves.external.payment", {
-                            amount: formatMoney(externalAfterMaxAmount),
-                          })
-                        : t("payments.routes.marketplace.accountPaymentNew.no.wallet.balance.is.available.for")
+                      walletWithheld
+                        ? t("payments.routes.marketplace.accountPaymentNew.wallet.external.only")
+                        : externalAfterMaxAmount
+                          ? t("payments.routes.marketplace.accountPaymentNew.maximum.leaves.external.payment", {
+                              amount: formatMoney(externalAfterMaxAmount),
+                            })
+                          : t("payments.routes.marketplace.accountPaymentNew.no.wallet.balance.is.available.for")
                     }
                   />
                   <TextInput
+                    disabled={!walletAvailable}
                     label={t("payments.routes.marketplace.accountPaymentNew.custom.wallet.amount")}
                     name="requestedBalanceCreditAmount"
                     placeholder="0.00"
@@ -439,7 +623,7 @@ export default function MarketplaceAccountPaymentNewRoute() {
                         : t("payments.routes.marketplace.accountPaymentNew.apply.available.wallet.balance.to.this")
                     }
                   />
-                  <Button type="submit" size="lg" leadingIcon="lock">
+                  <Button type="submit" size="lg" leadingIcon="lock" disabled={navigation.state !== "idle"}>
                     {navigation.state === "submitting"
                       ? t("payments.routes.marketplace.accountPaymentNew.starting.payment")
                       : t("payments.routes.marketplace.accountPaymentNew.continue.to.payment")}
@@ -451,7 +635,7 @@ export default function MarketplaceAccountPaymentNewRoute() {
 
           <PageSection title={t("payments.routes.marketplace.accountPaymentNew.payment.method.fee.preview")}>
             <Grid columns={{ base: 1, md: 3 }} gap={3}>
-              {data.checkoutStatus.payment_method_quotes.map((quote) => (
+              {checkoutStatus?.payment_method_quotes.map((quote) => (
                 <Surface key={quote.payment_method_category} elevation="outlined">
                   <Stack gap={2}>
                     <Badge tone={quote.payment_method_category === "card" ? "accent" : "success"}>
@@ -517,7 +701,7 @@ export default function MarketplaceAccountPaymentNewRoute() {
           </PageSection>
 
           <StickyCtaBar
-            total={formatMoney(selectedCheckoutFee.total_amount)}
+            total={paymentTotal}
             context={t("payments.routes.marketplace.accountPaymentNew.final.totals.before.payment")}
             primaryAction={
               <Button
@@ -525,6 +709,7 @@ export default function MarketplaceAccountPaymentNewRoute() {
                 form="payment-start-form"
                 leadingIcon="lock"
                 loading={navigation.state === "submitting"}
+                disabled={navigation.state !== "idle"}
               >
                 {navigation.state === "submitting"
                   ? t("payments.routes.marketplace.accountPaymentNew.starting.payment")

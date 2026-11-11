@@ -1,7 +1,12 @@
 //! Campaign Analytics (`CampaignAnalyticsPage`). Top to bottom: the header, the admission bar with
 //! its progress, the cohort's figures, game coverage, inventory sizes, channel attribution and the
-//! funnel dashboard's link. The tables scroll on their own on a phone.
+//! funnel dashboard's link. The tables stack on a phone, a row a block of labelled lines.
 use corten::prelude::*;
+use platform::ui::{
+    progress::{Progress as KitProgress, ProgressSize, ProgressTone},
+    stats::{Stat, StatTone, Stats as KitStats, StatsSurface},
+    table::{CellLabel, Table as KitTable, TableLayout},
+};
 
 use crate::{
     growth::campaign::{Analytics, FUNNEL_DASHBOARD, INVENTORY_SIZES, progress},
@@ -37,10 +42,12 @@ fn Progress<'a>(t: Gro, label: &'a str, count: u64, goal: u64, met: bool) -> imp
         <div class={Goal}>
             <div class={Line}>
                 <span class={Strong}>{label}</span>
-                <span class={Muted}>{t.admin_campaign_analytics_admission_bar_progress_value(count, goal)}</span>
+                <span class={Muted}>
+                    {t.admin_campaign_analytics_admission_bar_progress_value(crate::text::gro::AdminCampaignAnalyticsAdmissionBarProgressValue { count, goal })}
+                </span>
             </div>
             <progress
-                class={(Bar, if met { Met } else { Open })}
+                class={KitProgress { size: ProgressSize::Md, tone: if met { ProgressTone::Success } else { ProgressTone::Info } }}
                 max="100"
                 value={progress(count, goal).to_string()}
                 aria-label={label}
@@ -53,12 +60,7 @@ fn Progress<'a>(t: Gro, label: &'a str, count: u64, goal: u64, met: bool) -> imp
 
 #[component(css = CampaignPage)]
 fn Figure<'a>(label: &'a str, value: String) -> impl Render {
-    html! {
-        <div class={Stat}>
-            <p class={Muted}>{label}</p>
-            <p class={Value}>{value}</p>
-        </div>
-    }
+    html! { <Stat label={label} value={value.as_str()} note="" tone={StatTone::Neutral} /> }
 }
 
 #[component(css = CampaignPage)]
@@ -110,7 +112,7 @@ pub fn CampaignPage<'a>(t: Gro, analytics: &'a Analytics) -> impl Render {
                     met={bar.qualified_sellers_met}
                 />
             </section>
-            <div class={(Stats, Four)}>
+            <dl class={KitStats { surface: StatsSurface::Cards }}>
                 <Figure label={t.admin_campaign_analytics_stat_total_signups()} value={t.number(q.total_signups).to_string()} />
                 <Figure
                     label={t.admin_campaign_analytics_stat_seller_signups()}
@@ -124,7 +126,7 @@ pub fn CampaignPage<'a>(t: Gro, analytics: &'a Analytics) -> impl Render {
                     label={t.admin_campaign_analytics_stat_store_link_percent()}
                     value={format!("{}%", q.store_link_percent)}
                 />
-            </div>
+            </dl>
             <section class={Card} aria-labelledby="ca-games">
                 <div>
                     <h2 class={Heading} id="ca-games">{t.admin_campaign_analytics_game_coverage_title()}</h2>
@@ -137,45 +139,56 @@ pub fn CampaignPage<'a>(t: Gro, analytics: &'a Analytics) -> impl Render {
                     />
                 } else {
                     <div class={Scroll}>
-                        <table class={Table}>
-                            <thead>
-                                <tr>
-                                    <th scope="col">{t.admin_campaign_analytics_game_coverage_game()}</th>
-                                    <th scope="col">{t.admin_campaign_analytics_game_coverage_qualified_sellers()}</th>
-                                    <th scope="col">{t.admin_campaign_analytics_game_coverage_covered()}</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                for row in &bar.game_coverage {
+                        <KitTable layout={TableLayout::Stack}>
+                            <table class={Table}>
+                                <thead>
                                     <tr>
-                                        <th scope="row">{game(t, &row.game)}</th>
-                                        <td>{t.number(row.qualified_seller_count).to_string()}</td>
-                                        <td>
-                                            <span class={(Pill, if row.covered { Good } else { Neutral })}>
-                                                {if row.covered {
-                                                    t.admin_campaign_analytics_game_coverage_covered_yes()
-                                                } else {
-                                                    t.admin_campaign_analytics_game_coverage_covered_no()
-                                                }}
-                                            </span>
-                                        </td>
+                                        <th scope="col">{t.admin_campaign_analytics_game_coverage_game()}</th>
+                                        <th scope="col">{t.admin_campaign_analytics_game_coverage_qualified_sellers()}</th>
+                                        <th scope="col">{t.admin_campaign_analytics_game_coverage_covered()}</th>
                                     </tr>
-                                }
-                            </tbody>
-                        </table>
+                                </thead>
+                                <tbody>
+                                    for row in &bar.game_coverage {
+                                        <tr>
+                                            <th scope="row">
+                                                <CellLabel>{t.admin_campaign_analytics_game_coverage_game()}</CellLabel>
+                                                {game(t, &row.game)}
+                                            </th>
+                                            <td>
+                                                <CellLabel>
+                                                    {t.admin_campaign_analytics_game_coverage_qualified_sellers()}
+                                                </CellLabel>
+                                                {t.number(row.qualified_seller_count).to_string()}
+                                            </td>
+                                            <td>
+                                                <CellLabel>{t.admin_campaign_analytics_game_coverage_covered()}</CellLabel>
+                                                <span class={(Pill, if row.covered { Good } else { Neutral })}>
+                                                    {if row.covered {
+                                                        t.admin_campaign_analytics_game_coverage_covered_yes()
+                                                    } else {
+                                                        t.admin_campaign_analytics_game_coverage_covered_no()
+                                                    }}
+                                                </span>
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </KitTable>
                     </div>
                 }
             </section>
             <section class={Card} aria-labelledby="ca-sizes">
                 <h2 class={Heading} id="ca-sizes">{t.admin_campaign_analytics_inventory_size_title()}</h2>
-                <div class={(Stats, Sizes)}>
+                <dl class={KitStats { surface: StatsSurface::Cards }}>
                     for key in INVENTORY_SIZES {
                         <Figure
                             label={&size(t, key)}
                             value={t.number(q.inventory_size_distribution.get(key).copied().unwrap_or(0)).to_string()}
                         />
                     }
-                </div>
+                </dl>
             </section>
             <section class={Card} aria-labelledby="ca-channels">
                 <div>
@@ -189,28 +202,44 @@ pub fn CampaignPage<'a>(t: Gro, analytics: &'a Analytics) -> impl Render {
                     />
                 } else {
                     <div class={Scroll}>
-                        <table class={Table}>
-                            <thead>
-                                <tr>
-                                    <th scope="col">{t.admin_campaign_analytics_channel_attribution_channel()}</th>
-                                    <th scope="col">{t.admin_campaign_analytics_channel_attribution_signups()}</th>
-                                    <th scope="col">{t.admin_campaign_analytics_channel_attribution_seller_signups()}</th>
-                                    <th scope="col">{t.admin_campaign_analytics_channel_attribution_qualified_sellers()}</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                for row in &analytics.channel_attribution {
+                        <KitTable layout={TableLayout::Stack}>
+                            <table class={Table}>
+                                <thead>
                                     <tr>
-                                        <th scope="row" class={Words}>
-                                            {row.label().unwrap_or_else(|| t.admin_campaign_analytics_channel_direct().to_owned())}
-                                        </th>
-                                        <td>{t.number(row.signup_count).to_string()}</td>
-                                        <td>{t.number(row.seller_signup_count).to_string()}</td>
-                                        <td>{t.number(row.qualified_seller_count).to_string()}</td>
+                                        <th scope="col">{t.admin_campaign_analytics_channel_attribution_channel()}</th>
+                                        <th scope="col">{t.admin_campaign_analytics_channel_attribution_signups()}</th>
+                                        <th scope="col">{t.admin_campaign_analytics_channel_attribution_seller_signups()}</th>
+                                        <th scope="col">{t.admin_campaign_analytics_channel_attribution_qualified_sellers()}</th>
                                     </tr>
-                                }
-                            </tbody>
-                        </table>
+                                </thead>
+                                <tbody>
+                                    for row in &analytics.channel_attribution {
+                                        <tr>
+                                            <th scope="row" class={Words}>
+                                                <CellLabel>{t.admin_campaign_analytics_channel_attribution_channel()}</CellLabel>
+                                                {row.label().unwrap_or_else(|| t.admin_campaign_analytics_channel_direct().to_owned())}
+                                            </th>
+                                            <td>
+                                                <CellLabel>{t.admin_campaign_analytics_channel_attribution_signups()}</CellLabel>
+                                                {t.number(row.signup_count).to_string()}
+                                            </td>
+                                            <td>
+                                                <CellLabel>
+                                                    {t.admin_campaign_analytics_channel_attribution_seller_signups()}
+                                                </CellLabel>
+                                                {t.number(row.seller_signup_count).to_string()}
+                                            </td>
+                                            <td>
+                                                <CellLabel>
+                                                    {t.admin_campaign_analytics_channel_attribution_qualified_sellers()}
+                                                </CellLabel>
+                                                {t.number(row.qualified_seller_count).to_string()}
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </KitTable>
                     </div>
                 }
             </section>

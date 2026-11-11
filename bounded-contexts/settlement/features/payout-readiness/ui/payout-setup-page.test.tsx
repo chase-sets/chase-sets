@@ -343,24 +343,9 @@ describe("payout setup page", () => {
         publishableKey: "pk_test_123",
         locale: "en-US",
         fetchClientSecret: expect.any(Function),
-        appearance: expect.objectContaining({
-          overlays: "dialog",
-          variables: expect.objectContaining({
-            buttonPaddingX: "20px",
-            buttonPaddingY: "12px",
-            buttonPrimaryColorBackground: setupLightTokens["--primary"],
-            buttonPrimaryColorText: setupLightTokens["--primary-foreground"],
-            colorBackground: setupLightTokens["--card"],
-            colorBorder: setupLightTokens["--border"],
-            colorSecondaryText: setupLightTokens["--text-secondary"],
-            colorText: setupLightTokens["--foreground"],
-            fontFamily: setupLightTokens["--body-font"],
-            formBackgroundColor: setupLightTokens["--surface-2"],
-            overlayBackdropColor: "rgba(33, 29, 51, 0.35)",
-          }),
-        }),
       }),
     );
+    expect(mockLoadConnectAndInitialize.mock.calls[0][0]).not.toHaveProperty("appearance");
     expect(create).toHaveBeenCalledWith("account-onboarding");
     const providerSurface = container!.querySelector(
       "[data-testid='stripe-connect-embedded-component']",
@@ -387,7 +372,7 @@ describe("payout setup page", () => {
     expect(container!.textContent).not.toContain("acs_test_secret");
   });
 
-  it("initializes the management component with scoped dark Connect appearance", async () => {
+  it("initializes management with default Connect appearance in a dark host", async () => {
     setThemeScope(container!, "dark", managementDarkTokens);
     const fetch = vi.fn(async () =>
       Response.json({
@@ -406,21 +391,12 @@ describe("payout setup page", () => {
 
     expect(mockLoadConnectAndInitialize).toHaveBeenCalledWith(
       expect.objectContaining({
-        appearance: expect.objectContaining({
-          overlays: "dialog",
-          variables: expect.objectContaining({
-            buttonPrimaryColorBackground: managementDarkTokens["--primary"],
-            buttonPrimaryColorText: managementDarkTokens["--primary-foreground"],
-            colorBackground: managementDarkTokens["--card"],
-            colorBorder: managementDarkTokens["--border"],
-            colorSecondaryText: managementDarkTokens["--text-secondary"],
-            colorText: managementDarkTokens["--foreground"],
-            fontFamily: managementDarkTokens["--body-font"],
-            formBackgroundColor: managementDarkTokens["--surface-2"],
-          }),
-        }),
+        publishableKey: "pk_test_123",
+        locale: "en-US",
+        fetchClientSecret: expect.any(Function),
       }),
     );
+    expect(mockLoadConnectAndInitialize.mock.calls[0][0]).not.toHaveProperty("appearance");
     expect(create).toHaveBeenCalledWith("account-management");
     expect(fetch).toHaveBeenCalledWith(
       "/api/settlement/payout-setup/account-management-embedded-session",
@@ -433,7 +409,7 @@ describe("payout setup page", () => {
     expect(container!.querySelector("stripe-connect-account-management")).toBe(connectElement);
   });
 
-  it("remounts Connect with updated scoped appearance when the theme changes", async () => {
+  it("keeps Connect mounted without theme-only SDK or session calls", async () => {
     setThemeScope(container!, "light", setupLightTokens);
     const fetch = vi.fn(async () =>
       Response.json({
@@ -461,31 +437,26 @@ describe("payout setup page", () => {
     });
     await flushMutationObserver();
 
-    expect(mockLoadConnectAndInitialize).toHaveBeenCalledTimes(2);
-    expect(mockLoadConnectAndInitialize.mock.calls[1][0].appearance.variables).toEqual(
-      expect.objectContaining({
-        buttonPrimaryColorBackground: managementDarkTokens["--primary"],
-        colorBackground: managementDarkTokens["--card"],
-        colorText: managementDarkTokens["--foreground"],
-      }),
-    );
+    expect(mockLoadConnectAndInitialize).toHaveBeenCalledTimes(1);
+    expect(mockLoadConnectAndInitialize.mock.calls[0][0]).not.toHaveProperty("appearance");
+    expect(fetch).toHaveBeenCalledTimes(1);
     expect(container!.querySelectorAll("stripe-connect-account-onboarding")).toHaveLength(1);
-    expect(container!.querySelector("stripe-connect-account-onboarding")).toBe(secondConnectElement);
+    expect(container!.querySelector("stripe-connect-account-onboarding")).toBe(firstConnectElement);
     await act(async () => {
       container!.style.setProperty("--card", "var(--missing)");
     });
     await flushMutationObserver();
-    expect(mockLoadConnectAndInitialize).toHaveBeenCalledTimes(3);
-    expect(mockLoadConnectAndInitialize.mock.calls[2][0].appearance.variables.colorBackground).toBe("#ffffff");
+    expect(mockLoadConnectAndInitialize).toHaveBeenCalledTimes(1);
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(create).toHaveBeenCalledTimes(1);
+    expect(container!.querySelector("stripe-connect-account-onboarding")).toBe(firstConnectElement);
   });
 
-  it("mounts and remounts the notification banner with invalid theme slots safely substituted", async () => {
+  it("uses default notification appearance without theme-only SDK or session calls", async () => {
     setThemeScope(container!, "light", setupLightTokens);
     container!.style.setProperty("--primary", "url(https://invalid.test/color)");
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () => Response.json({ clientSecret: "acs_test_secret" })),
-    );
+    const fetch = vi.fn(async () => Response.json({ clientSecret: "acs_test_secret" }));
+    vi.stubGlobal("fetch", fetch);
     const create = vi.fn(() =>
       Object.assign(document.createElement("div"), {
         setOnLoaderStart: vi.fn(),
@@ -498,14 +469,15 @@ describe("payout setup page", () => {
       root!.render(<StripeConnectNotificationBanner publishableKey="pk_test_123" />);
     });
     await flushMutationObserver();
-    expect(mockLoadConnectAndInitialize.mock.calls[0][0].appearance.variables.colorPrimary).toBe("#4845c6");
+    expect(mockLoadConnectAndInitialize.mock.calls[0][0]).not.toHaveProperty("appearance");
     expect(create).toHaveBeenCalledWith("notification-banner");
     await act(async () => {
       container!.style.setProperty("--card", "var(--missing)");
     });
     await flushMutationObserver();
-    expect(mockLoadConnectAndInitialize).toHaveBeenCalledTimes(2);
-    expect(mockLoadConnectAndInitialize.mock.calls[1][0].appearance.variables.colorBackground).toBe("#ffffff");
+    expect(mockLoadConnectAndInitialize).toHaveBeenCalledTimes(1);
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(create).toHaveBeenCalledTimes(1);
     expect(
       container!.querySelector("[data-testid='stripe-connect-notification-banner']")?.firstElementChild,
     ).not.toBeNull();

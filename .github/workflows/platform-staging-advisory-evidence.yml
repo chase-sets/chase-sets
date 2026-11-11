@@ -940,10 +940,15 @@ jobs:
           if [ -n "$existing_issue" ]; then
             gh issue comment "$existing_issue" --repo "${GITHUB_REPOSITORY}" --body "$body"
           else
-            gh issue create \
-              --repo "${GITHUB_REPOSITORY}" \
-              --title "$title" \
-              --body "$body" \
-              --label "kind:ops" \
-              --label "area:infrastructure"
+            created_type="$(gh api --method POST "repos/${GITHUB_REPOSITORY}/issues" \
+              -f type=Bug \
+              -f title="$title" \
+              -f body="$body" \
+              -f 'labels[]=kind:ops' \
+              -f 'labels[]=area:infrastructure' \
+              --jq '.type | select(.is_enabled == true) | .name')"
+            if [ "$created_type" != "Bug" ]; then
+              echo "ISSUE_CREATION_TYPE_MISMATCH: expected enabled native Bug in create response." >&2
+              exit 1
+            fi
           fi

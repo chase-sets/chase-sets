@@ -63,7 +63,7 @@ async function shown(page) {
       id: li.getAttribute("data-cart-line"),
       title: li.querySelector("p")?.textContent?.trim(),
       reason: li.querySelector("[data-reason]")?.textContent?.trim() ?? null,
-      quantity: li.querySelector("[data-quantity]")?.textContent?.trim(),
+      quantity: /** @type {HTMLInputElement | null} */ (li.querySelector("[data-quantity]"))?.value,
       price: li.querySelector("[data-price]")?.textContent?.replace(/\s+/g, " ").trim(),
     })),
   );
@@ -89,18 +89,29 @@ async function shown(page) {
     lines.length > 0 && lines.length <= cart.items.length,
     `one card per product and fulfillment (${lines.length} for ${cart.items.length} lines)`,
   );
-  const outcomes = Object.fromEntries(cart.readiness.loaded.lineOutcomes.map((o) => [o.lineId, o.reason]));
+  const presented = Object.fromEntries((cart.readiness.loaded.linePresentations ?? []).map((p) => [p.lineId, p]));
   for (const line of lines) {
     const item = cart.items.find((i) => i.line_id === line.id);
     check(Boolean(item) && item.item_title === line.title, `${line.title}: a line the API returned`);
+    const p = presented[line.id];
     check(
-      line.reason === labels[outcomes[line.id]],
-      `${line.title}: the badge is the API's line outcome (${line.reason}, ${outcomes[line.id]})`,
+      line.reason === (p ? (labels[p.reason] ?? "Needs review") : "Needs review"),
+      `${line.title}: the badge is the API's presentation (${line.reason}, ${p?.reason})`,
     );
-    check(
-      /^(from )?\$[\d,]+\.\d{2}$|^Priced at checkout$/.test(line.price ?? ""),
-      `${line.title}: a price (${line.price})`,
-    );
+    // A card merged from several lines (its quantity more than its first line's) adds their
+    // prices, so only a card of one line is held to its presentation's price.
+    const expected =
+      !p?.price || p.price.state === "deferred"
+        ? "Priced at checkout"
+        : `${p.price.state === "indicative" ? "from " : ""}${money(p.price)}`;
+    if (Number(line.quantity) === item?.quantity) {
+      check(line.price === expected, `${line.title}: the price is the API's (${line.price}, ${expected})`);
+    } else {
+      check(
+        /^(from )?\$[\d,]+\.\d{2}$|^Priced at checkout$/.test(line.price ?? ""),
+        `${line.title}: a merged line's price (${line.price})`,
+      );
+    }
   }
   check(total === money(cart.readiness.estimatedSubtotal), `the total is the API's estimated subtotal (${total})`);
   const notice = await page
@@ -231,8 +242,8 @@ async function shown(page) {
   await ctx.close();
 }
 
-// A quantity step and back, as an attempt each, with JavaScript (the runtime sends the form) and
-// without it (the browser does). Only a card that is one line: a merged card's step removes the
+// A quantity step and back, as an attempt each: with JavaScript a step of the kit's NumberField
+// sends the form on its change; without it the quantity is typed and Update quantity sends it. Only a card that is one line: a merged card's step removes the
 // lines merged into it, which the smoke could not put back.
 if (sendWrites) {
   for (const javaScriptEnabled of [true, false]) {
@@ -262,16 +273,25 @@ if (sendWrites) {
           );
       };
       page.on("response", seen);
-      await card.getByRole("button", { name }).click();
+      if (javaScriptEnabled) await card.getByRole("button", { name }).click();
+      else {
+        await card.locator("[data-quantity]").fill(String(expected));
+        await card.getByRole("button", { name: "Update quantity" }).click();
+      }
       const answer = await posted;
       await page.waitForURL((u) => u.href !== before && u.searchParams.has("after_write"));
-      const shown = await card
-        .locator("[data-quantity]")
-        .filter({ hasText: new RegExp(`^${expected}$`) })
-        .waitFor({ timeout: 35_000 })
+      const shown = await page
+        .waitForFunction(
+          ([id, n]) =>
+            /** @type {HTMLInputElement | null} */ (
+              document.querySelector(`li[data-cart-line="${id}"] [data-quantity]`)
+            )?.value === String(n),
+          [id, expected],
+          { timeout: 35_000 },
+        )
         .then(() => expected)
         .catch(async () =>
-          (await card.count()) ? Number(await card.locator("[data-quantity]").textContent()) : "no card",
+          (await card.count()) ? Number(await card.locator("[data-quantity]").inputValue()) : "no card",
         );
       page.off("response", seen);
       if (javaScriptEnabled) await page.waitForFunction(() => /** @type {any} */ (window).__hydratedAt > 0);
@@ -283,7 +303,7 @@ if (sendWrites) {
       items.map((li) => ({
         id: li.getAttribute("data-cart-line"),
         merged: li.querySelectorAll('form[action$="/account/cart/quantity"] input[name="line_id"]').length,
-        quantity: Number(li.querySelector("[data-quantity]")?.textContent),
+        quantity: Number(/** @type {HTMLInputElement | null} */ (li.querySelector("[data-quantity]"))?.value),
       })),
     );
     const card = cards.find((c) => c.merged === 1);

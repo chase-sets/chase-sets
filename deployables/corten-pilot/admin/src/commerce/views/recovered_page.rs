@@ -1,10 +1,12 @@
 //! Recovered Returns (`RecoveredItemsPage`). Top to bottom: the header, the recovery figures with
-//! the recovered value, the custody and disposition queue (scrolling on its own on a phone), and the
-//! action form, its fields in one column on a phone, two from 40rem and three from 64rem.
+//! the recovered value, the custody and disposition queue (both stacked on a phone, a row a block
+//! of labelled lines), and the action form, its fields in one column on a phone, two from 40rem and
+//! three from 64rem.
 use corten::{
     i18n::{DateStyle, TimeStyle, parse_timestamp},
     prelude::*,
 };
+use platform::ui::table::{CellLabel, Table as KitTable, TableLayout};
 
 use crate::{
     commerce::{
@@ -41,11 +43,17 @@ fn Text<'a>(label: &'a str, name: corten::FieldName<String>, value: &'a str) -> 
 }
 
 #[component(css = RecoveredPage)]
-fn Figure<'a>(label: &'a str, value: String, attention: bool) -> impl Render {
+fn Figure<'a>(t: Com, label: &'a str, value: String, attention: bool) -> impl Render {
     html! {
         <tr>
-            <th scope="row">{label}</th>
-            <td><span class={(Pill, if attention { Warning } else { Good })}>{value}</span></td>
+            <th scope="row">
+                <CellLabel>{t.rr_signal()}</CellLabel>
+                {label}
+            </th>
+            <td>
+                <CellLabel>{t.rr_value()}</CellLabel>
+                <span class={(Pill, if attention { Warning } else { Good })}>{value}</span>
+            </td>
         </tr>
     }
 }
@@ -88,22 +96,24 @@ pub fn RecoveredPage<'a>(t: Com, p: Pilot, screen: &'a RecoveredScreen) -> impl 
             <section class={Card} aria-labelledby="rr-metrics">
                 <h2 class={Heading} id="rr-metrics">{t.rr_metrics()}</h2>
                 <div class={Scroll}>
-                    <table class={Table}>
-                        <thead>
-                            <tr>
-                                <th scope="col">{t.rr_signal()}</th>
-                                <th scope="col">{t.rr_value()}</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            for (label, (value, attention)) in figures {
-                                <Figure label={label} value={value} attention={attention} />
-                            }
-                        </tbody>
-                    </table>
+                    <KitTable layout={TableLayout::Stack}>
+                        <table class={Table}>
+                            <thead>
+                                <tr>
+                                    <th scope="col">{t.rr_signal()}</th>
+                                    <th scope="col">{t.rr_value()}</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                for (label, (value, attention)) in figures {
+                                    <Figure t={t} label={label} value={value} attention={attention} />
+                                }
+                            </tbody>
+                        </table>
+                    </KitTable>
                 </div>
                 <p class={Muted}>
-                    {t.rr_recovery_summary(&usd(t, &m.gross_value), &usd(t, &m.disposition_cost), &usd(t, &m.net_recovered_value))}
+                    {t.rr_recovery_summary(crate::text::com::RrRecoverySummary { gross: &usd(t, &m.gross_value), cost: &usd(t, &m.disposition_cost), net: &usd(t, &m.net_recovered_value) })}
                 </p>
             </section>
             <section class={Card} aria-labelledby="rr-queue">
@@ -115,32 +125,55 @@ pub fn RecoveredPage<'a>(t: Com, p: Pilot, screen: &'a RecoveredScreen) -> impl 
                     </div>
                 } else {
                     <div class={Scroll}>
-                        <table class={Table}>
-                            <thead>
-                                <tr>
-                                    <th scope="col">{t.rr_status()}</th>
-                                    <th scope="col">{t.rr_custody()}</th>
-                                    <th scope="col">{t.rr_identity()}</th>
-                                    <th scope="col">{t.rr_condition()}</th>
-                                    <th scope="col">{t.rr_disposition()}</th>
-                                    <th scope="col">{t.rr_received()}</th>
-                                    <th scope="col">{t.rr_evidence()}</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                for item in &screen.items {
+                        <KitTable layout={TableLayout::Stack}>
+                            <table class={Table}>
+                                <thead>
                                     <tr>
-                                        <td><Status status={&item.status} /></td>
-                                        <td class={Words}>{&item.custody_identifier}</td>
-                                        <td class={Words}>{item.catalog_item_id.as_deref().unwrap_or(t.rr_unidentified())}</td>
-                                        <td>{item.condition_grade.as_deref().unwrap_or(t.rr_pending())}</td>
-                                        <td>{item.disposition.as_deref().unwrap_or(t.rr_pending())}</td>
-                                        <td>{when(t, &item.received_at)}</td>
-                                        <td>{t.rr_evidence_count(item.evidence_references.len())}</td>
+                                        <th scope="col">{t.rr_status()}</th>
+                                        <th scope="col">{t.rr_custody()}</th>
+                                        <th scope="col">{t.rr_identity()}</th>
+                                        <th scope="col">{t.rr_condition()}</th>
+                                        <th scope="col">{t.rr_disposition()}</th>
+                                        <th scope="col">{t.rr_received()}</th>
+                                        <th scope="col">{t.rr_evidence()}</th>
                                     </tr>
-                                }
-                            </tbody>
-                        </table>
+                                </thead>
+                                <tbody>
+                                    for item in &screen.items {
+                                        <tr>
+                                            <td>
+                                                <CellLabel>{t.rr_status()}</CellLabel>
+                                                <Status status={&item.status} />
+                                            </td>
+                                            <td class={Words}>
+                                                <CellLabel>{t.rr_custody()}</CellLabel>
+                                                {&item.custody_identifier}
+                                            </td>
+                                            <td class={Words}>
+                                                <CellLabel>{t.rr_identity()}</CellLabel>
+                                                {item.catalog_item_id.as_deref().unwrap_or(t.rr_unidentified())}
+                                            </td>
+                                            <td>
+                                                <CellLabel>{t.rr_condition()}</CellLabel>
+                                                {item.condition_grade.as_deref().unwrap_or(t.rr_pending())}
+                                            </td>
+                                            <td>
+                                                <CellLabel>{t.rr_disposition()}</CellLabel>
+                                                {item.disposition.as_deref().unwrap_or(t.rr_pending())}
+                                            </td>
+                                            <td>
+                                                <CellLabel>{t.rr_received()}</CellLabel>
+                                                {when(t, &item.received_at)}
+                                            </td>
+                                            <td>
+                                                <CellLabel>{t.rr_evidence()}</CellLabel>
+                                                {t.rr_evidence_count(item.evidence_references.len())}
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </KitTable>
                     </div>
                 }
             </section>
@@ -152,7 +185,7 @@ pub fn RecoveredPage<'a>(t: Com, p: Pilot, screen: &'a RecoveredScreen) -> impl 
                 }
                 if let Some((item, status)) = &screen.done {
                     <p class={Success} role="status">
-                        {t.rr_action_completed(item, status.as_deref().unwrap_or(t.rr_action_updated()))}
+                        {t.rr_action_completed(crate::text::com::RrActionCompleted { id: item, status: status.as_deref().unwrap_or(t.rr_action_updated()) })}
                     </p>
                 }
                 <form class={Form} method="post">

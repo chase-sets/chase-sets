@@ -12,6 +12,9 @@ import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { module as customerFeedbackModule } from "../../../index";
 import { buildCustomerFeedbackAttentionApi, type CustomerFeedbackApiEnv } from "../api/route";
 import { listFeedbackAttention, type FeedbackAttentionQueueItem } from "./queries";
+import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
+import { createCsatInvitationRuntime } from "../../csat/api/runtime";
+import { buildCustomerFeedbackApi } from "../../csat/api/admin-http";
 
 const adminDatabaseUrl = process.env.TEST_DATABASE_URL;
 if (!adminDatabaseUrl && process.env.CI) {
@@ -40,6 +43,134 @@ describeDb("feedback attention queries", () => {
     vi.useRealTimers();
   });
   afterAll(async () => closeMultiContextTestPools({ "customer-feedback": pool }));
+
+  it("exports every matching CSAT row across real keyset pages, excludes off-filter rows and comment content, and allows empty results", async () => {
+    await pool.query(`INSERT INTO customer_feedback_csat_invitations
+      (invitation_id, stream_id, state, survey_kind, survey_version, question_version, outcome_code,
+       source_context, source_entity_type, source_entity_id, outcome_occurred_at, outcome_idempotency_key,
+       subject_account_id, subject_kind, eligible_at, submitted_at, follow_up_consent, comment)
+      SELECT 'inv_csat_export_' || n, 'customer-feedback.csat-invitation-export-' || n, 'submitted',
+             'transactional-csat', 'csat.v1', 'csat.q.v1', 'checkout.completed', 'checkout', 'checkout-session',
+             'checkout_' || n, '2026-07-14T11:00:00Z'::timestamptz, 'outcome_export_' || n, 'acc_subject',
+             CASE WHEN n = 604 THEN 'seller' ELSE 'buyer' END, '2026-07-14T11:00:00Z'::timestamptz,
+             '2026-07-14T11:05:00Z'::timestamptz, true, 'SYNTHETIC PRIVATE COMMENT NEVER EXPORTED'
+      FROM generate_series(1, 604) AS n`);
+    await pool.query(`INSERT INTO customer_feedback_csat_analytics_facts
+      (invitation_id, rating, last_global_position, last_event_recorded_at)
+      SELECT 'inv_csat_export_' || n, 5, n, '2026-07-14T11:05:00Z'::timestamptz FROM generate_series(1, 604) AS n`);
+    const runtime = createCsatInvitationRuntime({ eventStore: createInMemoryEventStore().eventStore, db: pool });
+    const app = new Hono<CustomerFeedbackApiEnv>();
+    app.use("*", async (c, next) => {
+      c.set("actor", {
+        sessionId: "ses_csat",
+        tenantId: "tnt_test",
+        userId: "usr_creator",
+        accountId: "acc_platform",
+        membershipId: "mem_csat",
+        roleKey: "platform-admin",
+        permissions: ["customer-feedback.privacy.export-sensitive-feedback"],
+      });
+      await next();
+    });
+    app.route("/", buildCustomerFeedbackApi(runtime));
+    const filters =
+      "reason=quality-review&from=2026-07-01&to=2026-08-01&surveyVersion=csat.v1&outcomeCodes=checkout.completed&customerRoles=buyer&states=submitted&followUpConsent=granted";
+    const response = await app.request(`/export?${filters}&ratings=5`);
+    expect(response.status).toBe(201);
+    const created = (await response.json()) as { exportId: string; rowCount: number };
+    expect(created.rowCount).toBe(603);
+    const csv = await (await app.request(`/export/${created.exportId}`)).text();
+    expect(csv.trim().split("\n")).toHaveLength(604);
+    expect(csv).not.toContain('"inv_csat_export_604"');
+    expect(csv).not.toContain("SYNTHETIC PRIVATE COMMENT");
+    const emptyResponse = await app.request(`/export?${filters}&ratings=1`);
+    expect(emptyResponse.status).toBe(201);
+    expect(await emptyResponse.json()).toMatchObject({ rowCount: 0 });
+  });
+
+  it("exports 501 attention rows through real SQL and enforces artifact creator, expiry, missing ID and audit separation", async () => {
+    await pool.query(`INSERT INTO customer_feedback_feedback_cases
+      (case_id, stream_id, invitation_id, survey_kind, survey_version, question_version, rating,
+       submission_idempotency_key, submitted_at, open_reason, status, priority, consent_status,
+       consent_version, follow_up_status, opened_at)
+      SELECT 'case_export_' || n, 'customer-feedback.case-export-' || n, 'inv_export_' || n,
+             'transactional-csat', 'v1', 'v1', 1, 'submission_export_' || n,
+             '2026-07-14T11:00:00Z'::timestamptz, 'low-score', 'new', 'urgent', 'not-granted',
+             'feedback-follow-up-v1', 'not-requested', '2026-07-14T11:00:00Z'::timestamptz
+      FROM generate_series(1, 501) AS n`);
+    await pool.query(`INSERT INTO customer_feedback_case_attention
+      (attention_id, case_id, state, reason, rule_version, rating, priority, opened_at, triage_due_at)
+      SELECT 'attention_export_' || n, 'case_export_' || n, 'active', 'low-score', 'low-score-v1', 1, 'urgent',
+             '2026-07-14T11:00:00Z'::timestamptz, '2026-07-14T12:00:00Z'::timestamptz
+      FROM generate_series(1, 501) AS n`);
+    const memory = createInMemoryEventStore();
+    const runtime = createCsatInvitationRuntime({ eventStore: memory.eventStore, db: pool });
+    let userId = "usr_creator";
+    let authorized = true;
+    const app = new Hono<CustomerFeedbackApiEnv>();
+    app.use("*", async (c, next) => {
+      c.set("actor", {
+        sessionId: "ses_export",
+        tenantId: "tnt_test",
+        userId,
+        accountId: "acc_platform",
+        membershipId: "mem_export",
+        roleKey: "platform-admin",
+        permissions: authorized ? ["customer-feedback.privacy.export-sensitive-feedback"] : [],
+      });
+      await next();
+    });
+    app.route("/", buildCustomerFeedbackApi(runtime));
+    app.route(
+      "/",
+      buildCustomerFeedbackAttentionApi({ db: pool, cases: { executeByCaseId: vi.fn() }, invitations: runtime }),
+    );
+    const response = await app.request("/attention/export?reason=case-review");
+    expect(response.status).toBe(201);
+    const created = (await response.json()) as { exportId: string; rowCount: number };
+    expect(created.rowCount).toBe(501);
+    const download = await app.request(`/export/${created.exportId}`);
+    expect(download.status).toBe(200);
+    expect((await download.text()).trim().split("\n")).toHaveLength(502);
+    const audit = await pool.query("SELECT * FROM customer_feedback_csat_export_audits WHERE export_id = $1", [
+      created.exportId,
+    ]);
+    expect(audit.rows[0]).toMatchObject({
+      actor_id: "usr_creator",
+      capability: "customer-feedback.privacy.export-sensitive-feedback",
+      reason: "case-review",
+      row_count: 501,
+      result: "completed",
+      filters: {},
+    });
+    expect(Object.keys(audit.rows[0])).not.toContain("artifact_content");
+    expect(JSON.stringify(audit.rows[0])).not.toContain("case_export_");
+    userId = "usr_other_authorized";
+    expect((await app.request(`/export/${created.exportId}`)).status).toBe(404);
+    userId = "usr_creator";
+    authorized = false;
+    expect((await app.request(`/export/${created.exportId}`)).status).toBe(403);
+    authorized = true;
+    expect((await app.request("/export/missing")).status).toBe(404);
+    await pool.query(
+      "UPDATE customer_feedback_csat_export_artifacts SET expires_at = now() - interval '1 second' WHERE export_id = $1",
+      [created.exportId],
+    );
+    expect((await app.request(`/export/${created.exportId}`)).status).toBe(404);
+    await pool.query(`ALTER TABLE customer_feedback_csat_export_audits
+      ADD CONSTRAINT synthetic_reject_completed_export CHECK (result <> 'completed') NOT VALID`);
+    expect((await app.request("/attention/export?reason=case-review")).status).toBe(500);
+    const failed = await pool.query(
+      "SELECT export_id, result, failure_code FROM customer_feedback_csat_export_audits WHERE result = 'failed'",
+    );
+    expect(failed.rows).toHaveLength(1);
+    expect(failed.rows[0]).toMatchObject({ result: "failed", failure_code: "export-generation-failed" });
+    const failedArtifact = await pool.query(
+      "SELECT export_id FROM customer_feedback_csat_export_artifacts WHERE export_id = $1",
+      [failed.rows[0]!.export_id],
+    );
+    expect(failedArtifact.rows).toEqual([]);
+  });
 
   it("executes the production query after a joined priority collision and preserves queue ordering", async () => {
     await insertCase(pool, "case_urgent", "normal", "2026-07-14T11:00:00.000Z");

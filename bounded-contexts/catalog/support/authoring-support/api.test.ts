@@ -17,6 +17,50 @@ const context: EventStoreContext = {
 };
 
 describe("Catalog authoring API", () => {
+  it("A1: reads removal status and streams scoped retained completion", async () => {
+    const completed = job({
+      kind: "catalog.authoring.items.remove-drafts",
+      action: "remove-drafts",
+      status: "completed",
+      result: { total: 1, succeeded_count: 1, skipped_count: 0, failed_count: 0, candidates: [] },
+    });
+    const get = vi.fn(async () => completed);
+    const listEvents = vi.fn(async () => [event({ sequence: 7, job: completed })]);
+    const app = buildCatalogAuthoringTestApp(createServices({ get, listEvents }), context);
+    const status = await app.fetch(new Request("http://catalog.test/api/catalog/bulk-authoring-jobs/job_test"));
+    expect(status.status).toBe(200);
+    expect(await status.json()).toEqual(completed);
+    const stream = await app.fetch(new Request("http://catalog.test/api/catalog/bulk-authoring-jobs/job_test/events"));
+    expect(stream.headers.get("content-type")).toContain("text/event-stream");
+    const body = await stream.text();
+    expect(body).toContain("id: 7");
+    expect(body).toContain('"kind":"catalog.authoring.items.remove-drafts"');
+    expect(body).toContain('"succeeded_count":1');
+    expect(get).toHaveBeenCalledWith("job_test", context);
+    expect(listEvents).toHaveBeenCalledWith("job_test", 0, context);
+  });
+
+  it("A2: out-of-scope removal status is controlled JSON and never opens a stream", async () => {
+    const removal = job({ kind: "catalog.authoring.items.remove-drafts", action: "remove-drafts" });
+    const get = vi.fn(async (_id: string, scope?: EventStoreContext | null) =>
+      scope?.tenantId === "tnt_foreign" ? removal : null,
+    );
+    const listEvents = vi.fn(async () => []);
+    const app = buildCatalogAuthoringTestApp(createServices({ get, listEvents }), context);
+    for (const suffix of ["", "/events"]) {
+      const response = await app.fetch(
+        new Request(`http://catalog.test/api/catalog/bulk-authoring-jobs/${removal.jobId}${suffix}`),
+      );
+      expect(response.status).toBe(404);
+      expect(response.headers.get("content-type")).toContain("application/json");
+      expect(await response.json()).toEqual({
+        error: { code: "not_found", message: "Catalog authoring bulk job not found." },
+      });
+    }
+    expect(get).toHaveBeenCalledWith(removal.jobId, context);
+    expect(listEvents).not.toHaveBeenCalled();
+  });
+
   it("returns scoped active bulk authoring jobs", async () => {
     const activeJob = job({ jobId: "job_active", status: "running" });
     const listActive = vi.fn(async () => [activeJob]);

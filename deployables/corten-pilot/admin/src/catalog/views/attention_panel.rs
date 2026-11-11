@@ -1,21 +1,24 @@
 //! The Catalog attention queue (admin-web's `CatalogAttentionQueuePanel`): the count, the four
-//! metrics, and a row per item with its one-click commands and its Review, which opens the item's
-//! sheet (drawn by the server: `AttentionSheet`). A row's Review is a submit button of one shared
-//! form, so each row carries only its item's key. On a phone the rows stack, each cell under its
-//! heading.
+//! metrics, how much of each kind the window shows with its page links, and a row per item with its
+//! one-click commands and its Review, which opens the item's sheet (drawn by the server:
+//! `AttentionSheet`). Counts are each kind's whole cohort, "at least" when a source could not be
+//! fully checked; only a complete zero is the empty state. A row's Review is a submit button of one
+//! shared form, so each row carries only its item's key. On a phone the rows stack, each cell under
+//! its heading.
 use corten::{
     prelude::*,
     view::{AttrValue, Id},
 };
+use platform::ui::button::{Button, ButtonSize, ButtonVariant};
 
 use super::{CatalogDialog, Empty, KeyValues, Tone, TonePill, ids};
 use crate::{
     catalog::{
-        api::{AttentionItem, AttentionKind, AttentionQueue, Resolution, ResolutionMode, Severity},
+        api::{AttentionItem, AttentionKind, AttentionQueue, KindCoverage, Resolution, ResolutionMode, Severity, TotalKind},
         attention::{Params, ParkInput, Parked, RestoreInput, shown, url as at},
-        scopes::url::{AttentionDone, ScopeQuery},
+        scopes::url::{AttentionDone, ScopeQuery, Scopes},
     },
-    text::Cat,
+    text::{Cat, Pilot},
     views::{Draft, admin_web},
 };
 
@@ -61,9 +64,11 @@ pub fn AttentionPanel<'a>(t: Cat, query: &'a ScopeQuery, queue: Option<&'a Atten
                 </div>
             }
             Some(queue) => {
-                let c = &queue.counts;
-                let tone = if c.total == 0 {
+                let (c, basis) = (&queue.counts, &queue.count_basis);
+                let tone = if queue.empty {
                     Tone::Success
+                } else if queue.incomplete_zero() {
+                    Tone::Warning
                 } else if c.by_severity.critical > 0 {
                     Tone::Danger
                 } else if c.by_severity.warning > 0 {
@@ -71,10 +76,14 @@ pub fn AttentionPanel<'a>(t: Cat, query: &'a ScopeQuery, queue: Option<&'a Atten
                 } else {
                     Tone::Info
                 };
-                let count = t.attention_status_count(c.total).to_string();
-                let critical = c.by_severity.critical.to_string();
-                let warning = c.by_severity.warning.to_string();
-                let info = c.by_severity.info.to_string();
+                // Grouped as admin-web's `formatCount` writes it: an integer argument is its digits.
+                let count = match basis.total {
+                    TotalKind::LowerBound => t.attention_status_count_at_least(t.number(c.total)).to_string(),
+                    TotalKind::Exact => t.attention_status_count(t.number(c.total)).to_string(),
+                };
+                let critical = count_value(t, c.by_severity.critical, basis.by_severity.critical);
+                let warning = count_value(t, c.by_severity.warning, basis.by_severity.warning);
+                let info = count_value(t, c.by_severity.info, basis.by_severity.info);
                 let as_of = t.attention_metric_freshness_value(&queue.generated_at).to_string();
                 let review = at::AttentionReview::default().href();
                 let head = [t.attention_table_item(), t.attention_table_scope(), t.attention_table_actions()];
@@ -104,9 +113,20 @@ pub fn AttentionPanel<'a>(t: Cat, query: &'a ScopeQuery, queue: Option<&'a Atten
                             trend={t.attention_metric_freshness_trend()}
                         />
                     </dl>
-                    if queue.items.is_empty() {
+                    if queue.empty {
                         <Empty title={t.attention_empty_title()} description={t.attention_empty_description()} />
+                    } else if queue.incomplete_zero() {
+                        <div data-attention-incomplete>
+                            <Empty
+                                title={t.attention_coverage_import_jobs_incomplete()}
+                                description={t.attention_incomplete_description()}
+                            />
+                        </div>
+                    } else if queue.items.is_empty() {
+                        <AttentionCoverage t={t} query={query} queue={queue} />
+                        <Empty title={t.attention_page_empty_title()} description={t.attention_page_empty_description()} />
                     } else {
+                        <AttentionCoverage t={t} query={query} queue={queue} />
                         <form id={ids::ATTENTION_OPEN} method="get" action={&review} data-patch>
                             <Kept query={query} />
                         </form>
@@ -131,6 +151,113 @@ pub fn AttentionPanel<'a>(t: Cat, query: &'a ScopeQuery, queue: Option<&'a Atten
                 </section>
             }
         }
+    }
+}
+
+/// A count, "At least" it when its kind could not be fully checked (`countValue`).
+fn count_value(t: Cat, count: u64, basis: TotalKind) -> String {
+    match basis {
+        TotalKind::LowerBound => t.attention_count_at_least(t.number(count)).to_string(),
+        TotalKind::Exact => t.number(count).to_string(),
+    }
+}
+
+/// The list showing the queue's window `kind` at `offset`, with its filters and page.
+fn page_href(query: &ScopeQuery, kind: Option<AttentionKind>, offset: u64) -> String {
+    Scopes { query: query.with_attention(kind, offset), notice: Default::default() }.href()
+}
+
+/// How much of each kind the window shows, with its page links (`AttentionQueueCoverage`). A kind
+/// with nothing counted is left out unless it is the one paged or could not be fully checked.
+#[component(css = AttentionPanel)]
+fn AttentionCoverage<'a>(t: Cat, query: &'a ScopeQuery, queue: &'a AttentionQueue) -> impl Render {
+    let paged = queue.window.kind;
+    let kinds: Vec<(AttentionKind, &KindCoverage)> = queue
+        .coverage
+        .kinds()
+        .into_iter()
+        .filter(|(k, c)| c.total > 0 || c.total_kind == TotalKind::LowerBound || paged == Some(*k))
+        .collect();
+    let all = page_href(query, None, 0);
+    html! {
+        <div class={Coverage} data-attention-coverage>
+            <dl class={CoverageList}>
+                for (k, coverage) in &kinds {
+                    <div class={CoverageKind}>
+                        <dt>{kind(t, *k)}</dt>
+                        <dd><KindLine t={t} query={query} k={*k} coverage={coverage} /></dd>
+                    </div>
+                }
+            </dl>
+            if paged.is_some() {
+                <p class={CoverageLinks}>
+                    <a
+                        class={Button { variant: ButtonVariant::Secondary, size: ButtonSize::Sm }}
+                        href={&all}
+                        data-attention-page="summary"
+                    >
+                        {t.attention_page_all_kinds()}
+                    </a>
+                </p>
+            }
+        </div>
+    }
+}
+
+/// One kind's line (`AttentionKindCoverage`): what the window shows of it, whether it could not be
+/// fully checked, and its previous and next pages. A kind the window does not show (another kind is
+/// paged) has a Show link that opens it.
+#[component(css = AttentionPanel)]
+fn KindLine<'a>(t: Cat, query: &'a ScopeQuery, k: AttentionKind, coverage: &'a KindCoverage) -> impl Render {
+    let lower = coverage.total_kind == TotalKind::LowerBound;
+    let total = if lower {
+        t.attention_coverage_total_at_least(t.number(coverage.total)).to_string()
+    } else {
+        t.number(coverage.total).to_string()
+    };
+    let label = if coverage.returned == 0 {
+        (coverage.total > 0 || !lower).then(|| t.attention_coverage_none_shown(total.as_str()).to_string())
+    } else if coverage.offset == 0 {
+        let returned = t.number(coverage.returned).to_string();
+        Some(
+            t.attention_coverage_showing(crate::text::cat::AttentionCoverageShowing { returned: &returned, total: &total })
+                .to_string(),
+        )
+    } else {
+        let from = t.number(coverage.offset + 1).to_string();
+        let to = t.number(coverage.offset + coverage.returned).to_string();
+        Some(
+            t.attention_coverage_showing_range(crate::text::cat::AttentionCoverageShowingRange {
+                from: &from,
+                to: &to,
+                total: &total,
+            })
+            .to_string(),
+        )
+    };
+    let previous = (coverage.limit > 0 && coverage.offset > 0)
+        .then(|| page_href(query, Some(k), coverage.offset.saturating_sub(coverage.limit)));
+    let next = coverage.next_offset.map(|offset| page_href(query, Some(k), offset));
+    // A zero-length window belongs to a kind another page is not showing; its link opens that kind.
+    let opens = coverage.limit == 0;
+    let link = Button { variant: ButtonVariant::Secondary, size: ButtonSize::Sm };
+    html! {
+        <span class={KindRow} data-attention-coverage-kind={k.as_str()}>
+            if let Some(label) = &label {
+                <span>{label}</span>
+            }
+            if lower {
+                <span class={Muted} data-attention-incomplete>{t.attention_coverage_import_jobs_incomplete()}</span>
+            }
+            if let Some(previous) = &previous {
+                <a class={link} href={previous} data-attention-page="previous">{t.attention_page_previous()}</a>
+            }
+            if let Some(next) = &next {
+                <a class={link} href={next} data-attention-page={if opens { "show" } else { "next" }}>
+                    {if opens { t.attention_page_show() } else { t.attention_page_next() }}
+                </a>
+            }
+        </span>
     }
 }
 
@@ -195,7 +322,8 @@ fn AttentionRow<'a>(t: Cat, query: &'a ScopeQuery, item: &'a AttentionItem, mana
 }
 
 /// A one-click resolution (an alias candidate's Accept or Reject): its fields, and the reason a
-/// reject needs (the button's label, as admin-web sends it). Any other intent is not offered.
+/// reject needs (the button's label, as admin-web sends it). Any other intent is not offered, and
+/// one whose target the API says is missing is drawn disabled.
 #[component(css = AttentionPanel)]
 fn CommandButton<'a>(t: Cat, query: &'a ScopeQuery, resolution: &'a Resolution, manage: bool) -> impl Render {
     let action = match resolution.intent.as_str() {
@@ -213,7 +341,7 @@ fn CommandButton<'a>(t: Cat, query: &'a ScopeQuery, resolution: &'a Resolution, 
                 if resolution.requires_reason {
                     <input type="hidden" name="reason" value={&label}>
                 }
-                <button type="submit" class={Small} disabled={!manage}>{&label}</button>
+                <button type="submit" class={Small} disabled={!manage || resolution.unavailable}>{&label}</button>
             </form>
         }
     }
@@ -225,6 +353,7 @@ fn CommandButton<'a>(t: Cat, query: &'a ScopeQuery, resolution: &'a Resolution, 
 #[component(css = AttentionPanel)]
 pub fn AttentionSheet<'a>(
     t: Cat,
+    p: Pilot,
     query: &'a ScopeQuery,
     item: Option<&'a AttentionItem>,
     parked: Option<&'a Parked>,
@@ -238,6 +367,9 @@ pub fn AttentionSheet<'a>(
                 let title = shown(t, &item.title_key, &params).to_string();
                 let evidence = evidence(t, item);
                 let destination = item.resolution.href.as_deref().and_then(admin_web).map(|u| u.to_string());
+                // A command with its target resolves in its row, so its sheet names no page and says
+                // nothing is missing.
+                let missing = item.resolution.unavailable || item.resolution.mode == ResolutionMode::Drawer;
                 let blank = || Draft::new(ParkInput::of(item));
                 let dismiss = match parked {
                     Some(Parked::Dismiss(draft)) => draft.clone(),
@@ -248,6 +380,7 @@ pub fn AttentionSheet<'a>(
                     _ => blank(),
                 };
                 <CatalogDialog
+                    p={p}
                     id={ids::ATTENTION_DIALOG}
                     title={&title}
                     description={Some(t.attention_drawer_description())}
@@ -258,7 +391,8 @@ pub fn AttentionSheet<'a>(
                         <KeyValues items={&evidence} />
                         match &destination {
                             Some(href) => <a class={Link} href={href} data-attention-destination>{t.attention_action_open_destination()}</a>,
-                            None => <p class={Muted}>{t.attention_resolution_unavailable()}</p>,
+                            None if missing => <p class={Muted}>{t.attention_resolution_unavailable()}</p>,
+                            None => {}
                         }
                         <ParkForm
                             t={t}

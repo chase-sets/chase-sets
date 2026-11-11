@@ -28,15 +28,13 @@ use std::time::Duration;
 
 use corten::{
     LiveResponse,
-    axum::http::{HeaderMap, StatusCode},
+    http::{HeaderMap, StatusCode},
     prelude::*,
 };
 use futures_util::StreamExt;
 use platform::receipt::Receipt;
-use serde::Deserialize;
 use serde_json::{Value, json};
 
-use crate::chrome::Chrome;
 use crate::{
     api::{
         ApiError, PRICING_CONTEXT, PricingRefusal, RepricingCalls as _, RepricingCategory, RepricingDryRun, RepricingHalt,
@@ -289,7 +287,7 @@ fn distinct(values: impl Iterator<Item = String>) -> Vec<String> {
 
 /// The page's address: the editor (open, its controls and the dry run that previews them), the
 /// receipt of the write the list waits for, and where the dry run's samples start.
-#[derive(Clone, Debug, Default, Deserialize, Fields, Route)]
+#[derive(Clone, Debug, Default, Fields, Route)]
 #[route(query)]
 #[serde(rename_all = "camelCase")]
 pub struct Place {
@@ -369,7 +367,7 @@ impl Place {
 
 /// A write: Pause, Resume, the halt, Preview and Activate. The editor's posts carry its controls,
 /// named as the address names them.
-#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[derive(Clone, Debug, Default, Fields)]
 #[serde(rename_all = "camelCase", default)]
 pub struct WriteForm {
     pub intent: String,
@@ -589,7 +587,6 @@ async fn render(
     input: Option<EditorInput>,
     refused: Refused,
     status: StatusCode,
-    chrome: &Chrome,
 ) -> HtmlResult {
     let receipt = Receipt::from_param(place.after_write.as_deref());
     let waiting = config.platform.caller(headers, config.proto, receipt.as_ref());
@@ -603,7 +600,7 @@ async fn render(
         Ok(policies) => Policies::Read(policies),
         Err(error) if receipt.is_some() && error.catching_up() => Policies::CatchingUp,
         Err(error) if error.status() == Some(StatusCode::FORBIDDEN) => {
-            return Err(corten::Error::new(error).with_status(StatusCode::FORBIDDEN));
+            return Err(crate::app::api_refused(error));
         }
         Err(error) => {
             tracing::warn!("the repricing policies could not be read: {error}");
@@ -639,9 +636,8 @@ async fn render(
         <meta name="robots" content="noindex">
         {catching_up.then_some(ReadAgain { after: Duration::from_secs(2) })}
     };
-    let cart = chrome.cart().await;
     let page = html! {
-        <Layout req={req} viewer={Some(viewer)} cart={cart} title={t.route_meta_title()} head={head}>
+        <Layout req={req} viewer={Some(viewer)} title={t.route_meta_title()} head={head}>
             <views::RepricingPage t={t} p={req.t()} screen={&screen} />
         </Layout>
     };
@@ -650,14 +646,13 @@ async fn render(
 
 pub(crate) async fn page(
     req: Req,
-    chrome: Chrome,
     Caller(PricingManager(viewer)): Caller<PricingManager>,
     State(config): State<Shared>,
     headers: HeaderMap,
     Params(route): Params<crate::app::url::repricing::Repricing>,
 ) -> HtmlResult {
     let place = route.place;
-    render(&req, &viewer, &config, &headers, &place, None, Refused::None, StatusCode::OK, &chrome).await
+    render(&req, &viewer, &config, &headers, &place, None, Refused::None, StatusCode::OK).await
 }
 
 /// The list again with what a write was refused for (422).
@@ -668,10 +663,9 @@ async fn list_refused(
     headers: &HeaderMap,
     message: &str,
     details: Vec<String>,
-    chrome: &Chrome,
 ) -> HtmlResult {
     let refused = Refused::List(message.to_owned(), details);
-    render(req, viewer, config, headers, &Place::default(), None, refused, StatusCode::UNPROCESSABLE_ENTITY, chrome).await
+    render(req, viewer, config, headers, &Place::default(), None, refused, StatusCode::UNPROCESSABLE_ENTITY).await
 }
 
 /// The editor again at `place` with what its post was refused for (422).
@@ -682,11 +676,9 @@ async fn editor_refused(
     headers: &HeaderMap,
     place: Place,
     errors: Vec<String>,
-    chrome: &Chrome,
 ) -> HtmlResult {
     let input = place.input();
-    render(req, viewer, config, headers, &place, Some(input), Refused::Editor(errors), StatusCode::UNPROCESSABLE_ENTITY, chrome)
-        .await
+    render(req, viewer, config, headers, &place, Some(input), Refused::Editor(errors), StatusCode::UNPROCESSABLE_ENTITY).await
 }
 
 /// Pause, Resume, the halt, Preview and Activate (marketplace's action's intents). Each list write
@@ -694,7 +686,6 @@ async fn editor_refused(
 /// Activate to the list with the new policy's receipt. A refusal is drawn where it was posted.
 pub(crate) async fn write(
     req: Req,
-    chrome: Chrome,
     Caller(PricingManager(viewer)): Caller<PricingManager>,
     State(config): State<Shared>,
     headers: HeaderMap,
@@ -709,7 +700,7 @@ pub(crate) async fn write(
             match caller.repricing_lifecycle(form.policy_id.trim(), change).await {
                 Ok(receipt) => req.redirect(&url::Repricing { place: Place::list(receipt.as_ref()) }),
                 Err(refusal) => match messages(&req, refusal, t.route_action_failed()) {
-                    Ok(details) => list_refused(&req, &viewer, &config, &headers, title, details, &chrome).await,
+                    Ok(details) => list_refused(&req, &viewer, &config, &headers, title, details).await,
                     Err(answer) => *answer,
                 },
             }
@@ -718,7 +709,7 @@ pub(crate) async fn write(
             // The halt is its own aggregate, read without a receipt (as marketplace's redirect).
             Ok(_) => req.redirect(&url::Repricing { place: Place::default() }),
             Err(refusal) => match messages(&req, refusal, t.route_action_failed()) {
-                Ok(details) => list_refused(&req, &viewer, &config, &headers, title, details, &chrome).await,
+                Ok(details) => list_refused(&req, &viewer, &config, &headers, title, details).await,
                 Err(answer) => *answer,
             },
         },
@@ -733,19 +724,19 @@ pub(crate) async fn write(
             if intent == "preview" {
                 if !editor.complete() {
                     let errors = vec![t.editor_validation_failed().to_owned()];
-                    return editor_refused(&req, &viewer, &config, &headers, editor.place(None), errors, &chrome).await;
+                    return editor_refused(&req, &viewer, &config, &headers, editor.place(None), errors).await;
                 }
                 return match caller.start_repricing_dry_run(&editor.compile()).await {
                     Ok(run) => req.redirect(&url::Repricing { place: editor.place(Some(&run.dry_run_id)) }),
                     Err(refusal) => match messages(&req, refusal, t.editor_validation_failed()) {
-                        Ok(errors) => editor_refused(&req, &viewer, &config, &headers, editor.place(None), errors, &chrome).await,
+                        Ok(errors) => editor_refused(&req, &viewer, &config, &headers, editor.place(None), errors).await,
                         Err(answer) => *answer,
                     },
                 };
             }
             let Some(run_id) = run_id else {
                 let errors = vec![p.repricing_preview_first().to_owned()];
-                return editor_refused(&req, &viewer, &config, &headers, editor.place(None), errors, &chrome).await;
+                return editor_refused(&req, &viewer, &config, &headers, editor.place(None), errors).await;
             };
             let run = match caller.repricing_dry_run(run_id).await {
                 Ok(run) => run,
@@ -762,19 +753,17 @@ pub(crate) async fn write(
             };
             if let Some(refusal) = refusal {
                 let errors = vec![refusal.to_owned()];
-                return editor_refused(&req, &viewer, &config, &headers, editor.place(Some(run_id)), errors, &chrome).await;
+                return editor_refused(&req, &viewer, &config, &headers, editor.place(Some(run_id)), errors).await;
             }
             match caller.create_repricing_policy(run_id, &editor.name).await {
                 Ok(receipt) => req.redirect(&url::Repricing { place: Place::list(receipt.as_ref()) }),
                 Err(refusal) => match messages(&req, refusal, t.route_action_failed()) {
-                    Ok(errors) => {
-                        editor_refused(&req, &viewer, &config, &headers, editor.place(Some(run_id)), errors, &chrome).await
-                    }
+                    Ok(errors) => editor_refused(&req, &viewer, &config, &headers, editor.place(Some(run_id)), errors).await,
                     Err(answer) => *answer,
                 },
             }
         }
-        _ => list_refused(&req, &viewer, &config, &headers, t.route_unknown_action(), Vec::new(), &chrome).await,
+        _ => list_refused(&req, &viewer, &config, &headers, t.route_unknown_action(), Vec::new()).await,
     }
 }
 

@@ -21,12 +21,98 @@ import {
 import * as storeModule from "../read-model/count-capture-store";
 import { countCaptureSessionOwner } from "./count-capture-lifecycle";
 import * as lifecycleModule from "./count-capture-lifecycle";
+import { resolveScopeSyncCountMembership } from "./planner";
+import { collectCountCapturePlannerRead } from "./count-capture-context";
+import { createScopeSyncBatchConfirmationCheck } from "./count-capture-planner";
+import { normalizeScopeSyncBatchBudget } from "../domain/batch";
+import { captureCountsFixture } from "../tests/count-capture-counts-fixture";
+import {
+  captureCountQuery,
+  captureNow,
+  createCapturePlannerFixture,
+  createCaptureReaderFixture,
+} from "../tests/count-capture-planner-fixture";
 
 const input = () => ({ scopeRecordId: captureScope, authority: captureAuthority() });
 const runs = (f: ReturnType<typeof createCaptureLifecycleFixture>) =>
   [...new Set(f.memory.history.map((entry) => entry.run_id))].map(
     (runId) => f.memory.history.filter((entry) => entry.run_id === runId).at(-1)!.payload as { status: string },
   );
+
+describe("lossless mapping baseline and real store retention", () => {
+  async function fixture(version: string) {
+    const mappingVersion = { value: version };
+    const reader = createCaptureReaderFixture();
+    const planned = createCapturePlannerFixture((kind) => reader.read(captureCountQuery(kind)), mappingVersion);
+    const f = createCaptureLifecycleFixture({
+      roster: async () => ({
+        ...(await resolveScopeSyncCountMembership(planned.db, planned.input.selection)),
+        profiles: captureRoster().profiles,
+      }),
+    });
+    const baseline = await f.lifecycle.baseline(captureSession(), input());
+    await f.lifecycle.initialNotice(captureSession());
+    await f.lifecycle.usage(captureSession());
+    const run = await f.store.activeRun(countCaptureSessionOwner(captureSession(), "staging"));
+    const binding = await f.store.begin(run.runId, "quote");
+    await f.store.bindQuote(binding, captureCountsFixture().quote, normalizeScopeSyncBatchBudget(planned.input.budget));
+    await f.store.finish(binding);
+    f.clock.now = captureNow;
+    async function retain(phase: "preview" | "pre-confirm", fingerprint?: string) {
+      const binding = await f.store.begin(run.runId, phase);
+      const observed = await collectCountCapturePlannerRead(async () => {
+        if (phase === "preview") {
+          await planned.planner.resolve(planned.input);
+          return null;
+        }
+        return createScopeSyncBatchConfirmationCheck(planned.planner).preConfirmPlannerRead({
+          ...planned.input,
+          planFingerprint: fingerprint!,
+        });
+      });
+      const row = plan.captureCountPlannerRead({
+        requestId: binding.requestId,
+        plan: observed.plan,
+        winners: observed.winners,
+        preConfirm: observed.value,
+      });
+      await f.store.retainPlannerRead(binding, row);
+      await f.store.finish(binding);
+      return row;
+    }
+    return { ...f, baseline: baseline.baseline, mappingVersion, retain, runId: run.runId };
+  }
+
+  it.each(["2026-10-10T05:18:47.195000Z", "2026-10-10T05:18:47.195123Z"])(
+    "retains unchanged %s through baseline, actual planner/capture and both store phases",
+    async (version) => {
+      const f = await fixture(version);
+      const preview = await f.retain("preview");
+      const preConfirm = await f.retain("pre-confirm", preview.planFingerprint);
+      expect(f.baseline.units.map((unit) => unit.mappingVersion)).toEqual([version, version, version]);
+      expect(f.baseline.selection.scopeRecordVersion).toBe("2026-10-13T07:00:00.000Z");
+      for (const read of [preview, preConfirm]) {
+        expect(read.eligible).toBe(true);
+        expect(read.plan.scopes[0]!.mappingVersions.map((mapping) => mapping.version)).toEqual([
+          version,
+          version,
+          version,
+        ]);
+      }
+      expect((await f.store.read(f.runId)).reads.map((read) => read.phase)).toEqual(["preview", "pre-confirm"]);
+      expect(f.usage.fetch).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(["preview", "pre-confirm"] as const)("refuses a mapping-only microsecond drift at %s", async (phase) => {
+    const f = await fixture("2026-10-10T05:18:47.195000Z");
+    const preview = phase === "pre-confirm" ? await f.retain("preview") : null;
+    f.mappingVersion.value = "2026-10-10T05:18:47.195001Z";
+    await expect(f.retain(phase, preview?.planFingerprint)).rejects.toThrow(CountCaptureStopped);
+    expect((await f.store.read(f.runId)).reads.map((read) => read.phase)).toEqual(preview ? ["preview"] : []);
+    expect(f.usage.fetch).not.toHaveBeenCalled();
+  });
+});
 
 describe("capture admission", () => {
   it("admits one bounded run", async () => {

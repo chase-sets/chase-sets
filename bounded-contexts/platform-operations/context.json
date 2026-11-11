@@ -24,6 +24,7 @@
     "platform-remedy-policy",
     "remedy-approval",
     "seller-compliance-sale",
+    "seller-compliance-cohort",
     "appealable-enforcement-action"
   ],
   "streamPrefix": "platform-operations.",
@@ -1500,8 +1501,8 @@
     },
     "seller-compliance-cohorts": {
       "classification": "slice",
-      "purpose": "Own the pure seller-compliance-cohorts evaluator: decode the cohort policy and compute the rolling-window verdict over seller-compliance-sales facts.",
-      "expectedConsumers": ["Internal platform-operations module composition"]
+      "purpose": "Own the seller-compliance-cohorts evaluator, complete policy-history replay, durable evaluation failures and sweep checkpoint, guarded cohort state and immutable transition ledger: compute and persist causal rolling-window verdicts without resolving statutory applicability.",
+      "expectedConsumers": ["Internal platform-operations module composition", "Platform worker scheduled cohort replay"]
     }
   },
   "runtimeDeployables": ["platform-worker"],

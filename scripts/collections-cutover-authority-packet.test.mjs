@@ -1,13 +1,28 @@
 // The 16 8933-impl-g1 `authority-packet-completeness` tests (sha256 89f8b29a…), its named mutants M1–M10 and
-// one test per `applyProviderCapture` refusal. Every identity below is SYNTHETIC (synthetic-* ids,
-// repeated-digit SHAs); none is a captured provider fact.
+// one test per `applyProviderCapture` refusal. Completeness/application controls use synthetic identities;
+// the historical replay section separately pins immutable real negative evidence.
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
-import { describe, expect, it, test } from "vitest";
+import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { basename, dirname, join, resolve } from "node:path";
+import { afterAll, beforeAll, describe, expect, it, test, vi } from "vitest";
+
+import {
+  databaseIdentityDigest,
+  deriveFloor,
+  runRedaction,
+  validatePacket,
+} from "./collections-anonymous-owner-redaction.mjs";
 
 import * as packetModule from "./collections-cutover-authority-packet.mjs";
 
 const { applyProviderCapture, PROVIDER_CAPTURE_FIELDS, PROVIDER_CAPTURE_SCHEMA_VERSION } = packetModule;
+
+test("exports an offline gate assembler distinct from completeness", () => {
+  expect(packetModule.assembleAuthorityPacket).toBeTypeOf("function");
+});
 
 const FLOOR = "1".repeat(40);
 const RECOVERY = "2".repeat(40);
@@ -718,5 +733,1079 @@ describe("applyProviderCapture session evidence", () => {
       verdict: "invalid",
       errors: [`staging|writers.session|${key}-malformed`],
     });
+  });
+});
+
+const hash = (value) => createHash("sha256").update(value).digest("hex");
+const bound = (value) => {
+  const text = typeof value === "string" ? value : JSON.stringify(value);
+  return { text, sha256: hash(text) };
+};
+const fixturePath = (name) => new URL(`./fixtures/collections-cutover-authority/${name}`, import.meta.url);
+const historical = (name) => {
+  const bytes = readFileSync(fixturePath(name), "utf8");
+  return name.endsWith(".b64") ? Buffer.from(bytes, "base64").toString("utf8") : bytes;
+};
+
+describe("historical escaped packets are negative evidence, never cutover authority", () => {
+  // Text suffixes avoid formatter rewrites; base64 preserves the production packet's original CRLF bytes.
+  const hashes = {
+    "staging-escaped-packet.json.txt": "e07f627199bed257fd76d585a1db5d8f9be71b7545ae5568e3cce66d32db3e5d",
+    "production-escaped-packet.json.b64": "1d34cd821034aefab0a0e11affb989f7a2e8aa1ed7ad5503bc4c215c54d778c7",
+    "staging-capture.json.txt": "563c88c7acf4c8f1a806f0dbaf78b4f7b1eabeb53babf7c0dde6270aa6d5ca9f",
+    "production-capture.json.txt": "c13102b678d1638ff3945f2162b1a5c6e4f7b7364463ff63017bfaa2ea1cd6df",
+  };
+  it.each(Object.entries(hashes))("pins immutable bytes for %s", (name, digest) =>
+    expect(hash(historical(name))).toBe(digest),
+  );
+
+  const replay = (target, withImageEvidence = false) => {
+    const captureText = historical(`${target}-capture.json.txt`);
+    const capture = JSON.parse(captureText);
+    const escaped = JSON.parse(historical(`${target}-escaped-packet.json.${target === "production" ? "b64" : "txt"}`));
+    const floor = capture.fields.deployedCommitAncestry.value.floor;
+    const evidence = JSON.parse(historical("production-image-evidence.json"));
+    const images = withImageEvidence
+      ? capture.fields["writers.rollback"].items
+          .filter((item) => item.images?.includes(evidence.image) && item.revisions.length === 0)
+          .map((item) => ({
+            captureSha256: evidence.captureSha256,
+            sourceId: item.id,
+            image: evidence.image,
+            commit: evidence.commit,
+            execution: bound(evidence.executionExtract),
+            jobId: evidence.jobId,
+            stepNumber: evidence.stepNumber,
+            lines: evidence.lines,
+            compare: evidence.compare,
+          }))
+      : [];
+    // Historical negative replay seam only: no local full-history or fresh production proof is claimed.
+    const known = new Set(
+      packetModule.WRITER_KINDS.flatMap((kind) =>
+        capture.fields[`writers.${kind}`].items
+          .filter((item) => item.containsFloor === true)
+          .flatMap((item) => item.revisions ?? []),
+      ),
+    );
+    if (withImageEvidence) known.add(evidence.commit);
+    const result = packetModule.assembleAuthorityPacket(
+      {
+        target,
+        floorCommit: floor,
+        root: "synthetic-historical-negative-seam",
+        capture: bound(captureText),
+        startedAt: capture.capturedAt,
+        activationMergedAt: "2026-10-16T00:00:00.000Z",
+        assertedPacket: escaped,
+        supplementary: { images, retirements: [], terminations: [], schemaObservation: null },
+      },
+      {
+        deriveFloor: () => floor,
+        containsFloor: (_root, expected, revision) => expected === floor && known.has(revision),
+      },
+    );
+    return { result, escaped, capture };
+  };
+  it("staging: 27 compatible rollback sources derive deployed, but the unclassified aggregate session refuses", () => {
+    const { result, escaped } = replay("staging");
+    expect(escaped.writers.rollback.filter((writer) => writer.state === "retired")).toHaveLength(27);
+    expect(escaped.writers.session).toMatchObject([{ state: "terminated" }]);
+    expect(result).toMatchObject({
+      verdict: "refused",
+      codes: ["schema-source", "session-proof"],
+      mapped: { rollback: { deployed: 27, retired: 0 }, session: { terminated: 0 } },
+    });
+    expect(result).not.toHaveProperty("packet");
+  });
+  it("production: without E3 two unknown ReplicaSets and the session refuse; with bound E3 only those ReplicaSets become deployed", () => {
+    const without = replay("production");
+    expect(without.escaped.writers.rollback.filter((writer) => writer.state === "retired")).toHaveLength(29);
+    expect(without.result).toMatchObject({
+      verdict: "refused",
+      codes: ["image-provenance", "schema-source", "session-proof"],
+      mapped: { rollback: { deployed: 27, retired: 0 } },
+    });
+    const withEvidence = replay("production", true);
+    expect(withEvidence.result).toMatchObject({
+      verdict: "refused",
+      codes: ["schema-source", "session-proof"],
+      mapped: { rollback: { deployed: 29, retired: 0 }, session: { terminated: 0 } },
+    });
+    expect(withEvidence.result).not.toHaveProperty("packet");
+  });
+  it("binds the retained E3 compare extraction, executed job and exact historical line hashes without ingesting the full compare", () => {
+    const evidence = JSON.parse(historical("production-image-evidence.json"));
+    expect(evidence.historicalOnly).toBe(true);
+    expect(evidence.compare).toEqual({
+      artifactSha256: "1740ca197888047232518ca12c68ac4628f4c6729e83bcc1850bf4e6523768c5",
+      status: "ahead",
+      ahead_by: 378,
+      behind_by: 0,
+      base: "a460b410398b01d386b7919ef364e63d3d271b88",
+      mergeBase: "a460b410398b01d386b7919ef364e63d3d271b88",
+      head: "d2186b574266b38897045e047a90517a6a2c8168",
+    });
+    expect(evidence.jobSourceSha256).toBe("88a4f60f08ae2f7f56e8b22f03661c281d4fbebc80cdd59a0f6d2518a5701c66");
+    expect(evidence.lines.map((line) => hash(line.text))).toEqual(evidence.lines.map((line) => line.sha256));
+    expect(Buffer.byteLength(historical("production-image-evidence.json"))).toBeLessThan(4096);
+  });
+});
+const unpack = (input) => JSON.parse(input.capture.text);
+const changeCapture = (input, mutate) => {
+  const capture = unpack(input);
+  mutate(capture);
+  input.capture = bound(capture);
+  if (input.supplementary.schemaObservation) input.supplementary.schemaObservation.captureSha256 = input.capture.sha256;
+};
+const changeReceipt = (input, mutate) => {
+  const observation = input.supplementary.schemaObservation;
+  const receipt = JSON.parse(observation.receipt.text);
+  mutate(receipt);
+  observation.receipt = bound(receipt);
+};
+const changeExecution = (evidence, mutate) => {
+  const execution = JSON.parse(evidence.execution.text);
+  mutate(execution);
+  evidence.execution = bound(execution);
+};
+
+describe("offline cutover gate assembly", () => {
+  let root, floor, head, subfloor;
+  const capturedAt = "2030-01-02T00:00:00.000Z";
+  const startedAt = "2030-01-02T00:02:00.000Z";
+  const observationStart = "2030-01-02T00:01:00.000Z";
+  const observationEnd = "2030-01-02T00:01:01.000Z";
+  const ledger = ["20261016_collections_anonymous_owner_activation", "synthetic_later_migration"];
+  const databaseUrl = "postgresql://synthetic.invalid/synthetic_collections";
+  const git = (...args) =>
+    execFileSync("git", ["-C", root, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+  const commit = (message) => {
+    git("add", ".");
+    git("-c", "user.name=Synthetic Fixture", "-c", "user.email=synthetic@example.invalid", "commit", "-m", message);
+    return git("rev-parse", "HEAD");
+  };
+  // The temporary history is a test seam, never production ancestry authority.
+  beforeAll(() => {
+    root = mkdtempSync(join(tmpdir(), "synthetic-cutover-assembly-"));
+    git("init", "--initial-branch=main");
+    writeFileSync(join(root, "synthetic.txt"), "before activation\n");
+    subfloor = commit("synthetic before floor");
+    const path = join(root, "bounded-contexts/collections/support/runtime-support");
+    mkdirSync(path, { recursive: true });
+    writeFileSync(join(path, "anonymous-owner-activation.ts"), "// synthetic activation floor\n");
+    floor = commit("synthetic floor");
+    writeFileSync(join(root, "synthetic.txt"), "after activation\n");
+    head = commit("synthetic descendant");
+    expect(deriveFloor(root)).toBe(floor);
+  });
+  afterAll(() => {
+    expect(dirname(resolve(root))).toBe(resolve(tmpdir()));
+    expect(basename(root)).toMatch(/^synthetic-cutover-assembly-/);
+    rmSync(root, { recursive: true, force: true });
+  });
+  const seam = () => ({
+    deriveFloor: () => floor,
+    containsFloor: (_root, expected, revision) => expected === floor && [floor, head].includes(revision),
+  });
+  const execution = (packetless = true) => ({
+    databaseId: 900000000001,
+    headSha: head,
+    status: "completed",
+    conclusion: packetless ? "failure" : "success",
+    jobs: [
+      {
+        databaseId: 900000000002,
+        status: "completed",
+        conclusion: packetless ? "failure" : "success",
+        startedAt: observationStart,
+        completedAt: observationEnd,
+        steps: [
+          {
+            number: 7,
+            name: "Run protected Collections cutover",
+            status: "completed",
+            conclusion: packetless ? "failure" : "success",
+            startedAt: observationStart,
+            completedAt: observationEnd,
+          },
+        ],
+      },
+    ],
+  });
+  const input = () => {
+    const capture = syntheticProviderCapture();
+    capture.capturedAt = capturedAt;
+    capture.head = head;
+    capture.fields.environment = concrete("staging");
+    capture.fields.databaseIdentityDigest = concrete(databaseIdentityDigest("staging", databaseUrl));
+    capture.fields.releaseCommit = concrete(head);
+    capture.fields.deployedCommitAncestry = concrete({
+      floor,
+      revisions: [
+        { revision: 1, status: "deployed", commit: head, digest: `sha256:${"4".repeat(64)}`, containsFloor: true },
+      ],
+    });
+    const sources = {
+      serving: ["rollouts", "deployments", "replicasets", "pods"],
+      suspended: ["jobs", "cronjobs"],
+      dormant: ["rollouts", "deployments", "replicasets"],
+      rollback: ["replicasets", "helm"],
+      job: ["jobs"],
+      cronjob: ["cronjobs"],
+      session: ["sessions"],
+    };
+    for (const kind of packetModule.WRITER_KINDS) {
+      const items =
+        kind === "serving"
+          ? [
+              {
+                id: "deployments:synthetic/synthetic-api",
+                images: [`synthetic.invalid/platform:${head}`],
+                revisions: [head],
+                containsFloor: true,
+                replicas: 1,
+              },
+            ]
+          : [];
+      capture.fields[`writers.${kind}`] = {
+        items,
+        collected: items.length,
+        authoritativeTotal: items.length,
+        source: "synthetic-source",
+        coverage: Object.fromEntries(
+          sources[kind].map((source) => [
+            source,
+            { status: "complete", listed: ["deployments", "helm", "sessions"].includes(source) ? 1 : 0 },
+          ]),
+        ),
+      };
+    }
+    const session = capture.fields["writers.session"];
+    session.items = [
+      {
+        id: "backend:4301",
+        pid: 4301,
+        backendStart: capturedAt,
+        roleDigest: "b".repeat(64),
+        classification: "pooler",
+        poolMatch: { pid: true, backendStart: true, role: true },
+        revisions: [head],
+        containsFloor: true,
+      },
+    ];
+    session.collected = session.authoritativeTotal = 1;
+    session.pool = concrete({
+      context: "collections",
+      name: "collections-runtime",
+      mode: "transaction",
+      size: 4,
+      hostDigest: "a".repeat(64),
+      userDigest: "b".repeat(64),
+    });
+    session.pooledRead = concrete({ pid: 4301, backendStart: capturedAt });
+    session.holders = {
+      source: "synthetic-source",
+      collected: 1,
+      authoritativeTotal: 1,
+      items: [
+        {
+          id: "capture:900000000003/1",
+          source: "capture",
+          workflow: ".github/workflows/collections-cutover-authority-capture.yml",
+          credentialSource: "DATABASE_URL_COLLECTIONS",
+          revisions: [head],
+          containsFloor: true,
+        },
+      ],
+      exclusions: [],
+      coverage: {
+        workflows: { status: "complete", listed: 0, pooledSteps: 0 },
+        runs: {},
+        kubernetes: { status: "complete", listed: 0 },
+      },
+    };
+    const captureBinding = bound(capture);
+    const receipt = {
+      format: "collections-privacy-cutover-receipt/v1",
+      mode: "dry-run",
+      target: "staging",
+      dbIdentityDigest: databaseIdentityDigest("staging", databaseUrl),
+      floorCommit: floor,
+      startedAt: observationStart,
+      endedAt: observationEnd,
+      schemaLedger: ledger,
+      schemaVersion: hash(JSON.stringify(ledger)),
+      codes: ["packet-digest"],
+      fencePresent: true,
+      packet: null,
+      packetText: null,
+      packetSha256: null,
+      gates: { packet: false, schema: false },
+    };
+    return {
+      target: "staging",
+      root,
+      floorCommit: floor,
+      activationMergedAt: "2030-01-01T00:00:00.000Z",
+      startedAt,
+      capture: captureBinding,
+      supplementary: {
+        images: [],
+        retirements: [],
+        terminations: [],
+        schemaObservation: {
+          captureSha256: captureBinding.sha256,
+          execution: bound(execution()),
+          jobId: 900000000002,
+          stepNumber: 7,
+          artifactJobId: 900000000002,
+          artifactName: "synthetic-observation",
+          receipt: bound(receipt),
+        },
+      },
+    };
+  };
+  const assemble = (value) => packetModule.assembleAuthorityPacket(value, seam());
+  const refused = (value, code) => {
+    const result = assemble(value);
+    expect(result.verdict).toBe("refused");
+    expect(result.codes).toContain(code);
+    for (const key of ["packet", "packetText", "packetSha256"]) expect(result).not.toHaveProperty(key);
+    return result;
+  };
+
+  it("deterministic export bytes pass the real validator with a matching observation and temporary Git ancestry", () => {
+    const value = input();
+    const result = packetModule.assembleAuthorityPacket(value);
+    expect(result).toMatchObject({ verdict: "complete", codes: [] });
+    expect(result.packetSha256).toBe(hash(result.packetText));
+    expect(Buffer.byteLength(result.packetText)).toBeLessThanOrEqual(16 * 1024);
+    expect(assemble(structuredClone(value))).toEqual(result);
+    expect(
+      validatePacket(
+        {
+          root,
+          databaseUrl,
+          target: "staging",
+          packetText: result.packetText,
+          packetSha256: result.packetSha256,
+          startedAt,
+        },
+        { schemaLedger: ledger, fencePresent: true },
+        floor,
+      ),
+    ).toEqual(result.packet);
+    expect(() =>
+      validatePacket(
+        {
+          root,
+          databaseUrl,
+          target: "staging",
+          packetText: result.packetText,
+          packetSha256: "0".repeat(64),
+          startedAt,
+        },
+        { schemaLedger: ledger, fencePresent: true },
+        floor,
+      ),
+    ).toThrow("packet-digest");
+  });
+
+  it.each([
+    ["missing input", (value) => delete value.capture, "capture-binding"],
+    ["changed capture bytes", (value) => (value.capture.text += " "), "capture-binding"],
+    ["wrong target", (value) => (value.target = "production"), "capture-incomplete"],
+    ["stale capture", (value) => (value.startedAt = "2030-01-02T00:31:00.001Z"), "capture-stale"],
+    ["future capture", (value) => (value.startedAt = "2030-01-01T00:00:00.000Z"), "capture-stale"],
+    ["missing activation time", (value) => delete value.activationMergedAt, "capture-stale"],
+    ["wrong floor", (value) => (value.floorCommit = head), "floor-mismatch"],
+    [
+      "missing source",
+      (value) => changeCapture(value, (capture) => delete capture.fields.releaseCommit.source),
+      "capture-incomplete",
+    ],
+    [
+      "failed capture",
+      (value) => changeCapture(value, (capture) => capture.codes.push("synthetic-failure")),
+      "capture-incomplete",
+    ],
+    [
+      "unknown field",
+      (value) => changeCapture(value, (capture) => (capture.fields.injected = concrete("x"))),
+      "capture-incomplete",
+    ],
+  ])("refuses %s without partial packet", (_, mutate, code) => {
+    const value = input();
+    mutate(value);
+    refused(value, code);
+  });
+
+  it("refuses a shallow temporary checkout and missing objects without weakening deriveFloor", () => {
+    const shallow = join(root, ".git/shallow");
+    writeFileSync(shallow, `${head}\n`);
+    try {
+      expect(packetModule.assembleAuthorityPacket(input()).codes).toEqual(["floor-ambiguous"]);
+    } finally {
+      rmSync(shallow);
+    }
+    const value = input();
+    changeCapture(value, (capture) => {
+      const writer = capture.fields["writers.serving"].items[0];
+      writer.revisions = ["e".repeat(40)];
+      writer.images = [`synthetic.invalid/platform:${"e".repeat(40)}`];
+    });
+    expect(packetModule.assembleAuthorityPacket(value)).toMatchObject({
+      verdict: "refused",
+      codes: ["writer-authority"],
+    });
+  });
+
+  it("all-image-floor: mixed init/regular/ephemeral images cannot inherit a known revision or owner", () => {
+    const value = input();
+    changeCapture(value, (capture) => {
+      const item = capture.fields["writers.serving"].items[0];
+      item.images.push("synthetic.invalid/sidecar:unknown");
+      item.ownerReferences = [{ kind: "Deployment", name: "synthetic-parent" }];
+    });
+    refused(value, "image-provenance");
+    changeCapture(value, (capture) => {
+      const item = capture.fields["writers.serving"].items[0];
+      item.images[1] = `synthetic.invalid/sidecar:${subfloor}`;
+      item.revisions = [head, subfloor];
+    });
+    refused(value, "writer-authority");
+    changeCapture(value, (capture) => {
+      const item = capture.fields["writers.serving"].items[0];
+      item.images[1] = `synthetic.invalid/sidecar:${floor}`;
+      item.revisions = [head, floor];
+    });
+    const result = assemble(value);
+    expect(result.verdict).toBe("complete");
+    expect(result.packet.writers.serving).toHaveLength(2);
+    expect(result.packet.writers.serving.map((item) => item.revision).sort()).toEqual([head, floor].sort());
+    expect(result.packet.inventory).toEqual({ collected: 3, authoritativeTotal: 3 });
+    changeCapture(value, (capture) => {
+      capture.fields["writers.serving"].items[0].images.reverse();
+      capture.fields["writers.serving"].items[0].revisions.reverse();
+    });
+    expect(assemble(value)).toEqual(result);
+    expect(
+      validatePacket(
+        {
+          root,
+          databaseUrl,
+          target: "staging",
+          packetText: result.packetText,
+          packetSha256: result.packetSha256,
+          startedAt,
+        },
+        { schemaLedger: ledger, fencePresent: true },
+        floor,
+      ),
+    ).toEqual(result.packet);
+  });
+
+  it("all-image-floor: missing captured revisions cannot be filled from a tag alone", () => {
+    const value = input();
+    changeCapture(value, (capture) => {
+      capture.fields["writers.serving"].items[0].revisions = [];
+    });
+    refused(value, "image-provenance");
+  });
+
+  const digestProof = (value) => {
+    const image = `synthetic.invalid/platform@sha256:${"6".repeat(64)}`;
+    changeCapture(value, (capture) => {
+      const writer = capture.fields["writers.serving"].items[0];
+      writer.images = [image];
+      writer.revisions = [];
+      writer.containsFloor = null;
+    });
+    const run = execution(false);
+    run.jobs[0].startedAt = run.jobs[0].steps[0].startedAt = "2030-01-01T00:00:01.000Z";
+    run.jobs[0].completedAt = run.jobs[0].steps[0].completedAt = "2030-01-01T00:00:02.000Z";
+    const lines = [`RELEASE_COMMIT: ${head}`, `RELEASE_IMAGE_DIGEST: sha256:${"6".repeat(64)}`].map(
+      (binding, index) => {
+        const text = `Synthetic job\tSynthetic step\t2030-01-01T00:00:01.500Z   ${binding}`;
+        return { number: index + 1, text, sha256: hash(text) };
+      },
+    );
+    const proof = {
+      captureSha256: value.capture.sha256,
+      sourceId: "deployments:synthetic/synthetic-api",
+      image,
+      commit: head,
+      execution: bound(run),
+      jobId: 900000000002,
+      stepNumber: 7,
+      lines,
+      compare: {
+        artifactSha256: hash("synthetic-compare-source"),
+        status: "ahead",
+        ahead_by: 1,
+        behind_by: 0,
+        base: floor,
+        mergeBase: floor,
+        head,
+      },
+    };
+    value.supplementary.images = [proof];
+    return proof;
+  };
+
+  it("all-image-floor: immutable digest provenance binds capture, source, image, executed job/step, exact lines and GitHub compare", () => {
+    const value = input();
+    digestProof(value);
+    expect(assemble(value)).toMatchObject({
+      verdict: "complete",
+      packet: { writers: { serving: [{ revision: head, state: "deployed" }] } },
+    });
+  });
+
+  it.each([
+    ["missing proof", (value) => (value.supplementary.images = [])],
+    ["duplicate proof", (value, proof) => value.supplementary.images.push(structuredClone(proof))],
+    ["wrong digest", (_value, proof) => (proof.image = `synthetic.invalid/platform@sha256:${"7".repeat(64)}`)],
+    ["wrong capture", (_value, proof) => (proof.captureSha256 = "a".repeat(64))],
+    ["wrong source", (_value, proof) => (proof.sourceId = "deployments:synthetic/other")],
+    ["wrong commit", (_value, proof) => (proof.commit = subfloor)],
+    ["wrong exact line hash", (_value, proof) => (proof.lines[0].sha256 = "a".repeat(64))],
+    ["missing compare", (_value, proof) => delete proof.compare],
+    ["asserted ancestor only", (_value, proof) => (proof.compare = { ancestor: true })],
+    ["compare behind", (_value, proof) => (proof.compare.behind_by = 1)],
+    ["inconsistent identical compare", (_value, proof) => (proof.compare.status = "identical")],
+    ["compare wrong base", (_value, proof) => (proof.compare.mergeBase = subfloor)],
+    ["compare wrong head", (_value, proof) => (proof.compare.head = floor)],
+    ["compare missing artifact hash", (_value, proof) => delete proof.compare.artifactSha256],
+    [
+      "skipped owning step",
+      (_value, proof) => changeExecution(proof, (run) => (run.jobs[0].steps[0].conclusion = "skipped")),
+    ],
+    ["red owning job", (_value, proof) => changeExecution(proof, (run) => (run.jobs[0].conclusion = "failure"))],
+    ["wrong job", (_value, proof) => proof.jobId++],
+    [
+      "duplicate owning step",
+      (_value, proof) => changeExecution(proof, (run) => run.jobs[0].steps.push(structuredClone(run.jobs[0].steps[0]))),
+    ],
+  ])("all-image-floor: refuses %s", (_, mutate) => {
+    const value = input();
+    const proof = digestProof(value);
+    mutate(value, proof);
+    refused(value, "image-provenance");
+  });
+
+  it("all-image-floor: zero-replica compatible rollbacks are deployed, never retired", () => {
+    const value = input();
+    changeCapture(value, (capture) => {
+      const set = capture.fields["writers.rollback"];
+      set.items = [
+        { id: "helm:chase-sets-platform/1", revisions: [floor], containsFloor: true, replicas: 0, state: "retired" },
+      ];
+      set.collected = set.authoritativeTotal = 1;
+      set.coverage.helm.listed = 2;
+      capture.fields.deployedCommitAncestry.value.revisions.push({ revision: 1, commit: floor, containsFloor: true });
+      capture.fields.deployedCommitAncestry.value.revisions[0].revision = 2;
+    });
+    expect(assemble(value)).toMatchObject({
+      verdict: "complete",
+      packet: { writers: { rollback: [{ id: "helm:chase-sets-platform/1", state: "deployed", revision: floor }] } },
+    });
+  });
+
+  it.each([
+    ["wrong pool", (session) => (session.pool.value.name = "synthetic-other-pool")],
+    ["wrong PID", (session) => session.pooledRead.value.pid++],
+    ["wrong backend birth", (session) => (session.pooledRead.value.backendStart = observationStart)],
+    ["wrong role", (session) => (session.items[0].roleDigest = "c".repeat(64))],
+    ["unclassified", (session) => (session.items[0].classification = "unknown")],
+    ["incomplete holders", (session) => session.holders.authoritativeTotal++],
+    ["missing coverage", (session) => delete session.holders.coverage.runs],
+    ["unknown coverage", (session) => (session.holders.coverage.workflows.status = "unknown")],
+    ["unknown holder", (session) => (session.holders.items[0].containsFloor = null)],
+    ["sub-floor holder", (session) => (session.holders.items[0].revisions = [subfloor])],
+    [
+      "aggregate ordinal",
+      (session) => {
+        session.items[0].id = "session:1";
+      },
+    ],
+    [
+      "missing holder",
+      (session) => {
+        session.holders.items = [];
+        session.holders.collected = session.holders.authoritativeTotal = 0;
+      },
+    ],
+  ])("session-proof: refuses %s", (_, mutate) => {
+    const value = input();
+    changeCapture(value, (capture) => mutate(capture.fields["writers.session"]));
+    refused(value, "session-proof");
+  });
+
+  it("session-proof: each rerun uses its actual head, not capture main; workflow-step identities use the canonical shape", () => {
+    const value = input();
+    changeCapture(value, (capture) => {
+      const session = capture.fields["writers.session"];
+      session.holders.items.push(
+        {
+          id: "run:900000000004/2",
+          source: "workflow-run",
+          workflow: "synthetic.yml",
+          runId: 900000000004,
+          attempt: 2,
+          jobIds: [900000000005],
+          credentialSource: "DATABASE_URL_COLLECTIONS",
+          revisions: [floor],
+          containsFloor: true,
+        },
+        {
+          id: "workflow:synthetic.yml#synthetic-job/3",
+          source: "workflow-step",
+          workflow: "synthetic.yml",
+          credentialSource: "DATABASE_URL_COLLECTIONS",
+          revisions: [head],
+          containsFloor: true,
+        },
+      );
+      session.holders.collected = session.holders.authoritativeTotal = 3;
+      session.holders.coverage.workflows = { status: "complete", listed: 1, pooledSteps: 1 };
+      session.holders.coverage.runs = { "synthetic.yml": { status: "complete", listed: 1, executing: 1 } };
+      session.items[0].revisions = [floor, head].sort();
+    });
+    expect(assemble(value)).toMatchObject({ verdict: "complete" });
+    changeCapture(value, (capture) => (capture.fields["writers.session"].holders.items[1].revisions = [subfloor]));
+    refused(value, "session-proof");
+  });
+
+  it.each([
+    ["absent observation", (value) => (value.supplementary.schemaObservation = null)],
+    ["wrong bytes", (value) => (value.supplementary.schemaObservation.receipt.text += " ")],
+    ["extra error", (value) => changeReceipt(value, (receipt) => receipt.codes.push("redaction-observation-failed"))],
+    [
+      "stale observation",
+      (value) => changeReceipt(value, (receipt) => (receipt.startedAt = "2030-01-01T00:00:00.000Z")),
+    ],
+    ["wrong DB", (value) => changeReceipt(value, (receipt) => (receipt.dbIdentityDigest = "e".repeat(64)))],
+    ["wrong target", (value) => changeReceipt(value, (receipt) => (receipt.target = "production"))],
+    ["wrong floor", (value) => changeReceipt(value, (receipt) => (receipt.floorCommit = head))],
+    [
+      "missing activation migration",
+      (value) =>
+        changeReceipt(value, (receipt) => {
+          receipt.schemaLedger = ["synthetic_later_migration"];
+          receipt.schemaVersion = hash(JSON.stringify(receipt.schemaLedger));
+        }),
+    ],
+    ["omitted ledger entry", (value) => changeReceipt(value, (receipt) => receipt.schemaLedger.pop())],
+    ["unsorted ledger", (value) => changeReceipt(value, (receipt) => receipt.schemaLedger.reverse())],
+    [
+      "duplicate ledger",
+      (value) => changeReceipt(value, (receipt) => receipt.schemaLedger.push(receipt.schemaLedger[0])),
+    ],
+    ["wrong head", (value) => changeExecution(value.supplementary.schemaObservation, (run) => (run.headSha = floor))],
+    ["wrong artifact job", (value) => value.supplementary.schemaObservation.artifactJobId++],
+    ["wrong capture binding", (value) => (value.supplementary.schemaObservation.captureSha256 = "f".repeat(64))],
+    [
+      "missing owning step",
+      (value) => changeExecution(value.supplementary.schemaObservation, (run) => (run.jobs[0].steps = [])),
+    ],
+    [
+      "duplicate owning job",
+      (value) =>
+        changeExecution(value.supplementary.schemaObservation, (run) => run.jobs.push(structuredClone(run.jobs[0]))),
+    ],
+    [
+      "skipped owning step",
+      (value) =>
+        changeExecution(value.supplementary.schemaObservation, (run) => (run.jobs[0].steps[0].conclusion = "skipped")),
+    ],
+    [
+      "failed different step",
+      (value) =>
+        changeExecution(value.supplementary.schemaObservation, (run) =>
+          run.jobs[0].steps.push({ number: 8, conclusion: "failure" }),
+        ),
+    ],
+    ["packetless gate PASS", (value) => changeReceipt(value, (receipt) => (receipt.gates.schema = true))],
+    [
+      "packetless receipt claiming success",
+      (value) => {
+        changeReceipt(value, (receipt) => {
+          receipt.codes = [];
+        });
+        value.supplementary.schemaObservation.execution = bound(execution(false));
+      },
+    ],
+  ])("schema-source: refuses %s", (_, mutate) => {
+    const value = input();
+    mutate(value);
+    refused(value, "schema-source");
+  });
+
+  it("schema-source: traces ordered observe SQL through a real packetless runner receipt, then validates a separate packet-bearing dry-run", async () => {
+    const source = readFileSync(
+      new URL("../bounded-contexts/collections/features/saved-lists/api/anonymous-owner-redaction.ts", import.meta.url),
+      "utf8",
+    );
+    expect(source).toContain("SELECT migration_id FROM bounded_context_schema_migrations ORDER BY migration_id");
+    expect(source).toContain("schemaLedger: ledger.rows.map((row) => row.migration_id)");
+    const value = input();
+    const snapshot = {
+      schemaLedger: ledger,
+      fencePresent: true,
+      activation: { activated_at: null, floor_commit: null },
+      before: 0,
+      after: 0,
+      processed: 0,
+      mismatches: 0,
+      durationMs: 0,
+      codes: [],
+    };
+    const options = {
+      root,
+      target: "staging",
+      jobEnvironment: "staging",
+      mode: "dry-run",
+      ref: "refs/heads/main",
+      defaultBranch: "main",
+      databaseUrl,
+      startedAt: observationStart,
+      packetText: "",
+      packetSha256: "",
+    };
+    const dependencies = {
+      pool: {},
+      redact: async (_pool, options) => {
+        options.authorize(snapshot);
+        return snapshot;
+      },
+    };
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(observationEnd));
+    try {
+      const receipt = await runRedaction(options, dependencies);
+      expect(receipt).toMatchObject({ codes: ["packet-digest"], packet: null });
+      expect(Object.values(receipt.gates).every((value) => value === false)).toBe(true);
+      value.supplementary.schemaObservation.receipt = bound(receipt);
+      const assembled = packetModule.assembleAuthorityPacket(value);
+      expect(assembled.verdict).toBe("complete");
+      vi.setSystemTime(new Date("2030-01-02T00:03:00.000Z"));
+      const positive = await runRedaction(
+        { ...options, startedAt, packetText: assembled.packetText, packetSha256: assembled.packetSha256 },
+        dependencies,
+      );
+      expect(positive).toMatchObject({ codes: [], packet: assembled.packet });
+      expect(Date.parse(positive.endedAt)).toBeGreaterThanOrEqual(Date.parse(positive.startedAt));
+      value.startedAt = "2030-01-02T00:04:00.000Z";
+      const successExecution = execution(false);
+      successExecution.jobs[0].startedAt = successExecution.jobs[0].steps[0].startedAt = positive.startedAt;
+      successExecution.jobs[0].completedAt = successExecution.jobs[0].steps[0].completedAt = positive.endedAt;
+      value.supplementary.schemaObservation.execution = bound(successExecution);
+      value.supplementary.schemaObservation.receipt = bound(positive);
+      expect(packetModule.assembleAuthorityPacket(value)).toMatchObject({
+        verdict: "complete",
+        packet: assembled.packet,
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  const retirementEvidence = (value, sourceId, session = false) => {
+    const capture = unpack(value);
+    const item = capture.fields[session ? "writers.session" : "writers.serving"].items[0];
+    const receipt = {
+      format: session ? "collections-session-termination/v1" : "collections-writer-retirement/v1",
+      captureSha256: value.capture.sha256,
+      sourceId,
+      target: "staging",
+      dbIdentityDigest: capture.fields.databaseIdentityDigest.value,
+      floorCommit: floor,
+      authorizedBy: "synthetic-authorization",
+      recreationPrevented: true,
+      executedAt: observationEnd,
+      ...(session
+        ? { pid: item.pid, backendStart: item.backendStart, roleDigest: item.roleDigest, reconnectionPrevented: true }
+        : { objectUid: "synthetic-object-uid" }),
+    };
+    return {
+      sourceId,
+      head,
+      execution: bound(execution(false)),
+      jobId: 900000000002,
+      stepNumber: 7,
+      receipt: bound(receipt),
+      owner: bound({
+        format: "collections-writer-owner/v1",
+        captureSha256: value.capture.sha256,
+        sourceId,
+        objectUid: "synthetic-object-uid",
+        target: "staging",
+        dbIdentityDigest: receipt.dbIdentityDigest,
+        observedAt: observationStart,
+        images: item.images ?? [],
+      }),
+    };
+  };
+
+  it("all-image-floor: sub-floor retirement requires an executed receipt and separate exact-UID owner binding", () => {
+    const value = input();
+    changeCapture(value, (capture) => {
+      const writer = capture.fields["writers.serving"].items[0];
+      writer.revisions = [subfloor];
+      writer.images = [`synthetic.invalid/platform:${subfloor}`];
+      writer.containsFloor = false;
+    });
+    refused(value, "writer-authority");
+    const evidence = retirementEvidence(value, "deployments:synthetic/synthetic-api");
+    value.supplementary.retirements = [evidence];
+    expect(assemble(value)).toMatchObject({
+      verdict: "complete",
+      packet: { writers: { serving: [{ state: "retired", revision: null }] } },
+    });
+    const contradiction = input();
+    changeCapture(contradiction, (capture) => {
+      const writer = capture.fields["writers.serving"].items[0];
+      writer.revisions = [subfloor];
+      writer.images = [`synthetic.invalid/platform:${subfloor}`];
+      writer.containsFloor = true;
+    });
+    contradiction.supplementary.retirements = [
+      retirementEvidence(contradiction, "deployments:synthetic/synthetic-api"),
+    ];
+    refused(contradiction, "writer-authority");
+    const owner = evidence.owner;
+    delete evidence.owner;
+    refused(value, "writer-authority");
+    evidence.owner = owner;
+    const receipt = JSON.parse(evidence.receipt.text);
+    receipt.objectUid = "synthetic-recreated-object";
+    evidence.receipt = bound(receipt);
+    refused(value, "writer-authority");
+    receipt.objectUid = "synthetic-object-uid";
+    receipt.recreationPrevented = false;
+    evidence.receipt = bound(receipt);
+    refused(value, "writer-authority");
+  });
+
+  it("session-proof: only an exact executed authorized session receipt can terminate; the pooler is never terminated", () => {
+    const value = input();
+    changeCapture(value, (capture) => {
+      const session = capture.fields["writers.session"].items[0];
+      session.id = "backend:4302";
+      session.pid = 4302;
+      session.classification = "unknown";
+      session.containsFloor = null;
+      session.revisions = [];
+    });
+    refused(value, "session-proof");
+    const evidence = retirementEvidence(value, "backend:4302", true);
+    value.supplementary.terminations = [evidence];
+    expect(assemble(value)).toMatchObject({
+      verdict: "complete",
+      packet: { writers: { session: [{ id: "backend:4302", state: "terminated", revision: null }] } },
+    });
+    const receipt = JSON.parse(evidence.receipt.text);
+    receipt.backendStart = observationStart;
+    evidence.receipt = bound(receipt);
+    refused(value, "session-proof");
+    const pooler = input();
+    changeCapture(pooler, (capture) => {
+      const session = capture.fields["writers.session"].items[0];
+      session.classification = "unknown";
+    });
+    pooler.supplementary.terminations = [retirementEvidence(pooler, "backend:4301", true)];
+    refused(pooler, "session-proof");
+  });
+
+  it.each([
+    ["missing kind", (capture) => delete capture.fields["writers.dormant"]],
+    ["truncated inventory", (capture) => capture.fields["writers.serving"].authoritativeTotal++],
+    [
+      "duplicate item",
+      (capture) => {
+        const set = capture.fields["writers.serving"];
+        set.items.push(set.items[0]);
+        set.collected = set.authoritativeTotal = 2;
+      },
+    ],
+    ["missing source coverage", (capture) => delete capture.fields["writers.rollback"].coverage.helm],
+    ["unknown source coverage", (capture) => (capture.fields["writers.serving"].coverage.pods.status = "unknown")],
+    ["conflicting totals", (capture) => capture.fields["writers.rollback"].coverage.replicasets.listed++],
+    ["Helm cap", (capture) => (capture.fields["writers.rollback"].coverage.helm.listed = 256)],
+    ["unknown writer source", (capture) => (capture.fields["writers.serving"].items[0].id = "synthetic:unknown")],
+  ])("complete-cli: refuses %s", (_, mutate) => {
+    const value = input();
+    changeCapture(value, mutate);
+    expect(assemble(value).verdict).toBe("refused");
+  });
+
+  it("complete-cli: actual assembly CLI returns identical bytes and old completeness CLI remains compatible", () => {
+    const value = input();
+    const path = join(root, "assembly-input.json");
+    writeFileSync(path, JSON.stringify(value));
+    const script = resolve("scripts/collections-cutover-authority-packet.mjs");
+    const result = JSON.parse(execFileSync(process.execPath, [script, "--assemble", path], { encoding: "utf8" }));
+    expect(result).toEqual(packetModule.assembleAuthorityPacket(value));
+    writeFileSync(path, "{}");
+    let refusedOutput;
+    try {
+      execFileSync(process.execPath, [script, "--assemble", path], {
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+    } catch (error) {
+      expect(error.status).toBe(2);
+      refusedOutput = JSON.parse(error.stdout);
+    }
+    expect(refusedOutput.verdict).toBe("refused");
+    const packet = syntheticCompletePacket(packetModule);
+    for (const [key, name] of [
+      ["writerAuthority", "collections-writer-authority-v1.json"],
+      ["authorityMatrix", "collections-cutover-authority-matrix.json"],
+      ["runnerBinding", "collections-redaction-runner-binding.json"],
+    ])
+      writeFileSync(join(root, name), JSON.stringify(packet[key]));
+    const old = JSON.parse(execFileSync(process.execPath, [script, root], { encoding: "utf8" }));
+    expect(old).toMatchObject({ applied: [], verification: { verdict: "complete" } });
+  });
+
+  it.each(["writer ID", "schema ledger"])("decoded-evidence: refuses a Unicode-escaped secret-shaped %s", (surface) => {
+    const value = input();
+    expect(assemble(value).verdict).toBe("complete");
+    const syntheticSecret = `ghp_${"s".repeat(30)}`;
+    let evidence;
+    if (surface === "writer ID") {
+      changeCapture(value, (capture) => {
+        capture.fields["writers.serving"].items[0].id = `deployments:synthetic/${syntheticSecret}`;
+      });
+      evidence = value.capture;
+    } else {
+      changeReceipt(value, (receipt) => {
+        receipt.schemaLedger = [...receipt.schemaLedger, syntheticSecret].sort();
+        receipt.schemaVersion = hash(JSON.stringify(receipt.schemaLedger));
+      });
+      evidence = value.supplementary.schemaObservation.receipt;
+    }
+    const escaped = [...syntheticSecret]
+      .map((char) => `\\u${char.charCodeAt(0).toString(16).padStart(4, "0")}`)
+      .join("");
+    evidence.text = evidence.text.replace(syntheticSecret, escaped);
+    evidence.sha256 = hash(evidence.text);
+    value.supplementary.schemaObservation.captureSha256 = value.capture.sha256;
+    expect(evidence.text.includes(syntheticSecret)).toBe(false);
+    expect(JSON.stringify(value).includes(syntheticSecret)).toBe(false);
+    expect(JSON.stringify(JSON.parse(evidence.text)).includes(syntheticSecret)).toBe(true);
+    expect(hash(evidence.text) === evidence.sha256).toBe(true);
+    const result = refused(value, surface === "writer ID" ? "capture-binding" : "schema-source");
+    expect(JSON.stringify(result).includes(syntheticSecret)).toBe(false);
+    expect(JSON.stringify(result).includes(escaped)).toBe(false);
+    const path = join(root, "synthetic-escaped-evidence.json");
+    writeFileSync(path, JSON.stringify(value));
+    let output;
+    try {
+      execFileSync(
+        process.execPath,
+        [resolve("scripts/collections-cutover-authority-packet.mjs"), "--assemble", path],
+        {
+          encoding: "utf8",
+          stdio: ["ignore", "pipe", "pipe"],
+        },
+      );
+    } catch (error) {
+      expect(error.status).toBe(2);
+      expect(error.stderr.includes(syntheticSecret)).toBe(false);
+      expect(error.stderr.includes(escaped)).toBe(false);
+      output = error.stdout;
+    }
+    expect(output).toBeTypeOf("string");
+    const cli = JSON.parse(output);
+    expect(cli).toEqual(result);
+    for (const key of ["packet", "packetText", "packetSha256"]) expect(cli).not.toHaveProperty(key);
+    expect(output.includes(syntheticSecret)).toBe(false);
+    expect(output.includes(escaped)).toBe(false);
+  });
+
+  it.each([
+    ["schema execution", "schema-source"],
+    ["image execution", "image-provenance"],
+    ["retirement execution", "writer-authority"],
+    ["retirement receipt", "writer-authority"],
+    ["retirement owner", "writer-authority"],
+    ["termination execution", "session-proof"],
+    ["termination receipt", "session-proof"],
+  ])("decoded-evidence: scans parsed %s before use", (surface, code) => {
+    const value = input();
+    const [kind, field] = surface.split(" ");
+    let evidence;
+    if (kind === "schema") evidence = value.supplementary.schemaObservation;
+    else if (kind === "image") evidence = digestProof(value);
+    else {
+      const session = kind === "termination";
+      changeCapture(value, (capture) => {
+        const writer = capture.fields[session ? "writers.session" : "writers.serving"].items[0];
+        writer.revisions = session ? [] : [subfloor];
+        writer.containsFloor = session ? null : false;
+        if (session) {
+          writer.id = "backend:4302";
+          writer.pid = 4302;
+          writer.classification = "unknown";
+        } else writer.images = [`synthetic.invalid/platform:${subfloor}`];
+      });
+      const id = session ? "backend:4302" : "deployments:synthetic/synthetic-api";
+      evidence = retirementEvidence(value, id, session);
+      value.supplementary[session ? "terminations" : "retirements"] = [evidence];
+    }
+    const record = JSON.parse(evidence[field].text);
+    record.syntheticMetadata = "synthetic-safe";
+    evidence[field] = bound(record);
+    expect(assemble(value).verdict).toBe("complete");
+    const syntheticSecret = `ghp_${"s".repeat(30)}`;
+    record.syntheticMetadata = syntheticSecret;
+    const escaped = [...syntheticSecret]
+      .map((char) => `\\u${char.charCodeAt(0).toString(16).padStart(4, "0")}`)
+      .join("");
+    const text = JSON.stringify(record).replace(syntheticSecret, escaped);
+    evidence[field] = { text, sha256: hash(text) };
+    expect(JSON.stringify(value).includes(syntheticSecret)).toBe(false);
+    const result = refused(value, code);
+    expect(JSON.stringify(result).includes(syntheticSecret)).toBe(false);
+    expect(JSON.stringify(result).includes(escaped)).toBe(false);
+  });
+
+  it("complete-cli: enforces bounded input/output and never echoes secret or personal metadata", () => {
+    const value = input();
+    value.supplementary.images = [{ text: "x".repeat(2 * 1024 * 1024) }];
+    refused(value, "assembly-input");
+    const personal = input();
+    changeCapture(
+      personal,
+      (capture) =>
+        (capture.fields["writers.serving"].items[0].annotations = {
+          application: "synthetic-private-application",
+          address: "synthetic-private-address",
+        }),
+    );
+    expect(JSON.stringify(assemble(personal))).not.toMatch(/synthetic-private/);
+    const secret = input();
+    secret.supplementary.images = [{ private: `ghp_${"x".repeat(30)}` }];
+    expect(JSON.stringify(refused(secret, "assembly-input"))).not.toContain("ghp_");
+    const oversized = input();
+    changeCapture(oversized, (capture) => {
+      const set = capture.fields["writers.serving"];
+      set.items = Array.from({ length: 150 }, (_, index) => ({
+        ...set.items[0],
+        id: `deployments:synthetic/${"a".repeat(120)}${index}`,
+      }));
+      set.collected = set.authoritativeTotal = 150;
+      set.coverage.deployments.listed = 150;
+      capture.fields["writers.dormant"].coverage.deployments.listed = 150;
+    });
+    refused(oversized, "packet-size");
+    const source = readFileSync(new URL("./collections-cutover-authority-packet.mjs", import.meta.url), "utf8");
+    expect(source).not.toMatch(
+      /\b(?:fetch|execFile|spawn|request|Pool)\s*\(|process\.env|import\(["'](?:pg|https?|.+capture)/,
+    );
   });
 });

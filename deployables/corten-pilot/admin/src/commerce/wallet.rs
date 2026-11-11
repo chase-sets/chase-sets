@@ -16,7 +16,7 @@
 //! not caught up to is drawn from its snapshot under the "Projection catching up" note. A refused
 //! command draws the page again with the form as it was sent and the refusal where it was made.
 use corten::{
-    axum::http::{HeaderMap, StatusCode},
+    http::{HeaderMap, StatusCode},
     prelude::*,
 };
 use platform::receipt::Receipt;
@@ -249,7 +249,7 @@ struct Reversed {
 
 /// Every command's fields (admin-web's form names). The related references are one comma-separated
 /// field, where admin-web's tag input sends one field each.
-#[derive(Clone, Debug, Deserialize, Serialize, Fields, ToJson)]
+#[derive(Clone, Debug, Serialize, Fields, ToJson)]
 #[serde(default, rename_all = "camelCase")]
 pub struct CommandForm {
     pub intent: String,
@@ -418,9 +418,8 @@ struct Detail {
     message: String,
 }
 
-/// `describeWalletAdjustmentFlowError`: the kind, by the API's code, its details' codes, and, for
-/// the two refusals that have no code of their own, the message's words, as admin-web matches them
-/// (chase-sets/chase-sets#10892: until the API gives them codes; then match the codes).
+/// `describeWalletAdjustmentFlowError`: the kind, by the API's code or its details' codes, never by
+/// the message's words.
 fn classify(status: StatusCode, body: ErrorBody, fallback: &str) -> Refusal {
     let ErrorDetail { code, message, details } = body.error;
     let has = |wanted: &str| details.iter().any(|d| d.code.as_deref() == Some(wanted));
@@ -428,8 +427,8 @@ fn classify(status: StatusCode, body: ErrorBody, fallback: &str) -> Refusal {
     let kind = match code.as_deref() {
         Some("step_up_required") => Kind::StepUpRequired,
         _ if has("stale_balance_revision") => Kind::StalePreview,
-        _ if conflict && message.contains("elevated approval") => Kind::RequiresElevatedApproval,
-        _ if conflict && message.contains("self-benefiting") => Kind::SelfBenefitingBlocked,
+        _ if has("elevated_approval_required") => Kind::RequiresElevatedApproval,
+        _ if has("self_benefiting_blocked") => Kind::SelfBenefitingBlocked,
         Some("validation_failed") => Kind::Validation,
         Some("not_found") => Kind::NotFound,
         Some("authorization_forbidden") => Kind::Forbidden,
@@ -859,15 +858,20 @@ mod tests {
         assert_eq!(kind(StatusCode::UNAUTHORIZED, body(Some("step_up_required"), "Sign in again.", &[])), Kind::StepUpRequired);
         assert_eq!(kind(StatusCode::CONFLICT, body(Some("conflict"), "stale", &["stale_balance_revision"])), Kind::StalePreview);
         assert_eq!(
+            kind(StatusCode::CONFLICT, body(Some("conflict"), "x", &["elevated_approval_required"])),
+            Kind::RequiresElevatedApproval
+        );
+        assert_eq!(
+            kind(StatusCode::CONFLICT, body(Some("conflict"), "x", &["self_benefiting_blocked"])),
+            Kind::SelfBenefitingBlocked
+        );
+        // The message's words alone are a plain conflict.
+        assert_eq!(
             kind(
                 StatusCode::CONFLICT,
                 body(Some("conflict"), "This Wallet Adjustment requires a second, elevated approval.", &[])
             ),
-            Kind::RequiresElevatedApproval
-        );
-        assert_eq!(
-            kind(StatusCode::CONFLICT, body(Some("conflict"), "A self-benefiting Wallet Adjustment is blocked outright.", &[])),
-            Kind::SelfBenefitingBlocked
+            Kind::Conflict
         );
         assert_eq!(kind(StatusCode::NOT_FOUND, body(Some("not_found"), "Gone.", &[])), Kind::NotFound);
         assert_eq!(kind(StatusCode::FORBIDDEN, body(Some("authorization_forbidden"), "No.", &[])), Kind::Forbidden);
