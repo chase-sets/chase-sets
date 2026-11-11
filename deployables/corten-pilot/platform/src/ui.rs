@@ -37,6 +37,7 @@ pub mod skeleton;
 pub mod slider;
 pub mod stack;
 pub mod stats;
+pub mod status_dot;
 pub mod stepper;
 pub mod steps;
 pub mod switch;
@@ -78,6 +79,7 @@ pub const COMPONENTS: &[Component] = &[
     slider::Slider,
     stack::Stack,
     stats::Stats,
+    status_dot::StatusDot,
     stepper::Stepper,
     steps::Steps,
     switch::Switch,

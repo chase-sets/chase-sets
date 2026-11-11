@@ -3471,6 +3471,10 @@ async fn the_items_page_counts_changes_and_a_reload_draws_the_rows_and_a_new_str
         "a stale stream's Reload keeps the filters: {html}"
     );
     assert!(
+        html.contains(r#"<span class="live-status__badge live-status__live"><span class="status-dot__dot status-dot__live status-dot__text" aria-hidden="true"></span>Live</span>"#),
+        "the Live badge's dot is the kit's LiveDot, in the badge's color: {html}"
+    );
+    assert!(
         html.contains(r#"<div id="catalog-changes" class="item-form__changes" role="status"></div></corten-live>"#),
         "{html}"
     );
