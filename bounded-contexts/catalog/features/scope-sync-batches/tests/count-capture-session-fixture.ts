@@ -233,8 +233,6 @@ export function captureBaseline(): CountCaptureBaseline {
   };
 }
 
-// Walks a fresh run through the stages before `phase` with the store's own
-// methods, then begins `phase`.
 export async function recordSyntheticCapturePeriodDecision(
   store: CountCaptureStore,
   binding: Parameters<CountCaptureStore["recordPeriodDecision"]>[0],
@@ -254,6 +252,8 @@ export async function recordSyntheticCapturePeriodDecision(
   );
 }
 
+// Walks a fresh run through the stages before `phase` with the store's own
+// methods, then begins `phase`.
 export async function beginCapturePhase(
   store: CountCaptureStore,
   runId: string,
