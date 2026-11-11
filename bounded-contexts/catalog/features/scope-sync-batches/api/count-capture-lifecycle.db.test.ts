@@ -98,7 +98,9 @@ describe("closed count capture on PostgreSQL", () => {
     f.clock.now = "2026-10-13T08:18:00.000Z";
     const reloaded = createCountCaptureStore(f.pool, () => f.clock.now);
     const old = await reloaded.read(admitted.runId);
-    const authority = countCaptureAuthoritySchema.parse(freshCaptureAuthority(Date.parse(f.clock.now), "synthetic-next-period-run"));
+    const authority = countCaptureAuthoritySchema.parse(
+      freshCaptureAuthority(Date.parse(f.clock.now), "synthetic-next-period-run"),
+    );
     const next = await reloaded.admit({
       ownerHash: "b".repeat(64),
       scopeRecordId: captureScope,

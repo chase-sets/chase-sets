@@ -250,11 +250,17 @@ export async function beginCapturePhase(
   await store.recordInitialNotice(runId);
   if (phase === "bootstrap") return store.begin(runId, phase);
   const bootstrap = await store.begin(runId, "bootstrap");
-  await store.recordPeriodDecision(bootstrap, evaluateScrydexBillingPeriod({
-    snapshot: { allowance: 100, balance: 100, observedAt: captureAt, period: syntheticPeriod },
-    reserve: periodReserve((await store.read(runId)).host.dispatchId), durableCredits: 0,
-    plannedCredits: 10, runId: (await store.read(runId)).host.dispatchId, now: captureAt,
-  }));
+  await store.recordPeriodDecision(
+    bootstrap,
+    evaluateScrydexBillingPeriod({
+      snapshot: { allowance: 100, balance: 100, observedAt: captureAt, period: syntheticPeriod },
+      reserve: periodReserve((await store.read(runId)).host.dispatchId),
+      durableCredits: 0,
+      plannedCredits: 10,
+      runId: (await store.read(runId)).host.dispatchId,
+      now: captureAt,
+    }),
+  );
   await store.recordUsage(bootstrap, { state: "skipped", required: 11, authority: captureBaseline().countAuthority });
   await store.finish(bootstrap);
   return store.begin(runId, phase);

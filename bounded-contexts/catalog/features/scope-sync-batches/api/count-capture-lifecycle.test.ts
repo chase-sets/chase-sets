@@ -126,9 +126,13 @@ describe("producer-owned billing-period gate", () => {
     retained.authority = null;
     retained.periodLedger = null;
     const binding = await f.store.begin(retained.runId, "preview");
-    await expect(f.store.ledger.debit(binding, {
-      category: "usage", usage: { purpose: "readiness" }, requestFingerprint: "e".repeat(64),
-    })).rejects.toThrow(CountCaptureStopped);
+    await expect(
+      f.store.ledger.debit(binding, {
+        category: "usage",
+        usage: { purpose: "readiness" },
+        requestFingerprint: "e".repeat(64),
+      }),
+    ).rejects.toThrow(CountCaptureStopped);
     expect(durable(f)?.sends).toHaveLength(1);
     expect(durable(f)?.status).toBe("stopped");
   });

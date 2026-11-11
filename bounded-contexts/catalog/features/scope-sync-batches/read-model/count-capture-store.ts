@@ -613,7 +613,10 @@ export function createCountCaptureStore(pool: PgTransactionalPool, now = () => n
           binding.phase !== "bootstrap" ||
           run.periodLedger?.decision ||
           decision.runId !== run.host.dispatchId ||
-          decision.plannedCredits !== countCaptureSendCap - countCapturePhaseCaps.bootstrap + run.sends.filter((send) => send.phase === "bootstrap").length
+          decision.plannedCredits !==
+            countCaptureSendCap -
+              countCapturePhaseCaps.bootstrap +
+              run.sends.filter((send) => send.phase === "bootstrap").length
         )
           throw new CountCaptureStopped();
         run.periodLedger = {
