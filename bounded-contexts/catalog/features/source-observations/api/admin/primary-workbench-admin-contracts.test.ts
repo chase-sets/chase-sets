@@ -1518,6 +1518,7 @@ describe("Catalog primary workbench admin contracts", () => {
       conflictResolution: conflictResolutionFixture(),
       promotionPreview: {
         previewId: "preview_001",
+        previewCommittable: false,
         validation: {
           promoteAsDraft: false,
           coverage: "complete",
@@ -1910,12 +1911,17 @@ describe("Catalog primary workbench admin contracts", () => {
       }
     }
     expect(thrownMessages).toEqual(baselineThrownMessages);
-    expect(Object.values(baselineThrownMessages).flat()).toHaveLength(179);
+    expect(Object.values(baselineThrownMessages).flat()).toHaveLength(180);
     expect(Object.values(baselineThrownMessages).filter((messages) => messages.length > 0)).toHaveLength(19);
 
     // The base composite omits only the optional promotion result, which the composer accepts.
     const composite = minimalWorkbenchComposite();
     expect(thrownMessage(() => validateCatalogPrimaryWorkbenchReadModelContract(composite))).toBeNull();
+    const missingCommitVerdict = structuredClone(composite);
+    Reflect.deleteProperty(missingCommitVerdict.promotionPreview!, "previewCommittable");
+    expect(thrownMessage(() => validateCatalogPrimaryWorkbenchReadModelContract(missingCommitVerdict))).toBe(
+      "Primary workbench promotion preview commit verdict must be explicit.",
+    );
     for (const control of omittedFamilyControls) {
       expect(ownersOfThrownMessage(control.message), control.validator).toEqual([control.validator]);
       expect(
@@ -3169,6 +3175,7 @@ function minimalWorkbenchComposite(): Partial<CatalogPrimaryWorkbenchReadModel> 
     auditEvidence: auditEvidenceFixture(),
     promotionPreview: {
       blockers: [],
+      previewCommittable: false,
       scope: { partialFailureMode: "per-observation" },
       validation: { coverage: "not-previewed", promoteAsDraft: false },
       outcomeCounts: { eligible: 0, blocked: 0, skipped: 0, conflicting: 0, failed: 0 },
@@ -3556,6 +3563,7 @@ const baselineThrownMessages: Readonly<Record<string, readonly string[]>> = {
   assertPrimaryWorkbenchPromotionPreview: [
     "Primary workbench promotion preview contract is required.",
     "Primary workbench promotion preview scope is required.",
+    "Primary workbench promotion preview commit verdict must be explicit.",
     "Primary workbench original promotion receipt must preserve its token, fingerprint and validation page.",
     "Primary workbench promotion preview must preserve per-observation partial failure scope.",
     "Primary workbench promotion preview validation coverage must be explicit.",
