@@ -12,6 +12,9 @@ import {
 import * as acquisition from "../domain/count-acquisition";
 import * as plan from "../domain/count-capture-plan";
 import * as receipt from "../domain/count-lifecycle-receipt";
+import * as period from "../domain/scrydex-billing-period";
+import { syntheticPeriod, periodGateForTest } from "../tests/scrydex-period-fixture";
+import { captureLifecycleMutant } from "../tests/count-capture-counts-mutants";
 import { createCountCaptureStore, type CountCaptureRun } from "../read-model/count-capture-store";
 import { guardDisabledMutant } from "../tests/count-capture-mutants";
 import {
@@ -32,6 +35,63 @@ const durable = (f: ReturnType<typeof createCaptureLifecycleFixture>) => {
   return (last?.payload ?? null) as CountCaptureRun | null;
 };
 const other = () => captureSession({ actor: captureActor({ sessionId: "synthetic-other-session" }) });
+
+describe("producer-owned billing-period gate", () => {
+  async function noticed() {
+    const f = createCaptureLifecycleFixture();
+    await f.lifecycle.baseline(captureSession(), input());
+    await f.lifecycle.initialNotice(captureSession());
+    return f;
+  }
+  const factory = process.env.SCRYDEX_PERIOD_MUTANT === "bypass-period-cap"
+    ? captureLifecycleMutant([["const decision = evaluateScrydexBillingPeriod({", "const decision = periodGate({"]], { periodGate: periodGateForTest() })
+    : createCountCaptureLifecycle;
+  it("period-cap boundary refuses provider consumed plus actual plan above 50,000 despite host withinAllowance", async () => {
+    const f = await noticed();
+    f.usage.fetch.mockImplementation(async () => Response.json({ data: {
+      credits_remaining: 50_010, total_credits_consumed: 49_990, overage_credits_consumed: 0,
+      period_start: syntheticPeriod.startsAt, period_end: syntheticPeriod.endsAt,
+    } }));
+    const lifecycle = factory(f.deps);
+    await expect(lifecycle.usage(captureSession())).rejects.toThrow(CountCaptureStopped);
+    expect(durable(f)).toMatchObject({ status: "stopped", periodLedger: {
+      decision: { admitted: false, reason: "usage-period-cap", plannedCredits: 11, consumedCredits: 49_990 },
+      terminal: { outcome: "uncertain" },
+    } });
+    expect(f.usage.getUsageSnapshot).toHaveBeenCalledOnce();
+    expect(durable(f)?.sends.map((send) => send.category)).toEqual(["usage"]);
+  });
+  it.each(["stale", "missing", "unknown-u"])("refuses %s producer evidence before quote or acquisition", async (name) => {
+    const f = await noticed();
+    const periodLedger = async () => ({ snapshot: { allowance: 100_000, balance: 100_000,
+      observedAt: name === "stale" ? "2026-10-13T07:46:59.000Z" : captureAt,
+      period: name === "missing" ? undefined : syntheticPeriod }, durableCredits: name === "unknown-u" ? null : 0 });
+    await expect(createCountCaptureLifecycle({ ...f.deps, periodLedger }).usage(captureSession())).rejects.toThrow(CountCaptureStopped);
+    expect(durable(f)?.periodLedger?.decision).toMatchObject({ admitted: false, reason: "usage-period-cap" });
+    await expect(f.lifecycle.usage(captureSession())).rejects.toThrow(CountCaptureStopped);
+    expect(f.usage.getUsageSnapshot).toHaveBeenCalledOnce();
+  });
+  it("does not accept host withinAllowance or a raw producer result without retained matching evidence", async () => {
+    const f = await noticed();
+    await expect(createCountCaptureLifecycle({ ...f.deps, observeUsage: async () => ({ withinAllowance: true }) }).usage(captureSession())).rejects.toThrow(CountCaptureStopped);
+    expect(f.usage.fetch).not.toHaveBeenCalled();
+    expect(durable(f)?.periodLedger?.decision).toMatchObject({ admitted: false, reason: "usage-period-cap" });
+  });
+  it("records the preflight once in P, not U, and retains one terminal result on replay", async () => {
+    const f = await noticed();
+    await f.lifecycle.usage(captureSession());
+    const run = durable(f)!;
+    expect(run.periodLedger?.decision).toMatchObject({ admitted: true, plannedCredits: 11, unreflectedCredits: 0 });
+    expect(run.sends).toHaveLength(1);
+    const binding = await f.store.begin(run.runId, "quote");
+    await f.store.ledger.stop(binding);
+    const stopped = durable(f)!;
+    const count = f.memory.history.length;
+    await f.store.ledger.stop(binding);
+    expect(f.memory.history).toHaveLength(count);
+    expect(durable(f)?.periodLedger).toEqual(stopped.periodLedger);
+  });
+});
 
 // Every step a capture driver can take before spend, from each reachable stage.
 type Step = "baseline" | "notice" | "usage" | "quote";
@@ -95,7 +155,7 @@ describe("pre-spend stage machine", () => {
       if (!before) expect(f.memory.history).toEqual([]);
       else if (next !== "baseline") expect(durable(f)).toMatchObject({ status: "stopped" });
     }
-    expect(f.usage.fetch).not.toHaveBeenCalled();
+    expect(f.usage.fetch).toHaveBeenCalledTimes(stage.includes("usage") || (next === "usage" && outcome === "accepted") ? 1 : 0);
   });
 
   it("never re-arms a stopped run by replay or refresh", async () => {
@@ -141,6 +201,7 @@ describe("guard-disabled bypass mutants", () => {
     ...transport,
     ...acquisition,
     ...plan,
+    ...period,
     countCaptureAuthoritySchema: receipt.countCaptureAuthoritySchema,
     countLifecycleReceiptSchema: receipt.countLifecycleReceiptSchema,
     countLifecycleStopReceiptSchema: receipt.countLifecycleStopReceiptSchema,

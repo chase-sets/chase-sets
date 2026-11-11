@@ -20,7 +20,7 @@ import {
   type CountCaptureRun,
 } from "../read-model/count-capture-store";
 import { countAccountSlot, createCountStore } from "../read-model/count-store";
-import { captureActor, captureSession, freshCaptureAuthority } from "../tests/count-capture-session-fixture";
+import { captureActor, captureScope, captureSession, freshCaptureAuthority } from "../tests/count-capture-session-fixture";
 import { captureAuthority } from "../tests/count-capture-session-fixture";
 import { createCountCaptureDbFixture } from "../tests/count-capture-db-fixture";
 import { validateCountLifecycleReceipt } from "../domain/count-lifecycle-receipt";
@@ -74,6 +74,63 @@ describe("closed count capture on PostgreSQL", () => {
   });
   afterAll(async () => {
     await closeMultiContextTestPools(pools);
+  });
+  it("replays period admission and retains one uncertain terminal after a killed send", async () => {
+    const f = await createCountCaptureDbFixture(pools.catalog);
+    const admitted = await f.lifecycle.baseline(captureSession(), { scopeRecordId: captureScope, authority: captureAuthority() });
+    await f.lifecycle.initialNotice(captureSession());
+    const binding = await f.store.begin(admitted.runId, "bootstrap");
+    await f.store.ledger.debit(binding, { category: "usage", usage: { purpose: "bootstrap" }, requestFingerprint: "a".repeat(64) });
+    // No result/stop callback: the worker disappeared after the debit commit.
+    f.clock.now = "2026-10-13T08:18:00.000Z";
+    const reloaded = createCountCaptureStore(f.pool, () => f.clock.now);
+    const old = await reloaded.read(admitted.runId);
+    const authority = freshCaptureAuthority(Date.parse(f.clock.now), "synthetic-next-period-run");
+    const next = await reloaded.admit({ ownerHash: "b".repeat(64), scopeRecordId: captureScope,
+      host: { ...old.host, dispatchId: authority.dispatchId }, authority });
+    expect(await reloaded.read(old.runId)).toMatchObject({ status: "stopped", periodLedger: {
+      plannedCredits: 11, decision: null, terminal: { outcome: "uncertain", at: f.clock.now },
+    } });
+    await f.observeUsage();
+    expect((await f.countStore.periodLedger(next.runId)).durableCredits).toBe(1);
+    const rows = await history(f.pool, old.runId);
+    await expect(reloaded.admit({ ownerHash: "b".repeat(64), scopeRecordId: captureScope,
+      host: next.host, authority })).rejects.toThrow(CountCaptureStopped);
+    expect(await history(f.pool, old.runId)).toEqual(rows);
+  });
+  it("refuses refresh-before-count in the provider lag window using the dispatch reserve", async () => {
+    const f = await createCountCaptureDbFixture(pools.catalog);
+    f.fetch.mockImplementation(async () => Response.json({ data: {
+      credits_remaining: 50_060, total_credits_consumed: 49_940, overage_credits_consumed: 0,
+      period_start: "2026-01-01T00:00:00.000Z", period_end: "2027-01-01T00:00:00.000Z",
+    } }));
+    const authority = captureAuthority();
+    authority.budget.periodReserve.credits = 56;
+    const run = await f.lifecycle.baseline(captureSession(), { scopeRecordId: captureScope, authority });
+    await f.lifecycle.initialNotice(captureSession());
+    await expect(f.lifecycle.usage(captureSession())).rejects.toThrow(CountCaptureStopped);
+    expect(await f.store.read(run.runId)).toMatchObject({ status: "stopped", periodLedger: {
+      plannedCredits: 11, decision: { reason: "usage-period-cap", consumedCredits: 49_940, unreflectedCredits: 56, plannedCredits: 11 },
+      terminal: { outcome: "uncertain" },
+    } });
+    expect(f.fetch).toHaveBeenCalledOnce();
+    expect(await f.countStore.history()).toEqual([]);
+  });
+  it("reconciles durable count debits and counts the current preflight only in P", async () => {
+    const f = await createCountCaptureDbFixture(pools.catalog);
+    const quote = await f.prepare();
+    const run = await f.store.activeRun(countCaptureSessionOwner(captureSession(), "staging"));
+    expect(run.periodLedger).toMatchObject({ plannedCredits: 11,
+      decision: { admitted: true, plannedCredits: 11, unreflectedCredits: 0 }, terminal: null });
+    expect((await f.countStore.periodLedger(run.runId)).durableCredits).toBe(0);
+    await f.lifecycle.acquire(captureSession(), { quoteId: quote.quoteId, fingerprint: quote.fingerprint });
+    expect((await f.countStore.periodLedger(run.runId)).durableCredits).toBe(2);
+    const binding = await f.store.begin(run.runId, "preview");
+    await f.store.ledger.stop(binding);
+    const stopped = await f.store.read(run.runId);
+    await f.store.ledger.stop(binding);
+    expect((await f.store.read(run.runId)).periodLedger).toEqual(stopped.periodLedger);
+    expect(stopped.periodLedger?.terminal?.outcome).toBe("uncertain");
   });
   it("freezes a closed receipt", async () => {
     const f = await createCountCaptureDbFixture(pools.catalog);
@@ -198,7 +255,7 @@ describe("closed count capture on PostgreSQL", () => {
     });
     expect(validateCountLifecycleReceipt(receipt).valid).toBe(true);
     expect(receipt.classification.verdict).toBe("INCOMPLETE");
-    expect(f.fetch).not.toHaveBeenCalled();
+    expect(f.fetch).toHaveBeenCalledOnce();
   });
 
   // The persisted history of one run, oldest first.
@@ -267,7 +324,7 @@ describe("closed count capture on PostgreSQL", () => {
     await expect(f.lifecycle.freeze(captureSession(), sealInput)).rejects.toThrow(CountCaptureStopped);
     await expect(f.lifecycle.quoteReadback(captureSession())).rejects.toThrow(CountCaptureStopped);
     expect(await history(f.pool, open.runId)).toEqual(completed);
-    expect(f.fetch).not.toHaveBeenCalled();
+    expect(f.fetch).toHaveBeenCalledOnce();
   });
 
   it("leaves an interrupted collection sealed and receipt-free once its run expires", async () => {
@@ -290,7 +347,7 @@ describe("closed count capture on PostgreSQL", () => {
       await expect(attempt()).rejects.toThrow(CountCaptureStopped);
     expect(await history(f.pool, sealed.runId)).toEqual(interrupted);
     expect(interrupted.at(-1)).toMatchObject({ status: "frozen", receipt: null, frozenAt: sealed.frozenAt });
-    expect(f.fetch).not.toHaveBeenCalled();
+    expect(f.fetch).toHaveBeenCalledOnce();
   });
 });
 
@@ -389,12 +446,12 @@ describe("staging count-capture lifecycle on PostgreSQL", () => {
     expect(result.providerSends).toBe(0);
     expect(await runs()).toEqual([expect.objectContaining({ status: "open", phases: ["baseline"], request: null })]);
 
-    // The notice is durable before the usage phase, which then skips on sufficient authority.
+    // Retained headroom and a host assertion cannot replace the in-run producer.
     const { notice } = await capture.initialNotice(captureSession());
     expect((await runs())[0]).toMatchObject({ notice: { fingerprint: notice.fingerprint } });
-    await expect(capture.usage(captureSession())).resolves.toMatchObject({ usage: { state: "skipped" } });
+    await expect(capture.usage(captureSession())).rejects.toThrow(CountCaptureStopped);
     expect(await runs()).toEqual([
-      expect.objectContaining({ status: "open", phases: ["baseline", "bootstrap"], sends: [] }),
+      expect.objectContaining({ status: "stopped", phases: ["baseline", "bootstrap"], sends: [] }),
     ]);
     expect(fetch).not.toHaveBeenCalled();
   });
@@ -497,6 +554,7 @@ describe("staging count-capture lifecycle on PostgreSQL", () => {
       readRoster: (id) => readCountCaptureRoster(pool, createCatalogProviderIntegrationProfileVersionStore(pool), id),
       readEffects: (at) => readCountCaptureEffects(pool, at),
       countAuthority: () => counts.authority(),
+      periodLedger: counts.periodLedger,
       observeUsage: observeDeployedScrydexUsage(registry, null),
     });
     await capture.baseline(captureSession(), input());

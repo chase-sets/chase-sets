@@ -1,4 +1,5 @@
 import { catalogProductionTransport } from "../catalog-fixture-transports";
+import { z } from "zod";
 import {
   sendCatalogProviderRequest,
   ProviderSendStoppedError,
@@ -245,6 +246,7 @@ type ScrydexUsageReadiness = Readonly<{
   remainingCredits: number | null;
   usedCredits: number | null;
   overageCreditsConsumed: number | null;
+  billingPeriod?: ProviderUsageSnapshot["billingPeriod"];
   retryAfterSeconds?: number;
   diagnosticCode?: string;
   credentialState?: "configured" | "invalid" | "unknown";
@@ -1989,6 +1991,7 @@ function scrydexUsageSnapshot(observation: ScrydexUsageObservation | null): Prov
     totalCredits: checked?.readiness.totalCredits ?? null,
     remainingCredits: checked?.readiness.remainingCredits ?? null,
     usedCredits: checked?.readiness.usedCredits ?? null,
+    billingPeriod: checked?.readiness.billingPeriod ?? null,
     observedAt: checked?.observedAt ?? null,
     attemptedAt: observation?.attemptedAt ?? null,
     attemptState: !latest ? "not-configured" : latest.usageCheckState === "checked" ? "checked" : "unavailable",
@@ -2641,7 +2644,7 @@ function recordValue(value: unknown, key: string): JsonValue | undefined {
 
 type ScrydexUsageBalances = Pick<
   ScrydexUsageReadiness,
-  "totalCredits" | "remainingCredits" | "usedCredits" | "overageCreditsConsumed"
+  "totalCredits" | "remainingCredits" | "usedCredits" | "overageCreditsConsumed" | "billingPeriod"
 >;
 
 // Scrydex returns usage in a `data` envelope: credits consumed, overage credits
@@ -2649,7 +2652,7 @@ type ScrydexUsageBalances = Pick<
 // update timestamp. Balances count only when that period covers the check instant.
 // The allowance is consumed plus remaining only while no overage was consumed;
 // otherwise it stays unreported rather than guessed. Daily usage and the period
-// bounds are read here and never retained.
+// bounds are retained as redacted billing-period evidence for spend admission.
 function sanitizeScrydexUsage(value: JsonValue, checkedAt: Date): ScrydexUsageBalances {
   const data = jsonRecord(recordValue(value, "data") ?? null);
   const periodStart = Date.parse(stringValue(data.period_start) ?? "");
@@ -2670,6 +2673,13 @@ function sanitizeScrydexUsage(value: JsonValue, checkedAt: Date): ScrydexUsageBa
     remainingCredits,
     usedCredits,
     overageCreditsConsumed,
+    billingPeriod: overageCreditsConsumed === null ||
+      !z.iso.datetime({ offset: true }).safeParse(data.period_start).success ||
+      !z.iso.datetime({ offset: true }).safeParse(data.period_end).success ? null : {
+      startsAt: new Date(periodStart).toISOString(),
+      endsAt: new Date(periodEnd).toISOString(),
+      overageCreditsConsumed,
+    },
   };
 }
 

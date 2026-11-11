@@ -13,6 +13,7 @@ import { createScopeSyncCountRuntime } from "../api/count-runtime";
 import { createScopeSyncBatchRuntime } from "../api/runtime";
 import {
   createCountCaptureLifecycle,
+  observeDeployedScrydexUsage,
   readCountCaptureEvidence,
   readCountCaptureRoster,
 } from "../api/count-capture-lifecycle";
@@ -46,6 +47,7 @@ export async function createCountCaptureDbFixture(pool: PgTransactionalPool) {
     remainingCredits: 100,
     totalCredits: 100,
     usedCredits: 0,
+    billingPeriod: { startsAt: "2026-01-01T00:00:00.000Z", endsAt: "2027-01-01T00:00:00.000Z", overageCreditsConsumed: 0 },
     observedAt: captureAt,
     attemptedAt: captureAt,
     attemptState: "checked",
@@ -84,6 +86,7 @@ export async function createCountCaptureDbFixture(pool: PgTransactionalPool) {
     credentials: { apiKey: "synthetic-key", teamId: "synthetic-team" },
     now: () => new Date(now()),
     profileVersions: profiles,
+    onUsageObserved: countStore.retainUsage,
     cacheStore: createPgCatalogProviderOptionQueryCacheStore(pool),
     countReader: countStore,
     countEnvironment: "staging",
@@ -126,9 +129,8 @@ export async function createCountCaptureDbFixture(pool: PgTransactionalPool) {
     readRoster: (scopeRecordId) => readCountCaptureRoster(pool, profiles, scopeRecordId),
     readEffects: (at) => readCountCaptureEffects(pool, at),
     countAuthority: () => countStore.authority(),
-    observeUsage: async () => {
-      throw new Error("Unexpected bootstrap.");
-    },
+    periodLedger: countStore.periodLedger,
+    observeUsage: observeDeployedScrydexUsage(registry, null),
     readCountEvidence: (quote) => readCountCaptureEvidence(pool, countStore.slot, quote),
     now,
   });
@@ -149,6 +151,7 @@ export async function createCountCaptureDbFixture(pool: PgTransactionalPool) {
     lifecycle,
     store,
     countStore,
+    observeUsage: observeDeployedScrydexUsage(registry, null),
     countRuntime,
     runtime,
     fetch,

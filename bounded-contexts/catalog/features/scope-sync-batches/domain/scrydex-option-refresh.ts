@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { evaluateScrydexBillingPeriod, scrydexPeriodDecisionSchema, type ScrydexPeriodDecision } from "./scrydex-billing-period";
 import {
   scrydexCacheCaptureOrigin,
   scrydexCacheCaptureUnits,
@@ -89,6 +90,11 @@ const receipt = z
     units: z.array(unit).length(5),
     creditsSpentUpperBound: z.number().int().min(0).max(56),
     assumptions: z.array(z.string().min(1).max(300)).max(10),
+    periodLedger: z.object({
+      decision: scrydexPeriodDecisionSchema,
+      outcome: z.enum(["complete", "refused", "uncertain"]),
+      unreflectedCredits: z.number().int().min(0).max(56),
+    }).strict().nullable().optional(),
   })
   .strict();
 
@@ -145,9 +151,12 @@ export function evaluateScrydexOptionRefreshAdmission(input: {
   providerSendWindow: unknown;
   rolloutControls: unknown;
   unitKeys: readonly string[];
+  periodReserve?: unknown;
+  runId?: string;
+  now?: string;
 }):
-  | { admitted: true; preflight: ScrydexOptionRefreshPreflight }
-  | { admitted: false; reason: string; preflight: ScrydexOptionRefreshPreflight } {
+  | { admitted: true; preflight: ScrydexOptionRefreshPreflight; decision?: ScrydexPeriodDecision }
+  | { admitted: false; reason: string; preflight: ScrydexOptionRefreshPreflight; decision?: ScrydexPeriodDecision } {
   const usage = evaluateScrydexUsagePreflight(input.provider);
   if (!usage.admitted) return usage;
 
@@ -189,7 +198,24 @@ export function evaluateScrydexOptionRefreshAdmission(input: {
     const controlId = typeof blockingControl.controlId === "string" ? blockingControl.controlId : "unknown";
     return { admitted: false, reason: `rollout-control:${controlId}`, preflight: usage.preflight };
   }
-  return usage;
+  const provider = input.provider as { usageBudget?: { billingPeriod?: unknown } };
+  const decision = evaluateScrydexBillingPeriod({
+    snapshot: {
+      allowance: usage.preflight.creditAllowance,
+      balance: usage.preflight.creditBalance,
+      observedAt: usage.preflight.observedAt,
+      period: provider.usageBudget?.billingPeriod,
+    },
+    reserve: input.periodReserve,
+    durableCredits: 0,
+    // Five bounded reads of at most eleven pages, plus the preflight once.
+    plannedCredits: 5 * providerPagesUpperBound(scrydexOptionRefreshMaxTotal)! + 1,
+    runId: input.runId ?? "",
+    now: input.now ?? "",
+  });
+  return decision.admitted ? { ...usage, decision } : {
+    admitted: false, reason: "usage-period-cap", preflight: usage.preflight, decision,
+  };
 }
 
 export type ScrydexOptionRefreshRequest = Readonly<{ method: string; url: string; unitKey?: string | null }>;

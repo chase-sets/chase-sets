@@ -1,4 +1,9 @@
 import { describe, expect, it } from "vitest";
+import { z } from "zod";
+import * as cacheCapture from "./scrydex-cache-capture";
+import * as period from "./scrydex-billing-period";
+import { guardDisabledMutant } from "../tests/count-capture-mutants";
+import { periodAt, syntheticPeriod, periodReserve, periodGateForTest } from "../tests/scrydex-period-fixture";
 import {
   classifyScrydexOptionRefreshRequest,
   evaluateScrydexOptionRefreshAdmission,
@@ -9,6 +14,48 @@ import {
 } from "./scrydex-option-refresh";
 
 describe("Scrydex bounded option refresh", () => {
+  const admitPeriod = guardDisabledMutant<typeof evaluateScrydexOptionRefreshAdmission>(
+    "../domain/scrydex-option-refresh.ts",
+    ["const decision = evaluateScrydexBillingPeriod({", "const decision = periodGate({"],
+    "evaluateScrydexOptionRefreshAdmission",
+    { z, ...cacheCapture, ...period, periodGate: periodGateForTest() },
+  );
+  const periodInput = (consumed = 49_944, reserve: unknown = periodReserve("1:1")) => ({
+    provider: { providerKey: "scrydex", providerReadiness: "ready", usageBudget: {
+      readiness: "ready", freshness: "fresh", observedAt: periodAt,
+      creditAllowance: 100_000, creditBalance: 100_000 - consumed, billingPeriod: syntheticPeriod,
+    } },
+    providerSendWindow: { state: "disabled" }, rolloutControls: { controls: [] }, unitKeys: [],
+    periodReserve: reserve, runId: "1:1", now: periodAt,
+  });
+  it("period-cap boundary admits 49,944 and refuses 49,945 for the actual 56-credit envelope", () => {
+    expect(admitPeriod(periodInput())).toMatchObject({ admitted: true, decision: { consumedCredits: 49_944, plannedCredits: 56, unreflectedCredits: 0 } });
+    expect(admitPeriod(periodInput(49_945))).toMatchObject({ admitted: false, reason: "usage-period-cap" });
+  });
+  it.each([undefined, null, {}, periodReserve("wrong-run"), periodReserve("1:1", null),
+    { ...periodReserve("1:1"), observedAt: "2026-10-13T07:00:00.000Z" },
+    { ...periodReserve("1:1"), endsAt: "2027-02-01T00:00:00.000Z" },
+    { ...periodReserve("1:1"), credits: -1 },
+  ])("refuses missing, unknown or unbound host reserve %j", (reserve) => {
+    const input = periodInput(); input.periodReserve = reserve;
+    expect(admitPeriod(input)).toMatchObject({ admitted: false, reason: "usage-period-cap" });
+  });
+  it("counts refresh-before-count and concurrent/uncertain reserves instead of treating 56 as the period cap", () => {
+    expect(admitPeriod(periodInput(49_900, periodReserve("1:1", 45)))).toMatchObject({ admitted: false, reason: "usage-period-cap" });
+    expect(admitPeriod(periodInput(30_000))).toMatchObject({ admitted: true });
+  });
+  it.each([
+    { observedAt: "2026-10-13T07:46:59.999Z" },
+    { observedAt: "2026-10-13T08:02:00.001Z" },
+    { creditAllowance: -1 }, { creditBalance: 100_001 }, { creditBalance: 1000.1 },
+    { billingPeriod: null }, { billingPeriod: { ...syntheticPeriod, overageCreditsConsumed: 1 } },
+    { billingPeriod: { ...syntheticPeriod, endsAt: periodAt } },
+    { billingPeriod: { ...syntheticPeriod, startsAt: "2026-11-01T00:00:00.000Z" } },
+    { billingPeriod: { ...syntheticPeriod, unknown: true } },
+  ])("fails closed on invalid period observation %j", (change) => {
+    const input = periodInput(); Object.assign(input.provider.usageBudget, change);
+    expect(admitPeriod(input)).toMatchObject({ admitted: false, reason: "usage-period-cap" });
+  });
   it.each([
     [0, 2],
     [100, 2],

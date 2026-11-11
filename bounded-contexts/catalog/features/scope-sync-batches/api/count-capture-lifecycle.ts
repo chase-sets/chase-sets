@@ -1,5 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
+import { evaluateScrydexBillingPeriod, scrydexBillingPeriodSchema } from "../domain/scrydex-billing-period";
+import type { CountStore } from "../read-model/count-store";
 import type { ResolvedActor } from "@chase-sets/auth-context";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
@@ -22,6 +24,7 @@ import {
 } from "../domain/count-acquisition";
 import {
   countCaptureFields,
+  countCaptureKindUnitKeys,
   countCaptureUnitKeys,
   countCapturePlanSchema,
   captureCountPlannerRead,
@@ -276,24 +279,6 @@ export function observeDeployedScrydexUsage(
   };
 }
 
-// Skips the usage read when durable count authority already covers `required`;
-// otherwise makes exactly one deployed adapter usage observation, whose own
-// callback persists the sanitized snapshot. Only the durable authority read back
-// afterwards decides: the raw returned balance is never authority.
-export async function retainTargetedCountCaptureUsage(
-  deps: Readonly<{ authority(): Promise<CountAuthority>; getUsageSnapshot(): Promise<unknown> }>,
-  required: number,
-) {
-  const covers = (authority: CountAuthority) =>
-    authority.allowed && authority.headroom !== null && authority.headroom >= required;
-  const before = await deps.authority();
-  if (covers(before)) return { state: "skipped" as const, required, authority: before };
-  await deps.getUsageSnapshot();
-  const after = await deps.authority();
-  if (!covers(after)) throw new CountCaptureStopped();
-  return { state: "persisted" as const, required, authority: after };
-}
-
 // The full roster: one active One Piece OP01 set whose accepted mappings are
 // exactly the three Scrydex capture units, each with one active profile version.
 // An extra, omitted, foreign-provider or other-set unit refuses; none is dropped.
@@ -368,6 +353,7 @@ export function createCountCaptureLifecycle(deps: {
   readRoster(scopeRecordId: string): Promise<CountCaptureRoster>;
   readEffects(at: string): Promise<CountCaptureEffects>;
   countAuthority(): Promise<CountAuthority>;
+  periodLedger?: CountStore["periodLedger"];
   // The deployed adapter's usage observation, whose callback persists authority.
   observeUsage(): Promise<unknown>;
   counts?: Pick<
@@ -496,11 +482,35 @@ export function createCountCaptureLifecycle(deps: {
       const run = await deps.store.activeRun(owner(session));
       const binding = await deps.store.begin(run.runId, "bootstrap");
       const usage = await runCountCaptureRequest({ binding, ledger: deps.store.ledger }, async () => {
-        const outcome = await retainTargetedCountCaptureUsage(
-          { authority: deps.countAuthority, getUsageSnapshot: deps.observeUsage },
-          countCaptureSendCap,
-        );
-        const recorded = await deps.store.recordUsage(binding, outcome);
+        // Obtain this run's own deployed snapshot, even with retained headroom.
+        // The preflight is included once in P, not again in U.
+        const observed = await deps.observeUsage();
+        const ledger = await deps.periodLedger?.(run.runId);
+        const produced = z.object({
+          providerKey: z.literal("scrydex"), attemptState: z.literal("checked"),
+          totalCredits: z.number(), remainingCredits: z.number(), observedAt: z.iso.datetime({ offset: true }),
+          billingPeriod: scrydexBillingPeriodSchema,
+        }).safeParse(observed);
+        const producerBound = produced.success && ledger && countFingerprint(ledger.snapshot) === countFingerprint({
+          allowance: produced.data.totalCredits, balance: produced.data.remainingCredits,
+          observedAt: produced.data.observedAt, period: produced.data.billingPeriod,
+        });
+        const decision = evaluateScrydexBillingPeriod({
+          snapshot: producerBound ? ledger.snapshot : { allowance: null, balance: null, observedAt: null, period: null },
+          reserve: run.authority?.budget.periodReserve,
+          durableCredits: ledger?.durableCredits ?? null,
+          plannedCredits: Object.values(countCaptureKindUnitKeys).filter((unitKey) =>
+            run.baseline?.units.some((unit) => unit.unitKey === unitKey)).length + countCapturePhaseCaps.bootstrap +
+            countCapturePhaseCaps.preview + countCapturePhaseCaps["pre-confirm"],
+          runId: run.host.dispatchId,
+          now: now(),
+        });
+        await deps.store.recordPeriodDecision(binding, decision);
+        if (!decision.admitted) throw new CountCaptureStopped();
+        const authority = await deps.countAuthority();
+        if (authority.allowed !== true || authority.headroom === null || authority.headroom < countCaptureSendCap)
+          throw new CountCaptureStopped();
+        const recorded = await deps.store.recordUsage(binding, { authority, required: countCaptureSendCap, state: "persisted" });
         await deps.store.finish(binding);
         return recorded;
       });

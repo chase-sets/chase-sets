@@ -61,6 +61,11 @@ on:
         required: false
         default: ""
         type: string
+      scrydex_refresh_period_reserve:
+        description: Refresh only. JSON period/run-bound dispatch-log cross-path credit reserve; missing or unknown refuses spend.
+        required: false
+        default: ""
+        type: string
       product_domain:
         description: full-game-start only. Catalog Scope product domain to batch, e.g. one-piece.
         required: false
@@ -531,6 +536,7 @@ jobs:
         id: refresh
         timeout-minutes: 9
         env:
+          SCRYDEX_REFRESH_PERIOD_RESERVE: ${{ inputs.scrydex_refresh_period_reserve }}
           CATALOG_ADMIN_E2E_EMAIL: ${{ vars.CATALOG_ADMIN_E2E_EMAIL || secrets.PLATFORM_ADMIN_EMAIL || '' }}
           CATALOG_ADMIN_E2E_PASSWORD: ${{ secrets.CATALOG_ADMIN_E2E_PASSWORD || secrets.PLATFORM_ADMIN_PASSWORD || '' }}
           GH_TOKEN: ${{ github.token }}
