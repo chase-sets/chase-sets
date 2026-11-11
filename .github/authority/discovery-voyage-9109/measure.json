@@ -1,0 +1,11 @@
+{
+  "grants": [
+    {
+      "file": ".github/workflows/discovery-voyage-9109.yml",
+      "jobId": "measure",
+      "stepAnchor": "name:Synthetic snapshot and 30 sequential uncached direct attempts#4",
+      "secretName": "VOYAGE_API_KEY",
+      "purpose": "release-evidence"
+    }
+  ]
+}
