@@ -25,6 +25,13 @@ export function syntheticCountCaptureAuthority() {
       countCap: 2,
       usageCap: 9,
       totalCap: 11,
+      periodReserve: {
+        runId: "synthetic-dispatch",
+        startsAt: "2026-01-01T00:00:00.000Z",
+        endsAt: "2027-01-01T00:00:00.000Z",
+        observedAt: "2026-10-13T08:00:00.000Z",
+        credits: 0,
+      },
     },
     deployment: {
       environment: "staging",

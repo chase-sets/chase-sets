@@ -7,6 +7,7 @@ import { sendCatalogProviderRequest } from "../../source-observations/api/provid
 import * as acquisition from "../domain/count-acquisition";
 import * as plan from "../domain/count-capture-plan";
 import * as receipt from "../domain/count-lifecycle-receipt";
+import * as period from "../domain/scrydex-billing-period";
 import { countCaptureUnitKeys } from "../domain/count-capture-plan";
 import { guardDisabledMutant } from "../tests/count-capture-mutants";
 import {
@@ -100,7 +101,7 @@ describe("lossless mapping baseline and real store retention", () => {
         ]);
       }
       expect((await f.store.read(f.runId)).reads.map((read) => read.phase)).toEqual(["preview", "pre-confirm"]);
-      expect(f.usage.fetch).not.toHaveBeenCalled();
+      expect(f.usage.fetch).toHaveBeenCalledOnce();
     },
   );
 
@@ -110,7 +111,7 @@ describe("lossless mapping baseline and real store retention", () => {
     f.mappingVersion.value = "2026-10-10T05:18:47.195001Z";
     await expect(f.retain(phase, preview?.planFingerprint)).rejects.toThrow(CountCaptureStopped);
     expect((await f.store.read(f.runId)).reads.map((read) => read.phase)).toEqual(preview ? ["preview"] : []);
-    expect(f.usage.fetch).not.toHaveBeenCalled();
+    expect(f.usage.fetch).toHaveBeenCalledOnce();
   });
 });
 
@@ -320,6 +321,7 @@ describe("guard-disabled bypass mutants", () => {
     z,
     ...plan,
     ...receipt,
+    ...period,
     ...http,
     ...transport,
     ...acquisition,
@@ -392,7 +394,7 @@ describe("guard-disabled bypass mutants", () => {
       "../api/count-capture-lifecycle.ts",
       [needle, "replacement" in hostile ? hostile.replacement : "false"],
       "createCountCaptureLifecycle",
-      { z, ...http, ...transport, ...acquisition, ...plan, ...receipt, ...storeModule },
+      { z, ...http, ...transport, ...acquisition, ...plan, ...receipt, ...period, ...storeModule },
     );
     const mutant = create({ ...f.deps });
     await expect(mutant.baseline(captureSession(), body)).resolves.toMatchObject({ providerSends: 0 });
