@@ -42,7 +42,13 @@ pub fn ComparePage<'a>(
         |suffix: &str| c.by_key(&format!("{}.{suffix}", competitor.slug()), &facts).map(|m| m.to_string()).unwrap_or_default();
     let name = competitor.name(t);
     let seller_fees = match schedule {
-        Some(s) => c.chase_sets_seller_fees_live(compare::percent(s.bps), money(t, s.fixed), money(t, s.cap)).to_string(),
+        Some(s) => c
+            .chase_sets_seller_fees_live(crate::text::compare_msg::ChaseSetsSellerFeesLive {
+                rate: compare::percent(s.bps),
+                fixed: money(t, s.fixed),
+                cap: money(t, s.cap),
+            })
+            .to_string(),
         None => c.chase_sets_seller_fees_fallback().to_owned(),
     };
     let rows = [
@@ -67,7 +73,9 @@ pub fn ComparePage<'a>(
             <section class={Section} data-public-presence-section="compare_table" aria-labelledby="compare-table">
                 <div class={SectionHead}>
                     <h2 class={SectionTitle} id="compare-table">{c.table_title()}</h2>
-                    <p class={Muted}>{c.table_description(name, compare::AS_OF)}</p>
+                    <p class={Muted}>
+                        {c.table_description(crate::text::compare_msg::TableDescription { competitor: name, as_of: compare::AS_OF })}
+                    </p>
                 </div>
                 <div class={TableBox}>
                     <table class={(Table, Wordy)}>
@@ -127,7 +135,9 @@ pub fn ComparePage<'a>(
                     <a class={(Button, Secondary)} href={crate::app::url::sales_fees::SalesFees.href()}>{t.nav_seller_fees()}</a>
                 </div>
             </div>
-            <p class={Note}>{c.sources_note(name, compare::AS_OF)}</p>
+            <p class={Note}>
+                {c.sources_note(crate::text::compare_msg::SourcesNote { competitor: name, as_of: compare::AS_OF })}
+            </p>
         </div>
     }
 }
@@ -157,7 +167,9 @@ pub fn FeeCalculator<'a>(t: HomeMsg, c: CompareMsg, p: Pilot, calculator: &'a Ca
         >
             <div class={SectionHead}>
                 <h2 class={SectionTitle} id="fee-calculator-title">{t.home_fee_calculator_title()}</h2>
-                <p class={Muted}>{t.home_fee_calculator_description(&rate, &cap)}</p>
+                <p class={Muted}>
+                    {t.home_fee_calculator_description(crate::text::home_msg::HomeFeeCalculatorDescription { rate: &rate, cap: &cap })}
+                </p>
             </div>
             <form class={Calculator} method="get" action={&action} data-patch on:input={handlers::calculate(event)}>
                 <div class={Pair}>
@@ -206,7 +218,9 @@ pub fn FeeCalculator<'a>(t: HomeMsg, c: CompareMsg, p: Pilot, calculator: &'a Ca
                 (outcomes, total.as_deref(), calculator.price, calculator.cards) {
                 <div class={Results} role="status" aria-live="polite">
                     if cards > 1 {
-                        <p class={Note}>{t.home_fee_calculator_per_card_note(cards, money(t, price), total)}</p>
+                        <p class={Note}>
+                            {t.home_fee_calculator_per_card_note(crate::text::home_msg::HomeFeeCalculatorPerCardNote { count: cards, price: money(t, price), total })}
+                        </p>
                     }
                     <div class={TableBox}>
                         <table class={Table}>
@@ -243,7 +257,7 @@ pub fn FeeCalculator<'a>(t: HomeMsg, c: CompareMsg, p: Pilot, calculator: &'a Ca
                     </div>
                     if ours.capped {
                         <p class={Note} data-testid="fee-calculator-cap-note">
-                            {t.home_fee_calculator_cap_note(&rate, money(t, schedule.uncapped(price)), &cap)}
+                            {t.home_fee_calculator_cap_note(crate::text::home_msg::HomeFeeCalculatorCapNote { rate: &rate, uncapped: money(t, schedule.uncapped(price)), cap: &cap })}
                         </p>
                     }
                     if let Some(share) = &calculator.share {

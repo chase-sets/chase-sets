@@ -462,6 +462,7 @@ export type CatalogPrimaryWorkbenchPromotionIdentityDiagnostic = Readonly<{
 
 export type CatalogPrimaryWorkbenchPromotionPreviewReadModel = Readonly<{
   previewId: string | null;
+  previewCommittable: boolean;
   /** Absent on loader-only models; current summaries are not original evidence. */
   receipt?: SourceObservationPromotionReceipt | null;
   /** Current loader evidence for drift detection, not the original Preview. */
@@ -623,6 +624,9 @@ export function assertPrimaryWorkbenchPromotionPreview(
   if (!value.scope) {
     throw new Error("Primary workbench promotion preview scope is required.");
   }
+  if (typeof value.previewCommittable !== "boolean") {
+    throw new Error("Primary workbench promotion preview commit verdict must be explicit.");
+  }
   if (
     value.receipt &&
     (value.receipt.schemaVersion !== "source-observation-promotion-receipt/v1" ||
@@ -732,11 +736,15 @@ export function assertPrimaryWorkbenchMergeCandidateReview(
       assertCatalogPrimaryWorkbenchActionState(actionEntry.state);
       assertPrimaryWorkbenchBlockers(actionEntry.blockers);
       if (
-        (actionEntry.key === "candidate.split" || actionEntry.key === "candidate.edit") &&
+        (actionEntry.key === "candidate.promote" ||
+          actionEntry.key === "candidate.split" ||
+          actionEntry.key === "candidate.edit") &&
         (actionEntry.state === "available" || actionEntry.state === "degraded") &&
         !actionEntry.commandPreview
       ) {
-        throw new Error("Primary workbench split/update merge candidate actions require typed command previews.");
+        throw new Error(
+          "Primary workbench promote/split/update merge candidate actions require typed command previews.",
+        );
       }
     }
   }

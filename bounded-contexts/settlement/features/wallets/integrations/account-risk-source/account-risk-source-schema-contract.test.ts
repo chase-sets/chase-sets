@@ -67,7 +67,7 @@ const composedSources = {
   "infrastructure/platform-runtime/durable-job-work-units.ts":
     "15a95d797c8138ff20098e331cba58448d7efdc4c6158eec610e229ba73899e8",
   "infrastructure/bounded-context-runtime/schema.ts":
-    "3cf19fd7fc077eecc6d44586893efae11f421f91b6d042003979d975d1875a70",
+    "81fdfd5feac15af16490fab3f88e64316edf6d54e640706c9bb3349a60ce80d4",
 } as const;
 
 function declarations(text: string) {

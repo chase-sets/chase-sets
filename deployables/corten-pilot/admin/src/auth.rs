@@ -4,7 +4,7 @@ use std::{hash::Hash, marker::PhantomData, sync::LazyLock};
 
 use corten::{
     Identify, Refused,
-    axum::http::{Method, request::Parts},
+    http::{Method, request::Parts},
 };
 use platform::session;
 pub use platform::{

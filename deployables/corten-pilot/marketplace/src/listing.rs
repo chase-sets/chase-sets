@@ -20,16 +20,13 @@
 //! stock's ensure never sends a graded card's details, so a graded product cannot be listed here,
 //! as on marketplace (chase-sets/chase-sets#10598); the API's refusal is shown.
 use corten::{
-    axum::{
-        extract::State,
-        http::{HeaderMap, StatusCode, Uri, header},
-    },
+    extract::State,
+    http::{HeaderMap, StatusCode, Uri, header},
     prelude::*,
     security::cookie,
 };
 use serde_json::json;
 
-use crate::chrome::Chrome;
 use crate::{
     api::{self, ApiError, Discovery as _, Inventory as _, Item, Listings as _, LocationCommand, segment},
     app::{GUEST_CHECKOUT, Shared, sign_in_at, url},
@@ -152,10 +149,9 @@ async fn refused(
     item: Item,
     address: &Address,
     notice: BuyNotice,
-    chrome: &Chrome,
 ) -> HtmlResult {
     let reads = items::sell_reads(req, session, caller, &item, address, false).await;
-    items::render(req, session, item, address, Some(&notice), StatusCode::UNPROCESSABLE_ENTITY, reads, chrome.cart().await)
+    items::render(req, session, item, address, Some(&notice), StatusCode::UNPROCESSABLE_ENTITY, reads)
 }
 
 /// How a listing write's failure is answered.
@@ -191,7 +187,6 @@ fn first(raw: &Raw, key: &str) -> String {
 /// List this product (the action's `list-at-price`).
 pub(crate) async fn list(
     req: Req,
-    chrome: Chrome,
     session: Option<corten::Caller<Session>>,
     State(config): State<Shared>,
     headers: HeaderMap,
@@ -222,15 +217,15 @@ pub(crate) async fn list(
     let product = first(&raw, field::PRODUCT);
     if product.is_empty() || screen.product_id.as_deref() != Some(product.as_str()) {
         let notice = refuse(t.route_choose_options_to_list_matching_inventory().to_owned(), input, None);
-        return refused(&req, session, &caller, item, &address, notice, &chrome).await;
+        return refused(&req, session, &caller, item, &address, notice).await;
     }
     let Some(amount) = buying::price(t, &input.price) else {
         let notice = refuse(t.route_validation_price_required().to_owned(), input, None);
-        return refused(&req, session, &caller, item, &address, notice, &chrome).await;
+        return refused(&req, session, &caller, item, &address, notice).await;
     };
     let Some(quantity) = buying::quantity(&input.quantity) else {
         let notice = refuse(t.route_validation_quantity_required().to_owned(), input, None);
-        return refused(&req, session, &caller, item, &address, notice, &chrome).await;
+        return refused(&req, session, &caller, item, &address, notice).await;
     };
     // No account sell list: a draft the guest registers to claim (a guest checkout's session too,
     // as marketplace's `canUseAccountSellList` says).
@@ -251,7 +246,7 @@ pub(crate) async fn list(
             Err(error) => {
                 return match failed(error) {
                     Failed::Refused(message) => {
-                        refused(&req, session, &caller, item, &address, refuse(message, input, None), &chrome).await
+                        refused(&req, session, &caller, item, &address, refuse(message, input, None)).await
                     }
                     Failed::SignIn => sign_in(&req, &slug),
                     Failed::Error(error) => Err(error),
@@ -321,7 +316,7 @@ pub(crate) async fn list(
         Err((Failed::SignIn, ..)) => sign_in(&req, &slug),
         Err((Failed::Error(error), ..)) => Err(error),
         Err((Failed::Refused(message), input, draft)) => {
-            refused(&req, session, &caller, item, &address, refuse(message, input, draft), &chrome).await
+            refused(&req, session, &caller, item, &address, refuse(message, input, draft)).await
         }
     }
 }
@@ -330,7 +325,6 @@ pub(crate) async fn list(
 /// stock location, as one inventory attempt (the form's `SubmitKey`).
 pub(crate) async fn ship_from(
     req: Req,
-    chrome: Chrome,
     session: Option<corten::Caller<Session>>,
     State(config): State<Shared>,
     headers: HeaderMap,
@@ -366,7 +360,7 @@ pub(crate) async fn ship_from(
     let typed = [&input.name, &input.line1, &input.city, &input.state, &input.postal_code];
     if typed.iter().all(|v| v.is_empty()) {
         let notice = refuse(t.route_ship_from_setup_required().to_owned(), input);
-        return refused(&req, session, &caller, item, &address, notice, &chrome).await;
+        return refused(&req, session, &caller, item, &address, notice).await;
     }
     let attempt = Some(first(&raw, field::ATTEMPT))
         .filter(|a| uuid::Uuid::parse_str(a).is_ok())
@@ -398,7 +392,7 @@ pub(crate) async fn ship_from(
         Err(error) => match failed(error) {
             Failed::SignIn => sign_in(&req, &slug),
             Failed::Error(error) => Err(error),
-            Failed::Refused(message) => refused(&req, session, &caller, item, &address, refuse(message, input), &chrome).await,
+            Failed::Refused(message) => refused(&req, session, &caller, item, &address, refuse(message, input)).await,
         },
     }
 }

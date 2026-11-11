@@ -54,6 +54,7 @@ export function buildApp(
   profileVersions?: CatalogProviderIntegrationProfileVersionStore,
   actor: CatalogAuthoringEnv["Variables"]["actor"] = manageActor,
   listRefreshSchedules?: ProviderScopeDiscoveryServices["listRefreshSchedules"],
+  getScopeRecord?: Parameters<typeof sourceObservationRoutes>[4],
 ) {
   const app = new Hono<CatalogAuthoringEnv>();
 
@@ -64,7 +65,7 @@ export function buildApp(
   });
   app.route(
     "/source-observations",
-    sourceObservationRoutes(services, profileVersions, undefined, listRefreshSchedules),
+    sourceObservationRoutes(services, profileVersions, undefined, listRefreshSchedules, getScopeRecord),
   );
 
   return app;
@@ -76,7 +77,15 @@ export function mutableProfileStore(
   let records: CatalogProviderIntegrationProfileVersionRecord[] = [...initialRecords];
   return {
     seedProfileVersions: async () => records,
-    upsertProfileVersion: async (version) => {
+    upsertProfileVersion: async (version, guard) => {
+      guard?.(
+        records.find(
+          (candidate) =>
+            candidate.providerKey === version.providerKey &&
+            candidate.profileKey === version.profileKey &&
+            candidate.profileVersion === version.profileVersion,
+        ) ?? null,
+      );
       records = records.filter(
         (candidate) =>
           !(

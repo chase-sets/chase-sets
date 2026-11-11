@@ -110,7 +110,7 @@ describe("CatalogIntegrationImportJobsModule", () => {
       creditDiagnostic: null,
       degradedDiagnostic: "Synthetic provider appears degraded with HTTP 503.",
     };
-    const deferredImportPreview = Promise.resolve({
+    const preview = {
       action: "import" as const,
       providerKey: "scrydex",
       scope: {
@@ -155,6 +155,17 @@ describe("CatalogIntegrationImportJobsModule", () => {
           },
         },
       ],
+    };
+    const deferredImportPreview = Promise.resolve({
+      status: "ready" as const,
+      preview,
+      usageSummary: {
+        ...usageEstimate,
+        estimateState: "estimate-unavailable" as const,
+        estimatedRequestCount: null,
+        estimateReason: "Synthetic API-only estimate reason.",
+        selectedFields: ["API-only field"],
+      },
     });
 
     await act(async () => {
@@ -168,10 +179,39 @@ describe("CatalogIntegrationImportJobsModule", () => {
       expect(panel?.getAttribute("data-catalog-import-preview-usage-state")).toBe("unavailable");
       expect(panel?.textContent).toContain("Estimate unavailable");
       expect(panel?.textContent).toContain("Estimate reason");
-      expect(panel?.textContent).toContain("Synthetic page count is available only after the first paged response.");
+      expect(panel?.textContent).toContain("Synthetic API-only estimate reason.");
+      expect(panel?.textContent).toContain("API-only field");
       expect(panel?.textContent).toContain("Synthetic provider appears degraded with HTTP 503.");
     });
   });
+
+  // Issue #11130: no preview state unmounts the operator's commands.
+  it.each(["loading", "absent", "unavailable"] as const)(
+    "keeps operations mounted with %s API evidence",
+    async (state) => {
+      const readModel = buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
+        requestUrl: "https://admin.example/catalog/integrations?providerKey=tcgdex&importScope=en:3:base:base1",
+        scopes: { items: [sourceObservationScope()], total: 1, count: 1 },
+        profileReviews: { items: [profileReview({ active: true, lifecycle: "active" })], total: 1, count: 1 },
+        controlPlaneOverview: controlPlaneOverview(),
+        canManageCatalog: true,
+      });
+      const deferredImportPreview =
+        state === "loading"
+          ? new Promise<never>(() => undefined)
+          : Promise.resolve(state === "absent" ? null : { status: "unavailable" as const });
+      await act(async () => {
+        render(
+          <CatalogIntegrationImportJobsModule readModel={readModel} deferredImportPreview={deferredImportPreview} />,
+        );
+      });
+      expect(screen.getByText("Provider import operations")).toBeTruthy();
+      expect(document.querySelector('[data-catalog-import-preview="ready"]')).toBeNull();
+      if (state === "unavailable")
+        expect(document.querySelector('[data-catalog-deferred-panel="unavailable"]')).not.toBeNull();
+      if (state === "loading") expect(screen.getByText("Loading import preflight")).toBeTruthy();
+    },
+  );
 
   it("keeps secondary job timestamps out of the mobile card presentation", () => {
     const readModel = buildCatalogPrimaryWorkbenchReadModelForSurface("health", {

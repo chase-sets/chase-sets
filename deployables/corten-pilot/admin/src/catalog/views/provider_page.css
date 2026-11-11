@@ -1,0 +1,157 @@
+/* Provider detail, around the integrations shell and the UI kit's cards, tables, checkboxes,
+   inputs and accordion (platform::ui): the header's actions and badges wrap, the overview and
+   the draft are two columns from a tablet up, a unit the page is filtered to is outlined, and
+   each table stacks on a phone. */
+.page {
+  display: grid;
+  gap: var(--space-4);
+  min-width: 0;
+}
+.header {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.eyebrow {
+  margin: 0;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-text-secondary);
+}
+.words {
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+.muted {
+  margin: 0;
+  font-size: 0.875rem;
+  color: var(--color-text-secondary);
+}
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+}
+.notice:empty {
+  display: none;
+}
+.card-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+  justify-content: space-between;
+  min-width: 0;
+}
+.badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+}
+.panel {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
+  padding: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-2);
+}
+.panel.chosen {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 1px var(--color-primary);
+}
+.panel-title {
+  margin: 0;
+  font: 600 1rem/1.3 var(--font-display);
+}
+.schedule-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-4);
+  align-items: center;
+  justify-content: space-between;
+  min-width: 0;
+}
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+}
+.strong {
+  margin: 0;
+  font-weight: 600;
+}
+.columns {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-3);
+}
+.stack {
+  min-width: 0;
+}
+.form {
+  display: grid;
+  gap: var(--space-3);
+  min-width: 0;
+}
+.field {
+  display: grid;
+  gap: var(--space-1);
+  max-width: 32rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+.metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+  gap: var(--space-2);
+}
+.list {
+  display: grid;
+  gap: var(--space-1);
+  margin: 0;
+  padding-inline-start: var(--space-4);
+  overflow-wrap: anywhere;
+}
+.job-box {
+  min-width: 0;
+}
+.job-pairs {
+  display: grid;
+  gap: var(--space-1);
+  margin: 0;
+}
+.job-pair {
+  display: grid;
+  grid-template-columns: minmax(0, 12rem) minmax(0, 1fr);
+  gap: var(--space-2);
+  overflow-wrap: anywhere;
+}
+.job-pair dt {
+  color: var(--color-text-secondary);
+}
+.job-pair dd {
+  margin: 0;
+}
+.cell-block {
+  display: grid;
+  gap: var(--space-1);
+  justify-items: start;
+  min-width: 0;
+}
+@media (max-width: 47.99rem) {
+  .job-pair {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0;
+  }
+}
+@media (min-width: 48rem) {
+  .columns {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}

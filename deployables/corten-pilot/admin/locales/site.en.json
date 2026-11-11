@@ -3,5 +3,11 @@
   "offline.description": "Reconnect to continue. Admin records stay network-only.",
   "offline.heading": "Admin is offline",
   "offline.retry": "Try again",
-  "offline.title": "Offline | Chase Sets Admin"
+  "offline.title": "Offline | Chase Sets Admin",
+  "index.admin": "Admin",
+  "index.admin.sections": "Admin sections",
+  "index.choose.a.section.to.continue.with.the.tools.available.to.your.account": "Choose a section to continue with the tools available to your account.",
+  "index.no.admin.sections.available": "No admin sections available",
+  "index.open": "Open",
+  "index.your.account.is.signed.in.but.it.does.not.have.permission.to.view.any.admin.sections": "Your account is signed in, but it does not have permission to view any admin sections."
 }

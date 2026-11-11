@@ -219,7 +219,13 @@ fn HeldSets<'a>(t: Cat, resolution: Option<&'a Resolution>) -> impl Render {
 #[component(css = SyncBatchPage)]
 fn Resolved<'a>(t: Cat, resolution: &'a Resolution, action: &'a str) -> impl Render {
     let totals = &resolution.totals;
-    let summary = t.ssb_ui_held_set_summary(totals.resolved_pairs, totals.unresolved_pairs, totals.rows).to_string();
+    let summary = t
+        .ssb_ui_held_set_summary(crate::text::cat::SsbUiHeldSetSummary {
+            resolved: totals.resolved_pairs,
+            unresolved: totals.unresolved_pairs,
+            rows: totals.rows,
+        })
+        .to_string();
     let tone = if resolution.unresolved.is_empty() { Tone::Success } else { Tone::Warning };
     let inbox = coverage::url::Inbox { query: Default::default() }.href();
     let resolved_head =
@@ -237,11 +243,11 @@ fn Resolved<'a>(t: Cat, resolution: &'a Resolution, action: &'a str) -> impl Ren
                 for row in &resolution.resolved {
                     <tr>
                         <td data-label={resolved_head[0]}>
-                            {t.ssb_ui_held_set_pair_value(&row.product_line, &row.set_name).to_string()}
+                            {t.ssb_ui_held_set_pair_value(crate::text::cat::SsbUiHeldSetPairValue { product_line: &row.product_line, set_name: &row.set_name }).to_string()}
                         </td>
                         <td data-label={resolved_head[1]} class={Code}>{&row.scope_record_id}</td>
                         <td data-label={resolved_head[2]}>
-                            {t.ssb_ui_held_set_domain_value(&row.product_domain, &row.scope_kind).to_string()}
+                            {t.ssb_ui_held_set_domain_value(crate::text::cat::SsbUiHeldSetDomainValue { product_domain: &row.product_domain, scope_kind: &row.scope_kind }).to_string()}
                         </td>
                         <td data-label={resolved_head[3]}>{row.row_count}</td>
                     </tr>
@@ -255,7 +261,7 @@ fn Resolved<'a>(t: Cat, resolution: &'a Resolution, action: &'a str) -> impl Ren
                     let href = coverage::url::Inbox { query }.href();
                     <tr>
                         <td data-label={unresolved_head[0]}>
-                            {t.ssb_ui_held_set_pair_value(&row.product_line, &row.set_name).to_string()}
+                            {t.ssb_ui_held_set_pair_value(crate::text::cat::SsbUiHeldSetPairValue { product_line: &row.product_line, set_name: &row.set_name }).to_string()}
                         </td>
                         <td data-label={unresolved_head[1]}><TonePill text={&row.reason} tone={Tone::Warning} /></td>
                         <td data-label={unresolved_head[2]}>{row.row_count}</td>
@@ -381,7 +387,13 @@ fn NewBatch<'a>(t: Cat, form: &'a BatchInput) -> impl Render {
 #[component(css = SyncBatchPage)]
 fn PreviewPart<'a>(t: Cat, p: Pilot, preview: &'a Preview, manage: bool) -> impl Render {
     let c = &preview.counts;
-    let summary = t.ssb_ui_page_preview_summary(c.ready_scopes, c.blocked_scopes, c.provider_units).to_string();
+    let summary = t
+        .ssb_ui_page_preview_summary(crate::text::cat::SsbUiPagePreviewSummary {
+            ready_scopes: c.ready_scopes,
+            blocked_scopes: c.blocked_scopes,
+            provider_units: c.provider_units,
+        })
+        .to_string();
     let (tone, title) = if preview.confirm_allowed {
         (Tone::Success, t.ssb_ui_page_batch_ready())
     } else {
@@ -526,7 +538,14 @@ fn unit_tone(state: &str) -> Tone {
 #[component(css = SyncBatchPage)]
 fn BatchPart<'a>(t: Cat, batch: &'a Batch, manage: bool) -> impl Render {
     let c = &batch.counts;
-    let summary = t.ssb_ui_page_batch_progress_summary(c.completed, c.failed, c.running, c.queued).to_string();
+    let summary = t
+        .ssb_ui_page_batch_progress_summary(crate::text::cat::SsbUiPageBatchProgressSummary {
+            completed: c.completed,
+            failed: c.failed,
+            running: c.running,
+            queued: c.queued,
+        })
+        .to_string();
     let f = BatchInput::FIELDS;
     let action = url::SyncBatches::default().href();
     let command = match batch.status.as_str() {

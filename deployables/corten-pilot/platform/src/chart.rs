@@ -5,6 +5,8 @@
 //! screen-reader summary and each mark's title) are the caller's, in its own catalog.
 use corten::prelude::*;
 
+use crate::ui::visually_hidden::VisuallyHidden;
+
 const WIDTH: f64 = 640.0;
 const HEIGHT: f64 = 220.0;
 const PAD: f64 = 12.0;
@@ -108,7 +110,7 @@ pub fn TimeSeries<'a>(plot: &'a Plot, label: &'a str, summary: &'a str, summary_
                     }
                 </svg>
             </div>
-            <figcaption class={VisuallyHidden} id={summary_id}>{summary}</figcaption>
+            <figcaption class={VisuallyHidden {}} id={summary_id}>{summary}</figcaption>
         </figure>
     }
 }

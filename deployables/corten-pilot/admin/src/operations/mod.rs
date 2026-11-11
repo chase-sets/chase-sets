@@ -15,7 +15,7 @@
 //! admin-web revalidates its route. The platform does not register that topic yet, so the API
 //! refuses the stream and the page stays as it was drawn (admin-web's says Connecting);
 //! chase-sets/chase-sets#10607.
-use corten::{LiveResponse, LiveSince, axum::http::HeaderMap, prelude::*};
+use corten::{LiveResponse, LiveSince, http::HeaderMap, prelude::*};
 use serde::Serialize;
 
 pub mod api;

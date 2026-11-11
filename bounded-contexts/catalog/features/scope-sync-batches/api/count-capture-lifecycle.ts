@@ -328,7 +328,7 @@ function rosterBaseline(roster: CountCaptureRoster, scopeRecordId: string, accou
       profileKey: profile.profileKey,
       profileVersion: profile.profileVersion,
       mappingId: mapping.mapping_id,
-      mappingVersion: iso(mapping.updated_at),
+      mappingVersion: typeof mapping.updated_at === "string" ? mapping.updated_at : iso(mapping.updated_at),
       setCoordinate: "OP01" as const,
     };
   });
