@@ -19,8 +19,7 @@
 //! link is the API's path on admin-web's host; the pilot relays the API's file from its own route.
 use corten::{
     Relay,
-    answer::Body,
-    http::{HeaderMap, HeaderName, HeaderValue, StatusCode, header},
+    http::{Body, HeaderMap, HeaderName, HeaderValue, StatusCode, header},
     prelude::*,
 };
 use platform::receipt::Receipt;

@@ -5,15 +5,14 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-// The stand-in API is a plain axum router, with axum's own `State`, served on a port through
-// `corten::axum`, as Corten keeps it for a test (corten-run/corten#950); the rest names Corten.
-use corten::http::{HeaderMap, Method, Request, StatusCode, Uri, header};
-use corten::{
-    Bytes, Json,
-    answer::Body,
-    axum::{Router, extract::State},
-    middleware::{IntoResponse, Response},
+// The stand-in API is a server of its own, a plain axum router (a dev-dependency) with axum's
+// `State`, `Json` and `Response`; the app under test is a `corten::Router`, and the rest names Corten.
+use axum::{
+    Json, Router,
+    extract::State,
+    response::{IntoResponse, Response},
 };
+use corten::http::{Body, Bytes, HeaderMap, Method, Request, StatusCode, Uri, header};
 use http_body_util::BodyExt;
 use serde_json::{Value, json};
 use tower::ServiceExt;
@@ -2138,7 +2137,7 @@ impl Pilot {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let origin = format!("http://{}", listener.local_addr().unwrap());
         let stand_in = Router::new().fallback(platform).with_state(stand.clone());
-        tokio::spawn(async move { corten::axum::serve(listener, stand_in).await.unwrap() });
+        tokio::spawn(async move { axum::serve(listener, stand_in).await.unwrap() });
         let router = app(Config {
             platform: Platform::new(&origin),
             proto: "http",
@@ -12902,7 +12901,7 @@ fn sign_in_post(uri: &str, cookie: Option<&str>, body: &str) -> Request<Body> {
     }
     let mut req = req.body(Body::from(body.to_owned())).unwrap();
     let peer: std::net::SocketAddr = "203.0.113.7:50000".parse().unwrap();
-    req.extensions_mut().insert(corten::axum::extract::ConnectInfo(peer));
+    req.extensions_mut().insert(corten::PeerAddr(peer));
     req
 }
 
@@ -14821,7 +14820,7 @@ async fn an_invite_sends_its_attempt_then_asks_auth_for_the_link_and_a_replay_do
     let body = format!("intent=create-invitation&attempt={ATTEMPT}&email=fresh%40chasesets.test&role_key=manager");
     let mut req = post(TEAM, "teamer", &body, false);
     let peer: std::net::SocketAddr = "203.0.113.9:50000".parse().unwrap();
-    req.extensions_mut().insert(corten::axum::extract::ConnectInfo(peer));
+    req.extensions_mut().insert(corten::PeerAddr(peer));
     let (status, headers, _) = pilot.send(req).await;
     assert_eq!(status, StatusCode::SEE_OTHER);
     let to = headers["location"].to_str().unwrap().to_owned();
