@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { runInNewContext } from "node:vm";
 import { crc32, deflateRawSync } from "node:zlib";
 import { afterAll, describe, expect, it } from "vitest";
@@ -34,6 +35,7 @@ import {
   collectPages,
   discoverCompletedArtifact,
   expectedKeys,
+  hashGitFiles,
   inspectChecker,
   parseCommand,
   parseManifest,
@@ -48,6 +50,9 @@ import {
 } from "./bootstrap-db-oracle-memo-artifact.mjs";
 
 const directories = [];
+afterAll(() => {
+  expect(resolve(hashFixture.directory).startsWith(join(resolve(tmpdir()), "11214-impl-g7-"))).toBe(true);
+});
 afterAll(() => {
   for (const directory of directories) {
     expect(directory.startsWith(join(tmpdir(), "11214-impl-g7-"))).toBe(true);
@@ -64,6 +69,79 @@ const git = (cwd, args) =>
     ["-C", cwd, ...args],
     gitListingOptions({ encoding: "utf8", windowsHide: true, stdio: ["ignore", "pipe", "pipe"] }),
   ).trim();
+
+const hashFixture = (() => {
+  const directory = resolve(mkdtempSync(join(tmpdir(), "11214-impl-g7-hashes-")));
+  directories.push(directory);
+  git(directory, ["init", "--quiet"]);
+  const entries = [];
+  const expected = new Map();
+  const store = (data) => ({
+    oid: execFileSync("git", ["-C", directory, "hash-object", "-w", "--stdin"], {
+      input: data,
+      encoding: "utf8",
+      windowsHide: true,
+      stdio: ["pipe", "pipe", "pipe"],
+    }).trim(),
+    digest: createHash("sha256").update(data).digest("hex"),
+    size: data.length,
+  });
+  const add = (path, object, mode = "100644") => {
+    entries.push(`${mode} blob ${object.oid}\t${path}\0`);
+    expected.set(path, object.digest);
+  };
+  const small = [store(Buffer.from([0, 10, 13, 128, 255, 1])), store(Buffer.from([255, 13, 0, 254, 10, 2]))];
+  add("small-a.bin", small[0]);
+  add("small-b.bin", small[1], "100755");
+  add("link.bin", small[0], "120000");
+  const countPaths = Array.from({ length: 129 }, (_, i) => `count-${String(i).padStart(3, "0")}.bin`);
+  for (const [i, path] of countPaths.entries()) add(path, small[i % 2]);
+  const largeBytes = Buffer.alloc(16 * 1024 * 1024 + 1, 0xa5);
+  largeBytes.set([0, 10, 13, 255]);
+  const large = store(largeBytes);
+  add("large.bin", large);
+  const mediumPaths = Array.from({ length: 4 }, (_, i) => `medium-${i}.bin`);
+  for (const [i, path] of mediumPaths.entries()) {
+    const data = Buffer.alloc(8 * 1024 * 1024 + 1, 0x80 + i);
+    data.set([0, 10, 13, 255, i]);
+    add(path, store(data));
+  }
+  const tree = execFileSync("git", ["-C", directory, "mktree", "-z"], {
+    input: Buffer.from(entries.join("")),
+    encoding: "utf8",
+    windowsHide: true,
+    stdio: ["pipe", "pipe", "pipe"],
+  }).trim();
+  const commit = git(directory, [
+    "-c",
+    "user.name=Synthetic",
+    "-c",
+    "user.email=synthetic@example.invalid",
+    "commit-tree",
+    tree,
+    "-m",
+    "Synthetic immutable hashing fixture, not hosted evidence",
+  ]);
+  return { directory, commit, expected, countPaths, mediumPaths, large };
+})();
+
+async function traceHashCall(name, call) {
+  const path = join(hashFixture.directory, `${name}.trace`);
+  const previous = process.env.GIT_TRACE;
+  try {
+    process.env.GIT_TRACE = path;
+    const hashes = await call();
+    const commands = readFileSync(path, "utf8").split(/\r?\n/);
+    const batches = commands.filter((line) => /built-in: git cat-file --batch$/.test(line)).length;
+    const streams = commands.filter((line) => /built-in: git cat-file blob [a-f0-9]{40}$/.test(line));
+    console.info(`hashGitFiles ${name}: payload batches=${batches}, streaming children=${streams.length}`);
+    return { hashes, batches, streams };
+  } finally {
+    if (previous === undefined) delete process.env.GIT_TRACE;
+    else process.env.GIT_TRACE = previous;
+  }
+}
+
 const renderChecker = (values) =>
   LITERALS.reduce((s, n) => s.replace(`<${n}>`, `Object.freeze(${JSON.stringify(values[n])})`), shape.skeleton);
 
@@ -761,6 +839,63 @@ describe("PR-isolated canonical bootstrap memos", () => {
     const wrongMerge = copy(first.event);
     wrongMerge.merge = first.m.E;
     await expect(admitProfile(first.m, { ...options(first), event: wrongMerge })).rejects.toThrow();
+  });
+
+  it("hashGitFiles hashes immutable binary bytes and deduplicates unordered paths", async () => {
+    const { directory, commit, expected } = hashFixture;
+    const paths = ["small-b.bin", "small-a.bin", "small-b.bin", "small-a.bin"];
+    const wanted = new Map(["small-a.bin", "small-b.bin"].map((path) => [path, expected.get(path)]));
+    expect(await hashGitFiles(directory, commit, paths)).toEqual(wanted);
+    const mutable = join(directory, "small-a.bin");
+    try {
+      writeFileSync(mutable, Buffer.from([99, 0, 255, 10]));
+      expect(await hashGitFiles(directory, commit, paths)).toEqual(wanted);
+    } finally {
+      rmSync(mutable, { force: true });
+    }
+  });
+
+  it("hashGitFiles streams a real binary blob above 16 MiB", async () => {
+    const { directory, commit, expected, large } = hashFixture;
+    expect(large.size).toBe(16 * 1024 * 1024 + 1);
+    expect(large.size).toBeGreaterThan(16 * 1024 * 1024);
+    const result = await traceHashCall("large", () => hashGitFiles(directory, commit, ["large.bin"]));
+    expect(result.hashes).toEqual(new Map([["large.bin", expected.get("large.bin")]]));
+    expect(result.batches).toBe(0);
+    expect(result.streams).toHaveLength(1);
+    expect(result.streams[0]).toMatch(new RegExp(`built-in: git cat-file blob ${large.oid}$`));
+  });
+
+  it("hashGitFiles splits 129 distinct regular paths at the 128-object boundary", async () => {
+    const { directory, commit, expected, countPaths } = hashFixture;
+    const result = await traceHashCall("count", () => hashGitFiles(directory, commit, countPaths));
+    expect(result.hashes).toEqual(new Map(countPaths.map((path) => [path, expected.get(path)])));
+    expect(result.hashes.size).toBe(129);
+    expect(result.batches).toBeGreaterThanOrEqual(2);
+    expect(result.streams).toHaveLength(0);
+  });
+
+  it("hashGitFiles splits four below-threshold blobs at the 16 MiB payload boundary", async () => {
+    const { directory, commit, expected, mediumPaths } = hashFixture;
+    const result = await traceHashCall("payload", () => hashGitFiles(directory, commit, mediumPaths));
+    expect(result.hashes).toEqual(new Map(mediumPaths.map((path) => [path, expected.get(path)])));
+    expect(result.batches).toBeGreaterThanOrEqual(4);
+    expect(result.streams).toHaveLength(0);
+  });
+
+  it("hashGitFiles distinguishes missing, nonregular, mutable and unsafe source refusals", async () => {
+    const { directory, commit, expected } = hashFixture;
+    await expect(hashGitFiles(directory, commit, ["small-a.bin"])).resolves.toEqual(
+      new Map([["small-a.bin", expected.get("small-a.bin")]]),
+    );
+    await expect(hashGitFiles(directory, commit, ["missing.bin"])).rejects.toThrow(
+      "missing/nonregular immutable source: missing.bin",
+    );
+    await expect(hashGitFiles(directory, commit, ["link.bin"])).rejects.toThrow(
+      "missing/nonregular immutable source: link.bin",
+    );
+    await expect(hashGitFiles(directory, "HEAD", ["small-a.bin"])).rejects.toThrow("immutable source commit required");
+    await expect(hashGitFiles(directory, commit, ["../small-a.bin"])).rejects.toThrow("path traversal");
   });
 
   it("immutable object batches retain real bytes and refuse malformed framing", () => {
