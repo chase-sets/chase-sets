@@ -1384,21 +1384,21 @@ describe("pre-open B/D mergeability guard", () => {
     refusesMergeability(mergeInput({ commit: missing }, merge.D), `B/D missing object ${missing}`);
     refusesMergeability(mergeInput(merge.B, { commit: missing }), `B/D missing object ${missing}`);
     refusesMergeability(mergeInput({ commit: merge.T.tree }, merge.D), `B/D non-commit object ${merge.T.tree}`);
-    for (const [base, head, branch] of [
-      [merge.B.commit.slice(0, 12), merge.D.commit, merge.branch],
-      [merge.B.commit, merge.D.commit.slice(0, 39), merge.branch],
-      ["main", merge.D.commit, merge.branch],
-      ["refs/heads/main", merge.D.commit, merge.branch],
-      [merge.B.commit, "HEAD", merge.branch],
-      [merge.B.commit.toUpperCase(), merge.D.commit, merge.branch],
-      [`${merge.B.commit}^0`, merge.D.commit, merge.branch],
-      [merge.D.commit, merge.D.commit, merge.branch],
-      [merge.B.commit, merge.D.commit, "main"],
-      [merge.B.commit, merge.D.commit, "memo-derivation/../main"],
+    const oids = "exact distinct full 40-hex B/D OIDs required";
+    for (const [base, head, branch, message] of [
+      [merge.B.commit.slice(0, 12), merge.D.commit, merge.branch, oids],
+      [merge.B.commit, merge.D.commit.slice(0, 39), merge.branch, oids],
+      ["main", merge.D.commit, merge.branch, oids],
+      ["refs/heads/main", merge.D.commit, merge.branch, oids],
+      [merge.B.commit, "HEAD", merge.branch, oids],
+      [merge.B.commit.toUpperCase(), merge.D.commit, merge.branch, oids],
+      [`${merge.B.commit}^0`, merge.D.commit, merge.branch, oids],
+      [merge.D.commit, merge.D.commit, merge.branch, oids],
+      [merge.B.commit, merge.D.commit, "main", "memo-derivation branch"],
+      [merge.B.commit, merge.D.commit, "memo-derivation/../main", "memo-derivation branch"],
     ]) {
-      expect(() =>
-        preOpenMergeability({ ...mergeInput(merge.B, merge.D), base, head, branch, readApi: () => assert.fail() }),
-      ).toThrow();
+      const refused = { base, head, branch, readApi: () => assert.fail("live read"), runGit: () => assert.fail("Git") };
+      refusesMergeability({ ...mergeInput(merge.B, merge.D), ...refused }, message);
       expect(() => parseCommand(["mergeability", base, head, branch])).toThrow();
     }
     expect(() => parseCommand(["mergeability", merge.B.commit, merge.D.commit])).toThrow();
