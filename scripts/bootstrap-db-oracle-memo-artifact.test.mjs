@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { runInNewContext } from "node:vm";
@@ -39,9 +39,11 @@ import {
   inspectChecker,
   parseCommand,
   parseManifest,
+  preOpenMergeability,
   preflightWorkflow,
   readArtifactZip,
   sha256,
+  spawnGit,
   validateArtifact,
   validateIndependentProfile,
   validateLiterals,
@@ -383,6 +385,117 @@ const nullFloorProfile = () => {
   return { m, fixtures: { current: first.current, paired } };
 };
 const options = (p) => ({ objectRoot: p.directory, helperSha: p.m.T.commit, event: p.event, inputRoot: p.directory });
+
+// Synthetic B/D pairs for the pre-open mergeability guard; no identity here is a real tuple.
+const merge = (() => {
+  const directory = mkdtempSync(join(tmpdir(), "11214-impl-g7-mergeability-"));
+  directories.push(directory);
+  git(directory, ["init", "--quiet"]);
+  const run = (args, input) =>
+    execFileSync("git", ["-C", directory, ...args], {
+      input,
+      encoding: "utf8",
+      windowsHide: true,
+      env: { ...process.env, GIT_INDEX_FILE: join(directory, ".git", "synthetic-index") },
+      stdio: ["pipe", "pipe", "pipe"],
+    }).trim();
+  const commit = (parents, files, message) => {
+    run(parents.length ? ["read-tree", parents[0].commit] : ["read-tree", "--empty"]);
+    for (const [path, value] of Object.entries(files)) {
+      if (value === null) run(["update-index", "--force-remove", "--", path]);
+      else {
+        const [mode, data] = Array.isArray(value) ? value : ["100644", value];
+        run(["update-index", "--add", "--cacheinfo", `${mode},${run(["hash-object", "-w", "--stdin"], data)},${path}`]);
+      }
+    }
+    const tree = run(["write-tree"]);
+    const identity = ["-c", "user.name=Synthetic Test", "-c", "user.email=synthetic@example.invalid"];
+    const parentArgs = parents.flatMap((p) => ["-p", p.commit]);
+    return { commit: run([...identity, "commit-tree", tree, ...parentArgs, "-m", `${message}, not evidence`]), tree };
+  };
+  const route = "name: Synthetic memo route\n";
+  const changedRoute = "name: Synthetic changed memo route\n";
+  const manifest = (T) => bytes({ ...first.m, T });
+  const T = commit([], { [WORKFLOW]: route, "shared.txt": "one\ntwo\nthree\n" }, "Synthetic landed route T");
+  const B = commit([T], { "main-only.txt": "main\n" }, "Synthetic main B");
+  const E = commit([T], { "input.txt": "input\n" }, "Synthetic input E");
+  const D = commit([E], { [MANIFEST]: manifest(T) }, "Synthetic data-only D");
+  const conflictD = commit(
+    [commit([T], { "shared.txt": "one\nINPUT\nthree\n" }, "Synthetic conflicting E")],
+    { [MANIFEST]: manifest(T) },
+    "Synthetic conflicting D",
+  );
+  const otherT = commit([T], { [WORKFLOW]: changedRoute }, "Synthetic other route T");
+  const left = commit([T], { "left.txt": "left\n" }, "Synthetic left");
+  const right = commit([T], { "right.txt": "right\n" }, "Synthetic right");
+  const corruptB = commit([B], { "corrupt.txt": "synthetic main side\n" }, "Synthetic B for a removed blob");
+  return {
+    directory,
+    branch: "memo-derivation/synthetic-11222",
+    // Independent expectations, computed once while building the fixture.
+    cleanTree: run(["merge-tree", "--write-tree", B.commit, D.commit]),
+    workflowBlob: run(["rev-parse", `${T.commit}:${WORKFLOW}`]),
+    changedWorkflowBlob: run(["rev-parse", `${otherT.commit}:${WORKFLOW}`]),
+    corruptBlob: run(["rev-parse", `${corruptB.commit}:corrupt.txt`]),
+    T,
+    B,
+    E,
+    D,
+    conflictB: commit([T], { "shared.txt": "one\nMAIN\nthree\n" }, "Synthetic conflicting B"),
+    conflictD,
+    deleteB: commit([T], { "shared.txt": null }, "Synthetic structural B"),
+    otherTD: commit([E], { [MANIFEST]: manifest(otherT) }, "Synthetic D naming other T"),
+    routeB: commit([B], { [WORKFLOW]: changedRoute }, "Synthetic B with changed route"),
+    routeD: commit([D], { [WORKFLOW]: changedRoute }, "Synthetic D with changed route"),
+    executableD: commit([D], { [WORKFLOW]: ["100755", route] }, "Synthetic D with executable route"),
+    garbledD: commit([E], { [MANIFEST]: "{not json\n" }, "Synthetic unparsable D"),
+    shortTD: commit(
+      [E],
+      { [MANIFEST]: manifest({ commit: T.commit.slice(0, 12), tree: T.tree }) },
+      "Synthetic short T",
+    ),
+    crossB: commit([left, right], { "right.txt": "right\n" }, "Synthetic criss-cross B"),
+    crossD: commit([right, left], { "left.txt": "left\n" }, "Synthetic criss-cross D"),
+    lonelyD: commit([], { "lonely.txt": "lonely\n" }, "Synthetic unrelated D"),
+    corruptB,
+    corruptD: commit([D], { "corrupt.txt": "synthetic head side\n" }, "Synthetic D for a removed blob"),
+    manifest,
+  };
+})();
+const liveRefs =
+  (main, head, calls = []) =>
+  (path) => {
+    calls.push(path);
+    if (path === "git/ref/heads/main") return { ref: "refs/heads/main", object: { sha: main, type: "commit" } };
+    if (path === `git/ref/heads/${merge.branch}`)
+      return { ref: `refs/heads/${merge.branch}`, object: { sha: head, type: "commit" } };
+    throw Error("unexpected API request");
+  };
+// Fixture objects are immutable, so identical Git reads are memoized; every control still parses real Git output.
+const gitReads = new Map();
+const cachedGit = (directory, args, input = "") => {
+  const key = JSON.stringify([directory, args, input]);
+  if (!gitReads.has(key)) gitReads.set(key, spawnGit(directory, args, input));
+  return gitReads.get(key);
+};
+const mergeInput = (base, head, overrides = {}) => ({
+  base: base.commit,
+  head: head.commit,
+  branch: merge.branch,
+  objectRoot: merge.directory,
+  readApi: liveRefs(base.commit, head.commit),
+  runGit: cachedGit,
+  ...overrides,
+});
+const forcedGit = (command, result) => (directory, args, input) =>
+  args[0] === command ? result : cachedGit(directory, args, input);
+function refusesMergeability(input, message) {
+  let record;
+  expect(() => {
+    record = preOpenMergeability(input);
+  }).toThrow(message);
+  expect(record).toBeUndefined();
+}
 
 function artifactFor(p) {
   const m = p.m;
@@ -1207,5 +1320,256 @@ describe("PR-isolated canonical bootstrap memos", () => {
     expect(CI_GATE_DEFINITIONS.find((gate) => gate.id === "bootstrap-db-oracle-memo-check")).toMatchObject({
       executability: "HOSTED_ONLY",
     });
+  });
+});
+
+describe("pre-open B/D mergeability guard", () => {
+  it("mergeability clean pair prints one diagnostic record only after the final live recheck", () => {
+    const calls = [];
+    const record = preOpenMergeability(
+      mergeInput(merge.B, merge.D, { readApi: liveRefs(merge.B.commit, merge.D.commit, calls) }),
+    );
+    expect(calls).toEqual(["git/ref/heads/main", `git/ref/heads/${merge.branch}`]);
+    expect(Object.keys(record)).toEqual([
+      "kind",
+      "authority",
+      "observedAt",
+      "base",
+      "head",
+      "branch",
+      "T",
+      "manifestSha256",
+      "mergeBase",
+      "result",
+      "unmergedPaths",
+      "diagnosticMergeTree",
+      "workflow",
+    ]);
+    expect(record).toMatchObject({
+      kind: "pre-open-mergeability-record",
+      base: merge.B.commit,
+      head: merge.D.commit,
+      branch: merge.branch,
+      T: merge.T,
+      manifestSha256: sha256(merge.manifest(merge.T)),
+      mergeBase: merge.T.commit,
+      result: "clean",
+      unmergedPaths: [],
+      diagnosticMergeTree: merge.cleanTree,
+      workflow: {
+        path: WORKFLOW,
+        mode: "100644",
+        blob: merge.workflowBlob,
+      },
+    });
+    expect(record.authority).toContain("never G");
+    expect(record.observedAt).toMatch(/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/);
+    expect(JSON.parse(canonical(record))).toEqual(record);
+    expect(parseCommand(["mergeability", merge.B.commit, merge.D.commit, merge.branch]).command).toBe("mergeability");
+  });
+
+  it("mergeability content-conflicted and structural pairs refuse naming unmerged paths before any live read", () => {
+    for (const base of [merge.conflictB, merge.deleteB]) {
+      const calls = [];
+      refusesMergeability(
+        mergeInput(base, merge.conflictD, { readApi: liveRefs(base.commit, merge.conflictD.commit, calls) }),
+        'B/D merge conflict refuses opening: 1 unmerged ["shared.txt"]',
+      );
+      expect(calls).toEqual([]);
+    }
+  });
+
+  it("mergeability missing-object, non-commit, abbreviated and ref inputs refuse", () => {
+    const missing = "0123456789abcdef0123456789abcdef01234567";
+    refusesMergeability(mergeInput({ commit: missing }, merge.D), `B/D missing object ${missing}`);
+    refusesMergeability(mergeInput(merge.B, { commit: missing }), `B/D missing object ${missing}`);
+    refusesMergeability(mergeInput({ commit: merge.T.tree }, merge.D), `B/D non-commit object ${merge.T.tree}`);
+    for (const [base, head, branch] of [
+      [merge.B.commit.slice(0, 12), merge.D.commit, merge.branch],
+      [merge.B.commit, merge.D.commit.slice(0, 39), merge.branch],
+      ["main", merge.D.commit, merge.branch],
+      ["refs/heads/main", merge.D.commit, merge.branch],
+      [merge.B.commit, "HEAD", merge.branch],
+      [merge.B.commit.toUpperCase(), merge.D.commit, merge.branch],
+      [`${merge.B.commit}^0`, merge.D.commit, merge.branch],
+      [merge.D.commit, merge.D.commit, merge.branch],
+      [merge.B.commit, merge.D.commit, "main"],
+      [merge.B.commit, merge.D.commit, "memo-derivation/../main"],
+    ]) {
+      expect(() =>
+        preOpenMergeability({ ...mergeInput(merge.B, merge.D), base, head, branch, readApi: () => assert.fail() }),
+      ).toThrow();
+      expect(() => parseCommand(["mergeability", base, head, branch])).toThrow();
+    }
+    expect(() => parseCommand(["mergeability", merge.B.commit, merge.D.commit])).toThrow();
+    expect(() => parseCommand(["mergeability", merge.B.commit, merge.D.commit, merge.branch, "--force"])).toThrow();
+  });
+
+  it("mergeability forced Git exit, signal and spawn errors and unsupported Git refuse before any live read", () => {
+    const stdout = (text) => Buffer.from(text);
+    const tree = merge.cleanTree;
+    for (const [runGit, message] of [
+      [forcedGit("version", { status: 0, signal: null, stdout: stdout("git version 2.39.5\n") }), "Git without"],
+      [forcedGit("version", { status: 0, signal: null, stdout: stdout("not git\n") }), "Git without"],
+      [forcedGit("cat-file", { status: 0, signal: null, stdout: stdout(`${merge.B.commit} commit 1\n`) }), "count"],
+      [forcedGit("merge-base", { status: 1, signal: null, stdout: stdout("") }), "merge-base: unexpected Git exit"],
+      [forcedGit("merge-tree", { status: 2, signal: null, stdout: stdout("") }), "unexpected Git exit"],
+      [forcedGit("merge-tree", { status: 128, signal: null, stdout: stdout(`${tree}\0`) }), "unexpected Git exit"],
+      [forcedGit("merge-tree", { status: null, signal: "SIGKILL", stdout: stdout("") }), "unexpected Git exit"],
+      [forcedGit("merge-tree", { error: Error("spawnSync git ENOBUFS"), status: 0, signal: null }), "Git exit"],
+    ]) {
+      const calls = [];
+      refusesMergeability(
+        mergeInput(merge.B, merge.D, { runGit, readApi: liveRefs(merge.B.commit, merge.D.commit, calls) }),
+        message,
+      );
+      expect(calls).toEqual([]);
+    }
+  });
+
+  it("mergeability truncated, malformed, unbounded or contradictory merge output refuses as unknown", () => {
+    const stdout = (text) => Buffer.from(text);
+    const tree = merge.cleanTree;
+    const record = `100644 ${"a".repeat(40)} 2\tshared.txt`;
+    for (const [status, output, message] of [
+      [0, tree, "incomplete output"],
+      [0, "", "malformed tree"],
+      [0, `${tree}\0${record}\0`, "unexpected clean output"],
+      [1, `${tree}\0`, "0 unmerged []"],
+      [1, `${tree}\0garbled\0`, "malformed unmerged record"],
+      [1, `${tree}\0${`${record}\0`.repeat(193)}`, "unmerged bound exceeded"],
+    ]) {
+      const calls = [];
+      const runGit = forcedGit("merge-tree", { status, signal: null, stdout: stdout(output) });
+      refusesMergeability(
+        mergeInput(merge.B, merge.D, { runGit, readApi: liveRefs(merge.B.commit, merge.D.commit, calls) }),
+        message,
+      );
+      expect(calls).toEqual([]);
+    }
+  });
+
+  it("mergeability multiple or absent merge bases refuse as unknown", () => {
+    refusesMergeability(mergeInput(merge.crossB, merge.crossD), "multiple or malformed bases");
+    refusesMergeability(mergeInput(merge.B, merge.lonelyD), "merge-base: unexpected Git exit");
+  });
+
+  it("mergeability refuses a real Git failure on an unreadable object", () => {
+    const loose = join(merge.directory, ".git", "objects", merge.corruptBlob.slice(0, 2), merge.corruptBlob.slice(2));
+    expect(existsSync(loose)).toBe(true);
+    chmodSync(loose, 0o644);
+    rmSync(loose);
+    refusesMergeability(
+      mergeInput(merge.corruptB, merge.corruptD, { runGit: spawnGit }),
+      "B/D merge probe: unexpected Git exit",
+    );
+  });
+
+  it("mergeability base drift and head drift with fixed other input refuse with no success record", () => {
+    expect(preOpenMergeability(mergeInput(merge.B, merge.D)).result).toBe("clean");
+    refusesMergeability(
+      mergeInput(merge.B, merge.D, { readApi: liveRefs(merge.routeB.commit, merge.D.commit) }),
+      "stale B: live main differs",
+    );
+    refusesMergeability(
+      mergeInput(merge.B, merge.D, { readApi: liveRefs(merge.B.commit, merge.routeD.commit) }),
+      "stale D: live derivation head differs",
+    );
+    const tagged = (path) => ({
+      ref: `refs/${path.slice("git/ref/".length)}`,
+      object: { sha: merge.B.commit, type: "tag" },
+    });
+    refusesMergeability(mergeInput(merge.B, merge.D, { readApi: tagged }), "live refs/heads/main unavailable");
+    refusesMergeability(
+      mergeInput(merge.B, merge.D, {
+        readApi: () => {
+          throw Error("live read failed");
+        },
+      }),
+      "live read failed",
+    );
+  });
+
+  it("mergeability workflow mismatch at T with fixed B and D workflow refuses before the live recheck", () => {
+    const calls = [];
+    refusesMergeability(
+      mergeInput(merge.B, merge.otherTD, { readApi: liveRefs(merge.B.commit, merge.otherTD.commit, calls) }),
+      "workflow blob differs across T/B/D/merge tree",
+    );
+    expect(calls).toEqual([]);
+  });
+
+  it("mergeability workflow mismatch at B with fixed T and D refuses before the live recheck", () => {
+    const calls = [];
+    refusesMergeability(
+      mergeInput(merge.routeB, merge.D, { readApi: liveRefs(merge.routeB.commit, merge.D.commit, calls) }),
+      "workflow blob differs across T/B/D/merge tree",
+    );
+    expect(calls).toEqual([]);
+  });
+
+  it("mergeability workflow mismatch at D with fixed T and B refuses before the live recheck", () => {
+    const calls = [];
+    refusesMergeability(
+      mergeInput(merge.B, merge.routeD, { readApi: liveRefs(merge.B.commit, merge.routeD.commit, calls) }),
+      "workflow blob differs across T/B/D/merge tree",
+    );
+    expect(calls).toEqual([]);
+  });
+
+  it("mergeability nonregular workflow mode at D refuses before the live recheck", () => {
+    const calls = [];
+    refusesMergeability(
+      mergeInput(merge.B, merge.executableD, { readApi: liveRefs(merge.B.commit, merge.executableD.commit, calls) }),
+      "missing/nonregular D workflow",
+    );
+    expect(calls).toEqual([]);
+  });
+
+  it("mergeability workflow mismatch at the merge tree refuses before the live recheck", () => {
+    const otherListing = Buffer.from(`100644 blob ${merge.changedWorkflowBlob}\t${WORKFLOW}\0`);
+    const calls = [];
+    refusesMergeability(
+      mergeInput(merge.B, merge.D, {
+        readApi: liveRefs(merge.B.commit, merge.D.commit, calls),
+        runGit: (directory, args, input) =>
+          args[0] === "ls-tree" && args[3] === merge.cleanTree
+            ? { status: 0, signal: null, stdout: otherListing }
+            : cachedGit(directory, args, input),
+      }),
+      "workflow blob differs across T/B/D/merge tree",
+    );
+    expect(calls).toEqual([]);
+  });
+
+  it("mergeability refuses a missing manifest at the exact D", () => {
+    refusesMergeability(mergeInput(merge.B, merge.E), "missing/nonregular D manifest");
+  });
+
+  it("mergeability refuses an unparsable manifest at the exact D", () => {
+    refusesMergeability(mergeInput(merge.B, merge.garbledD), "unparsable D manifest");
+  });
+
+  it("mergeability refuses an abbreviated T in the manifest at the exact D", () => {
+    refusesMergeability(mergeInput(merge.B, merge.shortTD), "D manifest T: commit/tree");
+  });
+
+  const cli = (argv) =>
+    spawnSync(process.execPath, [resolve("scripts/bootstrap-db-oracle-memo-artifact.mjs"), "mergeability", ...argv], {
+      encoding: "utf8",
+      windowsHide: true,
+    });
+
+  it("mergeability CLI refuses an abbreviated OID with no stdout record", () => {
+    const result = cli([merge.B.commit.slice(0, 12), merge.D.commit, merge.branch]);
+    expect([result.status, result.stdout]).toEqual([1, ""]);
+    expect(result.stderr).toContain("STOP_TO_HOST: full B/D OIDs and memo-derivation branch only");
+  });
+
+  it("mergeability CLI refuses missing objects with no stdout record", () => {
+    const missing = "0123456789abcdef0123456789abcdef01234567";
+    const result = cli([missing, missing.replace("0", "1"), merge.branch]);
+    expect([result.status, result.stdout]).toEqual([1, ""]);
+    expect(result.stderr).toContain(`STOP_TO_HOST: B/D missing object ${missing}`);
   });
 });

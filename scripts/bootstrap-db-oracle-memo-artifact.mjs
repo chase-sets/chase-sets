@@ -42,6 +42,8 @@ export const canonical = (value) => `${JSON.stringify(value, null, 2)}\n`;
 const unit = /^test:db:[1-4]$/;
 const fileName = /^(?!.*\.\.)(?!.*[/\\])[A-Za-z0-9][A-Za-z0-9._-]*\.db\.test\.ts$/;
 const testPath = /^__tests__\/(?:[A-Za-z0-9][A-Za-z0-9._-]*\/)*[A-Za-z0-9][A-Za-z0-9._-]*\.db\.test\.ts$/;
+const derivationBranch =
+  /^memo-derivation\/(?!.*(?:\.\.|\/\/|@\{|\/\.|\.lock(?:\/|$)))[A-Za-z0-9][A-Za-z0-9._/-]*[A-Za-z0-9_-]$/;
 
 function boundValue(value, maxDepth, maxNodes) {
   const pending = [[value, 1]];
@@ -1153,13 +1155,7 @@ export function validateReceipt(r, m, digest) {
   same(e.action, "opened", "opened only");
   same(e.repository, repository, "event repository");
   integer(e.prNumber, 1, Number.MAX_SAFE_INTEGER, "PR number");
-  text(
-    e.headRef,
-    /^memo-derivation\/(?!.*(?:\.\.|\/\/|@\{|\/\.|\.lock(?:\/|$)))[A-Za-z0-9][A-Za-z0-9._/-]*[A-Za-z0-9_-]$/,
-    17,
-    255,
-    "head ref",
-  );
+  text(e.headRef, derivationBranch, 17, 255, "head ref");
   for (const key of ["head", "base", "merge"]) commitTree(e[key], `event ${key}`);
   requireThat(
     e.head.commit !== e.merge.commit && e.base.commit !== e.merge.commit && e.head.commit !== e.base.commit,
@@ -1464,10 +1460,173 @@ export function discoverCompletedArtifact({ m, manifestSha256, freeze, runId, ar
   };
 }
 
+// merge-tree --write-tree with -z, --no-messages and an explicit --merge-base needs Git 2.40.
+const mergeSupport = Object.freeze({ major: 2, minor: 40 });
+const mergeLimits = Object.freeze({ output: 1024 * 1024, unmergedRecords: 192 });
+
+export function spawnGit(directory, args, input = "") {
+  return spawnSync("git", ["-C", directory, ...args], {
+    input,
+    maxBuffer: mergeLimits.output,
+    windowsHide: true,
+    env: { ...process.env, GIT_NO_LAZY_FETCH: "1", GIT_NO_REPLACE_OBJECTS: "1", GIT_TERMINAL_PROMPT: "0" },
+    stdio: ["pipe", "pipe", "pipe"],
+  });
+}
+
+function gitStdout(runGit, directory, args, name, input) {
+  const result = runGit(directory, args, input);
+  requireThat(
+    result && !result.error && !result.signal && result.status === 0 && Buffer.isBuffer(result.stdout),
+    `${name}: unexpected Git exit or output`,
+  );
+  return result.stdout;
+}
+
+function requireCommits(runGit, directory, oids, name) {
+  const input = oids.map((oid) => `${oid}\n`).join("");
+  const rows = gitStdout(runGit, directory, ["cat-file", "--batch-check"], `${name} objects`, input)
+    .toString("utf8")
+    .split("\n");
+  same(rows.pop(), "", `${name} objects: incomplete inventory`);
+  same(rows.length, oids.length, `${name} objects: inventory count`);
+  oids.forEach((oid, i) => {
+    requireThat(rows[i] !== `${oid} missing`, `${name} missing object ${oid}`);
+    requireThat(new RegExp(`^${oid} commit [1-9][0-9]*$`).test(rows[i]), `${name} non-commit object ${oid}`);
+  });
+}
+
+function regularBlob(runGit, directory, treeish, path, name) {
+  const listing = gitStdout(runGit, directory, ["ls-tree", "-z", "--full-tree", treeish, "--", path], name);
+  const match = /^100644 blob ([a-f0-9]{40})\t([^\0]+)\0$/.exec(listing.toString("utf8"));
+  requireThat(match?.[2] === path, `missing/nonregular ${name}`);
+  return match[1];
+}
+
+function probeMerge(runGit, directory, base, head) {
+  const bases = gitStdout(runGit, directory, ["merge-base", "--all", base, head], "B/D merge-base")
+    .toString("utf8")
+    .split("\n");
+  same(bases.pop(), "", "B/D merge-base: incomplete output");
+  requireThat(bases.length === 1 && hex(bases[0], 40), "B/D merge-base unknown: multiple or malformed bases");
+  const probe = runGit(directory, [
+    "merge-tree",
+    "--write-tree",
+    "-z",
+    "--no-messages",
+    `--merge-base=${bases[0]}`,
+    base,
+    head,
+  ]);
+  // Exit 0 is clean and 1 is a conflict; any other exit, signal or spawn error leaves the result unknown.
+  requireThat(
+    probe && !probe.error && !probe.signal && [0, 1].includes(probe.status) && Buffer.isBuffer(probe.stdout),
+    "B/D merge probe: unexpected Git exit",
+  );
+  const fields = probe.stdout.toString("utf8").split("\0");
+  same(fields.pop(), "", "B/D merge probe: incomplete output");
+  const tree = fields.shift();
+  requireThat(hex(tree, 40), "B/D merge probe: malformed tree");
+  if (probe.status === 0) {
+    same(fields, [], "B/D merge probe: unexpected clean output");
+    return { mergeBase: bases[0], tree };
+  }
+  requireThat(
+    fields.length <= mergeLimits.unmergedRecords,
+    "B/D merge conflict refuses opening: unmerged bound exceeded",
+  );
+  const paths = [];
+  for (const record of fields) {
+    const match = /^[0-7]{6} [a-f0-9]{40} [1-3]\t([^\0]+)$/.exec(record);
+    requireThat(match, "B/D merge conflict refuses opening: malformed unmerged record");
+    if (paths.at(-1) !== match[1]) paths.push(match[1]);
+  }
+  assert.fail(`B/D merge conflict refuses opening: ${paths.length} unmerged ${JSON.stringify(paths)}`);
+}
+
+function manifestTarget(runGit, directory, head) {
+  const oid = regularBlob(runGit, directory, head, MANIFEST, "D manifest");
+  const bytes = gitStdout(runGit, directory, ["cat-file", "blob", oid], "D manifest bytes");
+  let m;
+  try {
+    m = boundedJson(bytes, limits.manifest, "manifest");
+  } catch (error) {
+    assert.fail(`unparsable D manifest: ${String(error?.message).split("\n")[0]}`);
+  }
+  same(m?.schema, INPUT_SCHEMA, "D manifest schema");
+  same(m.repository, repository, "D manifest repository");
+  commitTree(m.T, "D manifest T");
+  return { T: m.T, manifestSha256: sha256(bytes) };
+}
+
+function liveCommit(readApi, ref) {
+  const live = readApi(`git/ref/${ref}`);
+  requireThat(
+    live?.ref === `refs/${ref}` && live.object?.type === "commit" && hex(live.object.sha, 40),
+    `live refs/${ref} unavailable`,
+  );
+  return live.object.sha;
+}
+
+/**
+ * Pre-open guard: GitHub never runs the opened-only derivation for a conflicted B/D pair, so the
+ * single opening would be spent with no run. The computed merge tree is a diagnostic, never G.
+ * The live main/branch recheck is the last step, after the probe and the workflow comparison.
+ */
+export function preOpenMergeability({ base, head, branch, objectRoot = root, readApi = api, runGit = spawnGit }) {
+  requireThat(hex(base, 40) && hex(head, 40) && base !== head, "exact distinct full 40-hex B/D OIDs required");
+  text(branch, derivationBranch, 17, 255, "memo-derivation branch");
+  const version = /^git version (\d+)\.(\d+)\./.exec(
+    gitStdout(runGit, objectRoot, ["version"], "Git version").toString("utf8"),
+  );
+  requireThat(
+    version &&
+      (Number(version[1]) > mergeSupport.major ||
+        (Number(version[1]) === mergeSupport.major && Number(version[2]) >= mergeSupport.minor)),
+    "Git without merge-tree --write-tree --merge-base support",
+  );
+  requireCommits(runGit, objectRoot, [base, head], "B/D");
+  const { mergeBase, tree } = probeMerge(runGit, objectRoot, base, head);
+  const { T, manifestSha256 } = manifestTarget(runGit, objectRoot, head);
+  requireCommits(runGit, objectRoot, [T.commit], "manifest T");
+  const header = gitStdout(runGit, objectRoot, ["cat-file", "commit", T.commit], "manifest T commit");
+  same(header.toString("utf8").split("\n", 1)[0], `tree ${T.tree}`, "manifest T tree");
+  const workflowBlob = regularBlob(runGit, objectRoot, T.commit, WORKFLOW, "T workflow");
+  for (const [name, treeish] of [
+    ["B", base],
+    ["D", head],
+    ["merge tree", tree],
+  ])
+    same(
+      regularBlob(runGit, objectRoot, treeish, WORKFLOW, `${name} workflow`),
+      workflowBlob,
+      "workflow blob differs across T/B/D/merge tree",
+    );
+  same(liveCommit(readApi, "heads/main"), base, "stale B: live main differs");
+  same(liveCommit(readApi, `heads/${branch}`), head, "stale D: live derivation head differs");
+  return {
+    kind: "pre-open-mergeability-record",
+    authority: "pre-open diagnostic only; diagnosticMergeTree is never G or opened-event authority",
+    observedAt: new Date().toISOString(),
+    base,
+    head,
+    branch,
+    T,
+    manifestSha256,
+    mergeBase,
+    result: "clean",
+    unmergedPaths: [],
+    diagnosticMergeTree: tree,
+    workflow: { path: WORKFLOW, mode: "100644", blob: workflowBlob },
+  };
+}
+
 export function parseCommand(args) {
   const [command, ...rest] = args;
   requireThat(
-    ["admit", "verify-input", "derive", "validate", "preflight", "accept", "application"].includes(command),
+    ["admit", "verify-input", "derive", "validate", "preflight", "accept", "application", "mergeability"].includes(
+      command,
+    ),
     "explicit known command required",
   );
   if (["admit", "verify-input", "validate", "preflight"].includes(command)) same(rest, [], "no command overrides");
@@ -1480,6 +1639,15 @@ export function parseCommand(args) {
   if (command === "accept") requireThat(rest.length === 2 && rest.every(id), "numeric run/artifact only");
   if (command === "application")
     requireThat(rest.length === 3 && hex(rest[0], 40) && rest.slice(1).every(id), "immutable P/run/artifact only");
+  if (command === "mergeability")
+    requireThat(
+      rest.length === 3 &&
+        hex(rest[0], 40) &&
+        hex(rest[1], 40) &&
+        rest[0] !== rest[1] &&
+        derivationBranch.test(rest[2]),
+      "full B/D OIDs and memo-derivation branch only",
+    );
   return { command, rest };
 }
 
@@ -1513,6 +1681,11 @@ async function main(args) {
     const workflow = api(`actions/workflows/${WORKFLOW.split("/").at(-1)}`);
     const runs = collectPages(api, `actions/workflows/${workflow.id}/runs`, "workflow_runs");
     console.log(canonical(preflightWorkflow(workflow, runs)));
+    return;
+  }
+  if (command === "mergeability") {
+    const [base, head, branch] = rest;
+    console.log(canonical(preOpenMergeability({ base, head, branch })));
     return;
   }
   const record = boundedJson(readFileSync(process.env.MEMO_BOOTSTRAP), limits.receipt, "receipt");
