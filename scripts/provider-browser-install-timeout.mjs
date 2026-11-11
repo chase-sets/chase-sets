@@ -54,7 +54,10 @@ export async function resolveInstallerIdentity(
     !env.GH_TOKEN ||
     typeof env.RUNNER_NAME !== "string" ||
     !env.RUNNER_NAME ||
-    !["Static Checks", "Synthetic browser installer timeout"].includes(jobName)
+    !(
+      ["Static Checks", "Synthetic browser installer timeout"].includes(jobName) ||
+      /^E2E Tests \([a-z0-9_,-]+\)$/.test(jobName)
+    )
   ) {
     throw refuse("invalid-environment");
   }
