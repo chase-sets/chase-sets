@@ -28,7 +28,10 @@ import { createShippingAddressRuntime } from "../../features/shipping-addresses/
 import { createUserRuntime } from "../../features/users/api/runtime";
 import { createLinkedPlatformAuthorizationStore } from "../ucp-support/linked-platform-authorizations";
 import { createAgentGrantRevocations, type AgentGrantRevocations } from "../../features/agent-grants/api/revocation";
-import { createIdentityMutationPersistence } from "../../features/account-management/api/fences";
+import {
+  createIdentityMutationPersistence,
+  type IdentityMutationPersistence,
+} from "../../features/account-management/api/fences";
 import {
   createAccountManagementRuntime,
   type AccountManagementServices,
@@ -36,6 +39,8 @@ import {
 
 export type IdentityServices = Readonly<{
   eventStore?: EventStore;
+  /** Transactional Identity persistence; every Social Login Link and ownership claim commits through it. */
+  mutationPersistence: IdentityMutationPersistence;
   accountManagement?: AccountManagementServices;
   accessHub: ReturnType<typeof createAccessHubRuntime>;
   accounts: ReturnType<typeof createAccountRuntime>;
@@ -139,6 +144,7 @@ export function createIdentityServices(pool: PgTransactionalPool, ports: Identit
 
   return {
     eventStore,
+    mutationPersistence,
     agentGrantRevocations: createAgentGrantRevocations(pool, postgresEventStore),
     accountManagement,
     accessHub,

@@ -149,6 +149,21 @@
   ],
   "mcpCapabilities": {
     "tools": [
+      { "name": "catalog.archive-blueprint", "ownerSlice": "blueprints" },
+      { "name": "catalog.attach-component", "ownerSlice": "blueprints" },
+      { "name": "catalog.confirm-bulk-blueprint-lifecycle", "ownerSlice": "blueprints" },
+      { "name": "catalog.create-blueprint", "ownerSlice": "blueprints" },
+      { "name": "catalog.deprecate-blueprint", "ownerSlice": "blueprints" },
+      { "name": "catalog.detach-component", "ownerSlice": "blueprints" },
+      { "name": "catalog.get-authoring-job", "ownerSlice": "blueprints" },
+      { "name": "catalog.get-blueprint", "ownerSlice": "blueprints" },
+      { "name": "catalog.list-blueprints", "ownerSlice": "blueprints" },
+      { "name": "catalog.preview-bulk-blueprint-lifecycle", "ownerSlice": "blueprints" },
+      { "name": "catalog.publish-blueprint", "ownerSlice": "blueprints" },
+      { "name": "catalog.revise-blueprint", "ownerSlice": "blueprints" },
+      { "name": "catalog.set-blueprint-dimensions", "ownerSlice": "blueprints" },
+      { "name": "catalog.set-blueprint-fields", "ownerSlice": "blueprints" },
+      { "name": "catalog.set-blueprint-product-resolution-rules", "ownerSlice": "blueprints" },
       { "name": "catalog.list-provider-refresh-schedules", "ownerSlice": "provider-scope-discovery" },
       { "name": "catalog.run-provider-refresh", "ownerSlice": "provider-scope-discovery" },
       { "name": "catalog.pause-provider-refresh", "ownerSlice": "provider-scope-discovery" },
@@ -174,8 +189,12 @@
     "resources": []
   },
   "agentCoverage": {
-    "blueprints": { "pending": "#9238" },
-    "blueprints-detail": { "pending": "#9238" },
+    "blueprints": {
+      "tools": ["catalog.list-blueprints", "catalog.create-blueprint", "catalog.preview-bulk-blueprint-lifecycle", "catalog.confirm-bulk-blueprint-lifecycle", "catalog.get-authoring-job"]
+    },
+    "blueprints-detail": {
+      "tools": ["catalog.get-blueprint", "catalog.publish-blueprint", "catalog.deprecate-blueprint", "catalog.archive-blueprint", "catalog.revise-blueprint", "catalog.attach-component", "catalog.detach-component", "catalog.set-blueprint-product-resolution-rules", "catalog.set-blueprint-fields", "catalog.set-blueprint-dimensions"]
+    },
     "catalog-items": { "pending": "#9238" },
     "catalog-items-detail": { "pending": "#9238" },
     "categories": { "pending": "#9238" },
@@ -720,7 +739,8 @@
       "expectedConsumers": [
         "provider-scope-mapping",
         "Internal catalog module composition",
-        "Platform worker scheduled runners"
+        "Platform worker scheduled runners",
+        "source-observations"
       ]
     },
     "source-observations": {
@@ -823,6 +843,7 @@
         "provider-scope-mapping",
         "reference-data",
         "scope-registry",
+        "scope-sync-batches",
         "scope-sync-state",
         "source-observations"
       ]
@@ -1140,10 +1161,12 @@
         "api-route:bounded-contexts/catalog/features/source-observations/api/route-modules/catalog-merge-candidate-routes.ts:POST /admin/merge-candidates/:candidateId/promote",
         "api-route:bounded-contexts/catalog/features/source-observations/api/route-modules/catalog-merge-candidate-routes.ts:POST /admin/merge-candidates/:candidateId/split",
         "api-route:bounded-contexts/catalog/features/source-observations/api/route-modules/catalog-merge-candidate-routes.ts:POST /admin/merge-candidates/:candidateId/update",
-        "api-client:bounded-contexts/catalog/features/source-observations/api/promotion/catalog-merge-candidate-review-command-payloads.ts:POST Ha7da7073f776#1",
-        "api-client:bounded-contexts/catalog/features/source-observations/api/promotion/catalog-merge-candidate-review-command-payloads.ts:POST H3ed75dd87de3#1",
-        "api-client:bounded-contexts/catalog/features/source-observations/api/promotion/catalog-merge-candidate-review-command-payloads.ts:POST Hb4707c42a8f4#1",
-        "api-client:bounded-contexts/catalog/features/source-observations/api/promotion/catalog-merge-candidate-review-command-payloads.ts:POST H6e2a3b4d7d87#1",
+        "api-client:bounded-contexts/catalog/features/source-observations/api/promotion/catalog-merge-candidate-review-command-payloads.ts:POST H465c0434cbf3#1",
+        "api-client:bounded-contexts/catalog/features/source-observations/api/promotion/catalog-merge-candidate-review-command-payloads.ts:POST H849c09ce057b#1",
+        "api-client:bounded-contexts/catalog/features/source-observations/api/promotion/catalog-merge-candidate-review-command-payloads.ts:POST H865d458e6139#1",
+        "api-client:bounded-contexts/catalog/features/source-observations/api/promotion/catalog-merge-candidate-review-command-payloads.ts:POST H8869db554960#1",
+        "api-client:bounded-contexts/catalog/features/source-observations/api/promotion/catalog-merge-candidate-review-command-payloads.ts:POST Hbfe1b7ff4330#1",
+        "api-client:bounded-contexts/catalog/features/source-observations/api/promotion/catalog-merge-candidate-review-command-payloads.ts:POST He6cacbccf5d1#1",
         "api-route:bounded-contexts/catalog/features/source-observations/api/route-modules/promotion-review-routes.ts:POST /bulk-promote/preview",
         "api-route:bounded-contexts/catalog/features/source-observations/api/route-modules/promotion-review-routes.ts:POST /reapply/impact",
         "api-route:bounded-contexts/catalog/features/source-observations/api/route-modules/promotion-review-routes.ts:POST /reapply/preview",
@@ -1163,7 +1186,7 @@
         "description": "Source Observation workbench mutations return scoped job, review, Catalog sync scope preview/run/state, candidate generation, merge-candidate command payload preview, import preview, impact, and provider-profile snapshots to the same operator workflow; durable job event streams correct later progress without requiring an immediate projection-backed refresh."
       },
       "proof": {
-        "authoritativeResponse": "Bulk review, integration job, promotion review, provider profile, candidate generation, merge-candidate review command payload preview, and observation review routes return the durable job/profile/review/preview/candidate snapshot produced by the command service in the same request. Catalog sync scope preview returns the computed provider participation preview snapshot without enqueuing a provider job. Catalog sync scope run enqueue returns the durable parent run snapshot with selected provider-unit snapshots and child fan-out links. Catalog sync scope state returns the durable per-scope-per-provider-unit sync state snapshot read directly from catalog_scope_sync_state, the same table the fan-out and worker completion/failure hooks upsert into, so the response is never behind the write it reflects. Candidate generation returns the generated merge-candidate snapshot correlated to the requested sync run or scope. Merge-candidate review command previews return the exact split/update route and body payload from the candidate review row, and the submitted command routes return the command-owned candidate snapshot. Route tests cover Catalog sync scope preview/run/state, job enqueue/lifecycle snapshots, provider profile lifecycle responses, review command snapshots, candidate generation service wiring, merge-candidate command payload previews, and preview/impact responses.",
+        "authoritativeResponse": "Bulk review, integration job, promotion review, provider profile, candidate generation, merge-candidate review command payload preview, and observation review routes return the durable job/profile/review/preview/candidate snapshot produced by the command service in the same request. Catalog sync scope preview returns the computed provider participation preview snapshot without enqueuing a provider job. Catalog sync scope run enqueue returns the durable parent run snapshot with selected provider-unit snapshots and child fan-out links. Catalog sync scope state returns the durable per-scope-per-provider-unit sync state snapshot read directly from catalog_scope_sync_state, the same table the fan-out and worker completion/failure hooks upsert into, so the response is never behind the write it reflects. Candidate generation returns the generated merge-candidate snapshot correlated to the requested sync run or scope. Merge-candidate review command previews return the exact promote/split/update route and body payload from the candidate review row, and the submitted command routes return the command-owned candidate snapshot. Route tests cover Catalog sync scope preview/run/state, job enqueue/lifecycle snapshots, provider profile lifecycle responses, review command snapshots, candidate generation service wiring, merge-candidate command payload previews, and preview/impact responses.",
         "tests": [
           "bounded-contexts/catalog/features/source-observations/api/promotion/catalog-merge-candidate-review-command-payloads.test.ts",
           "bounded-contexts/catalog/features/source-observations/api/runtime-service-facets.test.ts",
@@ -1201,18 +1224,18 @@
         "api-client:bounded-contexts/catalog/support/shell-support/api/client.ts:POST H17cd86e76cd7#1",
         "api-client:bounded-contexts/catalog/support/shell-support/api/client.ts:POST H2ccae70b986c#1",
         "api-client:bounded-contexts/catalog/support/shell-support/api/client.ts:POST H4713b23308ae#1",
-        "api-client:bounded-contexts/catalog/support/shell-support/api/client.ts:POST H5916ed4aed53#1",
-        "api-client:bounded-contexts/catalog/support/shell-support/api/client.ts:POST H5951cf447e8c#1",
+        "api-client:bounded-contexts/catalog/support/shell-support/api/client.ts:POST H49906495e168#1",
+        "api-client:bounded-contexts/catalog/support/shell-support/api/client.ts:POST H8d43e99581ed#1",
         "api-client:bounded-contexts/catalog/support/shell-support/api/client.ts:POST H5f1753bd561a#1",
         "api-client:bounded-contexts/catalog/support/shell-support/api/client.ts:POST H6646e478f939#1",
         "api-client:bounded-contexts/catalog/support/shell-support/api/client.ts:POST H6c60f0691cb7#1",
         "api-client:bounded-contexts/catalog/support/shell-support/api/client.ts:POST H7503ecdfed3e#1",
         "api-client:bounded-contexts/catalog/support/shell-support/api/client.ts:POST H785a9293c67b#1",
         "api-client:bounded-contexts/catalog/support/shell-support/api/client.ts:POST H876c5e305fd2#1",
-        "api-client:bounded-contexts/catalog/support/shell-support/api/client.ts:POST H8acc70cf4320#1",
+        "api-client:bounded-contexts/catalog/support/shell-support/api/client.ts:POST Hefce8946403d#1",
         "api-client:bounded-contexts/catalog/support/shell-support/api/client.ts:POST H8ca59b7e95dc#1",
         "api-client:bounded-contexts/catalog/support/shell-support/api/client.ts:POST H8fb4eb8e717e#1",
-        "api-client:bounded-contexts/catalog/support/shell-support/api/client.ts:POST H9d96152ce165#1",
+        "api-client:bounded-contexts/catalog/support/shell-support/api/client.ts:POST He563b1cdce47#1",
         "api-client:bounded-contexts/catalog/support/shell-support/api/client.ts:POST Hc9176fca9b33#1",
         "api-client:bounded-contexts/catalog/support/shell-support/api/client.ts:POST Hd82bcf180987#1",
         "api-client:bounded-contexts/catalog/support/shell-support/api/client.ts:POST He3dad3268adf#1",

@@ -13,12 +13,8 @@ import {
   validateManagedPostgresAuthoritySources,
   writeManagedPostgresAuthorityManifest,
 } from "./managed-postgres-authority-sources.mjs";
-import {
-  parseNameStatusZ,
-  parseVerifyStaticChain,
-  runVerifyStaticScoped,
-  selectVerifyStaticLinks,
-} from "./verify-static-scoped.mjs";
+import { parseNameStatusZ } from "./change-scope.mjs";
+import { parseVerifyStaticChain, selectVerifyStaticLinks } from "./verify-static-surfaces.mjs";
 import { ALWAYS_RUN, VERIFY_STATIC_SURFACES } from "./verify-static-surfaces.mjs";
 
 const execFileAsync = promisify(execFile);
@@ -549,6 +545,10 @@ const collectionsCutoverAuthorityCaptureDelta = [
 const reviewedRetiredVerifierRemovals = new Set([
   210, 211, 212, 263, 264, 265, 398, 428, 429, 430, 709, 710, 711, 712, 956, 957, 958, 959, 1391, 1419, 1483,
 ]);
+// #10626 reviewed removal: the deploy-staging installer no longer receives infrastructure secrets because the
+// supervisor-backed primitive has no provider boundary. Keep the immutable indices explicit so parity proves the
+// removal rather than silently accepting a generated count change.
+const reviewedStagingBrowserInstallRemovals = new Set([1026, 1027, 1028]);
 // #9268 reviewed step insertions: positional `#N` anchors at or after each inserted step's final 1-based position
 // shift by one, applied in order. Reviewed record identity (file, job, step name, secret, purpose) never changes.
 // An inserted `uses` step also shifts that action's occurrence anchors at or after its occurrence; no suffix is #1.
@@ -582,6 +582,24 @@ const reviewedStepInsertions = [
     occurrence: 6,
   },
 ];
+// #11174: cache preparation and restore shift only anchors, including the existing staging cache occurrence.
+const reviewedTerraformProviderCacheStepInsertions = [
+  ["decommission-live-plan", 3, 4],
+  ["reconcile-production-marker", 4, 5],
+  ["reconcile-managed-postgres-ca-staging", 4, 5],
+  ["reconcile-managed-postgres-ca-production", 5, 6],
+  ["deploy-staging", 9, 10],
+  ["deploy-production", 10, 11],
+].flatMap(([jobId, preparePosition, restorePosition]) => [
+  { file: workflowPath, jobId, position: preparePosition },
+  {
+    file: workflowPath,
+    jobId,
+    position: restorePosition,
+    uses: "actions/cache@caa296126883cff596d87d8935842f9db880ef25",
+    occurrence: 1,
+  },
+]);
 const previewStateRetirementDelta = [
   ["DIGITALOCEAN_ACCESS_TOKEN", "terraform-infra"],
   ["SPACES_ACCESS_ID", "terraform-infra"],
@@ -598,7 +616,15 @@ const previewStateRetirementDelta = [
 }));
 
 function applyReviewedStepInsertions(record) {
-  return reviewedStepInsertions.reduce((current, insertion) => {
+  return applyStepInsertions(record, reviewedStepInsertions);
+}
+
+function applyTerraformProviderCacheStepInsertions(record) {
+  return applyStepInsertions(record, reviewedTerraformProviderCacheStepInsertions);
+}
+
+function applyStepInsertions(record, insertions) {
+  return insertions.reduce((current, insertion) => {
     if (current.file !== insertion.file || current.jobId !== insertion.jobId) return current;
     const named = /^(name:.*#)(\d+)$/.exec(current.stepAnchor);
     if (named) {
@@ -764,6 +790,26 @@ const registryCleanupResolverDelta = [
     purpose: "digitalocean-ops",
   },
 ];
+// #11006: the production marker App key reaches only its three mint steps. The retry and publication mints in
+// deploy-production (final positions 28 and 54) and the marker-only mint (position 8) shift later positional anchors.
+const productionMarkerAppKeyDelta = [
+  ["deploy-production", "uses:actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1"],
+  ["deploy-production", "uses:actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1#2"],
+  ["reconcile-production-marker", "uses:actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1"],
+].map(([jobId, stepAnchor]) => ({
+  file: ".github/workflows/platform-production.yml",
+  jobId,
+  stepAnchor,
+  secretName: "PRODUCTION_MARKER_APP_PRIVATE_KEY",
+  purpose: "release-marker-publication",
+}));
+function applyProductionMarkerMintInsertions(record) {
+  const positions = { "deploy-production": [28, 54], "reconcile-production-marker": [8] }[record.jobId];
+  const match = /^(name:.*#)(\d+)$/.exec(record.stepAnchor);
+  if (record.file !== ".github/workflows/platform-production.yml" || !positions || !match) return record;
+  const position = positions.reduce((index, inserted) => (index >= inserted ? index + 1 : index), Number(match[2]));
+  return { ...record, stepAnchor: `${match[1]}${position}` };
+}
 function applyRegistryCleanupStepInsertion(record) {
   return record.file === ".github/workflows/platform-registry-cleanup.yml" &&
     record.jobId === "cleanup" &&
@@ -955,8 +1001,10 @@ describe("managed Postgres authority source generator", () => {
     expectParity(original, historicalGenerated);
 
     for (const index of reviewedRetiredVerifierRemovals) expect(original.grants[index]).toBeDefined();
-    const retainedOriginalGrants = original.grants.filter((_, index) => !reviewedRetiredVerifierRemovals.has(index));
-    expect(retainedOriginalGrants).toHaveLength(original.grants.length - reviewedRetiredVerifierRemovals.size);
+    for (const index of reviewedStagingBrowserInstallRemovals) expect(original.grants[index]).toBeDefined();
+    const reviewedRemovals = new Set([...reviewedRetiredVerifierRemovals, ...reviewedStagingBrowserInstallRemovals]);
+    const retainedOriginalGrants = original.grants.filter((_, index) => !reviewedRemovals.has(index));
+    expect(retainedOriginalGrants).toHaveLength(original.grants.length - reviewedRemovals.size);
     const generated = await generateManagedPostgresAuthority(repositoryRoot);
     const canonical = await readJson(repositoryRoot, MANIFEST_PATH);
     const expected = {
@@ -1004,7 +1052,10 @@ describe("managed Postgres authority source generator", () => {
         )
         .concat(productionMarkerRecoveryDelta)
         .concat(registryGarbageCollectionGateCredentialDelta)
-        .concat(registryCleanupResolverDelta),
+        .concat(registryCleanupResolverDelta)
+        .map(applyProductionMarkerMintInsertions)
+        .concat(productionMarkerAppKeyDelta)
+        .map(applyTerraformProviderCacheStepInsertions),
     };
     // Exact stable-record multiset parity below is the authority; a whole-corpus total would only re-conflict.
     const isCatalogKeyring = ({ secretName }) => secretName === "CATALOG_OPERATOR_SESSION_KEYRING_JSON";
@@ -1073,6 +1124,15 @@ describe("managed Postgres authority source generator", () => {
     }
     await writeJson(root, fragmentPath, { grants: [grant()], dockerConsumers: [] });
     expect(await generateManagedPostgresAuthority(root)).not.toHaveProperty("dockerConsumers");
+  });
+
+  it("grants release-marker-publication only to the production marker App key at its mint steps", async () => {
+    const generated = await generateManagedPostgresAuthority(repositoryRoot);
+    const markerApp = ({ secretName, purpose }) =>
+      secretName === "PRODUCTION_MARKER_APP_PRIVATE_KEY" || purpose === "release-marker-publication";
+    expect(generated.grants.filter(markerApp)).toEqual(productionMarkerAppKeyDelta);
+    const schema = await readJson(repositoryRoot, schemaPath);
+    expect(schema.properties.grants.items.properties.purpose.enum).toContain("release-marker-publication");
   });
 
   it("missing authority fragment cannot authorize ingress", async () => {
@@ -1358,22 +1418,8 @@ describe("managed Postgres authority source generator", () => {
       const root = await boundaryFixture();
       await writeManagedPostgresAuthorityManifest(root);
       await addWorkflow(root);
-      const visited = [];
-      const status = await runVerifyStaticScoped({
-        repoRoot: repositoryRoot,
-        env: { CHANGED_FILES_JSON: JSON.stringify(parseNameStatusZ(diff)) },
-        readPackageJson: () => pkg,
-        stdout: () => {},
-        stderr: () => {},
-        runLink: async ({ name }) => {
-          visited.push(name);
-          // Exercise the selected authority command; unrelated static guards are outside this fixture.
-          if (name !== "check:managed-postgres-authority") return 0;
-          return (await runCli(guardCli, root)).exitCode;
-        },
-      });
-      expect(visited).toContain("check:managed-postgres-authority");
-      expect(status).toBe(1);
+      expect((await runCli(guardCli, root)).exitCode).toBe(1);
+      expect(selected.selected.map(({ name }) => name)).toContain("check:managed-postgres-authority");
     });
   });
 

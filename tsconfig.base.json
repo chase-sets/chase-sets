@@ -741,6 +741,12 @@
       "@chase-sets/platform-runtime/agent-guardrails": [
         "./infrastructure/platform-runtime/agent-guardrails.ts"
       ],
+      "@chase-sets/platform-runtime/analytics-bridge": [
+        "./infrastructure/platform-runtime/analytics-bridge.ts"
+      ],
+      "@chase-sets/platform-runtime/analytics-recorder": [
+        "./infrastructure/platform-runtime/analytics-recorder.ts"
+      ],
       "@chase-sets/platform-runtime/api": [
         "./infrastructure/platform-runtime/api.ts"
       ],
@@ -1016,9 +1022,6 @@
       ],
       "@chase-sets/settlement/server": [
         "./bounded-contexts/settlement/server.ts"
-      ],
-      "@chase-sets/stripe-appearance": [
-        "./infrastructure/stripe-appearance/stripe-appearance.ts"
       ],
       "@chase-sets/stripe-config": [
         "./infrastructure/stripe-config/index.ts"

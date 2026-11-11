@@ -101,8 +101,7 @@ Proof: [Step 5 — Preview prices listings with it](../tests/conformance/fixture
 
 No change. The listing trace the `pricing.repricing-policy.evaluated` event
 carries records the goal id, version and curve version at the final price.
-This is the fact the Forecast Ledger (#7708) will project; see Steps owned by
-#9709.
+This is the fact the Forecast Ledger projects; see Step 11.
 
 Proof: [Step 6 — The evaluated listing trace records its Goal Version](../tests/conformance/fixture-goal-end-to-end.test.ts)
 
@@ -125,27 +124,39 @@ entry until the old version is removed.
 
 Proof: [Step 8 — Give a changed decision a new version with its own Golden Decision](../tests/conformance/goal-version-golden.test.ts)
 
-## Steps owned by #9709
+### Step 9 — Prove every registered Forecast Kind through the Conformance Kit
 
-Three more steps need surfaces that are not yet on `main`, so they are not
-listed above and no test here proves them. #9709 owns all three. When their
-surfaces land, it links the Pricing Health and Forecast Ledger steps to the
-tests that prove them and defines the Forecast Kind suite:
+Every kind the Forecast Kind registry ([#7708 Record every price forecast and grade it against realized sales](https://github.com/chase-sets/chase-sets/issues/7708))
+registers passes the Forecast Kind suite. Inputs are evaluation-producer values,
+unavailable states return null only where the kind reads that evidence, and each
+result is finite, positive and stable.
 
-- Forecast Kind conformance: every kind the Forecast Kind registry (#7708)
-  registers passes the Forecast Kind suite (see Other registries in the kit).
-- Pricing Health: the goal appears in the goal picker and goal comparison of
-  the Pricing Health surface (#7709) with no surface edit.
-- Forecast Ledger: the goal's incumbent and shadow evaluations each write one
-  Forecast Ledger (#7708) row carrying its goal id, Goal Version, curve
-  version and every registered forecast, with no ledger or engine edit.
+Proof: [Step 9 — Prove every registered Forecast Kind through the Conformance Kit](../tests/conformance/forecast-kind-conformance.test.ts)
+
+### Step 10 — Show the fixture goal in Pricing Health picker and comparison
+
+The test-only `fixture-flat-offset` goal is registered through the same registry
+port used by the real composition. The Pricing Health surface ([#7709 Compare goals on a Pricing Health surface with a verdict](https://github.com/chase-sets/chase-sets/issues/7709))
+renders it in the registry-driven picker and comparison without a surface edit.
+
+Proof: [Step 10 — Show the fixture goal in Pricing Health picker and comparison](../tests/conformance/fixture-goal-pricing-health.db.test.tsx)
+
+### Step 11 — Project the fixture goal's incumbent and shadow traces to the Forecast Ledger
+
+The fixture goal's incumbent and shadow evaluations each write one
+Forecast Ledger ([#7708 Record every price forecast and grade it against realized sales](https://github.com/chase-sets/chase-sets/issues/7708)) row
+carrying its goal id, Goal Version, curve version and every registered forecast.
+The proof invokes the context's subscribed projection handler, with no ledger or
+engine edit.
+
+Proof: [Step 11 — Project the fixture goal's incumbent and shadow traces to the Forecast Ledger](../tests/conformance/fixture-goal-ledger.db.test.ts)
 
 ## Shadow and adoption
 
 The #9310 lifecycle governs adoption. At most one `shadow` version exists per
 goal id. A lifecycle change is a reviewed registration change, never a job.
 Selecting a version above 1 cites its graded adoption evidence: the Forecast
-Grade from #7708, which grades every shadow trace against realized sales.
+Grade from [#7708 Record every price forecast and grade it against realized sales](https://github.com/chase-sets/chase-sets/issues/7708), which grades every shadow trace against realized sales.
 Grading and its adoption gate are not yet on `main`. Until they land, keep
 later versions in `shadow`. Retire a version by setting it `retired`. A
 recorded anchor that names it then exhausts as `goal-retired`, and the chain
@@ -166,8 +177,7 @@ The seller-facing goal label is copy, not engine code. Add it to
 the locale catalogue. `features/repricing-policies/ui/policy-controls.test.ts`
 fails a registered goal whose label is its id. The fixture goal is never shown
 to sellers, so its end-to-end test does not cover this step. The Pricing
-Health surface (#7709) is not yet on `main`, so no step proves a goal there;
-#9709 owns that step.
+Health surface is proved by Step 10 above; the fixture remains test-only.
 
 ## Other registries in the kit
 
@@ -185,7 +195,7 @@ in its `unregisteredKeys`:
 | Guardrail kinds (#9308) | `guardrail-conformance.test.ts` | Parameter validation, pure `apply` over `GuardrailContext`, acts on its hit and is inert otherwise, idempotent, records its hit in the evaluation, never raises a price above the seller's ceiling. Each authorable kind declares its scenario, which the `RepricingGuardrail` union enforces at compile time. |
 | Curve builders | `curve-builder-conformance.test.ts` | Identity, deterministic loads over frozen inputs, sales of the requested variant and language in one sale shape, the window's sales limit, no sales when no evidence is stored. |
 | Economics providers | `economics-provider-conformance.test.ts` | Deterministic resolution, source Economics in the request currency under the provider's identity, unmodified requests, a stable unavailable reason when the source cannot price. The native marketplace provider and the unregistered-channel result are its `unregisteredKeys`; an exact or fallback provider registered in production fails the run until it has an entry. |
-| Forecast kinds (#7708) | `forecast-kind-conformance.test.ts` | Registration coverage only: the run binds `forecastKindDefinitions` as `production` and exercises every kind it enumerates, under unique names. #9709 owns the Forecast Kind property set. |
+| Forecast kinds (#7708) | `forecast-kind-conformance.test.ts` | The run binds `forecastKindDefinitions` as `production` and exercises every kind it enumerates, under unique names, with the Forecast Kind property set proved by Step 9. |
 
 A registry the factory's own module constructs cannot be recorded: that module
 calls the factory directly, and the mock wraps only its export. Its run passes

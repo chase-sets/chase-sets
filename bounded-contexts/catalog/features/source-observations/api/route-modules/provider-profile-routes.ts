@@ -19,6 +19,7 @@ import {
   rollbackCatalogProviderProfileVersionForReview,
   updateCatalogProviderProfileSectionForReview,
   CatalogProviderProfileLifecycleConsistencyError,
+  CatalogProviderProfileVersionImmutableError,
   CatalogProviderProfileVersionNotFoundError,
   type CatalogProviderProfileLifecycleBlockingJob,
 } from "../providers/provider-profile-review";
@@ -72,20 +73,35 @@ export function providerProfileRoutes(
     }
 
     if (!profileVersions) {
-      return c.json({ error: t("catalog.features.sourceObservations.api.route.profile.review.unavailable") }, 503);
+      return c.json(
+        {
+          error: {
+            code: "profile_review_unavailable",
+            message: t("catalog.features.sourceObservations.api.route.profile.review.unavailable"),
+          },
+        },
+        503,
+      );
     }
 
     const body = await readJsonObject(c);
     if (body instanceof Response) {
       return body;
     }
-    const result = await createCatalogProviderProfileVersionForReview({
-      store: profileVersions,
-      version: body.version as CatalogProviderIntegrationProfileVersionRecord,
-      audit: authoringAuditFromContext(c.get("context")),
-    });
+    try {
+      const result = await createCatalogProviderProfileVersionForReview({
+        store: profileVersions,
+        version: body.version as CatalogProviderIntegrationProfileVersionRecord,
+        audit: authoringAuditFromContext(c.get("context")),
+      });
 
-    return c.json(result, 201);
+      return c.json(result, 201);
+    } catch (error) {
+      if (error instanceof CatalogProviderProfileVersionImmutableError) {
+        return immutableProfileVersionResponse(c, error);
+      }
+      throw error;
+    }
   });
 
   app.get("/provider-profiles/:providerKey/:profileVersion/authoring", async (c) => {
@@ -95,7 +111,15 @@ export function providerProfileRoutes(
     }
 
     if (!profileVersions) {
-      return c.json({ error: t("catalog.features.sourceObservations.api.route.profile.review.unavailable") }, 503);
+      return c.json(
+        {
+          error: {
+            code: "profile_review_unavailable",
+            message: t("catalog.features.sourceObservations.api.route.profile.review.unavailable"),
+          },
+        },
+        503,
+      );
     }
 
     try {
@@ -124,7 +148,15 @@ export function providerProfileRoutes(
     }
 
     if (!profileVersions) {
-      return c.json({ error: t("catalog.features.sourceObservations.api.route.profile.review.unavailable") }, 503);
+      return c.json(
+        {
+          error: {
+            code: "profile_review_unavailable",
+            message: t("catalog.features.sourceObservations.api.route.profile.review.unavailable"),
+          },
+        },
+        503,
+      );
     }
 
     const body = await readJsonObject(c);
@@ -150,6 +182,12 @@ export function providerProfileRoutes(
       if (error instanceof CatalogProviderProfileLifecycleConsistencyError) {
         return lifecycleConsistencyErrorResponse(c, error);
       }
+      if (error instanceof CatalogProviderProfileVersionImmutableError) {
+        return immutableProfileVersionResponse(c, error);
+      }
+      if (error instanceof CatalogProviderProfileVersionNotFoundError) {
+        return c.json({ error: { code: error.code, message: error.message } }, 404);
+      }
       if (!(error instanceof CatalogProviderProfileSectionValidationError)) {
         throw error;
       }
@@ -173,7 +211,15 @@ export function providerProfileRoutes(
     }
 
     if (!profileVersions) {
-      return c.json({ error: t("catalog.features.sourceObservations.api.route.profile.review.unavailable") }, 503);
+      return c.json(
+        {
+          error: {
+            code: "profile_review_unavailable",
+            message: t("catalog.features.sourceObservations.api.route.profile.review.unavailable"),
+          },
+        },
+        503,
+      );
     }
 
     const body = await readJsonObject(c);
@@ -241,7 +287,15 @@ export function providerProfileRoutes(
     }
 
     if (!profileVersions) {
-      return c.json({ error: t("catalog.features.sourceObservations.api.route.profile.review.unavailable") }, 503);
+      return c.json(
+        {
+          error: {
+            code: "profile_review_unavailable",
+            message: t("catalog.features.sourceObservations.api.route.profile.review.unavailable"),
+          },
+        },
+        503,
+      );
     }
 
     let result;
@@ -291,24 +345,42 @@ export function providerProfileRoutes(
     }
 
     if (!profileVersions) {
-      return c.json({ error: t("catalog.features.sourceObservations.api.route.profile.review.unavailable") }, 503);
+      return c.json(
+        {
+          error: {
+            code: "profile_review_unavailable",
+            message: t("catalog.features.sourceObservations.api.route.profile.review.unavailable"),
+          },
+        },
+        503,
+      );
     }
 
     const body = await readJsonObject(c);
     if (body instanceof Response) {
       return body;
     }
-    const result = await cloneCatalogProviderProfileVersionForReview({
-      store: profileVersions,
-      providerKey: c.req.param("providerKey"),
-      profileVersion: c.req.param("profileVersion"),
-      ...profileVersionSelectorFromRequest(c),
-      targetProfileVersion: String(body.targetProfileVersion ?? ""),
-      lifecycle: body.lifecycle === "test" ? "test" : "draft",
-      audit: authoringAuditFromContext(c.get("context")),
-    });
+    try {
+      const result = await cloneCatalogProviderProfileVersionForReview({
+        store: profileVersions,
+        providerKey: c.req.param("providerKey"),
+        profileVersion: c.req.param("profileVersion"),
+        ...profileVersionSelectorFromRequest(c),
+        targetProfileVersion: String(body.targetProfileVersion ?? ""),
+        lifecycle: body.lifecycle === "test" ? "test" : "draft",
+        audit: authoringAuditFromContext(c.get("context")),
+      });
 
-    return c.json(result, 201);
+      return c.json(result, 201);
+    } catch (error) {
+      if (error instanceof CatalogProviderProfileVersionImmutableError) {
+        return immutableProfileVersionResponse(c, error);
+      }
+      if (error instanceof CatalogProviderProfileVersionNotFoundError) {
+        return c.json({ error: { code: error.code, message: error.message } }, 404);
+      }
+      throw error;
+    }
   });
 
   app.post("/provider-profiles/:providerKey/:profileVersion/rollback", async (c) => {
@@ -317,8 +389,21 @@ export function providerProfileRoutes(
       return permissionError;
     }
 
+    const confirmationError = await requireLifecycleConfirmation(c, "rollback");
+    if (confirmationError) {
+      return confirmationError;
+    }
+
     if (!profileVersions) {
-      return c.json({ error: t("catalog.features.sourceObservations.api.route.profile.review.unavailable") }, 503);
+      return c.json(
+        {
+          error: {
+            code: "profile_review_unavailable",
+            message: t("catalog.features.sourceObservations.api.route.profile.review.unavailable"),
+          },
+        },
+        503,
+      );
     }
 
     let result;
@@ -343,8 +428,21 @@ export function providerProfileRoutes(
       return permissionError;
     }
 
+    const confirmationError = await requireLifecycleConfirmation(c, "retire");
+    if (confirmationError) {
+      return confirmationError;
+    }
+
     if (!profileVersions) {
-      return c.json({ error: t("catalog.features.sourceObservations.api.route.profile.review.unavailable") }, 503);
+      return c.json(
+        {
+          error: {
+            code: "profile_review_unavailable",
+            message: t("catalog.features.sourceObservations.api.route.profile.review.unavailable"),
+          },
+        },
+        503,
+      );
     }
 
     let result;
@@ -370,8 +468,21 @@ export function providerProfileRoutes(
       return permissionError;
     }
 
+    const confirmationError = await requireLifecycleConfirmation(c, "deprecate");
+    if (confirmationError) {
+      return confirmationError;
+    }
+
     if (!profileVersions) {
-      return c.json({ error: t("catalog.features.sourceObservations.api.route.profile.review.unavailable") }, 503);
+      return c.json(
+        {
+          error: {
+            code: "profile_review_unavailable",
+            message: t("catalog.features.sourceObservations.api.route.profile.review.unavailable"),
+          },
+        },
+        503,
+      );
     }
 
     let result;
@@ -391,6 +502,27 @@ export function providerProfileRoutes(
   });
 
   return app;
+}
+
+async function requireLifecycleConfirmation(
+  c: Context<CatalogAuthoringEnv>,
+  operation: "rollback" | "deprecate" | "retire",
+): Promise<Response | null> {
+  const body: unknown = await c.req.json().catch(() => null);
+  const expected = `confirm:provider-profile.${operation}:${c.req.param("providerKey")}:${c.req.param("profileVersion")}`;
+  if (isRecord(body) && body.lifecycleConfirmation === expected) {
+    return null;
+  }
+
+  return c.json(
+    {
+      error: {
+        code: "lifecycle_confirmation_required",
+        message: t("catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.confirmation.required"),
+      },
+    },
+    400,
+  );
 }
 
 function parseLifecycleImpactOperation(value: string | undefined) {
@@ -466,6 +598,13 @@ function bulkReviewJobToLifecycleBlockingJob(
     providerKey: job.scope.provider ?? null,
     profileVersion: null,
   };
+}
+
+function immutableProfileVersionResponse(
+  c: Context<CatalogAuthoringEnv>,
+  error: CatalogProviderProfileVersionImmutableError,
+): Response {
+  return c.json({ error: { code: error.code, message: error.message, lifecycle: error.lifecycle } }, 409);
 }
 
 function lifecycleConsistencyErrorResponse(c: Context<CatalogAuthoringEnv>, error: unknown): Response {

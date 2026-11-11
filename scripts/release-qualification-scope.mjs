@@ -108,6 +108,9 @@ export const releaseQualificationScopeRegistry = Object.freeze({
     "admin-web": "runtime",
     marketplace: "runtime",
     "marketplace-seed-testing": "seed-machinery",
+    // Not deployed (deployables/corten-pilot/AGENTS.md). `runtime` keeps a pilot change in the
+    // isolated lane, the least the registry asks of a deployable, instead of failing closed.
+    "corten-pilot": "runtime",
     "platform-api": "runtime",
     "platform-worker": "runtime",
     "public-web": "runtime",
@@ -134,7 +137,6 @@ export const releaseQualificationScopeRegistry = Object.freeze({
     "provider-webhook-inbox": "live-provider",
     "remote-dev": "repo-tooling",
     "ses-email": "live-provider",
-    "stripe-appearance": "runtime-library",
     "stripe-config": "live-provider",
     "stripe-connect": "live-provider",
     "stripe-payments": "live-provider",
@@ -268,6 +270,7 @@ export const releaseQualificationScopeRegistry = Object.freeze({
   // Unknown workflows fail closed.
   workflows: Object.freeze({
     "backlog-roadmap-status.yml": "ci",
+    "bootstrap-db-oracle-memo.yml": "ci",
     "browser-boundary-diagnostics.yml": "ci",
     "browser-boundary-timeout-verifier.yml": "ci",
     "catalog-completion-report.yml": "ci",
@@ -278,6 +281,7 @@ export const releaseQualificationScopeRegistry = Object.freeze({
     "checkout-order-readiness-trace.yml": "ci",
     "collections-anonymous-owner-redaction.yml": "release",
     "collections-cutover-authority-capture.yml": "ci",
+    "corten-pilot.yml": "ci",
     "ci-image-mirrors.yml": "release",
     "issue-form-labels.yml": "ci",
     "issue-readiness.yml": "ci",
@@ -340,6 +344,7 @@ export const releaseQualificationScopeRegistry = Object.freeze({
     "platform-staging-route-matrix-evidence.yml": "release",
     "platform-staging-wake-drills.yml": "release",
     "platform-terraform-state-snapshot.yml": "release",
+    "playwright-chromium-install-diagnostics.yml": "ci",
     "project-status-sync.yml": "ci",
     "public-docs-stale-review.yml": "ci",
     "review-cadence-digest.yml": "ci",

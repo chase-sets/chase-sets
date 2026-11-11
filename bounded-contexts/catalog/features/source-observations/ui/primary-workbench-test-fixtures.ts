@@ -9,6 +9,7 @@ import type {
   CatalogProviderProfileVersionReview,
   SourceObservationListItem,
   SourceObservationIntegrationScope,
+  SourceObservationPromotionReceipt,
 } from "./contracts";
 import { buildCatalogPrimaryWorkbenchReadModelForSurface } from "./primary-workbench-read-model";
 import { tcgdexPokemonCardSourceObservationMappingContract } from "../api/tcgdex-executable-mapping-contract";
@@ -16,6 +17,65 @@ import { scrydexOnePieceCardPrintProviderProfile } from "../api/providers/scryde
 import { tcgdexPokemonTcgProviderProfile } from "../api/providers/tcgdex/profiles";
 import { tcgplayerAutomationClientProviderProfile } from "../api/providers/tcgplayer/profiles";
 import type { CatalogProviderIntegrationProfile } from "../api/providers/profile-types";
+
+export function syntheticPromotionReceipt(
+  overrides: Partial<SourceObservationPromotionReceipt> = {},
+): SourceObservationPromotionReceipt {
+  return {
+    schemaVersion: "source-observation-promotion-receipt/v1",
+    previewId: "synthetic-preview-token",
+    selection: {
+      providerKey: "tcgdex",
+      unitKey: "tcgdex:pokemon:card:import",
+      importScope: "en:3:base:base1",
+      profileVersion: "2026.06.04",
+      scopeRecordId: null,
+      observationIds: ["obs_001"],
+      promoteAsDraft: false,
+      scope: {
+        provider: "tcgdex",
+        language: "en",
+        productLineId: "3",
+        seriesId: "base",
+        expansionId: "base1",
+        setId: "base1",
+      },
+    },
+    preview: {
+      matched: 1,
+      eligible: 1,
+      terminal: 0,
+      scope: {
+        provider: "tcgdex",
+        language: "en",
+        productLineId: "3",
+        seriesId: "base",
+        expansionId: "base1",
+        setId: "base1",
+        status: "",
+        search: "",
+      },
+      fingerprint: "synthetic-fingerprint-a",
+      validation: {
+        promoteAsDraft: false,
+        pageLimit: 100,
+        coveredObservationIds: ["obs_001"],
+        coverage: "complete",
+        continuation: null,
+        diagnostics: [],
+      },
+    },
+    ...overrides,
+  };
+}
+
+/** A preview as the Catalog API answers it: with the token its receipt carries as `previewId`. */
+export function syntheticPromotionPreviewResponse(
+  preview: SourceObservationPromotionReceipt["preview"] = syntheticPromotionReceipt().preview,
+  previewToken = "synthetic-preview-token",
+): SourceObservationPromotionReceipt["preview"] {
+  return { ...preview, previewToken };
+}
 
 export function sourceObservationScope(
   overrides: Partial<SourceObservationIntegrationScope> = {},
@@ -660,6 +720,7 @@ export function catalogMergeCandidateListItem(
     created_at: "2026-06-09T01:02:00.000Z",
     updated_at: "2026-06-09T01:03:00.000Z",
     stale_at: null,
+    last_stream_version: 2,
     observation_count: 2,
     ...overrides,
   };

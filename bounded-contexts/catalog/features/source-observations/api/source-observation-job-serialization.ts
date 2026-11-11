@@ -657,8 +657,16 @@ export function normalizeBulkJobScope(scope: SourceObservationFilterScope): Sour
     status: scope.status?.trim() || undefined,
     provider: scope.provider?.trim() || undefined,
     language: scope.language?.trim() || undefined,
-    setId: scope.setId?.trim() || undefined,
+    productLineId: scope.productLineId?.trim() || undefined,
+    seriesId: scope.seriesId?.trim() || undefined,
+    setId: scope.expansionId?.trim() || scope.setId?.trim() || undefined,
   };
+}
+
+// Whether a filter-selected bulk job's canonical scope narrows the selection at all. Judged after
+// normalization, so a field the job would not keep can never stand in for a real scope.
+export function isExplicitBulkJobScope(scope: SourceObservationFilterScope): boolean {
+  return Object.values(normalizeBulkJobScope(scope)).some((value) => value !== undefined);
 }
 
 export function normalizeIntegrationJobScope(
@@ -719,19 +727,6 @@ export function profileSelectorFromScope(
         ...(ingestionUnitKey ? { ingestionUnitKey } : {}),
       }
     : null;
-}
-
-export function integrationScopeToObservationScope(
-  scope: SourceObservationIntegrationJobScope,
-): SourceObservationFilterScope {
-  return {
-    provider: scope.provider?.trim() || undefined,
-    language: scope.language?.trim() || undefined,
-    productLineId: scope.productLineId?.trim() || undefined,
-    seriesId: scope.seriesId?.trim() || undefined,
-    expansionId: scope.setId?.trim() || undefined,
-    setId: scope.setId?.trim() || undefined,
-  };
 }
 
 export function uniqueObservationIds(observationIds: readonly string[]): string[] {

@@ -310,6 +310,7 @@ export async function previewBuyNowCheckoutSupplyThroughOrdering(
     shippingOption: CheckoutSessionRow["shipping_option"];
     optimizationGoal: CheckoutSessionRow["optimization_goal"];
     line: CheckoutSessionRow["lines"][number];
+    shippingAddress?: CheckoutSessionRow["shipping_address"];
   }>,
 ) {
   const orderingApi = createOrderingRequestApiClient(request);
@@ -317,6 +318,7 @@ export async function previewBuyNowCheckoutSupplyThroughOrdering(
     checkoutSessionId: params.checkoutSessionId,
     sourceType: "buy-now",
     shippingOption: params.shippingOption,
+    ...(params.shippingAddress ? { shippingAddress: params.shippingAddress } : {}),
     optimizationGoal: params.optimizationGoal,
     lines: [params.line],
   });

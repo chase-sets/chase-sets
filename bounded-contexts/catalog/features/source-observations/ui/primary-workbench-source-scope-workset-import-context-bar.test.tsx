@@ -1,7 +1,11 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { CatalogImportContextBar } from "./admin-control-plane/import-to-promotion/import-context-bar";
+import type {
+  CatalogPrimaryWorkbenchReadModel,
+  CatalogPrimaryWorkbenchGuidedScopeField,
+} from "../api/primary-workbench-admin-contracts";
 import { CatalogSourceScopeWorksetModule } from "./admin-control-plane/import-to-promotion/source-scope-workset-module";
 import {
   buildCatalogPrimaryWorkbenchReadModelForSurface,
@@ -174,5 +178,170 @@ describe("LorcanaJSON atomic expansion route/form", () => {
     fireEvent.click(screen.getByRole("button", { name: "Select source scope" }));
     expect(submissions.at(-1)?.get("expansionId")).toBe("1");
     expect(submissions.at(-1)?.get("expansionName")).toBe("The First Chapter");
+  });
+});
+
+describe("API-owned import context controls", () => {
+  function field(
+    overrides: Partial<CatalogPrimaryWorkbenchGuidedScopeField> = {},
+  ): CatalogPrimaryWorkbenchGuidedScopeField {
+    return {
+      queryKind: "synthetic-api",
+      scope: "set-name",
+      label: "Synthetic API field",
+      fieldName: "expansionId",
+      labelFieldName: "expansionName",
+      selectedValue: "api-id",
+      selectedLabel: "API selected name",
+      options: [{ value: "api-id", label: "API option", description: null, parentValue: null }],
+      parentMissing: false,
+      parentScope: null,
+      parentDiagnostic: null,
+      ...overrides,
+    };
+  }
+
+  function answer(
+    overrides: Partial<CatalogPrimaryWorkbenchReadModel["sourceOptions"]> = {},
+  ): CatalogPrimaryWorkbenchReadModel {
+    const model = readModel(route("1"));
+    return {
+      ...model,
+      sourceOptions: {
+        ...model.sourceOptions,
+        contextSummary: "Synthetic API summary",
+        freeTextApplicable: false,
+        guidedFields: [field()],
+        ...overrides,
+      },
+    };
+  }
+
+  // Issue #11080: route/pages deliberately disagree with these wire answers.
+  it("renders first-paint API answers and submits their atomic id/name without local rules", () => {
+    render(<CatalogImportContextBar readModel={answer()} />);
+    expect(screen.getByText(/Synthetic API summary/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /Step 0 · Choose import scope/ }));
+    const select = screen.getByRole<HTMLSelectElement>("combobox", { name: "Synthetic API field" });
+    expect(select.value).toBe("api-id");
+    expect(screen.queryByRole("combobox", { name: "Set" })).toBeNull();
+    expect(document.querySelector('input[name="importScope"]')).toBeNull();
+    fireEvent.submit(select.form!);
+    expect(submissions.at(-1)?.get("expansionId")).toBe("api-id");
+    expect(submissions.at(-1)?.get("expansionName")).toBe("API selected name");
+  });
+
+  it("uses the API free-text gate even when pages would imply a guided field", () => {
+    const model = answer({ guidedFields: [], freeTextApplicable: true, contextSummary: null });
+    render(<CatalogImportContextBar readModel={model} />);
+    expect(document.querySelector('input[name="importScope"]')).not.toBeNull();
+    expect(screen.queryByRole("combobox", { name: "Set" })).toBeNull();
+  });
+
+  it.each(["loading", "empty", "error", "success"])(
+    "renders the %s API field state without rebuilding from pages",
+    (state) => {
+      const model = answer({
+        guidedFields: [
+          field({
+            ...(state !== "success" ? { options: [] } : {}),
+            ...(state === "error" ? { parentMissing: true, parentDiagnostic: "Synthetic API parent diagnostic" } : {}),
+          }),
+        ],
+      });
+      render(<CatalogImportContextBar readModel={model} />);
+      fireEvent.click(screen.getByRole("button", { name: /Step 0 · Choose import scope/ }));
+      const select = screen.getByRole<HTMLSelectElement>("combobox", { name: "Synthetic API field" });
+      expect(select.disabled).toBe(state === "error");
+      if (state === "error") expect(screen.getByText("Synthetic API parent diagnostic")).toBeTruthy();
+    },
+  );
+
+  it("replaces skeleton fields with distinctive deferred API fields and controlled selection", async () => {
+    const model = answer();
+    let resolve!: (value: typeof model.sourceOptions) => void;
+    const deferred = new Promise<typeof model.sourceOptions>((done) => {
+      resolve = done;
+    });
+    const { rerender } = render(<CatalogImportContextBar readModel={model} deferredSourceOptions={deferred} />);
+    fireEvent.click(screen.getByRole("button", { name: /Step 0 · Choose import scope/ }));
+    expect(screen.getByRole<HTMLSelectElement>("combobox", { name: "Synthetic API field" }).value).toBe("api-id");
+    const resolved = answer({
+      guidedFields: [
+        field({
+          label: "Deferred API field",
+          selectedValue: "deferred-id",
+          options: [{ value: "deferred-id", label: "Deferred name", description: null, parentValue: null }],
+        }),
+      ],
+    }).sourceOptions;
+    await act(async () => {
+      resolve(resolved);
+    });
+    expect(screen.getByRole<HTMLSelectElement>("combobox", { name: "Deferred API field" }).value).toBe("deferred-id");
+    const changed = answer({
+      guidedFields: [
+        field({
+          selectedValue: "changed-id",
+          options: [{ value: "changed-id", label: "Changed", description: null, parentValue: null }],
+        }),
+      ],
+    });
+    rerender(<CatalogImportContextBar readModel={changed} />);
+    expect(screen.getByRole<HTMLSelectElement>("combobox", { name: "Synthetic API field" }).value).toBe("changed-id");
+  });
+
+  it("retains skeleton API answers on deferred rejection", async () => {
+    let reject!: (reason: Error) => void;
+    const deferred = new Promise<ReturnType<typeof answer>["sourceOptions"]>((_resolve, fail) => {
+      reject = fail;
+    });
+    render(<CatalogImportContextBar readModel={answer()} deferredSourceOptions={deferred} />);
+    fireEvent.click(screen.getByRole("button", { name: /Step 0 · Choose import scope/ }));
+    await act(async () => {
+      reject(new Error("Synthetic deferred failure"));
+    });
+    expect(screen.getByRole<HTMLSelectElement>("combobox", { name: "Synthetic API field" }).value).toBe("api-id");
+  });
+
+  it("clears a same-valued child when its parent identity changes, then submits the new atomic selection", () => {
+    const fields = (parent: string, selectedValue: string) => [
+      field({
+        queryKind: "synthetic-parent",
+        scope: "series",
+        label: "API parent",
+        fieldName: "seriesId",
+        labelFieldName: "seriesName",
+        selectedValue: parent,
+        selectedLabel: parent,
+        options: ["parent-a", "parent-b"].map((value) => ({
+          value,
+          label: value,
+          description: null,
+          parentValue: null,
+        })),
+      }),
+      field({
+        parentScope: "series",
+        selectedValue,
+        options: [{ value: "same-child", label: `Child of ${parent}`, description: null, parentValue: parent }],
+      }),
+    ];
+    const { rerender } = render(
+      <CatalogImportContextBar readModel={answer({ guidedFields: fields("parent-a", "same-child") })} />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /Step 0 · Choose import scope/ }));
+    fireEvent.change(screen.getByRole("combobox", { name: "API parent" }), { target: { value: "parent-b" } });
+    expect(submissions.at(-1)?.get("seriesId")).toBe("parent-b");
+    expect(submissions.at(-1)?.get("expansionId")).toBe("");
+    expect(submissions.at(-1)?.get("expansionName")).toBe("");
+    rerender(<CatalogImportContextBar readModel={answer({ guidedFields: fields("parent-b", "") })} />);
+    expect(screen.getByRole<HTMLSelectElement>("combobox", { name: "Synthetic API field" }).value).toBe("");
+    fireEvent.change(screen.getByRole("combobox", { name: "Synthetic API field" }), {
+      target: { value: "same-child" },
+    });
+    expect(submissions.at(-1)?.get("seriesId")).toBe("parent-b");
+    expect(submissions.at(-1)?.get("expansionId")).toBe("same-child");
+    expect(submissions.at(-1)?.get("expansionName")).toBe("Child of parent-b");
   });
 });

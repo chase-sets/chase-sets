@@ -830,15 +830,6 @@
       "observedDurationMs": 4544
     },
     {
-      "runId": 36277253497,
-      "runAttempt": 1,
-      "jobId": 108502346013,
-      "invocation": "test--exclude-test-profile=db",
-      "workspace": "@chase-sets/stripe-appearance",
-      "script": "test",
-      "observedDurationMs": 5798
-    },
-    {
       "runId": 39493225542,
       "runAttempt": 1,
       "jobId": 118871715777,
@@ -846,6 +837,24 @@
       "workspace": "@chase-sets/catalog",
       "script": "test:unit",
       "observedDurationMs": 323316
+    },
+    {
+      "runId": 39668420451,
+      "runAttempt": 1,
+      "jobId": 119459835162,
+      "invocation": "test:unit--test-profile=db",
+      "workspace": "@chase-sets/catalog",
+      "script": "test:unit",
+      "observedDurationMs": 486544
+    },
+    {
+      "runId": 39671786083,
+      "runAttempt": 1,
+      "jobId": 119474154101,
+      "invocation": "test:unit--test-profile=db",
+      "workspace": "@chase-sets/catalog",
+      "script": "test:unit",
+      "observedDurationMs": 548743
     }
   ]
 }

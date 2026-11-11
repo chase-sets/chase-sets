@@ -12,6 +12,7 @@ import {
   sourceObservationScope,
 } from "../features/source-observations/ui/primary-workbench-test-fixtures";
 import { sourceOptionResponse } from "./admin-integrations-route-test-support";
+import { catalogProviderIntegrationProfileVersions } from "../features/source-observations/api/provider-integration-profiles";
 
 const { mockCreateCatalogRequestApiClient, mockIsTransientAuthResolutionError, mockResolveActorFromAuthApi } =
   vi.hoisted(() => ({
@@ -28,9 +29,15 @@ vi.mock("react-router", async () => {
   return { ...actual, useRouteLoaderData: mockUseRouteLoaderData };
 });
 
-vi.mock("../support/request-support/api-client", () => ({
-  createCatalogRequestApiClient: mockCreateCatalogRequestApiClient,
-}));
+vi.mock("../support/request-support/api-client", async () => {
+  const { withCatalogSurfaceReads } = await vi.importActual<
+    typeof import("../features/source-observations/tests/integrations-surface-read-test-client")
+  >("../features/source-observations/tests/integrations-surface-read-test-client");
+  return {
+    createCatalogRequestApiClient: (request: Request) =>
+      withCatalogSurfaceReads(mockCreateCatalogRequestApiClient(request), request),
+  };
+});
 
 vi.mock("@chase-sets/platform-runtime/auth", () => ({
   isTransientAuthResolutionError: mockIsTransientAuthResolutionError,
@@ -138,6 +145,115 @@ describe("Catalog integrations route workbench states", () => {
     unmountDaily();
   });
 
+  // Issue #11130, R2-N1: every navigation executes the real loader with that URL.
+  it.each(["product-B", null])("never paints A settled after navigation to %s", async (productId) => {
+    const profile = catalogProviderIntegrationProfileVersions.find(
+      (item) =>
+        item.providerKey === "ygojson" &&
+        item.active &&
+        item.executableMappingContract?.normalizedObservation.outputKind === "yugioh-sealed-product",
+    );
+    if (!profile || !("ingestionUnitIdentity" in profile) || !profile.ingestionUnitIdentity)
+      throw new Error("Expected the registered product-capable profile.");
+    const unit = profile.ingestionUnitIdentity.unitKey;
+    const review = profileReview({
+      providerKey: "ygojson",
+      profileKey: profile.profileKey,
+      profileVersion: profile.profileVersion,
+      ingestionUnitKey: unit,
+      profile: profile.profile,
+      supportedScopes: [...profile.profile.supportedScopes],
+      active: true,
+      lifecycle: "active",
+      mappingOutputKind: "yugioh-sealed-product",
+      sourceOptionKinds: [
+        {
+          queryKind: "synthetic-products",
+          queryKeySynonyms: [],
+          displayName: "Synthetic products",
+          scope: "product",
+          parentScope: null,
+          parentRequired: false,
+          parentValueKind: null,
+          parentDiagnosticText: null,
+        },
+      ],
+    });
+    const baseLocation = `/catalog/integrations?providerKey=ygojson&unitKey=${unit}&languageCode=en`;
+    let releaseA!: (answer: unknown) => void;
+    const pendingA = new Promise<unknown>((resolve) => {
+      releaseA = resolve;
+    });
+    const summary = {
+      requestStrategy: "bulk-first",
+      estimateState: "estimated",
+      estimatedRequestCount: 7,
+      estimateReason: "Synthetic API reason",
+      usageCheckState: "checked",
+      pageSize: 100,
+      selectedFields: ["api-only"],
+      perRecordFallbackReason: null,
+      creditDiagnostic: null,
+      degradedDiagnostic: null,
+    };
+    const answer = (selected: string | null) => ({
+      status: "ready",
+      preview: {
+        action: "import",
+        providerKey: "ygojson",
+        scope: { provider: "ygojson", ingestionUnitKey: unit, productId: selected ?? undefined },
+        profileSnapshot: null,
+        targetCount: 0,
+        targets: [],
+      },
+      usageSummary: summary,
+    });
+    const read = vi.fn((location: string) =>
+      new URL(location, "https://admin.example").searchParams.get("productId") === "product-A"
+        ? pendingA
+        : Promise.resolve(productId ? answer(productId) : null),
+    );
+    mockCreateCatalogRequestApiClient.mockReturnValue({
+      ...dailyApi({ scopes: list([]), profiles: list([review]), overview: () => null }),
+      getCatalogPrimaryWorkbenchDeferredImportPreview: read,
+    });
+    router = createMemoryRouter([{ path: "/catalog/integrations", loader, Component: IntegrationsRoute }], {
+      initialEntries: [`${baseLocation}&productId=product-A`],
+    });
+    const mounted = router;
+    await act(async () => {
+      render(<RouterProvider router={mounted} />);
+    });
+    await screen.findByRole("heading", { name: WORKBENCH_HEADING });
+    expect(mounted.state.loaderData["0"].readModel.routeContext.scope.productId).toBe("product-A");
+    expect(screen.getByText("Provider import operations")).toBeTruthy();
+    expect(
+      screen.getByText(t("catalog.features.sourceObservations.ui.primaryWorkbench.import.preview.loading")),
+    ).toBeTruthy();
+    const next = `${baseLocation}${productId ? `&productId=${productId}` : ""}`;
+    await act(async () => {
+      await mounted.navigate(next);
+    });
+    expect(read).toHaveBeenLastCalledWith(next);
+    expect(mounted.state.loaderData["0"].readModel.routeContext.scope.productId).toBe(productId);
+    expect(
+      document
+        .querySelector('[data-catalog-import-preview="ready"]')
+        ?.getAttribute("data-catalog-import-preview-scope") ?? null,
+    ).toBe(productId);
+    await act(async () => {
+      releaseA(answer("product-A"));
+      await pendingA;
+    });
+    const panel = document.querySelector('[data-catalog-import-preview="ready"]');
+    if (productId) {
+      expect(panel?.getAttribute("data-catalog-import-preview-scope")).toBe(productId);
+      expect(panel?.textContent).toContain("api-only");
+    } else expect(panel).toBeNull();
+    expect(document.querySelector('[data-catalog-import-preview-scope="product-A"]')).toBeNull();
+    expect(screen.getByText("Provider import operations")).toBeTruthy();
+  });
+
   it("workbench loading empty error and populated states remain unchanged", async () => {
     // Loading -> populated: the shell paints from the awaited baseline while the
     // option fan-out is still in flight, then the streamed slice fills the panel.
@@ -242,5 +358,6 @@ describe("Catalog integrations route workbench states", () => {
       ["expansions", "stale", ["provider-transport-stale-cache"]],
     ]);
     await waitFor(() => expect(sourceOptionsStatus()).toBe("degraded"));
-  });
+    // Three full workbench renders; the finds above already allow 30 s each.
+  }, 30_000);
 });

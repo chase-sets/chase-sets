@@ -17,7 +17,8 @@ export const catalogCatalogItemSchemaSql = `CREATE TABLE IF NOT EXISTS catalog_i
   image_urls jsonb NOT NULL DEFAULT '[]'::jsonb,
   product_asset_sets jsonb NOT NULL DEFAULT '[]'::jsonb,
   image_fallback jsonb NULL,
-  updated_at timestamptz NOT NULL DEFAULT now()
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  source_stream_version bigint NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS catalog_external_product_references (
@@ -61,7 +62,8 @@ CREATE TABLE IF NOT EXISTS catalog_admin_catalog_item_list_pages (
   blueprint jsonb NULL,
   status text NOT NULL DEFAULT 'draft',
   tags jsonb NOT NULL DEFAULT '[]'::jsonb,
-  updated_at timestamptz NOT NULL DEFAULT now()
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  source_stream_version bigint NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS catalog_admin_catalog_item_detail_pages (
@@ -87,7 +89,8 @@ CREATE TABLE IF NOT EXISTS catalog_admin_catalog_item_detail_pages (
   image_urls jsonb NOT NULL DEFAULT '[]'::jsonb,
   product_asset_sets jsonb NOT NULL DEFAULT '[]'::jsonb,
   image_fallback jsonb NULL,
-  updated_at timestamptz NOT NULL DEFAULT now()
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  source_stream_version bigint NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS catalog_item_display_identities (
@@ -130,7 +133,8 @@ ALTER TABLE catalog_items
   ADD COLUMN IF NOT EXISTS subtitle_i18n jsonb NULL,
   ADD COLUMN IF NOT EXISTS description_i18n jsonb NOT NULL DEFAULT '{"defaultLocale":"en","values":{}}'::jsonb,
   ADD COLUMN IF NOT EXISTS product_asset_sets jsonb NOT NULL DEFAULT '[]'::jsonb,
-  ADD COLUMN IF NOT EXISTS image_fallback jsonb NULL;
+  ADD COLUMN IF NOT EXISTS image_fallback jsonb NULL,
+  ADD COLUMN IF NOT EXISTS source_stream_version bigint NOT NULL DEFAULT 0;
 
 ALTER TABLE catalog_admin_catalog_item_list_pages
   ADD COLUMN IF NOT EXISTS language_code text NOT NULL DEFAULT 'en',
@@ -138,7 +142,8 @@ ALTER TABLE catalog_admin_catalog_item_list_pages
   ADD COLUMN IF NOT EXISTS subtitle_i18n jsonb NULL,
   ADD COLUMN IF NOT EXISTS display_template_key text NULL,
   ADD COLUMN IF NOT EXISTS display_identity_hash text NULL,
-  ADD COLUMN IF NOT EXISTS display_identity_resolved_at timestamptz NULL;
+  ADD COLUMN IF NOT EXISTS display_identity_resolved_at timestamptz NULL,
+  ADD COLUMN IF NOT EXISTS source_stream_version bigint NOT NULL DEFAULT 0;
 
 ALTER TABLE catalog_admin_catalog_item_detail_pages
   ADD COLUMN IF NOT EXISTS language_code text NOT NULL DEFAULT 'en',
@@ -151,7 +156,8 @@ ALTER TABLE catalog_admin_catalog_item_detail_pages
   ADD COLUMN IF NOT EXISTS external_catalog_item_references jsonb NOT NULL DEFAULT '[]'::jsonb,
   ADD COLUMN IF NOT EXISTS external_product_references jsonb NOT NULL DEFAULT '[]'::jsonb,
   ADD COLUMN IF NOT EXISTS product_asset_sets jsonb NOT NULL DEFAULT '[]'::jsonb,
-  ADD COLUMN IF NOT EXISTS image_fallback jsonb NULL;
+  ADD COLUMN IF NOT EXISTS image_fallback jsonb NULL,
+  ADD COLUMN IF NOT EXISTS source_stream_version bigint NOT NULL DEFAULT 0;
 
 ALTER TABLE catalog_item_display_identities
   ADD COLUMN IF NOT EXISTS display_template_target_kind text NULL,
@@ -231,6 +237,20 @@ export const catalogCatalogItemSchemaMigrations: readonly BcSchemaMigration[] = 
   CHECK (resolution_status IN ('resolved', 'degraded')) NOT VALID`,
       `ALTER TABLE catalog_item_display_identities
   VALIDATE CONSTRAINT catalog_item_display_identities_resolution_status_check`,
+    ],
+  },
+  {
+    migrationId: "20261102_catalog_item_admin_page_source_stream_version",
+    description:
+      "Order Catalog Item admin page freshness by source stream version; existing rows take 0 and converge on their next event.",
+    statements: [
+      "SET lock_timeout = '5s';",
+      `ALTER TABLE catalog_items
+  ADD COLUMN IF NOT EXISTS source_stream_version bigint NOT NULL DEFAULT 0`,
+      `ALTER TABLE catalog_admin_catalog_item_list_pages
+  ADD COLUMN IF NOT EXISTS source_stream_version bigint NOT NULL DEFAULT 0`,
+      `ALTER TABLE catalog_admin_catalog_item_detail_pages
+  ADD COLUMN IF NOT EXISTS source_stream_version bigint NOT NULL DEFAULT 0`,
     ],
   },
 ];

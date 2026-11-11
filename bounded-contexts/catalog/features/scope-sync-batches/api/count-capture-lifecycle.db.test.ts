@@ -123,6 +123,70 @@ describe("closed count capture on PostgreSQL", () => {
     await expect(f.lifecycle.freeze(captureSession(), sealInput)).rejects.toThrow(CountCaptureStopped);
     expect(f.fetch).toHaveBeenCalledTimes(before);
   });
+
+  it.each(["2026-10-10T05:18:47.195000Z", "2026-10-10T05:18:47.195123Z"])(
+    "retains lossless mapping version %s from the DB baseline through both actual planner reads",
+    async (version) => {
+      const f = await createCountCaptureDbFixture(pools.catalog);
+      await f.pool.query("UPDATE catalog_provider_scope_mappings SET updated_at = $1::timestamptz", [version]);
+      const quote = await f.prepare();
+      const owner = countCaptureSessionOwner(captureSession(), "staging");
+      const baseline = (await f.store.activeRun(owner)).baseline!;
+      expect(baseline.units.map((unit) => unit.mappingVersion)).toEqual([version, version, version]);
+      expect(baseline.selection.scopeRecordVersion).toBe("2026-10-13T07:00:00.000Z");
+      await f.lifecycle.acquire(captureSession(), { quoteId: quote.quoteId, fingerprint: quote.fingerprint });
+      f.clock.now = "2026-10-13T08:04:10.000Z";
+      const preview = await f.lifecycle.preview(captureSession(), { selection: f.selection, budget: f.budget });
+      await f.lifecycle.preConfirm(captureSession(), {
+        selection: f.selection,
+        budget: f.budget,
+        planFingerprint: preview.planFingerprint,
+      });
+      const run = await f.store.activeRun(owner);
+      expect(run.reads.map((read) => read.phase)).toEqual(["preview", "pre-confirm"]);
+      for (const read of run.reads) {
+        expect(read.eligible).toBe(true);
+        expect(read.plan.scopes[0]!.mappingVersions.map((mapping) => mapping.version)).toEqual([
+          version,
+          version,
+          version,
+        ]);
+      }
+      expect(f.enqueue).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(["preview", "pre-confirm"] as const)("refuses a DB mapping-only microsecond drift at %s", async (phase) => {
+    const f = await createCountCaptureDbFixture(pools.catalog);
+    await f.pool.query("UPDATE catalog_provider_scope_mappings SET updated_at = $1::timestamptz", [
+      "2026-10-10T05:18:47.195000Z",
+    ]);
+    const quote = await f.prepare();
+    await f.lifecycle.acquire(captureSession(), { quoteId: quote.quoteId, fingerprint: quote.fingerprint });
+    f.clock.now = "2026-10-13T08:04:10.000Z";
+    const preview =
+      phase === "pre-confirm"
+        ? await f.lifecycle.preview(captureSession(), { selection: f.selection, budget: f.budget })
+        : null;
+    await f.pool.query(
+      "UPDATE catalog_provider_scope_mappings SET updated_at = updated_at + interval '1 microsecond' WHERE mapping_id = $1",
+      ["mapping-synthetic-0"],
+    );
+    await expect(
+      phase === "preview"
+        ? f.lifecycle.preview(captureSession(), { selection: f.selection, budget: f.budget })
+        : f.lifecycle.preConfirm(captureSession(), {
+            selection: f.selection,
+            budget: f.budget,
+            planFingerprint: preview!.planFingerprint,
+          }),
+    ).rejects.toThrow(CountCaptureStopped);
+    const row = await f.pool.query<{ payload: CountCaptureRun }>(
+      "SELECT payload FROM catalog_scope_sync_count_capture_history ORDER BY position DESC LIMIT 1",
+    );
+    expect(row.rows[0]!.payload.reads.map((read) => read.phase)).toEqual(preview ? ["preview"] : []);
+    expect(f.enqueue).not.toHaveBeenCalled();
+  });
   it("retains an INCOMPLETE stop receipt when local proof is missing", async () => {
     const f = await createCountCaptureDbFixture(pools.catalog);
     await f.prepare();
@@ -315,7 +379,7 @@ describe("staging count-capture lifecycle on PostgreSQL", () => {
         ][index],
         profileVersion: "2026.06.22",
         mappingId: `mapping-synthetic-${index}`,
-        mappingVersion: versionAt,
+        mappingVersion: "2026-10-13T07:00:00.000000Z",
         setCoordinate: "OP01",
       })),
     );
