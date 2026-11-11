@@ -50,10 +50,16 @@ describe("bulk draft removal runtime", () => {
     ]);
     await h.seed();
     const query = { language: "en", status: "draft", limit: 50, offset: 100 };
-    const ownerQuery = vi.fn(async <T>(_sql: string, _values?: readonly unknown[]) => ({ rows: [] as T[] }));
-    await listCatalogItemIds({ query: ownerQuery }, query);
+    const ownerStatements: { sql: string; values: readonly unknown[] }[] = [];
+    const ownerDb: PgQueryable = {
+      async query<Row>(sql: string, values: readonly unknown[] = []) {
+        ownerStatements.push({ sql, values });
+        return { rows: Array<Row>() };
+      },
+    };
+    await listCatalogItemIds(ownerDb, query);
     const result = await h.services.previewBulkRemoveDrafts({ mode: "filter", query });
-    expect(h.statements[0]).toEqual({ sql: ownerQuery.mock.calls[0]![0], values: ownerQuery.mock.calls[0]![1] });
+    expect(h.statements[0]).toEqual(ownerStatements[0]);
     expect(h.statements[0]!.sql).not.toMatch(/\b(?:LIMIT|OFFSET)\b/i);
     expect(h.statements[0]!.values).toEqual(["en", "draft"]);
     expect(result.item_ids).toHaveLength(51);
