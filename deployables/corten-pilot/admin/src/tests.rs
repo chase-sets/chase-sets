@@ -4152,20 +4152,18 @@ async fn a_scopes_page_draws_its_journey_coverage_jobs_and_editions_from_the_cat
     // The editions: English canonical, Japanese open with its candidate and its commands.
     assert!(html.contains(r#"data-link="pending-review""#) && html.contains("Confidence is below high."), "{html}");
     assert!(html.contains(r#"data-language-edition-command="alias.defer""#), "{html}");
-    // The import-to-promotion section: the daily surface for the scope, by its hierarchy, its id and
-    // its first edition, its commands posting with the working set that lands them back here.
-    let location = "/catalog/integrations?productLineName=pokemon&productLineId=scp_pokemon&seriesId=scp_sv\
-                    &expansionId=scp_paf&expansionName=Paldean%20Fates&scopeRecordId=scp_paf&languageCode=en";
-    let read = format!("/api/catalog/source-observations/workbench-surfaces/daily?location={}", crate::api::segment(location));
-    assert!(calls.contains(&read), "{read} in {calls:?}");
-    let context = format!("{}&home=scp_paf", location.split_once('?').unwrap().1);
+    // The import-to-promotion section: one read of the daily surface for the scope's own page, whose
+    // journey the API composes from the Scope Record, its commands posting with the working set that
+    // lands them back here.
+    let daily = |location: &str| {
+        format!("/api/catalog/source-observations/workbench-surfaces/daily?location={}", crate::api::segment(location))
+    };
+    let reads: Vec<&String> = calls.iter().filter(|c| c.contains("/workbench-surfaces/daily?")).collect();
+    assert_eq!(reads, [&daily("/catalog/scopes/scp_paf")], "the journey's own read, and no other");
     assert!(html.contains("data-scope-workspace") && html.contains(r#"name="wb-stage""#), "the stages: {html}");
-    assert!(
-        html.contains(&format!(r#"action="/catalog/integrations/review?{}""#, context.replace('&', "&amp;"))),
-        "a command carries the working set: {html}"
-    );
+    assert!(html.contains(r#"action="/catalog/integrations/review?home=scp_paf""#), "a command carries the working set: {html}");
     assert!(!html.contains("data-import-context") && !html.contains("Run tcgdex"), "no import context bar or workset: {html}");
-    assert!(!html.contains(r#"href="http://localhost:7752/catalog/scopes/scp_paf""#), "the workspace is the pilot's: {html}");
+    assert!(!html.contains("The import-to-promotion workspace could not be read."), "the workspace is the pilot's: {html}");
     assert!(
         pilot.stylesheet(&html, "sections/catalog").await.is_some_and(|css| css.contains(".scope-page__stages")),
         "the page's stylesheet is the area's"
@@ -4177,6 +4175,37 @@ async fn a_scopes_page_draws_its_journey_coverage_jobs_and_editions_from_the_cat
 }
 
 #[tokio::test]
+async fn a_scopes_journey_is_read_for_its_own_page_and_the_api_composes_it_from_the_scope_record() {
+    let pilot = Pilot::new().await;
+    // A provider or a hierarchy in the address is the scope's to choose; the API decides them. The
+    // address's other keys pass through.
+    let (status, _, html) =
+        pilot.send(get("/catalog/scopes/scp_paf?languageCode=ja&providerKey=tcgplayer&seriesId=scp_other", Some("staff"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let reads: Vec<String> = pilot
+        .calls
+        .lock()
+        .unwrap()
+        .iter()
+        .filter_map(|c| c.path.split_once("/workbench-surfaces/daily?location=").map(|(_, at)| at.to_owned()))
+        .map(|at| percent_encoding::percent_decode_str(&at).decode_utf8_lossy().into_owned())
+        .collect();
+    assert_eq!(reads, ["/catalog/scopes/scp_paf?languageCode=ja"], "one read, with no hierarchy of the pilot's");
+    assert!(html.contains("data-scope-workspace") && html.contains(r#"name="wb-stage""#), "the stages: {html}");
+    assert!(
+        html.contains(r#"action="/catalog/integrations/review?languageCode=ja&amp;home=scp_paf""#),
+        "a command carries the page's working set: {html}"
+    );
+
+    let (status, headers, _) = pilot
+        .send(post("/catalog/integrations/review?languageCode=ja&home=scp_paf", "action=defer&observation=obs_1", false))
+        .await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let to = headers[header::LOCATION].to_str().unwrap().to_owned();
+    assert!(to.starts_with("/catalog/scopes/scp_paf?languageCode=ja&") && to.contains("done=queued"), "{to}");
+}
+
+#[tokio::test]
 async fn a_command_from_a_scopes_workspace_lands_back_on_the_scope_and_the_address_keeps_its_working_set() {
     let pilot = Pilot::new().await;
     // A provider in the address is the scope's to choose, as admin-web drops it; the review's page stays.
@@ -4185,20 +4214,18 @@ async fn a_command_from_a_scopes_workspace_lands_back_on_the_scope_and_the_addre
     let read = pilot.calls.lock().unwrap().iter().rev().find(|c| c.path.contains("/workbench-surfaces/daily?")).cloned().unwrap();
     let location =
         percent_encoding::percent_decode_str(read.path.split_once("location=").unwrap().1).decode_utf8_lossy().into_owned();
-    assert!(location.starts_with("/catalog/integrations?reviewOffset=25&productLineName=pokemon&"), "{location}");
-    assert!(!location.contains("providerKey") && !location.contains("home="), "{location}");
+    assert_eq!(location, "/catalog/scopes/scp_paf?reviewOffset=25", "no provider, no hierarchy and no home");
     assert!(
         html.contains(r#"href="/catalog/scopes/scp_paf?productLineName=pokemon&amp;"#),
         "the review's status and page links stay on the scope: {html}"
     );
 
-    let context = "productLineName=pokemon&productLineId=scp_pokemon&seriesId=scp_sv&expansionId=scp_paf\
-                   &expansionName=Paldean%20Fates&scopeRecordId=scp_paf&languageCode=en&home=scp_paf";
+    let context = "home=scp_paf";
     let (status, headers, _) =
         pilot.send(post(&format!("/catalog/integrations/review?{context}"), "action=defer&observation=obs_1", false)).await;
     assert_eq!(status, StatusCode::SEE_OTHER);
     let to = headers[header::LOCATION].to_str().unwrap().to_owned();
-    assert!(to.starts_with("/catalog/scopes/scp_paf?productLineName=pokemon&") && to.contains("&done=queued"), "{to}");
+    assert!(to.starts_with("/catalog/scopes/scp_paf?") && to.contains("done=queued"), "{to}");
     let (status, _, html) = pilot.send(get(&to, Some("staff"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");
     assert!(html.contains("Command queued"), "the scope's toast: {html}");
@@ -4214,11 +4241,9 @@ async fn a_command_from_a_scopes_workspace_lands_back_on_the_scope_and_the_addre
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
     assert!(html.contains("A reason is required to reject observations."), "{html}");
     assert!(html.contains("data-scope-workspace") && html.contains(r#"name="wb-stage""#), "the scope's page: {html}");
-    // The same working set, its edition first: the page builds it from the address again.
-    let again = "languageCode=en&productLineName=pokemon&productLineId=scp_pokemon&seriesId=scp_sv&expansionId=scp_paf\
-                 &expansionName=Paldean%20Fates&scopeRecordId=scp_paf&home=scp_paf";
+    // The same working set: the page builds it from the address again.
     assert!(
-        html.contains(&format!(r#"action="/catalog/integrations/review?{}""#, again.replace('&', "&amp;"))),
+        html.contains(&format!(r#"action="/catalog/integrations/review?{context}""#)),
         "its commands keep the working set: {html}"
     );
     // Nothing checked: the API refuses it, and the page says the API's reason.
@@ -4235,7 +4260,8 @@ async fn a_command_from_a_scopes_workspace_lands_back_on_the_scope_and_the_addre
     }
     assert_eq!(bulk(&pilot), before + 2, "each was sent, and the API refused it");
     // A command from the daily workbench itself, refused, is the daily workbench again.
-    let daily = context.replace("&home=scp_paf", "");
+    let daily = "productLineName=pokemon&productLineId=scp_pokemon&seriesId=scp_sv&expansionId=scp_paf\
+                 &expansionName=Paldean%20Fates&scopeRecordId=scp_paf&languageCode=en";
     let (status, _, html) =
         pilot.send(post(&format!("/catalog/integrations/review?{daily}"), "action=reject&observation=obs_1", false)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
@@ -7495,6 +7521,25 @@ fn workbench_surface(surface: &str, query: &str, cookie: &str) -> Response {
     }
     let location =
         query.strip_prefix("location=").map(|l| percent_encoding::percent_decode_str(l).decode_utf8_lossy().into_owned());
+    // A scope page's own address is composed for its Scope Record, as the Catalog API's
+    // `catalogScopeDetailDailyLocation` does (its own tests cover the hierarchy by kind): here the
+    // address's other keys, then the fixtures' product line, the scope as the expansion, its id and
+    // its first edition unless the address names one. Any other location is read as sent.
+    let composed = location.as_deref().and_then(|l| l.strip_prefix("/catalog/scopes/")).map(|rest| {
+        let (id, query) = rest.split_once('?').unwrap_or((rest, ""));
+        let decided = ["providerKey=", "unitKey=", "importScope=", "profileVersion=", "productLine", "series", "expansion"];
+        let mut keys: Vec<String> =
+            query.split('&').filter(|p| !p.is_empty() && !decided.iter().any(|k| p.starts_with(k))).map(str::to_owned).collect();
+        keys.extend([format!("productLineName=pokemon&expansionId={id}"), format!("scopeRecordId={id}")]);
+        if !query.split('&').any(|p| p.starts_with("languageCode=")) {
+            keys.push("languageCode=en".into());
+        }
+        (id.to_owned(), format!("/catalog/integrations?{}", keys.join("&")))
+    });
+    let (scope, location) = match composed {
+        Some((id, at)) => (Some(id), Some(at)),
+        None => (None, location),
+    };
     if location.as_deref().is_some_and(|l| l.contains("scopeRecordId=scp_down")) {
         return refusal(StatusCode::INTERNAL_SERVER_ERROR, "internal_error", "The workbench surface is unavailable.");
     }
@@ -7509,7 +7554,7 @@ fn workbench_surface(surface: &str, query: &str, cookie: &str) -> Response {
         return refusal(StatusCode::INTERNAL_SERVER_ERROR, "internal", "The read failed.");
     }
     if surface == "daily" {
-        return daily_surface(&location);
+        return daily_surface(&location, scope.as_deref());
     }
     if surface == "daily/source-options" {
         if location.contains("providerKey=nooptions") {
@@ -7628,8 +7673,9 @@ fn workbench_surface(surface: &str, query: &str, cookie: &str) -> Response {
 /// card scope with one eligible unit and one blocked one, a failed job to retry, a page of 25 of 30
 /// observations to review (one observed, one promoted), a merge candidate, a degraded provider
 /// transport, and the defer and reject commands open. `providerKey=stopped` is a context behind
-/// the import kill switch, with nothing to review; its location's `section` is the route's.
-fn daily_surface(location: &str) -> Response {
+/// the import kill switch, with nothing to review; its location's `section` is the route's. A
+/// `scope` is the Scope Record a scope page's address was composed for.
+fn daily_surface(location: &str, scope: Option<&str>) -> Response {
     let stopped = location.contains("providerKey=stopped");
     let section = location.split(['?', '&']).find_map(|p| p.strip_prefix("section=")).unwrap_or_default();
     let status_filter = location.split(['?', '&']).find_map(|p| p.strip_prefix("filter.status="));
@@ -7738,6 +7784,10 @@ fn daily_surface(location: &str) -> Response {
                 { "key": "observation.reject", "state": "available", "blockers": [] }]
         }
     });
+    // A scope page's journey is its Scope Record's: its Catalog sync names the scope.
+    if let Some(id) = scope {
+        surface["readModel"]["catalogSync"]["scope"]["reference"] = json!({ "kind": "expansion", "scopeRecordId": id });
+    }
     // `candidatePromote=versioned` is an API that checks a candidate's promote against the version
     // read, and builds it (chase-sets/chase-sets#11143).
     if location.contains("candidatePromote=versioned") {
@@ -9028,9 +9078,7 @@ async fn without_javascript_a_rows_evidence_is_its_page_with_the_sheet_open() {
     assert!(html.contains(r#"data-catalog-observation-evidence="loaded""#), "with the sheet open: {html}");
 
     // From a scope's workspace the page is the scope's.
-    let context = "productLineName=pokemon&productLineId=scp_pokemon&seriesId=scp_sv&expansionId=scp_paf\
-                   &expansionName=Paldean%20Fates&scopeRecordId=scp_paf&languageCode=en&home=scp_paf";
-    let (status, _, html) = pilot.send(get(&format!("{EVIDENCE}/obs_1?{context}"), Some("staff"))).await;
+    let (status, _, html) = pilot.send(get(&format!("{EVIDENCE}/obs_1?home=scp_paf"), Some("staff"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");
     assert!(html.contains("data-scope-workspace") && html.contains("Paldean Fates"), "the scope's page: {html}");
     assert!(html.contains(r#"data-catalog-observation-evidence="loaded""#), "{html}");

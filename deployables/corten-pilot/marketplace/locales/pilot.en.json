@@ -225,6 +225,8 @@
     "options": "Product options",
     "choose_option": "Choose an option",
     "delta": "Enter a whole number other than 0, like -1 or 5.",
+    "item_pending_title": "Inventory item is still updating",
+    "item_pending": "Your change was saved. This page reads the item again in a moment.",
     "item_unverified": "Inventory item update could not be verified. Reload this page and try again.",
     "ledger_offline_sale": "Sold offline"
   },

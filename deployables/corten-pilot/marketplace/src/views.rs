@@ -269,7 +269,7 @@ pub const MONEY: &[Component] = &[MoneyPage];
 /// A payout's page (`/account/desk/payouts/{id}`), with its status timeline in the kit's `Steps`.
 pub const PAYOUT: &[Component] = &[MoneyPage, platform::ui::steps::Steps];
 /// Payout setup (`/account/desk/settings`), with Stripe's Connect components and the Stripe.js
-/// module their appearance comes from.
+/// module their script's URL comes from.
 pub const PAYOUT_SETUP: &[Component] = &[PayoutSetupPage, payout_setup_page::ConnectSurface, payment_page::stripe::COMPONENT];
 /// A buyer's payment, with Stripe's step and the Stripe.js loader it imports, and starting a payment
 /// for the buyer's orders (`/account/payments/new`, no script).

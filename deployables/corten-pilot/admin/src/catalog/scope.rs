@@ -18,8 +18,9 @@
 //!
 //! The import-to-promotion section is the daily workbench's surface for the scope
 //! (`GET .../workbench-surfaces/daily?location=`), read with the others and drawn with the daily
-//! page's banners and stages; its location is built from the scope as admin-web builds it
-//! ([`workspace_context`], chase-sets/chase-sets#11131), and its commands are the daily routes', which
+//! page's banners and stages. It is read for this page's own address ([`journey_context`]), whose
+//! journey the Catalog API composes from the Scope Record: its hierarchy, its id and its first
+//! language edition are the API's to set, not the page's. Its commands are the daily routes', which
 //! land back here (the working set's `home`). A surface that does not read is the section's banner,
 //! with admin-web's page linked.
 use corten::{
@@ -320,48 +321,15 @@ const SCOPE_KEYS: [&str; 11] = [
     "scopeRecordId",
 ];
 
-/// Workaround (chase-sets/chase-sets#11131): the import-to-promotion section's working set, as
-/// admin-web's `scopeDetailWorkbenchRequest` builds the daily surface's location from the scope:
-/// the address's other keys kept, the scope's hierarchy by its kind, its id, and its first
-/// language edition unless the address names one; then `home`, so a command lands back here.
-pub fn workspace_context(query: &str, scope: &ScopeRecord) -> String {
+/// The import-to-promotion section's working set as the page sends it: the address's keys less
+/// the page's own and the ones the scope decides, then `home`, so the daily surface is read for the
+/// scope's own page (whose journey the Catalog API composes from the Scope Record) and a command
+/// lands back here.
+pub fn journey_context(query: &str, id: &str) -> String {
     use crate::catalog::daily::{HOME, with_query};
-    fn set(value: Option<&str>) -> Option<&str> {
-        value.map(str::trim).filter(|v| !v.is_empty())
-    }
     let mut drop: Vec<(&str, Option<&str>)> = PAGE_KEYS.iter().chain(&SCOPE_KEYS).map(|k| (*k, None)).collect();
     drop.push((HOME, None));
-    let kept = with_query(query, &drop);
-    let id = scope.scope_record_id.as_str();
-    let (line, line_name, series, series_name, expansion, expansion_name) = match scope.scope_kind.as_str() {
-        "product-line" => (Some(id), set(Some(&scope.name)), None, None, None, None),
-        "series" => (set(scope.product_line_scope_record_id.as_deref()), None, Some(id), set(Some(&scope.name)), None, None),
-        "expansion" | "set" => (
-            set(scope.product_line_scope_record_id.as_deref()),
-            None,
-            set(scope.series_scope_record_id.as_deref()),
-            None,
-            Some(id),
-            set(Some(&scope.name)),
-        ),
-        _ => (None, None, None, None, None, None),
-    };
-    let language = (crate::catalog::daily::context_value(&kept, "languageCode").is_none())
-        .then(|| set(scope.language_editions.first().map(String::as_str)))
-        .flatten();
-    let changes = [
-        ("productLineName", line_name.or(set(Some(&scope.product_domain)))),
-        ("productLineId", line),
-        ("seriesId", series),
-        ("seriesName", series_name),
-        ("expansionId", expansion),
-        ("expansionName", expansion_name),
-        ("scopeRecordId", Some(id)),
-        ("languageCode", language),
-        (HOME, Some(id)),
-    ];
-    let changes: Vec<(&str, Option<&str>)> = changes.into_iter().filter(|(_, value)| value.is_some()).collect();
-    with_query(&kept, &changes)
+    with_query(&with_query(query, &drop), &[(HOME, Some(id))])
 }
 
 /// Workaround for chase-sets/chase-sets#10703: admin-web derives each edition's link state from
@@ -463,24 +431,25 @@ async fn jobs(caller: &Caller<'_>, id: &str, cursor: Option<&str>) -> Option<Job
     }
 }
 
-/// The page's reads: the scope, then its coverage, jobs and (with more than one edition) the
-/// alias review of its Reference Record, together.
+/// The page's reads: the scope, its coverage, its jobs and its import-to-promotion section
+/// together, then (with more than one edition) the alias review of its Reference Record.
 async fn screen(caller: &Caller<'_>, id: &str, cursor: Option<&str>, query: &str, manage: bool) -> Result<ScopeScreen, ApiError> {
-    let scope: ScopeRecord = caller.get(Kind::ScopeRecords, id).await?;
-    let context = workspace_context(query, &scope);
-    let review = async {
-        if scope.language_editions.len() <= 1 {
-            return None;
-        }
+    use crate::catalog::daily::workspace as daily;
+    let context = journey_context(query, id);
+    let coverage_at = format!("/coverage{}", under(id, &[]));
+    let (scope, coverage, jobs, workspace) = tokio::join!(
+        caller.get::<ScopeRecord>(Kind::ScopeRecords, id),
+        caller.read_at::<Coverage>(Kind::ProviderScopeMappings, &coverage_at),
+        jobs(caller, id, cursor),
+        daily(caller, &context, manage),
+    );
+    let scope = scope?;
+    let review = if scope.language_editions.len() <= 1 {
+        None
+    } else {
         let query = format!("?targetKind=reference-record&targetId={}", segment(&scope.reference_record_id));
         Some(caller.read_at::<AliasReview>(Kind::AliasReview, &query).await)
     };
-    let coverage_at = format!("/coverage{}", under(id, &[]));
-    let coverage = caller.read_at::<Coverage>(Kind::ProviderScopeMappings, &coverage_at);
-    let ((review, coverage, jobs), workspace) = tokio::join!(
-        join3(review, coverage, jobs(caller, id, cursor)),
-        crate::catalog::daily::workspace(caller, &context, manage),
-    );
     let coverage = coverage.inspect_err(|error| tracing::warn!("a scope's coverage could not be read: {error}")).ok();
     let (editions, alias_review_failed) = match review {
         None => (None, false),
@@ -923,27 +892,18 @@ mod tests {
     }
 
     #[test]
-    fn the_workspace_is_the_scopes_hierarchy_by_its_kind_and_keeps_the_rest_of_the_address() {
-        let mut set = scope(&["ja", "en"], "active", Sync::Fresh);
+    fn the_journey_is_read_for_the_pages_own_address_with_no_hierarchy_of_the_pilots() {
+        // The address's working set passes through as sent, its edition included; the page's own
+        // keys, the scope's keys and an old `home` are dropped, and `home` is this scope.
         assert_eq!(
-            workspace_context("jobs=c2&providerKey=x&filter.status=observed&done=queued&scopeRecordId=other", &set),
-            "filter.status=observed&productLineName=pokemon&productLineId=scp_pokemon&seriesId=scp_series\
-             &expansionId=scp_1&expansionName=Base%20Set&scopeRecordId=scp_1&languageCode=ja&home=scp_1"
+            journey_context(
+                "jobs=c2&filter.status=observed&providerKey=x&done=queued&languageCode=en&reviewOffset=25\
+                 &productLineId=scp_other&expansionId=scp_other&scopeRecordId=other&home=elsewhere",
+                "scp_1"
+            ),
+            "filter.status=observed&languageCode=en&reviewOffset=25&home=scp_1"
         );
-        assert!(workspace_context("languageCode=en", &set).starts_with("languageCode=en&"), "the address's edition first");
-        set.scope_kind = "series".into();
-        assert_eq!(
-            workspace_context("", &set),
-            "productLineName=pokemon&productLineId=scp_pokemon&seriesId=scp_1&seriesName=Base%20Set&scopeRecordId=scp_1\
-             &languageCode=ja&home=scp_1"
-        );
-        set.scope_kind = "product-line".into();
-        set.language_editions.clear();
-        assert_eq!(
-            workspace_context("", &set),
-            "productLineName=Base%20Set&productLineId=scp_1&scopeRecordId=scp_1&home=scp_1",
-            "a product line names itself, and no edition is none"
-        );
+        assert_eq!(journey_context("", "scp_1"), "home=scp_1", "nothing of the scope's is added");
     }
 
     #[test]

@@ -1148,10 +1148,14 @@ pub fn rebase(context: &str, href: &str) -> Option<String> {
     })
 }
 
-/// The daily surface's location for the working set: the daily route with its query, less the
-/// pilot's `home`.
+/// The daily surface's location for the working set, less the pilot's `home`: the scope's page its
+/// `home` names, whose journey the Catalog API composes from the Scope Record, or the daily route.
 pub fn location(context: &str) -> String {
-    at(url::Daily.href().as_str(), &with_query(context, &[(HOME, None)]))
+    let rest = with_query(context, &[(HOME, None)]);
+    match context_value(context, HOME).filter(|id| !id.is_empty()) {
+        Some(id) => at(crate::catalog::scope::url::ScopePage::of(&id).href().as_str(), &rest),
+        None => at(url::Daily.href().as_str(), &rest),
+    }
 }
 
 /// The address's working set: its query without what the last command left on it.

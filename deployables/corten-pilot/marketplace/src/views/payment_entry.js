@@ -7,7 +7,7 @@
 // Payments, so the step says the payment is being updated and reads the status part until it
 // changes (the page's watch, a ReadAgain in its markup).
 import { keep, patch } from "corten";
-import { appearance, loadStripe } from "./stripe.js";
+import { loadStripe } from "./stripe.js";
 
 /** Half the account-payment UAT's 60 s readiness ceiling, as marketplace's. */
 const DEADLINE_MS = 30_000;
@@ -130,12 +130,10 @@ export async function mount(target, parts, key, secret, defaults, couldNotLoad, 
     const Stripe = await loadStripe();
     if (abandoned()) return;
     const stripe = Stripe(key);
-    const look = appearance(target);
     const wallets = { applePay: "auto", googlePay: "auto" };
     if (secret.startsWith("cs_")) {
       let checkout = stripe.initCheckoutElementsSdk({
         clientSecret: secret,
-        elementsOptions: { appearance: look },
         defaultValues: state.email ? { email: state.email } : undefined,
       });
       put(checkout.createPaymentElement({ wallets }));
@@ -150,7 +148,7 @@ export async function mount(target, parts, key, secret, defaults, couldNotLoad, 
       if (state.email && loaded?.type === "error" && loaded.error?.message === SESSION_OWNED_EMAIL_REFUSAL) {
         // The session already has the buyer's email: once more without it, the session's email kept.
         unmount(state);
-        checkout = stripe.initCheckoutElementsSdk({ clientSecret: secret, elementsOptions: { appearance: look } });
+        checkout = stripe.initCheckoutElementsSdk({ clientSecret: secret });
         put(checkout.createPaymentElement({ wallets }));
         loaded = await checkout.loadActions();
         if (abandoned()) return unmount(state);
@@ -159,7 +157,7 @@ export async function mount(target, parts, key, secret, defaults, couldNotLoad, 
       if (loaded?.type !== "success") throw new Error(loaded?.error?.message || couldNotLoad);
       state.actions = loaded.actions;
     } else {
-      const elements = stripe.elements({ clientSecret: secret, appearance: look });
+      const elements = stripe.elements({ clientSecret: secret });
       put(elements.create("payment", { wallets, defaultValues: defaults }));
       state.elements = elements;
     }
