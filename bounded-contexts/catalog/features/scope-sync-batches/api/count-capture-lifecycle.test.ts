@@ -119,6 +119,19 @@ describe("producer-owned billing-period gate", () => {
     expect(f.memory.history).toHaveLength(count);
     expect(durable(f)?.periodLedger).toEqual(stopped.periodLedger);
   });
+  it("refuses a legacy retained run without period admission even when host authority is absent", async () => {
+    const f = await noticed();
+    await f.lifecycle.usage(captureSession());
+    const retained = durable(f)!;
+    retained.authority = null;
+    retained.periodLedger = null;
+    const binding = await f.store.begin(retained.runId, "preview");
+    await expect(f.store.ledger.debit(binding, {
+      category: "usage", usage: { purpose: "readiness" }, requestFingerprint: "e".repeat(64),
+    })).rejects.toThrow(CountCaptureStopped);
+    expect(durable(f)?.sends).toHaveLength(1);
+    expect(durable(f)?.status).toBe("stopped");
+  });
 });
 
 // Every step a capture driver can take before spend, from each reachable stage.

@@ -28,7 +28,7 @@ import {
 } from "../tests/count-capture-session-fixture";
 import { captureAuthority } from "../tests/count-capture-session-fixture";
 import { createCountCaptureDbFixture } from "../tests/count-capture-db-fixture";
-import { validateCountLifecycleReceipt } from "../domain/count-lifecycle-receipt";
+import { countCaptureAuthoritySchema, validateCountLifecycleReceipt } from "../domain/count-lifecycle-receipt";
 import {
   createCountCaptureLifecycle,
   countCaptureSessionOwner,
@@ -82,10 +82,11 @@ describe("closed count capture on PostgreSQL", () => {
   });
   it("replays period admission and retains one uncertain terminal after a killed send", async () => {
     const f = await createCountCaptureDbFixture(pools.catalog);
-    const admitted = await f.lifecycle.baseline(captureSession(), {
+    await f.lifecycle.baseline(captureSession(), {
       scopeRecordId: captureScope,
       authority: captureAuthority(),
     });
+    const admitted = await f.store.activeRun(countCaptureSessionOwner(captureSession(), "staging"));
     await f.lifecycle.initialNotice(captureSession());
     const binding = await f.store.begin(admitted.runId, "bootstrap");
     await f.store.ledger.debit(binding, {
@@ -97,7 +98,7 @@ describe("closed count capture on PostgreSQL", () => {
     f.clock.now = "2026-10-13T08:18:00.000Z";
     const reloaded = createCountCaptureStore(f.pool, () => f.clock.now);
     const old = await reloaded.read(admitted.runId);
-    const authority = freshCaptureAuthority(Date.parse(f.clock.now), "synthetic-next-period-run");
+    const authority = countCaptureAuthoritySchema.parse(freshCaptureAuthority(Date.parse(f.clock.now), "synthetic-next-period-run"));
     const next = await reloaded.admit({
       ownerHash: "b".repeat(64),
       scopeRecordId: captureScope,
@@ -135,7 +136,8 @@ describe("closed count capture on PostgreSQL", () => {
     );
     const authority = captureAuthority();
     authority.budget.periodReserve.credits = 56;
-    const run = await f.lifecycle.baseline(captureSession(), { scopeRecordId: captureScope, authority });
+    await f.lifecycle.baseline(captureSession(), { scopeRecordId: captureScope, authority });
+    const run = await f.store.activeRun(countCaptureSessionOwner(captureSession(), "staging"));
     await f.lifecycle.initialNotice(captureSession());
     await expect(f.lifecycle.usage(captureSession())).rejects.toThrow(CountCaptureStopped);
     expect(await f.store.read(run.runId)).toMatchObject({

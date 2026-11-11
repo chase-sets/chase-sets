@@ -36,6 +36,7 @@ describe("capture-bound counts", () => {
     ).resolves.toMatchObject({ retained: true });
     expect(f.fetch).toHaveBeenCalledTimes(2);
     expect(f.run().sends.map((send) => [send.phase, send.category])).toEqual([
+      ["bootstrap", "usage"],
       ["acquisition", "cards"],
       ["acquisition", "sealed"],
     ]);
@@ -312,7 +313,7 @@ describe("capture-bound counts", () => {
     const mutant = captureCountsFixture({
       store: captureStoreMutant([["inPhase.some((entry) => entry.category === send.category)", "false"]]),
     });
-    await expect(attempt(mutant)).resolves.toBe(2);
-    expect(mutant.run().sends.map((send) => send.category)).toEqual(["cards", "cards"]);
+    await expect(attempt(mutant)).resolves.toBe(3);
+    expect(mutant.run().sends.map((send) => send.category)).toEqual(["usage", "cards", "cards"]);
   });
 });

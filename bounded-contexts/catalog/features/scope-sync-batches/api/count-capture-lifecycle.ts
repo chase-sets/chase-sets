@@ -486,6 +486,7 @@ export function createCountCaptureLifecycle(deps: {
         // The preflight is included once in P, not again in U.
         const observed = await deps.observeUsage();
         const ledger = await deps.periodLedger?.(run.runId);
+        const preflightSends = (await deps.store.read(run.runId)).sends.filter((send) => send.phase === "bootstrap").length;
         const produced = z
           .object({
             providerKey: z.literal("scrydex"),
@@ -516,7 +517,7 @@ export function createCountCaptureLifecycle(deps: {
             Object.values(countCaptureKindUnitKeys).filter((unitKey) =>
               run.baseline?.units.some((unit) => unit.unitKey === unitKey),
             ).length +
-            countCapturePhaseCaps.bootstrap +
+            preflightSends +
             countCapturePhaseCaps.preview +
             countCapturePhaseCaps["pre-confirm"],
           runId: run.host.dispatchId,
@@ -530,7 +531,7 @@ export function createCountCaptureLifecycle(deps: {
         const recorded = await deps.store.recordUsage(binding, {
           authority,
           required: countCaptureSendCap,
-          state: "persisted",
+          state: preflightSends > 0 ? "persisted" : "skipped",
         });
         await deps.store.finish(binding);
         return recorded;

@@ -26,7 +26,7 @@ import {
   captureSession,
   createCaptureLifecycleFixture,
 } from "../tests/count-capture-session-fixture";
-import { createCountCaptureLifecycle } from "./count-capture-lifecycle";
+import { createCountCaptureLifecycle, countCaptureSessionOwner } from "./count-capture-lifecycle";
 
 const kinds = ["cards", "sealed"] as const;
 const later = (ms: number) => new Date(Date.parse(captureNow) + ms).toISOString();
@@ -298,11 +298,13 @@ describe("targeted usage observation", () => {
     f.counts.retainUsage.mockClear();
     await f.lifecycle.baseline(captureSession(), { scopeRecordId: captureScope, authority: captureAuthority() });
     await f.lifecycle.initialNotice(captureSession());
-    await expect(f.lifecycle.usage(captureSession())).resolves.toMatchObject({ usage: { state: "persisted" } });
+    await expect(f.lifecycle.usage(captureSession())).resolves.toMatchObject({ usage: { state: "skipped" } });
     expect(f.usage.getUsageSnapshot).toHaveBeenCalledOnce();
     expect(f.counts.retainUsage).toHaveBeenCalledOnce();
     expect(f.usage.fetch).not.toHaveBeenCalled();
     expect(run(f)).toMatchObject({ status: "open", sends: [] });
+    const retained = await f.store.activeRun(countCaptureSessionOwner(captureSession(), "staging"));
+    expect(retained.periodLedger?.decision).toMatchObject({ plannedCredits: 10, unreflectedCredits: 0 });
   });
 
   it.each([

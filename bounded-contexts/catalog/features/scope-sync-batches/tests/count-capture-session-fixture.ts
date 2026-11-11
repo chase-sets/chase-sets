@@ -1,4 +1,6 @@
 import { vi } from "vitest";
+import { evaluateScrydexBillingPeriod } from "../domain/scrydex-billing-period";
+import { periodReserve, syntheticPeriod } from "./scrydex-period-fixture";
 import type { ResolvedActor } from "@chase-sets/auth-context";
 import type { PgPoolClient, PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
@@ -248,6 +250,11 @@ export async function beginCapturePhase(
   await store.recordInitialNotice(runId);
   if (phase === "bootstrap") return store.begin(runId, phase);
   const bootstrap = await store.begin(runId, "bootstrap");
+  await store.recordPeriodDecision(bootstrap, evaluateScrydexBillingPeriod({
+    snapshot: { allowance: 100, balance: 100, observedAt: captureAt, period: syntheticPeriod },
+    reserve: periodReserve((await store.read(runId)).host.dispatchId), durableCredits: 0,
+    plannedCredits: 10, runId: (await store.read(runId)).host.dispatchId, now: captureAt,
+  }));
   await store.recordUsage(bootstrap, { state: "skipped", required: 11, authority: captureBaseline().countAuthority });
   await store.finish(bootstrap);
   return store.begin(runId, phase);

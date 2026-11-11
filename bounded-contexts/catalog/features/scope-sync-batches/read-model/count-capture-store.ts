@@ -432,12 +432,13 @@ export function createCountCaptureStore(pool: PgTransactionalPool, now = () => n
         // resolve one at a time and nothing is debited after an unresolved one.
         if (run.sends.some((entry) => entry.status === null)) throw new CountCaptureStopped();
         const phase = binding.phase;
-        if (run.authority && phase !== "bootstrap") {
+        if (phase !== "bootstrap") {
           const decision = run.periodLedger?.decision;
           if (
             !decision?.admitted ||
             run.periodLedger?.terminal ||
             decision.observedAt === null ||
+            Date.parse(now()) < Date.parse(decision.observedAt) ||
             Date.parse(now()) - Date.parse(decision.observedAt) > 900_000 ||
             !decision.period ||
             Date.parse(now()) >= Date.parse(decision.period.endsAt) ||
@@ -612,7 +613,7 @@ export function createCountCaptureStore(pool: PgTransactionalPool, now = () => n
           binding.phase !== "bootstrap" ||
           run.periodLedger?.decision ||
           decision.runId !== run.host.dispatchId ||
-          decision.plannedCredits !== countCaptureSendCap
+          decision.plannedCredits !== countCaptureSendCap - countCapturePhaseCaps.bootstrap + run.sends.filter((send) => send.phase === "bootstrap").length
         )
           throw new CountCaptureStopped();
         run.periodLedger = {
