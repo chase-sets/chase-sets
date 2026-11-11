@@ -29,15 +29,27 @@ Historical v1 JSON remains readable but cannot authorize v2 acceptance.
 
 ## Open Once
 
-1. Under the unchanged host admission, run `node scripts/bootstrap-db-oracle-memo-artifact.mjs preflight` from the clean T checkout. Retain actual workflow ID, path, active state, observation time and complete bounded run inventory. Any pending, queued, requested, waiting or running entry refuses opening. An incomplete inventory is unknown, never empty.
-2. Create `D`, the sole E child, with a new `bootstrap-db-oracle-memo-input.json` manifest inside its `.github` directory and, only if absent from E, the byte-identical T workflow. This data-only manifest is created only in D and must remain absent from E and main. Never merge D.
-3. Before opening, independently retain a host freeze containing `head` D, `base` B, `input` E, `manifestSha256`, `bodySha256`, `observedAt` (canonical UTC), and `preflight` (the complete preflight result). Reconcile those values with the accepted source/pair inventory, not E-derived authority. Keep the manifest/body bytes and their hashes with that freeze.
-4. Open one same-repository `memo-derivation/` PR into main. Its entire body is `bootstrap-db-oracle-memo-input-sha256: <64 lowercase hex>` followed by one actual LF, exactly 104 UTF-8 bytes. The prefix is not an authority grant. Do not synchronize, reopen, dispatch, rerun, cancel, or auto-apply.
+Every step below is mandatory and precedes the single opening in this order.
 
-Only `pull_request: opened` can start `deriveMemo`. Eligibility is evaluated
-before the job-level global concurrency group, so unrelated PRs cannot evict a
-pending memo job. `cancel-in-progress: false` does not protect an older pending
-job against another eligible opening; the host's preflight remains mandatory.
+1. Under the unchanged host admission, run `node scripts/bootstrap-db-oracle-memo-artifact.mjs preflight` from the clean T checkout. Retain actual workflow ID, path, active state, observation time and complete bounded run inventory. Any pending, queued, requested, waiting or running entry refuses opening. An incomplete inventory is unknown, never empty. Preflight is an inventory diagnostic, not sufficient opening authority alone.
+2. Create `D`, the sole E child, with a new `bootstrap-db-oracle-memo-input.json` manifest inside its `.github` directory and, only if absent from E, the byte-identical T workflow. This data-only manifest is created only in D and must remain absent from E and main. Never merge D. Push D as the head of its `memo-derivation/` branch and fix `B`, the exact full `main` commit it opens against; steps 3 and 4 use exactly the B and D that step 5 freezes.
+3. Obtain a fresh independent input review of the exact E, D, manifest and body bytes. A review of an earlier D or B does not carry over.
+4. Fetch `main` and the derivation branch into a clean checkout of landed `main` that contains the `mergeability` command and run `node scripts/bootstrap-db-oracle-memo-artifact.mjs mergeability <B> <D> <memo-derivation/branch>` with full 40-hex B and D. Use that `main` checkout even when the manifest's T predates the command; the command reads T only from D's committed manifest, so the running checkout never stands in for T. It refuses, printing no record, on any content or structural conflict (naming the unmerged paths), missing or non-commit object, unknown merge result or Git without merge support, or a workflow that is not one regular `100644` blob identical at T, B, D and the computed merge tree. Its final step rechecks that B still equals live `main` and D the live branch head. Only a zero exit with its printed record allows continuing. Retain that record beside the freeze as a sibling record, not a freeze field. Its `diagnosticMergeTree` is never G; GitHub `mergeable` is post-open data and null means unknown.
+5. Retain the host freeze containing `head` D, `base` B, `input` E, `manifestSha256`, `bodySha256`, `observedAt` (canonical UTC), and `preflight` (the complete preflight result). Reconcile those values with the accepted source/pair inventory and the mergeability record, not E-derived authority. The freeze `observedAt` follows the review and the record's `observedAt`. Keep the manifest/body bytes and their hashes with that freeze.
+6. Immediately before opening, refresh identities: live `main` must still equal B, the branch head D, and the manifest/body bytes those reviewed and frozen. Any drift means refreeze and reprobe (repeat steps 1 and 3-5) before opening; never open on an earlier preflight, review or record.
+7. Open one same-repository `memo-derivation/` PR into main. Its entire body is `bootstrap-db-oracle-memo-input-sha256: <64 lowercase hex>` followed by one actual LF, exactly 104 UTF-8 bytes. The prefix is not an authority grant. Do not synchronize, reopen, dispatch, rerun, cancel, or auto-apply.
+
+Only `pull_request: opened` can start `deriveMemo`, and GitHub runs no
+`pull_request` workflow for a conflicted PR. An opening without an admitted run
+is spent: close it unmerged and never synchronize, reopen, dispatch, rerun or
+cancel it. No mergeability record is run or reconstructed after an opening. A
+source refresh that changes S needs a fresh W/R capture, never a rebind of the
+old capture. Eligibility is evaluated before the job-level global concurrency
+group, so unrelated PRs cannot evict a pending memo job.
+`cancel-in-progress: false` does not protect an older pending job against
+another eligible opening; the host's preflight remains mandatory. The
+mergeability guard changes no single-flight completeness, attempt1 acceptance,
+original event/G, three-payload, P or merge-group boundary.
 
 The data-only bootstrap reads the original event, D's regular manifest blob and
 actual runner/context identities before selecting, installing or importing T.
