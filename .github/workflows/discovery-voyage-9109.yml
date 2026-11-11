@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       cost_review:
-        description: Enter 9109-reviewed-cost-and-synthetic-inputs only after reviewing the runbook
+        description: Enter 9109-reviewed-cost-and-synthetic-inputs only after reviewing the PR measurement plan
         required: true
         type: string
 permissions:
