@@ -143,7 +143,7 @@ export async function runScrydexOptionRefresh(input) {
       rolloutControls: overview?.readiness?.rolloutControls,
       unitKeys: units.map((unit) => unit.unitKey),
       periodReserve: input.periodReserve,
-      runId: `${identity.runId}:${identity.runAttempt}`,
+      runId: input.dispatchId ?? "",
       now: input.now(),
     });
     preflight = gate.preflight;
@@ -164,8 +164,12 @@ export async function runScrydexOptionRefresh(input) {
       );
       if (!verdict.allowed) throw refused(`${verdict.reason}:${unit.unitKey}`);
       const age = Date.parse(input.now()) - Date.parse(periodDecision?.observedAt ?? "");
-      if (!Number.isFinite(age) || age < 0 || age > 900_000 ||
-        Date.parse(input.now()) >= Date.parse(periodDecision?.period?.endsAt ?? ""))
+      if (
+        !Number.isFinite(age) ||
+        age < 0 ||
+        age > 900_000 ||
+        Date.parse(input.now()) >= Date.parse(periodDecision?.period?.endsAt ?? "")
+      )
         throw refused("usage-period-cap");
       forced += 1;
       interruptedUnit = unit;
@@ -258,11 +262,14 @@ export async function runScrydexOptionRefresh(input) {
       "one usage read",
       "up to 100 dropped records covered by +1 page",
     ],
-    periodLedger: periodDecision ? {
-      decision: periodDecision,
-      outcome: outcome === "complete" ? "complete" : forced === 0 ? "refused" : "uncertain",
-      unreflectedCredits: outcome === "complete" ? creditsSpentUpperBound : forced === 0 ? 1 : periodDecision.plannedCredits,
-    } : null,
+    periodLedger: periodDecision
+      ? {
+          decision: periodDecision,
+          outcome: outcome === "complete" ? "complete" : forced === 0 ? "refused" : "uncertain",
+          unreflectedCredits:
+            outcome === "complete" ? creditsSpentUpperBound : forced === 0 ? 1 : periodDecision.plannedCredits,
+        }
+      : null,
   });
   return receipt;
 }
@@ -403,8 +410,13 @@ export async function capture(env = process.env, workspace = process.cwd()) {
   let phase = "sign-in";
   const receipt = await runScrydexOptionRefresh({
     runner,
+    dispatchId: env.SCRYDEX_REFRESH_DISPATCH_ID,
     periodReserve: (() => {
-      try { return JSON.parse(env.SCRYDEX_REFRESH_PERIOD_RESERVE ?? "null"); } catch { return null; }
+      try {
+        return JSON.parse(env.SCRYDEX_REFRESH_PERIOD_RESERVE ?? "null");
+      } catch {
+        return null;
+      }
     })(),
     now: () => new Date().toISOString(),
     selectDeployment: async () => {

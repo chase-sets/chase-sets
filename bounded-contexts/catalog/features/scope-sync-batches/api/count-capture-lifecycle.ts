@@ -486,22 +486,39 @@ export function createCountCaptureLifecycle(deps: {
         // The preflight is included once in P, not again in U.
         const observed = await deps.observeUsage();
         const ledger = await deps.periodLedger?.(run.runId);
-        const produced = z.object({
-          providerKey: z.literal("scrydex"), attemptState: z.literal("checked"),
-          totalCredits: z.number(), remainingCredits: z.number(), observedAt: z.iso.datetime({ offset: true }),
-          billingPeriod: scrydexBillingPeriodSchema,
-        }).safeParse(observed);
-        const producerBound = produced.success && ledger && countFingerprint(ledger.snapshot) === countFingerprint({
-          allowance: produced.data.totalCredits, balance: produced.data.remainingCredits,
-          observedAt: produced.data.observedAt, period: produced.data.billingPeriod,
-        });
+        const produced = z
+          .object({
+            providerKey: z.literal("scrydex"),
+            attemptState: z.literal("checked"),
+            totalCredits: z.number(),
+            remainingCredits: z.number(),
+            observedAt: z.iso.datetime({ offset: true }),
+            billingPeriod: scrydexBillingPeriodSchema,
+          })
+          .safeParse(observed);
+        const producerBound =
+          produced.success &&
+          ledger &&
+          countFingerprint(ledger.snapshot) ===
+            countFingerprint({
+              allowance: produced.data.totalCredits,
+              balance: produced.data.remainingCredits,
+              observedAt: produced.data.observedAt,
+              period: produced.data.billingPeriod,
+            });
         const decision = evaluateScrydexBillingPeriod({
-          snapshot: producerBound ? ledger.snapshot : { allowance: null, balance: null, observedAt: null, period: null },
+          snapshot: producerBound
+            ? ledger.snapshot
+            : { allowance: null, balance: null, observedAt: null, period: null },
           reserve: run.authority?.budget.periodReserve,
           durableCredits: ledger?.durableCredits ?? null,
-          plannedCredits: Object.values(countCaptureKindUnitKeys).filter((unitKey) =>
-            run.baseline?.units.some((unit) => unit.unitKey === unitKey)).length + countCapturePhaseCaps.bootstrap +
-            countCapturePhaseCaps.preview + countCapturePhaseCaps["pre-confirm"],
+          plannedCredits:
+            Object.values(countCaptureKindUnitKeys).filter((unitKey) =>
+              run.baseline?.units.some((unit) => unit.unitKey === unitKey),
+            ).length +
+            countCapturePhaseCaps.bootstrap +
+            countCapturePhaseCaps.preview +
+            countCapturePhaseCaps["pre-confirm"],
           runId: run.host.dispatchId,
           now: now(),
         });
@@ -510,7 +527,11 @@ export function createCountCaptureLifecycle(deps: {
         const authority = await deps.countAuthority();
         if (authority.allowed !== true || authority.headroom === null || authority.headroom < countCaptureSendCap)
           throw new CountCaptureStopped();
-        const recorded = await deps.store.recordUsage(binding, { authority, required: countCaptureSendCap, state: "persisted" });
+        const recorded = await deps.store.recordUsage(binding, {
+          authority,
+          required: countCaptureSendCap,
+          state: "persisted",
+        });
         await deps.store.finish(binding);
         return recorded;
       });

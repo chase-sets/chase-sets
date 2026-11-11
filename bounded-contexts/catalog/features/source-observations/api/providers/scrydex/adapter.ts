@@ -2651,8 +2651,8 @@ type ScrydexUsageBalances = Pick<
 // consumed, and credits remaining for one billing period, with no allowance and no
 // update timestamp. Balances count only when that period covers the check instant.
 // The allowance is consumed plus remaining only while no overage was consumed;
-// otherwise it stays unreported rather than guessed. Daily usage and the period
-// bounds are retained as redacted billing-period evidence for spend admission.
+// otherwise it stays unreported rather than guessed. Daily usage is not retained.
+// Redacted period bounds are retained for spend admission.
 function sanitizeScrydexUsage(value: JsonValue, checkedAt: Date): ScrydexUsageBalances {
   const data = jsonRecord(recordValue(value, "data") ?? null);
   const periodStart = Date.parse(stringValue(data.period_start) ?? "");
@@ -2673,13 +2673,16 @@ function sanitizeScrydexUsage(value: JsonValue, checkedAt: Date): ScrydexUsageBa
     remainingCredits,
     usedCredits,
     overageCreditsConsumed,
-    billingPeriod: overageCreditsConsumed === null ||
+    billingPeriod:
+      overageCreditsConsumed === null ||
       !z.iso.datetime({ offset: true }).safeParse(data.period_start).success ||
-      !z.iso.datetime({ offset: true }).safeParse(data.period_end).success ? null : {
-      startsAt: new Date(periodStart).toISOString(),
-      endsAt: new Date(periodEnd).toISOString(),
-      overageCreditsConsumed,
-    },
+      !z.iso.datetime({ offset: true }).safeParse(data.period_end).success
+        ? null
+        : {
+            startsAt: new Date(periodStart).toISOString(),
+            endsAt: new Date(periodEnd).toISOString(),
+            overageCreditsConsumed,
+          },
   };
 }
 

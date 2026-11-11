@@ -353,13 +353,21 @@ describe("targeted usage observation", () => {
     const rawAuthority = captureLifecycleMutant(
       [
         ["const ledger = await deps.periodLedger?.(run.runId);", "const ledger = rawLedger(observed);"],
-        ["if (!decision.admitted) throw new CountCaptureStopped();\n        const authority = await deps.countAuthority();", "if (!decision.admitted) throw new CountCaptureStopped();\n        const authority = rawAuthority(observed);"],
+        [
+          "if (!decision.admitted) throw new CountCaptureStopped();\n        const authority = await deps.countAuthority();",
+          "if (!decision.admitted) throw new CountCaptureStopped();\n        const authority = rawAuthority(observed);",
+        ],
       ],
       {
-        rawLedger: (snapshot: ProviderUsageSnapshot) => ({ snapshot: {
-          allowance: snapshot.totalCredits, balance: snapshot.remainingCredits,
-          observedAt: snapshot.observedAt, period: snapshot.billingPeriod,
-        }, durableCredits: 0 }),
+        rawLedger: (snapshot: ProviderUsageSnapshot) => ({
+          snapshot: {
+            allowance: snapshot.totalCredits,
+            balance: snapshot.remainingCredits,
+            observedAt: snapshot.observedAt,
+            period: snapshot.billingPeriod,
+          },
+          durableCredits: 0,
+        }),
         rawAuthority: (snapshot: { remainingCredits: number | null }) => ({
           fingerprint: "0".repeat(64),
           headroom: snapshot.remainingCredits,

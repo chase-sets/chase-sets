@@ -9,13 +9,21 @@ export const syntheticPeriod = {
   overageCreditsConsumed: 0,
 };
 export const periodReserve = (runId = "synthetic-dispatch", credits: number | null = 0) => ({
-  runId, startsAt: syntheticPeriod.startsAt, endsAt: syntheticPeriod.endsAt, observedAt: periodAt, credits,
+  runId,
+  startsAt: syntheticPeriod.startsAt,
+  endsAt: syntheticPeriod.endsAt,
+  observedAt: periodAt,
+  credits,
 });
 export function periodGateForTest() {
   if (process.env.SCRYDEX_PERIOD_MUTANT !== "bypass-period-cap") return period.evaluateScrydexBillingPeriod;
   return guardDisabledMutant<typeof period.evaluateScrydexBillingPeriod>(
     "../domain/scrydex-billing-period.ts",
-    ["consumed + unreflected + plannedCredits <= scrydexPeriodCap", "consumed + unreflected + plannedCredits <= Number.MAX_SAFE_INTEGER"],
-    "evaluateScrydexBillingPeriod", { z },
+    [
+      "consumed + unreflected + plannedCredits <= scrydexPeriodCap",
+      "consumed + unreflected + plannedCredits <= Number.MAX_SAFE_INTEGER",
+    ],
+    "evaluateScrydexBillingPeriod",
+    { z },
   );
 }

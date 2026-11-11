@@ -202,11 +202,18 @@ const runSchema = z
     baseline: baselineSchema.nullable(),
     notice: noticeSchema.nullable(),
     usage: usageSchema.nullable(),
-    periodLedger: z.object({
-      plannedCredits: count,
-      decision: scrydexPeriodDecisionSchema.nullable(),
-      terminal: z.object({ outcome: z.enum(["complete", "refused", "uncertain"]), at: instant, unreflectedCredits: count }).strict().nullable(),
-    }).strict().nullable().default(null),
+    periodLedger: z
+      .object({
+        plannedCredits: count,
+        decision: scrydexPeriodDecisionSchema.nullable(),
+        terminal: z
+          .object({ outcome: z.enum(["complete", "refused", "uncertain"]), at: instant, unreflectedCredits: count })
+          .strict()
+          .nullable(),
+      })
+      .strict()
+      .nullable()
+      .default(null),
     authority: countCaptureAuthoritySchema.nullable().default(null),
     quote: countQuoteSchema.nullable().default(null),
     quoteUsage: countLifecycleReceiptSchema.shape.usage.nullable().default(null),
@@ -427,10 +434,16 @@ export function createCountCaptureStore(pool: PgTransactionalPool, now = () => n
         const phase = binding.phase;
         if (run.authority && phase !== "bootstrap") {
           const decision = run.periodLedger?.decision;
-          if (!decision?.admitted || run.periodLedger?.terminal ||
-            decision.observedAt === null || Date.parse(now()) - Date.parse(decision.observedAt) > 900_000 ||
-            !decision.period || Date.parse(now()) >= Date.parse(decision.period.endsAt) ||
-            run.sends.length >= decision.plannedCredits) throw new CountCaptureStopped();
+          if (
+            !decision?.admitted ||
+            run.periodLedger?.terminal ||
+            decision.observedAt === null ||
+            Date.parse(now()) - Date.parse(decision.observedAt) > 900_000 ||
+            !decision.period ||
+            Date.parse(now()) >= Date.parse(decision.period.endsAt) ||
+            run.sends.length >= decision.plannedCredits
+          )
+            throw new CountCaptureStopped();
         }
         const inPhase = run.sends.filter((entry) => entry.phase === phase);
         if (run.sends.length >= countCaptureSendCap || inPhase.length >= countCapturePhaseCaps[phase])
@@ -540,7 +553,9 @@ export function createCountCaptureStore(pool: PgTransactionalPool, now = () => n
           baseline: null,
           notice: null,
           usage: null,
-          periodLedger: input.authority ? { plannedCredits: countCaptureSendCap, decision: null, terminal: null } : null,
+          periodLedger: input.authority
+            ? { plannedCredits: countCaptureSendCap, decision: null, terminal: null }
+            : null,
         });
         await append(db, run);
         return run;
@@ -593,10 +608,18 @@ export function createCountCaptureStore(pool: PgTransactionalPool, now = () => n
     recordPeriodDecision: (binding: CountCaptureBinding, decision: ScrydexPeriodDecision) =>
       mutate(binding.runId, (run) => {
         bound(run, binding);
-        if (binding.phase !== "bootstrap" || run.periodLedger?.decision || decision.runId !== run.host.dispatchId ||
-          decision.plannedCredits !== countCaptureSendCap)
+        if (
+          binding.phase !== "bootstrap" ||
+          run.periodLedger?.decision ||
+          decision.runId !== run.host.dispatchId ||
+          decision.plannedCredits !== countCaptureSendCap
+        )
           throw new CountCaptureStopped();
-        run.periodLedger = { plannedCredits: decision.plannedCredits, decision: scrydexPeriodDecisionSchema.parse(decision), terminal: null };
+        run.periodLedger = {
+          plannedCredits: decision.plannedCredits,
+          decision: scrydexPeriodDecisionSchema.parse(decision),
+          terminal: null,
+        };
       }),
     bindQuote: (
       binding: CountCaptureBinding,
@@ -754,12 +777,17 @@ export function createCountCaptureStore(pool: PgTransactionalPool, now = () => n
         const run = parseRun(result.rows[0]?.payload);
         if (run.ownerHash !== ownerHash || run.status === "frozen" || run.host.dispatchId !== input.dispatchId)
           throw new CountCaptureStopped();
-        const sealed = parseRun(terminal({
-          ...run,
-          status: "frozen",
-          frozenAt: now(),
-          seal: { from: run.status, runnerRunId: input.runnerRunId, runnerRunAttempt: input.runnerRunAttempt },
-        }, run.status === "open" && run.reads.length === 2 && run.sends.every((send) => send.status === 200)));
+        const sealed = parseRun(
+          terminal(
+            {
+              ...run,
+              status: "frozen",
+              frozenAt: now(),
+              seal: { from: run.status, runnerRunId: input.runnerRunId, runnerRunAttempt: input.runnerRunAttempt },
+            },
+            run.status === "open" && run.reads.length === 2 && run.sends.every((send) => send.status === 200),
+          ),
+        );
         await append(db, sealed);
         return sealed;
       }),

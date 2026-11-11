@@ -98,9 +98,13 @@ function runnerInput(overrides = {}) {
       origin: "admin.staging.chasesets.com",
     },
     now: () => "2026-10-21T00:00:00.000Z",
+    dispatchId: "synthetic-refresh-dispatch",
     periodReserve: {
-      runId: "1:1", startsAt: "2026-10-01T00:00:00.000Z", endsAt: "2026-11-01T00:00:00.000Z",
-      observedAt: "2026-10-21T00:00:00.000Z", credits: 0,
+      runId: "synthetic-refresh-dispatch",
+      startsAt: "2026-10-01T00:00:00.000Z",
+      endsAt: "2026-11-01T00:00:00.000Z",
+      observedAt: "2026-10-21T00:00:00.000Z",
+      credits: 0,
     },
     selectDeployment: async () => ({ deployedHead: sha, imageDigest }),
     signIn: async () => {},
@@ -117,7 +121,11 @@ function runnerInput(overrides = {}) {
                   freshness: "fresh",
                   creditBalance: 4000,
                   creditAllowance: 5000,
-                  billingPeriod: { startsAt: "2026-10-01T00:00:00.000Z", endsAt: "2026-11-01T00:00:00.000Z", overageCreditsConsumed: 0 },
+                  billingPeriod: {
+                    startsAt: "2026-10-01T00:00:00.000Z",
+                    endsAt: "2026-11-01T00:00:00.000Z",
+                    overageCreditsConsumed: 0,
+                  },
                   observedAt: "2026-10-21T00:00:00.000Z",
                 },
               },
@@ -178,16 +186,25 @@ it("runs five injected route-shaped profile reads and five bounded option reads"
 it("refuses the period cap and unknown cross-path reserve before any forced read", async () => {
   for (const reserve of [undefined, { ...runnerInput().periodReserve, credits: 45 }]) {
     const base = runnerInput();
-    const input = runnerInput({ periodReserve: reserve, read: async (path) => {
-      const response = await base.read(path);
-      if (path.includes("integration-control-plane")) Object.assign(response.providerReadiness.providers[0].usageBudget, {
-        creditAllowance: 100_000, creditBalance: 50_100,
-      });
-      return response;
-    } });
+    const input = runnerInput({
+      periodReserve: reserve,
+      read: async (path) => {
+        const response = await base.read(path);
+        if (path.includes("integration-control-plane"))
+          Object.assign(response.providerReadiness.providers[0].usageBudget, {
+            creditAllowance: 100_000,
+            creditBalance: 50_100,
+          });
+        return response;
+      },
+    });
     const receipt = await runScrydexOptionRefresh(input);
-    expect(receipt).toMatchObject({ outcome: "refused", reason: "usage-period-cap", requests: { forced: 0 },
-      periodLedger: { decision: { plannedCredits: 56 }, outcome: "refused" } });
+    expect(receipt).toMatchObject({
+      outcome: "refused",
+      reason: "usage-period-cap",
+      requests: { forced: 0 },
+      periodLedger: { decision: { plannedCredits: 56 }, outcome: "refused" },
+    });
     expect(base.forcedReads).toEqual([]);
   }
 });
@@ -195,12 +212,19 @@ it("refuses the period cap and unknown cross-path reserve before any forced read
 it("rechecks observation freshness at the forced-send boundary", async () => {
   let at = "2026-10-21T00:00:00.000Z";
   const base = runnerInput();
-  const input = runnerInput({ now: () => at, read: async (path) => {
-    const response = await base.read(path);
-    if (path.includes("provider-profiles")) at = "2026-10-21T00:15:00.001Z";
-    return response;
-  } });
-  expect(await runScrydexOptionRefresh(input)).toMatchObject({ outcome: "refused", reason: "usage-period-cap", requests: { forced: 0 } });
+  const input = runnerInput({
+    now: () => at,
+    read: async (path) => {
+      const response = await base.read(path);
+      if (path.includes("provider-profiles")) at = "2026-10-21T00:15:00.001Z";
+      return response;
+    },
+  });
+  expect(await runScrydexOptionRefresh(input)).toMatchObject({
+    outcome: "refused",
+    reason: "usage-period-cap",
+    requests: { forced: 0 },
+  });
   expect(base.forcedReads).toEqual([]);
 });
 

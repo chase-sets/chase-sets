@@ -251,7 +251,11 @@ describe("Catalog provider usage budget read model", () => {
     expect(await scrydexBudget(provider.registry)).toEqual({
       creditBalance: 41_234,
       creditAllowance: 50_000,
-      billingPeriod: { startsAt: "2026-09-22T19:39:46.000Z", endsAt: "2026-10-22T19:39:46.000Z", overageCreditsConsumed: 0 },
+      billingPeriod: {
+        startsAt: "2026-09-22T19:39:46.000Z",
+        endsAt: "2026-10-22T19:39:46.000Z",
+        overageCreditsConsumed: 0,
+      },
       creditUnit: "credits",
       readiness: "ready",
       freshness: "fresh",

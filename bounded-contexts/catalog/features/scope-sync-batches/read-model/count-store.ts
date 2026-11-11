@@ -596,7 +596,9 @@ export function createCountStore(db: PgTransactionalPool, slot: string, now = ()
     slot,
     async periodLedger(runId: string) {
       const current = await ledger();
-      const since = current.observedAt ? new Date(Date.parse(current.observedAt) - SCRYDEX_USAGE_LAG_MS).toISOString() : null;
+      const since = current.observedAt
+        ? new Date(Date.parse(current.observedAt) - SCRYDEX_USAGE_LAG_MS).toISOString()
+        : null;
       const usage = await db.query<{ credits: string; uncertain: string }>(
         `SELECT count(*)::text AS credits,
         (SELECT count(*) FROM catalog_scope_sync_count_history d
@@ -620,8 +622,12 @@ export function createCountStore(db: PgTransactionalPool, slot: string, now = ()
           observedAt: current.observedAt,
           period: current.snapshot?.billingPeriod,
         },
-        durableCredits: current.unreflectedCredits !== null && Number.isSafeInteger(usageCredits) && Number.isSafeInteger(uncertainCredits)
-          ? current.unreflectedCredits + usageCredits + uncertainCredits : null,
+        durableCredits:
+          current.unreflectedCredits !== null &&
+          Number.isSafeInteger(usageCredits) &&
+          Number.isSafeInteger(uncertainCredits)
+            ? current.unreflectedCredits + usageCredits + uncertainCredits
+            : null,
       };
     },
     read,

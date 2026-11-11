@@ -3,11 +3,20 @@ import { periodAt, syntheticPeriod, periodReserve, periodGateForTest } from "../
 
 describe("count billing-period admission", () => {
   const gate = periodGateForTest();
-  const input = () => ({ snapshot: { allowance: 100_000, balance: 50_011, observedAt: periodAt, period: syntheticPeriod },
-    reserve: periodReserve(), durableCredits: 0, plannedCredits: 11, runId: "synthetic-dispatch", now: periodAt });
+  const input = () => ({
+    snapshot: { allowance: 100_000, balance: 50_011, observedAt: periodAt, period: syntheticPeriod },
+    reserve: periodReserve(),
+    durableCredits: 0,
+    plannedCredits: 11,
+    runId: "synthetic-dispatch",
+    now: periodAt,
+  });
   it("period-cap boundary derives consumed credits from count totals", () => {
     expect(gate(input())).toMatchObject({ admitted: true, consumedCredits: 49_989, plannedCredits: 11 });
-    expect(gate({ ...input(), snapshot: { ...input().snapshot, balance: 50_010 } })).toMatchObject({ admitted: false, reason: "usage-period-cap" });
+    expect(gate({ ...input(), snapshot: { ...input().snapshot, balance: 50_010 } })).toMatchObject({
+      admitted: false,
+      reason: "usage-period-cap",
+    });
   });
   it("unknown durable U is never zero and host reserve is additional to durable commitments", () => {
     expect(gate({ ...input(), durableCredits: null })).toMatchObject({ admitted: false, unreflectedCredits: null });

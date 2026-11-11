@@ -47,7 +47,11 @@ export async function createCountCaptureDbFixture(pool: PgTransactionalPool) {
     remainingCredits: 100,
     totalCredits: 100,
     usedCredits: 0,
-    billingPeriod: { startsAt: "2026-01-01T00:00:00.000Z", endsAt: "2027-01-01T00:00:00.000Z", overageCreditsConsumed: 0 },
+    billingPeriod: {
+      startsAt: "2026-01-01T00:00:00.000Z",
+      endsAt: "2027-01-01T00:00:00.000Z",
+      overageCreditsConsumed: 0,
+    },
     observedAt: captureAt,
     attemptedAt: captureAt,
     attemptState: "checked",

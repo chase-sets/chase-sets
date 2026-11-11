@@ -104,7 +104,11 @@ describe("Scrydex usage snapshot boundary", () => {
       totalCredits: 50_000,
       remainingCredits: 41_234,
       usedCredits: 8_766,
-      billingPeriod: { startsAt: "2026-09-22T19:39:46.000Z", endsAt: "2026-10-22T19:39:46.000Z", overageCreditsConsumed: 0 },
+      billingPeriod: {
+        startsAt: "2026-09-22T19:39:46.000Z",
+        endsAt: "2026-10-22T19:39:46.000Z",
+        overageCreditsConsumed: 0,
+      },
       observedAt: observedAt.toISOString(),
       attemptedAt: observedAt.toISOString(),
       attemptState: "checked",

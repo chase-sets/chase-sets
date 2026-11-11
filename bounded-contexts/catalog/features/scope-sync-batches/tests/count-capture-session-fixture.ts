@@ -180,9 +180,15 @@ export function freshCaptureAuthority(nowMs: number, dispatchId = "synthetic-dis
     ...authority,
     dispatchId,
     dispatchedAt: at(-60_000),
-    budget: { ...authority.budget, observedAt: at(-60_000), periodReserve: {
-      ...authority.budget.periodReserve, runId: dispatchId, observedAt: at(-60_000),
-    } },
+    budget: {
+      ...authority.budget,
+      observedAt: at(-60_000),
+      periodReserve: {
+        ...authority.budget.periodReserve,
+        runId: dispatchId,
+        observedAt: at(-60_000),
+      },
+    },
     deployment: { ...authority.deployment, startedAt, completedAt: at(-15 * 60_000) },
     pods: { ...authority.pods, observedAt: at(-50_000) },
     collection: { ...authority.collection, collectedAt: at(-40_000), createdFrom: countCaptureSearchFrom(startedAt) },
@@ -277,11 +283,20 @@ export function createCaptureAuthorityFixture(input: { retained?: number | null;
     retained = null;
     seeded = null;
   };
-  return { authority, retainUsage, forget, periodLedger: async () => ({
-    snapshot: { allowance: retained?.totalCredits ?? null, balance: retained?.remainingCredits,
-      observedAt: retained?.observedAt ?? null, period: retained?.billingPeriod },
-    durableCredits: 0,
-  }) };
+  return {
+    authority,
+    retainUsage,
+    forget,
+    periodLedger: async () => ({
+      snapshot: {
+        allowance: retained?.totalCredits ?? null,
+        balance: retained?.remainingCredits,
+        observedAt: retained?.observedAt ?? null,
+        period: retained?.billingPeriod,
+      },
+      durableCredits: 0,
+    }),
+  };
 }
 
 // The real Scrydex adapter's usage path over a counting synthetic transport.

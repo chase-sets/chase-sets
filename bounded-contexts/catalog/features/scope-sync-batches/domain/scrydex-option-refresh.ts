@@ -1,5 +1,9 @@
 import { z } from "zod";
-import { evaluateScrydexBillingPeriod, scrydexPeriodDecisionSchema, type ScrydexPeriodDecision } from "./scrydex-billing-period";
+import {
+  evaluateScrydexBillingPeriod,
+  scrydexPeriodDecisionSchema,
+  type ScrydexPeriodDecision,
+} from "./scrydex-billing-period";
 import {
   scrydexCacheCaptureOrigin,
   scrydexCacheCaptureUnits,
@@ -90,11 +94,15 @@ const receipt = z
     units: z.array(unit).length(5),
     creditsSpentUpperBound: z.number().int().min(0).max(56),
     assumptions: z.array(z.string().min(1).max(300)).max(10),
-    periodLedger: z.object({
-      decision: scrydexPeriodDecisionSchema,
-      outcome: z.enum(["complete", "refused", "uncertain"]),
-      unreflectedCredits: z.number().int().min(0).max(56),
-    }).strict().nullable().optional(),
+    periodLedger: z
+      .object({
+        decision: scrydexPeriodDecisionSchema,
+        outcome: z.enum(["complete", "refused", "uncertain"]),
+        unreflectedCredits: z.number().int().min(0).max(56),
+      })
+      .strict()
+      .nullable()
+      .optional(),
   })
   .strict();
 
@@ -213,9 +221,14 @@ export function evaluateScrydexOptionRefreshAdmission(input: {
     runId: input.runId ?? "",
     now: input.now ?? "",
   });
-  return decision.admitted ? { ...usage, decision } : {
-    admitted: false, reason: "usage-period-cap", preflight: usage.preflight, decision,
-  };
+  return decision.admitted
+    ? { ...usage, decision }
+    : {
+        admitted: false,
+        reason: "usage-period-cap",
+        preflight: usage.preflight,
+        decision,
+      };
 }
 
 export type ScrydexOptionRefreshRequest = Readonly<{ method: string; url: string; unitKey?: string | null }>;

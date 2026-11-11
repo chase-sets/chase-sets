@@ -382,7 +382,7 @@ function projectUsageBudget(
   return {
     creditBalance: displayable ? snapshot.remainingCredits : null,
     creditAllowance: displayable ? snapshot.totalCredits : null,
-    billingPeriod: displayable ? snapshot.billingPeriod ?? null : null,
+    billingPeriod: displayable ? (snapshot.billingPeriod ?? null) : null,
     creditUnit: snapshot.creditUnit,
     readiness: usageBudgetReadiness(snapshot, freshness),
     freshness,
