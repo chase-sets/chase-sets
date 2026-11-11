@@ -1,7 +1,5 @@
-/* corten ui 0.1.0: status_dot 84dee973d1ce377c */
-/* The design system's status dot, h-1.5 w-1.5 (ConnectionStatusIndicator), until the kit reads its
-   size from the theme (corten-run/corten#1199). */
-.dot { display: inline-block; flex: none; width: .375rem; height: .375rem; border-radius: 50%; background: var(--kit-tone); }
+/* corten ui 0.1.0: status_dot ae21de6e3135828a */
+.dot { display: inline-block; flex: none; width: var(--status-dot-size); height: var(--status-dot-size); border-radius: 50%; background: var(--kit-tone); }
 /* The text's color, so a dot in a badge is the badge's: its words' color, which shows on a solid fill. */
 .text { --kit-tone: currentColor; }
 .neutral { --kit-tone: var(--muted-foreground); }

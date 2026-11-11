@@ -40,6 +40,7 @@ export function changed(event) {
     let parent = select.selectedOptions[0]?.dataset.parent ?? "";
     for (let i = at - 1; i >= 0 && parent; i -= 1) {
       const above = all[i];
+      if (!above) break;
       if (Array.from(above.options).some((o) => o.value === parent)) above.value = parent;
       parent = above.selectedOptions[0]?.dataset.parent ?? "";
     }

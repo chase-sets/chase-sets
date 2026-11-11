@@ -629,6 +629,8 @@ function tokens() {
     // font-semibold, the chosen one text-accent, the kit's --primary.
     "tab-font-weight": { $type: "fontWeight", $value: 600 },
     "tab-selected-color": { $type: "color", $value: "{primary}" },
+    // The design system's status dot, h-1.5 w-1.5 (ConnectionStatusIndicator).
+    "status-dot-size": { $type: "dimension", $value: dtcgDimension("0.375rem") },
   };
   return {
     base,
