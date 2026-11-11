@@ -82,6 +82,9 @@ Commands must:
 3. Accept unresolved provider evidence only as Catalog review/provenance state, not as downstream truth.
 4. Keep Product Content Type and Inclusion Policy references configurable and product-line agnostic.
 5. Reject self-containment and cycles that would make downstream traversal ambiguous.
+6. Authoring mutations require the numeric `expectedVersion` returned by the complete-stream authoring snapshot. A stale replacement, removal, no-op, or projection repair rejects with `concurrency_conflict`; callers must refresh rather than retry stale intent.
+
+The authoring snapshot at `GET /product-contents/containers/:id/authoring` binds the matching resolved fact (or an empty line set) to the terminal version of `catalog.product-contents-<containerId>`. Projection rows are not used as a revision token. Successful mutations return the committed fact and version so the Catalog Item detail surface can continue from the command response while projections catch up.
 
 ## Edge Cases
 

@@ -1,10 +1,17 @@
 // @vitest-environment jsdom
 
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { ChaseRoot } from "@chase-sets/design-system";
 import { renderToString } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CatalogItemDetailPage, parseSelectedOptionsInput } from "./catalog-item-detail-page";
-import type { CatalogItemDetail, CatalogReferenceRecordRef } from "./contracts";
+import type {
+  CatalogItemDetail,
+  CatalogReferenceRecordRef,
+  ProductContentLineDetail,
+  ProductContentLineInput,
+} from "./contracts";
 
 beforeEach(() => {
   stubCatalogFetches();
@@ -525,6 +532,135 @@ describe("CatalogItemDetailPage", () => {
       expect(screen.getByRole("button", { name: /^Contents/ }).textContent).toContain("No Product Contents."),
     );
   });
+
+  it.each(["add", "remove"] as const)(
+    "stale add and remove refresh without replay or lost concurrent lines: %s",
+    async (action) => {
+      const user = userEvent.setup();
+      const pack: ProductContentLineDetail = {
+        lineId: "pcl_pack",
+        containerCatalogItemId: "cat_1",
+        containerSelectedOptions: null,
+        containerProductId: null,
+        containedCatalogItemId: "cat_pack",
+        containedSelectedOptions: null,
+        containedProductId: null,
+        quantity: 1,
+        contentTypeId: "pct_pack",
+        inclusionPolicyId: "pcp_guaranteed",
+        provenance: { source: "operator" },
+        resolutionStatus: "resolved",
+        targetLifecycleStatus: "active",
+        resolvedFactHash: "hash",
+        resolverVersion: 1,
+        resolvedAt: "2026-07-01T00:00:00.000Z",
+        updatedAt: "2026-07-01T00:00:00.000Z",
+      };
+      const box = { ...pack, lineId: "pcl_box", containedCatalogItemId: "cat_box", quantity: 3 };
+      const fetch = stubCatalogFetches({ contentLines: [pack, box] });
+      const fallbackFetch = fetch.getMockImplementation()!;
+      let lines = [pack, box];
+      let version = 2;
+      let authoringReads = 0;
+      const writes: { lines: ProductContentLineInput[]; expectedVersion: number }[] = [];
+      const respond = (body: unknown, status = 200) =>
+        Promise.resolve(
+          new Response(JSON.stringify(body), {
+            status,
+            headers: { "content-type": "application/json" },
+          }),
+        );
+      fetch.mockImplementation((request, init) => {
+        const url = String(request);
+        if (url.endsWith("/product-contents/containers/cat_1/authoring")) {
+          authoringReads += 1;
+          return respond({ lines, version });
+        }
+        if (url.endsWith("/product-contents/containers/cat_1") && init?.method === "PUT") {
+          const body = JSON.parse(String(init.body)) as (typeof writes)[number];
+          writes.push(body);
+          if (body.expectedVersion !== version) {
+            return respond({ error: { message: "Product Contents changed in another tab." } }, 409);
+          }
+          version += 2;
+          lines = body.lines.map((line, index) => ({ ...pack, ...line, lineId: `pcl_${index}` }));
+          return respond({ lines, version });
+        }
+        return fallbackFetch(request, init);
+      });
+
+      render(
+        <ChaseRoot reducedMotion="always">
+          <CatalogItemDetailPage id="cat_1" initialData={catalogItem} />
+        </ChaseRoot>,
+      );
+      await waitFor(() => expect(screen.getByText("2 content lines")).toBeTruthy());
+      fireEvent.click(screen.getByRole("button", { name: /^Contents/ }));
+      const remove = (title: string) => {
+        const row = screen
+          .getAllByText(title)
+          .map((element) => element.closest("tr"))
+          .find(Boolean)!;
+        fireEvent.click(within(row).getByRole("button", { name: "Remove" }));
+      };
+      // Establish a command snapshot that must be invalidated after the later conflict.
+      remove("Sealed Box");
+      await waitFor(() =>
+        expect(screen.getByRole("button", { name: /^Contents/ }).textContent).toContain("1 content lines"),
+      );
+      await waitFor(() => expect(authoringReads).toBe(2));
+      lines = [...lines, box];
+      version = 6;
+
+      if (action === "add") {
+        fireEvent.click(screen.getByRole("button", { name: "Add content line" }));
+        const dialog = screen.getByRole("dialog", { name: "Add content line" });
+        const target = within(dialog).getByRole("combobox", { name: "Contained Catalog Item" });
+        await user.click(within(target.parentElement!).getByRole("button"));
+        await user.click(await screen.findByRole("option", { name: /Booster pack/ }));
+        fireEvent.change(within(dialog).getByLabelText("Quantity"), { target: { value: "7" } });
+        fireEvent.change(within(dialog).getByLabelText("Selected Options"), { target: { value: "language:en" } });
+        fireEvent.click(within(dialog).getByRole("button", { name: "Add content line" }));
+      } else {
+        remove("Booster pack");
+      }
+      await waitFor(() =>
+        expect(
+          screen
+            .getAllByRole("alert")
+            .some((alert) => alert.textContent === "Product Contents changed in another tab."),
+        ).toBe(true),
+      );
+      expect(writes).toHaveLength(2);
+      expect(writes[1]?.expectedVersion).toBe(4);
+      await waitFor(() => expect(authoringReads).toBe(3));
+      await waitFor(() => expect(screen.getByText("2 content lines")).toBeTruthy());
+      expect(screen.getAllByText("Sealed Box").length).toBeGreaterThan(0);
+      expect(writes).toHaveLength(2);
+      expect(version).toBe(6);
+
+      if (action === "add") {
+        const dialog = screen.getByRole("dialog", { name: "Add content line" });
+        expect((within(dialog).getByLabelText("Quantity") as HTMLInputElement).value).toBe("7");
+        expect((within(dialog).getByLabelText("Selected Options") as HTMLInputElement).value).toBe("language:en");
+        expect(
+          (within(dialog).getByRole("combobox", { name: "Contained Catalog Item" }) as HTMLInputElement).value,
+        ).toContain("Booster pack");
+        fireEvent.click(within(dialog).getByRole("button", { name: "Add content line" }));
+        await waitFor(() => expect(screen.queryByRole("dialog", { name: "Add content line" })).toBeNull());
+      } else {
+        remove("Booster pack");
+      }
+      await waitFor(() => expect(writes).toHaveLength(3));
+      expect(writes[2]?.expectedVersion).toBe(6);
+      expect(writes[2]?.lines).toContainEqual(
+        expect.objectContaining({ containedCatalogItemId: "cat_box", quantity: 3 }),
+      );
+      expect(writes[2]?.lines).toHaveLength(action === "add" ? 3 : 1);
+      expect(lines).toContainEqual(expect.objectContaining({ containedCatalogItemId: "cat_box", quantity: 3 }));
+      expect(version).toBe(8);
+    },
+  );
 
   it("omits blank Product Contents selected options", () => {
     expect(parseSelectedOptionsInput("")).toBeUndefined();

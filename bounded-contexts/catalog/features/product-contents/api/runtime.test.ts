@@ -1,9 +1,16 @@
 import { describe, expect, it, vi } from "vitest";
 import type { EventStore } from "@chase-sets/event-core/event-store";
-import type { AppendToStreamInput, ReadAllInput, ReadStreamInput, StoredEvent } from "@chase-sets/event-core/storage";
+import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
+import type { AppendToStreamInput, ReadStreamInput, StoredEvent } from "@chase-sets/event-core/storage";
 import { ZERO_GLOBAL_POSITION } from "@chase-sets/event-core/storage";
+import { EVENT_STORE_READ_PAGE_SIZE_MAX } from "@chase-sets/event-core/storage";
 import type { ProjectionCheckpointStore } from "@chase-sets/event-core/projector";
-import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import type {
+  PgPoolClient,
+  PgQueryable,
+  PgTransactionalPool,
+  PostgresEventStore,
+} from "@chase-sets/event-core-postgres";
 import { localizedTextMapFromEnglish } from "../../../support/runtime-support/common";
 import { createProductContentRuntime } from "./runtime";
 
@@ -215,17 +222,23 @@ function storedEvent(streamVersion: number, eventType: string, payload: StoredEv
 function createEventStore(existingEvents: readonly StoredEvent[] = []) {
   const appended: AppendToStreamInput[] = [];
   const reads: ReadStreamInput[] = [];
+  const store = createInMemoryEventStore();
+  if (existingEvents.length > 0) {
+    store.streams.set(existingEvents[0]?.streamId ?? "catalog.product-contents-cat_box", [...existingEvents]);
+    store.allEvents.push(...existingEvents);
+  }
+  const originalAppend = store.eventStore.appendToStream;
+  const originalRead = store.eventStore.readStream;
   const eventStore: EventStore = {
+    ...store.eventStore,
     appendToStream: vi.fn(async (input: AppendToStreamInput) => {
       appended.push(input);
-      return [];
+      return originalAppend(input);
     }),
     readStream: async (input: ReadStreamInput): Promise<StoredEvent[]> => {
       reads.push(input);
-      const fromIndex = (input.fromVersion ?? 1) - 1;
-      return existingEvents.slice(fromIndex, fromIndex + (input.limit ?? 500));
+      return [...(await originalRead(input))];
     },
-    readAll: async (_input?: ReadAllInput): Promise<StoredEvent[]> => [],
   };
   return { eventStore, appended, reads };
 }
@@ -243,6 +256,298 @@ const context = {
 };
 
 describe("product content runtime", () => {
+  it("authoring snapshot binds lines and version across empty, cleared and paged streams", async () => {
+    const { db, resolved } = createContentDb([
+      {
+        catalog_item_id: "cat_box",
+        status: "active",
+        blueprint_id: "bp_plain",
+        canonical_dimension_order: ["language"],
+        dimension_rules: [
+          { dimensionId: "language", required: false, allowedOptions: [{ optionId: "en" }, { optionId: "ja" }] },
+        ],
+      },
+      {
+        catalog_item_id: "cat_card",
+        status: "active",
+        blueprint_id: "bp_plain",
+        canonical_dimension_order: [],
+        dimension_rules: [],
+      },
+    ]);
+    const { eventStore, reads } = createEventStore();
+    const services = createProductContentRuntime({ db, eventStore, checkpointStore: createCheckpointStore() });
+    const en = [{ dimensionId: "language", optionId: "en" }];
+    const ja = [{ dimensionId: "language", optionId: "ja" }];
+    const line = { containedCatalogItemId: "cat_card" as never, quantity: 1, contentTypeId: "pct_card" };
+    await services.upsertContentType({
+      contentTypeId: "pct_card",
+      key: "card",
+      displayName: localizedTextMapFromEnglish("Card"),
+    });
+    await expect(services.readProductContentsAuthoringState("cat_box")).resolves.toMatchObject({
+      lines: [],
+      version: 0,
+    });
+    await services.replaceProductContents(
+      { containerCatalogItemId: "cat_box" as never, containerSelectedOptions: en, expectedVersion: 0, lines: [line] },
+      context,
+    );
+    await services.replaceProductContents(
+      {
+        containerCatalogItemId: "cat_box" as never,
+        containerSelectedOptions: ja,
+        expectedVersion: 2,
+        lines: [{ ...line, quantity: 2 }],
+      },
+      context,
+    );
+    resolved.clear();
+    await expect(services.readProductContentsAuthoringState("cat_box", en)).resolves.toMatchObject({
+      containerSelectedOptions: en,
+      lines: [{ quantity: 1 }],
+      version: 4,
+    });
+    await expect(services.readProductContentsAuthoringState("cat_box")).resolves.toMatchObject({
+      lines: [],
+      version: 4,
+    });
+    await services.removeProductContents(
+      { containerCatalogItemId: "cat_box" as never, containerSelectedOptions: ja, expectedVersion: 4 },
+      context,
+    );
+    await expect(services.readProductContentsAuthoringState("cat_box", ja)).resolves.toMatchObject({
+      lines: [],
+      version: 6,
+    });
+    await eventStore.appendToStream({
+      streamId: "catalog.product-contents-cat_box",
+      expectedVersion: 6,
+      context,
+      events: Array.from({ length: EVENT_STORE_READ_PAGE_SIZE_MAX }, () => ({
+        eventType: "catalog.product-contents.replaced",
+        payload: {},
+      })),
+    });
+    const terminalVersion = 6 + EVENT_STORE_READ_PAGE_SIZE_MAX + 2;
+    await services.replaceProductContents(
+      {
+        containerCatalogItemId: "cat_box" as never,
+        containerSelectedOptions: en,
+        expectedVersion: terminalVersion - 2,
+        lines: [{ ...line, quantity: 9 }],
+      },
+      context,
+    );
+    resolved.clear();
+    reads.length = 0;
+    await expect(services.readProductContentsAuthoringState("cat_box", en)).resolves.toMatchObject({
+      lines: [{ quantity: 9 }],
+      version: terminalVersion,
+    });
+    expect(reads.map(({ fromVersion, limit }) => ({ fromVersion, limit }))).toEqual([
+      { fromVersion: 1, limit: EVENT_STORE_READ_PAGE_SIZE_MAX },
+      { fromVersion: EVENT_STORE_READ_PAGE_SIZE_MAX + 1, limit: EVENT_STORE_READ_PAGE_SIZE_MAX },
+    ]);
+    await expect(services.readProductContentsAuthoringState("cat_box", ja)).resolves.toMatchObject({
+      lines: [],
+      version: terminalVersion,
+    });
+    await expect(services.readProductContentsAuthoringState("cat_box")).resolves.toMatchObject({
+      lines: [],
+      version: terminalVersion,
+    });
+    expect(resolved.size).toBe(0);
+  });
+
+  it("stale product contents commands cannot replace, clear or repair newer contents", async () => {
+    const { db, resolved } = createContentDb([
+      {
+        catalog_item_id: "cat_box",
+        status: "active",
+        blueprint_id: "bp_plain",
+        canonical_dimension_order: [],
+        dimension_rules: [],
+      },
+      {
+        catalog_item_id: "cat_card",
+        status: "active",
+        blueprint_id: "bp_plain",
+        canonical_dimension_order: [],
+        dimension_rules: [],
+      },
+    ]);
+    const { eventStore, appended } = createEventStore();
+    const services = createProductContentRuntime({ db, eventStore, checkpointStore: createCheckpointStore() });
+    await services.upsertContentType({
+      contentTypeId: "pct_card",
+      key: "card",
+      displayName: localizedTextMapFromEnglish("Card"),
+    });
+    const input = {
+      containerCatalogItemId: "cat_box" as never,
+      expectedVersion: 0,
+      lines: [{ containedCatalogItemId: "cat_card" as never, quantity: 1, contentTypeId: "pct_card" }],
+    };
+    const snapshot = await services.readProductContentsAuthoringState("cat_box");
+    const first = await services.replaceProductContents({ ...input, expectedVersion: snapshot.version }, context);
+    const retainedRows = [...resolved.entries()];
+    const retainedEvents = await eventStore.readStream({ streamId: "catalog.product-contents-cat_box" });
+    for (const lines of [[{ ...input.lines[0]!, quantity: 2 }], input.lines, []]) {
+      await expect(
+        services.replaceProductContents({ ...input, expectedVersion: snapshot.version, lines }, context),
+      ).rejects.toMatchObject({ code: "concurrency_conflict" });
+      expect([...resolved.entries()]).toEqual(retainedRows);
+      expect(appended).toHaveLength(1);
+      await expect(eventStore.readStream({ streamId: "catalog.product-contents-cat_box" })).resolves.toEqual(
+        retainedEvents,
+      );
+    }
+    await expect(
+      services.removeProductContents(
+        { containerCatalogItemId: input.containerCatalogItemId, expectedVersion: snapshot.version },
+        context,
+      ),
+    ).rejects.toMatchObject({ code: "concurrency_conflict" });
+    expect([...resolved.entries()]).toEqual(retainedRows);
+    resolved.clear();
+    vi.mocked(db.query).mockClear();
+    await expect(services.replaceProductContents(input, context)).rejects.toMatchObject({
+      code: "concurrency_conflict",
+    });
+    expect(resolved.size).toBe(0);
+    expect(db.query).not.toHaveBeenCalledWith(
+      expect.stringContaining("DELETE FROM catalog_resolved_product_contents"),
+      expect.anything(),
+    );
+    await expect(
+      services.replaceProductContents({ ...input, expectedVersion: first.version }, context),
+    ).resolves.toMatchObject({ version: first.version });
+    expect(resolved.size).toBe(1);
+    expect(appended).toHaveLength(1);
+
+    const append = eventStore.appendToStream;
+    vi.spyOn(eventStore, "appendToStream").mockImplementationOnce(async (command) => {
+      await services.replaceProductContents(
+        { ...input, expectedVersion: first.version, lines: [{ ...input.lines[0]!, quantity: 3 }] },
+        context,
+      );
+      return append(command);
+    });
+    await expect(
+      services.replaceProductContents(
+        { ...input, expectedVersion: first.version, lines: [{ ...input.lines[0]!, quantity: 4 }] },
+        context,
+      ),
+    ).rejects.toMatchObject({ code: "concurrency_conflict" });
+    expect([...resolved.values()]).toMatchObject([{ quantity: 3 }]);
+    await expect(services.readProductContentsAuthoringState("cat_box")).resolves.toMatchObject({
+      lines: [{ quantity: 3 }],
+      version: 4,
+    });
+    expect(await eventStore.readStream({ streamId: "catalog.product-contents-cat_box" })).toHaveLength(4);
+  });
+
+  it("reuses the capped seed transaction for the projection revision guard", async () => {
+    const { db, resolved } = createContentDb([
+      {
+        catalog_item_id: "cat_box",
+        status: "active",
+        blueprint_id: "bp_plain",
+        canonical_dimension_order: [],
+        dimension_rules: [],
+      },
+      {
+        catalog_item_id: "cat_card",
+        status: "active",
+        blueprint_id: "bp_plain",
+        canonical_dimension_order: [],
+        dimension_rules: [],
+      },
+    ]);
+    let leased = false;
+    const client: PgPoolClient = {
+      query: db.query,
+      release: () => {
+        leased = false;
+      },
+    };
+    const pool: PgTransactionalPool & { totalCount: number } = {
+      totalCount: 1,
+      query: async <T>(sql: string, params?: readonly unknown[]) => {
+        if (leased) throw new Error("D-10538-POOL: capped seed pool cannot acquire a second connection");
+        return db.query<T>(sql, params);
+      },
+      connect: async () => {
+        if (leased) throw new Error("D-10538-POOL: capped seed pool cannot acquire a second connection");
+        leased = true;
+        return client;
+      },
+    };
+    const store = createEventStore();
+    let beforeReturningSnapshot: (() => Promise<void>) | undefined;
+    const readStreamInTransaction = vi.fn<PostgresEventStore["readStreamInTransaction"]>(async (reader, input) => {
+      expect(reader).toBe(client);
+      return store.eventStore.readStream(input);
+    });
+    const eventStore: EventStore & Pick<PostgresEventStore, "readStreamInTransaction"> = {
+      ...store.eventStore,
+      readStream: async (input) => {
+        await pool.query("SELECT 1");
+        const snapshot = await store.eventStore.readStream(input);
+        const interleave = beforeReturningSnapshot;
+        beforeReturningSnapshot = undefined;
+        await interleave?.();
+        return snapshot;
+      },
+      readStreamInTransaction,
+    };
+    const services = createProductContentRuntime({ db: pool, eventStore, checkpointStore: createCheckpointStore() });
+    await services.upsertContentType({
+      contentTypeId: "pct_included_item",
+      key: "included-item",
+      displayName: localizedTextMapFromEnglish("Included item"),
+    });
+    const input = {
+      containerCatalogItemId: "cat_box" as never,
+      expectedVersion: 0,
+      lines: [{ containedCatalogItemId: "cat_card" as never, quantity: 1, contentTypeId: "pct_included_item" }],
+    };
+    const first = await services.replaceProductContents(input, context);
+    expect(first.version).toBe(2);
+    resolved.clear();
+    await expect(
+      services.replaceProductContents({ ...input, expectedVersion: first.version }, context),
+    ).resolves.toMatchObject({ version: 2 });
+    expect(resolved.size).toBe(1);
+    expect(store.appended).toHaveLength(1);
+    expect(readStreamInTransaction).toHaveBeenCalledTimes(2);
+    expect(leased).toBe(false);
+
+    beforeReturningSnapshot = async () => {
+      await services.replaceProductContents(
+        {
+          ...input,
+          expectedVersion: 2,
+          lines: [{ ...input.lines[0]!, quantity: 2 }],
+        },
+        context,
+      );
+    };
+    await services.replaceProductContents({ ...input, expectedVersion: 2 }, context);
+    expect([...resolved.values()].map((row) => row.quantity)).toEqual([2]);
+    expect((await services.readProductContentsAuthoringState("cat_box")).version).toBe(4);
+    for (const command of [
+      () => services.replaceProductContents({ ...input, expectedVersion: 2 }, context),
+      () => services.replaceProductContents({ ...input, expectedVersion: 2, lines: [] }, context),
+      () => services.removeProductContents({ containerCatalogItemId: "cat_box" as never, expectedVersion: 2 }, context),
+    ]) {
+      await expect(command()).rejects.toMatchObject({ code: "concurrency_conflict" });
+    }
+    expect(await store.eventStore.readStream({ streamId: "catalog.product-contents-cat_box" })).toHaveLength(4);
+    expect([...resolved.values()].map((row) => row.quantity)).toEqual([2]);
+  });
+
   it("publishes resolved product contents and projects forward and reverse lookup rows", async () => {
     const { db, resolved } = createContentDb([
       {
@@ -292,6 +597,7 @@ describe("product content runtime", () => {
     const fact = await services.replaceProductContents(
       {
         containerCatalogItemId: "cat_box" as never,
+        expectedVersion: 0,
         containerSelectedOptions: [{ dimensionId: "language", optionId: "en" }],
         lines: [
           {
@@ -467,6 +773,7 @@ describe("product content runtime", () => {
 
     const input = {
       containerCatalogItemId: "cat_box" as never,
+      expectedVersion: 0,
       lines: [
         {
           containedCatalogItemId: "cat_card" as never,
@@ -525,6 +832,7 @@ describe("product content runtime", () => {
       services.replaceProductContents(
         {
           containerCatalogItemId: "cat_box" as never,
+          expectedVersion: 0,
           lines: [{ containedCatalogItemId: "cat_card" as never, quantity: 1, contentTypeId: "pct_included_item" }],
         },
         context,
@@ -557,6 +865,7 @@ describe("product content runtime", () => {
     ]);
     const input = {
       containerCatalogItemId: "cat_box" as never,
+      expectedVersion: 0,
       lines: [
         {
           containedCatalogItemId: "cat_card" as never,
@@ -596,11 +905,11 @@ describe("product content runtime", () => {
       checkpointStore: createCheckpointStore(),
     });
 
-    const replayed = await replayServices.replaceProductContents(input, context);
+    const replayed = await replayServices.replaceProductContents({ ...input, expectedVersion: 501 }, context);
 
-    expect(replayStore.reads.map((read) => read.fromVersion)).toEqual([1, 501]);
+    expect(replayStore.reads.map((read) => read.fromVersion)).toEqual([1, 501, 1, 501]);
     expect(replayStore.appended).toEqual([]);
-    expect(replayed).toEqual(retainedPayload);
+    expect(replayed).toMatchObject({ ...retainedPayload, version: 501 });
   });
 
   it("rejects duplicate, self-referential, and cyclic resolved lines", async () => {
@@ -632,6 +941,7 @@ describe("product content runtime", () => {
       services.replaceProductContents(
         {
           containerCatalogItemId: "cat_a" as never,
+          expectedVersion: 0,
           lines: [{ containedCatalogItemId: "cat_a" as never, quantity: 1, contentTypeId: "pct_included_item" }],
         },
         context,
@@ -665,6 +975,7 @@ describe("product content runtime", () => {
       services.replaceProductContents(
         {
           containerCatalogItemId: "cat_a" as never,
+          expectedVersion: 0,
           lines: [{ containedCatalogItemId: "cat_b" as never, quantity: 1, contentTypeId: "pct_included_item" }],
         },
         context,

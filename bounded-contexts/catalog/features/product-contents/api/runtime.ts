@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
-import { readCompleteStream } from "@chase-sets/event-core/complete-stream";
-import type { PgQueryable, PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import { readCompleteStream, type CompleteStreamReader } from "@chase-sets/event-core/complete-stream";
+import { createEventStoreError } from "@chase-sets/event-core/event-store";
+import type { PgQueryable, PgTransactionalPool, PostgresEventStore } from "@chase-sets/event-core-postgres";
 import { withPgTransaction } from "@chase-sets/event-core-postgres";
 import {
   createProjectionHandlerSet,
@@ -8,6 +9,7 @@ import {
   type ProjectionHandlerSet,
 } from "@chase-sets/event-core/projector";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
+import type { StoredEvent } from "@chase-sets/event-core/storage";
 import { toJsonValue, type JsonObject } from "@chase-sets/primitives/json";
 import type { CatalogRuntimeDeps } from "../../../support/authoring-support/runtime-support";
 import {
@@ -53,6 +55,7 @@ export type ReplaceProductContentsInput = Readonly<{
   containerCatalogItemId: CatalogItemId;
   containerSelectedOptions?: readonly ProductContentSelectedOption[];
   lines: readonly ProductContentLineInput[];
+  expectedVersion?: number;
 }>;
 
 export type ProductContentLineInput = Readonly<{
@@ -93,6 +96,18 @@ export type ProductContentsResolvedFact = Readonly<{
   resolvedAt: string;
 }>;
 
+export type ProductContentsCommandSnapshot = ProductContentsResolvedFact & Readonly<{ version: number }>;
+export type ProductContentsAuthoringSnapshot = Readonly<{
+  containerCatalogItemId: string;
+  containerSelectedOptions: readonly ProductContentSelectedOption[] | null;
+  lines: readonly ProductContentLineSnapshot[];
+  version: number;
+}>;
+type ProductContentsAuthoringReadResult = Readonly<{
+  snapshot: ProductContentsAuthoringSnapshot;
+  events: readonly StoredEvent[];
+}>;
+
 type CatalogProductRow = Readonly<{
   catalog_item_id: string;
   status: string;
@@ -119,11 +134,15 @@ export type ProductContentServices = Readonly<{
   replaceProductContents: (
     input: ReplaceProductContentsInput,
     context: EventStoreContext,
-  ) => Promise<ProductContentsResolvedFact>;
+  ) => Promise<ProductContentsCommandSnapshot>;
   removeProductContents: (
-    input: Pick<ReplaceProductContentsInput, "containerCatalogItemId" | "containerSelectedOptions">,
+    input: Pick<ReplaceProductContentsInput, "containerCatalogItemId" | "containerSelectedOptions" | "expectedVersion">,
     context: EventStoreContext,
-  ) => Promise<ProductContentsResolvedFact>;
+  ) => Promise<ProductContentsCommandSnapshot>;
+  readProductContentsAuthoringState: (
+    containerCatalogItemId: string,
+    containerSelectedOptions?: readonly ProductContentSelectedOption[],
+  ) => Promise<ProductContentsAuthoringSnapshot>;
   listProductContentTypes: () => ReturnType<typeof listProductContentTypes>;
   listProductContentInclusionPolicies: () => ReturnType<typeof listProductContentInclusionPolicies>;
   listProductContentsForContainer: (
@@ -149,10 +168,13 @@ export function createProductContentRuntime(deps: CatalogRuntimeDeps): ProductCo
           containerCatalogItemId: input.containerCatalogItemId,
           containerSelectedOptions: input.containerSelectedOptions,
           lines: [],
+          expectedVersion: input.expectedVersion,
         },
         context,
         "catalog.product-contents.removed",
       ),
+    readProductContentsAuthoringState: async (containerCatalogItemId, containerSelectedOptions) =>
+      (await readProductContentsAuthoringState(deps, containerCatalogItemId, containerSelectedOptions)).snapshot,
     listProductContentTypes: () => listProductContentTypes(deps.db),
     listProductContentInclusionPolicies: () => listProductContentInclusionPolicies(deps.db),
     listProductContentsForContainer: (containerCatalogItemId) =>
@@ -165,8 +187,10 @@ export function createProductContentRuntime(deps: CatalogRuntimeDeps): ProductCo
         handlers: {
           "catalog.product-contents.resolved": async (event, context) => {
             await replaceResolvedProductContents(
+              deps,
               resolveProjectionDb(context, deps.db),
               event.data as ProductContentsResolvedFact,
+              event.streamVersion,
               "ambient",
             );
           },
@@ -241,22 +265,36 @@ async function replaceProductContents(
   input: ReplaceProductContentsInput,
   context: EventStoreContext,
   commandEventType = "catalog.product-contents.replaced",
-): Promise<ProductContentsResolvedFact> {
+): Promise<ProductContentsCommandSnapshot> {
   const fact = await buildResolvedFact(deps.db, input);
   const streamId = `catalog.product-contents-${fact.containerCatalogItemId}`;
-  const existingEvents = await readCompleteStream(deps.eventStore, { streamId });
+  const existingEvents = (
+    await readProductContentsAuthoringState(
+      deps,
+      fact.containerCatalogItemId,
+      fact.containerSelectedOptions ?? undefined,
+    )
+  ).events;
   const currentVersion = existingEvents.at(-1)?.streamVersion ?? 0;
+  assertExpectedProductContentsVersion(input.expectedVersion, currentVersion, streamId);
   const lastResolved = [...existingEvents]
     .reverse()
-    .find((event) => event.eventType === "catalog.product-contents.resolved");
+    .find(
+      (event) =>
+        event.eventType === "catalog.product-contents.resolved" &&
+        sameSelectedOptions(
+          (event.payload as ProductContentsResolvedFact).containerSelectedOptions,
+          fact.containerSelectedOptions,
+        ),
+    );
   const retainedFact = lastResolved ? (lastResolved.payload as unknown as ProductContentsResolvedFact) : null;
   // Compare stable content only: resolvedAt/resolvedFactHash change on every
   // rebuild and stored payload key order differs from freshly built facts, so
   // a raw serialized comparison would append duplicate events on every
   // retained-state repeat run.
   if (retainedFact && productContentsContentIdentity(retainedFact) === productContentsContentIdentity(fact)) {
-    await replaceResolvedProductContents(deps.db, retainedFact);
-    return retainedFact;
+    await replaceResolvedProductContents(deps, deps.db, retainedFact, currentVersion);
+    return { ...retainedFact, version: currentVersion };
   }
 
   await deps.eventStore.appendToStream({
@@ -279,9 +317,79 @@ async function replaceProductContents(
     ],
   });
 
-  await replaceResolvedProductContents(deps.db, fact);
+  await replaceResolvedProductContents(deps, deps.db, fact, currentVersion + 2);
 
-  return fact;
+  return { ...fact, version: currentVersion + 2 };
+}
+
+async function readProductContentsAuthoringState(
+  deps: CatalogRuntimeDeps,
+  containerCatalogItemId: string,
+  selectedOptions?: readonly ProductContentSelectedOption[],
+  transactionDb?: PgQueryable,
+): Promise<ProductContentsAuthoringReadResult> {
+  const normalizedSelectedOptions = normalizeOptionalSelectedOptions(selectedOptions);
+  const streamId = `catalog.product-contents-${normalizeRequiredId(
+    containerCatalogItemId,
+    "Product Contents require a container Catalog Item.",
+  )}`;
+  const eventStore = deps.eventStore as CatalogRuntimeDeps["eventStore"] &
+    Partial<Pick<PostgresEventStore, "readStreamInTransaction">>;
+  const readInTransaction = eventStore.readStreamInTransaction;
+  const reader: CompleteStreamReader =
+    transactionDb && readInTransaction
+      ? { readStream: (input) => readInTransaction(transactionDb, input) }
+      : eventStore;
+  const events = await readCompleteStream(reader, { streamId });
+  const version = events.at(-1)?.streamVersion ?? 0;
+  const resolved = [...events]
+    .reverse()
+    .find(
+      (event) =>
+        event.eventType === "catalog.product-contents.resolved" &&
+        sameSelectedOptions(
+          (event.payload as ProductContentsResolvedFact).containerSelectedOptions,
+          normalizedSelectedOptions,
+        ),
+    );
+  const fact = resolved?.payload as ProductContentsResolvedFact | undefined;
+  return {
+    snapshot: {
+      containerCatalogItemId: streamId.slice("catalog.product-contents-".length),
+      containerSelectedOptions: normalizedSelectedOptions,
+      lines: fact?.lines ?? [],
+      version,
+    },
+    events,
+  };
+}
+
+function assertExpectedProductContentsVersion(
+  expectedVersion: number | undefined,
+  currentVersion: number,
+  streamId: string,
+): void {
+  if (typeof expectedVersion !== "number" || !Number.isSafeInteger(expectedVersion) || expectedVersion < 0) {
+    throw new Error("Product Contents expectedVersion must be a non-negative safe integer.");
+  }
+  const version = expectedVersion as number;
+  if (version !== currentVersion) {
+    throw createEventStoreError("concurrency_conflict", "Product Contents changed since the authoring snapshot.", {
+      streamId,
+      expectedVersion: version,
+      currentVersion,
+    });
+  }
+}
+
+function sameSelectedOptions(
+  left: readonly ProductContentSelectedOption[] | null | undefined,
+  right: readonly ProductContentSelectedOption[] | null | undefined,
+): boolean {
+  return (
+    stableHash(normalizeOptionalSelectedOptions(left ?? undefined)) ===
+    stableHash(normalizeOptionalSelectedOptions(right ?? undefined))
+  );
 }
 
 async function buildResolvedFact(
@@ -495,15 +603,43 @@ async function listExistingEdges(db: PgQueryable, replacementContainerNode: stri
 type ProductContentsWriteMode = "transactional" | "ambient";
 
 async function replaceResolvedProductContents(
+  deps: CatalogRuntimeDeps,
   db: PgQueryable,
   fact: ProductContentsResolvedFact,
+  factVersion: number,
   mode: ProductContentsWriteMode = "transactional",
 ): Promise<void> {
   if (mode === "transactional" && isPgTransactionalPool(db)) {
-    await withPgTransaction(db, (client) => replaceResolvedProductContentsRows(client, fact));
+    await withPgTransaction(db, async (client) => {
+      if (await shouldWriteResolvedProductContents(deps, client, fact, factVersion)) {
+        await replaceResolvedProductContentsRows(client, fact);
+      }
+    });
     return;
   }
-  await replaceResolvedProductContentsRows(db, fact);
+  if (await shouldWriteResolvedProductContents(deps, db, fact, factVersion)) {
+    await replaceResolvedProductContentsRows(db, fact);
+  }
+}
+
+async function shouldWriteResolvedProductContents(
+  deps: CatalogRuntimeDeps,
+  db: PgQueryable,
+  fact: ProductContentsResolvedFact,
+  factVersion: number,
+): Promise<boolean> {
+  await db.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [
+    `catalog.product-contents:${fact.containerCatalogItemId}`,
+  ]);
+  const latestEvents = (
+    await readProductContentsAuthoringState(
+      deps,
+      fact.containerCatalogItemId,
+      fact.containerSelectedOptions ?? undefined,
+      db,
+    )
+  ).events;
+  return (latestEvents.at(-1)?.streamVersion ?? 0) <= factVersion;
 }
 
 function isPgTransactionalPool(db: PgQueryable): db is PgTransactionalPool {
