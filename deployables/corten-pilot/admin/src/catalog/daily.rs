@@ -35,8 +35,9 @@
 //! answers a token, which the redirect puts on the address as `promotionPreviewId` with the
 //! selection and the draft choice, so the read previews the selection again for the create stage;
 //! the commit (`POST .../bulk-promote/jobs`) presents the token and lands on the job it queued.
-//! The jobs stage's import preview opens on admin-web until the API composes it for the working set
-//! (chase-sets/chase-sets#11130).
+//! The jobs stage's import preflight is the Catalog API's for the working set
+//! (`GET .../workbench-surfaces/daily/import-preview?location=`, chase-sets/chase-sets#11130), sent in
+//! one `<corten-live>` fragment when it is read (`import_preview`).
 //!
 //! A review row's Evidence opens the observation's evidence sheet from the API's detail
 //! (`GET /api/catalog/source-observations/{id}/evidence`, admin-web's lazy `SourceObservationEvidenceSheet`
