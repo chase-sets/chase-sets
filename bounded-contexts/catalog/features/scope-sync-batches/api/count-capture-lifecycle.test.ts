@@ -25,6 +25,8 @@ import {
   captureHost,
   captureScope,
   captureSession,
+  beginCapturePhase,
+  recordSyntheticCapturePeriodDecision,
   createCaptureLifecycleFixture,
 } from "../tests/count-capture-session-fixture";
 import { createCountCaptureLifecycle } from "./count-capture-lifecycle";
@@ -37,6 +39,30 @@ const durable = (f: ReturnType<typeof createCaptureLifecycleFixture>) => {
 const other = () => captureSession({ actor: captureActor({ sessionId: "synthetic-other-session" }) });
 
 describe("producer-owned billing-period gate", () => {
+  it("seeds synthetic phase admission at the run clock rather than the fixed fixture instant", async () => {
+    const clock = { now: "2026-11-11T08:02:00.000Z" };
+    const f = createCaptureLifecycleFixture({ clock });
+    const run = await f.store.admit({ ownerHash: "a".repeat(64), scopeRecordId: captureScope, host: captureHost() });
+    const binding = await beginCapturePhase(f.store, run.runId, "acquisition");
+    await expect(f.store.ledger.debit(binding, { category: "cards", requestFingerprint: "d".repeat(64) })).resolves.toBe(1);
+    expect((await f.store.read(run.runId)).periodLedger?.decision).toMatchObject({ observedAt: clock.now, plannedCredits: 10 });
+    expect(f.usage.fetch).not.toHaveBeenCalled();
+  });
+  it("seeds a synthetic cold preflight in P exactly once before later phase sends", async () => {
+    const f = createCaptureLifecycleFixture({ clock: { now: "2026-11-11T08:02:00.000Z" } });
+    const run = await f.store.admit({ ownerHash: "a".repeat(64), scopeRecordId: captureScope, host: captureHost() });
+    const bootstrap = await beginCapturePhase(f.store, run.runId, "bootstrap");
+    await f.store.ledger.result(bootstrap, await f.store.ledger.debit(bootstrap, {
+      category: "usage", usage: { purpose: "bootstrap" }, requestFingerprint: "d".repeat(64),
+    }), 200);
+    await recordSyntheticCapturePeriodDecision(f.store, bootstrap);
+    await f.store.recordUsage(bootstrap, { state: "persisted", required: 11, authority: captureBaseline().countAuthority });
+    await f.store.finish(bootstrap);
+    const binding = await f.store.begin(run.runId, "acquisition");
+    await expect(f.store.ledger.debit(binding, { category: "cards", requestFingerprint: "d".repeat(64) })).resolves.toBe(2);
+    expect((await f.store.read(run.runId)).periodLedger?.decision).toMatchObject({ admitted: true, plannedCredits: 11, unreflectedCredits: 0 });
+    expect(f.usage.fetch).not.toHaveBeenCalled();
+  });
   async function noticed() {
     const f = createCaptureLifecycleFixture();
     await f.lifecycle.baseline(captureSession(), input());

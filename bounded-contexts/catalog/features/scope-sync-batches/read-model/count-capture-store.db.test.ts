@@ -22,7 +22,7 @@ import {
   SCRYDEX_ONE_PIECE_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY as cardUnit,
 } from "../../source-observations/api/providers/scrydex/adapter";
 import { countCaptureSchemaMigrations, countCaptureSchemaSql } from "./count-capture-schema";
-import { beginCapturePhase, captureBaseline, captureHost, captureScope } from "../tests/count-capture-session-fixture";
+import { beginCapturePhase, captureBaseline, captureHost, captureScope, recordSyntheticCapturePeriodDecision } from "../tests/count-capture-session-fixture";
 import { createCountCaptureStore, type CountCaptureRun, type CountCaptureStore } from "./count-capture-store";
 
 const base = process.env.TEST_DATABASE_URL;
@@ -317,12 +317,14 @@ describeDb("count-capture possible-send ledger", () => {
           const sequence = await store.ledger.debit(binding, send);
           await store.ledger.result(binding, sequence, 200);
         }
-        if (phase === "bootstrap")
+        if (phase === "bootstrap") {
+          await recordSyntheticCapturePeriodDecision(store, binding);
           await store.recordUsage(binding, {
             state: "persisted",
             required: 11,
             authority: captureBaseline().countAuthority,
           });
+        }
         if (phase !== "pre-confirm") await store.finish(binding);
         else await expect(store.ledger.debit(binding, usage("readiness"))).rejects.toThrow("capture-stopped");
         if (phase === "baseline") await store.recordInitialNotice(run.runId);

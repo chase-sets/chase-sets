@@ -235,6 +235,25 @@ export function captureBaseline(): CountCaptureBaseline {
 
 // Walks a fresh run through the stages before `phase` with the store's own
 // methods, then begins `phase`.
+export async function recordSyntheticCapturePeriodDecision(
+  store: CountCaptureStore,
+  binding: Parameters<CountCaptureStore["recordPeriodDecision"]>[0],
+) {
+  const run = await store.read(binding.runId);
+  const at = run.admittedAt;
+  return store.recordPeriodDecision(
+    binding,
+    evaluateScrydexBillingPeriod({
+      snapshot: { allowance: 100, balance: 100, observedAt: at, period: syntheticPeriod },
+      reserve: { ...periodReserve(run.host.dispatchId), observedAt: at },
+      durableCredits: 0,
+      plannedCredits: 10 + run.sends.filter((send) => send.phase === "bootstrap").length,
+      runId: run.host.dispatchId,
+      now: at,
+    }),
+  );
+}
+
 export async function beginCapturePhase(
   store: CountCaptureStore,
   runId: string,
@@ -250,17 +269,7 @@ export async function beginCapturePhase(
   await store.recordInitialNotice(runId);
   if (phase === "bootstrap") return store.begin(runId, phase);
   const bootstrap = await store.begin(runId, "bootstrap");
-  await store.recordPeriodDecision(
-    bootstrap,
-    evaluateScrydexBillingPeriod({
-      snapshot: { allowance: 100, balance: 100, observedAt: captureAt, period: syntheticPeriod },
-      reserve: periodReserve((await store.read(runId)).host.dispatchId),
-      durableCredits: 0,
-      plannedCredits: 10,
-      runId: (await store.read(runId)).host.dispatchId,
-      now: captureAt,
-    }),
-  );
+  await recordSyntheticCapturePeriodDecision(store, bootstrap);
   await store.recordUsage(bootstrap, { state: "skipped", required: 11, authority: captureBaseline().countAuthority });
   await store.finish(bootstrap);
   return store.begin(runId, phase);
