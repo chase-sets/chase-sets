@@ -1,4 +1,4 @@
-import { catalogSeedIds } from "@chase-sets/catalog-seed";
+import { catalogSeedIds } from "@chase-sets/catalog-seed/ids";
 import type {
   CatalogProviderIntegrationProfile,
   CatalogProviderOptionQuery,

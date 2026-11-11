@@ -8,6 +8,7 @@ import { GIT_LISTING_MAX_BUFFER } from "./lib/git-listing.mjs";
 const repoRoot = fileURLToPath(new URL("../", import.meta.url));
 const guardFile = "scripts/lib/heavy-slot.mjs";
 const reviewedCheapNodeEntrypoints = new Set([
+  "bounded-contexts/catalog/tests/catalog-unit-manifest-guard.mjs",
   "bounded-contexts/public-presence/features/developer-portal/integrations/compile-developer-articles.mjs",
   "bounded-contexts/public-presence/features/help/integrations/compile-help-articles.mjs",
   "bounded-contexts/public-presence/features/policies/integrations/compile-policy-publications.mjs",
