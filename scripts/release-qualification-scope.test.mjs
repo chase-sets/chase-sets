@@ -29,6 +29,9 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), ".."
 const fixturesDir = path.join(repoRoot, "scripts", "fixtures", "release-qualification-scope");
 const classifierPath = path.join(repoRoot, "scripts", "release-qualification-scope.mjs");
 const hash = (value) => createHash("sha256").update(value).digest("hex");
+it("registers hosted bootstrap memo derivation as ci", () => {
+  expect(releaseQualificationScopeRegistry.workflows["bootstrap-db-oracle-memo.yml"]).toBe("ci");
+});
 it("registers the production lock monitor as advisory, not release selection or deployment", () => {
   expect(releaseQualificationScopeRegistry.workflows["platform-production-lock-monitor.yml"]).toBe("ci");
 });
@@ -1019,9 +1022,19 @@ describe("caller inventory (seed/bootstrap/import/reconciliation) — issue #583
     expect(inventory.misses).toEqual([]);
     expect(discovered).toContain("bounded-contexts/identity/support/seed-support/account-management-browser.ts");
     expect(discovered).toContain("bounded-contexts/pricing/support/runtime-support/pricing-health-browser-seed.ts");
+    expect(discovered).toContain("scripts/bootstrap-db-oracle-memo-artifact.mjs");
+    expect(
+      inventory.records.filter(({ path }) => path === "scripts/bootstrap-db-oracle-memo-artifact.mjs"),
+    ).toMatchObject([
+      {
+        path: "scripts/bootstrap-db-oracle-memo-artifact.mjs",
+        class: "persistent_required",
+        matchedPattern: null,
+      },
+    ]);
     expect({ discovered: discovered.length, persistentCount, ruledCount }).toEqual({
-      discovered: 169,
-      persistentCount: 163,
+      discovered: 170,
+      persistentCount: 164,
       ruledCount: 6,
     });
   });
