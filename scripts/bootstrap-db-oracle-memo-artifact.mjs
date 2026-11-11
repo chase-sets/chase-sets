@@ -1462,20 +1462,22 @@ export function discoverCompletedArtifact({ m, manifestSha256, freeze, runId, ar
 
 // merge-tree --write-tree with -z, --no-messages and an explicit --merge-base needs Git 2.40.
 const mergeSupport = Object.freeze({ major: 2, minor: 40 });
-const mergeLimits = Object.freeze({ output: 1024 * 1024, unmergedRecords: 192 });
+const unmergedRecordLimit = 192;
 
 export function spawnGit(directory, args, input = "") {
-  return spawnSync("git", ["-C", directory, ...args], {
-    input,
-    maxBuffer: mergeLimits.output,
-    windowsHide: true,
-    env: { ...process.env, GIT_NO_LAZY_FETCH: "1", GIT_NO_REPLACE_OBJECTS: "1", GIT_TERMINAL_PROMPT: "0" },
-    stdio: ["pipe", "pipe", "pipe"],
-  });
+  return spawnSync(
+    "git",
+    ["-C", directory, ...args],
+    gitListingOptions({
+      input,
+      windowsHide: true,
+      env: { ...process.env, GIT_NO_LAZY_FETCH: "1", GIT_NO_REPLACE_OBJECTS: "1", GIT_TERMINAL_PROMPT: "0" },
+      stdio: ["pipe", "pipe", "pipe"],
+    }),
+  );
 }
 
-function gitStdout(runGit, directory, args, name, input) {
-  const result = runGit(directory, args, input);
+function gitStdout(result, name) {
   requireThat(
     result && !result.error && !result.signal && result.status === 0 && Buffer.isBuffer(result.stdout),
     `${name}: unexpected Git exit or output`,
@@ -1485,7 +1487,7 @@ function gitStdout(runGit, directory, args, name, input) {
 
 function requireCommits(runGit, directory, oids, name) {
   const input = oids.map((oid) => `${oid}\n`).join("");
-  const rows = gitStdout(runGit, directory, ["cat-file", "--batch-check"], `${name} objects`, input)
+  const rows = gitStdout(runGit(directory, ["cat-file", "--batch-check"], input), `${name} objects`)
     .toString("utf8")
     .split("\n");
   same(rows.pop(), "", `${name} objects: incomplete inventory`);
@@ -1497,14 +1499,14 @@ function requireCommits(runGit, directory, oids, name) {
 }
 
 function regularBlob(runGit, directory, treeish, path, name) {
-  const listing = gitStdout(runGit, directory, ["ls-tree", "-z", "--full-tree", treeish, "--", path], name);
+  const listing = gitStdout(runGit(directory, ["ls-tree", "-z", "--full-tree", treeish, "--", path]), name);
   const match = /^100644 blob ([a-f0-9]{40})\t([^\0]+)\0$/.exec(listing.toString("utf8"));
   requireThat(match?.[2] === path, `missing/nonregular ${name}`);
   return match[1];
 }
 
 function probeMerge(runGit, directory, base, head) {
-  const bases = gitStdout(runGit, directory, ["merge-base", "--all", base, head], "B/D merge-base")
+  const bases = gitStdout(runGit(directory, ["merge-base", "--all", base, head]), "B/D merge-base")
     .toString("utf8")
     .split("\n");
   same(bases.pop(), "", "B/D merge-base: incomplete output");
@@ -1531,10 +1533,7 @@ function probeMerge(runGit, directory, base, head) {
     same(fields, [], "B/D merge probe: unexpected clean output");
     return { mergeBase: bases[0], tree };
   }
-  requireThat(
-    fields.length <= mergeLimits.unmergedRecords,
-    "B/D merge conflict refuses opening: unmerged bound exceeded",
-  );
+  requireThat(fields.length <= unmergedRecordLimit, "B/D merge conflict refuses opening: unmerged bound exceeded");
   const paths = [];
   for (const record of fields) {
     const match = /^[0-7]{6} [a-f0-9]{40} [1-3]\t([^\0]+)$/.exec(record);
@@ -1546,7 +1545,7 @@ function probeMerge(runGit, directory, base, head) {
 
 function manifestTarget(runGit, directory, head) {
   const oid = regularBlob(runGit, directory, head, MANIFEST, "D manifest");
-  const bytes = gitStdout(runGit, directory, ["cat-file", "blob", oid], "D manifest bytes");
+  const bytes = gitStdout(runGit(directory, ["cat-file", "blob", oid]), "D manifest bytes");
   let m;
   try {
     m = boundedJson(bytes, limits.manifest, "manifest");
@@ -1577,7 +1576,7 @@ export function preOpenMergeability({ base, head, branch, objectRoot = root, rea
   requireThat(hex(base, 40) && hex(head, 40) && base !== head, "exact distinct full 40-hex B/D OIDs required");
   text(branch, derivationBranch, 17, 255, "memo-derivation branch");
   const version = /^git version (\d+)\.(\d+)\./.exec(
-    gitStdout(runGit, objectRoot, ["version"], "Git version").toString("utf8"),
+    gitStdout(runGit(objectRoot, ["version"]), "Git version").toString("utf8"),
   );
   requireThat(
     version &&
@@ -1589,7 +1588,7 @@ export function preOpenMergeability({ base, head, branch, objectRoot = root, rea
   const { mergeBase, tree } = probeMerge(runGit, objectRoot, base, head);
   const { T, manifestSha256 } = manifestTarget(runGit, objectRoot, head);
   requireCommits(runGit, objectRoot, [T.commit], "manifest T");
-  const header = gitStdout(runGit, objectRoot, ["cat-file", "commit", T.commit], "manifest T commit");
+  const header = gitStdout(runGit(objectRoot, ["cat-file", "commit", T.commit]), "manifest T commit");
   same(header.toString("utf8").split("\n", 1)[0], `tree ${T.tree}`, "manifest T tree");
   const workflowBlob = regularBlob(runGit, objectRoot, T.commit, WORKFLOW, "T workflow");
   for (const [name, treeish] of [
