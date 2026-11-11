@@ -47,7 +47,7 @@ on:
         default: ""
         type: string
       capture_dispatch_id:
-        description: Count lifecycle only. Canonical host dispatch with server-bound spend and review authority.
+        description: Count lifecycle or bounded refresh. Canonical host dispatch bound to this run's authority/reserve.
         required: false
         default: ""
         type: string
@@ -58,6 +58,11 @@ on:
         type: string
       capture_authority:
         description: Count lifecycle only. JSON host authority envelope bound to this reviewed dispatch.
+        required: false
+        default: ""
+        type: string
+      scrydex_refresh_period_reserve:
+        description: Refresh only. JSON period/run-bound dispatch-log cross-path credit reserve; missing or unknown refuses spend.
         required: false
         default: ""
         type: string
@@ -531,6 +536,8 @@ jobs:
         id: refresh
         timeout-minutes: 9
         env:
+          SCRYDEX_REFRESH_PERIOD_RESERVE: ${{ inputs.scrydex_refresh_period_reserve }}
+          SCRYDEX_REFRESH_DISPATCH_ID: ${{ inputs.capture_dispatch_id }}
           CATALOG_ADMIN_E2E_EMAIL: ${{ vars.CATALOG_ADMIN_E2E_EMAIL || secrets.PLATFORM_ADMIN_EMAIL || '' }}
           CATALOG_ADMIN_E2E_PASSWORD: ${{ secrets.CATALOG_ADMIN_E2E_PASSWORD || secrets.PLATFORM_ADMIN_PASSWORD || '' }}
           GH_TOKEN: ${{ github.token }}

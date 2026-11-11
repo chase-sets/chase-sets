@@ -2259,6 +2259,7 @@ describe("CatalogPrimaryWorkbenchPage", () => {
     // visible but no longer blocks, and the commit is confirmable.
     const draftReadModel = buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
       ...input,
+      promotionPreviewCommittable: true,
       requestUrl:
         "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&importScope=en:3:base:base1&profileVersion=2026.06.04&filter.status=changed&promotionPreviewId=preview_draft&promoteAsDraft=true",
       promotionValidation: {
@@ -2275,7 +2276,7 @@ describe("CatalogPrimaryWorkbenchPage", () => {
     draftReceipt.selection.promoteAsDraft = true;
     draftReceipt.preview.validation.promoteAsDraft = true;
     draftReceipt.preview.validation.diagnostics = [{ ...identityDiagnostic, blocking: false }];
-    render(
+    const { rerender } = render(
       <CatalogIntegrationsSurfacePage
         surface="daily"
         readModel={{
@@ -2303,6 +2304,18 @@ describe("CatalogPrimaryWorkbenchPage", () => {
       | undefined;
     expect(commitButton?.hasAttribute("disabled")).toBe(false);
     expect(commitButton?.form?.querySelector<HTMLInputElement>('input[name="promoteAsDraft"]')?.value).toBe("true");
+
+    rerender(
+      <CatalogIntegrationsSurfacePage
+        surface="daily"
+        readModel={{
+          ...draftReadModel,
+          promotionPreview: { ...draftReadModel.promotionPreview, previewCommittable: false, receipt: draftReceipt },
+        }}
+      />,
+    );
+    expect(draftConfirmation.hasAttribute("disabled")).toBe(true);
+    expect(commitButton?.hasAttribute("disabled")).toBe(true);
   });
 
   it("does not restore aggregate-backed confirmation when the original receipt is unavailable", () => {

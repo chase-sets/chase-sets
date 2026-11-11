@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { withPgTransaction, type PgQueryable, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import type { ProviderUsageSnapshot } from "../../source-observations/api/provider-adapters/provider-adapter";
+import { scrydexBillingPeriodSchema } from "../domain/scrydex-billing-period";
 import {
   CountAcquisitionRefused,
   countAllocationEndSchemaVersion,
@@ -50,6 +51,7 @@ const usageSchema = z
     totalCredits: z.number().int().min(0).max(2147483647).nullable(),
     observedAt: z.iso.datetime({ offset: true }).nullable(),
     attemptState: z.enum(["checked", "unavailable", "not-configured"]),
+    billingPeriod: scrydexBillingPeriodSchema.nullable().optional(),
   })
   .strict();
 type Row = { event_id: string; payload: unknown; recorded_at: Date | string };
@@ -216,6 +218,8 @@ export function createCountStore(db: PgTransactionalPool, slot: string, now = ()
       at,
       fingerprint: countFingerprint(snapshot),
       observedAt: snapshot?.observedAt ?? null,
+      snapshot,
+      unreflectedCredits: valid ? debits + reserved + allocated! : null,
       // Unclamped: a negative value means retained commitments already exceed the usage snapshot.
       net: valid ? Math.min(snapshot.remainingCredits!, snapshot.totalCredits!) - debits - reserved - allocated! : null,
     };
@@ -590,6 +594,43 @@ export function createCountStore(db: PgTransactionalPool, slot: string, now = ()
   }
   return {
     slot,
+    async periodLedger(runId: string) {
+      const current = await ledger();
+      const since = current.observedAt
+        ? new Date(Date.parse(current.observedAt) - SCRYDEX_USAGE_LAG_MS).toISOString()
+        : null;
+      const usage = await db.query<{ credits: string; uncertain: string }>(
+        `SELECT count(*)::text AS credits,
+        (SELECT count(*) FROM catalog_scope_sync_count_history d
+          WHERE d.account_slot=$3 AND d.event_kind='debit' AND d.recorded_at <= $2::timestamptz
+          AND d.recorded_at >= $4::timestamptz
+          AND NOT EXISTS (SELECT 1 FROM catalog_scope_sync_count_history r
+            WHERE r.debit_id=d.event_id AND r.event_kind='result' AND r.payload->>'outcome'='complete'))::text AS uncertain
+        FROM
+        (SELECT DISTINCT ON (run_id) run_id,payload FROM catalog_scope_sync_count_capture_history ORDER BY run_id,position DESC) r,
+        LATERAL jsonb_array_elements(r.payload->'sends') s
+        WHERE r.run_id<>$1 AND s->>'category'='usage'
+        AND ((s->>'debitedAt')::timestamptz > $2::timestamptz
+          OR (s->>'status' IS NULL AND (s->>'debitedAt')::timestamptz >= $4::timestamptz))`,
+        [runId, since, slot, current.snapshot?.billingPeriod?.startsAt ?? null],
+      );
+      const usageCredits = Number(usage.rows[0]?.credits);
+      const uncertainCredits = Number(usage.rows[0]?.uncertain);
+      return {
+        snapshot: {
+          allowance: current.snapshot?.attemptState === "checked" ? current.snapshot.totalCredits : null,
+          balance: current.snapshot?.remainingCredits,
+          observedAt: current.observedAt,
+          period: current.snapshot?.billingPeriod,
+        },
+        durableCredits:
+          current.unreflectedCredits !== null &&
+          Number.isSafeInteger(usageCredits) &&
+          Number.isSafeInteger(uncertainCredits)
+            ? current.unreflectedCredits + usageCredits + uncertainCredits
+            : null,
+      };
+    },
     read,
     blocked,
     authority,
@@ -611,6 +652,7 @@ export function createCountStore(db: PgTransactionalPool, slot: string, now = ()
         totalCredits: snapshot.totalCredits,
         observedAt: snapshot.observedAt,
         attemptState: snapshot.attemptState,
+        billingPeriod: snapshot.billingPeriod ?? null,
       });
       const payload = parsed.success
         ? parsed.data

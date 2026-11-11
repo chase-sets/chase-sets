@@ -270,6 +270,7 @@ export const releaseQualificationScopeRegistry = Object.freeze({
   // Unknown workflows fail closed.
   workflows: Object.freeze({
     "backlog-roadmap-status.yml": "ci",
+    "bootstrap-db-oracle-memo.yml": "ci",
     "browser-boundary-diagnostics.yml": "ci",
     "browser-boundary-timeout-verifier.yml": "ci",
     "catalog-completion-report.yml": "ci",
@@ -282,6 +283,7 @@ export const releaseQualificationScopeRegistry = Object.freeze({
     "collections-cutover-authority-capture.yml": "ci",
     "corten-pilot.yml": "ci",
     "ci-image-mirrors.yml": "release",
+    "discovery-voyage-9109.yml": "ci",
     "issue-form-labels.yml": "ci",
     "issue-readiness.yml": "ci",
     "marketplace-easypost-refund-event-replay.yml": "release",
@@ -343,7 +345,6 @@ export const releaseQualificationScopeRegistry = Object.freeze({
     "platform-staging-route-matrix-evidence.yml": "release",
     "platform-staging-wake-drills.yml": "release",
     "platform-terraform-state-snapshot.yml": "release",
-    "playwright-chromium-install-diagnostics.yml": "ci",
     "project-status-sync.yml": "ci",
     "public-docs-stale-review.yml": "ci",
     "review-cadence-digest.yml": "ci",

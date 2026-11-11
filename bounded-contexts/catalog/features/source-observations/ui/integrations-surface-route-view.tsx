@@ -21,7 +21,6 @@ import { DeferredSupplementaryPanel } from "./deferred-supplementary-panel";
 import { catalogPrimaryWorkbenchHref } from "./primary-workbench-route-context";
 import {
   projectPromotionReceipt,
-  promotionReceiptHasCompleteCoverage,
   promotionReceiptMatchesContext,
   promotionValidationFor,
 } from "./primary-workbench-source-observation-review";
@@ -236,7 +235,9 @@ export function useOriginalPromotionReceipt(
     sameActiveProfile &&
     (!model.promotionPreview.previewId || model.promotionPreview.previewId === receipt.previewId) &&
     (!currentFingerprint || currentFingerprint === receipt.preview.fingerprint) &&
-    promotionReceiptHasCompleteCoverage(receipt) &&
+    result.promotionPreviewVerdict?.previewCommittable === true &&
+    Boolean(receipt.preview.fingerprint) &&
+    result.promotionPreviewVerdict.currentFingerprint === receipt.preview.fingerprint &&
     model.readiness.rbacAllowed &&
     model.sourceObservationReview.freshness === "fresh" &&
     model.promotionPreview.blockers.length === 0;
@@ -265,6 +266,7 @@ export function useOriginalPromotionReceipt(
     promotionPreview: {
       ...model.promotionPreview,
       previewId: receipt.previewId,
+      previewCommittable: valid,
       receipt,
       validation: promotionValidationFor(result.context, receipt.preview.validation),
       freshness: pending ? "unavailable" : valid ? "fresh" : "stale",

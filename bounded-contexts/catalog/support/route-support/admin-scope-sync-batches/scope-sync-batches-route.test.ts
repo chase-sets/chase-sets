@@ -283,14 +283,15 @@ describe("count-capture intents", () => {
     const [baseline, notice, usage] = await Promise.all(responses.map((response) => response.json()));
     expect(baseline).toMatchObject({ providerSends: 0, baseline: { selection: { scopeRecordId: captureScope } } });
     expect(notice).toMatchObject({ notice: { body: { kind: "initial" } } });
-    expect(usage).toEqual({ usage: expect.objectContaining({ state: "skipped" }) });
+    expect(usage).toEqual({ usage: expect.objectContaining({ state: "persisted" }) });
     expect(f.memory.history.at(-1)?.payload).toMatchObject({
       status: "open",
       phases: ["baseline", "bootstrap"],
       request: null,
       notice: { fingerprint: notice.notice.fingerprint },
     });
-    expect(f.usage.fetch).not.toHaveBeenCalled();
+    expect(f.usage.fetch).toHaveBeenCalledTimes(1);
+    expect(f.usage.fetch.mock.calls[0]?.[0]).toBe("https://api.scrydex.com/account/v1/usage");
   });
 
   it("forwards each closed step to its typed client method", async () => {

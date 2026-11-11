@@ -30,6 +30,15 @@ const boundaryTarget = "./.github/actions/export-managed-postgres-authority";
 // Rule for later grant changes: `migrationBase` and its 1609-grant assertion never move. A slice that adds grants
 // appends its literal reviewed records to this delta; a slice that removes grants lists them as an explicit reviewed
 // removal list, in that slice's own PR. Never derive either list from the candidate. Re-baselining needs its own slice.
+const reviewedVoyageMeasurementDelta = [
+  {
+    file: ".github/workflows/discovery-voyage-9109.yml",
+    jobId: "measure",
+    stepAnchor: "name:Synthetic snapshot and 30 sequential uncached direct attempts#4",
+    secretName: "VOYAGE_API_KEY",
+    purpose: "release-evidence",
+  },
+];
 const reviewedCatalogDelta = [
   // #9221 delta: the Catalog Completion Report workflow's three export-boundary grants.
   {
@@ -1040,6 +1049,7 @@ describe("managed Postgres authority source generator", () => {
         ...collectionsCutoverAuthorityCaptureDelta,
         ...qualificationCleanupDelta,
         ...previewStateRetirementDelta,
+        ...reviewedVoyageMeasurementDelta,
       ]
         .map(applyQualificationStepInsertions)
         .filter(

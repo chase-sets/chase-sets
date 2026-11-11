@@ -290,6 +290,7 @@ async function readDailySurface(
     promotionOutcome,
     promotionValidation: currentPromotionPreview?.validation ?? null,
     promotionPreviewFingerprint: currentPromotionPreview?.fingerprint ?? null,
+    promotionPreviewCommittable: promotionPreviewHasCompleteCoverage(normalizedRouteContext, currentPromotionPreview),
     reviewPagination,
     sourceOptionPages: null,
     catalogSyncPreview: null,
@@ -556,6 +557,32 @@ async function selectedPromotionPreview(
   }
 }
 
+// The daily API owns the held selection's coverage rule; admission still owns the stale-token guard.
+function promotionPreviewHasCompleteCoverage(
+  context: CatalogPrimaryWorkbenchRouteContext,
+  preview: SourceObservationPromotionPreview | null,
+): boolean {
+  if (!preview || !context.promotionPreviewId || !preview.fingerprint) return false;
+  const { validation } = preview;
+  const selected = context.selectedObservationIds;
+  const covered = new Set(validation.coveredObservationIds);
+  const selectedSet = new Set(selected);
+  return (
+    validation.promoteAsDraft === (context.promoteAsDraft === true) &&
+    validation.coverage === "complete" &&
+    validation.continuation === null &&
+    validation.pageLimit > 0 &&
+    preview.eligible > 0 &&
+    covered.size <= validation.pageLimit &&
+    selectedSet.size === selected.length &&
+    covered.size === validation.coveredObservationIds.length &&
+    covered.size === preview.eligible &&
+    (selected.length === 0 ||
+      (selected.length === preview.matched && [...covered].every((id) => selectedSet.has(id)))) &&
+    !validation.diagnostics.some((diagnostic) => diagnostic.blocking)
+  );
+}
+
 async function sourceResult<T>(
   operation: () => Promise<T>,
   fallback: T,
@@ -579,6 +606,7 @@ type BuildSurfaceReadModelInput = Readonly<{
   promotionOutcome?: SourceObservationPromotionOutcomeRecord | null;
   promotionValidation?: SourceObservationPromotionValidation | null;
   promotionPreviewFingerprint?: string | null;
+  promotionPreviewCommittable?: boolean;
   reviewPagination: Readonly<{ limit: number; offset: number }> | undefined;
   sourceOptionPages: readonly CatalogPrimaryWorkbenchSourceOptionPageSnapshot[] | null;
   catalogSyncPreview: CatalogSyncProviderParticipationPreview | null;
@@ -640,6 +668,7 @@ function surfaceReadModelInput(
     promotionOutcome: input.promotionOutcome,
     promotionValidation: input.promotionValidation ?? null,
     promotionPreviewFingerprint: input.promotionPreviewFingerprint ?? null,
+    promotionPreviewCommittable: input.promotionPreviewCommittable === true,
     reviewPagination: input.reviewPagination,
     sourceOptionPages: input.sourceOptionPages,
     catalogSyncPreview: input.catalogSyncPreview,

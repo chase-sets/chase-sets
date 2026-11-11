@@ -19,7 +19,6 @@ import type { SourceObservationPromotionReceipt, SourceObservationPromotionScope
 import { CommandFormButton } from "./command-controls";
 import { CatalogIntegrationCommandPlanDetail } from "./command-plan-module";
 import { BlockerList, stateLabel } from "./workbench-formatting";
-import { promotionReceiptHasCompleteCoverage } from "../../primary-workbench-source-observation-review";
 
 type ReceiptScalar = string | number | boolean | null | undefined;
 
@@ -207,7 +206,8 @@ export function CatalogIntegrationCreateItemsStage({
     setReview(currentReview);
   }
   const previewFresh =
-    Boolean(receipt && promotionReceiptHasCompleteCoverage(receipt)) &&
+    Boolean(receipt) &&
+    preview.previewCommittable &&
     preview.executionSafeguards.previewFresh &&
     preview.previewId !== null &&
     !choiceChanged &&
