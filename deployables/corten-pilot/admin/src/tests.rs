@@ -7803,13 +7803,22 @@ fn daily_surface(location: &str, scope: Option<&str>) -> Response {
             "mergeCandidateReview": { "freshness": "fresh", "counts": { "total": 1, "ready": 1, "conflict": 0 }, "rows": [{
                 "candidateId": "cand_1", "identityFingerprint": "pokemon:sv1:001", "identityLabel": "Sprigatito 001",
                 "sourceCount": 2, "sources": [{ "providerKey": "tcgplayer", "observationId": "obs_1", "externalKey": null }],
-                "status": "ready", "conflicts": { "blocking": 0, "warnings": 1 },
-                "promoteReadiness": { "state": "ready", "blockers": [] }, "proposedMapping": { "promotionIntent": "create" },
+                "status": "ready", "conflicts": { "blocking": 0, "warnings": 1, "messages": ["Rarity differs between sources."] },
+                "promoteReadiness": { "state": "ready", "blockers": [] }, "proposedMapping": { "promotionIntent": "create-catalog-item",
+                    "catalogItemId": null, "productIds": ["prd_1"], "externalCatalogItemReferences": ["tcgplayer:111"],
+                    "externalProductReferences": [] },
+                "sourceComparison": [{ "fieldPath": "catalogItem.name", "value": "Sprigatito", "providerKey": "tcgplayer",
+                    "observationId": "obs_1", "confidence": "exact" }],
+                "fieldProvenance": [{ "fieldPath": "catalogItem.name", "providerKey": "tcgplayer", "sourceProfileVersion": "sv-2026",
+                    "confidence": "exact", "evidenceSummary": "name" }],
+                "proposedFacts": [{ "key": "name", "value": "Sprigatito" }],
                 "actions": [{ "key": "candidate.promote", "state": "available", "blockers": [] },
                     { "key": "candidate.ignore", "state": "available", "blockers": [] },
                     { "key": "candidate.defer", "state": "blocked", "blockers": ["source-projection-stale"] },
                     { "key": "candidate.split", "state": "available", "blockers": [], "commandPreview": {
                         "commandKind": "catalog-merge-candidate-split",
+                        "provenance": { "membership": [{ "observationId": "obs_1" }, { "observationId": "obs_2" }],
+                            "externalProductReferences": [] },
                         "body": { "reason": "Split from the scope-first Catalog sync workbench.", "expectedVersion": 4,
                             "splitObservationIds": ["obs_2"] } } }],
                 "editForm": { "state": "available", "blockers": [], "candidateVersion": 4,
@@ -9776,6 +9785,39 @@ async fn a_merge_candidate_is_ignored_or_deferred_with_admin_webs_reason() {
     let (status, _, _) = pilot.send(post("/catalog/integrations/candidates/cand_1", "command=promote", false)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "a command the form does not offer");
     assert_eq!(daily_writes(&pilot).len(), before, "it does not reach the API");
+}
+
+#[tokio::test]
+async fn a_candidates_evidence_is_its_detail_sheet_from_the_row_the_read_gave() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/catalog/integrations?providerKey=tcgplayer&unitKey=pokemon", Some("staff"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let sheet = &html[html.find(r#"data-catalog-merge-candidate-detail="cand_1""#).expect(&html)..];
+    let sheet = &sheet[..sheet.find("</dialog>").unwrap()];
+    for text in [
+        "Candidate detail: Sprigatito 001",
+        "<dd>cand_1</dd>",
+        "<dd>Create catalog item</dd>",
+        "<dd>not selected</dd>",
+        "<dd>prd_1</dd>",
+        "tcgplayer obs_1 catalogItem.name: Sprigatito",
+        "catalogItem.name: tcgplayer sv-2026 Exact",
+        "tcgplayer:111",
+        "name: Sprigatito",
+        "Rarity differs between sources.",
+        "Split: catalog-merge-candidate-split from 2 source(s), 0 Product reference(s)",
+    ] {
+        assert!(sheet.contains(text), "{text}: {sheet}");
+    }
+    assert!(!sheet.contains("blocking conflicts runs on admin-web"), "no blocking conflict to resolve: {sheet}");
+    // Its trigger opens it without a read of its own, for a viewer who cannot manage too.
+    assert!(
+        html.contains(r#"command="show-modal" commandfor="#) && html.contains(r#"aria-label="Evidence: Sprigatito 001""#),
+        "{html}"
+    );
+    let (_, _, viewer) =
+        pilot.send(get("/catalog/integrations?providerKey=tcgplayer&unitKey=pokemon", Some("catalog-reader"))).await;
+    assert!(viewer.contains(r#"data-catalog-merge-candidate-detail="cand_1""#), "{viewer}");
 }
 
 #[tokio::test]

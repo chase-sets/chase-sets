@@ -150,8 +150,7 @@ checked rows, an observation's evidence or a unit's scope) and Create or update 
 selection and confirmation the Catalog API builds for the read; a promotion the read does not offer is
 not offered. The commit presents the token the preview answered, with the draft choice it bound, and is
 offered while the read says the held preview may be committed (`previewCommittable`). A merge
-candidate's Promote sends the version the read offered it with; a promote with conflicts to resolve,
-and a candidate's evidence, stay on admin-web. Its import context
+candidate's Promote sends the version the read offered it with, and its Evidence opens the candidate's detail sheet from the row the read gave; a promote with blocking conflicts to resolve stays on admin-web, as the API does not apply the value a resolution chooses ([chase-sets/chase-sets#11235 [catalog] A merge candidate's conflict resolution is never applied: Keep the catalog value still writes the proposed value](https://github.com/chase-sets/chase-sets/issues/11235)). Its import context
 bar chooses the provider, unit, scope and profile version from synced source options and reloads or
 force-refreshes them; the scope selects, their options and the bar's summary line are the Catalog
 API's.
@@ -311,6 +310,7 @@ instead. Remove the workaround when the issue closes.
 
 | Issue | Cited in |
 |---|---|
+| [chase-sets/chase-sets#11235 [catalog] A merge candidate's conflict resolution is never applied: Keep the catalog value still writes the proposed value](https://github.com/chase-sets/chase-sets/issues/11235) | [admin/src/catalog/views/daily_page.rs](admin/src/catalog/views/daily_page.rs) |
 | [chase-sets/chase-sets#9995 [checkout] Apply Sell List commands exactly once and converge the Offer handoff](https://github.com/chase-sets/chase-sets/issues/9995) | [marketplace/src/selling.rs](marketplace/src/selling.rs), [marketplace/src/api.rs](marketplace/src/api.rs) |
 | [chase-sets/chase-sets#8766 Show every seller attention source in the Desk Needs you queue](https://github.com/chase-sets/chase-sets/issues/8766) | [scripts/smoke-market-desk.mjs](scripts/smoke-market-desk.mjs), [marketplace/src/views/desk_page.rs](marketplace/src/views/desk_page.rs) |
 | [chase-sets/chase-sets#8830 Complete Sell List Offer lines from inventory when the seller has no Listing](https://github.com/chase-sets/chase-sets/issues/8830) | [scripts/smoke-market-item-sell.mjs](scripts/smoke-market-item-sell.mjs), [marketplace/src/selling.rs](marketplace/src/selling.rs) |

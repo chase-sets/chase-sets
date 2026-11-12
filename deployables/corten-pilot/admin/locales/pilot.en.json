@@ -161,7 +161,7 @@
     "sync_run_targets": "Provider targets",
     "sync_run_no_child": "No child job",
     "sync_run_caption": "Catalog sync child jobs",
-    "candidates_elsewhere": "Candidate evidence and conflict resolution run on admin-web.",
+    "conflicts_elsewhere": "Resolving a candidate's blocking conflicts runs on admin-web.",
     "candidates_open": "Open the candidates on admin-web",
     "workset_caption": "Provider units in the selected source scope",
     "preflight_read": "Read the import preflight",
