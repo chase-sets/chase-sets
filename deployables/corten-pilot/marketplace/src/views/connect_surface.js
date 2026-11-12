@@ -82,7 +82,7 @@ function component(session) {
 
 /**
  * When the component's place joins the page: ask for a session, load Connect.js and mount Stripe's
- * component with the page's theme; any failure, or no answer within the deadline, says why.
+ * component in Stripe's own appearance; any failure, or no answer within the deadline, says why.
  * Leaving the page removes it.
  *
  * @param {HTMLDivElement} target

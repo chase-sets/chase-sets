@@ -7512,7 +7512,7 @@ fn provider_connections() -> Response {
 /// `providerKey=down` is a read model built without the control-plane overview (its panels say
 /// they are unavailable); `providerKey=broken` fails the read.
 fn workbench_surface(surface: &str, query: &str, cookie: &str) -> Response {
-    if !matches!(surface, "daily" | "daily/source-options" | "governance" | "health") {
+    if !matches!(surface, "daily" | "daily/source-options" | "daily/import-preview" | "governance" | "health") {
         return refusal(
             StatusCode::NOT_FOUND,
             "invalid_workbench_surface",
@@ -7561,6 +7561,9 @@ fn workbench_surface(surface: &str, query: &str, cookie: &str) -> Response {
             return refusal(StatusCode::SERVICE_UNAVAILABLE, "provider_unavailable", "The provider options could not be read.");
         }
         return Json(source_options(true)).into_response();
+    }
+    if surface == "daily/import-preview" {
+        return Json(import_preview(&location)).into_response();
     }
     if surface == "health" && location.starts_with("/catalog/providers/") {
         return provider_surface(&location, cookie);
@@ -7740,7 +7743,8 @@ fn daily_surface(location: &str, scope: Option<&str>) -> Response {
                 "action": { "key": "scope.sync", "state": if stopped { "blocked" } else { "available" },
                     "blockers": if stopped { json!(["kill-switch-active"]) } else { json!([]) } }
             },
-            "importJobs": { "freshness": "fresh", "activeJobCount": 1, "failedJobCount": 1, "jobs": [{
+            "importJobs": { "freshness": "fresh", "activeJobCount": 1, "failedJobCount": 1,
+                "selectedScope": { "readiness": { "adapterReadiness": "ready", "credentialReadiness": "not-required" } }, "jobs": [{
                 "jobId": "job_1", "state": "failed", "operatorStatus": "failed", "summary": "Pull stopped at page 3.",
                 "completed": 3, "total": 10, "progressPercent": 30, "unitKey": "tcgplayer:pokemon:card", "providerKey": "tcgplayer",
                 "importScope": "sv1", "profileVersion": "3", "profileSnapshot": { "profileKey": "tcgplayer-cards", "profileVersion": "3" },
@@ -7857,7 +7861,9 @@ fn daily_surface(location: &str, scope: Option<&str>) -> Response {
 
 /// The daily surface's source options for TCGplayer cards: Language, then Expansion under it
 /// (its English sets and one Japanese), and a Rarity kind no route field takes. `populated` is the
-/// deferred read; without it, the skeleton the surface carries (the kinds and empty pages).
+/// deferred read; without it, the skeleton the surface carries (the kinds and empty pages). Each
+/// carries the scope selects the Catalog API works out for the location's English Scarlet & Violet:
+/// the expansions narrowed to English, and without the populated read only what is chosen.
 fn source_options(populated: bool) -> Value {
     let items = |list: Value| if populated { list } else { json!([]) };
     let page = |kind: &str, name: &str, scope: &str, list: Value, refresh: bool| {
@@ -7866,8 +7872,28 @@ fn source_options(populated: bool) -> Value {
             "page": { "count": list.as_array().map_or(0, Vec::len) }, "cache": { "diagnostics": [] }, "items": items(list),
             "refreshHref": refresh.then_some("/api/catalog/source-observations/integration-options?forceRefresh=true") })
     };
+    let option = |value: &str, label: &str, parent: Option<&str>| json!({ "value": value, "label": label, "description": null, "parentValue": parent });
+    let (languages, expansions) = if populated {
+        (
+            json!([option("en", "English", None), option("ja", "Japanese", None)]),
+            json!([option("sv1", "Scarlet & Violet", Some("en")), option("sv2", "Paldea Evolved", Some("en"))]),
+        )
+    } else {
+        (json!([option("en", "en", None)]), json!([option("sv1", "sv1", None)]))
+    };
+    let guided_fields = json!([
+        { "queryKind": "languages", "scope": "language", "label": "Language", "fieldName": "languageCode",
+          "labelFieldName": null, "options": languages, "selectedValue": "en", "selectedLabel": if populated { "English" } else { "en" },
+          "parentMissing": false, "parentScope": null, "parentDiagnostic": null },
+        { "queryKind": "expansions", "scope": "expansion", "label": "Expansion", "fieldName": "expansionId",
+          "labelFieldName": "expansionName", "options": expansions, "selectedValue": "sv1", "selectedLabel": "Scarlet & Violet",
+          "parentMissing": false, "parentScope": "language", "parentDiagnostic": null }
+    ]);
     json!({
         "status": if populated { "ready" } else { "unavailable" },
+        "guidedFields": guided_fields,
+        "freeTextApplicable": false,
+        "contextSummary": "tcgplayer · tcgplayer:pokemon:card · en/sv1",
         "summary": { "declaredKinds": 3, "loadedPages": if populated { 3 } else { 0 }, "availableOptions": if populated { 5 } else { 0 } },
         "optionKinds": [
             { "queryKind": "languages", "scope": "language", "parentScope": null, "parent": { "scope": null, "missing": false } },
@@ -7885,6 +7911,32 @@ fn source_options(populated: bool) -> Value {
             page("rarities", "Rarity", "rarity", json!([]), false)
         ],
         "refresh": { "state": "available", "refreshAllHref": "/api/catalog/source-observations/integration-options?forceRefresh=true" }
+    })
+}
+
+/// The import preflight the Catalog API answers for a daily location: two TCGplayer targets planned
+/// bulk-first; `providerKey=slow` is a provider past the API's deadline, and `providerKey=nopreview`
+/// a location the API plans no preflight for.
+fn import_preview(location: &str) -> Value {
+    if location.contains("providerKey=slow") {
+        return json!({ "status": "unavailable" });
+    }
+    if location.contains("providerKey=nopreview") {
+        return Value::Null;
+    }
+    let target = |id: &str, plan: &str, payloads: u64| {
+        json!({ "targetId": id, "name": id, "languageCode": "en", "scopeKey": "en:sv1", "planKey": plan,
+            "estimatedPayloads": payloads, "transportSteps": ["catalog-page", "price-page"], "usageEstimate": null })
+    };
+    json!({
+        "status": "ready",
+        "preview": { "action": "import", "providerKey": "tcgplayer",
+            "scope": { "provider": "tcgplayer", "ingestionUnitKey": "tcgplayer:pokemon:card", "language": "en", "setId": "sv1" },
+            "profileSnapshot": null, "targetCount": 2,
+            "targets": [target("t1", "plan-cards", 120), target("t2", "plan-prices", 30)] },
+        "usageSummary": { "requestStrategy": "bulk-first", "estimateState": "estimated", "estimatedRequestCount": 6,
+            "estimateReason": null, "usageCheckState": "checked", "pageSize": 100, "selectedFields": ["name", "number"],
+            "perRecordFallbackReason": null, "creditDiagnostic": null, "degradedDiagnostic": "Prices lag by an hour." }
     })
 }
 
@@ -9345,6 +9397,104 @@ async fn the_import_context_draws_the_providers_units_and_scope_selects_from_the
     assert_eq!(status, StatusCode::OK, "{html}");
     assert!(html.contains(r#"<option value="sv1" selected>sv1</option>"#), "the chosen value, by itself: {html}");
     assert!(html.contains(r#"data-catalog-source-options-status="unavailable""#), "{html}");
+}
+
+#[tokio::test]
+async fn the_jobs_stage_draws_a_loading_line_and_its_import_preflight_comes_once_it_is_read() {
+    let pilot = Pilot::new().await;
+    let at = "providerKey=tcgplayer&unitKey=pokemon";
+    let preflight = "/api/catalog/source-observations/workbench-surfaces/daily/import-preview";
+    let (status, _, html) = pilot.send(get(&format!("/catalog/integrations?{at}"), Some("staff"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let part = &html[html.find("<corten-live src=\"/catalog/integrations/import-preview?").expect(&html)..];
+    let part = &part[..part.find("</corten-live>").unwrap()];
+    assert!(
+        part.starts_with(r#"<corten-live src="/catalog/integrations/import-preview?providerKey=tcgplayer&amp;unitKey=pokemon">"#),
+        "{part}"
+    );
+    assert!(part.contains("Loading import preflight"), "{part}");
+    // Without JavaScript the element opens no stream; its link reads the preflight with the page.
+    assert!(
+        part.contains(r#"<noscript><p class="#)
+            && part.contains(r#"<a href="/catalog/integrations/import-preflight?providerKey=tcgplayer&amp;unitKey=pokemon">Read the import preflight</a>"#),
+        "{part}"
+    );
+    assert!(pilot.calls_to(preflight).is_empty(), "the page does not wait for the provider's plan");
+
+    // The fragment: the preflight the API planned and summarized, for the same location.
+    let events = pilot.events(&format!("/catalog/integrations/import-preview?{at}"), "staff", 2).await;
+    let kinds: Vec<_> = events.iter().map(|(event, _)| event.as_str()).collect();
+    assert_eq!(kinds, ["patch", "end"], "one fragment, then the stream ends: {events:?}");
+    let fragment = &events[0].1;
+    for text in [
+        r#"data-catalog-import-preview="ready""#,
+        r#"data-catalog-import-preview-unit="tcgplayer:pokemon:card""#,
+        r#"data-catalog-import-preview-scope="en:sv1""#,
+        r#"data-catalog-import-preview-strategy="bulk-first""#,
+        "2 target(s)",
+        "Bulk first strategy",
+        "Checked usage check",
+        "<dd>150</dd>",
+        "<dd>catalog-page / price-page</dd>",
+        "<dd>Prices lag by an hour.</dd>",
+        "<dd>plan-cards, plan-prices</dd>",
+    ] {
+        assert!(fragment.contains(text), "{text}: {fragment}");
+    }
+    assert_eq!(
+        pilot.calls_to(preflight).last().map(|c| c.path.clone()).unwrap_or_default(),
+        format!("{preflight}?location=%2Fcatalog%2Fintegrations%3FproviderKey%3Dtcgplayer%26unitKey%3Dpokemon")
+    );
+
+    // A provider past the API's deadline says so; no preflight, or a read that fails, leaves nothing.
+    let events = pilot.events("/catalog/integrations/import-preview?providerKey=slow", "staff", 1).await;
+    assert!(
+        events[0].1.contains(r#"data-catalog-deferred-panel="unavailable""#) && events[0].1.contains("Import preflight"),
+        "{events:?}"
+    );
+    for at in ["providerKey=nopreview", "providerKey=broken"] {
+        let events = pilot.events(&format!("/catalog/integrations/import-preview?{at}"), "staff", 1).await;
+        assert!(!events[0].1.contains("Import preflight") && !events[0].1.contains("Loading"), "{at}: {events:?}");
+    }
+}
+
+#[tokio::test]
+async fn without_javascript_the_import_preflights_link_is_its_page_with_the_preflight_read() {
+    let pilot = Pilot::new().await;
+    let preflight = "/api/catalog/source-observations/workbench-surfaces/daily/import-preview";
+    let at = "providerKey=tcgplayer&unitKey=pokemon";
+    let (status, _, html) = pilot.send(get(&format!("/catalog/integrations/import-preflight?{at}"), Some("staff"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains("<title>Catalog Integrations") && html.contains(r#"name="wb-stage""#), "the daily page: {html}");
+    assert!(
+        html.contains(r#"data-catalog-import-preview="ready""#) && html.contains("2 target(s)") && html.contains("<dd>150</dd>"),
+        "the preflight, drawn in the page: {html}"
+    );
+    assert!(!html.contains("/catalog/integrations/import-preview?") && !html.contains("Loading import preflight"), "{html}");
+    assert_eq!(
+        pilot.calls_to(preflight).last().map(|c| c.path.clone()).unwrap_or_default(),
+        format!("{preflight}?location=%2Fcatalog%2Fintegrations%3FproviderKey%3Dtcgplayer%26unitKey%3Dpokemon")
+    );
+
+    // A provider past the API's deadline says so; no preflight, or a read that fails, leaves nothing.
+    let (status, _, html) = pilot.send(get("/catalog/integrations/import-preflight?providerKey=slow", Some("staff"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains(r#"data-catalog-deferred-panel="unavailable""#) && html.contains("Import preflight"), "{html}");
+    let (status, _, html) = pilot.send(get("/catalog/integrations/import-preflight?providerKey=nopreview", Some("staff"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(!html.contains("data-catalog-import-preview=") && !html.contains("Loading import preflight"), "{html}");
+
+    // From a scope's workspace the page is the scope's, with the preflight read for its own address.
+    let (status, _, html) =
+        pilot.send(get(&format!("/catalog/integrations/import-preflight?{at}&home=scp_paf"), Some("staff"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains("data-scope-workspace") && html.contains("Paldean Fates"), "the scope's page: {html}");
+    assert!(html.contains(r#"data-catalog-import-preview="ready""#), "{html}");
+    assert!(
+        pilot.calls_to(preflight).last().is_some_and(|c| c.path.contains("location=%2Fcatalog%2Fscopes%2Fscp_paf")),
+        "the scope's location: {:?}",
+        pilot.calls_to(preflight).last()
+    );
 }
 
 #[tokio::test]

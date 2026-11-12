@@ -912,6 +912,7 @@ const outputs = [
         ["catalog.features.sourceObservations.ui.primaryWorkbench.stage.", "wb_stage"],
         ["catalog.features.sourceObservations.ui.primaryWorkbench.catalogSync.", "wb_sync"],
         ["catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.", "wb_jobs"],
+        ["catalog.features.sourceObservations.ui.primaryWorkbench.import.preview.", "wb_import_preview"],
         ["catalog.features.sourceObservations.ui.primaryWorkbench.import.operations.", "wb_import_operations"],
         ["catalog.features.sourceObservations.ui.primaryWorkbench.mergeCandidates.", "wb_merge"],
         ["catalog.features.sourceObservations.ui.primaryWorkbench.review.", "wb_review"],

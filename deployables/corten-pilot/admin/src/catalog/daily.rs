@@ -13,6 +13,8 @@
 //! | `POST /catalog/integrations/review?<context>` | defers or rejects the checked Source Observations |
 //! | `POST /catalog/integrations/promotion?<context>` | previews the promotion of the checked Source Observations, or commits the preview the address holds |
 //! | `GET /catalog/integrations/evidence/{id}?<context>` | a Source Observation's evidence sheet, or without the script the page with it open |
+//! | `GET /catalog/integrations/import-preview?<context>` | the jobs stage's import preflight, once it is read (`<corten-live>`) |
+//! | `GET /catalog/integrations/import-preflight?<context>` | without the script, the page with its import preflight read for it |
 //! | `POST /catalog/integrations/candidates/{id}?<context>` | ignores or defers a merge candidate |
 //! | `POST /catalog/integrations/aliases?<context>` | accepts, rejects, revokes or defers alias candidates |
 //!
@@ -55,9 +57,8 @@
 //! Above the steps the import context bar ([`super::views::ImportContext`]) chooses the provider,
 //! the unit, the scope and the profile version from the surface's provider scope and its deferred
 //! source options read (`GET .../workbench-surfaces/daily/source-options?location=`), and posts the
-//! options' Reload and Force refresh to `POST /catalog/integrations/source-options?<context>`. Which
-//! field each option kind drives and which options a level offers are copied from admin-web until the
-//! API returns them (chase-sets/chase-sets#11080).
+//! options' Reload and Force refresh to `POST /catalog/integrations/source-options?<context>`. Both
+//! reads carry the scope selects, which options each level offers and the bar's summary line.
 //!
 //! Beside the surface the page reads the Catalog sync run the address's `jobId` names
 //! (`GET .../catalog-sync-scope/runs/{id}`), where a sync lands, and then the durable sync state of the
@@ -69,10 +70,11 @@
 //! health banners (`dailyStatus`), and the review queue's status filter and pager links; a scope's
 //! page draws those links on itself ([`rebase`]).
 use corten::{
-    Local,
+    LiveResponse, Local,
     http::{HeaderMap, Uri},
     prelude::*,
 };
+use futures_util::stream;
 use platform::receipt::Receipt;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -135,6 +137,16 @@ pub mod url {
     /// Reloads or refreshes the provider's source options, then lands on the working set.
     #[route("/catalog/integrations/source-options", post = crate::catalog::daily::source_options_refresh)]
     pub struct SourceOptions;
+
+    /// The jobs stage's import preflight for the working set, sent once when it reads
+    /// (`<corten-live>`).
+    #[route("/catalog/integrations/import-preview", get = crate::catalog::daily::import_preview)]
+    pub struct ImportPreview;
+
+    /// The working set's page with its import preflight read for it, for a browser without
+    /// JavaScript, which opens no `<corten-live>` stream: the loading line's link.
+    #[route("/catalog/integrations/import-preflight", get = crate::catalog::daily::preflight)]
+    pub struct Preflight;
 
     /// An alias candidate's command in the review stage's alias review.
     #[route("/catalog/integrations/aliases", post = crate::catalog::daily::aliases)]
@@ -556,6 +568,85 @@ pub struct ImportJobs {
     pub jobs: Vec<ImportJob>,
     /// The import scope's readiness, which provider detail's validation readiness shows.
     pub selected_scope: Option<super::validation::SelectedScope>,
+}
+
+/// `CatalogDailyImportPreview`: the working set's import preflight, which the Catalog API plans for
+/// the selected scope, bounds in time, checks against the route and summarizes
+/// (`GET .../workbench-surfaces/daily/import-preview?location=`). The API answers `null` when the
+/// location names no import scope or the plan does not match it.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(tag = "status", rename_all = "lowercase")]
+pub enum ImportPreview {
+    Ready(Box<ReadyPreflight>),
+    /// The provider did not answer in time.
+    Unavailable,
+}
+
+/// A preflight the API planned for the selected scope, with its usage summarized.
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct ReadyPreflight {
+    pub preview: Preflight,
+    pub usage_summary: PreflightUsage,
+}
+
+/// `SourceObservationIntegrationImportPreview`, the parts the jobs stage draws.
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct Preflight {
+    pub provider_key: String,
+    pub scope: PreflightScope,
+    pub target_count: u64,
+    pub targets: Vec<PreflightTarget>,
+}
+
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct PreflightScope {
+    pub ingestion_unit_key: Option<String>,
+    pub language: Option<String>,
+    pub product_line_id: Option<String>,
+    pub series_id: Option<String>,
+    pub set_id: Option<String>,
+    pub set_name: Option<String>,
+    pub product_id: Option<String>,
+}
+
+impl PreflightScope {
+    /// The scope's levels joined, as admin-web's `importPreviewScopeKey` writes them.
+    pub fn key(&self) -> String {
+        let set = self.set_id.as_deref().or(self.set_name.as_deref());
+        [self.language.as_deref(), self.product_line_id.as_deref(), self.series_id.as_deref(), set, self.product_id.as_deref()]
+            .into_iter()
+            .flatten()
+            .filter(|level| !level.is_empty())
+            .collect::<Vec<_>>()
+            .join(":")
+    }
+}
+
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct PreflightTarget {
+    pub plan_key: String,
+    pub estimated_payloads: Option<u64>,
+    pub transport_steps: Vec<String>,
+}
+
+/// `CatalogImportPreviewUsageSummary`: the targets' provider usage, summarized by the API.
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct PreflightUsage {
+    pub request_strategy: Option<String>,
+    pub estimate_state: Option<String>,
+    pub estimated_request_count: Option<u64>,
+    pub estimate_reason: Option<String>,
+    pub usage_check_state: Option<String>,
+    pub page_size: Option<u64>,
+    pub selected_fields: Vec<String>,
+    pub per_record_fallback_reason: Option<String>,
+    pub credit_diagnostic: Option<String>,
+    pub degraded_diagnostic: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize, ToJson)]
@@ -1205,9 +1296,41 @@ pub struct DailyScreen {
     pub aliases: Option<super::api::AliasReview>,
     /// The evidence sheet drawn open, without the script; none otherwise.
     pub evidence: Option<ObservationEvidence>,
+    /// The jobs stage's import preflight: left to its `<corten-live>` part, or read for the page.
+    #[serde(skip)]
+    pub preflight: PreflightPart,
+}
+
+/// The jobs stage's import preflight: left to `<corten-live>`, which reads it once the page is
+/// drawn, or read for the page itself (its link's page, without the script): the API's answer, none
+/// when there is no preflight or the read failed.
+#[derive(Clone, Debug, Default)]
+pub enum PreflightPart {
+    #[default]
+    Live,
+    Read(Option<ImportPreview>),
+}
+
+/// What a page drawn without the script has open: a review row's evidence sheet, or the import
+/// preflight read for it; nothing on an ordinary load.
+#[derive(Default)]
+pub enum Opened {
+    #[default]
+    Nothing,
+    Evidence(Box<ObservationEvidence>),
+    Preflight(Option<ImportPreview>),
 }
 
 impl DailyScreen {
+    /// The screen with `opened` drawn open.
+    pub fn open(&mut self, opened: Opened) {
+        match opened {
+            Opened::Nothing => {}
+            Opened::Evidence(evidence) => self.evidence = Some(*evidence),
+            Opened::Preflight(answer) => self.preflight = PreflightPart::Read(answer),
+        }
+    }
+
     /// The source options the bar draws.
     pub fn source_options(&self) -> &SourceOptions {
         self.options.as_ref().unwrap_or(&self.read.read_model.source_options)
@@ -1243,7 +1366,7 @@ pub(crate) async fn workspace(caller: &Caller<'_>, context: &str, manage: bool) 
     let (read, run) = tokio::join!(read_with(caller, &location), sync_run(caller, context));
     let read = read.inspect_err(|error| tracing::warn!("a scope's daily surface could not be read: {error}")).ok()?;
     let units = unit_states(caller, &read).await;
-    Some(DailyScreen { read, manage, run, units, options: None, aliases: None, evidence: None })
+    Some(DailyScreen { read, manage, run, units, options: None, aliases: None, evidence: None, preflight: PreflightPart::Live })
 }
 
 /// The Catalog sync run the address's `jobId` names (admin-web's `selectedCatalogSyncRun`): none
@@ -1265,6 +1388,53 @@ async fn source_options(config: &Shared, headers: &HeaderMap, location: &str) ->
             None
         }
     }
+}
+
+/// The working set's import preflight, one fragment sent when the Catalog API answers it, which
+/// replaces the jobs stage's loading line: the preflight, that the provider did not answer in time,
+/// or nothing when there is none or the read fails (admin-web's deferred `settledImportPreviewRead`).
+/// The API bounds the provider's answer, so the stream ends within its deadline.
+pub(crate) async fn import_preview(
+    req: Req,
+    corten::Caller(_): corten::Caller<Staff<CatalogAccess>>,
+    State(config): State<Shared>,
+    headers: HeaderMap,
+    uri: Uri,
+) -> LiveResponse {
+    let t: Cat = req.t();
+    let context = context_of(&uri);
+    corten::live(stream::once(async move {
+        let answer = read_preflight(&config.platform.caller(&headers, config.proto, None), &context).await;
+        html! { <super::views::ImportPreflight t={t} answer={answer.as_ref()} /> }.to_html()
+    }))
+}
+
+/// The working set's page with its import preflight read for it, for a browser without JavaScript,
+/// whose `<corten-live>` opens no stream: the scope's page its `home` names, or the daily workbench,
+/// as the evidence sheet's page is.
+pub(crate) async fn preflight(
+    req: Req,
+    corten::Caller(staff): corten::Caller<Staff<CatalogAccess>>,
+    State(config): State<Shared>,
+    headers: HeaderMap,
+    uri: Uri,
+) -> HtmlResult {
+    let context = context_of(&uri);
+    let answer = read_preflight(&config.platform.caller(&headers, config.proto, None), &context).await;
+    match context_value(&context, HOME).filter(|id| !id.is_empty()) {
+        Some(id) => super::scope::opened(&req, &staff.viewer, &config, &headers, &id, &context, Opened::Preflight(answer)).await,
+        None => render(&req, &staff.viewer, &config, &headers, &context, None, None, false, Opened::Preflight(answer)).await,
+    }
+}
+
+/// The working set's import preflight as the Catalog API answers it: none when there is none, or
+/// when the read fails.
+async fn read_preflight(caller: &Caller<'_>, context: &str) -> Option<ImportPreview> {
+    let rest = format!("/workbench-surfaces/daily/import-preview?location={}", segment(&location(context)));
+    caller.read_at::<Option<ImportPreview>>(Kind::SourceObservations, &rest).await.unwrap_or_else(|error| {
+        tracing::warn!("the daily import preflight could not be read: {error}");
+        None
+    })
 }
 
 /// The durable sync state of the scope the surface names (admin-web's
@@ -1320,7 +1490,7 @@ async fn render(
     receipt: Option<Receipt>,
     said: Option<Said<'_>>,
     refused: bool,
-    evidence: Option<ObservationEvidence>,
+    opened: Opened,
 ) -> HtmlResult {
     let location = location(context);
     let caller = config.platform.caller(headers, config.proto, receipt.as_ref());
@@ -1336,7 +1506,17 @@ async fn render(
         Err(error) => return read_failed(req, error, receipt.is_some()),
     };
     let (units, aliases) = tokio::join!(unit_states(&caller, &read), alias_review(&caller, &read.read_model.route_context));
-    let screen = DailyScreen { read, manage: manages(viewer), run, units, options, aliases, evidence };
+    let mut screen = DailyScreen {
+        read,
+        manage: manages(viewer),
+        run,
+        units,
+        options,
+        aliases,
+        evidence: None,
+        preflight: PreflightPart::Live,
+    };
+    screen.open(opened);
     let t: Cat = req.t();
     let p: Pilot = req.t();
     let view = html! {
@@ -1357,7 +1537,7 @@ pub(crate) async fn page(
 ) -> HtmlResult {
     let receipt = Receipt::from_param(param(&uri, "after_write").as_deref());
     let said = param(&uri, "done").as_deref().and_then(Ran::of).map(Said::Ran);
-    render(&req, &staff.viewer, &config, &headers, &context_of(&uri), receipt, said, false, None).await
+    render(&req, &staff.viewer, &config, &headers, &context_of(&uri), receipt, said, false, Opened::Nothing).await
 }
 
 /// A Source Observation's evidence sheet (admin-web's `SourceObservationEvidenceSheet`, which reads
@@ -1378,9 +1558,10 @@ pub(crate) async fn evidence(
         let (t, p): (Cat, Pilot) = (req.t(), req.t());
         return req.patch(super::views::EvidenceSheet { t, p, evidence: Some(&shown), context: &context });
     }
+    let opened = Opened::Evidence(Box::new(shown));
     match context_value(&context, HOME).filter(|id| !id.is_empty()) {
-        Some(id) => super::scope::with_evidence(&req, &staff.viewer, &config, &headers, &id, &context, shown).await,
-        None => render(&req, &staff.viewer, &config, &headers, &context, None, None, false, Some(shown)).await,
+        Some(id) => super::scope::opened(&req, &staff.viewer, &config, &headers, &id, &context, opened).await,
+        None => render(&req, &staff.viewer, &config, &headers, &context, None, None, false, opened).await,
     }
 }
 
@@ -1438,7 +1619,8 @@ async fn answer(
             Some(id) => super::scope::refused_in_workspace(req, &staff.viewer, config, headers, id, context, &errors).await,
             None => {
                 let daily = with_query(context, &[(HOME, None)]);
-                render(req, &staff.viewer, config, headers, &daily, None, Some(Said::Refused(&errors)), true, None).await
+                render(req, &staff.viewer, config, headers, &daily, None, Some(Said::Refused(&errors)), true, Opened::Nothing)
+                    .await
             }
         }
     })
