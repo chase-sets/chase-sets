@@ -20,8 +20,9 @@
 //! `passkey.js`): its press asks `POST /sign-in/passkey` for a challenge (registration and an
 //! invitation ask the same route), the browser signs it, and the form is sent with the
 //! credential. Without a script the form comes without one and the page says the passkey sign-in
-//! failed. A social sign-in needs the provider's round trip through the API, which comes back to
-//! marketplace's sign-in, so it is a link to marketplace. The magic link's email points at
+//! failed. A social sign-in is a link to Auth's start (`/api/auth/social/{provider}/start`), which
+//! the pilot relays where nothing else serves `/api` (`platform::auth::social`): the provider comes
+//! back to the page's origin, and Auth's answer to the pilot's page when it serves it. The magic link's email points at
 //! `/sign-in/magic` on the host that asked for it, which the pilot serves.
 //!
 //! A session started here is marketplace's cookie (`chase_sets_session`, HttpOnly, SameSite=Lax,
@@ -33,7 +34,7 @@
 //! would share the web host's
 //! ([chase-sets/chase-sets#10686](https://github.com/chase-sets/chase-sets/issues/10686)).
 use corten::{
-    ClientIp, Local,
+    ClientIp, Local, Relay,
     http::{HeaderMap, StatusCode, Uri},
     prelude::*,
     security::cookie::SetCookie,
@@ -300,6 +301,19 @@ fn render(req: &Req, status: StatusCode, screen: &SignInScreen) -> HtmlResult {
         </Layout>
     };
     if status == StatusCode::OK { req.page(page) } else { req.page_with_status(status, page) }
+}
+
+/// A social sign-in's start or the provider's return, relayed to Auth (`platform::auth::social`).
+pub(crate) async fn social(
+    req: Req,
+    State(config): State<Shared>,
+    headers: HeaderMap,
+    uri: Uri,
+    Params(route): Params<url::SocialSignIn<'_>>,
+) -> corten::Result<Relay> {
+    let caller = config.platform.caller(&headers, config.proto, None);
+    let place = |path: &str| destination(&req, path).map(|to| to.to_string());
+    platform::auth::social(&caller, &headers, route.provider.as_str(), route.step.as_str(), uri.query(), place).await
 }
 
 /// The page, at the step its address is on.

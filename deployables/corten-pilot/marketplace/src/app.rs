@@ -45,6 +45,7 @@
 //! | `GET /sign-in?<ask>`, `POST ..` | signing in: the email or phone, its methods and their forms (see `sign_in`) |
 //! | `GET /sign-in/magic?token=..` | a magic link's landing |
 //! | `GET /account/select`, `POST ..` | the account a sign-in acts for |
+//! | `GET /api/auth/social/{provider}/start`, `../callback` | a social sign-in's two steps, relayed to Auth where nothing else serves them (see `sign_in`) |
 //! | `POST /sign-out` | signing out |
 //! | `GET /robots.txt` | the crawler rules, and the sitemap index when the site may be indexed (see `site`) |
 //! | `GET /sitemap.xml`, `/sitemap/{kind}/{page}.xml` | the sitemap index and its pages: the home page and search, then Discovery's public pages |
@@ -231,6 +232,7 @@ pub mod url {
     pub use sets::Set;
     pub use shipments::{Shipment, Shipments};
     pub use sign_in::{MagicLink, PasskeyChallenge, SignIn};
+    pub use social::SocialSignIn;
     pub use submitted_offers::{SubmittedOffer, SubmittedOffers, SubmittedOffersLive};
     pub use support::{SupportCase, SupportList};
     pub use team::Team;
@@ -797,6 +799,18 @@ pub mod url {
     pub mod oauth {
         #[route("/ucp/oauth/authorize", get = crate::agents::authorize, post = crate::agents::decide)]
         pub struct OAuthAuthorize;
+    }
+
+    /// A social sign-in's start and the provider's return, relayed to Auth (see
+    /// `platform::auth::social`). The ingress sends `/api` to the API before the pilot sees it;
+    /// locally nothing else serves it. Public: Auth reads the session's cookie itself.
+    #[corten::routes(state = crate::app::Shared, area = SocialSignIn)]
+    pub mod social {
+        #[route("/api/auth/social/{provider}/{step}", get = crate::sign_in::social, no_store)]
+        pub struct SocialSignIn<'a> {
+            pub provider: &'a str,
+            pub step: &'a str,
+        }
     }
 
     /// The user's security page (Identity's `account-security`): its names and its API keys. Every
@@ -1871,6 +1885,7 @@ pub fn app(config: Config) -> App {
             })
         })
         .area(|area| url::oauth::area(area, shared.clone()))
+        .area(|area| url::social::area(area, shared.clone()))
         // A create sends up to 60 MB of photos, which the API normalizes into six sizes each.
         // A listing's photo writes send up to 60 MB, as a create does.
         .area(|area| {

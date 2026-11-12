@@ -21,9 +21,15 @@ use crate::{
     text::SignInMsg,
 };
 
-/// A social sign-in's start, on marketplace's origin, where the provider comes back to.
+/// A social sign-in's start (`SocialLoginLink`'s `href`): Auth's, through the pilot's relay where
+/// nothing else serves `/api`, so the provider comes back to this origin.
+fn social_start(provider: &str, journey: &str, return_to: &str) -> String {
+    format!("{}?journey={journey}&returnTo={}", url::SocialSignIn { provider, step: "start" }.href(), segment(return_to))
+}
+
+/// A social sign-in's start.
 fn social(provider: &str, return_to: &str) -> String {
-    super::on_marketplace(&format!("/api/auth/social/{provider}/start?journey=sign-in&returnTo={}", segment(return_to)))
+    social_start(provider, "sign-in", return_to)
 }
 
 /// The page.
@@ -276,9 +282,9 @@ pub fn MagicLinkFailed<'a>(t: SignInMsg, title: &'a str, description: &'a str, a
     }
 }
 
-/// A social registration's start, on marketplace's origin, where the provider comes back to.
+/// A social registration's start.
 fn social_registration(provider: &str, return_to: &str) -> String {
-    super::on_marketplace(&format!("/api/auth/social/{provider}/start?journey=registration&returnTo={}", segment(return_to)))
+    social_start(provider, "registration", return_to)
 }
 
 /// Creating an account: a social account, or a method's form. Marketplace's segmented control is a

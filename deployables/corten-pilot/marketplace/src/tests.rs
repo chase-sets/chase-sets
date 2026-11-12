@@ -567,6 +567,9 @@ async fn platform(State(stand): State<Stand>, method: Method, uri: Uri, headers:
     if let Some(answer) = checkout_start_api(&method, uri.path(), &headers) {
         return answer;
     }
+    if let Some(answer) = social_login(&method, &uri, &headers) {
+        return answer;
+    }
     if let Some(answer) = auth(&method, uri.path(), &body) {
         return answer;
     }
@@ -2003,6 +2006,45 @@ fn notification_center(session: &str, method: &Method, path: &str, headers: &Hea
     }
 }
 
+/// Auth's social sign-in routes. A start redirects to the provider with its return address on the
+/// origin the request's `Host` names, as `buildSocialRedirectUri` does where the API does not trust
+/// `X-Forwarded-Host`. A callback with code `good` starts a session and goes back to its `returnTo`
+/// (state `st_cart`, `/account/cart`; state `st_away`, a path the pilot does not serve), code
+/// `member` asks which account, and any other state goes back to the sign-in with `invalid_state`.
+fn social_login(method: &Method, uri: &Uri, headers: &HeaderMap) -> Option<Response> {
+    let step = uri.path().strip_prefix("/api/auth/social/google/")?;
+    if *method != Method::GET {
+        return None;
+    }
+    let query = uri.query().unwrap_or_default();
+    let has = |pair: &str| query.split('&').any(|p| p == pair);
+    let host = headers.get(header::HOST).and_then(|v| v.to_str().ok()).unwrap_or_default();
+    let kept = |name: &str, value: &str| format!("{name}={value}; Path=/; SameSite=Lax");
+    let session = kept("chase_sets_session", "tok_google");
+    let selection = kept("chase_sets_account_selection", "sel_1");
+    let cleared = format!("{}; Max-Age=0", kept("chase_sets_account_selection", ""));
+    let found = |to: &str, cookies: &[&str]| {
+        let mut res = (StatusCode::FOUND, [(header::LOCATION, to.to_owned()), (header::CACHE_CONTROL, "no-store".to_owned())])
+            .into_response();
+        for cookie in cookies {
+            res.headers_mut().append(header::SET_COOKIE, cookie.parse().unwrap());
+        }
+        res
+    };
+    Some(match step {
+        "start" => {
+            let back = format!("http://{host}/api/auth/social/google/callback");
+            let back = percent_encoding::utf8_percent_encode(&back, percent_encoding::NON_ALPHANUMERIC).to_string();
+            found(&format!("https://provider.test/authorize?state=st_cart&redirect_uri={back}"), &[])
+        }
+        "callback" if has("state=st_cart") && has("code=good") => found("/account/cart", &[&cleared, &session]),
+        "callback" if has("state=st_away") && has("code=good") => found("/not-a-pilot-page", &[&cleared, &session]),
+        "callback" if has("state=st_cart") && has("code=member") => {
+            found("/account/select?returnTo=%2Faccount%2Fcart", &[&cleared, &selection])
+        }
+        _ => found("/sign-in?socialLoginError=invalid_state", &[]),
+    })
+}
 /// The Auth API's sign-in calls. `collector@example.test` signs in with `right`; `member@..` may act
 /// for two accounts and chooses one; `limited@..` is refused for too many attempts, and `broken@..`
 /// gets an answer the page does not know. Phone `+15550100`'s code is `123456`. Magic link `good`
@@ -12961,7 +13003,10 @@ async fn sign_in_asks_for_an_email_or_phone_then_offers_its_methods() {
     assert!(html.contains(r#"method="get" action="/sign-in""#), "a GET to the page: {html}");
     assert!(html.contains(r#"name="returnTo" value="/account/cart""#), "{html}");
     assert!(html.contains(r#"name="signInMethod" value="password""#) && html.contains(r#"name="signInIdentifier""#));
-    assert!(html.contains("/api/auth/social/google/start?journey=sign-in&amp;returnTo=%2Faccount%2Fcart"), "{html}");
+    assert!(
+        html.contains(r#"href="/api/auth/social/google/start?journey=sign-in&amp;returnTo=%2Faccount%2Fcart""#),
+        "the pilot's relay: {html}"
+    );
     assert!(!html.contains(r#"type="password""#));
 
     let email = "/sign-in?returnTo=%2Faccount%2Fcart&signInIdentifier=collector%40example.test&signInMethod=password";
@@ -13148,7 +13193,7 @@ async fn the_register_page_offers_marketplaces_methods_in_its_order_each_at_its_
     assert!(html.contains(r#"autocomplete="email""#) && html.contains(r#"autocomplete="name""#), "{html}");
     assert!(!html.contains(r#"href="http://localhost:7753/register"#), "no longer marketplace's: {html}");
     assert!(
-        html.contains("http://localhost:7753/api/auth/social/google/start?journey=registration&amp;returnTo=%2Faccount%2Fcart"),
+        html.contains(r#"href="/api/auth/social/google/start?journey=registration&amp;returnTo=%2Faccount%2Fcart""#),
         "{html}"
     );
 
@@ -13376,6 +13421,54 @@ async fn a_passkey_challenge_is_json_for_the_step_from_the_pages_host() {
 
 const PASSKEY_SIGNED: &str = "challengeId=cmd_1&challenge=Y2hhbGxlbmdl&externalCredentialId=cred_1&webauthnResponse=signed";
 
+#[tokio::test]
+async fn a_social_sign_in_goes_through_auth_and_comes_back_to_the_pages_origin() {
+    let pilot = Pilot::new().await;
+    let start = "/api/auth/social/google/start?journey=sign-in&returnTo=%2Faccount%2Fcart";
+    let (status, headers, _) = pilot.send(get(start, None)).await;
+    assert_eq!(status, StatusCode::FOUND, "not followed here: {headers:?}");
+    let to = headers[header::LOCATION].to_str().unwrap();
+    let back = "redirect_uri=http%3A%2F%2Flocalhost%3A7791%2Fapi%2Fauth%2Fsocial%2Fgoogle%2Fcallback";
+    assert!(to.starts_with("https://provider.test/authorize?") && to.ends_with(back), "back to the page's origin: {to}");
+    assert!(headers[header::CACHE_CONTROL].to_str().unwrap().contains("no-store"));
+    let sent = pilot.stand.calls.lock().unwrap().iter().find(|c| c.path.starts_with("/api/auth/social/")).cloned().unwrap();
+    assert_eq!(sent.path, start, "the query as sent");
+    assert_eq!(sent.headers[header::HOST.as_str()], "localhost:7791");
+    assert_eq!(sent.headers["x-forwarded-host"], "localhost:7791");
+
+    // The provider's return: Auth's session cookie, and back to the page the sign-in was for.
+    let (status, headers, _) = pilot.send(get("/api/auth/social/google/callback?state=st_cart&code=good", None)).await;
+    assert_eq!((status, headers[header::LOCATION].to_str().unwrap()), (StatusCode::FOUND, "/account/cart"));
+    let set = cookies_set(&headers);
+    assert!(set["chase_sets_session"].starts_with("chase_sets_session=tok_google;"), "{headers:?}");
+    assert!(set["chase_sets_account_selection"].contains("Max-Age=0"), "both of Auth's cookies: {headers:?}");
+
+    // More than one account: the pilot's account selection, with the selection's cookie.
+    let (_, headers, _) = pilot.send(get("/api/auth/social/google/callback?state=st_cart&code=member", None)).await;
+    assert_eq!(headers[header::LOCATION], "/account/select?returnTo=%2Faccount%2Fcart");
+    assert!(cookies_set(&headers)["chase_sets_account_selection"].starts_with("chase_sets_account_selection=sel_1;"));
+
+    // A page the pilot does not serve is marketplace's, as a sign-in's `returnTo` is.
+    let (_, headers, _) = pilot.send(get("/api/auth/social/google/callback?state=st_away&code=good", None)).await;
+    assert_eq!(headers[header::LOCATION], "http://localhost:7753/not-a-pilot-page");
+
+    // A refusal comes back to the pilot's sign-in, which says it.
+    let (_, headers, _) = pilot.send(get("/api/auth/social/google/callback?state=st_old&code=good", None)).await;
+    let back = headers[header::LOCATION].to_str().unwrap().to_owned();
+    assert_eq!(back, "/sign-in?socialLoginError=invalid_state");
+    assert!(cookies_set(&headers).is_empty());
+    let (status, _, html) = pilot.send(get(&back, None)).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(text(&html).contains("Social login could not be completed."), "{html}");
+
+    // Only a lowercase provider and Auth's two steps: nothing else reaches Auth.
+    let before = pilot.stand.calls.lock().unwrap().len();
+    for path in ["/api/auth/social/Google/start", "/api/auth/social/google/link", "/api/auth/social/go.x/start"] {
+        let (status, _, _) = pilot.send(get(path, None)).await;
+        assert_eq!(status, StatusCode::NOT_FOUND, "{path}");
+    }
+    assert_eq!(pilot.stand.calls.lock().unwrap().len(), before);
+}
 #[tokio::test]
 async fn a_passkey_signs_in_with_its_credential_and_without_one_says_it_failed() {
     let pilot = Pilot::new().await;
