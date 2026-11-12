@@ -36,7 +36,7 @@ const NETWORK_ONLY: [&str; 8] = [
     "/health/",
 ];
 
-/// The site's own files, and the home, which takes a signed-in `Viewer` itself: `/` is in no area
+/// The site's own files, the home, which takes a signed-in `Viewer` itself, and Google Workspace's relay: `/` is in no area
 /// (no area's prefix can be `/`), and `App::new` takes one module, whose favicon is for everyone.
 #[corten::routes(state = crate::app::Shared)]
 pub mod files {
@@ -48,6 +48,15 @@ pub mod files {
 
     #[route("/favicon.ico", get = crate::site::favicon)]
     pub struct FaviconIco;
+
+    /// Google Workspace's start and Google's return, relayed to Auth (`platform::auth::social`).
+    /// The ingress sends `/api` to the API before the pilot sees it; locally nothing else serves it.
+    /// Auth decides who may sign in to admin.
+    #[route("/api/auth/social/{provider}/{step}", get = crate::sign_in::social, no_store)]
+    pub struct SocialSignIn<'a> {
+        pub provider: &'a str,
+        pub step: &'a str,
+    }
 }
 
 /// The offline page, an area for its stylesheet, which no other page loads. Public.

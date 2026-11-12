@@ -83,18 +83,6 @@ pub mod catalog {
     }
 }
 
-/// Google Workspace's start and Google's return, relayed to Auth (`platform::auth::social`). The
-/// ingress sends `/api` to the API before the pilot sees it; locally nothing else serves it. Public:
-/// Auth decides who may sign in to admin.
-#[corten::routes(state = crate::app::Shared, area = SocialSignIn)]
-pub mod social {
-    #[route("/api/auth/social/{provider}/{step}", get = crate::sign_in::social, no_store)]
-    pub struct SocialSignIn<'a> {
-        pub provider: &'a str,
-        pub step: &'a str,
-    }
-}
-
 /// The account a sign-in acts for, when the user may act for more than one. Public: the
 /// selection's cookie says whose it is.
 #[corten::routes(state = crate::app::Shared, area = AccountSelect)]
@@ -291,7 +279,7 @@ fn refusal(t: SignInMsg, intent: &str, error: &ApiError) -> (StatusCode, &'stati
 /// Google Workspace's sign-in (`createAdminGoogleWorkspaceSocialLoginHref`): Auth's start, through
 /// the pilot's relay where nothing else serves `/api`, so Google comes back to this origin.
 pub fn workspace(return_to: &str) -> String {
-    let start = social::SocialSignIn { provider: "google", step: "start" }.href();
+    let start = crate::site::files::SocialSignIn { provider: "google", step: "start" }.href();
     format!("{start}?journey=admin&returnTo={}", segment(return_to))
 }
 
@@ -360,7 +348,7 @@ pub(crate) async fn social(
     State(config): State<Shared>,
     headers: HeaderMap,
     uri: Uri,
-    Params(route): Params<social::SocialSignIn<'_>>,
+    Params(route): Params<crate::site::files::SocialSignIn<'_>>,
 ) -> corten::Result<Relay> {
     let caller = config.platform.caller(&headers, config.proto, None);
     let place = |path: &str| destination(&req, path).map(|to| to.to_string());

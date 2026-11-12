@@ -196,7 +196,7 @@ pub mod url {
     pub use desk::Desk;
     pub use desk_offers::DeskOffers;
     pub use guest_payments::{GuestPayment, GuestPaymentStatus};
-    pub use home::{Home, Sitemap, SitemapPage};
+    pub use home::{Home, Sitemap, SitemapPage, SocialSignIn};
     pub use inventory::{
         Archive, ImportBatch, ImportCommit, ImportExport, ImportResolve, ImportTemplate, Imports, Inventory, Location, Locations,
         OfflineSale, Restock, Restocked, StockAdjust, StockHold, StockItem, StockRelease, StockSale, WrittenOff,
@@ -232,7 +232,6 @@ pub mod url {
     pub use sets::Set;
     pub use shipments::{Shipment, Shipments};
     pub use sign_in::{MagicLink, PasskeyChallenge, SignIn};
-    pub use social::SocialSignIn;
     pub use submitted_offers::{SubmittedOffer, SubmittedOffers, SubmittedOffersLive};
     pub use support::{SupportCase, SupportList};
     pub use team::Team;
@@ -243,7 +242,8 @@ pub mod url {
     /// old addresses, which share no prefix and move for good to the Seller Desk's (marketplace's
     /// `account-payouts`, `account-payout`, `account-desk-settings`, `account-settlement` and
     /// `account-wallet-adjustment` redirects, see `money`); the page each moves to asks who it is for.
-    /// And two more that share no prefix: Product alerts' old address and leaving a guest checkout.
+    /// And three more that share no prefix: Product alerts' old address, leaving a guest checkout and a
+    /// social sign-in's relay.
     #[corten::routes(state = crate::app::Shared)]
     pub mod home {
         /// The search's landing, or the results for the address's terms.
@@ -281,6 +281,15 @@ pub mod url {
         /// checkout and any session, then the search).
         #[route("/guest-checkout/exit", post = crate::sign_in::sign_out)]
         pub struct GuestCheckoutExit;
+
+        /// A social sign-in's start and the provider's return, relayed to Auth (see
+        /// `platform::auth::social`). The ingress sends `/api` to the API before the pilot sees it;
+        /// locally nothing else serves it. Auth reads the session's cookie itself.
+        #[route("/api/auth/social/{provider}/{step}", get = crate::sign_in::social, no_store)]
+        pub struct SocialSignIn<'a> {
+            pub provider: &'a str,
+            pub step: &'a str,
+        }
 
         /// The site's own files (`crate::site`): the crawler rules, the sitemap index and its
         /// pages, the favicon at both of marketplace-web's addresses, and Chrome's devtools probe.
@@ -799,18 +808,6 @@ pub mod url {
     pub mod oauth {
         #[route("/ucp/oauth/authorize", get = crate::agents::authorize, post = crate::agents::decide)]
         pub struct OAuthAuthorize;
-    }
-
-    /// A social sign-in's start and the provider's return, relayed to Auth (see
-    /// `platform::auth::social`). The ingress sends `/api` to the API before the pilot sees it;
-    /// locally nothing else serves it. Public: Auth reads the session's cookie itself.
-    #[corten::routes(state = crate::app::Shared, area = SocialSignIn)]
-    pub mod social {
-        #[route("/api/auth/social/{provider}/{step}", get = crate::sign_in::social, no_store)]
-        pub struct SocialSignIn<'a> {
-            pub provider: &'a str,
-            pub step: &'a str,
-        }
     }
 
     /// The user's security page (Identity's `account-security`): its names and its API keys. Every
@@ -1885,7 +1882,6 @@ pub fn app(config: Config) -> App {
             })
         })
         .area(|area| url::oauth::area(area, shared.clone()))
-        .area(|area| url::social::area(area, shared.clone()))
         // A create sends up to 60 MB of photos, which the API normalizes into six sizes each.
         // A listing's photo writes send up to 60 MB, as a create does.
         .area(|area| {

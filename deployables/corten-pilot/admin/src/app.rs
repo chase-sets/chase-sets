@@ -178,7 +178,6 @@ pub fn app(config: Config) -> App {
         .area(|area| crate::sections::platform::area(area, shared.clone()))
         .area(|area| crate::sign_in::url::area(area, shared.clone()).components(views::SIGN_IN))
         .area(|area| crate::sign_in::catalog::area(area, shared.clone()))
-        .area(|area| crate::sign_in::social::area(area, shared.clone()))
         .area(|area| crate::sign_in::account_select::area(area, shared.clone()).components(views::SIGN_IN))
         .area(|area| crate::sign_in::sign_out::area(area, shared.clone()))
         .area(|area| crate::site::offline_page::area(area, shared.clone()).components(views::OFFLINE))
