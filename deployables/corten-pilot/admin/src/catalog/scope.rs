@@ -35,7 +35,9 @@ use serde_json::{Value, json};
 use super::{
     Sent,
     api::{AliasCandidate, AliasReview, Catalog as _, Coverage, Kind, ReviewJob, ReviewJobs, ScopeRecord, Written, under},
-    command, manages, receipt,
+    command,
+    daily::Opened,
+    manages, receipt,
     scopes::{Promotion, Sync},
     views,
 };
@@ -486,7 +488,8 @@ pub(crate) async fn page(
     Params(route): Params<crate::catalog::scope::url::ScopePage<'_>>,
 ) -> HtmlResult {
     let (id, at) = (route.id, route.at);
-    render(&req, &staff.viewer, &config, &headers, &id, &at, uri.query().unwrap_or_default(), ScopeBack::Nothing, None).await
+    render(&req, &staff.viewer, &config, &headers, &id, &at, uri.query().unwrap_or_default(), ScopeBack::Nothing, Opened::Nothing)
+        .await
 }
 
 /// The page a write came from, again: with a `back` other than nothing, a refused write's answer
@@ -506,7 +509,7 @@ async fn again(
     from: Via,
 ) -> HtmlResult {
     match from {
-        Via::Scope => render(req, viewer, config, headers, id, at, "", back, None).await,
+        Via::Scope => render(req, viewer, config, headers, id, at, "", back, Opened::Nothing).await,
         Via::Coverage => crate::catalog::coverage::render(req, viewer, config, headers, id, at, back).await,
     }
 }
@@ -526,7 +529,7 @@ async fn render(
     at: &ScopeAt,
     query: &str,
     back: ScopeBack,
-    evidence: Option<crate::catalog::daily::ObservationEvidence>,
+    opened: Opened,
 ) -> HtmlResult {
     let receipt = Receipt::from_param(at.after_write.as_deref());
     let caller = caller(config, headers, receipt.as_ref());
@@ -535,7 +538,7 @@ async fn render(
         Err(error) => return read_failed(req, error, receipt.is_some()),
     };
     if let Some(workspace) = view.workspace.as_mut() {
-        workspace.evidence = evidence;
+        workspace.open(opened);
     }
     let (t, p): (Cat, Pilot) = (req.t(), req.t());
     let notice = at.done.map(|done| done.notice(t, p, at.count.unwrap_or(0)));
@@ -562,21 +565,22 @@ pub(crate) async fn refused_in_workspace(
     errors: &corten::Errors,
 ) -> HtmlResult {
     let message = errors.form().map(str::to_owned).unwrap_or_default();
-    render(req, viewer, config, headers, id, &ScopeAt::default(), context, ScopeBack::Refused(message), None).await
+    render(req, viewer, config, headers, id, &ScopeAt::default(), context, ScopeBack::Refused(message), Opened::Nothing).await
 }
 
-/// A review row's evidence sheet on the scope's page, without the runtime: the page for the same
-/// working set (`context`, whose `home` is `id`) with the sheet open.
-pub(crate) async fn with_evidence(
+/// The scope's page without the runtime with what its import-to-promotion section has open (a review
+/// row's evidence sheet, the import preflight): the page for the same working set (`context`, whose
+/// `home` is `id`).
+pub(crate) async fn opened(
     req: &Req,
     viewer: &Viewer,
     config: &Shared,
     headers: &HeaderMap,
     id: &str,
     context: &str,
-    evidence: crate::catalog::daily::ObservationEvidence,
+    opened: Opened,
 ) -> HtmlResult {
-    render(req, viewer, config, headers, id, &ScopeAt::default(), context, ScopeBack::Nothing, Some(evidence)).await
+    render(req, viewer, config, headers, id, &ScopeAt::default(), context, ScopeBack::Nothing, opened).await
 }
 
 /// After a write: the page it came from, waiting for it, with its toast.

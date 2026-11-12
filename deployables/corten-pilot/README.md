@@ -162,7 +162,7 @@ scope link. A unit's Sync and Reapply post the scopes the API builds for it (`co
 read again for the working set when the form posts, and land on the unit's working set with the job
 they queued; its Preview previews the unit's scope with the unit's own promotion. The jobs stage's
 import preflight is the Catalog API's for the working set, sent in one `<corten-live>` fragment when it
-is read, so a slow provider does not hold the page; without JavaScript its loading line stays. The review stage folds the alias review of the provider and profile version the surface
+is read, so a slow provider does not hold the page; without JavaScript, which opens no stream, a link in the loading line's place reads the working set's page with the preflight drawn in it (`/catalog/integrations/import-preflight`). The review stage folds the alias review of the provider and profile version the surface
 names, with the same candidate commands and bulk bar as the scopes list's.
 Provider detail,
 `/catalog/providers/{providerKey}` ([admin/src/catalog/provider.rs](admin/src/catalog/provider.rs)),

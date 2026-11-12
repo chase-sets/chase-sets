@@ -157,6 +157,13 @@
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
+/* The import preflight's loading line waits for its stream, which only the script opens; without the
+   script the link beside it reads the preflight with the page instead. */
+@media (scripting: none) {
+  .loading {
+    display: none;
+  }
+}
 /* A candidate's edit form, and each of its groups. */
 .edit {
   display: grid;
