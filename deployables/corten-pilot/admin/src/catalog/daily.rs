@@ -1317,7 +1317,7 @@ pub enum PreflightPart {
 pub enum Opened {
     #[default]
     Nothing,
-    Evidence(ObservationEvidence),
+    Evidence(Box<ObservationEvidence>),
     Preflight(Option<ImportPreview>),
 }
 
@@ -1326,7 +1326,7 @@ impl DailyScreen {
     pub fn open(&mut self, opened: Opened) {
         match opened {
             Opened::Nothing => {}
-            Opened::Evidence(evidence) => self.evidence = Some(evidence),
+            Opened::Evidence(evidence) => self.evidence = Some(*evidence),
             Opened::Preflight(answer) => self.preflight = PreflightPart::Read(answer),
         }
     }
@@ -1558,9 +1558,10 @@ pub(crate) async fn evidence(
         let (t, p): (Cat, Pilot) = (req.t(), req.t());
         return req.patch(super::views::EvidenceSheet { t, p, evidence: Some(&shown), context: &context });
     }
+    let opened = Opened::Evidence(Box::new(shown));
     match context_value(&context, HOME).filter(|id| !id.is_empty()) {
-        Some(id) => super::scope::opened(&req, &staff.viewer, &config, &headers, &id, &context, Opened::Evidence(shown)).await,
-        None => render(&req, &staff.viewer, &config, &headers, &context, None, None, false, Opened::Evidence(shown)).await,
+        Some(id) => super::scope::opened(&req, &staff.viewer, &config, &headers, &id, &context, opened).await,
+        None => render(&req, &staff.viewer, &config, &headers, &context, None, None, false, opened).await,
     }
 }
 
