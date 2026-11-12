@@ -92,10 +92,6 @@
   "payout": {
     "check_again": "Check again"
   },
-  "support": {
-    "remedy_elsewhere": "Platform-funded remedies are not in the pilot yet. Review and act on this request's remedy on admin-web.",
-    "remedy_open": "Open the remedy on admin-web"
-  },
   "chart": {
     "empty_title": "No data yet",
     "empty_description": "Data will appear here once activity accumulates.",

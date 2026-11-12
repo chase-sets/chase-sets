@@ -408,6 +408,16 @@
 .form .button {
   justify-self: start;
 }
+/* The remedy proposal's fields: two columns where the sheet has room for them, one on a phone. */
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 14rem), 1fr));
+  gap: var(--space-3);
+}
+.card > p,
+.card > .facts {
+  margin: 0;
+}
 @media (min-width: 40rem) {
   .filters {
     grid-template-columns: repeat(3, minmax(0, 1fr));

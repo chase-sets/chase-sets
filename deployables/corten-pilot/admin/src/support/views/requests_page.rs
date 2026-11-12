@@ -2,8 +2,9 @@
 //! applied chips, the count with Escalate overdue, the queue as a table that stacks on a phone
 //! (a row a block of labelled lines), its pages, and the selected request's sheet (`EntityDetailDrawer`). Without
 //! JavaScript the sheet is an open, non-modal `<dialog>` closed by a link back to the queue; corten-ui's
-//! `dialog::modalClosedBy` makes it modal and sends Escape to that link. Each case action is its
-//! own form, so none needs a script; Other actions and the full case context are `<details>`.
+//! `dialog::modalClosedBy` makes it modal and sends Escape to that link. Each case and remedy action
+//! is its own form, so none needs a script; the remedy lifecycle, Other actions and the full case
+//! context are `<details>`.
 use platform::{
     theme::gap_1,
     ui::{
@@ -20,8 +21,10 @@ use corten::{
 
 use crate::{
     support::requests::{
-        ActionForm, Activity, ActivityKind, CaseAction, Detail, Offer, PRIORITIES, QueueScreen, RESPONSE_TYPES, Row, STATUSES,
-        attachment_id, countdown, url,
+        ActionForm, Activity, ActivityKind, CORRECTION_REASONS, CaseAction, Detail, FUNDING_KINDS, Offer, PRIORITIES,
+        QueueScreen, REFUND_TRIGGERS, REMEDY_KINDS, REMEDY_REASONS, RESPONSE_TYPES, RETURN_DIRECTIVES, RETURN_EXCEPTION_REASONS,
+        Remedy, RemedyDraft, RemedyEffect, RemedyPreview, RemedyRights, RemedyWorkflow, Row, STATUSES, attachment_id, countdown,
+        url,
     },
     text::{Pilot, Sup},
 };
@@ -423,9 +426,10 @@ fn RequestSheet<'a>(
     let back = refs();
     let recommended = detail.recommended();
     let notes: Vec<_> = detail.evidence.iter().filter(|e| e.evidence_type == "support-note").collect();
-    let remedy_href =
-        crate::views::admin_web(&format!("/support/requests?requestId={}", crate::api::segment(&row.support_request_id)))
-            .map(|uri| uri.to_string());
+    let remedy_open = screen.remedy_preview.is_some()
+        || screen.remedy_draft.is_some()
+        || detail.remedy_approval.is_some()
+        || detail.remedy.is_some();
     html! {
         <dialog
             class={Sheet}
@@ -542,13 +546,10 @@ fn RequestSheet<'a>(
                 <AuditTrail t={t} detail={detail} />
             </section>
             if detail.has_remedy() {
-                <section class={Part}>
-                    <h3 class={Subheading}>{t.ops_remedy_workflow_title()}</h3>
-                    <p class={Muted}>{p.support_remedy_elsewhere()}</p>
-                    if let Some(href) = &remedy_href {
-                        <a class={(Button, Secondary)} href={href}>{p.support_remedy_open()}</a>
-                    }
-                </section>
+                <details class={More} open={remedy_open}>
+                    <summary>{t.ops_remedy_workflow_title()}</summary>
+                    <RemedyPanel t={t} screen={screen} detail={detail} href={&action} />
+                </details>
             }
             <details class={More}>
                 <summary>{t.ops_full_case()}</summary>
@@ -564,6 +565,439 @@ fn RequestSheet<'a>(
     }
 }
 
+fn remedy_kind(t: Sup, value: &str) -> &'static str {
+    match value {
+        "partial-refund" => t.ops_resolution_partial_refund(),
+        _ => t.ops_resolution_full_refund(),
+    }
+}
+
+fn funding(t: Sup, value: &str) -> &'static str {
+    match value {
+        "split" => t.ops_remedy_funding_split(),
+        "seller-funded" => t.ops_remedy_funding_seller(),
+        _ => t.ops_remedy_funding_platform(),
+    }
+}
+
+fn return_directive(t: Sup, value: &str) -> &'static str {
+    match value {
+        "return-to-seller" => t.ops_remedy_return_seller(),
+        "return-to-platform" => t.ops_remedy_return_platform(),
+        _ => t.ops_remedy_return_none(),
+    }
+}
+
+/// A remedy workflow's status tone, as admin-web gives it.
+fn workflow_tone(status: &str) -> &'static str {
+    match status {
+        "reservation-rejected" | "correction-requested" => "danger",
+        "authorized" => "success",
+        _ => "warning",
+    }
+}
+
+/// An effect's status tone, as admin-web gives it.
+fn effect_tone(status: &str) -> &'static str {
+    match status {
+        "satisfied" | "waived" => "success",
+        failed if failed.starts_with("failed") => "danger",
+        _ => "warning",
+    }
+}
+
+/// The remedy lifecycle (`PlatformRemedyWorkflowPanel`): before a workflow, the proposal and its
+/// preview once the support decision has a refund; then the workflow, its approval, its effects and
+/// their recovery, a correction and its audit trail.
+#[component(css = RequestsPage)]
+fn RemedyPanel<'a>(t: Sup, screen: &'a QueueScreen, detail: &'a Detail, href: &'a str) -> impl Render {
+    let can = screen.remedy_rights;
+    html! {
+        match (&detail.remedy_approval, detail.decided_refund()) {
+            (Some(workflow), _) => {
+                <Workflow t={t} can={can} workflow={workflow} remedy={detail.remedy.as_ref()} href={href} />
+            }
+            (None, None) => {
+                <div class={Empty}>
+                    <p class={EmptyTitle}>{t.ops_remedy_unavailable_title()}</p>
+                    <p class={Muted}>{t.ops_remedy_unavailable_description()}</p>
+                </div>
+            }
+            (None, Some(_)) => {
+                <Proposal t={t} can={can} screen={screen} detail={detail} href={href} />
+            }
+        }
+    }
+}
+
+/// A remedy proposal: Preview consequences first, then Request reservation.
+#[component(css = RequestsPage)]
+fn Proposal<'a>(t: Sup, can: RemedyRights, screen: &'a QueueScreen, detail: &'a Detail, href: &'a str) -> impl Render {
+    let f = ActionForm::FIELDS;
+    let draft = screen.remedy_draft.clone().unwrap_or_else(|| RemedyDraft::start(detail));
+    let key = format!("{}:platform-remedy-proposal", detail.row.support_request_id);
+    html! {
+        <form class={Form} method="post" action={href}>
+            <div class={Grid}>
+                <label class={Field}>
+                    <span>{t.ops_remedy_kind()}</span>
+                    <select name={f.remedy_kind} required>
+                        for value in REMEDY_KINDS {
+                            <option value={value} selected={value == draft.kind}>{remedy_kind(t, value)}</option>
+                        }
+                    </select>
+                </label>
+                <label class={Field}>
+                    <span>{t.ops_remedy_amount()}</span>
+                    <input type="text" name={f.remedy_amount} inputmode="decimal" value={&draft.amount} required>
+                </label>
+                <label class={Field}>
+                    <span>{t.ops_remedy_currency()}</span>
+                    <input type="text" name={f.currency_code} value={&draft.currency_code} required>
+                </label>
+                <label class={Field}>
+                    <span>{t.ops_remedy_funding_kind()}</span>
+                    <select name={f.funding_kind} required>
+                        for value in FUNDING_KINDS {
+                            <option value={value} selected={value == draft.funding_kind}>{funding(t, value)}</option>
+                        }
+                    </select>
+                </label>
+                <label class={Field}>
+                    <span>{t.ops_remedy_seller_amount()}</span>
+                    <input
+                        type="text"
+                        name={f.seller_funded_amount}
+                        inputmode="decimal"
+                        value={&draft.seller_funded_amount}
+                        required
+                    >
+                </label>
+                <label class={Field}>
+                    <span>{t.ops_remedy_platform_amount()}</span>
+                    <input
+                        type="text"
+                        name={f.platform_funded_amount}
+                        inputmode="decimal"
+                        value={&draft.platform_funded_amount}
+                        required
+                    >
+                </label>
+                <label class={Field}>
+                    <span>{t.ops_remedy_return_directive()}</span>
+                    <select name={f.return_directive} required>
+                        for value in RETURN_DIRECTIVES {
+                            <option value={value} selected={value == draft.return_directive}>{return_directive(t, value)}</option>
+                        }
+                    </select>
+                </label>
+                <label class={Field}>
+                    <span>{t.ops_remedy_refund_trigger()}</span>
+                    <select name={f.refund_trigger} required>
+                        for value in REFUND_TRIGGERS {
+                            <option value={value} selected={value == draft.refund_trigger}>{value}</option>
+                        }
+                    </select>
+                </label>
+                <label class={Field}>
+                    <span>{t.ops_remedy_reason()}</span>
+                    <select name={f.reason_code} required>
+                        for value in REMEDY_REASONS {
+                            <option value={value} selected={value == draft.reason_code}>{value}</option>
+                        }
+                    </select>
+                </label>
+                <label class={Field}>
+                    <span>{t.ops_remedy_return_exception()}</span>
+                    <select name={f.return_exception_reason_code}>
+                        for value in RETURN_EXCEPTION_REASONS {
+                            <option value={value} selected={value == draft.return_exception_reason_code}>{value}</option>
+                        }
+                    </select>
+                </label>
+            </div>
+            <label class={Field}>
+                <span>{t.ops_remedy_rationale()}</span>
+                <textarea name={f.rationale} rows="3" required>{&draft.rationale}</textarea>
+            </label>
+            <label class={Field}>
+                <span>{t.ops_remedy_evidence_references()}</span>
+                <textarea name={f.evidence_references} rows="3" required>{&draft.evidence_references}</textarea>
+            </label>
+            <input type="hidden" name={f.idempotency_key} value={&key}>
+            <div class={Actions}>
+                <button type="submit" class={(Button, Secondary)} name={f.intent} value="preview-remedy" disabled={!can.propose}>
+                    {t.ops_remedy_preview_submit()}
+                </button>
+                <button
+                    type="submit"
+                    class={Button}
+                    name={f.intent}
+                    value="propose-remedy"
+                    disabled={!can.propose || screen.remedy_preview.is_none()}
+                >
+                    {t.ops_remedy_propose_submit()}
+                </button>
+            </div>
+        </form>
+        if let Some(preview) = &screen.remedy_preview {
+            <Preview t={t} preview={preview} />
+        }
+    }
+}
+
+/// What a proposal would do (`PlatformRemedyPreview`).
+#[component(css = RequestsPage)]
+fn Preview<'a>(t: Sup, preview: &'a RemedyPreview) -> impl Render {
+    let rows = [
+        (t.ops_remedy_preview_customer(), preview.customer_outcome.clone()),
+        (t.ops_remedy_preview_seller(), preview.seller_impact.clone()),
+        (t.ops_remedy_preview_reserve(), preview.protection_reserve_impact.clone()),
+        (t.ops_remedy_preview_label_payer(), preview.return_label_cost_payer.clone()),
+        (t.ops_remedy_refund_trigger(), preview.refund_trigger.clone()),
+        (t.ops_remedy_preview_expiry(), when(t, preview.reservation_expires_at.as_deref())),
+        (t.ops_remedy_preview_approvals(), preview.required_approval_count.to_string()),
+        (t.ops_remedy_policy_version(), preview.policy_version.clone()),
+    ];
+    html! {
+        <section class={Card} role="status">
+            <h4 class={Strong}>{t.ops_remedy_preview_title()}</h4>
+            <dl class={Facts}>
+                for (label, value) in &rows {
+                    <div>
+                        <dt>{*label}</dt>
+                        <dd>{value}</dd>
+                    </div>
+                }
+            </dl>
+            if preview.requires_elevated_approval {
+                <Tag words={t.ops_remedy_preview_elevated()} tone="warning" />
+            }
+            if preview.return_override_required {
+                <Tag words={t.ops_remedy_preview_return_override()} tone="warning" />
+            }
+        </section>
+    }
+}
+
+/// A remedy's workflow: its terms and status, its approval while one is pending, its effects, a
+/// correction and its audit trail.
+#[component(css = RequestsPage)]
+fn Workflow<'a>(
+    t: Sup,
+    can: RemedyRights,
+    workflow: &'a RemedyWorkflow,
+    remedy: Option<&'a Remedy>,
+    href: &'a str,
+) -> impl Render {
+    let f = ActionForm::FIELDS;
+    let terms = &workflow.terms;
+    let id = &terms.remedy_id;
+    let amount = format!("{} {} · {}", terms.remedy.amount, terms.remedy.currency_code, terms.allocation.funding_kind);
+    let directive = format!("{} · {}", terms.return_directive, terms.refund_trigger);
+    let approvals = format!("{}/{}", workflow.approvals.len(), workflow.required_approval_count);
+    html! {
+        <section class={Card}>
+            <p class={Line}>
+                <span class={Strong}>{t.ops_remedy_workflow_title()}</span>
+                <Tag words={&workflow.status} tone={workflow_tone(&workflow.status)} />
+            </p>
+            <p class={(Small, Words)}>{id}</p>
+            <p>{&amount}</p>
+            <p>{&directive}</p>
+            <p>{t.ops_remedy_reservation_status()}": "{&workflow.reservation_status}</p>
+            <p>{t.ops_remedy_preview_approvals()}": "{&approvals}</p>
+            <p class={Words}>{t.ops_remedy_policy_version()}": "{&terms.policy_version}</p>
+            if let Some(code) = &workflow.reservation_reason_code {
+                <Tag words={code} tone="danger" />
+            }
+        </section>
+        if workflow.status == "approval-pending" {
+            <section class={Card}>
+                <form class={Form} method="post" action={href}>
+                    <input type="hidden" name={f.idempotency_key} value={&format!("{id}:approval")}>
+                    <label class={Field}>
+                        <span>{t.ops_remedy_approval_reason()}</span>
+                        <select name={f.reason_code} required>
+                            <option value="policy-approved">{t.ops_remedy_approval_policy_approved()}</option>
+                        </select>
+                    </label>
+                    <label class={Field}>
+                        <span>{t.ops_remedy_rationale()}</span>
+                        <textarea name={f.rationale} rows="3" required></textarea>
+                    </label>
+                    <label class={Field}>
+                        <span>{t.ops_remedy_evidence_references()}</span>
+                        <textarea name={f.evidence_references} rows="2" required></textarea>
+                    </label>
+                    <button type="submit" class={Button} name={f.intent} value="approve-remedy" disabled={!can.approve}>
+                        {t.ops_remedy_approve_submit()}
+                    </button>
+                </form>
+            </section>
+        }
+        if let Some(remedy) = remedy {
+            <h4 class={Minor}>{t.ops_remedy_effects_title()}</h4>
+            <ul class={List}>
+                for effect in &remedy.effects {
+                    <EffectEntry t={t} can={can} remedy_id={&remedy.remedy_id} effect={effect} href={href} />
+                }
+            </ul>
+        }
+        <section class={Card}>
+            <form class={Form} method="post" action={href}>
+                <input type="hidden" name={f.idempotency_key} value={&format!("{id}:correction")}>
+                <label class={Field}>
+                    <span>{t.ops_remedy_correction_reason()}</span>
+                    <select name={f.reason_code} required>
+                        for value in CORRECTION_REASONS {
+                            <option value={value}>{value}</option>
+                        }
+                    </select>
+                </label>
+                <label class={Field}>
+                    <span>{t.ops_remedy_rationale()}</span>
+                    <textarea name={f.rationale} rows="2" required></textarea>
+                </label>
+                <label class={Field}>
+                    <span>{t.ops_remedy_evidence_references()}</span>
+                    <textarea name={f.evidence_references} rows="2" required></textarea>
+                </label>
+                <button
+                    type="submit"
+                    class={(Button, Secondary)}
+                    name={f.intent}
+                    value="request-remedy-correction"
+                    disabled={!can.correct}
+                >
+                    {t.ops_remedy_correction_submit()}
+                </button>
+            </form>
+        </section>
+        if !workflow.audit_trail.is_empty() {
+            <div class={Scroll}>
+                <KitTable layout={TableLayout::Stack}>
+                    <table class={Table} aria-label={t.ops_audit_trail()}>
+                        <thead>
+                            <tr>
+                                <th scope="col">{t.ops_action()}</th>
+                                <th scope="col">{t.ops_remedy_audit_actor()}</th>
+                                <th scope="col">{t.ops_remedy_reason()}</th>
+                                <th scope="col">{t.ops_submitted()}</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            for entry in &workflow.audit_trail {
+                                let actor = if entry.actor_type == "system" {
+                                    t.ops_remedy_audit_system()
+                                } else {
+                                    entry.actor_account_id.as_deref().unwrap_or_default()
+                                };
+                                <tr>
+                                    <td>
+                                        <CellLabel>{t.ops_action()}</CellLabel>
+                                        {&entry.action}
+                                    </td>
+                                    <td>
+                                        <CellLabel>{t.ops_remedy_audit_actor()}</CellLabel>
+                                        <span class={Words}>{actor}</span>
+                                    </td>
+                                    <td>
+                                        <CellLabel>{t.ops_remedy_reason()}</CellLabel>
+                                        {&entry.reason_code}
+                                    </td>
+                                    <td>
+                                        <CellLabel>{t.ops_submitted()}</CellLabel>
+                                        {when(t, Some(&entry.occurred_at))}
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </KitTable>
+            </div>
+        }
+    }
+}
+
+/// An execution effect, its latest fact, and the recovery admin-web offers: retry a retryable
+/// failure, waive a terminal one it lets an operator waive, release a pending operator release.
+#[component(css = RequestsPage)]
+fn EffectEntry<'a>(t: Sup, can: RemedyRights, remedy_id: &'a str, effect: &'a RemedyEffect, href: &'a str) -> impl Render {
+    let f = ActionForm::FIELDS;
+    let retryable = effect.status == "failed-retryable";
+    let release = effect.effect == "operator-release" && effect.status == "pending";
+    html! {
+        <li class={Entry}>
+            <p class={Line}>
+                <span class={(Strong, Words)}>{&effect.effect}</span>
+                <Tag words={&effect.status} tone={effect_tone(&effect.status)} />
+            </p>
+            if let Some(latest) = effect.latest() {
+                <p class={Small}>{&latest.reason_code}" · "{when(t, Some(&latest.occurred_at))}</p>
+            }
+            if retryable {
+                <form class={Form} method="post" action={href}>
+                    <input type="hidden" name={f.remedy_id} value={remedy_id}>
+                    <input type="hidden" name={f.effect} value={&effect.effect}>
+                    <input type="hidden" name={f.idempotency_key} value={&effect.key(remedy_id, "retry")}>
+                    <label class={Field}>
+                        <span>{t.ops_remedy_recovery_reason()}</span>
+                        <input type="text" name={f.reason_code} required>
+                    </label>
+                    <label class={Field}>
+                        <span>{t.ops_remedy_rationale()}</span>
+                        <textarea name={f.rationale} rows="2" required></textarea>
+                    </label>
+                    <button type="submit" class={Button} name={f.intent} value="retry-remedy-effect" disabled={!can.retry}>
+                        {t.ops_remedy_retry_submit()}
+                    </button>
+                </form>
+            }
+            if effect.waivable() {
+                <form class={Form} method="post" action={href}>
+                    <input type="hidden" name={f.remedy_id} value={remedy_id}>
+                    <input type="hidden" name={f.effect} value={&effect.effect}>
+                    <input type="hidden" name={f.idempotency_key} value={&effect.key(remedy_id, "waive")}>
+                    <label class={Field}>
+                        <span>{t.ops_remedy_recovery_reason()}</span>
+                        <input type="text" name={f.reason_code} required>
+                    </label>
+                    <label class={Field}>
+                        <span>{t.ops_remedy_rationale()}</span>
+                        <textarea name={f.rationale} rows="2" required></textarea>
+                    </label>
+                    <label class={Field}>
+                        <span>{t.ops_remedy_evidence_references()}</span>
+                        <textarea name={f.evidence_references} rows="2" required></textarea>
+                    </label>
+                    <button
+                        type="submit"
+                        class={(Button, Secondary)}
+                        name={f.intent}
+                        value="waive-remedy-effect"
+                        disabled={!can.waive}
+                    >
+                        {t.ops_remedy_waive_submit()}
+                    </button>
+                </form>
+            }
+            if release {
+                <form class={Form} method="post" action={href}>
+                    <input type="hidden" name={f.remedy_id} value={remedy_id}>
+                    <input type="hidden" name={f.idempotency_key} value={&format!("{remedy_id}:operator-release")}>
+                    <label class={Field}>
+                        <span>{t.ops_remedy_recovery_reason()}</span>
+                        <input type="text" name={f.reason_code} required>
+                    </label>
+                    <button type="submit" class={Button} name={f.intent} value="release-remedy-refund" disabled={!can.release}>
+                        {t.ops_remedy_release_submit()}
+                    </button>
+                </form>
+            }
+        </li>
+    }
+}
 #[component(css = RequestsPage)]
 fn OfferEntry<'a>(t: Sup, offer: &'a Offer) -> impl Render {
     let tone = if offer.status == "pending" { "warning" } else { "neutral" };
