@@ -2011,7 +2011,9 @@ fn notification_center(session: &str, method: &Method, path: &str, headers: &Hea
 /// Identity's receipt; `taken@..` exists, and `stranger@..` is not admitted. Invitation `ivt_1` with
 /// token `good` is pending and `ivt_old` expired; accepting it with password `right` signs in,
 /// `clash` conflicts with the attempt, `short` is refused and `lost` leaves it ambiguous, whose
-/// status is confirming.
+/// status is confirming; a passkey's credential `created` accepts it too. A passkey challenge is
+/// `cmd_1`; a sign-in with the credential `signed` starts a session, and a registration with
+/// `created` creates `new@..`'s account or adds a passkey to `known@..`, starting no session.
 fn auth(method: &Method, path: &str, body: &str) -> Option<Response> {
     if *method == Method::GET && path == "/api/auth/registration-consent" {
         return Some(Json(json!({ "resolutionId": "rcr_1", "requirements": [] })).into_response());
@@ -2073,8 +2075,8 @@ fn auth(method: &Method, path: &str, body: &str) -> Option<Response> {
             ("ivt_old", _) => Json(json!({ "status": "expired" })).into_response(),
             _ => Json(json!({ "status": "unavailable" })).into_response(),
         },
-        "/api/auth/invitations/accept" => match text("password").as_str() {
-            "right" => {
+        "/api/auth/invitations/accept" => match (text("password").as_str(), text("webauthnResponse").as_str()) {
+            ("right", _) | ("", "created") => {
                 let receipt = r#"[{"sourceContextName":"identity","maxGlobalPosition":"81","eventIds":["evt_inv"]}]"#;
                 let receipt = percent_encoding::utf8_percent_encode(receipt, percent_encoding::NON_ALPHANUMERIC).to_string();
                 let headers = [("chase-sets-commit-position", "81".to_owned()), ("chase-sets-commit-receipt", receipt)];
@@ -2084,13 +2086,41 @@ fn auth(method: &Method, path: &str, body: &str) -> Option<Response> {
                 });
                 (headers, Json(body)).into_response()
             }
-            "clash" => refusal(StatusCode::CONFLICT, "invitation_attempt_conflict", "Check the status."),
-            "short" => refusal(StatusCode::BAD_REQUEST, "invitation_attempt_invalid", "Invalid."),
+            ("clash", _) => refusal(StatusCode::CONFLICT, "invitation_attempt_conflict", "Check the status."),
+            ("short", _) => refusal(StatusCode::BAD_REQUEST, "invitation_attempt_invalid", "Invalid."),
             _ => refusal(StatusCode::SERVICE_UNAVAILABLE, "invitation_attempt_ambiguous", "Check the status."),
         },
         "/api/auth/invitations/acceptance-status" => {
             Json(json!({ "type": "confirming", "attemptId": text("attemptId") })).into_response()
         }
+        "/api/auth/passkeys/challenge" => match text("email").as_str() {
+            "limited@example.test" => refusal(StatusCode::TOO_MANY_REQUESTS, "rate_limited", "Slow down."),
+            _ => Json(json!({ "challengeId": "cmd_1", "challenge": "Y2hhbGxlbmdl" })).into_response(),
+        },
+        "/api/auth/passkeys/sign-in" => match (text("challengeId").as_str(), text("webauthnResponse").as_str()) {
+            ("cmd_1", "signed") => started("tok_passkey"),
+            _ => unknown(),
+        },
+        "/api/auth/passkeys/register" => match (text("email").as_str(), text("webauthnResponse").as_str()) {
+            ("new@example.test", "created") => {
+                let receipt = r#"[{"sourceContextName":"identity","maxGlobalPosition":"78","eventIds":["evt_pk"]}]"#;
+                let receipt = percent_encoding::utf8_percent_encode(receipt, percent_encoding::NON_ALPHANUMERIC).to_string();
+                let headers = [("chase-sets-commit-position", "78".to_owned()), ("chase-sets-commit-receipt", receipt)];
+                let body = json!({
+                    "credentialId": "crd_1", "userId": "usr_new",
+                    "authResult": {
+                        "type": "session-started", "userId": "usr_new", "sessionId": "ses_pk", "sessionToken": "tok_pk",
+                        "session": { "expires_at": later }, "memberships": [],
+                    },
+                });
+                (StatusCode::CREATED, headers, Json(body)).into_response()
+            }
+            ("known@example.test", "created") => {
+                (StatusCode::CREATED, Json(json!({ "credentialId": "crd_2", "userId": "usr_known", "authResult": null })))
+                    .into_response()
+            }
+            _ => refusal(StatusCode::UNAUTHORIZED, "authentication_required", "Passkey challenge is invalid or expired."),
+        },
         "/api/auth/magic-link/request" => Json(json!({ "tokenId": "ml_1", "expiresAt": later })).into_response(),
         "/api/auth/magic-link/consume" => match text("token").as_str() {
             "good" => started("tok_magic"),
@@ -12950,7 +12980,11 @@ async fn sign_in_asks_for_an_email_or_phone_then_offers_its_methods() {
     assert!(html.contains(r#"value="magic-link-request""#) && !html.contains(r#"type="password""#), "{html}");
     let passkey = email.replace("signInMethod=password", "signInMethod=passkey");
     let (_, _, html) = pilot.send(get(&passkey, None)).await;
-    assert!(html.contains("http://localhost:7753/sign-in?returnTo=%2Faccount%2Fcart&amp;signInIdentifier=collector%40example.test&amp;signInMethod=passkey"), "marketplace's passkey: {html}");
+    assert!(
+        html.contains(r#"value="passkey-sign-in""#) && html.contains(r#"name="webauthnResponse""#),
+        "the pilot's passkey: {html}"
+    );
+    assert!(!html.contains("http://localhost:7753/sign-in"), "no longer marketplace's: {html}");
 
     let (_, _, html) = pilot.send(get("/sign-in?signInIdentifier=%2B15550100&signInMethod=password", None)).await;
     assert!(html.contains(r#"value="phone-code-request""#) && !html.contains(r#"type="password""#), "a phone has a code: {html}");
@@ -13108,9 +13142,11 @@ async fn the_register_page_offers_marketplaces_methods_in_its_order_each_at_its_
     let order: Vec<usize> =
         ["Passkey", "Phone Code", "Magic Link", "Password"].iter().map(|m| html.find(&format!(">{m}</a>")).unwrap()).collect();
     assert!(order.windows(2).all(|w| w[0] < w[1]), "marketplace's order: {order:?}");
-    // A passkey is the first, and marketplace's page: WebAuthn is its script.
+    // A passkey is the first, the passkey step's form, with the name and email it creates one for.
     assert!(html.contains(r#"aria-current="true">Passkey"#) && page.contains("Recommended"), "{html}");
-    assert!(html.contains(r#"href="http://localhost:7753/register?returnTo=%2Faccount%2Fcart""#), "{html}");
+    assert!(html.contains(r#"value="passkey-register""#) && html.contains(r#"name="webauthnResponse""#), "{html}");
+    assert!(html.contains(r#"autocomplete="email""#) && html.contains(r#"autocomplete="name""#), "{html}");
+    assert!(!html.contains(r#"href="http://localhost:7753/register"#), "no longer marketplace's: {html}");
     assert!(
         html.contains("http://localhost:7753/api/auth/social/google/start?journey=registration&amp;returnTo=%2Faccount%2Fcart"),
         "{html}"
@@ -13204,7 +13240,7 @@ async fn a_magic_link_registration_sends_the_link_and_a_phone_code_registration_
 const INVITE_ATTEMPT: &str = "6f1c2a3b-4d5e-4f60-8a7b-9c0d1e2f3a4b";
 
 #[tokio::test]
-async fn an_invitation_says_who_sent_it_and_offers_a_passkey_on_marketplace_or_a_password_here() {
+async fn an_invitation_says_who_sent_it_and_offers_a_passkey_or_a_password() {
     let pilot = Pilot::new().await;
     let (status, _, html) = pilot.send(get("/invite/ivt_1?token=good", None)).await;
     assert_eq!(status, StatusCode::OK, "{html}");
@@ -13212,7 +13248,9 @@ async fn an_invitation_says_who_sent_it_and_offers_a_passkey_on_marketplace_or_a
     assert!(page.contains("Accept your invitation"), "{page}");
     assert!(page.contains("Ann Owner invited you to Chase Sets Shop as Viewer."), "{page}");
     assert!(html.contains(r#"aria-current="true">Passkey"#), "a passkey first: {html}");
-    assert!(html.contains(r#"href="http://localhost:7753/invite/ivt_1?token=good""#), "marketplace's passkey: {html}");
+    assert!(html.contains(r#"value="passkey""#) && html.contains(r#"name="webauthnResponse""#), "the pilot's passkey: {html}");
+    assert!(html.contains(r#"name="attempt""#), "a passkey's acceptance is an attempt too: {html}");
+    assert!(!html.contains("http://localhost:7753/invite/"), "no longer marketplace's: {html}");
     let sent: Value = serde_json::from_str(&auth_calls(&pilot, "/api/auth/invitations/inspect")[0].body).unwrap();
     assert_eq!(sent, json!({ "invitationId": "ivt_1", "token": "good" }));
 
@@ -13306,6 +13344,133 @@ async fn an_acceptance_that_is_not_a_session_says_where_the_attempt_stands_and_c
     let (status, _, _) = pilot.send(sign_in_post("/invite/ivt_1?token=good", None, "attempt=nope&password=right")).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
     assert_eq!(auth_calls(&pilot, "/api/auth/invitations/accept").len(), 3);
+}
+
+#[tokio::test]
+async fn a_passkey_challenge_is_json_for_the_step_from_the_pages_host() {
+    let pilot = Pilot::new().await;
+    let body = "purpose=passkey-sign-in&email=collector%40example.test";
+    let (status, headers, json) = pilot.send(sign_in_post("/sign-in/passkey", None, body)).await;
+    assert_eq!(status, StatusCode::OK, "{json}");
+    assert!(headers[header::CACHE_CONTROL].to_str().unwrap().contains("no-store"), "{headers:?}");
+    assert_eq!(serde_json::from_str::<Value>(&json).unwrap(), json!({ "challengeId": "cmd_1", "challenge": "Y2hhbGxlbmdl" }));
+    let sent = auth_calls(&pilot, "/api/auth/passkeys/challenge");
+    // Auth checks the credential against the page's origin, which the call forwards.
+    assert_eq!(sent[0].headers["x-forwarded-host"], "localhost:7791", "{:?}", sent[0].headers);
+    assert_eq!(sent[0].headers["x-forwarded-for"], "203.0.113.7");
+    assert_eq!(
+        serde_json::from_str::<Value>(&sent[0].body).unwrap(),
+        json!({ "purpose": "passkey-sign-in", "email": "collector@example.test" })
+    );
+
+    let (status, _, _) =
+        pilot.send(sign_in_post("/sign-in/passkey", None, "purpose=passkey-register&email=new%40example.test")).await;
+    assert_eq!(status, StatusCode::OK);
+    let (status, _, _) = pilot.send(sign_in_post("/sign-in/passkey", None, "purpose=password&email=new%40example.test")).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "only a passkey's purposes");
+    assert_eq!(auth_calls(&pilot, "/api/auth/passkeys/challenge").len(), 2, "nothing sent for another purpose");
+    let limited = "purpose=passkey-sign-in&email=limited%40example.test";
+    let (status, _, _) = pilot.send(sign_in_post("/sign-in/passkey", None, limited)).await;
+    assert_eq!(status, StatusCode::TOO_MANY_REQUESTS, "Auth's refusal keeps its status");
+}
+
+const PASSKEY_SIGNED: &str = "challengeId=cmd_1&challenge=Y2hhbGxlbmdl&externalCredentialId=cred_1&webauthnResponse=signed";
+
+#[tokio::test]
+async fn a_passkey_signs_in_with_its_credential_and_without_one_says_it_failed() {
+    let pilot = Pilot::new().await;
+    let at = "/sign-in?returnTo=%2Faccount%2Fcart&signInIdentifier=collector%40example.test&signInMethod=passkey";
+    let body = format!("intent=passkey-sign-in&email=collector%40example.test&{PASSKEY_SIGNED}");
+    let (status, headers, html) = pilot.send(sign_in_post(at, None, &body)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
+    assert_eq!(headers[header::LOCATION], "/account/cart");
+    assert!(cookies_set(&headers)["chase_sets_session"].starts_with("chase_sets_session=tok_passkey;"), "{headers:?}");
+    let sent = auth_calls(&pilot, "/api/auth/passkeys/sign-in");
+    assert_eq!(sent[0].headers["x-forwarded-host"], "localhost:7791", "the page's origin, which Auth checks");
+    assert_eq!(
+        serde_json::from_str::<Value>(&sent[0].body).unwrap(),
+        json!({
+            "challengeId": "cmd_1", "challenge": "Y2hhbGxlbmdl", "externalCredentialId": "cred_1", "webauthnResponse": "signed",
+        })
+    );
+
+    // No credential: the step's script did not run. Nothing is sent.
+    let (status, _, html) = pilot.send(sign_in_post(at, None, "intent=passkey-sign-in&email=collector%40example.test")).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(text(&html).contains("Passkey sign-in failed."), "{html}");
+    assert!(html.contains(r#"value="passkey-sign-in""#), "the passkey's step again: {html}");
+    assert_eq!(auth_calls(&pilot, "/api/auth/passkeys/sign-in").len(), 1);
+
+    // A credential Auth refuses is the generic failure, as marketplace's.
+    let refused = body.replace("webauthnResponse=signed", "webauthnResponse=forged");
+    let (status, headers, html) = pilot.send(sign_in_post(at, None, &refused)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(headers.get(header::SET_COOKIE).is_none());
+    assert!(text(&html).contains("This request could not be completed."), "{html}");
+}
+
+#[tokio::test]
+async fn a_passkey_registration_lands_on_the_new_account_or_says_to_sign_in_with_the_passkey_added() {
+    let pilot = Pilot::new().await;
+    let credential = "challengeId=cmd_1&challenge=Y2hhbGxlbmdl&externalCredentialId=cred_1&webauthnResponse=created";
+    let body = format!("intent=passkey-register&displayName=New+Seller&email=new%40example.test&{credential}");
+    let (status, headers, html) = pilot.send(sign_in_post("/register", None, &body)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
+    let to = headers[header::LOCATION].to_str().unwrap();
+    assert!(to.starts_with("/account?after_write=") && to.contains("78"), "the account's page, after Identity's write: {to}");
+    assert!(cookies_set(&headers)["chase_sets_session"].starts_with("chase_sets_session=tok_pk;"), "{headers:?}");
+    let sent = auth_calls(&pilot, "/api/auth/passkeys/register");
+    assert_eq!(sent[0].headers["x-forwarded-host"], "localhost:7791");
+    assert_eq!(
+        serde_json::from_str::<Value>(&sent[0].body).unwrap(),
+        json!({
+            "displayName": "New Seller", "email": "new@example.test", "label": "Passkey", "challengeId": "cmd_1",
+            "challenge": "Y2hhbGxlbmdl", "externalCredentialId": "cred_1", "webauthnResponse": "created",
+        })
+    );
+
+    // A passkey added to an existing user starts no session (marketplace's `passkey-recovery`).
+    let known = body.replace("new%40example.test", "known%40example.test");
+    let (status, headers, html) = pilot.send(sign_in_post("/register", None, &known)).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(headers.get(header::SET_COOKIE).is_none());
+    let page = text(&html);
+    assert!(page.contains("Passkey added") && page.contains("Sign in with it to continue."), "{page}");
+
+    // No credential: nothing is sent, and what was typed stays.
+    let bare = "intent=passkey-register&displayName=New+Seller&email=new%40example.test";
+    let (status, _, html) = pilot.send(sign_in_post("/register", None, bare)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(text(&html).contains("Passkey registration failed."), "{html}");
+    assert!(html.contains(r#"value="New Seller""#) && html.contains(r#"aria-current="true">Passkey"#), "{html}");
+    assert_eq!(auth_calls(&pilot, "/api/auth/passkeys/register").len(), 2);
+}
+
+#[tokio::test]
+async fn a_passkey_accepts_an_invitation_as_one_attempt_and_without_a_credential_sends_nothing() {
+    let pilot = Pilot::new().await;
+    let credential = "challengeId=cmd_1&challenge=Y2hhbGxlbmdl&externalCredentialId=cred_1&webauthnResponse=created";
+    let body = format!("attempt={INVITE_ATTEMPT}&intent=passkey&{credential}");
+    let (status, headers, html) = pilot.send(sign_in_post("/invite/ivt_1?token=good", None, &body)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
+    assert!(cookies_set(&headers)["chase_sets_session"].starts_with("chase_sets_session=tok_invitee;"), "{headers:?}");
+    let sent = auth_calls(&pilot, "/api/auth/invitations/accept");
+    assert_eq!(sent[0].headers["idempotency-key"], INVITE_ATTEMPT, "the attempt is the key");
+    assert_eq!(
+        serde_json::from_str::<Value>(&sent[0].body).unwrap(),
+        json!({
+            "invitationId": "ivt_1", "token": "good", "attemptId": INVITE_ATTEMPT, "label": "Passkey",
+            "challengeId": "cmd_1", "challenge": "Y2hhbGxlbmdl", "externalCredentialId": "cred_1", "webauthnResponse": "created",
+        }),
+        "a credential in place of a password"
+    );
+
+    let (status, _, html) =
+        pilot.send(sign_in_post("/invite/ivt_1?token=good", None, &format!("attempt={INVITE_ATTEMPT}&intent=passkey"))).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(text(&html).contains("Invitation could not be accepted"), "{html}");
+    assert!(html.contains(r#"value="passkey""#), "the passkey's form again: {html}");
+    assert_eq!(auth_calls(&pilot, "/api/auth/invitations/accept").len(), 1, "nothing sent without a credential");
 }
 
 #[tokio::test]

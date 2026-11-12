@@ -230,7 +230,7 @@ pub mod url {
     pub use sessions::{SessionPage, SessionRevoke, SessionSwitch, Sessions};
     pub use sets::Set;
     pub use shipments::{Shipment, Shipments};
-    pub use sign_in::{MagicLink, SignIn};
+    pub use sign_in::{MagicLink, PasskeyChallenge, SignIn};
     pub use submitted_offers::{SubmittedOffer, SubmittedOffers, SubmittedOffersLive};
     pub use support::{SupportCase, SupportList};
     pub use team::Team;
@@ -1628,6 +1628,11 @@ pub mod url {
             #[route(query)]
             pub link: crate::sign_in::Link,
         }
+
+        /// A passkey's challenge for the passkey step (JSON) of the sign-in, registration and
+        /// invitation pages, kept by no cache.
+        #[route("/sign-in/passkey", post = crate::sign_in::challenge, no_store)]
+        pub struct PasskeyChallenge;
     }
 
     /// Creating an account (see `register`): the page and its writes. Public: no handler reads who

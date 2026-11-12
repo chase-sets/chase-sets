@@ -4,10 +4,10 @@
 //! No script: each step is an address, each method a link and each action a form. One narrow
 //! column on every screen, every control at least --control-height tall.
 use corten::prelude::*;
-use platform::auth::{Kind, Membership, Method};
+use platform::auth::{Kind, Membership, Method, passkey};
 
 use crate::{
-    sign_in::{Ask, Back, Notice, SelectForm, SignInForm, SignInScreen, label, on_admin_web, url, workspace},
+    sign_in::{Ask, Back, Notice, SelectForm, SignInForm, SignInScreen, label, url, workspace},
     text::SignInMsg,
 };
 
@@ -174,10 +174,39 @@ fn Challenge<'a>(
                 }
             }
             if method == Method::Passkey {
-                // WebAuthn is admin-web's page's script: the same identifier there.
-                <a class={Button} href={&on_admin_web(ask)}>{t.page_use_passkey()}</a>
+                <PasskeyForm t={t} ask={ask} identifier={identifier} />
             }
         </section>
+    }
+}
+
+/// Use Passkey: the passkey step signs a challenge for the identifier and sends the form with
+/// the credential; its warning says when the browser could not.
+#[component(css = SignInPage)]
+fn PasskeyForm<'a>(t: SignInMsg, ask: &'a Ask, identifier: &'a str) -> impl Render {
+    let f = SignInForm::FIELDS;
+    let (challenge_id, challenge, credential_id, response, button, warning) = refs();
+    let parts = passkey::Parts { challenge_id, challenge, credential_id, response, button, warning };
+    let challenges = url::PasskeyChallenge.href();
+    html! {
+        <form
+            class={Form}
+            method="post"
+            action={url::SignIn { ask: ask.clone() }}
+            on:submit={passkey::signIn(event, target, parts, &challenges, identifier)}
+        >
+            <input type="hidden" name={f.intent} value="passkey-sign-in">
+            <input type="hidden" name={f.email} value={identifier}>
+            <input type="hidden" ref={challenge_id} name={f.challenge_id} value="">
+            <input type="hidden" ref={challenge} name={f.challenge} value="">
+            <input type="hidden" ref={credential_id} name={f.external_credential_id} value="">
+            <input type="hidden" ref={response} name={f.webauthn_response} value="">
+            <div ref={warning} class={Banner} data-tone="warning" role="alert" tabindex="-1" hidden>
+                <p class={Strong}>{t.page_passkey_unavailable()}</p>
+                <p>{t.page_passkey_sign_in_failed()}</p>
+            </div>
+            <button ref={button} type="submit">{t.page_use_passkey()}</button>
+        </form>
     }
 }
 
