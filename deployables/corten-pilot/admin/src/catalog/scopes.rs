@@ -31,7 +31,7 @@ use crate::{
     api::{ApiError, Caller},
     app::{Shared, read_failed},
     auth::{CatalogAccess, Staff, Viewer},
-    text::{Cat, Pilot},
+    text::Cat,
 };
 
 /// The screen's routes in the catalog area, with their handlers (the area's caller: `CatalogAccess`).
@@ -271,9 +271,9 @@ pub async fn render(
             view.alias_review_failed = true;
         }
     }
-    let (t, p): (Cat, Pilot) = (req.t(), req.t());
+    let t: Cat = req.t();
     let manage = super::manages(viewer);
-    let page_view = views::scope_list(t, p, req, query, &view, notice, back, manage);
+    let page_view = views::scope_list(req, query, &view, notice, back, manage);
     req.screen(
         &view,
         html! {
