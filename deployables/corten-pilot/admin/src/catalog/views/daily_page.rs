@@ -35,9 +35,9 @@ use crate::{
         api::AliasReview,
         daily::{
             self, CANDIDATE_COMMANDS, Candidate, CandidateInput, ContentsLine, Daily, DailyScreen, EditForm, EvidenceDetail,
-            Governance, Health, ImportJob, ImportPreview, JobInput, ObservationEvidence, PROMOTION_INTENTS, PromotionInput,
-            PromotionPreview, Ran, ReviewInput, ReviewRow, Said, Stage, StageState, SyncInput, SyncRun, UnitInput, UnitState,
-            WorksetUnit, at, with_query,
+            Governance, Health, ImportJob, ImportPreview, JobInput, ObservationEvidence, PROMOTION_INTENTS, PreflightPart,
+            PromotionInput, PromotionPreview, Ran, ReviewInput, ReviewRow, Said, Stage, StageState, SyncInput, SyncRun,
+            UnitInput, UnitState, WorksetUnit, at, with_query,
         },
         integrations,
         views::AliasReviewPart,
@@ -271,7 +271,15 @@ pub fn Stages<'a>(t: Cat, p: Pilot, req: &'a Req, screen: &'a DailyScreen, conte
                                     context={context}
                                     manage={screen.manage}
                                 />
-                                <JobsModule t={t} req={req} model={model} context={context} manage={screen.manage} />
+                                <JobsModule
+                                    t={t}
+                                    p={p}
+                                    req={req}
+                                    model={model}
+                                    preflight={&screen.preflight}
+                                    context={context}
+                                    manage={screen.manage}
+                                />
                             }
                             Stage::Review => {
                                 <CandidatesModule t={t} p={p} model={model} context={context} manage={screen.manage} />
@@ -878,18 +886,27 @@ fn usage(t: Cat, job: &ImportJob) -> Vec<String> {
 
 /// The import jobs (`CatalogIntegrationImportJobsModule`): the selected scope's import preflight, then
 /// each job with its progress, failure groups and usage, and the retry, resume and cancel the API
-/// offers it.
+/// offers it. The preflight is sent by its `<corten-live>` part once it is read; without JavaScript,
+/// which opens no stream, a link to the page with the preflight read for it takes the loading line's place
+/// (corten-run/corten#1264: Corten's slow part has no answer without JavaScript of its own).
 #[component(css = DailyPage)]
-fn JobsModule<'a>(t: Cat, req: &'a Req, model: &'a Daily, context: &'a str, manage: bool) -> impl Render {
+fn JobsModule<'a>(
+    t: Cat,
+    p: Pilot,
+    req: &'a Req,
+    model: &'a Daily,
+    preflight: &'a PreflightPart,
+    context: &'a str,
+    manage: bool,
+) -> impl Render {
     let jobs = &model.import_jobs;
     let status = t.wb_import_operations_status(jobs.active_job_count).to_string();
     let none = t.wb_none();
     // The preflight the API plans for a provider, unit and import scope (it answers none without them).
     let route = &model.route_context;
     let named = |value: &Option<String>| value.as_deref().is_some_and(|v| !v.is_empty());
-    let preflight =
-        (jobs.selected_scope.is_some() && named(&route.provider_key) && named(&route.unit_key) && named(&route.import_scope))
-            .then(|| at(&daily::url::ImportPreview.href(), context));
+    let planned =
+        jobs.selected_scope.is_some() && named(&route.provider_key) && named(&route.unit_key) && named(&route.import_scope);
     html! {
         <Module
             id="wb-jobs"
@@ -898,10 +915,24 @@ fn JobsModule<'a>(t: Cat, req: &'a Req, model: &'a Daily, context: &'a str, mana
             status={status}
             tone={if jobs.active_job_count > 0 { "warning" } else { "success" }}
         >
-            if let Some(src) = &preflight {
-                <corten-live src={src}>
-                    <div id={ImportPreflightId}><p class={Muted}>{t.wb_import_preview_loading()}</p></div>
-                </corten-live>
+            if planned {
+                match preflight {
+                    PreflightPart::Read(answer) => {
+                        <ImportPreflight t={t} answer={answer.as_ref()} />
+                    }
+                    PreflightPart::Live => {
+                        <corten-live src={at(&daily::url::ImportPreview.href(), context)}>
+                            <div id={ImportPreflightId}>
+                                <p class={(Muted, Loading)}>{t.wb_import_preview_loading()}</p>
+                                <noscript>
+                                    <p class={Muted}>
+                                        <a href={at(&daily::url::Preflight.href(), context)}>{p.integrations_preflight_read()}</a>
+                                    </p>
+                                </noscript>
+                            </div>
+                        </corten-live>
+                    }
+                }
             }
             if jobs.jobs.is_empty() {
                 <Empty title={t.wb_jobs_empty_title()} description={t.wb_jobs_empty_description()} />

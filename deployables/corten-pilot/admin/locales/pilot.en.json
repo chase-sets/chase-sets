@@ -164,6 +164,7 @@
     "candidates_elsewhere": "Candidate evidence and conflict resolution run on admin-web.",
     "candidates_open": "Open the candidates on admin-web",
     "workset_caption": "Provider units in the selected source scope",
+    "preflight_read": "Read the import preflight",
     "review_select": "Select",
     "review_note": "Defer and Reject act on the checked observations. A reject needs a reason.",
     "review_choose": "Select {name}"

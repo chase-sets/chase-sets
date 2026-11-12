@@ -9446,6 +9446,12 @@ async fn the_jobs_stage_draws_a_loading_line_and_its_import_preflight_comes_once
         "{part}"
     );
     assert!(part.contains("Loading import preflight"), "{part}");
+    // Without JavaScript the element opens no stream; its link reads the preflight with the page.
+    assert!(
+        part.contains(r#"<noscript><p class="#)
+            && part.contains(r#"<a href="/catalog/integrations/import-preflight?providerKey=tcgplayer&amp;unitKey=pokemon">Read the import preflight</a>"#),
+        "{part}"
+    );
     assert!(pilot.calls_to(preflight).is_empty(), "the page does not wait for the provider's plan");
 
     // The fragment: the preflight the API planned and summarized, for the same location.
@@ -9483,6 +9489,45 @@ async fn the_jobs_stage_draws_a_loading_line_and_its_import_preflight_comes_once
         let events = pilot.events(&format!("/catalog/integrations/import-preview?{at}"), "staff", 1).await;
         assert!(!events[0].1.contains("Import preflight") && !events[0].1.contains("Loading"), "{at}: {events:?}");
     }
+}
+
+#[tokio::test]
+async fn without_javascript_the_import_preflights_link_is_its_page_with_the_preflight_read() {
+    let pilot = Pilot::new().await;
+    let preflight = "/api/catalog/source-observations/workbench-surfaces/daily/import-preview";
+    let at = "providerKey=tcgplayer&unitKey=pokemon";
+    let (status, _, html) = pilot.send(get(&format!("/catalog/integrations/import-preflight?{at}"), Some("staff"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains("<title>Catalog Integrations") && html.contains(r#"name="wb-stage""#), "the daily page: {html}");
+    assert!(
+        html.contains(r#"data-catalog-import-preview="ready""#) && html.contains("2 target(s)") && html.contains("<dd>150</dd>"),
+        "the preflight, drawn in the page: {html}"
+    );
+    assert!(!html.contains("/catalog/integrations/import-preview?") && !html.contains("Loading import preflight"), "{html}");
+    assert_eq!(
+        pilot.calls_to(preflight).last().map(|c| c.path.clone()).unwrap_or_default(),
+        format!("{preflight}?location=%2Fcatalog%2Fintegrations%3FproviderKey%3Dtcgplayer%26unitKey%3Dpokemon")
+    );
+
+    // A provider past the API's deadline says so; no preflight, or a read that fails, leaves nothing.
+    let (status, _, html) = pilot.send(get("/catalog/integrations/import-preflight?providerKey=slow", Some("staff"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains(r#"data-catalog-deferred-panel="unavailable""#) && html.contains("Import preflight"), "{html}");
+    let (status, _, html) = pilot.send(get("/catalog/integrations/import-preflight?providerKey=nopreview", Some("staff"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(!html.contains("data-catalog-import-preview=") && !html.contains("Loading import preflight"), "{html}");
+
+    // From a scope's workspace the page is the scope's, with the preflight read for its own address.
+    let (status, _, html) =
+        pilot.send(get(&format!("/catalog/integrations/import-preflight?{at}&home=scp_paf"), Some("staff"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains("data-scope-workspace") && html.contains("Paldean Fates"), "the scope's page: {html}");
+    assert!(html.contains(r#"data-catalog-import-preview="ready""#), "{html}");
+    assert!(
+        pilot.calls_to(preflight).last().is_some_and(|c| c.path.contains("location=%2Fcatalog%2Fscopes%2Fscp_paf")),
+        "the scope's location: {:?}",
+        pilot.calls_to(preflight).last()
+    );
 }
 
 #[tokio::test]
