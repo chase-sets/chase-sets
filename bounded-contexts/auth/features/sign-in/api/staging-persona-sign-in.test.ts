@@ -259,7 +259,8 @@ describe("staging persona sign-in", () => {
     "refuses %s readiness without writes",
     async (mode) => {
       const input = services();
-      if (mode === "missing-user") vi.mocked(input.identity.getUser).mockResolvedValue(null);
+      // The projection readers return `rows[0] ?? null`, which the row type cannot express as nullable.
+      if (mode === "missing-user") vi.mocked(input.identity.getUser).mockResolvedValue(null as never);
       if (mode === "inactive-user" || mode === "non-magic-user")
         vi.mocked(input.identity.getUser).mockResolvedValue({
           status: mode === "inactive-user" ? "suspended" : "active",
@@ -268,7 +269,7 @@ describe("staging persona sign-in", () => {
       if (mode === "inactive-membership")
         vi.mocked(input.identity.getActiveMembershipForUserAccount).mockResolvedValue({ status: "revoked" } as never);
       if (mode === "missing-membership")
-        vi.mocked(input.identity.getActiveMembershipForUserAccount).mockResolvedValue(null);
+        vi.mocked(input.identity.getActiveMembershipForUserAccount).mockResolvedValue(null as never);
       const response = await post(input);
       expect(response.status).toBe(409);
       expect(await response.json()).toEqual({ error: "not-ready" });

@@ -684,27 +684,31 @@ export const decideConsentActivationAuthority: AggregateDecider<
 
 const validatedConsentActivationGuards = new WeakSet<object>();
 
-declare class ValidatedConsentActivationGuardContract {
-  private readonly validatedConsentActivationGuardBrand: void;
-  public readonly policyKey: string;
-  public readonly streamId: string;
-  public readonly expectedVersion: ExpectedStreamVersion;
-}
+// Type-only brands: Babel-based loaders such as Playwright reject fields on an ambient class.
+declare const validatedConsentActivationGuardBrand: unique symbol;
+declare const validatedConsentActivationAuthoritySnapshotBrand: unique symbol;
 
-declare class ValidatedConsentActivationAuthoritySnapshotContract {
-  private readonly validatedConsentActivationAuthoritySnapshotBrand: void;
-  public readonly policyKey: string;
-  public readonly streamId: string;
-  public readonly registered: boolean;
-  public readonly status: ConsentActivationStatus;
-  public readonly isActive: boolean;
-  public readonly activeVersion: string | null;
-  public readonly activeDocumentId: string | null;
-  public readonly activationCount: number;
-  public readonly lastTransitionAt: string | null;
-  public readonly authorityVersion: number;
-  public readonly guard: ValidatedConsentActivationGuard;
-}
+type ValidatedConsentActivationGuardContract = Readonly<{
+  [validatedConsentActivationGuardBrand]: true;
+  policyKey: string;
+  streamId: string;
+  expectedVersion: ExpectedStreamVersion;
+}>;
+
+type ValidatedConsentActivationAuthoritySnapshotContract = Readonly<{
+  [validatedConsentActivationAuthoritySnapshotBrand]: true;
+  policyKey: string;
+  streamId: string;
+  registered: boolean;
+  status: ConsentActivationStatus;
+  isActive: boolean;
+  activeVersion: string | null;
+  activeDocumentId: string | null;
+  activationCount: number;
+  lastTransitionAt: string | null;
+  authorityVersion: number;
+  guard: ValidatedConsentActivationGuard;
+}>;
 
 /**
  * The token a caller carries into an `appendToStreams` transaction. Minted by
