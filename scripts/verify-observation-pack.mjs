@@ -707,6 +707,7 @@ function validateRepresentativeCommerceCompletion(value) {
     "representativeListingAccountCount",
     "representativeOfferCount",
     "representativeOfferBuyerAccountCount",
+    "representativeOfferSkippedCount",
     "representativeAcceptedOfferCount",
     "representativeAcceptedOfferSkippedCount",
   ]) {
@@ -744,6 +745,7 @@ function validateRepresentativeCommerceCompletion(value) {
     representativeListingAccountCount: value.representativeListingAccountCount,
     representativeOfferCount: value.representativeOfferCount,
     representativeOfferBuyerAccountCount: value.representativeOfferBuyerAccountCount,
+    representativeOfferSkippedCount: value.representativeOfferSkippedCount,
     representativeAcceptedOfferCount: value.representativeAcceptedOfferCount,
     representativeAcceptedOfferSkippedCount: value.representativeAcceptedOfferSkippedCount,
     representativeOrderingSupplyState: value.representativeOrderingSupplyState,
