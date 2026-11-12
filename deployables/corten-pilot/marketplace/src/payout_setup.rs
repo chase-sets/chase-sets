@@ -25,13 +25,12 @@
 //! | `POST /account/desk/settings/session?which=` | JSON `{"secret"}` for `onboarding`, `management` or `notifications`, or `{"code","message"}` when Settlement refuses (`step_up_required` asks the seller to sign in again) |
 use corten::{
     Local,
-    axum::http::{HeaderMap, StatusCode},
+    http::{HeaderMap, StatusCode},
     prelude::*,
 };
 use platform::receipt::Receipt;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
-use crate::chrome::Chrome;
 use crate::{
     api::{AccountCalls as _, ApiError, ConnectSession, MoneyCalls as _, PayoutReadiness, PayoutSetupProgress, RequirementGroup},
     app::{PAYOUTS_SETUP, Shared, read_failed, sign_in, url},
@@ -47,7 +46,7 @@ pub const PATH: &str = "/account/desk/settings";
 /// What the page's address carries, named as marketplace's: `mode=manage` for account management,
 /// `setup=updated` after a refresh, the account page to go back to once setup is ready, and the
 /// refresh's receipt.
-#[derive(Clone, Debug, Default, Deserialize, Fields, Route)]
+#[derive(Clone, Debug, Default, Fields, Route)]
 #[route(query)]
 #[serde(rename_all = "camelCase")]
 pub struct Place {
@@ -170,11 +169,11 @@ pub struct SetupScreen {
 }
 
 /// The account may not set up payouts: marketplace's "Account access required", back to the page.
-fn access_required(req: &Req, viewer: &Viewer, place: &Place, cart: Option<u64>) -> HtmlResult {
+fn access_required(req: &Req, viewer: &Viewer, place: &Place) -> HtmlResult {
     let t: MoneyMsg = req.t();
     let back = url::PayoutSetup { place: place.clone() }.href();
     let page = html! {
-        <Layout req={req} viewer={Some(viewer)} cart={cart} title={t.setup_route_account_access_required_title()} head={()}>
+        <Layout req={req} viewer={Some(viewer)} title={t.setup_route_account_access_required_title()} head={()}>
             <views::PayoutSetupAccessRequired t={t} back={&back} />
         </Layout>
     };
@@ -190,7 +189,6 @@ async fn render(
     place: &Place,
     error: Option<String>,
     status: StatusCode,
-    chrome: &Chrome,
 ) -> HtmlResult {
     let receipt = Receipt::from_param(place.after_write.as_deref());
     let caller = config.platform.caller(headers, config.proto, receipt.as_ref());
@@ -198,7 +196,7 @@ async fn render(
     let (readiness, progress) = match (readiness, progress) {
         (Ok(readiness), Ok(progress)) => (readiness, progress),
         (Err(error), _) | (_, Err(error)) => {
-            return read_failed(req, Some(viewer), error, place.after_write.as_deref(), chrome.cart().await);
+            return read_failed(req, Some(viewer), error, place.after_write.as_deref());
         }
     };
     let mode = Mode::of(place, &readiness);
@@ -218,9 +216,8 @@ async fn render(
     };
     let t: MoneyMsg = req.t();
     let view = html! { <views::PayoutSetupPage t={t} screen={&screen} /> };
-    let cart = chrome.cart().await;
     let page = html! {
-        <Layout req={req} viewer={Some(viewer)} cart={cart} title={t.setup_route_payout_setup_marketplace()} head={()}>
+        <Layout req={req} viewer={Some(viewer)} title={t.setup_route_payout_setup_marketplace()} head={()}>
             {view}
         </Layout>
     };
@@ -230,20 +227,19 @@ async fn render(
 /// The page, read after the refresh whose receipt the address carries.
 pub(crate) async fn page(
     req: Req,
-    chrome: Chrome,
     Caller(PayoutSetter(viewer)): Caller<PayoutSetter>,
     State(config): State<Shared>,
     headers: HeaderMap,
     Params(route): Params<url::PayoutSetup>,
 ) -> HtmlResult {
     if !viewer.actor.can(PAYOUTS_SETUP) {
-        return access_required(&req, &viewer, &route.place, chrome.cart().await);
+        return access_required(&req, &viewer, &route.place);
     }
-    render(&req, &viewer, &config, &headers, &route.place, None, StatusCode::OK, &chrome).await
+    render(&req, &viewer, &config, &headers, &route.place, None, StatusCode::OK).await
 }
 
 /// The page's form: the intent, and the mode it was in.
-#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[derive(Clone, Debug, Default, Fields)]
 #[serde(default)]
 pub struct SetupForm {
     pub intent: String,
@@ -257,7 +253,6 @@ pub const REFRESH: &str = "refresh-payout-setup";
 /// (marketplace's `navigateAfterWrite`). Any other intent goes back to the page in its mode.
 pub(crate) async fn write(
     req: Req,
-    chrome: Chrome,
     Caller(PayoutSetter(viewer)): Caller<PayoutSetter>,
     State(config): State<Shared>,
     headers: HeaderMap,
@@ -288,7 +283,7 @@ pub(crate) async fn write(
                 let said =
                     error.refusal().map_or_else(|| t.setup_route_payout_setup_status_could_not().to_owned(), str::to_owned);
                 let place = Place::of(mode, return_to);
-                render(&req, &viewer, &config, &headers, &place, Some(said), StatusCode::UNPROCESSABLE_ENTITY, &chrome).await
+                render(&req, &viewer, &config, &headers, &place, Some(said), StatusCode::UNPROCESSABLE_ENTITY).await
             }
             _ => Err(corten::Error::new(error).with_status(StatusCode::BAD_GATEWAY)),
         },
@@ -296,7 +291,7 @@ pub(crate) async fn write(
 }
 
 /// Which session the script asks for.
-#[derive(Clone, Debug, Default, Deserialize, Fields, Route)]
+#[derive(Clone, Debug, Default, Fields, Route)]
 #[route(query)]
 pub struct Which {
     pub which: Option<String>,
@@ -329,7 +324,7 @@ pub(crate) async fn session(
     State(config): State<Shared>,
     headers: HeaderMap,
     Params(route): Params<url::PayoutSetupSession>,
-) -> NoStore<JsonResult<Session>> {
+) -> JsonResult<Session> {
     let session = match route.which.which.as_deref() {
         Some("management") => ConnectSession::Management,
         Some("notifications") => ConnectSession::Notifications,
@@ -345,7 +340,7 @@ pub(crate) async fn session(
         Ok(_) => Session { secret: None, code: Some("missing_secret".into()), message: None },
         Err(error) => refused(error),
     };
-    NoStore(Ok(Json(answer)))
+    Ok(Json(answer))
 }
 
 fn refused(error: ApiError) -> Session {

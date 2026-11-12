@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { countFingerprint, countTimeIsCurrent, type CountPreparationView } from "./count-acquisition";
+import { scrydexPeriodDecisionSchema, scrydexPeriodReserveSchema } from "./scrydex-billing-period";
 
 // Governed Scrydex count preparation for a whole-game rehearsal pass. The
 // receipt is the only artifact the staging workflow may upload: a closed,
@@ -10,9 +11,11 @@ import { countFingerprint, countTimeIsCurrent, type CountPreparationView } from 
 // grants batch, preview, confirm or reservation authority.
 
 export const rehearsalCountPreparationReceiptPath = "artifacts/catalog-count-preparation/receipt.json";
-// v1 receipts derived debits from successful sources and are historical evidence only.
-export const rehearsalCountPreparationReceiptSchemaVersion = "catalog-rehearsal-count-preparation-receipt/v2";
-export const rehearsalCountPreparationApprovalSchemaVersion = "catalog-rehearsal-count-preparation-approval/v1";
+// v1 receipts derived debits from successful sources, and v2 receipts predate the
+// billing-period decision; both are historical evidence only.
+export const rehearsalCountPreparationReceiptSchemaVersion = "catalog-rehearsal-count-preparation-receipt/v3";
+// v1 approvals carry no billing-period reserve and refuse before network access.
+export const rehearsalCountPreparationApprovalSchemaVersion = "catalog-rehearsal-count-preparation-approval/v2";
 export const rehearsalCountPreparationStagingOrigin = "https://admin.staging.chasesets.com";
 export const rehearsalCountPreparationCredentialNames = [
   "CATALOG_ADMIN_E2E_EMAIL",
@@ -148,6 +151,8 @@ const approvalSchema = z
     perKindCost: z.object({ cards: credits, sealed: credits }).strict(),
     cap: credits,
     authority: z.object({ fingerprint: hex64, headroom: integer, observedAt: instant }).strict(),
+    // The host dispatch-log reserve for this dispatch, forwarded on the acquire body.
+    periodReserve: scrydexPeriodReserveSchema,
   })
   .strict();
 export type RehearsalCountPreparationApproval = z.infer<typeof approvalSchema>;
@@ -286,6 +291,9 @@ const receiptSchema = z
             admission: admissionState.nullable(),
           })
           .strict(),
+        // The server's billing-period decision for this submission, recorded once;
+        // null when no response carried one (never read as admitted).
+        periodDecision: scrydexPeriodDecisionSchema.nullable(),
       })
       .strict()
       .nullable(),
@@ -342,11 +350,13 @@ export function rehearsalCountAdmissionRefusal(
  * this submission before any allocation, debit or send; debits a concurrent
  * execution of the same quote still has in flight stay in the accounting.
  * Otherwise any possible send left uncertain or acquiring is uncertain; only a
- * complete response, readback, accounting and every roster source is complete.
+ * complete response under an admitted period decision, readback, accounting and
+ * every roster source is complete.
  */
 export function rehearsalCountAcquisitionOutcome(input: {
   response: NonNullable<RehearsalCountPreparationReceipt["acquisition"]>["response"];
   readback: NonNullable<RehearsalCountPreparationReceipt["acquisition"]>["readback"];
+  periodDecision: NonNullable<RehearsalCountPreparationReceipt["acquisition"]>["periodDecision"];
   accounting: RehearsalCountPreparationAccounting;
   sourced: boolean;
 }): RehearsalCountPreparationOutcome {
@@ -367,7 +377,8 @@ export function rehearsalCountAcquisitionOutcome(input: {
     readback.state !== "complete" ||
     readback.admission !== "ended" ||
     accounting.debits.some((debit) => debit.outcome !== "complete") ||
-    !input.sourced
+    !input.sourced ||
+    input.periodDecision?.admitted !== true
   )
     return "partial";
   return "complete";
@@ -462,6 +473,16 @@ function consistencyErrors(receipt: RehearsalCountPreparationReceipt): string[] 
       current.usageFingerprint !== receipt.approval?.authorityFingerprint)
   )
     errors.push("submission-requires-current-authority");
+  // The decision binds this dispatch and the whole approved P; a refusal is only ever the locked 409.
+  const decision = receipt.acquisition?.periodDecision;
+  if (
+    decision &&
+    (decision.runId !== receipt.dispatchId ||
+      decision.plannedCredits !== quote?.plannedCredits ||
+      decision.admitted !== (decision.reason === null) ||
+      (!decision.admitted && receipt.acquisition!.response.status !== 409))
+  )
+    errors.push("period-decision-mismatch");
 
   const sources = new Map<string, (typeof receipt.sources)[number]>();
   for (const source of receipt.sources) {
@@ -535,6 +556,7 @@ function consistencyErrors(receipt: RehearsalCountPreparationReceipt): string[] 
       acquisition.readback.admission !== "ended"
     )
       errors.push("complete-requires-complete-acquisition");
+    if (acquisition?.periodDecision?.admitted !== true) errors.push("complete-requires-period-admission");
     if (!accounting || accounting.status !== "complete") errors.push("complete-requires-complete-accounting");
     if (accounting?.debits.some((debit) => debit.outcome !== "complete"))
       errors.push("complete-requires-complete-debits");

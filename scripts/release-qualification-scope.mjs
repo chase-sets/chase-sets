@@ -137,7 +137,6 @@ export const releaseQualificationScopeRegistry = Object.freeze({
     "provider-webhook-inbox": "live-provider",
     "remote-dev": "repo-tooling",
     "ses-email": "live-provider",
-    "stripe-appearance": "runtime-library",
     "stripe-config": "live-provider",
     "stripe-connect": "live-provider",
     "stripe-payments": "live-provider",
@@ -271,6 +270,7 @@ export const releaseQualificationScopeRegistry = Object.freeze({
   // Unknown workflows fail closed.
   workflows: Object.freeze({
     "backlog-roadmap-status.yml": "ci",
+    "bootstrap-db-oracle-memo.yml": "ci",
     "browser-boundary-diagnostics.yml": "ci",
     "browser-boundary-timeout-verifier.yml": "ci",
     "catalog-completion-report.yml": "ci",

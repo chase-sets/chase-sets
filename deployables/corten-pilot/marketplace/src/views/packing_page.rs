@@ -21,6 +21,16 @@ use crate::{
     packing::{AttemptInput, LineInput, LineState, Outcome, PackInput, PackingScreen, ScanInput, Scanned, short_reference},
     text::{Pilot, ShipmentsMsg},
 };
+use platform::{
+    search::SearchGlyph,
+    theme::gap_1,
+    ui::{
+        input_group::InputGroup,
+        progress::{Progress as KitProgress, ProgressSize, ProgressTone},
+        stack::{Gap, Stack as KitStack, StackStart},
+        steps::{Step as KitStep, StepState, Steps as KitSteps, StepsLayout},
+    },
+};
 
 corten::script::script!(pub mod handlers = "packing.js");
 
@@ -51,7 +61,7 @@ pub struct PackingProgressId;
 pub struct PackingFooterId;
 
 /// A status's words (`statusLabel`).
-fn status_label(t: ShipmentsMsg, status: &str) -> String {
+pub(super) fn status_label(t: ShipmentsMsg, status: &str) -> String {
     match status {
         "awaiting-package" => t.packing_status_awaiting_package(),
         "packing" => t.packing_status_packing(),
@@ -82,7 +92,8 @@ fn status_tone(status: &str) -> &'static str {
 fn item_count(t: ShipmentsMsg, quantity: u64, lines: u64) -> String {
     let item = if quantity == 1 { t.packing_item() } else { t.packing_items_label() };
     let line = if lines == 1 { t.packing_line() } else { t.packing_lines() };
-    t.packing_item_count(quantity, item, lines, line).to_string()
+    t.packing_item_count(crate::text::shipments_msg::PackingItemCount { quantity, item_label: item, lines, line_label: line })
+        .to_string()
 }
 
 /// Where it goes, a line each (`addressLines`). The API's snapshot may be empty (`{}`), so each
@@ -122,8 +133,8 @@ fn counted(s: &ShipmentDetail) -> (u64, bool) {
 /// a write, the route's pending page.
 #[component(css)]
 pub fn PackingPage<'a>(t: ShipmentsMsg, p: Pilot, viewer: &'a Viewer, id: &'a str, screen: &'a PackingScreen) -> impl Render {
-    // The pilot's address, which redirects to marketplace's command center.
-    let back = url::SaleShipments.href();
+    // The command center.
+    let back = url::SaleShipments::default().href();
     html! {
         if let Some(s) = &screen.shipment {
             <PackingView t={t} p={p} viewer={viewer} id={id} screen={screen} s={s} back={&back} />
@@ -157,20 +168,40 @@ fn PackingView<'a>(
 ) -> impl Render {
     let at = stage(s);
     let buyer = s.buyer_display_name.as_deref().unwrap_or(&s.buyer_account_id);
-    let description = t.packing_description(&display_reference(&s.order_id), buyer).to_string();
+    let description = t
+        .packing_description(crate::text::shipments_msg::PackingDescription {
+            order_reference: &display_reference(&s.order_id),
+            buyer,
+        })
+        .to_string();
     let step = |current: bool, done: bool| {
         if done {
-            "complete"
+            StepState::Done(p.steps_done())
         } else if current {
-            "current"
+            StepState::Current
         } else {
-            "upcoming"
+            StepState::Todo(p.steps_not_started())
         }
     };
     let steps = [
-        (t.packing_step_review(), t.packing_step_review_description(), step(at.awaiting, !at.awaiting)),
-        (t.packing_step_pack(), t.packing_step_pack_description(), step(at.packing, at.packed)),
-        (t.packing_step_finish(), t.packing_step_finish_description(), step(false, at.packed)),
+        KitStep {
+            label: t.packing_step_review(),
+            description: Some(t.packing_step_review_description()),
+            link: None,
+            state: step(at.awaiting, !at.awaiting),
+        },
+        KitStep {
+            label: t.packing_step_pack(),
+            description: Some(t.packing_step_pack_description()),
+            link: None,
+            state: step(at.packing, at.packed),
+        },
+        KitStep {
+            label: t.packing_step_finish(),
+            description: Some(t.packing_step_finish_description()),
+            link: None,
+            state: step(false, at.packed),
+        },
     ];
     let started = s.packing_started_at.as_deref().unwrap_or(&s.updated_at);
     let started = parse_timestamp(started).map_or_else(
@@ -179,29 +210,22 @@ fn PackingView<'a>(
     );
     let writes = screen.outcome.writes();
     let start = url::PackingStart { id }.href();
-    let shipment = url::SaleShipment { id, after: Default::default() }.href();
+    let shipment = url::SaleShipment { id, place: Default::default() }.href();
     html! {
         <div class={Page}>
             <header class={Heading}>
-                <div class={Stack}>
+                <div class={(KitStack { gap: Gap::App }, StackStart {}, gap_1())}>
                     <p class={Eyebrow}>{t.packing_seller()}</p>
                     <h1 class={Title}>{t.packing_title()}</h1>
                     <p class={Muted}>{&description}</p>
                 </div>
                 <p class={Actions}><a class={Secondary} href={back}>{t.packing_back()}</a></p>
             </header>
-            <ol class={Steps} aria-label={t.packing_title()}>
-                for (name, detail, state) in steps {
-                    <li class={StepItem} data-state={state} aria-current={(state == "current").then_some("step")}>
-                        <p class={Strong}>{name}</p>
-                        <p class={Muted}>{detail}</p>
-                    </li>
-                }
-            </ol>
+            <KitSteps label={t.packing_title()} layout={StepsLayout::Row} steps={&steps} />
             <PackingStatus t={t} p={p} viewer={viewer} id={id} outcome={&screen.outcome} />
             if at.awaiting {
                 <div class={(Banner, Info)}>
-                    <div class={Stack}>
+                    <div class={(KitStack { gap: Gap::App }, StackStart {}, gap_1())}>
                         <p class={Strong}>{t.packing_ready_title()}</p>
                         <p class={Muted}>{t.packing_ready_description()}</p>
                     </div>
@@ -225,7 +249,7 @@ fn PackingView<'a>(
             }
             if at.packed {
                 <div class={(Banner, Done)}>
-                    <div class={Stack}>
+                    <div class={(KitStack { gap: Gap::App }, StackStart {}, gap_1())}>
                         <p class={Strong}>{t.packing_packed_title()}</p>
                         <p class={Muted}>{t.packing_packed_description()}</p>
                     </div>
@@ -234,7 +258,7 @@ fn PackingView<'a>(
             }
             <div class={Workstation}>
                 <section class={Checklist} aria-labelledby="packing-checklist">
-                    <div class={Stack}>
+                    <div class={(KitStack { gap: Gap::App }, StackStart {}, gap_1())}>
                         <h2 id="packing-checklist" class={SectionTitle}>{t.packing_item_checklist()}</h2>
                         <p class={Muted}>{t.packing_item_checklist_description()}</p>
                     </div>
@@ -252,7 +276,7 @@ fn PackingView<'a>(
                     }
                 </section>
                 <aside class={Rail} aria-labelledby="packing-details">
-                    <div class={Stack}>
+                    <div class={(KitStack { gap: Gap::App }, StackStart {}, gap_1())}>
                         <h2 id="packing-details" class={SectionTitle}>{t.packing_shipment_details()}</h2>
                         <p class={Muted}>{item_count(t, s.total_quantity, s.line_count)}</p>
                     </div>
@@ -378,15 +402,20 @@ fn Progress<'a>(t: ShipmentsMsg, s: &'a ShipmentDetail) -> impl Patch {
     let total = s.total_quantity;
     let checked = if at.packed { total } else { packed };
     let percent = if at.packed { 100 } else { (checked * 100 + total / 2).checked_div(total).unwrap_or(0) };
-    let label = t.packing_progress(checked, total).to_string();
+    let label = t.packing_progress(crate::text::shipments_msg::PackingProgress { checked, total }).to_string();
     html! {
-        <div id={PackingProgressId} class={Progress} data-tone={if all || at.packed { "success" } else { "accent" }}>
+        <div id={PackingProgressId} class={Progress}>
             if at.packing || at.packed {
                 <div class={ProgressHead}>
                     <span id="packing-progress-label">{&label}</span>
                     <span class={Strong}>{t.packing_progress_percent(percent)}</span>
                 </div>
-                <progress class={Bar} max="100" value={percent} aria-labelledby="packing-progress-label"></progress>
+                <progress
+                    class={KitProgress { size: ProgressSize::Md, tone: if all || at.packed { ProgressTone::Success } else { ProgressTone::Primary } }}
+                    max="100"
+                    value={percent}
+                    aria-labelledby="packing-progress-label"
+                ></progress>
             }
         </div>
     }
@@ -414,15 +443,18 @@ fn Scan<'a>(t: ShipmentsMsg, p: Pilot, viewer: &'a Viewer, id: &'a str, screen: 
                 <label class={Label} for="packing-scan-code">{t.packing_scan_label()}</label>
                 <p class={Muted} id="packing-scan-note">{t.packing_scan_description()}</p>
                 <div class={ScanRow}>
-                    <input
-                        class={Input}
-                        id="packing-scan-code"
-                        name={f.code}
-                        type="search"
-                        autocomplete="off"
-                        placeholder={t.packing_scan_placeholder()}
-                        aria-describedby="packing-scan-note packing-scan-feedback"
-                    >
+                    <span class={(InputGroup {}, ScanBox)}>
+                        <SearchGlyph />
+                        <input
+                            class={Input}
+                            id="packing-scan-code"
+                            name={f.code}
+                            type="search"
+                            autocomplete="off"
+                            placeholder={t.packing_scan_placeholder()}
+                            aria-describedby="packing-scan-note packing-scan-feedback"
+                        >
+                    </span>
                     <button type="submit" class={Primary}>{t.packing_scan_confirm()}</button>
                 </div>
             </WriteForm>
@@ -476,7 +508,7 @@ fn LineItem<'a>(
                     value={if checked { 0 } else { line.quantity }}
                     role="checkbox"
                     aria-checked={if checked { "true" } else { "false" }}
-                    aria-label={t.packing_line_checked(line.quantity, &line.item_title)}
+                    aria-label={t.packing_line_checked(crate::text::shipments_msg::PackingLineChecked { quantity: line.quantity, title: &line.item_title })}
                 ></button>
                 <div class={LineText}>
                     <p class={Strong}>{&line.item_title}</p>
@@ -491,7 +523,9 @@ fn LineItem<'a>(
                 </div>
                 <div class={Count}>
                     <p class={Strong}>{format!("\u{d7}{}", line.quantity)}</p>
-                    <p class={Muted}>{t.packing_line_quantity_detail(packed, line.quantity)}</p>
+                    <p class={Muted}>
+                        {t.packing_line_quantity_detail(crate::text::shipments_msg::PackingLineQuantityDetail { packed, total: line.quantity })}
+                    </p>
                     if line.quantity > 1 {
                         <div class={Stepper}>
                             <button
@@ -561,9 +595,7 @@ fn ReferenceRow<'a, I: Id + Copy>(t: ShipmentsMsg, p: Pilot, label: &'a str, val
             <dd>
                 <span title={value}>{short_reference(value)}</span>
                 <span id={id} hidden>{value}</span>
-                <span class={Copy}>
-                    <CopyButton text={id} label={t.packing_copy_reference()} copied={p.packing_copied()} />
-                </span>
+                <CopyButton text={id} label={t.packing_copy_reference()} copied={p.packing_copied()} class={Copy} />
             </dd>
         </div>
     }
@@ -579,8 +611,10 @@ fn Footer<'a>(t: ShipmentsMsg, p: Pilot, viewer: &'a Viewer, id: &'a str, s: &'a
     let slip = crate::packing_slips::href(&s.shipment_id);
     html! {
         <div id={PackingFooterId} class={Footer}>
-            <div class={Stack}>
-                <p class={Strong}>{t.packing_progress(packed, s.total_quantity)}</p>
+            <div class={(KitStack { gap: Gap::App }, StackStart {}, gap_1())}>
+                <p class={Strong}>
+                    {t.packing_progress(crate::text::shipments_msg::PackingProgress { checked: packed, total: s.total_quantity })}
+                </p>
                 <p class={Muted} id="packing-finish-note">
                     {if all { t.packing_complete_ready() } else { t.packing_complete_disabled() }}
                 </p>
@@ -661,9 +695,7 @@ fn Details<'a>(t: ShipmentsMsg, p: Pilot, s: &'a ShipmentDetail) -> impl Render 
                     }
                 </address>
                 <span id={ShipToId} hidden>{&copied}</span>
-                <span class={Copy}>
-                    <CopyButton text={ShipToId} label={t.packing_copy_address()} copied={p.packing_copied()} />
-                </span>
+                <CopyButton text={ShipToId} label={t.packing_copy_address()} copied={p.packing_copied()} class={Copy} />
             </div>
             <div class={Card}>
                 <a
@@ -685,8 +717,8 @@ fn Details<'a>(t: ShipmentsMsg, p: Pilot, s: &'a ShipmentDetail) -> impl Render 
 /// A shipment's page while it is catching up with a write (the packing route's pending words).
 #[component(css = PackingPage)]
 pub fn ShipmentPending(t: ShipmentsMsg) -> impl Render {
-    // The pilot's address, which redirects to marketplace's command center.
-    let back = url::SaleShipments.href();
+    // The command center.
+    let back = url::SaleShipments::default().href();
     html! {
         <div class={Page}>
             <platform::section::PageHeader

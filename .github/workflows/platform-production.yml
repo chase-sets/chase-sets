@@ -151,6 +151,19 @@ jobs:
         with:
           terraform_wrapper: false
 
+      - name: Prepare Terraform provider cache
+        run: |
+          mkdir -p "$RUNNER_TEMP/terraform-providers"
+          echo "TF_PLUGIN_CACHE_DIR=$RUNNER_TEMP/terraform-providers" >> "$GITHUB_ENV"
+
+      - name: Restore locked Terraform providers
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        with:
+          path: ${{ runner.temp }}/terraform-providers
+          key: terraform-providers-${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-${{ hashFiles('infrastructure/digitalocean/*/.terraform.lock.hcl') }}
+          restore-keys: |
+            terraform-providers-${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-
+
       - name: Plan retained diagnostic DNS state
         env:
           TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
@@ -516,6 +529,19 @@ jobs:
       - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
         with:
           terraform_wrapper: false
+      - name: Prepare Terraform provider cache
+        run: |
+          mkdir -p "$RUNNER_TEMP/terraform-providers"
+          echo "TF_PLUGIN_CACHE_DIR=$RUNNER_TEMP/terraform-providers" >> "$GITHUB_ENV"
+
+      - name: Restore locked Terraform providers
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        with:
+          path: ${{ runner.temp }}/terraform-providers
+          key: terraform-providers-${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-${{ hashFiles('infrastructure/digitalocean/*/.terraform.lock.hcl') }}
+          restore-keys: |
+            terraform-providers-${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-
+
       - uses: digitalocean/action-doctl@3cb3953159719656269e044e0e24ca16dd2a690f # v2.5.2
         with:
           token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
@@ -535,9 +561,22 @@ jobs:
       - uses: ./.github/actions/setup-pnpm-workspace
         with:
           install: true
+      # Support step: a failed mint leaves recovery without push authority, which the marker refuses before any push.
+      - name: Mint recovery marker push token
+        id: recovery_marker_push_token
+        continue-on-error: true
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.PRODUCTION_MARKER_APP_ID }}
+          private-key: ${{ secrets.PRODUCTION_MARKER_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: write
+          permission-workflows: write
       - name: Reconcile retained production marker
         env:
           GITHUB_TOKEN: ${{ github.token }}
+          PRODUCTION_MARKER_PUSH_TOKEN: ${{ steps.recovery_marker_push_token.outputs.token }}
           DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
           REGISTRY_GC_GATE_OUT: artifacts/release-health/registry-gc-gate.json
           RELEASE_IMAGE: ${{ env.RELEASE_IMAGE }}
@@ -875,6 +914,19 @@ jobs:
         with:
           terraform_wrapper: false
 
+      - name: Prepare Terraform provider cache
+        run: |
+          mkdir -p "$RUNNER_TEMP/terraform-providers"
+          echo "TF_PLUGIN_CACHE_DIR=$RUNNER_TEMP/terraform-providers" >> "$GITHUB_ENV"
+
+      - name: Restore locked Terraform providers
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        with:
+          path: ${{ runner.temp }}/terraform-providers
+          key: terraform-providers-${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-${{ hashFiles('infrastructure/digitalocean/*/.terraform.lock.hcl') }}
+          restore-keys: |
+            terraform-providers-${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-
+
       - uses: digitalocean/action-doctl@3cb3953159719656269e044e0e24ca16dd2a690f # v2.5.2
         with:
           token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
@@ -1013,6 +1065,19 @@ jobs:
       - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
         with:
           terraform_wrapper: false
+
+      - name: Prepare Terraform provider cache
+        run: |
+          mkdir -p "$RUNNER_TEMP/terraform-providers"
+          echo "TF_PLUGIN_CACHE_DIR=$RUNNER_TEMP/terraform-providers" >> "$GITHUB_ENV"
+
+      - name: Restore locked Terraform providers
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        with:
+          path: ${{ runner.temp }}/terraform-providers
+          key: terraform-providers-${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-${{ hashFiles('infrastructure/digitalocean/*/.terraform.lock.hcl') }}
+          restore-keys: |
+            terraform-providers-${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-
 
       - uses: digitalocean/action-doctl@3cb3953159719656269e044e0e24ca16dd2a690f # v2.5.2
         with:
@@ -1339,6 +1404,21 @@ jobs:
           TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
           TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
           NODE_OPTIONS: --no-deprecation
+
+      - name: Prepare Terraform provider cache
+        if: env.SHOULD_DEPLOY != 'false'
+        run: |
+          mkdir -p "$RUNNER_TEMP/terraform-providers"
+          echo "TF_PLUGIN_CACHE_DIR=$RUNNER_TEMP/terraform-providers" >> "$GITHUB_ENV"
+
+      - name: Restore locked Terraform providers
+        if: env.SHOULD_DEPLOY != 'false'
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        with:
+          path: ${{ runner.temp }}/terraform-providers
+          key: terraform-providers-${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-${{ hashFiles('infrastructure/digitalocean/*/.terraform.lock.hcl') }}
+          restore-keys: |
+            terraform-providers-${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-
 
       - uses: digitalocean/action-doctl@3cb3953159719656269e044e0e24ca16dd2a690f # v2.5.2
         if: env.SHOULD_DEPLOY != 'false'
@@ -2172,19 +2252,40 @@ jobs:
         if: env.SHOULD_DEPLOY != 'false'
         uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
         with:
-          path: /home/runner/.cache/ms-playwright
+          path: ${{ runner.temp }}/playwright-chromium
           key: playwright-chromium-${{ runner.os }}-${{ steps.staging-playwright-chromium.outputs.version }}
           restore-keys: |
             playwright-chromium-${{ runner.os }}-
 
       - name: Install Playwright Chromium for staging critical flows
         if: env.SHOULD_DEPLOY != 'false'
+        timeout-minutes: 21
         env:
-          TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
-          TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
-          TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
-          PLAYWRIGHT_BROWSERS_PATH: /home/runner/.cache/ms-playwright
-        run: pnpm exec playwright install --with-deps chromium
+          PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/playwright-chromium
+          PLAYWRIGHT_INSTALL_SITE: platform-production-deploy-staging
+          PLAYWRIGHT_INSTALL_POLICY: single-attempt
+          PLAYWRIGHT_INSTALL_ATTEMPT: "1"
+        run: |
+          set +e
+          mkdir -p artifacts/release-health
+          attempts_log=artifacts/release-health/staging-browser-install-attempts.txt
+          classifier_log=artifacts/release-health/staging-browser-install.txt
+          : > "$attempts_log"
+          : > "$classifier_log"
+          node scripts/playwright-chromium-install.mjs 2>&1 | tee -a "$attempts_log"
+          status=${PIPESTATUS[0]}
+          reason="$(sed -n 's/.*\"reason\":\"\([^\"]*\)\".*/\1/p' "$attempts_log" | tail -n 1)"
+          case "$status:$reason" in
+            [1-9]*:timeout|[1-9]*:partial-download|[1-9]*:cache-restore-failure|[1-9]*:incomplete-cache)
+              sleep 5
+              PLAYWRIGHT_INSTALL_ATTEMPT="2" node scripts/playwright-chromium-install.mjs 2>&1 | tee -a "$attempts_log"
+              status=${PIPESTATUS[0]}
+              ;;
+          esac
+          if [ "$status" -ne 0 ]; then
+            grep -E 'Playwright Chromium install failed|provider-browser-install-timing/v1' "$attempts_log" | tail -n 1 > "$classifier_log"
+          fi
+          exit "$status"
 
       - name: Await staging projection convergence
         id: projection_convergence_gate
@@ -2352,7 +2453,7 @@ jobs:
           GUEST_BUY_NOW_PROBE_WAKE_RUNTIME_READY_POLL_INTERVAL_MS: ${{ vars.STAGING_GUEST_BUY_NOW_WAKE_RUNTIME_READY_POLL_INTERVAL_MS || '5000' }}
           PLATFORM_ADMIN_EMAIL: ${{ secrets.PLATFORM_ADMIN_EMAIL }}
           PLATFORM_ADMIN_PASSWORD: ${{ secrets.PLATFORM_ADMIN_PASSWORD }}
-          PLAYWRIGHT_BROWSERS_PATH: /home/runner/.cache/ms-playwright
+          PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/playwright-chromium
         run: |
           set -euo pipefail
           admin_domain="$(terraform output -raw admin_domain)"
@@ -2717,6 +2818,7 @@ jobs:
             --diagnostics artifacts/agent-grant-revocation/staging/replay-status.json \
             --diagnostics artifacts/release-health/staging-terraform-diagnostics.txt \
             --diagnostics artifacts/release-health/staging-kubernetes-deploy-diagnostics.json \
+            --diagnostics artifacts/release-health/staging-browser-install.txt \
             --diagnostics artifacts/release-health/staging-projection-convergence-gate.json \
             --diagnostics artifacts/release-health/guest-buy-now-freshness-probe.json \
             --diagnostics artifacts/release-health/account-buy-now-freshness-probe.json \
@@ -2797,12 +2899,17 @@ jobs:
           if [ -n "$existing_issue" ]; then
             gh issue comment "$existing_issue" --repo "${GITHUB_REPOSITORY}" --body "$body"
           else
-            gh issue create \
-              --repo "${GITHUB_REPOSITORY}" \
-              --title "$title" \
-              --body "$body" \
-              --label "kind:ops" \
-              --label "area:infrastructure"
+            created_type="$(gh api --method POST "repos/${GITHUB_REPOSITORY}/issues" \
+              -f type=Bug \
+              -f title="$title" \
+              -f body="$body" \
+              -f 'labels[]=kind:ops' \
+              -f 'labels[]=area:infrastructure' \
+              --jq '.type | select(.is_enabled == true) | .name')"
+            if [ "$created_type" != "Bug" ]; then
+              echo "ISSUE_CREATION_TYPE_MISMATCH: expected enabled native Bug in create response." >&2
+              exit 1
+            fi
           fi
 
   record-staging-release-health:
@@ -3135,6 +3242,8 @@ jobs:
       PRODUCTION_RELEASE_LOCK_REFERENCE: ${{ vars.PRODUCTION_RELEASE_LOCK_REFERENCE || '' }}
       PRODUCTION_RELEASE_LOCK_EXIT_ROUTE: ${{ vars.PRODUCTION_RELEASE_LOCK_EXIT_ROUTE || '' }}
       PRODUCTION_RELEASE_LOCK_DEADLINE: ${{ vars.PRODUCTION_RELEASE_LOCK_DEADLINE || '' }}
+      # Only a retry attempt's reconcile can publish; attempt 1 mints no reconcile token.
+      PRODUCTION_MARKER_RETRY_ATTEMPT: ${{ github.run_attempt != '1' && 'true' || 'false' }}
     steps:
       - name: Configure Git defaults
         env:
@@ -3447,6 +3556,21 @@ jobs:
           TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
           TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
           NODE_OPTIONS: --no-deprecation
+
+      - name: Prepare Terraform provider cache
+        if: env.SHOULD_DEPLOY != 'false'
+        run: |
+          mkdir -p "$RUNNER_TEMP/terraform-providers"
+          echo "TF_PLUGIN_CACHE_DIR=$RUNNER_TEMP/terraform-providers" >> "$GITHUB_ENV"
+
+      - name: Restore locked Terraform providers
+        if: env.SHOULD_DEPLOY != 'false'
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        with:
+          path: ${{ runner.temp }}/terraform-providers
+          key: terraform-providers-${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-${{ hashFiles('infrastructure/digitalocean/*/.terraform.lock.hcl') }}
+          restore-keys: |
+            terraform-providers-${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-
 
       - name: Download staged doctl binary
         env:
@@ -3800,6 +3924,21 @@ jobs:
             kubectl -n keda rollout status deployment/keda-operator --timeout=300s
           fi
 
+      # Support step: a failed mint leaves reconcile without push authority, which the marker refuses before any
+      # push, so the capture step stays the attempt's only failure for later retry admission.
+      - name: Mint retry marker push token
+        id: retry_marker_push_token
+        if: env.SHOULD_DEPLOY != 'false' && env.PRODUCTION_MARKER_RETRY_ATTEMPT == 'true'
+        continue-on-error: true
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.PRODUCTION_MARKER_APP_ID }}
+          private-key: ${{ secrets.PRODUCTION_MARKER_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: write
+          permission-workflows: write
+
       - name: Capture production rollback target
         if: env.SHOULD_DEPLOY != 'false'
         id: rollback_target
@@ -3810,6 +3949,7 @@ jobs:
           DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
           REGISTRY_GC_GATE_OUT: artifacts/release-health/registry-gc-gate.json
           GITHUB_TOKEN: ${{ github.token }}
+          PRODUCTION_MARKER_PUSH_TOKEN: ${{ steps.retry_marker_push_token.outputs.token }}
           RELEASE_COMMIT: ${{ needs.resolve-release.outputs.release_commit }}
           RELEASE_IMAGE: ${{ steps.image.outputs.image }}
           RELEASE_IMAGE_DIGEST: ${{ steps.image.outputs.digest }}
@@ -3817,6 +3957,7 @@ jobs:
           set -euo pipefail
 
           node ./scripts/production-release-marker.mjs reconcile
+          unset PRODUCTION_MARKER_PUSH_TOKEN
           git fetch origin production --tags
           last_known_good_commit="$(git rev-parse origin/production)"
           release_tag="$(
@@ -4607,6 +4748,21 @@ jobs:
             } >> "$GITHUB_STEP_SUMMARY"
           fi
 
+      # Support step: a failed mint leaves the marker without push authority, which it refuses before any push,
+      # so the marker step stays the job's only failure for retry and marker-only admission.
+      - name: Mint production marker push token
+        id: production_marker_push_token
+        if: env.SHOULD_DEPLOY != 'false'
+        continue-on-error: true
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.PRODUCTION_MARKER_APP_ID }}
+          private-key: ${{ secrets.PRODUCTION_MARKER_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: write
+          permission-workflows: write
+
       - name: Mark production release
         env:
           TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
@@ -4615,6 +4771,7 @@ jobs:
           TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
           TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
           GITHUB_TOKEN: ${{ github.token }}
+          PRODUCTION_MARKER_PUSH_TOKEN: ${{ steps.production_marker_push_token.outputs.token }}
           RELEASE_COMMIT: ${{ needs.resolve-release.outputs.release_commit }}
           RELEASE_IMAGE: ${{ steps.image.outputs.image }}
           RELEASE_IMAGE_DIGEST: ${{ steps.image.outputs.digest }}
@@ -5159,11 +5316,12 @@ jobs:
             echo "Updated incident issue #${existing_issue}."
           else
             issue_create_args=(
-              --repo "${GITHUB_REPOSITORY}" \
-              --title "${title}" \
-              --body "${body}" \
-              --label "kind:ops" \
-              --label "area:infrastructure"
+              --method POST "repos/${GITHUB_REPOSITORY}/issues" \
+              -f type=Bug \
+              -f title="${title}" \
+              -f body="${body}" \
+              -f 'labels[]=kind:ops' \
+              -f 'labels[]=area:infrastructure'
             )
 
             incident_milestone_title="Incidents"
@@ -5173,12 +5331,16 @@ jobs:
             )"
 
             if [ -n "${incident_milestone_number}" ]; then
-              issue_create_args+=(--milestone "${incident_milestone_title}")
+              issue_create_args+=(-F milestone="${incident_milestone_number}")
             else
               echo "Open incident milestone '${incident_milestone_title}' was not found; creating issue without a milestone."
             fi
 
-            gh issue create "${issue_create_args[@]}"
+            created_type="$(gh api "${issue_create_args[@]}" --jq '.type | select(.is_enabled == true) | .name')"
+            if [ "$created_type" != "Bug" ]; then
+              echo "ISSUE_CREATION_TYPE_MISMATCH: expected enabled native Bug in create response." >&2
+              exit 1
+            fi
           fi
 
   notify-production-rollback-incident:
@@ -5236,24 +5398,28 @@ jobs:
             echo "Updated rollback incident issue #${existing_issue}."
           else
             issue_create_args=(
-              --repo "${GITHUB_REPOSITORY}" \
-              --title "${title}" \
-              --body "${body}" \
-              --label "kind:ops" \
-              --label "area:infrastructure"
+              --method POST "repos/${GITHUB_REPOSITORY}/issues" \
+              -f type=Bug \
+              -f title="${title}" \
+              -f body="${body}" \
+              -f 'labels[]=kind:ops' \
+              -f 'labels[]=area:infrastructure'
             )
 
-            incident_milestone_title="Incidents"
             incident_milestone_number="$(
               gh api --paginate "repos/${GITHUB_REPOSITORY}/milestones?state=open&per_page=100" \
                 --jq '.[] | select(.title == "Incidents") | .number'
             )"
 
             if [ -n "${incident_milestone_number}" ]; then
-              issue_create_args+=(--milestone "${incident_milestone_title}")
+              issue_create_args+=(-F milestone="${incident_milestone_number}")
             fi
 
-            gh issue create "${issue_create_args[@]}"
+            created_type="$(gh api "${issue_create_args[@]}" --jq '.type | select(.is_enabled == true) | .name')"
+            if [ "$created_type" != "Bug" ]; then
+              echo "ISSUE_CREATION_TYPE_MISMATCH: expected enabled native Bug in create response." >&2
+              exit 1
+            fi
           fi
 
   close-resolved-deploy-incidents:

@@ -67,6 +67,8 @@ jobs:
       e2e_suite_batches_json: ${{ steps.scope.outputs.e2e_suite_batches_json }}
       exposure_posture_categories: ${{ steps.scope.outputs.exposure_posture_categories }}
       exposure_posture_categories_json: ${{ steps.scope.outputs.exposure_posture_categories_json }}
+      required_proof_paths_json: ${{ steps.scope.outputs.required_proof_paths_json }}
+      required_proof_selection_mode: ${{ fromJson(steps.scope.outputs.scope_json).requiredProofSelectionMode || '' }}
       exposure_posture_changed: ${{ steps.scope.outputs.exposure_posture_changed }}
       integration_risk_required: ${{ steps.scope.outputs.integration_risk_required }}
       integration_risk_reason: ${{ steps.scope.outputs.integration_risk_reason }}
@@ -79,6 +81,7 @@ jobs:
       static_required: ${{ steps.gate-plan.outputs.static_required }}
       typecheck_required: ${{ steps.gate-plan.outputs.typecheck_required }}
       unit_tests_required: ${{ steps.gate-plan.outputs.unit_tests_required }}
+      bootstrap_db_oracle_memo_check_required: ${{ steps.gate-plan.outputs.bootstrap_db_oracle_memo_check_required }}
       db_tests_required: ${{ steps.gate-plan.outputs.db_tests_required }}
       e2e_tests_required: ${{ steps.gate-plan.outputs.e2e_tests_required }}
       build_required: ${{ steps.gate-plan.outputs.build_required }}
@@ -94,6 +97,7 @@ jobs:
       local_checks: ${{ steps.scope.outputs.local_checks }}
       terraform: ${{ steps.scope.outputs.terraform }}
       unit_tests: ${{ steps.scope.outputs.unit_tests }}
+      unit_test_workspaces: ${{ steps.scope.outputs.unit_test_workspaces }}
       workflow_lint: ${{ steps.scope.outputs.workflow_lint }}
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
@@ -267,8 +271,52 @@ jobs:
 
       - name: Run non-DB tests
         run: |
-          node ./scripts/run-workspaces.mjs test --exclude-test-profile=db --concurrency=4 --workspace-list="${{ needs['change-scope'].outputs.affected_workspaces }}" --shard=${{ matrix.shard }}/2
-          node ./scripts/run-workspaces.mjs test:unit --test-profile=db --concurrency=4 --workspace-list="${{ needs['change-scope'].outputs.affected_workspaces }}" --shard=${{ matrix.shard }}/2
+          node ./scripts/run-workspaces.mjs test --exclude-test-profile=db --concurrency=4 --workspace-list="${{ needs['change-scope'].outputs.unit_test_workspaces }}" --shard=${{ matrix.shard }}/2
+          node ./scripts/run-workspaces.mjs test:unit --test-profile=db --concurrency=4 --workspace-list="${{ needs['change-scope'].outputs.unit_test_workspaces }}" --shard=${{ matrix.shard }}/2
+
+  bootstrap-db-oracle-memo-check:
+    name: Bootstrap DB Oracle Memo Check
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: change-scope
+    if: needs['change-scope'].outputs.bootstrap_db_oracle_memo_check_required == 'true'
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup-pnpm-workspace
+        with:
+          install: true
+
+      - name: Check memo against raw pinned oracle
+        run: node deployables/platform-api/__tests__/fixtures/bootstrap-db-oracle-schedule-memo.mjs --check
+
+  canonical-proof-sets:
+    name: Canonical Proof Sets
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: change-scope
+    if: needs['change-scope'].outputs.required_proof_paths_json != '[]'
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup-pnpm-workspace
+        with:
+          install: true
+
+      - name: Execute exact canonical proof paths
+        env:
+          REQUIRED_PROOF_PATHS_JSON: ${{ needs['change-scope'].outputs.required_proof_paths_json }}
+          CHANGED_FILES_JSON: ${{ needs['change-scope'].outputs.changed_files_json }}
+          REQUIRED_PROOF_SELECTION_MODE: ${{ needs['change-scope'].outputs.required_proof_selection_mode }}
+        run: node ./scripts/lib/context-proof-sets.mjs run
 
   db-tests:
     name: DB Profile Tests (${{ matrix.db-workspace-group }})
@@ -283,7 +331,7 @@ jobs:
         db-workspace-group: [api, other]
     services:
       postgres:
-        image: pgvector/pgvector:pg16
+        image: ghcr.io/chase-sets/ci-mirror-pgvector:pg16@sha256:7b822b0aac60967beb1ea5e576b8602c94c300a157d187f385ae3e0da199b90a
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
@@ -448,10 +496,13 @@ jobs:
         with:
           install: true
 
-      - name: Prove three synthetic Chromium capture cases
+      - name: Install Playwright Chromium
         shell: bash
+        timeout-minutes: 11
         env:
           PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/ac4-playwright
+          PLAYWRIGHT_INSTALL_SITE: platform-pr-synthetic-capture
+          PLAYWRIGHT_INSTALL_POLICY: single-attempt
         run: |
           set -euo pipefail
           test -n "$AC4_SOURCE_SHA"
@@ -459,7 +510,15 @@ jobs:
           test "${CHASE_SETS_LANE_MODE+x}" != x
           printf 'AC4 source=%s run=%s attempt=%s job=%s\n' \
             "$AC4_SOURCE_SHA" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" "$GITHUB_JOB"
-          pnpm exec playwright install --with-deps chromium
+          node scripts/playwright-chromium-install.mjs
+
+      - name: Prove three synthetic Chromium capture cases
+        shell: bash
+        timeout-minutes: 4
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/ac4-playwright
+        run: |
+          set -euo pipefail
           CHASE_SETS_HERMETIC_CHROMIUM=1 xvfb-run --auto-servernum \
             pnpm --filter @chase-sets/channels run test:unit \
             features/connector-client/integrations/order-authority-probe/capture.test.ts \
@@ -485,6 +544,10 @@ jobs:
   e2e-tests:
     name: E2E Tests (${{ matrix.suite_batch }})
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+      actions: read
     timeout-minutes: 25
     needs: change-scope
     if: needs['change-scope'].outputs.e2e_tests_required == 'true'
@@ -496,6 +559,10 @@ jobs:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           fetch-depth: 2
+
+      # The webServer's sandbox Postgres (docker-compose.dev.yml) must start
+      # from its digest-pinned mirror with Docker Hub unreachable (#9230).
+      - uses: ./.github/actions/block-docker-hub
 
       - uses: ./.github/actions/setup-pnpm-workspace
         with:
@@ -523,28 +590,23 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
       - name: Resolve Playwright Chromium cache
-        id: playwright-chromium
-        shell: bash
-        run: |
-          set -euo pipefail
-          version="$(pnpm exec playwright --version | awk '{print $2}')"
-          test -n "$version"
-          browser_path="${RUNNER_TEMP}/playwright-chromium/${RUNNER_OS}/${RUNNER_ARCH}/${version}"
-          echo "browser-path=${browser_path}" >> "$GITHUB_OUTPUT"
-          echo "version=${version}" >> "$GITHUB_OUTPUT"
-          echo "PLAYWRIGHT_BROWSERS_PATH=${browser_path}" >> "$GITHUB_ENV"
+        id: e2e-browser-cache
+        run: node scripts/playwright-chromium-install.mjs --cache-identity
 
       - name: Cache Playwright Chromium
         uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
         with:
-          path: "${{ steps.playwright-chromium.outputs.browser-path }}"
-          key: "e2e-playwright-chromium-${{ runner.os }}-${{ runner.arch }}-${{ steps.playwright-chromium.outputs.version }}"
+          path: ${{ steps.e2e-browser-cache.outputs.path }}
+          key: ${{ steps.e2e-browser-cache.outputs.key }}
 
       - name: Install Playwright Chromium
-        timeout-minutes: 7
+        timeout-minutes: 10
         env:
-          GITHUB_JOB_ID: ${{ job.check_run_id }}
-          BOUNDARY_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha || '' }}
+          PLAYWRIGHT_BROWSERS_PATH: ${{ steps.e2e-browser-cache.outputs.path }}
+          PLAYWRIGHT_INSTALL_POLICY: e2e-acquisition
+          PLAYWRIGHT_INSTALL_JOB_NAME: E2E Tests (${{ matrix.suite_batch }})
+          GH_TOKEN: ${{ github.token }}
+          BOUNDARY_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: node scripts/playwright-chromium-install.mjs
 
       - name: Run marketplace e2e suites
@@ -555,7 +617,7 @@ jobs:
           CHASE_SETS_BROWSER_E2E_SYSTEM: production
           RENDERED_COPY_SOURCE_HEAD: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha || '' }}
           RENDERED_COPY_JOB_INDEX: ${{ strategy.job-index }}
-          PLAYWRIGHT_BROWSERS_PATH: "${{ steps.playwright-chromium.outputs.browser-path }}"
+          PLAYWRIGHT_BROWSERS_PATH: ${{ steps.e2e-browser-cache.outputs.path }}
         run: |
           set -o pipefail
           pnpm run test:e2e:suite "${{ matrix.suite_batch }}" 2>&1 | tee "${RUNNER_TEMP}/responsive-evidence-producer.log"
@@ -616,6 +678,30 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+      # Rebuilds the closed market-following journey package from the reporter
+      # record; see docs/runbooks/playwright-e2e.md. A refusal fails the job.
+      - name: Prepare journey package
+        id: journey-package
+        if: ${{ !cancelled() && steps.e2e-producer.outcome != 'skipped' }}
+        env:
+          JOURNEY_PACKAGE_PRODUCER_OUTCOME: ${{ steps.e2e-producer.outcome }}
+          JOURNEY_PACKAGE_SOURCE_HEAD: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha || '' }}
+          JOURNEY_PACKAGE_CHECKOUT_SHA: ${{ steps.responsive-evidence-checkout.outputs.checkout-commit }}
+          JOURNEY_PACKAGE_CHECKOUT_TREE: ${{ steps.responsive-evidence-checkout.outputs.checkout-tree }}
+          JOURNEY_PACKAGE_CHECK_RUN_ID: ${{ job.check_run_id }}
+          JOURNEY_PACKAGE_JOB_INDEX: ${{ strategy.job-index }}
+          JOURNEY_PACKAGE_SUITE_BATCH: ${{ matrix.suite_batch }}
+        run: node ./scripts/prepare-journey-package.mjs
+
+      - name: Upload journey package
+        if: ${{ !cancelled() && steps.journey-package.outputs.publish == 'true' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ steps.journey-package.outputs.artifact-name }}
+          path: artifacts/journey-package
+          if-no-files-found: error
+          retention-days: 14
+
   build:
     name: Build
     runs-on: ubuntu-latest
@@ -666,11 +752,15 @@ jobs:
           DIGITALOCEAN_REGISTRY_TOKEN: ${{ secrets.DIGITALOCEAN_REGISTRY_TOKEN || secrets.DIGITALOCEAN_ACCESS_TOKEN }}
         id: buildx
         continue-on-error: true
+        with:
+          driver-opts: image=ghcr.io/chase-sets/ci-mirror-buildkit:buildx-stable-1@sha256:cec9f139f45e93c5c69c60f8b07cfad9f43f4ef6b6a6cd917527fea5ff2e3dea
 
       - uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
         env:
           DIGITALOCEAN_REGISTRY_TOKEN: ${{ secrets.DIGITALOCEAN_REGISTRY_TOKEN || secrets.DIGITALOCEAN_ACCESS_TOKEN }}
         if: steps.buildx.outcome == 'failure'
+        with:
+          driver-opts: image=ghcr.io/chase-sets/ci-mirror-buildkit:buildx-stable-1@sha256:cec9f139f45e93c5c69c60f8b07cfad9f43f4ef6b6a6cd917527fea5ff2e3dea
 
       - name: Build runtime image
         env:
@@ -906,23 +996,25 @@ jobs:
             exit 1
           fi
 
+      - uses: ./.github/actions/block-docker-hub
+
       - name: Run Actionlint
-        uses: docker://rhysd/actionlint:1.7.12
+        uses: docker://ghcr.io/chase-sets/ci-mirror-actionlint:1.7.12@sha256:b1934ee5f1c509618f2508e6eb47ee0d3520686341fec936f3b79331f9315667
         with:
           args: -color
 
       - name: Lint platform Helm chart
-        run: docker run --rm -v "${PWD}:/repo" -w /repo alpine/helm:3.15.4 lint infrastructure/helm/platform
+        run: docker run --rm -v "${PWD}:/repo" -w /repo ghcr.io/chase-sets/ci-mirror-helm:3.15.4@sha256:105741fa6621ed9a3ea944066de78bb27d4b9bb93a56ce8e7cb4d621e1e4bbf2 lint infrastructure/helm/platform
 
       - name: Validate rendered platform Helm manifests
         run: |
           rendered="${RUNNER_TEMP}/platform-helm-rendered.yaml"
-          docker run --rm -v "${PWD}:/repo" -w /repo alpine/helm:3.15.4 template chase-sets-platform infrastructure/helm/platform > "$rendered"
+          docker run --rm -v "${PWD}:/repo" -w /repo ghcr.io/chase-sets/ci-mirror-helm:3.15.4@sha256:105741fa6621ed9a3ea944066de78bb27d4b9bb93a56ce8e7cb4d621e1e4bbf2 template chase-sets-platform infrastructure/helm/platform > "$rendered"
           docker run --rm \
             -v "${PWD}/.github/kubeconform-schemas:/schemas:ro" \
             -v "${RUNNER_TEMP}:/work" \
             -w /work \
-            ghcr.io/yannh/kubeconform:v0.6.7 \
+            ghcr.io/yannh/kubeconform:v0.6.7@sha256:0925177fb05b44ce18574076141b5c3d83235e1904d3f952182ac99ddc45762c \
             -schema-location "/schemas/{{.ResourceKind}}{{.KindSuffix}}.json" \
             -schema-location "/schemas/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json" \
             -schema-location "https://raw.githubusercontent.com/yannh/kubernetes-json-schema/master/{{.NormalizedKubernetesVersion}}-standalone{{.StrictSuffix}}/{{.ResourceKind}}{{.KindSuffix}}.json" \
@@ -932,19 +1024,19 @@ jobs:
             "$(basename "$rendered")"
 
       - name: Lint DOKS ingress add-ons Helm chart
-        run: docker run --rm -v "${PWD}:/repo" -w /repo alpine/helm:3.15.4 lint infrastructure/helm/doks-ingress
+        run: docker run --rm -v "${PWD}:/repo" -w /repo ghcr.io/chase-sets/ci-mirror-helm:3.15.4@sha256:105741fa6621ed9a3ea944066de78bb27d4b9bb93a56ce8e7cb4d621e1e4bbf2 lint infrastructure/helm/doks-ingress
 
       - name: Validate rendered DOKS ingress add-ons manifests
         run: |
           rendered="${RUNNER_TEMP}/doks-ingress-rendered.yaml"
-          docker run --rm -v "${PWD}:/repo" -w /repo alpine/helm:3.15.4 template chase-sets-doks-ingress infrastructure/helm/doks-ingress > "$rendered"
+          docker run --rm -v "${PWD}:/repo" -w /repo ghcr.io/chase-sets/ci-mirror-helm:3.15.4@sha256:105741fa6621ed9a3ea944066de78bb27d4b9bb93a56ce8e7cb4d621e1e4bbf2 template chase-sets-doks-ingress infrastructure/helm/doks-ingress > "$rendered"
           # ClusterIssuer is a cert-manager CRD installed with cert-manager, so
           # ignore missing schemas rather than strict-failing on the CRD kind.
           docker run --rm \
             -v "${PWD}/.github/kubeconform-schemas:/schemas:ro" \
             -v "${RUNNER_TEMP}:/work" \
             -w /work \
-            ghcr.io/yannh/kubeconform:v0.6.7 \
+            ghcr.io/yannh/kubeconform:v0.6.7@sha256:0925177fb05b44ce18574076141b5c3d83235e1904d3f952182ac99ddc45762c \
             -schema-location "/schemas/{{.ResourceKind}}{{.KindSuffix}}.json" \
             -schema-location "/schemas/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json" \
             -schema-location "https://raw.githubusercontent.com/yannh/kubernetes-json-schema/master/{{.NormalizedKubernetesVersion}}-standalone{{.StrictSuffix}}/{{.ResourceKind}}{{.KindSuffix}}.json" \
@@ -1011,6 +1103,12 @@ jobs:
       - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
         with:
           terraform_wrapper: false
+
+      - name: Acquire lock-bound provider proof material (not a matrix verdict)
+        run: bash scripts/digitalocean-terraform-provider-cache-proof.sh acquire "$RUNNER_TEMP/terraform-provider-proof-material"
+
+      - name: Prove lock-verified provider cache in loopback-only namespace
+        run: bash scripts/digitalocean-terraform-provider-cache-proof.sh prove "$RUNNER_TEMP/terraform-provider-proof-material"
 
       - name: Terraform init platform without remote backend
         working-directory: infrastructure/digitalocean/platform
@@ -1526,9 +1624,13 @@ jobs:
       - uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
         id: buildx
         continue-on-error: true
+        with:
+          driver-opts: image=ghcr.io/chase-sets/ci-mirror-buildkit:buildx-stable-1@sha256:cec9f139f45e93c5c69c60f8b07cfad9f43f4ef6b6a6cd917527fea5ff2e3dea
 
       - uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
         if: steps.buildx.outcome == 'failure'
+        with:
+          driver-opts: image=ghcr.io/chase-sets/ci-mirror-buildkit:buildx-stable-1@sha256:cec9f139f45e93c5c69c60f8b07cfad9f43f4ef6b6a6cd917527fea5ff2e3dea
 
       - name: Build and push platform image
         id: image
@@ -1891,6 +1993,8 @@ jobs:
       - static
       - typecheck
       - unit-tests
+      - bootstrap-db-oracle-memo-check
+      - canonical-proof-sets
       - db-tests
       - e2e-tests
       - capture-hermetic-chromium
@@ -1904,6 +2008,11 @@ jobs:
       - preview-deploy-smoke
       - compose-preview-smoke
     steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
       - name: Verify required jobs
         env:
           AC4_E2E_REQUIRED: ${{ needs['change-scope'].outputs.e2e_tests_required }}
@@ -1940,6 +2049,7 @@ jobs:
           require_job "Static Checks" "${{ needs.static.result }}" "${{ needs['change-scope'].outputs.static_required }}"
           require_job "Typecheck" "${{ needs.typecheck.result }}" "${{ needs['change-scope'].outputs.typecheck_required }}"
           require_job "Unit Tests" "${{ needs['unit-tests'].result }}" "${{ needs['change-scope'].outputs.unit_tests_required }}"
+          require_job "Bootstrap DB Oracle Memo Check" "${{ needs['bootstrap-db-oracle-memo-check'].result }}" "${{ needs['change-scope'].outputs.bootstrap_db_oracle_memo_check_required }}"
           require_job "DB Profile Tests" "${{ needs['db-tests'].result }}" "${{ needs['change-scope'].outputs.db_tests_required }}"
           require_job "E2E Tests" "${{ needs['e2e-tests'].result }}" "${{ needs['change-scope'].outputs.e2e_tests_required }}"
           capture_required="$(node --input-type=module -e '
@@ -1961,6 +2071,14 @@ jobs:
           require_job "Terraform Observability Plan" "${{ needs['terraform-observability-plan'].result }}" "${{ needs['change-scope'].outputs.terraform_observability_plan_required }}"
           require_job "Deploy Preview and Smoke" "${{ needs['preview-deploy-smoke'].result }}" "${{ needs['change-scope'].outputs.preview_deploy_smoke_required }}"
           require_job "Compose Boot Smoke" "${{ needs['compose-preview-smoke'].result }}" "${{ needs['change-scope'].outputs.compose_preview_smoke_required }}"
+
+      - name: Verify canonical proof sets
+        env:
+          REQUIRED_PROOF_PATHS_JSON: ${{ needs['change-scope'].outputs.required_proof_paths_json }}
+          CHANGED_FILES_JSON: ${{ needs['change-scope'].outputs.changed_files_json }}
+          REQUIRED_PROOF_SELECTION_MODE: ${{ needs['change-scope'].outputs.required_proof_selection_mode }}
+          CANONICAL_PROOF_RESULT: ${{ needs['canonical-proof-sets'].result }}
+        run: node ./scripts/lib/context-proof-sets.mjs require-result
 
   release-status:
     name: PR Release Status

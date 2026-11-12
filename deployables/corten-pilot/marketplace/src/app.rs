@@ -61,7 +61,7 @@
 use std::sync::Arc;
 
 use corten::{
-    axum::http::{StatusCode, Uri},
+    http::{StatusCode, Uri},
     prelude::*,
 };
 
@@ -301,11 +301,11 @@ pub mod url {
         #[route("/favicon.ico", get = crate::site::favicon)]
         pub struct FaviconIco;
 
-        #[route("/.well-known/appspecific/com.chrome.devtools.json", get = crate::site::devtools)]
+        #[route("/.well-known/appspecific/com.chrome.devtools.json", get = crate::site::devtools, no_store)]
         pub struct Devtools;
 
         /// The item page's and search's analytics events (`crate::site::rail_analytics`).
-        #[route("/analytics/item-detail-rail", post = crate::site::rail_analytics)]
+        #[route("/analytics/item-detail-rail", post = crate::site::rail_analytics, no_store)]
         pub struct RailAnalytics;
     }
 
@@ -764,7 +764,7 @@ pub mod url {
         }
 
         /// Save the webhook's address; the answer shows its new signing secret.
-        #[route("/account/agents/{id}/webhook", post = crate::agents::webhook)]
+        #[route("/account/agents/{id}/webhook", post = crate::agents::webhook, no_store)]
         pub struct AgentWebhook<'a> {
             pub id: &'a str,
         }
@@ -783,7 +783,7 @@ pub mod url {
     pub mod agent_consent {
         /// The consent request, and answering it as another of the user's accounts.
         #[derive(Clone, Debug, Default)]
-        #[route("/account/agents/consent", get = crate::agents::consent, post = crate::agents::switch_account)]
+        #[route("/account/agents/consent", get = crate::agents::consent, post = crate::agents::switch_account, no_store)]
         pub struct AgentConsent {
             #[route(query)]
             pub ask: crate::agents::ConsentAsk,
@@ -807,7 +807,7 @@ pub mod url {
     pub mod security {
         /// The page, read after the write whose receipt it carries, and its writes.
         #[derive(Clone, Debug, Default)]
-        #[route("/account/security", get = crate::security::page, post = crate::security::write)]
+        #[route("/account/security", get = crate::security::page, post = crate::security::write, no_store(post))]
         pub struct Security {
             #[route(query)]
             pub place: crate::security::Place,
@@ -1058,7 +1058,7 @@ pub mod url {
 
         /// A Stripe Connect session for the page's script, as JSON.
         #[derive(Clone, Debug, Default)]
-        #[route("/account/desk/settings/session", post = crate::payout_setup::session)]
+        #[route("/account/desk/settings/session", post = crate::payout_setup::session, no_store)]
         pub struct PayoutSetupSession {
             #[route(query)]
             pub which: crate::payout_setup::Which,
@@ -1157,7 +1157,7 @@ pub mod url {
         /// The page, read after a change's receipt or a setup's outcome, and Add, Set default,
         /// Remove and Refresh.
         #[derive(Clone, Debug, Default)]
-        #[route("/account/payment-methods", get = crate::payment_methods::page, post = crate::payment_methods::write)]
+        #[route("/account/payment-methods", get = crate::payment_methods::page, post = crate::payment_methods::write, no_store(post))]
         pub struct PaymentMethods {
             #[route(query)]
             pub place: crate::payment_methods::Place,
@@ -1507,14 +1507,17 @@ pub mod url {
     }
 
     /// The seller's shipments (Fulfillment's `account-sale-shipments` and
-    /// `account-sale-shipment`), an area inside the sales'. The list is marketplace's command
-    /// center, which the API does not serve yet (chase-sets/chase-sets#10638), so the pilot sends
-    /// it there; a shipment's page is the pilot's.
+    /// `account-sale-shipment`), an area inside the sales': the command center, each shipment's
+    /// page, packing and the packing slips.
     #[corten::routes(state = crate::app::Shared, area = SaleShipments, caller = crate::auth::Shipper)]
     pub mod sale_shipments {
-        /// The command center, on marketplace.
-        #[route("/account/sales/shipments", get = crate::shipments::command_center)]
-        pub struct SaleShipments;
+        /// The command center (see `command_center`); its actions post to it.
+        #[derive(Clone, Debug, Default)]
+        #[route("/account/sales/shipments", get = crate::command_center::page, post = crate::command_center::act)]
+        pub struct SaleShipments {
+            #[route(query)]
+            pub place: crate::command_center::Place,
+        }
 
         /// Packing slips to print (Fulfillment's `account-sale-shipment-packing-slips`): the
         /// shipments `shipmentIds` names (each value may be a comma-separated list), in `format`.
@@ -1525,12 +1528,13 @@ pub mod url {
             pub format: Option<&'a str>,
         }
 
-        /// A shipment the seller sends, read after the write whose receipt it carries.
-        #[route("/account/sales/shipments/{id}", get = crate::shipments::sale)]
+        /// A shipment the seller sends, read after the write whose receipt it carries; its
+        /// actions post to it.
+        #[route("/account/sales/shipments/{id}", get = crate::shipments::sale, post = crate::shipments::act)]
         pub struct SaleShipment<'a> {
             pub id: &'a str,
             #[route(query)]
-            pub after: crate::cart::AfterWrite,
+            pub place: crate::shipments::SalePlace,
         }
 
         /// Packing the shipment (see `packing`).
@@ -1683,7 +1687,7 @@ pub mod url {
     pub mod cart {
         /// The cart, after the write whose receipt it carries.
         #[derive(Clone, Debug, Default)]
-        #[route("/account/cart", get = crate::cart::page)]
+        #[route("/account/cart", get = crate::cart::page, gives(crate::chrome::CartCount))]
         pub struct Cart {
             #[route(query)]
             pub after: crate::cart::AfterWrite,
@@ -1723,9 +1727,14 @@ pub fn sign_in_back_to(page: &str) -> Option<Uri> {
 /// Where Stripe.js loads from, and the origin of the payment fields' frames.
 pub const STRIPE_JS: &str = "https://js.stripe.com";
 
-/// What Stripe.js and its fields need: its script, its frames and the APIs they call.
+/// What Stripe.js and its fields need: its script, its frames and the APIs they call. A script
+/// source on another host has `<Corten />` make the `default` Trusted Types policy, which lets
+/// `views/stripe.js` and Stripe.js itself load Stripe's scripts. The Payment Element's wallets
+/// (Apple Pay and Google Pay, `wallets: auto`) run the Payment Request API in Stripe's frames,
+/// which ask for `allow="payment *"`, so these pages allow the feature Corten denies elsewhere.
 fn stripe(p: corten::security::Sources) -> corten::security::Sources {
     p.script_src(STRIPE_JS)
+        .allow_feature(corten::security::Feature::Payment)
         .frame_src(STRIPE_JS)
         .frame_src("https://hooks.stripe.com")
         .connect_src("https://api.stripe.com")
@@ -1772,17 +1781,17 @@ const NETWORK_ONLY: [&str; 10] = [
 
 /// marketplace-web's web app manifest (`routes/manifest.ts`), and its service worker as Corten's
 /// (`corten::pwa`): pages from the network, the offline page when there is none, and the static
-/// files from the cache. Marketplace's `orientation` (`any`, the default) and `categories`
-/// (`shopping`, `productivity`) are not written: Corten's manifest has neither
-/// (todd-skelton/corten#515). The description is in English, as marketplace's is.
+/// files from the cache. The description is in English, as marketplace's is.
 fn pwa() -> corten::pwa::Pwa {
     use corten::{
         i18n::Messages as _,
-        pwa::{Manifest, Pwa},
+        pwa::{Manifest, Orientation, Pwa},
     };
     let t = crate::text::SiteMsg::for_locale("en");
     let manifest = Manifest::new("Chase Sets", "Chase Sets")
         .description(t.manifest_description())
+        .orientation(Orientation::Any)
+        .categories(&["shopping", "productivity"])
         .theme_color("#4845c6")
         .background_color("#f7f5f1")
         .icon(Static::ICONS_CHASE_SETS_192_PNG, "192x192")
@@ -1794,11 +1803,9 @@ fn pwa() -> corten::pwa::Pwa {
 
 /// The pilot: each screen is an area whose routes module says who may use it (`caller = ..`):
 /// sellers on the inventory screens, buyers on the cart, anyone on an item or a search.
-pub fn app(config: Config) -> App<crate::auth::OneLookup> {
+pub fn app(config: Config) -> App {
     let shared: Shared = Arc::new(config);
     App::new(url::home::router(shared.clone()))
-        // One look at whose the request is, for every caller type and the layout's cart count.
-        .middleware(crate::auth::OneLookup)
         .assets(Static)
         .pwa(pwa())
         // The cart's fallback picture is on marketplace's origin and a listing's photos on the API's,
@@ -1813,6 +1820,8 @@ pub fn app(config: Config) -> App<crate::auth::OneLookup> {
         .messages::<crate::text::Msg>()
         // The seller's listings turn a picked day into its start where the seller is.
         .client_zone()
+        // The cart's count in the shell, read beside each whole page (`crate::chrome`).
+        .layout_read(crate::chrome::CartCount(shared.clone()))
         .components(views::COMPONENTS)
         // Search is the home page too, outside every area, and at two prefixes, and a set's page
         // shows its cards: its components are in `components.css`, about 2.2 KB brotli, which a
@@ -1872,7 +1881,7 @@ pub fn app(config: Config) -> App<crate::auth::OneLookup> {
             url::sell_list::area(area, shared.clone()).components(views::SELL_LIST).deadline(crate::listing_new::DEADLINE)
         })
         .area(|area| url::money::area(area, shared.clone()).components(views::MONEY))
-        .area(|area| url::payout::area(area, shared.clone()).components(views::MONEY))
+        .area(|area| url::payout::area(area, shared.clone()).components(views::PAYOUT))
         // Stripe's Connect sign-in reports back through a popup, which `same-origin` cuts off
         // (todd-skelton/corten#318); the rest of the app keeps `same-origin`.
         .area(|area| {
@@ -1917,19 +1926,21 @@ pub fn sign_in(req: &Req) -> HtmlResult {
     }
 }
 
+/// The platform API refused the viewer (403): a refusal, answered as an extractor's is, so the error
+/// page draws the layout's reads (the cart's count) as for any page the request is at fault for. The
+/// API's reason is logged.
+pub fn api_refused(error: ApiError) -> corten::Error {
+    tracing::info!("the platform API refused the request: {error}");
+    Refused::forbidden().into()
+}
+
 /// A list's read that failed, as the page's answer. After a write, a read that failed for good is
 /// marketplace's "could not be verified" (409), in the screen's words (`unverified`): the error
 /// page knows only the status, so the screen draws it.
-pub fn read_failed(
-    req: &Req,
-    viewer: Option<&Viewer>,
-    error: ApiError,
-    after_write: Option<&str>,
-    cart: Option<u64>,
-) -> HtmlResult {
+pub fn read_failed(req: &Req, viewer: Option<&Viewer>, error: ApiError, after_write: Option<&str>) -> HtmlResult {
     let status = match error.status() {
         Some(StatusCode::UNAUTHORIZED) => return sign_in(req),
-        Some(StatusCode::FORBIDDEN) => StatusCode::FORBIDDEN,
+        Some(StatusCode::FORBIDDEN) => return Err(api_refused(error)),
         _ => match after_write {
             Some(unverified) => {
                 tracing::warn!("the read after a write failed: {error}");
@@ -1939,7 +1950,7 @@ pub fn read_failed(
                 return req.page_with_status(
                     StatusCode::CONFLICT,
                     html! {
-                        <views::Layout req={req} viewer={viewer} cart={cart} title={title} head={head}>{view}</views::Layout>
+                        <views::Layout req={req} viewer={viewer} title={title} head={head}>{view}</views::Layout>
                     },
                 );
             }

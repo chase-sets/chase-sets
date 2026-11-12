@@ -26,7 +26,11 @@ export function registerSessionApiRoutes(app: AuthApiApp, services: AuthServices
       return c.json({ error: t("auth.support.apiSupport.sessionRoutes.authentication.required") }, 401);
     }
 
-    return c.json({ actor });
+    // `sessionProvenance` stays server-side: in-process readers decide current
+    // Session eligibility through `currentAuthSessionIdOf`, and the public
+    // `/session` actor keeps its existing shape.
+    const { sessionProvenance: _sessionProvenance, ...publicActor } = actor;
+    return c.json({ actor: publicActor });
   });
 
   app.post("/sign-out", async (c) => {

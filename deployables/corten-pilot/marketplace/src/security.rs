@@ -21,14 +21,12 @@
 //! | `POST /account/security` | update the user's names, or create, rotate or revoke a key (`intent`) |
 use crate::recovery::attempt_text;
 use corten::{
-    NoStore,
-    axum::http::{HeaderMap, StatusCode},
+    http::{HeaderMap, StatusCode},
     prelude::*,
 };
 use platform::receipt::Receipt;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
-use crate::chrome::Chrome;
 use crate::{
     addresses::Said,
     api::{AccountAction, AccountAnswer, ApiError, ApiKey, KeySecret, SecurityCalls as _, SecurityUser, UserCommand},
@@ -42,7 +40,7 @@ use crate::{
 /// What the page's address carries: the last write's receipt (`after_write`), the attempt that
 /// answer settles (`saved`), and an attempt to ask the API about (`check`, its `action` and
 /// `target`).
-#[derive(Clone, Debug, Default, Deserialize, Fields, Route)]
+#[derive(Clone, Debug, Default, Fields, Route)]
 #[route(query)]
 pub struct Place {
     pub after_write: Option<String>,
@@ -54,7 +52,7 @@ pub struct Place {
 
 /// Every form's fields: which write (`intent`, marketplace's), the attempt it was drawn with, the
 /// user's names, a new key's name and purpose, and the key a rotate or revoke is for.
-#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[derive(Clone, Debug, Default, Fields)]
 #[serde(default)]
 pub struct SecurityInput {
     pub intent: String,
@@ -143,7 +141,6 @@ impl SecurityScreen {
 
 pub(crate) async fn page(
     req: Req,
-    chrome: Chrome,
     Caller(SecurityOwner(viewer)): Caller<SecurityOwner>,
     State(config): State<Shared>,
     headers: HeaderMap,
@@ -160,7 +157,7 @@ pub(crate) async fn page(
         (None, _) => (Said::Editing, KeySecret::None),
     };
     let shown = Shown { said, secret, issued_by: place.action };
-    render(&req, &viewer, &config, &headers, place.after_write.as_deref(), shown, None, StatusCode::OK, &chrome).await
+    render(&req, &viewer, &config, &headers, place.after_write.as_deref(), shown, None, StatusCode::OK).await
 }
 
 /// What the API says came of `attempt`, for the page: a create or rotate it recorded says its
@@ -211,7 +208,6 @@ async fn render(
     shown: Shown,
     posted: Option<Draft>,
     status: StatusCode,
-    chrome: &Chrome,
 ) -> HtmlResult {
     let receipt = Receipt::from_param(after_write);
     let caller = config.platform.caller(headers, config.proto, receipt.as_ref());
@@ -223,10 +219,10 @@ async fn render(
             let plain = config.platform.caller(headers, config.proto, None);
             match read(&plain, id).await {
                 Ok(read) => (read, true),
-                Err(error) => return read_failed(req, Some(viewer), error, None, chrome.cart().await),
+                Err(error) => return read_failed(req, Some(viewer), error, None),
             }
         }
-        Err(error) => return read_failed(req, Some(viewer), error, None, chrome.cart().await),
+        Err(error) => return read_failed(req, Some(viewer), error, None),
     };
     let Shown { said, secret, issued_by } = shown;
     let issued_by = issued_by.filter(|_| matches!(secret, KeySecret::Issued { .. }));
@@ -240,33 +236,22 @@ async fn render(
         }
     };
     let view = html! { <views::SecurityPage t={t} p={req.t()} screen={&screen} /> };
-    let cart = chrome.cart().await;
     let page = html! {
-        <Layout req={req} viewer={Some(viewer)} cart={cart} title={t.route_title()} head={head}>{view}</Layout>
+        <Layout req={req} viewer={Some(viewer)} title={t.route_title()} head={head}>{view}</Layout>
     };
     if status == StatusCode::OK { req.screen(&screen, page) } else { req.page_with_status(status, page) }
 }
 
-/// A write. Nothing may keep its answer: a create's or rotate's carries the key's secret.
+/// A write. Nothing may keep its answer, since a create's or rotate's carries the key's secret: the
+/// route's `no_store(post)` (the page's GET keeps its own caching).
 pub(crate) async fn write(
     req: Req,
-    chrome: Chrome,
     Caller(SecurityOwner(viewer)): Caller<SecurityOwner>,
     State(config): State<Shared>,
     headers: HeaderMap,
     Form(input): Form<SecurityInput>,
-) -> NoStore<HtmlResult> {
-    NoStore(send(&req, &viewer, &config, &headers, input, &chrome).await)
-}
-
-async fn send(
-    req: &Req,
-    viewer: &Viewer,
-    config: &Shared,
-    headers: &HeaderMap,
-    input: SecurityInput,
-    chrome: &Chrome,
 ) -> HtmlResult {
+    let (req, viewer, config, headers) = (&req, &viewer, &config, &headers);
     let (t, p): (SecurityMsg, Pilot) = (req.t(), req.t());
     let action = input.action();
     let which = match action {
@@ -280,7 +265,7 @@ async fn send(
         errors.add_form(message);
         let posted = which.map(|which| Draft { which, input: input.clone(), errors });
         let said = if posted.is_some() { Said::Editing } else { Said::NotSaved };
-        render(req, viewer, config, headers, None, Shown::said(said), posted, StatusCode::UNPROCESSABLE_ENTITY, chrome)
+        render(req, viewer, config, headers, None, Shown::said(said), posted, StatusCode::UNPROCESSABLE_ENTITY)
     };
     let Some(action) = action else { return refuse(t.manage_state_failed_safe()).await };
     if !valid_attempt(&attempt) {
@@ -311,7 +296,7 @@ async fn send(
             tracing::warn!("a security write had no answer: {error}");
             (AccountAnswer::Indeterminate, KeySecret::None)
         }
-        Err(error) => return failed(req, viewer, config, headers, error, chrome).await,
+        Err(error) => return failed(req, viewer, config, headers, error).await,
     };
     // No answer that says what happened: ask what came of the attempt, as marketplace does.
     let (answer, secret) = match answer {
@@ -333,31 +318,24 @@ async fn send(
             // The secret, or that it is lost: this answer is the only place either is said.
             secret => {
                 let shown = Shown { said: Said::Saved, secret, issued_by: Some(action) };
-                render(req, viewer, config, headers, after_write.as_deref(), shown, None, StatusCode::OK, chrome).await
+                render(req, viewer, config, headers, after_write.as_deref(), shown, None, StatusCode::OK).await
             }
         },
         AccountAnswer::NotRecorded { code, .. } if code == "validation-failed" => refuse(t.action_validation()).await,
         AccountAnswer::NotRecorded { .. } => refuse(t.manage_state_failed_safe()).await,
         AccountAnswer::Conflict => {
-            render(req, viewer, config, headers, None, Shown::said(Said::Conflict), None, StatusCode::CONFLICT, chrome).await
+            render(req, viewer, config, headers, None, Shown::said(Said::Conflict), None, StatusCode::CONFLICT).await
         }
         AccountAnswer::Indeterminate => unreachable!("asked about above"),
     }
 }
 
 /// A write the API refused for who is asking: sign in again, or the page saying they may not.
-async fn failed(
-    req: &Req,
-    viewer: &Viewer,
-    config: &Shared,
-    headers: &HeaderMap,
-    error: ApiError,
-    chrome: &Chrome,
-) -> HtmlResult {
+async fn failed(req: &Req, viewer: &Viewer, config: &Shared, headers: &HeaderMap, error: ApiError) -> HtmlResult {
     match error.status() {
         Some(StatusCode::UNAUTHORIZED) => sign_in(req),
         Some(StatusCode::FORBIDDEN) => {
-            render(req, viewer, config, headers, None, Shown::said(Said::Denied), None, StatusCode::FORBIDDEN, chrome).await
+            render(req, viewer, config, headers, None, Shown::said(Said::Denied), None, StatusCode::FORBIDDEN).await
         }
         _ => Err(corten::Error::new(error).with_status(StatusCode::BAD_GATEWAY)),
     }

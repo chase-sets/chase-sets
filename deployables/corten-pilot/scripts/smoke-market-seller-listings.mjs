@@ -14,6 +14,7 @@
 //   cancelled.
 // - No console errors.
 // Usage: node scripts/smoke-market-seller-listings.mjs [pilot-url] [seller-state] [api-url]
+import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { chromium } from "@playwright/test";
 
@@ -39,7 +40,13 @@ async function read(path) {
   return res.ok ? res.json() : null;
 }
 async function send(method, path, body) {
-  const headers = { cookie, "content-type": "application/json", "chase-sets-read-target-context": "marketplace" };
+  // Each command is its own attempt: the API refuses a Listing or seller command without an identity.
+  const headers = {
+    cookie,
+    "content-type": "application/json",
+    "chase-sets-read-target-context": "marketplace",
+    "idempotency-key": randomUUID(),
+  };
   const res = await fetch(`${api}/api/marketplace/account${path}`, {
     method,
     headers,

@@ -25,6 +25,11 @@
   margin: 0 0 var(--space-4);
   color: var(--color-text-secondary);
 }
+/* The kit's FailedAlert, spaced from the form. While its alert is hidden the kit takes the region
+   out of the flow, so the margin takes no room until `corten_ui::dialog::failed` shows it. */
+.dialog > [role="alert"] {
+  margin-block-end: var(--space-4);
+}
 .form {
   display: grid;
   gap: var(--space-3);
@@ -175,4 +180,11 @@
 }
 .toasts button {
   margin-block-start: var(--space-2);
+}
+/* A submit that got no answer (the toaster's `failed`, marked `data-failed`) is a failure, not a
+   notice. A closed message keeps its mark, hence `:not([hidden])`. */
+.toasts #ui-toast[data-failed]:not([hidden]) {
+  border-color: var(--color-danger);
+  background: var(--color-danger-soft);
+  color: var(--color-danger);
 }

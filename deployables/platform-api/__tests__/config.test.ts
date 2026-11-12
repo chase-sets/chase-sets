@@ -396,7 +396,7 @@ describe("platform api config", () => {
       pollIntervalMs: 75,
       exactDependencyMode: "enabled",
       routeTuning: defaultCriticalReadConsistencyRouteTuning,
-      wakeBeforeWaitEnabled: false,
+      wakeBeforeWaitEnabled: true,
       readinessNotificationsEnabled: false,
     });
     expect(config.projectionInlineApplyEnabled).toBe(false);
@@ -1267,7 +1267,7 @@ describe("platform api config", () => {
           exactDependencyMode: "enabled",
         },
       ],
-      wakeBeforeWaitEnabled: false,
+      wakeBeforeWaitEnabled: true,
       readinessNotificationsEnabled: false,
     });
   });
@@ -1277,6 +1277,13 @@ describe("platform api config", () => {
     process.env.READ_CONSISTENCY_WAKE_BEFORE_WAIT_ENABLED = "true";
 
     expect(loadConfig().readConsistency?.wakeBeforeWaitEnabled).toBe(true);
+  });
+
+  it("retains the read consistency wake-before-wait opt-out", () => {
+    process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
+    process.env.READ_CONSISTENCY_WAKE_BEFORE_WAIT_ENABLED = "false";
+
+    expect(loadConfig().readConsistency?.wakeBeforeWaitEnabled).toBe(false);
   });
 
   it("enables projection inline apply from its environment kill switch", () => {

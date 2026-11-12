@@ -888,6 +888,39 @@ describe("run e2e suite", () => {
     expect(unownedRoutes).toEqual([]);
   });
 
+  it("owns the real Discovery analytics route without selecting tests or unclaimed siblings", async () => {
+    const route = "bounded-contexts/discovery/routes/item-detail-rail-analytics.tsx";
+    expect(existsSync(route)).toBe(true);
+    expect(e2eSuiteIdsForChangedFile(route)).toEqual(["marketplace_browse"]);
+    expect(e2eNoSuiteExclusionForChangedFile(route)).toBeNull();
+    for (const file of [
+      route.replace(".tsx", ".test.ts"),
+      route.replace(".tsx", ".spec.tsx"),
+      route.replace("rail-analytics.tsx", "rail-analytics-unclaimed.tsx"),
+    ]) {
+      expect(e2eSuiteIdsForChangedFile(file), file).toEqual([]);
+    }
+    for (const sibling of ["item-detail.tsx", "item-detail-market-history.tsx"]) {
+      expect(e2eSuiteIdsForChangedFile(`bounded-contexts/discovery/routes/${sibling}`)).toEqual(["marketplace_browse"]);
+    }
+
+    const source = readFileSync(new URL("./e2e-suites.mjs", import.meta.url), "utf8");
+    const owned = "item-detail(?:\\.|-market-history\\.|-rail-analytics\\.)";
+    const omitted = "item-detail(?:\\.|-market-history\\.)";
+    expect(source.split(owned)).toHaveLength(2);
+    const mutant = source
+      .replace(owned, omitted)
+      .replace('"./lib/risk-policy-v1.mjs"', JSON.stringify(new URL("./lib/risk-policy-v1.mjs", import.meta.url).href));
+    const selector = await import(`data:text/javascript;base64,${Buffer.from(mutant).toString("base64")}`);
+    expect(selector.e2eSuiteIdsForChangedFile(route), "omit-analytics-ownership").toEqual([]);
+    expect(selector.e2eNoSuiteExclusionForChangedFile(route)).toBeNull();
+    for (const sibling of ["item-detail.tsx", "item-detail-market-history.tsx"]) {
+      expect(selector.e2eSuiteIdsForChangedFile(`bounded-contexts/discovery/routes/${sibling}`)).toEqual([
+        "marketplace_browse",
+      ]);
+    }
+  });
+
   it("channels-e2e-suite-ownership", () => {
     expect(e2eSuiteIdsForChangedFile("bounded-contexts/channels/routes/admin/ebay-account-deletion.tsx")).toEqual([
       "admin_support",

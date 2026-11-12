@@ -25,7 +25,9 @@ pub struct WithdrawConsentDialogId<'a>(pub &'a str);
 fn machine(known: Option<&'static str>, t: ConsentsMsg, family: &str, value: &str) -> String {
     match (known, humanized(value)) {
         (Some(word), _) => word.to_owned(),
-        (None, Some(human)) => t.value_unrecognized_with_value(family, &human).to_string(),
+        (None, Some(human)) => t
+            .value_unrecognized_with_value(crate::text::consents_msg::ValueUnrecognizedWithValue { family, value: &human })
+            .to_string(),
         (None, None) => t.value_unrecognized(family).to_string(),
     }
 }
@@ -125,11 +127,17 @@ fn ConsentRow<'a>(t: ConsentsMsg, p: Pilot, consent: &'a Consent, said: &'a Said
     let f = ConsentInput::FIELDS;
     let id = consent.consent_id.as_str();
     let name = policy(t, &consent.policy_key);
-    let title = t.page_policy_title(&name, &version(t, &consent.policy_version)).to_string();
+    let title = t
+        .page_policy_title(crate::text::consents_msg::PagePolicyTitle {
+            policy: &name,
+            version: &version(t, &consent.policy_version),
+        })
+        .to_string();
     let recorded = when(t, &consent.recorded_at);
     let body = if consent.status == "withdrawn" {
         let withdrawn = when(t, consent.withdrawn_at.as_deref().unwrap_or(&consent.updated_at));
-        t.page_withdrawn_at(&recorded, &withdrawn).to_string()
+        t.page_withdrawn_at(crate::text::consents_msg::PageWithdrawnAt { recorded_at: &recorded, withdrawn_at: &withdrawn })
+            .to_string()
     } else {
         t.page_recorded_at(&recorded).to_string()
     };

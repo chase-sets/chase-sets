@@ -55,11 +55,8 @@
   font-weight: 600;
 }
 .button,
-.print > button {
-  min-height: 2.75rem;
-}
 .print {
-  display: contents;
+  min-height: 2.75rem;
 }
 .button[data-tone="secondary"] {
   border-color: var(--color-border-strong);

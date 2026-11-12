@@ -148,6 +148,7 @@ Completed milestone evidence, signoff checklists, and audits live in the closing
 - [Seed Pack Storage](./runbooks/seed-pack-storage.md): private versioned Observation Pack and representative snapshot-set storage, scoped dev/CI key handoff, publish/restore lifecycle, provider acceptance probes, rotation, and deletion-on-revocation.
 - [Local Representative Data](./local-representative-data.md): accepted-pack replay or snapshot restore, representative commerce layering, pack-cohort proof, real-route browsing, and exact worktree teardown.
 - [Merge-Gate Verification](./runbooks/merge-gate-verification.md): cancellation-safe merge-gate verification environment — manual dispatch, safe rerun, terminal-path deleters, cleanup escalation, credential rotation, capacity limits, cost wager, and the 6-hour orphan SLO.
+- [Hosted Bootstrap Oracle Memo](./runbooks/bootstrap-db-oracle-memo.md): PR-isolated canonical memo derivation from immutable enrollment inputs, artifact acceptance, and hosted consumer checks.
 - [Deployment Transitions](./runbooks/deployment-transitions.md): graceful shutdown, resumable streams, worker cancellation, and durable cadence.
 - [Local Worktree Sandboxes](./runbooks/local-worktree-sandboxes.md): isolated local dev/test stacks for simultaneous worktrees.
 - [Postage Operations](./runbooks/postage-operations.md): postage policy administration, label provider configuration, value-based shipping evidence tiers, and label smoke checks.
@@ -192,7 +193,7 @@ Completed milestone evidence, signoff checklists, and audits live in the closing
 - [Section Navigation](../packages/design-system/SECTION_NAVIGATION.md)
 - [Checkout Primitives](../packages/design-system/CHECKOUT_PRIMITIVES.md)
 - [Operational Workflows](../packages/design-system/OPERATIONAL_WORKFLOWS.md)
-- [Embedded Stripe Appearance](../infrastructure/stripe-appearance/README.md)
+- [Default Embedded Stripe Appearance](./architecture/embedded-stripe-appearance.md)
 - [Design System Milestones](../packages/design-system/DESIGN_SYSTEM_MILESTONES.md): completed form-system (#10) and legacy-eradication (#12) traceability and verification commands.
 - [Localization Contract](../contracts/localization/README.md)
 

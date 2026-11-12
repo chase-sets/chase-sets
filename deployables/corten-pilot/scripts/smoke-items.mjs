@@ -35,6 +35,9 @@ async function navigated(page) {
   await settled(page);
 }
 
+/** The list's folded filters (the shell's account menu is a details too). */
+const filters = (page) => page.locator("details", { has: page.locator("summary", { hasText: "More filters" }) });
+
 const browser = await chromium.launch();
 
 async function context(javaScriptEnabled, viewport = { width: 1280, height: 900 }) {
@@ -87,7 +90,16 @@ const ids = [];
   check(await page.getByText("Catalog item created").isVisible(), "the create's toast");
   check(await listed(page, first, 1), "the new item is found by its id (its title)");
   const row = page.getByRole("row", { name: new RegExp(first) });
-  check((await row.getByRole("cell").nth(3).textContent()) === "English", "its language is named");
+  // What a reader hears: the kit's cell label for its stacked phone layout is aria-hidden.
+  const language = await row
+    .getByRole("cell")
+    .nth(3)
+    .evaluate((td) => {
+      const cell = /** @type {HTMLElement} */ (td.cloneNode(true));
+      cell.querySelectorAll('[aria-hidden="true"]').forEach((e) => e.remove());
+      return cell.textContent?.trim();
+    });
+  check(language === "English", `its language is named (${language})`);
   check((await row.locator(".status-pill__pill").textContent()) === "draft", "it is a draft");
 
   // The changes bar: an item created in another tab is counted, not drawn.
@@ -186,13 +198,13 @@ const ids = [];
 {
   const { ctx, page } = await context(false);
   check(await listed(page, ids[1], 1), "the second item is listed without the script");
-  check(!(await page.locator("details").getAttribute("open")), "the extra filters are folded");
+  check(!(await filters(page).getAttribute("open")), "the extra filters are folded");
   await page.locator("summary", { hasText: "More filters" }).click();
   await page.locator('select[name="language"]').selectOption("en");
   await page.getByRole("button", { name: "Apply filters" }).click();
   await navigated(page);
   check(new URL(page.url()).searchParams.get("language") === "en", "the folded filter is applied");
-  check((await page.locator("details").getAttribute("open")) !== null, "and opens the fold");
+  check((await filters(page).getAttribute("open")) !== null, "and opens the fold");
   await page.locator("#catalog-bulk select").selectOption("publish");
   await page.getByRole("button", { name: "Preview matching items" }).click();
   await navigated(page);

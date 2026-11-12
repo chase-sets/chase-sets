@@ -1,15 +1,10 @@
 //! Who is asking, and what they may see: the session marketplace signed in, the color mode
 //! they chose, and marketplace's top nav filtered by the same rules as `resolveWebHostNavItems`.
-use std::sync::{Arc, LazyLock};
+use std::sync::LazyLock;
 
 use corten::{
-    Identify, Refused,
-    axum::{
-        extract::Request,
-        http::{HeaderMap, Uri, request::Parts},
-        response::Response,
-    },
-    middleware::{Middleware, Next},
+    Caller, Identify, Refused,
+    http::{HeaderMap, Uri, request::Parts},
 };
 pub use platform::{
     api::Actor,
@@ -48,53 +43,27 @@ impl Session {
     }
 }
 
-/// What the platform API says of the request's session cookie.
-#[derive(Clone)]
+/// What the platform API says of the request's session cookie: the caller every caller type here
+/// (a seller, a buyer, the error page's session) is a rule over, each reading it with
+/// `Caller::<Found>::find`, so a page, its layout's cart count and its error page ask the API who
+/// is asking once.
+#[derive(Clone, Debug, Hash)]
 pub(crate) enum Found {
     Account(Viewer),
     SignedOut,
     Unknown,
 }
 
-/// The request's one look at whose it is, shared by every caller type it reads and the layout's
-/// cart count. Corten looks a caller up once per request and type, and each type here (a seller,
-/// a buyer, the error page's session) is the same session with its own rule, so without this a
-/// page and its layout would ask the API who is asking once for each
-/// (todd-skelton/corten#581).
-#[derive(Clone, Default)]
-pub struct Lookup(Arc<tokio::sync::OnceCell<Found>>);
-
-impl Lookup {
-    /// Whose the request with `headers` at `uri` is, looked up the first time it is asked.
-    pub(crate) async fn found(&self, headers: &HeaderMap, uri: &Uri, config: &Shared) -> Found {
-        self.0.get_or_init(|| look_up(headers, uri, config)).await.clone()
-    }
-
-    /// The request's lookup, or a fresh one for a request that has none.
-    pub fn of(parts: &Parts) -> Lookup {
-        parts.extensions.get::<Lookup>().cloned().unwrap_or_default()
-    }
-
-    /// The request's lookup, kept on it for the readers after this one when it had none: the
-    /// error page's request carries none of the failed request's (todd-skelton/corten#582).
-    pub fn kept(parts: &mut Parts) -> Lookup {
-        parts.extensions.get_or_insert_default::<Lookup>().clone()
-    }
-}
-
-/// Gives each request its `Lookup`.
-pub struct OneLookup;
-
-impl Middleware for OneLookup {
-    async fn call(&self, mut req: Request, next: impl Next) -> Response {
-        req.extensions_mut().insert(Lookup::default());
-        next.run(req).await
+impl Identify<Shared> for Found {
+    async fn identify(parts: &Parts, config: &Shared) -> Result<Self, Refused> {
+        Ok(look_up(&parts.headers, &parts.uri, config).await)
     }
 }
 
 /// Whose the request is, by the request's one lookup.
-async fn find(parts: &Parts, config: &Shared) -> Found {
-    Lookup::of(parts).found(&parts.headers, &parts.uri, config).await
+pub(crate) async fn find(parts: &Parts, config: &Shared) -> Found {
+    // `Found`'s lookup answers every case, so it is never refused.
+    Caller::<Found>::find(parts, config).await.map_or(Found::Unknown, |Caller(found)| found)
 }
 
 /// Whose the request is: its session, else its guest checkout (a guest has only the guest

@@ -3,6 +3,7 @@ import { defineProjectorHandlers, type ProjectorHandlerMap } from "@chase-sets/e
 import { extractIdFromStreamId } from "@chase-sets/event-core";
 import { transitionStatus, updateRow, upsertRow, type PgQueryable } from "@chase-sets/event-core-postgres";
 import { AUTH_SESSION_STREAM_PREFIX } from "../domain/auth-flow";
+import { sessionGenerationOf } from "../domain/session-generation";
 
 export function buildSessionProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
   return defineProjectorHandlers<
@@ -24,6 +25,7 @@ export function buildSessionProjectionHandlers(db: PgQueryable): ProjectorHandle
           "status",
           "expires_at",
           "started_at",
+          "session_generation",
           "updated_at",
         ],
         conflictColumns: ["session_id"],
@@ -40,6 +42,11 @@ export function buildSessionProjectionHandlers(db: PgQueryable): ProjectorHandle
           // so account-switch/revoke/expire never overwrite it. A replay of
           // this same started event is idempotent (same recordedAt).
           started_at: event.timing.recordedAt,
+          // Display only, like the rest of this row. A start recorded before
+          // the Session Generation floor carries no field and projects 0; a
+          // malformed value projects 0 too, because actor resolution reads the
+          // stream (which refuses it), never this column.
+          session_generation: sessionGenerationOf(event.data) ?? 0,
           updated_at: event.timing.recordedAt,
         },
         casts: { available_account_ids: "jsonb" },
