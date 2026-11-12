@@ -25,10 +25,15 @@ use crate::{
 
 corten::script::script!(pub mod handlers = "home.js");
 
-/// The id of the hero's form, which the nav, the structured data and the roster link to.
-const HERO_FORM: &str = "waitlist-form";
-/// The id of the full form, which the sticky bars link to.
-const FINAL_FORM: &str = "waitlist-form-final";
+/// The hero's form, which the nav, the compare pages, the structured data and the roster link to.
+#[derive(Id)]
+pub struct WaitlistFormId;
+/// The full form, which the sticky bars link to.
+#[derive(Id)]
+pub struct WaitlistFormFinalId;
+
+const HERO_FORM: &str = <WaitlistFormId as corten::view::Id>::NAME;
+const FINAL_FORM: &str = <WaitlistFormFinalId as corten::view::Id>::NAME;
 
 /// A number as public-web's translator writes one in a message (`String(value)`).
 fn plain(value: f64) -> String {
@@ -605,7 +610,7 @@ fn Sticky(t: HomeMsg) -> impl Render {
 pub fn Brand<'a>(t: HomeMsg, id: &'a str) -> impl Render {
     let fill = format!("url(#{id})");
     html! {
-        <a class={Brand} href="/" aria-label={t.brand()}>
+        <a class={Brand} href={crate::app::url::Home} aria-label={t.brand()}>
             <svg width="20" height="20" viewBox="0 0 1254 1254" aria-hidden="true" focusable="false">
                 <defs>
                     <linearGradient id={id} gradientUnits="userSpaceOnUse" x1="248" y1="420" x2="1012" y2="842">
@@ -627,13 +632,12 @@ pub fn Brand<'a>(t: HomeMsg, id: &'a str) -> impl Render {
 /// The shell's nav: the brand and Request early access.
 #[component(css = HomePage)]
 pub fn HomeNav(t: HomeMsg) -> impl Render {
-    let to = format!("/#{HERO_FORM}");
     html! {
         <nav class={Nav}>
             <Brand t={t} id="chase-logo-nav" />
             <a
                 class={(Button, Primary, Small)}
-                href={&to}
+                href={crate::app::url::Home.at(WaitlistFormId)}
                 data-cta="nav"
                 data-target="waitlist_form"
                 on:click={handlers::cta(target)}

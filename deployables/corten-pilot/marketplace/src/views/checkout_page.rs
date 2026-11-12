@@ -157,7 +157,7 @@ pub fn CheckoutRecovery(t: CheckoutMsg, kind: Recovery) -> impl Render {
             <p class={Muted}>{description}</p>
             <p class={Row}>
                 <a class={Button} href={url::Cart::default()}>{t.recovery_view_buy_cart()}</a>
-                <a class={(Button, Secondary)} href="/search">{t.recovery_browse_marketplace()}</a>
+                <a class={(Button, Secondary)} href={url::Search::default()}>{t.recovery_browse_marketplace()}</a>
             </p>
         </section>
     }
@@ -189,7 +189,7 @@ pub fn CheckoutPage<'a>(t: CheckoutMsg, p: Pilot, screen: &'a Screen) -> impl Re
                 <section class={(Panel, Lost)}>
                     <p class={Strong}>{t.page_your_cart_is_empty()}</p>
                     <p class={Muted}>{t.page_add_a_product_before_starting_checkout()}</p>
-                    <p><a class={Button} href="/search">{t.page_browse_marketplace()}</a></p>
+                    <p><a class={Button} href={url::Search::default()}>{t.page_browse_marketplace()}</a></p>
                 </section>
             } else {
                 <details class={MobileSummary}>
