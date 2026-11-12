@@ -3800,8 +3800,8 @@ async fn an_items_review_draws_its_sheet_with_its_evidence_and_park_forms() {
     );
     assert!(html.contains("<dt>Unit</dt><dd>tcgplayer:mtg:single-card:source-observation-import</dd>"), "{html}");
     assert!(
-        html.contains(r#"href="http://localhost:7752/catalog/providers/tcgplayer?unitKey=tcgplayer%3Amtg%3Asingle-card%3Asource-observation-import""#),
-        "the destination is admin-web's: {html}"
+        html.contains(r#"href="/catalog/providers/tcgplayer?unitKey=tcgplayer%3Amtg%3Asingle-card%3Asource-observation-import""#),
+        "the destination is the pilot's provider page: {html}"
     );
     assert!(
         html.contains(r#"id="attention-dismiss" method="post" action="/catalog/scopes/attention/dismiss?status=active""#),
@@ -4158,8 +4158,10 @@ async fn the_attention_queue_draws_its_counts_its_missing_sources_and_its_items_
         "an ISO and a Postgres time: {html}"
     );
     assert!(html.contains("Oct 26, 2026, 12:00 PM UTC") && html.contains("No deadline"), "{html}");
-    let origin = crate::app::admin_web_origin();
-    assert!(html.contains(&format!(r#"href="{origin}/platform/projections?tab=blocked">Open</a>"#)), "{html}");
+    assert!(
+        html.contains(r#"href="/platform/projections?tab=blocked">Open</a>"#),
+        "the pilot serves the projections console: {html}"
+    );
     assert!(html.contains(r#"href="/support/requests?requestId=req_1">Open</a>"#), "the pilot serves a request's sheet: {html}");
     assert!(html.contains(r#"href="/support/platform-feedback/pfb_1">Open</a>"#), "the pilot serves a feedback's page: {html}");
     assert!(html.contains(r#"id="attention-live" src="/platform/operations-attention/live""#), "{html}");
@@ -4394,9 +4396,9 @@ async fn a_scope_with_one_edition_reads_no_alias_review_and_a_failed_read_is_its
     assert!(!html.contains("Accept all"), "no commands over a coverage that could not be read: {html}");
     assert!(
         html.contains("The import-to-promotion workspace could not be read.")
-            && html.contains(r#"href="http://localhost:7752/catalog/scopes/scp_down""#)
+            && html.contains(r#"href="/catalog/scopes/scp_down">Read the workspace again</a>"#)
             && !html.contains(r#"name="wb-stage""#),
-        "a workspace that cannot be read is its section's banner and admin-web's link: {html}"
+        "a workspace that cannot be read is its section's banner and a link to read it again: {html}"
     );
 
     let (status, _, _) = pilot.send(get("/catalog/scopes/scp_gone", Some("staff"))).await;
@@ -8684,7 +8686,7 @@ async fn provider_detail_draws_the_apis_health_surface_for_the_provider_with_its
     assert!(html.contains(r#"action="/catalog/providers/tcgplayer/jobs/job_9?profileVersion=2026.07.13""#), "{html}");
     assert!(html.contains(r#"value="retry""#) && !html.contains(r#"value="cancel""#), "{html}");
     // This viewer is not offered the Operator session.
-    assert!(html.contains(r#"href="http://localhost:7752/catalog/providers/tcgplayer?profileVersion=2026.07.13""#), "{html}");
+    assert!(!html.contains("http://localhost:7752/catalog/providers"), "the provider page is the pilot's: {html}");
     assert!(!html.contains("Operator session"), "{html}");
 
     let section = pilot.stylesheet(&html, "sections/catalog").await.unwrap();

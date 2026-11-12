@@ -187,6 +187,12 @@ pub fn area(area: Area<url::Projections>, shared: Shared) -> Area<url::Projectio
     url::area(area, shared).components(views::COMPONENTS).components(crate::views::LIVE)
 }
 
+/// An admin-web `path` the pilot serves here, for a link that would otherwise go there: the console`n/// and settings and reference, with any query (admin-web's own `tab` is read by neither page).
+pub fn serves(path: &str) -> Option<String> {
+    let page = path.split(['?', '#']).next().unwrap_or(path);
+    matches!(page, "/platform/projections" | "/platform/projections/reference").then(|| path.to_owned())
+}
+
 /// The page's view model: what it shows and what a data client gets.
 #[derive(Serialize, ToJson)]
 pub struct Screen {

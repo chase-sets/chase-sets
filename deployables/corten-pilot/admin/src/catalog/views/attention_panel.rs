@@ -19,7 +19,7 @@ use crate::{
         scopes::url::{AttentionDone, ScopeQuery, Scopes},
     },
     text::{Cat, Pilot},
-    views::{Draft, admin_web},
+    views::{Draft, link_to},
 };
 
 fn severity(t: Cat, severity: Severity) -> (&'static str, Tone) {
@@ -348,12 +348,13 @@ fn CommandButton<'a>(t: Cat, query: &'a ScopeQuery, resolution: &'a Resolution, 
 }
 
 /// An item's sheet (admin-web's `AttentionItemDrawer`): its evidence, the page that resolves it
-/// (admin-web's), and the two park forms. Drawn open when the server is asked for it; the empty
+/// (the pilot's when it serves it, admin-web's otherwise), and the two park forms. Drawn open when the server is asked for it; the empty
 /// dialog when the item is not in the queue (any more).
 #[component(css = AttentionPanel)]
 pub fn AttentionSheet<'a>(
     t: Cat,
     p: Pilot,
+    req: &'a Req,
     query: &'a ScopeQuery,
     item: Option<&'a AttentionItem>,
     parked: Option<&'a Parked>,
@@ -366,7 +367,7 @@ pub fn AttentionSheet<'a>(
                 let params = Params::title(item);
                 let title = shown(t, &item.title_key, &params).to_string();
                 let evidence = evidence(t, item);
-                let destination = item.resolution.href.as_deref().and_then(admin_web).map(|u| u.to_string());
+                let destination = item.resolution.href.as_deref().and_then(|href| link_to(req, href));
                 // A command with its target resolves in its row, so its sheet names no page and says
                 // nothing is missing.
                 let missing = item.resolution.unavailable || item.resolution.mode == ResolutionMode::Drawer;

@@ -273,7 +273,7 @@ pub async fn render(
     }
     let (t, p): (Cat, Pilot) = (req.t(), req.t());
     let manage = super::manages(viewer);
-    let page_view = views::scope_list(t, p, query, &view, notice, back, manage);
+    let page_view = views::scope_list(t, p, req, query, &view, notice, back, manage);
     req.screen(
         &view,
         html! {
