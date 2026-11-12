@@ -157,12 +157,24 @@
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
-/* The import preflight's loading line waits for its stream, which only the script opens; without the
-   script the link beside it reads the preflight with the page instead. */
+/* The import preflight's loading line shows while a stream can still bring it, and the link to the
+   page with it read in where none will: without JavaScript, which opens no stream, and once the
+   stream has given up (`closed`). A browser without the `scripting` media feature shows both. */
+@media (scripting: enabled) {
+  .read-in {
+    display: none;
+  }
+}
 @media (scripting: none) {
   .loading {
     display: none;
   }
+}
+corten-live[status="closed"] .loading {
+  display: none;
+}
+corten-live[status="closed"] .read-in {
+  display: inline;
 }
 /* A candidate's edit form, and each of its groups. */
 .edit {

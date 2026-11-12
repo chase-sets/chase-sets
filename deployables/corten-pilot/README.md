@@ -161,7 +161,7 @@ scope link. A unit's Sync and Reapply post the scopes the API builds for it (`co
 read again for the working set when the form posts, and land on the unit's working set with the job
 they queued; its Preview previews the unit's scope with the unit's own promotion. The jobs stage's
 import preflight is the Catalog API's for the working set, sent in one `<corten-live>` fragment when it
-is read, so a slow provider does not hold the page; without JavaScript, which opens no stream, a link in the loading line's place reads the working set's page with the preflight drawn in it (`/catalog/integrations/import-preflight`). The review stage folds the alias review of the provider and profile version the surface
+is read, so a slow provider does not hold the page; where no stream will bring it (without JavaScript, or once the stream gave up), the loading line's link opens the page's own address with `preflight=true`, which reads it in (Corten's slow-part pattern from [corten-run/corten#1280 Give a slow part a <corten-live> stream sends once a no-JavaScript answer](https://github.com/corten-run/corten/pull/1280)). The review stage folds the alias review of the provider and profile version the surface
 names, with the same candidate commands and bulk bar as the scopes list's.
 Provider detail,
 `/catalog/providers/{providerKey}` ([admin/src/catalog/provider.rs](admin/src/catalog/provider.rs)),
@@ -252,7 +252,7 @@ registered files.
 
 ## Corten pin
 
-`Cargo.toml` pins Corten to `684a5395` (Corten `main` on 2026-11-12), whose framework package is
+`Cargo.toml` pins Corten to `c3694929` (Corten `main` on 2026-11-12), whose framework package is
 `corten-run` (the library is still `corten`). Corten 0.2.0 is released (tag `v0.2.0`, `a833b4e3`), and the pin is a git revision past it. The
 pin follows Corten's latest `main` (Todd, 2026-11-02), and each move is its own commit that says
 what changed; the workarounds a move lets go follow it in commits of their own. The history of every move is in the
@@ -300,7 +300,6 @@ but keep their own bordered choice rows, which are the design system's `Checkbox
 
 | Issue | Workaround |
 | --- | --- |
-| [corten-run/corten#1264 A slow part a `<corten-live>` stream sends once has no answer without JavaScript: its placeholder stays for good](https://github.com/corten-run/corten/issues/1264) | [admin/src/catalog/views/daily_page.rs](admin/src/catalog/views/daily_page.rs) draws a `<noscript>` link in the import preflight's loading line, hidden under `scripting: none`, to `GET /catalog/integrations/import-preflight` ([admin/src/catalog/daily.rs](admin/src/catalog/daily.rs)), the working set's page with the preflight read for it |
 | [corten-run/corten#1065 Kit Stack and Cluster always print a literal gap, so an app on its own token spacing scale cannot use them with its gap utility](https://github.com/corten-run/corten/issues/1065) | closed by Corten's `Gap::App` (pinned since `f4f37f95`). Every page column is the kit's `Stack { gap: Gap::App }` with the theme's `gap_N()`: the five whose children keep their own width (support requests, command center, order, packing, shipment) are `StackStart { gap: Gap::App }` in its place. A page's own `.stack` keeps only what the kit's does not set (`min-width: 0` in a grid track, a padding or margin) |
 
 Every Corten gap the pilot found and how it closed is in the [README before it was cut](https://github.com/chase-sets/chase-sets/blob/5a683c4eb5/deployables/corten-pilot/README.md) ("Corten gaps").

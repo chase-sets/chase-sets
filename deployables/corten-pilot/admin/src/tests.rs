@@ -9446,10 +9446,11 @@ async fn the_jobs_stage_draws_a_loading_line_and_its_import_preflight_comes_once
         "{part}"
     );
     assert!(part.contains("Loading import preflight"), "{part}");
-    // Without JavaScript the element opens no stream; its link reads the preflight with the page.
+    // Where no stream will bring it, the link to the page's own address with the preflight read in.
     assert!(
-        part.contains(r#"<noscript><p class="#)
-            && part.contains(r#"<a href="/catalog/integrations/import-preflight?providerKey=tcgplayer&amp;unitKey=pokemon">Read the import preflight</a>"#),
+        part.contains(
+            r#"href="/catalog/integrations?providerKey=tcgplayer&amp;unitKey=pokemon&amp;preflight=true" rel="nofollow">Read the import preflight</a>"#
+        ) && !part.contains("<noscript>"),
         "{part}"
     );
     assert!(pilot.calls_to(preflight).is_empty(), "the page does not wait for the provider's plan");
@@ -9492,11 +9493,11 @@ async fn the_jobs_stage_draws_a_loading_line_and_its_import_preflight_comes_once
 }
 
 #[tokio::test]
-async fn without_javascript_the_import_preflights_link_is_its_page_with_the_preflight_read() {
+async fn without_javascript_the_import_preflights_link_is_the_page_with_the_preflight_read_in() {
     let pilot = Pilot::new().await;
     let preflight = "/api/catalog/source-observations/workbench-surfaces/daily/import-preview";
     let at = "providerKey=tcgplayer&unitKey=pokemon";
-    let (status, _, html) = pilot.send(get(&format!("/catalog/integrations/import-preflight?{at}"), Some("staff"))).await;
+    let (status, _, html) = pilot.send(get(&format!("/catalog/integrations?{at}&preflight=true"), Some("staff"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");
     assert!(html.contains("<title>Catalog Integrations") && html.contains(r#"name="wb-stage""#), "the daily page: {html}");
     assert!(
@@ -9510,21 +9511,28 @@ async fn without_javascript_the_import_preflights_link_is_its_page_with_the_pref
     );
 
     // A provider past the API's deadline says so; no preflight, or a read that fails, leaves nothing.
-    let (status, _, html) = pilot.send(get("/catalog/integrations/import-preflight?providerKey=slow", Some("staff"))).await;
+    let (status, _, html) = pilot.send(get("/catalog/integrations?providerKey=slow&preflight=true", Some("staff"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");
     assert!(html.contains(r#"data-catalog-deferred-panel="unavailable""#) && html.contains("Import preflight"), "{html}");
-    let (status, _, html) = pilot.send(get("/catalog/integrations/import-preflight?providerKey=nopreview", Some("staff"))).await;
+    let (status, _, html) = pilot.send(get("/catalog/integrations?providerKey=nopreview&preflight=true", Some("staff"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");
     assert!(!html.contains("data-catalog-import-preview=") && !html.contains("Loading import preflight"), "{html}");
 
-    // From a scope's workspace the page is the scope's, with the preflight read for its own address.
-    let (status, _, html) =
-        pilot.send(get(&format!("/catalog/integrations/import-preflight?{at}&home=scp_paf"), Some("staff"))).await;
+    // A command's forms do not carry the key: the working set is the page's, without it.
+    const PREFLIGHT_KEY: &str = "preflight=";
+    let (_, _, html) = pilot.send(get("/catalog/integrations?providerKey=tcgplayer&preflight=true", Some("staff"))).await;
+    let actions: Vec<&str> = html.split("action=\"").skip(1).filter_map(|rest| rest.split('"').next()).collect();
+    assert!(!actions.is_empty() && actions.iter().all(|action| !action.contains(PREFLIGHT_KEY)), "{actions:?}");
+
+    // A scope's page reads it in for its own address, its link the scope's page.
+    let (_, _, html) = pilot.send(get("/catalog/scopes/scp_paf?languageCode=ja", Some("staff"))).await;
+    assert!(html.contains(r#"href="/catalog/scopes/scp_paf?languageCode=ja&amp;preflight=true" rel="nofollow""#), "{html}");
+    let (status, _, html) = pilot.send(get("/catalog/scopes/scp_paf?preflight=true", Some("staff"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");
     assert!(html.contains("data-scope-workspace") && html.contains("Paldean Fates"), "the scope's page: {html}");
     assert!(html.contains(r#"data-catalog-import-preview="ready""#), "{html}");
     assert!(
-        pilot.calls_to(preflight).last().is_some_and(|c| c.path.contains("location=%2Fcatalog%2Fscopes%2Fscp_paf")),
+        pilot.calls_to(preflight).last().is_some_and(|c| c.path.ends_with("location=%2Fcatalog%2Fscopes%2Fscp_paf")),
         "the scope's location: {:?}",
         pilot.calls_to(preflight).last()
     );
