@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { z } from "zod";
+import type { ScrydexPeriodDecision } from "./scrydex-billing-period";
 
 const integer = z.number().int().min(0).max(2147483647);
 const instant = z.iso.datetime({ offset: true });
@@ -270,5 +271,26 @@ export class CountAcquisitionRefused extends Error {
   readonly code = "count-acquisition-refused";
   constructor() {
     super("Count acquisition is blocked. Redisplay the quote or review retained usage and uncertain spend.");
+  }
+}
+/**
+ * Who governs a staging acquisition's Scrydex billing-period cap. A `reserve`
+ * carries the host dispatch-log reserve, whose `runId` is the caller's host
+ * dispatch id; `capture-run` is built only by count capture from its active run
+ * and is honored only inside that run's bound acquisition request.
+ */
+export type CountPeriodAuthority =
+  | Readonly<{ kind: "reserve"; reserve: unknown }>
+  | Readonly<{ kind: "capture-run"; runId: string }>;
+/** The period gate the count store evaluates under the headroom lock before each non-capture send. */
+export type CountPeriodGate = Readonly<{
+  reserve: unknown;
+  runId: string;
+  decided(decision: ScrydexPeriodDecision): void;
+}>;
+export class CountPeriodCapRefused extends Error {
+  readonly code = "usage-period-cap";
+  constructor(readonly decision: ScrydexPeriodDecision | null) {
+    super("Count acquisition would exceed the Scrydex billing-period cap, or its period authority is unknown.");
   }
 }

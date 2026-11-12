@@ -9,6 +9,8 @@ import type { ResolvedActor } from "@chase-sets/auth-context";
 import { CountCaptureStopped } from "../../source-observations/api/providers/count-capture-transport";
 import type { CountCaptureLifecycle } from "./count-capture-lifecycle";
 import { syntheticCountCaptureCollection } from "../tests/count-lifecycle-receipt-fixture";
+import { CountAcquisitionRefused, CountPeriodCapRefused } from "../domain/count-acquisition";
+import { periodAt, periodReserve, syntheticPeriod } from "../tests/scrydex-period-fixture";
 
 const context: EventStoreContext = {
   tenantId: "tnt_test",
@@ -100,6 +102,86 @@ describe("Scope Sync Batch routes", () => {
     for (const query of ["view=debits", "view=preparation&page=2", "cursor=1"])
       expect((await admin.request(`/counts/quote/${body.quoteId}?${query}`)).status, query).toBe(400);
     expect(getCountQuote).toHaveBeenCalledTimes(2);
+  });
+  it("plain staging acquire refuses usage-period-cap for an absent or invalid reserve before reading the quote", async () => {
+    const counts = (environment: string) => {
+      const store = { loadQuote: vi.fn(async () => Promise.reject(new CountAcquisitionRefused())) };
+      const runtime = createScopeSyncCountRuntime({
+        pool: {} as never,
+        store: store as never,
+        environment,
+        accountRevision: "runtime",
+        profiles: {} as never,
+        adapterOptions: {},
+      });
+      return { store, admin: app(runtime, countActor("platform-admin")) };
+    };
+    const body = { quoteId: "00000000-0000-4000-8000-000000000001", fingerprint: "a".repeat(64) };
+    const post = (admin: ReturnType<typeof counts>["admin"], value: unknown) =>
+      admin.request("/counts/acquire", {
+        method: "POST",
+        headers: { "content-type": "application/json", origin: "http://localhost" },
+        body: JSON.stringify(value),
+      });
+    const reserve = periodReserve();
+    const staging = counts("staging");
+    for (const [name, value] of [
+      ["absent", body],
+      ["null", { ...body, periodReserve: null }],
+      ["string", { ...body, periodReserve: "synthetic-dispatch" }],
+      ["malformed", { ...body, periodReserve: { ...reserve, credits: "0" } }],
+      ["extra-field", { ...body, periodReserve: { ...reserve, rawBody: {} } }],
+      ["whole-quote absent", { ...body, admission: "whole-quote" }],
+    ] as const) {
+      const response = await post(staging.admin, value);
+      expect(response.status, name).toBe(409);
+      expect(await response.json(), name).toMatchObject({ error: { code: "usage-period-cap", decision: null } });
+    }
+    // HTTP can never express a capture run: a body carrying period authority is not a count request.
+    for (const periodAuthority of [
+      { kind: "capture-run", runId: "capture-run-1" },
+      { kind: "reserve", reserve },
+    ]) {
+      const response = await post(staging.admin, { ...body, periodAuthority });
+      expect(response.status).toBe(400);
+      expect(await response.json()).toEqual({ error: { code: "invalid-count-request" } });
+    }
+    expect(staging.store.loadQuote).not.toHaveBeenCalled();
+    expect((await post(staging.admin, { ...body, periodReserve: reserve })).status).toBe(409);
+    expect(staging.store.loadQuote).toHaveBeenCalledOnce();
+
+    const production = counts("production");
+    const outside = await post(production.admin, { ...body, periodReserve: reserve });
+    expect(await outside.json()).toMatchObject({ error: { code: "count-acquisition-refused" } });
+    expect(production.store.loadQuote).not.toHaveBeenCalled();
+  });
+  it("forwards a period reserve as reserve authority and returns a locked refusal's decision", async () => {
+    const decision = {
+      admitted: false,
+      reason: "usage-period-cap",
+      runId: "synthetic-dispatch",
+      observedAt: periodAt,
+      period: syntheticPeriod,
+      consumedCredits: 49_999,
+      unreflectedCredits: 0,
+      plannedCredits: 2,
+    } as const;
+    const acquireCounts = vi.fn(async () => Promise.reject(new CountPeriodCapRefused(decision)));
+    const body = { quoteId: "00000000-0000-4000-8000-000000000001", fingerprint: "a".repeat(64) };
+    const response = await app({ acquireCounts }, countActor("platform-admin")).request("/counts/acquire", {
+      method: "POST",
+      headers: { "content-type": "application/json", origin: "http://localhost" },
+      body: JSON.stringify({ ...body, periodReserve: periodReserve() }),
+    });
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({
+      error: { code: "usage-period-cap", message: new CountPeriodCapRefused(null).message, decision },
+    });
+    expect(acquireCounts).toHaveBeenCalledExactlyOnceWith({
+      ...body,
+      periodAuthority: { kind: "reserve", reserve: periodReserve() },
+      context,
+    });
   });
   it("serves the preparation read only in staging through the count runtime", async () => {
     const quoteId = "00000000-0000-4000-8000-000000000001";
