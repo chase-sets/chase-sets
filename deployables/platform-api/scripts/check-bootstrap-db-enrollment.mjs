@@ -1411,6 +1411,7 @@ function validateManifestShape(manifest, ceilings, model) {
   const violations = [];
   const allowedPartitionKeys = new Set(["executionUnit", "databaseSuffix", "bootBearingCases", "cases"]);
   const allowedCaseKeys = new Set(["name", "referenceDurationMs", "identity"]);
+  const suffixOwners = new Map();
 
   for (const [fileName, partition] of Object.entries(manifest)) {
     if (typeof partition !== "object" || partition === null) {
@@ -1427,6 +1428,13 @@ function validateManifestShape(manifest, ceilings, model) {
     }
     if (typeof partition.databaseSuffix !== "string" || partition.databaseSuffix.length === 0) {
       violations.push(`${fileName} must declare a non-empty databaseSuffix`);
+    } else if (suffixOwners.has(partition.databaseSuffix)) {
+      violations.push(
+        `${fileName} declares databaseSuffix '${partition.databaseSuffix}' already declared by ` +
+          suffixOwners.get(partition.databaseSuffix),
+      );
+    } else {
+      suffixOwners.set(partition.databaseSuffix, fileName);
     }
     if (!Array.isArray(partition.cases) || partition.cases.length === 0) {
       violations.push(`${fileName} must declare at least one case`);
