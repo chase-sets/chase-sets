@@ -11,6 +11,9 @@ import type { CountCaptureLifecycle } from "./count-capture-lifecycle";
 import { syntheticCountCaptureCollection } from "../tests/count-lifecycle-receipt-fixture";
 import { CountAcquisitionRefused, CountPeriodCapRefused } from "../domain/count-acquisition";
 import { periodAt, periodReserve, syntheticPeriod } from "../tests/scrydex-period-fixture";
+import { periodHistoryPool, periodUsage } from "../tests/count-period-store-fixture";
+import { createCountStore } from "../read-model/count-store";
+import { catalogProviderIntegrationProfileVersions } from "../../source-observations/api/providers/registry";
 
 const context: EventStoreContext = {
   tenantId: "tnt_test",
@@ -182,6 +185,101 @@ describe("Scope Sync Batch routes", () => {
       periodAuthority: { kind: "reserve", reserve: periodReserve() },
       context,
     });
+  });
+  it("a staging acquire whose retained usage goes missing or stale refuses usage-period-cap with zero sends", async () => {
+    const quotedAt = "2026-10-13T08:03:00.000Z";
+    const record = {
+      scope_record_id: "scope-synthetic",
+      product_domain: "one-piece",
+      scope_kind: "set",
+      lifecycle_status: "active",
+    };
+    const mappings = ["single-card", "sealed-product"].map((unit) => ({
+      scope_record_id: "scope-synthetic",
+      provider_key: "scrydex",
+      unit_key: `scrydex:one-piece:${unit}:source-observation-import`,
+      set_id: "OP01",
+    }));
+    for (const state of ["missing", "aged past 900 s", "missing under the lock", "aged under the lock"])
+      for (const admission of [undefined, "whole-quote"] as const) {
+        const label = `${state} ${admission ?? "plain"}`;
+        const clock = { now: quotedAt };
+        const history = periodHistoryPool(periodUsage(0));
+        const change = () =>
+          state.startsWith("missing") ? history.setUsage(null) : void (clock.now = "2026-10-13T08:17:00.001Z");
+        let onLock: (() => void) | null = null;
+        // The real count store answers from the in-memory history; membership reads return one synthetic set.
+        const pool = {
+          query: async (sql: string, values?: unknown[]) =>
+            sql.includes("FROM catalog_scope_records")
+              ? { rows: [record] }
+              : sql.includes("FROM catalog_provider_scope_mappings")
+                ? { rows: mappings }
+                : history.pool.query(sql, values),
+          connect: async () => {
+            onLock?.();
+            onLock = null;
+            return history.pool.connect();
+          },
+        };
+        const fetch = vi.fn<typeof globalThis.fetch>(async () => {
+          throw new Error("Unexpected synthetic provider call");
+        });
+        const counts = createScopeSyncCountRuntime({
+          pool: pool as never,
+          store: createCountStore(history.pool, "synthetic-slot", () => clock.now),
+          environment: "staging",
+          accountRevision: "runtime",
+          profiles: {
+            listProfileVersions: async () =>
+              catalogProviderIntegrationProfileVersions.filter((version) => version.providerKey === "scrydex"),
+          } as never,
+          adapterOptions: {
+            fetch,
+            baseUrl: "https://synthetic.fixture.local/onepiece/v1",
+            credentials: { apiKey: "synthetic", teamId: "synthetic" },
+            now: () => new Date(clock.now),
+          },
+          now: () => clock.now,
+        });
+        const admin = app(counts, countActor("platform-admin"));
+        const post = (path: string, value: unknown) =>
+          admin.request(path, {
+            method: "POST",
+            headers: { "content-type": "application/json", origin: "http://localhost" },
+            body: JSON.stringify(value),
+          });
+        const quoted = await post("/counts/quote", { selection: { mode: "ids", scopeRecordIds: ["scope-synthetic"] } });
+        const quote = (await quoted.json()) as {
+          quoteId: string;
+          fingerprint: string;
+          plannedCredits: number;
+          expiresAt: string;
+        };
+        expect(quote.plannedCredits, label).toBe(2);
+        if (state.endsWith("under the lock")) onLock = change;
+        else change();
+        const response = await post("/counts/acquire", {
+          quoteId: quote.quoteId,
+          fingerprint: quote.fingerprint,
+          ...(admission ? { admission } : {}),
+          periodReserve: { ...periodReserve(), observedAt: quotedAt },
+        });
+        expect(response.status, label).toBe(409);
+        expect(await response.json(), label).toMatchObject({
+          error: {
+            code: "usage-period-cap",
+            decision: { admitted: false, reason: "usage-period-cap", consumedCredits: null, plannedCredits: 2 },
+          },
+        });
+        expect(onLock, label).toBeNull();
+        expect(Date.parse(quote.expiresAt), label).toBeGreaterThan(Date.parse(clock.now));
+        expect(fetch, label).not.toHaveBeenCalled();
+        expect(
+          history.events.map((event) => event.event_kind),
+          label,
+        ).toEqual(["quoted"]);
+      }
   });
   it("serves the preparation read only in staging through the count runtime", async () => {
     const quoteId = "00000000-0000-4000-8000-000000000001";

@@ -348,9 +348,9 @@ export function createCountStore(db: PgTransactionalPool, slot: string, now = ()
   }
   /**
    * Whole-quote admission: under the account-slot headroom lock, the owned,
-   * unexpired, never-executed quote must still be covered in full by current net
-   * headroom, and with a period gate the billing-period cap must admit the
-   * whole P; its P is then held as one allocation whose event id is the single
+   * unexpired, never-executed quote's whole P must first be admitted by the
+   * billing-period cap when gated, then still be covered in full by current net
+   * headroom; its P is then held as one allocation whose event id is the single
    * execution identity, so its claims convert it without being re-gated. No
    * debit or send happens here.
    */
@@ -375,14 +375,20 @@ export function createCountStore(db: PgTransactionalPool, slot: string, now = ()
         Date.parse(persisted.expiresAt) < Date.parse(current.at) ||
         persisted.plannedCredits < 1 ||
         persisted.cap < persisted.plannedCredits ||
-        Number(executed.rows[0]?.events) !== 0 ||
+        Number(executed.rows[0]?.events) !== 0
+      )
+        throw new CountAcquisitionRefused();
+      // Missing, stale or changed usage is the period gate's to name before the headroom refusal.
+      if (period) await periodAdmission(tx, period, persisted.plannedCredits);
+      if (
+        !expectedAuthority.allowed ||
+        !persisted.authority.allowed ||
         current.net === null ||
         current.fingerprint !== persisted.authority.fingerprint ||
         current.fingerprint !== expectedAuthority.fingerprint ||
         current.net < persisted.plannedCredits
       )
         throw new CountAcquisitionRefused();
-      if (period) await periodAdmission(tx, period, persisted.plannedCredits);
       return append(
         "allocated",
         {

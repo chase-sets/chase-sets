@@ -84,9 +84,6 @@ export function createCountAcquisition(deps: {
     const authority = await deps.ledger.authority();
     if (
       !deps.allowed() ||
-      !authority.allowed ||
-      authority.fingerprint !== original.authority.fingerprint ||
-      !original.authority.allowed ||
       original.fingerprint !== input.fingerprint ||
       Date.parse(original.expiresAt) < Date.parse(now()) ||
       original.membershipFingerprint !== current.membershipFingerprint ||
@@ -115,7 +112,13 @@ export function createCountAcquisition(deps: {
       ? { ...input.period, decided: (decision) => (recorded.decision = decision) }
       : null;
     const perClaim: CountPeriodGate | null = input.period ? { ...input.period, decided: () => undefined } : null;
+    // Missing, stale or changed usage is the period gate's to name first: a gated
+    // acquisition reaches the locked evaluator before this usage-binding refusal,
+    // which whole-quote admission checks again under that same lock.
+    const usageCurrent =
+      authority.allowed && original.authority.allowed && authority.fingerprint === original.authority.fingerprint;
     if (admission && input.admission !== "whole-quote") await deps.ledger.admitPeriod(original, input.owner, admission);
+    if (!usageCurrent && !(admission && input.admission === "whole-quote")) throw new CountAcquisitionRefused();
     const executionId =
       input.admission === "whole-quote"
         ? await deps.ledger.admit(original, input.owner, authority, admission)

@@ -170,8 +170,9 @@ describe("AC4/AC6 retained count evidence", () => {
 // every period decision is the landed gate's, evaluated under the headroom lock.
 function periodHarness(consumed: number, options: { cap?: number } = {}) {
   const history = periodHistoryPool(periodUsage(consumed));
+  const clock = { now: periodAt };
   const createStore = periodStoreForTest();
-  const store = createStore(history.pool, "synthetic-slot", () => periodAt);
+  const store = createStore(history.pool, "synthetic-slot", () => clock.now);
   const query = (kind: "cards" | "sealed") => ({
     environment: "staging",
     accountRevision: "runtime",
@@ -211,7 +212,7 @@ function periodHarness(consumed: number, options: { cap?: number } = {}) {
     resolve: async () => ({ membershipFingerprint: "synthetic", targets }),
     send,
     allowed: () => true,
-    now: () => periodAt,
+    now: () => clock.now,
   });
   async function acquire(
     admission?: CountAdmission,
@@ -225,7 +226,7 @@ function periodHarness(consumed: number, options: { cap?: number } = {}) {
     const debits = history.events.filter((event) => event.event_kind === "debit").length - debitsBefore;
     return { quote, outcome, debits };
   }
-  return { history, store, send, engine, acquire };
+  return { history, clock, store, send, engine, acquire };
 }
 
 describe("AC1/AC2 staging non-capture period-cap boundary", () => {
@@ -320,21 +321,114 @@ describe("AC2 staging non-capture reserve and snapshot refusals", () => {
     }
   });
 
-  it.each([
-    ["missing", null],
-    ["over-900 s", periodUsage(0, { observedAt: "2026-10-13T07:46:59.999Z" })],
-    ["out-of-period", periodUsage(0, { billingPeriod: { ...syntheticPeriod, endsAt: periodAt } })],
-    ["overage", periodUsage(0, { billingPeriod: { ...syntheticPeriod, overageCreditsConsumed: 1 } })],
-  ])("refuses a %s snapshot under the lock before any claim", async (_name, usage) => {
+  // Every acquisition below follows a quote made against fresh, checked usage, with
+  // an owned, unexpired quote and a fresh reserve, so only the snapshot can refuse.
+  const quotedAt = "2026-10-13T08:03:00.000Z";
+  type Harness = ReturnType<typeof periodHarness>;
+  async function acquireAfter(
+    admission: CountAdmission | undefined,
+    change: (f: Harness) => void,
+    options: { underLock?: boolean; fingerprint?: string; period?: { reserve: unknown; runId: string } | null } = {},
+  ) {
     const f = periodHarness(0);
+    f.clock.now = quotedAt;
     const quote = await f.engine.quote({ selection: {}, owner: "owner" });
-    f.history.setUsage(usage);
-    const gate = { reserve, runId: "synthetic-dispatch", decided: vi.fn() };
-    await expect(f.store.admitPeriod(f.history.pool, quote, "owner", gate)).rejects.toBeInstanceOf(
-      CountPeriodCapRefused,
+    if (options.underLock) {
+      // The engine's read sees the fresh usage; the change lands before the locked admission reads it.
+      const connect = f.history.pool.connect.bind(f.history.pool);
+      vi.spyOn(f.history.pool, "connect").mockImplementationOnce(async () => {
+        change(f);
+        return connect();
+      });
+    } else change(f);
+    const outcome = await f.engine
+      .acquire({
+        quoteId: quote.quoteId,
+        fingerprint: options.fingerprint ?? quote.fingerprint,
+        owner: "owner",
+        admission,
+        period:
+          options.period === undefined
+            ? { reserve: { ...reserve, observedAt: quotedAt }, runId: "synthetic-dispatch" }
+            : options.period,
+      })
+      .catch((error: unknown) => error);
+    return { f, quote, outcome };
+  }
+  const snapshots: [string, (f: Harness) => void][] = [
+    ["missing", (f) => f.history.setUsage(null)],
+    ["over-900 s", (f) => f.history.setUsage(periodUsage(0, { observedAt: "2026-10-13T07:46:59.999Z" }))],
+    ["aged past 900 s", (f) => void (f.clock.now = "2026-10-13T08:17:00.001Z")],
+    [
+      "out-of-period",
+      (f) => f.history.setUsage(periodUsage(0, { billingPeriod: { ...syntheticPeriod, endsAt: periodAt } })),
+    ],
+    [
+      "overage",
+      (f) => f.history.setUsage(periodUsage(0, { billingPeriod: { ...syntheticPeriod, overageCreditsConsumed: 1 } })),
+    ],
+  ];
+  for (const underLock of [false, true])
+    it.each(snapshots)(
+      `refuses a %s snapshot usage-period-cap through the acquisition${underLock ? " when it changes under the lock" : ""}`,
+      async (_name, change) => {
+        for (const admission of [undefined, "whole-quote"] as const) {
+          const { f, quote, outcome } = await acquireAfter(admission, change, { underLock });
+          expect(outcome, admission).toBeInstanceOf(CountPeriodCapRefused);
+          expect((outcome as CountPeriodCapRefused).decision, admission).toMatchObject({
+            admitted: false,
+            reason: "usage-period-cap",
+            consumedCredits: null,
+            plannedCredits: 2,
+          });
+          expect(f.send, admission).not.toHaveBeenCalled();
+          expect(
+            f.history.events.map((event) => event.event_kind),
+            admission,
+          ).toEqual(["quoted"]);
+          expect(Date.parse(quote.expiresAt), admission).toBeGreaterThan(Date.parse(f.clock.now));
+        }
+      },
     );
-    expect(gate.decided).toHaveBeenCalledWith(expect.objectContaining({ admitted: false, plannedCredits: 2 }));
-    expect(f.history.events.map((event) => event.event_kind)).toEqual(["quoted"]);
+
+  it("an invalid quote, a changed in-cap snapshot or an ungated acquisition still refuses generically", async () => {
+    const missing = (f: Harness) => f.history.setUsage(null);
+    for (const admission of [undefined, "whole-quote"] as const) {
+      const refusals = [
+        // A newer, fresh, in-cap snapshot admits the period gate; the quote's usage binding then refuses.
+        await acquireAfter(admission, (f) => f.history.setUsage(periodUsage(1, { observedAt: quotedAt }))),
+        // Quote expiry and identity, and an ungated acquisition, refuse before missing usage is classified.
+        await acquireAfter(admission, (f) => {
+          missing(f);
+          f.clock.now = "2026-10-13T08:18:00.001Z";
+        }),
+        await acquireAfter(admission, missing, { fingerprint: "f".repeat(64) }),
+        await acquireAfter(admission, missing, { period: null }),
+      ];
+      for (const [index, { f, outcome }] of refusals.entries()) {
+        expect(outcome, `${admission} ${index}`).toBeInstanceOf(CountAcquisitionRefused);
+        expect(f.send, `${admission} ${index}`).not.toHaveBeenCalled();
+        expect(
+          f.history.events.map((event) => event.event_kind),
+          `${admission} ${index}`,
+        ).toEqual(["quoted"]);
+      }
+    }
+    // A whole-quote replay is refused as executed before its missing usage is classified.
+    const replay = periodHarness(0);
+    const first = await replay.acquire("whole-quote");
+    expect(first.outcome).toMatchObject({ state: "complete" });
+    replay.history.setUsage(null);
+    await expect(
+      replay.engine.acquire({
+        quoteId: first.quote.quoteId,
+        fingerprint: first.quote.fingerprint,
+        owner: "owner",
+        admission: "whole-quote",
+        period: { reserve, runId: "synthetic-dispatch" },
+      }),
+    ).rejects.toBeInstanceOf(CountAcquisitionRefused);
+    expect(replay.send).toHaveBeenCalledTimes(2);
   });
 });
 
