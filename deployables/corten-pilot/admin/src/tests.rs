@@ -5893,7 +5893,8 @@ async fn a_refund_decision_offers_a_remedy_proposal_previewed_before_it_is_reque
     let (status, headers, html) = pilot.send(post_as("support-remedies", at, form, false)).await;
     assert_eq!(status, StatusCode::OK, "a preview is the sheet with it: {html}");
     assert!(headers.get(header::LOCATION).is_none());
-    let call = pilot.calls_to(SUPPORT_REQUESTS).into_iter().last().unwrap();
+    // The sheet is read again after the preview, so the preview is the last POST.
+    let call = pilot.calls_to(SUPPORT_REQUESTS).into_iter().rfind(|c| c.method == Method::POST).unwrap();
     assert_eq!(call.path, format!("{SUPPORT_REQUESTS}/ops/req_done/remedy-proposals/preview"));
     let allocation = json!({ "sellerFundedAmount": "0.00", "platformFundedAmount": "5.00", "currencyCode": "usd", "fundingKind": "platform-funded" });
     assert_eq!(
