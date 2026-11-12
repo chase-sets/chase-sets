@@ -1,6 +1,7 @@
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { AccountId, CheckoutSessionId } from "@chase-sets/primitives/typed-ids";
 import type { CheckoutFulfillmentPreview } from "../domain/fulfillment-preview";
+import type { CheckoutShippingAddress } from "../domain/domain";
 import type { CheckoutSessionServices } from "./runtime";
 import type { CheckoutEntryAttempt } from "../../command-attempts/api/entry-attempt";
 import { CheckoutDomainError } from "../../../support/runtime-support/common";
@@ -33,6 +34,8 @@ export async function prepareBuyNowCheckout(
     sellerPreferenceId?: string | null;
     shippingOption?: "standard" | "expedited" | "priority";
     optimizationGoal?: "fewest-shipments" | "lowest-total";
+    /** The address the session's first preview is computed for (`firstPreviewShippingAddress`). */
+    previewShippingAddress?: CheckoutShippingAddress | null;
   }>,
 ): Promise<
   Awaited<ReturnType<CheckoutSessionServices["createBuyNow"]>> & {
@@ -63,6 +66,7 @@ export async function prepareBuyNowCheckout(
     shippingOption: params.shippingOption ?? "standard",
     optimizationGoal: params.optimizationGoal ?? "lowest-total",
     line,
+    shippingAddress: params.previewShippingAddress ?? null,
   });
   if (fulfillmentPreview.readyLineKeys.length === 0) {
     throw unresolvedFulfillment(fulfillmentPreview);

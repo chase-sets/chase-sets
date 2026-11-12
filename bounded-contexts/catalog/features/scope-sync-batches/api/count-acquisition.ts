@@ -6,25 +6,30 @@ import {
   countSourceIsCurrent,
   type CountAdmission,
   type CountAuthority,
+  type CountPeriodGate,
   type CountQuote,
   type CountTarget,
   type ScrydexCountEvidence,
   type ScrydexCountQuery,
 } from "../domain/count-acquisition";
+import type { ScrydexPeriodDecision } from "../domain/scrydex-billing-period";
 
 export type CountAcquisitionLedger = Readonly<{
   authority(): Promise<CountAuthority>;
   saveQuote(quote: CountQuote, owner: string): Promise<void>;
   loadQuote(quoteId: string, owner: string): Promise<CountQuote>;
   /** Holds the quote's whole P under the headroom lock and returns its single execution id. */
-  admit(quote: CountQuote, owner: string, authority: CountAuthority): Promise<string>;
+  admit(quote: CountQuote, owner: string, authority: CountAuthority, period: CountPeriodGate | null): Promise<string>;
+  /** The zero-send up-front period check of an ordinary acquisition, under the headroom lock. */
+  admitPeriod(quote: CountQuote, owner: string, period: CountPeriodGate): Promise<void>;
   approve(quoteId: string, fingerprint: string, owner: string): Promise<CountQuote>;
   claim(
     quote: CountQuote,
     target: CountTarget,
     owner: string,
     authority: CountAuthority,
-    executionId?: string,
+    executionId: string | undefined,
+    period: CountPeriodGate | null,
   ): Promise<string | null>;
   result(
     debitId: string,
@@ -71,15 +76,14 @@ export function createCountAcquisition(deps: {
     fingerprint: string;
     owner: string;
     admission?: CountAdmission;
-  }): Promise<CountQuote> {
+    /** Gates every send of this acquisition against the billing-period cap; null leaves it ungated. */
+    period?: Readonly<{ reserve: unknown; runId: string }> | null;
+  }): Promise<CountQuote & { periodDecision?: ScrydexPeriodDecision }> {
     const original = await deps.ledger.loadQuote(input.quoteId, input.owner);
     const current = await deps.resolve(original.selection);
     const authority = await deps.ledger.authority();
     if (
       !deps.allowed() ||
-      !authority.allowed ||
-      authority.fingerprint !== original.authority.fingerprint ||
-      !original.authority.allowed ||
       original.fingerprint !== input.fingerprint ||
       Date.parse(original.expiresAt) < Date.parse(now()) ||
       original.membershipFingerprint !== current.membershipFingerprint ||
@@ -101,8 +105,24 @@ export function createCountAcquisition(deps: {
         current.targets.some((target) => target.blocked && !target.source))
     )
       throw new CountAcquisitionRefused();
+    // The admission decision (whole-quote P, or the ordinary plan's up-front P) is
+    // the one returned; each ordinary claim is gated again at P = 1.
+    const recorded: { decision: ScrydexPeriodDecision | null } = { decision: null };
+    const admission: CountPeriodGate | null = input.period
+      ? { ...input.period, decided: (decision) => (recorded.decision = decision) }
+      : null;
+    const perClaim: CountPeriodGate | null = input.period ? { ...input.period, decided: () => undefined } : null;
+    // Missing, stale or changed usage is the period gate's to name first: a gated
+    // acquisition reaches the locked evaluator before this usage-binding refusal,
+    // which whole-quote admission checks again under that same lock.
+    const usageCurrent =
+      authority.allowed && original.authority.allowed && authority.fingerprint === original.authority.fingerprint;
+    if (admission && input.admission !== "whole-quote") await deps.ledger.admitPeriod(original, input.owner, admission);
+    if (!usageCurrent && !(admission && input.admission === "whole-quote")) throw new CountAcquisitionRefused();
     const executionId =
-      input.admission === "whole-quote" ? await deps.ledger.admit(original, input.owner, authority) : undefined;
+      input.admission === "whole-quote"
+        ? await deps.ledger.admit(original, input.owner, authority, admission)
+        : undefined;
     let state: "complete" | "failed" | "uncertain" = "failed";
     try {
       await deps.ledger.approve(original.quoteId, original.fingerprint, input.owner);
@@ -112,7 +132,14 @@ export function createCountAcquisition(deps: {
         if (target.source) continue;
         let debit: string | null;
         try {
-          debit = await deps.ledger.claim(original, target, input.owner, authority, executionId);
+          debit = await deps.ledger.claim(
+            original,
+            target,
+            input.owner,
+            authority,
+            executionId,
+            executionId ? null : perClaim,
+          );
         } catch {
           state = "failed";
           break;
@@ -162,7 +189,8 @@ export function createCountAcquisition(deps: {
           break;
         }
       }
-      return { ...original, targets: acquired, state };
+      const result = { ...original, targets: acquired, state };
+      return recorded.decision ? { ...result, periodDecision: recorded.decision } : result;
     } finally {
       // Fence and release unconverted capacity; a failed end leaves it held until expiry.
       if (executionId) await deps.ledger.end(original.quoteId, executionId, input.owner, state).catch(() => undefined);

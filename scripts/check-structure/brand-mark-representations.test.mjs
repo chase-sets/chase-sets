@@ -250,13 +250,6 @@ const callerNeedles = [
   "chaseSetsLogoSvg",
 ];
 
-// The accepted bootstrap capture pair carries source-manifest paths as data;
-// those paths are not callers of the brand representations.
-const captureFixtureCarrierPaths = new Set([
-  "deployables/platform-api/__tests__/fixtures/bootstrap-db-capture-41285374094-paired.json",
-  "deployables/platform-api/__tests__/fixtures/bootstrap-db-capture-41285374094.json",
-]);
-
 export function deriveCallers() {
   const callers = new Set();
   for (const needle of callerNeedles) {
@@ -268,11 +261,7 @@ export function deriveCallers() {
     } catch {
       output = "";
     }
-    for (const file of output.split("\n").filter(Boolean)) {
-      const normalized = file.replaceAll("\\", "/");
-      if (captureFixtureCarrierPaths.has(normalized)) continue;
-      callers.add(normalized);
-    }
+    for (const file of output.split("\n").filter(Boolean)) callers.add(file.replaceAll("\\", "/"));
   }
   return [...callers].sort();
 }
@@ -767,7 +756,7 @@ describe("lockfile package-entry discipline", () => {
   it("declares the root sharp importer at exactly the version the lockfile already resolves", () => {
     const rootPackage = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
     expect(rootPackage.devDependencies.sharp).toBe("^0.35.5");
-    expect(lock.importers["."].devDependencies.sharp.version).toBe("0.35.5(@types/node@25.6.2)");
+    expect(lock.importers["."].devDependencies.sharp.version).toBe("0.35.5(@types/node@24.19.2)");
     expect(packageKeys).toContain("sharp@0.35.5");
   });
 

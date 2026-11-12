@@ -14,7 +14,7 @@
 //! Departures from admin-web, each until its issue closes:
 //! - admin-web links each case to this queue again with a `caseId` it ignores
 //!   (chase-sets/chase-sets#10854): the pilot shows the case ID without the link.
-use corten::{axum::http::HeaderMap, prelude::*};
+use corten::{http::HeaderMap, prelude::*};
 use serde::{Deserialize, Serialize};
 
 use super::views;

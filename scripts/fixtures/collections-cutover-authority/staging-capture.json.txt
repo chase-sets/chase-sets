@@ -1,0 +1,725 @@
+{
+  "schemaVersion": "collections-cutover-provider-capture/v1",
+  "target": "staging",
+  "capturedAt": "2026-11-01T06:29:21.824Z",
+  "head": "36dbf479dc07ce129f00bff253988f4790f4c861",
+  "codes": [],
+  "fields": {
+    "environment": {
+      "value": "staging",
+      "source": "workflow input target, bound to the job environment of the same name"
+    },
+    "databaseIdentityDigest": {
+      "value": "d9c110f64ea708c2d4ceaca66e152fc079082d85213367bb2f1444f361a1580d",
+      "source": "databaseIdentityDigest over DATABASE_URL_COLLECTIONS host, port and database"
+    },
+    "terraformStateSerial": {
+      "value": 2910,
+      "source": "terraform state pull landing/staging.tfstate serial"
+    },
+    "terraformStateLineage": {
+      "value": "1e3eca63-1cf0-055e-7676-e84547adcdb4",
+      "source": "terraform state pull landing/staging.tfstate lineage"
+    },
+    "releaseCommit": {
+      "value": "f06a6b4e054167e8e4539d162c19e970157f4566",
+      "source": "global.image.tag of deployed Helm revision 1233"
+    },
+    "imageDigests": {
+      "value": [
+        "sha256:d8f09c34311ae7dbb1b4a65ec82947ae67e27aae8869b0f140fc456c90425183"
+      ],
+      "source": "imageID in status.initContainerStatuses, containerStatuses and ephemeralContainerStatuses of writer pods"
+    },
+    "writers.serving": {
+      "collected": 4,
+      "authoritativeTotal": 4,
+      "items": [
+        {
+          "id": "deployments:chase-sets-platform/chase-sets-platform-chase-sets-platform-platform-api",
+          "replicas": 2,
+          "references": [
+            "env:BOOTSTRAP_DATABASE_URL_COLLECTIONS",
+            "env:DATABASE_URL_COLLECTIONS",
+            "secretKeyRef:chase-sets-platform-runtime/BOOTSTRAP_DATABASE_URL_COLLECTIONS",
+            "secretKeyRef:chase-sets-platform-runtime/DATABASE_URL_COLLECTIONS"
+          ],
+          "images": [
+            "registry.digitalocean.com/chase-sets/chase-sets-platform@sha256:d8f09c34311ae7dbb1b4a65ec82947ae67e27aae8869b0f140fc456c90425183"
+          ],
+          "revisions": [
+            "f06a6b4e054167e8e4539d162c19e970157f4566"
+          ],
+          "containsFloor": true
+        },
+        {
+          "id": "deployments:chase-sets-platform/chase-sets-platform-chase-sets-platform-platform-worker",
+          "replicas": 1,
+          "references": [
+            "env:DATABASE_URL_COLLECTIONS",
+            "secretKeyRef:chase-sets-platform-runtime/DATABASE_URL_COLLECTIONS"
+          ],
+          "images": [
+            "registry.digitalocean.com/chase-sets/chase-sets-platform@sha256:d8f09c34311ae7dbb1b4a65ec82947ae67e27aae8869b0f140fc456c90425183"
+          ],
+          "revisions": [
+            "f06a6b4e054167e8e4539d162c19e970157f4566"
+          ],
+          "containsFloor": true
+        },
+        {
+          "id": "replicasets:chase-sets-platform/chase-sets-platform-chase-sets-platform-platform-api-697d95b4c4",
+          "replicas": 2,
+          "references": [
+            "env:BOOTSTRAP_DATABASE_URL_COLLECTIONS",
+            "env:DATABASE_URL_COLLECTIONS",
+            "secretKeyRef:chase-sets-platform-runtime/BOOTSTRAP_DATABASE_URL_COLLECTIONS",
+            "secretKeyRef:chase-sets-platform-runtime/DATABASE_URL_COLLECTIONS"
+          ],
+          "images": [
+            "registry.digitalocean.com/chase-sets/chase-sets-platform@sha256:d8f09c34311ae7dbb1b4a65ec82947ae67e27aae8869b0f140fc456c90425183"
+          ],
+          "revisions": [
+            "f06a6b4e054167e8e4539d162c19e970157f4566"
+          ],
+          "containsFloor": true
+        },
+        {
+          "id": "replicasets:chase-sets-platform/chase-sets-platform-chase-sets-platform-platform-worker-68bff457d7",
+          "replicas": 1,
+          "references": [
+            "env:DATABASE_URL_COLLECTIONS",
+            "secretKeyRef:chase-sets-platform-runtime/DATABASE_URL_COLLECTIONS"
+          ],
+          "images": [
+            "registry.digitalocean.com/chase-sets/chase-sets-platform@sha256:d8f09c34311ae7dbb1b4a65ec82947ae67e27aae8869b0f140fc456c90425183"
+          ],
+          "revisions": [
+            "f06a6b4e054167e8e4539d162c19e970157f4566"
+          ],
+          "containsFloor": true
+        }
+      ],
+      "coverage": {
+        "rollouts": {
+          "status": "complete",
+          "listed": 0
+        },
+        "deployments": {
+          "status": "complete",
+          "listed": 18
+        },
+        "replicasets": {
+          "status": "complete",
+          "listed": 75
+        },
+        "pods": {
+          "status": "complete",
+          "listed": 35
+        }
+      },
+      "source": "kubectl get --raw /apis/argoproj.io/v1alpha1/rollouts (all namespaces) + kubectl get --raw /apis/apps/v1/deployments (all namespaces) + kubectl get --raw /apis/apps/v1/replicasets (all namespaces) + kubectl get --raw /api/v1/pods (all namespaces)"
+    },
+    "writers.suspended": {
+      "collected": 0,
+      "authoritativeTotal": 0,
+      "items": [],
+      "coverage": {
+        "jobs": {
+          "status": "complete",
+          "listed": 0
+        },
+        "cronjobs": {
+          "status": "complete",
+          "listed": 0
+        }
+      },
+      "source": "kubectl get --raw /apis/batch/v1/jobs (all namespaces) + kubectl get --raw /apis/batch/v1/cronjobs (all namespaces)"
+    },
+    "writers.dormant": {
+      "collected": 0,
+      "authoritativeTotal": 0,
+      "items": [],
+      "coverage": {
+        "rollouts": {
+          "status": "complete",
+          "listed": 0
+        },
+        "deployments": {
+          "status": "complete",
+          "listed": 18
+        },
+        "replicasets": {
+          "status": "complete",
+          "listed": 75
+        }
+      },
+      "source": "kubectl get --raw /apis/argoproj.io/v1alpha1/rollouts (all namespaces) + kubectl get --raw /apis/apps/v1/deployments (all namespaces) + kubectl get --raw /apis/apps/v1/replicasets (all namespaces)"
+    },
+    "writers.rollback": {
+      "collected": 27,
+      "authoritativeTotal": 27,
+      "items": [
+        {
+          "id": "replicasets:chase-sets-platform/chase-sets-platform-chase-sets-platform-platform-api-65df497945",
+          "replicas": 0,
+          "references": [
+            "env:BOOTSTRAP_DATABASE_URL_COLLECTIONS",
+            "env:DATABASE_URL_COLLECTIONS",
+            "secretKeyRef:chase-sets-platform-runtime/BOOTSTRAP_DATABASE_URL_COLLECTIONS",
+            "secretKeyRef:chase-sets-platform-runtime/DATABASE_URL_COLLECTIONS"
+          ],
+          "images": [
+            "registry.digitalocean.com/chase-sets/chase-sets-platform@sha256:be647660e2b97cb89afa35e617acea60f4d85239f94e17dd0c94e96822d705b1"
+          ],
+          "revisions": [
+            "102239355d168127c2ebb528556b5ef539b991d1"
+          ],
+          "containsFloor": true
+        },
+        {
+          "id": "replicasets:chase-sets-platform/chase-sets-platform-chase-sets-platform-platform-api-65dfdf8897",
+          "replicas": 0,
+          "references": [
+            "env:BOOTSTRAP_DATABASE_URL_COLLECTIONS",
+            "env:DATABASE_URL_COLLECTIONS",
+            "secretKeyRef:chase-sets-platform-runtime/BOOTSTRAP_DATABASE_URL_COLLECTIONS",
+            "secretKeyRef:chase-sets-platform-runtime/DATABASE_URL_COLLECTIONS"
+          ],
+          "images": [
+            "registry.digitalocean.com/chase-sets/chase-sets-platform@sha256:d3698ecaf71b350f196072e33c460503a2972c739a54d550342cc369105d16c1"
+          ],
+          "revisions": [
+            "8f7999b05483f86d5364df5dbae21fb926525c54"
+          ],
+          "containsFloor": true
+        },
+        {
+          "id": "replicasets:chase-sets-platform/chase-sets-platform-chase-sets-platform-platform-api-6f57664589",
+          "replicas": 0,
+          "references": [
+            "env:BOOTSTRAP_DATABASE_URL_COLLECTIONS",
+            "env:DATABASE_URL_COLLECTIONS",
+            "secretKeyRef:chase-sets-platform-runtime/BOOTSTRAP_DATABASE_URL_COLLECTIONS",
+            "secretKeyRef:chase-sets-platform-runtime/DATABASE_URL_COLLECTIONS"
+          ],
+          "images": [
+            "registry.digitalocean.com/chase-sets/chase-sets-platform@sha256:753d66095181d2257c8446d905c7f82ce45a0e2c2c7158ea1ecdb76ff4f81946"
+          ],
+          "revisions": [
+            "46ff784efe012d8eef2615f069640602b6b501f8"
+          ],
+          "containsFloor": true
+        },
+        {
+          "id": "replicasets:chase-sets-platform/chase-sets-platform-chase-sets-platform-platform-api-76968cd96b",
+          "replicas": 0,
+          "references": [
+            "env:BOOTSTRAP_DATABASE_URL_COLLECTIONS",
+            "env:DATABASE_URL_COLLECTIONS",
+            "secretKeyRef:chase-sets-platform-runtime/BOOTSTRAP_DATABASE_URL_COLLECTIONS",
+            "secretKeyRef:chase-sets-platform-runtime/DATABASE_URL_COLLECTIONS"
+          ],
+          "images": [
+            "registry.digitalocean.com/chase-sets/chase-sets-platform@sha256:f101cbfeb386f689c1bbcb5fbad5510037b7357aa28dc009b549fae6253cab82"
+          ],
+          "revisions": [
+            "b2bef3ccf0fd3d6b275203c80a9842490201e29c"
+          ],
+          "containsFloor": true
+        },
+        {
+          "id": "replicasets:chase-sets-platform/chase-sets-platform-chase-sets-platform-platform-api-7ffbb447c4",
+          "replicas": 0,
+          "references": [
+            "env:BOOTSTRAP_DATABASE_URL_COLLECTIONS",
+            "env:DATABASE_URL_COLLECTIONS",
+            "secretKeyRef:chase-sets-platform-runtime/BOOTSTRAP_DATABASE_URL_COLLECTIONS",
+            "secretKeyRef:chase-sets-platform-runtime/DATABASE_URL_COLLECTIONS"
+          ],
+          "images": [
+            "registry.digitalocean.com/chase-sets/chase-sets-platform@sha256:f04d6217ca09c2083ba8e1b76d3de424df284a5cb57eeb12b82e2fafc8c8a9da"
+          ],
+          "revisions": [
+            "7dffbf2469b96ec4d6fddcf3b5dfa9a74e2f7f29"
+          ],
+          "containsFloor": true
+        },
+        {
+          "id": "replicasets:chase-sets-platform/chase-sets-platform-chase-sets-platform-platform-api-85bf699857",
+          "replicas": 0,
+          "references": [
+            "env:BOOTSTRAP_DATABASE_URL_COLLECTIONS",
+            "env:DATABASE_URL_COLLECTIONS",
+            "secretKeyRef:chase-sets-platform-runtime/BOOTSTRAP_DATABASE_URL_COLLECTIONS",
+            "secretKeyRef:chase-sets-platform-runtime/DATABASE_URL_COLLECTIONS"
+          ],
+          "images": [
+            "registry.digitalocean.com/chase-sets/chase-sets-platform@sha256:bad891a992e8b40152a4cae91e9f979698bc483bac66cad4d4a1ef4ec264968d"
+          ],
+          "revisions": [
+            "47cdc4cc17348e3131ccec837f7f839740916b4e"
+          ],
+          "containsFloor": true
+        },
+        {
+          "id": "replicasets:chase-sets-platform/chase-sets-platform-chase-sets-platform-platform-api-86b4c76ff",
+          "replicas": 0,
+          "references": [
+            "env:BOOTSTRAP_DATABASE_URL_COLLECTIONS",
+            "env:DATABASE_URL_COLLECTIONS",
+            "secretKeyRef:chase-sets-platform-runtime/BOOTSTRAP_DATABASE_URL_COLLECTIONS",
+            "secretKeyRef:chase-sets-platform-runtime/DATABASE_URL_COLLECTIONS"
+          ],
+          "images": [
+            "registry.digitalocean.com/chase-sets/chase-sets-platform@sha256:a2462eec8ad01bd75c0f6ac243d5f5a6f47753cf49a5cf4700a959f610771187"
+          ],
+          "revisions": [
+            "4a1d9872d36f86dcb67bd1c69a4d5d8d2cbc245f"
+          ],
+          "containsFloor": true
+        },
+        {
+          "id": "replicasets:chase-sets-platform/chase-sets-platform-chase-sets-platform-platform-api-b48b54c5f",
+          "replicas": 0,
+          "references": [
+            "env:BOOTSTRAP_DATABASE_URL_COLLECTIONS",
+            "env:DATABASE_URL_COLLECTIONS",
+            "secretKeyRef:chase-sets-platform-runtime/BOOTSTRAP_DATABASE_URL_COLLECTIONS",
+            "secretKeyRef:chase-sets-platform-runtime/DATABASE_URL_COLLECTIONS"
+          ],
+          "images": [
+            "registry.digitalocean.com/chase-sets/chase-sets-platform@sha256:da2cb786991eb7d86f6ff7057742311640460164954fc2e2f9df4e53ba4bf02b"
+          ],
+          "revisions": [
+            "3e1f6ec3407423a5d3f8686740ac7b4081f5eb32"
+          ],
+          "containsFloor": true
+        },
+        {
+          "id": "replicasets:chase-sets-platform/chase-sets-platform-chase-sets-platform-platform-api-db8c64b65",
+          "replicas": 0,
+          "references": [
+            "env:BOOTSTRAP_DATABASE_URL_COLLECTIONS",
+            "env:DATABASE_URL_COLLECTIONS",
+            "secretKeyRef:chase-sets-platform-runtime/BOOTSTRAP_DATABASE_URL_COLLECTIONS",
+            "secretKeyRef:chase-sets-platform-runtime/DATABASE_URL_COLLECTIONS"
+          ],
+          "images": [
+            "registry.digitalocean.com/chase-sets/chase-sets-platform@sha256:fe9567c278f1966d8cbe4a2cf33c4541026acfc5853147a686676e63ebad77eb"
+          ],
+          "revisions": [
+            "3d5eb8bf1bcc7b5541c06daacef461fe4cb34957"
+          ],
+          "containsFloor": true
+        },
+        {
+          "id": "replicasets:chase-sets-platform/chase-sets-platform-chase-sets-platform-platform-worker-5788bcf8bb",
+          "replicas": 0,
+          "references": [
+            "env:DATABASE_URL_COLLECTIONS",
+            "secretKeyRef:chase-sets-platform-runtime/DATABASE_URL_COLLECTIONS"
+          ],
+          "images": [
+            "registry.digitalocean.com/chase-sets/chase-sets-platform@sha256:753d66095181d2257c8446d905c7f82ce45a0e2c2c7158ea1ecdb76ff4f81946"
+          ],
+          "revisions": [
+            "46ff784efe012d8eef2615f069640602b6b501f8"
+          ],
+          "containsFloor": true
+        },
+        {
+          "id": "replicasets:chase-sets-platform/chase-sets-platform-chase-sets-platform-platform-worker-6bd65c6587",
+          "replicas": 0,
+          "references": [
+            "env:DATABASE_URL_COLLECTIONS",
+            "secretKeyRef:chase-sets-platform-runtime/DATABASE_URL_COLLECTIONS"
+          ],
+          "images": [
+            "registry.digitalocean.com/chase-sets/chase-sets-platform@sha256:fe9567c278f1966d8cbe4a2cf33c4541026acfc5853147a686676e63ebad77eb"
+          ],
+          "revisions": [
+            "3d5eb8bf1bcc7b5541c06daacef461fe4cb34957"
+          ],
+          "containsFloor": true
+        },
+        {
+          "id": "replicasets:chase-sets-platform/chase-sets-platform-chase-sets-platform-platform-worker-6df586c5cd",
+          "replicas": 0,
+          "references": [
+            "env:DATABASE_URL_COLLECTIONS",
+            "secretKeyRef:chase-sets-platform-runtime/DATABASE_URL_COLLECTIONS"
+          ],
+          "images": [
+            "registry.digitalocean.com/chase-sets/chase-sets-platform@sha256:be647660e2b97cb89afa35e617acea60f4d85239f94e17dd0c94e96822d705b1"
+          ],
+          "revisions": [
+            "102239355d168127c2ebb528556b5ef539b991d1"
+          ],
+          "containsFloor": true
+        },
+        {
+          "id": "replicasets:chase-sets-platform/chase-sets-platform-chase-sets-platform-platform-worker-778c86dbdc",
+          "replicas": 0,
+          "references": [
+            "env:DATABASE_URL_COLLECTIONS",
+            "secretKeyRef:chase-sets-platform-runtime/DATABASE_URL_COLLECTIONS"
+          ],
+          "images": [
+            "registry.digitalocean.com/chase-sets/chase-sets-platform@sha256:d3698ecaf71b350f196072e33c460503a2972c739a54d550342cc369105d16c1"
+          ],
+          "revisions": [
+            "8f7999b05483f86d5364df5dbae21fb926525c54"
+          ],
+          "containsFloor": true
+        },
+        {
+          "id": "replicasets:chase-sets-platform/chase-sets-platform-chase-sets-platform-platform-worker-795f6f78ff",
+          "replicas": 0,
+          "references": [
+            "env:DATABASE_URL_COLLECTIONS",
+            "secretKeyRef:chase-sets-platform-runtime/DATABASE_URL_COLLECTIONS"
+          ],
+          "images": [
+            "registry.digitalocean.com/chase-sets/chase-sets-platform@sha256:da2cb786991eb7d86f6ff7057742311640460164954fc2e2f9df4e53ba4bf02b"
+          ],
+          "revisions": [
+            "3e1f6ec3407423a5d3f8686740ac7b4081f5eb32"
+          ],
+          "containsFloor": true
+        },
+        {
+          "id": "replicasets:chase-sets-platform/chase-sets-platform-chase-sets-platform-platform-worker-86c565f89f",
+          "replicas": 0,
+          "references": [
+            "env:DATABASE_URL_COLLECTIONS",
+            "secretKeyRef:chase-sets-platform-runtime/DATABASE_URL_COLLECTIONS"
+          ],
+          "images": [
+            "registry.digitalocean.com/chase-sets/chase-sets-platform@sha256:f101cbfeb386f689c1bbcb5fbad5510037b7357aa28dc009b549fae6253cab82"
+          ],
+          "revisions": [
+            "b2bef3ccf0fd3d6b275203c80a9842490201e29c"
+          ],
+          "containsFloor": true
+        },
+        {
+          "id": "replicasets:chase-sets-platform/chase-sets-platform-chase-sets-platform-platform-worker-d78d5d668",
+          "replicas": 0,
+          "references": [
+            "env:DATABASE_URL_COLLECTIONS",
+            "secretKeyRef:chase-sets-platform-runtime/DATABASE_URL_COLLECTIONS"
+          ],
+          "images": [
+            "registry.digitalocean.com/chase-sets/chase-sets-platform@sha256:f04d6217ca09c2083ba8e1b76d3de424df284a5cb57eeb12b82e2fafc8c8a9da"
+          ],
+          "revisions": [
+            "7dffbf2469b96ec4d6fddcf3b5dfa9a74e2f7f29"
+          ],
+          "containsFloor": true
+        },
+        {
+          "id": "replicasets:chase-sets-platform/chase-sets-platform-chase-sets-platform-platform-worker-d8d5f6fbd",
+          "replicas": 0,
+          "references": [
+            "env:DATABASE_URL_COLLECTIONS",
+            "secretKeyRef:chase-sets-platform-runtime/DATABASE_URL_COLLECTIONS"
+          ],
+          "images": [
+            "registry.digitalocean.com/chase-sets/chase-sets-platform@sha256:bad891a992e8b40152a4cae91e9f979698bc483bac66cad4d4a1ef4ec264968d"
+          ],
+          "revisions": [
+            "47cdc4cc17348e3131ccec837f7f839740916b4e"
+          ],
+          "containsFloor": true
+        },
+        {
+          "id": "replicasets:chase-sets-platform/chase-sets-platform-chase-sets-platform-platform-worker-dfb97b66f",
+          "replicas": 0,
+          "references": [
+            "env:DATABASE_URL_COLLECTIONS",
+            "secretKeyRef:chase-sets-platform-runtime/DATABASE_URL_COLLECTIONS"
+          ],
+          "images": [
+            "registry.digitalocean.com/chase-sets/chase-sets-platform@sha256:a2462eec8ad01bd75c0f6ac243d5f5a6f47753cf49a5cf4700a959f610771187"
+          ],
+          "revisions": [
+            "4a1d9872d36f86dcb67bd1c69a4d5d8d2cbc245f"
+          ],
+          "containsFloor": true
+        },
+        {
+          "id": "helm:chase-sets-platform/1224",
+          "status": "superseded",
+          "revisions": [
+            "47cdc4cc17348e3131ccec837f7f839740916b4e"
+          ],
+          "containsFloor": true
+        },
+        {
+          "id": "helm:chase-sets-platform/1225",
+          "status": "superseded",
+          "revisions": [
+            "3e1f6ec3407423a5d3f8686740ac7b4081f5eb32"
+          ],
+          "containsFloor": true
+        },
+        {
+          "id": "helm:chase-sets-platform/1226",
+          "status": "superseded",
+          "revisions": [
+            "7dffbf2469b96ec4d6fddcf3b5dfa9a74e2f7f29"
+          ],
+          "containsFloor": true
+        },
+        {
+          "id": "helm:chase-sets-platform/1227",
+          "status": "superseded",
+          "revisions": [
+            "8f7999b05483f86d5364df5dbae21fb926525c54"
+          ],
+          "containsFloor": true
+        },
+        {
+          "id": "helm:chase-sets-platform/1228",
+          "status": "superseded",
+          "revisions": [
+            "4a1d9872d36f86dcb67bd1c69a4d5d8d2cbc245f"
+          ],
+          "containsFloor": true
+        },
+        {
+          "id": "helm:chase-sets-platform/1229",
+          "status": "superseded",
+          "revisions": [
+            "3d5eb8bf1bcc7b5541c06daacef461fe4cb34957"
+          ],
+          "containsFloor": true
+        },
+        {
+          "id": "helm:chase-sets-platform/1230",
+          "status": "superseded",
+          "revisions": [
+            "46ff784efe012d8eef2615f069640602b6b501f8"
+          ],
+          "containsFloor": true
+        },
+        {
+          "id": "helm:chase-sets-platform/1231",
+          "status": "superseded",
+          "revisions": [
+            "102239355d168127c2ebb528556b5ef539b991d1"
+          ],
+          "containsFloor": true
+        },
+        {
+          "id": "helm:chase-sets-platform/1232",
+          "status": "superseded",
+          "revisions": [
+            "b2bef3ccf0fd3d6b275203c80a9842490201e29c"
+          ],
+          "containsFloor": true
+        }
+      ],
+      "coverage": {
+        "replicasets": {
+          "status": "complete",
+          "listed": 75
+        },
+        "helm": {
+          "status": "complete",
+          "listed": 10
+        }
+      },
+      "source": "kubectl get --raw /apis/apps/v1/replicasets (all namespaces) + helm history and get values chase-sets-platform"
+    },
+    "writers.job": {
+      "collected": 0,
+      "authoritativeTotal": 0,
+      "items": [],
+      "coverage": {
+        "jobs": {
+          "status": "complete",
+          "listed": 0
+        }
+      },
+      "source": "kubectl get --raw /apis/batch/v1/jobs (all namespaces)"
+    },
+    "writers.cronjob": {
+      "collected": 0,
+      "authoritativeTotal": 0,
+      "items": [],
+      "coverage": {
+        "cronjobs": {
+          "status": "complete",
+          "listed": 0
+        }
+      },
+      "source": "kubectl get --raw /apis/batch/v1/cronjobs (all namespaces)"
+    },
+    "writers.session": {
+      "collected": 1,
+      "authoritativeTotal": 1,
+      "items": [
+        {
+          "id": "session:1",
+          "state": "idle",
+          "backendType": "client backend",
+          "roleDigest": "ac226924043354b56a88a086f3430b661635ef2ed05c655d98e7cb773ffd5432",
+          "applicationDigest": "de60c253b02d8db58be649e16f6fafca41817ac66d81e08e328590f40abd636d",
+          "sessions": 1,
+          "oldestBackendStart": "2026-11-01T05:36:18.304Z"
+        }
+      ],
+      "coverage": {
+        "sessions": {
+          "status": "complete",
+          "listed": 1
+        }
+      },
+      "source": "pg_stat_activity aggregate"
+    },
+    "gates.rollout.observeAuthority": {
+      "value": "demonstrated",
+      "source": "complete read-only kubectl get --raw /apis/argoproj.io/v1alpha1/rollouts (all namespaces) + kubectl get --raw /apis/apps/v1/deployments (all namespaces) + kubectl get --raw /apis/apps/v1/replicasets (all namespaces)"
+    },
+    "gates.traffic.observeAuthority": {
+      "value": "demonstrated",
+      "source": "complete read-only kubectl get --raw /api/v1/pods (all namespaces)"
+    },
+    "gates.job.observeAuthority": {
+      "value": "demonstrated",
+      "source": "complete read-only kubectl get --raw /apis/batch/v1/jobs (all namespaces)"
+    },
+    "gates.cronjob.observeAuthority": {
+      "value": "demonstrated",
+      "source": "complete read-only kubectl get --raw /apis/batch/v1/cronjobs (all namespaces)"
+    },
+    "gates.rollback-floor.observeAuthority": {
+      "value": "demonstrated",
+      "source": "complete read-only helm history and get values chase-sets-platform"
+    },
+    "gates.credential-session-fence.observeAuthority": {
+      "value": "demonstrated",
+      "source": "complete read-only pg_stat_activity aggregate"
+    },
+    "deployedCommitAncestry": {
+      "value": {
+        "floor": "a460b410398b01d386b7919ef364e63d3d271b88",
+        "revisions": [
+          {
+            "revision": 1224,
+            "status": "superseded",
+            "commit": "47cdc4cc17348e3131ccec837f7f839740916b4e",
+            "digest": "sha256:bad891a992e8b40152a4cae91e9f979698bc483bac66cad4d4a1ef4ec264968d",
+            "containsFloor": true
+          },
+          {
+            "revision": 1225,
+            "status": "superseded",
+            "commit": "3e1f6ec3407423a5d3f8686740ac7b4081f5eb32",
+            "digest": "sha256:da2cb786991eb7d86f6ff7057742311640460164954fc2e2f9df4e53ba4bf02b",
+            "containsFloor": true
+          },
+          {
+            "revision": 1226,
+            "status": "superseded",
+            "commit": "7dffbf2469b96ec4d6fddcf3b5dfa9a74e2f7f29",
+            "digest": "sha256:f04d6217ca09c2083ba8e1b76d3de424df284a5cb57eeb12b82e2fafc8c8a9da",
+            "containsFloor": true
+          },
+          {
+            "revision": 1227,
+            "status": "superseded",
+            "commit": "8f7999b05483f86d5364df5dbae21fb926525c54",
+            "digest": "sha256:d3698ecaf71b350f196072e33c460503a2972c739a54d550342cc369105d16c1",
+            "containsFloor": true
+          },
+          {
+            "revision": 1228,
+            "status": "superseded",
+            "commit": "4a1d9872d36f86dcb67bd1c69a4d5d8d2cbc245f",
+            "digest": "sha256:a2462eec8ad01bd75c0f6ac243d5f5a6f47753cf49a5cf4700a959f610771187",
+            "containsFloor": true
+          },
+          {
+            "revision": 1229,
+            "status": "superseded",
+            "commit": "3d5eb8bf1bcc7b5541c06daacef461fe4cb34957",
+            "digest": "sha256:fe9567c278f1966d8cbe4a2cf33c4541026acfc5853147a686676e63ebad77eb",
+            "containsFloor": true
+          },
+          {
+            "revision": 1230,
+            "status": "superseded",
+            "commit": "46ff784efe012d8eef2615f069640602b6b501f8",
+            "digest": "sha256:753d66095181d2257c8446d905c7f82ce45a0e2c2c7158ea1ecdb76ff4f81946",
+            "containsFloor": true
+          },
+          {
+            "revision": 1231,
+            "status": "superseded",
+            "commit": "102239355d168127c2ebb528556b5ef539b991d1",
+            "digest": "sha256:be647660e2b97cb89afa35e617acea60f4d85239f94e17dd0c94e96822d705b1",
+            "containsFloor": true
+          },
+          {
+            "revision": 1232,
+            "status": "superseded",
+            "commit": "b2bef3ccf0fd3d6b275203c80a9842490201e29c",
+            "digest": "sha256:f101cbfeb386f689c1bbcb5fbad5510037b7357aa28dc009b549fae6253cab82",
+            "containsFloor": true
+          },
+          {
+            "revision": 1233,
+            "status": "deployed",
+            "commit": "f06a6b4e054167e8e4539d162c19e970157f4566",
+            "digest": "sha256:d8f09c34311ae7dbb1b4a65ec82947ae67e27aae8869b0f140fc456c90425183",
+            "containsFloor": true
+          }
+        ]
+      },
+      "source": "git merge-base --is-ancestor of each Helm revision's global.image.tag against the derived floor"
+    },
+    "legacyRawRowCount": {
+      "value": 147,
+      "source": "redactLegacyAnonymousOwners dryRun: true observe() count"
+    },
+    "legacyCountQueryPlan": {
+      "value": {
+        "statementSha256": "f27510a9de8e0c5ae7d60143c26af86e69d6bfc96ce6320a00232feaf08c8a1e",
+        "plan": [
+          {
+            "Plan": {
+              "Node Type": "Aggregate",
+              "Strategy": "Plain",
+              "Partial Mode": "Simple",
+              "Parallel Aware": false,
+              "Async Capable": false,
+              "Startup Cost": 18.9,
+              "Total Cost": 18.91,
+              "Plan Rows": 1,
+              "Plan Width": 32,
+              "Plans": [
+                {
+                  "Node Type": "Seq Scan",
+                  "Parent Relationship": "Outer",
+                  "Parallel Aware": false,
+                  "Async Capable": false,
+                  "Relation Name": "collections_anonymous_saved_list_intents",
+                  "Alias": "collections_anonymous_saved_list_intents",
+                  "Startup Cost": 0,
+                  "Total Cost": 18.52,
+                  "Plan Rows": 152,
+                  "Plan Width": 0,
+                  "Filter": "(anonymous_owner_id IS NOT NULL)"
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "source": "EXPLAIN (FORMAT JSON) of the exported legacy owner count"
+    }
+  }
+}

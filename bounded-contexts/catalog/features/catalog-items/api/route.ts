@@ -107,6 +107,28 @@ export function catalogItemRoutes(services: CatalogItemServices, authoringBulkJo
     return c.json(result, 202);
   });
 
+  app.post("/bulk-remove-drafts/preview", async (c) => {
+    const body = await c.req.json().catch(() => ({}));
+    const result = await services.previewBulkRemoveDrafts(
+      normalizeBulkSelection(body.selection, catalogItemListQueryFromRecord),
+    );
+    return c.json(result);
+  });
+
+  app.post("/bulk-remove-drafts/confirm", async (c) => {
+    const body = await c.req.json().catch(() => ({}));
+    const selection = normalizeBulkSelection(body.selection, catalogItemListQueryFromRecord);
+    const preview = await services.previewBulkRemoveDrafts(selection);
+    const result = await authoringBulkJobs.enqueue({
+      kind: "catalog.authoring.items.remove-drafts",
+      action: "remove-drafts",
+      itemIds: preview.item_ids,
+      selection,
+      context: c.get("context"),
+    });
+    return c.json(result, 202);
+  });
+
   app.post("/:id/blueprint", async (c) => {
     const itemId = parseTypedIdBoundary(c.req.param("id"), "cat", "itemId");
     const body = await c.req.json();

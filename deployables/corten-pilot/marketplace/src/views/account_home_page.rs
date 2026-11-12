@@ -26,7 +26,9 @@ pub struct ProfileFormId;
 fn machine(known: Option<&'static str>, t: AccountHomeMsg, family: &str, value: &str) -> String {
     match (known, humanized(value)) {
         (Some(word), _) => word.to_owned(),
-        (None, Some(human)) => t.value_unrecognized_with_value(family, &human).to_string(),
+        (None, Some(human)) => t
+            .value_unrecognized_with_value(crate::text::account_home_msg::ValueUnrecognizedWithValue { family, value: &human })
+            .to_string(),
         (None, None) => t.value_unrecognized(family).to_string(),
     }
 }

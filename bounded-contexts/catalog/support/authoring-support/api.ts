@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import type { ResolvedActor } from "@chase-sets/auth-context";
 import { t } from "@chase-sets/localization";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { createDurableJobEventStream } from "@chase-sets/platform-runtime/durable-job-events";
@@ -16,14 +17,16 @@ import { productContentRoutes } from "../../features/product-contents/api/route"
 import { providerScopeMappingRoutes } from "../../features/provider-scope-mapping/api/route";
 import { providerScopeDiscoveryRoutes } from "../../features/provider-scope-discovery/api/route";
 import { referenceDataRoutes } from "../../features/reference-data/api/route";
-import { catalogScopeRegistryRoutes } from "../../features/scope-registry/api/route";
+import { catalogScopeRegistryRoutes, scopeRecordDetailFromRow } from "../../features/scope-registry/api/route";
 import { sourceObservationRoutes } from "../../features/source-observations/api/route";
 import { scopeSyncBatchRoutes } from "../../features/scope-sync-batches/api/route";
 import { operatorSessionAdminRoutes } from "../../features/operator-session/api/route";
 
 export type CatalogAuthoringEnv = {
   Variables: {
-    actor: Readonly<{ permissions: readonly string[] }> | null;
+    actor:
+      | (Pick<ResolvedActor, "permissions"> & Partial<Pick<ResolvedActor, "roleKey" | "userId" | "membershipId">>)
+      | null;
     context: EventStoreContext;
   };
 };
@@ -97,8 +100,22 @@ export function buildCatalogAuthoringApi(services: CatalogServices) {
   app.route("/product-contents", productContentRoutes(services.productContents));
   app.route(
     "/source-observations",
-    sourceObservationRoutes(services.sourceObservations, services.providerIntegrationProfiles, () =>
-      services.scopeSyncBatches.countSpend({}),
+    sourceObservationRoutes(
+      services.sourceObservations,
+      services.providerIntegrationProfiles,
+      () => services.scopeSyncBatches.countSpend({}),
+      // Partial service compositions remain fail-soft at request time.
+      async () => {
+        if (typeof services.providerScopeDiscovery.listRefreshSchedules !== "function") {
+          throw new Error("Provider refresh schedules unavailable.");
+        }
+        return services.providerScopeDiscovery.listRefreshSchedules();
+      },
+      // Scope Detail's daily journey is composed for the Scope Record its path names.
+      async (scopeRecordId) => {
+        const row = await services.scopeRegistry.getScopeRecord(scopeRecordId);
+        return row ? scopeRecordDetailFromRow(row, new Date().toISOString()) : null;
+      },
     ),
   );
   app.route("/alias-review", catalogAliasRoutes(services.catalogAliases));

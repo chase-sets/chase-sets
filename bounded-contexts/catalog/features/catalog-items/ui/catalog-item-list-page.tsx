@@ -3,7 +3,6 @@ import { createId } from "@chase-sets/primitives/typed-ids";
 import { useState, useMemo, type ReactNode } from "react";
 import { useRevalidator } from "react-router";
 import {
-  AlertDialog,
   BulkActionBar,
   BulkActionPanel,
   Button,
@@ -40,7 +39,8 @@ import {
   previewBulkCatalogItemEdit,
   previewBulkCatalogItemLifecycle,
   previewBulkPublishCatalogItems,
-  removeDraftCatalogItem,
+  confirmBulkRemoveDrafts,
+  previewBulkRemoveDrafts,
 } from "./use-catalog-items";
 import type {
   BulkEditCatalogItemCandidate,
@@ -50,6 +50,8 @@ import type {
   BulkPublishCandidate,
   BulkPublishPreview,
   BulkPublishResult,
+  BulkRemoveDraftPreview,
+  BulkRemoveDraftResult,
   CatalogItemListItem,
 } from "./contracts";
 
@@ -264,18 +266,16 @@ export function CatalogItemListPage({
   const [bulkProgress, setBulkProgress] = useState<BulkLifecycleProgress | null>(null);
   const [bulkScopeLabel, setBulkScopeLabel] = useState("");
   const [bulkBusy, setBulkBusy] = useState(false);
-  const [showRemoveDrafts, setShowRemoveDrafts] = useState(false);
+  const [removeDraftSelection, setRemoveDraftSelection] = useState<unknown | null>(null);
+  const [removeDraftPreview, setRemoveDraftPreview] = useState<BulkRemoveDraftPreview | null>(null);
+  const [removeDraftResult, setRemoveDraftResult] = useState<BulkRemoveDraftResult | null>(null);
+  const [removeDraftProgress, setRemoveDraftProgress] = useState<BulkLifecycleProgress | null>(null);
+  const [removeDraftBusy, setRemoveDraftBusy] = useState(false);
   const bulkColumns = useMemo(() => buildBulkPreviewColumns(), []);
   const bulkRows = (bulkResult?.candidates ?? bulkPreview?.candidates ?? []).slice(0, 20);
   const retryBulkPublishIds = (bulkResult?.candidates ?? [])
     .filter((candidate) => candidate.retryable && candidate.outcome !== "published")
     .map((candidate) => candidate.catalog_item_id);
-  const selectedItems = useMemo(
-    () => data.items.filter((item) => selectedKeys.has(item.catalog_item_id)),
-    [data.items, selectedKeys],
-  );
-  const selectedDraftIds = selectedItems.filter((item) => item.status === "draft").map((item) => item.catalog_item_id);
-  const canRemoveSelectedDrafts = selectedKeys.size > 0 && selectedDraftIds.length === selectedKeys.size;
   const [bulkOperation, setBulkOperation] = useState<CatalogItemBulkOperation>("publish");
   const [bulkLifecycleSelection, setBulkLifecycleSelection] = useState<BulkLifecycleSelection | null>(null);
   const [bulkLifecyclePreview, setBulkLifecyclePreview] = useState<BulkLifecyclePreview | null>(null);
@@ -434,27 +434,44 @@ export function CatalogItemListPage({
     );
   }
 
-  async function handleRemoveSelectedDrafts() {
-    setBulkBusy(true);
+  async function handlePreviewRemoveDrafts() {
+    const selection = { mode: "ids" as const, ids: [...selectedKeys] };
+    setRemoveDraftBusy(true);
+    setRemoveDraftResult(null);
+    setRemoveDraftProgress(null);
     try {
-      for (const itemId of selectedDraftIds) {
-        await removeDraftCatalogItem(itemId);
-      }
+      setRemoveDraftSelection(selection);
+      setRemoveDraftPreview(await previewBulkRemoveDrafts(selection));
+    } catch (error) {
+      addToast(error instanceof Error ? error.message : String(error), "danger");
+    } finally {
+      setRemoveDraftBusy(false);
+    }
+  }
 
-      addToast(
-        t("catalog.features.catalogItems.ui.catalogItemListPage.draft.catalog.items.removed", {
-          count: selectedDraftIds.length,
-        }),
-        "success",
-      );
+  async function handleConfirmRemoveDrafts() {
+    if (!removeDraftSelection || !removeDraftPreview || removeDraftBusy) {
+      return;
+    }
+    setRemoveDraftBusy(true);
+    setRemoveDraftProgress(null);
+    try {
+      const result = await confirmBulkRemoveDrafts(removeDraftSelection, { onProgress: setRemoveDraftProgress });
+      setRemoveDraftResult(result);
       setSelectedKeys(new Set());
-      setShowRemoveDrafts(false);
       void revalidator.revalidate();
     } catch (error) {
       addToast(error instanceof Error ? error.message : String(error), "danger");
     } finally {
-      setBulkBusy(false);
+      setRemoveDraftBusy(false);
     }
+  }
+
+  function resetRemoveDraftDialog() {
+    setRemoveDraftSelection(null);
+    setRemoveDraftPreview(null);
+    setRemoveDraftResult(null);
+    setRemoveDraftProgress(null);
   }
 
   function buildBulkEditOperation(action: BulkEditCatalogItemOperation["action"]): BulkEditCatalogItemOperation {
@@ -671,31 +688,15 @@ export function CatalogItemListPage({
         primaryActions={renderBulkActionPanel("selected")}
         secondaryActions={
           <>
-            <AlertDialog
-              open={showRemoveDrafts}
-              onOpenChange={setShowRemoveDrafts}
-              title={t("catalog.features.catalogItems.ui.catalogItemListPage.remove.draft.catalog.items")}
-              description={t(
-                "catalog.features.catalogItems.ui.catalogItemListPage.remove.draft.catalog.items.description",
-                {
-                  count: selectedDraftIds.length,
-                },
-              )}
-              confirmLabel={t("catalog.features.catalogItems.ui.catalogItemListPage.remove.drafts.from.selected")}
-              cancelLabel={t("catalog.features.catalogItems.ui.catalogItemListPage.cancel")}
+            <Button
+              size="sm"
               tone="danger"
-              onConfirm={handleRemoveSelectedDrafts}
-              trigger={
-                <Button
-                  size="sm"
-                  tone="danger"
-                  loading={bulkBusy}
-                  disabled={!canRemoveSelectedDrafts || bulkOperationBusy}
-                >
-                  {t("catalog.features.catalogItems.ui.catalogItemListPage.remove.drafts.from.selected")}
-                </Button>
-              }
-            />
+              loading={removeDraftBusy}
+              onClick={handlePreviewRemoveDrafts}
+              disabled={selectedKeys.size === 0 || bulkOperationBusy || removeDraftBusy}
+            >
+              {t("catalog.features.catalogItems.ui.catalogItemListPage.remove.drafts.from.selected")}
+            </Button>
             <Button size="sm" tone="secondary" onClick={() => setSelectedKeys(new Set())} disabled={bulkOperationBusy}>
               {t("catalog.features.catalogItems.ui.catalogItemListPage.clear.selection")}
             </Button>
@@ -1075,6 +1076,88 @@ export function CatalogItemListPage({
               })}
             </Text>
           )}
+        </Stack>
+      </Dialog>
+      <Dialog
+        open={removeDraftPreview !== null}
+        onOpenChange={(open) => {
+          if (!open && !removeDraftBusy) resetRemoveDraftDialog();
+        }}
+        title={
+          removeDraftResult
+            ? t("catalog.support.shellSupport.ui.bulkLifecycleActions.result.title", {
+                action: t("catalog.features.catalogItems.ui.catalogItemListPage.operation.remove.drafts"),
+              })
+            : t("catalog.support.shellSupport.ui.bulkLifecycleActions.preview.title", {
+                action: t("catalog.features.catalogItems.ui.catalogItemListPage.operation.remove.drafts"),
+              })
+        }
+        description={
+          removeDraftResult
+            ? t("catalog.support.shellSupport.ui.bulkLifecycleActions.result.description", {
+                succeeded: removeDraftResult.succeeded_count,
+                skipped: removeDraftResult.skipped_count,
+                failed: removeDraftResult.failed_count,
+              })
+            : removeDraftPreview
+              ? t("catalog.support.shellSupport.ui.bulkLifecycleActions.preview.description", {
+                  ready: removeDraftPreview.ready_count,
+                  blocked: removeDraftPreview.blocked_count,
+                })
+              : undefined
+        }
+        footer={
+          removeDraftResult ? (
+            <Button onClick={resetRemoveDraftDialog}>
+              {t("catalog.support.shellSupport.ui.bulkLifecycleActions.close")}
+            </Button>
+          ) : (
+            <Inline gap={2}>
+              <Button
+                tone="danger"
+                onClick={handleConfirmRemoveDrafts}
+                loading={removeDraftBusy}
+                disabled={!removeDraftPreview || removeDraftPreview.ready_count === 0}
+              >
+                {t("catalog.features.catalogItems.ui.catalogItemListPage.remove.drafts")}
+              </Button>
+              <Button tone="secondary" onClick={resetRemoveDraftDialog} disabled={removeDraftBusy}>
+                {t("catalog.support.shellSupport.ui.bulkLifecycleActions.cancel")}
+              </Button>
+            </Inline>
+          )
+        }
+      >
+        <Stack gap={3}>
+          {removeDraftProgress && <BulkLifecycleProgressSummary progress={removeDraftProgress} />}
+          <DataTable
+            rows={removeDraftResult?.candidates ?? removeDraftPreview?.candidates ?? []}
+            columns={[
+              {
+                key: "title",
+                header: t("catalog.features.catalogItems.ui.catalogItemListPage.title"),
+                cell: (row: BulkRemoveDraftPreview["candidates"][number]) => row.title,
+              },
+              {
+                key: "status",
+                header: t("catalog.features.catalogItems.ui.catalogItemListPage.status"),
+                cell: (row) => row.status,
+              },
+              {
+                key: "outcome",
+                header: t("catalog.features.catalogItems.ui.catalogItemListPage.result"),
+                cell: (row) => <StatusPill>{row.outcome}</StatusPill>,
+              },
+              {
+                key: "reason",
+                header: t("catalog.features.catalogItems.ui.catalogItemListPage.reason"),
+                cell: (row) => row.reason ?? "",
+              },
+            ]}
+            getRowId={(row) => row.catalog_item_id}
+            density="compact"
+            emptyTitle={t("catalog.support.shellSupport.ui.bulkLifecycleActions.no.records")}
+          />
         </Stack>
       </Dialog>
     </>

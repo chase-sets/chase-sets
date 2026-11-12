@@ -1,4 +1,5 @@
 use corten::prelude::*;
+use platform::ui::table::{CellLabel, Table as KitTable, TableLayout};
 
 use super::{Draft, Lifecycle, ReviseForm, StatusBadge};
 use crate::{
@@ -69,24 +70,35 @@ pub fn PolicySheet<'a>(
                 <div class={Card}>
                     <p>{comparison}</p>
                     if !policy.active_comparison.is_empty() {
-                        <table class={Table}>
-                            <thead>
-                                <tr>
-                                    <th scope="col">{t.detail_field()}</th>
-                                    <th scope="col">{t.detail_active()}</th>
-                                    <th scope="col">{t.detail_this_policy()}</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                for row in &policy.active_comparison {
+                        <KitTable layout={TableLayout::Stack}>
+                            <table class={Table}>
+                                <thead>
                                     <tr>
-                                        <th scope="row">{&row.field}</th>
-                                        <td>{&row.active_value}</td>
-                                        <td>{&row.candidate_value}</td>
+                                        <th scope="col">{t.detail_field()}</th>
+                                        <th scope="col">{t.detail_active()}</th>
+                                        <th scope="col">{t.detail_this_policy()}</th>
                                     </tr>
-                                }
-                            </tbody>
-                        </table>
+                                </thead>
+                                <tbody>
+                                    for row in &policy.active_comparison {
+                                        <tr>
+                                            <th scope="row">
+                                                <CellLabel>{t.detail_field()}</CellLabel>
+                                                {&row.field}
+                                            </th>
+                                            <td>
+                                                <CellLabel>{t.detail_active()}</CellLabel>
+                                                {&row.active_value}
+                                            </td>
+                                            <td>
+                                                <CellLabel>{t.detail_this_policy()}</CellLabel>
+                                                {&row.candidate_value}
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </KitTable>
                     }
                 </div>
             </section>
@@ -107,28 +119,45 @@ pub fn PolicySheet<'a>(
                         <p>{t.detail_history_description()}</p>
                     </div>
                 } else {
-                    <table class={Table}>
-                        <thead>
-                            <tr>
-                                <th scope="col">{t.detail_event()}</th>
-                                <th scope="col">{t.common_status()}</th>
-                                <th scope="col">{t.detail_actor()}</th>
-                                <th scope="col">{t.detail_reason()}</th>
-                                <th scope="col">{t.detail_recorded()}</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            for row in &policy.history {
+                    <KitTable layout={TableLayout::Stack}>
+                        <table class={Table}>
+                            <thead>
                                 <tr>
-                                    <td>{&row.event_type}</td>
-                                    <td><StatusBadge status={&row.status} /></td>
-                                    <td>{&row.actor_user_id}</td>
-                                    <td>{row.reason.as_deref().unwrap_or(none)}</td>
-                                    <td>{&row.recorded_at}</td>
+                                    <th scope="col">{t.detail_event()}</th>
+                                    <th scope="col">{t.common_status()}</th>
+                                    <th scope="col">{t.detail_actor()}</th>
+                                    <th scope="col">{t.detail_reason()}</th>
+                                    <th scope="col">{t.detail_recorded()}</th>
                                 </tr>
-                            }
-                        </tbody>
-                    </table>
+                            </thead>
+                            <tbody>
+                                for row in &policy.history {
+                                    <tr>
+                                        <td>
+                                            <CellLabel>{t.detail_event()}</CellLabel>
+                                            {&row.event_type}
+                                        </td>
+                                        <td>
+                                            <CellLabel>{t.common_status()}</CellLabel>
+                                            <StatusBadge status={&row.status} />
+                                        </td>
+                                        <td>
+                                            <CellLabel>{t.detail_actor()}</CellLabel>
+                                            {&row.actor_user_id}
+                                        </td>
+                                        <td>
+                                            <CellLabel>{t.detail_reason()}</CellLabel>
+                                            {row.reason.as_deref().unwrap_or(none)}
+                                        </td>
+                                        <td>
+                                            <CellLabel>{t.detail_recorded()}</CellLabel>
+                                            {&row.recorded_at}
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </KitTable>
                 }
             </section>
         </dialog>

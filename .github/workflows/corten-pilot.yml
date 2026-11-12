@@ -55,8 +55,7 @@ jobs:
         working-directory: ${{ github.workspace }}
         run: node --import tsx deployables/corten-pilot/scripts/export.mjs --check
 
-      # corten check type-checks each app's scripts with tsc from the PATH, and passes without it,
-      # so the repo's TypeScript is put on the PATH and required here.
+      # corten check type-checks each app's scripts with tsc from the PATH, and fails without it.
       - name: TypeScript on the PATH for corten check
         run: |
           set -euo pipefail
@@ -80,11 +79,13 @@ jobs:
         run: |
           set -euo pipefail
           rustup component add clippy rustfmt
+          # The repository and revision the apps build against, so the CLI is always the pin's.
+          git="$(sed -n 's/^corten = { git = "\([^"]*\)", rev = "[0-9a-f]*".*/\1/p' Cargo.toml)"
           rev="$(sed -n 's/^corten = { git = "[^"]*", rev = "\([0-9a-f]*\)".*/\1/p' Cargo.toml)"
-          test -n "$rev"
+          test -n "$git" && test -n "$rev"
           # Skipped when the cached binary was built from the same revision (cargo's install records
           # are cached with it).
-          cargo install --locked --git https://github.com/todd-skelton/corten --rev "$rev" corten-cli
+          cargo install --locked --git "$git" --rev "$rev" corten-cli
 
       - name: corten check (cargo fmt, corten fmt, clippy -D warnings, the scripts' types, tests)
         run: |

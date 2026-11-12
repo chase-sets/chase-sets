@@ -837,8 +837,10 @@ describe("bootstrap and ratified lifecycle", () => {
       const body = request.body ? JSON.parse(request.body) : undefined;
       if (request.method === "GET")
         return Response.json({ total_count: issues.length, incomplete_results: false, items: issues });
-      if (request.method === "POST" && url.endsWith("/issues"))
+      if (request.method === "POST" && url.endsWith("/issues")) {
         issues.push({ ...body, id: issues.length + 1, number: issues.length + 1 });
+        return Response.json({ ...issues.at(-1), type: { name: "Bug", is_enabled: true } });
+      }
       return Response.json({});
     };
     const digest = buildDbDurationDigest({ ...options, baseline: baseline(), collection: collection(10, 300001) });
@@ -914,6 +916,39 @@ describe("bootstrap and ratified lifecycle", () => {
     expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
 
+  it.each([undefined, null, { name: "Slice", is_enabled: true }, { name: "Bug", is_enabled: false }])(
+    "fails the real publication command for invalid create type %j",
+    async (type) => {
+      const paths = await scratch(baseline());
+      const data = source(10);
+      data.logs = data.logs.map(() => `RUN_WORKSPACES_SUMMARY ${JSON.stringify(summary(workspaceNames, 300001))}`);
+      data.jobs.forEach((job) => {
+        job.started_at = "2026-10-05T11:54:00Z";
+      });
+      data.runs.forEach((run) => {
+        run.created_at = "2026-10-05T11:53:00Z";
+      });
+      const fetchImpl = github(data, (suffix, _url, request) => {
+        if (suffix.endsWith("search/issues"))
+          return Response.json({ total_count: 0, incomplete_results: false, items: [] });
+        if (request.method === "POST") return Response.json({ id: 1, type });
+        return undefined;
+      });
+      const digest = await runDbDurationDrift({
+        ...options,
+        ...paths,
+        workspaces,
+        fetchImpl,
+        publishIssues: true,
+        env: workflowEnv,
+      });
+      expect(digest.state).toBe("unknown");
+      expect(digest.error).toContain("ISSUE_CREATION_TYPE_MISMATCH");
+      const { dbDurationExitCode } = await import("./release-health-db-duration-drift.mjs");
+      expect(dbDurationExitCode(digest.state)).toBe(1);
+    },
+  );
+
   it("retains successful issue actions when later publication fails", async () => {
     const paths = await scratch(baseline());
     const data = source(10);
@@ -929,7 +964,9 @@ describe("bootstrap and ratified lifecycle", () => {
       if (suffix.endsWith("search/issues"))
         return Response.json({ total_count: 0, incomplete_results: false, items: [] });
       if (request.method === "POST")
-        return ++writes === 1 ? Response.json({ id: 1 }) : new Response("", { status: 503 });
+        return ++writes === 1
+          ? Response.json({ id: 1, type: { name: "Bug", is_enabled: true } })
+          : new Response("", { status: 503 });
       return undefined;
     });
     const digest = await runDbDurationDrift({

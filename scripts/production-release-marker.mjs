@@ -208,10 +208,68 @@ export function registryManifestBytes(output, digest) {
   throw new Error("registry manifest bytes do not hash to the authoritative digest");
 }
 
+// Diagnostics read only a failed child's exit shape: fixed codes and signals pick an enum, never their own value.
+const spawnErrorCodes = new Set(["ENOENT", "EACCES", "EPERM"]);
+const exitSignals = new Set(["SIGTERM", "SIGKILL", "SIGINT", "SIGHUP", "SIGPIPE", "SIGABRT"]);
+function subprocessOutcome(error) {
+  if (error?.killed === true && error.signal === "SIGTERM" && error.code == null) return "timeout";
+  if (exitSignals.has(error?.signal)) return "signal";
+  if (Number.isSafeInteger(error?.code) && error.code > 0 && error.code < 256) return "exit-nonzero";
+  if (spawnErrorCodes.has(error?.code)) return "spawn-error";
+  return "unknown";
+}
+
+// git and GitHub push refusal formats, each matched within one stderr line. The workflow phrase is the server detail
+// GitHub recorded for the November 2 refusal; the push stderr around it was not captured, so it is not anchored.
+const pushRefusalSignatures = [
+  [
+    "workflow-update-permission",
+    /refusing to allow a GitHub App to create or update workflow `[^`]+` without `workflows` permission/,
+  ],
+  ["ruleset-refusal", /^remote: error: GH013: Repository rule violations found for refs\/\S+$/],
+  ["authentication-refusal", /^fatal: Authentication failed for '[^']*'$/],
+  ["lease-conflict", /^ ! \[rejected\] +\S+ -> \S+ \(stale info\)$/],
+  [
+    "transport-timeout",
+    /^(?:fatal: unable to access '[^']*': (?:Operation|Connection) timed out after \d+ milliseconds|error: RPC failed; curl 28 )/,
+  ],
+];
+
+// Only the push's stderr is read, in memory; an unmatched or ambiguous refusal stays unknown and no text is kept.
+function pushRefusalCause(error) {
+  const stderr = typeof error?.stderr === "string" || Buffer.isBuffer(error?.stderr) ? error.stderr.toString() : "";
+  const lines = stderr.split(/\r\n|[\r\n]/);
+  const causes = pushRefusalSignatures
+    .filter(([, signature]) => lines.some((line) => signature.test(line)))
+    .map(([cause]) => cause);
+  return causes.length === 1 ? causes[0] : "unknown";
+}
+
+// Module-private, so injected I/O cannot forge a suboperation; errors without an entry count as an atomic push.
+const gitStepFailures = new WeakMap();
+
+function attemptRecord() {
+  return {
+    registry: { state: "unknown", outcome: "not-run" },
+    git: { origin: "not-run", cause: "none", outcome: "not-run", readback: "not-run" },
+  };
+}
+
+// marker_attempts: one enum-only record per publication iteration, written only on failure.
+function formatAttempts(attempts) {
+  return attempts
+    .map(
+      ({ registry, git }, index) =>
+        `${index + 1}:registry=${registry.state}/${registry.outcome},git=${git.origin}/${git.cause}/${git.outcome}/${git.readback}`,
+    )
+    .join(";");
+}
+
 // All effects are supplied at this boundary; tests never inherit provider credentials or execute provider tools.
 export async function publishReleaseMarker(identity, io) {
   let production = "unknown";
   let operation = "read-refs";
+  const attempts = [];
   try {
     const initial = await io.readRefs();
     production = initial.production;
@@ -227,6 +285,8 @@ export async function publishReleaseMarker(identity, io) {
     let registry = await io.readRegistry();
     if (registry !== null) assertRegistryIdentity(registry, identity.digest);
     for (let attempt = 0; attempt < 3; attempt += 1) {
+      const record = attemptRecord();
+      attempts.push(record);
       operation = "fresh-state";
       await io.assertFresh();
       const refs = await io.readRefs();
@@ -239,7 +299,9 @@ export async function publishReleaseMarker(identity, io) {
         if (io.assertRegistryWritable) await io.assertRegistryWritable();
         try {
           await io.publishRegistry();
+          record.registry.outcome = "returned";
         } catch (error) {
+          record.registry.outcome = subprocessOutcome(error);
           if (
             error?.code === "registry-gc-read-only" ||
             error?.registryGcGate?.rootCauseCode === "registry-gc-read-only"
@@ -249,9 +311,13 @@ export async function publishReleaseMarker(identity, io) {
           /* The authoritative read, not the response, decides. */
         }
         registry = await io.readRegistry();
-        if (registry === null) continue;
+        if (registry === null) {
+          record.registry.state = "written-absent";
+          continue;
+        }
       }
       assertRegistryIdentity(registry, identity.digest);
+      record.registry.state = record.registry.outcome === "not-run" ? "present" : "written-present";
       operation = "fresh-state";
       await io.assertFresh();
       const beforePush = await io.readRefs();
@@ -270,17 +336,37 @@ export async function publishReleaseMarker(identity, io) {
       operation = "atomic-git-publication";
       try {
         await io.publishGit(beforePush);
+        Object.assign(record.git, { origin: "atomic-push", cause: "none", outcome: "returned" });
       } catch (error) {
+        Object.assign(
+          record.git,
+          gitStepFailures.get(error) ?? { origin: "atomic-push", cause: "unknown", outcome: subprocessOutcome(error) },
+        );
         // Missing publisher authority is a fixed refusal before the push, never an unknown result to retry.
         if (error?.code === publisherAuthorityMissing) throw error;
         /* A lost response may have committed both refs. */
       }
       operation = "read-after-publication";
-      const after = await io.readRefs();
-      await checkRefs(after);
+      let after;
+      try {
+        after = await io.readRefs();
+        await checkRefs(after);
+      } catch (error) {
+        // A failed read-back decides nothing about the push, so it names itself rather than the push.
+        Object.assign(record.git, {
+          origin: "authoritative-readback",
+          cause: "unknown",
+          outcome: subprocessOutcome(error),
+          readback: "unknown",
+        });
+        throw error;
+      }
       production = after.production;
       if (after.tag && production === identity.commit) {
+        record.git.readback = "complete";
         operation = "registry-identity";
+        // Reached in a record only when this final identity read refuses.
+        record.registry.state = "unknown";
         assertRegistryIdentity(await io.readRegistry(), identity.digest);
         return {
           marker_updated: "true",
@@ -291,6 +377,7 @@ export async function publishReleaseMarker(identity, io) {
           release_tag: identity.tag,
         };
       }
+      record.git.readback = "not-converged";
       operation = "atomic-git-publication";
     }
     throw new Error("publication result remains unknown after three attempts");
@@ -304,6 +391,7 @@ export async function publishReleaseMarker(identity, io) {
       marker_operation: operation,
       release_commit: identity.commit,
       release_tag: identity.tag,
+      marker_attempts: formatAttempts(attempts),
     };
     throw error;
   }
@@ -853,57 +941,83 @@ export function markerIo(identity, env, assertFresh, runCommand = command, publi
       runCommand("docker", ["buildx", "imagetools", "create", "--tag", image, `${identity.image}@${identity.digest}`]),
     assertFresh,
     publishGit: async (refs) => {
-      const pushEnv = publisherPushEnv(env, publisherToken);
-      let tagSource = refs.tag?.object;
-      if (!tagSource) {
-        const localRef = `refs/tags/${identity.tag}`;
-        let local;
+      // The last suboperation started names a failure; only the push's own stderr may pick a cause.
+      let current = { origin: "atomic-push", outcome: "not-run" };
+      const suboperation = async (origin, ...gitCommand) => {
+        current = { origin, outcome: "not-run" };
         try {
-          local = (await runCommand("git", ["rev-parse", "--verify", localRef])).stdout.trim();
+          const result = await runCommand("git", ...gitCommand);
+          current.outcome = "returned";
+          return result;
         } catch (error) {
-          requireThat(error.code === 128, "local release tag read failed");
+          current.outcome = subprocessOutcome(error);
+          throw error;
         }
-        if (local) {
-          requireThat(
-            (await runCommand("git", ["cat-file", "-t", local])).stdout.trim() === "tag" &&
-              (await runCommand("git", ["rev-parse", `${localRef}^{commit}`])).stdout.trim() === identity.commit,
-            "conflicting local release tag",
-          );
-        } else {
-          await runCommand(
-            "git",
-            [
-              "-c",
-              "user.name=github-actions[bot]",
-              "-c",
-              "user.email=41898282+github-actions[bot]@users.noreply.github.com",
-              "tag",
-              "-a",
-              identity.tag,
-              identity.commit,
-              "-m",
-              `Production release ${identity.tag}`,
-            ],
-            { env: { ...env, GIT_COMMITTER_DATE: identity.createdAt } },
+      };
+      try {
+        const pushEnv = publisherPushEnv(env, publisherToken);
+        let tagSource = refs.tag?.object;
+        if (!tagSource) {
+          const localRef = `refs/tags/${identity.tag}`;
+          let local;
+          try {
+            local = (await suboperation("local-tag-read", ["rev-parse", "--verify", localRef])).stdout.trim();
+          } catch (error) {
+            requireThat(error.code === 128, "local release tag read failed");
+          }
+          if (local) {
+            requireThat(
+              (await suboperation("local-tag-verify", ["cat-file", "-t", local])).stdout.trim() === "tag" &&
+                (await suboperation("local-tag-verify", ["rev-parse", `${localRef}^{commit}`])).stdout.trim() ===
+                  identity.commit,
+              "conflicting local release tag",
+            );
+          } else {
+            await suboperation(
+              "local-tag-create",
+              [
+                "-c",
+                "user.name=github-actions[bot]",
+                "-c",
+                "user.email=41898282+github-actions[bot]@users.noreply.github.com",
+                "tag",
+                "-a",
+                identity.tag,
+                identity.commit,
+                "-m",
+                `Production release ${identity.tag}`,
+              ],
+              { env: { ...env, GIT_COMMITTER_DATE: identity.createdAt } },
+            );
+          }
+          tagSource = (await suboperation("local-tag-read", ["rev-parse", localRef])).stdout.trim();
+        }
+        // The explicit lease is a compare-and-swap guard, never permission for a non-fast-forward update.
+        await suboperation("ancestry", ["merge-base", "--is-ancestor", refs.production, identity.commit]);
+        await suboperation(
+          "atomic-push",
+          [
+            "push",
+            "--atomic",
+            `--force-with-lease=refs/heads/production:${refs.production}`,
+            `--force-with-lease=refs/tags/${identity.tag}:${refs.tag?.object ?? ""}`,
+            "origin",
+            `${tagSource}:refs/tags/${identity.tag}`,
+            `${identity.commit}:refs/heads/production`,
+          ],
+          { env: pushEnv },
+        );
+      } catch (error) {
+        if (Object(error) === error) {
+          gitStepFailures.set(
+            error,
+            error.code === publisherAuthorityMissing
+              ? { origin: "atomic-push", cause: "authentication-refusal", outcome: "not-run" }
+              : { ...current, cause: current.origin === "atomic-push" ? pushRefusalCause(error) : "unknown" },
           );
         }
-        tagSource = (await runCommand("git", ["rev-parse", localRef])).stdout.trim();
+        throw error;
       }
-      // The explicit lease is a compare-and-swap guard, never permission for a non-fast-forward update.
-      await runCommand("git", ["merge-base", "--is-ancestor", refs.production, identity.commit]);
-      await runCommand(
-        "git",
-        [
-          "push",
-          "--atomic",
-          `--force-with-lease=refs/heads/production:${refs.production}`,
-          `--force-with-lease=refs/tags/${identity.tag}:${refs.tag?.object ?? ""}`,
-          "origin",
-          `${tagSource}:refs/tags/${identity.tag}`,
-          `${identity.commit}:refs/heads/production`,
-        ],
-        { env: pushEnv },
-      );
     },
   };
   io.assertRegistryWritable = async () => {
@@ -1157,7 +1271,8 @@ export async function main(action, env, authorityRead = {}) {
   }
 }
 
-async function output(fields, env) {
+// The CLI's only serializer for marker fields, exported so its exact bytes are testable without running the CLI.
+export async function output(fields, env) {
   const lines = Object.entries(fields)
     .map(([key, value]) => `${key}=${String(value).replace(/[\r\n]/g, " ")}`)
     .join("\n");

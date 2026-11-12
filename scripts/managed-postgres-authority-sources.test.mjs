@@ -582,6 +582,24 @@ const reviewedStepInsertions = [
     occurrence: 6,
   },
 ];
+// #11174: cache preparation and restore shift only anchors, including the existing staging cache occurrence.
+const reviewedTerraformProviderCacheStepInsertions = [
+  ["decommission-live-plan", 3, 4],
+  ["reconcile-production-marker", 4, 5],
+  ["reconcile-managed-postgres-ca-staging", 4, 5],
+  ["reconcile-managed-postgres-ca-production", 5, 6],
+  ["deploy-staging", 9, 10],
+  ["deploy-production", 10, 11],
+].flatMap(([jobId, preparePosition, restorePosition]) => [
+  { file: workflowPath, jobId, position: preparePosition },
+  {
+    file: workflowPath,
+    jobId,
+    position: restorePosition,
+    uses: "actions/cache@caa296126883cff596d87d8935842f9db880ef25",
+    occurrence: 1,
+  },
+]);
 const previewStateRetirementDelta = [
   ["DIGITALOCEAN_ACCESS_TOKEN", "terraform-infra"],
   ["SPACES_ACCESS_ID", "terraform-infra"],
@@ -598,7 +616,15 @@ const previewStateRetirementDelta = [
 }));
 
 function applyReviewedStepInsertions(record) {
-  return reviewedStepInsertions.reduce((current, insertion) => {
+  return applyStepInsertions(record, reviewedStepInsertions);
+}
+
+function applyTerraformProviderCacheStepInsertions(record) {
+  return applyStepInsertions(record, reviewedTerraformProviderCacheStepInsertions);
+}
+
+function applyStepInsertions(record, insertions) {
+  return insertions.reduce((current, insertion) => {
     if (current.file !== insertion.file || current.jobId !== insertion.jobId) return current;
     const named = /^(name:.*#)(\d+)$/.exec(current.stepAnchor);
     if (named) {
@@ -1028,7 +1054,8 @@ describe("managed Postgres authority source generator", () => {
         .concat(registryGarbageCollectionGateCredentialDelta)
         .concat(registryCleanupResolverDelta)
         .map(applyProductionMarkerMintInsertions)
-        .concat(productionMarkerAppKeyDelta),
+        .concat(productionMarkerAppKeyDelta)
+        .map(applyTerraformProviderCacheStepInsertions),
     };
     // Exact stable-record multiset parity below is the authority; a whole-corpus total would only re-conflict.
     const isCatalogKeyring = ({ secretName }) => secretName === "CATALOG_OPERATOR_SESSION_KEYRING_JSON";

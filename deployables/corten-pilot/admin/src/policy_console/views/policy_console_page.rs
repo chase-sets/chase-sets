@@ -1,8 +1,9 @@
 //! The Policy Console (`PolicyConsolePage`). Top to bottom: the header, the link to Commercial
 //! Terms, the Commercial Terms dates that need attention, the public articles waiting for a review
 //! (each with Confirm current for an operator who may), and a section per owning context with its
-//! policies. Each table scrolls on its own on a phone.
+//! policies. Each table stacks on a phone, a row a block of labelled lines.
 use corten::prelude::*;
+use platform::ui::table::{CellLabel, Table as KitTable, TableLayout};
 
 use super::{status, when};
 use crate::{
@@ -43,28 +44,40 @@ pub fn PolicyConsolePage<'a>(o: Ops, req: &'a Req, here: &'a Here, screen: &'a C
                     <p class={Muted}>{o.policy_commercial_terms_attention_empty()}</p>
                 } else {
                     <div class={Scroll}>
-                        <table class={Table}>
-                            <thead>
-                                <tr>
-                                    <th scope="col">{o.policy_commercial_terms_attention_terms()}</th>
-                                    <th scope="col">{o.policy_commercial_terms_attention_timing()}</th>
-                                    <th scope="col">{o.policy_commercial_terms_attention_action()}</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                for item in &screen.attention {
+                        <KitTable layout={TableLayout::Stack}>
+                            <table class={Table}>
+                                <thead>
                                     <tr>
-                                        <td class={Words}>{&item.label}</td>
-                                        <td>{&item.detail}</td>
-                                        <td>
-                                            <a class={(Button, Secondary)} href={link_to(req, &item.href).unwrap_or_default()}>
-                                                {o.policy_commercial_terms_attention_review()}
-                                            </a>
-                                        </td>
+                                        <th scope="col">{o.policy_commercial_terms_attention_terms()}</th>
+                                        <th scope="col">{o.policy_commercial_terms_attention_timing()}</th>
+                                        <th scope="col">{o.policy_commercial_terms_attention_action()}</th>
                                     </tr>
-                                }
-                            </tbody>
-                        </table>
+                                </thead>
+                                <tbody>
+                                    for item in &screen.attention {
+                                        <tr>
+                                            <td class={Words}>
+                                                <CellLabel>{o.policy_commercial_terms_attention_terms()}</CellLabel>
+                                                {&item.label}
+                                            </td>
+                                            <td>
+                                                <CellLabel>{o.policy_commercial_terms_attention_timing()}</CellLabel>
+                                                {&item.detail}
+                                            </td>
+                                            <td>
+                                                <CellLabel>{o.policy_commercial_terms_attention_action()}</CellLabel>
+                                                <a
+                                                    class={(Button, Secondary)}
+                                                    href={link_to(req, &item.href).unwrap_or_default()}
+                                                >
+                                                    {o.policy_commercial_terms_attention_review()}
+                                                </a>
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </KitTable>
                     </div>
                 }
             </section>
@@ -75,43 +88,53 @@ pub fn PolicyConsolePage<'a>(o: Ops, req: &'a Req, here: &'a Here, screen: &'a C
                     <p class={Muted}>{o.policy_review_queue_empty()}</p>
                 } else {
                     <div class={Scroll}>
-                        <table class={Table}>
-                            <thead>
-                                <tr>
-                                    <th scope="col">{o.policy_review_queue_article()}</th>
-                                    <th scope="col">{o.policy_review_queue_policy()}</th>
-                                    <th scope="col">{o.policy_review_queue_age()}</th>
-                                    if screen.can_manage {
-                                        <th scope="col">{o.policy_review_queue_action()}</th>
-                                    }
-                                </tr>
-                            </thead>
-                            <tbody>
-                                for review in &screen.reviews {
+                        <KitTable layout={TableLayout::Stack}>
+                            <table class={Table}>
+                                <thead>
                                     <tr>
-                                        <td class={Words}>
-                                            <a href={link_to(req, &review.article_href).unwrap_or_default()}>
-                                                {&review.article_title}
-                                            </a>
-                                        </td>
-                                        <td class={Words}>{&review.policy_key}</td>
-                                        <td>{o.policy_review_queue_age_days(&review.age_days.to_string()).to_string()}</td>
+                                        <th scope="col">{o.policy_review_queue_article()}</th>
+                                        <th scope="col">{o.policy_review_queue_policy()}</th>
+                                        <th scope="col">{o.policy_review_queue_age()}</th>
                                         if screen.can_manage {
-                                            <td>
-                                                <form method="post" action={url::Console::default()}>
-                                                    <input type="hidden" name={f.locale} value={&review.locale}>
-                                                    <input type="hidden" name={f.article_slug} value={&review.article_slug}>
-                                                    <input type="hidden" name={f.policy_key} value={&review.policy_key}>
-                                                    <button class={(Button, Secondary)} type="submit">
-                                                        {o.policy_review_queue_confirm()}
-                                                    </button>
-                                                </form>
-                                            </td>
+                                            <th scope="col">{o.policy_review_queue_action()}</th>
                                         }
                                     </tr>
-                                }
-                            </tbody>
-                        </table>
+                                </thead>
+                                <tbody>
+                                    for review in &screen.reviews {
+                                        <tr>
+                                            <td class={Words}>
+                                                <CellLabel>{o.policy_review_queue_article()}</CellLabel>
+                                                <a href={link_to(req, &review.article_href).unwrap_or_default()}>
+                                                    {&review.article_title}
+                                                </a>
+                                            </td>
+                                            <td class={Words}>
+                                                <CellLabel>{o.policy_review_queue_policy()}</CellLabel>
+                                                {&review.policy_key}
+                                            </td>
+                                            <td>
+                                                <CellLabel>{o.policy_review_queue_age()}</CellLabel>
+                                                {o.policy_review_queue_age_days(&review.age_days.to_string()).to_string()}
+                                            </td>
+                                            if screen.can_manage {
+                                                <td>
+                                                    <CellLabel>{o.policy_review_queue_action()}</CellLabel>
+                                                    <form method="post" action={url::Console::default()}>
+                                                        <input type="hidden" name={f.locale} value={&review.locale}>
+                                                        <input type="hidden" name={f.article_slug} value={&review.article_slug}>
+                                                        <input type="hidden" name={f.policy_key} value={&review.policy_key}>
+                                                        <button class={(Button, Secondary)} type="submit">
+                                                            {o.policy_review_queue_confirm()}
+                                                        </button>
+                                                    </form>
+                                                </td>
+                                            }
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </KitTable>
                     </div>
                 }
             </section>
@@ -120,37 +143,48 @@ pub fn PolicyConsolePage<'a>(o: Ops, req: &'a Req, here: &'a Here, screen: &'a C
                 <section class={Card} aria-labelledby={&id}>
                     <h2 class={Heading} id={&id}>{context_label(context)}</h2>
                     <div class={Scroll}>
-                        <table class={Table}>
-                            <thead>
-                                <tr>
-                                    <th scope="col">{o.policy_policy_key()}</th>
-                                    <th scope="col">{o.policy_schema()}</th>
-                                    <th scope="col">{o.policy_status()}</th>
-                                    <th scope="col">{o.policy_effective_from()}</th>
-                                    <th scope="col">{o.policy_updated_at()}</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                for entry in entries {
-                                    let (words, tone) = status(o, &entry.status);
+                        <KitTable layout={TableLayout::Stack}>
+                            <table class={Table}>
+                                <thead>
                                     <tr>
-                                        <td class={Key}>
-                                            <a href={url::Policy { policy_key: &entry.policy_key, after_write: None }}>
-                                                {&entry.policy_key}
-                                            </a>
-                                        </td>
-                                        <td class={Schema}>{&entry.schema_summary}</td>
-                                        <td><Pill words={words} tone={tone} /></td>
-                                        <td class={When}>
-                                            {if entry.effective_from.is_empty() { not_set() } else { when(o, here, &entry.effective_from) }}
-                                        </td>
-                                        <td class={When}>
-                                            {if entry.updated_at.is_empty() { not_set() } else { when(o, here, &entry.updated_at) }}
-                                        </td>
+                                        <th scope="col">{o.policy_policy_key()}</th>
+                                        <th scope="col">{o.policy_schema()}</th>
+                                        <th scope="col">{o.policy_status()}</th>
+                                        <th scope="col">{o.policy_effective_from()}</th>
+                                        <th scope="col">{o.policy_updated_at()}</th>
                                     </tr>
-                                }
-                            </tbody>
-                        </table>
+                                </thead>
+                                <tbody>
+                                    for entry in entries {
+                                        let (words, tone) = status(o, &entry.status);
+                                        <tr>
+                                            <td class={Key}>
+                                                <CellLabel>{o.policy_policy_key()}</CellLabel>
+                                                <a href={url::Policy { policy_key: &entry.policy_key, after_write: None }}>
+                                                    {&entry.policy_key}
+                                                </a>
+                                            </td>
+                                            <td class={Schema}>
+                                                <CellLabel>{o.policy_schema()}</CellLabel>
+                                                {&entry.schema_summary}
+                                            </td>
+                                            <td>
+                                                <CellLabel>{o.policy_status()}</CellLabel>
+                                                <Pill words={words} tone={tone} />
+                                            </td>
+                                            <td class={When}>
+                                                <CellLabel>{o.policy_effective_from()}</CellLabel>
+                                                {if entry.effective_from.is_empty() { not_set() } else { when(o, here, &entry.effective_from) }}
+                                            </td>
+                                            <td class={When}>
+                                                <CellLabel>{o.policy_updated_at()}</CellLabel>
+                                                {if entry.updated_at.is_empty() { not_set() } else { when(o, here, &entry.updated_at) }}
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </KitTable>
                     </div>
                 </section>
             }

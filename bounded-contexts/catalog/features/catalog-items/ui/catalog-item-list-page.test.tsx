@@ -1,11 +1,15 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { t } from "@chase-sets/localization";
 import { CatalogRealtimeReloadActionBar } from "./realtime-reload-action-bar";
 import { CatalogItemListPage } from "./catalog-item-list-page";
 import type { CatalogListQuery } from "../../../support/shell-support/list-query-state";
 import type { CatalogItemListItem } from "./contracts";
+import type { BulkRemoveDraftResult } from "./contracts";
+import type { BulkLifecycleProgressOptions } from "../../../support/shell-support/ui/bulk-lifecycle-actions";
+import { ToastProvider } from "../../../support/shell-support/ui/toasts";
 
 const {
   mockConfirmBulkCatalogItemEdit,
@@ -15,6 +19,8 @@ const {
   mockPreviewBulkCatalogItemEdit,
   mockPreviewBulkCatalogItemLifecycle,
   mockPreviewBulkPublishCatalogItems,
+  mockPreviewBulkRemoveDrafts,
+  mockConfirmBulkRemoveDrafts,
   mockRemoveDraftCatalogItem,
   mockUseNavigation,
   mockUseRevalidator,
@@ -27,6 +33,8 @@ const {
   mockPreviewBulkCatalogItemEdit: vi.fn(),
   mockPreviewBulkCatalogItemLifecycle: vi.fn(),
   mockPreviewBulkPublishCatalogItems: vi.fn(),
+  mockPreviewBulkRemoveDrafts: vi.fn(),
+  mockConfirmBulkRemoveDrafts: vi.fn(),
   mockRemoveDraftCatalogItem: vi.fn(),
   mockUseNavigation: vi.fn(),
   mockUseRevalidator: vi.fn(),
@@ -49,6 +57,8 @@ vi.mock("./use-catalog-items", () => ({
   previewBulkCatalogItemEdit: mockPreviewBulkCatalogItemEdit,
   previewBulkCatalogItemLifecycle: mockPreviewBulkCatalogItemLifecycle,
   previewBulkPublishCatalogItems: mockPreviewBulkPublishCatalogItems,
+  previewBulkRemoveDrafts: mockPreviewBulkRemoveDrafts,
+  confirmBulkRemoveDrafts: mockConfirmBulkRemoveDrafts,
   removeDraftCatalogItem: mockRemoveDraftCatalogItem,
 }));
 
@@ -101,10 +111,71 @@ const defaultQuery: CatalogListQuery = {
   pageSize: 50,
 };
 
+function removalPreview() {
+  return {
+    mode: "ids",
+    item_ids: ["cat_1", "cat_2", "cat_3"],
+    total: 3,
+    ready_count: 2,
+    blocked_count: 1,
+    candidates: [
+      { catalog_item_id: "cat_1", title: "Draft one", status: "draft", outcome: "ready", reason: null },
+      {
+        catalog_item_id: "cat_2",
+        title: "Active row",
+        status: "active",
+        outcome: "blocked",
+        reason: "Only draft items can be removed.",
+      },
+      { catalog_item_id: "cat_3", title: "Draft two", status: "draft", outcome: "ready", reason: null },
+    ],
+  };
+}
+
+function renderRemovalSelection() {
+  const revalidate = vi.fn();
+  mockUseNavigation.mockReturnValue({ state: "idle" });
+  mockUseRevalidator.mockReturnValue({ revalidate });
+  mockUseSearchParams.mockReturnValue([new URLSearchParams(), vi.fn()]);
+  const items = [
+    catalogItem,
+    { ...catalogItem, catalog_item_id: "cat_2", status: "active" },
+    { ...catalogItem, catalog_item_id: "cat_3" },
+  ];
+  render(
+    <ToastProvider>
+      <CatalogItemListPage data={{ items, total: 3, count: 3 }} query={defaultQuery} />
+    </ToastProvider>,
+  );
+  for (const item of items) fireEvent.click(screen.getAllByLabelText(`Select row ${item.catalog_item_id}`)[0]!);
+  return revalidate;
+}
+
+function removalAction() {
+  return screen.getByRole("button", {
+    name: t("catalog.features.catalogItems.ui.catalogItemListPage.remove.drafts.from.selected"),
+  });
+}
+
+function removalConfirm(dialog: HTMLElement) {
+  return within(dialog).getByRole("button", {
+    name: t("catalog.features.catalogItems.ui.catalogItemListPage.remove.drafts"),
+  });
+}
+
+function removalPreviewTitle() {
+  return t("catalog.support.shellSupport.ui.bulkLifecycleActions.preview.title", {
+    action: t("catalog.features.catalogItems.ui.catalogItemListPage.operation.remove.drafts"),
+  });
+}
+
 describe("CatalogItemListPage", () => {
   afterEach(() => {
     cleanup();
     vi.clearAllMocks();
+    mockPreviewBulkRemoveDrafts.mockReset();
+    mockConfirmBulkRemoveDrafts.mockReset();
+    mockRemoveDraftCatalogItem.mockReset();
   });
 
   it.each([0, 1, 50, 51])("renders the independent server total %i for populated and empty pages", (total) => {
@@ -788,13 +859,271 @@ describe("CatalogItemListPage", () => {
     expect(await screen.findByText("Bulk Assign Blueprint Preview")).toBeTruthy();
   });
 
+  it.each([1, 0])("P1: previews every selected id including active and missing rows, with %i ready", async (ready) => {
+    const candidates = [
+      {
+        catalog_item_id: "cat_1",
+        title: "Ready row",
+        status: "draft",
+        outcome: ready ? "ready" : "blocked",
+        reason: ready ? null : "Draft no longer available.",
+      },
+      {
+        catalog_item_id: "cat_2",
+        title: "Active row",
+        status: "active",
+        outcome: "blocked",
+        reason: "Only draft items can be removed.",
+      },
+      {
+        catalog_item_id: "cat_3",
+        title: "Missing row",
+        status: "missing",
+        outcome: "blocked",
+        reason: "Catalog Item was not found.",
+      },
+    ];
+    mockPreviewBulkRemoveDrafts.mockResolvedValueOnce({
+      mode: "ids",
+      item_ids: ["cat_1", "cat_2", "cat_3"],
+      total: 3,
+      ready_count: ready,
+      blocked_count: 3 - ready,
+      candidates,
+    });
+    renderRemovalSelection();
+    const action = removalAction();
+    expect((action as HTMLButtonElement).disabled).toBe(false);
+    fireEvent.click(action);
+    const dialog = await screen.findByRole("dialog");
+    expect(mockPreviewBulkRemoveDrafts).toHaveBeenCalledWith({ mode: "ids", ids: ["cat_1", "cat_2", "cat_3"] });
+    for (const candidate of candidates) {
+      const row = within(dialog).getByRole("cell", { name: candidate.title }).closest("tr")!;
+      expect(within(row).getByText(candidate.outcome)).toBeTruthy();
+      if (candidate.reason) expect(within(row).getByText(candidate.reason)).toBeTruthy();
+    }
+    const confirm = removalConfirm(dialog) as HTMLButtonElement;
+    expect(confirm.disabled).toBe(ready === 0);
+    if (!ready) fireEvent.click(confirm);
+    expect(mockConfirmBulkRemoveDrafts).not.toHaveBeenCalled();
+    expect(mockRemoveDraftCatalogItem).not.toHaveBeenCalled();
+  });
+
+  it("P3: renders mixed completion counts, outcomes and reasons in the open dialog and refreshes", async () => {
+    mockPreviewBulkRemoveDrafts.mockResolvedValueOnce(removalPreview());
+    mockConfirmBulkRemoveDrafts.mockResolvedValueOnce({
+      item_ids: ["cat_1", "cat_2", "cat_3"],
+      total: 3,
+      succeeded_count: 1,
+      skipped_count: 1,
+      failed_count: 1,
+      candidates: [
+        { catalog_item_id: "cat_1", title: "Removed row", status: "removed", outcome: "succeeded", reason: null },
+        {
+          catalog_item_id: "cat_2",
+          title: "Skipped row",
+          status: "active",
+          outcome: "skipped",
+          reason: "Only draft items can be removed.",
+        },
+        {
+          catalog_item_id: "cat_3",
+          title: "Failed row",
+          status: "draft",
+          outcome: "failed",
+          reason: "Catalog Item removal failed.",
+        },
+      ],
+    });
+    const revalidate = renderRemovalSelection();
+    fireEvent.click(removalAction());
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByRole("cell", { name: "Draft one" })).toBeTruthy();
+    fireEvent.click(removalConfirm(dialog));
+    await waitFor(() => expect(within(dialog).getByRole("cell", { name: "Removed row" })).toBeTruthy());
+    expect(
+      within(dialog).getByText(
+        t("catalog.support.shellSupport.ui.bulkLifecycleActions.result.description", {
+          succeeded: 1,
+          skipped: 1,
+          failed: 1,
+        }),
+      ),
+    ).toBeTruthy();
+    for (const [title, outcome, reason] of [
+      ["Removed row", "succeeded", null],
+      ["Skipped row", "skipped", "Only draft items can be removed."],
+      ["Failed row", "failed", "Catalog Item removal failed."],
+    ]) {
+      const row = within(dialog).getByRole("cell", { name: title! }).closest("tr")!;
+      expect(within(row).getByText(outcome!)).toBeTruthy();
+      if (reason) expect(within(row).getByText(reason)).toBeTruthy();
+    }
+    expect(revalidate).toHaveBeenCalledTimes(1);
+    expect(mockRemoveDraftCatalogItem).not.toHaveBeenCalled();
+  });
+
+  it("P4: shows preview failure, then recovers a populated open preview without confirming", async () => {
+    mockPreviewBulkRemoveDrafts
+      .mockRejectedValueOnce(new Error("Synthetic preview unavailable"))
+      .mockResolvedValueOnce(removalPreview());
+    renderRemovalSelection();
+    fireEvent.click(removalAction());
+    expect(await screen.findByText("Synthetic preview unavailable")).toBeTruthy();
+    expect(screen.queryByRole("dialog", { name: removalPreviewTitle() })).toBeNull();
+    expect(mockConfirmBulkRemoveDrafts).not.toHaveBeenCalled();
+    fireEvent.click(removalAction());
+    const dialog = await screen.findByRole("dialog", { name: removalPreviewTitle() });
+    expect(within(dialog).getByRole("cell", { name: "Draft one" })).toBeTruthy();
+    expect(screen.getByText("Synthetic preview unavailable")).toBeTruthy();
+    expect(mockConfirmBulkRemoveDrafts).not.toHaveBeenCalled();
+    expect(mockRemoveDraftCatalogItem).not.toHaveBeenCalled();
+  });
+
+  it("P5: shows enqueue failure while retaining populated preview and never refreshes", async () => {
+    mockPreviewBulkRemoveDrafts.mockResolvedValueOnce(removalPreview());
+    mockConfirmBulkRemoveDrafts.mockRejectedValueOnce(new Error("Synthetic enqueue unavailable"));
+    const revalidate = renderRemovalSelection();
+    fireEvent.click(removalAction());
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.click(removalConfirm(dialog));
+    expect(await screen.findByText("Synthetic enqueue unavailable")).toBeTruthy();
+    expect(within(dialog).getByRole("cell", { name: "Draft one" })).toBeTruthy();
+    expect(within(dialog).getByRole("cell", { name: "Draft two" })).toBeTruthy();
+    expect((removalConfirm(dialog) as HTMLButtonElement).disabled).toBe(false);
+    expect(revalidate).not.toHaveBeenCalled();
+    expect(mockRemoveDraftCatalogItem).not.toHaveBeenCalled();
+  });
+
+  it("P2: shows removal progress in the populated dialog and confirms once while pending", async () => {
+    const revalidate = vi.fn();
+    mockUseNavigation.mockReturnValue({ state: "idle" });
+    mockUseRevalidator.mockReturnValue({ revalidate });
+    mockUseSearchParams.mockReturnValue([new URLSearchParams(), vi.fn()]);
+    const candidates = [
+      { catalog_item_id: "cat_1", title: "Draft one", status: "draft", outcome: "ready" as const, reason: null },
+      { catalog_item_id: "cat_2", title: "Draft two", status: "draft", outcome: "ready" as const, reason: null },
+    ];
+    mockPreviewBulkRemoveDrafts.mockResolvedValueOnce({
+      mode: "ids",
+      item_ids: ["cat_1", "cat_2"],
+      total: 2,
+      ready_count: 2,
+      blocked_count: 0,
+      candidates,
+    });
+    let complete!: (result: BulkRemoveDraftResult) => void;
+    const pending = new Promise<BulkRemoveDraftResult>((resolve) => {
+      complete = resolve;
+    });
+    mockConfirmBulkRemoveDrafts.mockImplementationOnce(
+      (_selection: unknown, options?: BulkLifecycleProgressOptions) => {
+        options?.onProgress?.({
+          phase: "running",
+          completed: 1,
+          total: 2,
+          currentName: "Worker item",
+          status: "running",
+        });
+        return pending;
+      },
+    );
+    render(
+      <CatalogItemListPage
+        data={{ items: [catalogItem, { ...catalogItem, catalog_item_id: "cat_2" }], total: 2, count: 2 }}
+        query={defaultQuery}
+      />,
+    );
+    fireEvent.click(screen.getAllByLabelText("Select row cat_1")[0]!);
+    fireEvent.click(screen.getAllByLabelText("Select row cat_2")[0]!);
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: t("catalog.features.catalogItems.ui.catalogItemListPage.remove.drafts.from.selected"),
+      }),
+    );
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByRole("cell", { name: "Draft one" })).toBeTruthy();
+    expect(within(dialog).getByRole("cell", { name: "Draft two" })).toBeTruthy();
+    const confirm = within(dialog).getByRole("button", {
+      name: t("catalog.features.catalogItems.ui.catalogItemListPage.remove.drafts"),
+    });
+    fireEvent.click(confirm);
+    expect(
+      within(dialog).getByText(
+        t("catalog.support.shellSupport.ui.bulkLifecycleActions.progress", {
+          completed: 1,
+          total: 2,
+        }),
+      ),
+    ).toBeTruthy();
+    expect(
+      within(dialog).getByText(
+        t("catalog.support.shellSupport.ui.bulkLifecycleActions.progress.current", {
+          name: "Worker item",
+        }),
+      ),
+    ).toBeTruthy();
+    expect(confirm.getAttribute("aria-busy")).toBe("true");
+    expect((confirm as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(confirm);
+    expect(mockConfirmBulkRemoveDrafts).toHaveBeenCalledTimes(1);
+    expect(mockConfirmBulkRemoveDrafts).toHaveBeenCalledWith(
+      { mode: "ids", ids: ["cat_1", "cat_2"] },
+      expect.objectContaining({ onProgress: expect.any(Function) }),
+    );
+    expect(mockRemoveDraftCatalogItem).not.toHaveBeenCalled();
+    expect(revalidate).not.toHaveBeenCalled();
+    await act(async () =>
+      complete({
+        item_ids: ["cat_1", "cat_2"],
+        total: 2,
+        succeeded_count: 2,
+        skipped_count: 0,
+        failed_count: 0,
+        candidates: candidates.map((candidate) => ({ ...candidate, status: "removed", outcome: "succeeded" })),
+      }),
+    );
+  });
+
   it("removes selected draft items from the grid", async () => {
     const user = userEvent.setup();
     mockUseNavigation.mockReturnValue({ state: "idle" });
     const revalidate = vi.fn();
     mockUseRevalidator.mockReturnValue({ revalidate });
     mockUseSearchParams.mockReturnValue([new URLSearchParams(), vi.fn()]);
-    mockRemoveDraftCatalogItem.mockResolvedValue({ id: "cat_1", version: 2, status: "removed" });
+    mockPreviewBulkRemoveDrafts.mockResolvedValue({
+      mode: "ids",
+      item_ids: ["cat_1"],
+      total: 1,
+      ready_count: 1,
+      blocked_count: 0,
+      candidates: [
+        {
+          catalog_item_id: "cat_1",
+          title: "Charizard",
+          status: "draft",
+          outcome: "ready",
+          reason: null,
+        },
+      ],
+    });
+    mockConfirmBulkRemoveDrafts.mockResolvedValue({
+      mode: "ids",
+      item_ids: ["cat_1"],
+      total: 1,
+      succeeded_count: 1,
+      skipped_count: 0,
+      failed_count: 0,
+      candidates: [
+        {
+          catalog_item_id: "cat_1",
+          title: "Charizard",
+          status: "removed",
+          outcome: "succeeded",
+          reason: null,
+        },
+      ],
+    });
 
     render(
       <CatalogItemListPage
@@ -805,13 +1134,24 @@ describe("CatalogItemListPage", () => {
 
     const [selectRow] = screen.getAllByLabelText("Select row cat_1");
     fireEvent.click(selectRow!);
-    fireEvent.click(screen.getByRole("button", { name: "Remove drafts from selected" }));
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: t("catalog.features.catalogItems.ui.catalogItemListPage.remove.drafts.from.selected"),
+      }),
+    );
 
-    const confirmButtons = await screen.findAllByRole("button", { name: "Remove drafts from selected" });
-    fireEvent.click(confirmButtons[confirmButtons.length - 1]!);
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: t("catalog.features.catalogItems.ui.catalogItemListPage.remove.drafts"),
+      }),
+    );
 
     await waitFor(() => {
-      expect(mockRemoveDraftCatalogItem).toHaveBeenCalledWith("cat_1");
+      expect(mockPreviewBulkRemoveDrafts).toHaveBeenCalledWith({ mode: "ids", ids: ["cat_1"] });
+      expect(mockConfirmBulkRemoveDrafts).toHaveBeenCalledWith(
+        { mode: "ids", ids: ["cat_1"] },
+        expect.objectContaining({ onProgress: expect.any(Function) }),
+      );
       expect(revalidate).toHaveBeenCalled();
     });
   });

@@ -1,7 +1,8 @@
 //! The pages' views. Each component's stylesheet is next to it in `views/`; `static/style.css` has
 //! the element defaults and the fonts.
 use corten::{Component, prelude::*};
-use platform::{chart::TimeSeries, theme};
+use corten_ui::{Toast, Toaster};
+use platform::{chart::TimeSeries, theme, ui::toasts::Toasts};
 
 use crate::{app::url, text::MarketMsg};
 
@@ -28,9 +29,14 @@ pub use welcome_page::{WaveStatus, WelcomePage};
 /// visitors open first, so its stylesheet is in `components.css`; the policy pages are seven
 /// addresses at the root, which no area's prefix can cover (todd-skelton/corten#93), and their
 /// stylesheet is small (README decision 79). The welcome page is where Join lands, so most of
-/// the home page's visitors who act open it next.
+/// the home page's visitors who act open it next. The kit's `VisuallyHidden` is the market chart's
+/// summary, its `Segmented` the hero's role choice, and its `Progress` the welcome page's referral bar.
 pub const COMPONENTS: &[Component] = &[
     theme::TOKENS,
+    platform::ui::icon::Icon,
+    platform::ui::visually_hidden::VisuallyHidden,
+    platform::ui::progress::Progress,
+    platform::ui::segmented::Segmented,
     NotFound,
     HomeLayout,
     HomePage,
@@ -38,6 +44,8 @@ pub const COMPONENTS: &[Component] = &[
     PolicyPage,
     WelcomePage,
     corten_ui::CopyButton,
+    Toasts,
+    Toaster,
 ];
 
 /// The help center's components (`/help`, `/sales-fees` and `/press`), in a stylesheet those
@@ -48,16 +56,18 @@ pub const HELP: &[Component] = &[HelpHub];
 /// those pages share.
 pub const COMPARE: &[Component] = &[ComparePage];
 
-/// The market pages' components (`/market`): the page and its chart.
-pub const MARKET: &[Component] = &[MarketPage, TimeSeries];
+/// The market pages' components (`/market`): the page, its chart and the kit's Stats.
+pub const MARKET: &[Component] = &[MarketPage, TimeSeries, platform::ui::stats::Stats];
 
 /// The document around every page (public-web's root `Layout`): the theme color, the manifest and
 /// the favicon, `title`, the
 /// page's own `head` tags (description, social, canonical, robots, JSON-LD) and the page. No
 /// shell: public-web's pages draw their own. A client navigation gets only the title, the head
-/// tags and `<main>`'s children.
+/// tags and `<main>`'s children. Outside `<main>` is corten-ui's toaster, which says a `data-patch`
+/// submit that got no answer (`corten:error`), as `HomeLayout`'s does.
 #[component]
 pub fn Layout<'a, T: Render, H: Render, C: Render>(req: &'a Req, title: T, head: H, children: C) -> impl Document + 'a {
+    let p: crate::text::Pilot = req.t();
     html! {
         <!DOCTYPE html>
         <html lang={req.lang()}>
@@ -83,6 +93,14 @@ pub fn Layout<'a, T: Render, H: Render, C: Render>(req: &'a Req, title: T, head:
             </head>
             <body>
                 <main>{children}</main>
+                <Toasts>
+                    <Toaster
+                        close={p.shell_toast_close()}
+                        seconds={5}
+                        toast={Toast { message: req.notice(), failed: false }}
+                        failed={p.shell_not_sent()}
+                    />
+                </Toasts>
             </body>
         </html>
     }
@@ -136,6 +154,14 @@ pub fn HomeLayout<'a, T: Render, H: Render, C: Render>(
                     <main class={Main} id={MainContentId}>{children}</main>
                     <home_page::HomeFooter t={t} web={web} />
                 </div>
+                <Toasts>
+                    <Toaster
+                        close={p.shell_toast_close()}
+                        seconds={5}
+                        toast={Toast { message: req.notice(), failed: false }}
+                        failed={p.shell_not_sent()}
+                    />
+                </Toasts>
             </body>
         </html>
     }

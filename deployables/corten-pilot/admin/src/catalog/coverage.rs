@@ -12,7 +12,7 @@
 //! `?via=coverage`, so a write and a refusal come back here; the writes are the scope page's.
 //! A coverage that cannot be read is a banner on the page, as admin-web's loader degrades it.
 use corten::{
-    axum::http::{HeaderMap, StatusCode},
+    http::{HeaderMap, StatusCode},
     prelude::*,
 };
 use platform::receipt::Receipt;
@@ -33,12 +33,11 @@ use crate::{
 
 #[corten::routes(state = crate::app::Shared, area = crate::catalog::url::Catalog, caller = crate::auth::Staff<crate::auth::CatalogAccess>)]
 pub mod url {
-    use serde::Deserialize;
 
     use crate::catalog::scope::url::ScopeAt;
 
     /// The inbox's filter (its form's field).
-    #[derive(Clone, Debug, Default, Deserialize, corten::Fields, corten::Route)]
+    #[derive(Clone, Debug, Default, corten::Fields, corten::Route)]
     #[route(query)]
     pub struct InboxQuery {
         pub product_domain: Option<String>,
@@ -142,9 +141,9 @@ pub(crate) async fn inbox(
     req.screen(
         &screen,
         html! {
-            <crate::views::Layout req={&req} viewer={Some(&staff.viewer)} title={t.route_scope_inbox()} head="">
+            <crate::views::OwnToastLayout req={&req} viewer={Some(&staff.viewer)} title={t.route_scope_inbox()} head="">
                 {page}
-            </crate::views::Layout>
+            </crate::views::OwnToastLayout>
         },
     )
 }
@@ -192,9 +191,9 @@ pub(crate) async fn render(
     let refused = matches!(back, ScopeBack::Refused(_) | ScopeBack::Propose(..));
     let page = views::coverage_page(t, p, &screen, notice, back, manages(viewer));
     let html = html! {
-        <crate::views::Layout req={req} viewer={Some(viewer)} title={t.route_scope_coverage()} head="">
+        <crate::views::OwnToastLayout req={req} viewer={Some(viewer)} title={t.route_scope_coverage()} head="">
             {page}
-        </crate::views::Layout>
+        </crate::views::OwnToastLayout>
     };
     if refused { req.page_with_status(StatusCode::UNPROCESSABLE_ENTITY, html) } else { req.screen(&screen, html) }
 }

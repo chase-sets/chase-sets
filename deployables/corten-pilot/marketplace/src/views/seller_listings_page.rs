@@ -12,6 +12,10 @@ use corten::{
     i18n::{Currency, DateStyle, Decimal, TimeStyle, parse_timestamp},
     prelude::*,
 };
+use platform::{
+    theme::gap_3,
+    ui::stack::{Gap, Stack as KitStack},
+};
 
 use super::listing_page::options;
 use crate::{
@@ -234,7 +238,7 @@ fn AvailabilityPart<'a>(t: SellerListingsMsg, screen: &'a ListingsScreen) -> imp
     let reason = sent(screen, intent, |s| &s.reason_category, a.disabled_reason_category.as_deref().unwrap_or_default());
     let on = sent(screen, intent, |s| &s.available_again_on, a.available_again_on.as_deref().unwrap_or_default());
     html! {
-        <div class={Stack}>
+        <div class={(KitStack { gap: Gap::App }, gap_3(), Stack)}>
             <p class={Badges}>
                 <span class={Badge} data-tone={if available { "success" } else { "warning" }}>
                     if available {
@@ -249,10 +253,7 @@ fn AvailabilityPart<'a>(t: SellerListingsMsg, screen: &'a ListingsScreen) -> imp
                 if available {
                     {t.list_availability_available_description()}
                 } else {
-                    {t.list_availability_unavailable_description(
-                        reason_label(t, a.disabled_reason_category.as_deref()),
-                        a.available_again_on.as_deref().unwrap_or(t.list_no_return_date()),
-                    )}
+                    {t.list_availability_unavailable_description(crate::text::seller_listings_msg::ListAvailabilityUnavailableDescription { reason: reason_label(t, a.disabled_reason_category.as_deref()), date: a.available_again_on.as_deref().unwrap_or(t.list_no_return_date()) })}
                 }
             </p>
             if !available && a.available_again_at.is_some() {
@@ -337,21 +338,17 @@ fn AwayWindowPart<'a>(t: SellerListingsMsg, screen: &'a ListingsScreen) -> impl 
     let starts = sent(screen, intent, |s| &s.away_window_starts_on, "");
     let ends = sent(screen, intent, |s| &s.away_window_ends_on, "");
     html! {
-        <div class={Stack}>
+        <div class={(KitStack { gap: Gap::App }, gap_3(), Stack)}>
             <h3 class={Strong}>{t.list_away_window()}</h3>
             if let Some(starts_at) = &a.away_window_starts_at {
                 <p class={Muted}>
-                    {t.list_away_window_scheduled_description(
-                        reason_label(t, a.away_window_reason_category.as_deref()),
-                        &when(t, Some(starts_at)),
-                        &a.away_window_ends_at.as_deref().map_or_else(|| t.list_no_return_date().to_owned(), |at| when(t, Some(at))),
-                    )}
+                    {t.list_away_window_scheduled_description(crate::text::seller_listings_msg::ListAwayWindowScheduledDescription { reason: reason_label(t, a.away_window_reason_category.as_deref()), start_date: &when(t, Some(starts_at)), end_date: &a.away_window_ends_at.as_deref().map_or_else(|| t.list_no_return_date().to_owned(), |at| when(t, Some(at))) })}
                 </p>
                 <div class={Banner}>
                     <p class={Strong}>{t.list_scheduled_restore_title()}</p>
                     <p>
                         if let Some(ends_at) = &a.away_window_ends_at {
-                            {t.list_scheduled_restore_notice_window(&when(t, Some(starts_at)), &when(t, Some(ends_at)))}
+                            {t.list_scheduled_restore_notice_window(crate::text::seller_listings_msg::ListScheduledRestoreNoticeWindow { start_date: &when(t, Some(starts_at)), end_date: &when(t, Some(ends_at)) })}
                         } else {
                             {t.list_scheduled_restore_notice_window_indefinite(&when(t, Some(starts_at)))}
                         }
@@ -433,11 +430,13 @@ fn CapacityPart<'a>(t: SellerListingsMsg, screen: &'a ListingsScreen) -> impl Re
     let value = sent(screen, "set-order-capacity", |s| &s.max_open_orders, &current);
     let open = match (screen.open_orders, cap) {
         (None, _) => t.list_order_capacity_open_orders_unavailable().to_owned(),
-        (Some(count), Some(cap)) => t.list_order_capacity_open_orders_now(count, cap).to_string(),
+        (Some(count), Some(cap)) => t
+            .list_order_capacity_open_orders_now(crate::text::seller_listings_msg::ListOrderCapacityOpenOrdersNow { count, cap })
+            .to_string(),
         (Some(count), None) => t.list_order_capacity_open_orders_now_unlimited(count).to_string(),
     };
     html! {
-        <div class={Stack}>
+        <div class={(KitStack { gap: Gap::App }, gap_3(), Stack)}>
             <h3 class={Strong}>{t.list_order_capacity()}</h3>
             <p class={Muted}>{t.list_order_capacity_description()}</p>
             <div class={Tight}>
@@ -611,7 +610,9 @@ fn BulkResults<'a>(t: SellerListingsMsg, outcomes: &'a [Outcome]) -> impl Render
     let failed = outcomes.len() - succeeded;
     html! {
         <div class={(Card, Tinted)} role="status" tabindex="-1">
-            <p class={Strong}>{t.list_bulk_action_results(succeeded, failed)}</p>
+            <p class={Strong}>
+                {t.list_bulk_action_results(crate::text::seller_listings_msg::ListBulkActionResults { succeeded, failed })}
+            </p>
             <ul class={Outcomes}>
                 for outcome in outcomes {
                     <li>
@@ -677,7 +678,7 @@ fn Rows<'a>(t: SellerListingsMsg, p: Pilot, page: &'a ListingPage, filters: &'a 
     let paged = page.total > limit || filters.offset > 0;
     let next = filters.offset + limit;
     html! {
-        <div id={ListingRowsId} class={Stack}>
+        <div id={ListingRowsId} class={(KitStack { gap: Gap::App }, gap_3(), Stack)}>
             if page.items.is_empty() {
                 <div class={Card}>
                     <p class={Strong}>{t.list_no_listings_yet()}</p>
@@ -707,7 +708,7 @@ fn Rows<'a>(t: SellerListingsMsg, p: Pilot, page: &'a ListingPage, filters: &'a 
                             {p.seller_listings_previous()}
                         </a>
                     }
-                    <span>{p.seller_listings_page_of(current, pages)}</span>
+                    <span>{p.seller_listings_page_of(crate::text::pilot::SellerListingsPageOf { page: current, pages })}</span>
                     if next < page.total {
                         <a class={(Button, Secondary)} href={filters.at(next)} rel="next">{p.seller_listings_next()}</a>
                     }

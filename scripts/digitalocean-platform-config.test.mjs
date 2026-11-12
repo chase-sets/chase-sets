@@ -182,7 +182,12 @@ function executeOperatorBlock(block, overrides = {}, run = block.source.run) {
         rev-parse) [[ "$CONTROL_FAILURE" != tag ]] || return 1; printf '%s\\n' "$CONTROL_SHA" ;;
       esac
     }
-    gh() { trace gh "$@"; }
+    gh() {
+      trace gh "$@"
+      if [[ "$1" == api && "$2" == --method && "$3" == POST ]]; then
+        printf '%s' "\${CONTROL_CREATED_TYPE-Bug}"
+      fi
+    }
     doctl() { trace doctl "$@"; }
     docker() { trace docker "$@"; [[ "$CONTROL_FAILURE" != image ]]; }
     jq() { trace jq "$@"; if [[ "$1" == -cn ]]; then printf '[]'; else printf '{}'; fi; }
@@ -1237,7 +1242,8 @@ describe("operator inputs before shell parsing (#8993)", () => {
       expect(result.evidence).toBe("scenario_seed_error<<SCENARIO_SEED_ERROR_EOF\n\nSCENARIO_SEED_ERROR_EOF\n");
     } else if (block.step === "Create, update, or resolve advisory evidence incident") {
       expect(result.trace).toContain("gh <issue> <list>");
-      expect(result.trace).toContain("gh <issue> <create>");
+      expect(result.trace).toContain("gh <api> <--method> <POST>");
+      expect(result.trace).toContain("<-f> <type=Bug>");
       expect(result.trace).toContain(`- Release commit: ${operatorSha}`);
     } else {
       expect(result.trace).toBe(
@@ -1245,6 +1251,15 @@ describe("operator inputs before shell parsing (#8993)", () => {
       );
     }
     if (block.file === "platform-rollback-readiness.yml") expect(result.evidence).toContain("image_exists=true");
+  });
+
+  it.each(["", "Slice", "disabled"])("rejects advisory creation with invalid native type %s", (type) => {
+    const block = operatorBlocks.find(
+      (entry) => entry.step === "Create, update, or resolve advisory evidence incident",
+    );
+    const result = executeOperatorBlock(block, { CONTROL_CREATED_TYPE: type });
+    expect(result.status).toBe(1);
+    expect(result.output).toContain("ISSUE_CREATION_TYPE_MISMATCH");
   });
 
   it.each(operatorCases)(
@@ -2496,7 +2511,183 @@ function markerAppAuthorityViolations(workflows) {
   return violations;
 }
 
+// https://github.com/chase-sets/chase-sets/issues/11174
+function providerCacheWiringErrors(
+  workflow,
+  loadAction = (path) => parse(readFileSync(resolve(path, "action.yml"), "utf8")),
+) {
+  const errors = [];
+  let scanned = 0;
+  let total = 0;
+  const cacheAction = "actions/cache@caa296126883cff596d87d8935842f9db880ef25";
+  const key =
+    "terraform-providers-${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-${{ hashFiles('infrastructure/digitalocean/*/.terraform.lock.hcl') }}";
+  function initCount(step, seen = new Set()) {
+    const run = (step.run ?? "").replace(/^\s*#.*$/gm, "");
+    const direct = [
+      ...run.matchAll(
+        /\bterraform(?:\s+-chdir=(?:"[^"]*"|'[^']*'|[^\s;]+))?\s+init\b|(?:[\w./-]+\/)?terraform-init-with-retry\.sh\b/g,
+      ),
+    ].length;
+    if (direct && step.env?.TF_PLUGIN_CACHE_DIR) errors.push("init overrides inherited cache directory");
+    if (!step.uses?.startsWith("./")) return direct;
+    if (seen.has(step.uses)) throw new Error(`Composite cycle: ${step.uses}`);
+    const action = loadAction(step.uses);
+    if (action.runs?.using !== "composite") return direct;
+    return (
+      direct + (action.runs.steps ?? []).reduce((n, child) => n + initCount(child, new Set([...seen, step.uses])), 0)
+    );
+  }
+  for (const [id, job] of Object.entries(workflow.jobs)) {
+    const steps = job.steps ?? [];
+    const inits = steps.map((step, index) => ({ step, index, count: initCount(step) })).filter(({ count }) => count);
+    total += inits.reduce((n, item) => n + item.count, 0);
+    if (!inits.length) continue;
+    const caches = steps
+      .map((step, index) => ({ step, index }))
+      .filter(({ step }) => step.with?.key?.startsWith("terraform-providers-"));
+    const setup = steps.findIndex((step) => step.uses?.startsWith("hashicorp/setup-terraform@"));
+    if (caches.length !== 1) {
+      errors.push(`${id}: expected one provider cache step`);
+      continue;
+    }
+    const { step: cache, index } = caches[0];
+    const prepare = steps.findIndex(
+      (step) =>
+        step.run?.includes('mkdir -p "$RUNNER_TEMP/terraform-providers"') &&
+        step.run?.includes('echo "TF_PLUGIN_CACHE_DIR=$RUNNER_TEMP/terraform-providers" >> "$GITHUB_ENV"'),
+    );
+    if (
+      cache.uses !== cacheAction ||
+      cache.with.key !== key ||
+      cache.with.path !== "${{ runner.temp }}/terraform-providers" ||
+      cache.with["restore-keys"] !== "terraform-providers-${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-\n"
+    )
+      errors.push(`${id}: cache identity`);
+    if (
+      setup < 0 ||
+      index <= setup ||
+      prepare <= setup ||
+      prepare >= index ||
+      cache.if !== steps[setup].if ||
+      steps[prepare]?.if !== steps[setup].if
+    )
+      errors.push(`${id}: setup ordering/condition`);
+    if (
+      cache.env ||
+      JSON.stringify(cache).includes("secrets.") ||
+      JSON.stringify(cache).includes("TF_VAR_") ||
+      JSON.stringify(job.env ?? {}).includes("runner.")
+    )
+      errors.push(`${id}: cache credential/context boundary`);
+    for (const init of inits) {
+      scanned += init.count;
+      if (
+        index >= init.index ||
+        prepare >= init.index ||
+        init.step.env?.TF_PLUGIN_CACHE_DIR ||
+        job.env?.TF_PLUGIN_CACHE_DIR
+      )
+        errors.push(`${id}: init at ${init.index + 1} lacks existing inherited cache`);
+    }
+  }
+  return { errors, scanned, total };
+}
+
 describe("DigitalOcean platform configuration", () => {
+  it("restores the lock-verified Terraform provider cache before every Platform Deploy init", () => {
+    const result = providerCacheWiringErrors(parse(platformProductionWorkflow));
+    process.stdout.write(`Platform Deploy provider cache: scanned=${result.scanned}/total=${result.total}\n`);
+    expect(result.total).toBeGreaterThan(0);
+    expect(result.scanned).toBe(result.total);
+    expect(result.errors).toEqual([]);
+  });
+
+  it.each([
+    [
+      "removed",
+      (steps) =>
+        steps.splice(
+          steps.findIndex((step) => step.name === "Restore locked Terraform providers"),
+          1,
+        ),
+    ],
+    [
+      "late",
+      (steps) =>
+        steps.push(
+          ...steps.splice(
+            steps.findIndex((step) => step.name === "Restore locked Terraform providers"),
+            1,
+          ),
+        ),
+    ],
+    [
+      "shared-key",
+      (steps) => {
+        const cache = steps.find((step) => step.name === "Restore locked Terraform providers");
+        cache.with.key = cache.with.key.replace("-${{ github.job }}", "");
+      },
+    ],
+    [
+      "secret",
+      (steps) => {
+        steps.find((step) => step.name === "Restore locked Terraform providers").env = {
+          TOKEN: "${{ secrets.SYNTHETIC }}",
+        };
+      },
+    ],
+  ])("rejects provider cache wiring mutant %s through real init discovery", (_, mutate) => {
+    const workflow = parse(platformProductionWorkflow);
+    mutate(workflow.jobs["deploy-staging"].steps);
+    expect(providerCacheWiringErrors(workflow).errors.some((error) => error.startsWith("deploy-staging:"))).toBe(true);
+  });
+
+  it.each(["terraform init -backend=false", 'terraform -chdir="synthetic" init -backend=false', "composite"])(
+    "discovers an uncached new sibling init: %s",
+    (shape) => {
+      const workflow = parse(platformProductionWorkflow);
+      workflow.jobs.synthetic = {
+        steps: [shape === "composite" ? { uses: "./synthetic-new-composite" } : { run: shape }],
+      };
+      const loadAction = (path) =>
+        path === "./synthetic-new-composite"
+          ? { runs: { using: "composite", steps: [{ run: "terraform init -backend=false" }] } }
+          : parse(readFileSync(resolve(path, "action.yml"), "utf8"));
+      const result = providerCacheWiringErrors(workflow, loadAction);
+      expect(result.errors).toContain("synthetic: expected one provider cache step");
+      expect(result.total).toBeGreaterThan(result.scanned);
+    },
+  );
+
+  it("never relaxes Terraform provider lock verification", () => {
+    const retry = readFileSync(resolve("scripts/terraform-init-with-retry.sh"), "utf8");
+    const proof = readFileSync(resolve("scripts/digitalocean-terraform-provider-cache-proof.sh"), "utf8");
+    for (const source of [platformProductionWorkflow, retry, proof]) {
+      expect(source).not.toMatch(/TF_PLUGIN_CACHE_MAY_BREAK_DEPENDENCY_LOCK_FILE|-plugin-dir|providers\s+lock/);
+    }
+    expect(retry).toContain('mkdir -p "$TF_PLUGIN_CACHE_DIR"');
+    expect(retry).toContain('terraform init "$@"');
+    const fixture = readFileSync(resolve("scripts/fixtures/terraform-provider-cache/registry.py"), "utf8");
+    for (const control of [
+      "tampered-denied",
+      "tampered-trusted",
+      "empty-trusted",
+      "bad-package",
+      "bad-signature",
+      "removed-h1",
+      "stale-key",
+      "evicted",
+      "absent",
+    ])
+      expect(fixture).toContain(`"${control}"`);
+    expect(proof).toContain("sudo unshare --net");
+    expect(proof).toContain('exec setpriv --reuid="$8" --regid="$9" --clear-groups env -i');
+    const preview = parse(platformPrWorkflow).jobs["terraform-preview-plan"].steps;
+    expect(preview.some((step) => step.run?.includes("provider-cache-proof.sh acquire"))).toBe(true);
+    expect(preview.some((step) => step.run?.includes("provider-cache-proof.sh prove"))).toBe(true);
+  });
+
   it("keeps marker recovery admitted only on immutable main and shares initialized DOKS context", () => {
     const recoveryJob = workflowJob(platformProductionWorkflow, "reconcile-production-marker");
     const admission = workflowStep(recoveryJob, "Validate marker-only admission");
