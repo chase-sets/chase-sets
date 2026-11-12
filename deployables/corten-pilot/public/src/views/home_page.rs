@@ -610,7 +610,7 @@ fn Sticky(t: HomeMsg) -> impl Render {
 pub fn Brand<'a>(t: HomeMsg, id: &'a str) -> impl Render {
     let fill = format!("url(#{id})");
     html! {
-        <a class={Brand} href={crate::app::url::Home} aria-label={t.brand()}>
+        <a class={Brand} href={crate::app::url::files::Home} aria-label={t.brand()}>
             <svg width="20" height="20" viewBox="0 0 1254 1254" aria-hidden="true" focusable="false">
                 <defs>
                     <linearGradient id={id} gradientUnits="userSpaceOnUse" x1="248" y1="420" x2="1012" y2="842">
@@ -637,7 +637,7 @@ pub fn HomeNav(t: HomeMsg) -> impl Render {
             <Brand t={t} id="chase-logo-nav" />
             <a
                 class={(Button, Primary, Small)}
-                href={crate::app::url::Home.at(WaitlistFormId)}
+                href={crate::app::url::files::Home.at(WaitlistFormId)}
                 data-cta="nav"
                 data-target="waitlist_form"
                 on:click={handlers::cta(target)}

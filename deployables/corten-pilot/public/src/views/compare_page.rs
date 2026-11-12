@@ -131,7 +131,7 @@ pub fn ComparePage<'a>(
                 <div class={Actions}>
                     <a
                         class={(Button, Primary)}
-                        href={crate::app::url::Home.at(WaitlistFormId)}
+                        href={crate::app::url::files::Home.at(WaitlistFormId)}
                         data-cta={&section}
                         data-target="waitlist_form"
                     >
