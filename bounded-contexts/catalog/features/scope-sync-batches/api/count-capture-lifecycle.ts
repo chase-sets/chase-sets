@@ -579,7 +579,11 @@ export function createCountCaptureLifecycle(deps: {
         await currentQuote(run, session);
         await deps.store.approveAcquisition(binding, input.quoteId, input.fingerprint);
         const result = countQuoteSchema.parse(
-          await requireCounts().acquireCounts({ ...input, context: session.context }),
+          await requireCounts().acquireCounts({
+            ...input,
+            periodAuthority: { kind: "capture-run", runId: run.runId },
+            context: session.context,
+          }),
         );
         await deps.store.retainAcquisition(binding, result);
         return { retained: true as const };
