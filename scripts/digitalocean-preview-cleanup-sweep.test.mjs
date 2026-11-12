@@ -1051,7 +1051,7 @@ describe("digitalocean-preview-cleanup-sweep", () => {
             const stateStart = stat.lastIndexOf(")") + 2;
             return stat[stateStart] === "Z";
           } catch (error) {
-            if (error?.code === "ENOENT") {
+            if (error?.code === "ENOENT" || error?.code === "ESRCH") {
               return true;
             }
             throw error;

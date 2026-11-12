@@ -4157,10 +4157,10 @@ describe("DigitalOcean platform configuration", () => {
     expect(job.if).toBe("needs['change-scope'].outputs.unit_tests_required == 'true'");
     const execution = job.steps.find((step) => step.name === "Run non-DB tests");
     expect(execution.run).toContain(
-      "node ./scripts/run-workspaces.mjs test --exclude-test-profile=db --concurrency=4 --workspace-list=\"${{ needs['change-scope'].outputs.unit_test_workspaces }}\" --shard=${{ matrix.shard }}/2",
+      "node ./scripts/run-workspaces.mjs test --exclude-test-profile=db --concurrency=4 --workspace-list=\"${{ needs['change-scope'].outputs.affected_workspaces }}\" --shard=${{ matrix.shard }}/2",
     );
     expect(execution.run).toContain(
-      "node ./scripts/run-workspaces.mjs test:unit --test-profile=db --concurrency=4 --workspace-list=\"${{ needs['change-scope'].outputs.unit_test_workspaces }}\" --shard=${{ matrix.shard }}/2",
+      "node ./scripts/run-workspaces.mjs test:unit --test-profile=db --concurrency=4 --workspace-list=\"${{ needs['change-scope'].outputs.affected_workspaces }}\" --shard=${{ matrix.shard }}/2",
     );
     expect(execution.run).toContain("--concurrency=4");
 
@@ -4316,7 +4316,6 @@ describe("DigitalOcean platform configuration", () => {
       'require_job "Static Checks" "${{ needs.static.result }}" "${{ needs[\'change-scope\'].outputs.static_required }}"',
       'require_job "Typecheck" "${{ needs.typecheck.result }}" "${{ needs[\'change-scope\'].outputs.typecheck_required }}"',
       'require_job "Unit Tests" "${{ needs[\'unit-tests\'].result }}" "${{ needs[\'change-scope\'].outputs.unit_tests_required }}"',
-      'require_job "Bootstrap DB Oracle Memo Check" "${{ needs[\'bootstrap-db-oracle-memo-check\'].result }}" "${{ needs[\'change-scope\'].outputs.bootstrap_db_oracle_memo_check_required }}"',
       dbCall.line,
       e2eCall.line,
       'require_job "Capture Hermetic Chromium" "${{ needs[\'capture-hermetic-chromium\'].result }}" "$capture_required"',

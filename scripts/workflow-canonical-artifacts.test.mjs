@@ -17,26 +17,6 @@ import {
 const registryWorkflowFile = ".github/workflows/platform-registry-cleanup.yml";
 const registryWorkflow = readFileSync(resolve(registryWorkflowFile), "utf8");
 
-it("uploads only the complete successful bootstrap memo payloads", () => {
-  const source = readFileSync(".github/workflows/bootstrap-db-oracle-memo.yml", "utf8");
-  const job = parse(source).jobs.deriveMemo;
-  const upload = job.steps.find(({ name }) => name === "Upload canonical memo");
-  expect(upload.with.path.trim().split("\n")).toEqual([
-    "artifacts/bootstrap-db-oracle-memo/bootstrap-db-oracle-schedule-memo.json",
-    "artifacts/bootstrap-db-oracle-memo/receipt.json",
-    "artifacts/bootstrap-db-oracle-memo/SHA256SUMS",
-  ]);
-  expect(upload.with["if-no-files-found"]).toBe("error");
-  expect(upload.if).toBeUndefined();
-  const validate = job.steps.find(({ name }) => name === "Validate canonical payloads");
-  for (const payload of upload.with.path.trim().split("\n")) expect(validate.run).toContain(`test -s ../${payload}`);
-  expect(validate.run).toContain("node ./scripts/bootstrap-db-oracle-memo-artifact.mjs validate");
-  expect(validate["working-directory"]).toBe("trusted");
-  expect(job.steps.indexOf(validate)).toBeLessThan(job.steps.indexOf(upload));
-  expect(job.steps.every((step) => !step["continue-on-error"] && !step.if)).toBe(true);
-  expect(checkWorkflowCanonicalArtifacts(source).violations).toEqual([]);
-});
-
 function trackedActionsYaml() {
   const result = spawnSync("git", ["ls-files", "-z", "--", ".github"], gitListingOptions({ encoding: "utf8" }));
   expect(result.status).toBe(0);
