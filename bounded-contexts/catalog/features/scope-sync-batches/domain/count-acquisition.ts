@@ -290,7 +290,9 @@ export type CountPeriodGate = Readonly<{
 }>;
 export class CountPeriodCapRefused extends Error {
   readonly code = "usage-period-cap";
-  constructor(readonly decision: ScrydexPeriodDecision | null) {
+  readonly decision: ScrydexPeriodDecision | null;
+  constructor(decision: ScrydexPeriodDecision | null) {
     super("Count acquisition would exceed the Scrydex billing-period cap, or its period authority is unknown.");
+    this.decision = decision;
   }
 }
