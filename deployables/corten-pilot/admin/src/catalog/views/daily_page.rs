@@ -1214,8 +1214,8 @@ fn candidate_tone(status: &str) -> &'static str {
 
 /// Merged candidate review (`CatalogIntegrationMergeCandidateReviewModule`): each candidate's
 /// identity, sources, status and readiness, and the ignore, defer, split and edit the API offers
-/// it, and its promote once the API checks it against the version read; its evidence and conflict
-/// resolution open on admin-web.
+/// it, its promote once the API checks it against the version read, and its detail sheet; a
+/// blocking conflict's resolution opens on admin-web (chase-sets/chase-sets#11235).
 #[component(css = DailyPage)]
 fn CandidatesModule<'a>(t: Cat, p: Pilot, model: &'a Daily, context: &'a str, manage: bool) -> impl Render {
     let merge = &model.merge_candidate_review;
@@ -1250,15 +1250,22 @@ fn CandidatesModule<'a>(t: Cat, p: Pilot, model: &'a Daily, context: &'a str, ma
                         </thead>
                         <tbody>
                             for row in &merge.rows {
-                                <CandidateRow t={t} p={p} row={row} context={context} manage={manage} />
+                                <CandidateRow
+                                    t={t}
+                                    p={p}
+                                    row={row}
+                                    context={context}
+                                    manage={manage}
+                                    elsewhere={elsewhere.as_deref()}
+                                />
                             }
                         </tbody>
                     </table>
                 </Table>
             }
-            if let Some(href) = &elsewhere {
+            if let (true, Some(href)) = (merge.rows.iter().any(|row| row.conflicts.blocking > 0), &elsewhere) {
                 <p class={Muted}>
-                    {p.integrations_candidates_elsewhere()}
+                    {p.integrations_conflicts_elsewhere()}
                     " "
                     <a href={href}>{p.integrations_candidates_open()}</a>
                 </p>
@@ -1270,9 +1277,17 @@ fn CandidatesModule<'a>(t: Cat, p: Pilot, model: &'a Daily, context: &'a str, ma
 /// A candidate's row. Its ignore and defer are one form's buttons, each disabled unless the API
 /// offers it (admin-web's `MergeCandidateActionButton`), with the blockers of those it does not.
 /// Split is its own form, carrying the version and the observations the API's split names; Edit
-/// opens a dialog with the typed edit (admin-web's `CatalogMergeCandidateEditForm`).
+/// opens a dialog with the typed edit (admin-web's `CatalogMergeCandidateEditForm`), and Evidence the
+/// candidate's detail sheet.
 #[component(css = DailyPage)]
-fn CandidateRow<'a>(t: Cat, p: Pilot, row: &'a Candidate, context: &'a str, manage: bool) -> impl Render {
+fn CandidateRow<'a>(
+    t: Cat,
+    p: Pilot,
+    row: &'a Candidate,
+    context: &'a str,
+    manage: bool,
+    elsewhere: Option<&'a str>,
+) -> impl Render {
     let intent = state_label(&row.proposed_mapping.promotion_intent);
     let sources = t.wb_merge_sources_count(row.source_count).to_string();
     let status = state_label(&row.status);
@@ -1295,6 +1310,10 @@ fn CandidateRow<'a>(t: Cat, p: Pilot, row: &'a Candidate, context: &'a str, mana
     let split = row.split();
     let edit = row.edit_form.version();
     let dialog = CandidateEditId(&row.candidate_id);
+    let detail = CandidateDetailId(&row.candidate_id);
+    let evidence = t
+        .wb_merge_action_aria(crate::text::cat::WbMergeActionAria { action: t.wb_evidence(), candidate: &row.identity_label })
+        .to_string();
     html! {
         <tr data-catalog-merge-candidate={&row.candidate_id}>
             <td>
@@ -1338,6 +1357,17 @@ fn CandidateRow<'a>(t: Cat, p: Pilot, row: &'a Candidate, context: &'a str, mana
             <td>
                 <CellLabel>{t.wb_table_action()}</CellLabel>
                 <span class={CellBlock}>
+                    <button
+                        type="button"
+                        class={Button { variant: ButtonVariant::Outline, size: ButtonSize::Sm }}
+                        command="show-modal"
+                        commandfor={detail}
+                        aria-haspopup="dialog"
+                        aria-label={&evidence}
+                    >
+                        {t.wb_evidence()}
+                    </button>
+                    <CandidateDetail t={t} p={p} dialog={detail} row={row} elsewhere={elsewhere} />
                     if manage && !commands.is_empty() {
                         <form
                             method="post"
@@ -1435,6 +1465,125 @@ fn CandidateRow<'a>(t: Cat, p: Pilot, row: &'a Candidate, context: &'a str, mana
                 </span>
             </td>
         </tr>
+    }
+}
+
+/// A candidate's detail sheet, by the candidate's id.
+#[derive(Id, Clone, Copy)]
+struct CandidateDetailId<'a>(&'a str);
+
+/// A candidate's detail (admin-web's `MergeCandidateDetailSheet`) in the kit's sheet from the right:
+/// its mapping, each source's values, the field provenance, the proposed references and facts, its
+/// conflicts and the commands the API built for it, all from the row the read gave. A candidate
+/// with blocking conflicts says their resolution runs on admin-web (chase-sets/chase-sets#11235:
+/// the API does not apply the value a resolution chooses, so the pilot does not offer the choice).
+/// Without JavaScript the dialog opens by its trigger's command, as the candidate edit does.
+#[component(css = DailyPage)]
+fn CandidateDetail<'a>(
+    t: Cat,
+    p: Pilot,
+    dialog: CandidateDetailId<'a>,
+    row: &'a Candidate,
+    elsewhere: Option<&'a str>,
+) -> impl Render {
+    let heading = super::id_with(&dialog, "-title");
+    let title = t.wb_merge_detail_title(&row.identity_label).to_string();
+    let mapping = &row.proposed_mapping;
+    let products = if mapping.product_ids.is_empty() { t.wb_none().to_owned() } else { mapping.product_ids.join(", ") };
+    let items = [
+        (t.wb_merge_key_candidate(), row.candidate_id.clone()),
+        (t.wb_merge_key_intent(), state_label(&mapping.promotion_intent)),
+        (t.wb_merge_key_catalog_item(), mapping.catalog_item_id.clone().unwrap_or_else(|| t.wb_not_selected().to_owned())),
+        (t.wb_merge_key_products(), products),
+    ];
+    let compared: Vec<String> = row
+        .source_comparison
+        .iter()
+        .map(|v| format!("{} {} {}: {}", v.provider_key, v.observation_id, v.field_path, v.value))
+        .collect();
+    let provenance: Vec<String> = row
+        .field_provenance
+        .iter()
+        .map(|f| format!("{}: {} {} {}", f.field_path, f.provider_key, f.source_profile_version, state_label(&f.confidence)))
+        .collect();
+    let references: Vec<String> =
+        mapping.external_catalog_item_references.iter().chain(&mapping.external_product_references).cloned().collect();
+    let facts: Vec<String> = row.proposed_facts.iter().map(|f| format!("{}: {}", f.key, f.value)).collect();
+    let payloads: Vec<String> = row
+        .actions
+        .iter()
+        .filter_map(|action| {
+            let preview = action.command_preview.as_ref()?;
+            let provenance = preview.provenance.as_ref()?;
+            Some(
+                t.wb_merge_detail_command_payload(crate::text::cat::WbMergeDetailCommandPayload {
+                    action: candidate_action_label(t, &action.key),
+                    kind: &preview.command_kind,
+                    source_count: provenance.membership.len(),
+                    product_reference_count: provenance.external_product_references.len(),
+                })
+                .to_string(),
+            )
+        })
+        .collect();
+    html! {
+        <dialog
+            class={Sheet { side: Side::Right(SheetWidth::Lg) }}
+            id={dialog}
+            closedby="any"
+            aria-labelledby={&heading}
+            data-catalog-merge-candidate-detail={&row.candidate_id}
+        >
+            <div class={SheetHeader {}}>
+                <h2 id={&heading} class={Words}>{title}</h2>
+                <button
+                    type="button"
+                    class={Button { variant: ButtonVariant::Ghost, size: ButtonSize::Sm }}
+                    command="close"
+                    commandfor={dialog}
+                >
+                    {t.wb_evidence_close()}
+                </button>
+            </div>
+            <p>{t.wb_merge_detail_description()}</p>
+            <div class={(KitStack { gap: Gap::App }, gap_4(), Stack)}>
+                if row.conflicts.blocking > 0 {
+                    <p class={Muted}>
+                        {p.integrations_conflicts_elsewhere()}
+                        if let Some(href) = elsewhere {
+                            " "
+                            <a href={href}>{p.integrations_candidates_open()}</a>
+                        }
+                    </p>
+                }
+                <Pairs items={&items} />
+                <EvidenceList title={t.wb_merge_detail_source_comparison()} items={&compared} empty={t.wb_none()} />
+                <EvidenceList title={t.wb_merge_detail_field_provenance()} items={&provenance} empty={t.wb_none()} />
+                <EvidenceList title={t.wb_merge_detail_references()} items={&references} empty={t.wb_none()} />
+                <EvidenceList title={t.wb_merge_detail_proposed_facts()} items={&facts} empty={t.wb_none()} />
+                <EvidenceList
+                    title={t.wb_merge_detail_conflicts()}
+                    items={&row.conflicts.messages}
+                    empty={t.wb_review_evidence_no_conflicts()}
+                />
+                <EvidenceList
+                    title={t.wb_merge_detail_command_payloads()}
+                    items={&payloads}
+                    empty={t.wb_merge_detail_command_payloads_empty()}
+                />
+            </div>
+        </dialog>
+    }
+}
+
+/// A candidate command's name (admin-web's `candidateActionLabel`).
+fn candidate_action_label(t: Cat, key: &str) -> &'static str {
+    match key {
+        "candidate.promote" => t.wb_merge_action_promote(),
+        "candidate.split" => t.wb_merge_action_split(),
+        "candidate.edit" => t.wb_merge_action_update(),
+        "candidate.ignore" => t.wb_merge_action_ignore(),
+        _ => t.wb_merge_action_defer(),
     }
 }
 

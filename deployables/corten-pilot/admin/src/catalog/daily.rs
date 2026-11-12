@@ -292,11 +292,24 @@ pub struct Action {
 #[derive(Clone, Debug, Default, Deserialize, Serialize, ToJson)]
 #[serde(default, rename_all = "camelCase")]
 pub struct CommandPreview {
+    /// What the command is (a merge candidate's `promote-catalog-merge-candidate` and the rest).
+    pub command_kind: String,
     pub body: PreviewBody,
+    /// The candidate review row the command was built from: its source members and references.
+    pub provenance: Option<PreviewProvenance>,
     pub scope: Option<Value>,
     pub confirmation: Option<Value>,
     /// Whether the promotion may run on the scope with no observation checked.
     pub allow_scope_selection: bool,
+}
+
+/// A merge candidate command's provenance (`CatalogMergeCandidateReviewCommandProvenance`), counted by its
+/// candidate detail sheet.
+#[derive(Clone, Debug, Default, Deserialize, Serialize, ToJson)]
+#[serde(default, rename_all = "camelCase")]
+pub struct PreviewProvenance {
+    pub membership: Vec<Value>,
+    pub external_product_references: Vec<Value>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize, ToJson)]
@@ -896,6 +909,11 @@ pub struct Candidate {
     pub conflicts: Conflicts,
     pub promote_readiness: Readied,
     pub proposed_mapping: Mapping,
+    /// Each source's value per field, the field provenance and the proposed facts, as the candidate
+    /// detail sheet lists them.
+    pub source_comparison: Vec<ComparedValue>,
+    pub field_provenance: Vec<FieldSource>,
+    pub proposed_facts: Vec<ProposedFact>,
     pub actions: Vec<Action>,
     pub edit_form: EditForm,
 }
@@ -971,12 +989,44 @@ pub struct CandidateSource {
 pub struct Conflicts {
     pub blocking: u64,
     pub warnings: u64,
+    pub messages: Vec<String>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize, ToJson)]
 #[serde(default, rename_all = "camelCase")]
 pub struct Mapping {
     pub promotion_intent: String,
+    pub catalog_item_id: Option<String>,
+    pub product_ids: Vec<String>,
+    pub external_catalog_item_references: Vec<String>,
+    pub external_product_references: Vec<String>,
+}
+
+/// A source's value for a field (`sourceComparison`).
+#[derive(Clone, Debug, Default, Deserialize, Serialize, ToJson)]
+#[serde(default, rename_all = "camelCase")]
+pub struct ComparedValue {
+    pub field_path: String,
+    pub value: String,
+    pub provider_key: String,
+    pub observation_id: String,
+}
+
+/// Where a field's proposed value came from (`fieldProvenance`).
+#[derive(Clone, Debug, Default, Deserialize, Serialize, ToJson)]
+#[serde(default, rename_all = "camelCase")]
+pub struct FieldSource {
+    pub field_path: String,
+    pub provider_key: String,
+    pub source_profile_version: String,
+    pub confidence: String,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize, ToJson)]
+#[serde(default)]
+pub struct ProposedFact {
+    pub key: String,
+    pub value: String,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize, ToJson)]

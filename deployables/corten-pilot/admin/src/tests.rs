@@ -7824,6 +7824,22 @@ fn daily_surface(location: &str, scope: Option<&str>) -> Response {
                 { "key": "observation.reject", "state": "available", "blockers": [] }]
         }
     });
+    // The candidate's detail sheet's lines (set apart, as one `json!` holding them passes its recursion limit).
+    let candidate = &mut surface["readModel"]["mergeCandidateReview"]["rows"][0];
+    candidate["conflicts"]["messages"] = json!(["Rarity differs between sources."]);
+    candidate["proposedMapping"] = json!({ "promotionIntent": "create-catalog-item", "catalogItemId": null, "productIds": ["prd_1"],
+        "externalCatalogItemReferences": ["tcgplayer:111"], "externalProductReferences": [] });
+    candidate["sourceComparison"] = json!([{ "fieldPath": "catalogItem.name", "value": "Sprigatito", "providerKey": "tcgplayer",
+        "observationId": "obs_1", "confidence": "exact" }]);
+    candidate["fieldProvenance"] = json!([{ "fieldPath": "catalogItem.name", "providerKey": "tcgplayer",
+        "sourceProfileVersion": "sv-2026", "confidence": "exact", "evidenceSummary": "name" }]);
+    candidate["proposedFacts"] = json!([{ "key": "name", "value": "Sprigatito" }]);
+    // `candidateConflicts=blocking` is a read whose candidate has a blocking conflict to resolve.
+    if location.contains("candidateConflicts=blocking") {
+        candidate["conflicts"]["blocking"] = json!(1);
+    }
+    candidate["actions"][3]["commandPreview"]["provenance"] =
+        json!({ "membership": [{ "observationId": "obs_1" }, { "observationId": "obs_2" }], "externalProductReferences": [] });
     // A scope page's journey is its Scope Record's: its Catalog sync names the scope.
     if let Some(id) = scope {
         surface["readModel"]["catalogSync"]["scope"]["reference"] = json!({ "kind": "expansion", "scopeRecordId": id });
@@ -9255,10 +9271,7 @@ async fn the_daily_workbench_draws_the_apis_read_with_its_stages_and_commands() 
     assert!(html.contains(r#"name="action" value="defer""#) && html.contains(r#"name="action" value="reject""#), "{html}");
     assert!(html.contains(r#"name="reason""#), "{html}");
     assert!(!html.contains(r#"value="promote""#), "the read offers no candidate promote here: {html}");
-    assert!(
-        html.contains(r#"href="http://localhost:7752/catalog/integrations?providerKey=tcgplayer&amp;unitKey=pokemon""#),
-        "candidate evidence and conflicts open on admin-web: {html}"
-    );
+    assert!(!html.contains("blocking conflicts runs on admin-web"), "no candidate has a blocking conflict: {html}");
     assert!(html.contains("Sprigatito 001"), "the merge candidate: {html}");
 
     let section = pilot.stylesheet(&html, "sections/catalog").await.unwrap();
@@ -9779,6 +9792,49 @@ async fn a_merge_candidate_is_ignored_or_deferred_with_admin_webs_reason() {
 }
 
 #[tokio::test]
+async fn a_candidates_evidence_is_its_detail_sheet_from_the_row_the_read_gave() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/catalog/integrations?providerKey=tcgplayer&unitKey=pokemon", Some("staff"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let sheet = &html[html.find(r#"data-catalog-merge-candidate-detail="cand_1""#).expect(&html)..];
+    let sheet = &sheet[..sheet.find("</dialog>").unwrap()];
+    for text in [
+        "Candidate detail: Sprigatito 001",
+        "<dd>cand_1</dd>",
+        "<dd>Create catalog item</dd>",
+        "<dd>not selected</dd>",
+        "<dd>prd_1</dd>",
+        "tcgplayer obs_1 catalogItem.name: Sprigatito",
+        "catalogItem.name: tcgplayer sv-2026 Exact",
+        "tcgplayer:111",
+        "name: Sprigatito",
+        "Rarity differs between sources.",
+        "Split: catalog-merge-candidate-split from 2 source(s), 0 Product reference(s)",
+    ] {
+        assert!(sheet.contains(text), "{text}: {sheet}");
+    }
+    assert!(!sheet.contains("blocking conflicts runs on admin-web"), "no blocking conflict to resolve: {sheet}");
+    // Its trigger opens it without a read of its own, for a viewer who cannot manage too.
+    assert!(
+        html.contains(r#"command="show-modal" commandfor="#) && html.contains(r#"aria-label="Evidence: Sprigatito 001""#),
+        "{html}"
+    );
+    // A candidate with a blocking conflict: its resolution runs on admin-web, said in its sheet and below the list.
+    let at = "providerKey=tcgplayer&unitKey=pokemon&candidateConflicts=blocking";
+    let (_, _, html) = pilot.send(get(&format!("/catalog/integrations?{at}"), Some("staff"))).await;
+    let admin_web = r#"href="http://localhost:7752/catalog/integrations?providerKey=tcgplayer&amp;unitKey=pokemon&amp;candidateConflicts=blocking""#;
+    let sheet = &html[html.find(r#"data-catalog-merge-candidate-detail="cand_1""#).expect(&html)..];
+    let sheet = &sheet[..sheet.find("</dialog>").unwrap()];
+    assert!(sheet.contains("blocking conflicts runs on admin-web") && sheet.contains(admin_web), "{sheet}");
+    assert_eq!(html.matches(admin_web).count(), 2, "the sheet's and the list's: {html}");
+    assert!(!html.contains("candidate-promote"), "no promote while a blocking conflict waits: {html}");
+
+    let (_, _, viewer) =
+        pilot.send(get("/catalog/integrations?providerKey=tcgplayer&unitKey=pokemon", Some("catalog-reader"))).await;
+    assert!(viewer.contains(r#"data-catalog-merge-candidate-detail="cand_1""#), "{viewer}");
+}
+
+#[tokio::test]
 async fn a_candidate_splits_and_is_edited_with_the_version_the_page_read_and_a_moved_one_says_so() {
     let pilot = Pilot::new().await;
     let at = "providerKey=tcgplayer&unitKey=pokemon";
@@ -9803,7 +9859,10 @@ async fn a_candidate_splits_and_is_edited_with_the_version_the_page_read_and_a_m
 
     let (status, _, html) = pilot.send(get(&format!("/catalog/integrations?{at}"), Some("catalog-reader"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");
-    assert!(!html.contains("candidate-split") && !html.contains("candidate-edit-form"), "not the reader's: {html}");
+    assert!(
+        !html.contains(r#"data-catalog-primary-workbench-command="candidate-split""#) && !html.contains("candidate-edit-form"),
+        "not the reader's: {html}"
+    );
 
     let (status, headers, _) = pilot
         .send(post(
