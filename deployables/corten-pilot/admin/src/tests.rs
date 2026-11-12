@@ -182,6 +182,16 @@ async fn platform(State(calls): State<Calls>, method: Method, uri: Uri, headers:
             actor(&["platform-feedback.view"])
         } else if cookie.contains("chase_sets_session=support-viewer") || cookie.contains("chase_sets_session=attention-down") {
             actor(&["support.view"])
+        } else if cookie.contains("chase_sets_session=support-remedies") {
+            actor(&[
+                "support.manage",
+                "support.remedies.propose",
+                "support.remedies.approve",
+                "support.remedies.override-return",
+                "support.remedies.retry",
+                "support.remedies.waive",
+                "support.remedies.correct",
+            ])
         } else if cookie.contains("chase_sets_session=support-agent") || cookie.contains("chase_sets_session=support-lag") {
             actor(&["support.manage"])
         } else if cookie.contains("chase_sets_session=intake-manager") {
@@ -743,8 +753,10 @@ const SUPPORT_REQUESTS: &str = "/api/marketplace/support-requests";
 /// Support requests' ops API: `req_1`, urgent, contested and ready for support with a photo, a
 /// note, a seller's challenge, a declined offer and the API's operator policy (its prefill and
 /// ceiling are not what the offer and lines would give, so the page shows the API's); `req_done`, resolved with a refund and not yet
-/// closable; the flows' titles; Escalate overdue's counts; a resolve without its summary refused;
-/// and `req_1`'s one photo.
+/// closable; `req_remedy`, whose remedy awaits a second approval and has a retryable, a waivable,
+/// an unwaivable and a releasable effect; a remedy preview (refused without a rationale) and the
+/// remedy writes; the flows' titles; Escalate overdue's counts; a resolve without its summary
+/// refused; and `req_1`'s one photo.
 fn support_requests(method: &Method, rest: &str, body: &str) -> Response {
     let row = |id: &str, reference: &str, status: &str, priority: &str, due: Option<&str>| {
         json!({
@@ -812,6 +824,67 @@ fn support_requests(method: &Method, rest: &str, body: &str) -> Response {
             detail.as_object_mut().unwrap().extend(more.as_object().unwrap().clone());
             Json(detail).into_response()
         }
+        (Method::GET, "/ops/req_remedy") => {
+            let mut detail = row("req_remedy", "SUP-1077", "resolved", "normal", None);
+            let more = json!({
+                "buyer_account_id": "acc_buyer", "seller_account_id": "acc_seller",
+                "resolution": { "summary": "Refunded twelve.", "refundAmount": "12.00", "resolvedAt": "2026-05-08T09:00:00.000Z" },
+                "flow": { "allowedResolutions": ["partial-refund"] },
+            });
+            detail.as_object_mut().unwrap().extend(more.as_object().unwrap().clone());
+            let terms = json!({
+                "remedyId": "rmd_1", "remedy": { "kind": "partial-refund", "amount": "12.00", "currencyCode": "usd" },
+                "allocation": { "sellerFundedAmount": "4.00", "platformFundedAmount": "8.00", "currencyCode": "usd", "fundingKind": "split" },
+                "returnDirective": "no-return", "refundTrigger": "operator-release", "reasonCode": "customer-protection",
+                "policyVersion": "platform-operations.platform-remedies:compiled-v1",
+            });
+            let audit = json!([
+                { "action": "proposal", "actorType": "human", "actorAccountId": "acc_ops", "reasonCode": "customer-protection",
+                  "occurredAt": "2026-05-08T10:00:00.000Z", "correlationId": "cor_1" },
+                { "action": "reservation-reserved", "actorType": "system", "actorAccountId": null, "reasonCode": "reserved",
+                  "occurredAt": "2026-05-08T10:01:00.000Z", "correlationId": "cor_2" },
+            ]);
+            detail["remedy_approval"] = json!({
+                "terms": terms, "status": "approval-pending", "reservationStatus": "reserved", "reservationReasonCode": null,
+                "requiredApprovalCount": 2, "approvals": [{ "approvedByAccountId": "acc_ops", "reasonCode": "policy-approved" }],
+                "auditTrail": audit,
+            });
+            let effect = |effect: &str, status: &str, key: Option<&str>| {
+                let facts: Vec<Value> = key
+                    .map(|key| json!({ "effect": effect, "idempotencyKey": key, "reasonCode": "processor-timeout",
+                        "occurredAt": "2026-05-08T11:00:00.000Z" }))
+                    .into_iter()
+                    .collect();
+                json!({ "effect": effect, "required": true, "status": status, "facts": facts, "waiver": null })
+            };
+            let effects = vec![
+                effect("refund-execution", "failed-retryable", Some("idem_3")),
+                effect("buyer-notification", "failed-terminal", Some("idem_4")),
+                effect("coverage-reservation", "failed-terminal", Some("idem_5")),
+                effect("operator-release", "pending", None),
+            ];
+            detail["remedy"] = json!({ "remedyId": "rmd_1", "status": "action-required", "effects": effects });
+            Json(detail).into_response()
+        }
+        (Method::POST, "/ops/req_done/remedy-proposals/preview") if body.contains(r#""rationale":"""#) => {
+            refusal(StatusCode::BAD_REQUEST, "validation_failed", "A remedy rationale is required.")
+        }
+        (Method::POST, "/ops/req_done/remedy-proposals/preview") => Json(json!({
+            "customerOutcome": "Refund 5.00 usd now", "sellerImpact": "No seller debit", "protectionReserveImpact": "Reserve 5.00",
+            "returnLabelCostPayer": "none", "refundTrigger": "immediate", "reservationExpiresAt": "2026-05-09T09:00:00.000Z",
+            "requiredApprovalCount": 1, "requiresElevatedApproval": false, "returnOverrideRequired": true,
+            "policyVersion": "platform-operations.platform-remedies:compiled-v1",
+        }))
+        .into_response(),
+        (
+            Method::POST,
+            "/ops/req_done/remedy-proposals"
+            | "/ops/req_remedy/remedy-proposals/approve"
+            | "/ops/req_remedy/remedies/rmd_1/effects/refund-execution/retry"
+            | "/ops/req_remedy/remedies/rmd_1/effects/buyer-notification/override"
+            | "/ops/req_remedy/remedies/rmd_1/effects"
+            | "/ops/req_remedy/remedy-corrections",
+        ) => written(StatusCode::OK, "req_remedy"),
         (Method::POST, "/ops/escalate-overdue") => {
             let receipt = percent_encoding::utf8_percent_encode(RECEIPT, percent_encoding::NON_ALPHANUMERIC).to_string();
             let headers = [("chase-sets-commit-position", "42".to_owned()), ("chase-sets-commit-receipt", receipt)];
@@ -5736,7 +5809,8 @@ async fn a_requests_sheet_shows_the_case_and_recommends_what_admin_web_would() {
     assert!(html.contains("Refunded five.") && html.contains("Refund still settling"), "{html}");
     assert!(html.contains(r#"value="close""#) && !html.contains(r#"value="cancel""#), "a resolved request: {html}");
     let origin = crate::app::admin_web_origin();
-    assert!(html.contains(&format!(r#"href="{origin}/support/requests?requestId=req_done""#)), "the remedy on admin-web: {html}");
+    assert!(html.contains(r#"value="preview-remedy""#), "a refund decision offers a remedy: {html}");
+    assert!(!html.contains(&format!("{origin}/support/requests")), "the remedy is the pilot's, not admin-web's: {html}");
 
     let (status, _, html) = pilot.send(get("/support/requests?requestId=req_none", Some("support-agent"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");
@@ -5796,6 +5870,141 @@ async fn a_case_action_is_sent_and_the_sheet_is_read_after_it() {
     let (status, _, html) = pilot.send(get(&lagging, Some("support-lag"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");
     assert!(html.contains("Called the carrier.") && html.contains("Refresh in a moment"), "read without the receipt: {html}");
+}
+
+#[tokio::test]
+async fn a_refund_decision_offers_a_remedy_proposal_previewed_before_it_is_requested() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/support/requests?requestId=req_done", Some("support-remedies"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains(r#"name="remedyAmount" inputmode="decimal" value="5.00""#), "the decided refund: {html}");
+    assert!(html.contains(r#"name="currencyCode" value="usd""#), "no affected lines, admin-web's usd: {html}");
+    assert!(html.contains(r#"value="req_done:platform-remedy-proposal""#), "{html}");
+    assert!(html.contains(r#"value="preview-remedy">"#), "{html}");
+    assert!(html.contains(r#"value="propose-remedy" disabled>"#), "no reservation before a preview: {html}");
+    let (_, _, html) = pilot.send(get("/support/requests?requestId=req_done", Some("support-agent"))).await;
+    assert!(html.contains(r#"value="preview-remedy" disabled>"#), "without support.remedies.propose: {html}");
+
+    let at = "/support/requests/req_done?status=resolved";
+    let form = "intent=preview-remedy&remedyKind=partial-refund&remedyAmount=5.00&currencyCode=usd&fundingKind=platform-funded\
+        &sellerFundedAmount=0.00&platformFundedAmount=5.00&returnDirective=no-return&refundTrigger=immediate\
+        &reasonCode=customer-protection&returnExceptionReasonCode=&rationale=Lost+in+transit&evidenceReferences=ev_1%0Aev_2\
+        &idempotencyKey=req_done%3Aplatform-remedy-proposal";
+    let (status, headers, html) = pilot.send(post_as("support-remedies", at, form, false)).await;
+    assert_eq!(status, StatusCode::OK, "a preview is the sheet with it: {html}");
+    assert!(headers.get(header::LOCATION).is_none());
+    let call = pilot.calls_to(SUPPORT_REQUESTS).into_iter().last().unwrap();
+    assert_eq!(call.path, format!("{SUPPORT_REQUESTS}/ops/req_done/remedy-proposals/preview"));
+    let allocation = json!({ "sellerFundedAmount": "0.00", "platformFundedAmount": "5.00", "currencyCode": "usd", "fundingKind": "platform-funded" });
+    assert_eq!(
+        serde_json::from_str::<Value>(&call.body).unwrap(),
+        json!({
+            "remedy": { "kind": "partial-refund", "amount": "5.00", "currencyCode": "usd" }, "allocation": allocation,
+            "returnDirective": "no-return", "refundTrigger": "immediate", "reasonCode": "customer-protection",
+            "returnExceptionReasonCode": null, "rationale": "Lost in transit", "evidenceReferences": "ev_1\nev_2",
+            "idempotencyKey": "req_done:platform-remedy-proposal",
+        })
+    );
+    for text in ["Refund 5.00 usd now", "Reserve 5.00", "A documented return exception is required.", "Lost in transit"] {
+        assert!(html.contains(text), "{text}: {html}");
+    }
+    assert!(html.contains(r#"<option value="partial-refund" selected>"#), "the proposal as it was filled in: {html}");
+    assert!(html.contains(r#"value="propose-remedy">"#), "previewed, it can be requested: {html}");
+
+    let propose = form.replace("intent=preview-remedy", "intent=propose-remedy");
+    let (status, headers, _) = pilot.send(post_as("support-remedies", at, &propose, false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let to = headers[header::LOCATION].to_str().unwrap().to_owned();
+    assert!(to.starts_with("/support/requests?status=resolved&requestId=req_done&action=remedy-proposed&after_write="), "{to}");
+    let call = pilot.calls_to(SUPPORT_REQUESTS).into_iter().last().unwrap();
+    assert_eq!(call.path, format!("{SUPPORT_REQUESTS}/ops/req_done/remedy-proposals"));
+
+    let unexplained = form.replace("rationale=Lost+in+transit", "rationale=");
+    let (status, _, html) = pilot.send(post_as("support-remedies", at, &unexplained, false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    assert!(html.contains("A remedy rationale is required."), "the sheet says why: {html}");
+    assert!(html.contains(r#"<option value="partial-refund" selected>"#), "and keeps what was filled in: {html}");
+    assert!(html.contains(r#"value="propose-remedy" disabled>"#), "{html}");
+}
+
+#[tokio::test]
+async fn a_remedy_shows_its_workflow_and_the_recovery_admin_web_offers() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/support/requests?requestId=req_remedy", Some("support-remedies"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    for text in [
+        "approval-pending",
+        "12.00 usd · split",
+        "no-return · operator-release",
+        "1/2",
+        "System/service",
+        "acc_ops",
+        "processor-timeout",
+        r#"value="rmd_1:approval""#,
+        r#"value="rmd_1:refund-execution:idem_3:retry""#,
+        r#"value="rmd_1:buyer-notification:idem_4:waive""#,
+        r#"value="rmd_1:operator-release""#,
+        r#"value="rmd_1:correction""#,
+        r#"value="approve-remedy">"#,
+    ] {
+        assert!(html.contains(text), "{text}: {html}");
+    }
+    assert_eq!(html.matches(r#"value="waive-remedy-effect""#).count(), 1, "a coverage reservation is never waived: {html}");
+    assert!(!html.contains(r#"value="preview-remedy""#), "a workflow, not a proposal: {html}");
+    let (_, _, html) = pilot.send(get("/support/requests?requestId=req_remedy", Some("support-agent"))).await;
+    for intent in
+        ["approve-remedy", "retry-remedy-effect", "waive-remedy-effect", "release-remedy-refund", "request-remedy-correction"]
+    {
+        assert!(html.contains(&format!(r#"value="{intent}" disabled>"#)), "{intent} needs its capability: {html}");
+    }
+
+    let reasoned =
+        |key: &str| json!({ "reasonCode": "r", "rationale": "Why", "evidenceReferences": "ev_1", "idempotencyKey": key });
+    let writes = [
+        (
+            "intent=retry-remedy-effect&remedyId=rmd_1&effect=refund-execution&idempotencyKey=k1&reasonCode=r&rationale=Why",
+            "/remedies/rmd_1/effects/refund-execution/retry",
+            json!({ "reasonCode": "r", "rationale": "Why", "idempotencyKey": "k1" }),
+            "remedy-retry-requested",
+        ),
+        (
+            "intent=waive-remedy-effect&remedyId=rmd_1&effect=buyer-notification&idempotencyKey=k2&reasonCode=r&rationale=Why\
+                &evidenceReferences=ev_1",
+            "/remedies/rmd_1/effects/buyer-notification/override",
+            reasoned("k2"),
+            "remedy-effect-waived",
+        ),
+        (
+            "intent=release-remedy-refund&remedyId=rmd_1&idempotencyKey=k3&reasonCode=r",
+            "/remedies/rmd_1/effects",
+            json!({ "reasonCode": "r", "idempotencyKey": "k3", "effect": "operator-release" }),
+            "remedy-refund-released",
+        ),
+        (
+            "intent=approve-remedy&idempotencyKey=k4&reasonCode=r&rationale=Why&evidenceReferences=ev_1",
+            "/remedy-proposals/approve",
+            reasoned("k4"),
+            "remedy-approved",
+        ),
+        (
+            "intent=request-remedy-correction&idempotencyKey=k5&reasonCode=r&rationale=Why&evidenceReferences=ev_1",
+            "/remedy-corrections",
+            reasoned("k5"),
+            "remedy-correction-requested",
+        ),
+    ];
+    for (form, path, body, action) in writes {
+        let (status, headers, _) = pilot.send(post_as("support-remedies", "/support/requests/req_remedy", form, false)).await;
+        assert_eq!(status, StatusCode::SEE_OTHER, "{form}");
+        let to = headers[header::LOCATION].to_str().unwrap().to_owned();
+        assert!(to.starts_with(&format!("/support/requests?requestId=req_remedy&action={action}&after_write=")), "{to}");
+        let call = pilot.calls_to(SUPPORT_REQUESTS).into_iter().last().unwrap();
+        assert_eq!(call.path, format!("{SUPPORT_REQUESTS}/ops/req_remedy{path}"));
+        assert_eq!(serde_json::from_str::<Value>(&call.body).unwrap(), body, "{form}");
+    }
+    let (_, _, html) =
+        pilot.send(get("/support/requests?requestId=req_remedy&action=remedy-refund-released", Some("support-remedies"))).await;
+    assert!(html.contains("Operator refund trigger released."), "{html}");
 }
 
 #[tokio::test]
