@@ -92,6 +92,110 @@ const journeySource = ts.createSourceFile(
 const journeyFunction = (name) =>
   journeySource.statements.find((node) => ts.isFunctionDeclaration(node) && node.name?.text === name);
 
+describe("reference-only settle completeness", () => {
+  const referenceOnly = (candidateId) => ({
+    candidateId,
+    status: "skipped-not-eligible",
+    disposition: "reference-only",
+    catalogItemId: null,
+  });
+  const convergedJob = (outcomes, overrides = {}) =>
+    promoteJob("current-zero", outcomes, {
+      createdAt: "2026-11-12T12:00:00Z",
+      promotionApplicationVersion: 1,
+      result: { promoted: 0, failed: 0, outcomes },
+      ...overrides,
+    });
+
+  async function count(pages, jobs) {
+    const reads = [];
+    const context = vm.createContext({
+      ...rehearsal,
+      URLSearchParams,
+      readWholeGameJson: async (_page, path) => {
+        reads.push(path);
+        const offset = Number(new URL(path, rehearsal.wholeGameStagingOrigin).searchParams.get("offset") ?? 0);
+        const page = pages[offset] ?? { total: 1, items: [] };
+        return { ...page, items: page.items.map((item) => ({ updated_at: "2026-11-11T12:00:00Z", ...item })) };
+      },
+      readWholeGameTotal: async () => pages[0].total,
+    });
+    const declarations = ["readReadyCandidateCount", "wholeGameQuery"]
+      .map((name) => journeyFunction(name).getText(journeySource))
+      .join("\n");
+    vm.runInContext(ts.transpile(declarations, { target: ts.ScriptTarget.ES2022 }), context);
+    return { remaining: await context.readReadyCandidateCount({}, "scope-1", jobs), reads };
+  }
+
+  it("does not leave the Time Spiral reference-only set candidate blocking settle", async () => {
+    const candidateId = "cand_400f635bd596d757ecda7a4f";
+    const result = await count({ 0: { total: 1, items: [{ candidate_id: candidateId }] } }, [
+      convergedJob([referenceOnly(candidateId)]),
+    ]);
+    expect(result.remaining).toBe(0);
+  });
+
+  it("counts every unresolved ready candidate across pages, not unrelated disposition ids", async () => {
+    const result = await count(
+      {
+        0: { total: 3, items: [{ candidate_id: "reference" }, { candidate_id: "unknown" }] },
+        2: { total: 3, items: [{ candidate_id: "ordinary-skip" }] },
+      },
+      [
+        convergedJob([
+          referenceOnly("reference"),
+          referenceOnly("not-ready"),
+          {
+            candidateId: "ordinary-skip",
+            status: "skipped-not-eligible",
+            catalogItemId: null,
+          },
+        ]),
+      ],
+    );
+    expect(result.remaining).toBe(2);
+    expect(result.reads).toHaveLength(2);
+  });
+
+  it.each([
+    { createdAt: undefined },
+    { createdAt: "invalid" },
+    { status: "failed" },
+    { scopeRecordId: "other-scope" },
+    { promotionApplicationVersion: null },
+    { result: { promoted: 1, failed: 0, outcomes: [referenceOnly("reference")] } },
+    { result: { promoted: 0, failed: 1, outcomes: [referenceOnly("reference")] } },
+  ])("does not exempt candidates from a non-converged or wrong-scope job: %j", async (override) => {
+    const result = await count({ 0: { total: 1, items: [{ candidate_id: "reference" }] } }, [
+      convergedJob([referenceOnly("reference")], override),
+    ]);
+    expect(result.remaining).toBe(1);
+  });
+
+  it.each(["2026-11-12T12:00:01Z", "invalid", undefined])(
+    "keeps candidates edited after disposition or with unknown update time unresolved (%s)",
+    async (updated_at) => {
+      const result = await count({ 0: { total: 1, items: [{ candidate_id: "reference", updated_at }] } }, [
+        convergedJob([referenceOnly("reference")]),
+      ]);
+      expect(result.remaining).toBe(1);
+    },
+  );
+
+  it.each([
+    { 0: { total: 2, items: [{ candidate_id: "reference" }] } },
+    {
+      0: { total: 2, items: [{ candidate_id: "reference" }] },
+      1: { total: 2, items: [{ candidate_id: "reference" }] },
+    },
+    { 0: { total: 2, items: [{ candidate_id: "reference" }] }, 1: { total: 3, items: [{ candidate_id: "other" }] } },
+  ])("refuses truncated, repeated or changing ready pagination", async (pages) => {
+    await expect(count(pages, [convergedJob([referenceOnly("reference")])])).rejects.toMatchObject({
+      code: "ready-candidates-incomplete",
+    });
+  });
+});
+
 describe("whole-game repair regressions", () => {
   it("uses registered admin routes for every whole-game page", () => {
     const routes = new Set(resolveAdminWebRouteConfigRecords().map((route) => `/${route.routePath}`));
@@ -377,30 +481,45 @@ describe("AC7 exact staging admission", () => {
 });
 
 describe("AC8 bounded complete reads", () => {
-  function settleProbe({ delay = 0, stall = false } = {}) {
+  function settleProbe({ delay = 0, stall = false, ready = [], zeroOutcomes = [], historicalOutcomes = [] } = {}) {
     const file = readFileSync(
       new URL("../deployables/admin-web/e2e/catalog-staging-provider-sync.uat.spec.ts", import.meta.url),
       "utf8",
     );
     const source = ts.createSourceFile("journey.ts", file, ts.ScriptTarget.Latest, true);
-    const names = new Set(["wholeGameSettle", "wholeGameQuery", "promoteJobsPath", "draftItemsPath"]);
+    const names = new Set([
+      "wholeGameSettle",
+      "wholeGameQuery",
+      "promoteJobsPath",
+      "draftItemsPath",
+      "readReadyCandidateCount",
+    ]);
     const functions = source.statements.filter((node) => ts.isFunctionDeclaration(node) && names.has(node.name?.text));
-    expect(functions).toHaveLength(4);
+    expect(functions).toHaveLength(5);
     const declarations = functions.map((node) => node.getText(source)).join("\n");
     const jobs = [
       promoteJob(
         "history",
-        Array.from({ length: 10 }, (_, index) => applied(`candidate-${index}`, `item-${index}`)),
+        [
+          ...Array.from({ length: 10 }, (_, index) => applied(`candidate-${index}`, `item-${index}`)),
+          ...historicalOutcomes,
+        ],
         { promotionApplicationVersion: 1 },
       ),
     ];
-    const zeroJob = promoteJob("zero", [], { promotionApplicationVersion: 1 });
+    const zeroJob = promoteJob("zero", zeroOutcomes, {
+      createdAt: "2026-11-12T12:00:00Z",
+      promotionApplicationVersion: 1,
+      result: { promoted: 0, failed: 0, outcomes: zeroOutcomes },
+    });
     const reads = [];
     const publish = vi.fn();
     let deadline;
     const read = async (_page, path) =>
       rehearsal.readBeforeWholeGameDeadline(deadline, async () => {
         reads.push(path);
+        if (path.includes("merge-candidates?"))
+          return { total: ready.length, items: ready.map((item) => ({ updated_at: "2026-11-11T12:00:00Z", ...item })) };
         if (path.includes("bulk-jobs/active")) {
           if (stall) return new Promise(() => {});
           return { items: jobs };
@@ -425,7 +544,6 @@ describe("AC8 bounded complete reads", () => {
       submitPromoteAllReady: async () => "zero",
       waitForPromoteJob: async () => zeroJob,
       readWholeGameJson: read,
-      readReadyCandidateCount: async () => 0,
       readWholeGameTotal: async () => 0,
       publishThroughCatalogItems: publish,
     });
@@ -478,6 +596,26 @@ describe("AC8 bounded complete reads", () => {
       vi.useRealTimers();
     }
   });
+  it.each([true, false])(
+    "actual settle only exempts reference-only dispositions from its current pass (%s)",
+    async (current) => {
+      const outcome = {
+        candidateId: "reference",
+        status: "skipped-not-eligible",
+        disposition: "reference-only",
+        catalogItemId: null,
+      };
+      const probe = settleProbe({
+        ready: [{ candidate_id: "reference" }],
+        zeroOutcomes: current ? [outcome] : [],
+        historicalOutcomes: [outcome],
+      });
+      expect(await probe.run(1000)).toMatchObject({
+        state: current ? "settled" : "running",
+        settle: { promotedThisDispatch: 0, published: 0, readyRemaining: current ? 0 : 1, draftsRemaining: 0 },
+      });
+    },
+  );
   it("stops slow paginated reads at the deadline, never runs the publication continuation", async () => {
     vi.useFakeTimers();
     try {
