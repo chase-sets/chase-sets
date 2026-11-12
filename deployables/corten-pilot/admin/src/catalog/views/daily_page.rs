@@ -899,7 +899,8 @@ fn usage(t: Cat, job: &ImportJob) -> Vec<String> {
 /// The import jobs (`CatalogIntegrationImportJobsModule`): the selected scope's import preflight, then
 /// each job with its progress, failure groups and usage, and the retry, resume and cancel the API
 /// offers it. The preflight is sent by its `<corten-live>` part once it is read; without JavaScript,
-/// which opens no stream, a link to the page with the preflight read for it takes the loading line's place.
+/// which opens no stream, a link to the page with the preflight read for it takes the loading line's place
+/// (corten-run/corten#1264: Corten's slow part has no answer without JavaScript of its own).
 #[component(css = DailyPage)]
 fn JobsModule<'a>(
     t: Cat,
