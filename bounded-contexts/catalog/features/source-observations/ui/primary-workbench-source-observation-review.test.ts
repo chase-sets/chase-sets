@@ -24,7 +24,6 @@ import {
   sourceObservationEvidenceDetailFor,
   sourceObservationReviewCompositionFor,
   projectPromotionReceipt,
-  promotionReceiptHasCompleteCoverage,
   promotionReceiptMatchesContext,
 } from "./primary-workbench-source-observation-review";
 import { syntheticPromotionReceipt, loaderData } from "./primary-workbench-test-fixtures";
@@ -149,51 +148,6 @@ describe("Catalog primary workbench read model - source observation review", () 
     expect(projected.preview.validation.diagnostics[0]?.diagnosticText).toBe(diagnostic.diagnosticText);
     raw.preview.validation.coveredObservationIds.push("synthetic-later-mutation");
     expect(projected.preview.validation.coveredObservationIds).toHaveLength(3);
-    expect(promotionReceiptHasCompleteCoverage(projected)).toBe(false);
-  });
-
-  it("requires complete exact coverage, a fingerprint and the original draft choice", () => {
-    const receipt = syntheticPromotionReceipt();
-    expect(promotionReceiptHasCompleteCoverage(receipt)).toBe(true);
-    for (const validation of [
-      { ...receipt.preview.validation, coveredObservationIds: [] },
-      { ...receipt.preview.validation, coveredObservationIds: ["synthetic-other-id"] },
-      { ...receipt.preview.validation, coveredObservationIds: ["obs_001", "obs_001"] },
-      { ...receipt.preview.validation, coverage: "partial" as const },
-      { ...receipt.preview.validation, continuation: "synthetic-continuation" },
-      { ...receipt.preview.validation, promoteAsDraft: true },
-      {
-        ...receipt.preview.validation,
-        diagnostics: [
-          {
-            observationId: "obs_001",
-            code: "synthetic-block",
-            path: "facts",
-            diagnosticText: "blocked",
-            blocking: true,
-          },
-        ],
-      },
-    ]) {
-      expect(promotionReceiptHasCompleteCoverage({ ...receipt, preview: { ...receipt.preview, validation } })).toBe(
-        false,
-      );
-    }
-    expect(promotionReceiptHasCompleteCoverage({ ...receipt, preview: { ...receipt.preview, fingerprint: "" } })).toBe(
-      false,
-    );
-    expect(
-      promotionReceiptHasCompleteCoverage({
-        ...receipt,
-        selection: { ...receipt.selection, observationIds: [] },
-        preview: {
-          ...receipt.preview,
-          matched: 0,
-          eligible: 0,
-          validation: { ...receipt.preview.validation, coveredObservationIds: [] },
-        },
-      }),
-    ).toBe(false);
   });
 
   // Issue #11142: matching the original receipt uses API scope, not browser reconstruction.
@@ -264,11 +218,6 @@ describe("Catalog primary workbench read model - source observation review", () 
       promotionPreview: { ...model.promotionPreview, previewId: "synthetic-different-token", receipt },
     };
     expect(() => validateCatalogPrimaryWorkbenchReadModelContract(malformed)).toThrow("original promotion receipt");
-    const mixed = syntheticPromotionReceipt();
-    mixed.selection.observationIds = ["obs_001", "synthetic-terminal-id"];
-    mixed.preview.matched = 2;
-    mixed.preview.terminal = 1;
-    expect(promotionReceiptHasCompleteCoverage(mixed)).toBe(true);
   });
   it("keeps other scope and provider selections out of the Jungle review query", () => {
     for (const [providerKey, expansionId] of [

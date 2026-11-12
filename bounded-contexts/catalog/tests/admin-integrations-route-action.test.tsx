@@ -61,6 +61,7 @@ const {
   mockUseRouteLoaderData,
   mockUseActionData,
   mockUseNavigation,
+  mockHeldVerdict,
 } = vi.hoisted(() => ({
   mockCreateCatalogRequestApiClient: vi.fn(),
   mockIsTransientAuthResolutionError: vi.fn(),
@@ -70,6 +71,7 @@ const {
   mockUseRouteLoaderData: vi.fn(),
   mockUseActionData: vi.fn(),
   mockUseNavigation: vi.fn(() => ({ state: "idle" })),
+  mockHeldVerdict: vi.fn(),
 }));
 
 vi.mock("react-router", async () => {
@@ -96,8 +98,31 @@ vi.mock("../support/request-support/api-client", async () => {
     typeof import("../features/source-observations/tests/integrations-surface-read-test-client")
   >("../features/source-observations/tests/integrations-surface-read-test-client");
   return {
-    createCatalogRequestApiClient: (request: Request) =>
-      withCatalogSurfaceReads(mockCreateCatalogRequestApiClient(request), request),
+    createCatalogRequestApiClient: (request: Request) => {
+      const stub = mockCreateCatalogRequestApiClient(request);
+      const api = withCatalogSurfaceReads(stub, request);
+      if (!api || stub.getCatalogPrimaryWorkbenchSurface) return api;
+      return {
+        ...api,
+        // Legacy receipt-binding fixtures stub the new API answer, not another preview invocation.
+        // The real HTTP predicate matrix and separate unmocked router test own that contract proof.
+        getCatalogPrimaryWorkbenchSurface: async (surface: string, location: string) => {
+          const url = new URL(location, "https://admin.example");
+          const held = url.searchParams.has("promotionPreviewId");
+          url.searchParams.delete("promotionPreviewId");
+          const answer = await api.getCatalogPrimaryWorkbenchSurface(surface, `${url.pathname}${url.search}`);
+          return held
+            ? {
+                ...answer,
+                readModel: {
+                  ...answer.readModel,
+                  promotionPreview: { ...answer.readModel.promotionPreview, ...(await mockHeldVerdict(location)) },
+                },
+              }
+            : answer;
+        },
+      };
+    },
   };
 });
 
@@ -352,6 +377,130 @@ const reviewPage = {
 };
 
 describe("Catalog integrations route", () => {
+  // A failed, old, false or mismatched authority answer never falls back to the receipt.
+  it.each(["false", "missing", "failed", "fingerprint-mismatch"])(
+    "keeps a %s verdict stale and disabled",
+    async (variant) => {
+      const readModel = receiptRouteModel();
+      const preview = syntheticPromotionPreviewResponse();
+      const read = vi.fn(async (_surface: string, location: string) => {
+        if (!new URL(location, "https://admin.example").searchParams.has("promotionPreviewId")) return { readModel };
+        if (variant === "failed") throw new Error("Synthetic private verdict failure");
+        return {
+          readModel: {
+            ...readModel,
+            promotionPreview:
+              variant === "missing"
+                ? undefined
+                : {
+                    ...readModel.promotionPreview,
+                    previewCommittable: variant !== "false",
+                    currentFingerprint: variant === "fingerprint-mismatch" ? "other-fingerprint" : preview.fingerprint,
+                  },
+          },
+        };
+      });
+      mockCreateCatalogRequestApiClient.mockReturnValue({
+        getCatalogPrimaryWorkbenchSurface: read,
+        previewBulkPromoteSourceObservationIds: vi.fn().mockResolvedValue(preview),
+      });
+      const result = await runDailyAction(
+        {
+          _intent: "observation.promote",
+          promotionPhase: "preview",
+          providerKey: "tcgdex",
+          unitKey: "tcgdex:pokemon:card:import",
+          importScope: "en:3:base:base1",
+          profileVersion: "2026.06.04",
+          selectedObservationIds: "obs_001",
+        },
+        receiptRequestUrl,
+      );
+      expect(read).toHaveBeenCalledTimes(2);
+      expect(result.promotionReceipt?.preview).toEqual(syntheticPromotionReceipt().preview);
+      const probe = renderHook(() =>
+        useOriginalPromotionReceipt(loaderData({ requestUrl: receiptRequestUrl, readModel }), result, false),
+      );
+      expect(probe.result.current.promotionPreview.freshness).toBe("stale");
+      expect(probe.result.current.promotionPreview.previewCommittable).toBe(false);
+      render(
+        <CatalogIntegrationCreateItemsStage readModel={probe.result.current} selectedObservationIds={["obs_001"]} />,
+      );
+      expect(screen.getByLabelText(/I confirm this will promote/).hasAttribute("disabled")).toBe(true);
+      expect(screen.getByRole("button", { name: "Create or update Catalog Items" }).hasAttribute("disabled")).toBe(
+        true,
+      );
+      probe.unmount();
+    },
+  );
+
+  // Server-only verdict transport must not inherit the browser's count-only cap.
+  it("reads the exact 51 selected ids rather than substituting the broader scope", async () => {
+    const ids = Array.from({ length: 51 }, (_, index) => `synthetic-observation-${index}`);
+    const readModel = receiptRouteModel();
+    const preview = syntheticPromotionPreviewResponse({
+      ...syntheticPromotionPreviewResponse(),
+      matched: 51,
+      eligible: 51,
+      validation: {
+        ...syntheticPromotionPreviewResponse().validation,
+        promoteAsDraft: true,
+        coveredObservationIds: ids,
+      },
+    });
+    const read = vi.fn(async (_surface: string, location: string) => {
+      const url = new URL(location, "https://admin.example");
+      if (!url.searchParams.has("promotionPreviewId")) return { readModel };
+      expect(url.searchParams.get("selectedObservationIds")?.split(",")).toEqual(ids);
+      expect(url.searchParams.has("selectedObservationCount")).toBe(false);
+      expect(url.searchParams.get("promotionPreviewId")).toBe("synthetic-preview-token");
+      expect(url.searchParams.get("promoteAsDraft")).toBe("true");
+      return {
+        readModel: {
+          ...readModel,
+          promotionPreview: {
+            ...readModel.promotionPreview,
+            previewCommittable: true,
+            currentFingerprint: preview.fingerprint,
+          },
+        },
+      };
+    });
+    const explicit = vi.fn().mockResolvedValue(preview);
+    const scope = vi.fn().mockRejectedValue(new Error("Broader scope must not substitute for selected ids"));
+    mockCreateCatalogRequestApiClient.mockReturnValue({
+      getCatalogPrimaryWorkbenchSurface: read,
+      previewBulkPromoteSourceObservationIds: explicit,
+      previewBulkPromoteSourceObservations: scope,
+    });
+    const result = await runDailyAction(
+      {
+        _intent: "observation.promote",
+        promotionPhase: "preview",
+        providerKey: "tcgdex",
+        unitKey: "tcgdex:pokemon:card:import",
+        importScope: "en:3:base:base1",
+        profileVersion: "2026.06.04",
+        selectedObservationIds: ids.join(","),
+        promoteAsDraft: "true",
+      },
+      receiptRequestUrl,
+    );
+    expect(read).toHaveBeenCalledTimes(2);
+    expect(scope).not.toHaveBeenCalled();
+    expect(explicit).toHaveBeenCalledExactlyOnceWith(ids, expect.objectContaining({ promoteAsDraft: true }));
+    const probe = renderHook(() =>
+      useOriginalPromotionReceipt(loaderData({ requestUrl: receiptRequestUrl, readModel }), result, false),
+    );
+    expect(probe.result.current.promotionPreview.freshness).toBe("fresh");
+    render(<CatalogIntegrationCreateItemsStage readModel={probe.result.current} selectedObservationIds={ids} />);
+    const confirm = screen.getByLabelText(/I confirm this will promote/);
+    expect(confirm.hasAttribute("disabled")).toBe(false);
+    fireEvent.click(confirm);
+    expect(screen.getByRole("button", { name: "Create or update Catalog Items" }).hasAttribute("disabled")).toBe(false);
+    probe.unmount();
+  });
+
   // Issue #11142: accepted status URLs must survive the action's descriptor read.
   it.each([
     ["&status=changed", "changed"],
@@ -417,6 +566,11 @@ describe("Catalog integrations route", () => {
     };
     const authoritative = {
       ...readModel,
+      promotionPreview: {
+        ...readModel.promotionPreview,
+        previewCommittable: true,
+        currentFingerprint: "synthetic-fingerprint-a",
+      },
       actions: readModel.actions.map((entry) =>
         entry.key === "observation.promote" ? { ...entry, commandPreview } : entry,
       ),
@@ -442,7 +596,7 @@ describe("Catalog integrations route", () => {
       },
       "https://admin.example/catalog/integrations?providerKey=synthetic-stale-provider&profileVersion=synthetic-stale-profile&promotionPreviewId=synthetic-held-token",
     );
-    expect(getCatalogPrimaryWorkbenchSurface).toHaveBeenCalledTimes(1);
+    expect(getCatalogPrimaryWorkbenchSurface).toHaveBeenCalledTimes(2);
     const [surface, location] = getCatalogPrimaryWorkbenchSurface.mock.calls[0]!;
     expect(surface).toBe("daily");
     const submitted = new URL(location, "https://admin.example");
@@ -909,6 +1063,7 @@ describe("Catalog integrations route", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    mockHeldVerdict.mockResolvedValue({ previewCommittable: true, currentFingerprint: "synthetic-fingerprint-a" });
     mockIsTransientAuthResolutionError.mockReturnValue(false);
     mockUseNavigation.mockReturnValue({ state: "idle" });
     mockResolveActorFromAuthApi.mockResolvedValue({
@@ -1560,6 +1715,7 @@ describe("Catalog integrations route", () => {
 
   it("renders the original action receipt instead of loader validation and keeps its token out of links", async () => {
     window.sessionStorage.clear();
+    mockHeldVerdict.mockResolvedValue({ previewCommittable: false, currentFingerprint: "synthetic-fingerprint-a" });
     const original = syntheticPromotionReceipt().preview;
     original.matched = 7;
     original.terminal = 6;

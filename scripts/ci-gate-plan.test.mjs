@@ -42,6 +42,149 @@ try {
 }
 const { createCiGatePlan: priorCreateCiGatePlan, ciGatePlanOutputMap: priorOutputMap } = priorPlanner;
 const workspaces = listWorkspacePackages();
+
+describe("hosted bootstrap oracle memo gate", () => {
+  it("uses real Git add edit delete and both rename sides for only the four memo inputs", () => {
+    const directory = mkdtempSync(path.join(os.tmpdir(), "11214-impl-g7-scope-"));
+    const git = (args) =>
+      execFileSync("git", ["-C", directory, ...args], { encoding: "utf8", windowsHide: true }).trim();
+    const put = (name, value) => {
+      mkdirSync(path.dirname(path.join(directory, name)), { recursive: true });
+      writeFileSync(path.join(directory, name), value);
+    };
+    const commit = () => {
+      git(["add", "."]);
+      git([
+        "-c",
+        "user.name=Synthetic Test",
+        "-c",
+        "user.email=synthetic@example.invalid",
+        "commit",
+        "--quiet",
+        "-m",
+        "Synthetic scope corpus",
+      ]);
+      return git(["rev-parse", "HEAD"]);
+    };
+    try {
+      git(["init", "--quiet"]);
+      git(["config", "core.autocrlf", "false"]);
+      const selected = [
+        "deployables/platform-api/__tests__/fixtures/bootstrap-db-oracle-schedule-memo.json",
+        "deployables/platform-api/__tests__/fixtures/bootstrap-db-oracle-schedule-memo.mjs",
+        "deployables/platform-api/__tests__/fixtures/bootstrap-db-schedule-before-subset-reuse.mjs",
+        "deployables/platform-api/scripts/check-bootstrap-db-enrollment.mjs",
+      ];
+      put("README.md", "Synthetic baseline\n");
+      let base = commit();
+      for (const target of selected) {
+        for (const operation of ["add", "edit", "rename-out", "rename-in", "delete"]) {
+          if (operation === "add") put(target, "Synthetic canonical input\n");
+          if (operation === "edit") put(target, "Edited canonical input\n");
+          if (operation === "rename-out") git(["mv", target, "moved-input.txt"]);
+          if (operation === "rename-in") git(["mv", "moved-input.txt", target]);
+          if (operation === "delete") rmSync(path.join(directory, target));
+          const head = commit();
+          const changedFiles = listChangedFiles(base, head, { cwd: directory });
+          expect(changedFiles).toContain(target);
+          if (operation.startsWith("rename")) expect(changedFiles).toContain("moved-input.txt");
+          const scope = classifyChanges({ changedFiles, workspaces });
+          for (const mode of ["pull-request", "merge-group"]) {
+            expect(
+              createCiGatePlan({ mode, provenance: "same-repository", scope }).gates.find(
+                ({ id }) => id === "bootstrap-db-oracle-memo-check",
+              ),
+            ).toMatchObject({ selection: "REQUIRED", executability: "HOSTED_ONLY" });
+          }
+          base = head;
+        }
+      }
+      put("README.md", "Edited unrelated input\n");
+      const scope = classifyChanges({ changedFiles: listChangedFiles(base, commit(), { cwd: directory }), workspaces });
+      expect(
+        createCiGatePlan({ mode: "pull-request", provenance: "same-repository", scope }).gates.find(
+          ({ id }) => id === "bootstrap-db-oracle-memo-check",
+        ).selection,
+      ).toBe("NOT_REQUIRED");
+    } finally {
+      expect(directory.startsWith(path.join(os.tmpdir(), "11214-impl-g7-scope-"))).toBe(true);
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("selects memo check only for generator changes", () => {
+    const prefix = "deployables/platform-api/";
+    const selected = [
+      `${prefix}__tests__/fixtures/bootstrap-db-oracle-schedule-memo.json`,
+      `${prefix}__tests__/fixtures/bootstrap-db-oracle-schedule-memo.mjs`,
+      `${prefix}__tests__/fixtures/bootstrap-db-schedule-before-subset-reuse.mjs`,
+      `${prefix}scripts/check-bootstrap-db-enrollment.mjs`,
+    ];
+    for (const mode of ["pull-request", "merge-group"]) {
+      for (const file of [...selected, "README.md", "scripts/bootstrap-db-oracle-memo-artifact.mjs"]) {
+        const scope = classifyChanges({ changedFiles: [file], workspaces });
+        const plan = createCiGatePlan({ mode, scope, provenance: "same-repository", labels: ["full-ci"] });
+        expect(
+          plan.gates.find(({ id }) => id === "bootstrap-db-oracle-memo-check"),
+          file,
+        ).toMatchObject({
+          selection: selected.includes(file) ? "REQUIRED" : "NOT_REQUIRED",
+          executability: "HOSTED_ONLY",
+        });
+      }
+    }
+  });
+
+  it("PR Required fails missing memo check", () => {
+    const workflow = parseYaml(readFileSync(".github/workflows/platform-pr.yml", "utf8"));
+    expect(workflow.jobs["pr-required"].needs).toContain("bootstrap-db-oracle-memo-check");
+    const run = workflow.jobs["pr-required"].steps.find(({ name }) => name === "Verify required jobs").run;
+    expect(run).toContain(
+      'require_job "Bootstrap DB Oracle Memo Check" "${{ needs[\'bootstrap-db-oracle-memo-check\'].result }}" "${{ needs[\'change-scope\'].outputs.bootstrap_db_oracle_memo_check_required }}"',
+    );
+    const scope = classifyChanges({
+      changedFiles: ["deployables/platform-api/__tests__/fixtures/bootstrap-db-oracle-schedule-memo.json"],
+      workspaces,
+    });
+    const outputs = ciGatePlanOutputMap(
+      createCiGatePlan({ mode: "pull-request", provenance: "same-repository", scope }),
+    );
+    const bash =
+      process.platform === "win32"
+        ? path.resolve(execFileSync("git", ["--exec-path"], { encoding: "utf8" }).trim(), "../../../bin/bash.exe")
+        : "bash";
+    for (const result of ["success", "failure", "skipped", ""]) {
+      const script = run.replace(/\$\{\{\s*(.*?)\s*\}\}/g, (_, expression) => {
+        if (expression === "needs['bootstrap-db-oracle-memo-check'].result") return result;
+        if (expression.endsWith(".result")) return "success";
+        const key = expression.match(/^needs\['change-scope'\]\.outputs\.(\w+)$/)?.[1];
+        if (key && key in outputs) return outputs[key];
+        throw new Error(`Unexpected Required expression: ${expression}`);
+      });
+      const execution = spawnSync(bash, ["-c", script], {
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          AC4_E2E_REQUIRED: outputs.e2e_tests_required,
+          AC4_E2E_SUITES_JSON: toOutputMap(scope).e2e_suites_json,
+        },
+      });
+      if (execution.error) throw execution.error;
+      expect(execution.status, execution.stdout + execution.stderr).toBe(result === "success" ? 0 : 1);
+      if (result !== "success") expect(execution.stderr).toContain("Bootstrap DB Oracle Memo Check was required");
+    }
+    const job = workflow.jobs["bootstrap-db-oracle-memo-check"];
+    expect(job["timeout-minutes"]).toBe(30);
+    expect(job.steps.filter(({ run }) => run?.includes("bootstrap-db-oracle-schedule-memo.mjs"))).toEqual([
+      expect.objectContaining({
+        run: "node deployables/platform-api/__tests__/fixtures/bootstrap-db-oracle-schedule-memo.mjs --check",
+      }),
+    ]);
+    expect(
+      job.steps.find(({ name }) => name === "Check memo against raw pinned oracle")["working-directory"],
+    ).toBeUndefined();
+  });
+});
 const scopedCases = selectionFixture.cases.map((entry) => ({
   ...entry,
   scope: classifyChanges({ changedFiles: entry.changedFiles, workspaces }),
@@ -147,7 +290,10 @@ function assertPreservedSelection(planner = createCiGatePlan) {
       e2e.category = "scope-gated";
       e2e.selection = entry.suiteIds.length > 0 ? "REQUIRED" : "NOT_REQUIRED";
       e2e.reason = entry.suiteIds.length > 0 ? "scope" : "not-affected";
-      expect(candidate, `${JSON.stringify(entry.changedFiles)} ${JSON.stringify(scenario)}`).toEqual(expected);
+      expect(
+        { ...candidate, gates: candidate.gates.filter(({ id }) => id !== "bootstrap-db-oracle-memo-check") },
+        `${JSON.stringify(entry.changedFiles)} ${JSON.stringify(scenario)}`,
+      ).toEqual(expected);
       expect(executedSuiteIds(candidate)).toEqual(
         expectedRenderedCopyBatches(entry.batches)
           .flatMap((batch) => batch.split(","))
@@ -980,8 +1126,18 @@ describe("shared CI gate plan", () => {
       for (const scenario of scenarios) {
         const plan = createCiGatePlan({ ...scenario, scope });
         for (const gate of plan.gates) {
-          const expectedRequired = baseSelection(gate.id, { ...scenario, scope });
-          const category = gate.id === "e2e-tests" ? "scope-gated" : baseCategories.get(gate.id);
+          const memo = gate.id === "bootstrap-db-oracle-memo-check";
+          const expectedRequired = memo
+            ? scope.changedFiles.some((file) =>
+                [
+                  "deployables/platform-api/__tests__/fixtures/bootstrap-db-oracle-schedule-memo.json",
+                  "deployables/platform-api/__tests__/fixtures/bootstrap-db-oracle-schedule-memo.mjs",
+                  "deployables/platform-api/__tests__/fixtures/bootstrap-db-schedule-before-subset-reuse.mjs",
+                  "deployables/platform-api/scripts/check-bootstrap-db-enrollment.mjs",
+                ].includes(file),
+              )
+            : baseSelection(gate.id, { ...scenario, scope });
+          const category = gate.id === "e2e-tests" || memo ? "scope-gated" : baseCategories.get(gate.id);
           const required = gate.id === "e2e-tests" ? scope.e2eTestsRequired : expectedRequired;
           const expected = required ? "REQUIRED" : "NOT_REQUIRED";
           const reason = expectedReason(gate.id, category, required, { ...scenario, scope });
@@ -1057,8 +1213,9 @@ describe("shared CI gate plan", () => {
     ).toThrow("UNKNOWN_OR_MISSING_GATE_IDS");
   });
 
-  it("closes executability over exactly the same seventeen gates", () => {
+  it("adds only the hosted memo gate to the historical seventeen gates", () => {
     const universe = [...requiredNeeds(baseWorkflow), "pr-required"];
+    universe.splice(universe.indexOf("unit-tests") + 1, 0, "bootstrap-db-oracle-memo-check");
     expect(CI_GATE_DEFINITIONS.map(({ id }) => id)).toEqual(universe);
     expect(CI_GATE_DEFINITIONS.every(({ executability }) => CI_GATE_EXECUTABILITY.includes(executability))).toBe(true);
     expect(
@@ -1070,7 +1227,7 @@ describe("shared CI gate plan", () => {
           ? typeof hostedOnlyReason === "string" && hostedOnlyReason.length > 0
           : hostedOnlyReason === null,
       ),
-    ).toHaveLength(17);
+    ).toHaveLength(18);
 
     const scope = classifyChanges({ changedFiles: ["README.md"] });
     const plan = createCiGatePlan({ mode: "merge-group", scope });

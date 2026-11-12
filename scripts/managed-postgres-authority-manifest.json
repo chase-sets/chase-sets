@@ -352,6 +352,13 @@
       "purpose": "managed-postgres-boundary"
     },
     {
+      "file": ".github/workflows/discovery-voyage-9109.yml",
+      "jobId": "measure",
+      "stepAnchor": "name:Synthetic snapshot and 30 sequential uncached direct attempts#4",
+      "secretName": "VOYAGE_API_KEY",
+      "purpose": "release-evidence"
+    },
+    {
       "file": ".github/workflows/marketplace-easypost-refund-event-replay.yml",
       "jobId": "easypost-refund-event-replay",
       "stepAnchor": "job",

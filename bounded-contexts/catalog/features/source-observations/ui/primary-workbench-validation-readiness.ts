@@ -655,13 +655,23 @@ function validationActivationDecisionFor(input: {
   if (migrationEvidenceRequired && input.activationReadiness.referenceCount > 0 && !migrationEvidenceRecorded) {
     blockers.add("reference-impact-review-required");
   }
+  if (profile?.active) {
+    blockers.add("profile-lifecycle-conflict");
+  }
 
+  // Section edits are taken only on draft or test versions, and not while a job runs.
   const saveEvidenceBlockers = new Set<CatalogPrimaryWorkbenchBlockerCategory>();
   if (!profile) {
     saveEvidenceBlockers.add("profile-version-missing");
   }
   if (!input.canManage) {
     saveEvidenceBlockers.add("permission-denied");
+  }
+  if (profile && profile.lifecycle !== "draft" && profile.lifecycle !== "test") {
+    saveEvidenceBlockers.add("profile-section-read-only");
+  }
+  if (input.activeJobCount > 0) {
+    saveEvidenceBlockers.add("active-job-conflict");
   }
 
   const blockerList = [...blockers];

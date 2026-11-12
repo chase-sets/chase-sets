@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { scrydexPeriodReserveSchema } from "./scrydex-billing-period";
 import { countQueryKey, countTimeIsCurrent } from "./count-acquisition";
 import {
   countCaptureFields,
@@ -124,6 +125,7 @@ export const countCaptureAuthoritySchema = z
         countCap: z.literal(countCapturePhaseCaps.acquisition),
         usageCap: z.literal(runCap - countCapturePhaseCaps.acquisition),
         totalCap: z.literal(runCap),
+        periodReserve: scrydexPeriodReserveSchema.optional(),
       })
       .strict(),
     deployment: z

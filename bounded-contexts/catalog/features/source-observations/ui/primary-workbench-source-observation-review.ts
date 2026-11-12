@@ -126,27 +126,6 @@ export function promotionReceiptMatchesContext(
   );
 }
 
-export function promotionReceiptHasCompleteCoverage(receipt: SourceObservationPromotionReceipt): boolean {
-  const { validation } = receipt.preview;
-  const selected = receipt.selection.observationIds;
-  const covered = new Set(validation.coveredObservationIds);
-  return (
-    Boolean(receipt.previewId && receipt.preview.fingerprint) &&
-    validation.promoteAsDraft === receipt.selection.promoteAsDraft &&
-    validation.coverage === "complete" &&
-    validation.continuation === null &&
-    validation.pageLimit > 0 &&
-    receipt.preview.eligible > 0 &&
-    covered.size <= validation.pageLimit &&
-    new Set(selected).size === selected.length &&
-    covered.size === validation.coveredObservationIds.length &&
-    covered.size === receipt.preview.eligible &&
-    (selected.length === 0 ||
-      (selected.length === receipt.preview.matched && [...covered].every((id) => selected.includes(id)))) &&
-    !validation.diagnostics.some((diagnostic) => diagnostic.blocking)
-  );
-}
-
 // How many normalized fact summaries the dense review cell renders as badges. The
 // slim row ships only this preview slice; the full list rides the lazily-fetched
 // evidence detail.
@@ -584,6 +563,7 @@ export function promotionPreviewFor(input: {
   // preview token; null when no preview is in play or the preview call failed.
   promotionValidation: SourceObservationPromotionValidation | null;
   promotionPreviewFingerprint?: string | null;
+  promotionPreviewCommittable?: boolean;
 }): CatalogPrimaryWorkbenchReadModel["promotionPreview"] {
   const validation = promotionValidationFor(input.routeContext, input.promotionValidation);
   const selectedObservationIds = input.routeContext.selectedObservationIds;
@@ -677,6 +657,10 @@ export function promotionPreviewFor(input: {
 
   return {
     previewId: input.routeContext.promotionPreviewId,
+    previewCommittable:
+      input.promotionPreviewCommittable === true &&
+      Boolean(input.routeContext.promotionPreviewId) &&
+      staleReasons.length === 0,
     receipt: null,
     currentFingerprint: input.promotionPreviewFingerprint ?? null,
     validation,

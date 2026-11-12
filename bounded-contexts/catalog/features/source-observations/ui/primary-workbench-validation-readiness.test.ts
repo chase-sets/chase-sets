@@ -175,6 +175,67 @@ describe("Catalog primary workbench read model - validation readiness", () => {
     );
   });
 
+  it("blocks Activate and the evidence save for the version that is already active", () => {
+    const profile = profileReview({
+      executableMappingContract: tcgdexPokemonCardSourceObservationMappingContract,
+      lifecycle: "active",
+      active: true,
+    });
+    const overview = controlPlaneOverview();
+    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+      requestUrl:
+        "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&profileVersion=2026.06.04&section=readiness",
+      scopes: { items: [sourceObservationScope()], total: 1, count: 1 },
+      profileReviews: { items: [profile], total: 1, count: 1 },
+      profileAuthoringModel: profileAuthoringModel({ review: profile }),
+      controlPlaneOverview: {
+        ...overview,
+        unitActivity: {
+          ...overview.unitActivity,
+          units: overview.unitActivity.units.map((unit) => ({ ...unit, recentJobs: [] })),
+        },
+      },
+      canManageCatalog: true,
+    });
+
+    expect(readModel.validationReadiness.activationDecision).toMatchObject({
+      lifecycle: "active",
+      status: "blocked",
+      actionState: "blocked",
+      blockers: expect.arrayContaining(["profile-lifecycle-conflict"]),
+      saveEvidenceState: "blocked",
+      saveEvidenceBlockers: ["profile-section-read-only"],
+    });
+  });
+
+  it.each(["draft", "test"] as const)("offers the evidence save on a %s version", (lifecycle) => {
+    const profile = profileReview({
+      executableMappingContract: tcgdexPokemonCardSourceObservationMappingContract,
+      lifecycle,
+    });
+    const overview = controlPlaneOverview();
+    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+      requestUrl:
+        "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&profileVersion=2026.06.04&section=readiness",
+      scopes: { items: [sourceObservationScope()], total: 1, count: 1 },
+      profileReviews: { items: [profile], total: 1, count: 1 },
+      profileAuthoringModel: profileAuthoringModel({ review: profile }),
+      controlPlaneOverview: {
+        ...overview,
+        unitActivity: {
+          ...overview.unitActivity,
+          units: overview.unitActivity.units.map((unit) => ({ ...unit, recentJobs: [] })),
+        },
+      },
+      canManageCatalog: true,
+    });
+
+    expect(readModel.validationReadiness.activationDecision).toMatchObject({
+      saveEvidenceState: "available",
+      saveEvidenceBlockers: [],
+    });
+  });
+
   it("denies activation and migration evidence writes for view-only operators", () => {
     const profile = profileReview({
       executableMappingContract: tcgdexPokemonCardSourceObservationMappingContract,

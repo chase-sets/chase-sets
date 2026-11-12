@@ -110,6 +110,7 @@ export type CatalogIntegrationProviderReadiness = Readonly<{
 export type CatalogIntegrationProviderUsageBudget = Readonly<{
   creditBalance: number | null;
   creditAllowance: number | null;
+  billingPeriod?: ProviderUsageSnapshot["billingPeriod"];
   creditUnit: string | null;
   readiness: "ready" | "degraded" | "blocked" | "unknown";
   freshness: CatalogIntegrationProviderUsageFreshness;
@@ -381,6 +382,7 @@ function projectUsageBudget(
   return {
     creditBalance: displayable ? snapshot.remainingCredits : null,
     creditAllowance: displayable ? snapshot.totalCredits : null,
+    billingPeriod: displayable ? (snapshot.billingPeriod ?? null) : null,
     creditUnit: snapshot.creditUnit,
     readiness: usageBudgetReadiness(snapshot, freshness),
     freshness,

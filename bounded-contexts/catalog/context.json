@@ -843,6 +843,7 @@
         "provider-scope-mapping",
         "reference-data",
         "scope-registry",
+        "scope-sync-batches",
         "scope-sync-state",
         "source-observations"
       ]
@@ -1089,6 +1090,8 @@
         "api-route:bounded-contexts/catalog/features/catalog-items/api/route.ts:POST /bulk-lifecycle/preview",
         "api-route:bounded-contexts/catalog/features/catalog-items/api/route.ts:POST /bulk-publish/confirm",
         "api-route:bounded-contexts/catalog/features/catalog-items/api/route.ts:POST /bulk-publish/preview",
+        "api-route:bounded-contexts/catalog/features/catalog-items/api/route.ts:POST /bulk-remove-drafts/confirm",
+        "api-route:bounded-contexts/catalog/features/catalog-items/api/route.ts:POST /bulk-remove-drafts/preview",
         "api-route:bounded-contexts/catalog/features/catalog-items/api/route.ts:PUT /:id/external-catalog-item-references/:providerKey/:externalKey",
         "api-route:bounded-contexts/catalog/features/catalog-items/api/route.ts:PUT /:id/external-product-references/:providerKey/:externalKey",
         "api-route:bounded-contexts/catalog/features/catalog-items/api/route.ts:PUT /:id/fields/:fieldId",

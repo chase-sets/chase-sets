@@ -732,6 +732,10 @@ export type CatalogIntegrationsCommandResult = Readonly<{
   attentionItemKey?: string;
   promotionReceipt?: SourceObservationPromotionReceipt | null;
   promotionCommandPreview?: CatalogPrimaryWorkbenchPromotionCommandPreview | null;
+  promotionPreviewVerdict?: Readonly<{
+    previewCommittable: boolean;
+    currentFingerprint: string | null;
+  }> | null;
   importJobReceipt?: SourceObservationImportJobReceipt | null;
 }>;
 

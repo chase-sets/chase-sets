@@ -77,7 +77,15 @@ export function mutableProfileStore(
   let records: CatalogProviderIntegrationProfileVersionRecord[] = [...initialRecords];
   return {
     seedProfileVersions: async () => records,
-    upsertProfileVersion: async (version) => {
+    upsertProfileVersion: async (version, guard) => {
+      guard?.(
+        records.find(
+          (candidate) =>
+            candidate.providerKey === version.providerKey &&
+            candidate.profileKey === version.profileKey &&
+            candidate.profileVersion === version.profileVersion,
+        ) ?? null,
+      );
       records = records.filter(
         (candidate) =>
           !(
