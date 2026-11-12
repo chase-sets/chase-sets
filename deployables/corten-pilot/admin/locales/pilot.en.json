@@ -167,6 +167,7 @@
     "workset_elsewhere": "Previewing a unit's promotion runs on admin-web until the Catalog API builds the promotion's selection and confirmation.",
     "workset_open": "Preview {unit} on admin-web",
     "workset_caption": "Provider units in the selected source scope",
+    "preflight_read": "Read the import preflight",
     "review_select": "Select",
     "review_note": "Defer and Reject act on the checked observations. A reject needs a reason.",
     "review_choose": "Select {name}",
