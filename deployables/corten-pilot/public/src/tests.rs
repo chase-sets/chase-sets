@@ -429,6 +429,9 @@ async fn the_home_page_draws_the_waitlists_landing_and_any_cache_may_keep_it() {
     assert_eq!(page.matches(r#"<form class="home-page__form" method="post" action="/""#).count(), 2, "{page}");
     assert!(page.contains(r#"<input type="radio" name="role" value="both" checked>"#), "{page}");
     assert!(page.contains(r#"name="website" tabindex="-1""#), "the honeypot: {page}");
+    // The brand links home and the nav to the hero's form, by the id the form has.
+    assert!(page.contains(r#"href="/" aria-label="#) && page.contains(r#"id="waitlist-form""#), "{page}");
+    assert!(page.contains(r#"href="/#waitlist-form" data-cta="nav""#), "{page}");
     // The live terms reach the FAQ and its structured data; the counter and the titled promos are drawn.
     assert!(page.contains("3.25% + $0.30 by card, 0% by bank account"), "{page}");
     assert!(
@@ -905,6 +908,7 @@ async fn a_compare_page_sets_the_live_schedule_beside_the_competitors_and_works_
     assert!(page.contains(r#"action="/compare/tcgplayer#fee-calculator" data-patch"#), "{page}");
     assert!(page.contains(r#"href="/compare/ebay""#) && page.contains("Compare Chase Sets vs eBay"), "{page}");
     assert!(page.contains(r#"href="/sales-fees""#), "{page}");
+    assert!(page.contains(r#"href="/#waitlist-form" data-cta="#), "the call to action goes to the hero's form: {page}");
     // eBay's page, and a competitor that is not one.
     let (status, _, page) = site.get("/compare/ebay", None).await;
     assert_eq!(status, StatusCode::OK);
