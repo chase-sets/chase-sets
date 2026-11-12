@@ -2,7 +2,6 @@ import { appendFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { batchBrowserE2eSuiteIds } from "./e2e-suites.mjs";
-import { requiresBootstrapDbOracleMemoCheck } from "./change-scope.mjs";
 
 export const CI_GATE_PLAN_SCHEMA_VERSION = "ci-gate-plan/v1";
 export const CI_GATE_MODES = Object.freeze(["pull-request", "merge-group"]);
@@ -20,7 +19,6 @@ export const CI_GATE_CATEGORIES = Object.freeze([
 export const FULL_BATTERY_LABELS = Object.freeze(["ci-circuit-repair", "full-ci", "preview"]);
 
 const hostedOnlyReasons = Object.freeze({
-  "bootstrap-db-oracle-memo-check": "Raw pinned oracle recomputation is hosted-only under its separate 30-minute bound",
   "known-failure-guard": "Requires the hosted merge-group payload and live GitHub issue authority",
   "docker-image": "Requires hosted DigitalOcean registry authentication and credentials",
   "workflow-lint": "Uses GitHub Actions container steps and a hosted Docker daemon",
@@ -39,7 +37,6 @@ export const CI_GATE_DEFINITIONS = Object.freeze([
   gate("static", "Static Checks", "scope-gated", "REPOSITORY_LOCAL", "localChecksRequired"),
   gate("typecheck", "Typecheck", "always-required", "REPOSITORY_LOCAL"),
   gate("unit-tests", "Unit Tests", "scope-gated", "REPOSITORY_LOCAL", "unitTestsRequired"),
-  gate("bootstrap-db-oracle-memo-check", "Bootstrap DB Oracle Memo Check", "scope-gated", "HOSTED_ONLY"),
   gate("db-tests", "DB Profile Tests", "scope-gated", "REPOSITORY_LOCAL", "dbTestsRequired"),
   gate("e2e-tests", "E2E Tests", "scope-gated", "REPOSITORY_LOCAL", "e2eTestsRequired"),
   gate("build", "Build", "full-battery-only", "REPOSITORY_LOCAL", "buildRequired"),
@@ -168,10 +165,7 @@ function standardSelection(definition, scope, lane) {
   if (definition.category === "always-required" || definition.category === "aggregation") {
     return { selection: "REQUIRED", reason: "always" };
   }
-  const affected =
-    definition.id === "bootstrap-db-oracle-memo-check"
-      ? requiresBootstrapDbOracleMemoCheck(scope)
-      : scope[definition.capability];
+  const affected = scope[definition.capability];
   if (!affected) return { selection: "NOT_REQUIRED", reason: "not-affected" };
   if (definition.category === "scope-gated") return { selection: "REQUIRED", reason: "scope" };
   if (definition.category === "targeted-heavy") {
