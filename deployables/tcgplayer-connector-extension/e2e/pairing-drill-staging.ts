@@ -91,8 +91,8 @@ async function readPersonaResponse(response: Response) {
     }
     return JSON.parse(Buffer.concat(chunks).toString("utf8")) as Record<string, unknown>;
   } finally {
+    // Cancelling ends the one-shot body; the reader is discarded with the response.
     await reader.cancel().catch(() => undefined);
-    reader.releaseLock();
   }
 }
 
