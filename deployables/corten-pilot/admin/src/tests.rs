@@ -3164,7 +3164,7 @@ async fn staff_who_may_change_the_records_get_the_bulk_bar_and_a_box_on_each_row
     );
     assert!(
         html.contains(
-            r#"connect:bulk_rows.drawn({form:@form,count:@count,preview:@preview,clear:@clear},{matching:&quot;120 matching Dimensions&quot;,entity:&quot;Dimensions&quot;,selected:%[&quot;&quot;,&quot;count&quot;,&quot; &quot;,&quot;entityName&quot;,&quot; selected&quot;]})"#
+            r#"connect:bulk_rows.drawn({form:@form,count:@count,preview:@preview,clear:@clear},{matching:"120 matching Dimensions",entity:"Dimensions",selected:%["","count"," ","entityName"," selected"]})"#
         ),
         "the count's text is the catalog's message, sent unfilled: {html}"
     );
@@ -3383,7 +3383,7 @@ async fn the_items_list_asks_the_api_with_admin_webs_filters_and_draws_its_colum
     assert!(html.contains(r#"formaction="/catalog/catalog-items/drafts?status=draft&amp;language=ja&amp;blueprint_state=missing&amp;has_images=false&amp;page=2" data-checked"#), "{html}");
     assert!(html.contains(r#"<option value="mergeTags">Merge Tags</option>"#) && html.contains(r#"name="tags""#), "{html}");
     assert!(
-        html.contains(r#"<corten-live data-scope="live-status" id="catalog-live" src="/catalog/catalog-items/live?status=draft&amp;language=ja&amp;blueprint_state=missing&amp;has_images=false&amp;page=2" data-on="#),
+        html.contains(r#"<corten-live data-scope="live-status" id="catalog-live" src="/catalog/catalog-items/live?status=draft&amp;language=ja&amp;blueprint_state=missing&amp;has_images=false&amp;page=2" data-on='"#),
         "{html}"
     );
     assert!(html.contains(r#"href="/catalog/catalog-items""#), "the nav serves the list: {html}");
@@ -3601,14 +3601,14 @@ async fn the_items_page_counts_changes_and_a_reload_draws_the_rows_and_a_new_str
     assert!(html.starts_with(r#"<div data-scope="bulk-rows" id="catalog-rows""#), "{html}");
     assert!(
         html.contains(
-            r#"<corten-live data-scope="live-status" id="catalog-live" src="/catalog/catalog-items/live?status=draft" data-on="connect:live_status.stale($c,@since,%[&quot;Stale since &quot;,&quot;value&quot;,&quot;&quot;],%{"#
+            r#"<corten-live data-scope="live-status" id="catalog-live" src="/catalog/catalog-items/live?status=draft" data-on='connect:live_status.stale($c,@since,%["Stale since ","value",""],%{"#
         ),
         "the stream's connection status, in the element that streams: {html}"
     );
     // The stale time is written by the server's date format (`t.js().date_time`), in UTC.
     let live = &html[html.find("<corten-live").unwrap()..];
     let live = &live[..live.find('>').unwrap()];
-    assert_eq!(live.matches(r#"&quot;u&quot;:&quot;UTC&quot;"#).count(), 2, "on connect and on each status: {live}");
+    assert_eq!(live.matches(r#""u":"UTC""#).count(), 2, "on connect and on each status: {live}");
     assert!(
         html.contains(r#"<input type="hidden" name="status" value="draft"><button type="submit" class="live-status__reload">Reload</button>"#),
         "a stale stream's Reload keeps the filters: {html}"

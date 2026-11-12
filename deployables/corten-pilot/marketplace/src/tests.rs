@@ -5537,7 +5537,7 @@ async fn the_search_terms_and_the_item_address_read_back_through_the_router_as_t
     assert!(form.contains(r#"<input type="hidden" name="dimension.dim_form" value="chc_graded">"#), "{form}");
     // The same listing twice is one the address chose; two different ones are none, so the page
     // chooses by itself.
-    let explicit = "&quot;selected_listing&quot;,&quot;explicit&quot;";
+    let explicit = r#""selected_listing","explicit""#;
     let (_, _, twice) = pilot.send(get("/items/charizard?listing=lst_chase&listing=lst_chase", None)).await;
     assert!(twice.contains(explicit), "{twice}");
     let (_, _, two) = pilot.send(get("/items/charizard?listing=lst_chase&listing=lst_vault", None)).await;
@@ -7409,10 +7409,10 @@ async fn the_packing_page_shows_the_lock_progress_lines_and_finish_only_once_eve
     assert!(html[group..scan].contains(r#"<span class="input-group__adornment" aria-hidden="true"><svg"#), "{html}");
     // Copy is corten-ui's: each copies a hidden element with the whole value, by the line's id.
     assert!(html.contains(r#"<span id="line-reference-spl_2" hidden>spl_2</span>"#), "{html}");
-    assert!(html.contains("ui.copy_button.copy($t,&quot;line-reference-spl_2&quot;"), "{html}");
-    assert!(html.contains("ui.copy_button.copy($t,&quot;product-reference-spl_2&quot;"), "{html}");
+    assert!(html.contains(r#"ui.copy_button.copy($t,"line-reference-spl_2""#), "{html}");
+    assert!(html.contains(r#"ui.copy_button.copy($t,"product-reference-spl_2""#), "{html}");
     assert!(html.contains(r#"<span id="ship-to" hidden>Collector Zero"#), "{html}");
-    assert!(html.contains("ui.copy_button.copy($t,&quot;ship-to&quot;"), "{html}");
+    assert!(html.contains(r#"ui.copy_button.copy($t,"ship-to""#), "{html}");
     // The command center.
     assert!(html.contains(r#"href="/account/sales/shipments">Back to shipments</a>"#), "{html}");
 
@@ -8039,7 +8039,7 @@ async fn a_new_or_rotated_key_shows_its_secret_once_in_the_writes_own_answer() {
     assert!(
         html.contains(
             r#"<button data-scope="ui-copy-button" type="button" class="security-page__button security-page__primary" hidden"#
-        ) && html.contains("ui.copy_button.copy($t,&quot;secret&quot;,@said,&quot;Copied&quot;,$s)"),
+        ) && html.contains(r#"ui.copy_button.copy($t,"secret",@said,"Copied",$s)"#),
         "Copy is corten-ui's, shown by its script, and copies the secret by its id: {html}"
     );
     assert!(!html.contains("data-corten-read-again"), "never reads itself again while it shows a secret");
@@ -15237,7 +15237,7 @@ async fn a_support_case_shows_who_acts_next_and_only_the_viewers_part() {
     assert!(html.contains(r#"<option value="provide-tracking" selected>Provide tracking</option>"#), "{html}");
     assert!(html.contains(r#"<option value="offer-partial-refund">Offer a partial refund</option>"#), "{html}");
     // corten-ui's RequiredWhen requires the amount for a partial refund only (todd-skelton/corten#269).
-    assert!(html.contains("ui.required_when.connect(") && html.contains("[&quot;offer-partial-refund&quot;]"), "{html}");
+    assert!(html.contains("ui.required_when.connect(") && html.contains(r#"["offer-partial-refund"]"#), "{html}");
     assert!(!html.contains(r#"<option value="request-support-review""#), "review is its own button: {html}");
     assert!(html.contains("Request support review</button>") && !html.contains("Cancel case"), "the buyer opened it: {html}");
     let order: Vec<usize> = ["Case opened", "Evidence submitted", "Offer made", "Offer declined"]
@@ -18760,8 +18760,7 @@ async fn a_search_results_picture_and_title_send_its_place_and_the_searchs_keys(
     assert_eq!(status, StatusCode::OK, "{html}");
     let first = &html[html.find(r#"<li id="result-1""#).unwrap()..];
     let first = &first[..first.find("</li>").unwrap()];
-    let opened =
-        format!(r#"data-on="click:rail_analytics.searchResult(1,&quot;{QUERY_HASH}&quot;,&quot;{RESULT_SET_KEY}&quot;)""#);
+    let opened = format!(r#"data-on='click:rail_analytics.searchResult(1,"{QUERY_HASH}","{RESULT_SET_KEY}")'"#);
     // The picture's link and the title's, not Buy, Sell or Watch.
     assert_eq!(first.matches(&opened).count(), 2, "{first}");
     assert_eq!(first.matches("data-on=").count(), 2, "{first}");
@@ -18776,9 +18775,7 @@ async fn the_item_pages_sides_and_similar_items_send_the_rails_events() {
     let (status, _, html) = pilot.send(get(ITEM_PAGE, None)).await;
     assert_eq!(status, StatusCode::OK, "{html}");
     let call = |changed: bool, intent: &str, workflow: &str, selection: &str, surface: &str| {
-        format!(
-            "rail_analytics.railIntent({changed},&quot;{intent}&quot;,&quot;{workflow}&quot;,&quot;{selection}&quot;,&quot;guest&quot;,&quot;{surface}&quot;)"
-        )
+        format!(r#"rail_analytics.railIntent({changed},"{intent}","{workflow}","{selection}","guest","{surface}")"#)
     };
     // The rail's sides: Buy is current (nothing to count), with its best listing chosen for it.
     assert!(html.contains(&call(false, "buy", "best_available_listing", "implicit", "desktop_rail")), "{html}");
@@ -18787,13 +18784,14 @@ async fn the_item_pages_sides_and_similar_items_send_the_rails_events() {
     assert!(html.contains(&call(true, "buy", "best_available_listing", "implicit", "mobile_action_bar")), "{html}");
     let similar = &html[html.find(r#"aria-labelledby="similar-items""#).unwrap()..];
     let similar = &similar[..similar.find("</section>").unwrap()];
-    assert_eq!(similar.matches(r#"data-on="click:rail_analytics.similarItem()""#).count(), 3, "{similar}");
+    assert_eq!(similar.matches("data-on='click:rail_analytics.similarItem()'").count(), 3, "{similar}");
 }
 
 #[tokio::test]
 async fn the_rails_sections_forms_refusals_payout_and_gate_send_marketplaces_events() {
     let pilot = Pilot::new().await;
-    let q = |s: &str| s.replace('"', "&quot;");
+    // A handler's arguments are as written: `data-on` is single-quoted (corten-run/corten#1281).
+    let q = |s: &str| s.to_owned();
     // Buy: the listing's form names both sets of labels, and each section counts its opening.
     let (_, _, buy) = pilot.send(get(SAVE_PAGE, None)).await;
     for hook in [
@@ -18845,10 +18843,10 @@ async fn the_rails_sections_forms_refusals_payout_and_gate_send_marketplaces_eve
 fn plain(html: &str) -> String {
     let mut out = String::with_capacity(html.len());
     let mut rest = html;
-    while let Some(at) = rest.find(" data-on=\"") {
+    while let Some(at) = rest.find(" data-on='") {
         out.push_str(&rest[..at]);
-        let after = &rest[at + " data-on=\"".len()..];
-        rest = after.find('"').map_or("", |end| &after[end + 1..]);
+        let after = &rest[at + " data-on='".len()..];
+        rest = after.find('\'').map_or("", |end| &after[end + 1..]);
     }
     out.push_str(rest);
     out
