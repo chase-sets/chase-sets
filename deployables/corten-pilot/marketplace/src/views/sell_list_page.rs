@@ -1148,11 +1148,15 @@ fn ConfirmationPanel<'a>(t: SellListMsg, confirmation: &'a SellListConfirmation)
                 }
                 <p class={Row}>
                     <a class={Button} href={url::SellList::PATH}>{t.page_latest_confirmation_view_seller_activity()}</a>
-                    <a class={(Button, Secondary)} href="/account/sales">{t.page_latest_confirmation_view_committed_sales()}</a>
-                    <a class={(Button, Secondary)} href="/account/sales/shipments">
+                    <a class={(Button, Secondary)} href={url::Sales::default()}>
+                        {t.page_latest_confirmation_view_committed_sales()}
+                    </a>
+                    <a class={(Button, Secondary)} href={url::SaleShipments::default()}>
                         {t.page_latest_confirmation_view_sale_shipments()}
                     </a>
-                    <a class={(Button, Secondary)} href="/account/support">{t.page_latest_confirmation_open_support()}</a>
+                    <a class={(Button, Secondary)} href={url::SupportList::default()}>
+                        {t.page_latest_confirmation_open_support()}
+                    </a>
                 </p>
             </div>
         </section>

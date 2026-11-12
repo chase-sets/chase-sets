@@ -11,7 +11,7 @@ use platform::{
     theme::gap_4,
     ui::{
         accordion::Accordion,
-        alert::{Alert, AlertEmphasis, AlertVariant, FormAlert},
+        alert::{AlertEmphasis, FormAlert},
         button::{Button, ButtonSize, ButtonVariant},
         checkbox::Checkbox,
         dialog::{Dialog, DialogFooter, DialogHeader, DialogSize},
@@ -326,9 +326,8 @@ fn workset_unit_tone(state: &str) -> &'static str {
 
 /// The selected source scope (`CatalogSourceScopeWorksetModule`): the scope and its counts, then each
 /// provider unit with its state, the way to open its scope, and its Sync, Preview and Reapply. Sync
-/// and Reapply post the scopes the API built for the unit; Preview opens on admin-web until the API
-/// returns a promotion's selection and confirmation (chase-sets/chase-sets#11142). Nothing draws without a unit, as
-/// there.
+/// and Reapply post the scopes the API built for the unit, and Preview the unit's promotion the read
+/// built. Nothing draws without a unit, as there.
 #[component(css = DailyPage)]
 fn WorksetModule<'a>(t: Cat, p: Pilot, req: &'a Req, model: &'a Daily, context: &'a str, manage: bool) -> impl Render {
     let workset = &model.source_scope_workset;
@@ -367,9 +366,6 @@ fn WorksetModule<'a>(t: Cat, p: Pilot, req: &'a Req, model: &'a Daily, context: 
                             </tbody>
                         </table>
                     </Table>
-                    if manage && workset.units.iter().any(|u| u.actions.preview_promotion.open() && !u.previewable()) {
-                        <p class={Muted}>{p.integrations_workset_elsewhere()}</p>
-                    }
                 </Module>
             </div>
         }
@@ -378,8 +374,8 @@ fn WorksetModule<'a>(t: Cat, p: Pilot, req: &'a Req, model: &'a Daily, context: 
 
 /// A unit's row: who it is, its state and counts, and its scope's working set, with its commands.
 /// For a viewer who manages the catalog, Sync and Reapply are buttons, off unless the API offers
-/// them (as admin-web's are), and an offered Preview links to admin-web; for anyone else each is its
-/// state.
+/// them (as admin-web's are), and so is Preview once the read built the unit's promotion; for anyone
+/// else each is its state.
 #[component(css = DailyPage)]
 fn WorksetRow<'a>(t: Cat, p: Pilot, req: &'a Req, unit: &'a WorksetUnit, context: &'a str, manage: bool) -> impl Render {
     let key = unit.key();
@@ -411,13 +407,8 @@ fn WorksetRow<'a>(t: Cat, p: Pilot, req: &'a Req, unit: &'a WorksetUnit, context
             }
         }
     }
-    let preview = manage && unit.actions.preview_promotion.open();
-    // The unit's Preview posts to the pilot once the read builds the unit's promotion
-    // (chase-sets/chase-sets#11142); before, it opens on admin-web.
     let previewable = manage && unit.previewable();
-    let elsewhere = (preview && !previewable).then(|| admin_web(&unit.current_workbench_href).map(|u| u.to_string())).flatten();
     let promotion = at(&daily::url::Promotion.href(), context);
-    let run = p.integrations_workset_open(&unit.display_name).to_string();
     html! {
         <tr data-catalog-source-scope-unit={key}>
             <td>
@@ -492,9 +483,6 @@ fn WorksetRow<'a>(t: Cat, p: Pilot, req: &'a Req, unit: &'a WorksetUnit, context
                     </span>
                     if !blocked.is_empty() {
                         <Blockers t={t} blockers={&blocked} />
-                    }
-                    if let Some(href) = &elsewhere {
-                        <a href={href}>{run}</a>
                     }
                 </span>
             </td>
@@ -1573,8 +1561,7 @@ fn observation_tone(status: &str) -> &'static str {
 /// Source Observation review (`CatalogIntegrationSourceObservationReviewModule`): the filters, the
 /// status choice as links, the page of rows with a box for each reviewable one and its Evidence
 /// sheet, the pager, and Preview promotion, Defer and Reject for the checked ones. Preview promotion
-/// opens on admin-web until the read builds the promotion's selection and confirmation
-/// (chase-sets/chase-sets#11142).
+/// sends the selection and confirmation the read built.
 #[component(css = DailyPage)]
 fn ReviewModule<'a>(
     t: Cat,
@@ -1637,12 +1624,9 @@ fn ReviewModule<'a>(
     let defer = manage && reviewable && action_open("observation.defer");
     let reject = manage && reviewable && action_open("observation.reject");
     let scope = review.filters.iter().find(|f| f.key == "setId").and_then(|f| f.value.clone()).unwrap_or_default();
-    // Preview promotion of the checked rows posts to the pilot once the read builds the promotion's
-    // selection and confirmation (chase-sets/chase-sets#11142); before, it opens on admin-web.
     let offered = manage && daily::promotion_command(model).is_some();
     let promotion = at(&daily::url::Promotion.href(), context);
     let previewable = offered && action_open("observation.promote") && review.rows.iter().any(ReviewRow::eligible);
-    let elsewhere = (!offered).then(|| admin_web(&daily::location(context)).map(|u| u.to_string())).flatten();
     let in_scope = t.wb_review_status(pagination.total).to_string();
     let filtered =
         t.wb_review_empty_filtered(crate::text::cat::WbReviewEmptyFiltered { status: &status, scope: &scope, total }).to_string();
@@ -1772,13 +1756,6 @@ fn ReviewModule<'a>(
                     </div>
                 }
             </form>
-            if let Some(href) = &elsewhere {
-                <p class={Muted}>
-                    {p.integrations_preview_elsewhere()}
-                    " "
-                    <a href={href}>{p.integrations_preview_open()}</a>
-                </p>
-            }
         </Module>
     }
 }
@@ -1794,8 +1771,8 @@ const EVIDENCE_OPEN: &str = "wb-evidence-open";
 /// open by the server and made modal when it joins the page, or the empty dialog a row's Evidence
 /// answer replaces. A detail the API does not have is the sheet's error, as there. Its footer's
 /// Preview promotion previews this observation's promotion (admin-web's button does nothing); the
-/// sheet has no read model to tell whether the API builds the promotion yet, so before
-/// chase-sets/chase-sets#11142 the preview is refused as not offered.
+/// sheet has no read model of its own, so a preview the working set's read does not offer is
+/// refused as not offered.
 #[component(css = DailyPage)]
 pub fn EvidenceSheet<'a>(t: Cat, p: Pilot, evidence: Option<&'a ObservationEvidence>, context: &'a str) -> impl Patch {
     let heading = super::id_with(&EvidenceSheetId, "-title");
@@ -2053,19 +2030,13 @@ fn ReviewRowView<'a>(t: Cat, p: Pilot, req: &'a Req, row: &'a ReviewRow, manage:
 /// the previewed impact of the working set's selection (or its scope), its pre-write validation,
 /// and one form that previews again or, with the box confirmed, commits the preview the address
 /// holds. The draft choice sits in that form, so a commit with a choice the preview did not bind is
-/// refused and asks for a preview again, as admin-web's stage holds it back. Before the API builds
-/// the promotion's selection and confirmation (chase-sets/chase-sets#11142), the stage opens on
-/// admin-web.
+/// refused and asks for a preview again, as admin-web's stage holds it back.
 #[component(css = DailyPage)]
 fn CreateModule<'a>(t: Cat, p: Pilot, req: &'a Req, model: &'a Daily, context: &'a str, manage: bool) -> impl Render {
     let preview = &model.promotion_preview;
     let offered = manage && daily::promotion_command(model).is_some();
     let open = model.actions.iter().find(|a| a.key == "observation.promote").is_some_and(|a| a.open());
-    let elsewhere = (manage && !offered)
-        .then(|| admin_web(&daily::location(&with_query(context, &[("section", Some("promotion-preview"))]))))
-        .flatten()
-        .map(|u| u.to_string());
-    let fresh = preview.fresh();
+    let fresh = preview.committable();
     let blocked = preview.identity_blocked();
     let draft = preview.validation.promote_as_draft;
     let scoped = t
@@ -2186,14 +2157,6 @@ fn CreateModule<'a>(t: Cat, p: Pilot, req: &'a Req, model: &'a Daily, context: &
                         <Blockers t={t} blockers={&preview.blockers} />
                     }
                 </form>
-            }
-            if let Some(href) = &elsewhere {
-                <Alert variant={AlertVariant::Info} emphasis={AlertEmphasis::Outline}>
-                    <p>{p.integrations_create_elsewhere()}</p>
-                    <a class={Button { variant: ButtonVariant::Outline, size: ButtonSize::Sm }} href={href}>
-                        {p.integrations_create_open()}
-                    </a>
-                </Alert>
             }
             if let Some(href) = &handoff {
                 <div class={(Panel, Row)}>

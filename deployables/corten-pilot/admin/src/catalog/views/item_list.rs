@@ -15,7 +15,10 @@ use super::{
 };
 use crate::{
     catalog::{
-        api::{EditCandidate, EditOutcome, EditPreview, ItemRow, Job, Preview, PublishCandidate, PublishOutcome, PublishPreview},
+        api::{
+            EditCandidate, EditOutcome, EditPreview, ItemRow, Job, Preview, PublishCandidate, PublishOutcome, PublishPreview,
+            RemovalPreview,
+        },
         form::{ItemBulkInput, ItemInput},
         url,
     },
@@ -36,11 +39,11 @@ pub enum ItemPreview {
 }
 
 /// A dialog the items page answers with, drawn open: a bulk preview (or its refusal), or the
-/// removal of the checked drafts.
+/// removal preview of the checked rows (or its refusal).
 #[derive(Clone, Copy)]
 pub enum ItemDialog<'a> {
     Preview { input: &'a ItemBulkInput, preview: Option<&'a ItemPreview>, errors: &'a Errors, confirm: &'a str, label: &'a str },
-    Drafts { ids: &'a [String], errors: &'a Errors, confirm: &'a str },
+    Drafts { ids: &'a [String], preview: Option<&'a RemovalPreview>, errors: &'a Errors, confirm: &'a str },
 }
 
 /// How many items changed since the page was drawn, and whether the stream asked for a full
@@ -208,7 +211,9 @@ pub fn item_list<'a>(
             Some(ItemDialog::Preview { input, preview, errors, confirm, label }) => {
                 <ItemPreviewDialog t={t} p={p} input={input} preview={preview} errors={errors} confirm={confirm} label={label} />
             }
-            Some(ItemDialog::Drafts { ids, errors, confirm }) => <DraftsDialog t={t} p={p} ids={ids} errors={errors} confirm={confirm} />,
+            Some(ItemDialog::Drafts { ids, preview, errors, confirm }) => {
+                <DraftsDialog t={t} p={p} ids={ids} preview={preview} errors={errors} confirm={confirm} />
+            }
             None => <dialog id={ids::PREVIEW_DIALOG}></dialog>,
         }
         if let Some(followed) = job {
@@ -336,13 +341,13 @@ pub fn item_rows<'a>(
     }
 }
 
-/// Remove drafts from selected: a submit of the bulk form to the drafts' dialog, enabled while
-/// only drafts are checked.
+/// Remove drafts from selected: a submit of the bulk form to the removal's preview, enabled while
+/// a row is checked.
 #[component(css = ItemForm)]
 fn DraftsButton<'a>(t: Cat, action: &'a str) -> impl Render {
     let f = ItemBulkInput::FIELDS;
     html! {
-        <button type="submit" class={(Small, Danger)} name={f.mode} value="ids" formaction={action} data-requires="draft">
+        <button type="submit" class={(Small, Danger)} name={f.mode} value="ids" formaction={action} data-checked>
             {t.item_list_remove_drafts_from_selected()}
         </button>
     }
@@ -357,7 +362,7 @@ fn ItemTableRow<'a>(t: Cat, row: &'a ItemRow, select: Option<Pilot>) -> impl Ren
     html! {
         <tr>
             if let Some(p) = select {
-                <td><SelectRow p={p} id={&row.catalog_item_id} status={Some(row.status.as_str())} /></td>
+                <td><SelectRow p={p} id={&row.catalog_item_id} /></td>
             }
             <td>
                 <CellLabel>{t.item_list_title()}</CellLabel>
@@ -625,22 +630,37 @@ fn EditTable<'a>(t: Cat, candidates: &'a [EditCandidate]) -> impl Render {
     }
 }
 
-/// The removal of the checked drafts (admin-web's Remove Draft Catalog Items): how many, and the
-/// confirm, which removes each.
+/// The removal preview of the checked rows (admin-web's Remove drafts dialog): what the API would do
+/// to each, and the confirm, which starts the removal's job with the same rows.
 #[component(css = ItemForm)]
-pub fn DraftsDialog<'a>(t: Cat, p: Pilot, ids: &'a [String], errors: &'a Errors, confirm: &'a str) -> impl Patch {
+pub fn DraftsDialog<'a>(
+    t: Cat,
+    p: Pilot,
+    ids: &'a [String],
+    preview: Option<&'a RemovalPreview>,
+    errors: &'a Errors,
+    confirm: &'a str,
+) -> impl Patch {
     let f = ItemBulkInput::FIELDS;
-    let ready = !ids.is_empty() && errors.is_empty();
+    let ready = preview.is_some_and(|v| v.ready_count > 0);
+    let ids: &[String] = preview.map_or(ids, |v| &v.item_ids);
     html! {
-        let description = t.item_list_remove_draft_catalog_items_description(ids.len()).to_string();
+        let title = t.bulk_preview_title(t.item_list_operation_remove_drafts()).to_string();
+        let description = preview.map(|v| {
+            t.bulk_preview_description(crate::text::cat::BulkPreviewDescription { ready: v.ready_count, blocked: v.blocked_count })
+                .to_string()
+        });
         <CatalogDialog
             p={p}
             id={ids::PREVIEW_DIALOG}
-            title={t.item_list_remove_draft_catalog_items()}
-            description={ready.then_some(description.as_str())}
+            title={&title}
+            description={description.as_deref()}
             open
             close={p.catalog_close()}
         >
+            if let Some(preview) = preview {
+                <Candidates t={t} candidates={&preview.candidates} />
+            }
             <form class={Confirm} id={ids::CONFIRM} method="post" action={confirm} data-patch>
                 {errors.form_message()}
                 for id in ids {
@@ -648,7 +668,7 @@ pub fn DraftsDialog<'a>(t: Cat, p: Pilot, ids: &'a [String], errors: &'a Errors,
                 }
                 <div class={Footer}>
                     <button type="submit" class={(Small, Danger)} disabled={!ready}>
-                        {t.item_list_remove_drafts_from_selected()}
+                        {t.item_list_remove_drafts()}
                     </button>
                     <button type="button" class={(Small, Secondary)} command="close" commandfor={ids::PREVIEW_DIALOG}>
                         {t.item_list_cancel()}

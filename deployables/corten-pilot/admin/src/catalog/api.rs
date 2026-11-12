@@ -1062,9 +1062,12 @@ pub struct EditOutcome {
 /// One record of a bulk change: what it is, its status, and what the change does to it
 /// (`BulkLifecycleCandidate`: `ready` or `blocked` in a preview; `succeeded`, `skipped` or
 /// `failed` in a result) and why.
+/// A draft removal's (`BulkRemoveDraftCandidate`) names its record by `catalog_item_id` and `title`.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Candidate {
+    #[serde(alias = "catalog_item_id")]
     pub id: String,
+    #[serde(alias = "title")]
     pub label: String,
     pub status: String,
     pub outcome: String,
@@ -1085,9 +1088,11 @@ pub struct Preview {
     pub candidates: Vec<Candidate>,
 }
 
-/// What a bulk change did (`BulkLifecycleResult`).
+/// What a bulk change did (`BulkLifecycleResult`, or a draft removal's `BulkRemoveDraftResult`,
+/// which has no action).
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Outcome {
+    #[serde(default)]
     pub action: String,
     pub total: u32,
     pub succeeded_count: u32,
@@ -1097,9 +1102,23 @@ pub struct Outcome {
     pub candidates: Vec<Candidate>,
 }
 
+/// What removing drafts would do (`BulkRemoveDraftPreview`): each item is `ready` or `blocked`
+/// (not a draft, or not found), as the API decides. The confirm takes the same selection.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct RemovalPreview {
+    #[serde(default)]
+    pub item_ids: Vec<String>,
+    pub total: u32,
+    pub ready_count: u32,
+    pub blocked_count: u32,
+    #[serde(default)]
+    pub candidates: Vec<Candidate>,
+}
+
 /// A bulk change's job (`CatalogAuthoringBulkJob<T>`): queued, running, then completed with its
-/// outcome or failed with a message. The outcome's shape is the kind's: a lifecycle change's
-/// [`Outcome`], a catalog item publish's [`PublishOutcome`], an item edit's [`EditOutcome`].
+/// outcome or failed with a message. The outcome's shape is the kind's: a lifecycle change's or a
+/// draft removal's [`Outcome`], a catalog item publish's [`PublishOutcome`], an item edit's
+/// [`EditOutcome`].
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 #[serde(bound(deserialize = "R: Deserialize<'de>", serialize = "R: Serialize"))]
@@ -1133,6 +1152,7 @@ pub struct Progress {
 /// The job kinds of a catalog item bulk change.
 pub const ITEMS_PUBLISH: &str = "catalog.authoring.items.publish";
 pub const ITEMS_EDIT: &str = "catalog.authoring.items.edit";
+pub const ITEMS_REMOVE_DRAFTS: &str = "catalog.authoring.items.remove-drafts";
 
 impl<R> Job<R> {
     /// Done: completed or failed. Its stream sends nothing after.
@@ -1150,7 +1170,7 @@ impl<R> Job<R> {
             "catalog.authoring.blueprints.lifecycle" => Some(Kind::Blueprints),
             "catalog.authoring.reference-types.lifecycle" => Some(Kind::ReferenceTypes),
             "catalog.authoring.reference-records.lifecycle" => Some(Kind::ReferenceRecords),
-            "catalog.authoring.items.lifecycle" | ITEMS_PUBLISH | ITEMS_EDIT => Some(Kind::Items),
+            "catalog.authoring.items.lifecycle" | ITEMS_PUBLISH | ITEMS_EDIT | ITEMS_REMOVE_DRAFTS => Some(Kind::Items),
             _ => None,
         }
     }

@@ -234,7 +234,7 @@ fn Rows<'a>(t: SubmittedOffersMsg, p: Pilot, screen: &'a OffersScreen) -> impl P
                             <p class={Strong}>{t.list_no_submitted_offers_yet()}</p>
                             <p class={Muted}>{t.list_submit_an_offer_from_any_item()}</p>
                             <p class={Row}>
-                                <a class={(Button, Secondary)} href="/">{t.list_browse_marketplace()}</a>
+                                <a class={(Button, Secondary)} href={url::Home::default()}>{t.list_browse_marketplace()}</a>
                             </p>
                         }
                         Some(status) => {

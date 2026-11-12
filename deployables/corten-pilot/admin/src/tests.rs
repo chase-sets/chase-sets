@@ -1501,9 +1501,21 @@ fn publish_candidate(id: &str, outcome: &str, retryable: bool) -> Value {
     })
 }
 
-/// A catalog item bulk job, done: a publish (one published, one to retry) or an edit.
+/// A draft removal's item (`BulkRemoveDraftCandidate`): only a draft is ready.
+fn removal_candidate(id: &str, status: &str, outcome: &str) -> Value {
+    let reason = if matches!(outcome, "ready" | "succeeded") { Value::Null } else { json!("Only draft items can be removed.") };
+    json!({ "catalog_item_id": id, "title": format!("Title {id}"), "status": status, "outcome": outcome, "reason": reason })
+}
+
+const ITEMS_REMOVE_DRAFTS: &str = "catalog.authoring.items.remove-drafts";
+
+/// A catalog item bulk job, done: a publish (one published, one to retry), a draft removal (one
+/// removed, one skipped) or an edit.
 fn item_job(id: &str, kind: &str, action: &str) -> Value {
-    let result = if kind.ends_with(".publish") {
+    let result = if kind == ITEMS_REMOVE_DRAFTS {
+        json!({ "item_ids": ["cat_a", "cat_b"], "total": 2, "succeeded_count": 1, "skipped_count": 1, "failed_count": 0,
+                "candidates": [removal_candidate("cat_a", "removed", "succeeded"), removal_candidate("cat_b", "active", "skipped")] })
+    } else if kind.ends_with(".publish") {
         json!({ "item_ids": ["cat_a", "cat_b"], "total": 2, "published_count": 1, "failed_count": 1, "skipped_count": 0,
                 "candidates": [publish_candidate("cat_a", "published", false), publish_candidate("cat_b", "failed", true)] })
     } else {
@@ -1547,6 +1559,20 @@ fn items_api(method: Method, rest: &str, body: &str) -> Response {
         }
         (Method::POST, "/bulk-edit/confirm") => {
             (StatusCode::ACCEPTED, Json(item_job("job_edit", "catalog.authoring.items.edit", "mergeTags"))).into_response()
+        }
+        (Method::POST, "/bulk-remove-drafts/preview" | "/bulk-remove-drafts/confirm")
+            if !body.contains(r#""ids":["#) || body.contains(r#""ids":[]"#) =>
+        {
+            refusal(StatusCode::BAD_REQUEST, "invalid_request", "Choose at least one Catalog Item to remove.")
+        }
+        (Method::POST, "/bulk-remove-drafts/preview") => {
+            let candidates = [removal_candidate("cat_a", "draft", "ready"), removal_candidate("cat_b", "active", "blocked")];
+            Json(json!({ "mode": "ids", "item_ids": ["cat_a", "cat_b"], "total": 2, "ready_count": 1, "blocked_count": 1,
+                         "candidates": candidates }))
+            .into_response()
+        }
+        (Method::POST, "/bulk-remove-drafts/confirm") => {
+            (StatusCode::ACCEPTED, Json(item_job("job_remove", ITEMS_REMOVE_DRAFTS, "remove-drafts"))).into_response()
         }
         (Method::DELETE, "/cat_used") => refusal(StatusCode::CONFLICT, "invalid_transition", "Only draft items can be removed."),
         (Method::GET, "/cat_origin") => {
@@ -1897,6 +1923,9 @@ fn catalog_api(method: Method, rest: &str, headers: &HeaderMap, body: &str) -> R
         }
         (Method::GET, "/bulk-authoring-jobs/job_edit") => {
             Json(item_job("job_edit", "catalog.authoring.items.edit", "mergeTags")).into_response()
+        }
+        (Method::GET, "/bulk-authoring-jobs/job_remove") => {
+            Json(item_job("job_remove", ITEMS_REMOVE_DRAFTS, "remove-drafts")).into_response()
         }
         (
             Method::POST,
@@ -3241,8 +3270,7 @@ async fn the_items_list_asks_the_api_with_admin_webs_filters_and_draws_its_colum
     assert!(html.contains(r#"href="/catalog/catalog-items/cat_a""#), "the item's page is the pilot's: {html}");
     assert!(html.contains(r#"<details class="list-page__more" open>"#), "a folded filter that is set opens them: {html}");
     assert!(html.contains(r#"value="missing" selected"#), "{html}");
-    assert!(html.contains(r#"data-status="draft""#), "a draft's box says so: {html}");
-    assert!(html.contains(r#"formaction="/catalog/catalog-items/drafts?status=draft&amp;language=ja&amp;blueprint_state=missing&amp;has_images=false&amp;page=2" data-requires="draft""#), "{html}");
+    assert!(html.contains(r#"formaction="/catalog/catalog-items/drafts?status=draft&amp;language=ja&amp;blueprint_state=missing&amp;has_images=false&amp;page=2" data-checked"#), "{html}");
     assert!(html.contains(r#"<option value="mergeTags">Merge Tags</option>"#) && html.contains(r#"name="tags""#), "{html}");
     assert!(
         html.contains(r#"<corten-live data-scope="live-status" id="catalog-live" src="/catalog/catalog-items/live?status=draft&amp;language=ja&amp;blueprint_state=missing&amp;has_images=false&amp;page=2" data-on="#),
@@ -3400,32 +3428,38 @@ async fn a_confirm_starts_the_operations_job_and_the_dialog_shows_its_outcome() 
 }
 
 #[tokio::test]
-async fn checked_drafts_are_removed_one_by_one_and_only_drafts() {
+async fn the_checked_rows_removal_is_the_apis_preview_and_job() {
     let pilot = Pilot::new().await;
-    let (status, _, html) = pilot.send(post("/catalog/catalog-items/drafts?status=draft", "mode=ids&ids=cat_a", true)).await;
+    let (status, _, html) =
+        pilot.send(post("/catalog/catalog-items/drafts?status=draft", "mode=ids&ids=cat_a&ids=cat_b", true)).await;
     assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains("Bulk Remove drafts Preview") && html.contains("1 ready, 1 blocked."), "{html}");
+    assert!(html.contains("Only draft items can be removed."), "the API's reason: {html}");
+    assert!(html.contains(r#"action="/catalog/catalog-items/drafts/confirm?status=draft""#), "{html}");
     assert!(
-        html.contains("Remove Draft Catalog Items") && html.contains("Remove 1 draft Catalog Items from the grid."),
+        html.contains(r#"<input type="hidden" name="ids" value="cat_a"><input type="hidden" name="ids" value="cat_b">"#),
         "{html}"
     );
-    assert!(html.contains(r#"action="/catalog/catalog-items/drafts/confirm?status=draft""#), "{html}");
+    let sent = pilot.catalog_writes().remove(0);
+    assert_eq!(sent.path, "/api/catalog/items/bulk-remove-drafts/preview");
+    assert_eq!(sent_json(&sent), json!({ "selection": { "mode": "ids", "ids": ["cat_a", "cat_b"] } }));
 
-    let (status, _, html) = pilot.send(post("/catalog/catalog-items/drafts", "mode=ids&ids=cat_a&ids=cat_b", true)).await;
-    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
-    assert!(html.contains("Check only draft Catalog Items to remove them.") && html.contains("disabled"), "{html}");
-    assert!(pilot.catalog_writes().is_empty());
+    // None checked: the API's refusal, and nothing to confirm.
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(post("/catalog/catalog-items/drafts", "mode=ids", true)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    assert!(html.contains("Choose at least one Catalog Item to remove.") && html.contains("disabled"), "{html}");
 
-    let (status, headers, _) = pilot.send(post("/catalog/catalog-items/drafts/confirm?status=draft", "ids=cat_a", true)).await;
+    let pilot = Pilot::new().await;
+    let (status, headers, _) =
+        pilot.send(post("/catalog/catalog-items/drafts/confirm?status=draft", "ids=cat_a&ids=cat_b", true)).await;
     assert_eq!(status, StatusCode::NO_CONTENT);
-    let to = headers["corten-location"].to_str().unwrap();
-    assert!(
-        to.starts_with("/catalog/catalog-items?status=draft&after_write=") && to.ends_with("&done=drafts_removed&removed=1"),
-        "{to}"
-    );
-    let removed: Vec<_> = pilot.catalog_writes().iter().map(|c| (c.method.clone(), c.path.clone())).collect();
-    assert_eq!(removed, [(Method::DELETE, "/api/catalog/items/cat_a".to_owned())]);
-    let (_, _, html) = pilot.send(get("/catalog/catalog-items?done=drafts_removed&removed=1", Some("staff"))).await;
-    assert!(html.contains("1 draft Catalog Items removed"), "{html}");
+    assert_eq!(headers["corten-location"], "/catalog/catalog-items?status=draft&job=job_remove");
+    let sent = pilot.catalog_writes().remove(0);
+    assert_eq!(sent.path, "/api/catalog/items/bulk-remove-drafts/confirm");
+    assert_eq!(sent_json(&sent), json!({ "selection": { "mode": "ids", "ids": ["cat_a", "cat_b"] } }));
+    let (_, _, html) = pilot.send(get("/catalog/catalog-items?job=job_remove", Some("staff"))).await;
+    assert!(html.contains("Bulk Remove drafts Result") && html.contains("1 succeeded, 1 skipped, 0 failed."), "{html}");
 }
 
 #[tokio::test]
@@ -7794,15 +7828,15 @@ fn daily_surface(location: &str, scope: Option<&str>) -> Response {
     if let Some(id) = scope {
         surface["readModel"]["catalogSync"]["scope"]["reference"] = json!({ "kind": "expansion", "scopeRecordId": id });
     }
-    // `candidatePromote=versioned` is an API that checks a candidate's promote against the version
-    // read, and builds it (chase-sets/chase-sets#11143).
+    // `candidatePromote=versioned` is a read that offers a candidate's promote with the version it
+    // read (the stand-in's other rows have none to offer).
     if location.contains("candidatePromote=versioned") {
         surface["readModel"]["mergeCandidateReview"]["rows"][0]["actions"][0]["commandPreview"] = json!({
             "commandKind": "promote-catalog-merge-candidate",
             "body": { "reason": "Promote from the scope-first Catalog sync workbench.", "expectedVersion": 4 } });
     }
-    // The read builds the promotion's selection and confirmation (chase-sets/chase-sets#11142);
-    // `providerKey=legacy` is an API from before it, whose promotion opens on admin-web.
+    // The read builds the promotion's selection and confirmation; `providerKey=legacy` is a read
+    // that does not offer the promotion.
     if !location.contains("providerKey=legacy") {
         let actions = surface["readModel"]["actions"].as_array_mut().expect("the actions are a list");
         actions.push(json!({ "key": "observation.promote", "state": "available", "blockers": [],
@@ -8773,7 +8807,7 @@ async fn an_unreadable_projection_says_so_in_its_panel_and_a_failed_read_is_the_
     assert_eq!(status, StatusCode::FORBIDDEN, "catalog.view, as the API asks");
 }
 
-/// The promotion's selection and confirmation the read builds (`commandPreview`, chase-sets/chase-sets#11142):
+/// The promotion's selection and confirmation the read builds (`commandPreview`):
 /// the working set's filter scope, and its unit, import scope and profile.
 fn promotion_descriptor(unit: &str) -> Value {
     let scope = json!({ "provider": "tcgplayer", "language": "en", "setId": "sv1", "status": null });
@@ -8791,7 +8825,7 @@ fn promotion_preview(location: &str) -> Value {
         return json!({ "previewId": null, "blockers": [], "destructiveCount": 0, "freshness": "partial",
             "validation": { "promoteAsDraft": false, "coverage": "not-previewed", "coveredCount": 0,
                 "identityDiagnostics": [], "otherBlockedObservationIds": [], "continuation": null },
-            "executionSafeguards": { "previewFresh": false, "staleReasons": [] } });
+            "executionSafeguards": { "previewFresh": false, "staleReasons": [] }, "previewCommittable": false });
     };
     let draft = token == "tok_draft";
     let stale = token == "tok_stale";
@@ -8813,7 +8847,8 @@ fn promotion_preview(location: &str) -> Value {
         "commandPlanHash": format!("preview:{token}:explicit:requested:1:eligible:1"),
         "validation": { "promoteAsDraft": draft, "coverage": "complete", "coveredCount": 1,
             "identityDiagnostics": diagnostics, "otherBlockedObservationIds": [], "continuation": null },
-        "executionSafeguards": { "previewFresh": !stale, "staleReasons": if stale { json!(["observations"]) } else { json!([]) } }
+        "executionSafeguards": { "previewFresh": !stale, "staleReasons": if stale { json!(["observations"]) } else { json!([]) } },
+        "previewCommittable": !stale && !blocked
     })
 }
 
@@ -9087,7 +9122,7 @@ async fn preview_promotion_sends_the_reads_selection_and_confirmation_and_the_co
 }
 
 #[tokio::test]
-async fn a_units_preview_runs_on_its_own_working_set_and_an_api_without_the_promotion_opens_admin_web() {
+async fn a_units_preview_runs_on_its_own_working_set_and_a_read_without_the_promotion_offers_none() {
     let pilot = Pilot::new().await;
     let unit = "phase=preview-unit&unit=tcgplayer%3Apokemon%3Acard";
     // The unit's preview the read disables is not offered.
@@ -9109,11 +9144,11 @@ async fn a_units_preview_runs_on_its_own_working_set_and_an_api_without_the_prom
     let descriptor = promotion_descriptor("tcgplayer:pokemon:card");
     assert!(sent["observationIds"].is_null() && sent["confirmation"] == descriptor["confirmation"], "{sent}");
 
-    // Before the read builds the promotion, its preview and commit open on admin-web, and a post is not offered.
+    // A read that does not offer the promotion: no preview or commit, here or on admin-web, and a post is refused.
     let (_, _, html) = pilot.send(get("/catalog/integrations?providerKey=legacy&section=promotion-preview", Some("staff"))).await;
-    assert!(html.contains("Open the promotion preview on admin-web") && !html.contains(r#"value="execute""#), "{html}");
+    assert!(!html.contains("promotion preview on admin-web") && !html.contains(r#"value="execute""#), "{html}");
     let (_, _, html) = pilot.send(get("/catalog/integrations?providerKey=legacy", Some("staff"))).await;
-    assert!(html.contains("Preview on admin-web") && !html.contains(r#"value="preview-checked""#), "{html}");
+    assert!(!html.contains("Preview on admin-web") && !html.contains(r#"value="preview-checked""#), "{html}");
     let before = daily_writes(&pilot).len();
     let (status, _, _) = pilot
         .send(post("/catalog/integrations/promotion?providerKey=legacy", "phase=preview-checked&observation=obs_1", false))
@@ -9219,13 +9254,10 @@ async fn the_daily_workbench_draws_the_apis_read_with_its_stages_and_commands() 
     assert!(html.contains("1–25 of 30 (page 1 of 2)"), "{html}");
     assert!(html.contains(r#"name="action" value="defer""#) && html.contains(r#"name="action" value="reject""#), "{html}");
     assert!(html.contains(r#"name="reason""#), "{html}");
-    assert!(
-        !html.contains(r#"value="promote""#),
-        "promotion stays on admin-web (chase-sets/chase-sets#11142, chase-sets/chase-sets#11143): {html}"
-    );
+    assert!(!html.contains(r#"value="promote""#), "the read offers no candidate promote here: {html}");
     assert!(
         html.contains(r#"href="http://localhost:7752/catalog/integrations?providerKey=tcgplayer&amp;unitKey=pokemon""#),
-        "candidates and the preview open on admin-web: {html}"
+        "candidate evidence and conflicts open on admin-web: {html}"
     );
     assert!(html.contains("Sprigatito 001"), "the merge candidate: {html}");
 
@@ -9264,8 +9296,7 @@ async fn the_workset_draws_each_units_state_and_its_sync_and_reapply_and_opens_i
     assert!(panel.contains(r#"<input type="hidden" name="unit" value="tcgplayer:pokemon:card">"#), "{panel}");
     assert!(panel.contains(r#"name="command" value="import">Sync TCGplayer singles</button>"#), "{panel}");
     assert!(panel.contains(r#"name="command" value="reapply">Reapply TCGplayer singles</button>"#), "{panel}");
-    // Preview is closed here, so it is its state, with no way to it on admin-web
-    // (chase-sets/chase-sets#11142).
+    // Preview is closed here, so it is its state, with no way to it on admin-web.
     assert!(panel.contains(r#"data-catalog-primary-workbench-command="observation.promote" data-state="disabled""#), "{panel}");
     assert!(!panel.contains("on admin-web</a>"), "{panel}");
     // A unit without a key or profile says so, and why its commands are closed; with no scopes it
@@ -9680,7 +9711,7 @@ async fn the_sync_draws_the_run_the_address_names_and_the_scopes_state_with_retr
     assert!(!html.contains("data-catalog-sync-run-id"), "{html}");
 }
 #[tokio::test]
-async fn a_merge_candidate_is_ignored_or_deferred_with_admin_webs_reason_and_promotion_stays_on_admin_web() {
+async fn a_merge_candidate_is_ignored_or_deferred_with_admin_webs_reason() {
     let pilot = Pilot::new().await;
     let at = "providerKey=tcgplayer&unitKey=pokemon";
     let (status, _, html) = pilot.send(get(&format!("/catalog/integrations?{at}"), Some("staff"))).await;
@@ -9700,10 +9731,7 @@ async fn a_merge_candidate_is_ignored_or_deferred_with_admin_webs_reason_and_pro
         form[form[..defer].rfind("<button").unwrap()..].split('>').next().unwrap().contains("disabled"),
         "a blocked defer: {form}"
     );
-    assert!(
-        !form.contains(r#"value="promote""#),
-        "promotion stays on admin-web (chase-sets/chase-sets#11142, chase-sets/chase-sets#11143): {form}"
-    );
+    assert!(!form.contains(r#"value="promote""#), "the read offers no candidate promote here: {form}");
 
     let (status, _, html) = pilot.send(get(&format!("/catalog/integrations?{at}"), Some("catalog-reader"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");
