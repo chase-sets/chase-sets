@@ -206,15 +206,16 @@ export function createStagingPersonaSignIn(resolver?: PairingDrillResolver) {
       }
       record = { ...record, expiresAt: body.expiresAt };
 
-      const landing = await context.request.get(`${stagingOrigin}${stagingPersonaMagicLinkPath}`, {
-        headers: { accept: "text/html" },
-        maxRedirects: 0,
+      // The token-less probe is a page navigation so it resolves through the same pinned
+      // Chromium host rules as the consume; `context.request` would use the driver's own DNS.
+      const page = context.pages()[0] ?? (await context.newPage());
+      const landing = await page.goto(`${stagingOrigin}${stagingPersonaMagicLinkPath}`, {
+        waitUntil: "commit",
         timeout: probeTimeoutMs,
       });
-      record = { ...record, landingStatus: landing.status() };
-      if (!landing.ok()) throw new Error("staging-persona-probe-refused");
+      record = { ...record, landingStatus: landing?.status() ?? null };
+      if (!landing?.ok() || landing.request().redirectedFrom()) throw new Error("staging-persona-probe-refused");
       if (Date.parse(body.expiresAt) <= Date.now()) throw new Error("staging-persona-link-expired");
-      const page = context.pages()[0] ?? (await context.newPage());
       await page.goto(link.href);
       record = { ...record, outcome: "used" };
       return record;

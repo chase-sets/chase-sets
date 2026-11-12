@@ -29,14 +29,27 @@ afterEach(() => {
   }
 });
 
-function context(status = 200) {
-  const goto = vi.fn(async () => undefined);
-  const requestGet = vi.fn(async () => ({ ok: () => status === 200, status: () => status }));
+function landing(status: number, redirected = false) {
+  return {
+    ok: () => status >= 200 && status < 300,
+    status: () => status,
+    request: () => ({ redirectedFrom: () => (redirected ? {} : null) }),
+  };
+}
+
+// The adapter navigates the page twice: a token-less probe, then the pinned token link (consume).
+function context(status = 200, redirected = false) {
+  const probe = vi.fn(async (_url: string, _options?: unknown) => landing(status, redirected));
+  const consume = vi.fn(async (_url: string) => null);
+  const goto = vi.fn((url: string, options?: unknown) =>
+    new URL(url).searchParams.has("token") ? consume(url) : probe(url, options),
+  );
   const page = { goto };
   return {
-    value: { request: { get: requestGet }, pages: () => [page] },
+    value: { pages: () => [page] },
     goto,
-    requestGet,
+    probe,
+    consume,
   } as const;
 }
 
@@ -81,13 +94,10 @@ describe("staging persona sign-in custody", () => {
     });
 
     expect(process.env[STAGING_PERSONA_MAGIC_LINK_SECRET_ENV]).toBeUndefined();
-    expect(input.requestGet).toHaveBeenCalledWith(`${origin}/sign-in/magic`, {
-      headers: { accept: "text/html" },
-      maxRedirects: 0,
-      timeout: 10_000,
-    });
-    expect(input.goto).toHaveBeenCalledWith(`${origin}/sign-in/magic?token=memory-only-token`);
-    expect(input.requestGet.mock.invocationCallOrder[0]).toBeLessThan(input.goto.mock.invocationCallOrder[0]);
+    expect(input.probe).toHaveBeenCalledWith(`${origin}/sign-in/magic`, { waitUntil: "commit", timeout: 10_000 });
+    expect(input.consume).toHaveBeenCalledWith(`${origin}/sign-in/magic?token=memory-only-token`);
+    expect(input.goto).toHaveBeenCalledTimes(2);
+    expect(input.probe.mock.invocationCallOrder[0]).toBeLessThan(input.consume.mock.invocationCallOrder[0]);
     await expect(signIn(input.value as never, "card-vault")).rejects.toMatchObject({
       code: "connector-drill-sign-in-unavailable",
     });
@@ -137,7 +147,7 @@ describe("staging persona sign-in custody", () => {
       code: "connector-drill-sign-in-unavailable",
       evidence: { signIn: { outcome: "refused", issuanceStatus: 200 } },
     });
-    expect(input.requestGet).not.toHaveBeenCalled();
+    expect(input.probe).not.toHaveBeenCalled();
     expect(input.goto).not.toHaveBeenCalled();
   });
 
@@ -148,11 +158,11 @@ describe("staging persona sign-in custody", () => {
     await expect(createStagingPersonaSignIn()(input.value as never, "card-vault")).rejects.toMatchObject({
       evidence: { signIn: { issuanceStatus: status, landingStatus: null } },
     });
-    expect(input.requestGet).not.toHaveBeenCalled();
+    expect(input.probe).not.toHaveBeenCalled();
     expect(input.goto).not.toHaveBeenCalled();
   });
 
-  it.each(["issuance", "probe"])("sanitizes a thrown %s failure without navigation", async (phase) => {
+  it.each(["issuance", "probe"])("sanitizes a thrown %s failure without consuming", async (phase) => {
     vi.spyOn(Date, "now").mockReturnValue(now);
     process.env[STAGING_PERSONA_MAGIC_LINK_SECRET_ENV] = bearer;
     vi.stubGlobal("fetch", async () => {
@@ -160,13 +170,14 @@ describe("staging persona sign-in custody", () => {
       return new Response(JSON.stringify({ alias: "card-vault", link, expiresAt }));
     });
     const input = context();
-    if (phase === "probe") input.requestGet.mockRejectedValue(new Error(`${bearer} ${link}`));
+    if (phase === "probe") input.probe.mockRejectedValue(new Error(`${bearer} ${link}`));
     const error = await createStagingPersonaSignIn()(input.value as never, "card-vault").catch(
       (failure: unknown) => failure,
     );
     expect(error).toMatchObject({ code: "connector-drill-sign-in-unavailable" });
     for (const marker of [bearer, token, link]) expect(JSON.stringify(error)).not.toContain(marker);
-    expect(input.goto).not.toHaveBeenCalled();
+    expect(input.goto).toHaveBeenCalledTimes(phase === "probe" ? 1 : 0);
+    expect(input.consume).not.toHaveBeenCalled();
   });
 
   it("refuses a non-ok probe without consuming", async () => {
@@ -178,7 +189,21 @@ describe("staging persona sign-in custody", () => {
     await expect(createStagingPersonaSignIn()(input.value as never, "card-vault")).rejects.toMatchObject({
       evidence: { signIn: { landingStatus: 503, outcome: "refused" } },
     });
-    expect(input.goto).not.toHaveBeenCalled();
+    expect(input.probe).toHaveBeenCalledTimes(1);
+    expect(input.consume).not.toHaveBeenCalled();
+  });
+
+  it("refuses a redirected probe without consuming", async () => {
+    vi.spyOn(Date, "now").mockReturnValue(now);
+    vi.stubGlobal("fetch", async () => new Response(JSON.stringify({ alias: "card-vault", link, expiresAt })));
+    process.env[STAGING_PERSONA_MAGIC_LINK_SECRET_ENV] = bearer;
+    const input = context(200, true);
+    await expect(createStagingPersonaSignIn()(input.value as never, "card-vault")).rejects.toMatchObject({
+      code: "connector-drill-sign-in-unavailable",
+      evidence: { signIn: { landingStatus: 200, outcome: "refused" } },
+    });
+    expect(input.probe).toHaveBeenCalledTimes(1);
+    expect(input.consume).not.toHaveBeenCalled();
   });
 
   it("refuses expiry during the pre-use probe without consuming", async () => {
@@ -186,14 +211,15 @@ describe("staging persona sign-in custody", () => {
     vi.stubGlobal("fetch", async () => new Response(JSON.stringify({ alias: "card-vault", link, expiresAt })));
     process.env[STAGING_PERSONA_MAGIC_LINK_SECRET_ENV] = bearer;
     const late = context();
-    late.requestGet.mockImplementation(async () => {
+    late.probe.mockImplementation(async () => {
       vi.spyOn(Date, "now").mockReturnValue(now + 600_001);
-      return { ok: () => true, status: () => 200 };
+      return landing(200);
     });
     await expect(createStagingPersonaSignIn()(late.value as never, "card-vault")).rejects.toMatchObject({
       code: "connector-drill-sign-in-unavailable",
     });
-    expect(late.goto).not.toHaveBeenCalled();
+    expect(late.probe).toHaveBeenCalledTimes(1);
+    expect(late.consume).not.toHaveBeenCalled();
   });
 
   it("accepts the largest schema body and bounds cap+1 and endless bodies", async () => {
