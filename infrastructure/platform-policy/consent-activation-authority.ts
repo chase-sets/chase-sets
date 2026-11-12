@@ -684,31 +684,38 @@ export const decideConsentActivationAuthority: AggregateDecider<
 
 const validatedConsentActivationGuards = new WeakSet<object>();
 
-// Type-only brands: Babel-based loaders such as Playwright reject fields on an ambient class.
-declare const validatedConsentActivationGuardBrand: unique symbol;
-declare const validatedConsentActivationAuthoritySnapshotBrand: unique symbol;
+// Type-only nominal brands. Each holds only a private method because Babel-based
+// loaders such as Playwright reject fields on an ambient class. TypeScript drops
+// private members from spread types, so an altered copy loses its provenance.
+declare class ValidatedConsentActivationGuardContractBrand {
+  private nominalValidatedConsentActivationGuard(): void;
+}
 
-type ValidatedConsentActivationGuardContract = Readonly<{
-  [validatedConsentActivationGuardBrand]: true;
-  policyKey: string;
-  streamId: string;
-  expectedVersion: ExpectedStreamVersion;
-}>;
+declare class ValidatedConsentActivationAuthoritySnapshotContractBrand {
+  private nominalValidatedConsentActivationAuthoritySnapshot(): void;
+}
 
-type ValidatedConsentActivationAuthoritySnapshotContract = Readonly<{
-  [validatedConsentActivationAuthoritySnapshotBrand]: true;
-  policyKey: string;
-  streamId: string;
-  registered: boolean;
-  status: ConsentActivationStatus;
-  isActive: boolean;
-  activeVersion: string | null;
-  activeDocumentId: string | null;
-  activationCount: number;
-  lastTransitionAt: string | null;
-  authorityVersion: number;
-  guard: ValidatedConsentActivationGuard;
-}>;
+type ValidatedConsentActivationGuardContract = ValidatedConsentActivationGuardContractBrand &
+  Readonly<{
+    policyKey: string;
+    streamId: string;
+    expectedVersion: ExpectedStreamVersion;
+  }>;
+
+type ValidatedConsentActivationAuthoritySnapshotContract = ValidatedConsentActivationAuthoritySnapshotContractBrand &
+  Readonly<{
+    policyKey: string;
+    streamId: string;
+    registered: boolean;
+    status: ConsentActivationStatus;
+    isActive: boolean;
+    activeVersion: string | null;
+    activeDocumentId: string | null;
+    activationCount: number;
+    lastTransitionAt: string | null;
+    authorityVersion: number;
+    guard: ValidatedConsentActivationGuard;
+  }>;
 
 /**
  * The token a caller carries into an `appendToStreams` transaction. Minted by
