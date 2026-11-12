@@ -170,7 +170,7 @@ if (identity === 'static' && ${fail}) {
   for (const [relative, source] of sources) writeFileSync(path.join(fixture, relative), source);
   writeFileSync(path.join(artifact, "fixture-manifest.json"), JSON.stringify(manifest));
   const plan = createCiGatePlan({ mode: "pull-request", provenance: "same-repository", scope: inertScope });
-  expect(plan.gates).toHaveLength(18);
+  expect(plan.gates).toHaveLength(17);
   expect(
     plan.gates
       .filter((gate) => gate.selection === "REQUIRED" && gate.executability === "REPOSITORY_LOCAL")
@@ -312,7 +312,7 @@ describe("verify-ci-local", () => {
     const receipt = validateCiLocalReceipt(JSON.parse(result.stdout));
     expect(receipt.disposition).toBe("FAIL");
     expect(receipt.errors).toEqual([]);
-    expect(receipt.gates).toHaveLength(18);
+    expect(receipt.gates).toHaveLength(17);
     expect(
       receipt.gates
         .filter(({ id }) => ["change-scope", "static", "typecheck"].includes(id))
@@ -719,7 +719,6 @@ describe("verify-ci-local", () => {
       "NOT_RUN_NOT_REQUIRED",
       "NOT_RUN_NOT_REQUIRED",
       "NOT_RUN_NOT_REQUIRED",
-      "NOT_RUN_NOT_REQUIRED",
       "NOT_RUN_HOSTED_ONLY",
     ]);
     const next = captureDiagnostics(() =>
@@ -745,43 +744,6 @@ describe("verify-ci-local", () => {
     expect(dry.diagnostics).toEqual([]);
     expect(Object.keys(first.result)).toEqual(Object.keys(next.result));
     expect(validateCiLocalReceipt(first.result)).toBe(first.result);
-  });
-
-  it("keeps a selected memo check hosted-only without a local command", () => {
-    const scope = scopeFor(["deployables/platform-api/__tests__/fixtures/bootstrap-db-oracle-schedule-memo.json"]);
-    const input = { mode: "pull-request", provenance: "same-repository" };
-    const plan = createCiGatePlan({ ...input, scope });
-    expect(plan.gates.find(({ id }) => id === "bootstrap-db-oracle-memo-check")).toMatchObject({
-      selection: "REQUIRED",
-      executability: "HOSTED_ONLY",
-    });
-    const matrix = createLocalCommandPlan({ plan, baseSha, headSha, scope });
-    expect(matrix.has("bootstrap-db-oracle-memo-check")).toBe(false);
-    const records = [];
-    const receipt = runCiLocalVerification(input, {
-      gitExec: fakeGit,
-      executor: executorFor(scope, new Map(), records),
-      now: clock(),
-    });
-    expect(receipt.gates.find(({ id }) => id === "bootstrap-db-oracle-memo-check")).toMatchObject({
-      selection: "REQUIRED",
-      executability: "HOSTED_ONLY",
-      evidence: "NOT_RUN_HOSTED_ONLY",
-    });
-    expect(records.some(({ gate }) => gate.id === "bootstrap-db-oracle-memo-check")).toBe(false);
-    expect(validateCiLocalReceipt(receipt)).toBe(receipt);
-
-    const inertReceipt = runCiLocalVerification(input, {
-      gitExec: fakeGit,
-      executor: executorFor(inertScope),
-      now: clock(),
-    });
-    expect(inertReceipt.gates.find(({ id }) => id === "bootstrap-db-oracle-memo-check")).toMatchObject({
-      selection: "NOT_REQUIRED",
-      executability: "HOSTED_ONLY",
-      evidence: "NOT_RUN_NOT_REQUIRED",
-    });
-    expect(validateCiLocalReceipt(inertReceipt)).toBe(inertReceipt);
   });
 
   it("builds one exact command matrix for all and only repository-local gates", () => {
@@ -907,7 +869,7 @@ describe("verify-ci-local", () => {
         disposition: "PLAN_ONLY",
         hostedAuthorityOutstanding: true,
       });
-      expect(receipt.gates).toHaveLength(18);
+      expect(receipt.gates).toHaveLength(17);
       expect(
         receipt.gates.filter(
           ({ selection, executability }) => selection === "REQUIRED" && executability === "HOSTED_ONLY",
