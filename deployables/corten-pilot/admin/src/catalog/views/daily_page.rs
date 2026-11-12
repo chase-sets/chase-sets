@@ -1587,7 +1587,8 @@ fn candidate_action_label(t: Cat, key: &str) -> &'static str {
     }
 }
 
-/// A candidate's edit dialog, by the candidate's id.#[derive(Id, Clone, Copy)]
+/// A candidate's edit dialog, by the candidate's id.
+#[derive(Id, Clone, Copy)]
 struct CandidateEditId<'a>(&'a str);
 
 /// The typed candidate edit (admin-web's `CatalogMergeCandidateEditForm`): the promotion intent,

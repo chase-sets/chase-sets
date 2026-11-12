@@ -7803,22 +7803,13 @@ fn daily_surface(location: &str, scope: Option<&str>) -> Response {
             "mergeCandidateReview": { "freshness": "fresh", "counts": { "total": 1, "ready": 1, "conflict": 0 }, "rows": [{
                 "candidateId": "cand_1", "identityFingerprint": "pokemon:sv1:001", "identityLabel": "Sprigatito 001",
                 "sourceCount": 2, "sources": [{ "providerKey": "tcgplayer", "observationId": "obs_1", "externalKey": null }],
-                "status": "ready", "conflicts": { "blocking": 0, "warnings": 1, "messages": ["Rarity differs between sources."] },
-                "promoteReadiness": { "state": "ready", "blockers": [] }, "proposedMapping": { "promotionIntent": "create-catalog-item",
-                    "catalogItemId": null, "productIds": ["prd_1"], "externalCatalogItemReferences": ["tcgplayer:111"],
-                    "externalProductReferences": [] },
-                "sourceComparison": [{ "fieldPath": "catalogItem.name", "value": "Sprigatito", "providerKey": "tcgplayer",
-                    "observationId": "obs_1", "confidence": "exact" }],
-                "fieldProvenance": [{ "fieldPath": "catalogItem.name", "providerKey": "tcgplayer", "sourceProfileVersion": "sv-2026",
-                    "confidence": "exact", "evidenceSummary": "name" }],
-                "proposedFacts": [{ "key": "name", "value": "Sprigatito" }],
+                "status": "ready", "conflicts": { "blocking": 0, "warnings": 1 },
+                "promoteReadiness": { "state": "ready", "blockers": [] }, "proposedMapping": { "promotionIntent": "create" },
                 "actions": [{ "key": "candidate.promote", "state": "available", "blockers": [] },
                     { "key": "candidate.ignore", "state": "available", "blockers": [] },
                     { "key": "candidate.defer", "state": "blocked", "blockers": ["source-projection-stale"] },
                     { "key": "candidate.split", "state": "available", "blockers": [], "commandPreview": {
                         "commandKind": "catalog-merge-candidate-split",
-                        "provenance": { "membership": [{ "observationId": "obs_1" }, { "observationId": "obs_2" }],
-                            "externalProductReferences": [] },
                         "body": { "reason": "Split from the scope-first Catalog sync workbench.", "expectedVersion": 4,
                             "splitObservationIds": ["obs_2"] } } }],
                 "editForm": { "state": "available", "blockers": [], "candidateVersion": 4,
@@ -7833,6 +7824,18 @@ fn daily_surface(location: &str, scope: Option<&str>) -> Response {
                 { "key": "observation.reject", "state": "available", "blockers": [] }]
         }
     });
+    // The candidate's detail sheet's lines (set apart, as one `json!` holding them passes its recursion limit).
+    let candidate = &mut surface["readModel"]["mergeCandidateReview"]["rows"][0];
+    candidate["conflicts"]["messages"] = json!(["Rarity differs between sources."]);
+    candidate["proposedMapping"] = json!({ "promotionIntent": "create-catalog-item", "catalogItemId": null, "productIds": ["prd_1"],
+        "externalCatalogItemReferences": ["tcgplayer:111"], "externalProductReferences": [] });
+    candidate["sourceComparison"] = json!([{ "fieldPath": "catalogItem.name", "value": "Sprigatito", "providerKey": "tcgplayer",
+        "observationId": "obs_1", "confidence": "exact" }]);
+    candidate["fieldProvenance"] = json!([{ "fieldPath": "catalogItem.name", "providerKey": "tcgplayer",
+        "sourceProfileVersion": "sv-2026", "confidence": "exact", "evidenceSummary": "name" }]);
+    candidate["proposedFacts"] = json!([{ "key": "name", "value": "Sprigatito" }]);
+    candidate["actions"][3]["commandPreview"]["provenance"] =
+        json!({ "membership": [{ "observationId": "obs_1" }, { "observationId": "obs_2" }], "externalProductReferences": [] });
     // A scope page's journey is its Scope Record's: its Catalog sync names the scope.
     if let Some(id) = scope {
         surface["readModel"]["catalogSync"]["scope"]["reference"] = json!({ "kind": "expansion", "scopeRecordId": id });
