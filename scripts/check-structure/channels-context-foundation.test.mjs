@@ -29,6 +29,7 @@ import {
   walk,
 } from "./run.mjs";
 import { runImportBoundaryValidation } from "./phases.mjs";
+import { workspaceScriptNames } from "../run-workspaces.mjs";
 
 const channelsRoot = path.join(repoRoot, "bounded-contexts/channels");
 const manifestPath = path.join(channelsRoot, "context.json");
@@ -92,6 +93,10 @@ it("changed claim-to-prepared persistence trace opens at most three non-test fil
 
 function readJson(filePath) {
   return JSON.parse(readFileSync(filePath, "utf8"));
+}
+
+function databaseTestArguments(scripts) {
+  return workspaceScriptNames({ packageJson: { scripts } }, "test:db*").flatMap((name) => scripts[name].split(/\s+/));
 }
 
 function writeJson(filePath, value) {
@@ -342,11 +347,23 @@ afterEach(() => {
 });
 
 describe("channels-context-foundation", () => {
+  it("partitions every channels DB file exactly once and excludes the same union from unit runs", () => {
+    const scripts = readJson(packagePath).scripts;
+    const partitions = workspaceScriptNames({ packageJson: { scripts } }, "test:db*");
+    expect(partitions).toEqual(["test:db:1", "test:db:2", "test:db:3"]);
+    expect(scripts["test:db"]).toBe(partitions.map((name) => `pnpm run ${name}`).join(" && "));
+    const dbFiles = databaseTestArguments(scripts).filter((argument) => argument.endsWith(".db.test.ts"));
+    expect(dbFiles).toHaveLength(new Set(dbFiles).size);
+    expect([...dbFiles].sort()).toEqual(listFiles(channelsRoot).filter((file) => file.endsWith(".db.test.ts")));
+    const unitExclusions = [...scripts["test:unit"].matchAll(/--exclude\s+(\S+)/g)].map((match) => match[1]);
+    expect(unitExclusions.sort()).toEqual([...dbFiles].sort());
+  });
+
   it("enrols credential DB proofs and guards their boot/migration parity", () => {
     const scripts = readJson(packagePath).scripts;
     for (const name of ["store", "rotation", "schema"]) {
       const test = `features/credentials/tests/channel-credential-${name}.db.test.ts`;
-      expect(scripts["test:db"].split(/\s+/).filter((argument) => argument === test)).toHaveLength(1);
+      expect(databaseTestArguments(scripts).filter((argument) => argument === test)).toHaveLength(1);
       expect(scripts["test:unit"]).toContain(`--exclude ${test}`);
     }
     const source = readFileSync(path.join(channelsRoot, "features/credentials/read-model/schema.ts"), "utf8");
@@ -376,7 +393,7 @@ describe("channels-context-foundation", () => {
       "channel-attention-schema-upgrade",
     ]) {
       const test = `features/connection-attention/tests/${name}.db.test.ts`;
-      expect(scripts["test:db"].split(/\s+/).filter((argument) => argument === test)).toHaveLength(1);
+      expect(databaseTestArguments(scripts).filter((argument) => argument === test)).toHaveLength(1);
       expect(scripts["test:unit"]).toContain(`--exclude ${test}`);
     }
     expect(
@@ -390,7 +407,7 @@ describe("channels-context-foundation", () => {
     const scripts = readJson(packagePath).scripts;
     for (const name of ["observation-idempotency", "policy-revision", "generation-interleavings"]) {
       const test = `features/connection-health/tests/channel-health-${name}.db.test.ts`;
-      expect(scripts["test:db"].split(/\s+/).filter((argument) => argument === test)).toHaveLength(1);
+      expect(databaseTestArguments(scripts).filter((argument) => argument === test)).toHaveLength(1);
       expect(scripts["test:unit"]).toContain(`--exclude ${test}`);
     }
     expect(
@@ -403,7 +420,7 @@ describe("channels-context-foundation", () => {
   it("enrols real service composition in the DB profile and excludes it from unit runs", () => {
     const scripts = readJson(packagePath).scripts;
     const test = "tests/channels-services-composition.db.test.ts";
-    expect(scripts["test:db"].split(/\s+/).filter((argument) => argument === test)).toHaveLength(1);
+    expect(databaseTestArguments(scripts).filter((argument) => argument === test)).toHaveLength(1);
     expect(scripts["test:unit"]).toContain(`--exclude ${test}`);
   });
 
