@@ -67,6 +67,70 @@ describe("source observation routes: bulk promotion preview token", () => {
     return json.previewToken as string;
   }
 
+  // Issue #11142: a client needs only the daily answer and its explicit selection/choice.
+  it.each(paths)("%s consumes the daily API descriptor without route-support builders", async (path) => {
+    const next = { current: preview() };
+    const { app, enqueueJob } = harness(next);
+    const location =
+      "/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&importScope=en:3:base:base1&profileVersion=2026.06.04";
+    const read = await app.request(
+      `/source-observations/workbench-surfaces/daily?${new URLSearchParams({ location })}`,
+    );
+    expect(read.status).toBe(200);
+    const answer = await read.json();
+    const descriptor = answer.readModel.actions.find(
+      (entry: { key: string }) => entry.key === "observation.promote",
+    ).commandPreview;
+    expect(descriptor).toBeDefined();
+    const body = { observationIds: ["obs_1", "obs_2"], promoteAsDraft: false, confirmation: descriptor.confirmation };
+    const token = await previewToken(app, body);
+    for (const drift of [
+      { observationIds: ["obs_1"] },
+      { confirmation: { ...descriptor.confirmation, profileVersion: "synthetic-other-profile" } },
+      { confirmation: { ...descriptor.confirmation, scope: { ...descriptor.scope, search: "synthetic-drift" } } },
+      { previewToken: null },
+    ]) {
+      const refused = await post(app, path, { ...body, previewToken: token, ...drift });
+      expect(refused.status).toBe(409);
+      expect(enqueueJob).not.toHaveBeenCalled();
+    }
+    expect((await post(app, path, { ...body, previewToken: token })).status).toBe(202);
+    expect(enqueueJob).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(paths)(
+    "%s previews and executes the daily answer's allowed scope and refuses scope or draft drift",
+    async (path) => {
+      const next = { current: preview() };
+      const { app, enqueueJob } = harness(next);
+      const location =
+        "/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&importScope=en:3:base:base1&profileVersion=2026.06.04";
+      const read = await app.request(
+        `/source-observations/workbench-surfaces/daily?${new URLSearchParams({ location })}`,
+      );
+      expect(read.status).toBe(200);
+      const answer = await read.json();
+      const descriptor = answer.readModel.actions.find(
+        (entry: { key: string }) => entry.key === "observation.promote",
+      ).commandPreview;
+      expect(descriptor.allowScopeSelection).toBe(true);
+      const original = { ...next.current, scope: descriptor.scope };
+      next.current = original;
+      const body = { scope: descriptor.scope, confirmation: descriptor.confirmation, promoteAsDraft: false };
+      const token = await previewToken(app, body);
+      // The recording preview stands in for what the real planner reads from the changed selection/choice.
+      const changedScope = { ...descriptor.scope, search: "synthetic-scope-drift" };
+      next.current = { ...original, scope: changedScope };
+      expect((await post(app, path, { ...body, scope: changedScope, previewToken: token })).status).toBe(409);
+      next.current = { ...original, validation: { ...original.validation, promoteAsDraft: true } };
+      expect((await post(app, path, { ...body, promoteAsDraft: true, previewToken: token })).status).toBe(409);
+      expect(enqueueJob).not.toHaveBeenCalled();
+      next.current = original;
+      expect((await post(app, path, { ...body, previewToken: token })).status).toBe(202);
+      expect(enqueueJob).toHaveBeenCalledTimes(1);
+    },
+  );
+
   it.each(paths)("%s admits a token that matches a fresh preview, in one transaction", async (path) => {
     const next = { current: preview() };
     const { app, enqueueJob, enqueueUnits, previewPromotionSelection, transaction, statements } = harness(next);

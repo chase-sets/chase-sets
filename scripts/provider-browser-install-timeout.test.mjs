@@ -77,7 +77,7 @@ describe("Static Checks provider installer", () => {
     },
   );
 
-  it.each([1, 180, 600])(
+  it.each([1, 180, 540, 600])(
     "honors native bound %s through child close, with the same five-second barrier",
     async (timeoutSeconds) => {
       const f = fixture({ timeoutSeconds, requireComplete: false });
@@ -420,6 +420,20 @@ describe("owning hosted job identity", () => {
     expect(await resolveInstallerIdentity(authority, fetchImpl)).toEqual(identity);
     expect(fetchImpl).toHaveBeenCalledOnce();
     expect(fetchImpl.mock.calls[0][0]).toContain("/runs/123/attempts/1/jobs?per_page=100");
+  });
+  it("resolves the exact E2E matrix owner without borrowing a sibling or Static job", async () => {
+    const jobName = "E2E Tests (marketplace_browse,marketplace_seller)";
+    const fetchImpl = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({ total_count: 2, jobs: [job, { ...job, id: 789, name: jobName }] }),
+    }));
+    expect(await resolveInstallerIdentity(authority, fetchImpl, { jobName, write: () => {} })).toEqual({
+      ...identity,
+      jobId: "789",
+    });
+    await expect(
+      resolveInstallerIdentity(authority, fetchImpl, { jobName: "E2E Tests (PRIVATE INPUT)", write: () => {} }),
+    ).rejects.toThrow("invalid-environment");
   });
   it.each([
     { ...job, runner_name: "sibling" },

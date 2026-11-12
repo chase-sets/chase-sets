@@ -1,0 +1,14 @@
+{
+  "owner": [
+    "listings.manage",
+    "offers.manage",
+    "orders.manage",
+    "pricing.manage"
+  ],
+  "manager": [
+    "listings.manage",
+    "offers.manage",
+    "orders.manage",
+    "pricing.manage"
+  ]
+}

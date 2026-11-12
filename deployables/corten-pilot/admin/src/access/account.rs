@@ -11,11 +11,11 @@
 //! and its one-time secret (never in an address). A refusal (4xx) is the page with the API's
 //! words.
 use corten::{
-    axum::http::{HeaderMap, StatusCode},
+    http::{HeaderMap, StatusCode},
     prelude::*,
 };
 use platform::receipt::Receipt;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use serde_json::{Value, json};
 use time::{Duration, OffsetDateTime, format_description::well_known::Rfc3339};
 
@@ -84,7 +84,7 @@ pub fn manages_user(viewer: &Viewer, user: &str) -> bool {
 }
 
 /// Every form of the workspace: its intent and the fields some intents send.
-#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[derive(Clone, Debug, Default, Fields)]
 #[serde(rename_all = "camelCase", default)]
 pub struct HubForm {
     pub intent: String,
@@ -385,7 +385,7 @@ fn to_account(
         Some(account) => url::AccountHub { id: &account, tab: Some(tab.key()), after_write: None }.href(),
         None => list(super::url::ListQuery { search: Some(search.to_owned()), ..Default::default() }),
     };
-    req.redirect(&to.parse::<corten::axum::http::Uri>().map_err(corten::Error::new)?)
+    req.redirect(&to.parse::<corten::http::Uri>().map_err(corten::Error::new)?)
 }
 
 pub(crate) async fn user(

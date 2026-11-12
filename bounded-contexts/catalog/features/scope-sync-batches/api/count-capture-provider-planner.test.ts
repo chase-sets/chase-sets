@@ -80,7 +80,7 @@ describe("capture with the real provider participation planner", () => {
       expect(sends.every((send) => send.status === 200)).toBe(true);
       expect(sends.length).toBeLessThanOrEqual(4);
     }
-    expect(run.sends).toHaveLength(9);
+    expect(run.sends).toHaveLength(10);
     expect(f.usageFetch).toHaveBeenCalledTimes(7);
   });
 

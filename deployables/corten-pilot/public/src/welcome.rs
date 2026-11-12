@@ -13,7 +13,7 @@
 use std::time::Duration;
 
 use corten::{
-    axum::http::{HeaderMap, StatusCode},
+    http::{HeaderMap, StatusCode},
     prelude::*,
 };
 use serde::Deserialize;
@@ -30,7 +30,7 @@ use crate::{
 const READ_WAIT: Duration = Duration::from_secs(2);
 
 /// The address Join sends a signup to (public-web's `/welcome` query).
-#[derive(Clone, Debug, Default, Deserialize, Fields, Route)]
+#[derive(Clone, Debug, Default, Fields, Route)]
 #[route(query)]
 pub struct Arrival {
     pub signup: Option<String>,

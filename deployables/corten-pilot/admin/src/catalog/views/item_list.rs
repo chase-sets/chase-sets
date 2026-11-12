@@ -7,6 +7,7 @@ use corten::{
     prelude::*,
     view::{AttrValue, Id},
 };
+use platform::ui::table::{CellLabel, TableLayout};
 
 use super::{
     Bar, BulkRows, Candidates, CatalogDialog, Empty, Filters, Followed, Input, JobDialog, ListPage, ListScreen, MoreFilters,
@@ -14,7 +15,10 @@ use super::{
 };
 use crate::{
     catalog::{
-        api::{EditCandidate, EditOutcome, EditPreview, ItemRow, Job, Preview, PublishCandidate, PublishOutcome, PublishPreview},
+        api::{
+            EditCandidate, EditOutcome, EditPreview, ItemRow, Job, Preview, PublishCandidate, PublishOutcome, PublishPreview,
+            RemovalPreview,
+        },
         form::{ItemBulkInput, ItemInput},
         url,
     },
@@ -35,11 +39,11 @@ pub enum ItemPreview {
 }
 
 /// A dialog the items page answers with, drawn open: a bulk preview (or its refusal), or the
-/// removal of the checked drafts.
+/// removal preview of the checked rows (or its refusal).
 #[derive(Clone, Copy)]
 pub enum ItemDialog<'a> {
     Preview { input: &'a ItemBulkInput, preview: Option<&'a ItemPreview>, errors: &'a Errors, confirm: &'a str, label: &'a str },
-    Drafts { ids: &'a [String], errors: &'a Errors, confirm: &'a str },
+    Drafts { ids: &'a [String], preview: Option<&'a RemovalPreview>, errors: &'a Errors, confirm: &'a str },
 }
 
 /// How many items changed since the page was drawn, and whether the stream asked for a full
@@ -193,6 +197,7 @@ pub fn item_list<'a>(
         {item_rows(t, p, query, screen, manage)}
         if manage {
             <CatalogDialog
+                p={p}
                 id={ids::CREATE_DIALOG}
                 title={t.item_list_create_catalog_item()}
                 description={None}
@@ -206,7 +211,9 @@ pub fn item_list<'a>(
             Some(ItemDialog::Preview { input, preview, errors, confirm, label }) => {
                 <ItemPreviewDialog t={t} p={p} input={input} preview={preview} errors={errors} confirm={confirm} label={label} />
             }
-            Some(ItemDialog::Drafts { ids, errors, confirm }) => <DraftsDialog t={t} p={p} ids={ids} errors={errors} confirm={confirm} />,
+            Some(ItemDialog::Drafts { ids, preview, errors, confirm }) => {
+                <DraftsDialog t={t} p={p} ids={ids} preview={preview} errors={errors} confirm={confirm} />
+            }
             None => <dialog id={ids::PREVIEW_DIALOG}></dialog>,
         }
         if let Some(followed) = job {
@@ -256,7 +263,7 @@ pub fn item_changes<'a>(t: Cat, query: &'a url::ItemQuery, pending: Pending) -> 
 fn ItemChanges<'a>(t: Cat, query: &'a url::ItemQuery, pending: Pending) -> impl Render {
     let entity = t.item_list_catalog_items();
     let text = if pending.count > 0 {
-        t.realtime_changed(pending.count, entity).to_string()
+        t.realtime_changed(crate::text::cat::RealtimeChanged { count: pending.count, entity_name: entity }).to_string()
     } else {
         t.realtime_sync_required(entity).to_string()
     };
@@ -315,7 +322,7 @@ pub fn item_rows<'a>(
             if screen.items.is_empty() {
                 <Empty title={&empty_title} description={&empty_description} />
             } else {
-                <Table label={title} head={&head} all={select}>
+                <Table label={title} head={&head} all={select} layout={TableLayout::Stack}>
                     for row in &screen.items {
                         <ItemTableRow t={t} row={row} select={select} />
                     }
@@ -334,13 +341,13 @@ pub fn item_rows<'a>(
     }
 }
 
-/// Remove drafts from selected: a submit of the bulk form to the drafts' dialog, enabled while
-/// only drafts are checked.
+/// Remove drafts from selected: a submit of the bulk form to the removal's preview, enabled while
+/// a row is checked.
 #[component(css = ItemForm)]
 fn DraftsButton<'a>(t: Cat, action: &'a str) -> impl Render {
     let f = ItemBulkInput::FIELDS;
     html! {
-        <button type="submit" class={(Small, Danger)} name={f.mode} value="ids" formaction={action} data-requires="draft">
+        <button type="submit" class={(Small, Danger)} name={f.mode} value="ids" formaction={action} data-checked>
             {t.item_list_remove_drafts_from_selected()}
         </button>
     }
@@ -355,14 +362,32 @@ fn ItemTableRow<'a>(t: Cat, row: &'a ItemRow, select: Option<Pilot>) -> impl Ren
     html! {
         <tr>
             if let Some(p) = select {
-                <td><SelectRow p={p} id={&row.catalog_item_id} status={Some(row.status.as_str())} /></td>
+                <td><SelectRow p={p} id={&row.catalog_item_id} /></td>
             }
-            <td>{&row.title}</td>
-            <td>{row.subtitle.as_deref().unwrap_or(dash)}</td>
-            <td>{language(t, &row.language_code)}</td>
-            <td>{row.blueprint.as_ref().map_or(dash, |b| b.name.as_str())}</td>
-            <td>{if sources.is_empty() { dash } else { sources.as_str() }}</td>
-            <td><StatusPill status={&row.status} toned={false} /></td>
+            <td>
+                <CellLabel>{t.item_list_title()}</CellLabel>
+                {&row.title}
+            </td>
+            <td>
+                <CellLabel>{t.item_list_subtitle()}</CellLabel>
+                {row.subtitle.as_deref().unwrap_or(dash)}
+            </td>
+            <td>
+                <CellLabel>{t.item_list_language()}</CellLabel>
+                {language(t, &row.language_code)}
+            </td>
+            <td>
+                <CellLabel>{t.item_list_blueprint()}</CellLabel>
+                {row.blueprint.as_ref().map_or(dash, |b| b.name.as_str())}
+            </td>
+            <td>
+                <CellLabel>{t.item_list_source()}</CellLabel>
+                {if sources.is_empty() { dash } else { sources.as_str() }}
+            </td>
+            <td>
+                <CellLabel>{t.item_list_status()}</CellLabel>
+                <StatusPill status={&row.status} toned={false} />
+            </td>
             <td><a class={View} href={&page}>{t.list_view()}</a></td>
         </tr>
     }
@@ -427,11 +452,22 @@ pub fn ItemPreviewDialog<'a>(
     let (title, description, note) = match preview {
         Some(ItemPreview::Publish(v)) => {
             let taken = if input.mode == "filter" { t.item_list_matching_drafts() } else { t.item_list_selected_items() };
-            let description = t.item_list_bulk_preview_description(taken, v.ready_count, v.blocked_count).to_string();
+            let description = t
+                .item_list_bulk_preview_description(crate::text::cat::ItemListBulkPreviewDescription {
+                    scope: taken,
+                    ready: v.ready_count,
+                    blocked: v.blocked_count,
+                })
+                .to_string();
             (t.item_list_bulk_publish_preview().to_owned(), Some(description), Some(t.item_list_bulk_partial_success_note()))
         }
         Some(ItemPreview::Edit(v)) => {
-            let description = t.item_list_bulk_edit_preview_description(v.ready_count, v.blocked_count).to_string();
+            let description = t
+                .item_list_bulk_edit_preview_description(crate::text::cat::ItemListBulkEditPreviewDescription {
+                    ready: v.ready_count,
+                    blocked: v.blocked_count,
+                })
+                .to_string();
             (
                 t.item_list_bulk_edit_preview_title(label).to_string(),
                 Some(description),
@@ -440,7 +476,13 @@ pub fn ItemPreviewDialog<'a>(
         }
         Some(ItemPreview::Lifecycle(v)) => (
             t.bulk_preview_title(label).to_string(),
-            Some(t.bulk_preview_description(v.ready_count, v.blocked_count).to_string()),
+            Some(
+                t.bulk_preview_description(crate::text::cat::BulkPreviewDescription {
+                    ready: v.ready_count,
+                    blocked: v.blocked_count,
+                })
+                .to_string(),
+            ),
             None,
         ),
         None if publish => (t.item_list_bulk_publish_preview().to_owned(), None, None),
@@ -473,6 +515,7 @@ pub fn ItemPreviewDialog<'a>(
     html! {
         let (title, description) = (title, description);
         <CatalogDialog
+            p={p}
             id={ids::PREVIEW_DIALOG}
             title={&title}
             description={description.as_deref()}
@@ -525,7 +568,7 @@ fn PublishTable<'a>(t: Cat, candidates: &'a [PublishCandidate]) -> impl Render {
         if candidates.is_empty() {
             <p class={Note}>{t.item_list_no_items_to_publish()}</p>
         } else {
-            <Table label={t.item_list_bulk_publish_preview()} head={&head} all={None}>
+            <Table label={t.item_list_bulk_publish_preview()} head={&head} all={None} layout={TableLayout::Scroll}>
                 for c in shown {
                     let sources = c.source_providers.join(", ");
                     <tr>
@@ -538,7 +581,9 @@ fn PublishTable<'a>(t: Cat, candidates: &'a [PublishCandidate]) -> impl Render {
                 }
             </Table>
             if candidates.len() > shown.len() {
-                <p class={Note}>{t.item_list_bulk_preview_truncated(shown.len(), candidates.len())}</p>
+                <p class={Note}>
+                    {t.item_list_bulk_preview_truncated(crate::text::cat::ItemListBulkPreviewTruncated { shown: shown.len(), total: candidates.len() })}
+                </p>
             }
         }
     }
@@ -562,7 +607,7 @@ fn EditTable<'a>(t: Cat, candidates: &'a [EditCandidate]) -> impl Render {
         if candidates.is_empty() {
             <p class={Note}>{t.item_list_bulk_edit_no_items()}</p>
         } else {
-            <Table label={t.item_list_bulk_edit_action()} head={&head} all={None}>
+            <Table label={t.item_list_bulk_edit_action()} head={&head} all={None} layout={TableLayout::Scroll}>
                 for c in shown {
                     let (categories, tags) = (c.category_ids.join(", "), c.tags.join(", "));
                     <tr>
@@ -577,27 +622,45 @@ fn EditTable<'a>(t: Cat, candidates: &'a [EditCandidate]) -> impl Render {
                 }
             </Table>
             if candidates.len() > shown.len() {
-                <p class={Note}>{t.item_list_bulk_preview_truncated(shown.len(), candidates.len())}</p>
+                <p class={Note}>
+                    {t.item_list_bulk_preview_truncated(crate::text::cat::ItemListBulkPreviewTruncated { shown: shown.len(), total: candidates.len() })}
+                </p>
             }
         }
     }
 }
 
-/// The removal of the checked drafts (admin-web's Remove Draft Catalog Items): how many, and the
-/// confirm, which removes each.
+/// The removal preview of the checked rows (admin-web's Remove drafts dialog): what the API would do
+/// to each, and the confirm, which starts the removal's job with the same rows.
 #[component(css = ItemForm)]
-pub fn DraftsDialog<'a>(t: Cat, p: Pilot, ids: &'a [String], errors: &'a Errors, confirm: &'a str) -> impl Patch {
+pub fn DraftsDialog<'a>(
+    t: Cat,
+    p: Pilot,
+    ids: &'a [String],
+    preview: Option<&'a RemovalPreview>,
+    errors: &'a Errors,
+    confirm: &'a str,
+) -> impl Patch {
     let f = ItemBulkInput::FIELDS;
-    let ready = !ids.is_empty() && errors.is_empty();
+    let ready = preview.is_some_and(|v| v.ready_count > 0);
+    let ids: &[String] = preview.map_or(ids, |v| &v.item_ids);
     html! {
-        let description = t.item_list_remove_draft_catalog_items_description(ids.len()).to_string();
+        let title = t.bulk_preview_title(t.item_list_operation_remove_drafts()).to_string();
+        let description = preview.map(|v| {
+            t.bulk_preview_description(crate::text::cat::BulkPreviewDescription { ready: v.ready_count, blocked: v.blocked_count })
+                .to_string()
+        });
         <CatalogDialog
+            p={p}
             id={ids::PREVIEW_DIALOG}
-            title={t.item_list_remove_draft_catalog_items()}
-            description={ready.then_some(description.as_str())}
+            title={&title}
+            description={description.as_deref()}
             open
             close={p.catalog_close()}
         >
+            if let Some(preview) = preview {
+                <Candidates t={t} candidates={&preview.candidates} />
+            }
             <form class={Confirm} id={ids::CONFIRM} method="post" action={confirm} data-patch>
                 {errors.form_message()}
                 for id in ids {
@@ -605,7 +668,7 @@ pub fn DraftsDialog<'a>(t: Cat, p: Pilot, ids: &'a [String], errors: &'a Errors,
                 }
                 <div class={Footer}>
                     <button type="submit" class={(Small, Danger)} disabled={!ready}>
-                        {t.item_list_remove_drafts_from_selected()}
+                        {t.item_list_remove_drafts()}
                     </button>
                     <button type="button" class={(Small, Secondary)} command="close" commandfor={ids::PREVIEW_DIALOG}>
                         {t.item_list_cancel()}
@@ -633,7 +696,7 @@ pub fn ItemJobOutcome<'a>(t: Cat, job: &'a Job<serde_json::Value>) -> impl Rende
                     let f = ItemBulkInput::FIELDS;
                     let action = url::ItemsBulk { query: Default::default() }.href();
                     <p class={Note}>
-                        {t.item_list_bulk_result_description(outcome.published_count, outcome.failed_count, outcome.skipped_count)}
+                        {t.item_list_bulk_result_description(crate::text::cat::ItemListBulkResultDescription { published: outcome.published_count, failed: outcome.failed_count, skipped: outcome.skipped_count })}
                     </p>
                     <PublishTable t={t} candidates={&outcome.candidates} />
                     if !retry.is_empty() {
@@ -653,7 +716,7 @@ pub fn ItemJobOutcome<'a>(t: Cat, job: &'a Job<serde_json::Value>) -> impl Rende
             _ => {
                 if let Some(outcome) = job.read::<EditOutcome>().result {
                     <p class={Note}>
-                        {t.item_list_bulk_edit_result_description(outcome.succeeded_count, outcome.skipped_count, outcome.failed_count)}
+                        {t.item_list_bulk_edit_result_description(crate::text::cat::ItemListBulkEditResultDescription { succeeded: outcome.succeeded_count, skipped: outcome.skipped_count, failed: outcome.failed_count })}
                     </p>
                     <EditTable t={t} candidates={&outcome.candidates} />
                 }

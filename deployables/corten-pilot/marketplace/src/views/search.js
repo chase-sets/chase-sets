@@ -27,8 +27,9 @@ export function apply(event) {
  * @param {FormDataEvent} event
  */
 export function tidy(event) {
-  for (const [key, value] of Array.from(event.formData.entries())) {
-    if (value === "" || (key === "sort" && value === "relevance")) event.formData.delete(key);
+  const data = event.formData;
+  for (const [key, value] of Array.from(data.entries())) {
+    if (value === "" || (key === "sort" && value === "relevance")) data.delete(key);
   }
 }
 

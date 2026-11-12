@@ -1,4 +1,5 @@
 use corten::{prelude::*, view::AttrValue};
+use platform::ui::table::TableLayout;
 
 use super::{
     Draft, StatusPill,
@@ -191,7 +192,7 @@ pub fn OptionTable<'a>(
         if dimension.options.is_empty() {
             <Empty title={t.dimension_no_options()} description={t.dimension_add_an_option_to_this_dimension()} />
         } else {
-            <Table label={&label} head={&head} all={None}>
+            <Table label={&label} head={&head} all={None} layout={TableLayout::Scroll}>
                 for option in &dimension.options {
                     <OptionRow t={t} p={p} dimension={dimension} option={option} editing={editing} refused={refused} />
                 }
@@ -232,6 +233,7 @@ pub fn OptionRow<'a>(
                     if dimension.dimension.status != "archived" {
                         <Trigger dialog={&dialog} label={t.dimension_edit_2()} secondary />
                         <CatalogDialog
+                            p={p}
                             id={&dialog}
                             title={&title}
                             description={None}

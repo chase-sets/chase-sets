@@ -4,7 +4,13 @@
 //! (`ItemDetailMarketBook`). Every choice is a link to the same page with the choice in its
 //! address (`items::Address`); a dimension with more than five options is a GET form.
 use corten::prelude::*;
-use platform::chart::{self, Chart, TimeSeries};
+use platform::{
+    chart::{self, Chart, TimeSeries},
+    ui::{
+        segmented::{SegmentedLinks, SegmentedWidth},
+        stats::{Stat, StatTone, Stats as KitStats, StatsSurface},
+    },
+};
 use serde_json::{Value, json};
 
 use super::on_marketplace;
@@ -87,12 +93,20 @@ pub fn item_shots(t: ItemMsg, item: &Item) -> Vec<Shot> {
             .filter(|v| v.role == "thumbnail")
             .min_by_key(|v| (v.density != 1, v.width))
             .map_or_else(|| image.src.clone(), |v| on_marketplace(&v.public_url));
-        shots.push(Shot { image, thumb, alt: t.page_image_alt(&item.title, 1).to_string() });
+        shots.push(Shot {
+            image,
+            thumb,
+            alt: t.page_image_alt(crate::text::item_msg::PageImageAlt { title: &item.title, index: 1 }).to_string(),
+        });
     } else {
         for (i, url) in item.image_urls.iter().enumerate() {
             let src = on_marketplace(url);
             let image = Image { src: src.clone(), srcset: None, width: None, height: None };
-            shots.push(Shot { image, thumb: src, alt: t.page_image_alt(&item.title, i + 1).to_string() });
+            shots.push(Shot {
+                image,
+                thumb: src,
+                alt: t.page_image_alt(crate::text::item_msg::PageImageAlt { title: &item.title, index: i + 1 }).to_string(),
+            });
         }
     }
     if let Some(fallback) = item.image_fallback.as_ref().filter(|f| f.usage == "permanent") {
@@ -344,7 +358,7 @@ pub fn ItemDetail<'a>(
     let alt = if item.image_fallback.is_some() && item.product_asset_sets.is_empty() && item.image_urls.is_empty() {
         fallback_alt.to_owned()
     } else {
-        t.page_image_alt(&item.title, 1).to_string()
+        t.page_image_alt(crate::text::item_msg::PageImageAlt { title: &item.title, index: 1 }).to_string()
     };
     html! {
         <nav class={Crumbs} aria-label="Breadcrumb">
@@ -531,7 +545,9 @@ fn SimilarCard<'a>(t: ItemMsg, item: &'a SimilarItem) -> impl Render {
     let slug = if item.slug.is_empty() { item.catalog_item_id.as_str() } else { item.slug.as_str() };
     let href = url::Item { slug, state: Address::default(), after: Default::default() }.href();
     let alt = match item.subtitle.as_deref().filter(|s| !s.is_empty()) {
-        Some(subtitle) => t.identity_title_and_subtitle(&item.title, subtitle).to_string(),
+        Some(subtitle) => t
+            .identity_title_and_subtitle(crate::text::item_msg::IdentityTitleAndSubtitle { title: &item.title, subtitle })
+            .to_string(),
         None => t.identity_title(&item.title).to_string(),
     };
     let title_id = format!("similar-{}", item.catalog_item_id);
@@ -678,38 +694,33 @@ fn SalesRead<'a>(
         .collect();
     let label = t.panel_chart_label(title).to_string();
     html! {
-        <dl class={Stats}>
-            <div class={Stat}>
-                <dt>{t.panel_spread_label()}</dt>
-                <dd class={StatValue}>{&spread}</dd>
-                if let Some(note) = &spread_note {
-                    <dd class={Muted}>{note}</dd>
-                }
-            </div>
+        <dl class={KitStats { surface: StatsSurface::Cards }}>
+            <Stat label={t.panel_spread_label()} value={spread.as_str()} note={spread_note.as_deref()} tone={StatTone::Neutral} />
         </dl>
         for group in &groups {
             <section class={SalesGroup}>
                 if let Some(heading) = &group.heading {
                     <h3 class={Label}>{heading}</h3>
                 }
-                <dl class={(Stats, Three)}>
-                    <div class={Stat}>
-                        <dt>{t.panel_last_sold_label()}</dt>
-                        <dd class={StatValue}>{&group.sold.0}</dd>
-                        if let Some(note) = &group.sold.1 {
-                            <dd class={Muted}>{note}</dd>
-                        }
-                    </div>
-                    <div class={Stat}>
-                        <dt>{t.panel_median30d_label()}</dt>
-                        <dd class={StatValue}>{&group.m30.0}</dd>
-                        <dd class={Muted}>{&group.m30.1}</dd>
-                    </div>
-                    <div class={Stat}>
-                        <dt>{t.panel_median90d_label()}</dt>
-                        <dd class={StatValue}>{&group.m90.0}</dd>
-                        <dd class={Muted}>{&group.m90.1}</dd>
-                    </div>
+                <dl class={KitStats { surface: StatsSurface::Cards }}>
+                    <Stat
+                        label={t.panel_last_sold_label()}
+                        value={group.sold.0.as_str()}
+                        note={group.sold.1.as_deref()}
+                        tone={StatTone::Neutral}
+                    />
+                    <Stat
+                        label={t.panel_median30d_label()}
+                        value={group.m30.0.as_str()}
+                        note={group.m30.1.as_str()}
+                        tone={StatTone::Neutral}
+                    />
+                    <Stat
+                        label={t.panel_median90d_label()}
+                        value={group.m90.0.as_str()}
+                        note={group.m90.1.as_str()}
+                        tone={StatTone::Neutral}
+                    />
                 </dl>
                 <Ranges t={t} address={address} slug={slug} />
                 match &group.chart.chart {
@@ -734,17 +745,18 @@ fn SalesRead<'a>(
     }
 }
 
-/// The chart's time range, each a link to the page with it (`SegmentedControl`). Marketplace
+/// The chart's time range, each a link to the page with it (`SegmentedControl`, as wide as its
+/// choices: the kit's `SegmentedLinks`). Marketplace
 /// draws it only above a plot; the pilot draws it above an empty chart too, since a wider range
 /// may have the sales a narrow one lacks.
 #[component(css = ItemDetail)]
 fn Ranges<'a>(t: ItemMsg, address: &'a Address, slug: &'a str) -> impl Render {
     let range = move |r: Range| url::Item { slug, state: address.with_range(r), after: Default::default() }.href();
-    let current = move |r: Range| (address.range == r).then_some("true");
+    let current = move |r: Range| (address.range == r).then_some("page");
     html! {
-        <nav class={(Segmented, ChartRanges)} aria-label={t.panel_range_selector_label()}>
+        <nav class={(SegmentedLinks { width: SegmentedWidth::Fit }, ChartRanges)} aria-label={t.panel_range_selector_label()}>
             for r in Range::EVERY {
-                <a class={Segment} href={&range(r)} aria-current={current(r)}>{range_label(t, r)}</a>
+                <a href={&range(r)} aria-current={current(r)}>{range_label(t, r)}</a>
             }
         </nav>
     }
@@ -770,7 +782,7 @@ fn spread(t: ItemMsg, state: Option<&MarketState>) -> (String, Option<String>) {
     match (ask, bid) {
         (Some(ask), Some(bid)) => (
             state.spread_amount.as_deref().filter(|a| !a.is_empty()).map_or_else(unavailable, usd),
-            Some(t.panel_ask_and_bid(&usd(ask), &usd(bid)).to_string()),
+            Some(t.panel_ask_and_bid(crate::text::item_msg::PanelAskAndBid { ask: &usd(ask), bid: &usd(bid) }).to_string()),
         ),
         (Some(ask), None) => (usd(ask), Some(t.panel_ask_only().to_owned())),
         (None, Some(bid)) => (usd(bid), Some(t.panel_bid_only().to_owned())),
@@ -813,9 +825,19 @@ fn median(t: ItemMsg, aggregate: Option<&MarketAggregate>, days: u32, minimum: u
         return (unavailable, t.panel_no_sales_in_window(days).to_string());
     }
     let note = if trades == 1 {
-        t.panel_median_suppressed_singular(trades, days, minimum).to_string()
+        t.panel_median_suppressed_singular(crate::text::item_msg::PanelMedianSuppressedSingular {
+            count: trades,
+            days,
+            minimum_sample: minimum,
+        })
+        .to_string()
     } else {
-        t.panel_median_suppressed_plural(trades, days, minimum).to_string()
+        t.panel_median_suppressed_plural(crate::text::item_msg::PanelMedianSuppressedPlural {
+            count: trades,
+            days,
+            minimum_sample: minimum,
+        })
+        .to_string()
     };
     (unavailable, note)
 }
@@ -842,7 +864,12 @@ impl SalesChart {
                 .map(|point| {
                     let value = amount(&point.last_price_amount);
                     let mark = value.filter(|_| markers && point.verified_trade_count > 0).map(|v| {
-                        let label = t.panel_verified_sale_marker(&price(v), &point.day).to_string();
+                        let label = t
+                            .panel_verified_sale_marker(crate::text::item_msg::PanelVerifiedSaleMarker {
+                                price: &price(v),
+                                date: &point.day,
+                            })
+                            .to_string();
                         marks.push(label.clone());
                         label
                     });
@@ -854,12 +881,19 @@ impl SalesChart {
         );
         let name = t.panel_chart_series_name();
         let mut summary = match &chart {
-            Chart::Plot(plot) => p.item_chart_summary(name, plot.count, &price(plot.min), &price(plot.max)).to_string(),
+            Chart::Plot(plot) => p
+                .item_chart_summary(crate::text::pilot::ItemChartSummary {
+                    name,
+                    count: plot.count,
+                    min: &price(plot.min),
+                    max: &price(plot.max),
+                })
+                .to_string(),
             Chart::Empty | Chart::Insufficient => String::new(),
         };
         for label in &marks {
             summary.push(' ');
-            summary.push_str(&p.item_chart_marker(name, label).to_string());
+            summary.push_str(&p.item_chart_marker(crate::text::pilot::ItemChartMarker { name, label }).to_string());
         }
         SalesChart { chart, summary }
     }
@@ -877,25 +911,25 @@ fn Stale<'a>(title: &'a str, text: &'a str) -> impl Render {
 }
 
 /// Buy, Sell or Watch (`SegmentedControl` "Choose market intent"), each a link to the same page
-/// on that side.
+/// on that side, sharing the rail's width (the kit's `SegmentedLinks` with `Fill`).
 #[component(css = ItemDetail)]
 fn Intent<'a>(t: ItemMsg, screen: &'a ItemScreen, address: &'a Address, slug: &'a str) -> impl Render {
     let link = move |market: Market| url::Item { slug, state: address.with_market(market), after: Default::default() }.href();
-    let current = move |market: Market| (screen.market == market).then_some("true");
+    let current = move |market: Market| (screen.market == market).then_some("page");
     let track = move |market: Market| {
         let (workflow, selection) = screen.rail_labels(market);
         let changed = screen.market != market;
         analytics::railIntent(changed, market.as_str(), workflow, selection, screen.rail_viewer(), "desktop_rail")
     };
     html! {
-        <nav class={Segmented} aria-label={t.page_choose_market_intent()}>
-            <a class={Segment} href={&link(Market::Buy)} aria-current={current(Market::Buy)} on:click={track(Market::Buy)}>
+        <nav class={SegmentedLinks { width: SegmentedWidth::Fill }} aria-label={t.page_choose_market_intent()}>
+            <a href={&link(Market::Buy)} aria-current={current(Market::Buy)} on:click={track(Market::Buy)}>
                 {t.page_buy()}
             </a>
-            <a class={Segment} href={&link(Market::Sell)} aria-current={current(Market::Sell)} on:click={track(Market::Sell)}>
+            <a href={&link(Market::Sell)} aria-current={current(Market::Sell)} on:click={track(Market::Sell)}>
                 {t.page_sell()}
             </a>
-            <a class={Segment} href={&link(Market::Watch)} aria-current={current(Market::Watch)} on:click={track(Market::Watch)}>
+            <a href={&link(Market::Watch)} aria-current={current(Market::Watch)} on:click={track(Market::Watch)}>
                 {t.page_watch()}
             </a>
         </nav>
@@ -908,9 +942,10 @@ fn option_note(t: ItemMsg, market: Market, summary: Option<&OptionMarket>) -> St
     let Some(summary) = summary else { return t.page_none().to_owned() };
     let price = summary.price.as_ref().map_or_else(|| money(t, None, None), |p| money(t, Some(&p.amount), Some(&p.currency)));
     if market == Market::Sell {
-        t.page_offer_option_summary(summary.count, &price).to_string()
+        t.page_offer_option_summary(crate::text::item_msg::PageOfferOptionSummary { count: summary.count, price: &price })
+            .to_string()
     } else {
-        t.page_option_summary(summary.count, &price).to_string()
+        t.page_option_summary(crate::text::item_msg::PageOptionSummary { count: summary.count, price: &price }).to_string()
     }
 }
 
@@ -1292,7 +1327,9 @@ fn Rail<'a>(
                         <Hidden pairs={&page} />
                         <input type="hidden" name={field::PRODUCT} value={product}>
                         if matches > 0 {
-                            <p class={Muted}>{t.route_listing_match_count(matches, match_label)}</p>
+                            <p class={Muted}>
+                                {t.route_listing_match_count(crate::text::item_msg::RouteListingMatchCount { count: matches, listing_label: match_label })}
+                            </p>
                         } else {
                             <p class={Muted}>{t.route_add_to_cart_saves_buyer_intent()}</p>
                         }
@@ -1421,11 +1458,21 @@ fn payout(t: ItemMsg, offer: &Offer, terms: &crate::api::StandardTerms) -> Optio
     let write = |c: i128| money(t, Some(&cents_text(c)), currency);
     Some(vec![
         (t.route_requested().to_owned(), t.route_requested_count(offer.quantity_requested).to_string()),
-        (t.route_seller_payout().to_owned(), t.route_seller_payout_after_fee(&write(net), &write(fee)).to_string()),
+        (
+            t.route_seller_payout().to_owned(),
+            t.route_seller_payout_after_fee(crate::text::item_msg::RouteSellerPayoutAfterFee {
+                payout: &write(net),
+                fee: &write(fee),
+            })
+            .to_string(),
+        ),
         (
             t.route_shipping_allowance().to_owned(),
-            t.route_shipping_allowance_amount(&write(allowance), &bps_percent(t, terms.shipping_allowance_percentage_bps))
-                .to_string(),
+            t.route_shipping_allowance_amount(crate::text::item_msg::RouteShippingAllowanceAmount {
+                amount: &write(allowance),
+                percentage: &bps_percent(t, terms.shipping_allowance_percentage_bps),
+            })
+            .to_string(),
         ),
     ])
 }
@@ -1637,7 +1684,9 @@ fn ListForms<'a>(
                 </div>
                 <a class={Button} href={&manage(id)}>{t.route_manage_listing()}</a>
             } else if let Some(l) = own {
-                <p class={Muted}>{t.route_your_listing_summary(&l.status, &listing_price(t, l))}</p>
+                <p class={Muted}>
+                    {t.route_your_listing_summary(crate::text::item_msg::RouteYourListingSummary { status: &l.status, price: &listing_price(t, l) })}
+                </p>
                 <a class={Button} href={&manage(&l.listing_id)}>{t.route_manage_listing()}</a>
             } else {
                 <form
@@ -2077,7 +2126,7 @@ pub fn SaveDialog<'a>(
                                     <span>
                                         <span class={Strong}>{&list.title}</span>
                                         <span class={Muted}>
-                                            {t.saved_list_summary(list.line_count, list.tracked_unit_count)}
+                                            {t.saved_list_summary(crate::text::item_msg::SavedListSummary { lines: list.line_count, quantity: list.tracked_unit_count })}
                                         </span>
                                     </span>
                                 </label>
@@ -2224,9 +2273,18 @@ fn MarketBook<'a>(t: ItemMsg, screen: &'a ItemScreen, address: &'a Address, slug
 fn Listings<'a>(t: ItemMsg, screen: &'a ItemScreen, address: &'a Address, slug: &'a str, clear: Option<&'a str>) -> impl Render {
     let label = |n: usize| if n == 1 { t.page_listing_singular() } else { t.page_listing_plural() };
     let count = if clear.is_some() {
-        t.page_filtered_listing_count(screen.listings.len(), screen.all_listings, label(screen.all_listings)).to_string()
+        t.page_filtered_listing_count(crate::text::item_msg::PageFilteredListingCount {
+            visible_count: screen.listings.len(),
+            total_count: screen.all_listings,
+            listing_label: label(screen.all_listings),
+        })
+        .to_string()
     } else {
-        t.page_active_listing_count(screen.listings.len(), label(screen.listings.len())).to_string()
+        t.page_active_listing_count(crate::text::item_msg::PageActiveListingCount {
+            count: screen.listings.len(),
+            listing_label: label(screen.listings.len()),
+        })
+        .to_string()
     };
     let lowest = screen
         .listings
@@ -2274,7 +2332,7 @@ fn Listings<'a>(t: ItemMsg, screen: &'a ItemScreen, address: &'a Address, slug: 
                             limit={purchase_limit(l)}
                             selected={screen.listing_id.as_deref() == Some(l.listing_id.as_str())}
                             select={&url::Item { slug, state: address.with_listing(&l.listing_id), after: Default::default() }.href()}
-                            label={&t.page_listing_row_label(&listing_price(t, l), l.seller_display_name.as_deref().unwrap_or(t.page_seller())).to_string()}
+                            label={&t.page_listing_row_label(crate::text::item_msg::PageListingRowLabel { price: &listing_price(t, l), seller: l.seller_display_name.as_deref().unwrap_or(t.page_seller()) }).to_string()}
                         />
                     }
                 </ul>
@@ -2300,7 +2358,9 @@ fn Offers<'a>(t: ItemMsg, screen: &'a ItemScreen, address: &'a Address, slug: &'
     html! {
         <div class={Panel}>
             <p class={Count}>
-                <span class={Muted}>{t.page_matching_offer_count(screen.offers.len(), label)}</span>
+                <span class={Muted}>
+                    {t.page_matching_offer_count(crate::text::item_msg::PageMatchingOfferCount { count: screen.offers.len(), offer_label: label })}
+                </span>
                 if let Some(clear) = clear {
                     " " <a href={clear}>{t.page_clear_filters_3()}</a>
                 }
@@ -2326,7 +2386,7 @@ fn Offers<'a>(t: ItemMsg, screen: &'a ItemScreen, address: &'a Address, slug: &'
                             limit={None}
                             selected={screen.offer_id.as_deref() == Some(o.offer_id.as_str())}
                             select={&url::Item { slug, state: address.with_offer(&o.offer_id), after: Default::default() }.href()}
-                            label={&t.page_offer_row_label(&offer_price(t, o), o.buyer_display_name.as_deref().unwrap_or(&o.buyer_account_id)).to_string()}
+                            label={&t.page_offer_row_label(crate::text::item_msg::PageOfferRowLabel { price: &offer_price(t, o), buyer: o.buyer_display_name.as_deref().unwrap_or(&o.buyer_account_id) }).to_string()}
                         />
                     }
                 </ul>
@@ -2418,7 +2478,7 @@ fn Details<'a>(t: ItemMsg, item: &'a Item) -> impl Render {
                                         command="show-modal"
                                         commandfor={&reference_dialog_id(r)}
                                         aria-haspopup="dialog"
-                                        aria-label={&t.page_reference_value_aria(label, value).to_string()}
+                                        aria-label={&t.page_reference_value_aria(crate::text::item_msg::PageReferenceValueAria { label, value }).to_string()}
                                     >
                                         {value}
                                     </button>

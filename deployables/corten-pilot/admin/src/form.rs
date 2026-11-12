@@ -6,7 +6,6 @@
 //! inputs' `required` and `type="number"` already ask of the browser: text is there and numbers
 //! are numbers. The fields hold the text as typed, so a form re-rendered with errors shows it.
 use corten::prelude::*;
-use serde::Deserialize;
 
 use crate::{
     api::{CloneCommand, Payload, Policy, PolicyCommand, PreviewCommand},
@@ -20,7 +19,7 @@ pub fn default_payload() -> Payload {
 
 /// A policy's fields: the create form and the revise form, which also carries the preview's
 /// inputs (its preview button posts the same form to the preview route).
-#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[derive(Clone, Debug, Default, Fields)]
 pub struct PolicyInput {
     pub label: String,
     pub effective_from: String,
@@ -210,7 +209,7 @@ impl Check {
 
 /// The activate form. `label` is the policy's, for the confirm dialog's title when the form
 /// comes back with an error.
-#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[derive(Clone, Debug, Default, Fields)]
 pub struct ActivateInput {
     #[serde(default)]
     pub label: String,
@@ -218,7 +217,7 @@ pub struct ActivateInput {
 }
 
 /// The retire form, `label` as in [`ActivateInput`].
-#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[derive(Clone, Debug, Default, Fields)]
 pub struct RetireInput {
     #[serde(default)]
     pub label: String,
@@ -226,7 +225,7 @@ pub struct RetireInput {
 }
 
 /// The clone form: a rollback draft of the policy.
-#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[derive(Clone, Debug, Default, Fields)]
 pub struct CloneInput {
     pub clone_label: String,
     pub clone_effective_from: String,

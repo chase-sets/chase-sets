@@ -3,6 +3,7 @@
 //! values, status change, edit dialog, and its field and dimension rules with their add dialogs
 //! and Remove buttons.
 use corten::prelude::*;
+use platform::ui::table::TableLayout;
 
 use super::{
     ActionBar, Bar, Bulk, BulkRows, CatalogDialog, ComponentForm, ComponentRow, DetailPage, DimensionRuleForm, Draft, Empty,
@@ -79,6 +80,7 @@ pub fn component_list<'a>(
         </Filters>
         <corten-live src={&live}>{component_rows(t, p, query, screen, bulk.manage)}</corten-live>
         <CatalogDialog
+            p={p}
             id={ids::CREATE_DIALOG}
             title={t.component_list_create_component()}
             description={None}
@@ -119,7 +121,7 @@ pub fn component_rows<'a>(
             if screen.items.is_empty() {
                 <Empty title={&empty_title} description={&empty_description} />
             } else {
-                <Table label={title} head={&head} all={select}>
+                <Table label={title} head={&head} all={select} layout={TableLayout::Stack}>
                     for row in &screen.items {
                         <ComponentRow t={t} row={row} select={select} />
                     }
@@ -230,6 +232,7 @@ pub fn component_page<'a>(
         </DetailPage>
         if editable {
             <CatalogDialog
+                p={p}
                 id={ids::EDIT_DIALOG}
                 title={t.component_edit_component()}
                 description={None}
@@ -239,6 +242,7 @@ pub fn component_page<'a>(
                 <ComponentForm t={t} id={ids::EDIT} action={&edit_action} create={false} form={&edit} />
             </CatalogDialog>
             <CatalogDialog
+                p={p}
                 id={ids::ADD_FIELD_RULE_DIALOG}
                 title={t.component_add_field_rule_2()}
                 description={None}
@@ -248,6 +252,7 @@ pub fn component_page<'a>(
                 <FieldRuleForm t={t} id={ids::ADD_FIELD_RULE} action={&field_action} form={&field_rule} />
             </CatalogDialog>
             <CatalogDialog
+                p={p}
                 id={ids::ADD_DIMENSION_RULE_DIALOG}
                 title={t.component_add_dimension_rule_2()}
                 description={None}
@@ -297,7 +302,7 @@ fn field_rules<'a>(
         if component.field_rules.is_empty() {
             <Empty title={t.component_no_field_rules()} description="" />
         } else {
-            <Table label={t.component_field_rules()} head={&head} all={None}>
+            <Table label={t.component_field_rules()} head={&head} all={None} layout={TableLayout::Scroll}>
                 for row in rows {
                     {row}
                 }
@@ -349,7 +354,7 @@ fn dimension_rules<'a>(
         if component.dimension_rules.is_empty() {
             <Empty title={t.component_no_dimension_rules()} description="" />
         } else {
-            <Table label={t.component_dimension_rules()} head={&head} all={None}>
+            <Table label={t.component_dimension_rules()} head={&head} all={None} layout={TableLayout::Scroll}>
                 for row in rows {
                     {row}
                 }

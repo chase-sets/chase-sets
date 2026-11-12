@@ -441,7 +441,9 @@ pub fn InvitePage<'a>(t: SignInMsg, screen: &'a InviteScreen) -> impl Render {
                     Invitation::Pending { invited_by_name, account_name, role_label, .. } => {
                         <header class={Header}>
                             <h1 class={Title}>{t.invite_accept_invitation()}</h1>
-                            <p>{t.invite_invited_by(invited_by_name, account_name, role_label)}</p>
+                            <p>
+                                {t.invite_invited_by(crate::text::sign_in_msg::InviteInvitedBy { invited_by_name, account_name, role_label })}
+                            </p>
                         </header>
                         if screen.failed_safe {
                             <div class={Banner} data-tone="danger" role="alert">

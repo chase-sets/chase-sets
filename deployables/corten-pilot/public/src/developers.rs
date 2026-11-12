@@ -11,7 +11,7 @@ use std::{sync::LazyLock, time::Duration};
 
 use corten::{
     answer::XRobotsTag,
-    axum::http::{HeaderName, HeaderValue, StatusCode},
+    http::{HeaderName, HeaderValue, StatusCode},
     prelude::*,
 };
 use serde::Deserialize;

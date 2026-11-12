@@ -8,6 +8,7 @@
 //! the Discord share's copied message and the analytics events.
 use corten::prelude::*;
 use corten_ui::{Copied, CopyButton};
+use platform::ui::progress::{Progress as KitProgress, ProgressSize, ProgressTone};
 
 use super::home_page::handlers;
 use crate::{
@@ -77,7 +78,7 @@ pub fn WelcomePage<'a>(t: HomeMsg, p: Pilot, screen: &'a Screen, saved: Option<S
                             Some(position) => {
                                 <div class={Place}>
                                     <p class={Position}>
-                                        {t.welcome_referral_position_value(&position.to_string(), &referrals.total.to_string())}
+                                        {t.welcome_referral_position_value(crate::text::home_msg::WelcomeReferralPositionValue { position: &position.to_string(), total: &referrals.total.to_string() })}
                                     </p>
                                     if referrals.advanced > 0 {
                                         <p class={Note}>
@@ -108,10 +109,15 @@ pub fn WelcomePage<'a>(t: HomeMsg, p: Pilot, screen: &'a Screen, saved: Option<S
                         <div class={Progress}>
                             <div class={ProgressHead}>
                                 <span id="welcome-progress-label">{t.welcome_referral_progress_label()}</span>
-                                <span>{t.welcome_referral_progress_value(&referrals.count.to_string(), &goal)}</span>
+                                <span>
+                                    {t.welcome_referral_progress_value(crate::text::home_msg::WelcomeReferralProgressValue { count: &referrals.count.to_string(), goal: &goal })}
+                                </span>
                             </div>
                             <progress
-                                class={(Bar, screen.goal_reached().then_some(Done))}
+                                class={KitProgress {
+                                    size: ProgressSize::Md,
+                                    tone: if screen.goal_reached() { ProgressTone::Success } else { ProgressTone::Primary },
+                                }}
                                 aria-labelledby="welcome-progress-label"
                                 max={&goal}
                                 value={referrals.count.min(referrals.goal).to_string()}

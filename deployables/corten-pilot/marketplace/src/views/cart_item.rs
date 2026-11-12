@@ -2,15 +2,34 @@
 //! the page's one notice (`CheckoutNoticeStack`), the totals (`CheckoutTotals`), the checkout bar
 //! (`StickyCtaBar`) and the empty cart (`MarketplaceEmptyState`).
 use corten::{prelude::*, view::AttrValue};
+use corten_ui::{Number, NumberField};
+use platform::{
+    theme::gap_4,
+    ui::{
+        stack::{Gap, Stack as KitStack},
+        stepper::Stepper,
+    },
+};
 
 use super::{marketplace, on_marketplace, srcset_on_marketplace};
 use crate::{
     api::{Snapshot, segment},
     app::url,
-    cart::{AttemptNotice, CheckoutInput, Line, LineInput, Price, Reason, Seller, Write},
+    cart::{AttemptNotice, CheckoutInput, Line, LineInput, Price, QUANTITY, Reason, Seller, Write},
     cart_attempt::State,
-    text::CartMsg,
+    text::{CartMsg, Pilot},
 };
+
+corten::script::script!(pub mod handlers = "cart_item.js");
+
+/// A line's quantity form, by the first line it holds: a write's answer redraws it, and the
+/// runtime sends a step made while the write was out from the form the answer drew.
+#[derive(Id, Clone, Copy)]
+pub struct LineQuantityFormId<'a>(pub &'a str);
+
+/// A line's quantity field, which its label names.
+#[derive(Id, Clone, Copy)]
+pub struct LineQuantityId<'a>(pub &'a str);
 
 /// What a line without an image shows (marketplace's `CART_ITEM_FALLBACK_IMAGE_URL`, on its origin).
 const FALLBACK_IMAGE: &str = "/fake-cdn/assets/pokemon-card-back.png";
@@ -78,7 +97,7 @@ pub fn CartHeading<'a>(title: &'a str, description: &'a str) -> impl Render {
 /// The notice, the lines, the totals and the bar, spaced as one stack.
 #[component(css = CartItem)]
 pub fn CartStack<C: Render>(children: C) -> impl Render {
-    html! { <div class={Stack}>{children}</div> }
+    html! { <div class={(KitStack { gap: Gap::App }, gap_4(), Stack)}>{children}</div> }
 }
 
 /// The cart's lines, one card each.
@@ -89,15 +108,32 @@ pub fn CartList<C: Render>(children: C) -> impl Render {
 
 /// One line: its picture, item, badges, options, listing, seller and price, its quantity and its
 /// writes. `paused` turns the writes off while one is not known to have applied.
+///
+/// The quantity is the kit's `NumberField` in its `Stepper`, as marketplace's `QuantityStepper`:
+/// stepped or typed, it is sent when it changes (`cart_item.js`), and steps made while a write is
+/// out go as one write of where the buyer ended, as marketplace coalesces them. Without the script
+/// the input is the control and Update quantity sends it.
 #[component(css)]
-pub fn CartItem<'a>(t: CartMsg, line: &'a Line, paused: bool) -> impl Render {
+pub fn CartItem<'a>(t: CartMsg, p: Pilot, line: &'a Line, paused: bool) -> impl Render {
     let l = &line.line;
+    let f = LineInput::FIELDS;
+    let key = line.line_ids.first().map_or(l.line_id.as_str(), String::as_str);
+    let quantity_id = LineQuantityId(key);
+    let quantity = Number {
+        value: l.quantity.into(),
+        disabled: paused,
+        attrs: &[("data-quantity", true)],
+        ..Number::new(quantity_id, f.quantity, QUANTITY, t.page_decrease(), t.page_increase())
+    };
     // The line keeps the picture as the add sent it, a card back's site-relative to marketplace.
     let image = on_marketplace(l.item_image_url.as_deref().unwrap_or(FALLBACK_IMAGE));
     let srcset = l.item_image_srcset.as_deref().map(srcset_on_marketplace);
     let options = options(l.product_summary.as_deref());
-    let ready = line.reason.is_none_or(|r| r == Reason::Ready);
-    let fulfillable = line.reason.is_none_or(Reason::fulfillable);
+    // Ready in the success color only for a line the API presented as ready with a way to be
+    // fulfilled, and Find alternatives only for one it presented with none (marketplace's
+    // `readinessTone` and `alternativesAction`).
+    let ready = line.reason == Reason::Ready && line.fulfillment_available == Some(true);
+    let fulfillable = line.fulfillment_available != Some(false);
     let alternatives = link(&format!("/search?q={}", segment(&l.item_title)));
     let locked = (l.fulfillment_mode == "locked-listing").then_some(l.locked_listing_id.as_deref()).flatten();
     let preferred = if locked.is_none() { l.seller_preference_id.as_deref() } else { None };
@@ -125,11 +161,9 @@ pub fn CartItem<'a>(t: CartMsg, line: &'a Line, paused: bool) -> impl Render {
                     if let Some(code) = l.item_language_code.as_deref().filter(|c| !c.trim().is_empty()) {
                         <span class={(Pill, Neutral)}>{language(t, code)}</span>
                     }
-                    if let Some(r) = line.reason {
-                        <span class={(Pill, ready.then_some(Success), (!ready).then_some(Warning))} data-reason>
-                            {reason(t, r)}
-                        </span>
-                    }
+                    <span class={(Pill, ready.then_some(Success), (!ready).then_some(Warning))} data-reason>
+                        {reason(t, line.reason)}
+                    </span>
                 </div>
                 if options.is_empty() {
                     <p class={Badges}><span class={(Pill, Neutral)}>{t.page_standard()}</span></p>
@@ -158,35 +192,30 @@ pub fn CartItem<'a>(t: CartMsg, line: &'a Line, paused: bool) -> impl Render {
                 }
             </div>
             <div class={Foot}>
-                <LineForm action={url::CartQuantity} line={line} paused={paused} label={t.page_quantity()}>
-                    <input type="hidden" name={LineInput::FIELDS.quantity} value={l.quantity}>
-                    <button
-                        type="submit"
-                        class={(Button, Step)}
-                        name={LineInput::FIELDS.delta}
-                        value="-1"
-                        aria-label={t.page_decrease()}
-                        disabled={l.quantity <= 1}
-                    >
-                        "\u{2212}"
-                    </button>
-                    <span class={Count} data-quantity>{l.quantity}</span>
-                    <button
-                        type="submit"
-                        class={(Button, Step)}
-                        name={LineInput::FIELDS.delta}
-                        value="1"
-                        aria-label={t.page_increase()}
-                    >
-                        "+"
-                    </button>
-                </LineForm>
+                <form
+                    class={(Post, Quantity)}
+                    id={LineQuantityFormId(key)}
+                    method="post"
+                    action={url::CartQuantity}
+                    data-patch
+                    on:change={handlers::commit(event)}
+                >
+                    {SubmitKey::field(f.attempt)}
+                    for id in &line.line_ids {
+                        <input type="hidden" name={f.line_id} value={id}>
+                    }
+                    <label class={Label} for={quantity_id}>{t.page_quantity()}</label>
+                    <fieldset class={Controls} disabled={paused}>
+                        <Stepper><NumberField field={&quantity} /></Stepper>
+                        <button type="submit" class={(Button, Update)}>{p.cart_update()}</button>
+                    </fieldset>
+                </form>
                 <div class={Actions}>
-                    <LineForm action={url::CartRemove} line={line} paused={paused} label="">
+                    <LineForm action={url::CartRemove} line={line} paused={paused}>
                         <button type="submit" class={Button} data-write="remove">{t.page_remove()}</button>
                     </LineForm>
                     if let Some(preference) = preferred {
-                        <LineForm action={url::CartLock} line={line} paused={paused} label="">
+                        <LineForm action={url::CartLock} line={line} paused={paused}>
                             <input type="hidden" name={LineInput::FIELDS.preference} value={preference}>
                             <button type="submit" class={Button} data-write="lock">{t.page_lock_this_listing()}</button>
                         </LineForm>
@@ -203,26 +232,17 @@ pub fn CartItem<'a>(t: CartMsg, line: &'a Line, paused: bool) -> impl Render {
 /// A line write's form: a new attempt (`SubmitKey`), every line merged into the one shown, and
 /// the controls, off while `paused`. A `data-patch` form: the runtime posts it and follows the
 /// redirect to the cart, read after the write, in place (and reads it again while it is behind);
-/// without the script the browser does the same. `label` names the controls when it is set.
+/// without the script the browser does the same.
 #[component(css = CartItem)]
-pub fn LineForm<'a, A: AttrValue, C: Render>(
-    action: A,
-    line: &'a Line,
-    paused: bool,
-    label: &'a str,
-    children: C,
-) -> impl Render {
+pub fn LineForm<'a, A: AttrValue, C: Render>(action: A, line: &'a Line, paused: bool, children: C) -> impl Render {
     let f = LineInput::FIELDS;
     html! {
-        <form class={(Post, (!label.is_empty()).then_some(Quantity))} method="post" action={action} data-patch>
+        <form class={Post} method="post" action={action} data-patch>
             {SubmitKey::field(f.attempt)}
             for id in &line.line_ids {
                 <input type="hidden" name={f.line_id} value={id}>
             }
-            if !label.is_empty() {
-                <span class={Label}>{label}</span>
-            }
-            <fieldset class={(Controls, (!label.is_empty()).then_some(Stepper))} disabled={paused}>{children}</fieldset>
+            <fieldset class={Controls} disabled={paused}>{children}</fieldset>
         </form>
     }
 }
@@ -261,7 +281,6 @@ pub fn AttemptBanner<'a>(t: CartMsg, notice: &'a AttemptNotice) -> impl Render {
                             <input type="hidden" name={f.line_id} value={id}>
                         }
                         <input type="hidden" name={f.quantity} value={&input.quantity}>
-                        <input type="hidden" name={f.delta} value={&input.delta}>
                         <input type="hidden" name={f.preference} value={&input.preference}>
                         <button type="submit" class={Button}>{t.page_attempt_resend()}</button>
                     </form>
@@ -290,7 +309,7 @@ pub fn Reputation<'a>(t: CartMsg, seller: &'a Seller<'a>) -> impl Render {
             <span class={Name}>{seller.name}</span>
             match seller.rating {
                 Some((rating, count)) => {
-                    <span class={Rating} aria-label={t.page_seller_reputation_label()}>
+                    <span class={Rating} role="group" aria-label={t.page_seller_reputation_label()}>
                         <span aria-hidden="true">"\u{2605}"</span> " "
                         <strong>{format!("{rating:.1}")}</strong> " " {format!("({count})")}
                     </span>
