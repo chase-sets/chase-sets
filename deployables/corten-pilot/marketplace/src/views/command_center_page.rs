@@ -10,7 +10,7 @@
 use corten::prelude::*;
 use platform::{
     theme::gap_1,
-    ui::stack::{Gap, Stack as KitStack, StackStart},
+    ui::stack::{Gap, StackStart},
 };
 
 use super::packing_page::{handlers, status_label};
@@ -174,7 +174,7 @@ fn ItemCard<'a>(t: ShipmentsMsg, p: Pilot, viewer: &'a Viewer, item: &'a Command
         item.plan.disclosed.iter().filter_map(|a| action_label(t, *a).map(|label| (*a, label))).collect();
     html! {
         <li class={Card}>
-            <div class={(KitStack { gap: Gap::App }, StackStart {}, gap_1())}>
+            <div class={(StackStart { gap: Gap::App }, gap_1())}>
                 <p class={CardTitle}>{item_title(t, item)}</p>
                 <span class={Badge} data-tone={status_tone(&item.status)}>{status_label(t, &item.status)}</span>
             </div>

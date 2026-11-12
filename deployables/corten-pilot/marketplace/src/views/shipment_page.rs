@@ -22,7 +22,7 @@ use corten::{
 };
 use platform::{
     theme::gap_1,
-    ui::stack::{Gap, Stack as KitStack, StackStart},
+    ui::stack::{Gap, StackStart},
 };
 
 use super::{
@@ -106,7 +106,7 @@ fn ShipmentCardView<'a>(t: ShipmentsMsg, p: Pilot, shipment: &'a ShipmentCard) -
     let status = shipment.status.as_str();
     html! {
         <article class={(Card, Raised)}>
-            <div class={(KitStack { gap: Gap::App }, StackStart {}, gap_1())}>
+            <div class={(StackStart { gap: Gap::App }, gap_1())}>
                 <h3 class={CardTitle}>{&title}</h3>
                 <span class={Badge} data-tone={tone(status)}>{status}</span>
             </div>
@@ -240,7 +240,7 @@ pub fn ShipmentPage<'a>(t: ShipmentsMsg, p: Pilot, viewer: &'a Viewer, screen: &
     html! {
         <div class={Page}>
             <header class={Heading}>
-                <div class={(KitStack { gap: Gap::App }, StackStart {}, gap_1())}>
+                <div class={(StackStart { gap: Gap::App }, gap_1())}>
                     <p class={Eyebrow}>{eyebrow}</p>
                     <h1 class={Title}>{&title}</h1>
                     <p class={Muted}>{&description}</p>
@@ -284,7 +284,7 @@ pub fn ShipmentPage<'a>(t: ShipmentsMsg, p: Pilot, viewer: &'a Viewer, screen: &
                     for (name, detail, state) in &steps {
                         <li class={StepItem} data-state={*state}>
                             <span class={Marker} aria-hidden="true"></span>
-                            <span class={(KitStack { gap: Gap::App }, StackStart {}, gap_1())}>
+                            <span class={(StackStart { gap: Gap::App }, gap_1())}>
                                 <span class={Strong}>{name}</span>
                                 <span class={Muted}>{detail}</span>
                             </span>

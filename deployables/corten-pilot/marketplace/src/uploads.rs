@@ -89,7 +89,7 @@ pub fn is_picture(content_type: &str, bytes: &[u8]) -> bool {
 #[cfg(test)]
 mod tests {
     use corten::http::{Request, header};
-    use corten::{answer::Body, extract::FromRequest};
+    use corten::{extract::FromRequest, http::Body};
 
     use super::*;
 

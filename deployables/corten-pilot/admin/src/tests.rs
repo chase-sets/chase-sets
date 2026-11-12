@@ -2,16 +2,14 @@
 //! to the API, and how each answer of the API becomes a page, a patch or a redirect.
 use std::sync::{Arc, Mutex};
 
-// The stand-in API is a plain router served on a port through `corten::axum`, as Corten keeps it for a
-// test (corten-run/corten#950); the rest names Corten.
-use corten::http::{HeaderMap, Method, Request, StatusCode, Uri, header};
-use corten::{
-    Json,
-    answer::Body,
-    axum::Router,
+// The stand-in API is a server of its own, a plain axum router (a dev-dependency) with axum's
+// `State`, `Json` and `Response`; the app under test is a `corten::Router`, and the rest names Corten.
+use axum::{
+    Json, Router,
     extract::State,
-    middleware::{IntoResponse, Response},
+    response::{IntoResponse, Response},
 };
+use corten::http::{Body, HeaderMap, Method, Request, StatusCode, Uri, header};
 use http_body_util::BodyExt;
 use serde_json::{Value, json};
 use tower::ServiceExt;
@@ -921,7 +919,7 @@ fn risk_alerts(method: &Method, rest: &str) -> Response {
 
 /// The pilot, in front of a stand-in API on a loopback port.
 struct Pilot {
-    router: Router,
+    router: corten::Router,
     calls: Calls,
 }
 
@@ -931,7 +929,7 @@ impl Pilot {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let origin = format!("http://{}", listener.local_addr().unwrap());
         let stand_in = Router::new().fallback(platform).with_state(calls.clone());
-        tokio::spawn(async move { corten::axum::serve(listener, stand_in).await.unwrap() });
+        tokio::spawn(async move { axum::serve(listener, stand_in).await.unwrap() });
         let router = app(Config { platform: Platform::new(&origin), proto: "http" }).router();
         Pilot { router, calls }
     }
@@ -3470,6 +3468,10 @@ async fn the_items_page_counts_changes_and_a_reload_draws_the_rows_and_a_new_str
     assert!(
         html.contains(r#"<input type="hidden" name="status" value="draft"><button type="submit" class="live-status__reload">Reload</button>"#),
         "a stale stream's Reload keeps the filters: {html}"
+    );
+    assert!(
+        html.contains(r#"<span class="live-status__badge live-status__live"><span class="status-dot__dot status-dot__live status-dot__text" aria-hidden="true"></span>Live</span>"#),
+        "the Live badge's dot is the kit's LiveDot, in the badge's color: {html}"
     );
     assert!(
         html.contains(r#"<div id="catalog-changes" class="item-form__changes" role="status"></div></corten-live>"#),

@@ -16,7 +16,7 @@ use corten::{
 };
 use platform::{
     theme::gap_1,
-    ui::stack::{Gap, Stack as KitStack, StackStart},
+    ui::stack::{Gap, StackStart},
 };
 
 use super::{account_page::page_range, listing_page::options, marketplace};
@@ -206,7 +206,7 @@ fn OrderCardView<'a>(t: OrdersMsg, side: Side, order: &'a OrderCard) -> impl Ren
         <article class={Card}>
             <div class={CardHead}>
                 <span class={Tile} aria-hidden="true">"\u{1f0cf}"</span>
-                <div class={(KitStack { gap: Gap::App }, StackStart {}, gap_1())}>
+                <div class={(StackStart { gap: Gap::App }, gap_1())}>
                     <h3 class={Strong}>{&headline(t, &order.item_titles)}</h3>
                     <p class={Muted}>{&caption}</p>
                     <span class={Badge} data-tone={tone(&order.status)}>{&order.status}</span>
@@ -430,7 +430,7 @@ fn OrderView<'a>(
     html! {
         <div class={Page}>
             <header class={Heading}>
-                <div class={(KitStack { gap: Gap::App }, StackStart {}, gap_1())}>
+                <div class={(StackStart { gap: Gap::App }, gap_1())}>
                     <p class={Eyebrow}>{eyebrow}</p>
                     <h1 class={Title}>{&title}</h1>
                     <p class={Muted}>{&counterparty}</p>
@@ -661,17 +661,17 @@ fn Outcome<'a>(t: OrdersMsg, facts: &'a Known<'a>) -> impl Render {
     html! {
         <div class={(Card, Tinted)}>
             <p class={Strong}>{t.outcome_title()}</p>
-            <div class={(KitStack { gap: Gap::App }, StackStart {}, gap_1())}>
+            <div class={(StackStart { gap: Gap::App }, gap_1())}>
                 <p class={Muted}>{t.outcome_order_status()}</p>
                 <span class={Badge} data-tone={if order.status == "cancelled" { "neutral" } else { "success" }}>
                     {&status_label(&order.status)}
                 </span>
             </div>
-            <div class={(KitStack { gap: Gap::App }, StackStart {}, gap_1())}>
+            <div class={(StackStart { gap: Gap::App }, gap_1())}>
                 <p class={Muted}>{t.outcome_issue_status()}</p>
                 <a class={(Secondary, Wide)} href={&track}>{t.outcome_track_issue()}</a>
             </div>
-            <div class={(KitStack { gap: Gap::App }, StackStart {}, gap_1())}>
+            <div class={(StackStart { gap: Gap::App }, gap_1())}>
                 <p class={Muted}>{t.outcome_review_status()}</p>
                 <Review t={t} facts={facts} review={order.review_outcome.as_ref()} href={&review_href} />
             </div>
@@ -707,7 +707,7 @@ fn Review<'a>(t: OrdersMsg, facts: &'a Known<'a>, review: Option<&'a ReviewOutco
                 <p>{t.outcome_review_unavailable_description()}</p>
             </div>
         } else if let Some((badge, text, tone)) = plain {
-            <div class={(KitStack { gap: Gap::App }, StackStart {}, gap_1())}>
+            <div class={(StackStart { gap: Gap::App }, gap_1())}>
                 <span class={Badge} data-tone={tone}>{badge}</span>
                 <p class={Muted}>{text}</p>
             </div>
@@ -794,7 +794,7 @@ fn Timeline<'a>(t: OrdersMsg, facts: &'a Known<'a>, timeline: &'a MoneyTimeline)
     html! {
         if facts.side == Side::Buyer {
             if !timeline.refunds.is_empty() || !terminal.is_empty() {
-                <div class={(KitStack { gap: Gap::App }, StackStart {}, gap_1())}>
+                <div class={(StackStart { gap: Gap::App }, gap_1())}>
                     <ol class={Events} aria-label={t.money_title()}>
                         for (title, description, at) in &events {
                             <li>
@@ -817,7 +817,7 @@ fn Timeline<'a>(t: OrdersMsg, facts: &'a Known<'a>, timeline: &'a MoneyTimeline)
                 </div>
             }
         } else if !active.is_empty() || refunded > 0 {
-            <div class={(KitStack { gap: Gap::App }, StackStart {}, gap_1())}>
+            <div class={(StackStart { gap: Gap::App }, gap_1())}>
                 if !active.is_empty() {
                     <div class={(Banner, Warning)} role="note">
                         <p class={Strong}>{t.money_hold_title()}</p>
@@ -876,7 +876,7 @@ fn Line<'a>(t: OrdersMsg, p: Pilot, side: Side, line: &'a OrderLine) -> impl Ren
     html! {
         <article class={Card}>
             if !images.is_empty() {
-                <div class={(KitStack { gap: Gap::App }, StackStart {}, gap_1())}>
+                <div class={(StackStart { gap: Gap::App }, gap_1())}>
                     <p class={Strong}>{t.detail_seller_evidence_at_acceptance()}</p>
                     <ul class={Evidence}>
                         for (src, alt) in &images {

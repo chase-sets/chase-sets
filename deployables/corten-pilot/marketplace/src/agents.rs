@@ -34,8 +34,7 @@
 //! | `GET`, `POST /ucp/oauth/authorize` | the API's authorize, relayed (local only) |
 use corten::{
     Relay,
-    answer::Body,
-    http::{HeaderMap, HeaderName, StatusCode, Uri, header},
+    http::{Body, HeaderMap, HeaderName, StatusCode, Uri, header},
     prelude::*,
 };
 use serde::{Deserialize, Serialize};
