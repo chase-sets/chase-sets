@@ -1,9 +1,10 @@
+import type { CatalogDailyImportPreview } from "../api/admin/daily-import-preview";
 import { useMemo, type ReactElement } from "react";
 import type { CatalogPrimaryWorkbenchReadModel } from "../api/primary-workbench-admin-contracts";
 import type {
   CatalogScopeSyncUnitStateReadModel,
   CatalogSyncRun,
-  SourceObservationIntegrationImportPreview,
+  SourceObservationImportJobReceipt,
 } from "./contracts";
 import {
   catalogControlPlaneRouteSurface,
@@ -17,6 +18,7 @@ export interface CatalogIntegrationsSurfacePageProps {
   surface: CatalogControlPlaneRouteSurfaceKey;
   readModel: CatalogPrimaryWorkbenchReadModel;
   commandFeedback?: CatalogPrimaryWorkbenchCommandFeedback | null;
+  importJobReceipt?: SourceObservationImportJobReceipt | null;
   // Optional alias-review visibility slot supplied by the composition
   // root for the daily surface so operators see proposed alias equivalents while
   // reviewing Source Observations before promotion.
@@ -28,7 +30,7 @@ export interface CatalogIntegrationsSurfacePageProps {
   // fan-out, so the shell renders the status panel behind a Suspense boundary
   // around this promise; the other surfaces leave it absent and render no panel.
   deferredSourceOptions?: Promise<CatalogPrimaryWorkbenchReadModel["sourceOptions"]> | null;
-  deferredImportPreview?: Promise<SourceObservationIntegrationImportPreview | null> | null;
+  deferredImportPreview?: Promise<CatalogDailyImportPreview> | null;
   deferredCatalogSyncRun?: Promise<CatalogSyncRun | null> | null;
   deferredScopeSyncState?: Promise<readonly CatalogScopeSyncUnitStateReadModel[] | null> | null;
 }
@@ -42,6 +44,7 @@ export function CatalogIntegrationsSurfacePage({
   surface,
   readModel,
   commandFeedback = null,
+  importJobReceipt = null,
   aliasVisibility = null,
   attentionQueue = null,
   deferredSourceOptions = null,
@@ -55,6 +58,7 @@ export function CatalogIntegrationsSurfacePage({
     <CatalogWorkbenchShell
       readModel={readModel}
       commandFeedback={commandFeedback}
+      importJobReceipt={importJobReceipt}
       surface={surface}
       attentionQueue={attentionQueue}
       deferredSourceOptions={deferredSourceOptions}

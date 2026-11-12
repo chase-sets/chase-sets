@@ -1,7 +1,7 @@
 import { t } from "@chase-sets/localization";
 import { useEffect } from "react";
 import type { MetaFunction } from "react-router";
-import { useActionData, useLoaderData, useNavigate, useNavigation } from "react-router";
+import { useActionData, useLoaderData, useLocation, useNavigate, useNavigation } from "react-router";
 import { CatalogIntegrationsSurfaceRouteView } from "../../features/source-observations/ui/integrations-surface-route-view";
 import { loader } from "../../support/route-support/admin-integrations/integrations-loader";
 import type { action as integrationsAction } from "../../support/route-support/admin-integrations/integrations-action";
@@ -22,8 +22,9 @@ export const meta: MetaFunction = () => [
 // composition root: it re-exports the loader/action and renders the shared
 // surface view for the "daily" audience surface. Most run-sync / promote actions
 // stay on this route and return their result as data, so the banner reads the
-// action result (when present). Only queued-job action data is a
-// routable checkpoint, so the route replaces the URL with the same redirect href
+// action result (when present). Only queued Promote and Catalog sync jobs use a
+// routable checkpoint; imports render their original enqueue receipt in place.
+// For a routable checkpoint the route replaces the URL with the same redirect href
 // the server action uses. The queued job id lets the loader recover and render the
 // durable promotion outcome on subsequent refreshes.
 export default function IntegrationsRoute() {
@@ -31,6 +32,7 @@ export default function IntegrationsRoute() {
   const actionData = useActionData<typeof integrationsAction>();
   const navigate = useNavigate();
   const navigation = useNavigation();
+  const location = useLocation();
   const commandFeedback = actionData && "feedback" in actionData ? actionData.feedback : undefined;
 
   useEffect(() => {
@@ -46,6 +48,8 @@ export default function IntegrationsRoute() {
       commandFeedback={commandFeedback}
       commandResult={actionData && "feedback" in actionData ? actionData : null}
       actionPending={navigation.state !== "idle"}
+      receiptLocation={location}
+      submissionPending={navigation.state === "submitting"}
     />
   );
 }

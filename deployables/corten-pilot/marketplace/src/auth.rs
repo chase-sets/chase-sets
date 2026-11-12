@@ -4,7 +4,7 @@ use std::sync::LazyLock;
 
 use corten::{
     Caller, Identify, Refused,
-    axum::http::{HeaderMap, Uri, request::Parts},
+    http::{HeaderMap, Uri, request::Parts},
 };
 pub use platform::{
     api::Actor,
@@ -128,8 +128,8 @@ impl Identify<Shared> for Session {
         match find(parts, config).await {
             Found::Account(viewer) => Ok(Session::Account(viewer)),
             Found::Unknown => Ok(Session::Unavailable),
-            // Read as `Option<Caller<Session>>`: no one.
-            Found::SignedOut => Err(Refused::unauthorized()),
+            // Read as `Option<Caller<Session>>`: no one, so the refusal is never sent.
+            Found::SignedOut => Err(sign_in(back_to(parts))),
         }
     }
 }

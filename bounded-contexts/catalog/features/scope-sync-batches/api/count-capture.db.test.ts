@@ -126,10 +126,11 @@ describe("pre-confirm has no effect capability", () => {
     const engine = createCountAcquisition({
       ledger: {
         ...store,
-        admit: (quote, owner, authority) => store.admit(pools.catalog, quote, owner, authority),
+        admit: (quote, owner, authority, period) => store.admit(pools.catalog, quote, owner, authority, period),
+        admitPeriod: (quote, owner, period) => store.admitPeriod(pools.catalog, quote, owner, period),
         approve: (id, fingerprint, owner) => store.approve(pools.catalog, id, fingerprint, owner),
-        claim: (quote, target, owner, authority, executionId) =>
-          store.claim(pools.catalog, quote, target, owner, authority, executionId),
+        claim: (quote, target, owner, authority, executionId, period) =>
+          store.claim(pools.catalog, quote, target, owner, authority, executionId, period),
         end: (quoteId, executionId, owner, state) => store.end(pools.catalog, quoteId, executionId, owner, state),
       },
       resolve: async () => ({ membershipFingerprint: "synthetic-membership", targets }),

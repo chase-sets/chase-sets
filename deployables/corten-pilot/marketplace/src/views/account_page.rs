@@ -9,6 +9,14 @@ use corten::{
     prelude::*,
 };
 
+use platform::{
+    theme::gap_2,
+    ui::{
+        meter::Meter,
+        stack::{Gap, Stack as KitStack},
+    },
+};
+
 use super::{listing_page::options, on_marketplace};
 use crate::{
     accounts::{AccountScreen, MOST_DETAILS, REASONS, ReviewNotice, ReviewReportFields, Role},
@@ -240,7 +248,7 @@ fn Header<'a>(t: AccountMsg, account: &'a PublicAccount, name: &'a str) -> impl 
     html! {
         <section class={Card} aria-labelledby="account-name">
             <div class={HeadRow}>
-                <div class={Stack}>
+                <div class={(KitStack { gap: Gap::App }, gap_2(), Stack)}>
                     <div class={Inline}>
                         <h1 id="account-name" class={Title}>{name}</h1>
                         <span class={Badge} data-tone="trust">{t.page_verified_account()}</span>
@@ -347,7 +355,11 @@ fn Distribution<'a>(t: AccountMsg, title: &'a str, side: &'a Side) -> impl Rende
     } else if side.ratings == side.reviews {
         side.ratings.to_string()
     } else {
-        t.page_ratings_included(side.ratings, side.reviews).to_string()
+        t.page_ratings_included(crate::text::account_msg::PageRatingsIncluded {
+            rating_count: side.ratings,
+            review_count: side.reviews,
+        })
+        .to_string()
     };
     html! {
         <div class={Side}>
@@ -361,9 +373,9 @@ fn Distribution<'a>(t: AccountMsg, title: &'a str, side: &'a Side) -> impl Rende
                 for (n, stars) in side.counts.iter().zip([5, 4, 3, 2, 1]) {
                     <li>
                         <span>{stars}</span>
-                        <progress max="100" value={percent(*n, side.ratings)}>
+                        <meter class={Meter {}} min="0" max="100" value={percent(*n, side.ratings)}>
                             {format!("{}%", percent(*n, side.ratings))}
-                        </progress>
+                        </meter>
                         <span class={Faint}>{format!("{}%", percent(*n, side.ratings))}</span>
                     </li>
                 }
@@ -379,7 +391,12 @@ fn ReviewCard<'a>(t: AccountMsg, p: Pilot, screen: &'a AccountScreen, review: &'
     let author = review.author_display_name.as_deref().unwrap_or(t.page_marketplace_buyer());
     let date = review.submitted_at.as_deref().or(review.updated_at.as_deref()).and_then(parse_timestamp);
     let byline = match date {
-        Some(at) => t.page_review_byline(author, &t.date(at, DateStyle::Medium).to_string()).to_string(),
+        Some(at) => t
+            .page_review_byline(crate::text::account_msg::PageReviewByline {
+                author,
+                date: &t.date(at, DateStyle::Medium).to_string(),
+            })
+            .to_string(),
         None => author.to_owned(),
     };
     let role = if review.author_role == "buyer" { t.page_as_seller() } else { t.page_as_buyer() };
@@ -435,7 +452,7 @@ fn Scoring<'a>(t: AccountMsg, review: &'a AccountReview) -> impl Render {
     };
     html! {
         if review.scoring_disposition.is_some() {
-            <div class={Stack}>
+            <div class={(KitStack { gap: Gap::App }, gap_2(), Stack)}>
                 <div class={Inline}>
                     <span class={Badge} data-tone={if included { "success" } else { "neutral" }}>
                         {if included { t.scoring_included() } else { t.scoring_excluded() }}
@@ -486,7 +503,7 @@ fn ReportAction<'a>(
     let f = ReviewReportFields::FIELDS;
     let max = MOST_DETAILS.to_string();
     html! {
-        <div class={Stack}>
+        <div class={(KitStack { gap: Gap::App }, gap_2(), Stack)}>
             if sent {
                 <div class={Banner} data-tone="success" role="status">
                     <p class={Strong}>{title}</p>
@@ -612,7 +629,12 @@ fn ListingCard<'a>(
     };
     let seller = rating(account.average_rating_as_seller.as_deref()).filter(|_| account.rating_count_as_seller > 0);
     let trust = match seller {
-        Some(r) => t.page_reputation_rating(&format!("{r:.1}"), account.rating_count_as_seller).to_string(),
+        Some(r) => t
+            .page_reputation_rating(crate::text::account_msg::PageReputationRating {
+                rating: &format!("{r:.1}"),
+                count: account.rating_count_as_seller,
+            })
+            .to_string(),
         None => t.page_verified_account().to_owned(),
     };
     let item = listing.catalog_item_slug.as_deref().filter(|s| !s.is_empty()).unwrap_or(&listing.catalog_catalog_item_id);

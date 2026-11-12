@@ -175,7 +175,7 @@ function mergeCandidateEditFormFor(
   return {
     state: editForm.editable ? "available" : editFormBlockedState(canManage),
     blockers,
-    baseSnapshotJson: editForm.baseSnapshotJson,
+    candidateVersion: editForm.candidateVersion,
     promotionIntent: editForm.promotionIntent,
     catalogItemId: editForm.catalogItemId,
     productIds: editForm.productIds,
@@ -242,6 +242,7 @@ function mergeCandidateActionsFor(
     candidate.status === "promoted" || candidate.status === "rejected"
       ? ["no-promotion-eligible-observations"]
       : manageBlockers;
+  const promotePreview = previewCatalogMergeCandidateReviewCommand(candidate, "candidate.promote");
   const splitPreview = previewCatalogMergeCandidateReviewCommand(candidate, "candidate.split");
   const updatePreview = previewCatalogMergeCandidateReviewCommand(candidate, "candidate.edit");
   const splitBlockers =
@@ -254,7 +255,13 @@ function mergeCandidateActionsFor(
       : [...manageBlockers, ...commandPreviewBlockers(updatePreview.blockers)];
 
   return [
-    action("candidate.promote", actionStateForBlockers(promotionBlockers, manageState), promotionBlockers, true, null),
+    action(
+      "candidate.promote",
+      actionStateForBlockers(promotionBlockers, manageState),
+      promotionBlockers,
+      true,
+      promotePreview.preview,
+    ),
     action(
       "candidate.split",
       actionStateForBlockers(splitBlockers, manageState),

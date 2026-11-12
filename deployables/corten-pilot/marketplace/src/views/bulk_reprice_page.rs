@@ -2,8 +2,9 @@
 //! template and Recommendations, what an upload or Cancel was refused for, then the part a running
 //! job relays live: the upload form (off while a job runs) and the job's progress with Cancel or
 //! Download results. Every action is a form or a link and works without a script. One column on a
-//! phone; the job's four counts two to a row, four from 48rem.
+//! phone; the job's four counts are the kit's Stats.
 use corten::prelude::*;
+use platform::ui::stats::{Stat, StatTone, Stats as KitStats, StatsSurface};
 
 use crate::{
     app::url,
@@ -79,26 +80,31 @@ fn BulkPart<'a>(t: RepricingMsg, p: Pilot, screen: &'a BulkScreen) -> impl Rende
                             <h3 class={Strong}>{t.bulk_progress()}</h3>
                             <p class={Muted} role="status">{job.progress.message.as_deref().unwrap_or(&job.status)}</p>
                         </div>
-                        <dl class={Stats}>
-                            <div class={Stat}>
-                                <dt>{t.bulk_completed()}</dt>
-                                <dd>{t.number(job.progress.completed).to_string()}</dd>
-                                <dd class={Hint}>
-                                    {t.bulk_rows_of_total(&t.number(job.progress.total).to_string()).to_string()}
-                                </dd>
-                            </div>
-                            <div class={Stat}>
-                                <dt>{t.bulk_applied()}</dt>
-                                <dd>{t.number(job.result.as_ref().map_or(0, |r| r.applied)).to_string()}</dd>
-                            </div>
-                            <div class={Stat}>
-                                <dt>{t.bulk_unchanged()}</dt>
-                                <dd>{t.number(job.result.as_ref().map_or(0, |r| r.unchanged)).to_string()}</dd>
-                            </div>
-                            <div class={Stat}>
-                                <dt>{t.bulk_failed()}</dt>
-                                <dd>{t.number(job.result.as_ref().map_or(0, |r| r.failed)).to_string()}</dd>
-                            </div>
+                        <dl class={KitStats { surface: StatsSurface::Plain }}>
+                            <Stat
+                                label={t.bulk_completed()}
+                                value={t.number(job.progress.completed).to_string()}
+                                note={t.bulk_rows_of_total(&t.number(job.progress.total).to_string()).to_string()}
+                                tone={StatTone::Neutral}
+                            />
+                            <Stat
+                                label={t.bulk_applied()}
+                                value={t.number(job.result.as_ref().map_or(0, |r| r.applied)).to_string()}
+                                note=""
+                                tone={StatTone::Neutral}
+                            />
+                            <Stat
+                                label={t.bulk_unchanged()}
+                                value={t.number(job.result.as_ref().map_or(0, |r| r.unchanged)).to_string()}
+                                note=""
+                                tone={StatTone::Neutral}
+                            />
+                            <Stat
+                                label={t.bulk_failed()}
+                                value={t.number(job.result.as_ref().map_or(0, |r| r.failed)).to_string()}
+                                note=""
+                                tone={StatTone::Neutral}
+                            />
                         </dl>
                     </div>
                     <div class={(Card, JobRow)}>

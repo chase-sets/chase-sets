@@ -329,8 +329,29 @@ function acquisitionResult(quote, scenario) {
   };
 }
 
+const billingPeriod = {
+  startsAt: "2026-10-01T00:00:00.000Z",
+  endsAt: "2026-11-01T00:00:00.000Z",
+  overageCreditsConsumed: 0,
+};
+// The server's billing-period decision for the whole quote at `consumed` credits.
+function periodDecision(quote, consumed = 0) {
+  const admitted = consumed + quote.plannedCredits <= 50_000;
+  return {
+    admitted,
+    reason: admitted ? null : "usage-period-cap",
+    runId: "9224-pass1-one-piece",
+    observedAt: now,
+    period: billingPeriod,
+    consumedCredits: consumed,
+    unreflectedCredits: 0,
+    plannedCredits: quote.plannedCredits,
+  };
+}
+
 // Credential-free stand-in for the staging Admin origin; no request leaves the process.
 function fakeStagingAdmin({
+  consumed = 0,
   signIn = () => Response.json({ sessionToken: token }),
   sets = ["OP01"],
   headroom = 40,
@@ -356,11 +377,14 @@ function fakeStagingAdmin({
     if (url.pathname.endsWith("/counts/quote")) return Response.json(quote);
     if (url.pathname.endsWith("/counts/acquire")) {
       if (acquired || view.admission.state !== "none") return Response.json({ error: {} }, { status: 409 });
+      const decision = periodDecision(quote, consumed);
+      if (!decision.admitted)
+        return Response.json({ error: { code: "usage-period-cap", message: "synthetic", decision } }, { status: 409 });
       acquired = true;
       const result = acquisitionResult(quote, scenario);
       view = result.view;
       if (scenario === "timeout") throw new DOMException("synthetic timeout", "TimeoutError");
-      return Response.json(result.response);
+      return Response.json({ ...result.response, periodDecision: decision });
     }
     if (url.pathname.endsWith(`/counts/quote/${quoteId}`) && url.search === "?view=preparation")
       return acquired && scenario === "unreadable" ? new Response(null, { status: 503 }) : Response.json(view);
@@ -403,7 +427,17 @@ function approvalFor(sets = ["OP01"], headroom = 40) {
     perKindCost: { cards: sets.length, sealed: sets.length },
     cap: quote.cap,
     authority: { fingerprint: quote.authority.fingerprint, headroom, observedAt: now },
+    periodReserve: periodReserve(),
   });
+}
+function periodReserve() {
+  return {
+    runId: "9224-pass1-one-piece",
+    startsAt: billingPeriod.startsAt,
+    endsAt: billingPeriod.endsAt,
+    observedAt: now,
+    credits: 0,
+  };
 }
 const approval = approvalFor();
 const acquireEnv = (value = approval) =>
@@ -474,13 +508,29 @@ describe("catalog staging count preparation runner (credential-free integration)
       quoteId,
       fingerprint: "c".repeat(64),
       admission: "whole-quote",
+      periodReserve: periodReserve(),
     });
-    expect(uploadedReceipt(receiptPath, env).accounting.debits.map((row) => row.debitId)).toEqual([
-      debitId(0),
-      debitId(1),
-    ]);
+    const uploaded = uploadedReceipt(receiptPath, env);
+    expect(uploaded.schemaVersion).toBe("catalog-rehearsal-count-preparation-receipt/v3");
+    expect(uploaded.acquisition.periodDecision).toEqual(periodDecision(quoteFor(["OP01"], 40)));
+    expect(uploaded.accounting.debits.map((row) => row.debitId)).toEqual([debitId(0), debitId(1)]);
     const replay = await runCountPreparation({ env, fetch: admin.fetch, now: () => now, receiptPath });
     expect(replay).toMatchObject({ ok: false, summary: { outcome: "refused", refusal: "quote-not-pending" } });
+    expect(admin.requests.filter((request) => request.path.endsWith("/acquire"))).toHaveLength(1);
+  });
+
+  it("a period-cap refusal uploads a validated receipt that records the refusing decision once, with zero spend", async () => {
+    const admin = fakeStagingAdmin({ consumed: 49_999 });
+    const receiptPath = temporaryReceipt();
+    const env = acquireEnv();
+    const result = await runCountPreparation({ env, fetch: admin.fetch, now: () => now, receiptPath });
+    expect(result).toMatchObject({ ok: false, summary: { outcome: "admission-refused", continuation: "stop" } });
+    const receipt = uploadedReceipt(receiptPath, env);
+    expect(receipt.acquisition).toMatchObject({
+      response: { status: 409, state: null },
+      periodDecision: { admitted: false, reason: "usage-period-cap", consumedCredits: 49_999, plannedCredits: 2 },
+    });
+    expect(receipt.accounting).toMatchObject({ status: "complete", debits: [] });
     expect(admin.requests.filter((request) => request.path.endsWith("/acquire"))).toHaveLength(1);
   });
 
@@ -541,6 +591,17 @@ describe("catalog staging count preparation runner (credential-free integration)
       [{ CATALOG_COUNT_PREPARATION_PRODUCT_DOMAIN: "digimon" }, "pass-invalid"],
       [{ CATALOG_COUNT_PREPARATION_APPROVAL: approval }, "approval-not-allowed-in-quote-mode"],
       [{ CATALOG_COUNT_PREPARATION_MODE: "acquire" }, "approval-invalid"],
+      [
+        {
+          CATALOG_COUNT_PREPARATION_MODE: "acquire",
+          CATALOG_COUNT_PREPARATION_APPROVAL: JSON.stringify({
+            ...JSON.parse(approval),
+            schemaVersion: "catalog-rehearsal-count-preparation-approval/v1",
+            periodReserve: undefined,
+          }),
+        },
+        "approval-invalid",
+      ],
       [
         {
           CATALOG_COUNT_PREPARATION_MODE: "acquire",
@@ -620,15 +681,19 @@ describe("catalog staging count preparation pre-upload gate", () => {
     const receiptPath = temporaryReceipt();
     const env = runnerEnv();
     await runCountPreparation({ env, fetch: fakeStagingAdmin().fetch, now: () => now, receiptPath });
-    writeFileSync(
-      receiptPath,
-      readFileSync(receiptPath, "utf8").replace(
-        "catalog-rehearsal-count-preparation-receipt/v2",
-        "catalog-rehearsal-count-preparation-receipt/v1",
-      ),
-    );
-    expect(validateCountPreparationFile({ file: receiptPath, env }).errors).toContain(
-      "schema:schemaVersion:invalid_value",
-    );
+    const current = readFileSync(receiptPath, "utf8");
+    expect(current).toContain("catalog-rehearsal-count-preparation-receipt/v3");
+    for (const earlier of ["v1", "v2"]) {
+      writeFileSync(
+        receiptPath,
+        current.replace(
+          "catalog-rehearsal-count-preparation-receipt/v3",
+          `catalog-rehearsal-count-preparation-receipt/${earlier}`,
+        ),
+      );
+      expect(validateCountPreparationFile({ file: receiptPath, env }).errors, earlier).toContain(
+        "schema:schemaVersion:invalid_value",
+      );
+    }
   });
 });

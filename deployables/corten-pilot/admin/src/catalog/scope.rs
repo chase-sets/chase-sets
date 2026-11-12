@@ -5,7 +5,7 @@
 //!
 //! | Route | Answers |
 //! |---|---|
-//! | `GET /catalog/scopes/{id}?jobs&after_write&done&count` | the page (`jobs`: the completed jobs' page cursor) |
+//! | `GET /catalog/scopes/{id}?jobs&after_write&done&count&<working set>` | the page (`jobs`: the completed jobs' page cursor; the rest the import-to-promotion section's working set) |
 //! | `POST /catalog/scopes/{id}/coverage` | a mapping's accept, reject or revoke, or Accept all available |
 //! | `POST /catalog/scopes/{id}/coverage/propose` | Propose mapping (and accept it) |
 //! | `POST /catalog/scopes/{id}/publish` | Confirm canonical record |
@@ -16,23 +16,29 @@
 //! them. Every write is a form that works without JavaScript and answers with the page after it
 //! (its receipt and the toast), or the page again with the API's refusal (422).
 //!
-//! Not ported: the import-to-promotion workspace, which admin-web composes in its web server
-//! (chase-sets/chase-sets#10507); the section links to admin-web's page for it.
+//! The import-to-promotion section is the daily workbench's surface for the scope
+//! (`GET .../workbench-surfaces/daily?location=`), read with the others and drawn with the daily
+//! page's banners and stages. It is read for this page's own address ([`journey_context`]), whose
+//! journey the Catalog API composes from the Scope Record: its hierarchy, its id and its first
+//! language edition are the API's to set, not the page's. Its commands are the daily routes', which
+//! land back here (the working set's `home`). A surface that does not read is the section's banner,
+//! with admin-web's page linked.
 use corten::{
-    axum::http::{HeaderMap, StatusCode},
+    http::{HeaderMap, StatusCode},
     prelude::*,
 };
 use futures_util::future::join3;
 use platform::receipt::Receipt;
 use serde::Serialize;
 use serde_json::{Value, json};
-use time::OffsetDateTime;
 
 use super::{
     Sent,
     api::{AliasCandidate, AliasReview, Catalog as _, Coverage, Kind, ReviewJob, ReviewJobs, ScopeRecord, Written, under},
-    command, manages, receipt,
-    scopes::{self, Promotion, Sync},
+    command,
+    daily::Opened,
+    manages, receipt,
+    scopes::{Promotion, Sync},
     views,
 };
 use crate::{
@@ -50,7 +56,7 @@ pub mod url {
     use serde::Deserialize;
 
     /// What a write did: the page's toast.
-    #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, corten::UrlValue)]
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, corten::UrlValue)]
     #[serde(rename_all = "snake_case")]
     pub enum ScopeDone {
         MappingAccepted,
@@ -64,6 +70,10 @@ pub mod url {
         AliasRejected,
         AliasRevoked,
         AliasDeferred,
+        /// A command from the import-to-promotion section the API accepted, or the job it
+        /// cancelled (the daily workbench's words, `daily::Ran`).
+        Queued,
+        Cancelled,
     }
 
     /// The page's query: the completed jobs' page, and what the write before left (its receipt,
@@ -92,7 +102,7 @@ pub mod url {
 
     /// A coverage row's mapping: accept, reject or revoke (`intent`), one mapping or every
     /// available one (`all`); a reject or revoke needs its reason.
-    #[derive(Clone, Debug, Default, Deserialize, Fields)]
+    #[derive(Clone, Debug, Default, Fields)]
     #[serde(default)]
     pub struct MappingInput {
         pub intent: String,
@@ -103,7 +113,7 @@ pub mod url {
 
     /// Which page a coverage write answers with: the scope's page, or (`coverage`) the scope's
     /// coverage page, `/catalog/scope-coverage/{id}`, which posts to the same routes.
-    #[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Eq, corten::UrlValue)]
+    #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, corten::UrlValue)]
     #[serde(rename_all = "snake_case")]
     pub enum Via {
         #[default]
@@ -126,7 +136,7 @@ pub mod url {
     }
 
     /// Propose mapping's fields; `accept` is set by Propose & accept.
-    #[derive(Clone, Debug, Default, Deserialize, Fields)]
+    #[derive(Clone, Debug, Default, Fields)]
     #[serde(default)]
     pub struct ProposeInput {
         pub provider_key: String,
@@ -152,13 +162,15 @@ pub mod url {
     }
 
     /// An alias candidate's command (`alias.accept`, `alias.reject`, `alias.revoke`,
-    /// `alias.defer`), its hash, and the reason a reject or revoke needs.
-    #[derive(Clone, Debug, Default, Deserialize, Fields)]
+    /// `alias.defer`), its hash, and the reason a reject or revoke needs. `picked` are the boxes
+    /// checked in the all-scopes review's bulk bar, one hash each, read with `alias_hashes`.
+    #[derive(Clone, Debug, Default, Fields)]
     #[serde(default)]
     pub struct AliasCommand {
         pub intent: String,
         pub alias_hashes: String,
         pub reason: String,
+        pub picked: Vec<String>,
     }
 
     #[route("/catalog/scopes/{id}/aliases", post = crate::catalog::scope::aliases)]
@@ -185,6 +197,8 @@ impl ScopeDone {
             ScopeDone::AliasRejected => p.scope_alias_rejected().into(),
             ScopeDone::AliasRevoked => p.scope_alias_revoked().into(),
             ScopeDone::AliasDeferred => p.scope_alias_deferred().into(),
+            ScopeDone::Queued => t.feedback_queued_title().into(),
+            ScopeDone::Cancelled => t.feedback_cancelled_title().into(),
         }
     }
 }
@@ -284,6 +298,40 @@ pub struct ScopeScreen {
     pub editions: Option<Vec<Edition>>,
     /// Whether the alias review could not be read (the editions are then drawn from none).
     pub alias_review_failed: bool,
+    /// The import-to-promotion section's working set (its `home` this scope), as its forms carry
+    /// it, and the daily surface read for it; none when that does not read.
+    pub context: String,
+    pub workspace: Option<crate::catalog::daily::DailyScreen>,
+}
+
+/// The query keys the scope's page owns: the completed jobs' page and what the write before left.
+const PAGE_KEYS: [&str; 4] = ["jobs", "after_write", "done", "count"];
+
+/// The keys the scope sets itself (admin-web's `SCOPE_QUERY_KEYS`, then `scopeRecordId`): a
+/// provider, unit, import scope or profile version in the address is dropped, as there.
+const SCOPE_KEYS: [&str; 11] = [
+    "providerKey",
+    "unitKey",
+    "importScope",
+    "profileVersion",
+    "productLineId",
+    "productLineName",
+    "seriesId",
+    "seriesName",
+    "expansionId",
+    "expansionName",
+    "scopeRecordId",
+];
+
+/// The import-to-promotion section's working set as the page sends it: the address's keys less
+/// the page's own and the ones the scope decides, then `home`, so the daily surface is read for the
+/// scope's own page (whose journey the Catalog API composes from the Scope Record) and a command
+/// lands back here.
+pub fn journey_context(query: &str, id: &str) -> String {
+    use crate::catalog::daily::{HOME, with_query};
+    let mut drop: Vec<(&str, Option<&str>)> = PAGE_KEYS.iter().chain(&SCOPE_KEYS).map(|k| (*k, None)).collect();
+    drop.push((HOME, None));
+    with_query(&with_query(query, &drop), &[(HOME, Some(id))])
 }
 
 /// Workaround for chase-sets/chase-sets#10703: admin-web derives each edition's link state from
@@ -318,9 +366,8 @@ fn editions(scope: &ScopeRecord, review: &AliasReview) -> Vec<Edition> {
 }
 
 /// Workaround for chase-sets/chase-sets#10703: the journey (`scope-journey-overview.ts`), from the
-/// scope, its editions and whether their review could be read. Promotion and sync are the scopes
-/// list's (chase-sets/chase-sets#10507).
-fn journey(scope: &ScopeRecord, editions: Option<&[Edition]>, review_failed: bool, now: OffsetDateTime) -> Journey {
+/// scope, its editions and whether their review could be read. Promotion and sync are the API's.
+fn journey(scope: &ScopeRecord, editions: Option<&[Edition]>, review_failed: bool) -> Journey {
     let count = scope.language_editions.len();
     // A scope with one edition is its own canonical identity: linked, nothing to review.
     let (linked, pending) = match editions {
@@ -329,8 +376,7 @@ fn journey(scope: &ScopeRecord, editions: Option<&[Edition]>, review_failed: boo
         }
         None => (count, 0),
     };
-    let row = scopes::row(scope.clone(), now);
-    let (promotion, sync) = (row.promotion, row.sync);
+    let (promotion, sync) = (scope.promotion_readiness, scope.sync_freshness);
     let condition = if count == 0 {
         Condition::Empty
     } else if review_failed {
@@ -387,31 +433,36 @@ async fn jobs(caller: &Caller<'_>, id: &str, cursor: Option<&str>) -> Option<Job
     }
 }
 
-/// The page's reads: the scope, then its coverage, jobs and (with more than one edition) the
-/// alias review of its Reference Record, together.
-async fn screen(caller: &Caller<'_>, id: &str, cursor: Option<&str>, now: OffsetDateTime) -> Result<ScopeScreen, ApiError> {
-    let scope: ScopeRecord = caller.get(Kind::ScopeRecords, id).await?;
-    let review = async {
-        if scope.language_editions.len() <= 1 {
-            return None;
-        }
+/// The page's reads: the scope, its coverage, its jobs and its import-to-promotion section
+/// together, then (with more than one edition) the alias review of its Reference Record.
+async fn screen(caller: &Caller<'_>, id: &str, cursor: Option<&str>, query: &str, manage: bool) -> Result<ScopeScreen, ApiError> {
+    use crate::catalog::daily::workspace as daily;
+    let context = journey_context(query, id);
+    let coverage_at = format!("/coverage{}", under(id, &[]));
+    let (scope, coverage, jobs, workspace) = tokio::join!(
+        caller.get::<ScopeRecord>(Kind::ScopeRecords, id),
+        caller.read_at::<Coverage>(Kind::ProviderScopeMappings, &coverage_at),
+        jobs(caller, id, cursor),
+        daily(caller, &context, manage),
+    );
+    let scope = scope?;
+    let review = if scope.language_editions.len() <= 1 {
+        None
+    } else {
         let query = format!("?targetKind=reference-record&targetId={}", segment(&scope.reference_record_id));
         Some(caller.read_at::<AliasReview>(Kind::AliasReview, &query).await)
     };
-    let coverage_at = format!("/coverage{}", under(id, &[]));
-    let coverage = caller.read_at::<Coverage>(Kind::ProviderScopeMappings, &coverage_at);
-    let (review, coverage, jobs) = join3(review, coverage, jobs(caller, id, cursor)).await;
     let coverage = coverage.inspect_err(|error| tracing::warn!("a scope's coverage could not be read: {error}")).ok();
     let (editions, alias_review_failed) = match review {
         None => (None, false),
         Some(Ok(review)) => (Some(editions(&scope, &review)), false),
         Some(Err(error)) => {
             tracing::warn!("a scope's alias review could not be read: {error}");
-            (Some(editions(&scope, &AliasReview { candidates: Vec::new() })), true)
+            (Some(editions(&scope, &AliasReview::default())), true)
         }
     };
-    let journey = journey(&scope, editions.as_deref(), alias_review_failed, now);
-    Ok(ScopeScreen { scope, journey, coverage, jobs, editions, alias_review_failed })
+    let journey = journey(&scope, editions.as_deref(), alias_review_failed);
+    Ok(ScopeScreen { scope, journey, coverage, jobs, editions, alias_review_failed, context, workspace })
 }
 
 fn caller<'a>(config: &'a Shared, headers: &'a HeaderMap, receipt: Option<&'a Receipt>) -> Caller<'a> {
@@ -433,10 +484,12 @@ pub(crate) async fn page(
     corten::Caller(staff): corten::Caller<Staff<CatalogAccess>>,
     State(config): State<Shared>,
     headers: HeaderMap,
+    uri: corten::http::Uri,
     Params(route): Params<crate::catalog::scope::url::ScopePage<'_>>,
 ) -> HtmlResult {
     let (id, at) = (route.id, route.at);
-    render(&req, &staff.viewer, &config, &headers, &id, &at, ScopeBack::Nothing).await
+    render(&req, &staff.viewer, &config, &headers, &id, &at, uri.query().unwrap_or_default(), ScopeBack::Nothing, Opened::Nothing)
+        .await
 }
 
 /// The page a write came from, again: with a `back` other than nothing, a refused write's answer
@@ -456,12 +509,17 @@ async fn again(
     from: Via,
 ) -> HtmlResult {
     match from {
-        Via::Scope => render(req, viewer, config, headers, id, at, back).await,
+        Via::Scope => render(req, viewer, config, headers, id, at, "", back, Opened::Nothing).await,
         Via::Coverage => crate::catalog::coverage::render(req, viewer, config, headers, id, at, back).await,
     }
 }
 
-/// The page; with a `back` other than nothing, a refused write's answer (422).
+/// The page, `query` its address's query (the import-to-promotion section's working set); with a
+/// `back` other than nothing, a refused write's answer (422).
+#[expect(
+    clippy::too_many_arguments,
+    reason = "a page's inputs and who is asking (the handler's `Caller`), which its layout shows"
+)]
 async fn render(
     req: &Req,
     viewer: &Viewer,
@@ -469,22 +527,60 @@ async fn render(
     headers: &HeaderMap,
     id: &str,
     at: &ScopeAt,
+    query: &str,
     back: ScopeBack,
+    opened: Opened,
 ) -> HtmlResult {
     let receipt = Receipt::from_param(at.after_write.as_deref());
     let caller = caller(config, headers, receipt.as_ref());
-    let view = match screen(&caller, id, at.jobs.as_deref(), OffsetDateTime::now_utc()).await {
+    let mut view = match screen(&caller, id, at.jobs.as_deref(), query, manages(viewer)).await {
         Ok(view) => view,
         Err(error) => return read_failed(req, error, receipt.is_some()),
     };
+    if let Some(workspace) = view.workspace.as_mut() {
+        workspace.open(opened);
+    }
     let (t, p): (Cat, Pilot) = (req.t(), req.t());
     let notice = at.done.map(|done| done.notice(t, p, at.count.unwrap_or(0)));
     let status = if matches!(back, ScopeBack::Nothing) { StatusCode::OK } else { StatusCode::UNPROCESSABLE_ENTITY };
-    let page = views::scope_page(t, p, &view, at.jobs.as_deref(), notice, back, manages(viewer));
+    let page = views::scope_page(req, &view, at.jobs.as_deref(), notice, back, manages(viewer));
     let html = html! {
-        <crate::views::Layout req={req} viewer={Some(viewer)} title={t.route_scope()} head="">{page}</crate::views::Layout>
+        <crate::views::OwnToastLayout req={req} viewer={Some(viewer)} title={t.route_scope()} head="">
+            {page}
+        </crate::views::OwnToastLayout>
     };
     if status == StatusCode::OK { req.screen(&view, html) } else { req.page_with_status(status, html) }
+}
+
+/// A command its import-to-promotion section posted to the daily workbench's routes, refused, without
+/// the runtime: the page again for the same working set (`context`, whose `home` is `id`), with
+/// the API's message (422).
+pub(crate) async fn refused_in_workspace(
+    req: &Req,
+    viewer: &Viewer,
+    config: &Shared,
+    headers: &HeaderMap,
+    id: &str,
+    context: &str,
+    errors: &corten::Errors,
+) -> HtmlResult {
+    let message = errors.form().map(str::to_owned).unwrap_or_default();
+    render(req, viewer, config, headers, id, &ScopeAt::default(), context, ScopeBack::Refused(message), Opened::Nothing).await
+}
+
+/// The scope's page without the runtime with what its import-to-promotion section has open (a review
+/// row's evidence sheet, the import preflight): the page for the same working set (`context`, whose
+/// `home` is `id`).
+pub(crate) async fn opened(
+    req: &Req,
+    viewer: &Viewer,
+    config: &Shared,
+    headers: &HeaderMap,
+    id: &str,
+    context: &str,
+    opened: Opened,
+) -> HtmlResult {
+    render(req, viewer, config, headers, id, &ScopeAt::default(), context, ScopeBack::Nothing, opened).await
 }
 
 /// After a write: the page it came from, waiting for it, with its toast.
@@ -684,19 +780,30 @@ pub(crate) async fn aliases(
 mod tests {
     use super::*;
     use crate::catalog::api::AutoAccept;
-    use time::format_description::well_known::Rfc3339;
 
-    fn scope(editions: &[&str], status: &str, updated_at: &str) -> ScopeRecord {
+    /// A scope as the API answers it: `status` is its lifecycle, `sync` the freshness the API
+    /// measured.
+    fn scope(editions: &[&str], status: &str, sync: Sync) -> ScopeRecord {
+        let promotion = match status {
+            "active" => Promotion::Live,
+            "archived" => Promotion::Archived,
+            "deprecated" => Promotion::Deprecated,
+            _ => Promotion::Unpublished,
+        };
         ScopeRecord {
             scope_record_id: "scp_1".into(),
             reference_record_id: "ref_1".into(),
             product_domain: "pokemon".into(),
             scope_kind: "set".into(),
             name: "Base Set".into(),
+            product_line_scope_record_id: Some("scp_pokemon".into()),
+            series_scope_record_id: Some("scp_series".into()),
             official_set_code: None,
             language_editions: editions.iter().map(|e| (*e).into()).collect(),
             lifecycle_status: status.into(),
-            updated_at: updated_at.into(),
+            updated_at: "2026-10-25T00:00:00Z".into(),
+            promotion_readiness: promotion,
+            sync_freshness: sync,
         }
     }
 
@@ -712,10 +819,9 @@ mod tests {
             review_status: status.into(),
             auto_accept: AutoAccept::default(),
             available_actions: Vec::new(),
+            ..Default::default()
         }
     }
-
-    const NOW: &str = "2026-10-25T00:00:00Z";
 
     #[test]
     fn editions_put_the_canonical_first_and_link_by_an_accepted_alias_of_this_scope_only() {
@@ -726,8 +832,9 @@ mod tests {
                 candidate("c", "fr", "pending", "ref_other"),
                 candidate("d", "ja", "rejected", "ref_1"),
             ],
+            ..Default::default()
         };
-        let editions = editions(&scope(&["ja", "fr", "en", "de", "ja"], "active", NOW), &review);
+        let editions = editions(&scope(&["ja", "fr", "en", "de", "ja"], "active", Sync::Fresh), &review);
         let shown: Vec<(&str, Link, usize, usize)> =
             editions.iter().map(|e| (e.language_code.as_str(), e.link, e.pending.len(), e.accepted.len())).collect();
         assert_eq!(
@@ -743,9 +850,7 @@ mod tests {
 
     #[test]
     fn the_journey_condition_follows_admin_webs_order() {
-        let now = OffsetDateTime::parse(NOW, &Rfc3339).unwrap();
-        let fresh = "2026-10-20T00:00:00Z";
-        let stale = "2026-09-01T00:00:00Z";
+        let (fresh, stale) = (Sync::Fresh, Sync::Stale);
         let pending = [Edition {
             language_code: "ja".into(),
             canonical: false,
@@ -753,7 +858,7 @@ mod tests {
             pending: vec![candidate("a", "ja", "pending", "ref_1")],
             accepted: Vec::new(),
         }];
-        let of = |s: &ScopeRecord, editions: Option<&[Edition]>, failed| journey(s, editions, failed, now);
+        let of = |s: &ScopeRecord, editions: Option<&[Edition]>, failed| journey(s, editions, failed);
         assert_eq!(of(&scope(&[], "active", fresh), None, false).condition, Condition::Empty);
         assert_eq!(of(&scope(&["en", "ja"], "active", fresh), Some(&pending), true).condition, Condition::PartialFailure);
         assert_eq!(of(&scope(&["en", "ja"], "archived", fresh), Some(&pending), false).condition, Condition::Blocked);
@@ -772,11 +877,10 @@ mod tests {
 
     #[test]
     fn the_screen_is_written_as_serde_writes_it() {
-        let now = OffsetDateTime::parse(NOW, &Rfc3339).unwrap();
-        let s = scope(&["en", "ja"], "active", NOW);
-        let review = AliasReview { candidates: vec![candidate("a", "ja", "pending", "ref_1")] };
+        let s = scope(&["en", "ja"], "active", Sync::Fresh);
+        let review = AliasReview { candidates: vec![candidate("a", "ja", "pending", "ref_1")], ..Default::default() };
         let editions = editions(&s, &review);
-        let journey = journey(&s, Some(&editions), false, now);
+        let journey = journey(&s, Some(&editions), false);
         let screen = ScopeScreen {
             scope: s,
             journey,
@@ -784,9 +888,26 @@ mod tests {
             jobs: Some(Jobs { active: Vec::new(), failed: Vec::new(), completed: Vec::new(), next: Some("c1".into()) }),
             editions: Some(editions),
             alias_review_failed: false,
+            context: String::new(),
+            workspace: None,
         };
         let derived: serde_json::Value = serde_json::from_str(&screen.to_json()).unwrap();
         assert_eq!(derived, serde_json::to_value(&screen).unwrap());
+    }
+
+    #[test]
+    fn the_journey_is_read_for_the_pages_own_address_with_no_hierarchy_of_the_pilots() {
+        // The address's working set passes through as sent, its edition included; the page's own
+        // keys, the scope's keys and an old `home` are dropped, and `home` is this scope.
+        assert_eq!(
+            journey_context(
+                "jobs=c2&filter.status=observed&providerKey=x&done=queued&languageCode=en&reviewOffset=25\
+                 &productLineId=scp_other&expansionId=scp_other&scopeRecordId=other&home=elsewhere",
+                "scp_1"
+            ),
+            "filter.status=observed&languageCode=en&reviewOffset=25&home=scp_1"
+        );
+        assert_eq!(journey_context("", "scp_1"), "home=scp_1", "nothing of the scope's is added");
     }
 
     #[test]

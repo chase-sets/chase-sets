@@ -14,6 +14,10 @@ use corten::{
     i18n::{Currency, DateStyle, TimeStyle, parse_timestamp},
     prelude::*,
 };
+use platform::{
+    theme::gap_1,
+    ui::stack::{Gap, StackStart},
+};
 
 use super::{account_page::page_range, listing_page::options, marketplace};
 use crate::{
@@ -202,7 +206,7 @@ fn OrderCardView<'a>(t: OrdersMsg, side: Side, order: &'a OrderCard) -> impl Ren
         <article class={Card}>
             <div class={CardHead}>
                 <span class={Tile} aria-hidden="true">"\u{1f0cf}"</span>
-                <div class={Stack}>
+                <div class={(StackStart { gap: Gap::App }, gap_1())}>
                     <h3 class={Strong}>{&headline(t, &order.item_titles)}</h3>
                     <p class={Muted}>{&caption}</p>
                     <span class={Badge} data-tone={tone(&order.status)}>{&order.status}</span>
@@ -272,6 +276,11 @@ struct Known<'a> {
     label: &'a str,
     fully_delivered: bool,
     can_cancel: bool,
+    /// Where a buyer whose cancel awaits email verification verifies it, when the order could be
+    /// cancelled (`showVerifyEmailToCancel`).
+    verify_email: Option<&'a str>,
+    /// Whether the caller may pay for or cancel the order (`orders.manage`).
+    may_manage: bool,
 }
 
 impl<'a> Known<'a> {
@@ -289,6 +298,8 @@ impl<'a> Known<'a> {
             label,
             fully_delivered,
             can_cancel: !fully_delivered && (order.self_service_cancellation_available || pending),
+            verify_email: None,
+            may_manage: false,
         }
     }
 
@@ -373,6 +384,7 @@ pub fn OrderPage<'a>(t: OrdersMsg, p: Pilot, screen: &'a OrderScreen) -> impl Re
                 notice={screen.notice.as_deref()}
                 back={&back}
                 may_cancel={screen.may_cancel}
+                verify_email={screen.verify_email.as_deref()}
             />
         } else {
             <div class={Page}>
@@ -393,14 +405,22 @@ fn OrderView<'a>(
     notice: Option<&'a str>,
     back: &'a str,
     may_cancel: bool,
+    verify_email: Option<&'a str>,
 ) -> impl Render {
     let mut facts = Known::of(t, side, order);
+    facts.verify_email = verify_email.filter(|_| facts.can_cancel && !may_cancel);
     facts.can_cancel &= may_cancel;
+    facts.may_manage = may_cancel;
     let eyebrow = match side {
         Side::Buyer => t.detail_buyer(),
         Side::Seller => t.detail_seller(),
     };
-    let title = t.detail_order_title(facts.label, &order.display_reference).to_string();
+    let title = t
+        .detail_order_title(crate::text::orders_msg::DetailOrderTitle {
+            projection_label: facts.label,
+            order_reference: &order.display_reference,
+        })
+        .to_string();
     let counterparty = t.detail_counterparty_description(facts.counterparty()).to_string();
     let money = facts.money();
     let outcome_title = match side {
@@ -410,7 +430,7 @@ fn OrderView<'a>(
     html! {
         <div class={Page}>
             <header class={Heading}>
-                <div class={Stack}>
+                <div class={(StackStart { gap: Gap::App }, gap_1())}>
                     <p class={Eyebrow}>{eyebrow}</p>
                     <h1 class={Title}>{&title}</h1>
                     <p class={Muted}>{&counterparty}</p>
@@ -518,16 +538,26 @@ fn OrderFacts<'a>(t: OrdersMsg, p: Pilot, facts: &'a Known<'a>) -> impl Render {
         _ => None,
     };
     let deadline = facts.payment_deadline().map(|at| t.detail_payment_deadline_description(&date_time(t, at)).to_string());
-    let pay = (facts.side == Side::Buyer && order.status == "pending-payment").then(|| {
+    // Pay now needs orders.manage, as Payments' start does; a buyer without it is told why
+    // instead of being sent to a refusal (chase-sets/chase-sets#11170).
+    let awaiting_payment = facts.side == Side::Buyer && order.status == "pending-payment";
+    let pay = (awaiting_payment && facts.may_manage).then(|| {
         let place = crate::payment_start::StartPlace::of(std::slice::from_ref(&order.order_id));
         crate::app::url::BuyerPaymentNew { place }.href()
     });
+    let cannot_pay = awaiting_payment && !facts.may_manage && facts.verify_email.is_none();
+    let verify_title = if awaiting_payment {
+        p.orders_verify_to_pay_title(&lower).to_string()
+    } else {
+        t.detail_verify_email_to_cancel_title(&lower).to_string()
+    };
+    let verify_description =
+        if awaiting_payment { p.orders_verify_to_pay_description() } else { t.detail_verify_email_to_cancel_description() };
     let support = !(facts.fully_delivered && facts.fulfillment_started());
     let support_label = if facts.fulfillment_started() { t.detail_ask_to_cancel() } else { t.detail_open_support() };
     let fulfillment = (!matches!(order.status.as_str(), "pending-payment" | "pending-reservation")).then(|| match facts.side {
         Side::Buyer => crate::app::url::Shipments.href(),
-        // The seller's command center is marketplace's (chase-sets/chase-sets#10638).
-        Side::Seller => market_href("/account/sales/shipments"),
+        Side::Seller => crate::app::url::SaleShipments::default().href(),
     });
     let cancel = t.detail_cancel_projection(&lower).to_string();
     html! {
@@ -559,6 +589,16 @@ fn OrderFacts<'a>(t: OrdersMsg, p: Pilot, facts: &'a Known<'a>) -> impl Render {
             }
             if let Some(window) = &window {
                 <p class={(Banner, Info)} role="note">{window}</p>
+            }
+            if let Some(verify) = facts.verify_email {
+                <div class={(Banner, Info)} role="note">
+                    <p class={Strong}>{&verify_title}</p>
+                    <p>{verify_description}</p>
+                    <p><a class={Secondary} href={verify}>{t.detail_verify_email()}</a></p>
+                </div>
+            }
+            if cannot_pay {
+                <p class={(Banner, Info)} role="note">{p.orders_cannot_pay()}</p>
             }
             <div class={Actions}>
                 if let Some(pay) = &pay {
@@ -621,17 +661,17 @@ fn Outcome<'a>(t: OrdersMsg, facts: &'a Known<'a>) -> impl Render {
     html! {
         <div class={(Card, Tinted)}>
             <p class={Strong}>{t.outcome_title()}</p>
-            <div class={Stack}>
+            <div class={(StackStart { gap: Gap::App }, gap_1())}>
                 <p class={Muted}>{t.outcome_order_status()}</p>
                 <span class={Badge} data-tone={if order.status == "cancelled" { "neutral" } else { "success" }}>
                     {&status_label(&order.status)}
                 </span>
             </div>
-            <div class={Stack}>
+            <div class={(StackStart { gap: Gap::App }, gap_1())}>
                 <p class={Muted}>{t.outcome_issue_status()}</p>
                 <a class={(Secondary, Wide)} href={&track}>{t.outcome_track_issue()}</a>
             </div>
-            <div class={Stack}>
+            <div class={(StackStart { gap: Gap::App }, gap_1())}>
                 <p class={Muted}>{t.outcome_review_status()}</p>
                 <Review t={t} facts={facts} review={order.review_outcome.as_ref()} href={&review_href} />
             </div>
@@ -667,7 +707,7 @@ fn Review<'a>(t: OrdersMsg, facts: &'a Known<'a>, review: Option<&'a ReviewOutco
                 <p>{t.outcome_review_unavailable_description()}</p>
             </div>
         } else if let Some((badge, text, tone)) = plain {
-            <div class={Stack}>
+            <div class={(StackStart { gap: Gap::App }, gap_1())}>
                 <span class={Badge} data-tone={tone}>{badge}</span>
                 <p class={Muted}>{text}</p>
             </div>
@@ -693,7 +733,12 @@ fn Callout<'a>(t: OrdersMsg, facts: &'a Known<'a>, opportunity: &'a ReviewOpport
     let published = opportunity.revealed && opportunity.active_review_revealed_at.is_some();
     let heading = match active {
         Some(_) => t.callout_your_account_review_is_already_active().to_owned(),
-        None => t.callout_ready_for_counterparty_review(transaction, counterparty).to_string(),
+        None => t
+            .callout_ready_for_counterparty_review(crate::text::orders_msg::CalloutReadyForCounterpartyReview {
+                transaction_label: transaction,
+                counterparty_role: counterparty,
+            })
+            .to_string(),
     };
     html! {
         <div class={(Card, Tinted)}>
@@ -749,7 +794,7 @@ fn Timeline<'a>(t: OrdersMsg, facts: &'a Known<'a>, timeline: &'a MoneyTimeline)
     html! {
         if facts.side == Side::Buyer {
             if !timeline.refunds.is_empty() || !terminal.is_empty() {
-                <div class={Stack}>
+                <div class={(StackStart { gap: Gap::App }, gap_1())}>
                     <ol class={Events} aria-label={t.money_title()}>
                         for (title, description, at) in &events {
                             <li>
@@ -772,7 +817,7 @@ fn Timeline<'a>(t: OrdersMsg, facts: &'a Known<'a>, timeline: &'a MoneyTimeline)
                 </div>
             }
         } else if !active.is_empty() || refunded > 0 {
-            <div class={Stack}>
+            <div class={(StackStart { gap: Gap::App }, gap_1())}>
                 if !active.is_empty() {
                     <div class={(Banner, Warning)} role="note">
                         <p class={Strong}>{t.money_hold_title()}</p>
@@ -831,7 +876,7 @@ fn Line<'a>(t: OrdersMsg, p: Pilot, side: Side, line: &'a OrderLine) -> impl Ren
     html! {
         <article class={Card}>
             if !images.is_empty() {
-                <div class={Stack}>
+                <div class={(StackStart { gap: Gap::App }, gap_1())}>
                     <p class={Strong}>{t.detail_seller_evidence_at_acceptance()}</p>
                     <ul class={Evidence}>
                         for (src, alt) in &images {

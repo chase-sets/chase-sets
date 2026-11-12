@@ -1,4 +1,5 @@
 import { t } from "@chase-sets/localization";
+import type { ProviderScopeDiscoveryServices } from "../../../provider-scope-discovery/api/runtime";
 import { Hono, type Context } from "hono";
 import type { CatalogAuthoringEnv } from "../../../../support/authoring-support/api";
 import type { CountSpend } from "../../../scope-sync-batches/domain/count-acquisition";
@@ -14,10 +15,16 @@ import {
   CatalogSourceOptionQueryRefusedError,
   catalogPrimaryWorkbenchSurfaceKeys,
   readCatalogPrimaryWorkbenchDeferredSourceOptions,
+  readCatalogPrimaryWorkbenchDeferredImportPreview,
   readCatalogPrimaryWorkbenchSurface,
   type CatalogPrimaryWorkbenchSurfaceKey,
   type CatalogPrimaryWorkbenchSurfaceSources,
 } from "../admin/primary-workbench-surface-read";
+import {
+  catalogScopeDetailDailyLocation,
+  catalogScopeRecordIdFromPath,
+  type CatalogScopeDetailWorkbenchScope,
+} from "../admin/scope-detail-workbench-location";
 import { loadCatalogIntegrationControlPlaneOverview } from "./control-plane-overview-load";
 import { catalogMergeCandidateListParamsFromQuery } from "./catalog-merge-candidate-routes";
 import {
@@ -37,6 +44,9 @@ export type PrimaryWorkbenchSurfaceRouteDeps = Readonly<{
   services: SourceObservationRouteServices;
   profileVersions?: CatalogProviderIntegrationProfileVersionStore;
   readCountSpend?: () => Promise<readonly CountSpend[]>;
+  listRefreshSchedules?: ProviderScopeDiscoveryServices["listRefreshSchedules"];
+  /** The Scope Record a Scope Detail location names; null when there is none. */
+  getScopeRecord?: (scopeRecordId: string) => Promise<CatalogScopeDetailWorkbenchScope | null>;
 }>;
 
 // `GET /workbench-surfaces/:surface?location=<admin path and query>` returns the
@@ -47,14 +57,29 @@ export type PrimaryWorkbenchSurfaceRouteDeps = Readonly<{
 export function primaryWorkbenchSurfaceRoutes(deps: PrimaryWorkbenchSurfaceRouteDeps) {
   const app = new Hono<CatalogAuthoringEnv>();
 
+  // The API owns selection, deadline, acceptance and usage summary.
+  app.get("/workbench-surfaces/daily/import-preview", async (c) => {
+    const permissionError = requireCatalogIntegrationControlPlanePermission(c, "integration-control-plane-read");
+    if (permissionError) return permissionError;
+    const requested = workbenchLocation(c.req.query("location"));
+    if (!requested) return invalidLocationResponse(c);
+    const location = await dailyLocation(requested, deps);
+    if (!location) return scopeRecordNotFoundResponse(c);
+    return c.json(await readCatalogPrimaryWorkbenchDeferredImportPreview(location, surfaceSources(deps, c)));
+  });
+
   app.get("/workbench-surfaces/daily/source-options", async (c) => {
     const permissionError = requireCatalogIntegrationControlPlanePermission(c, "integration-control-plane-read");
     if (permissionError) {
       return permissionError;
     }
-    const location = workbenchLocation(c.req.query("location"));
-    if (!location) {
+    const requested = workbenchLocation(c.req.query("location"));
+    if (!requested) {
       return invalidLocationResponse(c);
+    }
+    const location = await dailyLocation(requested, deps);
+    if (!location) {
+      return scopeRecordNotFoundResponse(c);
     }
 
     return c.json(await readCatalogPrimaryWorkbenchDeferredSourceOptions(location, surfaceSources(deps, c)));
@@ -77,9 +102,13 @@ export function primaryWorkbenchSurfaceRoutes(deps: PrimaryWorkbenchSurfaceRoute
         404,
       );
     }
-    const location = workbenchLocation(c.req.query("location"));
-    if (!location) {
+    const requested = workbenchLocation(c.req.query("location"));
+    if (!requested) {
       return invalidLocationResponse(c);
+    }
+    const location = surface === "daily" ? await dailyLocation(requested, deps) : requested;
+    if (!location) {
+      return scopeRecordNotFoundResponse(c);
     }
 
     return c.json(await readCatalogPrimaryWorkbenchSurface(surface, location, surfaceSources(deps, c)));
@@ -108,6 +137,29 @@ function workbenchLocation(value: string | undefined): URL | null {
   }
 }
 
+// A Scope Detail location composes the daily journey for its Scope Record, read
+// here; any other location is read as sent. Null when the record does not exist.
+async function dailyLocation(location: URL, deps: PrimaryWorkbenchSurfaceRouteDeps): Promise<URL | null> {
+  const scopeRecordId = catalogScopeRecordIdFromPath(location.pathname);
+  if (!scopeRecordId) {
+    return location;
+  }
+  const scope = deps.getScopeRecord ? await deps.getScopeRecord(scopeRecordId) : null;
+  return scope ? catalogScopeDetailDailyLocation(location, scope) : null;
+}
+
+function scopeRecordNotFoundResponse(c: Context<CatalogAuthoringEnv>) {
+  return c.json(
+    {
+      error: {
+        code: "not_found",
+        message: t("catalog.features.scopeRegistry.api.route.scope.record.not.found"),
+      },
+    },
+    404,
+  );
+}
+
 function invalidLocationResponse(c: Context<CatalogAuthoringEnv>) {
   return c.json(
     {
@@ -126,10 +178,16 @@ function surfaceSources(
   deps: PrimaryWorkbenchSurfaceRouteDeps,
   c: Context<CatalogAuthoringEnv>,
 ): CatalogPrimaryWorkbenchSurfaceSources {
-  const { services, profileVersions, readCountSpend } = deps;
+  const { services, profileVersions, readCountSpend, listRefreshSchedules } = deps;
   const context = c.get("context");
 
   return {
+    previewIntegrationImport:
+      typeof services.previewIntegrationImport === "function"
+        ? async (scope) => wireShape(await services.previewIntegrationImport({ scope, context }))
+        : undefined,
+    actor: c.get("actor"),
+    listRefreshSchedules: listRefreshSchedules ? async () => wireShape(await listRefreshSchedules()) : undefined,
     canManageCatalog: c.get("actor")?.permissions.includes("catalog.manage") ?? false,
     listIntegrationScopes: async (filter) => {
       const items = await services.listIntegrationScopes({

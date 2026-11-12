@@ -1,17 +1,5 @@
-.bar {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-4);
-  align-items: center;
-  padding: var(--space-3) var(--space-6);
-  border-bottom: 1px solid var(--color-border);
-  background: var(--color-surface);
-}
-.brand {
-  color: var(--color-text);
-  font: 600 1.125rem/1 var(--font-display);
-  text-decoration: none;
-}
+/* The bar, its brand and its section links are the kit's NavBar (platform/src/ui/nav_bar.css),
+   which gives the links a row of their own on a phone. */
 .tag {
   padding: 0.125rem 0.5rem;
   border-radius: var(--radius-full);
@@ -20,10 +8,10 @@
   font-size: 0.75rem;
   font-weight: 600;
 }
-/* The account menu, at the bar's end: its entries drop below it, over the page. */
+/* The account menu, at the bar's end (the kit's NavActions): its entries drop below it, over
+   the page. */
 .account {
   position: relative;
-  margin-left: auto;
 }
 .account > summary {
   min-height: var(--control-height);
@@ -66,30 +54,18 @@
   text-align: left;
   cursor: pointer;
 }
-.sections {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-1);
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-.section {
+.trigger {
   display: inline-flex;
   padding: var(--space-2) var(--space-3);
   border-radius: var(--radius-md);
   color: var(--color-text-secondary);
   font-weight: 600;
-  text-decoration: none;
 }
-.section:hover {
+.trigger:hover {
   background: var(--color-surface-2);
   color: var(--color-text);
 }
-.section[aria-current] {
-  background: var(--color-primary-soft);
-  color: var(--color-primary);
-}
+/* The section's pages, beside <main>, above it. */
 .side {
   padding: var(--space-4) var(--space-6) 0;
 }

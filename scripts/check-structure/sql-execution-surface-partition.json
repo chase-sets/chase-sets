@@ -232,7 +232,6 @@
     "bounded-contexts/fulfillment/features/shipments/read-model/postage-operation-authority.ts",
     "bounded-contexts/fulfillment/features/shipments/read-model/projection.ts",
     "bounded-contexts/fulfillment/features/shipments/read-model/queries.ts",
-    "bounded-contexts/fulfillment/features/shipments/read-model/seller-attention-source.ts",
     "bounded-contexts/fulfillment/features/shipments/read-model/support-lookup.ts",
     "bounded-contexts/fulfillment/support/runtime-support/seed.ts",
     "bounded-contexts/identity/api.ts",
@@ -386,6 +385,7 @@
     "bounded-contexts/platform-operations/features/reported-content/read-model/queries.ts",
     "bounded-contexts/platform-operations/features/risk-alerts/read-model/projection.ts",
     "bounded-contexts/platform-operations/features/risk-alerts/read-model/queries.ts",
+    "bounded-contexts/platform-operations/features/seller-compliance-cohorts/read-model/cohort-queries.ts",
     "bounded-contexts/platform-operations/features/seller-compliance-cohorts/read-model/cohort-store.ts",
     "bounded-contexts/platform-operations/features/seller-compliance-sales/read-model/projection.ts",
     "bounded-contexts/platform-operations/features/seller-compliance-sales/read-model/queries.ts",
@@ -530,7 +530,7 @@
     "infrastructure/platform-runtime/realtime-stream-limiter.ts"
   ],
   "unresolvedMemberRoots": {
-    "count": 276,
+    "count": 277,
     "fileCounts": {
       "bounded-contexts/auth/features/sessions/api/route.ts": 1,
       "bounded-contexts/auth/support/ucp-support/connector-oauth.ts": 1,
@@ -552,7 +552,7 @@
       "bounded-contexts/catalog/features/scope-sync-batches/api/route.ts": 2,
       "bounded-contexts/catalog/features/source-observations/api/route-modules/bulk-review-job-routes.ts": 2,
       "bounded-contexts/catalog/features/source-observations/api/route-modules/catalog-merge-candidate-routes.ts": 1,
-      "bounded-contexts/catalog/features/source-observations/api/route-modules/primary-workbench-surface-routes.ts": 2,
+      "bounded-contexts/catalog/features/source-observations/api/route-modules/primary-workbench-surface-routes.ts": 3,
       "bounded-contexts/catalog/features/source-observations/api/route-modules/provider-options-routes.ts": 2,
       "bounded-contexts/catalog/features/source-observations/api/route-modules/provider-profile-routes.ts": 1,
       "bounded-contexts/catalog/features/source-observations/api/route-modules/source-observation-review-routes.ts": 1,

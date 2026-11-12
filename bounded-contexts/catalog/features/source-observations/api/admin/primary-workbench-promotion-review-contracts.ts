@@ -82,6 +82,13 @@ export type CatalogPrimaryWorkbenchSourceObservationReviewReadModel = Readonly<{
     filters: Readonly<Record<string, string>>;
     count: number | null;
   }>[];
+  // The status filter's options in order, each with its count and the daily
+  // link that applies it (back to the first page).
+  statusFilters: readonly Readonly<{
+    value: "all" | "observed" | "eligible" | "promoted" | "rejected";
+    count: number;
+    href: string;
+  }>[];
   pagination: Readonly<{
     mode: "offset";
     limit: number;
@@ -89,6 +96,9 @@ export type CatalogPrimaryWorkbenchSourceObservationReviewReadModel = Readonly<{
     total: number;
     nextCursor: string | null;
     previousCursor: string | null;
+    // Daily links to the neighbouring pages; null at either end.
+    previousHref: string | null;
+    nextHref: string | null;
   }>;
   bulkSelection: Readonly<{
     selectedCount: number;
@@ -319,7 +329,7 @@ export type CatalogPrimaryWorkbenchMergeCandidateReviewRow = Readonly<{
     commandPreview: CatalogMergeCandidateReviewCommandPreview | null;
   }>[];
   // The typed candidate edit surface. `state` gates the inline editor:
-  // when it is not `available`, `baseSnapshotJson` is null and the drawer renders
+  // when it is not `available`, `candidateVersion` is null and the drawer renders
   // the blockers instead of inputs. Operator field corrections submitted from this
   // surface are recorded as `manual` provenance and carried through promotion.
   editForm: CatalogPrimaryWorkbenchMergeCandidateEditFormReadModel;
@@ -340,7 +350,8 @@ export type CatalogPrimaryWorkbenchMergeCandidateEditReference = Readonly<{
 export type CatalogPrimaryWorkbenchMergeCandidateEditFormReadModel = Readonly<{
   state: CatalogPrimaryWorkbenchActionState;
   blockers: readonly CatalogPrimaryWorkbenchBlockerCategory[];
-  baseSnapshotJson: string | null;
+  // The candidate version the form names when it submits.
+  candidateVersion: number | null;
   promotionIntent: "create-catalog-item" | "update-catalog-item" | "link-existing-catalog-item";
   catalogItemId: string | null;
   productIds: readonly string[];
@@ -451,6 +462,7 @@ export type CatalogPrimaryWorkbenchPromotionIdentityDiagnostic = Readonly<{
 
 export type CatalogPrimaryWorkbenchPromotionPreviewReadModel = Readonly<{
   previewId: string | null;
+  previewCommittable: boolean;
   /** Absent on loader-only models; current summaries are not original evidence. */
   receipt?: SourceObservationPromotionReceipt | null;
   /** Current loader evidence for drift detection, not the original Preview. */
@@ -612,6 +624,9 @@ export function assertPrimaryWorkbenchPromotionPreview(
   if (!value.scope) {
     throw new Error("Primary workbench promotion preview scope is required.");
   }
+  if (typeof value.previewCommittable !== "boolean") {
+    throw new Error("Primary workbench promotion preview commit verdict must be explicit.");
+  }
   if (
     value.receipt &&
     (value.receipt.schemaVersion !== "source-observation-promotion-receipt/v1" ||
@@ -721,11 +736,15 @@ export function assertPrimaryWorkbenchMergeCandidateReview(
       assertCatalogPrimaryWorkbenchActionState(actionEntry.state);
       assertPrimaryWorkbenchBlockers(actionEntry.blockers);
       if (
-        (actionEntry.key === "candidate.split" || actionEntry.key === "candidate.edit") &&
+        (actionEntry.key === "candidate.promote" ||
+          actionEntry.key === "candidate.split" ||
+          actionEntry.key === "candidate.edit") &&
         (actionEntry.state === "available" || actionEntry.state === "degraded") &&
         !actionEntry.commandPreview
       ) {
-        throw new Error("Primary workbench split/update merge candidate actions require typed command previews.");
+        throw new Error(
+          "Primary workbench promote/split/update merge candidate actions require typed command previews.",
+        );
       }
     }
   }

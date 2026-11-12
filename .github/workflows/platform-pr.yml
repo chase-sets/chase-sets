@@ -96,7 +96,6 @@ jobs:
       local_checks: ${{ steps.scope.outputs.local_checks }}
       terraform: ${{ steps.scope.outputs.terraform }}
       unit_tests: ${{ steps.scope.outputs.unit_tests }}
-      unit_test_workspaces: ${{ steps.scope.outputs.unit_test_workspaces }}
       workflow_lint: ${{ steps.scope.outputs.workflow_lint }}
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
@@ -270,8 +269,8 @@ jobs:
 
       - name: Run non-DB tests
         run: |
-          node ./scripts/run-workspaces.mjs test --exclude-test-profile=db --concurrency=4 --workspace-list="${{ needs['change-scope'].outputs.unit_test_workspaces }}" --shard=${{ matrix.shard }}/2
-          node ./scripts/run-workspaces.mjs test:unit --test-profile=db --concurrency=4 --workspace-list="${{ needs['change-scope'].outputs.unit_test_workspaces }}" --shard=${{ matrix.shard }}/2
+          node ./scripts/run-workspaces.mjs test --exclude-test-profile=db --concurrency=4 --workspace-list="${{ needs['change-scope'].outputs.affected_workspaces }}" --shard=${{ matrix.shard }}/2
+          node ./scripts/run-workspaces.mjs test:unit --test-profile=db --concurrency=4 --workspace-list="${{ needs['change-scope'].outputs.affected_workspaces }}" --shard=${{ matrix.shard }}/2
 
   canonical-proof-sets:
     name: Canonical Proof Sets
@@ -522,6 +521,10 @@ jobs:
   e2e-tests:
     name: E2E Tests (${{ matrix.suite_batch }})
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+      actions: read
     timeout-minutes: 25
     needs: change-scope
     if: needs['change-scope'].outputs.e2e_tests_required == 'true'
@@ -563,18 +566,25 @@ jobs:
             echo "source-head-tree=${source_head_tree}"
           } >> "$GITHUB_OUTPUT"
 
+      - name: Resolve Playwright Chromium cache
+        id: e2e-browser-cache
+        run: node scripts/playwright-chromium-install.mjs --cache-identity
+
       - name: Cache Playwright Chromium
         uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
         with:
-          path: ~/.cache/ms-playwright
-          key: playwright-chromium-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
-          restore-keys: |
-            playwright-chromium-${{ runner.os }}-
+          path: ${{ steps.e2e-browser-cache.outputs.path }}
+          key: ${{ steps.e2e-browser-cache.outputs.key }}
 
       - name: Install Playwright Chromium
+        timeout-minutes: 10
         env:
-          PLAYWRIGHT_BROWSERS_PATH: ~/.cache/ms-playwright
-        run: pnpm exec playwright install --with-deps chromium
+          PLAYWRIGHT_BROWSERS_PATH: ${{ steps.e2e-browser-cache.outputs.path }}
+          PLAYWRIGHT_INSTALL_POLICY: e2e-acquisition
+          PLAYWRIGHT_INSTALL_JOB_NAME: E2E Tests (${{ matrix.suite_batch }})
+          GH_TOKEN: ${{ github.token }}
+          BOUNDARY_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: node scripts/playwright-chromium-install.mjs
 
       - name: Run marketplace e2e suites
         id: e2e-producer
@@ -584,7 +594,7 @@ jobs:
           CHASE_SETS_BROWSER_E2E_SYSTEM: production
           RENDERED_COPY_SOURCE_HEAD: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha || '' }}
           RENDERED_COPY_JOB_INDEX: ${{ strategy.job-index }}
-          PLAYWRIGHT_BROWSERS_PATH: ~/.cache/ms-playwright
+          PLAYWRIGHT_BROWSERS_PATH: ${{ steps.e2e-browser-cache.outputs.path }}
         run: |
           set -o pipefail
           pnpm run test:e2e:suite "${{ matrix.suite_batch }}" 2>&1 | tee "${RUNNER_TEMP}/responsive-evidence-producer.log"
@@ -1070,6 +1080,12 @@ jobs:
       - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
         with:
           terraform_wrapper: false
+
+      - name: Acquire lock-bound provider proof material (not a matrix verdict)
+        run: bash scripts/digitalocean-terraform-provider-cache-proof.sh acquire "$RUNNER_TEMP/terraform-provider-proof-material"
+
+      - name: Prove lock-verified provider cache in loopback-only namespace
+        run: bash scripts/digitalocean-terraform-provider-cache-proof.sh prove "$RUNNER_TEMP/terraform-provider-proof-material"
 
       - name: Terraform init platform without remote backend
         working-directory: infrastructure/digitalocean/platform

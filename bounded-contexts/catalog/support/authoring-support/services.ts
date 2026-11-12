@@ -205,6 +205,7 @@ export function createCatalogServices(
             readRoster: (scopeRecordId) => readCountCaptureRoster(db, providerIntegrationProfiles, scopeRecordId),
             readEffects: (at) => readCountCaptureEffects(db, at),
             countAuthority: () => countStore.authority(),
+            periodLedger: countStore.periodLedger,
             observeUsage: observeDeployedScrydexUsage(
               sourceObservations.providerAdapterRegistry,
               deps.providerSendRuntime,

@@ -2,6 +2,7 @@ import type { ListResponse } from "@chase-sets/http/responses";
 import { t } from "@chase-sets/localization";
 import type {
   CatalogPrimaryWorkbenchActionReadModel,
+  CatalogPrimaryWorkbenchPromotionCommandPreview,
   CatalogPrimaryWorkbenchBlockerCategory,
   CatalogPrimaryWorkbenchProductContentsEvidenceLine,
   CatalogPrimaryWorkbenchProductContentsEvidenceReview,
@@ -104,40 +105,24 @@ export function projectPromotionReceipt(receipt: SourceObservationPromotionRecei
 export function promotionReceiptMatchesContext(
   receipt: SourceObservationPromotionReceipt,
   context: CatalogPrimaryWorkbenchRouteContext,
+  commandPreview: CatalogPrimaryWorkbenchPromotionCommandPreview | null | undefined,
 ): boolean {
   const selection = receipt.selection;
-  const scope = scopeContextToObservationFilterScope(
-    scopeContextFromRouteContext(context),
-    context.sourceObservationFilters,
-  );
+  if (!commandPreview) return false;
+  const { scope, confirmation } = commandPreview;
   return (
+    (selection.observationIds.length > 0 || commandPreview.allowScopeSelection) &&
     selection.providerKey === context.providerKey &&
     selection.unitKey === context.unitKey &&
     selection.importScope === context.importScope &&
     selection.profileVersion === context.profileVersion &&
     selection.scopeRecordId === (context.scopeRecordId ?? null) &&
+    selection.unitKey === confirmation.unitKey &&
+    selection.importScope === confirmation.importScope &&
+    selection.profileVersion === confirmation.profileVersion &&
+    JSON.stringify(projectPromotionScope(selection.scope)) ===
+      JSON.stringify(projectPromotionScope(confirmation.scope)) &&
     JSON.stringify(projectPromotionScope(selection.scope)) === JSON.stringify(projectPromotionScope(scope))
-  );
-}
-
-export function promotionReceiptHasCompleteCoverage(receipt: SourceObservationPromotionReceipt): boolean {
-  const { validation } = receipt.preview;
-  const selected = receipt.selection.observationIds;
-  const covered = new Set(validation.coveredObservationIds);
-  return (
-    Boolean(receipt.previewId && receipt.preview.fingerprint) &&
-    validation.promoteAsDraft === receipt.selection.promoteAsDraft &&
-    validation.coverage === "complete" &&
-    validation.continuation === null &&
-    validation.pageLimit > 0 &&
-    receipt.preview.eligible > 0 &&
-    covered.size <= validation.pageLimit &&
-    new Set(selected).size === selected.length &&
-    covered.size === validation.coveredObservationIds.length &&
-    covered.size === receipt.preview.eligible &&
-    (selected.length === 0 ||
-      (selected.length === receipt.preview.matched && [...covered].every((id) => selected.includes(id)))) &&
-    !validation.diagnostics.some((diagnostic) => diagnostic.blocking)
   );
 }
 
@@ -262,6 +247,13 @@ export function sourceObservationReviewCompositionFor(input: {
         observed: effectiveObserved,
         rejected: input.rejected,
       }),
+      statusFilters: reviewStatusFiltersFor(input.routeContext, {
+        observed: effectiveObserved,
+        changed: input.changed,
+        promoted: input.promoted,
+        rejected: input.rejected,
+        eligible: effectiveEligible,
+      }),
       pagination: {
         mode: "offset",
         limit,
@@ -269,6 +261,20 @@ export function sourceObservationReviewCompositionFor(input: {
         total,
         nextCursor: offset + limit < total ? `offset:${offset + limit}` : null,
         previousCursor: offset > 0 ? `offset:${Math.max(0, offset - limit)}` : null,
+        previousHref:
+          offset > 0
+            ? catalogPrimaryWorkbenchHref(
+                { ...input.routeContext, reviewOffset: Math.max(offset - limit, 0) || null },
+                "source-observation-review",
+              )
+            : null,
+        nextHref:
+          offset + limit < total
+            ? catalogPrimaryWorkbenchHref(
+                { ...input.routeContext, reviewOffset: offset + limit },
+                "source-observation-review",
+              )
+            : null,
       },
       bulkSelection: {
         selectedCount: selectedObservationIds.length,
@@ -557,6 +563,7 @@ export function promotionPreviewFor(input: {
   // preview token; null when no preview is in play or the preview call failed.
   promotionValidation: SourceObservationPromotionValidation | null;
   promotionPreviewFingerprint?: string | null;
+  promotionPreviewCommittable?: boolean;
 }): CatalogPrimaryWorkbenchReadModel["promotionPreview"] {
   const validation = promotionValidationFor(input.routeContext, input.promotionValidation);
   const selectedObservationIds = input.routeContext.selectedObservationIds;
@@ -650,6 +657,10 @@ export function promotionPreviewFor(input: {
 
   return {
     previewId: input.routeContext.promotionPreviewId,
+    previewCommittable:
+      input.promotionPreviewCommittable === true &&
+      Boolean(input.routeContext.promotionPreviewId) &&
+      staleReasons.length === 0,
     receipt: null,
     currentFingerprint: input.promotionPreviewFingerprint ?? null,
     validation,
@@ -956,6 +967,33 @@ function reviewFiltersFor(
   ];
 }
 
+// The status filter's options. "All" counts every status; each link keeps the
+// daily working set, drops the review page and sets (or clears) filter.status.
+function reviewStatusFiltersFor(
+  routeContext: CatalogPrimaryWorkbenchRouteContext,
+  counts: Readonly<Record<"observed" | "changed" | "promoted" | "rejected" | "eligible", number>>,
+): CatalogPrimaryWorkbenchReadModel["sourceObservationReview"]["statusFilters"] {
+  const options = [
+    { value: "all", count: counts.observed + counts.changed + counts.promoted + counts.rejected },
+    { value: "observed", count: counts.observed },
+    { value: "eligible", count: counts.eligible },
+    { value: "promoted", count: counts.promoted },
+    { value: "rejected", count: counts.rejected },
+  ] as const;
+
+  return options.map((option) => {
+    const { status: _status, ...otherFilters } = routeContext.sourceObservationFilters;
+    const sourceObservationFilters = option.value === "all" ? otherFilters : { ...otherFilters, status: option.value };
+    return {
+      ...option,
+      href: catalogPrimaryWorkbenchHref(
+        { ...routeContext, reviewOffset: null, sourceObservationFilters },
+        "import-to-promotion",
+      ),
+    };
+  });
+}
+
 function savedReviewFiltersFor(
   routeContext: CatalogPrimaryWorkbenchRouteContext,
   counts: { eligible: number; changed: number; observed: number; rejected: number },
@@ -1018,7 +1056,9 @@ function normalizedFactSummariesFor(observation: SourceObservationListItem): rea
 }
 
 function payloadSummaryFor(observation: SourceObservationListItem): string {
-  const imageCount = observation.normalized.imageUrls.length;
+  // Reference-data observations such as a YGOJSON set are stored without imageUrls.
+  const imageUrls: unknown = observation.normalized.imageUrls;
+  const imageCount = Array.isArray(imageUrls) ? imageUrls.length : 0;
   const externalReferenceCount =
     (observation.normalized.externalCatalogItemReferences?.length ?? 0) +
     (observation.normalized.externalProductReferences?.length ?? 0) +

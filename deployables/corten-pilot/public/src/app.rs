@@ -171,7 +171,7 @@ pub mod url {
         #[route("/favicon.ico", get = crate::site::favicon)]
         pub struct FaviconIco;
 
-        #[route("/.well-known/appspecific/com.chrome.devtools.json", get = crate::site::devtools)]
+        #[route("/.well-known/appspecific/com.chrome.devtools.json", get = crate::site::devtools, no_store)]
         pub struct ChromeDevtools;
     }
 

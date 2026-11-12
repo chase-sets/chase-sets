@@ -14,7 +14,7 @@
 //! drops the filters and its Close opens the first blocked row again (chase-sets/chase-sets#10872).
 use corten::{
     Fragment, LiveResponse,
-    axum::http::{HeaderMap, StatusCode},
+    http::{HeaderMap, StatusCode},
     prelude::*,
 };
 use futures_util::{StreamExt, stream};
@@ -51,7 +51,7 @@ pub mod url {
     use serde::Deserialize;
 
     /// The filters and the row whose detail is open ([`super::CLOSED`]: none).
-    #[derive(Clone, Debug, Default, Deserialize, Fields, Route)]
+    #[derive(Clone, Debug, Default, Fields, Route)]
     #[route(query)]
     pub struct View {
         pub search: Option<String>,

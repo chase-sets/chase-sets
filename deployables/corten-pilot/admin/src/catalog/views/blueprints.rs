@@ -7,6 +7,7 @@
 //! is opened, from the rules the list has (the blueprint's own table): the page's read can miss a
 //! change (chase-sets/chase-sets#10823), and a rule the dialog did not show would be deleted.
 use corten::prelude::*;
+use platform::ui::table::TableLayout;
 
 use super::{
     ActionBar, AttachForm, Bar, BlueprintForm, BlueprintRow, Bulk, BulkRows, CatalogDialog, DetailPage, DimensionRulesForm,
@@ -127,6 +128,7 @@ pub fn blueprint_list<'a>(
         </Filters>
         <corten-live src={&live}>{blueprint_rows(t, p, query, screen, bulk.manage)}</corten-live>
         <CatalogDialog
+            p={p}
             id={ids::CREATE_DIALOG}
             title={t.blueprint_list_create_blueprint()}
             description={None}
@@ -167,7 +169,7 @@ pub fn blueprint_rows<'a>(
             if screen.items.is_empty() {
                 <Empty title={&empty_title} description={&empty_description} />
             } else {
-                <Table label={title} head={&head} all={select}>
+                <Table label={title} head={&head} all={select} layout={TableLayout::Stack}>
                     for row in &screen.items {
                         <BlueprintRow t={t} row={row} select={select} />
                     }
@@ -286,6 +288,7 @@ pub fn blueprint_page<'a>(
         </DetailPage>
         if editable {
             <CatalogDialog
+                p={p}
                 id={ids::EDIT_DIALOG}
                 title={t.blueprint_edit_blueprint()}
                 description={None}
@@ -297,6 +300,7 @@ pub fn blueprint_page<'a>(
         }
         if draft {
             <CatalogDialog
+                p={p}
                 id={ids::ATTACH_DIALOG}
                 title={t.blueprint_attach_component_2()}
                 description={None}
@@ -355,6 +359,7 @@ pub fn FieldRulesDialog<'a>(t: Cat, p: Pilot, id: &'a str, form: Option<&'a Draf
     let action = url::FieldRules::of(id).href();
     html! {
         <CatalogDialog
+            p={p}
             id={ids::SET_FIELDS_DIALOG}
             title={t.blueprint_set_field_rules_2()}
             description={Some(t.blueprint_configure_which_fields_apply_to_this())}
@@ -376,6 +381,7 @@ pub fn DimensionRulesDialog<'a>(t: Cat, p: Pilot, id: &'a str, form: Option<&'a 
     let action = url::DimensionRules::of(id).href();
     html! {
         <CatalogDialog
+            p={p}
             id={ids::SET_DIMENSIONS_DIALOG}
             title={t.blueprint_set_dimension_rules_2()}
             description={Some(t.blueprint_configure_which_dimensions_apply_to_this())}
@@ -397,6 +403,7 @@ pub fn OrderDialog<'a>(t: Cat, p: Pilot, id: &'a str, form: Option<&'a Draft<Ord
     let action = url::ProductResolutionRules::of(id).href();
     html! {
         <CatalogDialog
+            p={p}
             id={ids::SET_ORDER_DIALOG}
             title={t.blueprint_set_product_resolution_rules_2()}
             description={Some(t.blueprint_enter_dimension_ids_separated_by_commas())}
@@ -441,7 +448,7 @@ fn components<'a>(t: Cat, blueprint: &'a BlueprintDetail, draft: bool, removal: 
         if blueprint.components.is_empty() {
             <Empty title={t.blueprint_no_components_attached()} description="" />
         } else {
-            <Table label={t.blueprint_components()} head={&head} all={None}>
+            <Table label={t.blueprint_components()} head={&head} all={None} layout={TableLayout::Scroll}>
                 for row in rows {
                     {row}
                 }
@@ -456,7 +463,7 @@ fn field_rules<'a>(t: Cat, blueprint: &'a BlueprintDetail) -> impl Render + 'a {
         if blueprint.field_rules.is_empty() {
             <Empty title={t.blueprint_no_field_rules()} description="" />
         } else {
-            <Table label={t.blueprint_field_rules()} head={&head} all={None}>
+            <Table label={t.blueprint_field_rules()} head={&head} all={None} layout={TableLayout::Scroll}>
                 for rule in &blueprint.field_rules {
                     <tr>
                         <td>{if rule.field_name.is_empty() { &rule.field_id } else { &rule.field_name }}</td>
@@ -475,7 +482,7 @@ fn dimension_rules<'a>(t: Cat, blueprint: &'a BlueprintDetail) -> impl Render + 
         if blueprint.dimension_rules.is_empty() {
             <Empty title={t.blueprint_no_dimension_rules()} description="" />
         } else {
-            <Table label={t.blueprint_dimension_rules()} head={&head} all={None}>
+            <Table label={t.blueprint_dimension_rules()} head={&head} all={None} layout={TableLayout::Scroll}>
                 for rule in &blueprint.dimension_rules {
                     <tr>
                         <td>{if rule.dimension_name.is_empty() { &rule.dimension_id } else { &rule.dimension_name }}</td>

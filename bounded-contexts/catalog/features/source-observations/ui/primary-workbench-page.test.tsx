@@ -43,6 +43,48 @@ function jsonClone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
 }
 
+describe("Daily API answer rendering", () => {
+  afterEach(cleanup);
+  it("renders API stage and banner sentinels contrary to raw facts", () => {
+    const base = buildCatalogPrimaryWorkbenchReadModelForSurface("daily", {
+      requestUrl: "https://admin.example/catalog/integrations",
+      scopes: { items: [], total: 0, count: 0 },
+      profileReviews: { items: [], total: 0, count: 0 },
+      controlPlaneOverview: null,
+      canManageCatalog: true,
+    });
+    const stages = base.flow.stages.map((stage) => ({
+      ...stage,
+      state: stage.key === "create-items" ? ("current" as const) : ("complete" as const),
+    }));
+    const readModel = {
+      ...base,
+      readiness: {
+        ...base.readiness,
+        rbacAllowed: true,
+        rolloutEnabled: true,
+        blockers: [],
+        providerTransport: [],
+        freshness: "fresh" as const,
+      },
+      actions: base.actions.map((action) => ({ ...action, state: "available" as const })),
+      dailyStatus: { governance: "stopped" as const, health: "blocked" as const },
+      flow: {
+        ...base.flow,
+        openStage: "run-sync" as const,
+        stages,
+        stagesByOpenStage: { ...base.flow.stagesByOpenStage, "run-sync": stages },
+      },
+    };
+    render(<CatalogIntegrationsSurfacePage surface="daily" readModel={readModel} />);
+    const progress = screen.getByRole("list", { name: "Progress" });
+    expect(progress.querySelector('[aria-current="step"]')?.textContent).toContain("Create");
+    expect(document.querySelector('[data-catalog-daily-governance-status="stopped"]')).not.toBeNull();
+    expect(document.querySelector('[data-catalog-daily-health-status="blocked"]')).not.toBeNull();
+    expect(routeSubmit).not.toHaveBeenCalled();
+  });
+});
+
 // The import-context controls (provider/unit/guided-scope/profile) now live in the
 // collapsible "Step 0" bar (#1973). With a scope already chosen the bar renders
 // COLLAPSED to a summary, so its form internals are mounted but `hidden`. Expand it
@@ -448,34 +490,23 @@ describe("CatalogPrimaryWorkbenchPage", () => {
     expect(promoteForm?.querySelector<HTMLInputElement>('input[name="reason"]')?.value).toBe(
       "Promote from the scope-first Catalog sync workbench.",
     );
+    expect(promoteForm?.querySelector<HTMLInputElement>('input[name="candidateVersion"]')?.value).toBe("2");
     const splitForm = document.querySelector<HTMLFormElement>(
       'form[data-catalog-primary-workbench-command="candidate.split"]',
     );
     const updateForm = document.querySelector<HTMLFormElement>(
       'form[data-catalog-primary-workbench-command="candidate.edit"]',
     );
-    const splitBody = JSON.parse(
-      splitForm?.querySelector<HTMLInputElement>('input[name="mergeCandidateCommandBody"]')?.value ?? "{}",
-    ) as Record<string, unknown>;
-    const updateBody = JSON.parse(
-      updateForm?.querySelector<HTMLInputElement>('input[name="mergeCandidateCommandBody"]')?.value ?? "{}",
-    ) as Record<string, unknown>;
-    expect(splitBody).toMatchObject({
-      reason: "Split candidate from the scope-first Catalog sync workbench.",
-      splitCandidateId: "cand_pokemon_base1_004_standard__split__obs_tcgplayer_001",
-    });
-    expect(updateBody).toMatchObject({
-      reason: "Update Product mapping from the scope-first Catalog sync workbench.",
-      snapshot: {
-        identityFingerprint: "sha256:candidate-identity",
-        proposedExternalProductReferences: [
-          {
-            providerKey: "tcgplayer",
-            externalKey: "sku:123",
-          },
-        ],
-      },
-    });
+    // Split and update post the candidate version the page read and, for a split, the Source
+    // Observations to split off; the Catalog API builds the snapshots itself.
+    const field = (form: HTMLFormElement | null, name: string) =>
+      form?.querySelector<HTMLInputElement>(`input[name="${name}"]`)?.value;
+    expect(field(splitForm, "reason")).toBe("Split candidate from the scope-first Catalog sync workbench.");
+    expect(field(splitForm, "candidateVersion")).toBe("2");
+    expect(field(splitForm, "splitObservationIds")).toBe("obs_tcgplayer_001");
+    expect(field(updateForm, "reason")).toBe("Update Product mapping from the scope-first Catalog sync workbench.");
+    expect(field(updateForm, "candidateVersion")).toBe("2");
+    expect(updateForm?.querySelector('input[name="mergeCandidateCommandBody"]')).toBeNull();
 
     fireEvent.click(screen.getAllByRole("button", { name: "Evidence" }).at(0)!);
 
@@ -492,6 +523,53 @@ describe("CatalogPrimaryWorkbenchPage", () => {
     expect(screen.getByText(/Update: update-catalog-merge-candidate-product-mapping/)).toBeTruthy();
     expect(screen.getByText(/Split: split-catalog-merge-candidate-by-source-membership/)).toBeTruthy();
     expect(screen.queryByText(/raw JSON/i)).toBeNull();
+  });
+
+  it("posts the read version from the conflict-resolution promote form without opening edit", () => {
+    const readModel = buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
+      requestUrl:
+        "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&languageCode=en&seriesId=base&expansionId=base1&profileVersion=2026.06.04",
+      scopes: { items: [sourceObservationScope()], total: 1, count: 1 },
+      profileReviews: { items: [profileReview({ active: true, lifecycle: "active" })], total: 1, count: 1 },
+      controlPlaneOverview: controlPlaneOverview(),
+      reviewObservations: { items: [sourceObservationListItem()], total: 1, count: 1 },
+      canManageCatalog: true,
+      mergeCandidates: {
+        items: [
+          catalogMergeCandidateListItem({
+            status: "has-conflicts",
+            conflicts_json: [
+              {
+                code: "name-conflict",
+                severity: "blocking",
+                message: "Choose the printed name",
+                fieldPath: "name",
+                observationIds: ["obs_001"],
+                existingValue: "Old",
+                proposedValue: "New",
+              },
+            ],
+          }),
+        ],
+        total: 1,
+        count: 1,
+      },
+    });
+    render(<CatalogIntegrationsSurfacePage surface="daily" readModel={readModel} />);
+    fireEvent.click(screen.getAllByRole("button", { name: "Evidence" }).at(0)!);
+    const form = document.querySelector<HTMLFormElement>(
+      'form[data-catalog-merge-candidate-conflict-resolution-form="true"]',
+    );
+    expect(form).toBeTruthy();
+    const data = new FormData(form!);
+    expect(data.get("candidateVersion")).toBe("2");
+    expect(data.get("candidateId")).toBe("cand_pokemon_base1_004_standard");
+    expect(data.get("_intent")).toBe("candidate.promote");
+    expect(JSON.parse(String(data.get("blockingConflictsJson")))).toMatchObject([
+      { code: "name-conflict", existingValueJson: '"Old"', proposedValueJson: '"New"' },
+    ]);
+    expect(form?.querySelector('textarea[name="reason"]')).toBeTruthy();
+    expect(form?.querySelector('[name="resolution.name-conflict"]')).toBeTruthy();
   });
 
   it("keeps scoped TCGplayer Pokemon merge candidates visible when candidate identity uses TCG wording", () => {
@@ -606,7 +684,7 @@ describe("CatalogPrimaryWorkbenchPage", () => {
 
     fireEvent.click(within(reviewModule!).getAllByRole("button", { name: "Evidence" }).at(0)!);
 
-    expect(screen.getByText(/Promote: direct-catalog-merge-candidate-promotion from \d+ source/)).toBeTruthy();
+    expect(screen.getByText(/Promote: promote-catalog-merge-candidate from \d+ source/)).toBeTruthy();
   });
 
   it("keeps split and update merge-candidate actions blocked without typed command payload provenance", () => {
@@ -632,9 +710,9 @@ describe("CatalogPrimaryWorkbenchPage", () => {
     ).toBe(true);
     expect(
       document.querySelector<HTMLInputElement>(
-        'form[data-catalog-primary-workbench-command="candidate.edit"] input[name="mergeCandidateCommandBody"]',
-      )?.value,
-    ).toBe("");
+        'form[data-catalog-primary-workbench-command="candidate.edit"] input[name="candidateVersion"]',
+      ),
+    ).toBeNull();
   });
 
   it("shows selected-scope import preflight usage evidence before sync", async () => {
@@ -685,39 +763,54 @@ describe("CatalogPrimaryWorkbenchPage", () => {
         surface="daily"
         readModel={readModel}
         deferredImportPreview={Promise.resolve({
-          action: "import",
-          providerKey: "scrydex",
-          scope: {
-            provider: "scrydex",
-            ingestionUnitKey: "scrydex:one-piece:single-card:source-observation-import",
-            language: "en",
-            setId: "op-01",
-          },
-          profileSnapshot: null,
-          targetCount: 1,
-          targets: [
-            {
-              targetId: "set:op-01",
-              name: "op-01",
-              languageCode: "en",
-              scopeKey: "expansion-cards",
-              planKey: "scrydex:one-piece:expansion:op-01:cards",
-              estimatedPayloads: null,
-              transportSteps: ["Fetch Scrydex One Piece expansion cards with max page size"],
-              usageEstimate: {
-                requestStrategy: "bulk-first",
-                estimateState: "estimate-unavailable",
-                estimatedRequestCount: null,
-                estimateReason: "Card page count is available only after the first Scrydex paged response.",
-                pageSize: 250,
-                selectedFields: ["id", "name", "number", "expansion"],
-                perRecordFallbackReason: null,
-                usageCheckState: "not-configured",
-                creditDiagnostic: "Scrydex usage endpoint is not configured for this environment.",
-                degradedDiagnostic: null,
-              },
+          status: "ready",
+          preview: {
+            action: "import",
+            providerKey: "scrydex",
+            scope: {
+              provider: "scrydex",
+              ingestionUnitKey: "scrydex:one-piece:single-card:source-observation-import",
+              language: "en",
+              setId: "op-01",
             },
-          ],
+            profileSnapshot: null,
+            targetCount: 1,
+            targets: [
+              {
+                targetId: "set:op-01",
+                name: "op-01",
+                languageCode: "en",
+                scopeKey: "expansion-cards",
+                planKey: "scrydex:one-piece:expansion:op-01:cards",
+                estimatedPayloads: null,
+                transportSteps: ["Fetch Scrydex One Piece expansion cards with max page size"],
+                usageEstimate: {
+                  requestStrategy: "bulk-first",
+                  estimateState: "estimate-unavailable",
+                  estimatedRequestCount: null,
+                  estimateReason: "Card page count is available only after the first Scrydex paged response.",
+                  pageSize: 250,
+                  selectedFields: ["id", "name", "number", "expansion"],
+                  perRecordFallbackReason: null,
+                  usageCheckState: "not-configured",
+                  creditDiagnostic: "Scrydex usage endpoint is not configured for this environment.",
+                  degradedDiagnostic: null,
+                },
+              },
+            ],
+          },
+          usageSummary: {
+            requestStrategy: "bulk-first",
+            estimateState: "estimate-unavailable",
+            estimatedRequestCount: null,
+            estimateReason: "Card page count is available only after the first Scrydex paged response.",
+            pageSize: 250,
+            selectedFields: ["id", "name", "number", "expansion"],
+            perRecordFallbackReason: null,
+            usageCheckState: "not-configured",
+            creditDiagnostic: "Scrydex usage endpoint is not configured for this environment.",
+            degradedDiagnostic: null,
+          },
         })}
       />,
     );
@@ -737,7 +830,7 @@ describe("CatalogPrimaryWorkbenchPage", () => {
     expect(screen.getByText("id, name, number, expansion")).toBeTruthy();
   });
 
-  it("suppresses stale import preflight evidence from a previous selected scope", async () => {
+  it("renders the API absence for a previous selected scope", async () => {
     const requestUrl =
       "https://admin.example/catalog/integrations?providerKey=scrydex&unitKey=scrydex:one-piece:sealed-product:source-observation-import&languageCode=en&expansionName=OP09&profileVersion=2026.06.22";
     const profile = profileReview({
@@ -784,41 +877,7 @@ describe("CatalogPrimaryWorkbenchPage", () => {
       <CatalogIntegrationsSurfacePage
         surface="daily"
         readModel={readModel}
-        deferredImportPreview={Promise.resolve({
-          action: "import",
-          providerKey: "scrydex",
-          scope: {
-            provider: "scrydex",
-            ingestionUnitKey: "scrydex:one-piece:sealed-product:source-observation-import",
-            language: "en",
-            setName: "OP16",
-          },
-          profileSnapshot: null,
-          targetCount: 1,
-          targets: [
-            {
-              targetId: "set:OP16",
-              name: "OP16",
-              languageCode: "en",
-              scopeKey: "sealed-products",
-              planKey: "scrydex:one-piece:expansion:op16:sealed",
-              estimatedPayloads: null,
-              transportSteps: ["Fetch Scrydex One Piece sealed products"],
-              usageEstimate: {
-                requestStrategy: "bulk-first",
-                estimateState: "estimate-unavailable",
-                estimatedRequestCount: null,
-                estimateReason: "Provider estimate is unavailable.",
-                pageSize: 250,
-                selectedFields: ["id", "name", "expansion"],
-                perRecordFallbackReason: null,
-                usageCheckState: "not-configured",
-                creditDiagnostic: null,
-                degradedDiagnostic: null,
-              },
-            },
-          ],
-        })}
+        deferredImportPreview={Promise.resolve(null)}
       />,
     );
 
@@ -882,41 +941,7 @@ describe("CatalogPrimaryWorkbenchPage", () => {
       <CatalogIntegrationsSurfacePage
         surface="daily"
         readModel={readModel}
-        deferredImportPreview={Promise.resolve({
-          action: "import",
-          providerKey: "scrydex",
-          scope: {
-            provider: "scrydex",
-            ingestionUnitKey: "scrydex:one-piece:sealed-product:source-observation-import",
-            language: "en",
-            setName: "OP16",
-          },
-          profileSnapshot: null,
-          targetCount: 1,
-          targets: [
-            {
-              targetId: "set:OP16",
-              name: "OP16",
-              languageCode: "en",
-              scopeKey: "sealed-products",
-              planKey: "scrydex:one-piece:expansion:op16:sealed",
-              estimatedPayloads: null,
-              transportSteps: ["Fetch Scrydex One Piece sealed products"],
-              usageEstimate: {
-                requestStrategy: "bulk-first",
-                estimateState: "estimate-unavailable",
-                estimatedRequestCount: null,
-                estimateReason: "Provider estimate is unavailable.",
-                pageSize: 250,
-                selectedFields: ["id", "name", "expansion"],
-                perRecordFallbackReason: null,
-                usageCheckState: "not-configured",
-                creditDiagnostic: null,
-                degradedDiagnostic: null,
-              },
-            },
-          ],
-        })}
+        deferredImportPreview={Promise.resolve(null)}
       />,
     );
 
@@ -2234,6 +2259,7 @@ describe("CatalogPrimaryWorkbenchPage", () => {
     // visible but no longer blocks, and the commit is confirmable.
     const draftReadModel = buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
       ...input,
+      promotionPreviewCommittable: true,
       requestUrl:
         "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&importScope=en:3:base:base1&profileVersion=2026.06.04&filter.status=changed&promotionPreviewId=preview_draft&promoteAsDraft=true",
       promotionValidation: {
@@ -2250,7 +2276,7 @@ describe("CatalogPrimaryWorkbenchPage", () => {
     draftReceipt.selection.promoteAsDraft = true;
     draftReceipt.preview.validation.promoteAsDraft = true;
     draftReceipt.preview.validation.diagnostics = [{ ...identityDiagnostic, blocking: false }];
-    render(
+    const { rerender } = render(
       <CatalogIntegrationsSurfacePage
         surface="daily"
         readModel={{
@@ -2278,6 +2304,18 @@ describe("CatalogPrimaryWorkbenchPage", () => {
       | undefined;
     expect(commitButton?.hasAttribute("disabled")).toBe(false);
     expect(commitButton?.form?.querySelector<HTMLInputElement>('input[name="promoteAsDraft"]')?.value).toBe("true");
+
+    rerender(
+      <CatalogIntegrationsSurfacePage
+        surface="daily"
+        readModel={{
+          ...draftReadModel,
+          promotionPreview: { ...draftReadModel.promotionPreview, previewCommittable: false, receipt: draftReceipt },
+        }}
+      />,
+    );
+    expect(draftConfirmation.hasAttribute("disabled")).toBe(true);
+    expect(commitButton?.hasAttribute("disabled")).toBe(true);
   });
 
   it("does not restore aggregate-backed confirmation when the original receipt is unavailable", () => {

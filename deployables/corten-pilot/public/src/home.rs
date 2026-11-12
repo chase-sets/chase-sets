@@ -18,7 +18,7 @@
 use std::time::Duration;
 
 use corten::{
-    axum::http::{HeaderMap, StatusCode, Uri},
+    http::{HeaderMap, StatusCode, Uri},
     i18n::{Currency, Decimal, Minor},
     prelude::*,
 };
@@ -845,7 +845,12 @@ pub fn faq(t: HomeMsg, preview: &FeePreview) -> [(&'static str, &'static str, St
         (
             "fees",
             t.faq_fees_question(),
-            t.faq_fees_answer(&preview.card_rate, &preview.card_fixed, &preview.bank_rate).to_string(),
+            t.faq_fees_answer(crate::text::home_msg::FaqFeesAnswer {
+                checkout_card_rate: &preview.card_rate,
+                checkout_card_fixed: &preview.card_fixed,
+                checkout_bank_rate: &preview.bank_rate,
+            })
+            .to_string(),
         ),
         ("shipping", t.faq_shipping_question(), t.faq_shipping_answer().to_owned()),
         ("safety", t.faq_safety_question(), t.faq_safety_answer().to_owned()),
@@ -854,7 +859,7 @@ pub fn faq(t: HomeMsg, preview: &FeePreview) -> [(&'static str, &'static str, St
 
 #[cfg(test)]
 mod tests {
-    use corten::{axum::http::Uri, i18n::Messages as _};
+    use corten::{http::Uri, i18n::Messages as _};
 
     use super::{COMPILED, FeePreview, Game, Landing, Params, Role, Term, Terms, cents, legacy_share};
     use crate::text::HomeMsg;

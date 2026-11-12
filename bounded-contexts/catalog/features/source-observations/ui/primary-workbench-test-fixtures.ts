@@ -71,6 +71,14 @@ export function syntheticPromotionReceipt(
   };
 }
 
+/** A preview as the Catalog API answers it: with the token its receipt carries as `previewId`. */
+export function syntheticPromotionPreviewResponse(
+  preview: SourceObservationPromotionReceipt["preview"] = syntheticPromotionReceipt().preview,
+  previewToken = "synthetic-preview-token",
+): SourceObservationPromotionReceipt["preview"] {
+  return { ...preview, previewToken };
+}
+
 export function sourceObservationScope(
   overrides: Partial<SourceObservationIntegrationScope> = {},
 ): SourceObservationIntegrationScope {
@@ -714,6 +722,7 @@ export function catalogMergeCandidateListItem(
     created_at: "2026-06-09T01:02:00.000Z",
     updated_at: "2026-06-09T01:03:00.000Z",
     stale_at: null,
+    last_stream_version: 2,
     observation_count: 2,
     ...overrides,
   };

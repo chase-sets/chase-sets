@@ -224,7 +224,9 @@ pub fn DeskPage<'a>(t: DeskMsg, screen: &'a DeskScreen) -> impl Render {
                     <p>{t.degraded_description()}</p>
                     <ul class={Plain}>
                         for health in &unavailable {
-                            <li>{t.degraded_source(source(t, &health.id), t.degraded_reason_unknown())}</li>
+                            <li>
+                                {t.degraded_source(crate::text::desk_msg::DegradedSource { source: source(t, &health.id), reason: t.degraded_reason_unknown() })}
+                            </li>
                         }
                     </ul>
                 </div>
@@ -258,7 +260,7 @@ pub fn DeskPage<'a>(t: DeskMsg, screen: &'a DeskScreen) -> impl Render {
                 <a class={(Button, Secondary)} href={url::SellerListings::default()}>{t.surfaces_listings()}</a>
                 <a class={(Button, Secondary)} href={url::OfferMatches::default()}>{t.surfaces_offers()}</a>
                 <a class={(Button, Secondary)} href={url::Sales::default()}>{t.surfaces_sales()}</a>
-                <a class={(Button, Secondary)} href={url::SaleShipments}>{t.surfaces_shipments()}</a>
+                <a class={(Button, Secondary)} href={url::SaleShipments::default()}>{t.surfaces_shipments()}</a>
                 <a class={(Button, Secondary)} href={&payouts}>{t.surfaces_payouts()}</a>
                 <a class={(Button, Secondary)} href={url::Inventory::default()}>{t.surfaces_inventory()}</a>
             </nav>

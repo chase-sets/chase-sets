@@ -1,5 +1,6 @@
+import type { CatalogDailyImportPreview } from "../api/admin/daily-import-preview";
 import { Suspense, useMemo, useState, type ReactElement } from "react";
-import { Await } from "react-router";
+import { Await, type Location } from "react-router";
 import { OperationalStatusBanner, ProgressiveDisclosure } from "@chase-sets/design-system";
 import { t } from "@chase-sets/localization";
 import type { CatalogControlPlaneRouteSurfaceKey } from "./admin-control-plane/information-architecture";
@@ -7,8 +8,8 @@ import type { CatalogPrimaryWorkbenchReadModel } from "../api/primary-workbench-
 import type {
   CatalogScopeSyncUnitStateReadModel,
   CatalogSyncRun,
-  SourceObservationIntegrationImportPreview,
   CatalogIntegrationsCommandResult,
+  SourceObservationImportJobReceipt,
 } from "./contracts";
 import type { CatalogAliasReviewReadModel } from "../../alias-equivalence/api/alias-review-admin-contracts";
 import type { CatalogDeferredAttentionQueueResult } from "../../attention-queue/api/contracts";
@@ -20,7 +21,6 @@ import { DeferredSupplementaryPanel } from "./deferred-supplementary-panel";
 import { catalogPrimaryWorkbenchHref } from "./primary-workbench-route-context";
 import {
   projectPromotionReceipt,
-  promotionReceiptHasCompleteCoverage,
   promotionReceiptMatchesContext,
   promotionValidationFor,
 } from "./primary-workbench-source-observation-review";
@@ -41,7 +41,7 @@ export type CatalogIntegrationsRouteData = Readonly<{
   // option snapshots never reach the browser payload. Each promise resolves
   // null/empty on absence/error, so the streamed boundary stays fail-soft.
   deferredSourceOptions?: Promise<CatalogPrimaryWorkbenchReadModel["sourceOptions"]> | null;
-  deferredImportPreview?: Promise<SourceObservationIntegrationImportPreview | null> | null;
+  deferredImportPreview?: Promise<CatalogDailyImportPreview> | null;
   deferredCatalogSyncRun?: Promise<CatalogSyncRun | null> | null;
   deferredScopeSyncState?: Promise<readonly CatalogScopeSyncUnitStateReadModel[] | null> | null;
   deferredAliasReview?: Promise<CatalogAliasReviewReadModel | null> | null;
@@ -62,6 +62,8 @@ export function CatalogIntegrationsSurfaceRouteView({
   commandFeedback,
   commandResult = null,
   actionPending = false,
+  receiptLocation,
+  submissionPending = actionPending,
 }: Readonly<{
   surface: CatalogControlPlaneRouteSurfaceKey;
   routeData: CatalogIntegrationsRouteData;
@@ -72,8 +74,16 @@ export function CatalogIntegrationsSurfaceRouteView({
   commandFeedback?: CatalogPrimaryWorkbenchCommandFeedback | null;
   commandResult?: CatalogIntegrationsCommandResult | null;
   actionPending?: boolean;
+  receiptLocation?: Pick<Location, "pathname" | "search" | "hash" | "key">;
+  submissionPending?: boolean;
 }>) {
   const readModel = useOriginalPromotionReceipt(routeData, surface === "daily" ? commandResult : null, actionPending);
+  const importJobReceipt = useOriginalImportJobReceipt(
+    surface === "daily" ? commandResult : null,
+    receiptLocation,
+    actionPending,
+    submissionPending,
+  );
   // The alias-review workspace POSTs its accept/reject/revoke forms to the daily
   // integrations route action (the composition root supplies this href), which
   // dispatches the aggregate commands. Only the daily loader streams the
@@ -93,6 +103,7 @@ export function CatalogIntegrationsSurfaceRouteView({
       surface={surface}
       readModel={readModel}
       commandFeedback={commandFeedback ?? routeData.commandFeedback}
+      importJobReceipt={importJobReceipt}
       aliasVisibility={aliasVisibility}
       attentionQueue={attentionQueue}
       deferredSourceOptions={routeData.deferredSourceOptions ?? null}
@@ -103,6 +114,42 @@ export function CatalogIntegrationsSurfaceRouteView({
   );
 }
 
+function useOriginalImportJobReceipt(
+  result: CatalogIntegrationsCommandResult | null,
+  location: Pick<Location, "pathname" | "search" | "hash" | "key"> | undefined,
+  pending: boolean,
+  submitting: boolean,
+): SourceObservationImportJobReceipt | null {
+  const source =
+    result?.feedback.status === "success" &&
+    result.feedback.intent === "scope.import" &&
+    result.feedback.result === "job-queued"
+      ? (result.importJobReceipt ?? null)
+      : null;
+  const locationKey = location
+    ? JSON.stringify([location.pathname, location.search, location.hash, location.key])
+    : null;
+  const [snapshot, setSnapshot] = useState({
+    locationKey,
+    source,
+    submitting,
+    receipt: pending ? null : source,
+  });
+  const reset = snapshot.locationKey !== locationKey || (submitting && !snapshot.submitting);
+  const settledSource = pending && !reset ? snapshot.source : source;
+  // A settled POST commits a new location key together with its own receipt.
+  const receipt = !pending && source && source !== snapshot.source ? source : reset ? null : snapshot.receipt;
+  if (
+    snapshot.locationKey !== locationKey ||
+    snapshot.submitting !== submitting ||
+    snapshot.source !== settledSource ||
+    snapshot.receipt !== receipt
+  ) {
+    setSnapshot({ locationKey, source: settledSource, submitting, receipt });
+  }
+  return receipt;
+}
+
 export function useOriginalPromotionReceipt(
   routeData: CatalogIntegrationsRouteData,
   result: CatalogIntegrationsCommandResult | null,
@@ -110,12 +157,14 @@ export function useOriginalPromotionReceipt(
 ): CatalogPrimaryWorkbenchReadModel {
   const model = routeData.readModel;
   const activeProfileVersion = model.importJobs.selectedScope?.profileVersion ?? null;
+  const commandPreview = model.actions.find((entry) => entry.key === "observation.promote")?.commandPreview;
   const evidence = JSON.stringify([
     model.routeContext,
     model.sourceObservationReview,
     model.promotionPreview.validation,
     model.promotionPreview.currentFingerprint,
     activeProfileVersion,
+    commandPreview,
   ]);
   const [binding, setBinding] = useState({
     result,
@@ -172,7 +221,7 @@ export function useOriginalPromotionReceipt(
   const sameIds =
     JSON.stringify([...receipt.selection.observationIds].sort()) ===
     JSON.stringify([...result.context.selectedObservationIds].sort());
-  const sameContext = promotionReceiptMatchesContext(receipt, model.routeContext);
+  const sameContext = promotionReceiptMatchesContext(receipt, model.routeContext, commandPreview);
   const sameActiveProfile = activeProfileVersion !== null && receipt.selection.profileVersion === activeProfileVersion;
   const currentFingerprint = model.promotionPreview.currentFingerprint;
   const valid =
@@ -181,12 +230,14 @@ export function useOriginalPromotionReceipt(
     sameIds &&
     receipt.previewId === result.context.promotionPreviewId &&
     receipt.selection.promoteAsDraft === (result.context.promoteAsDraft === true) &&
-    promotionReceiptMatchesContext(receipt, result.context) &&
+    promotionReceiptMatchesContext(receipt, result.context, result.promotionCommandPreview) &&
     sameContext &&
     sameActiveProfile &&
     (!model.promotionPreview.previewId || model.promotionPreview.previewId === receipt.previewId) &&
     (!currentFingerprint || currentFingerprint === receipt.preview.fingerprint) &&
-    promotionReceiptHasCompleteCoverage(receipt) &&
+    result.promotionPreviewVerdict?.previewCommittable === true &&
+    Boolean(receipt.preview.fingerprint) &&
+    result.promotionPreviewVerdict.currentFingerprint === receipt.preview.fingerprint &&
     model.readiness.rbacAllowed &&
     model.sourceObservationReview.freshness === "fresh" &&
     model.promotionPreview.blockers.length === 0;
@@ -195,9 +246,27 @@ export function useOriginalPromotionReceipt(
     // Only loader/URL context seeds the working selection; action context binds the receipt.
     // The token belongs to the POST only. Generated links never serialize it.
     routeContext: { ...model.routeContext, promotionPreviewId: null },
+    flow: {
+      ...model.flow,
+      openStage: model.flow.openStageWithHeldPreview,
+      stages: model.flow.stagesByOpenStage[model.flow.openStageWithHeldPreview],
+    },
+    sourceObservationReview: {
+      ...model.sourceObservationReview,
+      statusFilters: model.sourceObservationReview.statusFilters.map((filter) => ({
+        ...filter,
+        href: withoutPromotionPreviewId(filter.href),
+      })),
+      pagination: {
+        ...model.sourceObservationReview.pagination,
+        previousHref: withoutPromotionPreviewId(model.sourceObservationReview.pagination.previousHref),
+        nextHref: withoutPromotionPreviewId(model.sourceObservationReview.pagination.nextHref),
+      },
+    },
     promotionPreview: {
       ...model.promotionPreview,
       previewId: receipt.previewId,
+      previewCommittable: valid,
       receipt,
       validation: promotionValidationFor(result.context, receipt.preview.validation),
       freshness: pending ? "unavailable" : valid ? "fresh" : "stale",
@@ -213,6 +282,15 @@ export function useOriginalPromotionReceipt(
       },
     },
   };
+}
+
+function withoutPromotionPreviewId(href: string): string;
+function withoutPromotionPreviewId(href: string | null): string | null;
+function withoutPromotionPreviewId(href: string | null): string | null {
+  if (href === null) return null;
+  const url = new URL(href, "https://catalog.invalid");
+  url.searchParams.delete("promotionPreviewId");
+  return `${url.pathname}${url.search}${url.hash}`;
 }
 
 // Stream the supplementary alias-review workspace behind a Suspense/Await

@@ -19,7 +19,7 @@ import {
   SCRYDEX_ONE_PIECE_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY as unitKey,
   SCRYDEX_ONE_PIECE_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY as sealedUnitKey,
 } from "../../source-observations/api/providers/scrydex/adapter";
-import { countFingerprint } from "../domain/count-acquisition";
+import { CountPeriodCapRefused, countFingerprint } from "../domain/count-acquisition";
 import { createScopeSyncBatchRuntime } from "./runtime";
 import { previewCatalogSyncProviderParticipation } from "../../source-observations/api/catalog-sync-scope-planner";
 import { ProviderAdapterRegistry } from "../../source-observations/api/provider-adapters/registry";
@@ -80,10 +80,11 @@ describeDb("AC2/AC4 count acquisition durable caps and replica claims", () => {
     const engine = createCountAcquisition({
       ledger: {
         ...store,
-        admit: (quote, owner, authority) => store.admit(pool, quote, owner, authority),
+        admit: (quote, owner, authority, period) => store.admit(pool, quote, owner, authority, period),
+        admitPeriod: (quote, owner, period) => store.admitPeriod(pool, quote, owner, period),
         approve: (id, fingerprint, owner) => store.approve(pool, id, fingerprint, owner),
-        claim: (quote, target, owner, authority, executionId) =>
-          store.claim(pool, quote, target, owner, authority, executionId),
+        claim: (quote, target, owner, authority, executionId, period) =>
+          store.claim(pool, quote, target, owner, authority, executionId, period),
         end: (quoteId, executionId, owner, state) => store.end(pool, quoteId, executionId, owner, state),
       },
       resolve: async () => ({
@@ -103,6 +104,113 @@ describeDb("AC2/AC4 count acquisition durable caps and replica claims", () => {
     });
     return { store, query, send, engine };
   }
+  it("AC4 concurrent staging acquisitions crossing the period cap admit only the in-cap one; U counts each commitment once", async () => {
+    const period = {
+      startsAt: new Date(Date.parse(now) - 86_400_000).toISOString(),
+      endsAt: new Date(Date.parse(now) + 86_400_000).toISOString(),
+      overageCreditsConsumed: 0,
+    };
+    const writer = createCountStore(pools.catalog, slot, () => now);
+    await writer.retainUsage({
+      remainingCredits: 100_000 - 49_996,
+      totalCredits: 100_000,
+      observedAt: now,
+      attemptState: "checked",
+      billingPeriod: period,
+    } as ProviderUsageSnapshot);
+    // An earlier in-period debit with no complete result, older than the usage lag: uncertain U = 1.
+    await pools.catalog.query(
+      `INSERT INTO catalog_scope_sync_count_history (event_id,account_slot,event_kind,quote_id,query_key,scope_record_id,count_kind,payload,recorded_at)
+      VALUES ($1,$2,'debit',$3,$4,'scope-elsewhere','cards','{}'::jsonb,$5::timestamptz)`,
+      [
+        crypto.randomUUID(),
+        slot,
+        crypto.randomUUID(),
+        "f".repeat(64),
+        new Date(Date.parse(now) - 31 * 60_000).toISOString(),
+      ],
+    );
+    const reserve = {
+      runId: "synthetic-dispatch",
+      startsAt: period.startsAt,
+      endsAt: period.endsAt,
+      observedAt: now,
+      credits: 0,
+    };
+    const replica = (parentValue: string) => {
+      const store = createCountStore(pools.catalog, slot, () => now);
+      const send = vi.fn(async () => ({
+        totalCount: 121,
+        pageSize: 100,
+        returnedPage: 1 as const,
+        returnedItemCount: 100,
+        observedAt: now,
+      }));
+      const targets = ([unitKey, sealedUnitKey] as const).map((key) => {
+        const kind = key === unitKey ? ("cards" as const) : ("sealed" as const);
+        return {
+          scopeRecordId: `scope-${parentValue}`,
+          query: scrydexCountQuery({
+            environment: "staging",
+            accountRevision: "runtime",
+            productDomain: "one-piece",
+            profileKey: "one-piece-card-print-source-observation",
+            profileVersion: "2026.06.22",
+            unitKey: key,
+            kind,
+            languageCode: "en",
+            parentValue,
+          }),
+          source: null,
+          blocked: false,
+        };
+      });
+      const engine = createCountAcquisition({
+        ledger: {
+          ...store,
+          admit: (quote, owner, authority, gate) => store.admit(pools.catalog, quote, owner, authority, gate),
+          admitPeriod: (quote, owner, gate) => store.admitPeriod(pools.catalog, quote, owner, gate),
+          approve: (id, fingerprint, owner) => store.approve(pools.catalog, id, fingerprint, owner),
+          claim: (quote, target, owner, authority, executionId, gate) =>
+            store.claim(pools.catalog, quote, target, owner, authority, executionId, gate),
+          end: (quoteId, executionId, owner, state) => store.end(pools.catalog, quoteId, executionId, owner, state),
+        },
+        resolve: async () => ({ membershipFingerprint: `synthetic-${parentValue}`, targets }),
+        send,
+        allowed: () => true,
+        now: () => now,
+      });
+      return { engine, send };
+    };
+    const a = replica("OP01");
+    const b = replica("OP02");
+    const qa = await a.engine.quote({ selection: {}, owner: "synthetic" });
+    const qb = await b.engine.quote({ selection: {}, owner: "synthetic" });
+    expect([qa.plannedCredits, qb.plannedCredits]).toEqual([2, 2]);
+    const acquire = (side: typeof a, quote: typeof qa) =>
+      side.engine.acquire({
+        quoteId: quote.quoteId,
+        fingerprint: quote.fingerprint,
+        owner: "synthetic",
+        admission: "whole-quote",
+        period: { reserve, runId: "synthetic-dispatch" },
+      });
+    const results = await Promise.allSettled([acquire(a, qa), acquire(b, qb)]);
+    const admitted = results.flatMap((result) => (result.status === "fulfilled" ? [result.value] : []));
+    const refused = results.flatMap((result) => (result.status === "rejected" ? [result.reason as unknown] : []));
+    expect(admitted).toHaveLength(1);
+    expect(refused).toHaveLength(1);
+    // 49,996 + 1 + 2 admits; the loser sees that run's two credits once (allocation or debits): 49,996 + 3 + 2.
+    expect(admitted[0]).toMatchObject({
+      state: "complete",
+      periodDecision: { admitted: true, consumedCredits: 49_996, unreflectedCredits: 1, plannedCredits: 2 },
+    });
+    const refusal = refused[0] as CountPeriodCapRefused;
+    expect(refusal).toBeInstanceOf(CountPeriodCapRefused);
+    expect(refusal.decision).toMatchObject({ admitted: false, unreflectedCredits: 3, plannedCredits: 2 });
+    expect(a.send.mock.calls.length + b.send.mock.calls.length).toBe(2);
+    expect((await writer.periodLedger("synthetic-dispatch")).durableCredits).toBe(3);
+  });
   it.each([0, 1])("server cap %s is durable and cannot replay", async (cap) => {
     const f = await setup();
     const quote = await f.engine.quote({ selection: {}, owner: "synthetic", cap });

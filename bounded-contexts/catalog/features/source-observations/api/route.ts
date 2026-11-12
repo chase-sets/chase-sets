@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import type { ProviderScopeDiscoveryServices } from "../../provider-scope-discovery/api/runtime";
 import type { CatalogAuthoringEnv } from "../../../support/authoring-support/api";
 import type { CatalogProviderIntegrationProfileVersionStore } from "./providers/provider-integration-profile-store";
 import type {
@@ -22,7 +23,10 @@ import { promotionReviewRoutes } from "./route-modules/promotion-review-routes";
 import { providerOptionRoutes } from "./route-modules/provider-options-routes";
 import { providerProfileRoutes } from "./route-modules/provider-profile-routes";
 import { sourceObservationReadReviewRoutes } from "./route-modules/source-observation-review-routes";
-import { primaryWorkbenchSurfaceRoutes } from "./route-modules/primary-workbench-surface-routes";
+import {
+  primaryWorkbenchSurfaceRoutes,
+  type PrimaryWorkbenchSurfaceRouteDeps,
+} from "./route-modules/primary-workbench-surface-routes";
 import { parseCatalogIntegrationControlPlaneOverviewAudience } from "./admin/admin-control-plane-overview";
 import { loadCatalogIntegrationControlPlaneOverview } from "./route-modules/control-plane-overview-load";
 import { requireCatalogIntegrationControlPlanePermission } from "./admin/admin-control-plane-rbac";
@@ -44,6 +48,8 @@ export function sourceObservationRoutes(
   services: SourceObservationRouteServices,
   profileVersions?: CatalogProviderIntegrationProfileVersionStore,
   readCountSpend?: () => Promise<readonly import("../../scope-sync-batches/domain/count-acquisition").CountSpend[]>,
+  listRefreshSchedules?: ProviderScopeDiscoveryServices["listRefreshSchedules"],
+  getScopeRecord?: PrimaryWorkbenchSurfaceRouteDeps["getScopeRecord"],
 ) {
   const app = new Hono<CatalogAuthoringEnv>();
 
@@ -54,7 +60,10 @@ export function sourceObservationRoutes(
   app.route("/", integrationJobRoutes(services));
   app.route("/", catalogMergeCandidateRoutes(services));
   app.route("/", controlPlaneTelemetryRoutes(services));
-  app.route("/", primaryWorkbenchSurfaceRoutes({ services, profileVersions, readCountSpend }));
+  app.route(
+    "/",
+    primaryWorkbenchSurfaceRoutes({ services, profileVersions, readCountSpend, listRefreshSchedules, getScopeRecord }),
+  );
   app.route("/", sourceObservationReadReviewRoutes(services));
   app.get("/integration-control-plane/overview", async (c) => {
     const permissionError = requireCatalogIntegrationControlPlanePermission(c, "integration-control-plane-read");

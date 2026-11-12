@@ -4,6 +4,7 @@ import { waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError as CatalogApiError } from "../support/shell-support/api/client";
 import IntegrationsRoute, { action, loader } from "../routes/admin/integrations";
+import ScopeDetailRoute from "../routes/admin/scope-detail";
 import { loader as providersLoader, action as providerDetailAction } from "../routes/admin/catalog-provider-detail";
 import { action as governanceAction } from "../routes/admin/integrations-governance";
 import type { CatalogIntegrationsCommandResult } from "../support/route-support/admin-integrations/integrations-command-result";
@@ -74,6 +75,8 @@ vi.mock("react-router", async () => {
     useRouteLoaderData: mockUseRouteLoaderData,
     useActionData: mockUseActionData,
     useNavigation: mockUseNavigation,
+    useLocation: () => ({ pathname: "/catalog/integrations", search: "", hash: "", key: "synthetic-daily" }),
+    useFetcher: () => ({ state: "idle", data: undefined, load: () => undefined }),
     // The import-jobs module polls live progress via useRevalidator and the daily
     // import-context form submits context changes via useSubmit; outside a data
     // router (this bare render) both need a stub so the workbench still renders.
@@ -98,6 +101,50 @@ vi.mock("@chase-sets/platform-runtime/auth", () => ({
 }));
 
 describe("Catalog integrations route", () => {
+  // The returned answer, not receipt coverage, owns the offer.
+  it.each([
+    [true, "partial", "fresh", false],
+    [false, "complete", "stale", true],
+    [undefined, "complete", "stale", true],
+  ] as const)("renders verdict %s with %s receipt as %s", (verdict, coverage, state, disabled) => {
+    const requestUrl =
+      "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&importScope=en:3:base:base1&profileVersion=2026.06.04";
+    const data = loaderData({
+      requestUrl,
+      readModel: buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
+        requestUrl,
+        scopes: { items: [sourceObservationScope()], total: 1, count: 1 },
+        profileReviews: { items: [profileReview({ active: true, lifecycle: "active" })], total: 1, count: 1 },
+        reviewObservations: { items: [sourceObservationListItem()], total: 1, count: 1 },
+        controlPlaneOverview: null,
+        canManageCatalog: true,
+      }),
+    });
+    const receipt = syntheticPromotionReceipt();
+    receipt.selection.observationIds = [];
+    receipt.preview.validation.coverage = coverage;
+    mockUseLoaderData.mockReturnValue(data);
+    mockUseRouteLoaderData.mockReturnValue({ actor: { permissions: ["catalog.view", "catalog.manage"] } });
+    mockUseActionData.mockReturnValue({
+      feedback: { status: "success", intent: "observation.promote", result: "preview-ready" },
+      context: { ...data.readModel.routeContext, selectedObservationIds: [], promotionPreviewId: receipt.previewId },
+      section: "import-to-promotion",
+      promotionReceipt: receipt,
+      promotionCommandPreview: data.readModel.actions.find((entry) => entry.key === "observation.promote")
+        ?.commandPreview,
+      promotionPreviewVerdict: { previewCommittable: verdict, currentFingerprint: receipt.preview.fingerprint },
+    });
+    render(<IntegrationsRoute />);
+    const stage = document.querySelector<HTMLButtonElement>('[data-catalog-import-workflow-stage="create-items"]')!;
+    if (stage.getAttribute("aria-expanded") !== "true") fireEvent.click(stage);
+    expect(document.querySelector(`[data-catalog-promotion-receipt-state="${state}"]`)).not.toBeNull();
+    expect(screen.getByLabelText(/I confirm this will promote/).hasAttribute("disabled")).toBe(disabled);
+    if (!disabled) fireEvent.click(screen.getByLabelText(/I confirm this will promote/));
+    expect(screen.getByRole("button", { name: "Create or update Catalog Items" }).hasAttribute("disabled")).toBe(
+      disabled,
+    );
+  });
+
   afterEach(() => {
     cleanup();
     mockUseLoaderData.mockReset();
@@ -201,12 +248,106 @@ describe("Catalog integrations route", () => {
     expect(screen.getByText(/Catalog sync could not start for the selected provider scope/i)).toBeTruthy();
   });
 
+  it.each(["daily", "scope-detail"] as const)(
+    "renders the held API sentinel and token-free three-page links on %s",
+    (route) => {
+      const requestUrl =
+        "https://admin.example/catalog/integrations?providerKey=tcgdex&promotionPreviewId=sentinel-token&reviewOffset=25";
+      const data = loaderData({ requestUrl });
+      const base = data.readModel;
+      const heldStages = base.flow.stages.map((stage) => ({
+        ...stage,
+        state: stage.key === "run-sync" ? ("current" as const) : ("blocked" as const),
+      }));
+      const readModel = {
+        ...base,
+        flow: {
+          ...base.flow,
+          openStage: "run-sync" as const,
+          openStageWithHeldPreview: "review-changes" as const,
+          stagesByOpenStage: { ...base.flow.stagesByOpenStage, "review-changes": heldStages },
+        },
+        sourceObservationReview: {
+          ...base.sourceObservationReview,
+          pagination: {
+            ...base.sourceObservationReview.pagination,
+            limit: 25,
+            offset: 25,
+            total: 75,
+            previousCursor: "offset:0",
+            nextCursor: "offset:50",
+            previousHref:
+              "/catalog/integrations?section=source-observation-review&sentinel=previous&promotionPreviewId=sentinel-token",
+            nextHref:
+              "/catalog/integrations?section=source-observation-review&sentinel=next&promotionPreviewId=sentinel-token",
+          },
+          statusFilters: base.sourceObservationReview.statusFilters.map((filter) => ({
+            ...filter,
+            href: `${filter.href}&promotionPreviewId=sentinel-token`,
+          })),
+        },
+      };
+      const journey = { ...data, readModel };
+      mockUseLoaderData.mockReturnValue(
+        route === "daily"
+          ? journey
+          : {
+              scope: {
+                scopeRecordId: "sentinel",
+                productDomain: "pokemon",
+                scopeKind: "expansion",
+                name: "Synthetic scope",
+                referenceTypeKey: "expansion",
+                referenceRecordId: "sentinel",
+                referenceRecordKey: "sentinel",
+                parentScopeRecordId: null,
+                productLineScopeRecordId: null,
+                seriesScopeRecordId: null,
+                releaseDate: null,
+                officialSetCode: null,
+                languageEditions: [],
+                lifecycleStatus: "active",
+                updatedAt: "2026-07-14T12:00:00Z",
+                promotionReadiness: "ready",
+                syncFreshness: "fresh",
+              },
+              journey,
+              languageEditionAliasReview: null,
+              coverageMatrix: null,
+              candidateReviewJobs: null,
+            },
+      );
+      mockUseRouteLoaderData.mockReturnValue({ actor: { permissions: ["catalog.view", "catalog.manage"] } });
+      mockUseActionData.mockReturnValue({
+        feedback: { status: "success", intent: "observation.promote", result: "preview-ready" },
+        context: parseCatalogPrimaryWorkbenchRouteContext(requestUrl),
+        section: "import-to-promotion",
+        promotionReceipt: syntheticPromotionReceipt(),
+      });
+      render(route === "daily" ? <IntegrationsRoute /> : <ScopeDetailRoute />);
+      const progress = screen.getAllByRole("list", { name: "Progress" }).at(-1)!;
+      expect(progress.querySelector('[aria-current="step"]')?.textContent).toContain("Run sync");
+      const previous = document.querySelector<HTMLAnchorElement>('a[rel="prev"]');
+      const next = document.querySelector<HTMLAnchorElement>('a[rel="next"]');
+      expect(previous).not.toBeNull();
+      expect(next).not.toBeNull();
+      for (const link of [previous!, next!]) {
+        const url = new URL(link.href);
+        expect(url.searchParams.has("promotionPreviewId")).toBe(false);
+        expect(url.searchParams.has("sentinel")).toBe(true);
+        expect(url.pathname).toBe(route === "daily" ? "/catalog/integrations" : "/catalog/scopes/sentinel");
+      }
+      expect(mockUseNavigate).not.toHaveBeenCalled();
+    },
+  );
+
   it("retains Preview evidence in place without navigating or putting its token in links", () => {
     const scopes = { items: [sourceObservationScope()], total: 1, count: 1 };
     const profileReviews = { items: [profileReview({ active: true, lifecycle: "active" })], total: 1, count: 1 };
     const requestUrl =
       "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&importScope=en:3:base:base1&profileVersion=2026.06.04";
-    mockUseLoaderData.mockReturnValue(loaderData({ data: scopes, profileReviews, requestUrl, commandFeedback: null }));
+    const data = loaderData({ data: scopes, profileReviews, requestUrl, commandFeedback: null });
+    mockUseLoaderData.mockReturnValue(data);
     mockUseRouteLoaderData.mockReturnValue({
       actor: { permissions: ["catalog.view", "catalog.manage"] },
     });
@@ -218,6 +359,8 @@ describe("Catalog integrations route", () => {
       ),
       section: "import-to-promotion",
       promotionReceipt: receipt,
+      promotionCommandPreview: data.readModel.actions.find((entry) => entry.key === "observation.promote")
+        ?.commandPreview,
     });
 
     const { rerender } = render(<IntegrationsRoute />);
@@ -307,8 +450,7 @@ describe("Catalog integrations route", () => {
       importScope: "en:3:base:base1",
       profileVersion: "2026.06.04",
       selectedObservationIds: "obs_001",
-      promotionPreviewId:
-        "preview-tcgdex_tcgdex_pokemon_card_import_en_3_base_base1_2026.06.04_en_base1_all_none_obs_001-1-1-no-fingerprint-publishable-complete.blocked0.811c9dc5",
+      promotionPreviewId: "spp1.round-trip",
     });
     const routedHref = actionResponse.headers.get("Location") ?? "";
     expect(new URL(routedHref, "https://admin.example").searchParams.get("jobId")).toBe("job_promote_round_trip");
@@ -529,6 +671,7 @@ describe("Catalog integrations route", () => {
     });
     mockCreateCatalogRequestApiClient.mockReturnValue({
       getCatalogPrimaryWorkbenchSurface,
+      getCatalogPrimaryWorkbenchDeferredImportPreview: vi.fn().mockResolvedValue(null),
       getCatalogPrimaryWorkbenchDeferredSourceOptions: vi.fn().mockRejectedValue(new Error("not under test")),
       recordCatalogControlPlaneEvent: vi.fn().mockResolvedValue({ status: "recorded" }),
     });

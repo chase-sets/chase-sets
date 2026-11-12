@@ -2,17 +2,23 @@ import { resolveActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import {
   CatalogSourceOptionQueryRefusedError,
   readCatalogPrimaryWorkbenchDeferredSourceOptions,
+  readCatalogPrimaryWorkbenchDeferredImportPreview,
   readCatalogPrimaryWorkbenchSurface,
   type CatalogPrimaryWorkbenchSurfaceKey,
   type CatalogPrimaryWorkbenchSurfaceSources,
 } from "../api/admin/primary-workbench-surface-read";
+import {
+  sourceObservationEvidenceFor,
+  type ProductContentsEvidenceLabelRows,
+} from "../api/admin/source-observation-evidence-read";
+import type { SourceObservationListItem } from "../ui/contracts";
 import { ApiError as CatalogApiError } from "../../../support/shell-support/api/client";
 
 // Test-only. The integrations loaders read their workbench from the Catalog
 // API's surface endpoints. Loader tests stub the per-projection client methods
 // (scopes, profiles, overview, review, options, ...); this wraps such a stub so
-// the two surface endpoints answer with the real API-side composition over those
-// same stubs, round-tripped through JSON like an HTTP response. The HTTP route
+// the surface endpoints and the evidence read answer with the real API-side
+// composition over those same stubs, round-tripped through JSON like an HTTP response. The HTTP route
 // itself is covered by the source-observations route tests.
 
 type StubMethod = (...args: readonly unknown[]) => Promise<unknown>;
@@ -25,7 +31,10 @@ export function withCatalogSurfaceReads<T>(client: T, request?: Request): T {
     return client;
   }
   const stub = client as StubClient;
-  const sources = async (location: URL) => stubSurfaceSources(stub, await canManageCatalog(request ?? location));
+  const sources = async (location: URL) => {
+    const actor = await resolveActor(request ?? location);
+    return { ...stubSurfaceSources(stub, actor?.permissions.includes("catalog.manage") ?? false), actor };
+  };
 
   return {
     ...stub,
@@ -41,32 +50,66 @@ export function withCatalogSurfaceReads<T>(client: T, request?: Request): T {
         const url = new URL(location, LOCATION_ORIGIN);
         return wireShape(await readCatalogPrimaryWorkbenchDeferredSourceOptions(url, await sources(url)));
       }),
+    getCatalogPrimaryWorkbenchDeferredImportPreview:
+      stub.getCatalogPrimaryWorkbenchDeferredImportPreview ??
+      (async (location: string) => {
+        const url = new URL(location, LOCATION_ORIGIN);
+        return wireShape(await readCatalogPrimaryWorkbenchDeferredImportPreview(url, await sources(url)));
+      }),
+    getSourceObservationEvidence:
+      stub.getSourceObservationEvidence ??
+      (async (observationId: string) => {
+        const observation = await callStub<SourceObservationListItem>(stub, "getSourceObservation", observationId);
+        const labels = await Promise.all([
+          callStub<{ items: ProductContentsEvidenceLabelRows["contentTypes"] }>(stub, "listProductContentTypes"),
+          callStub<{ items: ProductContentsEvidenceLabelRows["inclusionPolicies"] }>(
+            stub,
+            "listProductContentInclusionPolicies",
+          ),
+        ])
+          .then(([types, policies]) => ({ contentTypes: types.items, inclusionPolicies: policies.items }))
+          .catch(() => null);
+        const actor = await resolveActor(request ?? new URL("/catalog/integrations", LOCATION_ORIGIN));
+        const canManage = actor?.permissions.includes("catalog.manage") ?? false;
+        return wireShape({ observationId, detail: sourceObservationEvidenceFor({ observation, canManage, labels }) });
+      }),
   } as T;
 }
 
 // The API reads catalog.manage from its own actor; under test that actor is the
 // one the (mocked) auth resolver returns for the request.
-async function canManageCatalog(source: Request | URL): Promise<boolean> {
+async function resolveActor(source: Request | URL) {
   try {
     const request = source instanceof Request ? source : new Request(source);
-    const actor = await resolveActorFromAuthApi({ request });
-    return actor?.permissions.includes("catalog.manage") ?? false;
+    return await resolveActorFromAuthApi({ request });
   } catch {
-    return false;
+    return null;
   }
 }
 
+function callStub<R>(stub: StubClient, name: string, ...args: readonly unknown[]): Promise<R> {
+  const method = stub[name];
+  if (typeof method !== "function") {
+    return Promise.reject(new Error(`Synthetic Catalog client has no ${name}.`));
+  }
+  return (method as StubMethod)(...args) as Promise<R>;
+}
+
 function stubSurfaceSources(stub: StubClient, canManage: boolean): CatalogPrimaryWorkbenchSurfaceSources {
-  const call = <R>(name: string, ...args: readonly unknown[]): Promise<R> => {
-    const method = stub[name];
-    if (typeof method !== "function") {
-      return Promise.reject(new Error(`Synthetic Catalog client has no ${name}.`));
-    }
-    return (method as StubMethod)(...args) as Promise<R>;
-  };
+  const call = <R>(name: string, ...args: readonly unknown[]): Promise<R> => callStub<R>(stub, name, ...args);
 
   return {
+    listRefreshSchedules: async () =>
+      (
+        await call<{
+          items: Awaited<ReturnType<NonNullable<CatalogPrimaryWorkbenchSurfaceSources["listRefreshSchedules"]>>>;
+        }>("listCatalogProviderRefreshSchedules")
+      ).items,
     canManageCatalog: canManage,
+    previewIntegrationImport:
+      typeof stub.previewSourceObservationIntegrationImport === "function"
+        ? (scope) => call("previewSourceObservationIntegrationImport", scope)
+        : undefined,
     listIntegrationScopes: (filter) =>
       call("listSourceObservationIntegrationScopes", new URLSearchParams(filter).toString()),
     listProviderProfiles: () => call("listSourceObservationProviderProfiles"),

@@ -29,6 +29,7 @@ import {
   profileReview,
   sourceObservationListItem,
   sourceObservationScope,
+  syntheticPromotionPreviewResponse,
   syntheticPromotionReceipt,
 } from "../features/source-observations/ui/primary-workbench-test-fixtures";
 import type { CatalogIntegrationControlPlaneUnitReadiness } from "../features/source-observations/ui/contracts";
@@ -60,6 +61,7 @@ const {
   mockUseRouteLoaderData,
   mockUseActionData,
   mockUseNavigation,
+  mockHeldVerdict,
 } = vi.hoisted(() => ({
   mockCreateCatalogRequestApiClient: vi.fn(),
   mockIsTransientAuthResolutionError: vi.fn(),
@@ -69,6 +71,7 @@ const {
   mockUseRouteLoaderData: vi.fn(),
   mockUseActionData: vi.fn(),
   mockUseNavigation: vi.fn(() => ({ state: "idle" })),
+  mockHeldVerdict: vi.fn(),
 }));
 
 vi.mock("react-router", async () => {
@@ -80,6 +83,7 @@ vi.mock("react-router", async () => {
     useRouteLoaderData: mockUseRouteLoaderData,
     useActionData: mockUseActionData,
     useNavigation: mockUseNavigation,
+    useLocation: () => ({ pathname: "/catalog/integrations", search: "", hash: "", key: "synthetic-daily" }),
     useFetcher: () => ({ state: "idle", data: undefined, load: () => undefined }),
     // The import-jobs module polls live progress via useRevalidator and the daily
     // import-context form submits context changes via useSubmit; outside a data
@@ -94,8 +98,31 @@ vi.mock("../support/request-support/api-client", async () => {
     typeof import("../features/source-observations/tests/integrations-surface-read-test-client")
   >("../features/source-observations/tests/integrations-surface-read-test-client");
   return {
-    createCatalogRequestApiClient: (request: Request) =>
-      withCatalogSurfaceReads(mockCreateCatalogRequestApiClient(request), request),
+    createCatalogRequestApiClient: (request: Request) => {
+      const stub = mockCreateCatalogRequestApiClient(request);
+      const api = withCatalogSurfaceReads(stub, request);
+      if (!api || stub.getCatalogPrimaryWorkbenchSurface) return api;
+      return {
+        ...api,
+        // Legacy receipt-binding fixtures stub the new API answer, not another preview invocation.
+        // The real HTTP predicate matrix and separate unmocked router test own that contract proof.
+        getCatalogPrimaryWorkbenchSurface: async (surface: string, location: string) => {
+          const url = new URL(location, "https://admin.example");
+          const held = url.searchParams.has("promotionPreviewId");
+          url.searchParams.delete("promotionPreviewId");
+          const answer = await api.getCatalogPrimaryWorkbenchSurface(surface, `${url.pathname}${url.search}`);
+          return held
+            ? {
+                ...answer,
+                readModel: {
+                  ...answer.readModel,
+                  promotionPreview: { ...answer.readModel.promotionPreview, ...(await mockHeldVerdict(location)) },
+                },
+              }
+            : answer;
+        },
+      };
+    },
   };
 });
 
@@ -154,7 +181,11 @@ function receiptUrlFor(scopeRecordId: string | null) {
     : receiptRequestUrl;
 }
 
-function receiptRouteModel(activeProfileVersion: string | null = "2026.06.04", requestUrl = receiptRequestUrl) {
+function receiptRouteModel(
+  activeProfileVersion: string | null = "2026.06.04",
+  requestUrl = receiptRequestUrl,
+  overview: ReturnType<typeof controlPlaneOverview> | null = null,
+) {
   return buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
     requestUrl,
     scopes: { items: [sourceObservationScope()], total: 1, count: 1 },
@@ -165,7 +196,7 @@ function receiptRouteModel(activeProfileVersion: string | null = "2026.06.04", r
       total: activeProfileVersion ? 1 : 0,
       count: activeProfileVersion ? 1 : 0,
     },
-    controlPlaneOverview: null,
+    controlPlaneOverview: overview,
     canManageCatalog: true,
     reviewObservations: {
       items: [sourceObservationListItem(), sourceObservationListItem({ observation_id: "obs_002" })],
@@ -331,7 +362,336 @@ function recordSyntheticReceipt(label: string, result: CatalogIntegrationsComman
   console.info(`SYNTHETIC_RECEIPT ${label} ${JSON.stringify(result.promotionReceipt)}`);
 }
 
+// The review page every promotion in these tests is previewed and confirmed on,
+// which admin-web sends with the preview and the execution for the Catalog API
+// to bind into its token using the daily API's commandPreview descriptor.
+function pick(page: { unitKey: string; importScope: string; profileVersion: string }) {
+  return { unitKey: page.unitKey, importScope: page.importScope, profileVersion: page.profileVersion };
+}
+
+const reviewPage = {
+  unitKey: "tcgdex:pokemon:card:import",
+  importScope: "en:3:base:base1",
+  profileVersion: "2026.06.04",
+  scope: expect.objectContaining({ provider: "tcgdex", setId: "base1" }),
+};
+
 describe("Catalog integrations route", () => {
+  // A failed, old, false or mismatched authority answer never falls back to the receipt.
+  it.each(["false", "missing", "failed", "fingerprint-mismatch"])(
+    "keeps a %s verdict stale and disabled",
+    async (variant) => {
+      const readModel = receiptRouteModel();
+      const preview = syntheticPromotionPreviewResponse();
+      const read = vi.fn(async (_surface: string, location: string) => {
+        if (!new URL(location, "https://admin.example").searchParams.has("promotionPreviewId")) return { readModel };
+        if (variant === "failed") throw new Error("Synthetic private verdict failure");
+        return {
+          readModel: {
+            ...readModel,
+            promotionPreview:
+              variant === "missing"
+                ? undefined
+                : {
+                    ...readModel.promotionPreview,
+                    previewCommittable: variant !== "false",
+                    currentFingerprint: variant === "fingerprint-mismatch" ? "other-fingerprint" : preview.fingerprint,
+                  },
+          },
+        };
+      });
+      mockCreateCatalogRequestApiClient.mockReturnValue({
+        getCatalogPrimaryWorkbenchSurface: read,
+        previewBulkPromoteSourceObservationIds: vi.fn().mockResolvedValue(preview),
+      });
+      const result = await runDailyAction(
+        {
+          _intent: "observation.promote",
+          promotionPhase: "preview",
+          providerKey: "tcgdex",
+          unitKey: "tcgdex:pokemon:card:import",
+          importScope: "en:3:base:base1",
+          profileVersion: "2026.06.04",
+          selectedObservationIds: "obs_001",
+        },
+        receiptRequestUrl,
+      );
+      expect(read).toHaveBeenCalledTimes(2);
+      expect(result.promotionReceipt?.preview).toEqual(syntheticPromotionReceipt().preview);
+      const probe = renderHook(() =>
+        useOriginalPromotionReceipt(loaderData({ requestUrl: receiptRequestUrl, readModel }), result, false),
+      );
+      expect(probe.result.current.promotionPreview.freshness).toBe("stale");
+      expect(probe.result.current.promotionPreview.previewCommittable).toBe(false);
+      render(
+        <CatalogIntegrationCreateItemsStage readModel={probe.result.current} selectedObservationIds={["obs_001"]} />,
+      );
+      expect(screen.getByLabelText(/I confirm this will promote/).hasAttribute("disabled")).toBe(true);
+      expect(screen.getByRole("button", { name: "Create or update Catalog Items" }).hasAttribute("disabled")).toBe(
+        true,
+      );
+      probe.unmount();
+    },
+  );
+
+  // Server-only verdict transport must not inherit the browser's count-only cap.
+  it("reads the exact 51 selected ids rather than substituting the broader scope", async () => {
+    const ids = Array.from({ length: 51 }, (_, index) => `synthetic-observation-${index}`);
+    const readModel = receiptRouteModel();
+    const preview = syntheticPromotionPreviewResponse({
+      ...syntheticPromotionPreviewResponse(),
+      matched: 51,
+      eligible: 51,
+      validation: {
+        ...syntheticPromotionPreviewResponse().validation,
+        promoteAsDraft: true,
+        coveredObservationIds: ids,
+      },
+    });
+    const read = vi.fn(async (_surface: string, location: string) => {
+      const url = new URL(location, "https://admin.example");
+      if (!url.searchParams.has("promotionPreviewId")) return { readModel };
+      expect(url.searchParams.get("selectedObservationIds")?.split(",")).toEqual(ids);
+      expect(url.searchParams.has("selectedObservationCount")).toBe(false);
+      expect(url.searchParams.get("promotionPreviewId")).toBe("synthetic-preview-token");
+      expect(url.searchParams.get("promoteAsDraft")).toBe("true");
+      return {
+        readModel: {
+          ...readModel,
+          promotionPreview: {
+            ...readModel.promotionPreview,
+            previewCommittable: true,
+            currentFingerprint: preview.fingerprint,
+          },
+        },
+      };
+    });
+    const explicit = vi.fn().mockResolvedValue(preview);
+    const scope = vi.fn().mockRejectedValue(new Error("Broader scope must not substitute for selected ids"));
+    mockCreateCatalogRequestApiClient.mockReturnValue({
+      getCatalogPrimaryWorkbenchSurface: read,
+      previewBulkPromoteSourceObservationIds: explicit,
+      previewBulkPromoteSourceObservations: scope,
+    });
+    const result = await runDailyAction(
+      {
+        _intent: "observation.promote",
+        promotionPhase: "preview",
+        providerKey: "tcgdex",
+        unitKey: "tcgdex:pokemon:card:import",
+        importScope: "en:3:base:base1",
+        profileVersion: "2026.06.04",
+        selectedObservationIds: ids.join(","),
+        promoteAsDraft: "true",
+      },
+      receiptRequestUrl,
+    );
+    expect(read).toHaveBeenCalledTimes(2);
+    expect(scope).not.toHaveBeenCalled();
+    expect(explicit).toHaveBeenCalledExactlyOnceWith(ids, expect.objectContaining({ promoteAsDraft: true }));
+    const probe = renderHook(() =>
+      useOriginalPromotionReceipt(loaderData({ requestUrl: receiptRequestUrl, readModel }), result, false),
+    );
+    expect(probe.result.current.promotionPreview.freshness).toBe("fresh");
+    render(<CatalogIntegrationCreateItemsStage readModel={probe.result.current} selectedObservationIds={ids} />);
+    const confirm = screen.getByLabelText(/I confirm this will promote/);
+    expect(confirm.hasAttribute("disabled")).toBe(false);
+    fireEvent.click(confirm);
+    expect(screen.getByRole("button", { name: "Create or update Catalog Items" }).hasAttribute("disabled")).toBe(false);
+    probe.unmount();
+  });
+
+  // Issue #11142: accepted status URLs must survive the action's descriptor read.
+  it.each([
+    ["&status=changed", "changed"],
+    ["&status=eligible&filter.status=changed", "changed"],
+  ])("round-trips scope status through the real daily read: %s", async (query, status) => {
+    const requestUrl = receiptRequestUrl + query;
+    const previewBulkPromoteSourceObservations = vi.fn().mockResolvedValue(syntheticPromotionPreviewResponse());
+    mockCreateCatalogRequestApiClient.mockReturnValue({
+      listSourceObservationIntegrationScopes: vi.fn().mockResolvedValue({
+        items: [sourceObservationScope()],
+        total: 1,
+        count: 1,
+      }),
+      listSourceObservationProviderProfiles: vi.fn().mockResolvedValue({
+        items: [profileReview({ active: true, lifecycle: "active", profileVersion: "2026.06.04" })],
+        total: 1,
+        count: 1,
+      }),
+      getCatalogIntegrationControlPlaneOverview: vi.fn().mockResolvedValue(null),
+      listSourceObservations: vi.fn().mockResolvedValue({ items: [], total: 0, count: 0 }),
+      previewBulkPromoteSourceObservations,
+    });
+    const result = await runDailyAction(
+      {
+        _intent: "observation.promote",
+        promotionPhase: "preview",
+        providerKey: "tcgdex",
+        unitKey: "tcgdex:pokemon:card:import",
+        importScope: "en:3:base:base1",
+        profileVersion: "2026.06.04",
+      },
+      requestUrl,
+    );
+    expect(previewBulkPromoteSourceObservations).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ status }), {
+      promoteAsDraft: false,
+      confirmation: expect.objectContaining({ scope: expect.objectContaining({ status }) }),
+    });
+    const data = loaderData({ requestUrl, readModel: receiptRouteModel("2026.06.04", requestUrl) });
+    const probe = renderHook(() => useOriginalPromotionReceipt(data, result, false));
+    expect(probe.result.current.promotionPreview.executionSafeguards.previewFresh).toBe(true);
+    probe.unmount();
+  });
+
+  // Issue #11142: distinctive API values reveal any remaining route-side promotion authority.
+  it("forwards the submitted row's API descriptor and keeps its original receipt confirmable", async () => {
+    const requestUrl = receiptRequestUrl;
+    const readModel = receiptRouteModel();
+    const scope = {
+      provider: "tcgdex",
+      language: "synthetic-api-language",
+      search: "synthetic-api-query",
+      status: "eligible",
+    };
+    const commandPreview = {
+      scope,
+      confirmation: {
+        unitKey: "tcgdex:pokemon:card:import",
+        importScope: "en:3:base:base1",
+        profileVersion: "2026.06.04",
+        scope,
+      },
+      allowScopeSelection: false,
+    };
+    const authoritative = {
+      ...readModel,
+      promotionPreview: {
+        ...readModel.promotionPreview,
+        previewCommittable: true,
+        currentFingerprint: "synthetic-fingerprint-a",
+      },
+      actions: readModel.actions.map((entry) =>
+        entry.key === "observation.promote" ? { ...entry, commandPreview } : entry,
+      ),
+    };
+    const getCatalogPrimaryWorkbenchSurface = vi.fn().mockResolvedValue({ readModel: authoritative });
+    const previewBulkPromoteSourceObservationIds = vi.fn().mockResolvedValue(syntheticPromotionPreviewResponse());
+    const previewBulkPromoteSourceObservations = vi.fn();
+    mockCreateCatalogRequestApiClient.mockReturnValue({
+      getCatalogPrimaryWorkbenchSurface,
+      previewBulkPromoteSourceObservationIds,
+      previewBulkPromoteSourceObservations,
+    });
+    const result = await runDailyAction(
+      {
+        _intent: "observation.promote",
+        promotionPhase: "preview",
+        providerKey: "tcgdex",
+        unitKey: "tcgdex:pokemon:card:import",
+        importScope: "en:3:base:base1",
+        profileVersion: "2026.06.04",
+        selectedObservationIds: "obs_001",
+        commandPreview: JSON.stringify({ ...commandPreview, scope: { provider: "synthetic-forged-provider" } }),
+      },
+      "https://admin.example/catalog/integrations?providerKey=synthetic-stale-provider&profileVersion=synthetic-stale-profile&promotionPreviewId=synthetic-held-token",
+    );
+    expect(getCatalogPrimaryWorkbenchSurface).toHaveBeenCalledTimes(2);
+    const [surface, location] = getCatalogPrimaryWorkbenchSurface.mock.calls[0]!;
+    expect(surface).toBe("daily");
+    const submitted = new URL(location, "https://admin.example");
+    expect(submitted.searchParams.get("providerKey")).toBe("tcgdex");
+    expect(submitted.searchParams.get("profileVersion")).toBe("2026.06.04");
+    expect(submitted.searchParams.get("promotionPreviewId")).toBeNull();
+    expect(previewBulkPromoteSourceObservationIds).toHaveBeenCalledWith(["obs_001"], {
+      promoteAsDraft: false,
+      confirmation: commandPreview.confirmation,
+    });
+    expect(previewBulkPromoteSourceObservations).not.toHaveBeenCalled();
+    expect(result.promotionReceipt?.selection.scope).toEqual(scope);
+    const data = loaderData({ requestUrl, readModel: authoritative });
+    const positive = renderHook(() => useOriginalPromotionReceipt(data, result, false));
+    expect(positive.result.current.promotionPreview.executionSafeguards.previewFresh).toBe(true);
+    positive.unmount();
+    const changed = { ...commandPreview, scope: { ...scope, search: "synthetic-descriptor-drift" } };
+    for (const [currentModel, actionResult] of [
+      [
+        {
+          ...authoritative,
+          actions: authoritative.actions.map((entry) =>
+            entry.key === "observation.promote" ? { ...entry, commandPreview: changed } : entry,
+          ),
+        },
+        result,
+      ],
+      [authoritative, { ...result, promotionCommandPreview: changed }],
+    ] as const) {
+      const probe = renderHook(() =>
+        useOriginalPromotionReceipt({ ...data, readModel: currentModel }, actionResult, false),
+      );
+      expect(probe.result.current.promotionPreview.executionSafeguards.previewFresh).toBe(false);
+      expect(probe.result.current.promotionPreview.receipt).toEqual(result.promotionReceipt);
+      probe.unmount();
+    }
+  });
+
+  it("fails closed on missing promotion reads or descriptors and refuses disallowed scope selection", async () => {
+    for (const phase of ["preview", "execute"]) {
+      for (const answer of [
+        null,
+        { readModel: { actions: [] } },
+        { readModel: { actions: [{ key: "observation.promote" }] } },
+        new Error("synthetic read failure"),
+      ]) {
+        const getCatalogPrimaryWorkbenchSurface =
+          answer instanceof Error ? vi.fn().mockRejectedValue(answer) : vi.fn().mockResolvedValue(answer);
+        const previewBulkPromoteSourceObservationIds = vi.fn();
+        const bulkPromoteSourceObservations = vi.fn();
+        mockCreateCatalogRequestApiClient.mockReturnValue({
+          getCatalogPrimaryWorkbenchSurface,
+          previewBulkPromoteSourceObservationIds,
+          bulkPromoteSourceObservations,
+        });
+        const result = await runDailyAction({
+          _intent: "observation.promote",
+          promotionPhase: phase,
+          selectedObservationIds: "obs_001",
+          promotionPreviewId: "synthetic-original-token",
+        });
+        expect(result.feedback).toMatchObject({
+          status: "error",
+          result: phase === "preview" ? "command-failed" : "preview-required",
+        });
+        expect(result.context.promotionPreviewId).toBeNull();
+        expect(result.promotionReceipt).toBeUndefined();
+        expect(previewBulkPromoteSourceObservationIds).not.toHaveBeenCalled();
+        expect(bulkPromoteSourceObservations).not.toHaveBeenCalled();
+      }
+    }
+    const commandPreview = {
+      scope: { provider: "synthetic-api-provider" },
+      confirmation: { unitKey: null, importScope: null, profileVersion: null, scope: {} },
+      allowScopeSelection: false,
+    };
+    const getCatalogPrimaryWorkbenchSurface = vi
+      .fn()
+      .mockResolvedValue({ readModel: { actions: [{ key: "observation.promote", commandPreview }] } });
+    const previewBulkPromoteSourceObservations = vi.fn();
+    mockCreateCatalogRequestApiClient.mockReturnValue({
+      getCatalogPrimaryWorkbenchSurface,
+      previewBulkPromoteSourceObservations,
+    });
+    const result = await runDailyAction({
+      _intent: "observation.promote",
+      promotionPhase: "preview",
+      providerKey: "tcgdex",
+      unitKey: "tcgdex:pokemon:card:import",
+      importScope: "en:3:base:base1",
+    });
+    expect(result.feedback.result).toBe("command-failed");
+    expect(previewBulkPromoteSourceObservations).not.toHaveBeenCalled();
+  });
+
   it.each([null, "synthetic-scope-record"])(
     "preserves working selection B when deferred Preview A settles under scope %s",
     async (scopeRecordId) => {
@@ -362,7 +722,7 @@ describe("Catalog integrations route", () => {
       expect(screen.getByTestId("receipt-action-transition").getAttribute("data-state")).toBe("submitting");
       expect(screen.getByLabelText(/I confirm this will promote/).hasAttribute("disabled")).toBe(true);
       changeWorkingSelection(scopeKey, "obs_001", "obs_002");
-      resolvePreview(syntheticPromotionReceipt().preview);
+      resolvePreview(syntheticPromotionPreviewResponse());
       await waitFor(() =>
         expect(screen.getByTestId("receipt-action-transition").getAttribute("data-state")).toBe("idle"),
       );
@@ -388,7 +748,9 @@ describe("Catalog integrations route", () => {
       changeWorkingSelection(scopeKey, "obs_001", "obs_002");
       const previewB = syntheticPromotionReceipt().preview;
       previewB.validation.coveredObservationIds = ["obs_002"];
-      previewBulkPromoteSourceObservationIds.mockResolvedValueOnce(previewB);
+      previewBulkPromoteSourceObservationIds.mockResolvedValueOnce(
+        syntheticPromotionPreviewResponse(previewB, "synthetic-preview-token-b"),
+      );
       fireEvent.submit(receiptPreviewButton().form!);
       await waitFor(() => expect(confirmation.hasAttribute("disabled")).toBe(false));
       const resultB = mockUseActionData();
@@ -459,7 +821,7 @@ describe("Catalog integrations route", () => {
       fireEvent.submit(receiptPreviewButton().form!);
       await waitFor(() => expect(previewBulkPromoteSourceObservationIds).toHaveBeenCalledTimes(1));
       expect(screen.getByTestId("receipt-action-transition").getAttribute("data-state")).toBe("submitting");
-      resolvePreview(original);
+      resolvePreview(syntheticPromotionPreviewResponse(original));
       await waitFor(() =>
         expect(screen.getByTestId("receipt-action-transition").getAttribute("data-state")).toBe("idle"),
       );
@@ -484,7 +846,7 @@ describe("Catalog integrations route", () => {
       expect(commit.disabled).toBe(true);
       expectOriginalReceipt(result, "stale");
       expect(previewBulkPromoteSourceObservationIds).toHaveBeenCalledTimes(1);
-      previewBulkPromoteSourceObservationIds.mockResolvedValueOnce(original);
+      previewBulkPromoteSourceObservationIds.mockResolvedValueOnce(syntheticPromotionPreviewResponse(original));
       fireEvent.submit(receiptPreviewButton().form!);
       await waitFor(() => expect(confirmation.hasAttribute("disabled")).toBe(false));
       expect(commit.disabled).toBe(true);
@@ -536,7 +898,7 @@ describe("Catalog integrations route", () => {
       openReceiptStage("create-items");
       expect(screen.getByLabelText(/I confirm this will promote/).hasAttribute("disabled")).toBe(true);
       if (restoreWhilePending) rerender(harness(matching));
-      resolvePreview(original);
+      resolvePreview(syntheticPromotionPreviewResponse(original));
       await waitFor(() =>
         expect(screen.getByTestId("receipt-action-transition").getAttribute("data-state")).toBe("idle"),
       );
@@ -554,7 +916,7 @@ describe("Catalog integrations route", () => {
       expect(confirmation.hasAttribute("disabled")).toBe(true);
       expect(commit.disabled).toBe(true);
       expect(previewBulkPromoteSourceObservationIds).toHaveBeenCalledTimes(1);
-      previewBulkPromoteSourceObservationIds.mockResolvedValueOnce(original);
+      previewBulkPromoteSourceObservationIds.mockResolvedValueOnce(syntheticPromotionPreviewResponse(original));
       fireEvent.submit(receiptPreviewButton().form!);
       await waitFor(() => expect(confirmation.hasAttribute("disabled")).toBe(false));
       expectOriginalReceipt(mockUseActionData(), "fresh");
@@ -634,34 +996,48 @@ describe("Catalog integrations route", () => {
     ]);
   });
 
-  it("refuses ineligible units, mixed coordinates and unsupported product languages before enqueue", async () => {
+  // Whether a product coordinate may be imported on its own is the Catalog API's rule
+  // (product-coordinate-import-guard.test.ts); the page sends the unit's scope and says the refusal.
+  it("sends a product import to the Catalog API and says its refusal", async () => {
+    const enqueueSourceObservationIntegrationJob = vi
+      .fn()
+      .mockRejectedValue(new CatalogApiError(400, { error: { code: "invalid_scope" } }));
+    mockCreateCatalogRequestApiClient.mockReturnValue({ enqueueSourceObservationIntegrationJob });
+
+    const result = await runDailyAction({
+      _intent: "scope.import",
+      providerKey: "ygojson",
+      unitKey: "ygojson:yugioh:set:reference-data",
+      languageCode: "en",
+      productId: "synthetic-product",
+      expansionId: "synthetic-set",
+    });
+
+    expect(result.feedback.status).toBe("error");
+    expect(enqueueSourceObservationIntegrationJob).toHaveBeenCalledWith(
+      "import",
+      expect.objectContaining({
+        provider: "ygojson",
+        ingestionUnitKey: "ygojson:yugioh:set:reference-data",
+        language: "en",
+        setId: "synthetic-set",
+        productId: "synthetic-product",
+      }),
+    );
+  });
+
+  it("refuses a product import without a unit or with a contradicting language filter before enqueue", async () => {
     const enqueueSourceObservationIntegrationJob = vi.fn();
     mockCreateCatalogRequestApiClient.mockReturnValue({ enqueueSourceObservationIntegrationJob });
-    const invalidProductScopes: readonly Record<string, string>[] = [
-      { unitKey: "tcgdex:pokemon:card:import" },
-      { unitKey: "" },
-      { unitKey: "ygojson:yugioh:sealed-product:reference-data", expansionId: "synthetic-set" },
-      { unitKey: "ygojson:yugioh:sealed-product:reference-data", productLineName: "synthetic-mixed-name" },
-      { unitKey: "ygojson:yugioh:sealed-product:reference-data", seriesName: "synthetic-mixed-name" },
-      { unitKey: "ygojson:yugioh:sealed-product:reference-data", languageCode: "ja" },
-      { unitKey: "ygojson:yugioh:sealed-product:reference-data", profileVersion: "synthetic-inactive-version" },
-      { unitKey: "ygojson:yugioh:set:reference-data" },
-      {
-        providerKey: "tcgplayer",
-        unitKey: "tcgplayer:pokemon:sealed-product:source-observation-import",
-      },
-    ];
-    for (const fields of invalidProductScopes) {
-      const result = await runDailyAction({
-        _intent: "scope.import",
-        providerKey: "ygojson",
-        languageCode: "en",
-        productId: "synthetic-product",
-        ...fields,
-      });
-      expect(result.feedback.status).toBe("error");
-      expect(enqueueSourceObservationIntegrationJob).not.toHaveBeenCalled();
-    }
+    const missingUnitResult = await runDailyAction({
+      _intent: "scope.import",
+      providerKey: "ygojson",
+      unitKey: "",
+      languageCode: "en",
+      productId: "synthetic-product",
+    });
+    expect(missingUnitResult.feedback.status).toBe("error");
+    expect(enqueueSourceObservationIntegrationJob).not.toHaveBeenCalled();
 
     const conflictingFilterResult = await runDailyAction(
       {
@@ -687,6 +1063,7 @@ describe("Catalog integrations route", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    mockHeldVerdict.mockResolvedValue({ previewCommittable: true, currentFingerprint: "synthetic-fingerprint-a" });
     mockIsTransientAuthResolutionError.mockReturnValue(false);
     mockUseNavigation.mockReturnValue({ state: "idle" });
     mockResolveActorFromAuthApi.mockResolvedValue({
@@ -740,6 +1117,240 @@ describe("Catalog integrations route", () => {
         promotionResult: "job-queued",
       }),
     );
+  });
+
+  it("reads the daily import receipt DOM against the actual returned job and sent scope without changing loader context", async () => {
+    const enqueueSourceObservationIntegrationJob = vi.fn().mockResolvedValue({
+      jobId: "synthetic-returned-job-A",
+      status: "running",
+      profileVersion: "synthetic-effective-profile-not-submitted",
+      scope: { setId: "synthetic-response-scope-not-sent" },
+    });
+    mockCreateCatalogRequestApiClient.mockReturnValue({ enqueueSourceObservationIntegrationJob });
+    const result = await runDailyAction(
+      {
+        _intent: "scope.import",
+        providerKey: "tcgdex",
+        unitKey: "tcgdex:pokemon:card:import",
+        importScope: "en:3:base:base1",
+        profileVersion: "2026.06.04",
+        jobId: "synthetic-submitted-job",
+      },
+      receiptRequestUrl + "&jobId=synthetic-url-job",
+    );
+    const requestUrl = receiptRequestUrl + "&jobId=synthetic-loader-sync-run";
+    const baseOverview = controlPlaneOverview();
+    const overview = controlPlaneOverview({
+      unitActivity: {
+        ...baseOverview.unitActivity,
+        units: [
+          {
+            unitKey: "tcgdex:pokemon:card:import",
+            recentJobs: [integrationJobSummary({ jobId: "synthetic-newer-job-B", startedAt: "2026-11-06T20:00:00Z" })],
+          },
+        ],
+      },
+    });
+    const readModel = receiptRouteModel("2026.06.04", requestUrl, overview);
+    const originalModel = structuredClone(readModel);
+    mockUseLoaderData.mockReturnValue(loaderData({ requestUrl, readModel }));
+    mockUseActionData.mockReturnValue(undefined);
+    const { rerender } = render(<IntegrationsRoute />);
+    const hiddenJobIds = () =>
+      [...document.querySelectorAll<HTMLInputElement>('input[name="jobId"]')].map((field) => field.value);
+    const originalHiddenJobIds = hiddenJobIds();
+    expect(originalHiddenJobIds).toContain("synthetic-loader-sync-run");
+    mockUseActionData.mockReturnValue(result);
+    rerender(<IntegrationsRoute />);
+    const root = document.querySelector('[data-catalog-import-job-receipt="source-observation-import-job-receipt/v1"]');
+    expect(root).not.toBeNull();
+    expect(isInaccessible(root!)).toBe(false);
+    const expected = {
+      schemaVersion: "source-observation-import-job-receipt/v1",
+      jobId: "synthetic-returned-job-A",
+      status: "running",
+      scope: enqueueSourceObservationIntegrationJob.mock.calls[0]![1],
+      submitted: { providerKey: "tcgdex", unitKey: "tcgdex:pokemon:card:import", profileVersion: "2026.06.04" },
+    };
+    expect(readOriginalReceiptDom(root!)).toEqual(expected);
+    expect(result).toMatchObject({ importJobReceipt: expected });
+    for (const excluded of [
+      "synthetic-submitted-job",
+      "synthetic-url-job",
+      "synthetic-loader-sync-run",
+      "synthetic-newer-job-B",
+      "synthetic-effective-profile-not-submitted",
+      "synthetic-response-scope-not-sent",
+    ]) {
+      expect(root!.textContent).not.toContain(excluded);
+    }
+    expect(readModel).toEqual(originalModel);
+    expect(readModel.importJobs.jobs.map((job) => job.jobId)).toContain("synthetic-newer-job-B");
+    expect(document.querySelector('[data-catalog-import-job-id="synthetic-newer-job-B"]')).not.toBeNull();
+    expect(hiddenJobIds()).toEqual(originalHiddenJobIds);
+    for (const link of document.querySelectorAll<HTMLAnchorElement>("a[href]")) {
+      expect(link.href).not.toContain("synthetic-returned-job-A");
+    }
+    expect(mockUseNavigate).not.toHaveBeenCalled();
+    expect(enqueueSourceObservationIntegrationJob).toHaveBeenCalledTimes(1);
+    const clientCalls = mockCreateCatalogRequestApiClient.mock.calls.length;
+    mockUseActionData.mockReturnValue(null);
+    rerender(<IntegrationsRoute />);
+    expect(readOriginalReceiptDom(document.querySelector("[data-catalog-import-job-receipt]")!)).toEqual(expected);
+    mockUseNavigation.mockReturnValue({ state: "submitting" });
+    rerender(<IntegrationsRoute />);
+    expect(document.querySelector("[data-catalog-import-job-receipt]")).toBeNull();
+    mockUseActionData.mockReturnValue({
+      ...result,
+      feedback: { ...result.feedback, intent: "observation.review", result: "command-failed", status: "error" },
+    });
+    mockUseNavigation.mockReturnValue({ state: "idle" });
+    rerender(<IntegrationsRoute />);
+    expect(document.querySelector("[data-catalog-import-job-receipt]")).toBeNull();
+    mockUseActionData.mockReturnValue(undefined);
+    rerender(<IntegrationsRoute />);
+    expect(document.querySelector("[data-catalog-import-job-receipt]")).toBeNull();
+    expect(mockCreateCatalogRequestApiClient).toHaveBeenCalledTimes(clientCalls);
+  });
+
+  it("shows no receipt while the actual import enqueue is pending, then shows its settled response", async () => {
+    let settle!: (job: { jobId: string; status: string }) => void;
+    const enqueueSourceObservationIntegrationJob = vi.fn().mockReturnValue(
+      new Promise((resolve) => {
+        settle = resolve;
+      }),
+    );
+    mockCreateCatalogRequestApiClient.mockReturnValue({ enqueueSourceObservationIntegrationJob });
+    const pendingAction = runDailyAction({
+      _intent: "scope.import",
+      providerKey: "tcgdex",
+      unitKey: "tcgdex:pokemon:card:import",
+      importScope: "en:3:base:base1",
+      profileVersion: "2026.06.04",
+    });
+    mockUseLoaderData.mockReturnValue(loaderData({ requestUrl: receiptRequestUrl, readModel: receiptRouteModel() }));
+    mockUseActionData.mockReturnValue(undefined);
+    mockUseNavigation.mockReturnValue({ state: "submitting" });
+    const view = render(<IntegrationsRoute />);
+    expect(document.querySelector("[data-catalog-import-job-receipt]")).toBeNull();
+    settle({ jobId: "synthetic-settled-job", status: "queued" });
+    const result = await pendingAction;
+    mockUseActionData.mockReturnValue(result);
+    mockUseNavigation.mockReturnValue({ state: "idle" });
+    view.rerender(<IntegrationsRoute />);
+    const root = document.querySelector("[data-catalog-import-job-receipt]");
+    expect(root).not.toBeNull();
+    expect(readOriginalReceiptDom(root!)).toMatchObject({
+      jobId: "synthetic-settled-job",
+      status: "queued",
+      scope: enqueueSourceObservationIntegrationJob.mock.calls[0]![1],
+      submitted: { providerKey: "tcgdex", unitKey: "tcgdex:pokemon:card:import", profileVersion: "2026.06.04" },
+    });
+    expect(enqueueSourceObservationIntegrationJob).toHaveBeenCalledTimes(1);
+    expect(mockUseNavigate).not.toHaveBeenCalled();
+  });
+
+  it.each([undefined, "", 42])(
+    "shows unavailable for producer job ID %s, never the non-null submitted fallback",
+    async (jobId) => {
+      const enqueueSourceObservationIntegrationJob = vi.fn().mockResolvedValue({ jobId, status: "queued" });
+      mockCreateCatalogRequestApiClient.mockReturnValue({ enqueueSourceObservationIntegrationJob });
+      const result = await runDailyAction({
+        _intent: "scope.import",
+        providerKey: "tcgdex",
+        unitKey: "tcgdex:pokemon:card:import",
+        importScope: "en:3:base:base1",
+        profileVersion: "2026.06.04",
+        jobId: "synthetic-fallback-must-not-render",
+      });
+      mockUseLoaderData.mockReturnValue(loaderData({ requestUrl: receiptRequestUrl, readModel: receiptRouteModel() }));
+      mockUseActionData.mockReturnValue(result);
+      render(<IntegrationsRoute />);
+      const root = document.querySelector("[data-catalog-import-job-receipt]");
+      expect(root).not.toBeNull();
+      expect(readOriginalReceiptDom(root!)).toMatchObject({ jobId: null, status: "queued" });
+      expect(root!.querySelector('[data-catalog-receipt-field="jobId"]')!.textContent).toMatch(
+        /not returned|unavailable/i,
+      );
+      expect(root!.textContent).not.toContain("synthetic-fallback-must-not-render");
+    },
+  );
+
+  it.each([undefined, 42])("shows unavailable for producer status %s without inventing queued", async (status) => {
+    const enqueueSourceObservationIntegrationJob = vi.fn().mockResolvedValue({ jobId: "synthetic-status-job", status });
+    mockCreateCatalogRequestApiClient.mockReturnValue({ enqueueSourceObservationIntegrationJob });
+    const result = await runDailyAction({
+      _intent: "scope.import",
+      providerKey: "tcgdex",
+      unitKey: "tcgdex:pokemon:card:import",
+      importScope: "en:3:base:base1",
+    });
+    mockUseLoaderData.mockReturnValue(loaderData({ requestUrl: receiptRequestUrl, readModel: receiptRouteModel() }));
+    mockUseActionData.mockReturnValue(result);
+    render(<IntegrationsRoute />);
+    const root = document.querySelector("[data-catalog-import-job-receipt]");
+    expect(root).not.toBeNull();
+    expect(readOriginalReceiptDom(root!)).toMatchObject({ jobId: "synthetic-status-job", status: null });
+    expect(root!.querySelector('[data-catalog-receipt-field="status"]')!.textContent).toMatch(
+      /not returned|unavailable/i,
+    );
+  });
+
+  it("renders only allowed escaped import receipt scalars and excludes injected response extras", async () => {
+    const jobId = '<img src=x onerror="synthetic()">';
+    const status = "<script>synthetic()</script>";
+    const enqueueSourceObservationIntegrationJob = vi.fn().mockResolvedValue({
+      jobId,
+      status,
+      nested: { jobId: "synthetic-nested-secret" },
+      headers: "synthetic-header-secret",
+      credentials: "synthetic-credential-secret",
+      error: { detail: "synthetic-error-secret" },
+    });
+    mockCreateCatalogRequestApiClient.mockReturnValue({ enqueueSourceObservationIntegrationJob });
+    const result = await runDailyAction({
+      _intent: "scope.import",
+      providerKey: "tcgdex",
+      unitKey: "tcgdex:pokemon:card:import",
+      importScope: "en:3:base:base1",
+      profileVersion: "2026.06.04",
+    });
+    mockUseLoaderData.mockReturnValue(loaderData({ requestUrl: receiptRequestUrl, readModel: receiptRouteModel() }));
+    mockUseActionData.mockReturnValue(result);
+    render(<IntegrationsRoute />);
+    const root = document.querySelector("[data-catalog-import-job-receipt]");
+    expect(root).not.toBeNull();
+    expect(readOriginalReceiptDom(root!)).toEqual({
+      schemaVersion: "source-observation-import-job-receipt/v1",
+      jobId,
+      status,
+      scope: enqueueSourceObservationIntegrationJob.mock.calls[0]![1],
+      submitted: { providerKey: "tcgdex", unitKey: "tcgdex:pokemon:card:import", profileVersion: "2026.06.04" },
+    });
+    expect(root!.querySelector("img,script,a")).toBeNull();
+    expect(root!.innerHTML).toContain("&lt;img");
+    expect(root!.textContent).not.toContain("secret");
+    expect(JSON.stringify(result)).not.toContain("synthetic-credential-secret");
+  });
+
+  it("never renders import job identity for failed or refused actual actions", async () => {
+    const enqueueSourceObservationIntegrationJob = vi.fn().mockRejectedValue(new Error("synthetic-failed-identity"));
+    mockCreateCatalogRequestApiClient.mockReturnValue({ enqueueSourceObservationIntegrationJob });
+    for (const providerKey of ["tcgdex", ""]) {
+      const result = await runDailyAction({
+        _intent: "scope.import",
+        providerKey,
+        unitKey: "tcgdex:pokemon:card:import",
+        importScope: "en:3:base:base1",
+        jobId: "synthetic-failed-identity",
+      });
+      expect(result.feedback.status).toBe("error");
+      mockUseLoaderData.mockReturnValue(loaderData({ requestUrl: receiptRequestUrl, readModel: receiptRouteModel() }));
+      mockUseActionData.mockReturnValue(result);
+      const view = render(<IntegrationsRoute />);
+      expect(document.querySelector("[data-catalog-import-job-receipt]")).toBeNull();
+      view.unmount();
+    }
   });
 
   it("enqueues a scope-first Catalog sync run and carries the parent run id", async () => {
@@ -1066,13 +1677,14 @@ describe("Catalog integrations route", () => {
     });
   });
 
-  it("preserves selected IDs while creating a scoped promotion preview token", async () => {
+  it("preserves selected IDs while carrying the Catalog API's promotion preview token", async () => {
     const previewBulkPromoteSourceObservationIds = vi.fn().mockResolvedValue({
       matched: 1,
       eligible: 1,
       terminal: 0,
       validation: emptyPromotionValidation(),
       scope: { provider: "tcgdex", language: "en", setId: "base1", status: "changed", search: "" },
+      previewToken: "spp1.selected",
     });
     mockCreateCatalogRequestApiClient.mockReturnValue({ previewBulkPromoteSourceObservationIds });
 
@@ -1087,16 +1699,23 @@ describe("Catalog integrations route", () => {
       },
       "https://admin.example/catalog/integrations?filter.status=changed",
     );
-    expect(previewBulkPromoteSourceObservationIds).toHaveBeenCalledWith(["obs_001"], { promoteAsDraft: false });
+    expect(previewBulkPromoteSourceObservationIds).toHaveBeenCalledWith(["obs_001"], {
+      promoteAsDraft: false,
+      confirmation: {
+        unitKey: "tcgdex:pokemon:card:import",
+        importScope: "en:3:base:base1",
+        profileVersion: "2026.06.04",
+        scope: expect.objectContaining({ provider: "tcgdex", setId: "base1" }),
+      },
+    });
     expect(result.context.selectedObservationIds).toEqual(["obs_001"]);
     expect(result.feedback.result).toBe("preview-ready");
-    expect(result.context.promotionPreviewId).toBe(
-      "preview-tcgdex_tcgdex_pokemon_card_import_en_3_base_base1_2026.06.04_en_base1_changed_none_obs_001-1-1-no-fingerprint-publishable-complete.blocked0.811c9dc5",
-    );
+    expect(result.context.promotionPreviewId).toBe("spp1.selected");
   });
 
   it("renders the original action receipt instead of loader validation and keeps its token out of links", async () => {
     window.sessionStorage.clear();
+    mockHeldVerdict.mockResolvedValue({ previewCommittable: false, currentFingerprint: "synthetic-fingerprint-a" });
     const original = syntheticPromotionReceipt().preview;
     original.matched = 7;
     original.terminal = 6;
@@ -1117,7 +1736,9 @@ describe("Catalog integrations route", () => {
         },
       },
     ];
-    const previewBulkPromoteSourceObservationIds = vi.fn().mockResolvedValue(original);
+    const previewBulkPromoteSourceObservationIds = vi
+      .fn()
+      .mockResolvedValue(syntheticPromotionPreviewResponse(original));
     mockCreateCatalogRequestApiClient.mockReturnValue({ previewBulkPromoteSourceObservationIds });
     const result = await runDailyAction({
       _intent: "observation.promote",
@@ -1273,7 +1894,9 @@ describe("Catalog integrations route", () => {
   it("binds confirmation and execute to the action token, invalidates observed drift, and rebinds only a new Preview", async () => {
     window.sessionStorage.clear();
     const original = syntheticPromotionReceipt().preview;
-    const previewBulkPromoteSourceObservationIds = vi.fn().mockResolvedValue(original);
+    const previewBulkPromoteSourceObservationIds = vi
+      .fn()
+      .mockResolvedValue(syntheticPromotionPreviewResponse(original));
     const bulkPromoteSourceObservations = vi.fn().mockResolvedValue({ jobId: "synthetic-receipt-job" });
     mockCreateCatalogRequestApiClient.mockReturnValue({
       previewBulkPromoteSourceObservationIds,
@@ -1357,13 +1980,16 @@ describe("Catalog integrations route", () => {
     expect(submitted.promotionPreviewId).toBe(renewed.promotionReceipt?.previewId);
     const queued = await runDailyActionRedirect(submitted, requestUrl);
     expect(redirectLocation(queued).searchParams.get("jobId")).toBe("synthetic-receipt-job");
-    expect(bulkPromoteSourceObservations).toHaveBeenCalledWith(["obs_001"], { promoteAsDraft: false });
+    expect(bulkPromoteSourceObservations).toHaveBeenCalledWith(
+      ["obs_001"],
+      expect.objectContaining({ promoteAsDraft: false, previewToken: renewed.promotionReceipt!.previewId }),
+    );
     expect(JSON.stringify(window.sessionStorage)).not.toContain(original.fingerprint);
     expect(JSON.stringify(window.sessionStorage)).not.toContain(renewed.promotionReceipt!.previewId);
   });
 
   it("retains Scope Detail Preview data while preserving its queued-job handoff", async () => {
-    const previewBulkPromoteSourceObservationIds = vi.fn().mockResolvedValue(syntheticPromotionReceipt().preview);
+    const previewBulkPromoteSourceObservationIds = vi.fn().mockResolvedValue(syntheticPromotionPreviewResponse());
     const bulkPromoteSourceObservations = vi.fn().mockResolvedValue({ jobId: "synthetic-scope-receipt-job" });
     mockCreateCatalogRequestApiClient.mockReturnValue({
       previewBulkPromoteSourceObservationIds,
@@ -1397,7 +2023,7 @@ describe("Catalog integrations route", () => {
   });
 
   it("independently refuses mismatched action and loader bindings without substituting original evidence", async () => {
-    const previewBulkPromoteSourceObservationIds = vi.fn().mockResolvedValue(syntheticPromotionReceipt().preview);
+    const previewBulkPromoteSourceObservationIds = vi.fn().mockResolvedValue(syntheticPromotionPreviewResponse());
     mockCreateCatalogRequestApiClient.mockReturnValue({ previewBulkPromoteSourceObservationIds });
     const actionResult = await runDailyAction({
       _intent: "observation.promote",
@@ -1530,6 +2156,7 @@ describe("Catalog integrations route", () => {
       terminal: 0,
       validation: emptyPromotionValidation(),
       scope: { provider: "tcgdex", language: "en", setId: "base1", status: "", search: "" },
+      previewToken: "spp1.scope",
     });
     mockCreateCatalogRequestApiClient.mockReturnValue({ previewBulkPromoteSourceObservations });
 
@@ -1549,12 +2176,10 @@ describe("Catalog integrations route", () => {
         expansionId: "base1",
         setId: "base1",
       },
-      { promoteAsDraft: false },
+      { promoteAsDraft: false, confirmation: reviewPage },
     );
     expect(result.feedback.result).toBe("preview-ready");
-    expect(result.context.promotionPreviewId).toBe(
-      "preview-tcgdex_tcgdex_pokemon_card_import_en_3_base_base1_2026.06.04_en_base1_all_none_filtered-124-124-no-fingerprint-publishable-complete.blocked0.811c9dc5",
-    );
+    expect(result.context.promotionPreviewId).toBe("spp1.scope");
   });
 
   it("fails closed when a scope preview has provider and unit but no concrete scope", async () => {
@@ -2119,14 +2744,8 @@ describe("Catalog integrations route", () => {
     expect(result.feedback.result).toBe("preview-required");
   });
 
-  it("executes promotion only when the live preview token matches the submitted context", async () => {
-    const previewBulkPromoteSourceObservationIds = vi.fn().mockResolvedValue({
-      matched: 1,
-      eligible: 1,
-      terminal: 0,
-      validation: emptyPromotionValidation(),
-      scope: { provider: "tcgdex", language: "en", setId: "base1", status: "changed", search: "" },
-    });
+  it("executes promotion with the submitted preview token and leaves the freshness check to the Catalog API", async () => {
+    const previewBulkPromoteSourceObservationIds = vi.fn();
     const bulkPromoteSourceObservations = vi.fn().mockResolvedValue({ jobId: "job_promote_123" });
     mockCreateCatalogRequestApiClient.mockReturnValue({
       bulkPromoteSourceObservations,
@@ -2140,35 +2759,24 @@ describe("Catalog integrations route", () => {
       importScope: "en:3:base:base1",
       profileVersion: "2026.06.04",
       selectedObservationIds: "obs_001",
-      promotionPreviewId:
-        "preview-tcgdex_tcgdex_pokemon_card_import_en_3_base_base1_2026.06.04_en_base1_all_none_obs_001-1-1-no-fingerprint-publishable-complete.blocked0.811c9dc5",
+      promotionPreviewId: "spp1.previewed",
     });
 
-    expect(previewBulkPromoteSourceObservationIds).toHaveBeenCalledWith(["obs_001"], { promoteAsDraft: false });
-    expect(bulkPromoteSourceObservations).toHaveBeenCalledWith(["obs_001"], { promoteAsDraft: false });
+    expect(previewBulkPromoteSourceObservationIds).not.toHaveBeenCalled();
+    expect(bulkPromoteSourceObservations).toHaveBeenCalledWith(["obs_001"], {
+      promoteAsDraft: false,
+      previewToken: "spp1.previewed",
+      confirmation: reviewPage,
+    });
     const location = redirectLocation(response);
     expect(location.pathname).toBe("/catalog/integrations");
     expect(location.searchParams.get("jobId")).toBe("job_promote_123");
     expect(location.searchParams.get("promotionPreviewId")).toBeNull();
+    expect(location.searchParams.get("commandStatus")).toBe("success");
     expect(location.searchParams.get("commandResult")).toBe("job-queued");
   });
 
-  it("binds the explicit promote-as-draft choice into the preview token and re-confirms it at execution", async () => {
-    const identityDiagnostic = {
-      observationId: "obs_001",
-      code: "display-identity-unresolvable",
-      path: "displayIdentity",
-      diagnosticText: "No display template targets this item.",
-      displayIdentity: {
-        missingTokens: ["template"],
-        templateKey: null,
-        templateTargetKind: null,
-        templateTargetId: null,
-        templateReason: "no-targeted-template",
-      },
-    };
-    // The preview answers per the submitted choice: blocked when publishable,
-    // visibly carried (non-blocking) under the explicit draft choice.
+  it("carries the explicit promote-as-draft choice into the preview and the confirmed execution", async () => {
     const previewBulkPromoteSourceObservationIds = vi
       .fn()
       .mockImplementation(async (_ids: string[], options: { promoteAsDraft: boolean }) => ({
@@ -2176,13 +2784,19 @@ describe("Catalog integrations route", () => {
         eligible: 1,
         terminal: 0,
         scope: { provider: "tcgdex", language: "en", setId: "base1", status: "", search: "" },
-        validation: {
-          ...emptyPromotionValidation(options.promoteAsDraft),
-          coveredObservationIds: ["obs_001"],
-          diagnostics: [{ ...identityDiagnostic, blocking: !options.promoteAsDraft }],
-        },
+        validation: emptyPromotionValidation(options.promoteAsDraft),
+        previewToken: options.promoteAsDraft ? "spp1.draft" : "spp1.publishable",
       }));
-    const bulkPromoteSourceObservations = vi.fn().mockResolvedValue({ jobId: "job_promote_draft" });
+    // The Catalog API confirms the token against a fresh preview of the
+    // submitted draft choice; a token minted for the other choice is refused.
+    const bulkPromoteSourceObservations = vi
+      .fn()
+      .mockImplementation(async (_ids: string[], options: { promoteAsDraft: boolean; previewToken: string }) => {
+        if (options.previewToken !== (options.promoteAsDraft ? "spp1.draft" : "spp1.publishable")) {
+          throw new CatalogApiError(409, { error: { code: "stale_promotion_preview", message: "Preview again." } });
+        }
+        return { jobId: "job_promote_draft" };
+      });
     mockCreateCatalogRequestApiClient.mockReturnValue({
       bulkPromoteSourceObservations,
       previewBulkPromoteSourceObservationIds,
@@ -2201,24 +2815,32 @@ describe("Catalog integrations route", () => {
     const publishableToken = publishablePreview.context.promotionPreviewId!;
     const draftToken = draftPreview.context.promotionPreviewId!;
 
-    expect(previewBulkPromoteSourceObservationIds).toHaveBeenNthCalledWith(1, ["obs_001"], { promoteAsDraft: false });
-    expect(previewBulkPromoteSourceObservationIds).toHaveBeenNthCalledWith(2, ["obs_001"], { promoteAsDraft: true });
+    expect(previewBulkPromoteSourceObservationIds).toHaveBeenNthCalledWith(
+      1,
+      ["obs_001"],
+      expect.objectContaining({ promoteAsDraft: false }),
+    );
+    expect(previewBulkPromoteSourceObservationIds).toHaveBeenNthCalledWith(
+      2,
+      ["obs_001"],
+      expect.objectContaining({ promoteAsDraft: true }),
+    );
     expect(publishablePreview.context.promoteAsDraft).toBe(false);
     expect(draftPreview.context.promoteAsDraft).toBe(true);
-    expect(publishableToken).toContain("-publishable-complete.blocked1.");
-    expect(draftToken).toContain("-draft-complete.blocked0.");
-    expect(draftToken).not.toBe(publishableToken);
+    expect(publishableToken).toBe("spp1.publishable");
+    expect(draftToken).toBe("spp1.draft");
 
-    // Executing with a different choice than the previewed one fails closed.
+    // Executing with a different choice than the previewed one is refused and re-previews.
     const changedChoice = await runDailyAction({
       ...baseForm,
       promotionPhase: "execute",
       promoteAsDraft: "true",
-      promotionPreviewId: publishableToken,
+      promotionPreviewId: "spp1.publishable",
     });
+    expect(changedChoice.feedback.status).toBe("error");
     expect(changedChoice.feedback.result).toBe("preview-required");
     expect(changedChoice.context.promotionPreviewId).toBeNull();
-    expect(bulkPromoteSourceObservations).not.toHaveBeenCalled();
+    expect(changedChoice.context.jobId).toBeNull();
 
     // Executing with the previewed draft choice carries it into the job.
     const executed = redirectLocation(
@@ -2226,65 +2848,25 @@ describe("Catalog integrations route", () => {
         ...baseForm,
         promotionPhase: "execute",
         promoteAsDraft: "true",
-        promotionPreviewId: draftToken,
+        promotionPreviewId: "spp1.draft",
       }),
     );
-    expect(bulkPromoteSourceObservations).toHaveBeenCalledWith(["obs_001"], { promoteAsDraft: true });
+    expect(bulkPromoteSourceObservations).toHaveBeenLastCalledWith(["obs_001"], {
+      promoteAsDraft: true,
+      previewToken: "spp1.draft",
+      confirmation: reviewPage,
+    });
     expect(executed.searchParams.get("jobId")).toBe("job_promote_draft");
     expect(executed.searchParams.get("promoteAsDraft")).toBeNull();
   });
 
-  it("rejects promotion execution when the stored preview belongs to a different profile context", async () => {
-    const previewBulkPromoteSourceObservationIds = vi.fn().mockResolvedValue({
-      matched: 1,
-      eligible: 1,
-      terminal: 0,
-      validation: emptyPromotionValidation(),
-      scope: { provider: "tcgdex", language: "en", setId: "base1", status: "changed", search: "" },
-    });
-    const bulkPromoteSourceObservations = vi.fn();
-    mockCreateCatalogRequestApiClient.mockReturnValue({
-      bulkPromoteSourceObservations,
-      previewBulkPromoteSourceObservationIds,
-    });
-
-    const result = await runDailyAction({
-      _intent: "observation.promote",
-      providerKey: "tcgdex",
-      unitKey: "tcgdex:pokemon:card:import",
-      importScope: "en:3:base:base1",
-      profileVersion: "2026.06.05",
-      selectedObservationIds: "obs_001",
-      promotionPreviewId:
-        "preview-tcgdex_tcgdex_pokemon_card_import_en_3_base_base1_2026.06.04_en_base1_changed_none_obs_001-1-1-no-fingerprint-publishable-complete.blocked0.811c9dc5",
-    });
-
-    expect(bulkPromoteSourceObservations).not.toHaveBeenCalled();
-    expect(result.context.promotionPreviewId).toBeNull();
-    expect(result.feedback.status).toBe("error");
-    expect(result.feedback.result).toBe("preview-required");
-  });
-
-  it("rejects promotion when the eligible observations changed content since the preview (observe-change-then-promote)", async () => {
-    // The stored token was minted from a preview whose eligible observations
-    // hashed to "content-a". A re-import changed a field on the same in-scope
-    // observation, so a fresh preview now hashes to "content-b". The recomputed
-    // token no longer matches the one the operator is executing, so execution is
-    // rejected server-side with a re-preview affordance — self-invalidation is not
-    // a UI nicety the operator can bypass by resubmitting the stale token.
-    const previewBulkPromoteSourceObservationIds = vi.fn().mockResolvedValue({
-      matched: 1,
-      eligible: 1,
-      terminal: 0,
-      validation: emptyPromotionValidation(),
-      scope: { provider: "tcgdex", language: "en", setId: "base1", status: "", search: "" },
-      fingerprint: "content-b",
-    });
-    const bulkPromoteSourceObservations = vi.fn();
-    mockCreateCatalogRequestApiClient.mockReturnValue({
-      bulkPromoteSourceObservations,
-      previewBulkPromoteSourceObservationIds,
-    });
+  it("asks for a new preview when the Catalog API refuses a stale promotion preview", async () => {
+    const bulkPromoteSourceObservations = vi
+      .fn()
+      .mockRejectedValue(
+        new CatalogApiError(409, { error: { code: "stale_promotion_preview", message: "Preview again." } }),
+      );
+    mockCreateCatalogRequestApiClient.mockReturnValue({ bulkPromoteSourceObservations });
 
     const result = await runDailyAction({
       _intent: "observation.promote",
@@ -2293,59 +2875,100 @@ describe("Catalog integrations route", () => {
       importScope: "en:3:base:base1",
       profileVersion: "2026.06.04",
       selectedObservationIds: "obs_001",
-      promotionPreviewId:
-        "preview-tcgdex_tcgdex_pokemon_card_import_en_3_base_base1_2026.06.04_en_base1_all_none_obs_001-1-1-content-a-publishable-complete.blocked0.811c9dc5",
+      promotionPreviewId: "spp1.content-a",
     });
 
-    expect(previewBulkPromoteSourceObservationIds).toHaveBeenCalledWith(["obs_001"], { promoteAsDraft: false });
-    expect(bulkPromoteSourceObservations).not.toHaveBeenCalled();
+    expect(bulkPromoteSourceObservations).toHaveBeenCalledWith(["obs_001"], {
+      promoteAsDraft: false,
+      previewToken: "spp1.content-a",
+      confirmation: reviewPage,
+    });
     expect(result.context.promotionPreviewId).toBeNull();
+    expect(result.context.jobId).toBeNull();
     expect(result.feedback.status).toBe("error");
     expect(result.feedback.result).toBe("preview-required");
   });
 
-  it("executes promotion when the preview's content fingerprint still matches the eligible observations", async () => {
-    const previewBulkPromoteSourceObservationIds = vi.fn().mockResolvedValue({
+  // The Catalog API binds the review page into the token: here it is stood in
+  // for by a client whose token names the page and which refuses another one.
+  it.each([
+    ["the same page", {}, "job-queued"],
+    ["another profile version", { profileVersion: "2026.06.05" }, "preview-required"],
+    ["another ingestion unit", { unitKey: "tcgdex:pokemon:sealed:import" }, "preview-required"],
+    ["another import scope", { importScope: "en:3:base:base2" }, "preview-required"],
+  ])("sends the review page with the preview and the execution: %s", async (_name, changed, expected) => {
+    type Page = { unitKey: string | null; importScope: string | null; profileVersion: string | null };
+    const tokenFor = (page: Page) => `spp1.${page.unitKey}|${page.importScope}|${page.profileVersion}`;
+    const previewBulkPromoteSourceObservationIds = vi.fn(async (_ids: string[], options: { confirmation: Page }) => ({
       matched: 1,
       eligible: 1,
       terminal: 0,
       validation: emptyPromotionValidation(),
       scope: { provider: "tcgdex", language: "en", setId: "base1", status: "", search: "" },
-      fingerprint: "content-a",
-    });
-    const bulkPromoteSourceObservations = vi.fn().mockResolvedValue({ jobId: "job_promote_fresh" });
+      previewToken: tokenFor(options.confirmation),
+    }));
+    const bulkPromoteSourceObservations = vi.fn(
+      async (_ids: string[], options: { previewToken: string; confirmation: Page }) => {
+        if (options.previewToken !== tokenFor(options.confirmation)) {
+          throw new CatalogApiError(409, { error: { code: "stale_promotion_preview", message: "Preview again." } });
+        }
+        return { jobId: "job_promote_page" };
+      },
+    );
     mockCreateCatalogRequestApiClient.mockReturnValue({
       bulkPromoteSourceObservations,
       previewBulkPromoteSourceObservationIds,
     });
-
-    const response = await runDailyActionRedirect({
+    const page = {
       _intent: "observation.promote",
       providerKey: "tcgdex",
       unitKey: "tcgdex:pokemon:card:import",
       importScope: "en:3:base:base1",
       profileVersion: "2026.06.04",
       selectedObservationIds: "obs_001",
-      promotionPreviewId:
-        "preview-tcgdex_tcgdex_pokemon_card_import_en_3_base_base1_2026.06.04_en_base1_all_none_obs_001-1-1-content-a-publishable-complete.blocked0.811c9dc5",
+    };
+
+    const preview = await runDailyAction({ ...page, promotionPhase: "preview" });
+    const execute = {
+      ...page,
+      ...changed,
+      promotionPhase: "execute",
+      promotionPreviewId: preview.context.promotionPreviewId ?? "",
+    };
+    // A queued job redirects to the page that follows it; a refusal answers in place.
+    const result =
+      expected === "job-queued"
+        ? redirectLocation(await runDailyActionRedirect(execute)).searchParams.get("commandResult")
+        : (await runDailyAction(execute)).feedback.result;
+
+    expect(bulkPromoteSourceObservations).toHaveBeenCalledWith(
+      ["obs_001"],
+      expect.objectContaining({ confirmation: expect.objectContaining({ ...pick(page), ...changed }) }),
+    );
+    expect(result).toBe(expected);
+  });
+
+  it("does not treat another promotion conflict as a stale preview", async () => {
+    const bulkPromoteSourceObservations = vi
+      .fn()
+      .mockRejectedValue(new CatalogApiError(409, { error: { code: "conflict", message: "Busy." } }));
+    mockCreateCatalogRequestApiClient.mockReturnValue({ bulkPromoteSourceObservations });
+
+    const result = await runDailyAction({
+      _intent: "observation.promote",
+      providerKey: "tcgdex",
+      unitKey: "tcgdex:pokemon:card:import",
+      importScope: "en:3:base:base1",
+      selectedObservationIds: "obs_001",
+      promotionPreviewId: "spp1.content-a",
     });
 
-    expect(bulkPromoteSourceObservations).toHaveBeenCalledWith(["obs_001"], { promoteAsDraft: false });
-    const location = redirectLocation(response);
-    expect(location.searchParams.get("jobId")).toBe("job_promote_fresh");
-    expect(location.searchParams.get("commandStatus")).toBe("success");
-    expect(location.searchParams.get("commandResult")).toBe("job-queued");
-    expect(location.searchParams.get("promotionPreviewId")).toBeNull();
+    expect(result.feedback.status).toBe("error");
+    expect(result.feedback.result).not.toBe("preview-required");
   });
 
   it("executes matching-filter promotion with the same explicit broad scope used for preview", async () => {
-    const previewBulkPromoteSourceObservations = vi.fn().mockResolvedValue({
-      matched: 124,
-      eligible: 124,
-      terminal: 0,
-      validation: emptyPromotionValidation(),
-      scope: { provider: "tcgdex", language: "en", setId: "base1", status: "", search: "" },
-    });
+    const previewBulkPromoteSourceObservations = vi.fn();
     const bulkPromoteSourceObservationsByScope = vi.fn().mockResolvedValue({ jobId: "job_promote_scope" });
     mockCreateCatalogRequestApiClient.mockReturnValue({
       bulkPromoteSourceObservationsByScope,
@@ -2358,21 +2981,10 @@ describe("Catalog integrations route", () => {
       unitKey: "tcgdex:pokemon:card:import",
       importScope: "en:3:base:base1",
       profileVersion: "2026.06.04",
-      promotionPreviewId:
-        "preview-tcgdex_tcgdex_pokemon_card_import_en_3_base_base1_2026.06.04_en_base1_all_none_filtered-124-124-no-fingerprint-publishable-complete.blocked0.811c9dc5",
+      promotionPreviewId: "spp1.scope",
     });
 
-    expect(previewBulkPromoteSourceObservations).toHaveBeenCalledWith(
-      {
-        provider: "tcgdex",
-        language: "en",
-        productLineId: "3",
-        seriesId: "base",
-        expansionId: "base1",
-        setId: "base1",
-      },
-      { promoteAsDraft: false },
-    );
+    expect(previewBulkPromoteSourceObservations).not.toHaveBeenCalled();
     expect(bulkPromoteSourceObservationsByScope).toHaveBeenCalledWith(
       {
         provider: "tcgdex",
@@ -2382,13 +2994,12 @@ describe("Catalog integrations route", () => {
         expansionId: "base1",
         setId: "base1",
       },
-      { promoteAsDraft: false },
+      { promoteAsDraft: false, previewToken: "spp1.scope", confirmation: reviewPage },
     );
     const location = redirectLocation(response);
     expect(location.searchParams.get("jobId")).toBe("job_promote_scope");
     expect(location.searchParams.get("commandResult")).toBe("job-queued");
   });
-
   it("fails closed when scoped promotion execution has no concrete scope", async () => {
     const previewBulkPromoteSourceObservations = vi.fn();
     const bulkPromoteSourceObservationsByScope = vi.fn();

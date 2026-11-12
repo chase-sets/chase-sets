@@ -117,8 +117,24 @@ describe("Catalog scope-detail route loader", () => {
     expect(query.get("targetId")).toBe("ref_expansion_paldean_fates");
     expect(getScopeCoverageMatrix).toHaveBeenCalledWith("scope_expansion_paldean_fates");
     expect(routeData.coverageMatrix?.scopeName).toBe("Paldean Fates");
-    const workbenchRequest = mockLoadDailySurfaceForRequest.mock.calls[0]?.[0] as Request;
-    expect(new URL(workbenchRequest.url).searchParams.get("expansionId")).toBe("scope_expansion_paldean_fates");
+  });
+
+  // https://github.com/chase-sets/chase-sets/issues/11131: the Catalog API derives the working set from the
+  // Scope Record, so the journey is read for this page's own address, not a rewritten daily workbench one.
+  it("reads the journey for the page's own address", async () => {
+    mockCreateCatalogRequestApiClient.mockReturnValue({
+      getCatalogScopeRecord: vi.fn().mockResolvedValue({ ...paldeanFatesScope(), languageEditions: ["en"] }),
+      getScopeCoverageMatrix: vi.fn().mockResolvedValue(null),
+    });
+    const request = new Request(
+      "https://admin.example/catalog/scopes/scope_expansion_paldean_fates?languageCode=ja&jobId=sync_1",
+      { headers: { cookie: "session=test" } },
+    );
+
+    await runLoader(request);
+
+    expect(mockLoadDailySurfaceForRequest).toHaveBeenCalledTimes(1);
+    expect(mockLoadDailySurfaceForRequest.mock.calls[0]?.[0]).toBe(request);
   });
 
   it("skips the alias-review fetch for a single-edition scope", async () => {

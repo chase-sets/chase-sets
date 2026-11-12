@@ -692,7 +692,7 @@ function loadBaseConfig(): PlatformApiBaseConfig {
       pollIntervalMs: getRequiredPositiveNumberEnv("READ_CONSISTENCY_POLL_INTERVAL_MS", 75),
       exactDependencyMode: getReadConsistencyExactDependencyModeEnv("READ_CONSISTENCY_EXACT_DEPENDENCY_MODE"),
       routeTuning: loadReadConsistencyRouteTuning(),
-      wakeBeforeWaitEnabled: getBooleanEnv("READ_CONSISTENCY_WAKE_BEFORE_WAIT_ENABLED", false),
+      wakeBeforeWaitEnabled: getBooleanEnv("READ_CONSISTENCY_WAKE_BEFORE_WAIT_ENABLED", true),
       readinessNotificationsEnabled: getBooleanEnv("READ_CONSISTENCY_READINESS_NOTIFICATIONS_ENABLED", false),
     },
     projectionInlineApplyEnabled: getBooleanEnv("PROJECTION_INLINE_APPLY_ENABLED", false),
