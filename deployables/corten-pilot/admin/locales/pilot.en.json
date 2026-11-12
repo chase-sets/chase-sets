@@ -50,7 +50,6 @@
     "action": "This action is not available here.",
     "edit_option": "Edit {code}",
     "options_label": "Options of {name}",
-    "drafts_only": "Check only draft Catalog Items to remove them.",
     "rules_unread": "This component's rules could not be read, so it was not saved. Refresh in a moment and save again.",
     "blueprint_rules_unread": "This blueprint's rules could not be read, so they cannot be set here yet. Refresh in a moment and open this again."
   },
@@ -162,19 +161,13 @@
     "sync_run_targets": "Provider targets",
     "sync_run_no_child": "No child job",
     "sync_run_caption": "Catalog sync child jobs",
-    "candidates_elsewhere": "Candidate evidence and conflict resolution run on admin-web, and so does Promote until the Catalog API checks it against the version read.",
+    "candidates_elsewhere": "Candidate evidence and conflict resolution run on admin-web.",
     "candidates_open": "Open the candidates on admin-web",
-    "workset_elsewhere": "Previewing a unit's promotion runs on admin-web until the Catalog API builds the promotion's selection and confirmation.",
-    "workset_open": "Preview {unit} on admin-web",
     "workset_caption": "Provider units in the selected source scope",
     "preflight_read": "Read the import preflight",
     "review_select": "Select",
     "review_note": "Defer and Reject act on the checked observations. A reject needs a reason.",
-    "review_choose": "Select {name}",
-    "preview_elsewhere": "Previewing a promotion runs on admin-web until the Catalog API builds the promotion's selection and confirmation.",
-    "preview_open": "Preview on admin-web",
-    "create_elsewhere": "Previewing and promoting items runs on admin-web until the Catalog API builds the promotion's selection and confirmation.",
-    "create_open": "Open the promotion preview on admin-web"
+    "review_choose": "Select {name}"
   },
   "steps": {
     "done": "(done)",

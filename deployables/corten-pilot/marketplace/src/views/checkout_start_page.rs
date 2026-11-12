@@ -9,6 +9,7 @@ use platform::{
 };
 
 use crate::{
+    app::url,
     checkout_start::{Kind, Recovery, Said, Source, StartScreen, Who},
     text::CheckoutMsg,
 };
@@ -118,7 +119,9 @@ pub fn CheckoutStartPage<'a>(t: CheckoutMsg, screen: &'a StartScreen) -> impl Re
                             <p>
                                 {screen.cart.as_ref().and_then(|c| c.fact.as_deref()).unwrap_or(t.start_cart_needs_review_description())}
                             </p>
-                            <p class={Row}><a class={(Button, Secondary)} href="/account/cart">{t.start_review_buy_cart()}</a></p>
+                            <p class={Row}>
+                                <a class={(Button, Secondary)} href={url::Cart::default()}>{t.start_review_buy_cart()}</a>
+                            </p>
                         </div>
                     }
                     match screen.said {
@@ -130,7 +133,7 @@ pub fn CheckoutStartPage<'a>(t: CheckoutMsg, screen: &'a StartScreen) -> impl Re
                                 <h2 class={Strong} id="checkout-start-entry-result">{t.start_entry_ambiguous_title()}</h2>
                                 <p role="status">{t.start_entry_ambiguous_description()}</p>
                                 <p class={Row}>
-                                    <a class={(Button, Secondary)} href="/account/cart">{t.start_review_buy_cart()}</a>
+                                    <a class={(Button, Secondary)} href={url::Cart::default()}>{t.start_review_buy_cart()}</a>
                                 </p>
                             </section>
                         }

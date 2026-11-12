@@ -621,6 +621,16 @@ function tokens() {
     "stat-value-font-size-narrow": { $type: "dimension", $value: dtcgDimension(value("font-size-2xl")) },
     "stat-value-font-weight": { $type: "fontWeight", $value: 600 },
     "stat-value-tracking": { $type: "number", $value: ems(value("letter-spacing-none")) },
+    // The design system's CheckboxGroup and RadioGroup (checkbox.tsx, radio-group.tsx): the legend
+    // mb-2 over the choices, which are space-y-2 apart.
+    "choice-list-gap": { $type: "dimension", $value: "{space.2}" },
+    "choice-list-legend-gap": { $type: "dimension", $value: "{space.2}" },
+    // The design system's Tabs and SegmentedControl (tabs.tsx, segmented-control.tsx): every choice
+    // font-semibold, the chosen one text-accent, the kit's --primary.
+    "tab-font-weight": { $type: "fontWeight", $value: 600 },
+    "tab-selected-color": { $type: "color", $value: "{primary}" },
+    // The design system's status dot, h-1.5 w-1.5 (ConnectionStatusIndicator).
+    "status-dot-size": { $type: "dimension", $value: dtcgDimension("0.375rem") },
   };
   return {
     base,

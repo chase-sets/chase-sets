@@ -12,8 +12,7 @@
 //! from its own route, as Platform Feedback's export does.
 use corten::{
     Relay,
-    answer::Body,
-    http::{HeaderMap, HeaderName, HeaderValue, StatusCode, header},
+    http::{Body, HeaderMap, HeaderName, HeaderValue, StatusCode, header},
     prelude::*,
 };
 use serde::{Deserialize, Serialize};

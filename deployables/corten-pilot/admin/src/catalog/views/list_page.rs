@@ -135,7 +135,7 @@ pub fn DimensionRow<'a>(t: Cat, row: &'a Dimension, select: Option<Pilot>) -> im
     html! {
         <tr>
             if let Some(p) = select {
-                <td><SelectRow p={p} id={&row.dimension_id} status={None} /></td>
+                <td><SelectRow p={p} id={&row.dimension_id} /></td>
             }
             <td>
                 <CellLabel>{t.dimension_list_key()}</CellLabel>
@@ -169,7 +169,7 @@ pub fn CategoryRow<'a>(t: Cat, row: &'a Category, select: Option<Pilot>) -> impl
     html! {
         <tr>
             if let Some(p) = select {
-                <td><SelectRow p={p} id={&row.category_id} status={None} /></td>
+                <td><SelectRow p={p} id={&row.category_id} /></td>
             }
             <td>
                 <CellLabel>{t.category_list_key()}</CellLabel>
@@ -206,7 +206,7 @@ pub fn ComponentRow<'a>(t: Cat, row: &'a Component, select: Option<Pilot>) -> im
     html! {
         <tr>
             if let Some(p) = select {
-                <td><SelectRow p={p} id={&row.component_id} status={None} /></td>
+                <td><SelectRow p={p} id={&row.component_id} /></td>
             }
             <td>
                 <CellLabel>{t.component_list_key()}</CellLabel>
@@ -236,7 +236,7 @@ pub fn RefTypeRow<'a>(t: Cat, row: &'a ReferenceType, select: Option<Pilot>) -> 
     html! {
         <tr>
             if let Some(p) = select {
-                <td><SelectRow p={p} id={&row.reference_type_id} status={None} /></td>
+                <td><SelectRow p={p} id={&row.reference_type_id} /></td>
             }
             <td>
                 <CellLabel>{t.ref_type_list_key()}</CellLabel>
@@ -270,7 +270,7 @@ pub fn RefRecordRow<'a>(t: Cat, row: &'a ReferenceRecord, select: Option<Pilot>)
     html! {
         <tr>
             if let Some(p) = select {
-                <td><SelectRow p={p} id={&row.reference_record_id} status={None} /></td>
+                <td><SelectRow p={p} id={&row.reference_record_id} /></td>
             }
             <td>
                 <CellLabel>{t.ref_record_list_type()}</CellLabel>
@@ -342,7 +342,7 @@ pub fn BlueprintRow<'a>(t: Cat, row: &'a Blueprint, select: Option<Pilot>) -> im
     html! {
         <tr>
             if let Some(p) = select {
-                <td><SelectRow p={p} id={&row.blueprint_id} status={None} /></td>
+                <td><SelectRow p={p} id={&row.blueprint_id} /></td>
             }
             <td>
                 <CellLabel>{t.blueprint_list_key()}</CellLabel>
@@ -371,7 +371,7 @@ pub fn FieldRow<'a>(t: Cat, row: &'a Field, select: Option<Pilot>) -> impl Rende
     html! {
         <tr>
             if let Some(p) = select {
-                <td><SelectRow p={p} id={&row.field_id} status={None} /></td>
+                <td><SelectRow p={p} id={&row.field_id} /></td>
             }
             <td>
                 <CellLabel>{t.field_list_key()}</CellLabel>

@@ -22,6 +22,7 @@ tracing.workspace = true
 ulid.workspace = true
 
 [dev-dependencies]
+axum.workspace = true
 http-body-util.workspace = true
 tokio = { workspace = true, features = ["net"] }
 tower.workspace = true

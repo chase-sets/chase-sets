@@ -27,7 +27,7 @@ use platform::{
     ui::{
         input_group::InputGroup,
         progress::{Progress as KitProgress, ProgressSize, ProgressTone},
-        stack::{Gap, Stack as KitStack, StackStart},
+        stack::{Gap, StackStart},
         steps::{Step as KitStep, StepState, Steps as KitSteps, StepsLayout},
     },
 };
@@ -214,7 +214,7 @@ fn PackingView<'a>(
     html! {
         <div class={Page}>
             <header class={Heading}>
-                <div class={(KitStack { gap: Gap::App }, StackStart {}, gap_1())}>
+                <div class={(StackStart { gap: Gap::App }, gap_1())}>
                     <p class={Eyebrow}>{t.packing_seller()}</p>
                     <h1 class={Title}>{t.packing_title()}</h1>
                     <p class={Muted}>{&description}</p>
@@ -225,7 +225,7 @@ fn PackingView<'a>(
             <PackingStatus t={t} p={p} viewer={viewer} id={id} outcome={&screen.outcome} />
             if at.awaiting {
                 <div class={(Banner, Info)}>
-                    <div class={(KitStack { gap: Gap::App }, StackStart {}, gap_1())}>
+                    <div class={(StackStart { gap: Gap::App }, gap_1())}>
                         <p class={Strong}>{t.packing_ready_title()}</p>
                         <p class={Muted}>{t.packing_ready_description()}</p>
                     </div>
@@ -249,7 +249,7 @@ fn PackingView<'a>(
             }
             if at.packed {
                 <div class={(Banner, Done)}>
-                    <div class={(KitStack { gap: Gap::App }, StackStart {}, gap_1())}>
+                    <div class={(StackStart { gap: Gap::App }, gap_1())}>
                         <p class={Strong}>{t.packing_packed_title()}</p>
                         <p class={Muted}>{t.packing_packed_description()}</p>
                     </div>
@@ -258,7 +258,7 @@ fn PackingView<'a>(
             }
             <div class={Workstation}>
                 <section class={Checklist} aria-labelledby="packing-checklist">
-                    <div class={(KitStack { gap: Gap::App }, StackStart {}, gap_1())}>
+                    <div class={(StackStart { gap: Gap::App }, gap_1())}>
                         <h2 id="packing-checklist" class={SectionTitle}>{t.packing_item_checklist()}</h2>
                         <p class={Muted}>{t.packing_item_checklist_description()}</p>
                     </div>
@@ -276,7 +276,7 @@ fn PackingView<'a>(
                     }
                 </section>
                 <aside class={Rail} aria-labelledby="packing-details">
-                    <div class={(KitStack { gap: Gap::App }, StackStart {}, gap_1())}>
+                    <div class={(StackStart { gap: Gap::App }, gap_1())}>
                         <h2 id="packing-details" class={SectionTitle}>{t.packing_shipment_details()}</h2>
                         <p class={Muted}>{item_count(t, s.total_quantity, s.line_count)}</p>
                     </div>
@@ -611,7 +611,7 @@ fn Footer<'a>(t: ShipmentsMsg, p: Pilot, viewer: &'a Viewer, id: &'a str, s: &'a
     let slip = crate::packing_slips::href(&s.shipment_id);
     html! {
         <div id={PackingFooterId} class={Footer}>
-            <div class={(KitStack { gap: Gap::App }, StackStart {}, gap_1())}>
+            <div class={(StackStart { gap: Gap::App }, gap_1())}>
                 <p class={Strong}>
                     {t.packing_progress(crate::text::shipments_msg::PackingProgress { checked: packed, total: s.total_quantity })}
                 </p>

@@ -147,12 +147,11 @@ and cancels import jobs, defers or rejects Source Observations, and ignores, def
 merge candidate, each a form that works without JavaScript. It draws the sync run a sync lands on and the
 scope's durable sync state, with Retry provider for a failed or stale unit. Preview promotion (for the
 checked rows, an observation's evidence or a unit's scope) and Create or update Catalog Items send the
-selection and confirmation the Catalog API builds for the read ([chase-sets/chase-sets#11142 [catalog] Return the daily workbench's promotion selection and confirmation from the surface read: admin-web builds the promotion scope and confirmation from its route context](https://github.com/chase-sets/chase-sets/issues/11142)); the commit presents the
-token the preview answered, with the draft choice it bound. Against an API without them, those previews
-open on admin-web. Whether a held preview may be committed is worked out from the read until the API
-says ([chase-sets/chase-sets#11175 [catalog] Say in the daily read whether the held promotion preview may be committed: admin-web decides from its preview receipt with its own coverage rule](https://github.com/chase-sets/chase-sets/issues/11175)). A merge candidate's Promote sends the version the page read once the API checks
-it against that version ([chase-sets/chase-sets#11143 [catalog] A merge candidate's promote is not checked against the version the operator read, as its split and edit are](https://github.com/chase-sets/chase-sets/issues/11143)); before, and for a promote with conflicts to resolve, it stays
-on admin-web. Its import context
+selection and confirmation the Catalog API builds for the read; a promotion the read does not offer is
+not offered. The commit presents the token the preview answered, with the draft choice it bound, and is
+offered while the read says the held preview may be committed (`previewCommittable`). A merge
+candidate's Promote sends the version the read offered it with; a promote with conflicts to resolve,
+and a candidate's evidence, stay on admin-web. Its import context
 bar chooses the provider, unit, scope and profile version from synced source options and reloads or
 force-refreshes them; the scope selects, their options and the bar's summary line are the Catalog
 API's.
@@ -253,8 +252,8 @@ registered files.
 
 ## Corten pin
 
-`Cargo.toml` pins Corten to `c65c10ec` (Corten `main` on 2026-11-08), whose framework package is
-`corten-run` (the library is still `corten`). No release is tagged. The
+`Cargo.toml` pins Corten to `684a5395` (Corten `main` on 2026-11-12), whose framework package is
+`corten-run` (the library is still `corten`). Corten 0.2.0 is released (tag `v0.2.0`, `a833b4e3`), and the pin is a git revision past it. The
 pin follows Corten's latest `main` (Todd, 2026-11-02), and each move is its own commit that says
 what changed; the workarounds a move lets go follow it in commits of their own. The history of every move is in the
 [README before it was cut](https://github.com/chase-sets/chase-sets/blob/5a683c4eb5/deployables/corten-pilot/README.md) ("Corten pin") and in `git log -- deployables/corten-pilot/Cargo.toml`.
@@ -301,12 +300,8 @@ but keep their own bordered choice rows, which are the design system's `Checkbox
 
 | Issue | Workaround |
 | --- | --- |
-| [corten-run/corten#1082 Kit RadioGroup and Checkboxes print their fieldset's gap and legend margin as literals kept equal by hand, so a theme with tighter choice lists edits both copies](https://github.com/corten-run/corten/issues/1082) | [platform/src/ui/radio_group.css](platform/src/ui/radio_group.css) and [platform/src/ui/checkboxes.css](platform/src/ui/checkboxes.css) set the design system's .5rem legend gap and choice gap |
 | [corten-run/corten#1264 A slow part a `<corten-live>` stream sends once has no answer without JavaScript: its placeholder stays for good](https://github.com/corten-run/corten/issues/1264) | [admin/src/catalog/views/daily_page.rs](admin/src/catalog/views/daily_page.rs) draws a `<noscript>` link in the import preflight's loading line, hidden under `scripting: none`, to `GET /catalog/integrations/import-preflight` ([admin/src/catalog/daily.rs](admin/src/catalog/daily.rs)), the working set's page with the preflight read for it |
-| [corten-run/corten#1065 Kit Stack and Cluster always print a literal gap, so an app on its own token spacing scale cannot use them with its gap utility](https://github.com/corten-run/corten/issues/1065) | closed by Corten's `Gap::App` (pinned since `f4f37f95`). Every page column is the kit's `Stack { gap: Gap::App }` with the theme's `gap_N()`: the five whose children keep their own width (support requests, command center, order, packing, shipment) add `StackStart` (corten-run/corten#1119). A page's own `.stack` keeps only what the kit's does not set (`min-width: 0` in a grid track, a padding or margin) |
-| [corten-run/corten#1123 Kit Segmented and Tabs draw the chosen choice in --foreground at weight 500 as literals, so a theme whose chosen tab is its primary color edits both copies](https://github.com/corten-run/corten/issues/1123) | [platform/src/ui/segmented.css](platform/src/ui/segmented.css) draws the choices at 600 and the chosen one in `--primary`, as the design system's `SegmentedControl` does; `tabs.css` is the kit's, so the account workspace's tabs keep the kit's look |
-| [corten-run/corten#1124 Kit Stack drops a child dialog's or popover's margin: auto, so a modal written in a Stack opens at the top of the screen instead of centered](https://github.com/corten-run/corten/issues/1124) | [marketplace/src/views/reviews_page.css](marketplace/src/views/reviews_page.css) sets its dialog's `margin: auto` |
-| [corten-run/corten#1070 Kit StatusDot has no live form, so a corten-live stream's Live badge keeps its own pulsing dot and reduced-motion rule](https://github.com/corten-run/corten/issues/1070) | [admin/src/views/live_status.css](admin/src/views/live_status.css) keeps its own `.dot` and pulse; the kit's `status_dot` is not taken |
+| [corten-run/corten#1065 Kit Stack and Cluster always print a literal gap, so an app on its own token spacing scale cannot use them with its gap utility](https://github.com/corten-run/corten/issues/1065) | closed by Corten's `Gap::App` (pinned since `f4f37f95`). Every page column is the kit's `Stack { gap: Gap::App }` with the theme's `gap_N()`: the five whose children keep their own width (support requests, command center, order, packing, shipment) are `StackStart { gap: Gap::App }` in its place. A page's own `.stack` keeps only what the kit's does not set (`min-width: 0` in a grid track, a padding or margin) |
 
 Every Corten gap the pilot found and how it closed is in the [README before it was cut](https://github.com/chase-sets/chase-sets/blob/5a683c4eb5/deployables/corten-pilot/README.md) ("Corten gaps").
 
@@ -322,13 +317,9 @@ instead. Remove the workaround when the issue closes.
 | [chase-sets/chase-sets#8830 Complete Sell List Offer lines from inventory when the seller has no Listing](https://github.com/chase-sets/chase-sets/issues/8830) | [scripts/smoke-market-item-sell.mjs](scripts/smoke-market-item-sell.mjs), [marketplace/src/selling.rs](marketplace/src/selling.rs) |
 | [chase-sets/chase-sets#10505 [checkout] Build and keep the Sell List review plan in the Checkout API](https://github.com/chase-sets/chase-sets/issues/10505) | [marketplace/src/sell_list.rs](marketplace/src/sell_list.rs), [marketplace/src/sell_checkout.rs](marketplace/src/sell_checkout.rs) |
 | [chase-sets/chase-sets#3494 [deployables] P2: Web route behavior leaks — analytics endpoint to discovery, cart/theme policy to contexts, catalog permission middleware to catalog](https://github.com/chase-sets/chase-sets/issues/3494) | [marketplace/src/site.rs](marketplace/src/site.rs) |
-| [chase-sets/chase-sets#11142 [catalog] Return the daily workbench's promotion selection and confirmation from the surface read: admin-web builds the promotion scope and confirmation from its route context](https://github.com/chase-sets/chase-sets/issues/11142) | [admin/src/catalog/daily.rs](admin/src/catalog/daily.rs), [admin/src/catalog/views/daily_page.rs](admin/src/catalog/views/daily_page.rs) |
-| [chase-sets/chase-sets#11143 [catalog] A merge candidate's promote is not checked against the version the operator read, as its split and edit are](https://github.com/chase-sets/chase-sets/issues/11143) | [admin/src/catalog/daily.rs](admin/src/catalog/daily.rs) |
-| [chase-sets/chase-sets#11175 [catalog] Say in the daily read whether the held promotion preview may be committed: admin-web decides from its preview receipt with its own coverage rule](https://github.com/chase-sets/chase-sets/issues/11175) | [admin/src/catalog/daily.rs](admin/src/catalog/daily.rs) |
 | [chase-sets/chase-sets#11051 [catalog] Provider detail's Pause, Resume and Run now say nothing when the API refuses them or the run fails](https://github.com/chase-sets/chase-sets/issues/11051) | [admin/src/catalog/provider.rs](admin/src/catalog/provider.rs) |
 | [chase-sets/chase-sets#11068 [catalog] Record provider profile migration evidence as a Catalog command: admin-web fills a blank text with a fixed sentence that satisfies activation](https://github.com/chase-sets/chase-sets/issues/11068) | [admin/src/catalog/validation.rs](admin/src/catalog/validation.rs), [admin/src/catalog/sections.rs](admin/src/catalog/sections.rs) |
 | [chase-sets/chase-sets#11074 [catalog] Provider profile section edits are merged and defaulted in admin-web, with no concurrency check: the API should own the section command's defaults and require the section's fingerprint](https://github.com/chase-sets/chase-sets/issues/11074) | [admin/src/catalog/sections.rs](admin/src/catalog/sections.rs) |
-| [chase-sets/chase-sets#10530 Give removing draft Catalog Items a bulk preview and job like the other item bulk actions](https://github.com/chase-sets/chase-sets/issues/10530) | [admin/src/catalog/items.rs](admin/src/catalog/items.rs) |
 | [chase-sets/chase-sets#10538 Stop concurrent Product Contents edits from silently dropping each other's lines](https://github.com/chase-sets/chase-sets/issues/10538) | [admin/src/catalog/item.rs](admin/src/catalog/item.rs) |
 | [chase-sets/chase-sets#10549 Wait only on a Catalog Item's own projections when reading it after a write](https://github.com/chase-sets/chase-sets/issues/10549) | [scripts/smoke-item.mjs](scripts/smoke-item.mjs) |
 | [chase-sets/chase-sets#10572 Let the seed seller record the seeded restock decision instead of Restock decision not found](https://github.com/chase-sets/chase-sets/issues/10572) | [scripts/smoke-restock.mjs](scripts/smoke-restock.mjs) |
@@ -340,7 +331,6 @@ instead. Remove the workaround when the issue closes.
 | [chase-sets/chase-sets#10598 [discovery] Let List for sale on the item page list a graded product (it never sends graded card details)](https://github.com/chase-sets/chase-sets/issues/10598) | [marketplace/src/listing.rs](marketplace/src/listing.rs) |
 | [chase-sets/chase-sets#10606 [platform-operations] Give the Operations Attention queue's Open links their admin section (every one is a 404)](https://github.com/chase-sets/chase-sets/issues/10606) | [admin/src/operations/mod.rs](admin/src/operations/mod.rs), [scripts/smoke-operations-attention.mjs](scripts/smoke-operations-attention.mjs) |
 | [chase-sets/chase-sets#10607 [platform-operations] Register and publish the Operations Attention realtime topic (the API refuses it, so the queue never goes live)](https://github.com/chase-sets/chase-sets/issues/10607) | [admin/src/operations/mod.rs](admin/src/operations/mod.rs), [scripts/smoke-operations-attention.mjs](scripts/smoke-operations-attention.mjs) |
-| [chase-sets/chase-sets#10609 [discovery] Search answers 500 on the first request after a quiet minute](https://github.com/chase-sets/chase-sets/issues/10609) | [scripts/smoke-market-search.mjs](scripts/smoke-market-search.mjs) |
 | [chase-sets/chase-sets#10612 [discovery] Answer an unknown set page with 404, and a failed set read with 5xx, not 200](https://github.com/chase-sets/chase-sets/issues/10612) | [scripts/smoke-market-set.mjs](scripts/smoke-market-set.mjs), [marketplace/src/sets.rs](marketplace/src/sets.rs) |
 | [chase-sets/chase-sets#10614 [discovery] Tell a visitor their listing report was received (the page ignores ?reported=1)](https://github.com/chase-sets/chase-sets/issues/10614) | [marketplace/src/public_listing.rs](marketplace/src/public_listing.rs) |
 | [chase-sets/chase-sets#10615 [discovery] A repeat listing report shows a 500 page instead of saying it was already reported](https://github.com/chase-sets/chase-sets/issues/10615) | [marketplace/src/public_listing.rs](marketplace/src/public_listing.rs) |

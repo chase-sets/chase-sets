@@ -10,7 +10,7 @@ use corten::{
     prelude::*,
 };
 
-use super::home_page::{Icon, IconName, handlers};
+use super::home_page::{Icon, IconName, WaitlistFormId, handlers};
 use crate::{
     compare::{self, Calculator, Competitor, MAX_CARDS, Schedule},
     text::{CompareMsg, HomeMsg, Pilot},
@@ -129,7 +129,12 @@ pub fn ComparePage<'a>(
             <div class={(Card, Subtle)}>
                 <p class={Muted}>{c.cta_text()}</p>
                 <div class={Actions}>
-                    <a class={(Button, Primary)} href="/#waitlist-form" data-cta={&section} data-target="waitlist_form">
+                    <a
+                        class={(Button, Primary)}
+                        href={crate::app::url::files::Home.at(WaitlistFormId)}
+                        data-cta={&section}
+                        data-target="waitlist_form"
+                    >
                         {t.nav_waitlist()}
                     </a>
                     <a class={(Button, Secondary)} href={crate::app::url::sales_fees::SalesFees.href()}>{t.nav_seller_fees()}</a>

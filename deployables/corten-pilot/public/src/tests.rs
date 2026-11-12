@@ -2,16 +2,14 @@
 //! that nothing about the visitor reaches the API.
 use std::sync::{Arc, Mutex};
 
-// The stand-in API is a plain router served on a port through `corten::axum`, as Corten keeps it for a
-// test (corten-run/corten#950); the rest names Corten.
-use corten::http::{HeaderMap, Request, StatusCode, Uri, header};
-use corten::{
-    Json,
-    answer::Body,
-    axum::Router,
+// The stand-in API is a server of its own, a plain axum router (a dev-dependency) with axum's
+// `State`, `Json` and `Response`; the app under test is a `corten::Router`, and the rest names Corten.
+use axum::{
+    Json, Router,
     extract::State,
-    middleware::{IntoResponse, Response},
+    response::{IntoResponse, Response},
 };
+use corten::http::{Body, Bytes, HeaderMap, Request, StatusCode, Uri, header};
 use http_body_util::BodyExt;
 use serde_json::json;
 use tower::ServiceExt;
@@ -27,7 +25,7 @@ type Calls = Arc<Mutex<Vec<(String, HeaderMap)>>>;
 /// Pricing's public market pages: `twilight` has a last sale and asks, and a revised display
 /// policy's `s-maxage` (an hour), `charizard` a series in two currencies and no cache header,
 /// `down` fails, anything else is not found.
-async fn pricing(State(calls): State<Calls>, uri: Uri, headers: HeaderMap, body: corten::Bytes) -> Response {
+async fn pricing(State(calls): State<Calls>, uri: Uri, headers: HeaderMap, body: Bytes) -> Response {
     calls.lock().unwrap().push((uri.path().to_owned(), headers.clone()));
     if uri.path().starts_with("/api/public-presence/") {
         return presence(uri.path(), &headers, &body);
@@ -166,7 +164,7 @@ fn policy_values() -> serde_json::Value {
 }
 
 struct Site {
-    router: Router,
+    router: corten::Router,
     calls: Calls,
 }
 
@@ -181,7 +179,7 @@ impl Site {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let api = format!("http://{}", listener.local_addr().unwrap());
         let stand_in = Router::new().fallback(pricing).with_state(calls.clone());
-        tokio::spawn(async move { corten::axum::serve(listener, stand_in).await.unwrap() });
+        tokio::spawn(async move { axum::serve(listener, stand_in).await.unwrap() });
         let config = Config {
             platform: Platform::new(&api),
             origin: origin.into(),
@@ -208,7 +206,7 @@ impl Site {
         let mut req = req.body(Body::from(form.to_owned())).unwrap();
         if let Some((peer, _)) = from {
             let peer: std::net::SocketAddr = format!("{peer}:50000").parse().unwrap();
-            req.extensions_mut().insert(corten::axum::extract::ConnectInfo(peer));
+            req.extensions_mut().insert(corten::PeerAddr(peer));
         }
         let res = self.router.clone().oneshot(req).await.unwrap();
         let (status, headers) = (res.status(), res.headers().clone());
@@ -431,6 +429,9 @@ async fn the_home_page_draws_the_waitlists_landing_and_any_cache_may_keep_it() {
     assert_eq!(page.matches(r#"<form class="home-page__form" method="post" action="/""#).count(), 2, "{page}");
     assert!(page.contains(r#"<input type="radio" name="role" value="both" checked>"#), "{page}");
     assert!(page.contains(r#"name="website" tabindex="-1""#), "the honeypot: {page}");
+    // The brand links home and the nav to the hero's form, by the id the form has.
+    assert!(page.contains(r#"href="/" aria-label="#) && page.contains(r#"id="waitlist-form""#), "{page}");
+    assert!(page.contains(r#"href="/#waitlist-form" data-cta="nav""#), "{page}");
     // The live terms reach the FAQ and its structured data; the counter and the titled promos are drawn.
     assert!(page.contains("3.25% + $0.30 by card, 0% by bank account"), "{page}");
     assert!(
@@ -711,7 +712,7 @@ async fn a_wave_answer_saves_one_field_with_a_script_and_every_answered_field_wi
         .body(Body::from("field=inventory_size&games=pokemon&inventory_size=&store_url=https%3A%2F%2Fshop.example"))
         .unwrap();
     let mut req = req;
-    req.extensions_mut().insert(corten::axum::extract::ConnectInfo("203.0.113.9:50000".parse::<std::net::SocketAddr>().unwrap()));
+    req.extensions_mut().insert(corten::PeerAddr("203.0.113.9:50000".parse::<std::net::SocketAddr>().unwrap()));
     let res = site.router.clone().oneshot(req).await.unwrap();
     assert_eq!(res.status(), StatusCode::OK);
     let body = String::from_utf8(res.into_body().collect().await.unwrap().to_bytes().to_vec()).unwrap();
@@ -907,6 +908,7 @@ async fn a_compare_page_sets_the_live_schedule_beside_the_competitors_and_works_
     assert!(page.contains(r#"action="/compare/tcgplayer#fee-calculator" data-patch"#), "{page}");
     assert!(page.contains(r#"href="/compare/ebay""#) && page.contains("Compare Chase Sets vs eBay"), "{page}");
     assert!(page.contains(r#"href="/sales-fees""#), "{page}");
+    assert!(page.contains(r#"href="/#waitlist-form" data-cta="#), "the call to action goes to the hero's form: {page}");
     // eBay's page, and a competitor that is not one.
     let (status, _, page) = site.get("/compare/ebay", None).await;
     assert_eq!(status, StatusCode::OK);

@@ -14,7 +14,7 @@ use platform::{
         alert::{Alert, AlertEmphasis, AlertVariant},
         badge::{Badge, BadgeEmphasis, BadgeTone},
         button::{Button, ButtonSize, ButtonVariant},
-        card::{Card, CardContent, CardHeader},
+        card::{Card, CardContent, CardHeader, CardSize},
         stack::{Gap, Stack as KitStack},
         table::{CellLabel, Table, TableLayout},
     },
@@ -134,7 +134,7 @@ pub(super) fn Module<'a, C: Render>(
     children: C,
 ) -> impl Render {
     html! {
-        <section class={Card {}} aria-labelledby={id}>
+        <section class={Card { size: CardSize::Md }} aria-labelledby={id}>
             <header class={(CardHeader {}, ModuleHead)}>
                 <div>
                     <h2 id={id}>{title}</h2>

@@ -1138,8 +1138,7 @@ pub(crate) async fn write(
 }
 
 /// Writes the authenticity check choice, except for a purchase intent, which Checkout refuses it
-/// for. Marketplace's action writes it for one too, so its Submit offer always fails
-/// (chase-sets/chase-sets#10821); the pilot skips it until the action stops sending it.
+/// for; marketplace's action skips it for one too (chase-sets/chase-sets#10821).
 async fn select_authenticity_check(
     caller: &crate::api::Caller<'_>,
     session: &CheckoutSession,

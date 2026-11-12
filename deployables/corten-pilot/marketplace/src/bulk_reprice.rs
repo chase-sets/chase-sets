@@ -19,8 +19,7 @@ use std::time::Duration;
 
 use corten::{
     LiveResponse, Relay,
-    answer::Body,
-    http::{HeaderMap, StatusCode, header},
+    http::{Body, HeaderMap, StatusCode, header},
     prelude::*,
 };
 use futures_util::StreamExt;

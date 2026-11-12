@@ -71,8 +71,9 @@ pub const SIGN_IN: &[Component] = &[SignInPage];
 pub const OFFLINE: &[Component] = &[OfflinePage];
 
 /// A live stream's status, which the catalog and the Operations Attention queue render: both areas
-/// list it, so its stylesheet is one those two share.
-pub const LIVE: &[Component] = &[LiveStatus];
+/// list it, so its stylesheet is one those two share. Its Live badge's dot is the kit's `LiveDot`,
+/// whose rules are `StatusDot`'s.
+pub const LIVE: &[Component] = &[platform::ui::status_dot::StatusDot, LiveStatus];
 
 /// The postage screen's components: its area's stylesheet.
 pub const POSTAGE: &[Component] = &[StatusBadge, PolicyTable, PolicyFields, PolicySheet, Lifecycle, corten_ui::dialog::COMPONENT];

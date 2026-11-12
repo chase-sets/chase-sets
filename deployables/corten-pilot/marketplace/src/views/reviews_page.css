@@ -241,9 +241,6 @@
 }
 
 .dialog {
-  /* The browser's centering in the top layer, which the kit's Stack drops from its children
-     (corten-run/corten#1124). */
-  margin: auto;
   width: min(36rem, calc(100vw - 2rem));
   max-height: calc(100dvh - 2rem);
   overflow: auto;

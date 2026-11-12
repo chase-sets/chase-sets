@@ -7,7 +7,7 @@
 use platform::{
     theme::gap_1,
     ui::{
-        stack::{Gap, Stack as KitStack, StackStart},
+        stack::{Gap, StackStart},
         table::{CellLabel, Table as KitTable, TableLayout},
     },
 };
@@ -128,7 +128,7 @@ fn Deadline<'a>(t: Sup, due: Option<&'a str>, now: SystemTime) -> impl Render {
     html! {
         if let Some((when_due, text)) = at {
             let (overdue, value, unit) = countdown(when_due, now);
-            <span class={(KitStack { gap: Gap::App }, StackStart {}, gap_1())}>
+            <span class={(StackStart { gap: Gap::App }, gap_1())}>
                 if overdue {
                     <Tag
                         words={&t.ops_deadline_overdue(crate::text::sup::OpsDeadlineOverdue { value, unit }).to_string()}
@@ -152,7 +152,7 @@ fn Deadline<'a>(t: Sup, due: Option<&'a str>, now: SystemTime) -> impl Render {
 #[component(css = RequestsPage)]
 fn Order<'a>(t: Sup, order_id: &'a str, marketplace: Option<&'a str>) -> impl Render {
     html! {
-        <span class={(KitStack { gap: Gap::App }, StackStart {}, gap_1())}>
+        <span class={(StackStart { gap: Gap::App }, gap_1())}>
             <span class={Words}>{order_id}</span>
             if let Some(origin) = marketplace {
                 <span class={Links}>
@@ -367,7 +367,7 @@ fn QueueRow<'a>(t: Sup, row: &'a Row, screen: &'a QueueScreen, now: SystemTime, 
         <tr>
             <td>
                 <CellLabel>{t.ops_reference()}</CellLabel>
-                <span class={(KitStack { gap: Gap::App }, StackStart {}, gap_1())}>
+                <span class={(StackStart { gap: Gap::App }, gap_1())}>
                     <span class={(Strong, Words)}>{row.reference()}</span>
                     <span class={Small}>{title}</span>
                 </span>
@@ -378,7 +378,7 @@ fn QueueRow<'a>(t: Sup, row: &'a Row, screen: &'a QueueScreen, now: SystemTime, 
             </td>
             <td>
                 <CellLabel>{t.ops_status()}</CellLabel>
-                <span class={(KitStack { gap: Gap::App }, StackStart {}, gap_1())}>
+                <span class={(StackStart { gap: Gap::App }, gap_1())}>
                     <Tag
                         words={&status(t, &row.status)}
                         tone={if row.status == "ready-for-support" { "warning" } else { "neutral" }}

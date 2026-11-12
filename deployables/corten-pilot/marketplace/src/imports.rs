@@ -22,8 +22,7 @@
 use crate::recovery::attempt_text;
 use corten::{
     Relay,
-    answer::Body,
-    http::{HeaderMap, StatusCode, header},
+    http::{Body, HeaderMap, StatusCode, header},
     prelude::*,
 };
 use platform::receipt::Receipt;
