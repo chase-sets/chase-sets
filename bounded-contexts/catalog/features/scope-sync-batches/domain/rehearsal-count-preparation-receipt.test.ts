@@ -19,6 +19,19 @@ const hex = (character: string) => character.repeat(64);
 const uuid = (index: number) => `00000000-0000-4000-8000-00000000000${index}`;
 const readAt = "2026-10-14T12:05:00.000Z";
 const pass = { passNumber: 1, productDomain: "one-piece", languageCode: null, scopeKind: "set" } as const;
+const period = { startsAt: "2026-10-01T00:00:00.000Z", endsAt: "2026-11-01T00:00:00.000Z", overageCreditsConsumed: 0 };
+function decision(admitted = true) {
+  return {
+    admitted,
+    reason: admitted ? null : ("usage-period-cap" as const),
+    runId: "9224-pass1-one-piece",
+    observedAt: "2026-10-14T11:59:00.000Z",
+    period,
+    consumedCredits: admitted ? 49_997 : 49_998,
+    unreflectedCredits: 0,
+    plannedCredits: 3,
+  };
+}
 
 type Mutable<T> = { -readonly [K in keyof T]: T[K] extends object ? Mutable<T[K]> : T[K] };
 type Receipt = Mutable<RehearsalCountPreparationReceipt>;
@@ -118,6 +131,7 @@ function complete(): Receipt {
       submittedAt: "2026-10-14T12:00:30.000Z",
       response: { status: 200, state: "complete" },
       readback: { readAt, status: "read", state: "complete", admission: "ended" },
+      periodDecision: decision(),
     },
     sources: [pageOne(0, uuid(2)), pageOne(1, uuid(3)), pageOne(2, uuid(4)), reused()],
     accounting: accounting([
@@ -207,10 +221,40 @@ describe("rehearsal count preparation receipt (AC4)", () => {
       submittedAt: "2026-10-14T12:00:30.000Z",
       response: { status: 409, state: null },
       readback: { readAt, status: "read", state: "quoted", admission: "none" },
+      periodDecision: null,
     };
     expect(errorsOf(refused)).toEqual(["submission-requires-current-authority"]);
     refused.authority!.headroom = 3;
     expect(errorsOf(refused)).toEqual([]);
+  });
+
+  it("records the billing-period decision once, bound to the dispatch, P and the locked 409", () => {
+    const capped = complete();
+    capped.outcome = "admission-refused";
+    capped.acquisition!.response = { status: 409, state: null };
+    capped.acquisition!.readback = { readAt, status: "read", state: "quoted", admission: "none" };
+    capped.acquisition!.periodDecision = decision(false);
+    capped.sources = [reused()];
+    capped.accounting = accounting([]);
+    expect(errorsOf(capped)).toEqual([]);
+    // A refusing decision beside a 200, a foreign dispatch, another P or a contradictory reason never validates.
+    const mismatches: ((receipt: Receipt) => void)[] = [
+      (receipt) => (receipt.acquisition!.response = { status: 200, state: "quoted" }),
+      (receipt) => (receipt.acquisition!.periodDecision!.runId = "9224-pass1-lorcana"),
+      (receipt) => (receipt.acquisition!.periodDecision!.plannedCredits = 2),
+      (receipt) => (receipt.acquisition!.periodDecision!.reason = null),
+    ];
+    for (const mutate of mismatches) {
+      const receipt = structuredClone(capped);
+      mutate(receipt);
+      expect(errorsOf(receipt)).toContain("period-decision-mismatch");
+    }
+    const unadmitted = complete();
+    unadmitted.acquisition!.periodDecision = null;
+    expect(errorsOf(unadmitted)).toContain("complete-requires-period-admission");
+    const malformed = complete() as unknown as { acquisition: { periodDecision: Record<string, unknown> } };
+    malformed.acquisition.periodDecision.reserve = {};
+    expect(errorsOf(malformed).some((error) => error.startsWith("schema:acquisition.periodDecision"))).toBe(true);
   });
 
   it("unknown accounting is never zero spend and cannot complete", () => {
@@ -300,8 +344,10 @@ describe("rehearsal count preparation receipt (AC4)", () => {
       receipt[key] = key === "sha" ? "b".repeat(40) : "999";
       expect(errorsOf(receipt)).toContain(`identity-mismatch:${key}`);
     }
-    const earlier = { ...complete(), schemaVersion: "catalog-rehearsal-count-preparation-receipt/v1" };
-    expect(errorsOf(earlier)).toContain("schema:schemaVersion:invalid_value");
+    for (const version of ["v1", "v2"]) {
+      const earlier = { ...complete(), schemaVersion: `catalog-rehearsal-count-preparation-receipt/${version}` };
+      expect(errorsOf(earlier), version).toContain("schema:schemaVersion:invalid_value");
+    }
   });
 
   it("complete requires current exact sources, complete debits and an ended admission", () => {
@@ -434,6 +480,13 @@ describe("rehearsal count preparation approval", () => {
     perKindCost: { cards: 2, sealed: 1 },
     cap: 3,
     authority: { fingerprint: hex("b"), headroom: 40, observedAt: "2026-10-14T11:59:00.000Z" },
+    periodReserve: {
+      runId: "9224-pass1-one-piece",
+      startsAt: period.startsAt,
+      endsAt: period.endsAt,
+      observedAt: "2026-10-14T11:59:00.000Z",
+      credits: 0,
+    },
   };
 
   it("parses only the closed host approval and refuses by code", () => {
@@ -446,6 +499,10 @@ describe("rehearsal count preparation approval", () => {
       JSON.stringify({ ...approval, approvedAt: "2026-10-14" }),
       JSON.stringify({ ...approval, cap: 10_001 }),
       JSON.stringify({ ...approval, pass: { ...pass, scopeKind: "expansion" } }),
+      JSON.stringify({ ...approval, schemaVersion: "catalog-rehearsal-count-preparation-approval/v1" }),
+      JSON.stringify({ ...approval, periodReserve: undefined }),
+      JSON.stringify({ ...approval, periodReserve: { ...approval.periodReserve, extra: true } }),
+      JSON.stringify({ ...approval, periodReserve: { ...approval.periodReserve, credits: -1 } }),
     ]) {
       let refusal: unknown;
       try {
