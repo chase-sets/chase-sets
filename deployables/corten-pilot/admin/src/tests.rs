@@ -7834,6 +7834,10 @@ fn daily_surface(location: &str, scope: Option<&str>) -> Response {
     candidate["fieldProvenance"] = json!([{ "fieldPath": "catalogItem.name", "providerKey": "tcgplayer",
         "sourceProfileVersion": "sv-2026", "confidence": "exact", "evidenceSummary": "name" }]);
     candidate["proposedFacts"] = json!([{ "key": "name", "value": "Sprigatito" }]);
+    // `candidateConflicts=blocking` is a read whose candidate has a blocking conflict to resolve.
+    if location.contains("candidateConflicts=blocking") {
+        candidate["conflicts"]["blocking"] = json!(1);
+    }
     candidate["actions"][3]["commandPreview"]["provenance"] =
         json!({ "membership": [{ "observationId": "obs_1" }, { "observationId": "obs_2" }], "externalProductReferences": [] });
     // A scope page's journey is its Scope Record's: its Catalog sync names the scope.
@@ -9267,10 +9271,7 @@ async fn the_daily_workbench_draws_the_apis_read_with_its_stages_and_commands() 
     assert!(html.contains(r#"name="action" value="defer""#) && html.contains(r#"name="action" value="reject""#), "{html}");
     assert!(html.contains(r#"name="reason""#), "{html}");
     assert!(!html.contains(r#"value="promote""#), "the read offers no candidate promote here: {html}");
-    assert!(
-        html.contains(r#"href="http://localhost:7752/catalog/integrations?providerKey=tcgplayer&amp;unitKey=pokemon""#),
-        "candidate evidence and conflicts open on admin-web: {html}"
-    );
+    assert!(!html.contains("blocking conflicts runs on admin-web"), "no candidate has a blocking conflict: {html}");
     assert!(html.contains("Sprigatito 001"), "the merge candidate: {html}");
 
     let section = pilot.stylesheet(&html, "sections/catalog").await.unwrap();
@@ -9818,6 +9819,16 @@ async fn a_candidates_evidence_is_its_detail_sheet_from_the_row_the_read_gave() 
         html.contains(r#"command="show-modal" commandfor="#) && html.contains(r#"aria-label="Evidence: Sprigatito 001""#),
         "{html}"
     );
+    // A candidate with a blocking conflict: its resolution runs on admin-web, said in its sheet and below the list.
+    let at = "providerKey=tcgplayer&unitKey=pokemon&candidateConflicts=blocking";
+    let (_, _, html) = pilot.send(get(&format!("/catalog/integrations?{at}"), Some("staff"))).await;
+    let admin_web = r#"href="http://localhost:7752/catalog/integrations?providerKey=tcgplayer&amp;unitKey=pokemon&amp;candidateConflicts=blocking""#;
+    let sheet = &html[html.find(r#"data-catalog-merge-candidate-detail="cand_1""#).expect(&html)..];
+    let sheet = &sheet[..sheet.find("</dialog>").unwrap()];
+    assert!(sheet.contains("blocking conflicts runs on admin-web") && sheet.contains(admin_web), "{sheet}");
+    assert_eq!(html.matches(admin_web).count(), 2, "the sheet's and the list's: {html}");
+    assert!(!html.contains("candidate-promote"), "no promote while a blocking conflict waits: {html}");
+
     let (_, _, viewer) =
         pilot.send(get("/catalog/integrations?providerKey=tcgplayer&unitKey=pokemon", Some("catalog-reader"))).await;
     assert!(viewer.contains(r#"data-catalog-merge-candidate-detail="cand_1""#), "{viewer}");
@@ -9848,7 +9859,10 @@ async fn a_candidate_splits_and_is_edited_with_the_version_the_page_read_and_a_m
 
     let (status, _, html) = pilot.send(get(&format!("/catalog/integrations?{at}"), Some("catalog-reader"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");
-    assert!(!html.contains("candidate-split") && !html.contains("candidate-edit-form"), "not the reader's: {html}");
+    assert!(
+        !html.contains(r#"data-catalog-primary-workbench-command="candidate-split""#) && !html.contains("candidate-edit-form"),
+        "not the reader's: {html}"
+    );
 
     let (status, headers, _) = pilot
         .send(post(
