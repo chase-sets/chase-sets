@@ -231,6 +231,20 @@ describe("MTGJSON coordinate compatibility and refusal", () => {
       expect(deniedFetch).not.toHaveBeenCalled();
     },
   );
+
+  it("fails a stalled MTGJSON set list query with a terminal timeout instead of hanging", async () => {
+    const fetch = vi.fn(
+      (_input: RequestInfo | URL, init?: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () => reject(new Error("aborted")));
+        }),
+    ) as typeof globalThis.fetch;
+    const adapter = createMtgjsonProviderAdapter({ fetch, fetchTimeoutMs: 1 });
+
+    await expect(
+      adapter.listOptions({ unitKey: MTGJSON_MTG_SET_REFERENCE_DATA_UNIT_KEY, optionKind: "sets" }),
+    ).rejects.toThrow("MTGJSON request did not finish within 1 ms.");
+  });
 });
 
 type ReferenceCardPayload = Readonly<{
