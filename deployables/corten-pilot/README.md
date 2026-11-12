@@ -150,8 +150,7 @@ checked rows, an observation's evidence or a unit's scope) and Create or update 
 selection and confirmation the Catalog API builds for the read; a promotion the read does not offer is
 not offered. The commit presents the token the preview answered, with the draft choice it bound, and is
 offered while the read says the held preview may be committed (`previewCommittable`). A merge
-candidate's Promote sends the version the read offered it with; a promote with conflicts to resolve,
-and a candidate's evidence, stay on admin-web. Its import context
+candidate's Promote sends the version the read offered it with, and its Evidence opens the candidate's detail sheet from the row the read gave; a promote with blocking conflicts to resolve stays on admin-web, as the API does not apply the value a resolution chooses ([chase-sets/chase-sets#11235 [catalog] A merge candidate's conflict resolution is never applied: Keep the catalog value still writes the proposed value](https://github.com/chase-sets/chase-sets/issues/11235)). Its import context
 bar chooses the provider, unit, scope and profile version from synced source options and reloads or
 force-refreshes them; the scope selects, their options and the bar's summary line are the Catalog
 API's.
@@ -161,7 +160,7 @@ scope link. A unit's Sync and Reapply post the scopes the API builds for it (`co
 read again for the working set when the form posts, and land on the unit's working set with the job
 they queued; its Preview previews the unit's scope with the unit's own promotion. The jobs stage's
 import preflight is the Catalog API's for the working set, sent in one `<corten-live>` fragment when it
-is read, so a slow provider does not hold the page; without JavaScript, which opens no stream, a link in the loading line's place reads the working set's page with the preflight drawn in it (`/catalog/integrations/import-preflight`). The review stage folds the alias review of the provider and profile version the surface
+is read, so a slow provider does not hold the page; where no stream will bring it (without JavaScript, or once the stream gave up), the loading line's link opens the page's own address with `preflight=true`, which reads it in (Corten's slow-part pattern from [corten-run/corten#1280 Give a slow part a <corten-live> stream sends once a no-JavaScript answer](https://github.com/corten-run/corten/pull/1280)). The review stage folds the alias review of the provider and profile version the surface
 names, with the same candidate commands and bulk bar as the scopes list's.
 Provider detail,
 `/catalog/providers/{providerKey}` ([admin/src/catalog/provider.rs](admin/src/catalog/provider.rs)),
@@ -252,7 +251,7 @@ registered files.
 
 ## Corten pin
 
-`Cargo.toml` pins Corten to `684a5395` (Corten `main` on 2026-11-12), whose framework package is
+`Cargo.toml` pins Corten to `1ba4e522` (Corten `main` on 2026-11-12), whose framework package is
 `corten-run` (the library is still `corten`). Corten 0.2.0 is released (tag `v0.2.0`, `a833b4e3`), and the pin is a git revision past it. The
 pin follows Corten's latest `main` (Todd, 2026-11-02), and each move is its own commit that says
 what changed; the workarounds a move lets go follow it in commits of their own. The history of every move is in the
@@ -300,7 +299,6 @@ but keep their own bordered choice rows, which are the design system's `Checkbox
 
 | Issue | Workaround |
 | --- | --- |
-| [corten-run/corten#1264 A slow part a `<corten-live>` stream sends once has no answer without JavaScript: its placeholder stays for good](https://github.com/corten-run/corten/issues/1264) | [admin/src/catalog/views/daily_page.rs](admin/src/catalog/views/daily_page.rs) draws a `<noscript>` link in the import preflight's loading line, hidden under `scripting: none`, to `GET /catalog/integrations/import-preflight` ([admin/src/catalog/daily.rs](admin/src/catalog/daily.rs)), the working set's page with the preflight read for it |
 | [corten-run/corten#1065 Kit Stack and Cluster always print a literal gap, so an app on its own token spacing scale cannot use them with its gap utility](https://github.com/corten-run/corten/issues/1065) | closed by Corten's `Gap::App` (pinned since `f4f37f95`). Every page column is the kit's `Stack { gap: Gap::App }` with the theme's `gap_N()`: the five whose children keep their own width (support requests, command center, order, packing, shipment) are `StackStart { gap: Gap::App }` in its place. A page's own `.stack` keeps only what the kit's does not set (`min-width: 0` in a grid track, a padding or margin) |
 
 Every Corten gap the pilot found and how it closed is in the [README before it was cut](https://github.com/chase-sets/chase-sets/blob/5a683c4eb5/deployables/corten-pilot/README.md) ("Corten gaps").
@@ -312,6 +310,7 @@ instead. Remove the workaround when the issue closes.
 
 | Issue | Cited in |
 |---|---|
+| [chase-sets/chase-sets#11235 [catalog] A merge candidate's conflict resolution is never applied: Keep the catalog value still writes the proposed value](https://github.com/chase-sets/chase-sets/issues/11235) | [admin/src/catalog/views/daily_page.rs](admin/src/catalog/views/daily_page.rs) |
 | [chase-sets/chase-sets#9995 [checkout] Apply Sell List commands exactly once and converge the Offer handoff](https://github.com/chase-sets/chase-sets/issues/9995) | [marketplace/src/selling.rs](marketplace/src/selling.rs), [marketplace/src/api.rs](marketplace/src/api.rs) |
 | [chase-sets/chase-sets#8766 Show every seller attention source in the Desk Needs you queue](https://github.com/chase-sets/chase-sets/issues/8766) | [scripts/smoke-market-desk.mjs](scripts/smoke-market-desk.mjs), [marketplace/src/views/desk_page.rs](marketplace/src/views/desk_page.rs) |
 | [chase-sets/chase-sets#8830 Complete Sell List Offer lines from inventory when the seller has no Listing](https://github.com/chase-sets/chase-sets/issues/8830) | [scripts/smoke-market-item-sell.mjs](scripts/smoke-market-item-sell.mjs), [marketplace/src/selling.rs](marketplace/src/selling.rs) |

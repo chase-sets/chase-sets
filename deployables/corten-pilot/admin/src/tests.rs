@@ -7824,6 +7824,22 @@ fn daily_surface(location: &str, scope: Option<&str>) -> Response {
                 { "key": "observation.reject", "state": "available", "blockers": [] }]
         }
     });
+    // The candidate's detail sheet's lines (set apart, as one `json!` holding them passes its recursion limit).
+    let candidate = &mut surface["readModel"]["mergeCandidateReview"]["rows"][0];
+    candidate["conflicts"]["messages"] = json!(["Rarity differs between sources."]);
+    candidate["proposedMapping"] = json!({ "promotionIntent": "create-catalog-item", "catalogItemId": null, "productIds": ["prd_1"],
+        "externalCatalogItemReferences": ["tcgplayer:111"], "externalProductReferences": [] });
+    candidate["sourceComparison"] = json!([{ "fieldPath": "catalogItem.name", "value": "Sprigatito", "providerKey": "tcgplayer",
+        "observationId": "obs_1", "confidence": "exact" }]);
+    candidate["fieldProvenance"] = json!([{ "fieldPath": "catalogItem.name", "providerKey": "tcgplayer",
+        "sourceProfileVersion": "sv-2026", "confidence": "exact", "evidenceSummary": "name" }]);
+    candidate["proposedFacts"] = json!([{ "key": "name", "value": "Sprigatito" }]);
+    // `candidateConflicts=blocking` is a read whose candidate has a blocking conflict to resolve.
+    if location.contains("candidateConflicts=blocking") {
+        candidate["conflicts"]["blocking"] = json!(1);
+    }
+    candidate["actions"][3]["commandPreview"]["provenance"] =
+        json!({ "membership": [{ "observationId": "obs_1" }, { "observationId": "obs_2" }], "externalProductReferences": [] });
     // A scope page's journey is its Scope Record's: its Catalog sync names the scope.
     if let Some(id) = scope {
         surface["readModel"]["catalogSync"]["scope"]["reference"] = json!({ "kind": "expansion", "scopeRecordId": id });
@@ -9255,10 +9271,7 @@ async fn the_daily_workbench_draws_the_apis_read_with_its_stages_and_commands() 
     assert!(html.contains(r#"name="action" value="defer""#) && html.contains(r#"name="action" value="reject""#), "{html}");
     assert!(html.contains(r#"name="reason""#), "{html}");
     assert!(!html.contains(r#"value="promote""#), "the read offers no candidate promote here: {html}");
-    assert!(
-        html.contains(r#"href="http://localhost:7752/catalog/integrations?providerKey=tcgplayer&amp;unitKey=pokemon""#),
-        "candidate evidence and conflicts open on admin-web: {html}"
-    );
+    assert!(!html.contains("blocking conflicts runs on admin-web"), "no candidate has a blocking conflict: {html}");
     assert!(html.contains("Sprigatito 001"), "the merge candidate: {html}");
 
     let section = pilot.stylesheet(&html, "sections/catalog").await.unwrap();
@@ -9446,10 +9459,11 @@ async fn the_jobs_stage_draws_a_loading_line_and_its_import_preflight_comes_once
         "{part}"
     );
     assert!(part.contains("Loading import preflight"), "{part}");
-    // Without JavaScript the element opens no stream; its link reads the preflight with the page.
+    // Where no stream will bring it, the link to the page's own address with the preflight read in.
     assert!(
-        part.contains(r#"<noscript><p class="#)
-            && part.contains(r#"<a href="/catalog/integrations/import-preflight?providerKey=tcgplayer&amp;unitKey=pokemon">Read the import preflight</a>"#),
+        part.contains(
+            r#"href="/catalog/integrations?providerKey=tcgplayer&amp;unitKey=pokemon&amp;preflight=true" rel="nofollow">Read the import preflight</a>"#
+        ) && !part.contains("<noscript>"),
         "{part}"
     );
     assert!(pilot.calls_to(preflight).is_empty(), "the page does not wait for the provider's plan");
@@ -9492,11 +9506,11 @@ async fn the_jobs_stage_draws_a_loading_line_and_its_import_preflight_comes_once
 }
 
 #[tokio::test]
-async fn without_javascript_the_import_preflights_link_is_its_page_with_the_preflight_read() {
+async fn without_javascript_the_import_preflights_link_is_the_page_with_the_preflight_read_in() {
     let pilot = Pilot::new().await;
     let preflight = "/api/catalog/source-observations/workbench-surfaces/daily/import-preview";
     let at = "providerKey=tcgplayer&unitKey=pokemon";
-    let (status, _, html) = pilot.send(get(&format!("/catalog/integrations/import-preflight?{at}"), Some("staff"))).await;
+    let (status, _, html) = pilot.send(get(&format!("/catalog/integrations?{at}&preflight=true"), Some("staff"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");
     assert!(html.contains("<title>Catalog Integrations") && html.contains(r#"name="wb-stage""#), "the daily page: {html}");
     assert!(
@@ -9510,21 +9524,28 @@ async fn without_javascript_the_import_preflights_link_is_its_page_with_the_pref
     );
 
     // A provider past the API's deadline says so; no preflight, or a read that fails, leaves nothing.
-    let (status, _, html) = pilot.send(get("/catalog/integrations/import-preflight?providerKey=slow", Some("staff"))).await;
+    let (status, _, html) = pilot.send(get("/catalog/integrations?providerKey=slow&preflight=true", Some("staff"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");
     assert!(html.contains(r#"data-catalog-deferred-panel="unavailable""#) && html.contains("Import preflight"), "{html}");
-    let (status, _, html) = pilot.send(get("/catalog/integrations/import-preflight?providerKey=nopreview", Some("staff"))).await;
+    let (status, _, html) = pilot.send(get("/catalog/integrations?providerKey=nopreview&preflight=true", Some("staff"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");
     assert!(!html.contains("data-catalog-import-preview=") && !html.contains("Loading import preflight"), "{html}");
 
-    // From a scope's workspace the page is the scope's, with the preflight read for its own address.
-    let (status, _, html) =
-        pilot.send(get(&format!("/catalog/integrations/import-preflight?{at}&home=scp_paf"), Some("staff"))).await;
+    // A command's forms do not carry the key: the working set is the page's, without it.
+    const PREFLIGHT_KEY: &str = "preflight=";
+    let (_, _, html) = pilot.send(get("/catalog/integrations?providerKey=tcgplayer&preflight=true", Some("staff"))).await;
+    let actions: Vec<&str> = html.split("action=\"").skip(1).filter_map(|rest| rest.split('"').next()).collect();
+    assert!(!actions.is_empty() && actions.iter().all(|action| !action.contains(PREFLIGHT_KEY)), "{actions:?}");
+
+    // A scope's page reads it in for its own address, its link the scope's page.
+    let (_, _, html) = pilot.send(get("/catalog/scopes/scp_paf?languageCode=ja", Some("staff"))).await;
+    assert!(html.contains(r#"href="/catalog/scopes/scp_paf?languageCode=ja&amp;preflight=true" rel="nofollow""#), "{html}");
+    let (status, _, html) = pilot.send(get("/catalog/scopes/scp_paf?preflight=true", Some("staff"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");
     assert!(html.contains("data-scope-workspace") && html.contains("Paldean Fates"), "the scope's page: {html}");
     assert!(html.contains(r#"data-catalog-import-preview="ready""#), "{html}");
     assert!(
-        pilot.calls_to(preflight).last().is_some_and(|c| c.path.contains("location=%2Fcatalog%2Fscopes%2Fscp_paf")),
+        pilot.calls_to(preflight).last().is_some_and(|c| c.path.ends_with("location=%2Fcatalog%2Fscopes%2Fscp_paf")),
         "the scope's location: {:?}",
         pilot.calls_to(preflight).last()
     );
@@ -9771,6 +9792,49 @@ async fn a_merge_candidate_is_ignored_or_deferred_with_admin_webs_reason() {
 }
 
 #[tokio::test]
+async fn a_candidates_evidence_is_its_detail_sheet_from_the_row_the_read_gave() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/catalog/integrations?providerKey=tcgplayer&unitKey=pokemon", Some("staff"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let sheet = &html[html.find(r#"data-catalog-merge-candidate-detail="cand_1""#).expect(&html)..];
+    let sheet = &sheet[..sheet.find("</dialog>").unwrap()];
+    for text in [
+        "Candidate detail: Sprigatito 001",
+        "<dd>cand_1</dd>",
+        "<dd>Create catalog item</dd>",
+        "<dd>not selected</dd>",
+        "<dd>prd_1</dd>",
+        "tcgplayer obs_1 catalogItem.name: Sprigatito",
+        "catalogItem.name: tcgplayer sv-2026 Exact",
+        "tcgplayer:111",
+        "name: Sprigatito",
+        "Rarity differs between sources.",
+        "Split: catalog-merge-candidate-split from 2 source(s), 0 Product reference(s)",
+    ] {
+        assert!(sheet.contains(text), "{text}: {sheet}");
+    }
+    assert!(!sheet.contains("blocking conflicts runs on admin-web"), "no blocking conflict to resolve: {sheet}");
+    // Its trigger opens it without a read of its own, for a viewer who cannot manage too.
+    assert!(
+        html.contains(r#"command="show-modal" commandfor="#) && html.contains(r#"aria-label="Evidence: Sprigatito 001""#),
+        "{html}"
+    );
+    // A candidate with a blocking conflict: its resolution runs on admin-web, said in its sheet and below the list.
+    let at = "providerKey=tcgplayer&unitKey=pokemon&candidateConflicts=blocking";
+    let (_, _, html) = pilot.send(get(&format!("/catalog/integrations?{at}"), Some("staff"))).await;
+    let admin_web = r#"href="http://localhost:7752/catalog/integrations?providerKey=tcgplayer&amp;unitKey=pokemon&amp;candidateConflicts=blocking""#;
+    let sheet = &html[html.find(r#"data-catalog-merge-candidate-detail="cand_1""#).expect(&html)..];
+    let sheet = &sheet[..sheet.find("</dialog>").unwrap()];
+    assert!(sheet.contains("blocking conflicts runs on admin-web") && sheet.contains(admin_web), "{sheet}");
+    assert_eq!(html.matches(admin_web).count(), 2, "the sheet's and the list's: {html}");
+    assert!(!html.contains("candidate-promote"), "no promote while a blocking conflict waits: {html}");
+
+    let (_, _, viewer) =
+        pilot.send(get("/catalog/integrations?providerKey=tcgplayer&unitKey=pokemon", Some("catalog-reader"))).await;
+    assert!(viewer.contains(r#"data-catalog-merge-candidate-detail="cand_1""#), "{viewer}");
+}
+
+#[tokio::test]
 async fn a_candidate_splits_and_is_edited_with_the_version_the_page_read_and_a_moved_one_says_so() {
     let pilot = Pilot::new().await;
     let at = "providerKey=tcgplayer&unitKey=pokemon";
@@ -9795,7 +9859,10 @@ async fn a_candidate_splits_and_is_edited_with_the_version_the_page_read_and_a_m
 
     let (status, _, html) = pilot.send(get(&format!("/catalog/integrations?{at}"), Some("catalog-reader"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");
-    assert!(!html.contains("candidate-split") && !html.contains("candidate-edit-form"), "not the reader's: {html}");
+    assert!(
+        !html.contains(r#"data-catalog-primary-workbench-command="candidate-split""#) && !html.contains("candidate-edit-form"),
+        "not the reader's: {html}"
+    );
 
     let (status, headers, _) = pilot
         .send(post(

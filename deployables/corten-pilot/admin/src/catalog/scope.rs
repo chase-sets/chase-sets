@@ -76,8 +76,9 @@ pub mod url {
         Cancelled,
     }
 
-    /// The page's query: the completed jobs' page, and what the write before left (its receipt,
-    /// its toast and, for Accept all available, how many).
+    /// The page's query: the completed jobs' page, what the write before left (its receipt, its
+    /// toast and, for Accept all available, how many), and whether its import-to-promotion section
+    /// reads its import preflight in (`crate::catalog::daily::PREFLIGHT`, the loading line's link).
     #[derive(Clone, Debug, Default, Deserialize, Route)]
     #[route(query)]
     pub struct ScopeAt {
@@ -85,6 +86,7 @@ pub mod url {
         pub after_write: Option<String>,
         pub done: Option<ScopeDone>,
         pub count: Option<u32>,
+        pub preflight: Option<bool>,
     }
 
     #[route("/catalog/scopes/{id}", get = crate::catalog::scope::page)]
@@ -304,8 +306,9 @@ pub struct ScopeScreen {
     pub workspace: Option<crate::catalog::daily::DailyScreen>,
 }
 
-/// The query keys the scope's page owns: the completed jobs' page and what the write before left.
-const PAGE_KEYS: [&str; 4] = ["jobs", "after_write", "done", "count"];
+/// The query keys the scope's page owns: the completed jobs' page, what the write before left, and
+/// the import preflight read in.
+const PAGE_KEYS: [&str; 5] = ["jobs", "after_write", "done", "count", crate::catalog::daily::PREFLIGHT];
 
 /// The keys the scope sets itself (admin-web's `SCOPE_QUERY_KEYS`, then `scopeRecordId`): a
 /// provider, unit, import scope or profile version in the address is dropped, as there.
@@ -488,8 +491,16 @@ pub(crate) async fn page(
     Params(route): Params<crate::catalog::scope::url::ScopePage<'_>>,
 ) -> HtmlResult {
     let (id, at) = (route.id, route.at);
-    render(&req, &staff.viewer, &config, &headers, &id, &at, uri.query().unwrap_or_default(), ScopeBack::Nothing, Opened::Nothing)
-        .await
+    let query = uri.query().unwrap_or_default();
+    let receipt = Receipt::from_param(at.after_write.as_deref());
+    let asked = at.preflight == Some(true);
+    let opened = crate::catalog::daily::read_in_preflight(
+        &caller(&config, &headers, receipt.as_ref()),
+        asked,
+        &journey_context(query, &id),
+    )
+    .await;
+    render(&req, &staff.viewer, &config, &headers, &id, &at, query, ScopeBack::Nothing, opened).await
 }
 
 /// The page a write came from, again: with a `back` other than nothing, a refused write's answer
@@ -569,7 +580,7 @@ pub(crate) async fn refused_in_workspace(
 }
 
 /// The scope's page without the runtime with what its import-to-promotion section has open (a review
-/// row's evidence sheet, the import preflight): the page for the same working set (`context`, whose
+/// row's evidence sheet): the page for the same working set (`context`, whose
 /// `home` is `id`).
 pub(crate) async fn opened(
     req: &Req,
@@ -585,7 +596,7 @@ pub(crate) async fn opened(
 
 /// After a write: the page it came from, waiting for it, with its toast.
 fn to_scope(req: &Req, id: &str, written: Option<&Written>, done: ScopeDone, count: Option<u32>, from: Via) -> HtmlResult {
-    let at = ScopeAt { after_write: written.and_then(receipt), done: Some(done), count, jobs: None };
+    let at = ScopeAt { after_write: written.and_then(receipt), done: Some(done), count, jobs: None, preflight: None };
     match from {
         Via::Scope => req.redirect(&url::ScopePage { id, at }),
         Via::Coverage => req.redirect(&crate::catalog::coverage::url::CoveragePage { id, at }),

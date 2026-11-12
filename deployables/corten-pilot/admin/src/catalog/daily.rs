@@ -6,7 +6,7 @@
 //!
 //! | Route | Answers |
 //! |---|---|
-//! | `GET /catalog/integrations?<context>&after_write&done` | the workbench for the context, after the command the address names |
+//! | `GET /catalog/integrations?<context>&after_write&done&preflight` | the workbench for the context, after the command the address names; with `preflight=true`, its import preflight read in |
 //! | `POST /catalog/integrations/catalog-sync?<context>` | starts a Catalog sync of the scope with the checked provider units, and lands on its run |
 //! | `POST /catalog/integrations/jobs/{id}?<context>` | retries, resumes or cancels an import job |
 //! | `POST /catalog/integrations/units?<context>` | imports or reapplies a workset unit's scope |
@@ -14,7 +14,6 @@
 //! | `POST /catalog/integrations/promotion?<context>` | previews the promotion of the checked Source Observations, or commits the preview the address holds |
 //! | `GET /catalog/integrations/evidence/{id}?<context>` | a Source Observation's evidence sheet, or without the script the page with it open |
 //! | `GET /catalog/integrations/import-preview?<context>` | the jobs stage's import preflight, once it is read (`<corten-live>`) |
-//! | `GET /catalog/integrations/import-preflight?<context>` | without the script, the page with its import preflight read for it |
 //! | `POST /catalog/integrations/candidates/{id}?<context>` | ignores or defers a merge candidate |
 //! | `POST /catalog/integrations/aliases?<context>` | accepts, rejects, revokes or defers alias candidates |
 //!
@@ -39,7 +38,10 @@
 //! the commit (`POST .../bulk-promote/jobs`) presents the token and lands on the job it queued.
 //! The jobs stage's import preflight is the Catalog API's for the working set
 //! (`GET .../workbench-surfaces/daily/import-preview?location=`, chase-sets/chase-sets#11130), sent in
-//! one `<corten-live>` fragment when it is read (`import_preview`).
+//! one `<corten-live>` fragment when it is read (`import_preview`). Where no stream will bring it (without
+//! JavaScript, or once the stream gave up) the loading line's link opens the page's own address with
+//! `preflight=true`, which reads it in (Corten's slow-part pattern, corten-run/corten#1280); the key is
+//! the pilot's own and is never sent to the API.
 //!
 //! A review row's Evidence opens the observation's evidence sheet from the API's detail
 //! (`GET /api/catalog/source-observations/{id}/evidence`, admin-web's lazy `SourceObservationEvidenceSheet`
@@ -143,11 +145,6 @@ pub mod url {
     /// (`<corten-live>`).
     #[route("/catalog/integrations/import-preview", get = crate::catalog::daily::import_preview)]
     pub struct ImportPreview;
-
-    /// The working set's page with its import preflight read for it, for a browser without
-    /// JavaScript, which opens no `<corten-live>` stream: the loading line's link.
-    #[route("/catalog/integrations/import-preflight", get = crate::catalog::daily::preflight)]
-    pub struct Preflight;
 
     /// An alias candidate's command in the review stage's alias review.
     #[route("/catalog/integrations/aliases", post = crate::catalog::daily::aliases)]
@@ -295,11 +292,24 @@ pub struct Action {
 #[derive(Clone, Debug, Default, Deserialize, Serialize, ToJson)]
 #[serde(default, rename_all = "camelCase")]
 pub struct CommandPreview {
+    /// What the command is (a merge candidate's `promote-catalog-merge-candidate` and the rest).
+    pub command_kind: String,
     pub body: PreviewBody,
+    /// The candidate review row the command was built from: its source members and references.
+    pub provenance: Option<PreviewProvenance>,
     pub scope: Option<Value>,
     pub confirmation: Option<Value>,
     /// Whether the promotion may run on the scope with no observation checked.
     pub allow_scope_selection: bool,
+}
+
+/// A merge candidate command's provenance (`CatalogMergeCandidateReviewCommandProvenance`), counted by its
+/// candidate detail sheet.
+#[derive(Clone, Debug, Default, Deserialize, Serialize, ToJson)]
+#[serde(default, rename_all = "camelCase")]
+pub struct PreviewProvenance {
+    pub membership: Vec<Value>,
+    pub external_product_references: Vec<Value>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize, ToJson)]
@@ -899,6 +909,11 @@ pub struct Candidate {
     pub conflicts: Conflicts,
     pub promote_readiness: Readied,
     pub proposed_mapping: Mapping,
+    /// Each source's value per field, the field provenance and the proposed facts, as the candidate
+    /// detail sheet lists them.
+    pub source_comparison: Vec<ComparedValue>,
+    pub field_provenance: Vec<FieldSource>,
+    pub proposed_facts: Vec<ProposedFact>,
     pub actions: Vec<Action>,
     pub edit_form: EditForm,
 }
@@ -974,12 +989,44 @@ pub struct CandidateSource {
 pub struct Conflicts {
     pub blocking: u64,
     pub warnings: u64,
+    pub messages: Vec<String>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize, ToJson)]
 #[serde(default, rename_all = "camelCase")]
 pub struct Mapping {
     pub promotion_intent: String,
+    pub catalog_item_id: Option<String>,
+    pub product_ids: Vec<String>,
+    pub external_catalog_item_references: Vec<String>,
+    pub external_product_references: Vec<String>,
+}
+
+/// A source's value for a field (`sourceComparison`).
+#[derive(Clone, Debug, Default, Deserialize, Serialize, ToJson)]
+#[serde(default, rename_all = "camelCase")]
+pub struct ComparedValue {
+    pub field_path: String,
+    pub value: String,
+    pub provider_key: String,
+    pub observation_id: String,
+}
+
+/// Where a field's proposed value came from (`fieldProvenance`).
+#[derive(Clone, Debug, Default, Deserialize, Serialize, ToJson)]
+#[serde(default, rename_all = "camelCase")]
+pub struct FieldSource {
+    pub field_path: String,
+    pub provider_key: String,
+    pub source_profile_version: String,
+    pub confidence: String,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize, ToJson)]
+#[serde(default)]
+pub struct ProposedFact {
+    pub key: String,
+    pub value: String,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize, ToJson)]
@@ -1215,6 +1262,17 @@ pub fn at(path: &str, context: &str) -> String {
 /// It is never sent to the API.
 pub const HOME: &str = "home";
 
+/// The pilot's key that reads the jobs stage's import preflight in with the page (`preflight=true`),
+/// for a browser its `<corten-live>` part brings nothing to. It is never sent to the API.
+pub const PREFLIGHT: &str = "preflight";
+
+/// The page the working set `context` draws its stages on, with its import preflight read in: the
+/// loading line's link. `nofollow` where it is drawn, as the page it opens waits for the slow read.
+pub fn read_in(context: &str) -> String {
+    let rest = with_query(context, &[(HOME, None)]);
+    at(&home(context), &with_query(&rest, &[(PREFLIGHT, Some("true"))]))
+}
+
 /// The page the working set `context` draws its stages on: the scope's page its `home` names, or
 /// the daily workbench.
 pub fn home(context: &str) -> String {
@@ -1245,9 +1303,10 @@ pub fn location(context: &str) -> String {
     }
 }
 
-/// The address's working set: its query without what the last command left on it.
+/// The address's working set: its query without what the last command left on it, and the pilot's
+/// [`PREFLIGHT`].
 pub fn context_of(uri: &Uri) -> String {
-    with_query(uri.query().unwrap_or_default(), &[("after_write", None), ("done", None)])
+    with_query(uri.query().unwrap_or_default(), &[("after_write", None), ("done", None), (PREFLIGHT, None)])
 }
 
 /// A query value the address carries (the last command's receipt and outcome), decoded.
@@ -1405,22 +1464,10 @@ pub(crate) async fn import_preview(
     }))
 }
 
-/// The working set's page with its import preflight read for it, for a browser without JavaScript,
-/// whose `<corten-live>` opens no stream: the scope's page its `home` names, or the daily workbench,
-/// as the evidence sheet's page is.
-pub(crate) async fn preflight(
-    req: Req,
-    corten::Caller(staff): corten::Caller<Staff<CatalogAccess>>,
-    State(config): State<Shared>,
-    headers: HeaderMap,
-    uri: Uri,
-) -> HtmlResult {
-    let context = context_of(&uri);
-    let answer = read_preflight(&config.platform.caller(&headers, config.proto, None), &context).await;
-    match context_value(&context, HOME).filter(|id| !id.is_empty()) {
-        Some(id) => super::scope::opened(&req, &staff.viewer, &config, &headers, &id, &context, Opened::Preflight(answer)).await,
-        None => render(&req, &staff.viewer, &config, &headers, &context, None, None, false, Opened::Preflight(answer)).await,
-    }
+/// What the page draws open for its address: the import preflight read in where it asks for it
+/// ([`PREFLIGHT`], the loading line's link), as the page waits for it; nothing otherwise.
+pub(crate) async fn read_in_preflight(caller: &Caller<'_>, asked: bool, context: &str) -> Opened {
+    if asked { Opened::Preflight(read_preflight(caller, context).await) } else { Opened::Nothing }
 }
 
 /// The working set's import preflight as the Catalog API answers it: none when there is none, or
@@ -1533,7 +1580,10 @@ pub(crate) async fn page(
 ) -> HtmlResult {
     let receipt = Receipt::from_param(param(&uri, "after_write").as_deref());
     let said = param(&uri, "done").as_deref().and_then(Ran::of).map(Said::Ran);
-    render(&req, &staff.viewer, &config, &headers, &context_of(&uri), receipt, said, false, Opened::Nothing).await
+    let context = context_of(&uri);
+    let asked = param(&uri, PREFLIGHT).as_deref() == Some("true");
+    let opened = read_in_preflight(&config.platform.caller(&headers, config.proto, None), asked, &context).await;
+    render(&req, &staff.viewer, &config, &headers, &context, receipt, said, false, opened).await
 }
 
 /// A Source Observation's evidence sheet (admin-web's `SourceObservationEvidenceSheet`, which reads
