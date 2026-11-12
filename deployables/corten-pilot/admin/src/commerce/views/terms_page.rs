@@ -96,7 +96,9 @@ fn TermsHistory<'a>(t: Com, history: &'a [HistoryItem]) -> impl Render {
                 <ol class={Timeline}>
                     for item in history {
                         <li>
-                            <p class={Strong}>{t.ct_history_event_status(&item.event_type, &item.status)}</p>
+                            <p class={Strong}>
+                                {t.ct_history_event_status(crate::text::com::CtHistoryEventStatus { event_type: &item.event_type, status: &item.status })}
+                            </p>
                             <p class={Muted}>{t.ct_history_actor(&item.actor_user_id)}</p>
                             <p class={Small}>{&item.recorded_at}</p>
                         </li>
@@ -363,7 +365,7 @@ fn CreateAgreementSheet<'a>(t: Com, form: TermsForm, accounts: &'a [AccountOptio
                     <select name={f.account_id} required on:change={js::prefill(target)}>
                         for option in accounts {
                             <option value={&option.account_id} selected={option.account_id == chosen_account}>
-                                {t.ct_account_option(&option.display_name, &option.account_type)}
+                                {t.ct_account_option(crate::text::com::CtAccountOption { display_name: &option.display_name, account_type: &option.account_type })}
                             </option>
                         }
                     </select>

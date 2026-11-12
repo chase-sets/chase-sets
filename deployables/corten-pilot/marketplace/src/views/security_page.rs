@@ -40,7 +40,9 @@ pub struct RevokeDialogId<'a>(pub &'a str);
 fn machine(known: Option<&'static str>, t: SecurityMsg, family: &str, value: &str) -> String {
     match (known, humanized(value)) {
         (Some(word), _) => word.to_owned(),
-        (None, Some(human)) => t.value_unrecognized_with_value(family, &human).to_string(),
+        (None, Some(human)) => t
+            .value_unrecognized_with_value(crate::text::security_msg::ValueUnrecognizedWithValue { family, value: &human })
+            .to_string(),
         (None, None) => t.value_unrecognized(family).to_string(),
     }
 }
@@ -221,9 +223,7 @@ fn SecretReveal<'a>(t: SecurityMsg, secret: &'a str, rotated: bool) -> impl Rend
             <p class={Label} id="secret-label">{t.reveal_full_secret()}</p>
             <pre class={Secret} aria-labelledby="secret-label"><code id={SecretId}>{secret}</code></pre>
             <div class={Links}>
-                <span class={CopyPrimary}>
-                    <CopyButton text={SecretId} label={t.reveal_copy()} copied={t.reveal_copied()} />
-                </span>
+                <CopyButton text={SecretId} label={t.reveal_copy()} copied={t.reveal_copied()} class={(Button, Primary)} />
                 <a class={(Button, Secondary)} href={url::Security::default()}>{t.manage_acknowledge_secret()}</a>
             </div>
         </section>

@@ -33,6 +33,12 @@ type CountCaptureRequest = {
 const requests = new AsyncLocalStorage<CountCaptureRequest>();
 const usages = new AsyncLocalStorage<CountCaptureUsage>();
 
+// The live, unstopped capture request `work` is bound to, if any.
+export function boundCountCaptureRequest(): CountCaptureBinding | null {
+  const request = requests.getStore();
+  return request && !request.stopped ? request.binding : null;
+}
+
 // Tags the usage read issued by `work` so a bound capture can debit the right slot.
 export function runCountCaptureUsage<T>(usage: CountCaptureUsage, work: () => T): T {
   return usages.run(usage, work);

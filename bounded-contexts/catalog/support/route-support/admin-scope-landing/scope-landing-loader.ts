@@ -1,17 +1,20 @@
 import { resolveActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
-import type { ListResponse } from "@chase-sets/http/responses";
 import type { LoaderFunctionArgs } from "react-router";
-import {
-  CatalogApiError,
-  createCatalogRequestApiClient,
-  type CatalogScopeRecordDetail,
-} from "../../request-support/api-client";
+import { CatalogApiError, createCatalogRequestApiClient } from "../../request-support/api-client";
+import type { CatalogScopeRecordListResponse } from "../../../features/scope-registry/ui/contracts";
 import {
   buildCatalogScopeLandingReadModel,
   type CatalogScopeLandingReadModel,
 } from "../../../features/source-observations/ui/admin-control-plane/scope-landing/scope-landing-read-model";
 import type { CatalogAliasReviewReadModel } from "../../../features/alias-equivalence/api/alias-review-admin-contracts";
-import type { CatalogDeferredAttentionQueueResult } from "../../../features/attention-queue/api/contracts";
+import {
+  catalogAttentionQueueWindowSearch,
+  type CatalogDeferredAttentionQueueResult,
+} from "../../../features/attention-queue/api/contracts";
+import {
+  catalogAttentionQueueNavigation,
+  readCatalogAttentionQueuePageWindow,
+} from "../../../features/attention-queue/ui/attention-queue-navigation";
 import {
   CATALOG_ATTENTION_QUEUE_UNAVAILABLE,
   resolveCatalogAttentionQueueResult,
@@ -19,10 +22,8 @@ import {
 import { readCatalogListQuery, type CatalogListQuery } from "../../shell-support/list-query-state";
 
 // Scope-first landing route loader (`/catalog/scopes`). Loads the canonical
-// Scope Record list — filtered by product domain / lifecycle status / free-text
-// and paginated server-side — and builds the landing read model. Language
-// edition is a client-side facet applied inside the read model over the loaded
-// page (the column is a JSONB array), so it is not sent to the API.
+// Scope Record list with server-side language filtering and global observed
+// facets, then builds the landing read model.
 //
 // Fail-soft: a transient list failure resolves to an empty, correctly-shaped
 // read model plus a `blocked` error string so the surface renders its blocked
@@ -40,13 +41,13 @@ export type CatalogScopeLandingRouteData = Readonly<{
 
 export async function loader({ request }: LoaderFunctionArgs): Promise<CatalogScopeLandingRouteData> {
   const query = readCatalogListQuery(request);
-  const productDomain = new URL(request.url).searchParams.get("productDomain")?.trim() ?? "";
-  const generatedAt = new Date().toISOString();
+  const url = new URL(request.url);
+  const productDomain = url.searchParams.get("productDomain")?.trim() ?? "";
   const api = createCatalogRequestApiClient(request);
 
   const [result, attentionQueue, generalAliasReview, actor] = await Promise.all([
     loadScopeRecords(api, query, productDomain),
-    loadAttentionQueue(api),
+    loadAttentionQueue(api, url),
     loadGeneralAliasReview(api),
     resolveActor(request).catch(() => null),
   ]);
@@ -60,7 +61,8 @@ export async function loader({ request }: LoaderFunctionArgs): Promise<CatalogSc
         languageEdition: query.language,
         lifecycleStatus: query.status,
       },
-      generatedAt,
+      // The API's generation time, the clock its row freshness was measured against.
+      generatedAt: result.scopes.generatedAt ?? new Date().toISOString(),
     }),
     query,
     productDomain,
@@ -72,12 +74,21 @@ export async function loader({ request }: LoaderFunctionArgs): Promise<CatalogSc
   };
 }
 
+// The queue window comes from its own `attention*` parameters, and its page links
+// keep every other parameter, so paging the queue preserves Scope Record filters
+// and the Scope Record pager.
 async function loadAttentionQueue(
   api: ReturnType<typeof createCatalogRequestApiClient>,
+  url: URL,
 ): Promise<CatalogDeferredAttentionQueueResult> {
   if (typeof api.getCatalogAttentionQueueReadModel !== "function") return CATALOG_ATTENTION_QUEUE_UNAVAILABLE;
   try {
-    return resolveCatalogAttentionQueueResult(await api.getCatalogAttentionQueueReadModel<unknown>());
+    const result = resolveCatalogAttentionQueueResult(
+      await api.getCatalogAttentionQueueReadModel<unknown>(
+        catalogAttentionQueueWindowSearch(readCatalogAttentionQueuePageWindow(url)),
+      ),
+    );
+    return result.status === "ready" ? { ...result, navigation: catalogAttentionQueueNavigation(url) } : result;
   } catch {
     return CATALOG_ATTENTION_QUEUE_UNAVAILABLE;
   }
@@ -118,12 +129,18 @@ async function loadScopeRecords(
   api: ReturnType<typeof createCatalogRequestApiClient>,
   query: CatalogListQuery,
   productDomain: string,
-): Promise<{ scopes: ListResponse<CatalogScopeRecordDetail>; error: string | null }> {
+): Promise<{ scopes: CatalogScopeRecordListResponse; error: string | null }> {
   try {
-    const scopes = await api.listCatalogScopeRecords<ListResponse<CatalogScopeRecordDetail>>(
+    const scopes = await api.listCatalogScopeRecords<CatalogScopeRecordListResponse>(
       scopeRecordsApiQuery(query, productDomain),
     );
-    return { scopes, error: null };
+    return {
+      scopes: {
+        ...scopes,
+        facets: scopes.facets ?? { languageEditions: [] },
+      },
+      error: null,
+    };
   } catch (error) {
     if (error instanceof CatalogApiError) {
       return { scopes: emptyScopeList(), error: error.message };
@@ -143,11 +160,14 @@ function scopeRecordsApiQuery(query: CatalogListQuery, productDomain: string): s
   if (productDomain) {
     params.set("productDomain", productDomain);
   }
+  if (query.language) {
+    params.set("languageEdition", query.language);
+  }
   params.set("limit", String(query.pageSize));
   params.set("offset", String(query.page * query.pageSize));
   return params.toString();
 }
 
-function emptyScopeList(): ListResponse<CatalogScopeRecordDetail> {
-  return { items: [], total: 0, count: 0 };
+function emptyScopeList(): CatalogScopeRecordListResponse {
+  return { items: [], total: 0, count: 0, facets: { languageEditions: [] } };
 }

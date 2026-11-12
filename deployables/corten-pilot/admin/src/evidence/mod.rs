@@ -25,7 +25,7 @@
 //! (chase-sets/chase-sets#10881), and Validate fails for every draft (chase-sets/chase-sets#10882).
 use corten::{
     ClientZone,
-    axum::http::{HeaderMap, StatusCode},
+    http::{HeaderMap, StatusCode},
     prelude::*,
 };
 use jiff::tz::TimeZone;
@@ -235,7 +235,7 @@ impl Row {
 }
 
 /// Every write's and every redraw's fields, as admin-web's forms name them; a rule's are lists.
-#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[derive(Clone, Debug, Default, Fields)]
 #[serde(default, rename_all = "camelCase")]
 pub struct Posted {
     pub intent: String,

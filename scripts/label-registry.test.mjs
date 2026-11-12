@@ -8,6 +8,7 @@ import {
   BANNED_LABEL_PREFIXES,
   ENABLED_NATIVE_ISSUE_TYPES,
   LABEL_REGISTRY,
+  LABEL_STATUSES,
   auditLabelInventory,
   canonicalLabelNames,
   collectLiveLabels,
@@ -56,7 +57,7 @@ function totalPayload(totalCount, pageInfo = { hasNextPage: totalCount > 1, endC
   };
 }
 
-function createLiveHarness(names = LABEL_REGISTRY.map((entry) => entry.name), usageCount = 0) {
+function createLiveHarness(names = LABEL_REGISTRY.map((entry) => entry.name)) {
   const requests = [];
   const client = async (url, init = {}) => {
     requests.push({ url, init });
@@ -64,13 +65,6 @@ function createLiveHarness(names = LABEL_REGISTRY.map((entry) => entry.name), us
       const body = JSON.parse(init.body);
       if (body.query.includes("LabelRegistryTotal")) {
         return response(totalPayload(names.length));
-      }
-      if (body.query.includes("FrozenLabelUsage")) {
-        return response({
-          data: Object.fromEntries(
-            Object.keys(body.variables).map((key, index) => [`l${index}`, { issueCount: usageCount }]),
-          ),
-        });
       }
       throw new Error(`Unexpected GraphQL operation: ${body.query}`);
     }
@@ -127,13 +121,16 @@ function discoverLabelCharter() {
 }
 
 describe("canonical label registry schema and partition", () => {
-  it("records the implementation-head 83-label total as one valid total partition", () => {
-    expect(LABEL_REGISTRY).toHaveLength(83);
-    expect(new Set(LABEL_REGISTRY.map((entry) => entry.name)).size).toBe(83);
+  it("records only the 48 canonical labels as one valid total partition", () => {
+    expect(LABEL_REGISTRY).toHaveLength(48);
+    expect(new Set(LABEL_REGISTRY.map((entry) => entry.name)).size).toBe(48);
     expect(validateLabelRegistry()).toEqual([]);
-    expect(LABEL_REGISTRY.every((entry) => ["canonical", "grandfathered-frozen"].includes(entry.status))).toBe(true);
+    expect(LABEL_STATUSES).toEqual(["canonical"]);
+    expect(LABEL_REGISTRY.every((entry) => entry.status === "canonical")).toBe(true);
     expect(LABEL_REGISTRY.filter((entry) => entry.status === "canonical")).toHaveLength(48);
-    expect(LABEL_REGISTRY.filter((entry) => entry.status === "grandfathered-frozen")).toHaveLength(35);
+    expect(LABEL_REGISTRY.some((entry) => BANNED_LABEL_PREFIXES.some((prefix) => entry.name.startsWith(prefix)))).toBe(
+      false,
+    );
   });
 
   it("fails the default arm for an invented live label absent from the registry", () => {
@@ -150,25 +147,64 @@ describe("canonical label registry schema and partition", () => {
     expect(result.failures).toContain("LABEL_UNREGISTERED: kind:epic is live but absent from the registry.");
   });
 
-  it("accepts an exact frozen banned-family label", () => {
+  it("rejects a retired status even for an exact banned-family label", () => {
     const fixture = [
       {
         name: "phase:known",
         family: "phase",
-        purpose: "Existing issue compatibility only. Cleanup owner: #6174.",
+        purpose: "Existing issue compatibility only.",
         status: "grandfathered-frozen",
       },
     ];
 
-    expect(auditLabelInventory(["phase:known"], fixture)).toMatchObject({ ok: true, failures: [] });
+    expect(validateLabelRegistry(fixture)).toEqual([
+      "LABEL_REGISTRY_STATUS_UNKNOWN: phase:known (grandfathered-frozen)",
+    ]);
+    expect(auditLabelInventory(["phase:known"], fixture)).toEqual({
+      ok: false,
+      failures: [
+        "LABEL_REGISTRY_STATUS_UNKNOWN: phase:known (grandfathered-frozen)",
+        "LABEL_STATUS_UNHANDLED: phase:known has unhandled registry status grandfathered-frozen.",
+      ],
+      missingCanonical: [],
+    });
   });
 
   it("fails a freshly minted banned-family label with a named diagnostic", () => {
     const result = auditLabelInventory(["phase:fresh"], []);
 
     expect(result.ok).toBe(false);
-    expect(result.failures).toEqual([
-      "LABEL_BANNED_NOT_FROZEN: phase:fresh uses banned prefix phase: without an exact grandfathered-frozen entry.",
+    expect(result.failures).toEqual(["LABEL_BANNED: phase:fresh uses banned prefix phase:."]);
+  });
+
+  it.each(BANNED_LABEL_PREFIXES)("rejects canonical registration and live use of %s", (prefix) => {
+    const name = `${prefix}fresh`;
+    const registry = [
+      { name, family: prefix.slice(0, -1), purpose: "Invalid canonical fixture.", status: "canonical" },
+    ];
+
+    expect(validateLabelRegistry(registry)).toEqual([`LABEL_REGISTRY_BANNED_CANONICAL: ${name}`]);
+    expect(auditLabelInventory([name], registry)).toEqual({
+      ok: false,
+      failures: [`LABEL_REGISTRY_BANNED_CANONICAL: ${name}`, `LABEL_BANNED: ${name} uses banned prefix ${prefix}.`],
+      missingCanonical: [],
+    });
+    expect(auditLabelInventory([name], []).failures).toEqual([`LABEL_BANNED: ${name} uses banned prefix ${prefix}.`]);
+  });
+
+  it("preserves missing canonical, duplicate live and unknown status failures", () => {
+    const canonical = { name: "area:ops", family: "area", purpose: "Owner.", status: "canonical" };
+    expect(auditLabelInventory([], [canonical])).toEqual({
+      ok: false,
+      failures: ["LABEL_CANONICAL_MISSING: area:ops is canonical but not live."],
+      missingCanonical: ["area:ops"],
+    });
+    expect(auditLabelInventory(["area:ops", "area:ops"], [canonical]).failures).toEqual([
+      "LABEL_LIVE_DUPLICATE: Live collection repeated area:ops.",
+    ]);
+    expect(auditLabelInventory(["area:ops"], [{ ...canonical, status: "invented" }]).failures).toEqual([
+      "LABEL_REGISTRY_STATUS_UNKNOWN: area:ops (invented)",
+      "LABEL_STATUS_UNHANDLED: area:ops has unhandled registry status invented.",
     ]);
   });
 
@@ -178,20 +214,20 @@ describe("canonical label registry schema and partition", () => {
       entry: {
         name: "phase:*",
         family: "phase",
-        purpose: "Legacy. Cleanup owner: #6174.",
+        purpose: "Legacy.",
         status: "grandfathered-frozen",
       },
-      code: "LABEL_REGISTRY_FROZEN_NOT_EXACT",
+      code: "LABEL_REGISTRY_STATUS_UNKNOWN",
     },
     {
       name: "prefix",
       entry: {
         name: "phase:",
         family: "phase",
-        purpose: "Legacy. Cleanup owner: #6174.",
+        purpose: "Legacy.",
         status: "grandfathered-frozen",
       },
-      code: "LABEL_REGISTRY_FROZEN_NOT_EXACT",
+      code: "LABEL_REGISTRY_STATUS_UNKNOWN",
     },
     {
       name: "missing purpose",
@@ -204,34 +240,35 @@ describe("canonical label registry schema and partition", () => {
       code: "LABEL_REGISTRY_PURPOSE_MISSING",
     },
     {
-      name: "missing cleanup pointer",
+      name: "non-banned name",
       entry: {
-        name: "phase:legacy",
-        family: "phase",
+        name: "legacy",
+        family: "legacy",
         purpose: "Legacy only.",
         status: "grandfathered-frozen",
       },
-      code: "LABEL_REGISTRY_FROZEN_CLEANUP_MISSING",
+      code: "LABEL_REGISTRY_STATUS_UNKNOWN",
     },
-  ])("rejects a frozen entry with $name", ({ entry, code }) => {
+  ])("rejects retired registration with $name", ({ entry, code }) => {
     expect(validateLabelRegistry([entry])).toContainEqual(expect.stringContaining(code));
+    expect(validateLabelRegistry([entry])).toContainEqual(expect.stringContaining("LABEL_REGISTRY_STATUS_UNKNOWN"));
   });
 
-  it("reports a disappeared frozen label as an advisory ratchet-down without failing", () => {
+  it("rejects retired registration even when the label is no longer live", () => {
     const fixture = [
       { name: "area:ops", family: "area", purpose: "Owner.", status: "canonical" },
       {
         name: "phase:gone",
         family: "phase",
-        purpose: "Legacy. Cleanup owner: #6174.",
+        purpose: "Legacy.",
         status: "grandfathered-frozen",
       },
     ];
 
-    expect(auditLabelInventory(["area:ops"], fixture)).toMatchObject({
-      ok: true,
-      failures: [],
-      missingFrozen: ["phase:gone"],
+    expect(auditLabelInventory(["area:ops"], fixture)).toEqual({
+      ok: false,
+      failures: ["LABEL_REGISTRY_STATUS_UNKNOWN: phase:gone (grandfathered-frozen)"],
+      missingCanonical: [],
     });
   });
 });
@@ -262,9 +299,7 @@ describe("paginated read-only live label collection", () => {
       pages: 2,
       totalCount: 2,
     });
-    expect(result.failures).toContain(
-      "LABEL_BANNED_NOT_FROZEN: phase:fresh uses banned prefix phase: without an exact grandfathered-frozen entry.",
-    );
+    expect(result.failures).toContain("LABEL_BANNED: phase:fresh uses banned prefix phase:.");
     expect(requests).toHaveLength(3);
   });
 
@@ -299,6 +334,15 @@ describe("paginated read-only live label collection", () => {
       code: "LABEL_PAGINATION_NEXT_UNSAFE",
     });
     expect(requests).toHaveLength(2);
+  });
+
+  it.each([
+    ["non-array", {}, "LABEL_PAGE_INVALID"],
+    ["malformed member", [{}], "LABEL_PAGE_MEMBER_INVALID"],
+    ["duplicate", [{ name: "area:ops" }, { name: "area:ops" }], "LABEL_COLLECTION_DUPLICATE"],
+  ])("preserves the named %s collection error", async (_name, payload, code) => {
+    const client = async (url) => (url.endsWith("/graphql") ? response(totalPayload(1)) : response(payload));
+    await expect(collectLiveLabels({ repo: repository, token: "test-token", client })).rejects.toMatchObject({ code });
   });
 });
 
@@ -416,10 +460,7 @@ describe("scheduled enforcing audit boundary", () => {
   });
 
   it("uses only GET requests and GraphQL queries through the real entrypoint", async () => {
-    const harness = createLiveHarness(
-      LABEL_REGISTRY.map((entry) => entry.name),
-      2,
-    );
+    const harness = createLiveHarness();
     const logger = createLogger();
     const summaries = [];
 
@@ -446,13 +487,14 @@ describe("scheduled enforcing audit boundary", () => {
     expect(logger.errors).toEqual([]);
     expect(logger.warnings).toEqual([]);
     expect(logger.logs).toContain(
-      "Label inventory scanned: 83/83 across 1 REST page(s); independent GraphQL total reconciled.",
+      "Label inventory scanned: 48/48 across 1 REST page(s); independent GraphQL total reconciled.",
     );
     expect(logger.logs).toContain("Label registry enforcement passed: every live label is partitioned.");
     expect(logger.logs).toContain(
       "Context coverage observed (advisory, not applied policy): 20 contexts / 24 areas; contexts without area: authenticity, customer-feedback, platform-operations; areas without context: design-system, infrastructure, marketplace-web, ops, platform-runtime, support, tax.",
     );
-    expect(logger.logs.some((line) => line.includes("Grandfathered (frozen) open-issue usage observed:"))).toBe(true);
+    expect(harness.requests).toHaveLength(2);
+    expect(logger.logs.join("\n")).not.toMatch(/frozen|ratchet-down/i);
     expect(summaries).toHaveLength(1);
   });
 
@@ -521,16 +563,13 @@ describe("scheduled enforcing audit boundary", () => {
     ]);
   });
 
-  it("keeps all advisory content non-enforcing and never describes frozen labels as compliant", () => {
+  it("keeps context coverage advisory without retired-label reports", () => {
     const lines = renderLabelAuditReport({
       inventory: { names: ["area:ops"], pages: 1, totalCount: 1 },
       audit: {
         ok: true,
         failures: [],
-        observedFrozen: ["phase:known"],
-        missingFrozen: ["phase:gone"],
       },
-      usageCounts: new Map([["phase:known", 3]]),
       coverage: {
         contextCount: 3,
         areaCount: 1,
@@ -540,8 +579,8 @@ describe("scheduled enforcing audit boundary", () => {
     });
 
     expect(lines).toContain("Label registry enforcement passed: every live label is partitioned.");
-    expect(lines.some((line) => line.includes("phase:known=3"))).toBe(true);
-    expect(lines.some((line) => line.includes("Ratchet-down candidates observed"))).toBe(true);
+    expect(lines).toHaveLength(3);
+    expect(lines.join("\n")).not.toMatch(/frozen|ratchet-down/i);
     expect(lines.some((line) => line.includes("authenticity, customer-feedback, platform-operations"))).toBe(true);
     expect(lines.join("\n")).not.toMatch(/\b(?:compliant|waived|exempt(?:ed)?)\b/i);
   });
@@ -549,14 +588,13 @@ describe("scheduled enforcing audit boundary", () => {
   it("renders indeterminate advisory collections as unavailable rather than clean", () => {
     const lines = renderLabelAuditReport({
       inventory: { names: ["area:ops"], pages: 1, totalCount: 1 },
-      audit: { ok: true, failures: [], observedFrozen: [], missingFrozen: [] },
-      usageCounts: null,
+      audit: { ok: true, failures: [] },
       coverage: null,
     });
 
-    expect(lines).toContain("Grandfathered (frozen) open-issue usage unavailable (advisory collection indeterminate).");
     expect(lines).toContain("Context coverage unavailable (advisory collection indeterminate).");
-    expect(lines).not.toContain("Grandfathered (frozen) open-issue usage observed: none.");
+    expect(lines).toHaveLength(3);
+    expect(lines.join("\n")).not.toMatch(/frozen|ratchet-down|Context coverage observed/i);
   });
 
   it("derives the current advisory context gap without treating it as a policy mapping", () => {

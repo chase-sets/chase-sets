@@ -19,18 +19,14 @@
 //! Identity's preferences, or UTC.
 use corten::{
     ClientZone, LiveResponse,
-    axum::{
-        extract::State,
-        http::{HeaderMap, StatusCode},
-    },
+    extract::State,
     form::Errors,
+    http::{HeaderMap, StatusCode},
     prelude::*,
 };
 use futures_util::{StreamExt, future::join_all};
 use platform::{realtime::Tick, receipt::Receipt};
-use serde::Deserialize;
 
-use crate::chrome::Chrome;
 use crate::{
     api::{
         ApiError, Availability, Caller as Api, CommandError, FeeLockRow, ListingCommand, ListingPage, OrderCapacity,
@@ -51,7 +47,7 @@ const MAX_LIMIT: u64 = 250;
 
 /// What the page's address carries, in marketplace's names: the filters and the page, the last
 /// write's receipt, and what that write set, for while it is not readable yet.
-#[derive(Clone, Debug, Default, Deserialize, Fields, Route)]
+#[derive(Clone, Debug, Default, Fields, Route)]
 #[serde(rename_all = "camelCase")]
 #[route(query)]
 pub struct Place {
@@ -132,7 +128,7 @@ impl Filters {
 }
 
 /// The forms' fields, for their names: marketplace's.
-#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[derive(Clone, Debug, Default, Fields)]
 #[serde(rename_all = "camelCase", default)]
 pub struct ListingsForm {
     pub intent: String,
@@ -240,7 +236,6 @@ async fn render(
     receipt: Option<Receipt>,
     after: After,
     status: StatusCode,
-    chrome: &Chrome,
 ) -> HtmlResult {
     let filters = Filters::read(place);
     let query = filters.query();
@@ -255,9 +250,9 @@ async fn render(
                 overlay(place, &mut reads);
                 reads
             }
-            Err(error) => return read_failed(req, Some(viewer), error, None, chrome.cart().await),
+            Err(error) => return read_failed(req, Some(viewer), error, None),
         },
-        Err(error) => return read_failed(req, Some(viewer), error, None, chrome.cart().await),
+        Err(error) => return read_failed(req, Some(viewer), error, None),
     };
     let metrics = match metrics {
         Ok(metrics) if metrics.valid() => Some(metrics),
@@ -285,16 +280,14 @@ async fn render(
     };
     let t: SellerListingsMsg = req.t();
     let view = html! { <views::SellerListingsPage t={t} p={req.t()} screen={&screen} /> };
-    let cart = chrome.cart().await;
     let page = html! {
-        <Layout req={req} viewer={Some(viewer)} cart={cart} title={t.route_listings_marketplace()} head={()}>{view}</Layout>
+        <Layout req={req} viewer={Some(viewer)} title={t.route_listings_marketplace()} head={()}>{view}</Layout>
     };
     if status == StatusCode::OK { req.page(page) } else { req.page_with_status(status, page) }
 }
 
 pub(crate) async fn page(
     req: Req,
-    chrome: Chrome,
     Caller(ListingManager(viewer)): Caller<ListingManager>,
     State(config): State<Shared>,
     headers: HeaderMap,
@@ -302,7 +295,7 @@ pub(crate) async fn page(
 ) -> HtmlResult {
     let place = route.place;
     let receipt = Receipt::from_param(place.after_write.as_deref());
-    render(&req, &viewer, &config, &headers, &place, receipt, After::default(), StatusCode::OK, &chrome).await
+    render(&req, &viewer, &config, &headers, &place, receipt, After::default(), StatusCode::OK).await
 }
 
 /// A date a form sent, as the API takes it: `YYYY-MM-DD`.
@@ -456,7 +449,6 @@ fn refused_field(intent: &str, code: &str) -> Option<FieldName<String>> {
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn write(
     req: Req,
-    chrome: Chrome,
     Caller(ListingManager(viewer)): Caller<ListingManager>,
     State(config): State<Shared>,
     zone: Option<ClientZone>,
@@ -471,11 +463,11 @@ pub(crate) async fn write(
         "bulk-withdraw-listings" => Some(ListingCommand::Withdraw),
         _ => None,
     } {
-        return bulk(&req, &viewer, &config, &headers, &place, form, command, &chrome).await;
+        return bulk(&req, &viewer, &config, &headers, &place, form, command).await;
     }
     let refused_page = |errors: Errors, form: ListingsForm, status| {
         let after = After { errors, sent: form, ..After::default() };
-        render(&req, &viewer, &config, &headers, &place, None, after, status, &chrome)
+        render(&req, &viewer, &config, &headers, &place, None, after, status)
     };
     let caller = config.platform.caller(&headers, config.proto, None);
     // Only a form with a day reads where the seller is, so the others never read Identity.
@@ -525,7 +517,6 @@ async fn bulk(
     place: &Place,
     form: ListingsForm,
     command: ListingCommand,
-    chrome: &Chrome,
 ) -> HtmlResult {
     let (t, p): (SellerListingsMsg, Pilot) = (req.t(), req.t());
     let mut ids: Vec<String> = Vec::new();
@@ -538,7 +529,7 @@ async fn bulk(
         let mut errors = Errors::new();
         errors.add_form(p.seller_listings_choose_listings());
         let after = After { errors, sent: form, ..After::default() };
-        return render(req, viewer, config, headers, place, None, after, StatusCode::UNPROCESSABLE_ENTITY, chrome).await;
+        return render(req, viewer, config, headers, place, None, after, StatusCode::UNPROCESSABLE_ENTITY).await;
     }
     let caller = config.platform.caller(headers, config.proto, None);
     let answers = join_all(ids.iter().map(|id| caller.listing_command(id, &command))).await;
@@ -569,7 +560,7 @@ async fn bulk(
         outcomes.push(Outcome { listing_id, ok: false, message: Some(message) });
     }
     let after = After { outcomes: Some(outcomes), ..After::default() };
-    render(req, viewer, config, headers, place, latest, after, StatusCode::OK, chrome).await
+    render(req, viewer, config, headers, place, latest, after, StatusCode::OK).await
 }
 
 /// The list's parts for `<corten-live>` (marketplace's `useRealtimePatchedSnapshot` on

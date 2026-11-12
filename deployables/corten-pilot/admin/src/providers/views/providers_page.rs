@@ -1,10 +1,11 @@
 //! Provider Connections (`ProviderConnectionsPage`): the header, then Catalog's providers and
-//! Channels' connections, each a section with its table, which scrolls on its own on a phone. A
-//! section the API could not read says so instead of its table.
+//! Channels' connections, each a section with its table, which stacks on a phone (a row a block of
+//! labelled lines). A section the API could not read says so instead of its table.
 use corten::{
     i18n::{DateStyle, TimeStyle, parse_timestamp},
     prelude::*,
 };
+use platform::ui::table::{CellLabel, Table as KitTable, TableLayout};
 
 use crate::{
     providers::{Connection, Section, Snapshot},
@@ -88,12 +89,13 @@ fn observed(o: Ops, row: &Connection) -> (String, Option<String>, &'static str) 
     let at = row.observed_at.as_deref().unwrap_or("");
     let at =
         parse_timestamp(at).map_or_else(|| at.to_owned(), |w| o.date_time(w, DateStyle::Medium, TimeStyle::Short).to_string());
-    let when = seconds.map(|s| o.pc_observed(&at, (s / 60.0).floor() as i64).to_string());
+    let when = seconds
+        .map(|s| o.pc_observed(crate::text::ops::PcObserved { timestamp: &at, minutes: (s / 60.0).floor() as i64 }).to_string());
     (words.to_owned(), when, tone)
 }
 
 #[component(css = ProvidersPage)]
-fn Part<'a>(o: Ops, which: &'static str, section: &'a Section) -> impl Render {
+fn Part<'a>(o: Ops, req: &'a Req, which: &'static str, section: &'a Section) -> impl Render {
     let (title, description, empty) = match which {
         "catalog" => (o.pc_home_catalog(), o.pc_description_catalog(), o.pc_empty_catalog()),
         _ => (o.pc_home_channels(), o.pc_description_channels(), o.pc_empty_channels()),
@@ -121,25 +123,27 @@ fn Part<'a>(o: Ops, which: &'static str, section: &'a Section) -> impl Render {
                     </div>
                 } else {
                     <div class={Scroll}>
-                        <table class={Table}>
-                            <thead>
-                                <tr>
-                                    <th scope="col">{o.pc_provider()}</th>
-                                    <th scope="col">{o.pc_capability()}</th>
-                                    <th scope="col">{o.pc_scope()}</th>
-                                    <th scope="col">{o.pc_credential()}</th>
-                                    <th scope="col">{o.pc_health()}</th>
-                                    <th scope="col">{o.pc_observation()}</th>
-                                    <th scope="col">{o.pc_owner()}</th>
-                                    <th scope="col">{o.pc_action()}</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                for row in &section.rows {
-                                    <Line o={o} row={row} />
-                                }
-                            </tbody>
-                        </table>
+                        <KitTable layout={TableLayout::Stack}>
+                            <table class={Table}>
+                                <thead>
+                                    <tr>
+                                        <th scope="col">{o.pc_provider()}</th>
+                                        <th scope="col">{o.pc_capability()}</th>
+                                        <th scope="col">{o.pc_scope()}</th>
+                                        <th scope="col">{o.pc_credential()}</th>
+                                        <th scope="col">{o.pc_health()}</th>
+                                        <th scope="col">{o.pc_observation()}</th>
+                                        <th scope="col">{o.pc_owner()}</th>
+                                        <th scope="col">{o.pc_action()}</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    for row in &section.rows {
+                                        <Line o={o} req={req} row={row} />
+                                    }
+                                </tbody>
+                            </table>
+                        </KitTable>
                     </div>
                 }
             }
@@ -148,39 +152,53 @@ fn Part<'a>(o: Ops, which: &'static str, section: &'a Section) -> impl Render {
 }
 
 #[component(css = ProvidersPage)]
-fn Line<'a>(o: Ops, row: &'a Connection) -> impl Render {
+fn Line<'a>(o: Ops, req: &'a Req, row: &'a Connection) -> impl Render {
     let (fresh, when, fresh_tone) = observed(o, row);
     let scope = match &row.account_id {
         Some(account) => o.pc_seller_scope(account).to_string(),
         None => o.pc_platform_scope().to_owned(),
     };
-    // A provider's page is admin-web's (the pilot does not serve Catalog's providers).
-    let open = row.destination.as_ref().filter(|_| row.owner == "catalog").and_then(|d| crate::views::admin_web(&d.href));
+    // A Catalog provider's page, the pilot's (`catalog::provider`) or admin-web's for another path.
+    let open = row.destination.as_ref().filter(|_| row.owner == "catalog").and_then(|d| crate::views::link_to(req, &d.href));
     html! {
         <tr>
             <td class={Words}>
+                <CellLabel>{o.pc_provider()}</CellLabel>
                 <p class={Strong}>{&row.provider}</p>
                 <p class={Muted}>{&row.id}</p>
             </td>
-            <td>{capability(o, &row.capability)}</td>
-            <td class={Words}>{scope}</td>
             <td>
+                <CellLabel>{o.pc_capability()}</CellLabel>
+                {capability(o, &row.capability)}
+            </td>
+            <td class={Words}>
+                <CellLabel>{o.pc_scope()}</CellLabel>
+                {scope}
+            </td>
+            <td>
+                <CellLabel>{o.pc_credential()}</CellLabel>
                 <span class={Pill} data-tone={tone(&row.credential_readiness)}>{credential(o, &row.credential_readiness)}</span>
             </td>
             <td>
+                <CellLabel>{o.pc_health()}</CellLabel>
                 <span class={Pill} data-tone={tone(&row.health)}>{health(o, &row.health)}</span>
                 if let Some(value) = &row.status {
                     <p class={Muted}>{status(o, value)}</p>
                 }
             </td>
             <td>
+                <CellLabel>{o.pc_observation()}</CellLabel>
                 <span class={Pill} data-tone={fresh_tone}>{fresh}</span>
                 if let Some(when) = when {
                     <p class={(Muted, Words)}>{when}</p>
                 }
             </td>
-            <td>{owner(o, &row.owner)}</td>
             <td>
+                <CellLabel>{o.pc_owner()}</CellLabel>
+                {owner(o, &row.owner)}
+            </td>
+            <td>
+                <CellLabel>{o.pc_action()}</CellLabel>
                 match open {
                     Some(href) => { <a class={Button} href={href}>{o.pc_open_provider()}</a> }
                     None => { <span class={Muted}>{o.pc_read_only()}</span> }
@@ -191,15 +209,15 @@ fn Line<'a>(o: Ops, row: &'a Connection) -> impl Render {
 }
 
 #[component(css)]
-pub fn ProvidersPage<'a>(o: Ops, snapshot: &'a Snapshot) -> impl Render {
+pub fn ProvidersPage<'a>(o: Ops, req: &'a Req, snapshot: &'a Snapshot) -> impl Render {
     html! {
         <div class={Page}>
             <header class={Header}>
                 <h1>{o.pc_title()}</h1>
                 <p class={Muted}>{o.pc_description()}</p>
             </header>
-            <Part o={o} which="catalog" section={&snapshot.catalog} />
-            <Part o={o} which="channels" section={&snapshot.channels} />
+            <Part o={o} req={req} which="catalog" section={&snapshot.catalog} />
+            <Part o={o} req={req} which="channels" section={&snapshot.channels} />
         </div>
     }
 }

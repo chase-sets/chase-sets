@@ -10,7 +10,7 @@
 //! |---|---|
 //! | `GET /support/reference-lookup?reference` | the search, and the record a reference names |
 use corten::{
-    axum::http::{HeaderMap, StatusCode},
+    http::{HeaderMap, StatusCode},
     prelude::*,
 };
 use serde::{Deserialize, Serialize};

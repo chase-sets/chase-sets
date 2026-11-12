@@ -3,9 +3,13 @@
 //! recommendations, the seller's stock, active listings and offers); the running job's notice; what a
 //! write was refused for; and the recommendations as one form, each with its box, item, action,
 //! market, recommended price and signals, and Apply selected and Dismiss selected. Every action is
-//! a form or a link. One column on a phone, where the table is a card per row; the signals two to
-//! a row, four from 48rem.
+//! a form or a link. One column on a phone, where the table is a card per row; the signals are the
+//! kit's Stats.
 use corten::prelude::*;
+use platform::ui::{
+    stats::{Stat, StatTone, Stats as KitStats, StatsSurface},
+    visually_hidden::VisuallyHidden,
+};
 
 use crate::{
     api::{Recommendation, RecommendationJob},
@@ -143,13 +147,9 @@ fn Part<'a>(t: RepricingMsg, p: Pilot, screen: &'a RecommendationsScreen) -> imp
                     <h2 id="recs-signals-title" class={PartTitle}>{t.recs_market_signals()}</h2>
                     <p class={Muted}>{t.recs_pricing_is_advisory()}</p>
                 </div>
-                <dl class={Stats}>
+                <dl class={KitStats { surface: StatsSurface::Plain }}>
                     for (label, value, detail) in &stats {
-                        <div class={Stat}>
-                            <dt>{*label}</dt>
-                            <dd>{value}</dd>
-                            <dd class={Hint}>{*detail}</dd>
-                        </div>
+                        <Stat label={label} value={value.as_str()} note={*detail} tone={StatTone::Neutral} />
                     }
                 </dl>
             </section>
@@ -195,11 +195,11 @@ fn Part<'a>(t: RepricingMsg, p: Pilot, screen: &'a RecommendationsScreen) -> imp
                         </div>
                     } else {
                         <table class={Table} data-recommendations="true">
-                            <caption class={Hidden}>{t.recs_recommendations()}</caption>
+                            <caption class={VisuallyHidden {}}>{t.recs_recommendations()}</caption>
                             <thead>
                                 <tr>
                                     if screen.manage {
-                                        <th scope="col"><span class={Hidden}>{t.recs_select()}</span></th>
+                                        <th scope="col"><span class={VisuallyHidden {}}>{t.recs_select()}</span></th>
                                     }
                                     <th scope="col">{t.recs_item()}</th>
                                     <th scope="col">{t.recs_action()}</th>
@@ -275,10 +275,10 @@ fn Row<'a>(t: RepricingMsg, row: &'a Recommendation, manage: bool, busy: bool, f
             </td>
             <td data-label={t.recs_signals()}>
                 <span>
-                    {t.recs_offer_signal(&row.active_offer_count.to_string(), &money(t, row.highest_offer_price_amount, cur)).to_string()}
+                    {t.recs_offer_signal(crate::text::repricing_msg::RecsOfferSignal { offers: &row.active_offer_count.to_string(), highest: &money(t, row.highest_offer_price_amount, cur) }).to_string()}
                 </span>
                 <span class={Hint}>
-                    {t.recs_fulfillment_signal(&row.delivered_quantity.to_string(), &row.returned_quantity.to_string()).to_string()}
+                    {t.recs_fulfillment_signal(crate::text::repricing_msg::RecsFulfillmentSignal { delivered: &row.delivered_quantity.to_string(), returned: &row.returned_quantity.to_string() }).to_string()}
                 </span>
                 if let Some(error) = &row.last_error {
                     <span class={Hint} data-tone="danger">{error}</span>

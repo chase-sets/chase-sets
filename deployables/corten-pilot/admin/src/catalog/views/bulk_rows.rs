@@ -30,9 +30,8 @@ pub struct Bar<'a> {
 ///
 /// `fields` are drawn after the action (what an action takes, such as the catalog items' tags)
 /// and `more` after the preview buttons (another submit of the form, with its `formaction`).
-/// A submit marked `data-requires="draft"` is enabled only while every checked row's box is
-/// marked `data-status="draft"` (admin-web's Remove Drafts); without the script the server
-/// checks it.
+/// A submit marked `data-checked` is enabled only while a row is checked (admin-web's Remove
+/// drafts); without the script the API refuses none checked.
 #[component(css, js)]
 pub fn BulkRows<'a, F: Render, M: Render, C: Render>(
     t: Cat,
@@ -44,7 +43,7 @@ pub fn BulkRows<'a, F: Render, M: Render, C: Render>(
 ) -> impl Patch {
     let (form, count, preview, clear) = refs();
     let f = BulkInput::FIELDS;
-    let matching = t.bulk_matching(bar.total, bar.entity).to_string();
+    let matching = t.bulk_matching(crate::text::cat::BulkMatching { count: bar.total, entity_name: bar.entity }).to_string();
     let sel = js::Selection { form, count, preview, clear };
     html! {
         <div
@@ -97,12 +96,12 @@ pub fn SelectAll(p: Pilot) -> impl Render {
     }
 }
 
-/// A row's box, in the bulk form; `status`, the row's, for a submit that needs one.
+/// A row's box, in the bulk form.
 #[component(css = BulkRows)]
-pub fn SelectRow<'a>(p: Pilot, id: &'a str, status: Option<&'a str>) -> impl Render {
+pub fn SelectRow<'a>(p: Pilot, id: &'a str) -> impl Render {
     let f = BulkInput::FIELDS;
     let label = p.bulk_select_row(id).to_string();
     html! {
-        <input type="checkbox" class={Box} name={f.ids} value={id} form={ids::BULK} aria-label={&label} data-status={status}>
+        <input type="checkbox" class={Box} name={f.ids} value={id} form={ids::BULK} aria-label={&label}>
     }
 }

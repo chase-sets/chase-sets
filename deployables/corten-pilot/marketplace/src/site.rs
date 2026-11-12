@@ -28,8 +28,8 @@
 use std::time::Duration;
 
 use corten::{
-    Media, NoStore,
-    axum::{body::Bytes, http::StatusCode},
+    Media,
+    http::{Bytes, StatusCode},
     prelude::*,
     seo,
 };
@@ -145,8 +145,8 @@ pub(crate) async fn favicon() -> Public<Media> {
 
 /// `/.well-known/appspecific/com.chrome.devtools.json`: nothing, so Chrome stops asking and the
 /// log has no 404 for it.
-pub(crate) async fn devtools() -> NoStore<StatusCode> {
-    NoStore(StatusCode::NO_CONTENT)
+pub(crate) async fn devtools() -> StatusCode {
+    StatusCode::NO_CONTENT
 }
 
 /// The rail and search events marketplace takes (`itemDetailRailAnalyticsEventNames`).
@@ -185,9 +185,9 @@ pub struct RailEvent {
 /// `POST /analytics/item-detail-rail`: the event logged and a 204, or a 400 for one marketplace
 /// would refuse (Corten's error answer, where marketplace's is a line of text no beacon reads). It
 /// reads no session, and nothing keeps the answer.
-pub(crate) async fn rail_analytics(body: Bytes) -> NoStore<Result<StatusCode, corten::Error>> {
+pub(crate) async fn rail_analytics(body: Bytes) -> Result<StatusCode, corten::Error> {
     let Some(event) = rail_event(&body) else {
-        return NoStore(Err(corten::Error::status(StatusCode::BAD_REQUEST)));
+        return Err(corten::Error::status(StatusCode::BAD_REQUEST));
     };
     let label = |name: &str| event.labels.iter().find(|(key, _)| *key == name).and_then(|(_, value)| value.as_deref());
     tracing::info!(
@@ -203,7 +203,7 @@ pub(crate) async fn rail_analytics(body: Bytes) -> NoStore<Result<StatusCode, co
         surface = label("surface"),
         "Item detail rail analytics event captured."
     );
-    NoStore(Ok(StatusCode::NO_CONTENT))
+    Ok(StatusCode::NO_CONTENT)
 }
 
 /// The event in `body`, as marketplace's `parsePayload` reads it: a JSON object whose `event` is
@@ -256,14 +256,14 @@ fn sha256(value: &Value) -> Option<String> {
 /// deploy's worker keeps the page that names the deploy's stylesheet.
 pub(crate) async fn offline(req: Req) -> Public<HtmlResult> {
     // The same page for everyone (the service worker keeps it), so no cart count.
-    Public::new(Duration::ZERO, offline_page(&req, None))
+    Public::new(Duration::ZERO, offline_page(&req))
 }
 
-fn offline_page<For>(req: &Req, cart: Option<u64>) -> corten::Result<corten::HtmlResponse<For>> {
+fn offline_page<For>(req: &Req) -> corten::Result<corten::HtmlResponse<For>> {
     let t: SiteMsg = req.t();
     let head = html! { <meta name="robots" content="noindex"> };
     req.page(html! {
-        <views::Frame req={req} viewer={None} cart={cart} shell={false} title={t.offline_title()} head={head}>
+        <views::Frame req={req} viewer={None} shell={false} title={t.offline_title()} head={head}>
             <views::OfflinePage t={t} />
         </views::Frame>
     })

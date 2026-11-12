@@ -227,7 +227,7 @@
 .dialog::backdrop {
   background: var(--color-overlay);
 }
-@media (min-width: 48rem) {
+@media (--md) {
   .filter {
     grid-template-columns: minmax(0, 16rem) auto auto;
     justify-content: start;

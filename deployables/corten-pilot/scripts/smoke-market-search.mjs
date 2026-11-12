@@ -13,10 +13,10 @@
 // Load more needs more than 24 results, which the sandbox's seed does not have; the router tests
 // cover it. The first search after a quiet minute fails in the sandbox,
 // so the smoke reads once before it starts.
-// Usage: node scripts/smoke-market-search.mjs [pilot-url]
+// Usage: node scripts/smoke-market-search.mjs [pilot-url] [api-url]
 import { chromium } from "@playwright/test";
 
-const [base = "http://localhost:7793"] = process.argv.slice(2);
+const [base = "http://localhost:7793", api = "http://localhost:7762"] = process.argv.slice(2);
 let failures = 0;
 
 function check(ok, what) {
@@ -218,9 +218,7 @@ const layoutAt = (page) =>
     return { overflow: document.documentElement.scrollWidth - window.innerWidth, small };
   });
 {
-  const categories = await (await fetch(`${base.replace(/:\d+$/, ":7762")}/api/marketplace/categories`))
-    .json()
-    .catch(() => null);
+  const categories = await (await fetch(`${api}/api/marketplace/categories`)).json().catch(() => null);
   const expected = Math.min(4, categories?.items?.length ?? 0);
   const { ctx, page, problems } = await context();
   await page.goto(`${base}/`);

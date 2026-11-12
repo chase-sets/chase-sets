@@ -1,4 +1,5 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import type { ShippingAddressId } from "@chase-sets/primitives/typed-ids";
 
 export type CheckoutShipFromAddressRow = Readonly<{
   shipping_address_id: string;
@@ -17,6 +18,23 @@ export type CheckoutShipFromAddressRow = Readonly<{
   is_default: boolean;
   updated_at: string;
 }>;
+
+/** A saved address as checkout's shipping address: the address book id and its content, without a verification. */
+export function checkoutShippingAddressFromSavedAddress(address: CheckoutShipFromAddressRow) {
+  return {
+    shippingAddressId: address.shipping_address_id as ShippingAddressId,
+    name: address.recipient_name,
+    company: address.company,
+    line1: address.line1,
+    line2: address.line2,
+    city: address.city,
+    state: address.state,
+    postalCode: address.postal_code,
+    country: address.country,
+    phone: address.phone,
+    email: address.email,
+  };
+}
 
 export async function listCheckoutShipFromAddresses(
   db: PgQueryable,

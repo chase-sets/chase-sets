@@ -4,6 +4,10 @@
 //! Filters button opens. The words box and the sort are in the form by its id, so changing any
 //! of them sends every choice.
 use corten::prelude::*;
+use platform::{
+    search::SearchGlyph,
+    ui::{input::Input, input_group::InputGroup, visually_hidden::VisuallyHidden},
+};
 
 use super::{
     item_detail::{analytics, similar_image},
@@ -116,8 +120,18 @@ fn language(t: SearchMsg, code: &str) -> String {
 fn filter_label(t: SearchMsg, facets: &[Facet], filter: &Filter) -> String {
     let facet = facets.iter().find(|f| Kind::read(&f.kind) == Some(filter.kind) && f.id == filter.id);
     match facet.and_then(|f| f.values.iter().find(|v| v.id == filter.value).map(|v| (f, v))) {
-        Some((facet, value)) => t.page_dynamic_filter_label(&facet.label, &value.label).to_string(),
-        None => t.page_dynamic_filter_label(&filter.id, &filter.value).to_string(),
+        Some((facet, value)) => t
+            .page_dynamic_filter_label(crate::text::search_msg::PageDynamicFilterLabel {
+                facet: &facet.label,
+                value: &value.label,
+            })
+            .to_string(),
+        None => t
+            .page_dynamic_filter_label(crate::text::search_msg::PageDynamicFilterLabel {
+                facet: &filter.id,
+                value: &filter.value,
+            })
+            .to_string(),
     }
 }
 
@@ -191,9 +205,14 @@ pub fn SearchPage<'a>(t: SearchMsg, p: Pilot, screen: &'a SearchScreen, failed: 
     let total = results.total.unwrap_or(results.items.len() as u64);
     let summary = (!failed).then(|| {
         if results.items.len() as u64 != total {
-            t.page_results_summary_showing(results.items.len(), total, category).to_string()
+            t.page_results_summary_showing(crate::text::search_msg::PageResultsSummaryShowing {
+                shown: results.items.len(),
+                count: total,
+                category,
+            })
+            .to_string()
         } else {
-            t.page_results_summary(total, category).to_string()
+            t.page_results_summary(crate::text::search_msg::PageResultsSummary { count: total, category }).to_string()
         }
     });
     let heading = if !terms.q.trim().is_empty() {
@@ -218,11 +237,11 @@ pub fn SearchPage<'a>(t: SearchMsg, p: Pilot, screen: &'a SearchScreen, failed: 
     html! {
         <div class={Page} on:change={handlers::apply(event)}>
             if focused {
-                <h1 class={VisuallyHidden}>{&heading}</h1>
+                <h1 class={VisuallyHidden {}}>{&heading}</h1>
                 <div class={Controls}>
                     <WordsBox t={t} terms={terms} placeholder={t.page_search_catalog_items()} />
                     <label class={Sort}>
-                        <span class={VisuallyHidden}>{t.page_sort()}</span>
+                        <span class={VisuallyHidden {}}>{t.page_sort()}</span>
                         <select name={f.sort} form={form}>
                             for (value, label) in sorts(t) {
                                 <option value={value} selected={terms.sort == value}>{label}</option>
@@ -289,15 +308,17 @@ pub fn SearchPage<'a>(t: SearchMsg, p: Pilot, screen: &'a SearchScreen, failed: 
     }
 }
 
-/// The words box: in the form by its id, so Enter sends every choice.
+/// The words box (the design system's `SearchInput`: the search glyph inside the box): in the form
+/// by its id, so Enter sends every choice.
 #[component(css = SearchPage)]
 fn WordsBox<'a>(t: SearchMsg, terms: &'a Terms, placeholder: &'a str) -> impl Render {
     let f = TermsQuery::FIELDS;
     html! {
         <search class={Words}>
-            <label>
-                <span class={VisuallyHidden}>{t.page_marketplace_search()}</span>
+            <label class={InputGroup {}}>
+                <SearchGlyph />
                 <input
+                    class={Input {}}
                     type="search"
                     name={f.q}
                     form={SearchFormId}
@@ -305,6 +326,7 @@ fn WordsBox<'a>(t: SearchMsg, terms: &'a Terms, placeholder: &'a str) -> impl Re
                     placeholder={placeholder}
                     enterkeyhint="search"
                 >
+                <span class={VisuallyHidden {}}>{t.page_marketplace_search()}</span>
             </label>
             <button type="submit" form={SearchFormId} class={Primary}>{t.page_marketplace_search()}</button>
         </search>
@@ -475,7 +497,7 @@ fn Filters<'a>(t: SearchMsg, screen: &'a SearchScreen, facets: &'a [Facet], summ
                         }
                     </summary>
                     <fieldset class={Choices}>
-                        <legend class={VisuallyHidden}>{t.page_language()}</legend>
+                        <legend class={VisuallyHidden {}}>{t.page_language()}</legend>
                         <p class={Muted}>{t.page_mobile_language_description()}</p>
                         <label class={Check}>
                             <input type="radio" name={f.language} value="" checked={terms.language.is_empty()}>
@@ -493,7 +515,7 @@ fn Filters<'a>(t: SearchMsg, screen: &'a SearchScreen, facets: &'a [Facet], summ
                         <span class={FacetTitle}>{t.page_market_activity()}</span>
                     </summary>
                     <fieldset class={Choices}>
-                        <legend class={VisuallyHidden}>{t.page_market_activity()}</legend>
+                        <legend class={VisuallyHidden {}}>{t.page_market_activity()}</legend>
                         <p class={Muted}>{t.page_market_activity_description()}</p>
                         <label class={Check}>
                             <input type="radio" name={f.market_activity} value="" checked={terms.activity == Activity::Any}>
@@ -529,7 +551,7 @@ fn CategoryChoice<'a>(t: SearchMsg, category: &'a SearchCategory, terms: &'a Ter
     html! {
         <li>
             <a href={&category_href(&category.slug, terms)} aria-current={current.then_some("page")}>
-                {t.page_category_count_label(&category.name, count)}
+                {t.page_category_count_label(crate::text::search_msg::PageCategoryCountLabel { category: &category.name, count })}
             </a>
         </li>
     }
@@ -558,7 +580,7 @@ fn FacetChoices<'a>(t: SearchMsg, facet: &'a Facet) -> impl Render {
                 }
             </summary>
             <fieldset class={Choices}>
-                <legend class={VisuallyHidden}>{&t.page_facet_choices(&facet.label).to_string()}</legend>
+                <legend class={VisuallyHidden {}}>{&t.page_facet_choices(&facet.label).to_string()}</legend>
                 <p class={Muted}>{description}</p>
                 for value in &facet.values {
                     <label class={Check}>
@@ -689,7 +711,9 @@ fn ItemCard<'a>(t: SearchMsg, item: &'a SearchItem, index: usize, action: &'a st
     let slug = if card.slug.is_empty() { card.catalog_item_id.as_str() } else { card.slug.as_str() };
     let href = url::Item { slug, state: Address::default(), after: Default::default() }.href();
     let identity = match card.subtitle.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
-        Some(subtitle) => t.identity_title_and_subtitle(&card.title, subtitle).to_string(),
+        Some(subtitle) => t
+            .identity_title_and_subtitle(crate::text::search_msg::IdentityTitleAndSubtitle { title: &card.title, subtitle })
+            .to_string(),
         None => t.identity_title(&card.title).to_string(),
     };
     let image = similar_image(card);
@@ -853,7 +877,9 @@ pub fn ResultCard<'a>(
     };
     let href = at(Market::Buy);
     let identity = match card.subtitle.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
-        Some(subtitle) => t.identity_title_and_subtitle(&card.title, subtitle).to_string(),
+        Some(subtitle) => t
+            .identity_title_and_subtitle(crate::text::search_msg::IdentityTitleAndSubtitle { title: &card.title, subtitle })
+            .to_string(),
         None => t.identity_title(&card.title).to_string(),
     };
     let image = similar_image(card);

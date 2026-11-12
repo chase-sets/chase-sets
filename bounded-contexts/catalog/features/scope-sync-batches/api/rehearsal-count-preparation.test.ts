@@ -9,13 +9,18 @@ import type { ScopeSyncBatchServices } from "./runtime";
 import { scrydexCountQuery } from "../../source-observations/api/providers/scrydex/adapter";
 import {
   CountAcquisitionRefused,
+  CountPeriodCapRefused,
   countFingerprint,
   countQueryKey,
   countTimeIsCurrent,
+  type CountPeriodAuthority,
+  type CountPeriodGate,
   type CountQuote,
   type ScrydexCountQuery,
   type ScrydexCountSource,
 } from "../domain/count-acquisition";
+import { evaluateScrydexBillingPeriod } from "../domain/scrydex-billing-period";
+import { syntheticPeriod } from "../tests/scrydex-period-fixture";
 import {
   acquireRehearsalCounts,
   admitRehearsalCountAcquisition,
@@ -97,7 +102,9 @@ type Debit = {
 // Real routes, the real count engine and an in-memory ledger that models the
 // store's whole-quote allocation; the provider send and every batch, preview,
 // confirm, usage-history and held-set service is a counting trap.
-function harness(options: { remaining?: number; reused?: readonly string[]; blocked?: readonly string[] } = {}) {
+function harness(
+  options: { remaining?: number; consumed?: number; reused?: readonly string[]; blocked?: readonly string[] } = {},
+) {
   let clock = start;
   let membership = "1".repeat(64);
   let authorityFingerprint = "2".repeat(64);
@@ -140,6 +147,24 @@ function harness(options: { remaining?: number; reused?: readonly string[]; bloc
       return sum + Math.max(0, allocation.planned - debits.filter((debit) => debit.quoteId === quoteId).length);
     }, 0);
   const net = () => remaining - external - debits.length - outstanding();
+  // The landed gate over a fresh, in-period synthetic snapshot; U is every durable commitment.
+  const period = (gate: CountPeriodGate, plannedCredits: number) => {
+    const decision = evaluateScrydexBillingPeriod({
+      snapshot: {
+        allowance: 100_000,
+        balance: 100_000 - (options.consumed ?? 0),
+        observedAt: clock,
+        period: syntheticPeriod,
+      },
+      reserve: gate.reserve,
+      durableCredits: external + debits.length + outstanding(),
+      plannedCredits,
+      runId: gate.runId,
+      now: clock,
+    });
+    gate.decided(decision);
+    if (!decision.admitted) throw new CountPeriodCapRefused(decision);
+  };
   let readbackOverride: ((targets: CountQuote["targets"]) => CountQuote["targets"]) | null = null;
   const send = vi.fn(async () => {
     const calls = send.mock.calls.length;
@@ -157,7 +182,7 @@ function harness(options: { remaining?: number; reused?: readonly string[]; bloc
       if (!quote) throw new CountAcquisitionRefused();
       return quote;
     },
-    admit: async (quote, _owner, authority) => {
+    admit: async (quote, _owner, authority, gate) => {
       if (
         allocations.has(quote.quoteId) ||
         approved.has(quote.quoteId) ||
@@ -167,10 +192,13 @@ function harness(options: { remaining?: number; reused?: readonly string[]; bloc
         net() < quote.plannedCredits
       )
         throw new CountAcquisitionRefused();
+      if (gate) period(gate, quote.plannedCredits);
       const executionId = randomUUID();
       allocations.set(quote.quoteId, { executionId, planned: quote.plannedCredits, at: clock, endedAt: null });
       return executionId;
     },
+    admitPeriod: async (quote, _owner, gate) =>
+      period(gate, Math.max(0, quote.cap - debits.filter((debit) => debit.quoteId === quote.quoteId).length)),
     approve: async (quoteId, fingerprint) => {
       const quote = quotes.get(quoteId);
       if (!quote || quote.fingerprint !== fingerprint || Date.parse(quote.expiresAt) < Date.parse(clock))
@@ -301,8 +329,23 @@ function harness(options: { remaining?: number; reused?: readonly string[]; bloc
   const services = {
     ...traps,
     quoteCounts: (input: { selection: unknown; cap?: number }) => engine.quote({ ...input, owner: "owner" }),
-    acquireCounts: (input: { quoteId: string; fingerprint: string; admission?: "whole-quote" }) =>
-      engine.acquire({ ...input, owner: "owner" }),
+    acquireCounts: ({
+      periodAuthority,
+      ...input
+    }: {
+      quoteId: string;
+      fingerprint: string;
+      admission?: "whole-quote";
+      periodAuthority?: CountPeriodAuthority;
+    }) =>
+      engine.acquire({
+        ...input,
+        owner: "owner",
+        period:
+          periodAuthority?.kind === "reserve"
+            ? { reserve: periodAuthority.reserve, runId: (periodAuthority.reserve as { runId: string }).runId }
+            : null,
+      }),
     getCountQuote: async (input: { quoteId: string; view?: "preparation" }) => {
       const quote = quotes.get(input.quoteId);
       if (!quote) throw new CountAcquisitionRefused();
@@ -408,8 +451,13 @@ function approvalFor(receipt: RehearsalCountPreparationReceipt, at: string, patc
     perKindCost: quote.perKindCost,
     cap: quote.cap,
     authority: { fingerprint: quote.authority.fingerprint, headroom: quote.authority.headroom, observedAt: at },
+    periodReserve: periodReserveFor(receipt.dispatchId, at),
     ...patch,
   });
+}
+
+function periodReserveFor(runId: string, observedAt: string, credits: number | null = 0) {
+  return { runId, startsAt: syntheticPeriod.startsAt, endsAt: syntheticPeriod.endsAt, observedAt, credits };
 }
 
 async function quoted(h: Harness, cap?: number) {
@@ -562,6 +610,17 @@ describe("rehearsal count preparation (AC1)", () => {
       quoteId: receipt.quote!.quoteId,
       fingerprint: receipt.quote!.fingerprint,
       admission: "whole-quote",
+      periodReserve: periodReserveFor(dispatchId, start),
+    });
+    expect(receipt.acquisition!.periodDecision).toEqual({
+      admitted: true,
+      reason: null,
+      runId: dispatchId,
+      observedAt: start,
+      period: syntheticPeriod,
+      consumedCredits: 0,
+      unreflectedCredits: 0,
+      plannedCredits: 3,
     });
     expect(h.send).toHaveBeenCalledTimes(3);
     expect(h.fetch.mock.calls.every(([, init]) => init?.redirect === "manual")).toBe(true);
@@ -661,6 +720,74 @@ describe("rehearsal count preparation current authority (AC2 Probe A)", () => {
       expect(h.acquirePosts()).toBe(0);
       expect(h.send).not.toHaveBeenCalled();
     }
+  });
+});
+
+describe("rehearsal count preparation billing-period cap (AC5)", () => {
+  it("approval v2 binds its period reserve to the dispatch and period; v1 refuses before network access", async () => {
+    const h = harness();
+    const receipt = await quoted(h);
+    const at = h.now();
+    const admit = (value: string, now = at) =>
+      refusalCode(() => admitRehearsalCountAcquisition({ approval: value, pass, dispatchId, now }));
+    const reserve = periodReserveFor(dispatchId, at);
+    const v1 = JSON.parse(approvalFor(receipt, at)) as Record<string, unknown>;
+    delete v1.periodReserve;
+    expect(admit(JSON.stringify({ ...v1, schemaVersion: "catalog-rehearsal-count-preparation-approval/v1" }))).toBe(
+      "approval-invalid",
+    );
+    expect(admit(JSON.stringify(v1))).toBe("approval-invalid");
+    expect(admit(approvalFor(receipt, at, { periodReserve: { ...reserve, rawBody: {} } }))).toBe("approval-invalid");
+    expect(admit(approvalFor(receipt, at, { periodReserve: { ...reserve, credits: null } }))).toBe("approval-invalid");
+    expect(admit(approvalFor(receipt, at, { periodReserve: { ...reserve, runId: "9224-pass1-lorcana" } }))).toBe(
+      "approval-dispatch-mismatch",
+    );
+    expect(admit(approvalFor(receipt, at, { periodReserve: { ...reserve, endsAt: at } }))).toBe("approval-invalid");
+    expect(admit(approvalFor(receipt, at, { periodReserve: { ...reserve, startsAt: later(1, at) } }))).toBe(
+      "approval-invalid",
+    );
+    expect(
+      admit(approvalFor(receipt, at, { periodReserve: { ...reserve, observedAt: later(-15 * 60_000 - 1, at) } })),
+    ).toBe("authority-stale");
+    expect(admit(approvalFor(receipt, at))).toBeNull();
+    expect(h.requests).toHaveLength(1);
+    expect(h.send).not.toHaveBeenCalled();
+  });
+
+  it("period-cap boundary: equality admits and records the decision once; one over refuses with zero sends", async () => {
+    const admitted = harness({ consumed: 49_996 });
+    const complete = await acquire(admitted, approvalFor(await quoted(admitted), admitted.now()));
+    expect(complete).toMatchObject({
+      outcome: "complete",
+      acquisition: {
+        periodDecision: { admitted: true, reason: null, consumedCredits: 49_996, unreflectedCredits: 0 },
+      },
+    });
+    expect(complete.acquisition!.periodDecision!.plannedCredits).toBe(4);
+    expect(admitted.send).toHaveBeenCalledTimes(4);
+
+    const refused = harness({ consumed: 49_997 });
+    const stopped = await acquire(refused, approvalFor(await quoted(refused), refused.now()));
+    expect(stopped).toMatchObject({
+      outcome: "admission-refused",
+      acquisition: {
+        response: { status: 409, state: null },
+        readback: { status: "read", admission: "none" },
+        periodDecision: {
+          admitted: false,
+          reason: "usage-period-cap",
+          runId: dispatchId,
+          consumedCredits: 49_997,
+          unreflectedCredits: 0,
+          plannedCredits: 4,
+        },
+      },
+      accounting: { status: "complete", debits: [] },
+    });
+    expect(refused.send).not.toHaveBeenCalled();
+    expect(refused.allocations.size).toBe(0);
+    expect(refused.acquirePosts()).toBe(1);
+    expectNoBatchWork(refused);
   });
 });
 
@@ -791,12 +918,18 @@ describe("rehearsal count preparation stops (AC3)", () => {
     h.setFault("fail-second-send");
     await acquire(h, approvalFor(quote, h.now()));
     const sends = h.send.mock.calls.length;
-    const second = await h.admin.acquire({ quoteId: quote.quote!.quoteId, fingerprint: quote.quote!.fingerprint });
+    const periodReserve = periodReserveFor(dispatchId, h.now());
+    const second = await h.admin.acquire({
+      quoteId: quote.quote!.quoteId,
+      fingerprint: quote.quote!.fingerprint,
+      periodReserve,
+    });
     expect(second.status).toBe(409);
     expect(h.requests.at(-1)!.body).toEqual({
       quoteId: quote.quote!.quoteId,
       fingerprint: quote.quote!.fingerprint,
       admission: "whole-quote",
+      periodReserve,
     });
     const raw = await h.fetch(`${origin}${countsPath}/acquire`, {
       method: "POST",

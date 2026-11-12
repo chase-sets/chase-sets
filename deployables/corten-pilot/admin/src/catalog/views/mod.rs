@@ -6,6 +6,7 @@
 //! A bulk change is a form too: the rows' boxes join it, its preview is a dialog the server
 //! answers with, and its job's dialog follows the job's progress (`<corten-live>`).
 use corten::{Component, prelude::*};
+use platform::ui::table::TableLayout;
 
 use serde_json::Value;
 
@@ -24,19 +25,26 @@ mod bulk_rows;
 mod categories;
 mod components;
 mod coverage;
+mod daily_page;
 mod detail_page;
 mod dialog;
 mod display_templates;
+mod import_context;
+mod integrations_page;
 mod item_list;
 mod item_page;
 mod list_page;
 mod observation_page;
+mod operator_session;
+mod profile_sections;
+mod provider_page;
 mod reference_records;
 mod reference_types;
 mod scope_list;
 mod scope_page;
 mod status_pill;
 mod sync_batches;
+mod validation;
 
 pub use attention_panel::{AttentionBanner, AttentionPanel, AttentionSheet, park_form};
 pub use blueprints::{
@@ -48,6 +56,7 @@ pub use bulk_rows::{Bar, BulkRows, SelectAll, SelectRow};
 pub use categories::{CategoryForms, category_actions, category_list, category_page, category_rows, category_transitions};
 pub use components::{ComponentForms, component_list, component_page, component_rows};
 pub use coverage::{coverage_inbox, coverage_page};
+pub use daily_page::{DailyPage, DailyRefusal, DailyRefusalId, EvidenceSheet, ImportPreflight, Signals, Stages};
 pub use detail_page::{
     ActionBar, DetailPage, KeyValues, LifecycleForm, OptionLifecycleForm, OptionTable, Part, RemoveForm, Transition,
 };
@@ -57,6 +66,8 @@ pub use dialog::{
     TemplateForm, Toasts, Trigger, value_kinds, value_types,
 };
 pub use display_templates::{TemplateForms, template_list, template_page, template_rows, template_transitions};
+pub use import_context::ImportContext;
+pub use integrations_page::IntegrationsPage;
 pub use item_list::{
     DraftsDialog, ItemDialog, ItemForm, ItemJobOutcome, ItemParts, ItemPreview, ItemPreviewDialog, Pending, item_changes,
     item_list, item_live, item_operations, item_rows,
@@ -71,17 +82,22 @@ pub use list_page::{
     RefRecordRow, RefTypeRow, Search, Table, TemplateRow, TextFilter,
 };
 pub use observation_page::{ObservationPage, ReviewForm, observation_page};
+pub use operator_session::OperatorSession;
+pub use profile_sections::ProfileSections;
+pub use provider_page::{ProviderPage, ProviderRefusal};
 pub use reference_records::{
     RecordDraft, RefChoices, RefRecordCreateDialog, RefRecordEditDialog, RefRecordForms, ref_record_actions, ref_record_list,
     ref_record_page, ref_record_rows, ref_record_transitions,
 };
 pub use reference_types::{RefTypeForms, ref_type_actions, ref_type_list, ref_type_page, ref_type_rows, ref_type_transitions};
 pub use scope_list::{ScopeRowView, scope_list};
-pub use scope_page::{CoveragePart, InboxHeader, InboxRow, InboxTone, Refused, Rows, ScopePage, scope_page};
+pub use scope_page::{AliasReviewPart, CoveragePart, InboxHeader, InboxRow, InboxTone, Refused, Rows, ScopePage, scope_page};
 pub use status_pill::{StatusPill, Tone, TonePill};
 pub use sync_batches::{SyncBatchPage, sync_batch_page};
+pub use validation::Validation;
 
-/// The area's components: its stylesheet, and corten-ui's toaster and combobox scripts.
+/// The area's components: its stylesheet, the UI kit's the integrations surfaces use, and
+/// corten-ui's toaster and combobox scripts.
 pub const COMPONENTS: &[Component] = &[
     StatusPill,
     ListPage,
@@ -92,12 +108,33 @@ pub const COMPONENTS: &[Component] = &[
     ScopePage,
     SyncBatchPage,
     ObservationPage,
+    IntegrationsPage,
+    DailyPage,
+    ImportContext,
+    ProviderPage,
+    Validation,
+    ProfileSections,
+    OperatorSession,
     AttentionPanel,
     PreviewDialog,
     ItemForm,
     ItemPage,
-    corten_ui::Toaster,
+    platform::ui::accordion::Accordion,
+    platform::ui::alert::Alert,
+    platform::ui::badge::Badge,
+    platform::ui::button::Button,
+    platform::ui::card::Card,
+    platform::ui::checkbox::Checkbox,
+    platform::ui::dialog::Dialog,
+    platform::ui::input::Input,
+    platform::ui::pagination::Pagination,
+    platform::ui::radio_group::RadioGroup,
+    platform::ui::select::Select,
+    platform::ui::sheet::Sheet,
+    platform::ui::steps::Steps,
+    platform::ui::textarea::Textarea,
     corten_ui::ComboBox,
+    corten_ui::CopyButton,
     corten_ui::dialog::COMPONENT,
 ];
 
@@ -483,6 +520,7 @@ pub fn dimension_list<'a>(
         </Filters>
         <corten-live src={&live}>{dimension_rows(t, p, query, screen, bulk.manage)}</corten-live>
         <CatalogDialog
+            p={p}
             id={ids::CREATE_DIALOG}
             title={t.dimension_list_create_dimension()}
             description={None}
@@ -560,6 +598,7 @@ pub fn field_list<'a>(
         </Filters>
         <corten-live src={&live}>{field_rows(t, p, query, screen, bulk.manage)}</corten-live>
         <CatalogDialog
+            p={p}
             id={ids::CREATE_DIALOG}
             title={t.field_list_create_field()}
             description={None}
@@ -618,7 +657,7 @@ pub fn dimension_rows<'a>(
             if screen.items.is_empty() {
                 <Empty title={&empty_title} description={&empty_description} />
             } else {
-                <Table label={title} head={&head} all={select}>
+                <Table label={title} head={&head} all={select} layout={TableLayout::Stack}>
                     for row in &screen.items {
                         <DimensionRow t={t} row={row} select={select} />
                     }
@@ -675,7 +714,7 @@ pub fn field_rows<'a>(
             if screen.items.is_empty() {
                 <Empty title={&empty_title} description={&empty_description} />
             } else {
-                <Table label={title} head={&head} all={select}>
+                <Table label={title} head={&head} all={select} layout={TableLayout::Stack}>
                     for row in &screen.items {
                         <FieldRow t={t} row={row} select={select} />
                     }
@@ -761,6 +800,7 @@ pub fn dimension_page<'a>(
         </DetailPage>
         if editable {
             <CatalogDialog
+                p={p}
                 id={ids::EDIT_DIALOG}
                 title={t.dimension_edit_dimension()}
                 description={None}
@@ -770,6 +810,7 @@ pub fn dimension_page<'a>(
                 <DimensionForm t={t} id={ids::EDIT} action={&edit_action} create={false} form={&edit} />
             </CatalogDialog>
             <CatalogDialog
+                p={p}
                 id={ids::ADD_OPTION_DIALOG}
                 title={t.dimension_add_option_2()}
                 description={None}
@@ -779,6 +820,7 @@ pub fn dimension_page<'a>(
                 <OptionForm t={t} id={ids::ADD_OPTION} action={&add_action} add form={&add} />
             </CatalogDialog>
             <CatalogDialog
+                p={p}
                 id={ids::REORDER_DIALOG}
                 title={t.dimension_reorder_options()}
                 description={Some(t.dimension_enter_option_ids_separated_by_commas())}
@@ -834,6 +876,7 @@ pub fn field_page<'a>(t: Cat, p: Pilot, field: &'a Field, notice: Option<String>
         </DetailPage>
         if editable {
             <CatalogDialog
+                p={p}
                 id={ids::EDIT_DIALOG}
                 title={t.field_configure_field()}
                 description={None}

@@ -20,6 +20,7 @@ const text = {
   ready: "Inventory changes are ready.",
   confirmed: "The original Inventory change is confirmed.",
   unverified: "Inventory item update could not be verified.",
+  pending: "Inventory item is still updating",
   choose: "Choose the catalog item from the visible search results.",
 };
 let failures = 0;
@@ -34,6 +35,18 @@ async function settled(page) {
   await page.waitForLoadState();
   await page.waitForFunction(() => !(/** @type {any} */ (window).navigation?.transition));
 }
+/**
+ * Once the page's own requests have answered. Not Playwright's network idle: under `corten dev` the
+ * live-reload stream stays open, so the network never goes idle.
+ */
+async function quiet(page) {
+  const open = /** @type {Set<unknown>} */ (pending.get(page));
+  for (let calm = 0; calm < 2; ) {
+    await page.waitForTimeout(250);
+    calm = open.size === 0 ? calm + 1 : 0;
+  }
+}
+const pending = new WeakMap();
 const browser = await chromium.launch();
 
 async function context(javaScriptEnabled, viewport) {
@@ -44,6 +57,11 @@ async function context(javaScriptEnabled, viewport) {
   });
   const page = await ctx.newPage();
   page.setDefaultTimeout(20_000);
+  const open = new Set();
+  pending.set(page, open);
+  page.on("request", (r) => !r.url().includes("/corten/dev") && open.add(r));
+  page.on("requestfinished", (r) => open.delete(r));
+  page.on("requestfailed", (r) => open.delete(r));
   const problems = [];
   // The pilot's own pages only.
   const ours = () => page.url().startsWith(base);
@@ -79,12 +97,16 @@ async function until(page, id, ok) {
 }
 /**
  * The item page after a write the pilot redirected to: it confirms the attempt and reads the item
- * after the write's receipt. When the API times that read out the
- * page says it could not verify the update; then the smoke asks the API with the same receipt, and
- * checks the page again without it once the API has caught up (`ok`).
+ * after the write's receipt, which the API answers once the item's projections hold it, so the page
+ * never says it could not verify the update.
  */
 async function landed(page, family, id, ok) {
   await settled(page);
+  // A read the API has not caught up to yet is the page saying so, which reads it again.
+  for (let i = 0; i < 40 && (await page.getByText(text.pending).count()) > 0; i += 1) {
+    await page.waitForTimeout(500);
+    await settled(page);
+  }
   const to = new URL(page.url());
   if (family)
     check(
@@ -92,23 +114,7 @@ async function landed(page, family, id, ok) {
       `${family} goes back to the item page with its receipt`,
     );
   const body = (await page.locator("main").textContent()) ?? "";
-  if (body.includes(text.unverified)) {
-    const receipt = to.searchParams.get("after_write") ?? "";
-    const again = await page.request.get(`${api}/api/inventory/items/${encodeURIComponent(id)}`, {
-      headers: { "chase-sets-read-after-write": encodeURIComponent(receipt) },
-    });
-    const code = again.ok() ? null : (await again.json()).error?.code;
-    // The page's read waited and failed; by the time the smoke asks, the API may have caught up.
-    const timedOut = again.status() === 503 && code === "projection_freshness_timeout";
-    check(
-      timedOut || again.ok(),
-      `unverified only after the API timed out the receipt (now ${again.status()} ${code ?? "caught up"}, chase-sets/chase-sets#10672)`,
-    );
-    await until(page, id, ok);
-    to.searchParams.delete("after_write");
-    await page.goto(to.href);
-    await page.waitForFunction(() => /** @type {any} */ (window).__hydratedAt > 0);
-  }
+  check(!body.includes(text.unverified), `the item page read ${family ?? "the write"} after its receipt`);
   if (family)
     check((await page.getByText(text.confirmed).count()) === 1, `the item page confirms the ${family} attempt`);
   const now = await until(page, id, ok);
@@ -140,7 +146,7 @@ let catalogTitle;
   const form = page.locator('form:has(select[name="storageLocationId"])');
   await form.locator('input[name="q"]').fill(catalogTitle);
   await page.getByText(text.choose).waitFor();
-  await page.waitForLoadState("networkidle");
+  await quiet(page);
   const matches = form.locator('button[name="choose"]');
   check((await matches.count()) > 0, `typing "${catalogTitle}" finds catalog items (${await matches.count()})`);
   // Chosen at once, before typing settles: the search it would have sent must not draw over it.
@@ -162,7 +168,7 @@ let catalogTitle;
       .getAttribute("value");
     if ((await formOption.first().inputValue()) !== raw) {
       await formOption.first().selectOption(raw);
-      await page.waitForLoadState("networkidle");
+      await quiet(page);
       await page.waitForTimeout(300);
     }
   }
@@ -172,7 +178,7 @@ let catalogTitle;
     const select = open.first();
     const value = await select.locator('option:not([value=""])').first().getAttribute("value");
     await select.selectOption(value);
-    await page.waitForLoadState("networkidle");
+    await quiet(page);
     await page.waitForTimeout(300);
   }
   check(
@@ -269,30 +275,30 @@ let catalogTitle;
   await dialog.locator('textarea[name="note"]').fill(`Corten pilot smoke ${randomUUID().slice(0, 8)}`);
   await Promise.all([page.waitForURL(/offlineSaleItemId=/), dialog.locator('button[type="submit"]').click()]);
   await settled(page);
-  // The list reads the item again after the sale's receipt. The API can time that read out for
-  // ~30 s while other Inventory projections catch up, longer than a
-  // receipt is kept (30 s, as marketplace keeps it); then the page says it could not verify the
-  // result, as marketplace does. That is right only while the API refuses the read itself, so ask
-  // it at once with the same receipt.
+  // The list reads the item again after the sale's receipt, so it says what the sale did.
   const said = page
     .locator('[role="status"], [role="alert"]')
     .filter({ hasText: /recorded as sold|could not be verified/ });
   await said.first().waitFor();
   const message = (await said.first().textContent()) ?? "";
-  if (message.includes("recorded as sold")) {
+  const done = "Completed: 1 units recorded as sold. Authoritative available quantity: 0.";
+  if (message.includes(done)) check(true, "the list says what the sale did, read again after it");
+  else {
+    // As marketplace's list does, a read after the sale's receipt that fails says the result could
+    // not be verified. That is right only while the API itself has not caught up to the receipt
+    // (a local dev API that only polls can take about 30 s).
+    const receipt = new URL(page.url()).searchParams.get("after_write");
+    const read = receipt
+      ? await page.request.get(`${api}/api/inventory/items/${encodeURIComponent(created)}`, {
+          headers: {
+            "chase-sets-read-after-write": encodeURIComponent(receipt),
+            "chase-sets-read-target-context": "inventory",
+          },
+        })
+      : null;
     check(
-      message.includes("Completed: 1 units recorded as sold. Authoritative available quantity: 0."),
-      "the list says what the sale did, read again after it",
-    );
-  } else {
-    const receipt = new URL(page.url()).searchParams.get("after_write") ?? "";
-    const again = await page.request.get(`${api}/api/inventory/items/${encodeURIComponent(created)}`, {
-      headers: { "chase-sets-read-after-write": encodeURIComponent(receipt) },
-    });
-    const code = again.ok() ? null : (await again.json()).error?.code;
-    check(
-      receipt !== "" && again.status() === 503 && code === "projection_freshness_timeout",
-      `the list says it could not verify the sale while the API times out its receipt (${again.status()} ${code}, chase-sets/chase-sets#10672)`,
+      message.includes("could not be verified") && read?.status() === 503,
+      `the list says it could not verify the sale only while the API has not caught up (${read?.status()}): ${message}`,
     );
   }
   check((await page.locator("dialog[open]").count()) === 0, "the dialog is closed");
