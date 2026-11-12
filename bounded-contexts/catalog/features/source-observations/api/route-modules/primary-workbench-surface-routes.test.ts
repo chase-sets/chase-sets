@@ -1411,6 +1411,74 @@ describe("Catalog primary workbench surface fail-soft projections", () => {
 
     expect(body.readModelFailures).toEqual([]);
   });
+
+  // Issue #11231: a YGOJSON set reference is stored without a sync run or imageUrls.
+  it("lists a counted set-reference observation without a sync run or image URLs", async () => {
+    const setId = "synthetic-ygojson-set";
+    const observation = {
+      ...sourceObservationListItem({
+        observation_id: `ygojson_set_en_${setId}`,
+        provider_key: "ygojson",
+        external_key: `set:${setId}`,
+        source_profile_key: "yugioh-set-reference-data",
+        status: "observed",
+        normalized: {
+          tcg: "yugioh",
+          kind: "yugioh-set-reference",
+          name: "Synthetic set",
+          setId,
+          setName: "Synthetic set",
+          languageCode: "en",
+          productLineName: "Yu-Gi-Oh!",
+        } as unknown as ReturnType<typeof sourceObservationListItem>["normalized"],
+      }),
+      sync_run_id: null,
+    };
+    const listSourceObservations = vi.fn(async () => ({ items: [observation], total: 1 }));
+    const app = buildApp(
+      surfaceServices({
+        listIntegrationScopes: vi.fn(async () => [
+          sourceObservationScope({
+            provider_key: "ygojson",
+            expansion_id: setId,
+            expansion_name: "Synthetic set",
+            series_id: "",
+            series_name: "",
+            product_line_id: "",
+            product_line_name: "Yu-Gi-Oh!",
+            total_observations: 1,
+            observed_observations: 1,
+            changed_observations: 0,
+            promoted_observations: 0,
+            rejected_observations: 0,
+          }),
+        ]),
+        listSourceObservations,
+      }),
+      mutableProfileStore(),
+    );
+    const unit = encodeURIComponent("ygojson:yugioh:set:reference-data");
+
+    const body = await getJson(
+      app,
+      surfacePath(
+        "daily",
+        `/catalog/integrations?providerKey=ygojson&unitKey=${unit}&languageCode=en&section=source-observation-review`,
+      ),
+    );
+
+    expect(listSourceObservations).toHaveBeenCalledWith(
+      expect.objectContaining({ provider: "ygojson", language: "en" }),
+    );
+    expect(body.readModelFailures).not.toContain("source-observation-review");
+    const review = body.readModel.sourceObservationReview;
+    expect(review.statusFilters.find((option: { value: string }) => option.value === "all").count).toBe(1);
+    expect(review.pagination.total).toBe(1);
+    expect(review.rows.map((row: { observationId: string }) => row.observationId)).toEqual([
+      observation.observation_id,
+    ]);
+    expect(review.rows[0].promotionReadiness.state).toBe("eligible");
+  });
 });
 
 describe("Catalog primary workbench deferred source options pagination", () => {

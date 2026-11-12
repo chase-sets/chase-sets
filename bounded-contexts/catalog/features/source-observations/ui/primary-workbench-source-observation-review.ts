@@ -1056,7 +1056,9 @@ function normalizedFactSummariesFor(observation: SourceObservationListItem): rea
 }
 
 function payloadSummaryFor(observation: SourceObservationListItem): string {
-  const imageCount = observation.normalized.imageUrls.length;
+  // Reference-data observations such as a YGOJSON set are stored without imageUrls.
+  const imageUrls: unknown = observation.normalized.imageUrls;
+  const imageCount = Array.isArray(imageUrls) ? imageUrls.length : 0;
   const externalReferenceCount =
     (observation.normalized.externalCatalogItemReferences?.length ?? 0) +
     (observation.normalized.externalProductReferences?.length ?? 0) +
