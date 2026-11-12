@@ -41,6 +41,7 @@ Supporting evidence, replay, reapply, rollback impact, semantic comparison, fixt
 | `importJobs` | Durable job state, operator state, unit/scope context, profile snapshot, Catalog consistency policy, observation links, and job blockers. |
 | `sourceObservationReview` | Counts, cursor, selected observations, redaction marker, duplicate conflicts, and promotion-ready count. |
 | `promotionPreview` | Preview id, dispositions, command plan hash, confirmation requirement, destructive count, and blockers. |
+| `promotionPreview.previewCommittable` | Daily API offer for the held `promotionPreviewId`, using its own preview of the location's full selected ids and draft choice. False without a token, manage permission, successful complete preview, or fresh evidence. Admission's stale-token 409 remains authoritative. Preview actions return this verdict with `currentFingerprint`; admin-web requires equality to its original receipt fingerprint and fails closed on missing or failed reads. API deploys first; older reads cannot authorize a commit. |
 | `promotionResult` | Promoted Catalog Item ids, promoted reference ids, skipped observations, and audit evidence ids. |
 | `actions` | Command availability with explicit action states, blocker categories, and copy keys. |
 | `deploySkew` | Fail-closed version skew policy; unsupported UI/API pairings cannot use fallbacks. |

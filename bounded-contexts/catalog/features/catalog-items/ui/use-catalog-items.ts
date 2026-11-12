@@ -7,6 +7,8 @@ import type {
   BulkEditCatalogItemResult,
   BulkPublishPreview,
   BulkPublishResult,
+  BulkRemoveDraftPreview,
+  BulkRemoveDraftResult,
   CatalogItemDetail,
   CatalogItemImageFallback,
   CatalogItemListItem,
@@ -162,6 +164,14 @@ export function confirmBulkCatalogItemEdit(
 
 export function removeDraftCatalogItem(id: string) {
   return api.removeDraftCatalogItem<CommandResponse>(id);
+}
+
+export function previewBulkRemoveDrafts(selection: unknown) {
+  return api.previewBulkRemoveDrafts<BulkRemoveDraftPreview>(selection);
+}
+
+export function confirmBulkRemoveDrafts(selection: unknown, options: BulkLifecycleProgressOptions = {}) {
+  return api.confirmBulkRemoveDrafts<BulkRemoveDraftResult>(selection, options);
 }
 
 export function setTags(id: string, tags: string[]) {

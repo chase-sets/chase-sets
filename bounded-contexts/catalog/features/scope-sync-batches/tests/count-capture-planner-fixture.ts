@@ -1,4 +1,5 @@
 import { vi } from "vitest";
+import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type {
   CatalogSyncProviderParticipationPreview,
@@ -127,7 +128,7 @@ type UnitRead = (kind: CountCaptureKind) => Promise<ScrydexCountSource | null>;
 
 // The real batch planner over the capture scope. Its scope preview stands in for
 // adapter planning and estimates each count unit from `readUnit`.
-export function createCapturePlannerFixture(readUnit: UnitRead) {
+export function createCapturePlannerFixture(readUnit: UnitRead, mappingVersion?: { value: string }) {
   // node-postgres returns timestamptz columns as Date, whatever the row type says.
   const record = {
     scope_record_id: captureScopeRecordId,
@@ -148,10 +149,25 @@ export function createCapturePlannerFixture(readUnit: UnitRead) {
     review_status: "accepted",
     updated_at: new Date("2026-10-13T07:00:00.000Z"),
   }));
-  const db = {
-    query: vi.fn(async (sql: string) => ({
-      rows: sql.includes("catalog_scope_records") ? [record] : mappings,
-    })),
+  const db: PgQueryable = {
+    async query<Row>(sql: string) {
+      // Keep the legacy Date controls; boundary tests supply a stored SQL version.
+      const projected = sql.includes(
+        `to_char(updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS updated_at`,
+      );
+      return {
+        rows: (sql.includes("catalog_scope_records")
+          ? [record]
+          : mappings.map((mapping) => ({
+              ...mapping,
+              updated_at: mappingVersion
+                ? projected
+                  ? mappingVersion.value
+                  : new Date(mappingVersion.value)
+                : mapping.updated_at,
+            }))) as Row[],
+      };
+    },
   };
   const previewCatalogSyncScope = vi.fn<Parameters<typeof createScopeSyncBatchPlanner>[0]["previewCatalogSyncScope"]>(
     async ({ scope, acceptedScopeMappings }) => {
@@ -212,11 +228,11 @@ export function createCapturePlannerFixture(readUnit: UnitRead) {
       } satisfies CatalogSyncProviderParticipationPreview;
     },
   );
-  const planner = createScopeSyncBatchPlanner({ db: db as never, previewCatalogSyncScope, now: () => captureNow });
+  const planner = createScopeSyncBatchPlanner({ db, previewCatalogSyncScope, now: () => captureNow });
   const input = {
     selection: { mode: "ids" as const, scopeRecordIds: [captureScopeRecordId] },
     budget: { creditedProviderRequestLimits: { scrydex: 10 } },
     context: captureContext,
   };
-  return { planner, input, previewCatalogSyncScope };
+  return { planner, input, previewCatalogSyncScope, db };
 }

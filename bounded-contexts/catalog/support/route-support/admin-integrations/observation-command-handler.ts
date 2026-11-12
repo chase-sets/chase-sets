@@ -81,12 +81,14 @@ async function handlePromotion(
       promotionPreviewId: null,
     });
   let commandPreview: CatalogPrimaryWorkbenchPromotionCommandPreview | undefined;
+  let descriptorLocation: string;
   try {
     // Read the effective submitted row, never a posted descriptor or loader closure.
     // Do not send the held token: the read must not request another preview.
     const query = serializeCatalogPrimaryWorkbenchRouteContext({ ...context, promotionPreviewId: null, jobId: null });
     if (context.scope?.status) query.set("status", context.scope.status);
     const location = `/catalog/integrations?${query}`;
+    descriptorLocation = location;
     const answer = await api.getCatalogPrimaryWorkbenchSurface<{ readModel: CatalogPrimaryWorkbenchReadModel }>(
       "daily",
       location,
@@ -132,9 +134,29 @@ async function handlePromotion(
       promoteAsDraft,
       promotionPreviewId: previewId,
     });
+    let promotionPreviewVerdict: CatalogIntegrationsCommandResult["promotionPreviewVerdict"] = null;
+    try {
+      // This server-only read must retain ids beyond the browser serializer's cap.
+      const location = new URL(descriptorLocation, "https://catalog.invalid");
+      location.searchParams.set("promotionPreviewId", previewId);
+      location.searchParams.delete("selectedObservationCount");
+      location.searchParams.set("selectedObservationIds", selectedObservationIds.join(","));
+      location.searchParams.set("promoteAsDraft", String(promoteAsDraft));
+      const answer = await api.getCatalogPrimaryWorkbenchSurface<{ readModel: CatalogPrimaryWorkbenchReadModel }>(
+        "daily",
+        `${location.pathname}${location.search}`,
+      );
+      promotionPreviewVerdict = {
+        previewCommittable: answer?.readModel?.promotionPreview?.previewCommittable === true,
+        currentFingerprint: answer?.readModel?.promotionPreview?.currentFingerprint ?? null,
+      };
+    } catch {
+      // The original receipt remains visible, but no missing read can authorize a commit.
+    }
     return {
       ...result,
       promotionCommandPreview: commandPreview,
+      promotionPreviewVerdict,
       promotionReceipt: projectPromotionReceipt({
         schemaVersion: "source-observation-promotion-receipt/v1",
         previewId,

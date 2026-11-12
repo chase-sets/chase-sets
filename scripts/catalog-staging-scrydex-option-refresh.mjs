@@ -123,6 +123,7 @@ export async function runScrydexOptionRefresh(input) {
   let refusals = 0;
   let outcome = "stopped";
   let interruptedUnit = null;
+  let periodDecision = null;
   try {
     before = await input.selectDeployment();
     if (!before) throw refused("deployment-before");
@@ -141,8 +142,12 @@ export async function runScrydexOptionRefresh(input) {
       providerSendWindow: overview?.providerSendWindow,
       rolloutControls: overview?.readiness?.rolloutControls,
       unitKeys: units.map((unit) => unit.unitKey),
+      periodReserve: input.periodReserve,
+      runId: input.dispatchId ?? "",
+      now: input.now(),
     });
     preflight = gate.preflight;
+    periodDecision = gate.decision ?? null;
     if (!gate.admitted) throw refused(gate.reason);
     const profileEnvelope = await input.read("/api/catalog/source-observations/provider-profiles");
     const profiles = profileEnvelope?.body?.items ?? profileEnvelope?.items;
@@ -158,6 +163,14 @@ export async function runScrydexOptionRefresh(input) {
         ),
       );
       if (!verdict.allowed) throw refused(`${verdict.reason}:${unit.unitKey}`);
+      const age = Date.parse(input.now()) - Date.parse(periodDecision?.observedAt ?? "");
+      if (
+        !Number.isFinite(age) ||
+        age < 0 ||
+        age > 900_000 ||
+        Date.parse(input.now()) >= Date.parse(periodDecision?.period?.endsAt ?? "")
+      )
+        throw refused("usage-period-cap");
       forced += 1;
       interruptedUnit = unit;
       unit.status = "uncertain";
@@ -249,6 +262,14 @@ export async function runScrydexOptionRefresh(input) {
       "one usage read",
       "up to 100 dropped records covered by +1 page",
     ],
+    periodLedger: periodDecision
+      ? {
+          decision: periodDecision,
+          outcome: outcome === "complete" ? "complete" : forced === 0 ? "refused" : "uncertain",
+          unreflectedCredits:
+            outcome === "complete" ? creditsSpentUpperBound : forced === 0 ? 1 : periodDecision.plannedCredits,
+        }
+      : null,
   });
   return receipt;
 }
@@ -389,6 +410,14 @@ export async function capture(env = process.env, workspace = process.cwd()) {
   let phase = "sign-in";
   const receipt = await runScrydexOptionRefresh({
     runner,
+    dispatchId: env.SCRYDEX_REFRESH_DISPATCH_ID,
+    periodReserve: (() => {
+      try {
+        return JSON.parse(env.SCRYDEX_REFRESH_PERIOD_RESERVE ?? "null");
+      } catch {
+        return null;
+      }
+    })(),
     now: () => new Date().toISOString(),
     selectDeployment: async () => {
       const result = await selectStagingDeployGeneration({
