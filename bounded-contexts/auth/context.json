@@ -200,6 +200,11 @@
       "purpose": "Registration admission and disposable-email screening policy plus the Public Presence admitted-waitlist lookup used by Auth-owned registration journeys."
     },
     {
+      "portName": "stagingPersonaMagicLinkVerifierSha256",
+      "providedBy": "platform-api",
+      "purpose": "Staging-only SHA-256 verifier for Auth-owned connector persona sign-in; never the raw bearer."
+    },
+    {
       "portName": "securityLifetimes",
       "providedBy": "platform-api",
       "purpose": "Bounds-validated, env-configurable session/token lifetimes (issue #4292): session, account-selection, magic-link, challenge, social-login-state, guest-checkout, and UCP OAuth TTLs. Env-tier by design, never admin-policy-editable."
@@ -254,6 +259,7 @@
     { "routePath": "/api/auth/password-sign-in", "methods": ["POST"] },
     { "routePath": "/api/auth/phone-code/request", "methods": ["POST"] },
     { "routePath": "/api/auth/phone-code/consume", "methods": ["POST"] },
+    { "routePath": "/api/auth/staging-persona-sign-in", "methods": ["POST"] },
     { "routePath": "/api/auth/magic-link/request", "methods": ["POST"] },
     { "routePath": "/api/auth/magic-link/consume", "methods": ["POST"] },
     { "routePath": "/api/auth/passkeys/challenge", "methods": ["POST"] },
@@ -817,12 +823,12 @@
     "api-support": {
       "classification": "support",
       "purpose": "Provide reusable api-support assets shared by auth-owned features and composition seams.",
-      "expectedConsumers": ["invitation-acceptance"]
+      "expectedConsumers": ["invitation-acceptance", "sign-in"]
     },
     "auth-support": {
       "classification": "support",
       "purpose": "Provide reusable auth-support assets shared by auth-owned features and composition seams.",
-      "expectedConsumers": ["invitation-acceptance", "sessions"]
+      "expectedConsumers": ["invitation-acceptance", "sessions", "sign-in"]
     },
     "request-support": {
       "classification": "support",
@@ -838,7 +844,7 @@
     "runtime-support": {
       "classification": "support",
       "purpose": "Provide reusable runtime-support assets shared by auth-owned features and composition seams.",
-      "expectedConsumers": ["invitation-acceptance", "sessions"]
+      "expectedConsumers": ["invitation-acceptance", "sessions", "sign-in"]
     },
     "seed-support": {
       "classification": "support",

@@ -22,14 +22,14 @@ const STATUSES: [(&str, &str); 4] =
 /// The list, with the attention queue and the all-scopes alias review above it (after the banner of
 /// the command before, if any) and an item's sheet (`back`), open.
 pub fn scope_list<'a>(
-    t: Cat,
-    p: Pilot,
+    req: &'a Req,
     query: &'a url::ScopeQuery,
     screen: &'a ScopeScreen,
     notice: &'a scopes::url::ScopeNotice,
     back: ScopeBack,
     manage: bool,
 ) -> impl Render + 'a {
+    let (t, p): (Cat, Pilot) = (req.t(), req.t());
     let (review, parked) = match back {
         ScopeBack::Review(key, parked) => (Some(key), parked),
         ScopeBack::None => (None, None),
@@ -83,7 +83,7 @@ pub fn scope_list<'a>(
             <ListError t={t} message={error.as_str()} />
         }
         {scope_rows(t, p, query, &screen.list)}
-        <AttentionSheet t={t} p={p} query={query} item={item} parked={parked.as_ref()} manage={manage} />
+        <AttentionSheet t={t} p={p} req={req} query={query} item={item} parked={parked.as_ref()} manage={manage} />
     }
 }
 
