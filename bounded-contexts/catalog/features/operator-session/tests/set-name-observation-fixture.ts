@@ -208,6 +208,9 @@ export function createInMemoryObservationStore() {
       commands.push(input);
       return { state: {} as never, version: 1, newEvents: [{} as never], storedEvents: [] };
     },
+    referenceRecordCommandHandler: async () => {
+      throw new Error("operator-extension posts never accept a Reference Record proposal");
+    },
   });
 
   return {
