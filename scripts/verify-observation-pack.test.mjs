@@ -122,6 +122,15 @@ describe("verify-observation-pack real entrypoint", () => {
     expect(result.postReplay.equalityIdentity).toMatch(/^sha256:[a-f0-9]{64}$/);
   });
 
+  it("binds representative offer skips into the commerce state identity", () => {
+    const fixture = commerceClosureFixture();
+    fixture.commerceCompletion.representativeOfferSkippedCount = 1;
+
+    expect(() => buildClosedCommercePackCohortEvidence(fixture)).toThrow(
+      "Representative commerce state identity mismatch.",
+    );
+  });
+
   it.each([
     ["reordered", (packs) => packs.reverse()],
     ["omitted", (packs) => packs.slice(0, 1)],
@@ -633,6 +642,7 @@ function commerceClosureFixture() {
     representativeListingAccountCount: 2,
     representativeOfferCount: 2,
     representativeOfferBuyerAccountCount: 2,
+    representativeOfferSkippedCount: 0,
     representativeAcceptedOfferCount: 2,
     representativeAcceptedOfferSkippedCount: 0,
     representativeOrderingSupplyState: { listingCount: 2, inventoryItemCount: 2 },
