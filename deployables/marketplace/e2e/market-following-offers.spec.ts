@@ -833,7 +833,7 @@ test("market-following consent, changed target, Checkout acceptance and permanen
         await termsAccepted.focus();
         await seller.keyboard.press("Space");
         await expect(termsAccepted).toBeChecked();
-        await seller.getByRole("button", { name: "Review sale", exact: true }).first().click();
+        await seller.getByRole("button", { name: "Review sale details", exact: true }).first().click();
         await expect(seller).toHaveURL(/\/checkout\/sell\/.*confirmation/);
         const readAccepted = async () => {
           const response = await page.request.get(`/api/marketplace/account/offers/submitted/${controlOfferId}`);
