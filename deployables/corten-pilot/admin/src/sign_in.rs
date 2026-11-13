@@ -13,9 +13,13 @@
 //! | `magic-link-request` | `POST /api/auth/magic-link/request` | the page, saying the link is sent |
 //! | `phone-code-request` | `POST /api/auth/phone-code/request` | the page, with the code's form |
 //! | `phone-code-consume` | `POST /api/auth/phone-code/consume` | the session, or account selection |
+//! | `passkey-sign-in` | `POST /api/auth/passkeys/sign-in` | the session, or account selection |
 //!
-//! A passkey needs the browser's WebAuthn, and Google Workspace the provider's round trip through
-//! the API, which comes back to admin-web's sign-in: both are links to admin-web. A session started
+//! A passkey is the browser's WebAuthn, through the shared passkey step (`platform::auth`'s
+//! `passkey.js`): its press asks `POST /access/sign-in/passkey` for a challenge, the browser signs
+//! it, and the form is sent with the credential. Without a script the form comes without one and
+//! the page says the passkey sign-in failed. Google Workspace needs the provider's round trip
+//! through the API, which comes back to admin-web's sign-in, so it is a link to admin-web. A session started
 //! here is the platform's cookie (`chase_sets_session`, HttpOnly, SameSite=Lax, Secure on https);
 //! the browser then goes back to `returnTo`, on the pilot when it serves the path and on
 //! admin-web otherwise.
@@ -25,7 +29,10 @@ use corten::{
     prelude::*,
     security::cookie::SetCookie,
 };
-use platform::auth::{Authenticated, Kind, Membership, Method, PhoneCodeSent, Refusal, call, safe_return_to, selection_token};
+use platform::auth::{
+    Authenticated, ChallengeForm, Credential, Kind, Membership, Method, PasskeyChallenge, PhoneCodeSent, Refusal, call,
+    safe_return_to, selection_token,
+};
 use serde_json::{Value, json};
 
 use crate::{
@@ -56,6 +63,10 @@ pub mod url {
         #[route(query)]
         pub link: crate::sign_in::Link,
     }
+
+    /// A passkey's challenge for the page's passkey step (JSON), kept by no cache.
+    #[route("/access/sign-in/passkey", post = crate::sign_in::challenge, no_store)]
+    pub struct PasskeyChallenge;
 }
 
 /// The catalog's sign-in, which admin-web serves as the same page: here, the access sign-in with
@@ -144,7 +155,8 @@ pub struct Link {
     pub return_to: Option<String>,
 }
 
-/// The form's fields, named as admin-web's forms name them.
+/// The form's fields, named as admin-web's forms name them; a passkey's are the credential the
+/// passkey step fills in.
 #[derive(Clone, Debug, Default, Fields)]
 #[serde(rename_all = "camelCase", default)]
 pub struct SignInForm {
@@ -154,6 +166,22 @@ pub struct SignInForm {
     pub phone: String,
     pub code: String,
     pub token_id: String,
+    pub challenge_id: String,
+    pub challenge: String,
+    pub external_credential_id: String,
+    pub webauthn_response: String,
+}
+
+impl SignInForm {
+    /// The passkey's credential, as the passkey step filled it in.
+    pub fn credential(&self) -> Credential<'_> {
+        Credential {
+            challenge_id: &self.challenge_id,
+            challenge: &self.challenge,
+            external_credential_id: &self.external_credential_id,
+            webauthn_response: &self.webauthn_response,
+        }
+    }
 }
 
 /// Account selection's form.
@@ -254,16 +282,6 @@ pub fn workspace(return_to: &str) -> String {
         .unwrap_or_default()
 }
 
-/// admin-web's sign-in, for a passkey (WebAuthn is its page's script): back to the same place with
-/// the same identifier.
-pub fn on_admin_web(ask: &Ask) -> String {
-    let mut path = format!("/access/sign-in?returnTo={}", segment(&ask.return_to()));
-    if let Some(identifier) = ask.identifier() {
-        path.push_str(&format!("&signInIdentifier={}&signInMethod=passkey", segment(identifier)));
-    }
-    views::admin_web(&path).map(|uri| uri.to_string()).unwrap_or_default()
-}
-
 /// Where a path on the site is: the pilot's page when it serves it, admin-web's otherwise.
 fn destination(req: &Req, path: &str) -> Option<Uri> {
     match Local::parse(path) {
@@ -310,6 +328,17 @@ fn render(req: &Req, status: StatusCode, screen: &SignInScreen) -> HtmlResult {
 pub(crate) async fn page(req: Req, Params(route): Params<url::SignIn>) -> HtmlResult {
     let screen = SignInScreen::new(req.t(), route.ask);
     render(&req, StatusCode::OK, &screen)
+}
+
+/// A passkey's challenge for the page's passkey step.
+pub(crate) async fn challenge(
+    State(config): State<Shared>,
+    headers: HeaderMap,
+    client: Option<ClientIp>,
+    Form(form): Form<ChallengeForm>,
+) -> JsonResult<PasskeyChallenge> {
+    let caller = config.platform.caller(&headers, config.proto, None);
+    platform::auth::passkey_challenge(&caller, client, &form).await
 }
 
 /// The catalog's sign-in: the same page, at the access sign-in's address.
@@ -374,6 +403,12 @@ pub(crate) async fn write(
             }
             started
         }
+        // No credential: the step's script did not run, or the browser has no passkeys.
+        "passkey-sign-in" if form.credential().is_missing() => {
+            screen.error = Some(t.page_passkey_sign_in_failed());
+            return render(&req, StatusCode::UNPROCESSABLE_ENTITY, &screen);
+        }
+        "passkey-sign-in" => platform::auth::passkey(&caller, client, &form.credential()).await,
         // admin-web's default intent is a password.
         _ => platform::auth::password(&caller, client, &form.email, &form.password).await,
     };

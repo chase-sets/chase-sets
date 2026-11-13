@@ -324,12 +324,13 @@ pub const SALE_SHIPMENTS: &[Component] = &[
 /// when it cannot start (`checkout_start::buy_as_guest`).
 pub const LISTING: &[Component] = &[ListingPage, CheckoutStartPage];
 
-/// Signing in's pages (`/sign-in`, `/account/select`): the sign-in page's stylesheet.
-pub const SIGN_IN: &[Component] = &[SignInPage];
+/// Signing in's pages (`/sign-in`, `/account/select`): the sign-in page's stylesheet and the
+/// passkey step's script.
+pub const SIGN_IN: &[Component] = &[SignInPage, platform::auth::passkey::COMPONENT];
 
 /// Creating an account (`/register`) and accepting an invitation (`/invite`): the sign-in page's
-/// stylesheet, which they share.
-pub const REGISTER: &[Component] = &[SignInPage];
+/// stylesheet, which they share, and the passkey step's script.
+pub const REGISTER: &[Component] = &[SignInPage, platform::auth::passkey::COMPONENT];
 
 /// A form's values and what is wrong with them.
 #[derive(Clone, Debug)]

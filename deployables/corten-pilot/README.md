@@ -60,7 +60,7 @@ note it on the PR and the pilot task fixes the pilot. Where a problem goes:
 | `admin/` | Growth > Google Shopping, `/growth/google-shopping` (filters, a row's detail, the three dry runs, a dry run followed live; live runs stay gated) |
 | `admin/` | Growth > Waitlist, `/growth/waitlist`, with its CSV export, `/growth/waitlist/export`. Growth's pages call the same Public Presence routes as admin-web and inherit their access; see the private advisory GHSA-2v8j-2hqx-92fq before giving anyone the pilot's admin |
 | `admin/` | Growth > Campaign Analytics, `/growth/campaign-analytics` |
-| `admin/` | Sign in, `/access/sign-in` (and `/catalog/sign-in`, the same page), `/access/sign-in/magic`, `/access/account-select` and `/access/sign-out`, with Google Workspace and a passkey on admin-web; a signed-out page now signs in here. The frame's account menu has Switch account, Sessions and Sign out. Both apps sign in through `platform::auth` |
+| `admin/` | Sign in, `/access/sign-in` (and `/catalog/sign-in`, the same page), `/access/sign-in/magic`, `/access/account-select` and `/access/sign-out`, with a passkey through the shared passkey step (`platform::auth`'s `passkey.js`, its challenge at `/access/sign-in/passkey`) and Google Workspace on admin-web; a signed-out page now signs in here. The frame's account menu has Switch account, Sessions and Sign out. Both apps sign in through `platform::auth` |
 | `admin/` | The site's own files: `/favicon.svg`, `/favicon.ico`, the web app manifest and service worker (Corten's PWA, leaving admin-web's sign-in, the API and the health checks to the network) and `/offline` |
 | `admin/` | Growth > Promo Bar, `/growth/promo-bar` (`?edit=`, `?delete=`), with Create, Edit, Activate, Deactivate and Delete |
 | `marketplace/` | Inventory > Storage locations, `/account/inventory/locations` |
@@ -81,9 +81,9 @@ note it on the PR and the pilot task fixes the pilot. Where a problem goes:
 | `marketplace/` | Checkout start, `/checkout/buy/readiness`, for a listing, an offer or the cart, and a guest's or visitor's Buy. Each entry is sent once with its key (a key that is not one sends nothing); after an answer that may be lost, its attempt is looked up once, and Continue stays off if the lookup cannot tell |
 | `marketplace/` | Buy > a payment, `/account/payments/{id}`, and a guest checkout's, `/checkout/payments/{id}`, with Retry payment; saving a paid guest order to an account stays on marketplace |
 | `marketplace/` | Buy > start a payment for a purchase, `/account/payments/new`, where Pay now and Retry payment go |
-| `marketplace/` | Sign in, `/sign-in`, `/sign-in/magic`, `/account/select`, `/sign-out` |
-| `marketplace/` | Create an account, `/register` (`?registrationMethod=`); a passkey stays on marketplace |
-| `marketplace/` | Accept a team invitation, `/invite/{id}` (`?token=`, `?credentialMethod=`); a passkey stays on marketplace |
+| `marketplace/` | Sign in, `/sign-in`, `/sign-in/magic`, `/account/select`, `/sign-out`, a passkey included (its challenge at `/sign-in/passkey`); social sign-in stays on marketplace |
+| `marketplace/` | Create an account, `/register` (`?registrationMethod=`), a passkey included, through the shared passkey step (its challenge at `/sign-in/passkey`) |
+| `marketplace/` | Accept a team invitation, `/invite/{id}` (`?token=`, `?credentialMethod=`), with a passkey or a password |
 | `marketplace/` | The account's own page, `/account` |
 | `marketplace/` | The user's security page, `/account/security` |
 | `marketplace/` | The user's sessions, `/account/sessions` and `/account/sessions/{id}` |
@@ -251,7 +251,7 @@ registered files.
 
 ## Corten pin
 
-`Cargo.toml` pins Corten to `f887930c` (Corten `main` on 2026-11-12), whose framework package is
+`Cargo.toml` pins Corten to `09862e4c` (Corten `main` on 2026-11-12), whose framework package is
 `corten-run` (the library is still `corten`). Corten 0.2.0 is released (tag `v0.2.0`, `a833b4e3`), and the pin is a git revision past it. The
 pin follows Corten's latest `main` (Todd, 2026-11-02), and each move is its own commit that says
 what changed; the workarounds a move lets go follow it in commits of their own. The history of every move is in the
