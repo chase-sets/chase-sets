@@ -7,8 +7,13 @@ import { nonProductionDataProfiles, seedApiHostIfEmpty } from "@chase-sets/platf
 import { createFakePaymentProcessorGateway } from "@chase-sets/payment-processing/test-support";
 import { createPlatformApiHost } from "../src/app";
 import { closePlatformApiPools, createSeedCommandPools } from "../src/database-pools";
-import { apiContextRegistry } from "../src/generated/api-context-registry";
+import { apiContextRegistry } from "../src/context-registry";
 import { createPlatformApiBootstrapTestHarness, listingPhotoStorage } from "./bootstrap-db-test-support";
+
+const testProjectionGroupLeasePort = {
+  runWithLease: async <T>(_group: unknown, _signal: AbortSignal | undefined, work: (context: never) => Promise<T>) =>
+    work(undefined as never),
+};
 
 createPlatformApiBootstrapTestHarness("platform_api_bootstrap_shared_seed_command", () => {});
 
@@ -48,6 +53,7 @@ describe("platform api shared seed command bootstrap", () => {
         environmentName: "test",
         runtimeProfile: "public",
         substepTimeoutMs: 600_000,
+        projectionGroupLeasePort: testProjectionGroupLeasePort,
       });
       const run = await seedPools.channels.query<{ count: string }>(
         "SELECT count(*) FROM event_store_events WHERE stream_id = $1",

@@ -102,7 +102,7 @@ note it on the PR and the pilot task fixes the pilot. Where a problem goes:
 | `marketplace/` | Create listing, `/account/listings/new` |
 | `marketplace/` | A seller's listing, `/account/listings/{id}` |
 | `marketplace/` | A set's page, `/sets/{slug}` |
-| `marketplace/` | Search and the home page, `/search`, `/categories/{slug}` and `/` |
+| `marketplace/` | Search and the home page, `/search`, `/categories/{slug}` and `/`, with each result's Add to List: the dialog for the product the search's option filters name, patched into the page (or the item page with it open without a script, or the item page to choose its options), a guest's registration back to the search, and Add Product back to the search saying where the product went |
 | `public/` | An item's market page, `/market/{slug}`, with `robots.txt` and `sitemap.xml` |
 | `public/` | The home page, `/` (chasesets.com's waitlist landing) |
 | `public/` | The policy documents, `/terms`, `/privacy`, `/founders`, `/seller-agreement`, `/payments-terms`, `/agent-terms` and `/authenticity-terms` |
@@ -238,7 +238,7 @@ and preview the platform.
 | `CHASE_SETS_PUBLIC_INDEXING` | on | public: `0`, `false`, `no` or `off` adds `noindex`, closes `robots.txt` and empties the sitemap |
 | `CHASE_SETS_MARKETPLACE_INDEXING` | on | marketplace: `0`, `false`, `no` or `off` closes `robots.txt` and empties the sitemaps |
 | `PLATFORM_INTERNAL_AUTH_SECRET` | none | marketplace: the platform's internal capability, sent only on Auth's guest claim calls. Without it a paid guest order offers no Save this order. The pilot has no development default, unlike the React hosts; locally, set the value the platform API uses |
-| `GUEST_PAYMENT_CLAIM_LOCAL_RECOVERY_TOKEN_ENABLED` | off | marketplace: `1`, `true`, `yes` or `on` shows a claim link's token on the page to type by hand (no email locally); never where `DEPLOYMENT_ENVIRONMENT` is `production` |
+| `GUEST_PAYMENT_CLAIM_LOCAL_RECOVERY_TOKEN_ENABLED` | off | marketplace: `1`, `true`, `yes` or `on` shows a claim link's token on the page to type by hand (no email locally); never where `NODE_ENV` or `DEPLOYMENT_ENVIRONMENT` is `production` |
 | `PUBLIC_WEB_ORIGIN` | `http://localhost:7754` | public: public-web's pages it does not serve (the developer pages, `llms.txt`) and its analytics endpoint |
 | `PROXIES` | none | every app (read by Corten): the proxies in front, comma separated addresses or networks (`10.0.0.0/8`), whose `X-Forwarded-For` `ClientIp` follows back to the visitor; without it the visitor is the connection's peer. Set it where a deploy would have set `CHASE_SETS_TRUST_FORWARDED_HEADERS` for the Node apps. public's Join sends the address to the API |
 | `CHASE_SETS_DISCORD_INVITE_URL` | none | public: the Discord invite the home page links, when set |
@@ -253,7 +253,7 @@ registered files.
 
 ## Corten pin
 
-`Cargo.toml` pins Corten to `38301e17` (Corten `main` on 2026-11-12), whose framework package is
+`Cargo.toml` pins Corten to `958e543f` (Corten `main` on 2026-11-13), whose framework package is
 `corten-run` (the library is still `corten`). Corten 0.2.0 is released (tag `v0.2.0`, `a833b4e3`), and the pin is a git revision past it. The
 pin follows Corten's latest `main` (Todd, 2026-11-02), and each move is its own commit that says
 what changed; the workarounds a move lets go follow it in commits of their own. The history of every move is in the
@@ -302,6 +302,7 @@ but keep their own bordered choice rows, which are the design system's `Checkbox
 | Issue | Workaround |
 | --- | --- |
 | [corten-run/corten#1065 Kit Stack and Cluster always print a literal gap, so an app on its own token spacing scale cannot use them with its gap utility](https://github.com/corten-run/corten/issues/1065) | closed by Corten's `Gap::App` (pinned since `f4f37f95`). Every page column is the kit's `Stack { gap: Gap::App }` with the theme's `gap_N()`: the five whose children keep their own width (support requests, command center, order, packing, shipment) are `StackStart { gap: Gap::App }` in its place. A page's own `.stack` keeps only what the kit's does not set (`min-width: 0` in a grid track, a padding or margin) |
+| [corten-run/corten#1366 A patch answered by another area's handler draws that area's components unstyled: the runtime's patch loads no section stylesheet and check_rendered reads the handler's path](https://github.com/corten-run/corten/issues/1366) | open. Add to List's dialog (`SaveDialog`), which a search result's Add to List patches into the search page from the item's handler, is listed in `views::SEARCH`, so in `App::components`, rather than in the item page's area ([marketplace/src/views.rs](marketplace/src/views.rs)) |
 
 Every Corten gap the pilot found and how it closed is in the [README before it was cut](https://github.com/chase-sets/chase-sets/blob/5a683c4eb5/deployables/corten-pilot/README.md) ("Corten gaps").
 

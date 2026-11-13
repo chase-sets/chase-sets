@@ -17,10 +17,12 @@ use crate::{
     api::{Facet, SearchCategory, SearchItem, SearchResults},
     app::url,
     items::{Address, Market},
+    saving,
     search::{
         Activity, CURSOR, Filter, HomeShelf, Kind, MOST_SHOWN, PAGE_SIZE, Place, SearchScreen, Terms, TermsQuery, category_href,
     },
-    text::{Pilot, SearchMsg},
+    text::{ItemMsg, Pilot, SearchMsg},
+    views::SaveDialog,
 };
 
 corten::script::script!(pub mod handlers = "search.js");
@@ -196,7 +198,7 @@ fn chips(t: SearchMsg, screen: &SearchScreen, facets: &[Facet]) -> Vec<Chip> {
 
 /// The page.
 #[component(css)]
-pub fn SearchPage<'a>(t: SearchMsg, p: Pilot, screen: &'a SearchScreen, failed: bool) -> impl Render {
+pub fn SearchPage<'a>(t: SearchMsg, i: ItemMsg, p: Pilot, screen: &'a SearchScreen, failed: bool) -> impl Render {
     let terms = &screen.terms;
     let focused = terms.focused(&screen.category);
     let results = screen.results.as_ref().unwrap_or(&NO_RESULTS);
@@ -300,10 +302,12 @@ pub fn SearchPage<'a>(t: SearchMsg, p: Pilot, screen: &'a SearchScreen, failed: 
                     } else if !failed && results.items.is_empty() {
                         <NoResults t={t} screen={screen} />
                     } else if !failed {
-                        <Found t={t} screen={screen} results={results} />
+                        <Found t={t} i={i} screen={screen} results={results} />
                     }
                 </section>
             </div>
+            // Add to List's dialog, empty until a result's Add to List fills it.
+            <SaveDialog t={i} save={None} label="" product="" page={&[]} action="" input={None} message={None} />
         </div>
     }
 }
@@ -765,8 +769,9 @@ fn ItemCard<'a>(t: SearchMsg, item: &'a SearchItem, index: usize, action: &'a st
 
 /// The results: close spellings or closest matches, the cards, Save this search and Load more.
 #[component(css = SearchPage)]
-fn Found<'a>(t: SearchMsg, screen: &'a SearchScreen, results: &'a SearchResults) -> impl Render {
+fn Found<'a>(t: SearchMsg, i: ItemMsg, screen: &'a SearchScreen, results: &'a SearchResults) -> impl Render {
     let terms = &screen.terms;
+    let from = screen.place().href(terms);
     let shown = results.items.len();
     // Load more, while the API has more and a page without JavaScript could still show them.
     let cursor = results.next_cursor.as_deref().filter(|_| shown >= PAGE_SIZE + terms.more && shown < MOST_SHOWN);
@@ -785,7 +790,7 @@ fn Found<'a>(t: SearchMsg, screen: &'a SearchScreen, results: &'a SearchResults)
         } else {
             <h2 id="search-results-heading" class={ResultsTitle}>{t.page_results()}</h2>
         }
-        <ResultRows t={t} items={&results.items} terms={terms} first={0} keys={results.keys()} />
+        <ResultRows t={t} i={i} items={&results.items} terms={terms} first={0} keys={results.keys()} from={&from} />
         if terms.focused(&screen.category) {
             <div class={Promo}>
                 <p class={BannerTitle}>{t.page_save_this_search()}</p>
@@ -797,19 +802,22 @@ fn Found<'a>(t: SearchMsg, screen: &'a SearchScreen, results: &'a SearchResults)
     }
 }
 
-/// The results' cards, numbered from `first`, with the search's analytics keys.
+/// The results' cards, numbered from `first`, with the search's analytics keys and the search
+/// page they are on (`from`).
 #[component(css = SearchPage)]
 pub fn ResultRows<'a>(
     t: SearchMsg,
+    i: ItemMsg,
     items: &'a [SearchItem],
     terms: &'a Terms,
     first: usize,
     keys: (&'a str, &'a str),
+    from: &'a str,
 ) -> impl Patch {
     html! {
         <ol id={ResultsId} class={Grid}>
             for (n, item) in items.iter().enumerate() {
-                <ResultCard t={t} item={item} terms={terms} index={first + n} keys={keys} />
+                <ResultCard t={t} i={i} item={item} terms={terms} index={first + n} keys={keys} from={from} />
             }
         </ol>
     }
@@ -854,15 +862,19 @@ pub fn LoadMore<'a>(
 }
 
 /// A result's card (`ListingCard`, `search-result`): its picture and title link to the item, its
-/// subtitle, badges and language, its lowest price when it has listings, and the market intents:
-/// Buy first when it has listings, else Sell.
+/// subtitle, badges and language, its lowest price when it has listings, the market intents (Buy
+/// first when it has listings, else Sell), and Add to List (`prepare-saved-list`). Add to List
+/// posts the item's address as the search's option filters make it, and `from`, the search page
+/// it is on; with a script its answer is the dialog (`saving::save`).
 #[component(css = SearchPage)]
 pub fn ResultCard<'a>(
     t: SearchMsg,
+    i: ItemMsg,
     item: &'a SearchItem,
     terms: &'a Terms,
     index: usize,
     keys: (&'a str, &'a str),
+    from: &'a str,
 ) -> impl Render {
     let card = &item.card;
     let slug = if card.slug.is_empty() { card.catalog_item_id.as_str() } else { card.slug.as_str() };
@@ -876,6 +888,8 @@ pub fn ResultCard<'a>(
         .href()
     };
     let href = at(Market::Buy);
+    let save = url::ItemSave { slug }.href();
+    let address = Address { options: options.clone(), filtered: !options.is_empty(), ..Address::default() }.pairs();
     let identity = match card.subtitle.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
         Some(subtitle) => t
             .identity_title_and_subtitle(crate::text::search_msg::IdentityTitleAndSubtitle { title: &card.title, subtitle })
@@ -941,7 +955,7 @@ pub fn ResultCard<'a>(
                 if let Some(price) = &price {
                     <p class={Price}><span class={Muted}>{t.page_from()}" "</span><span class={Strong}>{price}</span></p>
                 }
-                <p class={Intents}>
+                <div class={Intents}>
                     if listings > 0 {
                         <a class={Primary} href={&buy} aria-label={t.page_buy()}>{t.page_buy_intent()}</a>
                         <a class={Ghost} href={&sell} aria-label={t.page_sell()}>{t.page_sell_intent()}</a>
@@ -950,7 +964,17 @@ pub fn ResultCard<'a>(
                         <a class={Ghost} href={&buy} aria-label={t.page_buy()}>{t.page_buy_intent()}</a>
                     }
                     <a class={Ghost} href={&watch} aria-label={t.page_watch()}>{t.page_watch_intent()}</a>
-                </p>
+                    <form class={Save} method="post" action={&save} data-patch>
+                        for (key, value) in &address {
+                            <input type="hidden" name={key} value={value}>
+                        }
+                        <input type="hidden" name={saving::field::PREPARE} value="1">
+                        <input type="hidden" name={saving::field::FROM} value={from}>
+                        <button type="submit" class={Ghost} aria-label={&i.saved_accessible(&identity).to_string()}>
+                            {i.saved_button()}
+                        </button>
+                    </form>
+                </div>
             </div>
         </li>
     }

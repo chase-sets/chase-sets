@@ -2201,9 +2201,10 @@ const INTERNAL: &str = "stand-in-internal-capability";
 /// Auth's guest checkout claim calls, each refused without the platform's internal capability (a
 /// 401, as `auth-context.ts` refuses it). `pay_paid`'s claim context is bound to
 /// `guest@example.test` (Guest Buyer); `pay_unbound`'s is not, and `pay_limited`'s read is rate
-/// limited. A link request answers token `clm_1`; claiming with token `clm_1`, with continuation
-/// `cc_1` or with a passkey's credential `created` signs in with Identity's receipt (position 91),
-/// and anything else is refused as Auth refuses it.
+/// limited. A link request answers token `clm_1` (for `pay_limited` too), and is rate limited for
+/// `pay_unbound`; claiming with token `clm_1`, with continuation `cc_1` or with a passkey's
+/// credential `created` signs in with Identity's receipt (position 91), continuation `cc_busy` is
+/// rate limited, and anything else is refused as Auth refuses it.
 fn guest_claims(method: &Method, path: &str, headers: &HeaderMap, body: &str) -> Option<Response> {
     let claim = path.strip_prefix("/api/auth/guest-checkout/")?;
     let claims =
@@ -2240,11 +2241,17 @@ fn guest_claims(method: &Method, path: &str, headers: &HeaderMap, body: &str) ->
                 .into_response()
             }
         },
-        "claim-link/request" if paid => {
+        "claim-link/request" if text("paymentId") == "pay_unbound" => {
+            refusal(StatusCode::TOO_MANY_REQUESTS, "rate_limited", "Too many claim link requests. Try again later.")
+        }
+        "claim-link/request" if paid || text("paymentId") == "pay_limited" => {
             Json(json!({ "tokenId": "cmd_claim", "token": "clm_1", "expiresAt": "2099-01-01T00:00:00.000Z" })).into_response()
         }
         "claim-with-magic-link" if paid && text("token") == "clm_1" => signed_in(),
         "claim-with-continuation" if paid && text("continuation") == "cc_1" => signed_in(),
+        "claim-with-continuation" if text("continuation") == "cc_busy" => {
+            refusal(StatusCode::TOO_MANY_REQUESTS, "rate_limited", "Slow down.")
+        }
         "claim-with-passkey" if paid && text("challengeId") == "cmd_1" && text("webauthnResponse") == "created" => signed_in(),
         "claim-with-passkey" => refused("Passkey challenge is invalid or expired."),
         _ => refused("Claim link is invalid or expired."),
@@ -3717,6 +3724,12 @@ fn discovery_item(stand: &Stand, id: &str) -> Response {
             item["image_urls"] = json!(["/fake-cdn/front.png", "/fake-cdn/back.png"]);
             Json(item).into_response()
         }
+        "single" => {
+            let mut item = item();
+            item["slug"] = json!("single");
+            item["market_listings"].as_array_mut().unwrap().retain(|l| l["listing_id"] == "lst_vault");
+            Json(item).into_response()
+        }
         "unlisted" => {
             let mut item = item();
             item["slug"] = json!("unlisted");
@@ -4866,6 +4879,106 @@ async fn a_guests_add_to_list_is_an_intent_they_register_to_claim() {
             "productSummary": "Charizard · Raw / Near Mint",
         })
     );
+}
+
+/// A search result's Add to List for charizard's raw Near Mint, from `/search?q=char`.
+const PREPARE: &str = "dimension.dim_form=chc_raw&dimension.dim_condition=chc_nm&prepare=1&from=%2Fsearch%3Fq%3Dchar";
+
+#[tokio::test]
+async fn a_search_results_add_to_list_opens_the_dialog_for_the_product_its_filters_name() {
+    let pilot = Pilot::new().await;
+    // Each result posts its item's address, `prepare` and the search it is on; the page has the
+    // dialog, empty, for the answer.
+    let (status, _, html) = pilot.send(get("/search?q=pika&dimension.dim_grade=chc_10", Some("watcher"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let form = html.split(r#"<form class="search-page__save" method="post" action="/items/card-1/save" data-patch>"#).nth(1);
+    let form = form.expect("card 1's Add to List").split("</form>").next().unwrap();
+    for field in [
+        r#"<input type="hidden" name="dimension.dim_grade" value="chc_10">"#,
+        r#"<input type="hidden" name="prepare" value="1">"#,
+        r#"<input type="hidden" name="from" value="/search?q=pika&amp;dimension.dim_grade=chc_10">"#,
+    ] {
+        assert!(form.contains(field), "{field}: {form}");
+    }
+    assert!(form.contains(r#"aria-label="Add Card 1"#) && form.contains(">Add to List</button>"), "{form}");
+    assert!(html.contains(r#"<dialog id="save-to-list" class="save-dialog__dialog"></dialog>"#), "{html}");
+    assert!(saved_list_calls(&pilot).is_empty(), "the page reads no lists until one is asked for");
+
+    // With a script, the dialog for the product, open, its form going back to the search.
+    let (status, _, html) = pilot.send(post(SAVE, "watcher", PREPARE, true)).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains(r#"id="save-to-list" aria-labelledby="save-to-list-title" open"#), "{html}");
+    assert!(text(&html).contains("Charizard · Raw / Near Mint"), "{html}");
+    assert!(html.contains(r#"name="list" value="svl_binder" checked>"#), "{html}");
+    assert!(html.contains(r#"<input type="hidden" name="from" value="/search?q=char">"#), "{html}");
+    assert_eq!(hidden(&html, "product"), OFFERED);
+    // Without one, the item page with the dialog open.
+    let (status, _, html) = pilot.send(post(SAVE, "watcher", PREPARE, false)).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains(r#"id="save-to-list" aria-labelledby="save-to-list-title" open"#), "{html}");
+    assert!(html.contains(r#"<input type="hidden" name="from" value="/search?q=char">"#), "{html}");
+    assert!(html.contains(r#"class="item-detail__"#), "the item page: {html}");
+    let additions = saved_list_calls(&pilot).into_iter().filter(|c| c.path == LIST_ADDITIONS).count();
+    assert_eq!(additions, 0, "opening adds nothing");
+
+    // Filters that do not name a product: the item page, to choose its options.
+    let (status, headers, _) = pilot.send(post(SAVE, "watcher", "prepare=1&from=%2Fsearch%3Fq%3Dchar", true)).await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    assert_eq!(headers["corten-location"], "/items/charizard");
+    // A page on another site is not a page to go back to.
+    let elsewhere = PREPARE.replace("%2Fsearch", "https%3A%2F%2Fevil.example%2Fsearch");
+    let (_, _, html) = pilot.send(post(SAVE, "watcher", &elsewhere, true)).await;
+    assert!(!html.contains(r#"name="from""#), "{html}");
+}
+
+#[tokio::test]
+async fn add_product_from_a_search_result_goes_back_to_the_search_saying_where_it_went() {
+    let pilot = Pilot::new().await;
+    let body = save_body(&pilot, "watcher", "new", "Chase+cards", "2").await;
+    let (status, headers, html) = pilot.send(post(SAVE, "watcher", &format!("{body}&from=%2Fsearch%3Fq%3Dchar"), false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
+    assert_eq!(headers[header::LOCATION], "/search?q=char");
+    let notice = cookies_set(&headers).remove("__Host-corten-notice").expect("the notice");
+    assert!(notice.contains("m=Added+to+Chase+cards"), "{notice}");
+    let sent = saved_list_calls(&pilot).into_iter().find(|c| c.path == LIST_ADDITIONS).unwrap();
+    assert_eq!(serde_json::from_str::<Value>(&sent.body).unwrap()["sourceSurface"], "search");
+    // A recent list is named as the picker reads it.
+    let body = save_body(&pilot, "watcher", "svl_binder", "", "1").await;
+    let (_, headers, _) = pilot.send(post(SAVE, "watcher", &format!("{body}&from=%2Fsearch%3Fq%3Dchar"), true)).await;
+    assert_eq!(headers["corten-location"], "/search?q=char");
+    assert!(cookies_set(&headers)["__Host-corten-notice"].contains("m=Added+to+Binder"), "{headers:?}");
+}
+
+#[tokio::test]
+async fn a_search_results_add_to_list_without_its_options_goes_to_the_item_page_even_with_one_listing() {
+    let pilot = Pilot::new().await;
+    // `single` has one listing, whose product the item page would pick; a result's filters that
+    // name no options still name no product.
+    let body = "prepare=1&from=%2Fsearch%3Fq%3Dchar";
+    let (status, headers, html) = pilot.send(post("/items/single/save", "watcher", body, true)).await;
+    assert_eq!(status, StatusCode::NO_CONTENT, "{html}");
+    assert_eq!(headers["corten-location"], "/items/single");
+    assert!(!html.contains(r#"aria-labelledby="save-to-list-title" open"#), "{html}");
+    // Signed out: the item page too, and no intent.
+    let (status, headers, html) = pilot.send(post_signed_out("/items/single/save", body)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
+    assert_eq!(headers[header::LOCATION], "/items/single");
+    let intents = saved_list_calls(&pilot).into_iter().filter(|c| c.path == GUEST_SAVED_LIST_INTENTS).count();
+    assert_eq!(intents, 0, "no intent for a product the filters do not name");
+}
+
+#[tokio::test]
+async fn a_guests_add_to_list_from_a_search_result_registers_back_to_the_search() {
+    let pilot = Pilot::new().await;
+    let (status, headers, html) = pilot.send(post_signed_out(SAVE, PREPARE)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
+    assert_eq!(
+        headers[header::LOCATION],
+        "http://localhost:7753/register?returnTo=%2Fsearch%3Fq%3Dchar%26claimSavedListIntent%3Dsli_1"
+    );
+    let sent: Value = serde_json::from_str(&saved_list_calls(&pilot)[0].body).unwrap();
+    assert_eq!((&sent["sourcePath"], &sent["sourceSurface"]), (&json!("/search?q=char"), &json!("search")));
+    assert_eq!(sent["product"]["productId"], OFFERED);
 }
 
 const LIST: &str = "/items/charizard/list";
@@ -18784,6 +18897,19 @@ async fn a_paid_guest_order_is_saved_to_an_account_with_a_passkey_or_a_claim_lin
     let (status, _, html) = pilot.send(as_guest(Method::POST, "/checkout/payments/pay_1", "intent=claim-link-request")).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
     assert!(text(&html).contains("You can save this order after payment is complete."), "{html}");
+    // A link sent when the contact cannot be read again still says it was sent; a request Auth
+    // rate limits says why.
+    let (status, _, html) =
+        pilot.send(as_guest(Method::POST, "/checkout/payments/pay_limited", "intent=claim-link-request")).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let page = text(&html);
+    assert!(page.contains("We sent a claim link to this order") && page.contains("contact email."), "{html}");
+    assert!(!page.contains("Email me a claim link"), "{html}");
+    let (status, _, html) =
+        pilot.send(as_guest(Method::POST, "/checkout/payments/pay_unbound", "intent=claim-link-request")).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    let page = text(&html);
+    assert!(page.contains("Could not save order") && page.contains("Too many claim link requests. Try again later."), "{html}");
 
     // The link's landing claims with its continuation, in any browser, and signs in the same way;
     // a spent or unknown one says the link is no longer good.
@@ -18795,14 +18921,24 @@ async fn a_paid_guest_order_is_saved_to_an_account_with_a_passkey_or_a_claim_lin
     let (status, _, html) = pilot.send(get("/checkout/payments/pay_paid?claimContinuation=cc_old", None)).await;
     assert_eq!(status, StatusCode::UNAUTHORIZED, "{html}");
     assert!(text(&html).contains("This claim link is invalid or expired."), "{html}");
+    // One Auth rate limits says to wait, not that the link is spent.
+    let (status, _, html) = pilot.send(get("/checkout/payments/pay_paid?claimContinuation=cc_busy", None)).await;
+    assert_eq!(status, StatusCode::TOO_MANY_REQUESTS, "{html}");
+    let page = text(&html);
+    assert!(page.contains("Too many attempts") && page.contains("Try the link again later."), "{html}");
+    assert!(!page.contains("invalid or expired"), "{html}");
 }
 
 #[tokio::test]
 async fn a_claim_links_token_is_typed_only_where_the_page_shows_it() {
-    assert!(crate::app::claim_token_entry(Some(" Yes "), None));
-    assert!(crate::app::claim_token_entry(Some("1"), Some("staging")));
-    assert!(!crate::app::claim_token_entry(Some("on"), Some("production")));
-    assert!(!crate::app::claim_token_entry(Some("0"), None) && !crate::app::claim_token_entry(None, None));
+    let envs = |node: Option<&str>, deployment: Option<&str>| [node.map(str::to_owned), deployment.map(str::to_owned)];
+    assert!(crate::app::claim_token_entry(Some(" Yes "), envs(None, None)));
+    assert!(crate::app::claim_token_entry(Some("1"), envs(Some("development"), Some("staging"))));
+    assert!(!crate::app::claim_token_entry(Some("on"), envs(None, Some("production"))));
+    assert!(!crate::app::claim_token_entry(Some("on"), envs(Some("production"), Some("staging"))), "React's NODE_ENV leg");
+    assert!(
+        !crate::app::claim_token_entry(Some("0"), envs(None, None)) && !crate::app::claim_token_entry(None, envs(None, None))
+    );
 
     let pilot = Pilot::configured(|config| config.claim_token_entry = true).await;
     let (status, _, html) = pilot
@@ -18816,6 +18952,13 @@ async fn a_claim_links_token_is_typed_only_where_the_page_shows_it() {
         .await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
     assert!(text(&html).contains("This claim link is invalid or expired."), "{html}");
+    // A link sent when the contact cannot be read again says so and draws no form, so no token:
+    // the emailed link still claims.
+    let (status, _, html) =
+        pilot.send(as_guest(Method::POST, "/checkout/payments/pay_limited", "intent=claim-link-request")).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(text(&html).contains("We sent a claim link to this order"), "{html}");
+    assert!(!html.contains("clm_1") && !html.contains(r#"value="claim-link-consume""#), "{html}");
     let body = "intent=claim-link-consume&displayName=Guest+Buyer&token=clm_1";
     let (status, headers, html) = pilot.send(as_guest(Method::POST, "/checkout/payments/pay_paid", body)).await;
     assert_eq!(status, StatusCode::SEE_OTHER, "{html}");

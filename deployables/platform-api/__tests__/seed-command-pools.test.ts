@@ -6,6 +6,11 @@ import { describe, expect, it } from "vitest";
 import { closePlatformApiPools, createSeedCommandPools, selectSeedCommandDatabaseConfig } from "../src/database-pools";
 import { getPlatformApiContextsForRuntimeProfile, type PlatformApiBaseConfig } from "../src/config";
 
+const testProjectionGroupLeasePort = {
+  runWithLease: async <T>(_group: unknown, _signal: AbortSignal | undefined, work: (context: never) => Promise<T>) =>
+    work(undefined as never),
+};
+
 const pooledConfig: PlatformApiBaseConfig = {
   runtimeProfile: "public",
   deploymentEnvironment: "staging",
@@ -71,6 +76,7 @@ describe("in-pod seed command database selection", () => {
         runtimeProfile: "public",
         substepTimeoutMs: 200,
         schemaBootstrapLockPool: pools.schemaBootstrapLockPool,
+        projectionGroupLeasePort: testProjectionGroupLeasePort,
       });
     } finally {
       await closePlatformApiPools(pools);

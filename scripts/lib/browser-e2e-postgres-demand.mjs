@@ -103,7 +103,7 @@ function loadSourceModule(readSource, file, dependencies, env = {}) {
 }
 
 function contextRegistry(readSource, kind) {
-  const file = `deployables/platform-${kind}/src/generated/${kind}-context-registry.ts`;
+  const file = `deployables/platform-${kind}/src/context-registry.ts`;
   const source = ts.createSourceFile(file, readSource(file), ts.ScriptTarget.Latest, true);
   const names = [];
   function visit(node) {

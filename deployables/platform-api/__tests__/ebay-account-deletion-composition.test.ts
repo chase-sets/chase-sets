@@ -5,7 +5,7 @@ import {
   parseEbayAccountDeletionConfiguration,
 } from "@chase-sets/channels/server";
 import { createPlatformApiHost, buildPlatformApiApp } from "../src/app";
-import { apiContextRegistry } from "../src/generated/api-context-registry";
+import { apiContextRegistry } from "../src/context-registry";
 import { createFakePaymentProcessorGateway } from "../../platform-worker/src/test-support/provider-gateways";
 
 vi.mock("@chase-sets/event-core-postgres", async (importOriginal) => ({

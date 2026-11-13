@@ -29,7 +29,7 @@ export async function syntheticContext() {
   const head = execFileSync("git", ["-C", root, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
   const authority = await loadTargetHonoAuthority(root);
   const sourceFiles = await Promise.all([
-    evidence("deployables/platform-api/src/generated/api-context-registry.ts"),
+    evidence("deployables/platform-api/src/context-registry.ts"),
     evidence("infrastructure/bounded-context-runtime/api-mounts.ts"),
     evidence("deployables/platform-api/src/app.ts"),
     evidence("pnpm-lock.yaml"),

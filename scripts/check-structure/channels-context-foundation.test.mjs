@@ -12,7 +12,8 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import ts from "@chase-sets/typescript-compiler-api";
-import { listContextManifests, repoRoot } from "../lib/repo.mjs";
+import { contextManifestContributesToHost, listContextManifests, repoRoot } from "../lib/repo.mjs";
+import { CONTEXT_REGISTRIES, validateContextRegistries } from "./context-registry-guard.mjs";
 import { validateGlossaryCoverage } from "./glossary-coverage.mjs";
 import { syncWorkspaceMetadata } from "../sync-workspace-metadata.mjs";
 import { findSchemaMigrationDdlSafetyViolationsInSource } from "./boot-schema-ddl-discipline.mjs";
@@ -36,11 +37,11 @@ const manifestPath = path.join(channelsRoot, "context.json");
 const packagePath = path.join(channelsRoot, "package.json");
 const baselinePath = path.join(repoRoot, "scripts/check-structure/glossary-coverage-baseline.json");
 const registryPaths = [
-  "deployables/platform-api/src/generated/api-context-registry.ts",
-  "deployables/platform-worker/src/generated/worker-context-registry.ts",
-  "deployables/admin-web/app/generated/web-context-registry.ts",
-  "deployables/marketplace/app/generated/web-context-registry.ts",
-  "deployables/public-web/app/generated/web-context-registry.ts",
+  "deployables/platform-api/src/context-registry.ts",
+  "deployables/platform-worker/src/context-registry.ts",
+  "deployables/admin-web/app/context-registry.ts",
+  "deployables/marketplace/app/context-registry.ts",
+  "deployables/public-web/app/context-registry.ts",
 ];
 const requiredRootFiles = [
   "api.ts",
@@ -123,12 +124,6 @@ function listFiles(root, directory = root) {
       return entry.isDirectory() ? listFiles(root, absolute) : [path.relative(root, absolute).replaceAll("\\", "/")];
     })
     .sort();
-}
-
-function readRegistryBytes(root) {
-  return Object.fromEntries(
-    registryPaths.map((relativePath) => [relativePath, readFileSync(path.join(root, relativePath))]),
-  );
 }
 
 function collectChannelsSurfaceViolations(candidate, relativeFiles) {
@@ -790,37 +785,18 @@ describe("channels glossary alias evidence", () => {
 
 describe("channels-foundation-deployable-registration", () => {
   it("registers Channels in API, worker, marketplace, and admin-web support hosts while excluding public-web", () => {
-    const root = createTempRepo("channels-metadata-");
-    writeJson(path.join(root, "tsconfig.base.json"), { compilerOptions: { paths: {} } });
-    const fixtureManifestPath = path.join(root, "bounded-contexts/channels/context.json");
+    const { violations, registries } = validateContextRegistries();
+    expect(violations).toEqual([]);
+    expect(registries.map((registry) => [registry.path, registry.actual.includes("channels")])).toEqual([
+      [registryPaths[0], true],
+      [registryPaths[1], true],
+      [registryPaths[2], true],
+      [registryPaths[3], true],
+      [registryPaths[4], false],
+    ]);
+
     const manifest = readJson(manifestPath);
-    const packageJson = readJson(packagePath);
-    writeJson(fixtureManifestPath, manifest);
-    const trackedLocaleFile = "contracts/localization/locales/en/channels.ts";
-    writeSource(root, trackedLocaleFile, 'export const channels = { "channels.example": "Example" } as const;\n');
-
-    const common = { rootDir: root, trackedLocaleFiles: [trackedLocaleFile] };
-    syncWorkspaceMetadata({ ...common, workspaces: [] });
-    const before = readRegistryBytes(root);
-    const channelsWorkspace = {
-      name: "@chase-sets/channels",
-      dir: path.join(root, "bounded-contexts/channels"),
-      dirName: "channels",
-      root: "bounded-contexts",
-      packageJson,
-    };
-    syncWorkspaceMetadata({ ...common, workspaces: [channelsWorkspace] });
-    const candidate = readRegistryBytes(root);
-
-    for (const relativePath of [registryPaths[0], registryPaths[1], registryPaths[2], registryPaths[3]]) {
-      expect(candidate[relativePath]).not.toEqual(before[relativePath]);
-      expect(candidate[relativePath].toString("utf8")).toContain("@chase-sets/channels");
-    }
-    for (const relativePath of [registryPaths[4]]) {
-      expect(candidate[relativePath]).toEqual(before[relativePath]);
-    }
-
-    writeJson(fixtureManifestPath, {
+    const withdrawn = {
       ...manifest,
       apiDeployables: [],
       apiRuntimeProfiles: [],
@@ -828,10 +804,13 @@ describe("channels-foundation-deployable-registration", () => {
       workerRuntimeProfiles: [],
       deployableContributions: [],
       shellContributions: [],
-    });
-    syncWorkspaceMetadata({ ...common, workspaces: [channelsWorkspace] });
-    const mutant = readRegistryBytes(root);
-    for (const relativePath of registryPaths) expect(mutant[relativePath]).toEqual(before[relativePath]);
+    };
+    for (const registry of CONTEXT_REGISTRIES) {
+      expect(contextManifestContributesToHost(manifest, registry), registry.path).toBe(
+        registry.path !== registryPaths[4],
+      );
+      expect(contextManifestContributesToHost(withdrawn, registry), registry.path).toBe(false);
+    }
   });
 });
 

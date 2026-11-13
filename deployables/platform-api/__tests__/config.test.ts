@@ -17,7 +17,7 @@ import {
   RepresentativeCatalogProfileEnvironmentError,
 } from "../src/config";
 import { getApiHostContextNames } from "@chase-sets/platform-runtime/api";
-import { apiContextRegistry } from "../src/generated/api-context-registry";
+import { apiContextRegistry } from "../src/context-registry";
 
 const loadStripeProviderConfigCallCount = vi.hoisted(() => ({ value: 0 }));
 

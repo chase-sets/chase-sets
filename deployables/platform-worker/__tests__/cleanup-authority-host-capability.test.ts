@@ -6,7 +6,7 @@ import { createWorkerHost } from "@chase-sets/platform-runtime/worker";
 import { module as orderingModule } from "@chase-sets/ordering";
 import type { IdentityServices } from "@chase-sets/identity/server";
 import type { PricingHostPorts } from "@chase-sets/pricing/server";
-import { workerContextRegistry } from "../src/generated/worker-context-registry";
+import { workerContextRegistry } from "../src/context-registry";
 import { createPlatformChannelSaleRecorder } from "../src/channels-reconciliation-runners";
 import { createRegisteredScheduledRunners, createSupportEvidenceCleanupHostPort } from "../src/scheduled-runners";
 import { livenessConfig } from "./channels-liveness-config";
