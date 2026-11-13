@@ -288,6 +288,13 @@ pub(crate) fn complete(req: &Req, config: &Config, return_to: &str, result: Auth
     Ok(res.with_cookie(secure(config, SetCookie::remove(SELECTION_COOKIE))).with_cookie(secure(config, keep)))
 }
 
+/// A guest who saved its checkout to an account signed in: the same, with the guest checkout's
+/// cookie cleared (`clearGuestCheckoutCookie`), since Auth ended the guest's access.
+pub(crate) fn complete_claim(req: &Req, config: &Config, return_to: &str, result: Authenticated) -> HtmlResult {
+    let res = complete(req, config, return_to, result)?;
+    Ok(res.with_cookie(secure(config, SetCookie::remove(GUEST_CHECKOUT_COOKIE))))
+}
+
 fn render(req: &Req, status: StatusCode, screen: &SignInScreen) -> HtmlResult {
     let (t, p): (SignInMsg, Pilot) = (req.t(), req.t());
     let page = html! {

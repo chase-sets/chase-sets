@@ -159,6 +159,49 @@
   width: 100%;
 }
 
+/* Save this order's forms: a field over its input, the passkey's form above a rule, the link's below. */
+.form {
+  display: grid;
+  gap: var(--space-3);
+  min-width: 0;
+}
+.form > p {
+  margin: 0;
+}
+.form .button {
+  width: 100%;
+}
+.field {
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+}
+.label {
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+.input {
+  width: 100%;
+  min-height: var(--control-height);
+  padding: var(--control-py) var(--control-px);
+  border: 1px solid var(--color-input);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: inherit;
+}
+.divider {
+  width: 100%;
+  margin: 0;
+  border: 0;
+  border-top: 1px solid var(--color-border);
+}
+.inset {
+  padding: var(--space-3);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-2);
+}
+
 /* The summary: a label beside its amount, the payable total under a rule. */
 .summary-card {
   gap: var(--space-4);

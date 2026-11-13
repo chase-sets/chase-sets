@@ -179,7 +179,27 @@ pub async fn call_written<T: DeserializeOwned>(
     path: &str,
     body: Value,
 ) -> Result<(T, Option<Receipt>), ApiError> {
-    let mut req = caller.request(Http::POST, path, AUTH).json(&body);
+    sent(caller, caller.request(Http::POST, path, AUTH), client, body).await
+}
+
+/// An auth call only a host may make (the guest checkout's claim, `createInternalAuthRequestApiClient`):
+/// the same call with the platform's internal capability.
+pub async fn call_internal<T: DeserializeOwned>(
+    caller: &Caller<'_>,
+    client: Option<ClientIp>,
+    path: &str,
+    body: Value,
+) -> Result<(T, Option<Receipt>), ApiError> {
+    sent(caller, caller.request_internal(Http::POST, path, AUTH), client, body).await
+}
+
+async fn sent<T: DeserializeOwned>(
+    caller: &Caller<'_>,
+    req: crate::api::RequestBuilder,
+    client: Option<ClientIp>,
+    body: Value,
+) -> Result<(T, Option<Receipt>), ApiError> {
+    let mut req = req.json(&body);
     if let Some(ClientIp(ip)) = client {
         req = req.header("x-forwarded-for", ip.to_string());
     }
