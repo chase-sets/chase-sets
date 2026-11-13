@@ -508,6 +508,7 @@ pub async fn error_page(failure: Failure, req: Req, session: Option<Caller<Sessi
             (p.error_failed_title(), p.check_attempt())
         }
         Failure::WrongMethod
+        | Failure::UnknownMethod
         | Failure::Rejected { .. }
         | Failure::Failed { .. }
         | Failure::Panicked { .. }
