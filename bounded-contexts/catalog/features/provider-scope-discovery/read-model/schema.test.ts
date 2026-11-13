@@ -56,4 +56,23 @@ describe("Provider Scope Discovery schema", () => {
     expect(migrationSql).not.toContain("catalog_provider_scope_mappings");
     expect(migrationSql).not.toContain("catalog_scope_records");
   });
+
+  it("records the accepted Scope Record on a proposal through an additive nullable column", () => {
+    const proposalTableSql = catalogProviderScopeDiscoverySchemaSql.slice(
+      catalogProviderScopeDiscoverySchemaSql.indexOf("CREATE TABLE IF NOT EXISTS catalog_scope_record_proposals"),
+    );
+    expect(proposalTableSql).toContain("accepted_scope_record_id text NULL");
+
+    const migration = catalogProviderScopeDiscoverySchemaMigrations.find(
+      (candidate) => candidate.migrationId === "20261113_catalog_scope_record_proposal_accepted_target",
+    );
+    const migrationSql = migration?.statements.join("\n") ?? "";
+    expect(migrationSql).toContain("SET LOCAL lock_timeout");
+    expect(migrationSql).toContain(
+      "ALTER TABLE catalog_scope_record_proposals\n  ADD COLUMN IF NOT EXISTS accepted_scope_record_id text NULL",
+    );
+    expect(migrationSql).not.toMatch(/\b(?:DROP|UPDATE|DEFAULT)\b|NOT NULL/);
+    expect(migrationSql).not.toContain("catalog_scope_records");
+    expect(migrationSql).not.toContain("catalog_provider_scope_mappings");
+  });
 });
