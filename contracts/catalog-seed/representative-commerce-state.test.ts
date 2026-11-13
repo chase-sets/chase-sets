@@ -17,6 +17,7 @@ import {
   selectRepresentativeCatalogUsageCandidates,
   submitRepresentativeOffers,
   type CatalogRepresentativeCatalogUsageCandidate,
+  type RepresentativeMarketplaceServices,
   type RepresentativeQueryable,
 } from "./representative-commerce-state";
 
@@ -485,6 +486,137 @@ describe("representative commerce state seed helpers", () => {
   });
 });
 
+describe("representative offer submission limits", () => {
+  it("bounds new submissions to five per buyer for a cohort larger than the daily cap", async () => {
+    const harness = submissionHarness();
+    const stock = representativeStockItems(60);
+
+    const results = await submitRepresentativeOffers(harness.services as never, stock);
+
+    expect(harness.submitted).toHaveLength(10);
+    for (const buyerAccountId of new Set(harness.submitted.map((offer) => offer.buyerAccountId))) {
+      expect(harness.submitted.filter((offer) => offer.buyerAccountId === buyerAccountId)).toHaveLength(5);
+    }
+    expect(results).toHaveLength(60);
+    expect(results.filter((offer) => offer.status === "created")).toHaveLength(10);
+    expect(results.filter((offer) => offer.status === "skipped")).toHaveLength(50);
+    expect(results[59]).toMatchObject({
+      catalogItemId: stock[59].catalogItemId,
+      status: "skipped",
+      reason: "representative_offer_submission_limit_reached",
+    });
+
+    const accepted: unknown[] = [];
+    const acceptance = acceptanceServices(
+      results.map((offer) => (offer.status === "created" ? "submitted" : null)),
+      accepted,
+    );
+    const acceptanceResults = await acceptRepresentativeOffers(acceptance as never, stock, { maxAcceptedOffers: 10 });
+    expect(accepted).toHaveLength(10);
+    expect(acceptanceResults.filter((offer) => offer.status === "skipped")).toHaveLength(50);
+  });
+
+  it("counts all retained cohort Offers toward each buyer's budget, including later items", async () => {
+    const existingCatalogItemIds = ["cat_synthetic_1", "cat_synthetic_2", "cat_synthetic_15", "cat_synthetic_16"];
+    const harness = submissionHarness({ existingOfferIndexes: [0, 1, 14, 15] });
+
+    const results = await submitRepresentativeOffers(
+      harness.services as never,
+      representativeStockItems(16, "cat_synthetic"),
+    );
+
+    expect(harness.submitted).toHaveLength(6);
+    expect(results.filter((offer) => offer.status === "already-present").map((offer) => offer.catalogItemId)).toEqual(
+      existingCatalogItemIds,
+    );
+    expect(results.filter((offer) => offer.status === "skipped")).toHaveLength(6);
+    for (const buyerAccountId of new Set(results.map((offer) => offer.buyerAccountId))) {
+      expect(
+        results.filter((offer) => offer.buyerAccountId === buyerAccountId && offer.status !== "skipped"),
+      ).toHaveLength(5);
+    }
+  });
+
+  it("submits no new Offers for a 60-item cohort with five retained Offers per buyer", async () => {
+    const harness = submissionHarness({ existingOfferIndexes: Array.from({ length: 10 }, (_, index) => index + 50) });
+
+    const results = await submitRepresentativeOffers(
+      harness.services as never,
+      representativeStockItems(60, "cat_synthetic"),
+    );
+
+    expect(harness.submitted).toHaveLength(0);
+    expect(results.filter((offer) => offer.status === "already-present")).toHaveLength(10);
+    expect(results.filter((offer) => offer.status === "skipped")).toHaveLength(50);
+  });
+
+  it("leaves sampled Offers unchanged on a repeat run against retained state", async () => {
+    const harness = submissionHarness();
+    const stock = representativeStockItems(60, "cat_synthetic");
+    const initial = await submitRepresentativeOffers(harness.services as never, stock);
+    const repeat = await submitRepresentativeOffers(harness.services as never, stock);
+
+    expect(harness.submitted).toHaveLength(10);
+    expect(repeat).toEqual(
+      initial.map((offer) => (offer.status === "created" ? { ...offer, status: "already-present" } : offer)),
+    );
+  });
+
+  it("records a daily cap refusal as skipped and continues submission and acceptance for other items", async () => {
+    const capError = Object.assign(new Error("Daily offer limit reached."), {
+      name: "MarketplaceOfferAbuseControlError",
+      code: "offer_daily_submission_cap_reached",
+    });
+    const harness = submissionHarness({
+      submissionError: (offer) => (offer.catalogItemId === "cat_real_1" ? capError : null),
+    });
+    const stock = representativeStockItems(3);
+
+    const results = await submitRepresentativeOffers(harness.services as never, stock);
+
+    expect(results[0]).toMatchObject({
+      catalogItemId: "cat_real_1",
+      offerId: expect.stringMatching(/^off_repr_/),
+      status: "skipped",
+      reason: "offer_daily_submission_cap_reached",
+    });
+    expect(results.slice(1).map((offer) => offer.status)).toEqual(["created", "created"]);
+    const accepted: unknown[] = [];
+    const acceptance = acceptanceServices([null, "submitted", "submitted"], accepted);
+    const acceptanceResults = await acceptRepresentativeOffers(acceptance as never, stock);
+    expect(accepted).toHaveLength(2);
+    expect(acceptanceResults.map((offer) => offer.status)).toEqual(["skipped", "accepted", "accepted"]);
+  });
+
+  it("bounds attempts even when every submission is refused by the daily cap", async () => {
+    const harness = submissionHarness({
+      submissionError: () =>
+        Object.assign(new Error("Daily offer limit reached."), {
+          name: "MarketplaceOfferAbuseControlError",
+          code: "offer_daily_submission_cap_reached",
+        }),
+    });
+
+    const results = await submitRepresentativeOffers(harness.services as never, representativeStockItems(60));
+
+    expect(harness.submitted).toHaveLength(10);
+    expect(results.every((offer) => offer.status === "skipped")).toBe(true);
+  });
+
+  it.each([
+    new Error("Submission failed."),
+    Object.assign(new Error("Different abuse control."), { name: "MarketplaceOfferAbuseControlError", code: "other" }),
+    Object.assign(new Error("Unrelated error."), { code: "offer_daily_submission_cap_reached" }),
+    { name: "MarketplaceOfferAbuseControlError", code: "offer_daily_submission_cap_reached" },
+  ])("rethrows other submission errors unchanged: %s", async (error) => {
+    const harness = submissionHarness({ submissionError: () => error });
+
+    await expect(submitRepresentativeOffers(harness.services as never, representativeStockItems(1))).rejects.toBe(
+      error,
+    );
+  });
+});
+
 describe("representative offer acceptance retained-state idempotency", () => {
   it("recognizes retained accepted offers instead of accepting more on a repeat run", async () => {
     const accepted: unknown[] = [];
@@ -777,6 +909,45 @@ describe("representative listing publication restart safety", () => {
   });
 });
 
+type RepresentativeOfferSubmission = Parameters<RepresentativeMarketplaceServices["offers"]["submitOffer"]>[0];
+
+function submissionHarness(
+  options: Readonly<{
+    existingOfferIndexes?: readonly number[];
+    submissionError?: (offer: RepresentativeOfferSubmission) => unknown;
+  }> = {},
+) {
+  const submitted: RepresentativeOfferSubmission[] = [];
+  const retainedOfferIds = new Set<string>();
+  let offerQueryIndex = 0;
+  const services = {
+    db: {
+      query: async <Row>(sql: string, params?: readonly unknown[]) => {
+        if (sql.includes("FROM marketplace_offer_pages")) {
+          const offerId = String(params?.[0]);
+          if (options.existingOfferIndexes?.includes(offerQueryIndex++)) retainedOfferIds.add(offerId);
+          return {
+            rows: (retainedOfferIds.has(offerId) ? [{ status: "submitted" }] : []) as Row[],
+          };
+        }
+        return {
+          rows: [{ title: "Representative Card", subtitle: null, status: "active", product_schema: null }] as Row[],
+        };
+      },
+    },
+    offers: {
+      submitOffer: async (offer: RepresentativeOfferSubmission) => {
+        submitted.push(offer);
+        const error = options.submissionError?.(offer);
+        if (error) throw error;
+        retainedOfferIds.add(offer.offerId!);
+        return { offerId: offer.offerId!, version: 1 };
+      },
+    },
+  };
+  return { services, submitted };
+}
+
 function acceptanceServices(
   statusesByIndex: readonly (string | null)[],
   accepted: unknown[],
@@ -817,9 +988,9 @@ function offerStatusDb(
   };
 }
 
-function representativeStockItems(count: number) {
+function representativeStockItems(count: number, catalogItemPrefix = "cat_real") {
   return Array.from({ length: count }, (_, index) => ({
-    catalogItemId: `cat_real_${index + 1}`,
+    catalogItemId: `${catalogItemPrefix}_${index + 1}`,
     accountId: index % 2 === 0 ? "acc_repr_card_vault_account" : "acc_repr_sealed_stockroom_account",
     inventoryItemId: `inv_repr_${index + 1}`,
     selectedOptions: [],

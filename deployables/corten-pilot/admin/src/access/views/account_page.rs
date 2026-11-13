@@ -6,9 +6,16 @@
 //! Each tab is a link to the workspace on it, so without JavaScript a tab loads its page. A
 //! form that asks first (suspend, close, revoke, cancel) opens a `<dialog>` with
 //! `command="show-modal"`, no script. Forms stack on a phone and sit in a row from 40rem; tables
-//! scroll on their own.
+//! stack on a phone, a row a block of labelled lines.
 use corten::prelude::*;
 use corten_ui::{CopyButton, Tab as UiTab, TabGroup};
+use platform::{
+    theme::gap_3,
+    ui::{
+        stack::{Gap, Stack as KitStack},
+        table::{CellLabel, Table as KitTable, TableLayout},
+    },
+};
 
 use super::access_page::when;
 use crate::{
@@ -27,6 +34,10 @@ use crate::{
 /// The one-time secret, which its Copy button copies.
 #[derive(Id)]
 pub struct SecretId;
+
+/// The workspace's tabs (corten-ui's `TabGroup`), whose tabs and panels are named from it.
+#[derive(Id)]
+struct AccountHubId;
 
 /// A form's confirm dialog's id, by its intent and what it acts on.
 fn dialog_id(intent: &str, target: &str) -> String {
@@ -126,7 +137,7 @@ pub fn AccountPage<'a>(t: Acc, p: Pilot, viewer: &'a Viewer, screen: &'a HubScre
             <p class={Note} role="status">{p.error_pending()}</p>
         }
         <div class={Tabs}>
-            <TabGroup id="account-hub" label={name} tabs={&tabs} selected={selected} />
+            <TabGroup id={AccountHubId} label={name} tabs={&tabs} selected={selected} />
         </div>
     }
 }
@@ -348,7 +359,7 @@ fn Team<'a>(t: Acc, p: Pilot, viewer: &'a Viewer, hub: &'a Hub) -> impl Render {
                     </button>
                 </div>
                 <dialog class={Confirm} id={&invite} aria-label={t.account_invite_title()}>
-                    <form class={Stack} method="post" action={action(id)}>
+                    <form class={(KitStack { gap: Gap::App }, gap_3())} method="post" action={action(id)}>
                         <input type="hidden" name={f.intent} value="create-invitation">
                         <h3>{t.account_invite_title()}</h3>
                         <p>{t.account_invite_description(name)}</p>
@@ -380,21 +391,23 @@ fn Team<'a>(t: Acc, p: Pilot, viewer: &'a Viewer, hub: &'a Hub) -> impl Render {
                 </div>
             } else {
                 <div class={Scroll}>
-                    <table class={Table} aria-label={t.account_team()}>
-                        <thead>
-                            <tr>
-                                <th scope="col">{t.memberships_user()}</th>
-                                <th scope="col">{t.memberships_role()}</th>
-                                <th scope="col">{t.memberships_status()}</th>
-                                <th scope="col"></th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            for m in &hub.memberships {
-                                <MembershipRow t={t} p={p} id={id} account={name} m={m} manage={manage} />
-                            }
-                        </tbody>
-                    </table>
+                    <KitTable layout={TableLayout::Stack}>
+                        <table class={Table} aria-label={t.account_team()}>
+                            <thead>
+                                <tr>
+                                    <th scope="col">{t.memberships_user()}</th>
+                                    <th scope="col">{t.memberships_role()}</th>
+                                    <th scope="col">{t.memberships_status()}</th>
+                                    <th scope="col"></th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                for m in &hub.memberships {
+                                    <MembershipRow t={t} p={p} id={id} account={name} m={m} manage={manage} />
+                                }
+                            </tbody>
+                        </table>
+                    </KitTable>
                 </div>
             }
         </section>
@@ -404,21 +417,23 @@ fn Team<'a>(t: Acc, p: Pilot, viewer: &'a Viewer, hub: &'a Hub) -> impl Render {
                 <p class={Muted}>{t.invitations_no_invitations_yet()}</p>
             } else {
                 <div class={Scroll}>
-                    <table class={Table} aria-label={t.invitations_invitations()}>
-                        <thead>
-                            <tr>
-                                <th scope="col">{t.invitations_email()}</th>
-                                <th scope="col">{t.invitations_role()}</th>
-                                <th scope="col">{t.invitations_status()}</th>
-                                <th scope="col"></th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            for i in &hub.invitations {
-                                <InvitationRow t={t} p={p} id={id} account={name} i={i} manage={manage} />
-                            }
-                        </tbody>
-                    </table>
+                    <KitTable layout={TableLayout::Stack}>
+                        <table class={Table} aria-label={t.invitations_invitations()}>
+                            <thead>
+                                <tr>
+                                    <th scope="col">{t.invitations_email()}</th>
+                                    <th scope="col">{t.invitations_role()}</th>
+                                    <th scope="col">{t.invitations_status()}</th>
+                                    <th scope="col"></th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                for i in &hub.invitations {
+                                    <InvitationRow t={t} p={p} id={id} account={name} i={i} manage={manage} />
+                                }
+                            </tbody>
+                        </table>
+                    </KitTable>
                 </div>
             }
         </section>
@@ -435,9 +450,18 @@ fn MembershipRow<'a>(t: Acc, p: Pilot, id: &'a str, account: &'a str, m: &'a Mem
     let hidden = [(f.membership_id.as_str(), m.membership_id.as_str())];
     html! {
         <tr>
-            <td>{who}</td>
-            <td>{access::role(t, &m.role_key)}</td>
-            <td><span class={Pill}>{access::membership_status(t, &m.status)}</span></td>
+            <td>
+                <CellLabel>{t.memberships_user()}</CellLabel>
+                {who}
+            </td>
+            <td>
+                <CellLabel>{t.memberships_role()}</CellLabel>
+                {access::role(t, &m.role_key)}
+            </td>
+            <td>
+                <CellLabel>{t.memberships_status()}</CellLabel>
+                <span class={Pill}>{access::membership_status(t, &m.status)}</span>
+            </td>
             <td>
                 if manage && m.status == "active" {
                     <div class={Actions}>
@@ -459,7 +483,7 @@ fn MembershipRow<'a>(t: Acc, p: Pilot, id: &'a str, account: &'a str, m: &'a Mem
                             target={&m.membership_id}
                             label={t.membership_detail_revoke()}
                             title={&t.membership_detail_revoke_confirm_title(who).to_string()}
-                            description={&t.membership_detail_revoke_confirm_description(who, account).to_string()}
+                            description={&t.membership_detail_revoke_confirm_description(crate::text::acc::MembershipDetailRevokeConfirmDescription { user: who, account }).to_string()}
                             confirm={t.membership_detail_revoke_confirm_action()}
                             small={true}
                         />
@@ -486,9 +510,18 @@ fn InvitationRow<'a>(t: Acc, p: Pilot, id: &'a str, account: &'a str, i: &'a Inv
     let resend = [(f.invitation_id.as_str(), i.invitation_id.as_str()), (f.expires_at.as_str(), i.expires_at.as_str())];
     html! {
         <tr>
-            <td>{&i.email}</td>
-            <td>{access::role(t, &i.role_key)}</td>
-            <td><span class={Pill}>{access::invitation_status(t, &i.status)}</span></td>
+            <td>
+                <CellLabel>{t.invitations_email()}</CellLabel>
+                {&i.email}
+            </td>
+            <td>
+                <CellLabel>{t.invitations_role()}</CellLabel>
+                {access::role(t, &i.role_key)}
+            </td>
+            <td>
+                <CellLabel>{t.invitations_status()}</CellLabel>
+                <span class={Pill}>{access::invitation_status(t, &i.status)}</span>
+            </td>
             <td>
                 if manage && i.status == "pending" {
                     <div class={Actions}>
@@ -508,7 +541,7 @@ fn InvitationRow<'a>(t: Acc, p: Pilot, id: &'a str, account: &'a str, i: &'a Inv
                             target={&i.invitation_id}
                             label={t.invitation_detail_cancel()}
                             title={&t.invitation_detail_cancel_confirm_title(&i.email).to_string()}
-                            description={&t.invitation_detail_cancel_confirm_description(&i.email, account).to_string()}
+                            description={&t.invitation_detail_cancel_confirm_description(crate::text::acc::InvitationDetailCancelConfirmDescription { email: &i.email, account }).to_string()}
                             confirm={t.invitation_detail_cancel_confirm_action()}
                             small={true}
                         />
@@ -663,7 +696,7 @@ fn ApiAccess<'a>(t: Acc, p: Pilot, viewer: &'a Viewer, hub: &'a Hub, secret: Opt
                 <p class={Muted}>{t.secret_full_secret()}</p>
                 <pre class={Code}><code id={SecretId}>{&secret.secret}</code></pre>
                 <div class={Actions}>
-                    <CopyButton text={SecretId} label={t.secret_copy()} copied={t.secret_copied()} />
+                    <CopyButton text={SecretId} label={t.secret_copy()} copied={t.secret_copied()} class={()} />
                 </div>
             </section>
         }
@@ -700,28 +733,30 @@ fn ApiAccess<'a>(t: Acc, p: Pilot, viewer: &'a Viewer, hub: &'a Hub, secret: Opt
                 </div>
             } else {
                 <div class={Scroll}>
-                    <table class={Table} aria-label={t.account_api_access()}>
-                        <thead>
-                            <tr>
-                                <th scope="col">{t.api_keys_name()}</th>
-                                <th scope="col">{t.api_keys_user()}</th>
-                                <th scope="col">{t.api_keys_prefix()}</th>
-                                <th scope="col">{t.api_keys_status()}</th>
-                                <th scope="col"></th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            for key in &hub.api_keys {
-                                <KeyRow
-                                    t={t}
-                                    p={p}
-                                    id={id}
-                                    key_={key}
-                                    manage={key.status == "active" && account::manages_user(viewer, &key.user_id)}
-                                />
-                            }
-                        </tbody>
-                    </table>
+                    <KitTable layout={TableLayout::Stack}>
+                        <table class={Table} aria-label={t.account_api_access()}>
+                            <thead>
+                                <tr>
+                                    <th scope="col">{t.api_keys_name()}</th>
+                                    <th scope="col">{t.api_keys_user()}</th>
+                                    <th scope="col">{t.api_keys_prefix()}</th>
+                                    <th scope="col">{t.api_keys_status()}</th>
+                                    <th scope="col"></th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                for key in &hub.api_keys {
+                                    <KeyRow
+                                        t={t}
+                                        p={p}
+                                        id={id}
+                                        key_={key}
+                                        manage={key.status == "active" && account::manages_user(viewer, &key.user_id)}
+                                    />
+                                }
+                            </tbody>
+                        </table>
+                    </KitTable>
                 </div>
             }
         </section>
@@ -734,10 +769,22 @@ fn KeyRow<'a>(t: Acc, p: Pilot, id: &'a str, key_: &'a ApiKey, manage: bool) -> 
     let hidden = [(f.api_key_id.as_str(), key_.api_key_id.as_str())];
     html! {
         <tr>
-            <td>{&key_.name}</td>
-            <td>{key_.user_label()}</td>
-            <td><code>{&key_.key_prefix}</code></td>
-            <td><span class={Pill}>{access::api_key_status(t, &key_.status)}</span></td>
+            <td>
+                <CellLabel>{t.api_keys_name()}</CellLabel>
+                {&key_.name}
+            </td>
+            <td>
+                <CellLabel>{t.api_keys_user()}</CellLabel>
+                {key_.user_label()}
+            </td>
+            <td>
+                <CellLabel>{t.api_keys_prefix()}</CellLabel>
+                <code>{&key_.key_prefix}</code>
+            </td>
+            <td>
+                <CellLabel>{t.api_keys_status()}</CellLabel>
+                <span class={Pill}>{access::api_key_status(t, &key_.status)}</span>
+            </td>
             <td>
                 if manage {
                     <div class={Actions}>
@@ -781,7 +828,9 @@ fn Audit<'a>(t: Acc, hub: &'a Hub) -> impl Render {
                 for event in &hub.audit_events {
                     <li>
                         <p class={Strong}>{audit_title(&event.event_type)}</p>
-                        <p class={Muted}>{t.account_audit_event_description(&event.stream_id, &event.performed_by_user_id)}</p>
+                        <p class={Muted}>
+                            {t.account_audit_event_description(crate::text::acc::AccountAuditEventDescription { stream_id: &event.stream_id, performed_by_user_id: &event.performed_by_user_id })}
+                        </p>
                         <p class={Muted}>{when(t, Some(&event.recorded_at))}</p>
                     </li>
                 }
@@ -851,7 +900,9 @@ pub fn SessionPage<'a>(t: Acc, p: Pilot, screen: &'a SessionScreen) -> impl Rend
                     <form method="post" action={&action}>
                         <input type="hidden" name={f.intent} value="revoke">
                         <h3>{&confirm_title}</h3>
-                        <p>{t.session_detail_revoke_confirm_description(user, account)}</p>
+                        <p>
+                            {t.session_detail_revoke_confirm_description(crate::text::acc::SessionDetailRevokeConfirmDescription { user, account })}
+                        </p>
                         <div class={Buttons}>
                             <button type="button" class={(Button, Secondary)} command="close" commandfor={&revoke}>
                                 {p.access_close()}

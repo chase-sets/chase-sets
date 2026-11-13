@@ -1,5 +1,6 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { act, type MouseEvent, useState } from "react";
+import { hydrateRoot } from "react-dom/client";
 import userEvent from "@testing-library/user-event";
 import { renderToString } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
@@ -21,6 +22,7 @@ import {
 } from "../patterns/app-shells/search-row-phase";
 import type { ReactNode } from "react";
 import { ThemeToggle } from "../theme/theme-toggle";
+import { LiveRegion } from "../primitives/layout";
 import {
   BottomSheet,
   BottomNav,
@@ -75,6 +77,65 @@ import {
 } from "../index";
 
 describe("design system panels, navigation, and shells", () => {
+  it("hydrates plain and flow-content empty-state descriptions without replacing parsed nodes", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    try {
+      const cases = [
+        {
+          element: <MarketplaceEmptyState title="No listings" description="There are no listings to show yet." />,
+          expectedStatus: null,
+        },
+        {
+          element: (
+            <MarketplaceEmptyState
+              title="Nothing here yet"
+              description={
+                <LiveRegion politeness="polite" atomic>
+                  We are preparing your checkout.
+                </LiveRegion>
+              }
+            />
+          ),
+          expectedStatus: "We are preparing your checkout.",
+        },
+      ];
+
+      for (const { element, expectedStatus } of cases) {
+        const recoverableErrors: unknown[] = [];
+        const container = document.createElement("div");
+        container.innerHTML = renderToString(element);
+        const parsedSection = container.querySelector("section");
+        const parsedDescription = container.querySelector("section div.m-0.mx-auto.max-w-xl");
+        const parsedStatus = container.querySelector('[role="status"]');
+        expect(parsedSection).not.toBeNull();
+        expect(parsedDescription).not.toBeNull();
+        expect(parsedDescription?.className).toContain("m-0 mx-auto max-w-xl text-sm leading-6 text-secondary");
+        if (expectedStatus) expect(parsedStatus).not.toBeNull();
+
+        let root: ReturnType<typeof hydrateRoot> | undefined;
+        await act(async () => {
+          root = hydrateRoot(container, element, {
+            onRecoverableError: (error) => recoverableErrors.push(error),
+          });
+        });
+
+        expect(recoverableErrors).toEqual([]);
+        expect(container.querySelector("section")).toBe(parsedSection);
+        expect(container.querySelector("section div.m-0.mx-auto.max-w-xl")).toBe(parsedDescription);
+        if (expectedStatus) {
+          expect(container.querySelector('[role="status"]')).toBe(parsedStatus);
+          expect(parsedStatus?.textContent).toBe(expectedStatus);
+        }
+        await act(async () => {
+          root?.unmount();
+        });
+      }
+    } finally {
+      expect(consoleError).not.toHaveBeenCalled();
+      consoleError.mockRestore();
+    }
+  });
+
   it("keeps promoted survivors on the root surface and removed compat helpers off it", () => {
     const surface = DesignSystem as Record<string, unknown>;
 

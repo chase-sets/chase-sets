@@ -313,7 +313,12 @@ fn Row<'a>(t: ImportsMsg, row: &'a ImportRow, batch: &'a str, offset: u64, resol
     let reference = row.external_reference.as_ref();
     let name = reference.and_then(|r| r.display_name.as_deref().or(Some(r.external_key.as_str()))).unwrap_or(t.page_native_row());
     let detail = match reference {
-        Some(r) => t.page_external_reference(&r.provider_key, &r.external_key).to_string(),
+        Some(r) => t
+            .page_external_reference(crate::text::imports_msg::PageExternalReference {
+                provider: &r.provider_key,
+                key: &r.external_key,
+            })
+            .to_string(),
         None => row.row_fingerprint.clone(),
     };
     let quantity = row
@@ -441,7 +446,8 @@ fn when(t: ImportsMsg, at: &str) -> String {
 /// page and modal once it joins the page; Close and Escape go back to the batch. One form whose
 /// action is the batch page with the drawer open on the row: the picker's steps (its buttons are
 /// `formmethod="get"`) read it again, as a page without a script and in place with one, and Apply
-/// alone posts, to the resolve route (its `formaction`).
+/// alone posts, to the resolve route (its `formaction`). A submit that gets no answer is said in
+/// the drawer (`corten_ui::dialog::failed`), where the page's toaster is covered.
 #[component(css = ImportsPage)]
 fn FixDialog<'a>(
     t: ImportsMsg,
@@ -456,7 +462,7 @@ fn FixDialog<'a>(
     let row = &fixing.row;
     let close = resolve_href(batch, screen.offset, None);
     let here = resolve_href(batch, screen.offset, Some(&row.row_id));
-    let back = refs();
+    let (back, said) = refs();
     let ready = fixing.ready().is_some();
     html! {
         <dialog
@@ -466,12 +472,15 @@ fn FixDialog<'a>(
             aria-describedby="import-fix-progress"
             open
             on:connect={corten_ui::dialog::modalClosedBy(target, back, signal)}
+            on:corten:error={corten_ui::dialog::failed(event, target, said)}
         >
             <div class={DialogHead}>
                 <h2 id="import-fix-title" class={PartTitle}>{t.page_resolve_import_row(row.row_number)}</h2>
                 <a ref={back} class={(Button, Ghost, Small)} href={&close}>{t.page_close()}</a>
             </div>
-            <p id="import-fix-progress" class={Muted}>{t.page_resolve_progress(fixing.position, fixing.total)}</p>
+            <p id="import-fix-progress" class={Muted}>
+                {t.page_resolve_progress(crate::text::imports_msg::PageResolveProgress { position: fixing.position, total: fixing.total })}
+            </p>
             if !row.validation_errors.is_empty() {
                 <ul class={Errors}>
                     for message in &row.validation_errors {
@@ -482,6 +491,9 @@ fn FixDialog<'a>(
             if let Some(error) = &fixing.error {
                 <p class={ErrorText} role="alert">{error}</p>
             }
+            <div role="alert">
+                <p class={ErrorText} ref={said} hidden>{p.shell_not_sent()}</p>
+            </div>
             <form
                 id={FixFormId}
                 class={Fix}
@@ -493,6 +505,9 @@ fn FixDialog<'a>(
             >
                 <input type="hidden" name={f.offset} value={screen.offset.to_string()}>
                 <input type="hidden" name="resolveRowId" value={&row.row_id}>
+                <input type="hidden" name={f.expected_row_version} value={&row.row_version}>
+                <input type="hidden" name={f.expected_row_fingerprint} value={&row.row_fingerprint}>
+                {SubmitKey::field(f.attempt)}
                 <Picker t={m} p={p} draft={&fixing.draft} catalog={&fixing.catalog} />
                 <label class={Field}>
                     <span class={Label}>{m.list_storage_location()}</span>

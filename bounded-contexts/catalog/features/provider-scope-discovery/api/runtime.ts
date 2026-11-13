@@ -355,6 +355,7 @@ async function collectTargetOptions(
   let cursor: string | null = null;
 
   for (let pageIndex = 0; pageIndex < MAX_OPTION_PAGES_PER_TARGET; pageIndex += 1) {
+    const forceRefresh = pageIndex === 0;
     const page = await ports.queryIntegrationOptions({
       providerKey: target.providerKey,
       profileKey: target.profileKey,
@@ -363,8 +364,16 @@ async function collectTargetOptions(
       languageCode: target.languageCode,
       parentValue,
       cursor,
-      forceRefresh: pageIndex === 0,
+      forceRefresh,
     });
+
+    // A forced live query that fell back to cached options did not refresh the
+    // provider, so the run must record the live failure rather than succeed.
+    if (forceRefresh && page.cache.degraded && !page.cache.cacheOnly) {
+      throw new Error(
+        page.cache.diagnostics[0]?.message ?? "Provider option query fell back to cached options during refresh.",
+      );
+    }
 
     for (const item of page.items) {
       if (target.parentRequired && item.parentValue && item.parentValue !== parentValue) {

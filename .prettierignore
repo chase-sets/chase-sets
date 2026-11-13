@@ -26,11 +26,11 @@ deployables/*/app/generated/*-context-registry.ts
 deployables/corten-pilot/*/nav.json
 deployables/corten-pilot/marketplace/nav.bottom.json
 deployables/corten-pilot/marketplace/nav.account.json
-deployables/corten-pilot/marketplace/nav-icons.json
 deployables/corten-pilot/admin/defaults.json
 deployables/corten-pilot/admin/scope-domains.json
 deployables/corten-pilot/admin/reported-content-actions.json
 deployables/corten-pilot/marketplace/agent-scopes.json
+deployables/corten-pilot/marketplace/email-verification.json
 deployables/corten-pilot/public/developers.json
 deployables/corten-pilot/public/help.json
 deployables/corten-pilot/public/policies.json

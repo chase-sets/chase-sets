@@ -8,10 +8,10 @@ edition = "2024"
 publish = false
 
 [workspace.dependencies]
-# Pinned to a Corten revision on purpose (no release is tagged). Move the pin forward when a fix
-# the pilot needs lands; see README.md, "Corten pin".
-corten = { git = "https://github.com/todd-skelton/corten", rev = "0552f17ddbd548550d8048b75577912a0675c24c", features = ["compress", "json"] }
-corten-ui = { git = "https://github.com/todd-skelton/corten", rev = "0552f17ddbd548550d8048b75577912a0675c24c" }
+# Pinned to a Corten revision on purpose: it follows Corten's main, past the 0.2.0 release. Move it
+# forward as main moves; see README.md, "Corten pin".
+corten = { git = "https://github.com/corten-run/corten", rev = "38301e17051b1b43901b63f66b150886d2097c29", package = "corten-run", features = ["compress", "json"] }
+corten-ui = { git = "https://github.com/corten-run/corten", rev = "38301e17051b1b43901b63f66b150886d2097c29" }
 platform = { package = "corten-pilot-platform", path = "platform" }
 percent-encoding = "2"
 futures-util = { version = "0.3", default-features = false }
@@ -20,6 +20,7 @@ reqwest = { version = "0.12", default-features = false, features = ["json", "str
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["raw_value"] }
 sha2 = "0.10"
+axum = { version = "0.8", default-features = false, features = ["http1", "tokio", "json"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "time"] }
 tracing = "0.1"
 ulid = "1"
@@ -30,3 +31,8 @@ uuid = { version = "1", features = ["v4"] }
 http-body-util = "0.1"
 tower = { version = "0.5", features = ["util"] }
 
+# Thin LTO, as `corten new` writes it (corten-run/corten#952): about 1.7% fewer instructions per page
+# than Cargo's default as Corten measured it, for a slower release build; `corten dev`, the checks
+# and the tests do not use it. Not measured on the pilot.
+[profile.release]
+lto = "thin"

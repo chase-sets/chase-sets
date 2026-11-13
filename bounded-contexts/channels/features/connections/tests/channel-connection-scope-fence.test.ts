@@ -31,9 +31,12 @@ describe("channel-connection-scope-fence", () => {
       "features/connections/tests/channel-connection-setup-activation.db.test.ts",
       "features/connections/tests/channel-connection-projection-concurrency.db.test.ts",
     ];
+    const dbArgs = Object.entries(packageJson.scripts)
+      .filter(([name]) => /^test:db:\d+$/.test(name))
+      .flatMap(([, script]) => script.split(/\s+/));
     expect(packageJson.chaseSets).toEqual({ testProfile: "db" });
     for (const file of dbFiles) {
-      expect(packageJson.scripts["test:db"]).toContain(file);
+      expect(dbArgs.filter((argument) => argument === file)).toHaveLength(1);
       expect(packageJson.scripts["test:unit"]).toContain(`--exclude ${file}`);
     }
   });

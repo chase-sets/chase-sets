@@ -771,6 +771,146 @@ describe("saved-instrument-attempt (synthetic DB proof)", () => {
       ]);
     });
 
+    it("detects a forced late second read without accepting the old race outcome", async () => {
+      const primary = harness();
+      const replica = harness({}, "replica");
+      const command = { accountId, instrumentId: "sci_SYNTHETIC_B", attemptId: freshAttemptId() };
+      const streamId = streamIdFor(command.attemptId);
+      const firstStartedCommit = deferred();
+      const replicaLockObserved = deferred();
+      const releaseReplicaLock = deferred();
+      const appended: Runtime[] = [];
+      const trace: Array<{ event: string; runtime?: Runtime; detail?: unknown }> = [];
+      const readAbsent: Record<Runtime, boolean> = { primary: false, replica: false };
+      let lateSecondRead = false;
+      let firstStarted: Runtime | undefined;
+      let readReleased = false;
+      let primaryEffectClient: number | undefined;
+      let primaryAttemptLockAcquired = false;
+      let primaryEffectFinished = false;
+      let replicaLockHeld = false;
+      const opened: Partial<Record<"read" | "default" | "replicaLock" | "copies" | "cleanup", boolean>> = {};
+
+      intercept = async (statement, run) => {
+        const readsAttemptStream =
+          /^\s*SELECT\b/i.test(statement.sql) &&
+          /\bFROM\s+event_store_events\b/i.test(statement.sql) &&
+          statement.params[0] === streamId;
+        if (readsAttemptStream) {
+          if (statement.runtime === "replica" && !readReleased) {
+            readReleased = true;
+            opened.read = await bounded(firstStartedCommit.promise);
+            trace.push({ event: "replicaReadReleased", runtime: "replica" });
+          }
+          const result = await run();
+          const rows = (result as { rows?: readonly unknown[] }).rows;
+          if (!readAbsent[statement.runtime] && rows?.length === 0) {
+            readAbsent[statement.runtime] = true;
+            trace.push({ event: "readAbsent", runtime: statement.runtime });
+          }
+          return result;
+        }
+        if (statement.sql === "COMMIT" && firstStarted === undefined) {
+          const result = await run();
+          firstStarted = statement.runtime;
+          const other: Runtime = statement.runtime === "primary" ? "replica" : "primary";
+          lateSecondRead = !readAbsent[other];
+          trace.push({ event: "firstStartedCommit", runtime: statement.runtime });
+          firstStartedCommit.resolve();
+          return result;
+        }
+        if (isAttemptLock(statement, command.attemptId)) {
+          if (statement.runtime === "primary") {
+            primaryEffectClient = statement.client;
+            trace.push({ event: "primaryAttemptLockObserved", runtime: "primary" });
+            const result = await run();
+            primaryAttemptLockAcquired = true;
+            trace.push({ event: "primaryAttemptLockAcquired", runtime: "primary" });
+            return result;
+          }
+          replicaLockHeld = true;
+          trace.push({ event: "replicaAttemptLockObserved", runtime: "replica" });
+          replicaLockObserved.resolve();
+          opened.replicaLock = await bounded(releaseReplicaLock.promise);
+          trace.push({ event: "replicaAttemptLockRun", runtime: "replica" });
+        }
+        if (streamUpsert(statement, streamId) && !appended.includes(statement.runtime)) {
+          appended.push(statement.runtime);
+          trace.push({ event: "appended", runtime: statement.runtime });
+        }
+        if (statement.runtime === "primary" && isDefaultWrite(statement.sql)) {
+          opened.default = await bounded(replicaLockObserved.promise);
+          trace.push({ event: "primaryDefaultWriteRun", runtime: "primary" });
+        }
+        if (statement.runtime === "primary" && statement.client === primaryEffectClient && statement.sql === "COMMIT") {
+          const result = await run();
+          primaryEffectFinished = true;
+          trace.push({ event: "primaryEffectFinished", runtime: "primary" });
+          releaseReplicaLock.resolve();
+          return result;
+        }
+        return run();
+      };
+
+      const first = primary.services.setSavedCheckoutInstrumentDefault(command, context);
+      const duplicate = replica.services.setSavedCheckoutInstrumentDefault(command, context);
+      const copiesSettled = Promise.allSettled([first, duplicate]);
+      onTestFinished(async () => {
+        firstStartedCommit.resolve();
+        replicaLockObserved.resolve();
+        releaseReplicaLock.resolve();
+        opened.cleanup = await bounded(copiesSettled.then(() => {}));
+        trace.push({ event: "cleanup", detail: opened.cleanup });
+        console.info(
+          "saved-instrument-race-control",
+          JSON.stringify({
+            trace,
+            opened,
+            appended,
+            assertions: {
+              readAbsent,
+              firstStarted,
+              lateSecondRead,
+              primaryAttemptLockAcquired,
+              primaryEffectFinished,
+              replicaLockHeld,
+            },
+            bounds: opened,
+          }),
+        );
+        expect(opened.cleanup).toBe(true);
+      });
+
+      opened.copies = await bounded(copiesSettled.then(() => {}));
+      expect(opened).toEqual({ read: true, default: true, replicaLock: true, copies: true });
+      expect(firstStarted).toBeDefined();
+      expect(lateSecondRead).toBe(true);
+      const other: Runtime = firstStarted === "primary" ? "replica" : "primary";
+      expect(readAbsent[other]).toBe(false);
+      expect(primaryAttemptLockAcquired).toBe(true);
+      expect(primaryEffectFinished).toBe(true);
+      expect(replicaLockHeld).toBe(true);
+      const events = trace.map(({ event }) => event);
+      expect(events.indexOf("replicaAttemptLockObserved")).toBeLessThan(events.indexOf("primaryDefaultWriteRun"));
+      expect(events.indexOf("primaryEffectFinished")).toBeLessThan(events.indexOf("replicaAttemptLockRun"));
+      expect(appended).toHaveLength(1);
+      await expect(first).resolves.toMatchObject({ instrument_id: "sci_SYNTHETIC_B", is_default: true });
+      await expect(duplicate).resolves.toMatchObject({ instrument_id: "sci_SYNTHETIC_B", is_default: true });
+      expect(writes.filter(isDefaultWrite)).toHaveLength(1);
+      expect(await auditRows("sci_SYNTHETIC_B")).toEqual([{ action: "set-default" }]);
+      expect(await publications()).toBe(1);
+      expect(await defaults()).toEqual(["sci_SYNTHETIC_B"]);
+      const attemptEventTypes = await eventTypes(primary.eventStore, command.attemptId);
+      expect(attemptEventTypes).toEqual([
+        SAVED_CHECKOUT_INSTRUMENT_ATTEMPT_STARTED,
+        SAVED_CHECKOUT_INSTRUMENT_ATTEMPT_COMPLETED,
+      ]);
+      trace.push({
+        event: "assertions",
+        detail: { attemptEventTypes, defaultWrites: 1, auditRows: 1, publications: 1 },
+      });
+    });
+
     it.each<Runtime>(["replica", "primary"])(
       "never lets a delayed exact duplicate overwrite a later completed distinct default when the %s appends started first",
       async (firstAppender) => {
@@ -780,29 +920,80 @@ describe("saved-instrument-attempt (synthetic DB proof)", () => {
         const streamId = streamIdFor(command.attemptId);
         const firstAppended = deferred();
         const secondAppended = deferred();
+        const reachedUpsert = { primary: deferred(), replica: deferred() };
         const duplicateAdmitted = deferred();
         const releaseDuplicate = deferred();
         const appended: Runtime[] = [];
-        const opened: Partial<Record<"order" | "admitted" | "first" | "duplicate", boolean>> = {};
+        const trace: Array<{ event: string; runtime?: Runtime; detail?: unknown }> = [];
+        const readAbsent: Record<Runtime, boolean> = { primary: false, replica: false };
+        const startedAppendClients = new Set<string>();
+        const startedCommitRuntimes = new Set<Runtime>();
+        let firstStartedCommit: Runtime | undefined;
+        let lateSecondRead = false;
+        const opened: Partial<Record<"order" | "rendezvous" | "admitted" | "first" | "duplicate", boolean>> = {};
         let firstHeld = false;
         let duplicateHeld = false;
         // The copies' `started` appends reach `event_store_streams` in the forced order: the second
-        // waits before its upsert, holding nothing, until the first's upsert has run. The duplicate
-        // (replica) is then admitted, and held before the attempt lock (or, without one, before its
-        // update) until its first copy and a later distinct default have both completed.
+        // waits before its upsert, holding nothing, until the first's upsert has run. The first
+        // appender waits for that second upsert to be reached before either append can commit, so
+        // both attempt-history reads observe absence. The duplicate (replica) is then held at its
+        // attempt lock until its first copy and a later distinct default have both completed.
         intercept = async (statement, run) => {
+          const clientKey = `${statement.runtime}:${statement.client}`;
+          const readsAttemptStream =
+            /^\s*SELECT\b/i.test(statement.sql) &&
+            /\bFROM\s+event_store_events\b/i.test(statement.sql) &&
+            statement.params[0] === streamId;
+          if (readsAttemptStream) {
+            const result = await run();
+            const rows = (result as { rows?: readonly unknown[] }).rows;
+            if (!readAbsent[statement.runtime] && rows?.length === 0) {
+              readAbsent[statement.runtime] = true;
+              trace.push({ event: "readAbsent", runtime: statement.runtime });
+            }
+            return result;
+          }
+          if (
+            statement.sql === "COMMIT" &&
+            startedAppendClients.has(clientKey) &&
+            !startedCommitRuntimes.has(statement.runtime)
+          ) {
+            const result = await run();
+            startedCommitRuntimes.add(statement.runtime);
+            if (firstStartedCommit === undefined) {
+              firstStartedCommit = statement.runtime;
+              const other: Runtime = statement.runtime === "primary" ? "replica" : "primary";
+              if (!readAbsent[other]) lateSecondRead = true;
+              trace.push({ event: "firstStartedCommit", runtime: statement.runtime });
+            } else {
+              trace.push({ event: "startedCommit", runtime: statement.runtime });
+            }
+            return result;
+          }
           if (streamUpsert(statement, streamId) && !appended.includes(statement.runtime)) {
-            if (statement.runtime !== firstAppender) opened.order = await bounded(firstAppended.promise);
+            startedAppendClients.add(clientKey);
+            trace.push({ event: "reachedUpsert", runtime: statement.runtime });
+            reachedUpsert[statement.runtime].resolve();
+            if (statement.runtime === firstAppender) {
+              const other: Runtime = firstAppender === "primary" ? "replica" : "primary";
+              opened.rendezvous = await bounded(reachedUpsert[other].promise);
+            } else {
+              opened.order = await bounded(firstAppended.promise);
+            }
             appended.push(statement.runtime);
             const result = await run();
             (statement.runtime === firstAppender ? firstAppended : secondAppended).resolve();
             return result;
           }
-          const step = isAttemptLock(statement) || isDefaultWrite(statement.sql);
-          if (statement.runtime === "replica" && step && !duplicateHeld) {
+          if (
+            statement.runtime === "replica" &&
+            (isAttemptLock(statement) || isDefaultWrite(statement.sql)) &&
+            !duplicateHeld
+          ) {
             duplicateHeld = true;
             duplicateAdmitted.resolve();
             opened.duplicate = await bounded(releaseDuplicate.promise);
+            return run();
           }
           if (statement.runtime === "primary" && isDefaultWrite(statement.sql) && !firstHeld) {
             firstHeld = true;
@@ -817,13 +1008,36 @@ describe("saved-instrument-attempt (synthetic DB proof)", () => {
         // next test resets the schema or the pools close.
         const copiesSettled = Promise.allSettled([first, duplicate]);
         onTestFinished(async () => {
-          for (const barrier of [firstAppended, duplicateAdmitted, releaseDuplicate]) barrier.resolve();
+          for (const barrier of [
+            reachedUpsert.primary,
+            reachedUpsert.replica,
+            firstAppended,
+            duplicateAdmitted,
+            releaseDuplicate,
+          ]) {
+            barrier.resolve();
+          }
           await copiesSettled;
         });
+        onTestFinished(async () => {
+          await copiesSettled;
+          console.info(
+            "saved-instrument-race-finished",
+            JSON.stringify({
+              firstAppender,
+              trace,
+              opened,
+              appended,
+              assertions: { readAbsent, firstStartedCommit, lateSecondRead },
+              bounds: { rendezvous: opened.rendezvous === true, cleanup: true },
+            }),
+          );
+        });
+        let parked: Awaited<ReturnType<typeof parkedActivity>>;
         try {
           opened.admitted = await bounded(duplicateAdmitted.promise);
           // The parked duplicate holds no transaction ID, so neither copy waits on it.
-          const parked = await parkedActivity(() => secondAppended.settled);
+          parked = await parkedActivity(() => secondAppended.settled);
           expect(parked).toContainEqual(
             expect.objectContaining({
               application_name: "payments-saved-instrument-attempt-replica",
@@ -842,6 +1056,15 @@ describe("saved-instrument-attempt (synthetic DB proof)", () => {
           releaseDuplicate.resolve();
         }
 
+        await copiesSettled;
+        expect(await eventTypes(primary.eventStore, command.attemptId)).toEqual([
+          SAVED_CHECKOUT_INSTRUMENT_ATTEMPT_STARTED,
+          SAVED_CHECKOUT_INSTRUMENT_ATTEMPT_COMPLETED,
+        ]);
+        if (appended.length !== 2) lateSecondRead = true;
+        expect(readAbsent).toEqual({ primary: true, replica: true });
+        expect(firstStartedCommit).toBeDefined();
+        expect(lateSecondRead).toBe(false);
         await expect(duplicate).resolves.toMatchObject({ instrument_id: "sci_SYNTHETIC_B", is_default: false });
         expect(await defaults()).toEqual(["sci_SYNTHETIC_A"]);
         expect(writes.filter(isDefaultWrite)).toHaveLength(2);
@@ -849,7 +1072,27 @@ describe("saved-instrument-attempt (synthetic DB proof)", () => {
         expect(await auditRows("sci_SYNTHETIC_A")).toEqual([{ action: "set-default" }]);
         expect(await publications()).toBe(2);
         expect(appended).toEqual(firstAppender === "replica" ? ["replica", "primary"] : ["primary", "replica"]);
-        expect(opened).toEqual({ order: true, admitted: true, first: true, duplicate: true });
+        expect(opened).toEqual({ order: true, rendezvous: true, admitted: true, first: true, duplicate: true });
+        const parkedReplica = parked.find(
+          (backend) => backend.application_name === "payments-saved-instrument-attempt-replica",
+        );
+        expect(parkedReplica).toBeDefined();
+        for (const field of ["state", "wait_event_type", "wait_event", "backend_xid", "blocked_by"] as const) {
+          expect(parkedReplica).toHaveProperty(field);
+        }
+        trace.push({ event: "assertions", detail: { readAbsent, firstStartedCommit, lateSecondRead } });
+        console.info(
+          "saved-instrument-race",
+          JSON.stringify({
+            firstAppender,
+            trace,
+            opened,
+            appended,
+            captures: { parkedReplica },
+            assertions: { readAbsent, firstStartedCommit, lateSecondRead },
+            bounds: { rendezvous: opened.rendezvous === true, cleanup: true },
+          }),
+        );
       },
     );
 

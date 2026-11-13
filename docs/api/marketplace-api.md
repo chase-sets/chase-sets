@@ -154,6 +154,10 @@ Sale shipment printing:
 1. `GET /api/marketplace/account/sales/shipments`
 2. `GET /api/marketplace/account/sales/shipments/packing-slips?shipmentIds=shp_1,shp_2`
 
+Seller fulfillment command center:
+
+1. `GET /api/marketplace/account/sales/shipments/command-center`: the shipments that need the seller now (not cancelled, in a working status or holding a conflict), bucketed as exceptions, ready to dispatch, needs label and needs packing, ordered by the Seller Desk attention policy, each with its next action and disclosed actions. Each action's own command decides its legality against the shipment's stored state.
+
 Notification center:
 
 1. `GET /api/notifications/center`

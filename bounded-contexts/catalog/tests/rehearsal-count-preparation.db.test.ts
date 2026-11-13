@@ -17,7 +17,11 @@ import { catalogCountHistorySchemaMigrations } from "../features/scope-sync-batc
 import { createScopeSyncCountRuntime } from "../features/scope-sync-batches/api/count-runtime";
 import { createScopeSyncBatchRuntime } from "../features/scope-sync-batches/api/runtime";
 import { scopeSyncBatchRoutes } from "../features/scope-sync-batches/api/route";
-import { CountAcquisitionRefused, countFingerprint } from "../features/scope-sync-batches/domain/count-acquisition";
+import {
+  CountAcquisitionRefused,
+  CountPeriodCapRefused,
+  countFingerprint,
+} from "../features/scope-sync-batches/domain/count-acquisition";
 import type { ScopeSyncBatchPreview } from "../features/scope-sync-batches/domain/batch";
 import {
   acquireRehearsalCounts,
@@ -102,6 +106,17 @@ describeDb("AC2/AC3 rehearsal count preparation over real Admin routes, writer a
     await closeMultiContextTestPools(replica);
   });
 
+  // The billing period in force at the seeded clock, and a host dispatch-log reserve for it.
+  const billingPeriod = () => ({
+    startsAt: new Date(Date.parse(now) - 86_400_000).toISOString(),
+    endsAt: new Date(Date.parse(now) + 86_400_000).toISOString(),
+    overageCreditsConsumed: 0,
+  });
+  const periodReserve = (runId: string) => {
+    const { startsAt, endsAt } = billingPeriod();
+    return { runId, startsAt, endsAt, observedAt: now, credits: 0 };
+  };
+  const reserveAuthority = () => ({ kind: "reserve" as const, reserve: periodReserve("9224-other-dispatch") });
   type SendHook = (index: number, path: string) => Promise<Response | null> | Response | null;
   async function setup(
     remaining = 40,
@@ -116,6 +131,7 @@ describeDb("AC2/AC3 rehearsal count preparation over real Admin routes, writer a
         totalCredits: remaining,
         observedAt: now,
         attemptState: "checked",
+        billingPeriod: billingPeriod(),
       } as ProviderUsageSnapshot);
     const profiles = createCatalogProviderIntegrationProfileVersionStore(pool);
     await profiles.seedProfileVersions();
@@ -247,6 +263,7 @@ describeDb("AC2/AC3 rehearsal count preparation over real Admin routes, writer a
       perKindCost: q.perKindCost,
       cap: q.cap,
       authority: { fingerprint: q.authority.fingerprint, headroom: q.authority.headroom, observedAt: now },
+      periodReserve: periodReserve(receipt.dispatchId),
     });
   }
   async function acquire(f: Setup, quoted: RehearsalCountPreparationReceipt) {
@@ -266,7 +283,12 @@ describeDb("AC2/AC3 rehearsal count preparation over real Admin routes, writer a
       selection: rehearsalCountPreparationSelection(pass("lorcana")),
       context,
     });
-    return f.counts.acquireCounts({ quoteId: other.quoteId, fingerprint: other.fingerprint, context });
+    return f.counts.acquireCounts({
+      quoteId: other.quoteId,
+      fingerprint: other.fingerprint,
+      periodAuthority: reserveAuthority(),
+      context,
+    });
   }
   const reservation = (credits: number) => ({
     batchId: `job_${randomUUID()}`,
@@ -456,9 +478,20 @@ describeDb("AC2/AC3 rehearsal count preparation over real Admin routes, writer a
         // These run on other connections during the provider request; a held lock would deadlock them.
         during.ordinary = (await spendElsewhere(f)).state;
         during.reserve = await f.counts.reserveBatch(reservation(1)).catch((error: unknown) => error);
-        during.stripped = (await f.counts.acquireCounts({ quoteId, fingerprint, context })).state;
+        during.stripped = (
+          await f.counts.acquireCounts({ quoteId, fingerprint, periodAuthority: reserveAuthority(), context })
+        ).state;
         during.second = await f.counts
-          .acquireCounts({ quoteId, fingerprint, admission: "whole-quote", context })
+          .acquireCounts({
+            quoteId,
+            fingerprint,
+            admission: "whole-quote",
+            periodAuthority: reserveAuthority(),
+            context,
+          })
+          .catch((error: unknown) => error);
+        during.unreserved = await f.counts
+          .acquireCounts({ quoteId, fingerprint, context })
           .catch((error: unknown) => error);
         during.conflict = await f.store.allocationConflict(pools.catalog);
         during.headroom = (await f.store.authority()).headroom;
@@ -472,6 +505,7 @@ describeDb("AC2/AC3 rehearsal count preparation over real Admin routes, writer a
     expect(during).toMatchObject({ ordinary: "failed", stripped: "failed", conflict: true, headroom: 0 });
     expect(during.reserve).toBeInstanceOf(CountAcquisitionRefused);
     expect(during.second).toBeInstanceOf(CountAcquisitionRefused);
+    expect(during.unreserved).toBeInstanceOf(CountPeriodCapRefused);
     expect(receipt).toMatchObject({ outcome: "complete", accounting: { status: "complete" } });
     expect(f.sends).toHaveLength(4);
     expect((await f.store.history()).map((spend) => spend.quoteId)).toEqual(Array(4).fill(quoteId));

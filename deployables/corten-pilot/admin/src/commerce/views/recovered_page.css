@@ -1,4 +1,4 @@
-/* Recovered Returns: the figures and the queue scroll on their own on a phone; the action form's
+/* Recovered Returns: the figures and the queue stack on a phone; the action form's
    fields are one column on a phone, two from 40rem and three from 64rem. */
 .page {
   display: grid;
@@ -191,5 +191,18 @@
 @media (min-width: 64rem) {
   .grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+/* Stacked on a phone, a row is one block: a line between rows, not under each of its cells, and a
+   row header wraps as its cells do. */
+@media not (--md) {
+  .table tbody :is(th, td) {
+    padding-block: var(--space-1);
+    border-bottom: 0;
+    white-space: normal;
+  }
+  .table tbody tr:not(:last-child) {
+    border-bottom: 1px solid var(--color-border);
   }
 }

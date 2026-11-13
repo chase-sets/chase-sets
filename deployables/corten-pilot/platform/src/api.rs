@@ -3,12 +3,43 @@
 //! context it reads (`Chase-Sets-Read-Target-Context`). Each app adds the calls its screens make.
 use std::{fmt, time::Duration};
 
-use corten::axum::http::{HeaderMap, StatusCode, header};
+use corten::http::{HeaderMap, StatusCode, header};
 use serde::{Deserialize, de::DeserializeOwned};
 
 use crate::receipt::Receipt;
 
 pub use reqwest::{Method, RequestBuilder};
+
+/// The platform's internal capability (`x-chase-sets-internal-auth`, from
+/// `PLATFORM_INTERNAL_AUTH_SECRET`): what a web host's server sends on the few calls only a host may
+/// make, as `createPlatformInternalAuthHeaders` does. Never printed: its header is marked sensitive
+/// and its `Debug` says nothing of it.
+#[derive(Clone)]
+pub struct InternalAuth(reqwest::header::HeaderValue);
+
+impl InternalAuth {
+    pub const ENV: &'static str = "PLATFORM_INTERNAL_AUTH_SECRET";
+    const HEADER: &'static str = "x-chase-sets-internal-auth";
+
+    /// The capability, trimmed; none for an empty value or one a header cannot carry.
+    pub fn new(secret: &str) -> Option<Self> {
+        let mut value = reqwest::header::HeaderValue::from_str(secret.trim()).ok().filter(|v| !v.is_empty())?;
+        value.set_sensitive(true);
+        Some(InternalAuth(value))
+    }
+
+    /// The capability the environment holds, if any. Unlike the React hosts the pilot has no
+    /// development default: without it the calls that need it are refused by the API.
+    pub fn from_env() -> Option<Self> {
+        std::env::var(Self::ENV).ok().as_deref().and_then(Self::new)
+    }
+}
+
+impl fmt::Debug for InternalAuth {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("InternalAuth(..)")
+    }
+}
 
 /// The platform API's address and an HTTP client for it.
 #[derive(Clone)]
@@ -18,6 +49,8 @@ pub struct Platform {
     /// the browser instead of following it here.
     direct: reqwest::Client,
     origin: String,
+    /// The internal capability, for the calls only a host may make.
+    internal: Option<InternalAuth>,
 }
 
 impl Platform {
@@ -25,7 +58,13 @@ impl Platform {
         let client = || reqwest::Client::builder().timeout(Duration::from_secs(10));
         let http = client().build().expect("an HTTP client");
         let direct = client().redirect(reqwest::redirect::Policy::none()).build().expect("an HTTP client");
-        Platform { http, direct, origin: origin.trim_end_matches('/').to_owned() }
+        Platform { http, direct, origin: origin.trim_end_matches('/').to_owned(), internal: None }
+    }
+
+    /// The same, holding the internal capability (`InternalAuth::from_env`).
+    pub fn with_internal_auth(mut self, internal: Option<InternalAuth>) -> Self {
+        self.internal = internal;
+        self
     }
 
     /// The API's origin, `http://localhost:7762` locally.
@@ -65,6 +104,16 @@ impl Caller<'_> {
     /// A request to `path` that reads or writes the bounded context `context`.
     pub fn request(&self, method: Method, path: &str, context: &str) -> RequestBuilder {
         self.prepare(&self.platform.http, method, path, context)
+    }
+
+    /// The same request with the platform's internal capability, for a call only a host may make
+    /// (Auth's guest checkout claim). Without the capability none is sent, and the API refuses it.
+    pub fn request_internal(&self, method: Method, path: &str, context: &str) -> RequestBuilder {
+        let req = self.request(method, path, context);
+        match &self.platform.internal {
+            Some(InternalAuth(secret)) => req.header(InternalAuth::HEADER, secret.clone()),
+            None => req,
+        }
     }
 
     /// The same request, answered as the API answers it: a redirect is not followed, so a route
@@ -148,6 +197,15 @@ pub struct Actor {
     pub role_key: String,
     #[serde(default)]
     pub permissions: Vec<String>,
+    /// Whether an agent acts through an OAuth grant (`agentGrant`): Auth's email-verification
+    /// rule never asks an agent to verify.
+    #[serde(default, rename = "agentGrant", deserialize_with = "present")]
+    pub agent: bool,
+}
+
+/// Whether a field is there and not null, whatever it holds.
+fn present<'de, D: serde::Deserializer<'de>>(d: D) -> Result<bool, D::Error> {
+    Ok(Option::<serde::de::IgnoredAny>::deserialize(d)?.is_some())
 }
 
 impl Actor {
@@ -257,9 +315,27 @@ struct ErrorBody {
     error: ErrorDetail,
 }
 
+/// The envelope's `error`: `{ code, message }`. A body that is not the envelope has no code and no
+/// message, so the screen says its own words.
 #[derive(Deserialize)]
 struct ErrorDetail {
     code: Option<String>,
     #[serde(default)]
     message: String,
+}
+
+#[cfg(test)]
+mod error_body_tests {
+    use super::ErrorBody;
+
+    #[test]
+    fn an_error_is_the_envelope_and_nothing_else() {
+        let parts = |text: &str| serde_json::from_str::<ErrorBody>(text).ok().map(|b| (b.error.code, b.error.message));
+        assert_eq!(
+            parts(r#"{"error":{"code":"reason_required","message":"Give a reason."}}"#),
+            Some((Some("reason_required".to_owned()), "Give a reason.".to_owned()))
+        );
+        assert_eq!(parts(r#"{"error":"Bulk rejection requires a reason."}"#), None);
+        assert_eq!(parts(r#"{"message":"no error key"}"#), None);
+    }
 }

@@ -13,11 +13,10 @@
 //! goes back to the list in the address, and the item is read again after the write's receipt so
 //! the page can say how many are available now.
 use crate::recovery::attempt_text;
-use corten::{axum::http::HeaderMap, prelude::*};
+use corten::{http::HeaderMap, prelude::*};
 use platform::receipt::Receipt;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
-use crate::chrome::Chrome;
 use crate::{
     api::{ApiError, Inventory as _, InventoryItems, InventoryList as _, ItemCommand, Location, SaleCommand, SaleResult},
     app::{Config, Shared, read_failed, sign_in, url},
@@ -29,7 +28,7 @@ use crate::{
     views::{self, Layout},
 };
 
-const UNPROCESSABLE: corten::axum::http::StatusCode = corten::axum::http::StatusCode::UNPROCESSABLE_ENTITY;
+const UNPROCESSABLE: corten::http::StatusCode = corten::http::StatusCode::UNPROCESSABLE_ENTITY;
 
 /// A page's items unless the address asks for another count, and the most it may ask
 /// (`inventoryItemPageQuery`).
@@ -42,7 +41,7 @@ pub const CHANNELS: [&str; 3] = ["in-store", "card-show", "other"];
 /// What the list's address carries besides a write to confirm: the page, the item whose Record
 /// sale is open, and what the last sale did (marketplace keeps that in the history's state; the
 /// pilot keeps it in the address, so a reload still says it).
-#[derive(Clone, Debug, Default, Deserialize, Fields, Route)]
+#[derive(Clone, Debug, Default, Fields, Route)]
 #[serde(rename_all = "camelCase")]
 #[route(query)]
 pub struct Place {
@@ -118,7 +117,7 @@ pub enum Verified {
 /// Create inventory item's fields, in marketplace's names (the picker's are Create listing's:
 /// `q`, `choose`, `change`, `catalogItemId`, `selectedOptions` and `option.<dimension>`). The attempt is not
 /// named `attempt`, which the address keeps for a write to confirm.
-#[derive(Deserialize, Fields)]
+#[derive(Fields)]
 #[serde(rename_all = "camelCase")]
 #[allow(dead_code)]
 pub struct ItemFields {
@@ -199,7 +198,7 @@ pub fn safe_return_to(text: &str) -> Option<String> {
 }
 
 /// Record sale's fields (`OfflineSaleForm`), in marketplace's names.
-#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[derive(Clone, Debug, Default, Fields)]
 #[serde(rename_all = "camelCase", default)]
 pub struct SaleInput {
     pub idempotency_key: Option<SubmitKey>,
@@ -316,7 +315,6 @@ async fn render(
     mut create: CreateItem,
     sale: Option<SaleDraft>,
     posted: Option<Status>,
-    chrome: &Chrome,
 ) -> HtmlResult {
     let receipt = Receipt::from_param(check.after_write.as_deref());
     let caller = config.platform.caller(headers, config.proto, receipt.as_ref());
@@ -358,7 +356,7 @@ async fn render(
             slow.push(p.inventory_items_slow());
             InventoryItems { limit, offset, ..InventoryItems::default() }
         }
-        Err(error) => return read_failed(req, Some(viewer), error, None, chrome.cart().await),
+        Err(error) => return read_failed(req, Some(viewer), error, None),
     };
     let locations = match locations {
         Ok(list) => list.items.into_iter().filter(|l| !l.is_archived).collect(),
@@ -366,7 +364,7 @@ async fn render(
             slow.push(p.inventory_locations_slow());
             Vec::new()
         }
-        Err(error) => return read_failed(req, Some(viewer), error, None, chrome.cart().await),
+        Err(error) => return read_failed(req, Some(viewer), error, None),
     };
     // The row the sale changed, as it is now (`reconcileFreshOfflineSaleItem`).
     if let Some(item) = &fresh
@@ -411,7 +409,7 @@ async fn render(
                 .patch(html! { <views::CreateItemForm t={t} p={p} m={m} viewer={viewer} screen={&screen} create={&create} /> });
         }
     }
-    let code = if posted.is_some() || sale.is_some() { UNPROCESSABLE } else { corten::axum::http::StatusCode::OK };
+    let code = if posted.is_some() || sale.is_some() { UNPROCESSABLE } else { corten::http::StatusCode::OK };
     // Record sale's form, as typed after a refusal, else empty.
     let sale = sale.or_else(|| {
         screen.selling().map(|item| SaleDraft {
@@ -437,17 +435,15 @@ async fn render(
             again={&again}
         />
     };
-    let cart = chrome.cart().await;
     req.screen_with_status(
         code,
         &screen,
-        html! { <Layout req={req} viewer={Some(viewer)} cart={cart} title={title} head={head}>{view}</Layout> },
+        html! { <Layout req={req} viewer={Some(viewer)} title={title} head={head}>{view}</Layout> },
     )
 }
 
 pub(crate) async fn list(
     req: Req,
-    chrome: Chrome,
     Caller(Seller(viewer)): Caller<Seller>,
     State(config): State<Shared>,
     headers: HeaderMap,
@@ -455,14 +451,13 @@ pub(crate) async fn list(
     Form(raw): Form<Raw>,
 ) -> HtmlResult {
     let (place, check) = (route.place, route.check);
-    render(&req, &viewer, &config, &headers, &place, &check, CreateItem::read(&raw), None, None, &chrome).await
+    render(&req, &viewer, &config, &headers, &place, &check, CreateItem::read(&raw), None, None).await
 }
 
 /// Create inventory item: the item's page (or where the form came from) after an applied write;
 /// a refused one is the form again.
 pub(crate) async fn create(
     req: Req,
-    chrome: Chrome,
     Caller(Seller(viewer)): Caller<Seller>,
     State(config): State<Shared>,
     headers: HeaderMap,
@@ -523,8 +518,7 @@ pub(crate) async fn create(
     // Nothing was applied: the form again, with a new attempt, and a status that settles this one.
     create.errors = errors;
     let place = Place { sale: None, ..place };
-    render(&req, &viewer, &config, &headers, &place, &Check::default(), create, None, Some(Status::Refused(attempt)), &chrome)
-        .await
+    render(&req, &viewer, &config, &headers, &place, &Check::default(), create, None, Some(Status::Refused(attempt))).await
 }
 
 /// Where an applied create goes (`formActionRedirect`): the item's page, which confirms the
@@ -544,7 +538,7 @@ fn created(req: &Req, create: &CreateItem, id: &str, attempt: &str, receipt: Opt
     };
     match views::marketplace(&path) {
         Some(to) => req.redirect(&to),
-        None => Err(corten::Error::status(corten::axum::http::StatusCode::INTERNAL_SERVER_ERROR)),
+        None => Err(corten::Error::status(corten::http::StatusCode::INTERNAL_SERVER_ERROR)),
     }
 }
 
@@ -552,7 +546,6 @@ fn created(req: &Req, create: &CreateItem, id: &str, attempt: &str, receipt: Opt
 /// dialog again with what was typed.
 pub(crate) async fn sale(
     req: Req,
-    chrome: Chrome,
     Caller(Seller(viewer)): Caller<Seller>,
     State(config): State<Shared>,
     headers: HeaderMap,
@@ -573,15 +566,14 @@ pub(crate) async fn sale(
                     errors
                 }
                 None => {
-                    return Err(corten::Error::new(error).with_status(corten::axum::http::StatusCode::BAD_GATEWAY));
+                    return Err(corten::Error::new(error).with_status(corten::http::StatusCode::BAD_GATEWAY));
                 }
             },
         },
         Err(errors) => errors,
     };
     let draft = SaleDraft { item_id: id, input, errors };
-    render(&req, &viewer, &config, &headers, &place, &Check::default(), CreateItem::read(&Raw::new()), Some(draft), None, &chrome)
-        .await
+    render(&req, &viewer, &config, &headers, &place, &Check::default(), CreateItem::read(&Raw::new()), Some(draft), None).await
 }
 
 /// The list after a sale: the page it was on, what the sale did, and its receipt.

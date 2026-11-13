@@ -12,6 +12,10 @@ use corten::{
     i18n::{Currency, DateStyle, Decimal, TimeStyle, parse_timestamp},
     prelude::*,
 };
+use platform::{
+    theme::gap_3,
+    ui::stack::{Gap, Stack as KitStack},
+};
 
 use crate::{
     api::{SavedAddress, SellListConfirmation, SellListRow},
@@ -390,7 +394,7 @@ fn Summary<'a>(t: SellCheckoutMsg, w: Words, screen: &'a Screen, total: &'a str,
     };
     let ready = screen.readiness.as_ref().is_some_and(|r| r.status == "ready");
     html! {
-        <div class={Stack}>
+        <div class={(KitStack { gap: Gap::App }, gap_3(), Stack)}>
             <p class={Row}>
                 <span class={Hint}>{&subtitle}</span>
                 <span class={Badge} data-tone="success">{w.summary_status}</span>

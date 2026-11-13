@@ -192,11 +192,13 @@ Completed milestone evidence, signoff checklists, and audits live in the closing
 - [Section Navigation](../packages/design-system/SECTION_NAVIGATION.md)
 - [Checkout Primitives](../packages/design-system/CHECKOUT_PRIMITIVES.md)
 - [Operational Workflows](../packages/design-system/OPERATIONAL_WORKFLOWS.md)
-- [Embedded Stripe Appearance](../infrastructure/stripe-appearance/README.md)
+- [Default Embedded Stripe Appearance](./architecture/embedded-stripe-appearance.md)
 - [Design System Milestones](../packages/design-system/DESIGN_SYSTEM_MILESTONES.md): completed form-system (#10) and legacy-eradication (#12) traceability and verification commands.
 - [Localization Contract](../contracts/localization/README.md)
 
 ## ADRs
+
+- [DB-other Headroom Decision](./decisions/10766-db-other-headroom.md): measured coverage-preserving headroom decision and successor handoff.
 
 - [ADR 0001: Platform API Observability](./adr/0001-platform-api-observability.md)
 - [ADR 0002: Adopt UCP For Agent Commerce](./adr/0002-adopt-ucp-for-agent-commerce.md)

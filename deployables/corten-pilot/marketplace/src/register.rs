@@ -3,11 +3,13 @@
 //!
 //! The page offers marketplace's four ways, in its order: a passkey (recommended), a phone code, a
 //! magic link and a password. Marketplace switches between them with a segmented control; here
-//! each is a link to the same page with its `registrationMethod`, so the page needs no script. A
-//! passkey needs the browser's WebAuthn, so it is a link to marketplace's page, as on sign-in.
+//! each is a link to the same page with its `registrationMethod`. A passkey is the browser's
+//! WebAuthn, through the shared passkey step (`platform::auth`'s `passkey.js`), which asks the
+//! sign-in's challenge route as on sign-in and creates a passkey for the email and name typed.
 //!
 //! | Form (`intent`) | API | Then |
 //! |---|---|---|
+//! | `passkey-register` | `POST /api/auth/passkeys/register` | the session, or the page saying the passkey was added (no session started) |
 //! | `password` | `GET /api/auth/registration-consent`, then `POST /api/auth/register` | the session |
 //! | `phone-code-request` | `POST /api/auth/phone-code/request` | the page, with the code's form |
 //! | `phone-code-consume` | `POST /api/auth/phone-code/consume` | the session |
@@ -27,14 +29,16 @@
 //! are the page's script.
 use corten::{
     ClientIp, Local,
-    axum::http::{HeaderMap, StatusCode},
+    http::{HeaderMap, StatusCode},
     prelude::*,
 };
-use platform::receipt::Receipt;
+use platform::{
+    auth::{Credential, PASSKEY_LABEL},
+    receipt::Receipt,
+};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-use crate::chrome::Chrome;
 use crate::{
     account_home::Place,
     app::{Shared, url},
@@ -47,7 +51,7 @@ const AUTH: &str = "auth";
 
 /// The page's address, named as marketplace's (`returnTo`, `socialLoginError`), and the method
 /// shown, the pilot's own.
-#[derive(Clone, Debug, Default, Deserialize, Fields, Route)]
+#[derive(Clone, Debug, Default, Fields, Route)]
 #[route(query)]
 #[serde(rename_all = "camelCase")]
 pub struct Join {
@@ -108,13 +112,15 @@ impl Method {
         match intent {
             "phone-code-request" | "phone-code-consume" => Method::PhoneCode,
             "magic-link-register" => Method::MagicLink,
+            "passkey-register" => Method::Passkey,
             _ => Method::Password,
         }
     }
 }
 
-/// The page's forms (marketplace's register action's fields).
-#[derive(Clone, Debug, Default, Deserialize, Fields)]
+/// The page's forms (marketplace's register action's fields); a passkey's credential is the
+/// passkey step's.
+#[derive(Clone, Debug, Default, Fields)]
 #[serde(rename_all = "camelCase", default)]
 pub struct RegisterForm {
     pub intent: String,
@@ -124,6 +130,32 @@ pub struct RegisterForm {
     pub phone: String,
     pub code: String,
     pub token_id: String,
+    pub challenge_id: String,
+    pub challenge: String,
+    pub external_credential_id: String,
+    pub webauthn_response: String,
+}
+
+impl RegisterForm {
+    /// The passkey's credential, as the passkey step filled it in.
+    pub fn credential(&self) -> Credential<'_> {
+        Credential {
+            challenge_id: &self.challenge_id,
+            challenge: &self.challenge,
+            external_credential_id: &self.external_credential_id,
+            webauthn_response: &self.webauthn_response,
+        }
+    }
+
+    /// What the page draws again: never a password, a code or a credential.
+    fn typed(&self) -> Self {
+        RegisterForm {
+            display_name: self.display_name.clone(),
+            email: self.email.clone(),
+            phone: self.phone.clone(),
+            ..Self::default()
+        }
+    }
 }
 
 /// What a request sent, which the page says.
@@ -133,6 +165,11 @@ pub enum Notice {
     /// The code's form sends the request's id back with the code.
     PhoneCodeSent {
         token_id: String,
+    },
+    /// The passkey was added to a user who already had one, so no session started
+    /// (`passkey-recovery`): sign in with it.
+    PasskeyAdded {
+        message: &'static str,
     },
 }
 
@@ -171,13 +208,19 @@ struct PhoneCodeSent {
     token_id: String,
 }
 
-fn render(req: &Req, status: StatusCode, screen: &RegisterScreen, cart: Option<u64>) -> HtmlResult {
+/// A passkey registration's answer: the session it started, if any.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PasskeyRegistered {
+    auth_result: Option<Authenticated>,
+}
+
+fn render(req: &Req, status: StatusCode, screen: &RegisterScreen) -> HtmlResult {
     let (t, p): (SignInMsg, Pilot) = (req.t(), req.t());
     let page = html! {
         <Layout
             req={req}
             viewer={None}
-            cart={cart}
             title={p.auth_register_title()}
             head={html! { <meta name="robots" content="noindex"> }}
         >
@@ -199,33 +242,32 @@ pub fn landing(return_to: &str, receipt: Option<&Receipt>) -> String {
 }
 
 /// The page, with the method its address asks for.
-pub(crate) async fn page(req: Req, chrome: Chrome, Params(route): Params<url::Register>) -> HtmlResult {
+pub(crate) async fn page(req: Req, Params(route): Params<url::Register>) -> HtmlResult {
     let screen = RegisterScreen::new(req.t(), route.join);
-    render(&req, StatusCode::OK, &screen, chrome.cart().await)
+    render(&req, StatusCode::OK, &screen)
 }
 
 /// The page's forms (marketplace's register action).
 pub(crate) async fn write(
     req: Req,
-    chrome: Chrome,
     State(config): State<Shared>,
     headers: HeaderMap,
     client: Option<ClientIp>,
     Params(route): Params<url::Register>,
     Form(form): Form<RegisterForm>,
 ) -> HtmlResult {
-    let t: SignInMsg = req.t();
+    let (t, p): (SignInMsg, Pilot) = (req.t(), req.t());
     let caller = config.platform.caller(&headers, config.proto, None);
     let mut screen = RegisterScreen::new(t, route.join);
     let intent = form.intent.clone();
     screen.method = Method::of_intent(&intent);
-    screen.typed = RegisterForm { password: String::new(), code: String::new(), ..form.clone() };
-    let failed = |cart: Option<u64>, mut screen: RegisterScreen, error| {
+    screen.typed = form.typed();
+    let failed = |mut screen: RegisterScreen, error| {
         // A magic link's refusals are the sign-in's request's.
         let asked = if intent == "magic-link-register" { "magic-link-request" } else { intent.as_str() };
         let (status, message) = refusal(t, asked, &error);
         screen.error = Some(message);
-        render(&req, status, &screen, cart)
+        render(&req, status, &screen)
     };
     let started: Result<(Authenticated, Option<Receipt>), _> = match intent.as_str() {
         "magic-link-register" => {
@@ -233,9 +275,9 @@ pub(crate) async fn write(
             return match call::<Value>(&caller, client, "/api/auth/magic-link/request", body).await {
                 Ok(_) => {
                     screen.notice = Some(Notice::MagicLinkSent);
-                    render(&req, StatusCode::OK, &screen, chrome.cart().await)
+                    render(&req, StatusCode::OK, &screen)
                 }
-                Err(error) => failed(chrome.cart().await, screen, error),
+                Err(error) => failed(screen, error),
             };
         }
         "phone-code-request" => {
@@ -244,9 +286,9 @@ pub(crate) async fn write(
             {
                 Ok(sent) => {
                     screen.notice = Some(Notice::PhoneCodeSent { token_id: sent.token_id });
-                    render(&req, StatusCode::OK, &screen, chrome.cart().await)
+                    render(&req, StatusCode::OK, &screen)
                 }
-                Err(error) => failed(chrome.cart().await, screen, error),
+                Err(error) => failed(screen, error),
             };
         }
         "phone-code-consume" => {
@@ -259,6 +301,25 @@ pub(crate) async fn write(
                 screen.notice = Some(Notice::PhoneCodeSent { token_id: form.token_id.clone() });
             }
             started
+        }
+        // No credential: the step's script did not run, or the browser has no passkeys.
+        "passkey-register" if form.credential().is_missing() => {
+            screen.error = Some(t.register_passkey_registration_failed().to_owned());
+            return render(&req, StatusCode::UNPROCESSABLE_ENTITY, &screen);
+        }
+        "passkey-register" => {
+            let mut body = form.credential().json();
+            body.insert("displayName".into(), form.display_name.clone().into());
+            body.insert("email".into(), form.email.clone().into());
+            body.insert("label".into(), PASSKEY_LABEL.into());
+            match call_written::<PasskeyRegistered>(&caller, client, "/api/auth/passkeys/register", Value::Object(body)).await {
+                Ok((PasskeyRegistered { auth_result: Some(result) }, receipt)) => Ok((result, receipt)),
+                Ok((PasskeyRegistered { auth_result: None }, _)) => {
+                    screen.notice = Some(Notice::PasskeyAdded { message: p.auth_passkey_added_sign_in() });
+                    return render(&req, StatusCode::OK, &screen);
+                }
+                Err(error) => Err(error),
+            }
         }
         // Marketplace's default intent is a password. The consent resolution is the API's, sent
         // back as it was handed over: the form draws no affirmation, as marketplace's does not.
@@ -277,7 +338,7 @@ pub(crate) async fn write(
     };
     match started {
         Ok((result, receipt)) => complete(&req, &config, &landing(&screen.return_to, receipt.as_ref()), result),
-        Err(error) => failed(chrome.cart().await, screen, error),
+        Err(error) => failed(screen, error),
     }
 }
 
@@ -286,14 +347,6 @@ pub(crate) async fn write(
 /// alert's or a saved list's claim) keeps marketplace's registration.
 pub fn href(back: &str) -> String {
     url::Register { join: Join::back_to(back) }.href()
-}
-
-/// Marketplace's register page, for a passkey (WebAuthn is its page's script).
-pub fn on_marketplace(join: &Join) -> String {
-    views::on_marketplace(&format!(
-        "/register?returnTo={}",
-        crate::api::segment(&safe_return_to(join.return_to.as_deref(), DEFAULT_SUCCESS))
-    ))
 }
 
 #[cfg(test)]
@@ -308,6 +361,7 @@ mod tests {
         assert_eq!(Method::shown(None), Method::Passkey);
         assert_eq!(Method::of_intent("magic-link-register"), Method::MagicLink);
         assert_eq!(Method::of_intent("phone-code-consume"), Method::PhoneCode);
+        assert_eq!(Method::of_intent("passkey-register"), Method::Passkey);
         assert_eq!(Method::of_intent(""), Method::Password);
     }
 

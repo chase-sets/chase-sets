@@ -2,6 +2,7 @@ import type { CatalogPrimaryWorkbenchReadModel } from "./primary-workbench-share
 import {
   assertCatalogPrimaryWorkbenchActionState,
   assertPrimaryWorkbenchBlockers,
+  isSafePrimaryWorkbenchReturnPath,
 } from "./primary-workbench-shared-contracts";
 import {
   catalogPrimaryWorkbenchContractVersion,
@@ -99,4 +100,50 @@ export function validateCatalogPrimaryWorkbenchReadModelContract(
   assertPrimaryWorkbenchProfileAuthoring(value.profileAuthoring);
   assertPrimaryWorkbenchValidationReadiness(value.validationReadiness);
   assertPrimaryWorkbenchLifecycleRecovery(value.lifecycleRecovery);
+  const stageKeys = ["run-sync", "review-changes", "create-items"] as const;
+  const stageStates = ["blocked", "current", "complete", "upcoming"];
+  const validStages = (stages: CatalogPrimaryWorkbenchReadModel["flow"]["stages"] | undefined) =>
+    Array.isArray(stages) &&
+    stages.length === stageKeys.length &&
+    stages.every((stage, index) => stage?.key === stageKeys[index] && stageStates.includes(stage.state));
+  const flow = value.flow;
+  if (
+    !flow ||
+    !stageKeys.includes(flow.openStage) ||
+    !stageKeys.includes(flow.openStageWithHeldPreview) ||
+    !stageKeys.every((key) => validStages(flow.stagesByOpenStage?.[key])) ||
+    !validStages(flow.stages) ||
+    JSON.stringify(flow.stages) !== JSON.stringify(flow.stagesByOpenStage[flow.openStage])
+  ) {
+    throw new Error("Primary workbench daily flow answers must be complete and valid.");
+  }
+  if (
+    !value.dailyStatus ||
+    ![null, "denied", "stopped"].includes(value.dailyStatus.governance) ||
+    ![null, "blocked", "degraded"].includes(value.dailyStatus.health)
+  ) {
+    throw new Error("Primary workbench daily status answers must be complete and valid.");
+  }
+  const review = value.sourceObservationReview;
+  const statusValues = ["all", "observed", "eligible", "promoted", "rejected"];
+  const safeHref = (href: unknown) => typeof href === "string" && isSafePrimaryWorkbenchReturnPath(href);
+  if (
+    !Array.isArray(review?.statusFilters) ||
+    review.statusFilters.length !== statusValues.length ||
+    !review.statusFilters.every(
+      (filter, index) =>
+        filter?.value === statusValues[index] &&
+        Number.isFinite(filter.count) &&
+        filter.count >= 0 &&
+        safeHref(filter.href),
+    ) ||
+    !review.pagination ||
+    !["previous", "next"].every((direction) => {
+      const cursor = direction === "previous" ? review.pagination.previousCursor : review.pagination.nextCursor;
+      const href = direction === "previous" ? review.pagination.previousHref : review.pagination.nextHref;
+      return cursor === null ? href === null : typeof cursor === "string" && safeHref(href);
+    })
+  ) {
+    throw new Error("Primary workbench review navigation answers must be complete and safe.");
+  }
 }

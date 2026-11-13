@@ -1,5 +1,7 @@
 {
   "shell": {
+    "toast_close": "Close",
+    "not_sent": "That did not go through, and may not have been saved. Check and try again.",
     "site": "Chase Sets",
     "breadcrumb": "Breadcrumb",
     "skip": "Skip to main content"

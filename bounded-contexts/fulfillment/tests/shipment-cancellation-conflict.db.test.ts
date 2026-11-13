@@ -321,6 +321,16 @@ describeDb("shipment cancellation conflict steady state", () => {
 
     const attention = createShipByAttentionSourceFromReadModel(pool);
     await expect(attention.load({ accountId: "acc_seller", now: "2026-08-02T12:01:00.000Z" })).resolves.toHaveLength(1);
+    // The command center the Fulfillment API answers reads the same rows: the conflicted shipment
+    // is an exception whose next action resolves the order's cancellation.
+    const commandCenter = await services.getSellerCommandCenter({ sellerAccountId: "acc_seller" });
+    expect(commandCenter.totalNeedingAttention).toBe(1);
+    expect(commandCenter.queue[0]).toMatchObject({ shipmentId: "shp_race", bucket: "exceptions" });
+    expect(commandCenter.queue[0]?.plan.primary).toBe("cancel-shipment");
+    expect(commandCenter.buckets.find((bucket) => bucket.id === "exceptions")?.count).toBe(1);
+    await expect(services.getSellerCommandCenter({ sellerAccountId: "acc_other" })).resolves.toMatchObject({
+      totalNeedingAttention: 0,
+    });
 
     await services.commandHandler({
       streamId: "fulfillment.shipment-shp_race",

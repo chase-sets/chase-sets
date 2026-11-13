@@ -1,8 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { z } from "zod";
-import { countCaptureCollectionSchema } from "../domain/count-lifecycle-receipt";
-import { countCaptureFields, countCapturePlanSchema } from "../domain/count-capture-plan";
-import { countCaptureSealSchema } from "../read-model/count-capture-store";
+import type { ProviderUsageSnapshot } from "../../source-observations/api/provider-adapters/provider-adapter";
 import { CountCaptureStopped } from "../../source-observations/api/providers/count-capture-transport";
 import {
   observeCountSourceWinners,
@@ -22,14 +19,14 @@ import {
 import { collectCountCapturePlannerRead } from "./count-capture-context";
 import * as transport from "../../source-observations/api/providers/count-capture-transport";
 import { sendCatalogProviderRequest } from "../../source-observations/api/providers/provider-send-admission";
-import { guardDisabledMutant } from "../tests/count-capture-mutants";
+import { captureLifecycleMutant } from "../tests/count-capture-counts-mutants";
 import {
   captureAuthority,
   captureScope,
   captureSession,
   createCaptureLifecycleFixture,
 } from "../tests/count-capture-session-fixture";
-import { createCountCaptureLifecycle, retainTargetedCountCaptureUsage } from "./count-capture-lifecycle";
+import { createCountCaptureLifecycle, countCaptureSessionOwner } from "./count-capture-lifecycle";
 
 const kinds = ["cards", "sealed"] as const;
 const later = (ms: number) => new Date(Date.parse(captureNow) + ms).toISOString();
@@ -277,12 +274,12 @@ describe("targeted usage observation", () => {
     expect(run(f)).toMatchObject({ status: "open", sends: [{ phase: "bootstrap", usage: { purpose: "bootstrap" } }] });
   });
 
-  it("skips the read when durable authority already covers the remaining run cap", async () => {
+  it("obtains an in-run snapshot even when durable headroom covers the run", async () => {
     const f = await noticed({ retained: 11 });
-    await expect(f.lifecycle.usage(captureSession())).resolves.toMatchObject({ usage: { state: "skipped" } });
-    expect(f.usage.getUsageSnapshot).not.toHaveBeenCalled();
-    expect(f.usage.fetch).not.toHaveBeenCalled();
-    expect(run(f)).toMatchObject({ status: "open", sends: [] });
+    await expect(f.lifecycle.usage(captureSession())).resolves.toMatchObject({ usage: { state: "persisted" } });
+    expect(f.usage.getUsageSnapshot).toHaveBeenCalledOnce();
+    expect(f.usage.fetch).toHaveBeenCalledOnce();
+    expect(run(f)).toMatchObject({ status: "open", sends: [{ phase: "bootstrap" }] });
   });
 
   it("stops when authority is still insufficient, keeping the possible send", async () => {
@@ -301,11 +298,13 @@ describe("targeted usage observation", () => {
     f.counts.retainUsage.mockClear();
     await f.lifecycle.baseline(captureSession(), { scopeRecordId: captureScope, authority: captureAuthority() });
     await f.lifecycle.initialNotice(captureSession());
-    await expect(f.lifecycle.usage(captureSession())).resolves.toMatchObject({ usage: { state: "persisted" } });
+    await expect(f.lifecycle.usage(captureSession())).resolves.toMatchObject({ usage: { state: "skipped" } });
     expect(f.usage.getUsageSnapshot).toHaveBeenCalledOnce();
     expect(f.counts.retainUsage).toHaveBeenCalledOnce();
     expect(f.usage.fetch).not.toHaveBeenCalled();
     expect(run(f)).toMatchObject({ status: "open", sends: [] });
+    const retained = await f.store.activeRun(countCaptureSessionOwner(captureSession(), "staging"));
+    expect(retained.periodLedger?.decision).toMatchObject({ plannedCredits: 10, unreflectedCredits: 0 });
   });
 
   it.each([
@@ -353,20 +352,24 @@ describe("targeted usage observation", () => {
     expect(deleted.usage.fetch).toHaveBeenCalledOnce();
     expect(deleted.counts.retainUsage).not.toHaveBeenCalled();
 
-    const rawAuthority = guardDisabledMutant<typeof retainTargetedCountCaptureUsage>(
-      "../api/count-capture-lifecycle.ts",
+    const rawAuthority = captureLifecycleMutant(
       [
-        ["await deps.getUsageSnapshot();", "const observed = await deps.getUsageSnapshot();"],
-        ["const after = await deps.authority();", "const after = rawAuthority(observed);"],
+        ["const ledger = await deps.periodLedger?.(run.runId);", "const ledger = rawLedger(observed);"],
+        [
+          "if (!decision.admitted) throw new CountCaptureStopped();\n        const authority = await deps.countAuthority();",
+          "if (!decision.admitted) throw new CountCaptureStopped();\n        const authority = rawAuthority(observed);",
+        ],
       ],
-      "retainTargetedCountCaptureUsage",
       {
-        z,
-        countCaptureCollectionSchema,
-        countCaptureFields,
-        countCapturePlanSchema,
-        countCaptureSealSchema,
-        ...transport,
+        rawLedger: (snapshot: ProviderUsageSnapshot) => ({
+          snapshot: {
+            allowance: snapshot.totalCredits,
+            balance: snapshot.remainingCredits,
+            observedAt: snapshot.observedAt,
+            period: snapshot.billingPeriod,
+          },
+          durableCredits: 0,
+        }),
         rawAuthority: (snapshot: { remainingCredits: number | null }) => ({
           fingerprint: "0".repeat(64),
           headroom: snapshot.remainingCredits,
@@ -375,12 +378,9 @@ describe("targeted usage observation", () => {
       },
     );
     const f = await noticed({ retained: null, callback: false });
-    const authority = f.counts.authority;
-    await expect(rawAuthority({ authority, getUsageSnapshot: f.usage.getUsageSnapshot }, 11)).resolves.toMatchObject({
-      state: "persisted",
+    await expect(rawAuthority(f.deps).usage(captureSession())).resolves.toMatchObject({
+      usage: { state: "persisted" },
     });
-    await expect(
-      retainTargetedCountCaptureUsage({ authority, getUsageSnapshot: f.usage.getUsageSnapshot }, 11),
-    ).rejects.toThrow(CountCaptureStopped);
+    expect(f.counts.retainUsage).not.toHaveBeenCalled();
   });
 });

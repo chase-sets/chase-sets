@@ -70,8 +70,18 @@ let href = "";
   await page.goto(`${base}${href}`);
   const rows = await coverage(page);
   console.log(`  coverage: ${JSON.stringify(rows)}`);
-  const workspace = await page.getByRole("link", { name: "Open the workspace on admin-web" }).getAttribute("href");
-  check(workspace === `${adminWeb}${href}`, `the workspace link is admin-web's same page (${workspace})`);
+  // The import-to-promotion section: the daily workbench's stages for this scope, its review
+  // links on this page (the working set's `home`).
+  const workspace = page.locator('section[aria-labelledby="scope-workspace"]');
+  check((await page.locator("[data-scope-workspace]").count()) === 1, "the import-to-promotion stages");
+  check((await workspace.locator('[name="wb-stage"]').count()) === 3, "Sync, Review and Create");
+  const review = await workspace
+    .locator(`a[href^="${href}?"]`)
+    .evaluateAll((as) => as.map((a) => a.getAttribute("href") ?? ""));
+  check(
+    review.length > 0 && review.every((link) => link.includes(`home=${encodeURIComponent(scope)}`)),
+    `its review links stay on this page (${review.length})`,
+  );
 
   // A revoke or reject: its reason folds open, nothing is sent.
   const fold = page.locator('section[aria-labelledby="scope-coverage"] details summary').first();
