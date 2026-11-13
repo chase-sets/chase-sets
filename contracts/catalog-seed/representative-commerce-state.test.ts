@@ -516,17 +516,50 @@ describe("representative offer submission limits", () => {
     expect(acceptanceResults.filter((offer) => offer.status === "skipped")).toHaveLength(50);
   });
 
-  it("recognizes existing offers without consuming the new-submission budget, including after it is exhausted", async () => {
-    const existingCatalogItemIds = ["cat_real_1", "cat_real_2", "cat_real_15", "cat_real_16"];
+  it("counts all retained cohort Offers toward each buyer's budget, including later items", async () => {
+    const existingCatalogItemIds = ["cat_synthetic_1", "cat_synthetic_2", "cat_synthetic_15", "cat_synthetic_16"];
     const harness = submissionHarness({ existingOfferIndexes: [0, 1, 14, 15] });
 
-    const results = await submitRepresentativeOffers(harness.services as never, representativeStockItems(16));
+    const results = await submitRepresentativeOffers(
+      harness.services as never,
+      representativeStockItems(16, "cat_synthetic"),
+    );
 
-    expect(harness.submitted).toHaveLength(10);
+    expect(harness.submitted).toHaveLength(6);
     expect(results.filter((offer) => offer.status === "already-present").map((offer) => offer.catalogItemId)).toEqual(
       existingCatalogItemIds,
     );
-    expect(results.filter((offer) => offer.status === "skipped")).toHaveLength(2);
+    expect(results.filter((offer) => offer.status === "skipped")).toHaveLength(6);
+    for (const buyerAccountId of new Set(results.map((offer) => offer.buyerAccountId))) {
+      expect(
+        results.filter((offer) => offer.buyerAccountId === buyerAccountId && offer.status !== "skipped"),
+      ).toHaveLength(5);
+    }
+  });
+
+  it("submits no new Offers for a 60-item cohort with five retained Offers per buyer", async () => {
+    const harness = submissionHarness({ existingOfferIndexes: Array.from({ length: 10 }, (_, index) => index + 50) });
+
+    const results = await submitRepresentativeOffers(
+      harness.services as never,
+      representativeStockItems(60, "cat_synthetic"),
+    );
+
+    expect(harness.submitted).toHaveLength(0);
+    expect(results.filter((offer) => offer.status === "already-present")).toHaveLength(10);
+    expect(results.filter((offer) => offer.status === "skipped")).toHaveLength(50);
+  });
+
+  it("leaves sampled Offers unchanged on a repeat run against retained state", async () => {
+    const harness = submissionHarness();
+    const stock = representativeStockItems(60, "cat_synthetic");
+    const initial = await submitRepresentativeOffers(harness.services as never, stock);
+    const repeat = await submitRepresentativeOffers(harness.services as never, stock);
+
+    expect(harness.submitted).toHaveLength(10);
+    expect(repeat).toEqual(
+      initial.map((offer) => (offer.status === "created" ? { ...offer, status: "already-present" } : offer)),
+    );
   });
 
   it("records a daily cap refusal as skipped and continues submission and acceptance for other items", async () => {
@@ -885,13 +918,16 @@ function submissionHarness(
   }> = {},
 ) {
   const submitted: RepresentativeOfferSubmission[] = [];
+  const retainedOfferIds = new Set<string>();
   let offerQueryIndex = 0;
   const services = {
     db: {
-      query: async <Row>(sql: string) => {
+      query: async <Row>(sql: string, params?: readonly unknown[]) => {
         if (sql.includes("FROM marketplace_offer_pages")) {
+          const offerId = String(params?.[0]);
+          if (options.existingOfferIndexes?.includes(offerQueryIndex++)) retainedOfferIds.add(offerId);
           return {
-            rows: (options.existingOfferIndexes?.includes(offerQueryIndex++) ? [{ status: "submitted" }] : []) as Row[],
+            rows: (retainedOfferIds.has(offerId) ? [{ status: "submitted" }] : []) as Row[],
           };
         }
         return {
@@ -904,6 +940,7 @@ function submissionHarness(
         submitted.push(offer);
         const error = options.submissionError?.(offer);
         if (error) throw error;
+        retainedOfferIds.add(offer.offerId!);
         return { offerId: offer.offerId!, version: 1 };
       },
     },
@@ -951,9 +988,9 @@ function offerStatusDb(
   };
 }
 
-function representativeStockItems(count: number) {
+function representativeStockItems(count: number, catalogItemPrefix = "cat_real") {
   return Array.from({ length: count }, (_, index) => ({
-    catalogItemId: `cat_real_${index + 1}`,
+    catalogItemId: `${catalogItemPrefix}_${index + 1}`,
     accountId: index % 2 === 0 ? "acc_repr_card_vault_account" : "acc_repr_sealed_stockroom_account",
     inventoryItemId: `inv_repr_${index + 1}`,
     selectedOptions: [],
