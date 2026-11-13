@@ -38,7 +38,9 @@ production.
    environment, then Operator session > Pair extension. Minting requires
    `catalog.manage`, the platform-admin role, and authentication within ten
    minutes; use Sign in again if prompted. Minting replaces the environment's
-   previous active grant.
+   previous active grant. Every later observation post rechecks the grant
+   creator's live Identity Membership aggregate before reading the post body;
+   authority loss revokes the grant and returns a fail-closed refusal.
 4. Admin pair handoff (primary): after a successful mint, Admin sends the new
    grant once to the installed extension without displaying it, waits at most
    15 seconds, and never retries or mints again. The extension takes the

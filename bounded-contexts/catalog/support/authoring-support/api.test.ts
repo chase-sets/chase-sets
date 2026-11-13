@@ -137,6 +137,9 @@ describe("Catalog authoring API", () => {
 function createServices(overrides: Partial<CatalogAuthoringBulkJobServices> = {}): CatalogServices {
   return {
     operatorSession: {
+      authorizeObservationGrant: async () => {
+        throw new Error("operatorSession not expected");
+      },
       execute: async () => {
         throw new Error("operatorSession not expected");
       },
