@@ -45,6 +45,7 @@
 //! | `GET /sign-in?<ask>`, `POST ..` | signing in: the email or phone, its methods and their forms (see `sign_in`) |
 //! | `GET /sign-in/magic?token=..` | a magic link's landing |
 //! | `GET /account/select`, `POST ..` | the account a sign-in acts for |
+//! | `GET /api/auth/social/{provider}/start`, `../callback` | a social sign-in's two steps, relayed to Auth where nothing else serves them (see `sign_in`) |
 //! | `POST /sign-out` | signing out |
 //! | `GET /robots.txt` | the crawler rules, and the sitemap index when the site may be indexed (see `site`) |
 //! | `GET /sitemap.xml`, `/sitemap/{kind}/{page}.xml` | the sitemap index and its pages: the home page and search, then Discovery's public pages |
@@ -195,7 +196,7 @@ pub mod url {
     pub use desk::Desk;
     pub use desk_offers::DeskOffers;
     pub use guest_payments::{GuestPayment, GuestPaymentStatus};
-    pub use home::{Home, Sitemap, SitemapPage};
+    pub use home::{Home, Sitemap, SitemapPage, SocialSignIn};
     pub use inventory::{
         Archive, ImportBatch, ImportCommit, ImportExport, ImportResolve, ImportTemplate, Imports, Inventory, Location, Locations,
         OfflineSale, Restock, Restocked, StockAdjust, StockHold, StockItem, StockRelease, StockSale, WrittenOff,
@@ -241,7 +242,8 @@ pub mod url {
     /// old addresses, which share no prefix and move for good to the Seller Desk's (marketplace's
     /// `account-payouts`, `account-payout`, `account-desk-settings`, `account-settlement` and
     /// `account-wallet-adjustment` redirects, see `money`); the page each moves to asks who it is for.
-    /// And two more that share no prefix: Product alerts' old address and leaving a guest checkout.
+    /// And three more that share no prefix: Product alerts' old address, leaving a guest checkout and a
+    /// social sign-in's relay.
     #[corten::routes(state = crate::app::Shared)]
     pub mod home {
         /// The search's landing, or the results for the address's terms.
@@ -279,6 +281,15 @@ pub mod url {
         /// checkout and any session, then the search).
         #[route("/guest-checkout/exit", post = crate::sign_in::sign_out)]
         pub struct GuestCheckoutExit;
+
+        /// A social sign-in's start and the provider's return, relayed to Auth (see
+        /// `platform::auth::social`). The ingress sends `/api` to the API before the pilot sees it;
+        /// locally nothing else serves it. Auth reads the session's cookie itself.
+        #[route("/api/auth/social/{provider}/{step}", get = crate::sign_in::social, no_store)]
+        pub struct SocialSignIn<'a> {
+            pub provider: &'a str,
+            pub step: &'a str,
+        }
 
         /// The site's own files (`crate::site`): the crawler rules, the sitemap index and its
         /// pages, the favicon at both of marketplace-web's addresses, and Chrome's devtools probe.

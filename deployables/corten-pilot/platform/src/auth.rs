@@ -17,8 +17,8 @@
 use std::time::{Duration, SystemTime};
 
 use corten::{
-    ClientIp, Fields, Json, JsonResult, Local, ToJson,
-    http::{HeaderMap, StatusCode},
+    ClientIp, Fields, Json, JsonResult, Local, Relay, ToJson,
+    http::{Body, HeaderMap, HeaderValue, StatusCode, header},
     i18n::parse_timestamp,
     security::cookie::{self, SetCookie},
 };
@@ -406,6 +406,63 @@ pub async fn sign_out(caller: &Caller<'_>, client: Option<ClientIp>, headers: &H
     [SELECTION_COOKIE, SESSION_COOKIE, GUEST_CHECKOUT_COOKIE]
 }
 
+/// The headers of Auth's social sign-in answer the browser gets: where it goes next, the session's
+/// or the selection's cookie, and what the answer is.
+const SOCIAL_KEPT: [header::HeaderName; 5] =
+    [header::LOCATION, header::SET_COOKIE, header::CACHE_CONTROL, header::CONTENT_TYPE, header::REFERRER_POLICY];
+
+/// A social sign-in's step (`GET /api/auth/social/{provider}/start` or `.../callback`, Auth's
+/// social-login-routes.ts), relayed to Auth with its query and answered as Auth answers it: the
+/// start's redirect to the provider, and the callback's redirect back to the page with the
+/// session's or the selection's cookie, or with `socialLoginError`. The ingress sends `/api` to
+/// the API before an app sees it; an app serves these only where nothing else does (locally).
+///
+/// The browser's `Host` goes with it, as the ingress passes it on: the API builds the provider's
+/// return address from it where it does not trust `X-Forwarded-Host`, so the provider comes back
+/// to the page's origin. A site-relative `Location` goes through `place` (the app's page when it
+/// serves the path, the React host's otherwise), as a sign-in's `returnTo` does. A provider is a
+/// lowercase word and a step is `start` or `callback`; anything else is not found, so the path
+/// Auth gets cannot climb out of `/api/auth/social`.
+pub async fn social(
+    caller: &Caller<'_>,
+    headers: &HeaderMap,
+    provider: &str,
+    step: &str,
+    query: Option<&str>,
+    place: impl Fn(&str) -> Option<String>,
+) -> corten::Result<Relay> {
+    let word = !provider.is_empty() && provider.bytes().all(|b| b.is_ascii_lowercase());
+    if !word || !matches!(step, "start" | "callback") {
+        return Err(corten::Error::status(StatusCode::NOT_FOUND));
+    }
+    let path = match query {
+        Some(query) => format!("/api/auth/social/{provider}/{step}?{query}"),
+        None => format!("/api/auth/social/{provider}/{step}"),
+    };
+    let mut sent = caller.request_unfollowed(Http::GET, &path, AUTH);
+    if let Some(host) = headers.get(header::HOST).and_then(|v| v.to_str().ok()) {
+        sent = sent.header(header::HOST.as_str(), host);
+    }
+    let gateway = |error: reqwest::Error| corten::Error::new(error).with_status(StatusCode::BAD_GATEWAY);
+    let res = sent.send().await.map_err(gateway)?;
+    let status = StatusCode::from_u16(res.status().as_u16()).unwrap_or(StatusCode::BAD_GATEWAY);
+    let mut kept = HeaderMap::new();
+    for name in SOCIAL_KEPT {
+        for value in res.headers().get_all(name.as_str()) {
+            let value = match value.to_str() {
+                Ok(to) if name == header::LOCATION && to.starts_with('/') && !to.starts_with("//") => {
+                    place(to).and_then(|to| HeaderValue::from_str(&to).ok())
+                }
+                _ => HeaderValue::from_bytes(value.as_bytes()).ok(),
+            };
+            if let Some(value) = value {
+                kept.append(name.clone(), value);
+            }
+        }
+    }
+    let body = res.bytes().await.map_err(gateway)?;
+    Ok(Relay::new(status, kept, Body::from(body)))
+}
 /// Seconds until `expires_at`, none past it (`maxAgeSecondsFromExpiry`).
 pub fn seconds_until(expires_at: &str) -> i64 {
     let Some(at) = parse_timestamp(expires_at) else { return 0 };

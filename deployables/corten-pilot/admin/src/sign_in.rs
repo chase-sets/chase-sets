@@ -18,13 +18,15 @@
 //! A passkey is the browser's WebAuthn, through the shared passkey step (`platform::auth`'s
 //! `passkey.js`): its press asks `POST /access/sign-in/passkey` for a challenge, the browser signs
 //! it, and the form is sent with the credential. Without a script the form comes without one and
-//! the page says the passkey sign-in failed. Google Workspace needs the provider's round trip
-//! through the API, which comes back to admin-web's sign-in, so it is a link to admin-web. A session started
+//! the page says the passkey sign-in failed. Google Workspace is a link to Auth's start
+//! (`/api/auth/social/google/start?journey=admin`), which the pilot relays where nothing else serves
+//! `/api` (`platform::auth::social`): Google comes back to the page's origin, and Auth's answer to
+//! the pilot's page when it serves it. A session started
 //! here is the platform's cookie (`chase_sets_session`, HttpOnly, SameSite=Lax, Secure on https);
 //! the browser then goes back to `returnTo`, on the pilot when it serves the path and on
 //! admin-web otherwise.
 use corten::{
-    ClientIp, Local,
+    ClientIp, Local, Relay,
     http::{HeaderMap, StatusCode, Uri},
     prelude::*,
     security::cookie::SetCookie,
@@ -274,12 +276,11 @@ fn refusal(t: SignInMsg, intent: &str, error: &ApiError) -> (StatusCode, &'stati
     (refused.status(), message)
 }
 
-/// Google Workspace's sign-in (`createAdminGoogleWorkspaceSocialLoginHref`), on admin-web's
-/// origin, where the provider comes back to.
+/// Google Workspace's sign-in (`createAdminGoogleWorkspaceSocialLoginHref`): Auth's start, through
+/// the pilot's relay where nothing else serves `/api`, so Google comes back to this origin.
 pub fn workspace(return_to: &str) -> String {
-    views::admin_web(&format!("/api/auth/social/google/start?journey=admin&returnTo={}", segment(return_to)))
-        .map(|uri| uri.to_string())
-        .unwrap_or_default()
+    let start = crate::site::files::SocialSignIn { provider: "google", step: "start" }.href();
+    format!("{start}?journey=admin&returnTo={}", segment(return_to))
 }
 
 /// Where a path on the site is: the pilot's page when it serves it, admin-web's otherwise.
@@ -288,6 +289,21 @@ fn destination(req: &Req, path: &str) -> Option<Uri> {
         Some(local) if req.serves(&local) => local.to_string().parse().ok(),
         _ => views::admin_web(path),
     }
+}
+
+/// Auth's sign-in fallback that names no journey (`/sign-in?socialLoginError=..`): its callback
+/// answers it before it reads the state's journey, for a sign-in the user cancelled (no code) or
+/// whose state expired or was already used. admin-web does not serve `/sign-in` either; this is
+/// the pilot's sign-in with the same error and `returnTo`, and nothing else from Auth's query.
+fn journeyless_refusal(location: &str) -> Option<String> {
+    let (path, query) = location.split_once('?').unwrap_or((location, ""));
+    if path != "/sign-in" {
+        return None;
+    }
+    let decode = |text: &str| percent_encoding::percent_decode_str(&text.replace('+', " ")).decode_utf8_lossy().into_owned();
+    let value = |key: &str| query.split('&').find_map(|pair| pair.strip_prefix(key)?.strip_prefix('=')).map(decode);
+    let ask = Ask { return_to: value("returnTo"), social_login_error: Some(value("socialLoginError")?), ..Ask::default() };
+    Some(url::SignIn { ask }.href().to_string())
 }
 
 /// A cookie, Secure only when browsers reach the pilot over https.
@@ -339,6 +355,19 @@ pub(crate) async fn challenge(
 ) -> JsonResult<PasskeyChallenge> {
     let caller = config.platform.caller(&headers, config.proto, None);
     platform::auth::passkey_challenge(&caller, client, &form).await
+}
+
+/// Google Workspace's start or Google's return, relayed to Auth (`platform::auth::social`).
+pub(crate) async fn social(
+    req: Req,
+    State(config): State<Shared>,
+    headers: HeaderMap,
+    uri: Uri,
+    Params(route): Params<crate::site::files::SocialSignIn<'_>>,
+) -> corten::Result<Relay> {
+    let caller = config.platform.caller(&headers, config.proto, None);
+    let place = |path: &str| journeyless_refusal(path).or_else(|| destination(&req, path).map(|to| to.to_string()));
+    platform::auth::social(&caller, &headers, route.provider.as_str(), route.step.as_str(), uri.query(), place).await
 }
 
 /// The catalog's sign-in: the same page, at the access sign-in's address.

@@ -68,6 +68,34 @@ fn written(status: StatusCode, id: &str) -> Response {
     (status, headers, Json(json!({ "id": id, "version": 2 }))).into_response()
 }
 
+/// Auth's Google Workspace sign-in: the start redirects to the provider, back to the origin the
+/// request's `Host` names; the return with code `good` starts a session and goes to `/catalog`, and
+/// any other code goes back to the sign-in with `admin_permission_required`. A return with no code (a
+/// cancelled sign-in) or the state `spent` is Auth's `invalid_state`, which it answers before it reads the
+/// state's journey, so at its journey-less `/sign-in` (social-login-routes.ts's `redirectToFallback`).
+fn workspace_sso(method: &Method, uri: &Uri, headers: &HeaderMap) -> Option<Response> {
+    let step = uri.path().strip_prefix("/api/auth/social/google/")?;
+    if *method != Method::GET {
+        return None;
+    }
+    let host = headers.get(header::HOST).and_then(|v| v.to_str().ok()).unwrap_or_default();
+    let found = |to: String| (StatusCode::FOUND, [(header::LOCATION, to)]).into_response();
+    Some(match step {
+        "start" => {
+            found(format!("https://provider.test/authorize?hd=chasesets.test&back=http://{host}/api/auth/social/google/callback"))
+        }
+        "callback" if uri.query().is_none_or(|q| !q.contains("code=") || q.contains("state=spent")) => {
+            found("/sign-in?socialLoginError=invalid_state".to_owned())
+        }
+        "callback" if uri.query().is_some_and(|q| q.contains("code=good")) => {
+            let mut res = found("/catalog".to_owned());
+            let cookie = format!("{}={}; Path=/; SameSite=Lax", "chase_sets_session", "tok_workspace");
+            res.headers_mut().append(header::SET_COOKIE, cookie.parse().unwrap());
+            res
+        }
+        _ => found("/access/sign-in?socialLoginError=admin_permission_required".to_owned()),
+    })
+}
 /// Auth's sign-in routes, as far as the sign-in page uses them: `staff@example.test` with `right`
 /// starts a session, `member@example.test` must choose an account first (`sel_1`), and
 /// `limited@example.test` is rate limited. A passkey challenge is `cmd_1`, and a passkey sign-in
@@ -141,6 +169,9 @@ async fn platform(State(calls): State<Calls>, method: Method, uri: Uri, headers:
         body: body.clone(),
     });
     let cookie = headers.get(header::COOKIE).and_then(|v| v.to_str().ok()).unwrap_or_default();
+    if let Some(answer) = workspace_sso(&method, &uri, &headers) {
+        return answer;
+    }
     if let Some(answer) = auth(&method, uri.path(), &body) {
         return answer;
     }
@@ -1114,8 +1145,8 @@ async fn the_sign_in_asks_for_an_email_or_phone_then_offers_its_methods() {
     let (status, _, html) = pilot.send(get("/access/sign-in?returnTo=%2Fcatalog", None)).await;
     assert_eq!(status, StatusCode::OK, "{html}");
     assert!(
-        html.contains(r#"href="http://localhost:7752/api/auth/social/google/start?journey=admin&amp;returnTo=%2Fcatalog""#),
-        "Google Workspace through admin-web, back to the page: {html}"
+        html.contains(r#"href="/api/auth/social/google/start?journey=admin&amp;returnTo=%2Fcatalog""#),
+        "Google Workspace through the pilot's relay, back to the page: {html}"
     );
     assert!(html.contains(r#"<form class="sign-in-page__form" method="get" action="/access/sign-in">"#), "{html}");
     assert!(html.contains(r#"name="noindex""#) || html.contains(r#"content="noindex""#), "not indexed: {html}");
@@ -1175,6 +1206,50 @@ async fn a_password_starts_the_session_and_goes_back_to_the_page() {
     assert!(set_cookies(&headers).is_empty(), "no session");
     let (status, _, _) = pilot.send(visitor_post(at, None, "intent=password&email=limited%40example.test&password=x")).await;
     assert_eq!(status, StatusCode::TOO_MANY_REQUESTS);
+}
+
+#[tokio::test]
+async fn google_workspace_goes_through_auth_and_comes_back_to_the_pages_origin() {
+    let pilot = Pilot::new().await;
+    let start = "/api/auth/social/google/start?journey=admin&returnTo=%2Fcatalog";
+    let (status, headers, _) = pilot.send(get(start, None)).await;
+    assert_eq!(status, StatusCode::FOUND, "not followed here: {headers:?}");
+    let to = headers[header::LOCATION].to_str().unwrap();
+    assert!(to.ends_with("back=http://localhost:7790/api/auth/social/google/callback"), "back to the page's origin: {to}");
+    let sent = pilot.calls.lock().unwrap().iter().find(|c| c.path.starts_with("/api/auth/social/")).cloned().unwrap();
+    assert_eq!(sent.path, start, "the query as sent");
+    assert_eq!(sent.headers[header::HOST.as_str()], "localhost:7790");
+
+    let (status, headers, _) = pilot.send(get("/api/auth/social/google/callback?state=st_1&code=good", None)).await;
+    assert_eq!((status, headers[header::LOCATION].to_str().unwrap()), (StatusCode::FOUND, "/catalog"));
+    assert!(set_cookies(&headers).iter().any(|c| c.starts_with("chase_sets_session=tok_workspace;")), "{headers:?}");
+    assert!(headers[header::CACHE_CONTROL].to_str().unwrap().contains("no-store"), "a session's answer: {headers:?}");
+
+    let (_, headers, _) = pilot.send(get("/api/auth/social/google/callback?state=st_1&code=outsider", None)).await;
+    let back = headers[header::LOCATION].to_str().unwrap().to_owned();
+    assert_eq!(back, "/access/sign-in?socialLoginError=admin_permission_required");
+    let (status, _, html) = pilot.send(get(&back, None)).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(html.contains("This Workspace user does not have access to this admin area."), "{html}");
+}
+
+#[tokio::test]
+async fn a_cancelled_or_spent_workspace_sign_in_lands_on_the_pilots_sign_in_with_auths_error() {
+    let pilot = Pilot::new().await;
+    for callback in [
+        "/api/auth/social/google/callback?state=st_1&error=access_denied",
+        "/api/auth/social/google/callback?state=spent&code=good",
+    ] {
+        let (status, headers, _) = pilot.send(get(callback, None)).await;
+        assert_eq!(status, StatusCode::FOUND, "{callback}: {headers:?}");
+        let back = headers[header::LOCATION].to_str().unwrap().to_owned();
+        assert_eq!(back, "/access/sign-in?socialLoginError=invalid_state", "the pilot's sign-in, not admin-web's: {callback}");
+        assert!(set_cookies(&headers).is_empty(), "no session or selection: {headers:?}");
+        let (status, headers, html) = pilot.send(get(&back, None)).await;
+        assert_eq!(status, StatusCode::OK, "{html}");
+        assert!(html.contains("Social login could not be completed. Try again or use another sign-in method."), "{html}");
+        assert!(set_cookies(&headers).is_empty(), "{headers:?}");
+    }
 }
 
 #[tokio::test]
