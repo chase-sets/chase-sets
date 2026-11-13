@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { createPortableClientRouter, type PortableClientFetch } from "@chase-sets/platform-runtime/portable-client";
 import { discoveryPortableRoutes } from "@chase-sets/discovery/web";
 import { identityPortableRoutes } from "@chase-sets/identity/web";
-import { webContextRegistry } from "./generated/web-context-registry";
+import { webContextRegistry } from "./context-registry";
 import { resolveMarketplaceRouteConfigRecords } from "./host";
 import { marketplaceHostRouteInventory } from "./host-route-inventory";
 import marketplaceRouteConfig from "./routes";

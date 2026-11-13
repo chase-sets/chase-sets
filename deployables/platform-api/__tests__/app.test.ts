@@ -40,7 +40,7 @@ import {
 } from "@chase-sets/platform-runtime/ucp";
 import { buildPlatformApiApp, createPlatformApiHost, createSavedListAnalyticsRecorder } from "../src/app";
 import { closePlatformApiPools, createPlatformApiPools } from "../src/database-pools";
-import { apiContextRegistry } from "../src/generated/api-context-registry";
+import { apiContextRegistry } from "../src/context-registry";
 
 const NO_API_ENTRIES: ReturnType<typeof authModule.buildApis> = [];
 

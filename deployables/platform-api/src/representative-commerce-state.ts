@@ -33,7 +33,7 @@ import {
   type MarketplaceRepresentativeListingResult,
   type RepresentativeInventoryServices,
 } from "@chase-sets/catalog-seed";
-import { apiContextRegistry } from "./generated/api-context-registry";
+import { apiContextRegistry } from "./context-registry";
 import { createPlatformApiHost } from "./app";
 import {
   loadConfig,
