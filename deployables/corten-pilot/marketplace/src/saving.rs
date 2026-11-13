@@ -386,9 +386,11 @@ pub(crate) async fn save(
     };
     let unprocessable = StatusCode::UNPROCESSABLE_ENTITY;
     let product_id = match (prepare, screen.product_id.clone()) {
-        (true, Some(product_id)) => product_id,
+        // Only a product the filters name in full (`createDiscoveryProductDescriptor`), not the one
+        // the page would fall back to from its best listing.
+        (true, Some(product_id)) if screen.complete => product_id,
         // Options the search's filters do not name: the item page, to choose them.
-        (true, None) => {
+        (true, _) => {
             let slug = item.slug.as_deref().unwrap_or(&slug);
             return req.redirect(&url::Item { slug, state: address, after: Default::default() });
         }
