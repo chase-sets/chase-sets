@@ -1331,6 +1331,7 @@
         "api-route:bounded-contexts/marketplace/features/listings/api/route.ts:POST /listings/evidence-readiness/preview",
         "api-route:bounded-contexts/marketplace/features/listings/api/route.ts:POST /listings/preview",
         "api-route:bounded-contexts/marketplace/features/listings/api/route.ts:POST /listings/prices/bulk",
+        "api-route:bounded-contexts/marketplace/features/listings/api/route.ts:POST /listings/batch",
         "api-route:bounded-contexts/marketplace/features/listings/api/route.ts:POST /order-capacity",
         "api-route:bounded-contexts/marketplace/features/listings/api/route.ts:DELETE /order-capacity",
         "api-route:bounded-contexts/marketplace/features/listings/api/route.ts:POST /terms/public-standard/listing-preview"

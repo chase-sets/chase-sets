@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type { PgQueryable, PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { MarketplaceListingServices } from "../../listings/api/runtime";
@@ -18,14 +19,48 @@ type Candidate = Readonly<{
   streamVersion: number;
   updatedAt: string;
   clampState: "pending" | "engaged" | "recovery" | null;
+  observedStreamVersion: number | null;
   pausedStreamVersion: number | null;
   sharedObservedStreamVersion: number | null;
   sharedPausedStreamVersion: number | null;
 }>;
 
+/** The clamp writes only through keyed Listing commands and decides only from complete Listing streams. */
+export type MarketplaceChannelInboundClampListings = Pick<
+  MarketplaceListingServices,
+  "pauseListing" | "publishListing" | "readAuthoritativeListing"
+>;
+
+/**
+ * One deterministic Listing attempt per run observation: the pause binds to the version the run observed and
+ * the release binds to the version the run paused at, so resume replays the first receipt instead of writing.
+ */
+export function channelInboundClampAttemptKey(
+  kind: "pause" | "release",
+  input: Pick<MarketplaceChannelInboundClampInput, "accountId" | "connectionId" | "runId">,
+  listingId: string,
+  streamVersion: number,
+): string {
+  const digest = createHash("sha256")
+    .update(
+      JSON.stringify([
+        "channel-inbound-clamp",
+        kind,
+        input.accountId,
+        input.connectionId,
+        input.runId,
+        listingId,
+        streamVersion,
+      ]),
+    )
+    .digest("hex")
+    .slice(0, 48);
+  return `channel_clamp_${kind}_${digest}`;
+}
+
 export function createMarketplaceChannelInboundClampRuntime(
   db: PgTransactionalPool,
-  listings: Pick<MarketplaceListingServices, "commandHandler" | "loadListingState" | "publishListing">,
+  listings: MarketplaceChannelInboundClampListings,
 ): MarketplaceChannelInboundClampPort {
   return {
     engage: async (input, context) => engage(db, listings, input, context),
@@ -35,7 +70,7 @@ export function createMarketplaceChannelInboundClampRuntime(
 
 async function engage(
   pool: PgTransactionalPool,
-  listings: Pick<MarketplaceListingServices, "commandHandler" | "loadListingState">,
+  listings: MarketplaceChannelInboundClampListings,
   input: MarketplaceChannelInboundClampInput,
   context: EventStoreContext,
 ): Promise<MarketplaceChannelInboundClampResult> {
@@ -50,14 +85,7 @@ async function engage(
       continue;
     }
     if (candidate.clampState === "engaged") {
-      const current = await readCurrentListing(pool, input.accountId, candidate.listingId);
-      const state = await listings.loadListingState(candidate.listingId);
-      if (
-        current?.streamVersion === candidate.pausedStreamVersion &&
-        state.accountId === input.accountId &&
-        state.status === "paused" &&
-        state.pauseReason === "channel-inbound-dark"
-      ) {
+      if (await heldByClamp(listings, input.accountId, candidate.listingId, candidate.pausedStreamVersion)) {
         clampedListingCount += 1;
       } else {
         await markRecovery(pool, input, candidate.listingId, candidate.streamVersion);
@@ -67,32 +95,25 @@ async function engage(
     }
 
     if (candidate.clampState === "pending") {
-      const current = await readCurrentListing(pool, input.accountId, candidate.listingId);
-      const state = await listings.loadListingState(candidate.listingId);
+      // Resume re-drives the same deterministic pause: a committed pause replays its receipt with zero appends,
+      // an uncommitted one appends at the observed version, and any other writer's change conflicts.
+      const observedVersion = candidate.observedStreamVersion ?? candidate.streamVersion;
+      const pausedVersion = await pauseOnce(listings, input, candidate.listingId, observedVersion, context);
       if (
-        current?.streamVersion === candidate.streamVersion + 1 &&
-        state.accountId === input.accountId &&
-        state.status === "paused" &&
-        state.pauseReason === "channel-inbound-dark"
+        pausedVersion !== null &&
+        (await markPendingEngaged(pool, input, candidate.listingId, observedVersion, pausedVersion)) === 1
       ) {
-        const updated = await markPendingEngaged(pool, input, candidate, current.streamVersion);
-        if (updated === 1) clampedListingCount += 1;
-        else recoveryListingIds.add(candidate.listingId);
+        clampedListingCount += 1;
       } else {
-        await markRecovery(pool, input, candidate.listingId, candidate.streamVersion);
+        await markRecovery(pool, input, candidate.listingId, observedVersion);
         recoveryListingIds.add(candidate.listingId);
       }
       continue;
     }
 
     if (candidate.sharedObservedStreamVersion !== null && candidate.sharedPausedStreamVersion !== null) {
-      const current = await readCurrentListing(pool, input.accountId, candidate.listingId);
-      const state = await listings.loadListingState(candidate.listingId);
       if (
-        current?.streamVersion === candidate.sharedPausedStreamVersion &&
-        state.accountId === input.accountId &&
-        state.status === "paused" &&
-        state.pauseReason === "channel-inbound-dark" &&
+        (await heldByClamp(listings, input.accountId, candidate.listingId, candidate.sharedPausedStreamVersion)) &&
         (await insertSharedEngagedClamp(pool, input, candidate))
       ) {
         clampedListingCount += 1;
@@ -103,33 +124,16 @@ async function engage(
     }
 
     await insertPendingClamp(pool, input, candidate);
-    try {
-      const result = await listings.commandHandler({
-        streamId: `marketplace.listing-${candidate.listingId}`,
-        expectedVersion: candidate.streamVersion,
-        command: { type: "PauseListing", reason: "channel-inbound-dark" },
-        context,
-      });
-      if (
-        result.newEvents.length !== 1 ||
-        result.state.accountId !== input.accountId ||
-        result.state.status !== "paused" ||
-        result.state.pauseReason !== "channel-inbound-dark"
-      ) {
-        await markRecovery(pool, input, candidate.listingId, candidate.streamVersion);
-        recoveryListingIds.add(candidate.listingId);
-        continue;
-      }
-      if ((await markPendingEngaged(pool, input, candidate, result.version)) !== 1) {
-        await markRecovery(pool, input, candidate.listingId, candidate.streamVersion);
-        recoveryListingIds.add(candidate.listingId);
-        continue;
-      }
-      clampedListingCount += 1;
-    } catch {
+    const pausedVersion = await pauseOnce(listings, input, candidate.listingId, candidate.streamVersion, context);
+    if (
+      pausedVersion === null ||
+      (await markPendingEngaged(pool, input, candidate.listingId, candidate.streamVersion, pausedVersion)) !== 1
+    ) {
       await markRecovery(pool, input, candidate.listingId, candidate.streamVersion);
       recoveryListingIds.add(candidate.listingId);
+      continue;
     }
+    clampedListingCount += 1;
   }
 
   const current = await countCurrentCoverage(
@@ -153,7 +157,8 @@ async function engage(
 async function markPendingEngaged(
   pool: PgQueryable,
   input: MarketplaceChannelInboundClampInput,
-  candidate: Candidate,
+  listingId: string,
+  observedVersion: number,
   pausedVersion: number,
 ) {
   const updated = await pool.query(
@@ -161,14 +166,65 @@ async function markPendingEngaged(
         SET state='engaged', paused_stream_version=$5, updated_at=now()
       WHERE account_id=$1 AND connection_id=$2 AND run_id=$3 AND listing_id=$4
         AND state='pending' AND observed_stream_version=$6`,
-    [input.accountId, input.connectionId, input.runId, candidate.listingId, pausedVersion, candidate.streamVersion],
+    [input.accountId, input.connectionId, input.runId, listingId, pausedVersion, observedVersion],
   );
   return updated.rowCount ?? 0;
 }
 
+/**
+ * Pauses at exactly the observed version under the run's deterministic attempt, then confirms from the complete
+ * stream that the run's pause is the current fact. Any refusal, conflict or unreadable history is null.
+ */
+async function pauseOnce(
+  listings: MarketplaceChannelInboundClampListings,
+  input: MarketplaceChannelInboundClampInput,
+  listingId: string,
+  observedVersion: number,
+  context: EventStoreContext,
+): Promise<number | null> {
+  try {
+    const result = await listings.pauseListing(
+      {
+        accountId: input.accountId,
+        listingId,
+        reason: "channel-inbound-dark",
+        expectedVersion: observedVersion,
+        idempotencyKey: channelInboundClampAttemptKey("pause", input, listingId, observedVersion),
+      },
+      context,
+    );
+    if (result.version !== observedVersion + 1) return null;
+    return (await heldByClamp(listings, input.accountId, listingId, result.version)) ? result.version : null;
+  } catch {
+    return null;
+  }
+}
+
+/** True only when the complete owner stream ends at `version` with this account's dark-inbound pause. */
+async function heldByClamp(
+  listings: MarketplaceChannelInboundClampListings,
+  accountId: string,
+  listingId: string,
+  version: number | null,
+): Promise<boolean> {
+  if (version === null) return false;
+  try {
+    const listing = await listings.readAuthoritativeListing({ accountId, listingId });
+    return (
+      listing.kind === "present" &&
+      listing.version === version &&
+      listing.state.accountId === accountId &&
+      listing.state.status === "paused" &&
+      listing.state.pauseReason === "channel-inbound-dark"
+    );
+  } catch {
+    return false;
+  }
+}
+
 async function recover(
   pool: PgTransactionalPool,
-  listings: Pick<MarketplaceListingServices, "loadListingState" | "publishListing">,
+  listings: MarketplaceChannelInboundClampListings,
   input: MarketplaceChannelInboundClampInput,
   context: EventStoreContext,
 ): Promise<MarketplaceChannelInboundClampRecoveryResult> {
@@ -202,14 +258,7 @@ async function recover(
       [input.accountId, row.listing_id, input.connectionId, input.runId],
     );
     if (otherOwners.rows.length > 0) {
-      const current = await readCurrentListing(pool, input.accountId, row.listing_id);
-      const state = await listings.loadListingState(row.listing_id);
-      if (
-        current?.streamVersion !== pausedVersion ||
-        state.accountId !== input.accountId ||
-        state.status !== "paused" ||
-        state.pauseReason !== "channel-inbound-dark"
-      ) {
+      if (!(await heldByClamp(listings, input.accountId, row.listing_id, pausedVersion))) {
         await markRecovery(pool, input, row.listing_id, pausedVersion);
         recoveryListingCount += 1;
         continue;
@@ -219,20 +268,18 @@ async function recover(
       retainedListingCount += released;
       continue;
     }
-    const current = await readCurrentListing(pool, input.accountId, row.listing_id);
-    const state = await listings.loadListingState(row.listing_id);
-    if (
-      current?.streamVersion !== pausedVersion ||
-      state.accountId !== input.accountId ||
-      state.status !== "paused" ||
-      state.pauseReason !== "channel-inbound-dark"
-    ) {
-      await markRecovery(pool, input, row.listing_id, pausedVersion);
-      recoveryListingCount += 1;
-      continue;
-    }
     try {
-      await listings.publishListing({ accountId: input.accountId, listingId: row.listing_id }, context);
+      // The release publishes at the paused version under the run's deterministic attempt: a resumed recovery
+      // whose publication already committed replays that receipt, and any other writer's change conflicts.
+      await listings.publishListing(
+        {
+          accountId: input.accountId,
+          listingId: row.listing_id,
+          expectedVersion: pausedVersion,
+          idempotencyKey: channelInboundClampAttemptKey("release", input, row.listing_id, pausedVersion),
+        },
+        context,
+      );
       releasedListingCount += await releaseOwnership(pool, input, row.listing_id, pausedVersion);
     } catch {
       await markRecovery(pool, input, row.listing_id, pausedVersion);
@@ -287,12 +334,14 @@ async function readCandidates(
         current_version: string | number;
         updated_at: string | Date;
         clamp_state: "pending" | "engaged" | "recovery" | null;
+        observed_stream_version: string | number | null;
         paused_stream_version: string | number | null;
         shared_observed_stream_version: string | number | null;
         shared_paused_stream_version: string | number | null;
       }>(
         `SELECT listing.listing_id,listing.inventory_item_id,listing.status,stream.current_version,
-                listing.updated_at,clamp.state AS clamp_state,clamp.paused_stream_version,
+                listing.updated_at,clamp.state AS clamp_state,clamp.observed_stream_version,
+                clamp.paused_stream_version,
                 shared.observed_stream_version AS shared_observed_stream_version,
                 shared.paused_stream_version AS shared_paused_stream_version
            FROM marketplace_listing_pages AS listing
@@ -323,6 +372,8 @@ async function readCandidates(
           streamVersion: toPositiveInteger(row.current_version),
           updatedAt: instant(row.updated_at),
           clampState: row.clamp_state,
+          observedStreamVersion:
+            row.observed_stream_version === null ? null : toPositiveInteger(row.observed_stream_version),
           pausedStreamVersion: row.paused_stream_version === null ? null : toPositiveInteger(row.paused_stream_version),
           sharedObservedStreamVersion:
             row.shared_observed_stream_version === null ? null : toPositiveInteger(row.shared_observed_stream_version),
@@ -461,18 +512,6 @@ async function releaseOwnership(
     [input.accountId, input.connectionId, input.runId, listingId, pausedVersion],
   );
   return result.rowCount ?? 0;
-}
-
-async function readCurrentListing(pool: PgQueryable, accountId: string, listingId: string) {
-  const result = await pool.query<{ current_version: string | number }>(
-    `SELECT stream.current_version
-       FROM marketplace_listing_pages AS listing
-       JOIN event_store_streams AS stream ON stream.stream_id='marketplace.listing-' || listing.listing_id
-      WHERE listing.account_id=$1 AND listing.listing_id=$2`,
-    [accountId, listingId],
-  );
-  const row = result.rows[0];
-  return row ? { streamVersion: toPositiveInteger(row.current_version) } : null;
 }
 
 async function countCurrentCoverage(

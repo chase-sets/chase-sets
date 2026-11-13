@@ -46,13 +46,12 @@ describeDb("manual-sync-dark-inbound-clamp and recovery", () => {
     await seedActiveListing(pools.marketplace, services, "lst_requested", "itm_shared");
     await seedActiveListing(pools.marketplace, services, "lst_sibling", "itm_shared");
     const clamp = createMarketplaceChannelInboundClampRuntime(pools.marketplace, {
-      commandHandler: services.listings.commandHandler,
-      loadListingState: services.listings.loadListingState,
-      publishListing: async ({ accountId, listingId }, eventContext) => {
-        const current = await streamVersion(pools.marketplace, listingId);
+      pauseListing: services.listings.pauseListing,
+      readAuthoritativeListing: services.listings.readAuthoritativeListing,
+      publishListing: async ({ accountId, listingId, expectedVersion }, eventContext) => {
         const result = await services.listings.commandHandler({
           streamId: `marketplace.listing-${listingId}`,
-          expectedVersion: current,
+          expectedVersion: expectedVersion ?? (await streamVersion(pools.marketplace, listingId)),
           command: publishListingCommand,
           context: eventContext,
         });
@@ -300,8 +299,8 @@ describeDb("manual-sync-dark-inbound-clamp and recovery", () => {
       throw new Error("synthetic publication failure");
     });
     const clamp = createMarketplaceChannelInboundClampRuntime(pools.marketplace, {
-      commandHandler: services.listings.commandHandler,
-      loadListingState: services.listings.loadListingState,
+      pauseListing: services.listings.pauseListing,
+      readAuthoritativeListing: services.listings.readAuthoritativeListing,
       publishListing,
     });
     const input = {
@@ -393,16 +392,19 @@ describeDb("manual-sync-dark-inbound-clamp and recovery", () => {
               'listing-' || lpad(value::text,4,'0'),'itm_paged','engaged',1,2,now(),now(),now()
          FROM generate_series(0,250) AS value`,
     );
-    const commandHandler = vi.fn();
+    const pauseListing = vi.fn();
     const clamp = createMarketplaceChannelInboundClampRuntime(pools.marketplace, {
-      commandHandler: commandHandler as never,
-      loadListingState: async (listingId) =>
-        ({
+      pauseListing: pauseListing as never,
+      readAuthoritativeListing: async ({ listingId }) => ({
+        kind: "present",
+        version: 2,
+        state: {
           listingId,
           accountId: "acc_seller",
           status: "paused",
           pauseReason: "channel-inbound-dark",
-        }) as never,
+        } as never,
+      }),
       publishListing: vi.fn(),
     });
     const input = {
@@ -419,7 +421,7 @@ describeDb("manual-sync-dark-inbound-clamp and recovery", () => {
       clampedListingCount: 251,
       recoveryListingCount: 0,
     });
-    expect(commandHandler).not.toHaveBeenCalled();
+    expect(pauseListing).not.toHaveBeenCalled();
     await expect(
       pools.marketplace.query<{ total: string }>(
         `SELECT count(*)::text AS total FROM marketplace_channel_inbound_clamps
@@ -433,13 +435,13 @@ describeDb("manual-sync-dark-inbound-clamp and recovery", () => {
     const services = createMarketplaceServices(pools.marketplace);
     await seedActiveListing(pools.marketplace, services, "lst_partial_a", "itm_partial");
     await seedActiveListing(pools.marketplace, services, "lst_partial_b", "itm_partial");
-    const commandHandler = vi.fn(async (command: Parameters<typeof services.listings.commandHandler>[0]) => {
-      if (command.streamId.endsWith("lst_partial_b")) throw new Error("synthetic concurrent seller write");
-      return services.listings.commandHandler(command);
-    });
+    const pauseListing: typeof services.listings.pauseListing = async (params, eventContext) => {
+      if (params.listingId === "lst_partial_b") throw new Error("synthetic concurrent seller write");
+      return services.listings.pauseListing(params, eventContext);
+    };
     const clamp = createMarketplaceChannelInboundClampRuntime(pools.marketplace, {
-      commandHandler,
-      loadListingState: services.listings.loadListingState,
+      pauseListing,
+      readAuthoritativeListing: services.listings.readAuthoritativeListing,
       publishListing: services.listings.publishListing,
     });
     const input = {
