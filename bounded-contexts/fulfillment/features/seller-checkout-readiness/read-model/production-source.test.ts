@@ -111,7 +111,7 @@ describe("production-bound seller checkout source", () => {
 
   it("limits no-store to seller-shipping responses on the shared marketplace API base", async () => {
     const h = createShippingTestHarness();
-    const runtime = fulfillmentModule.createServices(h.pool);
+    const runtime = fulfillmentModule.createServices(h.pool, {});
     const app = new Hono<AuthenticatedApiEnv>();
     app.use("*", async (c, next) => {
       c.set("actor", actor);
