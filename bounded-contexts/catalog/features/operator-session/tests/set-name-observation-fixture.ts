@@ -1,6 +1,5 @@
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
-import type { CatalogRuntimeDeps } from "../../../support/authoring-support/runtime-support";
 import { createProviderScopeDiscoveryRuntime } from "../../provider-scope-discovery/api/runtime";
 import type { ProviderScopeObservationInput } from "../../provider-scope-discovery/api/refresh-schedule-store";
 import type { TcgplayerSetNameEntry, TcgplayerSetNameObservationPost } from "../domain/extension/set-names/contract";
@@ -199,7 +198,8 @@ export function createInMemoryObservationStore() {
     },
   } as unknown as PgQueryable;
 
-  const runtime = createProviderScopeDiscoveryRuntime({ db } as unknown as CatalogRuntimeDeps, {
+  const runtimeDeps = { db } as unknown as Parameters<typeof createProviderScopeDiscoveryRuntime>[0];
+  const runtime = createProviderScopeDiscoveryRuntime(runtimeDeps, {
     listProfileVersions: async () => [],
     queryIntegrationOptions: async () => {
       throw new Error("operator-extension posts never query a provider");
