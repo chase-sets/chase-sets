@@ -187,6 +187,18 @@ Notes:
 - It receives its own custody identifier and immutable receipt evidence.
 - Later reconciliation links it to a Return Shipment without rewriting the original package history.
 
+## Seller Shipping Setup
+
+**Seller Shipping Setup** records one current origin address and label preference for an authenticated Account or a trusted anonymous Sell List. Local acceptance is not carrier verification. Changes create a new owned Ship-From Location identity; address-book IDs are not location authority.
+
+## Platform-Enabled Shipping Support
+
+**Platform-Enabled Shipping Support** is the audited platform-admin decision that enables or revokes each existing label preference for a seller shipping owner. Explicit launch initialization records both `prepaid-label` and `seller-label-later` as enabled. Missing support blocks readiness, and reads, setup saves, seed, boot and replay never initialize it or undo revocation. Readiness requires both current accepted setup and enabled support, not merely an address or a provider-success promise.
+
+## Ship-From Location
+
+A **Ship-From Location** is the Fulfillment-owned identity of the current accepted Seller Shipping Setup origin. It is scoped to the Account or anonymous Sell List and used with the current label preference and source revision. Multi-location assignment, carrier rates, labels and shipment execution remain planned.
+
 ## Planned Multi-Location Fulfillment
 
 These planned terms pre-register upcoming multi-location fulfillment language. They are not shipped behavior until Fulfillment adds the corresponding assignment, packing, handoff, and shipment execution facts.
@@ -194,10 +206,6 @@ These planned terms pre-register upcoming multi-location fulfillment language. T
 ### Fulfillment Location
 
 A **Fulfillment Location** is the planned place from which Fulfillment work can be executed.
-
-### Ship-From Location
-
-A **Ship-From Location** is the planned Fulfillment origin used for carrier rates, labels, and shipment execution.
 
 ### Fulfillment Network
 
