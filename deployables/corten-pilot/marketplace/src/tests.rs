@@ -18798,7 +18798,7 @@ async fn a_paid_guest_order_is_saved_to_an_account_with_a_passkey_or_a_claim_lin
     assert_eq!(status, StatusCode::OK, "{html}");
     let page = text(&html);
     assert!(page.contains("We sent a claim link to this order") && page.contains("contact email."), "{html}");
-    assert!(!page.contains("Email me a claim link") && !html.contains("clm_1"), "{html}");
+    assert!(!page.contains("Email me a claim link"), "{html}");
     let (status, _, html) =
         pilot.send(as_guest(Method::POST, "/checkout/payments/pay_unbound", "intent=claim-link-request")).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
@@ -18819,7 +18819,7 @@ async fn a_paid_guest_order_is_saved_to_an_account_with_a_passkey_or_a_claim_lin
     let (status, _, html) = pilot.send(get("/checkout/payments/pay_paid?claimContinuation=cc_busy", None)).await;
     assert_eq!(status, StatusCode::TOO_MANY_REQUESTS, "{html}");
     let page = text(&html);
-    assert!(page.contains("Too many attempts") && page.contains("Wait a few minutes, then open it again."), "{html}");
+    assert!(page.contains("Too many attempts") && page.contains("Try the link again later."), "{html}");
     assert!(!page.contains("invalid or expired"), "{html}");
 }
 
@@ -18846,6 +18846,13 @@ async fn a_claim_links_token_is_typed_only_where_the_page_shows_it() {
         .await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
     assert!(text(&html).contains("This claim link is invalid or expired."), "{html}");
+    // A link sent when the contact cannot be read again says so and draws no form, so no token:
+    // the emailed link still claims.
+    let (status, _, html) =
+        pilot.send(as_guest(Method::POST, "/checkout/payments/pay_limited", "intent=claim-link-request")).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(text(&html).contains("We sent a claim link to this order"), "{html}");
+    assert!(!html.contains("clm_1") && !html.contains(r#"value="claim-link-consume""#), "{html}");
     let body = "intent=claim-link-consume&displayName=Guest+Buyer&token=clm_1";
     let (status, headers, html) = pilot.send(as_guest(Method::POST, "/checkout/payments/pay_paid", body)).await;
     assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
