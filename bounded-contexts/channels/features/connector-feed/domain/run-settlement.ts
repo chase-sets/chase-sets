@@ -1,6 +1,7 @@
 import type { ClaimedReservationRunSettlement } from "../../outbound-sync/domain/contracts";
 import { ChannelConnectionError } from "../../connections/domain/contracts";
 import { assertClosedRecord, assertRfc3339Instant } from "../../connections/domain/validation";
+import { tcgplayerStagedImportReadbackLimits } from "../../connector-client/domain/tcgplayer-staged-import-readback-verdict";
 
 export type ConnectorRunSettlement = Omit<ClaimedReservationRunSettlement, "context">;
 
@@ -17,6 +18,7 @@ export function assertConnectorRunSettlement(value: unknown): asserts value is C
       uploadAttemptedAt: true,
       uploadFileName: true,
       importSummary: true,
+      stagedReadback: true,
     } satisfies Record<keyof ConnectorRunSettlement, true>),
     "connector run settlement",
   );
@@ -48,6 +50,31 @@ export function assertConnectorRunSettlement(value: unknown): asserts value is C
     assertRfc3339Instant(value.uploadAttemptedAt);
   }
   if (value.uploadFileName !== null) text(value.uploadFileName);
+  if (value.stagedReadback !== null) {
+    assertClosedRecord(value.stagedReadback, ["kind", "counts", "reason"], "staged readback verdict");
+    const verdict = value.stagedReadback;
+    if (verdict.kind === "outcome-unknown") {
+      if (
+        typeof verdict.reason !== "string" ||
+        ![
+          "missing-completeness-discriminator",
+          "incomplete-readback",
+          "overflow-readback",
+          "authority-unavailable",
+          "id-set-changed",
+          "member-projection-mismatch",
+          "non-member-drift",
+        ].includes(verdict.reason)
+      )
+        invalid();
+    } else if ((verdict.kind !== "applied" && verdict.kind !== "basis-diverged") || Object.hasOwn(verdict, "reason"))
+      invalid();
+    assertClosedRecord(verdict.counts, ["preRows", "postRows", "members"], "staged readback counts");
+    for (const key of ["preRows", "postRows", "members"] as const) {
+      integer(verdict.counts[key], 0);
+      if (verdict.counts[key] > (key === "members" ? 500 : tcgplayerStagedImportReadbackLimits.maxRows)) invalid();
+    }
+  }
   if (value.importSummary !== null) {
     assertClosedRecord(
       value.importSummary,

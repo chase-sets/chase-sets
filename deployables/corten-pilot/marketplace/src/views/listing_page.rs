@@ -164,33 +164,206 @@ pub fn options(summary: Option<&str>) -> Vec<String> {
         .collect()
 }
 
-/// The page.
+/// The page's header, which `<corten-live>` draws again with the listing.
+#[derive(Id)]
+pub struct ListingHeadId;
+/// The purchase column (the panel and the purchase limit), drawn again with the listing.
+#[derive(Id)]
+pub struct ListingBuyId;
+/// The seller's card, drawn again with the listing.
+#[derive(Id)]
+pub struct ListingSellerId;
+
+/// What the page's parts show of a listing, worked out once for each.
+struct Shown<'a> {
+    can: bool,
+    active: bool,
+    seller: &'a str,
+    price: String,
+    unbuyable: Option<(String, String)>,
+    availability: String,
+    availability_copy: String,
+    limit: Option<String>,
+    fulfillment: String,
+    tone: &'static str,
+    chips: Vec<String>,
+    account: Option<String>,
+}
+
+impl<'a> Shown<'a> {
+    fn of(t: ListingMsg, listing: &'a PublicListing) -> Self {
+        let l = &listing.listing;
+        let can = can_purchase(listing);
+        let active = l.status == "active" && can;
+        let unbuyable = unbuyable(t, listing);
+        let availability = t.page_available_quantity(grouped(available(l))).to_string();
+        let availability_copy =
+            if can { availability.clone() } else { unbuyable.as_ref().map_or(availability.clone(), |(_, d)| d.clone()) };
+        Shown {
+            can,
+            active,
+            seller: l.seller_display_name.as_deref().unwrap_or(t.page_seller()),
+            price: listing_price(t, listing),
+            unbuyable,
+            availability,
+            availability_copy,
+            limit: purchase_limit(l),
+            fulfillment: fulfillment(t, listing.ship_from_code.as_deref()),
+            tone: if active { "success" } else { "neutral" },
+            chips: options(l.product_summary.as_deref()),
+            account: l.seller_slug.as_deref().filter(|s| !s.is_empty()).map(crate::accounts::feedback),
+        }
+    }
+}
+
+/// The page. The header, the purchase column and the seller's card are drawn again on each change
+/// to the listing (`public_listing::live`); Report Listing is not, as it holds what the user typed.
 #[component(css)]
 pub fn ListingPage<'a>(t: ListingMsg, p: Pilot, listing: &'a PublicListing, notice: Option<&'a ListingNotice>) -> impl Render {
+    let report = url::PublicListingReport { slug: &listing.listing_slug }.href();
+    let live = url::PublicListingLive { slug: &listing.listing_slug, id: &listing.listing.listing_id }.href();
+    html! {
+        <div class={Page}>
+            <Head t={t} listing={listing} />
+            if let Some(ListingNotice::BuyRefused(message)) = notice {
+                <div class={Banner} data-tone="danger" role="alert"><p>{message}</p></div>
+            }
+            <div class={Columns}>
+                <Buy t={t} p={p} listing={listing} />
+                <div class={Column}>
+                    <Seller t={t} p={p} listing={listing} />
+                    <ReportForm t={t} p={p} action={&report} notice={notice} />
+                </div>
+            </div>
+        </div>
+        <corten-live src={&live}></corten-live>
+    }
+}
+
+/// The parts of the page `<corten-live>` draws again on a change to the listing: the header, the
+/// purchase column and the seller's card, each by its id.
+pub fn listing_live_parts<'a>(t: ListingMsg, p: Pilot, listing: &'a PublicListing) -> impl Render + 'a {
+    html! {
+        <Head t={t} listing={listing} />
+        <Buy t={t} p={p} listing={listing} />
+        <Seller t={t} p={p} listing={listing} />
+    }
+}
+
+/// What `<corten-live>` draws when the listing is gone (marketplace's patch removes it and its page
+/// says it is not found): the header says so and the purchase column is hidden, so the seller's card
+/// takes the row.
+#[component(css = ListingPage)]
+pub fn ListingGone(t: ListingMsg) -> impl Render {
+    html! {
+        <header id={ListingHeadId} class={Head}>
+            <h1 class={Title}>{t.page_listing_not_found()}</h1>
+            <p class={Muted}>{t.page_this_listing_is_not_available_right()}</p>
+        </header>
+        <div id={ListingBuyId} class={Column} hidden></div>
+    }
+}
+
+/// The header: the status, the item and its options, the price and seller, and why it cannot be
+/// bought.
+#[component(css = ListingPage)]
+fn Head<'a>(t: ListingMsg, listing: &'a PublicListing) -> impl Render {
     let l = &listing.listing;
-    let can = can_purchase(listing);
-    let active = l.status == "active" && can;
+    let s = Shown::of(t, listing);
     let title = listing.item_title.as_deref().unwrap_or(t.page_marketplace_listing());
     let subtitle = listing.item_subtitle.as_deref().unwrap_or(t.page_marketplace_listing());
-    let seller = l.seller_display_name.as_deref().unwrap_or(t.page_seller());
-    let price = listing_price(t, listing);
-    let chips = options(l.product_summary.as_deref());
-    let unbuyable = unbuyable(t, listing);
-    let availability = t.page_available_quantity(grouped(available(l))).to_string();
-    let availability_copy =
-        if can { availability.clone() } else { unbuyable.as_ref().map_or(availability.clone(), |(_, d)| d.clone()) };
-    let limit = purchase_limit(l);
-    let fulfillment = fulfillment(t, listing.ship_from_code.as_deref());
-    let verified = if active { t.page_verified_seller() } else { t.page_seller_details_visible() };
-    let tone = if active { "success" } else { "neutral" };
+    html! {
+        <header id={ListingHeadId} class={Head}>
+            <span class={Badge} data-tone={s.tone}>{if s.can { l.status.as_str() } else { t.page_unavailable() }}</span>
+            <h1 class={Title}>{title}</h1>
+            <p class={Subtitle}>{subtitle}</p>
+            <Options t={t} chips={&s.chips} />
+            <p class={Muted}>{&s.price}" from "{s.seller}</p>
+            if let Some((heading, description)) = &s.unbuyable {
+                <div class={Banner} data-tone="warning">
+                    <p class={BannerTitle}>{heading}</p>
+                    <p>{description}</p>
+                </div>
+            }
+        </header>
+    }
+}
+
+/// The purchase panel (`ListingPurchasePanel`) with Buy this listing and Compare market, and the
+/// purchase limit below it.
+#[component(css = ListingPage)]
+fn Buy<'a>(t: ListingMsg, p: Pilot, listing: &'a PublicListing) -> impl Render {
+    let l = &listing.listing;
+    let s = Shown::of(t, listing);
+    let verified = if s.active { t.page_verified_seller() } else { t.page_seller_details_visible() };
     let item_slug = listing.catalog_item_slug.as_deref().filter(|s| !s.is_empty()).unwrap_or(&l.catalog_catalog_item_id);
     let market = url::Item { slug: item_slug, state: Address::default(), after: Default::default() }.href();
-    let account = l.seller_slug.as_deref().filter(|s| !s.is_empty()).map(crate::accounts::feedback);
     let buy = url::PublicListingBuy { slug: &listing.listing_slug }.href();
-    let report = url::PublicListingReport { slug: &listing.listing_slug }.href();
-    let policy = match (&limit, can) {
-        (Some(limit), true) => format!("{availability} | {limit}"),
-        _ => availability_copy.clone(),
+    html! {
+        <div id={ListingBuyId} class={Column}>
+            <section class={Card} aria-labelledby="listing-buy-heading">
+                <h2 id="listing-buy-heading" class={CardTitle}>{t.page_ready_to_buy_this_listing()}</h2>
+                <p class={Muted}>{t.page_secure_checkout_reassurance()}</p>
+                <div>
+                    <p class={PriceLabel}>{p.listing_price()}</p>
+                    <p class={Price}>{&s.price}</p>
+                </div>
+                <dl class={Facts} data-boxed="">
+                    <div>
+                        <dt>{p.listing_seller()}</dt>
+                        <dd class={Seller}>
+                            <Rating
+                                name={s.seller}
+                                href={s.account.as_deref()}
+                                rating={l.seller_average_rating.as_deref()}
+                                reviews={l.seller_review_count}
+                            />
+                            <span class={Badge} data-tone={s.tone}>{verified}</span>
+                        </dd>
+                    </div>
+                    <div>
+                        <dt>{t.page_availability()}</dt>
+                        <dd>{&s.availability_copy}</dd>
+                    </div>
+                    <div>
+                        <dt>{t.page_fulfillment()}</dt>
+                        <dd>{&s.fulfillment}</dd>
+                    </div>
+                    <div>
+                        <dt>{p.listing_returns()}</dt>
+                        <dd>{t.page_returns_reviewed_before_payment()}</dd>
+                    </div>
+                    <div>
+                        <dt>{p.listing_protection()}</dt>
+                        <dd>{t.page_buyer_protected()}</dd>
+                    </div>
+                </dl>
+                <div class={Actions}>
+                    if s.can {
+                        <form method="post" action={&buy}>
+                            {SubmitKey::field(ListingFields::FIELDS.attempt)}
+                            <button type="submit" class={Primary}>{t.page_buy_this_listing()}</button>
+                        </form>
+                    }
+                    <a class={Secondary} href={&market}>{t.page_compare_market()}</a>
+                </div>
+            </section>
+            if let Some(limit) = &s.limit {
+                <span class={Badge}>{limit}</span>
+            }
+        </div>
+    }
+}
+
+/// The seller (`AccountTrustCard`): their name and rating, View seller, where the listing ships from,
+/// and its availability, shipping credit and product.
+#[component(css = ListingPage)]
+fn Seller<'a>(t: ListingMsg, p: Pilot, listing: &'a PublicListing) -> impl Render {
+    let l = &listing.listing;
+    let s = Shown::of(t, listing);
+    let policy = match (&s.limit, s.can) {
+        (Some(limit), true) => format!("{} | {limit}", s.availability),
+        _ => s.availability_copy.clone(),
     };
     let credit = if listing.shipping_allowance_percentage_bps > 0 {
         bps_percent(listing.shipping_allowance_percentage_bps)
@@ -198,121 +371,46 @@ pub fn ListingPage<'a>(t: ListingMsg, p: Pilot, listing: &'a PublicListing, noti
         t.page_none().to_owned()
     };
     html! {
-        <div class={Page}>
-            <header class={Head}>
-                <span class={Badge} data-tone={tone}>{if can { l.status.as_str() } else { t.page_unavailable() }}</span>
-                <h1 class={Title}>{title}</h1>
-                <p class={Subtitle}>{subtitle}</p>
-                <Options t={t} chips={&chips} />
-                <p class={Muted}>{&price}" from "{seller}</p>
-                if let Some((heading, description)) = &unbuyable {
-                    <div class={Banner} data-tone="warning">
-                        <p class={BannerTitle}>{heading}</p>
-                        <p>{description}</p>
-                    </div>
-                }
-                if let Some(ListingNotice::BuyRefused(message)) = notice {
-                    <div class={Banner} data-tone="danger" role="alert"><p>{message}</p></div>
-                }
-            </header>
-            <div class={Columns}>
-                <div class={Column}>
-                    <section class={Card} aria-labelledby="listing-buy-heading">
-                        <h2 id="listing-buy-heading" class={CardTitle}>{t.page_ready_to_buy_this_listing()}</h2>
-                        <p class={Muted}>{t.page_secure_checkout_reassurance()}</p>
-                        <div>
-                            <p class={PriceLabel}>{p.listing_price()}</p>
-                            <p class={Price}>{&price}</p>
-                        </div>
-                        <dl class={Facts} data-boxed="">
-                            <div>
-                                <dt>{p.listing_seller()}</dt>
-                                <dd class={Seller}>
-                                    <Rating
-                                        name={seller}
-                                        href={account.as_deref()}
-                                        rating={l.seller_average_rating.as_deref()}
-                                        reviews={l.seller_review_count}
-                                    />
-                                    <span class={Badge} data-tone={tone}>{verified}</span>
-                                </dd>
-                            </div>
-                            <div>
-                                <dt>{t.page_availability()}</dt>
-                                <dd>{&availability_copy}</dd>
-                            </div>
-                            <div>
-                                <dt>{t.page_fulfillment()}</dt>
-                                <dd>{&fulfillment}</dd>
-                            </div>
-                            <div>
-                                <dt>{p.listing_returns()}</dt>
-                                <dd>{t.page_returns_reviewed_before_payment()}</dd>
-                            </div>
-                            <div>
-                                <dt>{p.listing_protection()}</dt>
-                                <dd>{t.page_buyer_protected()}</dd>
-                            </div>
-                        </dl>
-                        <div class={Actions}>
-                            if can {
-                                <form method="post" action={&buy}>
-                                    {SubmitKey::field(ListingFields::FIELDS.attempt)}
-                                    <button type="submit" class={Primary}>{t.page_buy_this_listing()}</button>
-                                </form>
-                            }
-                            <a class={Secondary} href={&market}>{t.page_compare_market()}</a>
-                        </div>
-                    </section>
-                    if let Some(limit) = &limit {
-                        <span class={Badge}>{limit}</span>
+        <section id={ListingSellerId} class={Card} aria-labelledby="listing-seller-heading">
+            <div class={SellerHead}>
+                <div class={SellerName}>
+                    <h2 id="listing-seller-heading" class={CardTitle}>{s.seller}</h2>
+                    if s.active {
+                        <span class={Badge} data-tone="success">{t.page_verified_seller()}</span>
                     }
+                    <Rating
+                        name=""
+                        href={None}
+                        rating={l.seller_average_rating.as_deref()}
+                        reviews={l.seller_review_count}
+                    />
                 </div>
-                <div class={Column}>
-                    <section class={Card} aria-labelledby="listing-seller-heading">
-                        <div class={SellerHead}>
-                            <div class={SellerName}>
-                                <h2 id="listing-seller-heading" class={CardTitle}>{seller}</h2>
-                                if active {
-                                    <span class={Badge} data-tone="success">{t.page_verified_seller()}</span>
-                                }
-                                <Rating
-                                    name=""
-                                    href={None}
-                                    rating={l.seller_average_rating.as_deref()}
-                                    reviews={l.seller_review_count}
-                                />
-                            </div>
-                            if let Some(account) = &account {
-                                <a class={Secondary} href={account}>{t.page_view_seller()}</a>
-                            }
-                        </div>
-                        <ul class={Tiles}>
-                            <li>
-                                <span class={Muted}>{p.listing_completed()}</span>
-                                <span class={Strong}>{t.page_active_listing()}</span>
-                            </li>
-                            <li><span class={Muted}>{t.page_ships_from()}</span><span class={Strong}>{&fulfillment}</span></li>
-                        </ul>
-                        <dl class={Facts}>
-                            <div>
-                                <dt>{t.page_availability()}</dt>
-                                <dd>{&policy}</dd>
-                            </div>
-                            <div>
-                                <dt>{t.page_shipping_credit()}</dt>
-                                <dd>{&credit}</dd>
-                            </div>
-                            <div>
-                                <dt>{t.page_product()}</dt>
-                                <dd><Options t={t} chips={&chips} /></dd>
-                            </div>
-                        </dl>
-                    </section>
-                    <ReportForm t={t} p={p} action={&report} notice={notice} />
-                </div>
+                if let Some(account) = &s.account {
+                    <a class={Secondary} href={account}>{t.page_view_seller()}</a>
+                }
             </div>
-        </div>
+            <ul class={Tiles}>
+                <li>
+                    <span class={Muted}>{p.listing_completed()}</span>
+                    <span class={Strong}>{t.page_active_listing()}</span>
+                </li>
+                <li><span class={Muted}>{t.page_ships_from()}</span><span class={Strong}>{&s.fulfillment}</span></li>
+            </ul>
+            <dl class={Facts}>
+                <div>
+                    <dt>{t.page_availability()}</dt>
+                    <dd>{&policy}</dd>
+                </div>
+                <div>
+                    <dt>{t.page_shipping_credit()}</dt>
+                    <dd>{&credit}</dd>
+                </div>
+                <div>
+                    <dt>{t.page_product()}</dt>
+                    <dd><Options t={t} chips={&s.chips} /></dd>
+                </div>
+            </dl>
+        </section>
     }
 }
 
