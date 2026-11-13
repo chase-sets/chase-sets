@@ -62,6 +62,7 @@ mod recommendations_page;
 mod recovery;
 mod repricing_page;
 mod reviews_page;
+mod save_dialog;
 mod search_page;
 mod security_page;
 mod sell_checkout_page;
@@ -119,6 +120,7 @@ pub use recommendations_page::{RecommendationsPage, recommendations_notice, reco
 pub use recovery::{Notice, Recovery, WriteForm, handlers};
 pub use repricing_page::{RepricingPage, RepricingPolicyCatchingUp, RepricingPolicyPage, repricing_dry_run_part};
 pub use reviews_page::{ReviewAnchorId, ReviewPage, ReviewPreparing, ReviewsPage};
+pub use save_dialog::SaveDialog;
 pub use search_page::{LoadMore, ResultCard, ResultRows, ResultsId, SearchPage};
 pub use security_page::SecurityPage;
 pub use sell_checkout_page::{SellCheckoutPage, SellConfirmationPage};
@@ -196,13 +198,19 @@ pub const ITEM: &[Component] = &[
 
 /// Search's components (the home page, `/search`, `/categories`, and `/sets` for its cards): its
 /// stylesheet, the script that applies a filter as it changes, the analytics a result's click
-/// sends and the kit's `VisuallyHidden` (search's hidden heading and legends, and the item
-/// page's chart summary). In `App::components`, since the home page is outside every area.
+/// sends, the kit's `VisuallyHidden` (search's hidden heading and legends, and the item page's
+/// chart summary), and Add to List's dialog with corten-ui's handler that makes it modal. In
+/// `App::components`, since the home page is outside every area. The dialog is here rather than
+/// with the item page because a result's Add to List patches it into the search page from the
+/// item's handler (`/items/{slug}/save`), and a patch brings no stylesheet of its own
+/// (corten-run/corten#1366).
 pub const SEARCH: &[Component] = &[
     SearchPage,
     search_page::handlers::COMPONENT,
     item_detail::analytics::COMPONENT,
     platform::ui::visually_hidden::VisuallyHidden,
+    SaveDialog,
+    corten_ui::dialog::COMPONENT,
 ];
 
 /// A set's page (`/sets`). Its cards are search's (`ItemCards`), in `App::components`.

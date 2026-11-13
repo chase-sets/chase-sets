@@ -17,8 +17,12 @@
 //! Without it, the form loads the address with a page more (`more=24`), up to the 192 the API reads
 //! at once.
 //!
-//! Not ported: Add to List and the bulk add to the buy cart from a result, the realtime market
-//! patches, the facet option search and the automatic load on scroll.
+//! A result's Add to List posts to the item's `/items/{slug}/save` with `prepare` (`saving`), which
+//! answers the dialog this page has empty, or the item page to choose the options the filters do
+//! not name.
+//!
+//! Not ported: the bulk add to the buy cart from a result, the realtime market patches, the facet
+//! option search and the automatic load on scroll.
 use std::collections::BTreeMap;
 
 use corten::{
@@ -32,7 +36,7 @@ use crate::{
     app::{Shared, marketplace_origin, url},
     auth::Session,
     items::Raw,
-    text::{Pilot, SearchMsg},
+    text::{ItemMsg, Pilot, SearchMsg},
     views,
 };
 
@@ -692,7 +696,8 @@ async fn show(
 /// its first page replaces the rows instead. A failed read leaves the rows and offers Load more
 /// again, saying it failed.
 async fn more(req: &Req, caller: &impl Search, place: Place<'_>, terms: &Terms, cursor: &str) -> HtmlResult {
-    let t: SearchMsg = req.t();
+    let (t, i): (SearchMsg, ItemMsg) = (req.t(), req.t());
+    let from = place.href(terms);
     let category = match place {
         Place::Category(slug) => slug,
         _ => "",
@@ -700,7 +705,7 @@ async fn more(req: &Req, caller: &impl Search, place: Place<'_>, terms: &Terms, 
     let shown = terms.more;
     match caller.search(&terms.api_query_from(category, PAGE_SIZE, Some(cursor))).await {
         Ok(page) if page.cursor_restarted => req.patch(html! {
-            <views::ResultRows t={t} items={&page.items} terms={terms} first={0} keys={page.keys()} />
+            <views::ResultRows t={t} i={i} items={&page.items} terms={terms} first={0} keys={page.keys()} from={&from} />
             <views::LoadMore
                 t={t}
                 place={place}
@@ -714,7 +719,7 @@ async fn more(req: &Req, caller: &impl Search, place: Place<'_>, terms: &Terms, 
             let keys = page.keys();
             let (items, next) = (&page.items, page.next_cursor.as_deref());
             req.patch(html! {
-                {Append(views::ResultsId, html! { for (n, item) in items.iter().enumerate() { <views::ResultCard t={t} item={item} terms={terms} index={shown + n} keys={keys} /> } })}
+                {Append(views::ResultsId, html! { for (n, item) in items.iter().enumerate() { <views::ResultCard t={t} i={i} item={item} terms={terms} index={shown + n} keys={keys} from={&from} /> } })}
                 <views::LoadMore
                     t={t}
                     place={place}
@@ -759,7 +764,7 @@ fn render(req: &Req, viewer: Option<&crate::auth::Viewer>, screen: &SearchScreen
         status,
         html! {
             <views::Layout req={req} viewer={viewer} title={&title} head={head}>
-                <views::SearchPage t={t} p={p} screen={screen} failed={failed} />
+                <views::SearchPage t={t} i={req.t()} p={p} screen={screen} failed={failed} />
             </views::Layout>
         },
     )

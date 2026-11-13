@@ -461,6 +461,10 @@
   padding: var(--space-1) var(--space-3);
   font-size: 0.875rem;
 }
+/* Add to List's form, whose button sits among the intents. */
+.save {
+  display: contents;
+}
 
 /* The home page's shelf: featured categories (1, 2 from md, 4 from xl) and new arrivals (1, 2
    from lg, 3 from 2xl), as marketplace's grids are. */
