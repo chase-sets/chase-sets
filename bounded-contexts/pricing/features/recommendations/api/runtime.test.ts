@@ -600,21 +600,23 @@ describe("pricing recommendation runtime", () => {
     const sentKeysByListing = new Map<string, string[]>();
     const batchIds: string[] = [];
     const gateway: PricingMarketplaceListingGateway = {
-      applyBulkListingPriceUpdates: vi.fn(async (body) => {
-        batchIds.push(body.batchId ?? "");
-        for (const update of body.updates)
-          sentKeysByListing.set(update.listingId, [
-            ...(sentKeysByListing.get(update.listingId) ?? []),
-            update.idempotencyKey ?? "",
-          ]);
-        return {
-          items: body.updates.map((update) => ({
-            listingId: update.listingId,
-            outcome: batchIds.length === 1 ? (firstOutcomes[update.listingId] ?? "error") : ("no_op" as const),
-            version: 2,
-          })),
-        };
-      }),
+      applyBulkListingPriceUpdates: vi.fn(
+        async (body: Parameters<PricingMarketplaceListingGateway["applyBulkListingPriceUpdates"]>[0]) => {
+          batchIds.push(body.batchId ?? "");
+          for (const update of body.updates)
+            sentKeysByListing.set(update.listingId, [
+              ...(sentKeysByListing.get(update.listingId) ?? []),
+              update.idempotencyKey ?? "",
+            ]);
+          return {
+            items: body.updates.map((update) => ({
+              listingId: update.listingId,
+              outcome: batchIds.length === 1 ? (firstOutcomes[update.listingId] ?? "error") : ("no_op" as const),
+              version: 2,
+            })),
+          };
+        },
+      ),
       createListing: vi.fn(async () => ({ id: "lst_created" })),
     };
     const { services, events } = createRuntime(queryStub(rows));

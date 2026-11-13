@@ -2532,7 +2532,10 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
       if (params.batchId !== undefined) assertListingBatchId(params.batchId);
 
       // One target attempt per Listing: the batch id, or a caller-owned target attempt, bound to that Listing.
-      const prepared = params.updates.map((update) => {
+      type PreparedPriceTarget =
+        | Readonly<{ kind: "runnable"; target: BulkPriceTarget }>
+        | Readonly<{ kind: "rejected"; targetId: string; decision: ListingBatchDecision }>;
+      const prepared = params.updates.map((update): PreparedPriceTarget => {
         try {
           const attempt = attemptFor(
             "listing.update-price",
@@ -2544,12 +2547,12 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
             },
             update.listingId,
           );
-          return { targetId: update.listingId, update, attempt };
+          return { kind: "runnable", target: { targetId: update.listingId, update, attempt } };
         } catch (error) {
-          return { targetId: update.listingId, update, rejected: listingBatchFailure(error) };
+          return { kind: "rejected", targetId: update.listingId, decision: listingBatchFailure(error) };
         }
       });
-      const runnable = prepared.flatMap((entry) => ("attempt" in entry ? [entry] : []));
+      const runnable = prepared.flatMap((entry) => (entry.kind === "runnable" ? [entry.target] : []));
       const priceOutcome = (
         listingId: string,
         decision: ListingBatchDecision,
@@ -2564,16 +2567,20 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
         // Exempt engine and keyless internal callers carry no batch vector.
         const decided = await driveBulkPriceUpdates(params.accountId, runnable, context);
         return prepared.map((entry) =>
-          priceOutcome(
-            entry.targetId,
-            "rejected" in entry ? entry.rejected : (decided.get(entry.targetId) ?? listingBatchUnknownDecision),
-          ),
+          entry.kind === "rejected"
+            ? priceOutcome(entry.targetId, entry.decision)
+            : priceOutcome(entry.target.targetId, decided.get(entry.target.targetId) ?? listingBatchUnknownDecision),
         );
       }
 
-      const vectorTargets = runnable.filter(
-        (entry): entry is (typeof runnable)[number] & ListingBatchTarget => entry.attempt !== null,
-      );
+      // Decisions return in target order, so each input row keeps its own decision even for a repeated Listing.
+      const vectorTargets: (BulkPriceTarget & ListingBatchTarget)[] = [];
+      const vectorIndexByInput = new Map<number, number>();
+      prepared.forEach((entry, inputIndex) => {
+        if (entry.kind !== "runnable" || entry.target.attempt === null) return;
+        vectorIndexByInput.set(inputIndex, vectorTargets.length);
+        vectorTargets.push({ ...entry.target, attempt: entry.target.attempt });
+      });
       const decisions = await runListingBatch({
         store: deps.eventStore,
         batch: { accountId: params.accountId, family: "listing.update-price", batchId: params.batchId },
@@ -2581,15 +2588,14 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
         targets: vectorTargets,
         drive: (pending) => driveBulkPriceUpdates(params.accountId, pending, context),
       });
-      const byTarget = new Map(vectorTargets.map((target, index) => [target, decisions[index]!] as const));
-      return prepared.map((entry) =>
-        priceOutcome(
-          entry.targetId,
-          "rejected" in entry
-            ? entry.rejected
-            : (byTarget.get(entry as ListingBatchTarget & typeof entry) ?? listingBatchUnknownDecision),
-        ),
-      );
+      return prepared.map((entry, inputIndex) => {
+        if (entry.kind === "rejected") return priceOutcome(entry.targetId, entry.decision);
+        const vectorIndex = vectorIndexByInput.get(inputIndex);
+        return priceOutcome(
+          entry.target.targetId,
+          (vectorIndex === undefined ? undefined : decisions[vectorIndex]) ?? listingBatchUnknownDecision,
+        );
+      });
     },
     applyListingBatch: async (params, context) => {
       assertListingBatchId(params.batchId);
