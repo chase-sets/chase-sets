@@ -239,7 +239,7 @@ pub mod url {
     pub use sale_reviews::SaleReview;
     pub use sale_shipments::{Pack, Packing, PackingLine, PackingScan, PackingSlips, PackingStart, SaleShipment, SaleShipments};
     pub use sales::{Sale, SaleCancel, Sales};
-    pub use search::Search;
+    pub use search::{Search, SearchCart};
     pub use security::Security;
     pub use sell_checkout::{SellCheckout, SellConfirmation};
     pub use sell_list::{SellList, SellListEvidence};
@@ -370,6 +370,11 @@ pub mod url {
             #[route(query)]
             pub terms: crate::search::Terms,
         }
+
+        /// Add matching products to Buy Cart for the search its form sends: the preview (a `GET`,
+        /// the sheet) and the add (see `bulk_cart`).
+        #[route("/search/cart", get = crate::bulk_cart::preview, post = crate::bulk_cart::commit)]
+        pub struct SearchCart;
     }
 
     /// A category's search page, public.
