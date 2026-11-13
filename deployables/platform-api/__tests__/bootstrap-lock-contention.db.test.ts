@@ -17,7 +17,7 @@ import { closePlatformApiPools, createPlatformApiPools, createSeedCommandPools }
 import { productionLikeDataProfiles, seedApiHostIfEmpty } from "@chase-sets/platform-runtime/api";
 import { withSchemaBootstrapLock } from "@chase-sets/bounded-context-runtime";
 import { createPlatformApiHost } from "../src/app";
-import { apiContextRegistry } from "../src/generated/api-context-registry";
+import { apiContextRegistry } from "../src/context-registry";
 import type { PlatformApiContextName } from "../src/config";
 import {
   createPlatformApiBootstrapTestHarness,

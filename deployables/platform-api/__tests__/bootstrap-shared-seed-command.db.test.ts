@@ -7,7 +7,7 @@ import { nonProductionDataProfiles, seedApiHostIfEmpty } from "@chase-sets/platf
 import { createFakePaymentProcessorGateway } from "@chase-sets/payment-processing/test-support";
 import { createPlatformApiHost } from "../src/app";
 import { closePlatformApiPools, createSeedCommandPools } from "../src/database-pools";
-import { apiContextRegistry } from "../src/generated/api-context-registry";
+import { apiContextRegistry } from "../src/context-registry";
 import { createPlatformApiBootstrapTestHarness, listingPhotoStorage } from "./bootstrap-db-test-support";
 
 createPlatformApiBootstrapTestHarness("platform_api_bootstrap_shared_seed_command", () => {});
