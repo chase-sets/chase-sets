@@ -3,15 +3,11 @@ import { runInNewContext } from "node:vm";
 import ts from "@chase-sets/typescript-compiler-api";
 import { describe, expect, it } from "vitest";
 import { createDurableJobLaneRunners, type WorkerRunner } from "@chase-sets/platform-runtime/worker";
-import { createInMemoryEventStore } from "../../../contracts/event-core/test-support";
-import type { MarketplaceListingServices } from "@chase-sets/marketplace/server";
+import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
+import type { MarketplaceListingServices } from "./runtime";
 import type { PricingRecommendationServices } from "@chase-sets/pricing/server";
-import { listingAttempt } from "../../../bounded-contexts/marketplace/features/listings/api/listing-attempt";
-import {
-  listingBatchStreamId,
-  lookupListingBatch,
-  runListingBatch,
-} from "../../../bounded-contexts/marketplace/features/listings/api/listing-batch";
+import { listingAttempt } from "./listing-attempt";
+import { listingBatchStreamId, lookupListingBatch, runListingBatch } from "./listing-batch";
 
 describe("Pricing worker seller audit composition", () => {
   it.each(["recommendation", "bulk-reprice", "evaluation"] as const)(
@@ -76,7 +72,10 @@ describe("Pricing worker seller audit composition", () => {
         expect((await gateway.applyBulkListingPriceUpdates(body)).items[0]?.outcome).toBe("applied");
         return 1;
       };
-      const text = readFileSync(new URL("../src/main.ts", import.meta.url), "utf8");
+      const text = readFileSync(
+        new URL("../../../../../deployables/platform-worker/src/main.ts", import.meta.url),
+        "utf8",
+      );
       const source = ts.createSourceFile("main.ts", text, ts.ScriptTarget.ES2022, true);
       const name = kind === "bulk-reprice" ? "createBulkRepriceIngestionJobRunners" : "createPricingJobRunners";
       const declarations = source.statements.filter(
