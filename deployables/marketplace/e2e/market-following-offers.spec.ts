@@ -828,7 +828,11 @@ test("market-following consent, changed target, Checkout acceptance and permanen
           const field = seller.locator(`input[name="${name}"]:visible`);
           if (await field.count()) await field.fill(value);
         }
-        await seller.locator('input[name="termsAccepted"]').check();
+        // The design-system Checkbox input is sr-only and its label intercepts pointer clicks.
+        const termsAccepted = seller.locator('input[name="termsAccepted"]');
+        await termsAccepted.focus();
+        await seller.keyboard.press("Space");
+        await expect(termsAccepted).toBeChecked();
         await seller.getByRole("button", { name: "Review sale", exact: true }).first().click();
         await expect(seller).toHaveURL(/\/checkout\/sell\/.*confirmation/);
         const readAccepted = async () => {
