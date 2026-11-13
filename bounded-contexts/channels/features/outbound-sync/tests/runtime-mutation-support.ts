@@ -14,6 +14,7 @@ import * as orderPull from "../api/order-pull";
 import * as liveExport from "../api/live-export";
 import * as liveExportContract from "../domain/live-export-codec";
 import * as store from "../api/store";
+import * as runSettlement from "../../connector-feed/domain/run-settlement";
 
 export type SettlementMutant = "omission-guard" | "receipt-identity" | "transaction-split";
 
@@ -50,6 +51,7 @@ export function mutatedOutboundRuntime(
     "./live-export": liveExport,
     "../domain/live-export-codec": liveExportContract,
     "./store": store,
+    "../../connector-feed/domain/run-settlement": runSettlement,
   };
   const exports: Partial<typeof import("../api/runtime")> = {};
   runInNewContext(

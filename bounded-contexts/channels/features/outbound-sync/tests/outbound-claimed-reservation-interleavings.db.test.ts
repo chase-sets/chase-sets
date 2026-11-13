@@ -2450,6 +2450,7 @@ function fixtureRunSettlement(runId: string, expectedRunRevision: number) {
   return {
     runId,
     expectedRunRevision,
+    stagedReadback: null,
     fromState: "claimed" as const,
     toState: "abandoned" as const,
     verificationSnapshotId: null,
