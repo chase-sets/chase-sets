@@ -14,7 +14,6 @@ use platform::{
 
 use super::{CatalogDialog, DetailPage, Empty, Toasts, Tone, TonePill, Trigger};
 use crate::{
-    api::segment,
     catalog::{
         api::{AliasCandidate, AliasReview, Coverage, CoverageRow, ReviewJob},
         attention::ACCEPT_ELIGIBLE,
@@ -25,7 +24,6 @@ use crate::{
         scopes::{Promotion, Sync},
     },
     text::{Cat, Pilot},
-    views::admin_web,
 };
 
 /// Propose mapping's dialog.
@@ -141,7 +139,7 @@ pub fn Rows<'a, C: Render>(label: &'a str, head: &'a [&'a str], children: C) -> 
 /// The import-to-promotion section: the daily surface for the scope (`ScopeScreen::context`), its
 /// banners and stages; their commands post to the daily workbench's routes with the working set,
 /// whose `home` lands them back here. A refused one's message is patched into the section's
-/// notice. When the surface does not read, the section says so and links to admin-web's page.
+/// notice. When the surface does not read, the section says so and offers to read it again.
 #[component(css = ScopePage)]
 fn WorkspacePart<'a>(t: Cat, p: Pilot, req: &'a Req, screen: &'a ScopeScreen, href: &'a str) -> impl Render {
     html! {
@@ -164,9 +162,10 @@ fn WorkspacePart<'a>(t: Cat, p: Pilot, req: &'a Req, screen: &'a ScopeScreen, hr
     }
 }
 
-/// admin-web's own scope page, where the import-to-promotion workspace is.
+/// The scope's page again, to read the workspace again. admin-web's loader needs the same read,
+/// so its page could not draw the workspace either.
 fn workspace(id: &str) -> String {
-    admin_web(&format!("/catalog/scopes/{}", segment(id))).map(|u| u.to_string()).unwrap_or_default()
+    url::ScopePage::of(id).href().to_string()
 }
 
 /// The journey (`CatalogScopeJourneyOverviewPanel`): where it is, the counts, and each stage.

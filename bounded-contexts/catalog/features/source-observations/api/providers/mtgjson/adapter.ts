@@ -54,7 +54,12 @@ export type MtgjsonProviderAdapterOptions = Readonly<{
   baseUrl?: string;
   now?: () => Date;
   profileVersion?: string;
+  fetchTimeoutMs?: number;
 }>;
+
+// A stalled MTGJSON download otherwise holds a provider refresh open with no
+// recorded outcome; the deadline turns it into a recorded failure.
+const DEFAULT_MTGJSON_FETCH_TIMEOUT_MS = 60_000;
 
 type MtgjsonMeta = Readonly<{
   date?: string;
@@ -434,11 +439,25 @@ async function fetchMtgjsonSet(setCode: string, options: MtgjsonProviderAdapterO
 }
 
 async function fetchJson<T>(url: string, options: MtgjsonProviderAdapterOptions): Promise<T> {
-  const response = await sendCatalogProviderRequest("mtgjson", options.fetch ?? globalThis.fetch, url);
-  if (!response.ok) {
-    throw new Error(`MTGJSON request failed with HTTP ${response.status}.`);
+  const timeoutMs = options.fetchTimeoutMs ?? DEFAULT_MTGJSON_FETCH_TIMEOUT_MS;
+  const abortController = new AbortController();
+  const timeout = setTimeout(() => abortController.abort(), timeoutMs);
+  try {
+    const response = await sendCatalogProviderRequest("mtgjson", options.fetch ?? globalThis.fetch, url, {
+      signal: abortController.signal,
+    });
+    if (!response.ok) {
+      throw new Error(`MTGJSON request failed with HTTP ${response.status}.`);
+    }
+    return (await response.json()) as T;
+  } catch (error) {
+    if (abortController.signal.aborted) {
+      throw new Error(`MTGJSON request did not finish within ${timeoutMs} ms.`);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
   }
-  return (await response.json()) as T;
 }
 
 function mtgjsonSetUrl(setCode: string, options: MtgjsonProviderAdapterOptions): string {

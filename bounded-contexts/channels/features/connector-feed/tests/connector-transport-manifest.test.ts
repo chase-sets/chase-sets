@@ -51,6 +51,9 @@ describe("connector-feed-bootstrap-and-manifest", () => {
   });
   it("enrolls each new persisted proof in Channels DB only and imports the existing inbox helper", () => {
     const manifest = JSON.parse(readFileSync(new URL("../../../package.json", import.meta.url), "utf8"));
+    const dbArgs = Object.entries(manifest.scripts as Record<string, string>)
+      .filter(([name]) => /^test:db:\d+$/.test(name))
+      .flatMap(([, script]) => script.split(/\s+/));
     expect(manifest.dependencies["@chase-sets/provider-webhook-inbox"]).toBe("workspace:*");
     for (const file of [
       "connector-inbound",
@@ -62,7 +65,7 @@ describe("connector-feed-bootstrap-and-manifest", () => {
       "connector-liveness-policy-identity",
     ]) {
       const path = `features/connector-feed/tests/${file}.db.test.ts`;
-      expect(manifest.scripts["test:db"].split(" ")).toContain(path);
+      expect(dbArgs.filter((argument) => argument === path)).toHaveLength(1);
       expect(manifest.scripts["test:unit"]).toContain(`--exclude ${path}`);
     }
   });

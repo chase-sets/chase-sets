@@ -70,7 +70,9 @@ fn written(status: StatusCode, id: &str) -> Response {
 
 /// Auth's Google Workspace sign-in: the start redirects to the provider, back to the origin the
 /// request's `Host` names; the return with code `good` starts a session and goes to `/catalog`, and
-/// any other code goes back to the sign-in with `admin_permission_required`.
+/// any other code goes back to the sign-in with `admin_permission_required`. A return with no code (a
+/// cancelled sign-in) or the state `spent` is Auth's `invalid_state`, which it answers before it reads the
+/// state's journey, so at its journey-less `/sign-in` (social-login-routes.ts's `redirectToFallback`).
 fn workspace_sso(method: &Method, uri: &Uri, headers: &HeaderMap) -> Option<Response> {
     let step = uri.path().strip_prefix("/api/auth/social/google/")?;
     if *method != Method::GET {
@@ -81,6 +83,9 @@ fn workspace_sso(method: &Method, uri: &Uri, headers: &HeaderMap) -> Option<Resp
     Some(match step {
         "start" => {
             found(format!("https://provider.test/authorize?hd=chasesets.test&back=http://{host}/api/auth/social/google/callback"))
+        }
+        "callback" if uri.query().is_none_or(|q| !q.contains("code=") || q.contains("state=spent")) => {
+            found("/sign-in?socialLoginError=invalid_state".to_owned())
         }
         "callback" if uri.query().is_some_and(|q| q.contains("code=good")) => {
             let mut res = found("/catalog".to_owned());
@@ -1227,6 +1232,26 @@ async fn google_workspace_goes_through_auth_and_comes_back_to_the_pages_origin()
     assert_eq!(status, StatusCode::OK);
     assert!(html.contains("This Workspace user does not have access to this admin area."), "{html}");
 }
+
+#[tokio::test]
+async fn a_cancelled_or_spent_workspace_sign_in_lands_on_the_pilots_sign_in_with_auths_error() {
+    let pilot = Pilot::new().await;
+    for callback in [
+        "/api/auth/social/google/callback?state=st_1&error=access_denied",
+        "/api/auth/social/google/callback?state=spent&code=good",
+    ] {
+        let (status, headers, _) = pilot.send(get(callback, None)).await;
+        assert_eq!(status, StatusCode::FOUND, "{callback}: {headers:?}");
+        let back = headers[header::LOCATION].to_str().unwrap().to_owned();
+        assert_eq!(back, "/access/sign-in?socialLoginError=invalid_state", "the pilot's sign-in, not admin-web's: {callback}");
+        assert!(set_cookies(&headers).is_empty(), "no session or selection: {headers:?}");
+        let (status, headers, html) = pilot.send(get(&back, None)).await;
+        assert_eq!(status, StatusCode::OK, "{html}");
+        assert!(html.contains("Social login could not be completed. Try again or use another sign-in method."), "{html}");
+        assert!(set_cookies(&headers).is_empty(), "{headers:?}");
+    }
+}
+
 #[tokio::test]
 async fn a_passkey_is_the_pilots_step_and_signs_in_with_its_credential() {
     let pilot = Pilot::new().await;
@@ -3887,8 +3912,8 @@ async fn an_items_review_draws_its_sheet_with_its_evidence_and_park_forms() {
     );
     assert!(html.contains("<dt>Unit</dt><dd>tcgplayer:mtg:single-card:source-observation-import</dd>"), "{html}");
     assert!(
-        html.contains(r#"href="http://localhost:7752/catalog/providers/tcgplayer?unitKey=tcgplayer%3Amtg%3Asingle-card%3Asource-observation-import""#),
-        "the destination is admin-web's: {html}"
+        html.contains(r#"href="/catalog/providers/tcgplayer?unitKey=tcgplayer%3Amtg%3Asingle-card%3Asource-observation-import""#),
+        "the destination is the pilot's provider page: {html}"
     );
     assert!(
         html.contains(r#"id="attention-dismiss" method="post" action="/catalog/scopes/attention/dismiss?status=active""#),
@@ -4245,8 +4270,10 @@ async fn the_attention_queue_draws_its_counts_its_missing_sources_and_its_items_
         "an ISO and a Postgres time: {html}"
     );
     assert!(html.contains("Oct 26, 2026, 12:00 PM UTC") && html.contains("No deadline"), "{html}");
-    let origin = crate::app::admin_web_origin();
-    assert!(html.contains(&format!(r#"href="{origin}/platform/projections?tab=blocked">Open</a>"#)), "{html}");
+    assert!(
+        html.contains(r#"href="/platform/projections?tab=blocked">Open</a>"#),
+        "the pilot serves the projections console: {html}"
+    );
     assert!(html.contains(r#"href="/support/requests?requestId=req_1">Open</a>"#), "the pilot serves a request's sheet: {html}");
     assert!(html.contains(r#"href="/support/platform-feedback/pfb_1">Open</a>"#), "the pilot serves a feedback's page: {html}");
     assert!(html.contains(r#"id="attention-live" src="/platform/operations-attention/live""#), "{html}");
@@ -4481,9 +4508,9 @@ async fn a_scope_with_one_edition_reads_no_alias_review_and_a_failed_read_is_its
     assert!(!html.contains("Accept all"), "no commands over a coverage that could not be read: {html}");
     assert!(
         html.contains("The import-to-promotion workspace could not be read.")
-            && html.contains(r#"href="http://localhost:7752/catalog/scopes/scp_down""#)
+            && html.contains(r#"href="/catalog/scopes/scp_down">Read the workspace again</a>"#)
             && !html.contains(r#"name="wb-stage""#),
-        "a workspace that cannot be read is its section's banner and admin-web's link: {html}"
+        "a workspace that cannot be read is its section's banner and a link to read it again: {html}"
     );
 
     let (status, _, _) = pilot.send(get("/catalog/scopes/scp_gone", Some("staff"))).await;
@@ -8771,7 +8798,7 @@ async fn provider_detail_draws_the_apis_health_surface_for_the_provider_with_its
     assert!(html.contains(r#"action="/catalog/providers/tcgplayer/jobs/job_9?profileVersion=2026.07.13""#), "{html}");
     assert!(html.contains(r#"value="retry""#) && !html.contains(r#"value="cancel""#), "{html}");
     // This viewer is not offered the Operator session.
-    assert!(html.contains(r#"href="http://localhost:7752/catalog/providers/tcgplayer?profileVersion=2026.07.13""#), "{html}");
+    assert!(!html.contains("http://localhost:7752/catalog/providers"), "the provider page is the pilot's: {html}");
     assert!(!html.contains("Operator session"), "{html}");
 
     let section = pilot.stylesheet(&html, "sections/catalog").await.unwrap();
@@ -10929,7 +10956,10 @@ async fn a_preview_offers_confirm_and_submit_with_its_balance_revision_and_a_req
     let (status, _, html) = pilot.send(post_as("wallet-stepup", WALLET_PAGE, request, false)).await;
     assert_eq!(status, StatusCode::UNAUTHORIZED, "{html}");
     assert!(html.contains("Reauthentication required") && html.contains("Sign in again in a new tab"), "{html}");
-    assert!(html.contains(r#"target="_blank""#) && html.contains("returnTo=%2Fcommerce%2Fwallet-workbench%2Facc_1"), "{html}");
+    assert!(
+        html.contains(r#"href="/access/sign-in?returnTo=%2Fcommerce%2Fwallet-workbench%2Facc_1" target="_blank""#),
+        "the pilot's own sign-in, whose session the command needs: {html}"
+    );
 }
 
 #[tokio::test]

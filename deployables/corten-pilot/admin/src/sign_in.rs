@@ -291,6 +291,21 @@ fn destination(req: &Req, path: &str) -> Option<Uri> {
     }
 }
 
+/// Auth's sign-in fallback that names no journey (`/sign-in?socialLoginError=..`): its callback
+/// answers it before it reads the state's journey, for a sign-in the user cancelled (no code) or
+/// whose state expired or was already used. admin-web does not serve `/sign-in` either; this is
+/// the pilot's sign-in with the same error and `returnTo`, and nothing else from Auth's query.
+fn journeyless_refusal(location: &str) -> Option<String> {
+    let (path, query) = location.split_once('?').unwrap_or((location, ""));
+    if path != "/sign-in" {
+        return None;
+    }
+    let decode = |text: &str| percent_encoding::percent_decode_str(&text.replace('+', " ")).decode_utf8_lossy().into_owned();
+    let value = |key: &str| query.split('&').find_map(|pair| pair.strip_prefix(key)?.strip_prefix('=')).map(decode);
+    let ask = Ask { return_to: value("returnTo"), social_login_error: Some(value("socialLoginError")?), ..Ask::default() };
+    Some(url::SignIn { ask }.href().to_string())
+}
+
 /// A cookie, Secure only when browsers reach the pilot over https.
 fn secure(config: &Config, cookie: SetCookie) -> SetCookie {
     if config.proto == "https" { cookie } else { cookie.insecure() }
@@ -351,7 +366,7 @@ pub(crate) async fn social(
     Params(route): Params<crate::site::files::SocialSignIn<'_>>,
 ) -> corten::Result<Relay> {
     let caller = config.platform.caller(&headers, config.proto, None);
-    let place = |path: &str| destination(&req, path).map(|to| to.to_string());
+    let place = |path: &str| journeyless_refusal(path).or_else(|| destination(&req, path).map(|to| to.to_string()));
     platform::auth::social(&caller, &headers, route.provider.as_str(), route.step.as_str(), uri.query(), place).await
 }
 
