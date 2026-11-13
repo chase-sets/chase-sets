@@ -5,13 +5,14 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use corten::axum::{
+// The stand-in API is a server of its own, a plain axum router (a dev-dependency) with axum's
+// `State`, `Json` and `Response`; the app under test is a `corten::Router`, and the rest names Corten.
+use axum::{
     Json, Router,
-    body::{Body, Bytes},
     extract::State,
-    http::{HeaderMap, Method, Request, StatusCode, Uri, header},
     response::{IntoResponse, Response},
 };
+use corten::http::{Body, Bytes, HeaderMap, Method, Request, StatusCode, Uri, header};
 use http_body_util::BodyExt;
 use serde_json::{Value, json};
 use tower::ServiceExt;
@@ -234,13 +235,27 @@ fn cart_line(id: &str, item: &str, quantity: u32, locked: Option<&str>, listings
     })
 }
 
-/// A readiness snapshot of `status` with each line's reason and the optimization's `decision`.
-fn snapshot(id: &str, status: &str, reasons: &[(&str, &str)], decision: &str, offer: bool) -> Value {
+/// How the API presents a line: its reason, whether it can be fulfilled, its listing and its price
+/// (`state`, `amount`) in USD.
+type Presented<'a> = (&'a str, &'a str, bool, Option<&'a str>, Option<(&'a str, &'a str)>);
+
+/// A readiness snapshot of `status` with each line's outcome and presentation and the
+/// optimization's `decision`.
+fn snapshot(id: &str, status: &str, lines: &[Presented], decision: &str, offer: bool) -> Value {
     let outcomes: Vec<Value> =
-        reasons.iter().map(|(line, reason)| json!({ "lineId": line, "outcome": "checkout", "reason": reason })).collect();
+        lines.iter().map(|(line, reason, ..)| json!({ "lineId": line, "outcome": "checkout", "reason": reason })).collect();
+    let presentations: Vec<Value> = lines
+        .iter()
+        .map(|(line, reason, fulfillable, listing, price)| {
+            json!({
+                "lineId": line, "reason": reason, "fulfillmentAvailable": fulfillable, "listingId": listing,
+                "price": price.map(|(state, amount)| json!({ "state": state, "amount": amount, "currency": "USD" })),
+            })
+        })
+        .collect();
     json!({
         "schemaVersion": "checkout.cart-readiness.v1", "source": "cart", "sourceRevision": "cr_rev", "snapshotId": id,
-        "status": status, "lineCount": reasons.len(), "includedLineIds": [], "unresolvedLineIds": [],
+        "status": status, "lineCount": lines.len(), "includedLineIds": [], "unresolvedLineIds": [],
         "lineOutcomes": outcomes,
         "optimization": {
             "available": offer, "decision": decision,
@@ -248,7 +263,7 @@ fn snapshot(id: &str, status: &str, reasons: &[(&str, &str)], decision: &str, of
             "proposedListingId": if offer { json!("lst_vault_charizard") } else { Value::Null },
             "currentListingId": null, "savingsAmount": if offer { json!("10.99") } else { Value::Null }, "currency": "USD",
         },
-        "fulfillmentGroups": [], "customerSafeFacts": [],
+        "fulfillmentGroups": [], "customerSafeFacts": [], "linePresentations": presentations,
     })
 }
 
@@ -269,10 +284,12 @@ fn cart(session: &str) -> Value {
             let mut mew = cart_line("cli_eur", "Mew", 1, Some("lst_mew"), &[], "2026-10-24T02:00:00.000Z");
             mew["item_image_url"] = json!("/fake-cdn/assets/pokemon_tcg_back.png");
             mew["item_image_srcset"] = json!("/fake-cdn/assets/mew-1x.png 1x, https://cdn.example/mew-2x.png 2x");
-            let reasons = [
-                ("cli_pikachu_a", "unassigned-fulfillment"),
-                ("cli_pikachu_b", "unassigned-fulfillment"),
-                ("cli_eur", "currency-mismatch"),
+            // The Pikachu lines have no way to be fulfilled and are priced from the one listing,
+            // each for its quantity; the Mew line's listing is gone, so it is priced at checkout.
+            let reasons: [Presented; 3] = [
+                ("cli_pikachu_a", "unassigned-fulfillment", false, Some("lst_pikachu"), Some(("indicative", "17.95"))),
+                ("cli_pikachu_b", "unassigned-fulfillment", false, Some("lst_pikachu"), Some(("indicative", "35.90"))),
+                ("cli_eur", "currency-mismatch", true, Some("lst_mew"), None),
             ];
             json!({
                 "items": [
@@ -290,6 +307,17 @@ fn cart(session: &str) -> Value {
                 },
             })
         }
+        // The buyer's cart, the API presenting only its Pikachu line.
+        "unpresented" => {
+            let mut buyer = cart("buyer");
+            for snapshot in ["loaded", "declined", "accepted"] {
+                buyer["readiness"][snapshot]["linePresentations"]
+                    .as_array_mut()
+                    .unwrap()
+                    .retain(|p| p["lineId"] == "cli_pikachu");
+            }
+            buyer
+        }
         "empty" => json!({
             "items": [], "count": 0,
             "readiness": {
@@ -299,7 +327,10 @@ fn cart(session: &str) -> Value {
             },
         }),
         _ => {
-            let reasons = [("cli_charizard", "ready"), ("cli_pikachu", "ready")];
+            let reasons: [Presented; 2] = [
+                ("cli_charizard", "ready", true, Some("lst_chase_charizard"), Some(("exact", "399.99"))),
+                ("cli_pikachu", "ready", true, Some("lst_chase_pikachu"), Some(("exact", "21.50"))),
+            ];
             json!({
                 "items": [
                     cart_line("cli_pikachu", "Pikachu", 1, Some("lst_chase_pikachu"), &[("lst_chase_pikachu", "Chase Sets", "21.50")], "2026-10-24T03:55:54.259Z"),
@@ -330,6 +361,26 @@ fn written(status: StatusCode, id: &str) -> Response {
     (status, headers, Json(json!({ "storage_location_id": id }))).into_response()
 }
 
+/// The Listing commands Marketplace takes only with an attempt (its routes' `listingAttemptInput`).
+fn listing_attempt_required(method: &Method, path: &str) -> bool {
+    let Some(rest) = path.strip_prefix("/api/marketplace/account/") else { return false };
+    match (method.as_str(), rest) {
+        (
+            "POST",
+            "listings"
+            | "listing-availability/disable"
+            | "listing-availability/enable"
+            | "listing-availability/away-window"
+            | "order-capacity",
+        )
+        | ("DELETE", "listing-availability/away-window" | "order-capacity") => true,
+        ("POST", rest) => rest.strip_prefix("listings/").and_then(|r| r.split_once('/')).is_some_and(|(_, command)| {
+            matches!(command, "price" | "quantity-cap" | "purchase-limits" | "publish" | "pause" | "withdraw")
+        }),
+        _ => false,
+    }
+}
+
 /// The commit position a read waits for, if it sends a receipt.
 fn waits_for(headers: &HeaderMap) -> Option<String> {
     let sent = headers.get("chase-sets-read-after-write")?.to_str().ok()?;
@@ -351,6 +402,11 @@ async fn platform(State(stand): State<Stand>, method: Method, uri: Uri, headers:
         headers: headers.clone(),
         body: body.clone(),
     });
+    // Marketplace refuses a Listing command sent without its attempt (`listingAttemptInput`).
+    let attempt = headers.get("idempotency-key").and_then(|v| v.to_str().ok());
+    if listing_attempt_required(&method, uri.path()) && !attempt.is_some_and(crate::api::valid_listing_attempt) {
+        return refusal(StatusCode::BAD_REQUEST, "invalid_attempt", "A valid Listing attempt identity is required.");
+    }
     let cookie = headers.get(header::COOKIE).and_then(|v| v.to_str().ok()).unwrap_or_default();
     let session = cookie.split(';').find_map(|pair| pair.trim().strip_prefix("chase_sets_session=")).unwrap_or_default();
     // A guest checkout as the browser has one: its cookie and no session (`resolveGuestCheckoutActor`).
@@ -406,7 +462,7 @@ async fn platform(State(stand): State<Stand>, method: Method, uri: Uri, headers:
             "reader" => actor(&["inventory.view"]),
             // A buyer: any account has a cart, and none of these may see inventory.
             // `stale`'s session ends before its cart write is sent.
-            "other" | "buyer" | "blocked" | "empty" | "stale" => actor(&[]),
+            "other" | "buyer" | "blocked" | "empty" | "stale" | "unpresented" => actor(&[]),
             "guest" => actor(&["guest-checkout.manage"]),
             // An account that sees items as a seller and may take offers.
             "trader" => actor(&["offers.view", "listings.view", "offers.manage"]),
@@ -457,6 +513,15 @@ async fn platform(State(stand): State<Stand>, method: Method, uri: Uri, headers:
             // Payout setup: `setter` has not started, `restricted_setter` is restricted with a
             // provider account (its management session asks it to sign in again).
             "setter" | "restricted_setter" => actor(&["payouts.view", "payouts.setup"]),
+            // An owner whose orders.manage Auth withholds until its email is verified, and an agent
+            // acting for an owner with the same permissions (never asked to verify).
+            "unverified" | "unverified_agent" => {
+                let mut actor = json!({ "userId": "usr_buyer", "accountId": "acc_buyer", "roleKey": "owner", "permissions": ["orders.view"] });
+                if session == "unverified_agent" {
+                    actor["agentGrant"] = json!({ "grantId": "agr_1" });
+                }
+                Json(json!({ "actor": actor })).into_response()
+            }
             "down" => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
             _ => refusal(StatusCode::UNAUTHORIZED, "unauthenticated", "Sign in."),
         };
@@ -500,6 +565,12 @@ async fn platform(State(stand): State<Stand>, method: Method, uri: Uri, headers:
         return answer;
     }
     if let Some(answer) = checkout_start_api(&method, uri.path(), &headers) {
+        return answer;
+    }
+    if let Some(answer) = social_login(&method, &uri, &headers) {
+        return answer;
+    }
+    if let Some(answer) = guest_claims(&method, uri.path(), &headers, &body) {
         return answer;
     }
     if let Some(answer) = auth(&method, uri.path(), &body) {
@@ -549,6 +620,9 @@ async fn platform(State(stand): State<Stand>, method: Method, uri: Uri, headers:
         return answer;
     }
     // Before Ordering's, whose sales path is a prefix of the seller's shipments.
+    if let Some(answer) = command_center(session, &method, uri.path(), &headers, &body) {
+        return answer;
+    }
     if let Some(answer) = packing(&method, uri.path(), &headers, &body) {
         return answer;
     }
@@ -577,6 +651,9 @@ async fn platform(State(stand): State<Stand>, method: Method, uri: Uri, headers:
         return answer;
     }
     if let Some(answer) = sitemaps(&uri) {
+        return answer;
+    }
+    if let Some(answer) = bulk_cart(&stand, &method, &uri, &headers, &body) {
         return answer;
     }
     if let Some(id) = uri.path().strip_prefix(ITEMS) {
@@ -787,9 +864,30 @@ fn checkout_session(id: &str) -> Value {
             session["source_type"] = json!("offer-intent");
             session["submitted_offer_id"] = json!("ofr_1");
         }
+        // Its orders exist and wait for payment: confirm's address write cleared the live preview,
+        // and the session keeps the quote and acknowledgement the orders were bound to.
+        "chk_ordered" => {
+            session["order_ids"] = json!(["ord_1"]);
+            session["last_recorded_quote"] = session["fulfillment_preview_snapshot"].clone();
+            session["fulfillment_preview_snapshot"] = Value::Null;
+            session["order_acknowledged_material_changes"] = json!(true);
+        }
+        // The same, but the kept quote is of another revision: no quote, as the loader gives none.
+        "chk_ordered_other" => {
+            session["order_ids"] = json!(["ord_1"]);
+            session["last_recorded_quote"] = session["fulfillment_preview_snapshot"].clone();
+            session["last_recorded_quote"]["revision"] = json!("lowest-total#other");
+            session["fulfillment_preview_snapshot"] = Value::Null;
+        }
         "chk_paid" => session["payment_id"] = json!("pay_1"),
         "chk_paydown" => session["payment_id"] = json!("pay_down"),
         "chk_cancelled" => session["cancelled_at"] = json!("2026-10-28T00:00:00.000Z"),
+        // Its one line can no longer be bought, so it cannot be confirmed.
+        "chk_blocked" => {
+            let line = json!(["lst_seed_lugia_neo_genesis_bgs_95"]);
+            session["fulfillment_preview_snapshot"]["readyLineKeys"] = json!([]);
+            session["fulfillment_preview_snapshot"]["unavailableLineKeys"] = line;
+        }
         _ => {}
     }
     session
@@ -801,7 +899,8 @@ const CHECKOUT_SESSIONS: &str = "/api/marketplace/account/checkout-sessions/";
 
 /// A buy checkout's reads and writes, as the stand-in answers them. `chk_gone` is not found,
 /// `chk_theirs` is another account's, `chk_down` fails and `chk_slow` has not caught up with
-/// any write; `chk_offer` is a purchase intent and `chk_paid`'s payment has started. Each review
+/// any write; `chk_offer` is a purchase intent, `chk_paid`'s payment has started and
+/// `chk_blocked`'s one line can no longer be bought. Each review
 /// write applies with a receipt (an address in 00000 is one the API cannot deliver to); Pay now
 /// starts `pay_1`, but `chk_stale`'s quote is stale, and `chk_offer`'s Submit offer becomes the
 /// offer `ofr_1` (`chk_offered` already did). Payments quotes $620.00 as the sandbox
@@ -908,6 +1007,12 @@ fn checkout_sessions(stand: &Stand, method: &Method, uri: &Uri, headers: &Header
         "authenticity-check-opt-in" => committed(StatusCode::OK, "checkout", "13", json!({})),
         "fulfillment-preview" => committed(StatusCode::OK, "checkout", "14", json!({})),
         "confirm" if id == "chk_stale" => refusal(StatusCode::CONFLICT, "fee_quote_stale", "The checkout fee changed."),
+        // As Checkout refuses Pay now for a buyer whose orders.manage Auth withheld (chase-sets/chase-sets#10785).
+        "confirm" if id == "chk_verify" => refusal(
+            StatusCode::FORBIDDEN,
+            "email_verification_required",
+            "Verify your email before you pay. Nothing was reserved or ordered.",
+        ),
         "confirm" if id == "chk_lostpay" => {
             stand.kept.lock().unwrap().insert(format!("confirm:{id}"), json!({}));
             StatusCode::GATEWAY_TIMEOUT.into_response()
@@ -1123,7 +1228,7 @@ fn account_payments(method: &Method, uri: &Uri, headers: &HeaderMap, body: &str)
         "pay_1" => {}
         "pay_cs" => payment["processor_client_secret"] = json!("cs_test_1_secret"),
         "pay_noemail" => payment["order_ids"] = json!(["ord_noemail"]),
-        "pay_paid" => {
+        "pay_paid" | "pay_unbound" | "pay_limited" => {
             payment["status"] = json!("captured");
             payment["processor_status"] = json!("succeeded");
             payment["processor_client_secret"] = json!(null);
@@ -1661,6 +1766,82 @@ fn search(uri: &Uri) -> Option<Response> {
     Some(Json(page).into_response())
 }
 
+const BULK_PREVIEW: &str = "/api/marketplace/items/bulk-cart-preview";
+const ACCOUNT_CART_BULK: &str = "/api/marketplace/account/cart/bulk";
+const GUEST_CART_BULK: &str = "/api/marketplace/guest/cart/bulk";
+
+/// Add matching products to Buy Cart, as the stand-in answers it. The preview's words say what it
+/// finds: `broken` fails, `lots` is over the limit, `none` names no product in full; any other is
+/// Card 1 and Card 3, with Card 2 needing its options, each line's product named for the words.
+/// The add keeps its attempt, Card 1 added and Card 3 merged, at position 14: `partial`'s Card 3
+/// has no listing, `refused`'s add is refused, and `lost`'s answer is lost with nothing kept.
+fn bulk_cart(stand: &Stand, method: &Method, uri: &Uri, headers: &HeaderMap, body: &str) -> Option<Response> {
+    let path = uri.path();
+    if path == BULK_PREVIEW && *method == Method::GET {
+        let sent = query(&uri.to_string());
+        let words = sent.get("search").map_or("", String::as_str);
+        let line = |n: u32| {
+            json!({
+                "catalog_item_id": format!("cat_{n}"), "slug": format!("card-{n}"), "title": format!("Card {n}"),
+                "subtitle": "Base Set", "product_id": format!("cat_{n}::{words}"), "image_url": format!("/img/{n}.png"),
+                "image_srcset": null, "image_loading_url": null, "image_loading_alt": null, "image_loading_srcset": null,
+                "product_summary": "Raw / Near Mint", "quantity": 1,
+                "selected_options": [{ "dimensionId": "dim_condition", "optionId": "chc_nm" }],
+            })
+        };
+        let skipped = json!([{
+            "catalog_item_id": "cat_2", "slug": "card-2", "title": "Card 2",
+            "message": "Card 2 needs product options before it can be added.", "reason": "product-options-required",
+        }]);
+        let preview = |eligible: u64, over: bool, lines: Vec<Value>, skipped: Value| {
+            let skipped_count = skipped.as_array().map_or(0, Vec::len);
+            json!({
+                "totalMatches": eligible + skipped_count as u64, "eligibleCount": eligible, "skippedCount": skipped_count,
+                "overLimit": over, "limit": 250, "lines": lines, "skippedItems": skipped,
+            })
+        };
+        return Some(match words {
+            "broken" => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+            "lots" => Json(preview(300, true, Vec::new(), json!([]))).into_response(),
+            "none" => Json(preview(0, false, Vec::new(), skipped)).into_response(),
+            _ => Json(preview(2, false, vec![line(1), line(3)], skipped)).into_response(),
+        });
+    }
+    if *method != Method::POST || (path != ACCOUNT_CART_BULK && path != GUEST_CART_BULK) {
+        return None;
+    }
+    let guest = headers.get("x-checkout-anonymous-cart-id").and_then(|v| v.to_str().ok()).filter(|id| id.starts_with("anon_"));
+    if path == GUEST_CART_BULK && guest.is_none() {
+        return Some(refusal(StatusCode::BAD_REQUEST, "anonymous_cart_required", "A guest cart is required."));
+    }
+    let sent: Value = serde_json::from_str(body).unwrap_or_default();
+    let attempt = sent["attemptId"].as_str().unwrap_or_default().to_owned();
+    let products: Vec<&str> = sent["lines"].as_array().into_iter().flatten().filter_map(|l| l["productId"].as_str()).collect();
+    if products.iter().any(|p| p.ends_with("::refused")) {
+        return Some(refusal(StatusCode::UNPROCESSABLE_ENTITY, "validation_failed", "Buy Cart is closed for changes."));
+    }
+    if products.iter().any(|p| p.ends_with("::lost")) {
+        return Some(StatusCode::SERVICE_UNAVAILABLE.into_response());
+    }
+    let vector: Vec<Value> = products
+        .iter()
+        .enumerate()
+        .map(|(index, product)| match index {
+            1 if product.ends_with("::partial") => json!({
+                "index": 1, "command": "add", "outcome": "conflict", "lineId": null, "status": null, "version": 0,
+                "message": "No listings are available.",
+            }),
+            _ => json!({
+                "index": index, "command": "add", "outcome": "succeeded", "lineId": format!("cli_{index}"),
+                "status": if index == 0 { "added" } else { "merged" }, "version": 1, "message": null,
+            }),
+        })
+        .collect();
+    let kept = json!({ "ownerStatus": "committed", "vector": vector, "commitReceipt": { "eventId": "evt_bulk", "globalPosition": "14" } });
+    stand.kept.lock().unwrap().insert(attempt, kept.clone());
+    Some(committed(StatusCode::OK, "checkout", "14", json!({ "status": "completed", "attempt": kept })))
+}
+
 /// A set's read, as the stand-in answers it: `base-set` (old slug `base`) with two of its three
 /// items, one listed; `empty-set` with none; `down` failing; any other unknown.
 fn set(slug: &str) -> Response {
@@ -1721,6 +1902,7 @@ fn public_listings(method: &Method, path: &str, headers: &HeaderMap) -> Option<R
             "seller_listing_availability_status": if away { "unavailable" } else { "available" },
             "seller_available_again_at": if away { json!("2026-11-08T00:00:00.000Z") } else { Value::Null },
             "seller_at_capacity": false, "created_at": "2026-10-24T03:55:32.446Z", "updated_at": "2026-10-24T03:55:33.413Z",
+            "google_shopping_structured_data_payload": shopping_payload(),
         })
     };
     Some(match rest {
@@ -1907,6 +2089,45 @@ fn notification_center(session: &str, method: &Method, path: &str, headers: &Hea
     }
 }
 
+/// Auth's social sign-in routes. A start redirects to the provider with its return address on the
+/// origin the request's `Host` names, as `buildSocialRedirectUri` does where the API does not trust
+/// `X-Forwarded-Host`. A callback with code `good` starts a session and goes back to its `returnTo`
+/// (state `st_cart`, `/account/cart`; state `st_away`, a path the pilot does not serve), code
+/// `member` asks which account, and any other state goes back to the sign-in with `invalid_state`.
+fn social_login(method: &Method, uri: &Uri, headers: &HeaderMap) -> Option<Response> {
+    let step = uri.path().strip_prefix("/api/auth/social/google/")?;
+    if *method != Method::GET {
+        return None;
+    }
+    let query = uri.query().unwrap_or_default();
+    let has = |pair: &str| query.split('&').any(|p| p == pair);
+    let host = headers.get(header::HOST).and_then(|v| v.to_str().ok()).unwrap_or_default();
+    let kept = |name: &str, value: &str| format!("{name}={value}; Path=/; SameSite=Lax");
+    let session = kept("chase_sets_session", "tok_google");
+    let selection = kept("chase_sets_account_selection", "sel_1");
+    let cleared = format!("{}; Max-Age=0", kept("chase_sets_account_selection", ""));
+    let found = |to: &str, cookies: &[&str]| {
+        let mut res = (StatusCode::FOUND, [(header::LOCATION, to.to_owned()), (header::CACHE_CONTROL, "no-store".to_owned())])
+            .into_response();
+        for cookie in cookies {
+            res.headers_mut().append(header::SET_COOKIE, cookie.parse().unwrap());
+        }
+        res
+    };
+    Some(match step {
+        "start" => {
+            let back = format!("http://{host}/api/auth/social/google/callback");
+            let back = percent_encoding::utf8_percent_encode(&back, percent_encoding::NON_ALPHANUMERIC).to_string();
+            found(&format!("https://provider.test/authorize?state=st_cart&redirect_uri={back}"), &[])
+        }
+        "callback" if has("state=st_cart") && has("code=good") => found("/account/cart", &[&cleared, &session]),
+        "callback" if has("state=st_away") && has("code=good") => found("/not-a-pilot-page", &[&cleared, &session]),
+        "callback" if has("state=st_cart") && has("code=member") => {
+            found("/account/select?returnTo=%2Faccount%2Fcart", &[&cleared, &selection])
+        }
+        _ => found("/sign-in?socialLoginError=invalid_state", &[]),
+    })
+}
 /// The Auth API's sign-in calls. `collector@example.test` signs in with `right`; `member@..` may act
 /// for two accounts and chooses one; `limited@..` is refused for too many attempts, and `broken@..`
 /// gets an answer the page does not know. Phone `+15550100`'s code is `123456`. Magic link `good`
@@ -1915,7 +2136,9 @@ fn notification_center(session: &str, method: &Method, path: &str, headers: &Hea
 /// Identity's receipt; `taken@..` exists, and `stranger@..` is not admitted. Invitation `ivt_1` with
 /// token `good` is pending and `ivt_old` expired; accepting it with password `right` signs in,
 /// `clash` conflicts with the attempt, `short` is refused and `lost` leaves it ambiguous, whose
-/// status is confirming.
+/// status is confirming; a passkey's credential `created` accepts it too. A passkey challenge is
+/// `cmd_1`; a sign-in with the credential `signed` starts a session, and a registration with
+/// `created` creates `new@..`'s account or adds a passkey to `known@..`, starting no session.
 fn auth(method: &Method, path: &str, body: &str) -> Option<Response> {
     if *method == Method::GET && path == "/api/auth/registration-consent" {
         return Some(Json(json!({ "resolutionId": "rcr_1", "requirements": [] })).into_response());
@@ -1977,8 +2200,8 @@ fn auth(method: &Method, path: &str, body: &str) -> Option<Response> {
             ("ivt_old", _) => Json(json!({ "status": "expired" })).into_response(),
             _ => Json(json!({ "status": "unavailable" })).into_response(),
         },
-        "/api/auth/invitations/accept" => match text("password").as_str() {
-            "right" => {
+        "/api/auth/invitations/accept" => match (text("password").as_str(), text("webauthnResponse").as_str()) {
+            ("right", _) | ("", "created") => {
                 let receipt = r#"[{"sourceContextName":"identity","maxGlobalPosition":"81","eventIds":["evt_inv"]}]"#;
                 let receipt = percent_encoding::utf8_percent_encode(receipt, percent_encoding::NON_ALPHANUMERIC).to_string();
                 let headers = [("chase-sets-commit-position", "81".to_owned()), ("chase-sets-commit-receipt", receipt)];
@@ -1988,13 +2211,41 @@ fn auth(method: &Method, path: &str, body: &str) -> Option<Response> {
                 });
                 (headers, Json(body)).into_response()
             }
-            "clash" => refusal(StatusCode::CONFLICT, "invitation_attempt_conflict", "Check the status."),
-            "short" => refusal(StatusCode::BAD_REQUEST, "invitation_attempt_invalid", "Invalid."),
+            ("clash", _) => refusal(StatusCode::CONFLICT, "invitation_attempt_conflict", "Check the status."),
+            ("short", _) => refusal(StatusCode::BAD_REQUEST, "invitation_attempt_invalid", "Invalid."),
             _ => refusal(StatusCode::SERVICE_UNAVAILABLE, "invitation_attempt_ambiguous", "Check the status."),
         },
         "/api/auth/invitations/acceptance-status" => {
             Json(json!({ "type": "confirming", "attemptId": text("attemptId") })).into_response()
         }
+        "/api/auth/passkeys/challenge" => match text("email").as_str() {
+            "limited@example.test" => refusal(StatusCode::TOO_MANY_REQUESTS, "rate_limited", "Slow down."),
+            _ => Json(json!({ "challengeId": "cmd_1", "challenge": "Y2hhbGxlbmdl" })).into_response(),
+        },
+        "/api/auth/passkeys/sign-in" => match (text("challengeId").as_str(), text("webauthnResponse").as_str()) {
+            ("cmd_1", "signed") => started("tok_passkey"),
+            _ => unknown(),
+        },
+        "/api/auth/passkeys/register" => match (text("email").as_str(), text("webauthnResponse").as_str()) {
+            ("new@example.test", "created") => {
+                let receipt = r#"[{"sourceContextName":"identity","maxGlobalPosition":"78","eventIds":["evt_pk"]}]"#;
+                let receipt = percent_encoding::utf8_percent_encode(receipt, percent_encoding::NON_ALPHANUMERIC).to_string();
+                let headers = [("chase-sets-commit-position", "78".to_owned()), ("chase-sets-commit-receipt", receipt)];
+                let body = json!({
+                    "credentialId": "crd_1", "userId": "usr_new",
+                    "authResult": {
+                        "type": "session-started", "userId": "usr_new", "sessionId": "ses_pk", "sessionToken": "tok_pk",
+                        "session": { "expires_at": later }, "memberships": [],
+                    },
+                });
+                (StatusCode::CREATED, headers, Json(body)).into_response()
+            }
+            ("known@example.test", "created") => {
+                (StatusCode::CREATED, Json(json!({ "credentialId": "crd_2", "userId": "usr_known", "authResult": null })))
+                    .into_response()
+            }
+            _ => refusal(StatusCode::UNAUTHORIZED, "authentication_required", "Passkey challenge is invalid or expired."),
+        },
         "/api/auth/magic-link/request" => Json(json!({ "tokenId": "ml_1", "expiresAt": later })).into_response(),
         "/api/auth/magic-link/consume" => match text("token").as_str() {
             "good" => started("tok_magic"),
@@ -2024,9 +2275,72 @@ fn auth(method: &Method, path: &str, body: &str) -> Option<Response> {
     })
 }
 
+/// The platform's internal capability the stand-in expects, and the pilot is configured with.
+const INTERNAL: &str = "stand-in-internal-capability";
+
+/// Auth's guest checkout claim calls, each refused without the platform's internal capability (a
+/// 401, as `auth-context.ts` refuses it). `pay_paid`'s claim context is bound to
+/// `guest@example.test` (Guest Buyer); `pay_unbound`'s is not, and `pay_limited`'s read is rate
+/// limited. A link request answers token `clm_1` (for `pay_limited` too), and is rate limited for
+/// `pay_unbound`; claiming with token `clm_1`, with continuation `cc_1` or with a passkey's
+/// credential `created` signs in with Identity's receipt (position 91), continuation `cc_busy` is
+/// rate limited, and anything else is refused as Auth refuses it.
+fn guest_claims(method: &Method, path: &str, headers: &HeaderMap, body: &str) -> Option<Response> {
+    let claim = path.strip_prefix("/api/auth/guest-checkout/")?;
+    let claims =
+        ["claim-context", "claim-link/request", "claim-with-magic-link", "claim-with-continuation", "claim-with-passkey"];
+    if *method != Method::POST || !claims.contains(&claim) {
+        return None;
+    }
+    if headers.get("x-chase-sets-internal-auth").and_then(|v| v.to_str().ok()) != Some(INTERNAL) {
+        return Some(refusal(StatusCode::UNAUTHORIZED, "internal_capability_required", "Internal capability required."));
+    }
+    let sent: Value = serde_json::from_str(body).unwrap_or_default();
+    let text = |name: &str| sent[name].as_str().unwrap_or_default().to_owned();
+    let signed_in = || {
+        let receipt = r#"[{"sourceContextName":"identity","maxGlobalPosition":"91","eventIds":["evt_claim"]}]"#;
+        let receipt = percent_encoding::utf8_percent_encode(receipt, percent_encoding::NON_ALPHANUMERIC).to_string();
+        let headers = [("chase-sets-commit-position", "91".to_owned()), ("chase-sets-commit-receipt", receipt)];
+        let body = json!({
+            "type": "session-started", "userId": "usr_claimed", "sessionId": "ses_claimed", "sessionToken": "tok_claimed",
+            "session": { "expires_at": "2099-01-01T00:00:00.000Z" }, "memberships": [],
+        });
+        (headers, Json(body)).into_response()
+    };
+    let refused = |message: &str| (StatusCode::UNAUTHORIZED, Json(json!({ "error": message }))).into_response();
+    let paid = text("paymentId") == "pay_paid";
+    Some(match claim {
+        "claim-context" => match text("paymentId").as_str() {
+            "pay_limited" => refusal(StatusCode::TOO_MANY_REQUESTS, "rate_limited", "Slow down."),
+            id => {
+                let bound = id == "pay_paid";
+                Json(json!({
+                    "accountId": "acc_guest", "paymentId": id,
+                    "contactEmail": bound.then_some("guest@example.test"), "contactName": bound.then_some("Guest Buyer"),
+                }))
+                .into_response()
+            }
+        },
+        "claim-link/request" if text("paymentId") == "pay_unbound" => {
+            refusal(StatusCode::TOO_MANY_REQUESTS, "rate_limited", "Too many claim link requests. Try again later.")
+        }
+        "claim-link/request" if paid || text("paymentId") == "pay_limited" => {
+            Json(json!({ "tokenId": "cmd_claim", "token": "clm_1", "expiresAt": "2099-01-01T00:00:00.000Z" })).into_response()
+        }
+        "claim-with-magic-link" if paid && text("token") == "clm_1" => signed_in(),
+        "claim-with-continuation" if paid && text("continuation") == "cc_1" => signed_in(),
+        "claim-with-continuation" if text("continuation") == "cc_busy" => {
+            refusal(StatusCode::TOO_MANY_REQUESTS, "rate_limited", "Slow down.")
+        }
+        "claim-with-passkey" if paid && text("challengeId") == "cmd_1" && text("webauthnResponse") == "created" => signed_in(),
+        "claim-with-passkey" => refused("Passkey challenge is invalid or expired."),
+        _ => refused("Claim link is invalid or expired."),
+    })
+}
+
 /// The pilot, in front of a stand-in API on a loopback port.
 struct Pilot {
-    router: Router,
+    router: corten::Router,
     stand: Stand,
 }
 
@@ -2037,18 +2351,26 @@ impl Pilot {
 
     /// The pilot with crawlers allowed (`CHASE_SETS_MARKETPLACE_INDEXING` on) or not.
     async fn indexed(indexing: bool) -> Self {
+        Self::configured(|config| config.indexing = indexing).await
+    }
+
+    /// The pilot, its configuration `change`d: it holds the internal capability, and crawlers are
+    /// allowed.
+    async fn configured(change: impl FnOnce(&mut Config)) -> Self {
         let stand = Stand::default();
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let origin = format!("http://{}", listener.local_addr().unwrap());
         let stand_in = Router::new().fallback(platform).with_state(stand.clone());
-        tokio::spawn(async move { corten::axum::serve(listener, stand_in).await.unwrap() });
-        let router = app(Config {
-            platform: Platform::new(&origin),
+        tokio::spawn(async move { axum::serve(listener, stand_in).await.unwrap() });
+        let mut config = Config {
+            platform: Platform::new(&origin).with_internal_auth(::platform::api::InternalAuth::new(INTERNAL)),
             proto: "http",
             stripe_publishable_key: Some("pk_stand_in_pilot".into()),
-            indexing,
-        })
-        .router();
+            indexing: true,
+            claim_token_entry: false,
+        };
+        change(&mut config);
+        let router = app(config).router();
         Pilot { router, stand }
     }
 
@@ -2639,10 +2961,10 @@ async fn a_cart_that_cannot_check_out_says_which_lines_need_attention() {
     // The two Pikachu lines are one, quantity 3, before the older Mew; Smart Match prices it "from".
     assert_eq!(html.matches("data-cart-line=").count(), 2, "{html}");
     assert!(html.contains(r#"data-cart-line="cli_pikachu_a""#), "the merged line keeps the first one's id: {html}");
-    assert!(html.contains("data-quantity>3<"), "{html}");
+    assert!(html.contains(r#"name="quantity" value="3" min="1""#), "{html}");
     assert!(page.contains("from $53.85"), "{page}");
     assert!(html.contains("data-reason>Needs fulfillment<"), "{html}");
-    // The API says the other currency's line needs review (marketplace draws it Ready).
+    // The API says the other currency's line needs review.
     assert!(html.contains("data-reason>Needs review<"), "{html}");
     assert!(page.contains("Priced at checkout"), "a line without a priced listing, and the total: {page}");
     assert_eq!(page.matches("Find alternatives").count(), 1, "only the line with no fulfillment: {page}");
@@ -2650,6 +2972,25 @@ async fn a_cart_that_cannot_check_out_says_which_lines_need_attention() {
     assert!(html.contains(">Continue to checkout<") && !html.contains(">Check out<"), "{html}");
     assert!(page.contains("Resolve item availability before payment starts."), "{page}");
     assert!(!page.contains("Use lower price"), "{page}");
+}
+
+/// A line the API did not present is drawn as needing review and priced at checkout, and the cart
+/// shows no total, offer or checkout until every line is presented (marketplace's
+/// `hasCompleteLinePresentations`).
+#[tokio::test]
+async fn a_line_the_api_did_not_present_needs_review_and_holds_the_checkout() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get(CART_SCREEN, Some("unpresented"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let page = text(&html);
+    assert_eq!(html.matches("data-cart-line=").count(), 2, "{html}");
+    assert_eq!(html.matches("data-reason>Ready<").count(), 1, "the presented line: {html}");
+    assert_eq!(html.matches("data-reason>Needs review<").count(), 1, "the other: {html}");
+    assert!(page.contains("$21.50") && !page.contains("$399.99"), "only the presented line is priced: {page}");
+    assert!(page.contains("Priced at checkout"), "{page}");
+    assert!(!page.contains("Find alternatives"), "a line not presented is not said to have no fulfillment: {page}");
+    assert!(!page.contains("Estimated total $421.49") && !page.contains("Save "), "{page}");
+    assert!(checkout_forms(&html).is_empty(), "{html}");
 }
 
 #[tokio::test]
@@ -2699,6 +3040,18 @@ fn cart_badges(html: &str) -> Vec<(String, bool)> {
         .collect()
 }
 
+/// `CartBadge` draws one "max+" for both bars from the top bar's cart entry, so the bottom bar's
+/// must match it.
+#[test]
+fn both_bars_cap_the_carts_count_the_same() {
+    let cart = |items: Vec<platform::nav::Shown<'static>>| {
+        items.into_iter().find(|(item, _)| item.badge_key() == Some("checkout.cart-count")).map(|(item, _)| item.badge_max())
+    };
+    let top = cart(crate::auth::top_nav(None)).expect("the top bar's cart");
+    assert!(top.is_some());
+    assert_eq!(cart(crate::auth::bottom_nav(None)), Some(top));
+}
+
 #[tokio::test]
 async fn the_nav_draws_the_carts_count_for_a_member_a_guest_cart_or_none() {
     let pilot = Pilot::new().await;
@@ -2721,12 +3074,56 @@ async fn the_nav_draws_the_carts_count_for_a_member_a_guest_cart_or_none() {
     req.headers_mut().insert(header::COOKIE, GUEST_LINES.parse().unwrap());
     let (_, _, html) = pilot.send(req).await;
     assert_eq!(cart_badges(&html), [(total.clone(), false), (total, false)], "the guest cart the browser carries: {html}");
+    // The stylesheet shows a visitor's entry while its badge has a count; the server hides none.
+    assert_eq!(html.matches(" data-hide-empty>").count(), 2, "both bars: {html}");
     assert!(!html.contains("hidden data-hide-empty"), "{html}");
     // No guest cart: nothing is read, and the entry is hidden.
     let reads = guest_cart_reads(&pilot).len();
     let (_, _, html) = pilot.send(get("/search", None)).await;
     assert_eq!(cart_badges(&html), [(String::new(), true), (String::new(), true)], "{html}");
     assert_eq!(guest_cart_reads(&pilot).len(), reads, "nothing read without a guest cart");
+}
+
+/// The cart page gives the count its own read found (`gives(CartCount)` on its route), so Corten
+/// starts no layout read for it: one cart read draws the page and both badges.
+#[tokio::test]
+async fn the_cart_page_draws_the_count_from_its_own_one_read() {
+    let pilot = Pilot::new().await;
+    let total = cart("buyer")["count"].as_u64().unwrap().to_string();
+    let (status, _, html) = pilot.send(get(CART_SCREEN, Some("buyer"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert_eq!(cart_badges(&html), [(total.clone(), false), (total, false)], "{html}");
+    let reads = pilot.stand.calls.lock().unwrap().iter().filter(|c| c.path == CART).count();
+    assert_eq!(reads, 1, "the page's read is the count's");
+}
+
+/// A 404 or a refusal draws the cart's count, as every other page does: Corten starts the layout's
+/// reads for a failure the request is at fault for (corten-run/corten#877), a handler's own
+/// refusal (`Refused`, corten-run/corten#890) and a handler's 404 too.
+#[tokio::test]
+async fn a_not_found_or_refused_page_draws_the_carts_count() {
+    let pilot = Pilot::new().await;
+    let total = cart("buyer")["count"].as_u64().unwrap().to_string();
+    let (status, _, html) = pilot.send(get("/no-such-page", Some("buyer"))).await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "{html}");
+    assert_eq!(cart_badges(&html), [(total.clone(), false), (total.clone(), false)], "a member's 404: {html}");
+    let mut req = get("/no-such-page", None);
+    req.headers_mut().insert(header::COOKIE, GUEST_LINES.parse().unwrap());
+    let (status, _, html) = pilot.send(req).await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "{html}");
+    assert_eq!(cart_badges(&html), [(total.clone(), false), (total.clone(), false)], "a visitor's guest cart: {html}");
+    let (status, _, html) = pilot.send(get(SCREEN, Some("buyer"))).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{html}");
+    assert_eq!(cart_badges(&html), [(total.clone(), false), (total.clone(), false)], "a refused page: {html}");
+    // The handler refuses an account that is not the user's.
+    let body = "consent_token=tok_ok&account_id=acc_else";
+    let (status, _, html) = pilot.send(post(&format!("{AGENTS}/consent"), "buyer", body, false)).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{html}");
+    assert_eq!(cart_badges(&html), [(total.clone(), false), (total.clone(), false)], "a handler's refusal: {html}");
+    // A handler's 404: no such item.
+    let (status, _, html) = pilot.send(get("/items/nope", Some("buyer"))).await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "{html}");
+    assert_eq!(cart_badges(&html), [(total.clone(), false), (total, false)], "a handler's 404: {html}");
 }
 
 #[tokio::test]
@@ -2753,11 +3150,10 @@ async fn a_page_and_its_layout_ask_who_is_asking_once() {
     let (status, _, _) = pilot.send(get(CART_SCREEN, Some("buyer"))).await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(identifies(&pilot), 1);
-    // The error page gets none of the refused request's extensions, so it asks once more
-    // (todd-skelton/corten#582); its cart count and session still share one.
+    // A refused page, its error page's session and its cart count share one too.
     let (status, _, _) = pilot.send(get(SCREEN, Some("buyer"))).await;
     assert_eq!(status, StatusCode::FORBIDDEN, "refused, and drawn by the error page");
-    assert_eq!(identifies(&pilot), 3);
+    assert_eq!(identifies(&pilot), 2);
 }
 
 #[tokio::test]
@@ -2770,19 +3166,84 @@ async fn the_shell_has_the_account_menu_the_bottom_bar_and_a_visitors_cart_hidde
     assert_eq!(shell.matches("<nav").count(), 2, "the top bar's and the phone's: {shell}");
     assert!(shell.contains(r#"data-badge="checkout.cart-count""#), "the cart's badge: {shell}");
     assert!(!shell.contains("data-hide-empty"), "a member's cart entry is always shown: {shell}");
+    // Every entry is a page the pilot serves, so every one stays on the pilot.
+    assert!(!shell.contains(r#"href="http://localhost:7753/account"#), "no entry leaves for marketplace: {shell}");
+    let (_, _, html) = pilot.send(get("/account/sales/shipments", Some("shipper"))).await;
+    let shell = html.split_once("<main>").unwrap().0;
+    assert!(!shell.contains(r#"href="http://localhost:7753/account"#), "no entry leaves for marketplace: {shell}");
+    assert!(shell.contains(r#"href="/account/sales/shipments""#), "Shipping's entry: {shell}");
     let (_, _, html) = pilot.send(get(CART_SCREEN, None)).await;
     let shell = html.split_once("<main>").unwrap().0;
     assert!(!shell.contains(r#"aria-label="Account menu""#) && !shell.contains("Sign Out"), "{shell}");
-    assert_eq!(
-        shell.matches("hidden data-hide-empty>").count(),
-        2,
-        "a visitor's cart waits for its count, in both bars: {shell}"
-    );
+    // A visitor's cart entry is drawn in both bars with its badge hidden at 0, which the stylesheet
+    // hides it by (`views/market_nav.css`); the cart page gives the count its own read found.
+    assert_eq!(shell.matches(" data-hide-empty>").count(), 2, "a visitor's cart waits for its count, in both bars: {shell}");
+    assert_eq!(cart_badges(&html), [(String::new(), true), (String::new(), true)], "{shell}");
     let (_, _, html) = pilot.send(get("/offline", None)).await;
     assert!(
         !html.contains("<nav") && html.contains("<body><main>"),
         "the offline page has no shell, nor room for its bar: {html}"
     );
+}
+
+#[tokio::test]
+async fn every_page_has_one_toaster_after_main_that_says_a_submit_that_got_no_answer() {
+    let pilot = Pilot::new().await;
+    for (path, session) in [(CART_SCREEN, Some("seller")), (SCREEN, Some("seller")), (CART_SCREEN, None), ("/offline", None)] {
+        let (_, _, html) = pilot.send(get(path, session)).await;
+        assert_eq!(html.matches(r#"id="ui-toast""#).count(), 1, "{path}: {html}");
+        let after = html.split_once("</main>").map_or("", |(_, after)| after);
+        assert!(after.contains(r#"id="ui-toast" hidden"#), "{path}: outside <main>, empty: {after}");
+        assert!(
+            after.contains("That did not go through, and may not have been saved. Check and try again."),
+            "{path}: the failed text: {after}"
+        );
+    }
+}
+
+/// Each nav link in `shell` to `href`: whether it is marked current, and its Corten nav group.
+fn nav_links_to(shell: &str, href: &str) -> Vec<(bool, String)> {
+    let at = format!(r#" href="{href}" data-nav="section" data-nav-group=""#);
+    shell
+        .match_indices(&at)
+        .map(|(i, _)| {
+            let tag = &shell[i..i + shell[i..].find('>').unwrap()];
+            let group = tag[at.len()..].split('"').next().unwrap().to_owned();
+            (tag.contains(r#"aria-current="page""#), group)
+        })
+        .collect()
+}
+
+#[tokio::test]
+async fn the_nav_marks_the_deepest_entry_that_holds_the_page_in_each_bar() {
+    let pilot = Pilot::new().await;
+    let (_, _, html) = pilot.send(get("/account/sales/shipments", Some("shipper"))).await;
+    let shell = html.split_once("<main>").unwrap().0;
+    assert!(!shell.contains("data-nav-path") && !shell.contains("data-nav-rule"), "Corten marks the nav: {shell}");
+    let shipping = nav_links_to(shell, "/account/sales/shipments");
+    assert!(!shipping.is_empty() && shipping.iter().all(|(current, _)| *current), "Shipping is current: {shipping:?} {shell}");
+    let sales = nav_links_to(shell, "/account/sales");
+    assert!(sales.iter().all(|(current, _)| !current), "Sales holds the page but is not the deepest: {sales:?}");
+    // Imports is under Inventory: on its page only Imports is current, on Inventory's only Inventory.
+    let (_, _, html) = pilot.send(get("/account/inventory/imports", Some("seller"))).await;
+    let shell = html.split_once("<main>").unwrap().0;
+    let imports = nav_links_to(shell, "/account/inventory/imports");
+    assert!(!imports.is_empty() && imports.iter().all(|(current, _)| *current), "{imports:?} {shell}");
+    assert!(nav_links_to(shell, "/account/inventory").iter().all(|(current, _)| !current), "{shell}");
+    let (_, _, html) = pilot.send(get("/account/inventory", Some("seller"))).await;
+    let shell = html.split_once("<main>").unwrap().0;
+    let inventory = nav_links_to(shell, "/account/inventory");
+    assert!(!inventory.is_empty() && inventory.iter().all(|(current, _)| *current), "{inventory:?} {shell}");
+    assert!(nav_links_to(shell, "/account/inventory/imports").iter().all(|(current, _)| !current), "{shell}");
+    // The top bar's links and the phone's are two groups, each with at most one current link.
+    let mut groups: std::collections::BTreeMap<&str, usize> = std::collections::BTreeMap::new();
+    for tag in shell.split("<a ").skip(1).map(|rest| &rest[..rest.find('>').unwrap()]) {
+        if let Some((_, group)) = tag.split_once(r#"data-nav-group=""#) {
+            *groups.entry(group.split('"').next().unwrap()).or_default() += usize::from(tag.contains(r#"aria-current="page""#));
+        }
+    }
+    assert_eq!(groups.len(), 2, "{groups:?}");
+    assert!(groups.values().all(|current| *current <= 1), "{groups:?}");
 }
 
 /// The guest cart reads the stand-in received.
@@ -2817,7 +3278,7 @@ async fn a_guest_cart_is_the_cart_page_with_its_lines_total_and_offer() {
 #[tokio::test]
 async fn a_guests_line_write_goes_to_the_guest_cart_it_carries() {
     let pilot = Pilot::new().await;
-    let body = format!("attempt={KEY}&line_id=cli_pikachu&quantity=1&delta=1");
+    let body = format!("attempt={KEY}&line_id=cli_pikachu&quantity=2");
     let (status, headers, html) = pilot.send(visitor_post(QUANTITY, Some(GUEST_LINES), &body)).await;
     assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
     let to = headers[header::LOCATION].to_str().unwrap();
@@ -2962,11 +3423,12 @@ async fn a_guests_check_out_is_checkout_starts_continue_with_the_offers_decision
 
     // A guest cart with lines: a guest checkout starts, from a readiness read with the decision.
     let (status, headers, html) = pilot.send(visitor_post(CHECK_OUT, Some(GUEST_LINES), DECLINED)).await;
+    assert_eq!(status, StatusCode::TEMPORARY_REDIRECT, "{html}");
+    let (status, headers, html) = pilot.send(followed_post(&headers, CHECK_OUT, Some(GUEST_LINES), DECLINED)).await;
     assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
     let to = headers[header::LOCATION].to_str().unwrap();
     assert!(to.starts_with("/checkout/buy/session/chk_1?"), "{to}");
     let set = cookies_set(&headers);
-    assert!(set["chase_sets_guest_checkout"].starts_with("chase_sets_guest_checkout=gst_new;"), "{set:?}");
     assert!(set["chase_sets_anonymous_cart"].contains("Max-Age=0"), "the guest cart moved into the checkout: {set:?}");
     let calls = checkout_calls(&pilot);
     let readiness = calls.iter().find(|c| c.path == "/api/marketplace/account/cart/readiness").expect("a readiness read");
@@ -2974,7 +3436,8 @@ async fn a_guests_check_out_is_checkout_starts_continue_with_the_offers_decision
     assert_eq!(decisions["optimization"]["decision"], "declined", "{decisions}");
     assert_eq!(readiness.headers["x-checkout-anonymous-cart-id"], "anon_lines");
     let started = calls.iter().find(|c| c.path == "/api/marketplace/account/checkout-sessions").expect("a session");
-    assert_eq!(started.headers[header::COOKIE], "chase_sets_guest_checkout=gst_new", "under the new guest");
+    let as_guest = started.headers[header::COOKIE].to_str().unwrap();
+    assert!(as_guest.contains("chase_sets_guest_checkout=gst_new"), "under the new guest: {as_guest}");
 }
 
 /// The cart writes the stand-in received, each as the JSON it was sent.
@@ -3025,15 +3488,18 @@ async fn each_line_has_its_writes_as_plain_forms_for_every_line_merged_into_it()
         merged.contains(r#"name="line_id" value="cli_pikachu_a""#) && merged.contains(r#"name="line_id" value="cli_pikachu_b""#),
         "{merged}"
     );
-    assert!(merged.contains(r#"name="quantity" value="3""#), "{merged}");
-    assert!(
-        merged.contains(r#"name="delta" value="-1" aria-label="Decrease""#)
-            && merged.contains(r#"value="1" aria-label="Increase""#),
-        "{merged}"
-    );
+    // The kit's NumberField, from 1, named by its label, and sent by Update quantity without the
+    // script; with it, a change sends the form (cart_item.js).
+    assert!(merged.contains(r#"name="quantity" value="3" min="1" max="2147483647" step="1""#), "{merged}");
+    assert!(merged.contains(r#"aria-label="Decrease""#) && merged.contains(r#"aria-label="Increase""#), "{merged}");
+    assert!(merged.contains(r#"<label class=""#) && merged.contains(">Quantity</label>"), "{merged}");
+    assert!(merged.contains(">Update quantity</button>") && merged.contains("cart_item.commit"), "{merged}");
+    assert!(merged.contains(r#"id="line-quantity-form-cli_pikachu_a""#), "a form a patch can find: {merged}");
+    assert!(!merged.contains(r#"name="delta""#), "{merged}");
     // Mew's quantity is 1: it can only go up.
     let one = steppers[1];
-    assert!(one.contains(r#"value="-1" aria-label="Decrease" disabled"#), "{one}");
+    assert!(one.contains(r#"aria-label="Decrease" tabindex="-1" disabled"#), "{one}");
+    assert!(!one.contains(r#"aria-label="Increase" tabindex="-1" disabled"#), "{one}");
     assert_eq!(forms_to(&html, REMOVE).len(), 2, "{html}");
     // Only the line with a preferred listing it is not locked to can be locked.
     let locks = forms_to(&html, LOCK);
@@ -3056,7 +3522,7 @@ async fn each_line_has_its_writes_as_plain_forms_for_every_line_merged_into_it()
 async fn a_quantity_step_is_one_attempt_and_the_cart_is_read_after_it() {
     let pilot = Pilot::new().await;
     let attempt = new_attempt();
-    let body = format!("attempt={attempt}&line_id=cli_pikachu_a&line_id=cli_pikachu_b&quantity=3&delta=1");
+    let body = format!("attempt={attempt}&line_id=cli_pikachu_a&line_id=cli_pikachu_b&quantity=4");
     let (status, headers, html) = pilot.send(post(QUANTITY, "blocked", &body, false)).await;
     assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
     let to = headers[header::LOCATION].to_str().unwrap();
@@ -3077,12 +3543,20 @@ async fn a_quantity_step_is_one_attempt_and_the_cart_is_read_after_it() {
     let reads = cart_calls(&pilot);
     assert_eq!(waits_for(&reads.last().unwrap().headers).as_deref(), Some("11"));
 
-    // A step below 1 is 1, and a post without an attempt (no script) is still one attempt.
-    let (status, _, _) = pilot.send(post(QUANTITY, "blocked", "line_id=cli_eur&quantity=1&delta=-1", false)).await;
+    // A quantity typed without the script is still one attempt.
+    let (status, _, _) = pilot.send(post(QUANTITY, "blocked", "line_id=cli_eur&quantity=12", false)).await;
     assert_eq!(status, StatusCode::SEE_OTHER);
     let sent = cart_writes(&pilot).pop().unwrap();
-    assert_eq!(sent["commands"], json!([{ "type": "quantity", "lineId": "cli_eur", "quantity": 1 }]));
+    assert_eq!(sent["commands"], json!([{ "type": "quantity", "lineId": "cli_eur", "quantity": 12 }]));
     assert_eq!(sent["attemptId"].as_str().unwrap().len(), 36, "{sent}");
+
+    // One that is not a whole number from 1 is refused before it is sent, and says so.
+    for typed in ["0", "", "2.5", "4x", "2147483648"] {
+        let (status, _, html) = pilot.send(post(QUANTITY, "blocked", &format!("line_id=cli_eur&quantity={typed}"), false)).await;
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{typed}: {html}");
+        assert!(text(&html).contains("Enter a whole number of 1 or more."), "{typed}: {html}");
+    }
+    assert_eq!(cart_writes(&pilot).len(), 2, "nothing more sent");
 }
 
 #[tokio::test]
@@ -3125,9 +3599,8 @@ async fn remove_and_lock_send_a_command_for_each_merged_line() {
 #[tokio::test]
 async fn a_write_refused_or_applied_in_part_is_the_cart_with_what_did_not_apply() {
     let pilot = Pilot::new().await;
-    let (status, _, html) = pilot
-        .send(post(QUANTITY, "blocked", &format!("attempt={}&line_id=cli_refused&quantity=5&delta=1", new_attempt()), false))
-        .await;
+    let (status, _, html) =
+        pilot.send(post(QUANTITY, "blocked", &format!("attempt={}&line_id=cli_refused&quantity=6", new_attempt()), false)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
     let page = text(&html);
     assert!(page.contains("Your cart change was not applied Only 2 are available."), "the API's reason: {page}");
@@ -3164,7 +3637,7 @@ async fn a_lost_answer_is_looked_up_once_and_one_not_found_pauses_the_cart_until
 
     // Not found: not known, so the cart's writes are paused and the same write can be sent again.
     let attempt = new_attempt();
-    let body = format!("attempt={attempt}&line_id=cli_unknown&quantity=2&delta=-1");
+    let body = format!("attempt={attempt}&line_id=cli_unknown&quantity=1");
     let (status, _, html) = pilot.send(post(QUANTITY, "blocked", &body, false)).await;
     assert_eq!(status, StatusCode::CONFLICT, "{html}");
     assert_eq!(cart_writes(&pilot).len(), 2, "never resent on its own");
@@ -3176,7 +3649,7 @@ async fn a_lost_answer_is_looked_up_once_and_one_not_found_pauses_the_cart_until
         resend.contains(&format!(r#"name="attempt" value="{attempt}""#)) && !resend.contains("data-submit"),
         "the same attempt: {resend}"
     );
-    assert!(resend.contains(r#"name="quantity" value="2""#) && resend.contains(r#"name="delta" value="-1""#), "{resend}");
+    assert!(resend.contains(r#"name="quantity" value="1""#) && !resend.contains(r#"name="delta""#), "{resend}");
     assert!(html.contains(r#"href="/account/cart">Refresh cart<"#), "{html}");
     let fieldsets = fieldsets(&html);
     assert_eq!(fieldsets.len(), 5, "two steppers, two removes, one lock: {html}");
@@ -3329,6 +3802,12 @@ fn discovery_item(stand: &Stand, id: &str) -> Response {
             let mut item = item();
             item["slug"] = json!("pictured");
             item["image_urls"] = json!(["/fake-cdn/front.png", "/fake-cdn/back.png"]);
+            Json(item).into_response()
+        }
+        "single" => {
+            let mut item = item();
+            item["slug"] = json!("single");
+            item["market_listings"].as_array_mut().unwrap().retain(|l| l["listing_id"] == "lst_vault");
             Json(item).into_response()
         }
         "unlisted" => {
@@ -3896,12 +4375,10 @@ async fn buy_this_listing_starts_a_checkout_session_once_per_form() {
     assert!(text(&html).contains("Your selection changed after you chose Buy now."), "{html}");
     // A visitor's is checkout start's Continue: a guest checkout under a new guest identity, with
     // the form's key, then the guest's checkout, the pilot's page.
-    let req = Request::post(ITEM_BUY)
-        .header(header::HOST, "localhost:7791")
-        .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
-        .body(Body::from(buy_body("", "1", VAULT, "lst_vault", "")))
-        .unwrap();
-    let (status, headers, html) = pilot.send(req).await;
+    let body = buy_body("", "1", VAULT, "lst_vault", "");
+    let (status, headers, html) = pilot.send(visitor_post(ITEM_BUY, None, &body)).await;
+    assert_eq!(status, StatusCode::TEMPORARY_REDIRECT, "the Buy is sent again to itself as a new guest: {html}");
+    let (status, headers, html) = pilot.send(followed_post(&headers, ITEM_BUY, None, &body)).await;
     assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
     assert!(headers[header::LOCATION].to_str().unwrap().starts_with("/checkout/buy/session/chk_1"), "{headers:?}");
     let calls = pilot.stand.calls.lock().unwrap().clone();
@@ -4139,7 +4616,7 @@ async fn the_watch_tab_is_the_pilots_with_a_form_for_listings_and_one_for_offers
     let (status, _, html) = pilot.send(get(WATCH_PAGE, None)).await;
     assert_eq!(status, StatusCode::OK, "{html}");
     // Watch is a tab of this page now, current on it.
-    assert!(html.contains(r#"href="/items/charizard?market=watch&amp;dimension.dim_condition=chc_nm&amp;dimension.dim_form=chc_raw" aria-current="true""#), "{html}");
+    assert!(html.contains(r#"href="/items/charizard?market=watch&amp;dimension.dim_condition=chc_nm&amp;dimension.dim_form=chc_raw" aria-current="page""#), "{html}");
     let page = text(&html);
     assert!(page.contains("Watch listings Listings at or below your target."), "{page}");
     assert!(page.contains("Watch offers Offers at or above your target."), "{page}");
@@ -4484,6 +4961,306 @@ async fn a_guests_add_to_list_is_an_intent_they_register_to_claim() {
     );
 }
 
+/// A search result's Add to List for charizard's raw Near Mint, from `/search?q=char`.
+const PREPARE: &str = "dimension.dim_form=chc_raw&dimension.dim_condition=chc_nm&prepare=1&from=%2Fsearch%3Fq%3Dchar";
+
+#[tokio::test]
+async fn a_search_results_add_to_list_opens_the_dialog_for_the_product_its_filters_name() {
+    let pilot = Pilot::new().await;
+    // Each result posts its item's address, `prepare` and the search it is on; the page has the
+    // dialog, empty, for the answer.
+    let (status, _, html) = pilot.send(get("/search?q=pika&dimension.dim_grade=chc_10", Some("watcher"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    // Its submit opens a closed dialog again (corten-run/corten#1371's workaround).
+    let save = r#"<form class="search-page__save" method="post" action="/items/card-1/save" data-patch data-on='submit:search.fresh("save-to-list")'>"#;
+    let form = html.split(save).nth(1);
+    let form = form.expect("card 1's Add to List").split("</form>").next().unwrap();
+    for field in [
+        r#"<input type="hidden" name="dimension.dim_grade" value="chc_10">"#,
+        r#"<input type="hidden" name="prepare" value="1">"#,
+        r#"<input type="hidden" name="from" value="/search?q=pika&amp;dimension.dim_grade=chc_10">"#,
+    ] {
+        assert!(form.contains(field), "{field}: {form}");
+    }
+    assert!(form.contains(r#"aria-label="Add Card 1"#) && form.contains(">Add to List</button>"), "{form}");
+    assert!(html.contains(r#"<dialog id="save-to-list" class="save-dialog__dialog"></dialog>"#), "{html}");
+    assert!(saved_list_calls(&pilot).is_empty(), "the page reads no lists until one is asked for");
+
+    // With a script, the dialog for the product, open, its form going back to the search.
+    let (status, _, html) = pilot.send(post(SAVE, "watcher", PREPARE, true)).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains(r#"id="save-to-list" aria-labelledby="save-to-list-title" open"#), "{html}");
+    assert!(text(&html).contains("Charizard · Raw / Near Mint"), "{html}");
+    assert!(html.contains(r#"name="list" value="svl_binder" checked>"#), "{html}");
+    assert!(html.contains(r#"<input type="hidden" name="from" value="/search?q=char">"#), "{html}");
+    assert_eq!(hidden(&html, "product"), OFFERED);
+    // Without one, the item page with the dialog open.
+    let (status, _, html) = pilot.send(post(SAVE, "watcher", PREPARE, false)).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains(r#"id="save-to-list" aria-labelledby="save-to-list-title" open"#), "{html}");
+    assert!(html.contains(r#"<input type="hidden" name="from" value="/search?q=char">"#), "{html}");
+    assert!(html.contains(r#"class="item-detail__"#), "the item page: {html}");
+    let additions = saved_list_calls(&pilot).into_iter().filter(|c| c.path == LIST_ADDITIONS).count();
+    assert_eq!(additions, 0, "opening adds nothing");
+
+    // Filters that do not name a product: the item page, to choose its options.
+    let (status, headers, _) = pilot.send(post(SAVE, "watcher", "prepare=1&from=%2Fsearch%3Fq%3Dchar", true)).await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    assert_eq!(headers["corten-location"], "/items/charizard");
+    // A page on another site is not a page to go back to.
+    let elsewhere = PREPARE.replace("%2Fsearch", "https%3A%2F%2Fevil.example%2Fsearch");
+    let (_, _, html) = pilot.send(post(SAVE, "watcher", &elsewhere, true)).await;
+    assert!(!html.contains(r#"name="from""#), "{html}");
+}
+
+#[tokio::test]
+async fn add_product_from_a_search_result_goes_back_to_the_search_saying_where_it_went() {
+    let pilot = Pilot::new().await;
+    let body = save_body(&pilot, "watcher", "new", "Chase+cards", "2").await;
+    let (status, headers, html) = pilot.send(post(SAVE, "watcher", &format!("{body}&from=%2Fsearch%3Fq%3Dchar"), false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
+    assert_eq!(headers[header::LOCATION], "/search?q=char");
+    let notice = cookies_set(&headers).remove("__Host-corten-notice").expect("the notice");
+    assert!(notice.contains("m=Added+to+Chase+cards"), "{notice}");
+    let sent = saved_list_calls(&pilot).into_iter().find(|c| c.path == LIST_ADDITIONS).unwrap();
+    assert_eq!(serde_json::from_str::<Value>(&sent.body).unwrap()["sourceSurface"], "search");
+    // A recent list is named as the picker reads it.
+    let body = save_body(&pilot, "watcher", "svl_binder", "", "1").await;
+    let (_, headers, _) = pilot.send(post(SAVE, "watcher", &format!("{body}&from=%2Fsearch%3Fq%3Dchar"), true)).await;
+    assert_eq!(headers["corten-location"], "/search?q=char");
+    assert!(cookies_set(&headers)["__Host-corten-notice"].contains("m=Added+to+Binder"), "{headers:?}");
+}
+
+#[tokio::test]
+async fn a_search_results_add_to_list_without_its_options_goes_to_the_item_page_even_with_one_listing() {
+    let pilot = Pilot::new().await;
+    // `single` has one listing, whose product the item page would pick; a result's filters that
+    // name no options still name no product.
+    let body = "prepare=1&from=%2Fsearch%3Fq%3Dchar";
+    let (status, headers, html) = pilot.send(post("/items/single/save", "watcher", body, true)).await;
+    assert_eq!(status, StatusCode::NO_CONTENT, "{html}");
+    assert_eq!(headers["corten-location"], "/items/single");
+    assert!(!html.contains(r#"aria-labelledby="save-to-list-title" open"#), "{html}");
+    // Signed out: the item page too, and no intent.
+    let (status, headers, html) = pilot.send(post_signed_out("/items/single/save", body)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
+    assert_eq!(headers[header::LOCATION], "/items/single");
+    let intents = saved_list_calls(&pilot).into_iter().filter(|c| c.path == GUEST_SAVED_LIST_INTENTS).count();
+    assert_eq!(intents, 0, "no intent for a product the filters do not name");
+}
+
+#[tokio::test]
+async fn a_guests_add_to_list_from_a_search_result_registers_back_to_the_search() {
+    let pilot = Pilot::new().await;
+    let (status, headers, html) = pilot.send(post_signed_out(SAVE, PREPARE)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
+    assert_eq!(
+        headers[header::LOCATION],
+        "http://localhost:7753/register?returnTo=%2Fsearch%3Fq%3Dchar%26claimSavedListIntent%3Dsli_1"
+    );
+    let sent: Value = serde_json::from_str(&saved_list_calls(&pilot)[0].body).unwrap();
+    assert_eq!((&sent["sourcePath"], &sent["sourceSurface"]), (&json!("/search?q=char"), &json!("search")));
+    assert_eq!(sent["product"]["productId"], OFFERED);
+}
+
+/// Add matching products to Buy Cart's preview and add.
+const BULK: &str = "/search/cart";
+const BULK_ATTEMPT: &str = "4f1c2b9e-7d3a-4e8b-a1c0-1234567890ab";
+
+/// The bulk add's previews Discovery was asked for, as their queries.
+fn bulk_previews(pilot: &Pilot) -> Vec<HashMap<String, String>> {
+    let calls = pilot.stand.calls.lock().unwrap();
+    calls.iter().filter(|c| c.path.starts_with(BULK_PREVIEW)).map(|c| query(&c.path)).collect()
+}
+
+/// The bulk adds Checkout was sent.
+fn bulk_adds(pilot: &Pilot) -> Vec<Call> {
+    let calls = pilot.stand.calls.lock().unwrap();
+    calls.iter().filter(|c| c.path == ACCOUNT_CART_BULK || c.path == GUEST_CART_BULK).cloned().collect()
+}
+
+#[tokio::test]
+async fn add_matching_products_to_buy_cart_previews_what_the_search_would_add() {
+    let pilot = Pilot::new().await;
+    // A search with results offers it, a GET form with the search's parameters; the page has the
+    // sheet, empty, for its answer.
+    let (status, _, html) = pilot.send(get("/search?q=pika&dimension.dim_grade=chc_10", Some("watcher"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let trigger = r#"<form class="search-page__bulk" id="bulk-trigger" method="get" action="/search/cart" data-patch data-on='submit:search.fresh("bulk-cart")'>"#;
+    let form = html.split(trigger).nth(1);
+    let form = form.expect("the bulk add's form").split("</form>").next().unwrap();
+    for field in
+        [r#"<input type="hidden" name="q" value="pika">"#, r#"<input type="hidden" name="dimension.dim_grade" value="chc_10">"#]
+    {
+        assert!(form.contains(field), "{field}: {form}");
+    }
+    // Its button is in the control bar, its fields after the filters, whose focus they would take.
+    let button =
+        r#"<button type="submit" class="search-page__secondary" form="bulk-trigger">Add matching products to Buy Cart</button>"#;
+    let (bar, after) = html.split_once(button).expect("the bulk add's button");
+    assert!(!bar.contains(r#"id="search-filters""#), "the button is above the filters: {html}");
+    assert!(
+        after.find(r#"id="search-filters""#).unwrap() < after.find(r#"id="bulk-trigger""#).unwrap(),
+        "the form's fields come after the filters: {html}"
+    );
+    assert!(html.contains(r#"<dialog id="bulk-cart" class="bulk-cart-sheet__dialog"></dialog>"#), "{html}");
+    assert!(bulk_previews(&pilot).is_empty(), "nothing is previewed until it is asked for");
+    // The landing and a failed search offer none.
+    for page in ["/", "/search?q=broken"] {
+        let (_, _, html) = pilot.send(get(page, Some("watcher"))).await;
+        assert!(!html.contains(r#"action="/search/cart""#), "{page}: {html}");
+    }
+
+    // With a script, the sheet, open: what the add would do, read for every match of the search.
+    let (status, headers, html) = pilot.send(get_patch("/search/cart?q=pika&dimension.dim_grade=chc_10")).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(headers.contains_key("corten-patch"), "a patch: {headers:?}");
+    assert!(
+        html.contains(r#"<dialog class="bulk-cart-sheet__dialog" id="bulk-cart" aria-labelledby="bulk-cart-title" open"#),
+        "{html}"
+    );
+    let sheet = text(&html);
+    for said in
+        ["Add matching products to Buy Cart", "2 ready, 1 need product options.", "Matches 3", "Ready 2", "Need options 1"]
+    {
+        assert!(sheet.contains(said), "{said}: {sheet}");
+    }
+    assert!(sheet.contains("Card 2 needs product options before it can be added."), "{sheet}");
+    let read = bulk_previews(&pilot).pop().unwrap();
+    assert_eq!((read["search"].as_str(), read["dimension.dim_grade"].as_str()), ("pika", "chc_10"), "{read:?}");
+    assert!(!read.contains_key("limit") && !read.contains_key("includeTotal"), "every match, as the API reads them: {read:?}");
+    // Add eligible products posts the search again with an attempt.
+    let add = html.split(r#"<form class="bulk-cart-sheet__add" method="post" action="/search/cart" data-patch>"#).nth(1);
+    let add = add.expect("Add eligible products").split("</form>").next().unwrap();
+    assert!(add.contains(r#"name="attempt""#) && add.contains(r#"<input type="hidden" name="q" value="pika">"#), "{add}");
+    assert!(add.contains(">Add eligible products</button>") && !add.contains("disabled"), "{add}");
+
+    // Without one, the search's page with the sheet open.
+    let (status, _, html) = pilot.send(get("/search/cart?q=pika", Some("watcher"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains(r#"id="bulk-cart" aria-labelledby="bulk-cart-title" open"#), "{html}");
+    assert!(html.contains(r#"<li id="result-1""#), "the results: {html}");
+
+    // On a category's page, the form sends its slug, which the preview reads.
+    let (_, _, html) = pilot.send(get("/categories/singles-x1?q=pika", Some("watcher"))).await;
+    let form = html.split(r#"id="bulk-trigger""#).nth(1).unwrap().split("</form>").next().unwrap();
+    assert!(form.contains(r#"<input type="hidden" name="category" value="singles-x1">"#), "{form}");
+    pilot.send(get_patch("/search/cart?q=pika&category=singles-x1")).await;
+    assert_eq!(bulk_previews(&pilot).pop().unwrap()["category"], "singles-x1");
+}
+
+#[tokio::test]
+async fn adding_matching_products_sends_one_cart_attempt_and_goes_back_to_the_search_saying_how_many() {
+    let pilot = Pilot::new().await;
+    let body = format!("q=pika&dimension.dim_grade=chc_10&attempt={BULK_ATTEMPT}");
+    let (status, headers, html) = pilot.send(post(BULK, "watcher", &body, false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
+    let to = headers[header::LOCATION].to_str().unwrap();
+    assert!(
+        to.starts_with("/search?q=pika&dimension.dim_grade=chc_10&after_write="),
+        "after the write, for the shell's count: {to}"
+    );
+    let notice = cookies_set(&headers).remove("__Host-corten-notice").expect("the notice");
+    assert!(notice.contains("m=1+added%2C+1+merged"), "{notice}");
+    // One attempt with every line the preview gave, for Smart Match to fill.
+    let adds = bulk_adds(&pilot);
+    assert_eq!(adds.len(), 1, "{adds:?}");
+    assert_eq!(adds[0].path, ACCOUNT_CART_BULK);
+    let sent: Value = serde_json::from_str(&adds[0].body).unwrap();
+    assert_eq!(sent["attemptId"], BULK_ATTEMPT);
+    assert_eq!(sent["lines"].as_array().map(Vec::len), Some(2), "{sent}");
+    assert_eq!(
+        sent["lines"][0],
+        json!({
+            "catalogItemId": "cat_1", "productId": "cat_1::pika", "itemTitle": "Card 1", "itemSubtitle": "Base Set",
+            "itemImageUrl": "/img/1.png", "itemImageSrcSet": null, "itemImageLoadingUrl": null, "itemImageLoadingAlt": null,
+            "itemImageLoadingSrcSet": null, "selectedOptions": [{ "dimensionId": "dim_condition", "optionId": "chc_nm" }],
+            "productSummary": "Raw / Near Mint", "quantity": 1, "fulfillmentMode": "optimize", "lockedListingId": null,
+        })
+    );
+    // The page it goes back to draws the shell's count after the write.
+    pilot.send(get(to, Some("watcher"))).await;
+    let calls = pilot.stand.calls.lock().unwrap().clone();
+    assert!(calls.iter().any(|c| c.path == CART && waits_for(&c.headers).as_deref() == Some("14")), "the count waits for 14");
+    // With a script, the same, which the runtime follows; the form sent again is the same attempt.
+    let (status, headers, _) = pilot.send(post(BULK, "watcher", &body, true)).await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    assert!(headers["corten-location"].to_str().unwrap().starts_with("/search?q=pika&dimension.dim_grade=chc_10&after_write="));
+    let attempts: Vec<Value> =
+        bulk_adds(&pilot).iter().map(|c| serde_json::from_str::<Value>(&c.body).unwrap()["attemptId"].clone()).collect();
+    assert_eq!(attempts, [json!(BULK_ATTEMPT), json!(BULK_ATTEMPT)]);
+    // From a category, back to its page.
+    let (_, headers, _) =
+        pilot.send(post(BULK, "watcher", &format!("q=pika&category=singles-x1&attempt={BULK_ATTEMPT}"), false)).await;
+    assert!(headers[header::LOCATION].to_str().unwrap().starts_with("/categories/singles-x1?q=pika&after_write="), "{headers:?}");
+}
+
+#[tokio::test]
+async fn a_guests_bulk_add_goes_to_a_guest_cart_the_browser_keeps() {
+    let pilot = Pilot::new().await;
+    let (status, headers, html) = pilot.send(post_signed_out(BULK, &format!("q=pika&attempt={BULK_ATTEMPT}"))).await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
+    let add = bulk_adds(&pilot).pop().expect("the add");
+    assert_eq!(add.path, GUEST_CART_BULK);
+    let guest = add.headers["x-checkout-anonymous-cart-id"].to_str().unwrap().to_owned();
+    assert!(guest.starts_with("anon_"), "{guest}");
+    let kept = cookies_set(&headers).remove("chase_sets_anonymous_cart").expect("the guest cart's cookie");
+    assert!(kept.starts_with(&format!("chase_sets_anonymous_cart={guest};")), "{kept}");
+}
+
+#[tokio::test]
+async fn a_bulk_add_that_did_not_wholly_apply_says_so_in_its_sheet() {
+    let pilot = Pilot::new().await;
+    // Each case its own attempt: an attempt sent again is the one the API kept.
+    let attempt = |words: &str| format!("bulk-attempt-{words}-0123456789");
+    let sent = |words: &str| format!("q={words}&attempt={}", attempt(words));
+    // Some lines added: the counts, each line that was not, and Review Buy Cart.
+    let (status, headers, html) = pilot.send(post(BULK, "watcher", &sent("partial"), true)).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(headers.contains_key("corten-patch"), "{headers:?}");
+    let sheet = text(&html);
+    for said in ["Buy Cart updated", "Card 3: No listings are available.", "1 added, 0 merged", "1 products could not be added."]
+    {
+        assert!(sheet.contains(said), "{said}: {sheet}");
+    }
+    assert!(html.contains(r#"href="/account/cart">Review Buy Cart</a>"#), "{html}");
+    assert!(!sheet.contains("Add eligible products"), "{sheet}");
+    // Without a script, the search with it open, and the shell's count read after the add.
+    let (status, _, html) = pilot.send(post(BULK, "watcher", &sent("partial"), false)).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains(r#"id="bulk-cart" aria-labelledby="bulk-cart-title" open"#), "{html}");
+    let calls = pilot.stand.calls.lock().unwrap().clone();
+    assert!(calls.iter().any(|c| c.path == CART && waits_for(&c.headers).as_deref() == Some("14")), "the count waits for 14");
+
+    // Its answer lost: not known, so the same attempt again, never on its own.
+    let (status, _, html) = pilot.send(post(BULK, "watcher", &sent("lost"), true)).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{html}");
+    let sheet = text(&html);
+    assert!(sheet.contains("We couldn&#39;t confirm this bulk add"), "{sheet}");
+    assert!(html.contains(&format!(r#"<input type="hidden" name="attempt" value="{}">"#, attempt("lost"))), "{html}");
+    assert!(html.contains(">Send the same add again</button>") && !sheet.contains("Add eligible products"), "{html}");
+    // Refused: nothing added, with the API's reason, and the add offered again.
+    let (status, _, html) = pilot.send(post(BULK, "watcher", &sent("refused"), true)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    let sheet = text(&html);
+    assert!(sheet.contains("No products were added") && sheet.contains("Buy Cart is closed for changes."), "{sheet}");
+    assert!(sheet.contains("Add eligible products"), "{sheet}");
+
+    // Over the limit, or nothing named in full: the preview again, and nothing sent.
+    let before = bulk_adds(&pilot).len();
+    for (words, said) in [("lots", "Too many matches"), ("none", "0 ready, 1 need product options.")] {
+        let (status, _, html) = pilot.send(post(BULK, "watcher", &sent(words), true)).await;
+        assert_eq!(status, StatusCode::OK, "{html}");
+        assert!(text(&html).contains(said), "{said}: {html}");
+        assert!(html.contains(" disabled>Add eligible products</button>"), "{html}");
+    }
+    assert_eq!(bulk_adds(&pilot).len(), before, "nothing is added");
+    // A preview that fails says so, with or without a script.
+    let (status, _, html) = pilot.send(get_patch("/search/cart?q=broken")).await;
+    assert_eq!(status, StatusCode::BAD_GATEWAY, "{html}");
+    assert!(text(&html).contains("Could not add matching products"), "{html}");
+}
+
 const LIST: &str = "/items/charizard/list";
 const SHIP_FROM: &str = "/items/charizard/ship-from";
 const ATTEMPT: &str = "0b6f3c1e-4d2a-4b8e-9f00-1234567890ab";
@@ -4651,6 +5428,16 @@ async fn a_seller_lists_the_product_once_however_often_the_form_is_sent() {
     assert!(again.starts_with(&format!("/items/charizard?market=sell&listing={LISTED}&after_write=%7B")), "{again}");
     let publishes = listing_calls(&pilot).iter().filter(|(p, _)| p.ends_with("/publish")).count();
     assert_eq!(publishes, 1, "{:?}", listing_calls(&pilot));
+    let creates: Vec<String> = pilot
+        .stand
+        .calls
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|c| c.path == CREATE_LISTING)
+        .map(|c| c.headers["idempotency-key"].to_str().unwrap().to_owned())
+        .collect();
+    assert_eq!(creates, [format!("{LISTED}_create"), format!("{LISTED}_create")], "a resent form is the same create attempt");
     assert_eq!(pilot.stand.listings.lock().unwrap().len(), 1);
     assert_eq!(pilot.stand.ensured.lock().unwrap().len(), 1);
 }
@@ -4753,7 +5540,7 @@ async fn the_sales_tab_reads_the_products_market_history_with_the_page_and_draws
     );
     assert!(series.headers.get("chase-sets-read-after-write").is_none());
     // The range is links, the year chosen; the chart is a line, a band and one verified sale.
-    assert!(book.contains(r#"aria-current="true">1 year</a>"#), "{book}");
+    assert!(book.contains(r#"aria-current="page">1 year</a>"#), "{book}");
     assert_eq!(hrefs(book, "90 days"), ["/items/charizard?book=sales&amp;dimension.dim_form=chc_raw"]);
     assert!(book.contains(r#"<svg viewBox="0 0 640 220" role="img" aria-label="Trade price history for Charizard""#), "{book}");
     assert!(book.contains(r#"class="time-series__chart-line" d="M12.00,"#), "{book}");
@@ -5042,7 +5829,18 @@ async fn search_sends_its_terms_and_draws_results_filters_and_load_more() {
     assert!(html.contains(">Japanese<"), "a result's language: {html}");
     // The filters are one GET form; the words box and the sort are in it by its id.
     assert!(html.contains(r#"<form id="search-form""#), "{html}");
-    assert!(html.contains(r#"<input type="search" name="q" form="search-form" value="pika""#), "{html}");
+    assert!(html.contains(r#"<input class="input__input" type="search" name="q" form="search-form" value="pika""#), "{html}");
+    // The words box is the kit's input group, the design system's search glyph inside its border
+    // and hidden from a screen reader, which reads the label's words.
+    let words = &html[html.find(r#"<label class="input-group__input-group">"#).expect("the words box's group")..];
+    let words = &words[..words.find("</label>").unwrap()];
+    assert!(
+        words.starts_with(
+            r#"<label class="input-group__input-group"><span class="input-group__adornment" aria-hidden="true"><svg"#
+        ),
+        "{words}"
+    );
+    assert!(words.contains(r#"<span class="visually-hidden__visually-hidden">Marketplace search</span>"#), "{words}");
     assert!(html.contains(r#"<select name="sort" form="search-form">"#), "{html}");
     assert!(html.contains(r#"<input type="checkbox" name="dimension.dim_grade" value="chc_10" checked>"#), "{html}");
     // Each chip is the address without its filter.
@@ -5241,7 +6039,7 @@ async fn the_search_terms_and_the_item_address_read_back_through_the_router_as_t
     assert!(form.contains(r#"<input type="hidden" name="dimension.dim_form" value="chc_graded">"#), "{form}");
     // The same listing twice is one the address chose; two different ones are none, so the page
     // chooses by itself.
-    let explicit = "&quot;selected_listing&quot;,&quot;explicit&quot;";
+    let explicit = r#""selected_listing","explicit""#;
     let (_, _, twice) = pilot.send(get("/items/charizard?listing=lst_chase&listing=lst_chase", None)).await;
     assert!(twice.contains(explicit), "{twice}");
     let (_, _, two) = pilot.send(get("/items/charizard?listing=lst_chase&listing=lst_vault", None)).await;
@@ -5361,7 +6159,89 @@ async fn a_listing_page_shows_the_listing_its_purchase_panel_and_its_seller() {
     assert!(html.contains(r#"href="/items/charizard">Compare market</a>"#), "{html}");
     assert!(html.contains(r#"href="/accounts/chase-sets#feedback">View account</a>"#), "{html}");
     assert!(html.contains(r#"<select name="reason" required>"#) && html.contains(r#"maxlength="1000""#), "{html}");
-    assert!(!html.contains(r#"role="status""#), "{html}");
+    assert!(!main_of(&html).contains(r#"role="status""#), "no notice in the page (the layout's toaster is after it): {html}");
+    assert!(!html.contains("application/ld+json"), "structured data is for the production marketplace only: {html}");
+}
+
+/// The stand-in listing's eligible Google Shopping payload, linking the production page.
+fn shopping_payload() -> Value {
+    json!({
+        "offerId": "cs-listing-lst_psa_8", "title": "Charizard Base Set PSA 8", "description": "A </script> Base Set Charizard.",
+        "link": "https://marketplace.chasesets.com/listings/psa-8", "imageLink": "https://assets.chasesets.com/catalog/charizard.webp",
+        "priceAmount": "749.00", "currencyCode": "USD", "availability": "in stock", "condition": "used",
+        "brand": "Pokemon", "productType": "Trading Cards",
+    })
+}
+
+/// The stand-in's listing with `change` made to it.
+fn shopping_listing(change: impl FnOnce(&mut Value)) -> crate::api::PublicListing {
+    let mut value = json!({
+        "listing_id": "lst_psa_8", "listing_slug": "psa-8", "account_id": "acc_chase", "catalog_catalog_item_id": "cat_charizard",
+        "product_id": "cat_charizard::psa8", "price_amount": "749.00", "price_currency_code": "USD", "status": "active",
+        "seller_display_name": "Chase Sets", "seller_listing_availability_status": "available",
+        "google_shopping_structured_data_payload": shopping_payload(),
+    });
+    change(&mut value);
+    serde_json::from_value(value).unwrap()
+}
+
+const LISTING_CANONICAL: &str = "https://marketplace.chasesets.com/listings/psa-8";
+
+#[test]
+fn a_production_listing_writes_its_product_and_offer_from_its_shopping_payload_that_nothing_can_end() {
+    use corten::prelude::*;
+    let product = crate::views::listing_json_ld(&shopping_listing(|_| {}), LISTING_CANONICAL).expect("an eligible listing");
+    assert_eq!(
+        product,
+        json!({
+            "@context": "https://schema.org", "@type": "Product", "name": "Charizard Base Set PSA 8",
+            "description": "A </script> Base Set Charizard.", "image": "https://assets.chasesets.com/catalog/charizard.webp",
+            "sku": "cs-listing-lst_psa_8", "brand": { "@type": "Brand", "name": "Pokemon" }, "category": "Trading Cards",
+            "offers": {
+                "@type": "Offer", "url": LISTING_CANONICAL, "priceCurrency": "USD", "price": "749.00",
+                "availability": "https://schema.org/InStock", "itemCondition": "https://schema.org/UsedCondition",
+                "seller": { "@type": "Organization", "name": "Chase Sets" },
+            },
+        })
+    );
+    let html = html! { <JsonLd value={&product} /> }.to_html();
+    let json =
+        html.strip_prefix(r#"<script type="application/ld+json">"#).and_then(|s| s.strip_suffix("</script>")).expect(&html);
+    assert!(!json.contains('<'), "{json}");
+    assert_eq!(serde_json::from_str::<Value>(json).unwrap(), product);
+}
+
+#[test]
+fn a_listings_availability_and_condition_follow_its_shopping_payload() {
+    let listing = shopping_listing(|l| {
+        l["google_shopping_structured_data_payload"]["availability"] = json!("out of stock");
+        l["google_shopping_structured_data_payload"]["condition"] = json!("new");
+    });
+    let offer = &crate::views::listing_json_ld(&listing, LISTING_CANONICAL).unwrap()["offers"];
+    assert_eq!(offer["availability"], "https://schema.org/OutOfStock");
+    assert_eq!(offer["itemCondition"], "https://schema.org/NewCondition");
+}
+
+#[test]
+fn a_listing_writes_no_product_unless_it_is_buyable_production_and_its_payload_is_its_own() {
+    let none = |change: fn(&mut Value), canonical: &str| {
+        assert_eq!(crate::views::listing_json_ld(&shopping_listing(change), canonical), None, "{canonical}");
+    };
+    none(|l| l["status"] = json!("paused"), LISTING_CANONICAL);
+    none(|l| l["seller_listing_availability_status"] = json!("unavailable"), LISTING_CANONICAL);
+    none(|_| {}, "https://marketplace.staging.chasesets.com/listings/psa-8");
+    none(|_| {}, "http://marketplace.chasesets.com/listings/psa-8");
+    none(
+        |l| l["google_shopping_structured_data_payload"]["link"] = json!("https://marketplace.chasesets.com/listings/other"),
+        LISTING_CANONICAL,
+    );
+    none(|l| l["price_amount"] = json!("700.00"), LISTING_CANONICAL);
+    none(|l| l["price_currency_code"] = json!("EUR"), LISTING_CANONICAL);
+    none(|l| l["price_currency_code"] = Value::Null, LISTING_CANONICAL);
+    none(|l| l["google_shopping_structured_data_payload"]["imageLink"] = json!(""), LISTING_CANONICAL);
+    none(|l| l["google_shopping_structured_data_payload"]["condition"] = json!("refurbished"), LISTING_CANONICAL);
+    none(|l| l["google_shopping_structured_data_payload"] = json!("not an object"), LISTING_CANONICAL);
+    none(|l| l["google_shopping_structured_data_payload"] = Value::Null, LISTING_CANONICAL);
 }
 
 #[tokio::test]
@@ -6014,6 +6894,74 @@ async fn the_orders_sign_in_and_need_their_permissions() {
 }
 
 #[tokio::test]
+async fn pay_now_is_offered_only_to_a_buyer_who_may_pay_and_the_others_are_told_why() {
+    let pilot = Pilot::new().await;
+    let pay = r#"href="/account/payments/new?orderIds=ord_open""#;
+    let (_, _, html) = pilot.send(get("/account/purchases/ord_open", Some("shopper"))).await;
+    assert!(html.contains(pay), "{html}");
+    assert!(!text(&html).contains("cannot pay"), "{html}");
+    // Without orders.manage: no Pay now, and a line that says so (chase-sets/chase-sets#11170).
+    let (status, _, html) = pilot.send(get("/account/purchases/ord_open", Some("looker"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(!html.contains(pay) && !text(&html).contains("Pay now"), "{html}");
+    assert!(text(&html).contains("This account cannot pay for purchases."), "{html}");
+    // Awaiting email verification: no Pay now, and Verify email names paying too.
+    let (_, _, html) = pilot.send(get("/account/purchases/ord_open", Some("unverified"))).await;
+    let shown = text(&html);
+    assert!(!html.contains(pay) && !shown.contains("Pay now"), "{html}");
+    assert!(shown.contains("Verify your email to pay for or cancel this purchase"), "{shown}");
+    assert!(shown.contains("Paying and cancelling need a verified email."), "{shown}");
+    assert!(!shown.contains("cannot pay"), "{shown}");
+}
+
+#[tokio::test]
+async fn a_cancel_awaiting_email_verification_offers_the_sign_in_that_verifies_it() {
+    let pilot = Pilot::new().await;
+    let link = "/sign-in?returnTo=%2Faccount%2Fpurchases%2Ford_open%3FverifyEmail%3Dcancel-purchase&amp;signInMethod=magic-link";
+    // An owner whose orders.manage Auth withheld: no Cancel, and Verify email in its place. The
+    // purchase awaits payment, so it names paying too.
+    let (status, _, html) = pilot.send(get("/account/purchases/ord_open", Some("unverified"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let shown = text(&html);
+    assert!(shown.contains("Verify your email to pay for or cancel this purchase"), "{shown}");
+    assert!(html.contains(&format!(r#"href="{link}""#)) && shown.contains("Verify email"), "{html}");
+    assert!(!html.contains("/cancel\"") && !shown.contains("Cancel purchase"), "{html}");
+    // Not when the order cannot be cancelled anyway, not for an agent, and not for a member whose
+    // role does not grant it.
+    let (_, _, html) = pilot.send(get("/account/purchases/ord_packed", Some("unverified"))).await;
+    assert!(!text(&html).contains("Verify your email"), "being packed: {html}");
+    let (_, _, html) = pilot.send(get("/account/purchases/ord_open", Some("unverified_agent"))).await;
+    assert!(!text(&html).contains("Verify your email"), "an agent: {html}");
+    let (_, _, html) = pilot.send(get("/account/purchases/ord_open", Some("looker"))).await;
+    assert!(!text(&html).contains("Verify your email"), "a role without it: {html}");
+    // Coming back verified, the purchase reads as it does without the marker.
+    let (status, _, html) = pilot.send(get("/account/purchases/ord_open?verifyEmail=cancel-purchase", Some("shopper"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(text(&html).contains("Cancel purchase") && !text(&html).contains("Verify your email"), "{html}");
+    assert!(order_calls(&pilot).iter().all(|c| c.method == Method::GET), "nothing was cancelled");
+}
+
+#[tokio::test]
+async fn the_sign_in_says_it_verifies_the_email_to_cancel_a_purchase() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot
+        .send(get(
+            "/sign-in?returnTo=%2Faccount%2Fpurchases%2Ford_open%3FverifyEmail%3Dcancel-purchase&signInMethod=magic-link",
+            None,
+        ))
+        .await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let shown = text(&html);
+    assert!(shown.contains("Verify your email to cancel this purchase"), "{shown}");
+    assert!(shown.contains("Opening the link we send verifies that email"), "{shown}");
+    // Only a purchase's page, and only with the marker.
+    for other in ["%2Faccount%2Fpurchases%2Ford_open", "%2Faccount%2Fsales%2Ford_open%3FverifyEmail%3Dcancel-purchase"] {
+        let (_, _, html) = pilot.send(get(&format!("/sign-in?returnTo={other}"), None)).await;
+        assert!(!text(&html).contains("Verify your email to cancel"), "{other}: {html}");
+    }
+}
+
+#[tokio::test]
 async fn the_purchases_are_cards_with_their_counts_and_pages_as_links() {
     let pilot = Pilot::new().await;
     let (status, _, html) = pilot.send(get("/account/purchases?limit=100&offset=100", Some("shopper"))).await;
@@ -6163,7 +7111,7 @@ async fn a_sale_shows_the_sellers_money_holds_and_a_cancel_that_asks_first() {
     );
     assert!(html.contains(r#"href="/account/support/sup_01M5SPB8DCX26R20QVHASPF77D">SUP-HASPF77D</a>"#), "{html}");
     assert!(shown.contains("Refund outcome Refunded $5.00 Retained $52.32"), "{shown}");
-    assert!(html.contains(r#"href="http://localhost:7753/account/sales/shipments">View fulfillment</a>"#), "{html}");
+    assert!(html.contains(r#"href="/account/sales/shipments">View fulfillment</a>"#), "{html}");
 }
 
 #[tokio::test]
@@ -6435,7 +7383,7 @@ async fn a_buyers_shipment_shows_its_progress_facts_cover_lines_and_exceptions()
 }
 
 #[tokio::test]
-async fn a_sale_shipment_shows_the_postage_diagnostics_and_sends_its_actions_to_marketplace() {
+async fn a_sale_shipment_shows_the_postage_diagnostics_and_one_without_a_plan_sends_its_actions_to_marketplace() {
     let pilot = Pilot::new().await;
     let (status, _, html) = pilot.send(get("/account/sales/shipments/shp_done", Some("shipper"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");
@@ -6445,7 +7393,7 @@ async fn a_sale_shipment_shows_the_postage_diagnostics_and_sends_its_actions_to_
         html.contains(r#"href="/account/sales/shipments/packing-slips?shipmentIds=shp_done&amp;format=letter" target="_blank""#),
         "{html}"
     );
-    assert!(html.contains(r#"href="http://localhost:7753/account/sales/shipments">Back</a>"#), "{html}");
+    assert!(html.contains(r#"href="/account/sales/shipments">Back</a>"#), "the command center: {html}");
     assert!(!shown.contains("Delivered at"), "the seller's facts have no delivery time, as marketplace's: {shown}");
     // The order's postage policy, then the diagnostics.
     assert!(shown.contains("Postage policy Committed requirements from the order package plan snapshot. Policy version default-postage-policy-v2 Parcel required Required Parcel reasons too-heavy-for-letter"), "{shown}");
@@ -6476,16 +7424,15 @@ async fn a_sale_shipment_shows_the_postage_diagnostics_and_sends_its_actions_to_
 }
 
 #[tokio::test]
-async fn an_unknown_shipment_is_not_found_a_failed_read_a_bad_gateway_and_the_command_center_is_marketplaces() {
+async fn an_unknown_shipment_is_not_found_a_failed_read_a_bad_gateway_and_the_command_center_is_the_pilots() {
     let pilot = Pilot::new().await;
     let (status, _, _) = pilot.send(get("/account/shipments/shp_gone", Some("shipper"))).await;
     assert_eq!(status, StatusCode::NOT_FOUND);
     let (status, _, _) = pilot.send(get("/account/sales/shipments/shp_down", Some("shipper"))).await;
     assert_eq!(status, StatusCode::BAD_GATEWAY);
-    // The seller's list is marketplace's (chase-sets/chase-sets#10638), not a sale named "shipments".
-    let (status, headers, _) = pilot.send(get("/account/sales/shipments", Some("shipper"))).await;
-    assert_eq!(status, StatusCode::SEE_OTHER);
-    assert_eq!(headers["location"], "http://localhost:7753/account/sales/shipments");
+    // The seller's list is the command center, not a sale named "shipments".
+    let (status, _, html) = pilot.send(get("/account/sales/shipments", Some("shipper"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
     assert!(
         order_calls(&pilot).iter().all(|c| c.path.starts_with(SELLER_SHIPMENTS)),
         "Ordering is not asked for a sale called shipments"
@@ -6493,12 +7440,12 @@ async fn an_unknown_shipment_is_not_found_a_failed_read_a_bad_gateway_and_the_co
 }
 
 #[tokio::test]
-async fn an_orders_view_fulfillment_opens_the_buyers_shipments_here_and_the_sellers_on_marketplace() {
+async fn an_orders_view_fulfillment_opens_the_buyers_shipments_and_the_sellers_command_center() {
     let pilot = Pilot::new().await;
     let (_, _, html) = pilot.send(get("/account/purchases/ord_packed", Some("shopper"))).await;
     assert!(html.contains(r#"href="/account/shipments">View fulfillment</a>"#), "{html}");
     let (_, _, html) = pilot.send(get("/account/sales/ord_sold", Some("merchant"))).await;
-    assert!(html.contains(r#"href="http://localhost:7753/account/sales/shipments">View fulfillment</a>"#), "{html}");
+    assert!(html.contains(r#"href="/account/sales/shipments">View fulfillment</a>"#), "{html}");
 }
 
 /// Packing attempts the stand-in knows: one the API applied before (a repeat is refused, and
@@ -6576,6 +7523,403 @@ fn packing(method: &Method, path: &str, headers: &HeaderMap, body: &str) -> Opti
     }
 }
 
+/// The stand-in command center (`getSellerCommandCenter`): for `shipper`, an exception with its
+/// notes, a shipment ready to dispatch with its tracking, one awaiting its label (`shp_lbl`, a
+/// letter, and `shp_parcel`, a parcel) and one awaiting its package, in the API's bucket order; for `tracker`, nothing needs
+/// them. A read that waits for position 44 is still catching up. Its actions: `shp_rtd`
+/// dispatches; `shp_ex`'s cancel is refused with the API's words; `shp_lbl`'s label is bought;
+/// any action sent as `APPLIED_BEFORE` was applied before. Each one's own read (`shp_rtd`,
+/// `shp_ex`, `shp_lbl`, `shp_parcel`) is the shipment with its origin and destination.
+fn command_center(session: &str, method: &Method, path: &str, headers: &HeaderMap, body: &str) -> Option<Response> {
+    let rest = path.strip_prefix(SELLER_SHIPMENTS)?;
+    let item = |id: &str, status: &str, primary: Value, disclosed: Value| {
+        json!({
+            "shipmentId": id, "orderId": "ord_1", "displayReference": format!("SHP-{}", id.to_uppercase()),
+            "status": status, "labelStatus": "none", "trackingIdentifier": null, "carrierName": null,
+            "buyerDisplayName": "Collector Zero", "currentExceptionType": null, "currentExceptionNotes": null,
+            "lineCount": 2, "totalQuantity": 3, "bucket": "", "severity": "normal", "observedAt": "2026-11-02T10:00:00.000Z",
+            "conflicts": [], "plan": { "primary": primary, "disclosed": disclosed }, "attention": {},
+        })
+    };
+    if rest == "/command-center" && *method == Method::GET {
+        if waits_for(headers).as_deref() == Some("44") {
+            return Some(refusal(StatusCode::SERVICE_UNAVAILABLE, "projection_freshness_timeout", "Not caught up."));
+        }
+        if session != "shipper" {
+            let empty = ["exceptions", "ready-to-dispatch", "needs-label", "needs-packing"]
+                .map(|id| json!({ "id": id, "items": [], "count": 0 }));
+            return Some(
+                Json(json!({ "source": "fulfillment-ship-by", "buckets": empty, "queue": [], "totalNeedingAttention": 0 }))
+                    .into_response(),
+            );
+        }
+        let mut exception = item("shp_ex", "exception", Value::Null, json!(["cancel-shipment", "return", "brand-new-action"]));
+        exception["currentExceptionType"] = json!("carrier-delay");
+        exception["currentExceptionNotes"] = json!("Stuck at the hub.");
+        let mut ready = item("shp_rtd", "label-attached", json!("dispatch"), json!(["void-label", "raise-exception"]));
+        ready["trackingIdentifier"] = json!("9400TRACK");
+        let packing = item("shp_new", "awaiting-package", json!("start-packing"), json!([]));
+        let label = item("shp_lbl", "awaiting-label", json!("buy-label"), json!(["raise-exception"]));
+        let parcel = item("shp_parcel", "awaiting-label", json!("buy-label"), json!(["raise-exception"]));
+        let buckets = json!([
+            { "id": "exceptions", "items": [exception], "count": 1 },
+            { "id": "ready-to-dispatch", "items": [ready], "count": 1 },
+            { "id": "needs-label", "items": [label, parcel], "count": 2 },
+            { "id": "needs-packing", "items": [packing], "count": 1 },
+            { "id": "awaiting-carrier", "items": [], "count": 0 },
+        ]);
+        return Some(
+            Json(json!({ "source": "fulfillment-ship-by", "buckets": buckets, "queue": [], "totalNeedingAttention": 5 }))
+                .into_response(),
+        );
+    }
+    let rest = rest.strip_prefix('/')?;
+    if *method == Method::GET && matches!(rest, "shp_ex" | "shp_rtd" | "shp_lbl" | "shp_parcel") {
+        return Some(Json(sale_shipment(rest)).into_response());
+    }
+    let (id, command) = rest.split_once('/')?;
+    if !matches!(id, "shp_ex" | "shp_rtd" | "shp_new" | "shp_lbl") {
+        return None;
+    }
+    let attempt = headers.get("idempotency-key").and_then(|v| v.to_str().ok()).unwrap_or_default();
+    let _ = body;
+    Some(match (method.as_str(), id, command) {
+        ("GET", _, "mutation-recovery") => match attempt {
+            APPLIED_BEFORE => Json(json!({ "status": "succeeded" })).into_response(),
+            NO_RECORD => Json(json!({ "status": "confirming" })).into_response(),
+            CHECK_DOWN => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+            _ => Json(json!({ "status": "failed-safe" })).into_response(),
+        },
+        ("POST", _, _) if attempt == APPLIED_BEFORE => {
+            refusal(StatusCode::BAD_REQUEST, "validation_failed", "This request was already processed.")
+        }
+        ("POST", _, _) if attempt == CHECK_DOWN => refusal(StatusCode::CONFLICT, "shipment_conflict", "The shipment changed."),
+        ("POST", "shp_rtd", "dispatch" | "label/void" | "exception") => written(StatusCode::OK, id),
+        ("POST", "shp_ex", "cancel") => {
+            refusal(StatusCode::BAD_REQUEST, "validation_failed", "A shipment with an open exception cannot be cancelled.")
+        }
+        ("POST", "shp_ex", "return") => written(StatusCode::OK, id),
+        ("POST", "shp_lbl", "label/purchase") => written(StatusCode::OK, id),
+        _ => StatusCode::METHOD_NOT_ALLOWED.into_response(),
+    })
+}
+
+/// A command-center shipment's own read: `shp_ex` in its exception, `shp_rtd` labelled with its
+/// tracking, `shp_lbl` and `shp_parcel` awaiting their labels. Each ships from the seller's
+/// origin to the buyer; `shp_lbl` is planned as a letter.
+fn sale_shipment(id: &str) -> Value {
+    let (status, tracking) = match id {
+        "shp_ex" => ("exception", Some("9400STUCK")),
+        "shp_rtd" => ("label-attached", Some("9400TRACK")),
+        _ => ("awaiting-label", None),
+    };
+    let mut detail = shipment(id, status, tracking);
+    detail["shipping_origin_snapshot"] = json!({
+        "name": "Chase Sets", "company": "Chase Sets LLC", "line1": "1 Seller Way", "line2": null,
+        "city": "Austin", "state": "TX", "postalCode": "78701", "country": "US", "phone": "5125550100", "email": null,
+    });
+    detail["shipping_destination_snapshot"] = json!({
+        "name": "Collector Zero", "line1": "2 Buyer Road", "line2": "Apt 4", "city": "Denver", "state": "CO",
+        "postalCode": "80202", "country": "US",
+    });
+    if id == "shp_ex" {
+        detail["current_exception_type"] = json!("carrier-delay");
+        detail["current_exception_notes"] = json!("Stuck at the hub.");
+    }
+    if id == "shp_lbl" {
+        detail["shipping_plan_snapshot"] = json!({ "packages": [{ "mailpieceClass": "letter" }] });
+    }
+    detail
+}
+
+/// The command-center actions the pilot sent: their path, attempt and body.
+fn center_writes(pilot: &Pilot) -> Vec<(String, String, String)> {
+    shipment_calls(pilot)
+        .into_iter()
+        .filter(|c| c.method == Method::POST && !c.path.contains("/packing") && !c.path.ends_with("/pack"))
+        .map(|c| {
+            let attempt = c.headers.get("idempotency-key").map(|v| v.to_str().unwrap().to_owned()).unwrap_or_default();
+            (c.path.trim_start_matches(SELLER_SHIPMENTS).to_owned(), attempt, c.body)
+        })
+        .collect()
+}
+
+#[tokio::test]
+async fn the_command_center_draws_the_apis_buckets_in_order_each_shipments_next_action_and_the_rest_under_more() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/account/sales/shipments", Some("shipper"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let shown = text(&html);
+    assert!(shown.contains("Seller Fulfillment command center"), "{shown}");
+    let (ex, rtd, label, pack) = (
+        shown.find("Exceptions (1)").unwrap(),
+        shown.find("Ready to dispatch (1)").unwrap(),
+        shown.find("Needs a label (2)").unwrap(),
+        shown.find("Needs packing (1)").unwrap(),
+    );
+    assert!(ex < rtd && rtd < label && label < pack, "the API's order: {shown}");
+    assert!(!shown.contains("awaiting-carrier"), "an empty bucket is not drawn: {shown}");
+    assert!(shown.contains("Shipment SHP-SHP_EX Exception Collector Zero · 3 items across 2 lines"), "{shown}");
+    assert!(shown.contains("Carrier delay Stuck at the hub."), "the exception and its notes: {shown}");
+    assert!(shown.contains("Tracking 9400TRACK"), "a title is its tracking once it has one: {shown}");
+    // The next action: dispatch is a form, packing opens the packing page.
+    assert!(html.contains(r#"name="intent" value="dispatch">Mark dispatched</button>"#), "{html}");
+    assert!(html.contains(r#"href="/account/sales/shipments/shp_new/packing">Pack shipment</a>"#), "{html}");
+    assert!(html.contains(r#"<input type="hidden" name="shipment" value="shp_rtd">"#), "{html}");
+    assert!(html.contains(ATTEMPT_INPUT), "every form carries an attempt: {html}");
+    // The rest under More actions; one the pilot does not know is not drawn.
+    assert!(html.contains("<details"), "{html}");
+    // Each form's hidden note (the browser cannot keep the attempt) is in the text; not shown.
+    let visible = shown.replace("Shipment recovery storage is unavailable. No change was sent. ", "");
+    assert!(visible.contains("More actions Cancel shipment Record return Open shipment"), "{visible}");
+    assert!(!html.contains("brand-new-action"), "{html}");
+    assert!(html.contains(r#"<select"#) && html.contains(r#"name="exception_type""#), "raise exception's type: {html}");
+    assert!(html.contains(r#"<option value="carrier-delay" selected>"#), "{html}");
+    assert!(html.contains(r#"href="/account/sales/shipments/shp_rtd">Open shipment</a>"#), "{html}");
+    assert!(center_writes(&pilot).is_empty(), "drawing the page sends nothing");
+
+    let (status, _, html) = pilot.send(get("/account/sales/shipments", Some("tracker"))).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(text(&html).contains("Nothing needs you right now"), "{}", text(&html));
+}
+
+#[tokio::test]
+async fn an_action_is_sent_with_its_attempt_and_the_command_center_reads_after_it() {
+    let pilot = Pilot::new().await;
+    let form = format!("attempt={ATTEMPT}&shipment=shp_rtd&intent=dispatch");
+    let (status, headers, _) = pilot.send(post("/account/sales/shipments", "shipper", &form, false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let to = headers["location"].to_str().unwrap();
+    assert!(to.starts_with("/account/sales/shipments?"), "{to}");
+    let place = query(to);
+    assert_eq!(place["done"], ATTEMPT, "the page settles the attempt");
+    assert_eq!(place["shipment"], "shp_rtd");
+    assert!(place["after_write"].contains("\"commitPosition\":\"42\""), "read after the write: {to}");
+    assert_eq!(center_writes(&pilot), [("/shp_rtd/dispatch".to_owned(), ATTEMPT.to_owned(), "{}".to_owned())]);
+
+    let form = format!("attempt={ATTEMPT}&shipment=shp_rtd&intent=raise-exception&exception_type=lost-in-transit&notes=");
+    pilot.send(post("/account/sales/shipments", "shipper", &form, false)).await;
+    assert_eq!(center_writes(&pilot)[1].2, r#"{"exceptionType":"lost-in-transit","notes":null}"#);
+    let form = format!("attempt={ATTEMPT}&shipment=shp_ex&intent=return");
+    pilot.send(post("/account/sales/shipments", "shipper", &form, false)).await;
+    assert_eq!(center_writes(&pilot)[2], ("/shp_ex/return".to_owned(), ATTEMPT.to_owned(), r#"{"reason":null}"#.to_owned()));
+}
+
+#[tokio::test]
+async fn a_refused_action_says_why_and_one_applied_before_reads_as_applied() {
+    let pilot = Pilot::new().await;
+    let form = format!("attempt={ATTEMPT}&shipment=shp_ex&intent=cancel-shipment");
+    let (status, _, html) = pilot.send(post("/account/sales/shipments", "shipper", &form, false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    let shown = text(&html);
+    assert!(
+        shown.contains("That action could not be completed A shipment with an open exception cannot be cancelled."),
+        "{shown}"
+    );
+    assert!(shown.contains("Exceptions (1)"), "the command center is drawn again: {shown}");
+    assert!(shipment_calls(&pilot).iter().any(|c| c.path.ends_with("/shp_ex/mutation-recovery")), "a refusal asks");
+
+    let form = format!("attempt={APPLIED_BEFORE}&shipment=shp_rtd&intent=dispatch");
+    let (status, headers, _) = pilot.send(post("/account/sales/shipments", "shipper", &form, false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert_eq!(query(headers["location"].to_str().unwrap())["done"], APPLIED_BEFORE);
+}
+
+#[tokio::test]
+async fn an_action_the_api_cannot_confirm_turns_writes_off_until_the_page_checks_it() {
+    let pilot = Pilot::new().await;
+    let form = format!("attempt={CHECK_DOWN}&shipment=shp_rtd&intent=dispatch");
+    let (status, headers, _) = pilot.send(post("/account/sales/shipments", "shipper", &form, false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let to = headers["location"].to_str().unwrap().to_owned();
+    let place = query(&to);
+    assert_eq!((place["check"].as_str(), place["shipment"].as_str()), (CHECK_DOWN, "shp_rtd"));
+
+    let (status, _, html) = pilot.send(get(&to, Some("shipper"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(text(&html).contains("We could not confirm your last shipment action"), "{}", text(&html));
+    assert!(html.contains("<fieldset") && html.contains(" disabled"), "writes are off: {html}");
+    assert!(html.contains("restoreAny"), "the page's script asks about other records: {html}");
+
+    let (_, _, html) =
+        pilot.send(get(&format!("/account/sales/shipments?check={APPLIED_BEFORE}&shipment=shp_rtd"), Some("shipper"))).await;
+    assert!(!text(&html).contains("could not confirm"), "a check the API settles: {}", text(&html));
+}
+
+#[tokio::test]
+async fn an_action_needs_fulfillment_manage_and_an_unknown_one_is_not_sent() {
+    let pilot = Pilot::new().await;
+    let form = format!("attempt={ATTEMPT}&shipment=shp_rtd&intent=dispatch");
+    let (status, _, _) = pilot.send(post("/account/sales/shipments", "tracker", &form, false)).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "a write needs fulfillment.manage");
+    let (status, _, _) = pilot.send(get("/account/sales/shipments", Some("seller"))).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "an account without fulfillment.view");
+    for intent in ["start-packing", "brand-new-action", ""] {
+        let form = format!("attempt={ATTEMPT}&shipment=shp_rtd&intent={intent}");
+        let (status, _, _) = pilot.send(post("/account/sales/shipments", "shipper", &form, false)).await;
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{intent}");
+    }
+    assert!(center_writes(&pilot).is_empty(), "nothing is sent");
+}
+
+#[tokio::test]
+async fn a_sale_shipments_page_draws_the_actions_the_apis_plan_allows_the_next_one_first() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/account/sales/shipments/shp_rtd", Some("shipper"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let shown = text(&html);
+    let visible = shown.replace("Shipment recovery storage is unavailable. No change was sent. ", "");
+    // The plan's next action first, then the rest in the plan's order.
+    assert!(
+        visible.contains("Actions Tracking identifier Mark dispatched Void label Exception type Notes Raise exception"),
+        "{visible}"
+    );
+    assert!(html.contains(r#"class="shipment-page__primary" name="intent" value="dispatch">"#), "the next action: {html}");
+    assert!(html.contains(r#"class="shipment-page__secondary" name="intent" value="void-label">"#), "{html}");
+    assert!(html.contains(r#"readonly value="9400TRACK""#), "the tracking is shown, not sent: {html}");
+    assert!(html.contains(r#"action="/account/sales/shipments/shp_rtd""#), "the page's own actions: {html}");
+    assert!(html.contains(ATTEMPT_INPUT), "every form carries an attempt: {html}");
+    assert!(!shown.contains("on marketplace for now"), "{shown}");
+    assert!(html.contains(r#"value="carrier-delay""#), "raise exception's type defaults to a carrier delay: {html}");
+    assert!(center_writes(&pilot).is_empty(), "drawing the page sends nothing");
+
+    // In an exception: the API's plan, with the exception's type and notes kept.
+    let (_, _, html) = pilot.send(get("/account/sales/shipments/shp_ex", Some("shipper"))).await;
+    let visible = text(&html).replace("Shipment recovery storage is unavailable. No change was sent. ", "");
+    assert!(visible.contains("Actions Cancel shipment Return notes Mark returned"), "{visible}");
+    assert!(!html.contains("brand-new-action"), "an action the pilot does not know is not drawn: {html}");
+
+    // The command center leaves a delivered shipment out: no plan, so the link to marketplace.
+    let (_, _, html) = pilot.send(get("/account/sales/shipments/shp_done", Some("shipper"))).await;
+    assert!(text(&html).contains("actions are on marketplace for now. Open on marketplace"), "{}", text(&html));
+}
+
+#[tokio::test]
+async fn a_label_is_bought_from_its_page_with_the_service_addresses_and_package_or_as_a_letter() {
+    let pilot = Pilot::new().await;
+    let (_, _, html) = pilot.send(get("/account/sales/shipments/shp_lbl", Some("shipper"))).await;
+    let shown = text(&html);
+    assert!(shown.contains("Letter Mailpiece This shipment is planned as a Letter Mailpiece."), "{shown}");
+    assert!(html.contains(r#"<input type="hidden" name="service_level" value="First">"#), "{html}");
+    assert!(!html.contains(r#"name="sender_name""#), "a letter's label has no address fields: {html}");
+
+    // A letter sends only its service.
+    let form = format!("attempt={ATTEMPT}&intent=buy-label&service_level=First");
+    let (status, headers, _) = pilot.send(post("/account/sales/shipments/shp_lbl", "shipper", &form, false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let to = headers["location"].to_str().unwrap();
+    assert!(to.starts_with("/account/sales/shipments/shp_lbl?"), "the shipment's page: {to}");
+    let place = query(to);
+    assert_eq!(place["done"], ATTEMPT, "the page settles the attempt");
+    assert!(place["after_write"].contains("\"commitPosition\":\"42\""), "read after the write: {to}");
+    let writes = center_writes(&pilot);
+    assert_eq!(writes[0].0, "/shp_lbl/label/purchase");
+    assert_eq!(writes[0].2, r#"{"overrideReason":"","serviceLevel":"First"}"#);
+
+    // A parcel's label: the addresses as typed and the package as Number() reads it.
+    let address = |prefix: &str| {
+        format!(
+            "&{prefix}_name=Chase+Sets&{prefix}_company=&{prefix}_street1=1+Seller+Way&{prefix}_street2=&{prefix}_city=Austin\
+             &{prefix}_state=TX&{prefix}_postal_code=78701&{prefix}_country=&{prefix}_phone=&{prefix}_email="
+        )
+    };
+    let form = format!(
+        "attempt={ATTEMPT}&intent=buy-label&service_level=PRIORITY{}{}&override_reason=Suite\
+         &package_length_inches=8.5&package_width_inches=&package_height_inches=2&package_weight_ounces=x",
+        address("sender"),
+        address("recipient"),
+    );
+    pilot.send(post("/account/sales/shipments/shp_lbl", "shipper", &form, false)).await;
+    let body: Value = serde_json::from_str(&center_writes(&pilot)[1].2).unwrap();
+    assert_eq!(body["serviceLevel"], "PRIORITY");
+    assert_eq!((body["senderName"].as_str(), body["senderCountry"].as_str()), (Some("Chase Sets"), Some("US")));
+    assert_eq!(body["recipientStreet1"], "1 Seller Way");
+    assert_eq!(body["recipientStreet2"], "", "an empty field is sent as typed");
+    assert_eq!(body["overrideReason"], "Suite");
+    assert_eq!(
+        [&body["packageLengthInches"], &body["packageWidthInches"], &body["packageHeightInches"], &body["packageWeightOunces"]],
+        [&json!(8.5), &json!(5.0), &json!(2.0), &Value::Null],
+        "an empty size is the form's default and one that is not a number is null"
+    );
+}
+
+#[tokio::test]
+async fn a_parcels_label_form_is_filled_from_the_shipments_addresses() {
+    let pilot = Pilot::new().await;
+    let (_, _, html) = pilot.send(get("/account/sales/shipments/shp_rtd", Some("shipper"))).await;
+    assert!(!html.contains(r#"name="sender_name""#), "a labelled shipment has no label form: {html}");
+    let (status, _, html) = pilot.send(get("/account/sales/shipments/shp_parcel", Some("shipper"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let visible = text(&html).replace("Shipment recovery storage is unavailable. No change was sent. ", "");
+    assert!(visible.contains("Actions USPS service"), "{visible}");
+    assert!(visible.contains("Purchase USPS label"), "{visible}");
+    for (name, value) in [
+        ("sender_name", "Chase Sets"),
+        ("sender_company", "Chase Sets LLC"),
+        ("sender_phone", "5125550100"),
+        ("recipient_street2", "Apt 4"),
+        ("recipient_postal_code", "80202"),
+        ("package_length_inches", "7"),
+        ("package_weight_ounces", "4"),
+    ] {
+        assert!(html.contains(&format!(r#"name="{name}" value="{value}""#)), "{name}: {html}");
+    }
+    assert!(html.contains(r#"<option value="USPS_GROUND_ADVANTAGE" selected>"#), "{html}");
+}
+
+#[tokio::test]
+async fn a_refused_action_on_its_page_says_why_and_keeps_what_was_typed() {
+    let pilot = Pilot::new().await;
+    let form = format!("attempt={ATTEMPT}&intent=cancel-shipment&reason=Kept");
+    let (status, _, html) = pilot.send(post("/account/sales/shipments/shp_ex", "shipper", &form, false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    let shown = text(&html);
+    assert!(shown.contains("Shipment action failed. A shipment with an open exception cannot be cancelled."), "{shown}");
+    assert!(html.contains(">Kept</textarea>"), "the return's reason is kept: {html}");
+
+    let form = format!("attempt={ATTEMPT}&intent=return&reason=Buyer+refused");
+    pilot.send(post("/account/sales/shipments/shp_ex", "shipper", &form, false)).await;
+    let last = center_writes(&pilot).pop().unwrap();
+    assert_eq!((last.0.as_str(), last.2.as_str()), ("/shp_ex/return", r#"{"reason":"Buyer refused"}"#));
+
+    for intent in ["start-packing", "brand-new-action", ""] {
+        let form = format!("attempt={ATTEMPT}&intent={intent}");
+        let (status, _, _) = pilot.send(post("/account/sales/shipments/shp_rtd", "shipper", &form, false)).await;
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{intent}");
+    }
+    let form = format!("attempt={ATTEMPT}&intent=dispatch");
+    let (status, _, _) = pilot.send(post("/account/sales/shipments/shp_rtd", "tracker", &form, false)).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "a write needs fulfillment.manage");
+}
+
+#[tokio::test]
+async fn an_action_its_page_cannot_confirm_turns_writes_off_until_the_page_checks_it() {
+    let pilot = Pilot::new().await;
+    let form = format!("attempt={CHECK_DOWN}&intent=dispatch");
+    let (status, headers, _) = pilot.send(post("/account/sales/shipments/shp_rtd", "shipper", &form, false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let to = headers["location"].to_str().unwrap().to_owned();
+    assert_eq!(query(&to)["check"], CHECK_DOWN, "{to}");
+    let (status, _, html) = pilot.send(get(&to, Some("shipper"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(text(&html).contains("We could not confirm your last shipment action"), "{}", text(&html));
+    assert!(html.contains("<fieldset") && html.contains(" disabled"), "writes are off: {html}");
+
+    let (_, _, html) =
+        pilot.send(get(&format!("/account/sales/shipments/shp_rtd?check={APPLIED_BEFORE}"), Some("shipper"))).await;
+    assert!(!text(&html).contains("could not confirm"), "a check the API settles: {}", text(&html));
+}
+
+#[tokio::test]
+async fn the_command_center_waits_for_a_write_it_cannot_read_yet() {
+    let pilot = Pilot::new().await;
+    let to = format!("/account/sales/shipments?after_write={}", receipt_at("44"));
+    let (status, _, html) = pilot.send(get(&to, Some("shipper"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains(r#"<meta http-equiv="refresh" content="2">"#), "the page reads itself again: {html}");
+    assert!(text(&html).contains("Fulfillment command center"), "{}", text(&html));
+}
+
 /// The packing writes the pilot sent: their path, attempt and body.
 fn packing_writes(pilot: &Pilot) -> Vec<(String, String, String)> {
     shipment_calls(pilot)
@@ -6643,13 +7987,17 @@ async fn the_packing_page_shows_the_lock_progress_lines_and_finish_only_once_eve
     let finish = html.find("Finish packing").unwrap();
     assert!(html[..finish].rfind("<button").is_some_and(|at| html[at..finish].contains("disabled")), "Finish is off: {html}");
     assert!(shown.contains("Ship to Collector Zero 1 Test Way Austin, TX 78701 US"), "{shown}");
+    // The scan box is the design system's SearchInput: the kit's input group with the search glyph.
+    let scan = html.find(r#"id="packing-scan-code""#).expect("the scan box");
+    let group = html[..scan].rfind(r#"<span class="input-group__input-group "#).expect("the scan's group");
+    assert!(html[group..scan].contains(r#"<span class="input-group__adornment" aria-hidden="true"><svg"#), "{html}");
     // Copy is corten-ui's: each copies a hidden element with the whole value, by the line's id.
     assert!(html.contains(r#"<span id="line-reference-spl_2" hidden>spl_2</span>"#), "{html}");
-    assert!(html.contains("ui.copy_button.copy($t,&quot;line-reference-spl_2&quot;"), "{html}");
-    assert!(html.contains("ui.copy_button.copy($t,&quot;product-reference-spl_2&quot;"), "{html}");
+    assert!(html.contains(r#"ui.copy_button.copy($t,"line-reference-spl_2""#), "{html}");
+    assert!(html.contains(r#"ui.copy_button.copy($t,"product-reference-spl_2""#), "{html}");
     assert!(html.contains(r#"<span id="ship-to" hidden>Collector Zero"#), "{html}");
-    assert!(html.contains("ui.copy_button.copy($t,&quot;ship-to&quot;"), "{html}");
-    // The pilot's own address, which redirects to marketplace's command center.
+    assert!(html.contains(r#"ui.copy_button.copy($t,"ship-to""#), "{html}");
+    // The command center.
     assert!(html.contains(r#"href="/account/sales/shipments">Back to shipments</a>"#), "{html}");
 
     let (_, _, html) = pilot.send(get("/account/sales/shipments/shp_full/packing", Some("shipper"))).await;
@@ -7273,8 +8621,9 @@ async fn a_new_or_rotated_key_shows_its_secret_once_in_the_writes_own_answer() {
     assert!(text(&html).contains("API key secret created"), "{}", text(&html));
     assert!(html.contains(&format!(r#"<code id="secret">{STAND_IN_SECRET}</code>"#)), "{html}");
     assert!(
-        html.contains(r#"<button data-scope="ui-copy-button" type="button" hidden"#)
-            && html.contains("ui.copy_button.copy($t,&quot;secret&quot;,@said,&quot;Copied&quot;)"),
+        html.contains(
+            r#"<button data-scope="ui-copy-button" type="button" class="security-page__button security-page__primary" hidden"#
+        ) && html.contains(r#"ui.copy_button.copy($t,"secret",@said,"Copied",$s)"#),
         "Copy is corten-ui's, shown by its script, and copies the secret by its id: {html}"
     );
     assert!(!html.contains("data-corten-read-again"), "never reads itself again while it shows a secret");
@@ -9962,7 +11311,11 @@ fn inventory_items(stand: &Stand, method: &Method, uri: &Uri, headers: &HeaderMa
             let page: Vec<Value> = all.iter().skip(offset).take(limit).cloned().collect();
             Json(json!({ "items": page, "total": 2, "count": page.len(), "limit": limit, "offset": offset })).into_response()
         }
-        ("GET", "/inv_1") => Json(inventory_detail()).into_response(),
+        ("GET", "/inv_1") => match waits_for(headers).as_deref() {
+            Some("43") => refusal(StatusCode::SERVICE_UNAVAILABLE, "projection_freshness_timeout", "Not caught up."),
+            Some("44") => refusal(StatusCode::INTERNAL_SERVER_ERROR, "internal_error", "Failed."),
+            _ => Json(inventory_detail()).into_response(),
+        },
         ("GET", "/inv_gone") => refusal(StatusCode::NOT_FOUND, "inventory_item_not_found", "Inventory item not found."),
         ("POST", "/inv_1/adjustments") => {
             let attempt = headers.get("inventory-mutation-attempt").and_then(|v| v.to_str().ok()).unwrap_or_default().to_owned();
@@ -10240,6 +11593,11 @@ async fn record_sale_is_a_dialog_on_the_list_and_honoring_is_the_owners() {
     assert_eq!(status, StatusCode::OK);
     assert!(html.contains("<dialog") && text(&html).contains("Record a sale for Charizard without leaving Inventory."), "{html}");
     assert!(html.contains(r#"action="/account/inventory/items/inv_1/offline-sales?sale=inv_1""#), "{html}");
+    assert!(
+        html.contains("ui.dialog.failed(")
+            && html.contains(r#"hidden>That did not go through, and may not have been saved. Check and try again.</p>"#),
+        "a sale that gets no answer is said in the dialog, hidden until then: {html}"
+    );
     assert!(!text(&html).contains("Order commitments"), "a seller cannot honor a sale");
     assert!(html.contains(r#"name="collisionMode" value="protect-orders""#));
     let (_, _, html) = pilot.send(get("/account/inventory?sale=inv_1", Some("keeper"))).await;
@@ -10314,6 +11672,32 @@ async fn a_refused_sale_is_its_dialog_again() {
 }
 
 const STOCK_ITEM: &str = "/account/inventory/items/inv_1";
+
+/// marketplace's `pending` and `unverified`: a read after a write the API has not caught up to
+/// is the page saying the item is still updating, which reads it again; one that failed for good
+/// says the update could not be verified.
+#[tokio::test]
+async fn an_item_not_readable_yet_after_a_write_says_so_and_reads_again() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get(&format!("{STOCK_ITEM}?after_write={}", receipt_at("43")), Some("seller"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains(r#"<noscript data-corten-read-again="2" data-corten-head>"#), "read again shortly: {html}");
+    let page = text(&html);
+    assert!(
+        page.contains("Inventory item is still updating Your change was saved. This page reads the item again in a moment."),
+        "{page}"
+    );
+    assert!(
+        !page.contains("could not be verified") && !html.contains(r#"action="/account/inventory/items/inv_1/adjustments""#),
+        "{html}"
+    );
+    let (status, _, html) = pilot.send(get(&format!("{STOCK_ITEM}?after_write={}", receipt_at("44")), Some("seller"))).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{html}");
+    assert!(text(&html).contains("Inventory item update could not be verified."), "{html}");
+    assert!(!html.contains("data-corten-read-again"), "{html}");
+    let (_, _, html) = pilot.send(get(&format!("{STOCK_ITEM}?after_write={}", receipt_at("42")), Some("seller"))).await;
+    assert!(text(&html).contains("Charizard") && !html.contains("data-corten-read-again"), "caught up: {html}");
+}
 
 #[tokio::test]
 async fn the_item_page_shows_its_holds_and_ledger_and_data_clients_get_the_screen() {
@@ -10911,8 +12295,9 @@ async fn recommendations_are_for_a_seller_with_pricing_view_and_their_actions_ne
         assert!(words.contains(expected), "{expected}: {words}");
     }
     // The signals: 2 recommendations, 4 units on hand, 10 active listings, 2 offers.
+    let value = r#"<dd class="stats__value">"#;
     let stats: Vec<_> =
-        html.match_indices("<dd>").map(|(at, _)| text(&html[at..html[at..].find("</dd>").unwrap() + at])).collect();
+        html.match_indices(value).map(|(at, _)| text(&html[at..html[at..].find("</dd>").unwrap() + at])).collect();
     assert_eq!(stats, ["2", "4", "10", "2"], "{html}");
     assert!(html.contains(r#"value="refresh-recommendations""#) && html.contains(r#"value="apply-recommendations""#));
     assert!(html.contains(r#"name="recommendationId" value="rec_1""#), "a proposed one can be picked");
@@ -11496,6 +12881,10 @@ async fn the_checkout_shows_the_session_payments_quote_the_wallet_and_the_saved_
     assert!(page.contains("Available balance $25.00 Payable total $638.83"), "Payments' quote, not one the page makes: {page}");
     assert!(page.contains("Ship to Demo Collector 42 Binder Lane, Evanston, IL 60201, US Ready"), "the saved default: {page}");
     assert!(page.contains("Standard insured: 2026-11-04 - 2026-11-09."), "{page}");
+    // The steps are the kit's: each says its state after its name, a description under it.
+    assert!(html.contains(r#"aria-label="Checkout steps""#), "{html}");
+    assert!(page.contains("Contact (done) Where receipts and updates go Delivery (done)"), "{page}");
+    assert!(page.contains("Payment How you pay Review (not started) Confirm and pay"), "{page}");
     assert!(
         html.contains(
             r#"<form id="checkout-form" class="checkout-page__form" method="post" action="/checkout/buy/session/chk_1""#
@@ -11537,6 +12926,16 @@ async fn the_checkout_shows_the_session_payments_quote_the_wallet_and_the_saved_
     let calls: Vec<String> = pilot.stand.calls.lock().unwrap()[before..].iter().map(|c| c.path.clone()).collect();
     assert!(!calls.iter().any(|p| p == "/api/settlement/wallet" || p.ends_with("/ship-from-addresses")), "{calls:?}");
     assert!(calls.iter().any(|p| p.contains("requestedBalanceCreditAmount=0.00")), "{calls:?}");
+}
+
+#[tokio::test]
+async fn a_checkout_that_cannot_be_confirmed_draws_review_as_blocked() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/checkout/buy/session/chk_blocked", Some("payer"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let page = text(&html);
+    assert!(page.contains("Review (blocked) Confirm and pay"), "{page}");
+    assert!(!page.contains("Review (not started)"), "{page}");
 }
 
 #[tokio::test]
@@ -11607,6 +13006,78 @@ async fn pay_now_confirms_what_was_reviewed_and_the_page_shows_the_payment() {
     assert!(html.contains(r#"data-payment="pay_1""#), "{html}");
     assert!(html.contains(r#"href="/account/payments/pay_1""#), "the pilot's payment page: {html}");
     assert!(!html.contains(r#"value="confirm-checkout""#), "{html}");
+}
+
+#[tokio::test]
+async fn a_repeat_pay_now_on_orders_waiting_for_payment_is_quoted_from_the_kept_quote_and_posts_what_they_kept() {
+    let pilot = Pilot::new().await;
+    // chase-sets/chase-sets#11151: the orders kept their revision and acknowledgement, and the
+    // session the quote it last recorded, so Pay now is quoted and posts both back.
+    let (status, _, html) = pilot.send(get("/checkout/buy/session/chk_ordered", Some("payer"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains(r#"data-commit="pay""#), "Pay now: {html}");
+    assert!(html.contains(r#"value="lowest-total#lst_seed_lugia#620.00""#), "the kept revision: {html}");
+    assert!(html.contains(r#"name="acknowledgedMaterialChanges" value="true""#), "the kept acknowledgement: {html}");
+    assert!(html.contains(r#"value="fq_card""#), "quoted: {html}");
+    assert!(!text(&html).contains("temporarily unavailable"), "no missing-preview banner: {html}");
+    // A kept quote of another revision gives no quote, and the page says the totals are not ready.
+    let (status, _, html) = pilot.send(get("/checkout/buy/session/chk_ordered_other", Some("payer"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(!html.contains(r#"value="fq_card""#), "no quote: {html}");
+}
+
+#[tokio::test]
+async fn a_buyer_whose_payment_awaits_email_verification_is_offered_the_sign_in_that_verifies_it() {
+    let pilot = Pilot::new().await;
+    let link = "/sign-in?returnTo=%2Fcheckout%2Fbuy%2Fsession%2Fchk_1%3FverifyEmail%3Dpay-checkout&amp;signInMethod=magic-link";
+    // An owner whose orders.manage Auth withheld: Verify your email to pay in place of Pay now.
+    let (status, _, html) = pilot.send(get(CHECKOUT_SCREEN, Some("unverified"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains(&format!(r#"href="{link}">Verify your email to pay</a>"#)), "{html}");
+    assert!(!html.contains(r#"data-commit="pay""#), "no Pay now: {html}");
+    // Not for an agent, nor for a buyer who may pay.
+    for session in ["unverified_agent", "payer"] {
+        let (_, _, html) = pilot.send(get(CHECKOUT_SCREEN, Some(session))).await;
+        assert!(!text(&html).contains("Verify your email to pay"), "{session}: {html}");
+        assert!(html.contains(r#"data-commit="pay""#), "{session}: {html}");
+    }
+    // Checkout's refusal of Pay now is the page again, with its words and the link.
+    let (status, _, html) = pilot
+        .send(post("/checkout/buy/session/chk_verify", "unverified", &checkout_body("intent=confirm-checkout"), false))
+        .await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{html}");
+    assert!(text(&html).contains("Verify your email before you pay. Nothing was reserved or ordered."), "{html}");
+    assert!(html.contains("verifyEmail%3Dpay-checkout"), "{html}");
+    // The page refuses before it writes the session: no shipping option, opt-in, address,
+    // preview or confirm reached Checkout (chase-sets/chase-sets#10959).
+    let writes = checkout_writes(&pilot);
+    assert!(writes.is_empty(), "nothing written: {writes:?}");
+    // A role that never pays gets its own words, with nothing written either.
+    let (status, _, html) =
+        pilot.send(post(CHECKOUT_SCREEN, "card_reader", &checkout_body("intent=confirm-checkout"), false)).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{html}");
+    assert!(text(&html).contains("This account cannot pay for purchases. Nothing was reserved or ordered."), "{html}");
+    assert!(checkout_writes(&pilot).is_empty(), "nothing written");
+}
+
+#[tokio::test]
+async fn the_sign_in_says_it_verifies_the_email_to_pay_for_a_checkout() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot
+        .send(get(
+            "/sign-in?returnTo=%2Fcheckout%2Fbuy%2Fsession%2Fchk_1%3FverifyEmail%3Dpay-checkout&signInMethod=magic-link",
+            None,
+        ))
+        .await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let shown = text(&html);
+    assert!(shown.contains("Verify your email to pay for this checkout"), "{shown}");
+    assert!(shown.contains("brings you back to your checkout, where you can pay"), "{shown}");
+    // Only a checkout's page, and only with its marker.
+    for other in ["%2Fcheckout%2Fbuy%2Fsession%2Fchk_1", "%2Fcheckout%2Fbuy%2Fsession%2Fchk_1%3FverifyEmail%3Dcancel-purchase"] {
+        let (_, _, html) = pilot.send(get(&format!("/sign-in?returnTo={other}"), None)).await;
+        assert!(!text(&html).contains("Verify your email to pay"), "{other}: {html}");
+    }
 }
 
 #[tokio::test]
@@ -11775,11 +13246,20 @@ async fn a_payment_waiting_for_the_buyer_mounts_stripe_and_watches_its_status() 
     assert!(csp.contains("https://js.stripe.com;") || csp.contains("https://js.stripe.com "), "Stripe.js may load: {csp}");
     assert!(csp.contains("frame-src https://js.stripe.com https://hooks.stripe.com;"), "{csp}");
     assert!(csp.contains("https://api.stripe.com"), "{csp}");
-    // Only the payment pages allow Stripe (todd-skelton/corten#275).
+    // The `default` policy <Corten /> makes for a page that loads scripts from another host
+    // (todd-skelton/corten#768), and no policy of the pilot's own.
+    assert!(csp.contains("trusted-types corten default"), "{csp}");
+    assert!(html.contains(r#"trustedTypes.createPolicy("default""#), "{html}");
+    // The Payment Element's wallets run the Payment Request API in Stripe's frames.
+    let features = headers["permissions-policy"].to_str().unwrap();
+    assert!(!features.contains("payment=()") && features.contains("camera=()"), "{features}");
+    // Only the payment pages allow Stripe (todd-skelton/corten#275), or its policy.
     let (status, headers, _) = pilot.send(get(SELL_LIST_PAGE, Some("trader"))).await;
     assert_eq!(status, StatusCode::OK);
     let elsewhere = headers[header::CONTENT_SECURITY_POLICY].to_str().unwrap();
     assert!(!elsewhere.contains("stripe.com"), "{elsewhere}");
+    assert!(elsewhere.contains("trusted-types corten;") || elsewhere.ends_with("trusted-types corten"), "{elsewhere}");
+    assert!(headers["permissions-policy"].to_str().unwrap().contains("payment=()"), "elsewhere payment is denied");
     let page = text(&html);
     assert!(page.contains("Secure Checkout Payment pay_1"), "{page}");
     assert!(page.contains("Complete payment by deadline"), "the order's deadline: {page}");
@@ -11999,12 +13479,24 @@ async fn starting_a_payment_needs_orders_and_orders_manage() {
     let (status, _, html) = pilot.send(get("/account/payments/new?orderIds=ord_gone", Some("payer"))).await;
     assert_eq!(status, StatusCode::NOT_FOUND, "{html}");
     assert!(text(&html).contains("Purchase not found."), "{html}");
-    // Seeing payments is not enough to start one.
-    let (status, _, _) = pilot.send(get("/account/payments/new?orderIds=ord_pay", Some("card_reader"))).await;
+    // Seeing payments is not enough to start one, and the page says why with the purchase's page
+    // (chase-sets/chase-sets#11170), not a bare Forbidden.
+    let (status, _, html) = pilot.send(get("/account/payments/new?orderIds=ord_pay", Some("card_reader"))).await;
     assert_eq!(status, StatusCode::FORBIDDEN);
+    assert!(text(&html).contains("This account cannot pay for purchases."), "{html}");
+    assert!(html.contains(r#"href="/account/purchases/ord_pay""#), "{html}");
     let form = "order_ids=ord_pay&payment_method_category=card&balance_credit_mode=none&requested_balance_credit_amount=";
-    let (status, _, _) = pilot.send(post("/account/payments/new", "card_reader", form, false)).await;
+    let (status, _, html) = pilot.send(post("/account/payments/new", "card_reader", form, false)).await;
     assert_eq!(status, StatusCode::FORBIDDEN);
+    assert!(text(&html).contains("This account cannot pay for purchases."), "{html}");
+    // One whose orders.manage awaits email verification is told to verify it from the purchase.
+    let (status, _, html) = pilot.send(get("/account/payments/new?orderIds=ord_pay", Some("unverified"))).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    assert!(text(&html).contains("Verify your email before you pay."), "{html}");
+    assert!(html.contains(r#"href="/account/purchases/ord_pay""#), "{html}");
+    // More than one order: no single purchase to open.
+    let (_, _, html) = pilot.send(get("/account/payments/new?orderIds=ord_pay,ord_open", Some("card_reader"))).await;
+    assert!(!html.contains(r#"href="/account/purchases/ord_"#), "{html}");
     let (status, headers, _) = pilot.send(get("/account/payments/new?orderIds=ord_pay", None)).await;
     assert_eq!(
         (status, headers[header::LOCATION].to_str().unwrap()),
@@ -12023,7 +13515,7 @@ fn sign_in_post(uri: &str, cookie: Option<&str>, body: &str) -> Request<Body> {
     }
     let mut req = req.body(Body::from(body.to_owned())).unwrap();
     let peer: std::net::SocketAddr = "203.0.113.7:50000".parse().unwrap();
-    req.extensions_mut().insert(corten::axum::extract::ConnectInfo(peer));
+    req.extensions_mut().insert(corten::PeerAddr(peer));
     req
 }
 
@@ -12053,7 +13545,10 @@ async fn sign_in_asks_for_an_email_or_phone_then_offers_its_methods() {
     assert!(html.contains(r#"method="get" action="/sign-in""#), "a GET to the page: {html}");
     assert!(html.contains(r#"name="returnTo" value="/account/cart""#), "{html}");
     assert!(html.contains(r#"name="signInMethod" value="password""#) && html.contains(r#"name="signInIdentifier""#));
-    assert!(html.contains("/api/auth/social/google/start?journey=sign-in&amp;returnTo=%2Faccount%2Fcart"), "{html}");
+    assert!(
+        html.contains(r#"href="/api/auth/social/google/start?journey=sign-in&amp;returnTo=%2Faccount%2Fcart""#),
+        "the pilot's relay: {html}"
+    );
     assert!(!html.contains(r#"type="password""#));
 
     let email = "/sign-in?returnTo=%2Faccount%2Fcart&signInIdentifier=collector%40example.test&signInMethod=password";
@@ -12072,7 +13567,11 @@ async fn sign_in_asks_for_an_email_or_phone_then_offers_its_methods() {
     assert!(html.contains(r#"value="magic-link-request""#) && !html.contains(r#"type="password""#), "{html}");
     let passkey = email.replace("signInMethod=password", "signInMethod=passkey");
     let (_, _, html) = pilot.send(get(&passkey, None)).await;
-    assert!(html.contains("http://localhost:7753/sign-in?returnTo=%2Faccount%2Fcart&amp;signInIdentifier=collector%40example.test&amp;signInMethod=passkey"), "marketplace's passkey: {html}");
+    assert!(
+        html.contains(r#"value="passkey-sign-in""#) && html.contains(r#"name="webauthnResponse""#),
+        "the pilot's passkey: {html}"
+    );
+    assert!(!html.contains("http://localhost:7753/sign-in"), "no longer marketplace's: {html}");
 
     let (_, _, html) = pilot.send(get("/sign-in?signInIdentifier=%2B15550100&signInMethod=password", None)).await;
     assert!(html.contains(r#"value="phone-code-request""#) && !html.contains(r#"type="password""#), "a phone has a code: {html}");
@@ -12215,7 +13714,7 @@ async fn a_magic_link_signs_in_or_says_why_it_could_not() {
     let body = "intent=magic-link-request&email=collector%40example.test";
     let (status, _, html) = pilot.send(sign_in_post("/sign-in?returnTo=%2Fsearch", None, body)).await;
     assert_eq!(status, StatusCode::OK);
-    assert!(html.contains("Magic link sent") && html.contains(r#"role="status""#), "{html}");
+    assert!(html.contains("Magic link sent") && main_of(&html).contains(r#"role="status""#), "{html}");
     let sent: Value = serde_json::from_str(&auth_calls(&pilot, "/api/auth/magic-link/request")[0].body).unwrap();
     assert_eq!(sent, json!({ "email": "collector@example.test", "landingPath": "/sign-in/magic", "returnTo": "/search" }));
 }
@@ -12230,11 +13729,13 @@ async fn the_register_page_offers_marketplaces_methods_in_its_order_each_at_its_
     let order: Vec<usize> =
         ["Passkey", "Phone Code", "Magic Link", "Password"].iter().map(|m| html.find(&format!(">{m}</a>")).unwrap()).collect();
     assert!(order.windows(2).all(|w| w[0] < w[1]), "marketplace's order: {order:?}");
-    // A passkey is the first, and marketplace's page: WebAuthn is its script.
+    // A passkey is the first, the passkey step's form, with the name and email it creates one for.
     assert!(html.contains(r#"aria-current="true">Passkey"#) && page.contains("Recommended"), "{html}");
-    assert!(html.contains(r#"href="http://localhost:7753/register?returnTo=%2Faccount%2Fcart""#), "{html}");
+    assert!(html.contains(r#"value="passkey-register""#) && html.contains(r#"name="webauthnResponse""#), "{html}");
+    assert!(html.contains(r#"autocomplete="email""#) && html.contains(r#"autocomplete="name""#), "{html}");
+    assert!(!html.contains(r#"href="http://localhost:7753/register"#), "no longer marketplace's: {html}");
     assert!(
-        html.contains("http://localhost:7753/api/auth/social/google/start?journey=registration&amp;returnTo=%2Faccount%2Fcart"),
+        html.contains(r#"href="/api/auth/social/google/start?journey=registration&amp;returnTo=%2Faccount%2Fcart""#),
         "{html}"
     );
 
@@ -12326,7 +13827,7 @@ async fn a_magic_link_registration_sends_the_link_and_a_phone_code_registration_
 const INVITE_ATTEMPT: &str = "6f1c2a3b-4d5e-4f60-8a7b-9c0d1e2f3a4b";
 
 #[tokio::test]
-async fn an_invitation_says_who_sent_it_and_offers_a_passkey_on_marketplace_or_a_password_here() {
+async fn an_invitation_says_who_sent_it_and_offers_a_passkey_or_a_password() {
     let pilot = Pilot::new().await;
     let (status, _, html) = pilot.send(get("/invite/ivt_1?token=good", None)).await;
     assert_eq!(status, StatusCode::OK, "{html}");
@@ -12334,7 +13835,9 @@ async fn an_invitation_says_who_sent_it_and_offers_a_passkey_on_marketplace_or_a
     assert!(page.contains("Accept your invitation"), "{page}");
     assert!(page.contains("Ann Owner invited you to Chase Sets Shop as Viewer."), "{page}");
     assert!(html.contains(r#"aria-current="true">Passkey"#), "a passkey first: {html}");
-    assert!(html.contains(r#"href="http://localhost:7753/invite/ivt_1?token=good""#), "marketplace's passkey: {html}");
+    assert!(html.contains(r#"value="passkey""#) && html.contains(r#"name="webauthnResponse""#), "the pilot's passkey: {html}");
+    assert!(html.contains(r#"name="attempt""#), "a passkey's acceptance is an attempt too: {html}");
+    assert!(!html.contains("http://localhost:7753/invite/"), "no longer marketplace's: {html}");
     let sent: Value = serde_json::from_str(&auth_calls(&pilot, "/api/auth/invitations/inspect")[0].body).unwrap();
     assert_eq!(sent, json!({ "invitationId": "ivt_1", "token": "good" }));
 
@@ -12428,6 +13931,181 @@ async fn an_acceptance_that_is_not_a_session_says_where_the_attempt_stands_and_c
     let (status, _, _) = pilot.send(sign_in_post("/invite/ivt_1?token=good", None, "attempt=nope&password=right")).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
     assert_eq!(auth_calls(&pilot, "/api/auth/invitations/accept").len(), 3);
+}
+
+#[tokio::test]
+async fn a_passkey_challenge_is_json_for_the_step_from_the_pages_host() {
+    let pilot = Pilot::new().await;
+    let body = "purpose=passkey-sign-in&email=collector%40example.test";
+    let (status, headers, json) = pilot.send(sign_in_post("/sign-in/passkey", None, body)).await;
+    assert_eq!(status, StatusCode::OK, "{json}");
+    assert!(headers[header::CACHE_CONTROL].to_str().unwrap().contains("no-store"), "{headers:?}");
+    assert_eq!(serde_json::from_str::<Value>(&json).unwrap(), json!({ "challengeId": "cmd_1", "challenge": "Y2hhbGxlbmdl" }));
+    let sent = auth_calls(&pilot, "/api/auth/passkeys/challenge");
+    // Auth checks the credential against the page's origin, which the call forwards.
+    assert_eq!(sent[0].headers["x-forwarded-host"], "localhost:7791", "{:?}", sent[0].headers);
+    assert_eq!(sent[0].headers["x-forwarded-for"], "203.0.113.7");
+    assert_eq!(
+        serde_json::from_str::<Value>(&sent[0].body).unwrap(),
+        json!({ "purpose": "passkey-sign-in", "email": "collector@example.test" })
+    );
+
+    let (status, _, _) =
+        pilot.send(sign_in_post("/sign-in/passkey", None, "purpose=passkey-register&email=new%40example.test")).await;
+    assert_eq!(status, StatusCode::OK);
+    let (status, _, _) = pilot.send(sign_in_post("/sign-in/passkey", None, "purpose=password&email=new%40example.test")).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "only a passkey's purposes");
+    assert_eq!(auth_calls(&pilot, "/api/auth/passkeys/challenge").len(), 2, "nothing sent for another purpose");
+    let limited = "purpose=passkey-sign-in&email=limited%40example.test";
+    let (status, _, _) = pilot.send(sign_in_post("/sign-in/passkey", None, limited)).await;
+    assert_eq!(status, StatusCode::TOO_MANY_REQUESTS, "Auth's refusal keeps its status");
+}
+
+const PASSKEY_SIGNED: &str = "challengeId=cmd_1&challenge=Y2hhbGxlbmdl&externalCredentialId=cred_1&webauthnResponse=signed";
+
+#[tokio::test]
+async fn a_social_sign_in_goes_through_auth_and_comes_back_to_the_pages_origin() {
+    let pilot = Pilot::new().await;
+    let start = "/api/auth/social/google/start?journey=sign-in&returnTo=%2Faccount%2Fcart";
+    let (status, headers, _) = pilot.send(get(start, None)).await;
+    assert_eq!(status, StatusCode::FOUND, "not followed here: {headers:?}");
+    let to = headers[header::LOCATION].to_str().unwrap();
+    let back = "redirect_uri=http%3A%2F%2Flocalhost%3A7791%2Fapi%2Fauth%2Fsocial%2Fgoogle%2Fcallback";
+    assert!(to.starts_with("https://provider.test/authorize?") && to.ends_with(back), "back to the page's origin: {to}");
+    assert!(headers[header::CACHE_CONTROL].to_str().unwrap().contains("no-store"));
+    let sent = pilot.stand.calls.lock().unwrap().iter().find(|c| c.path.starts_with("/api/auth/social/")).cloned().unwrap();
+    assert_eq!(sent.path, start, "the query as sent");
+    assert_eq!(sent.headers[header::HOST.as_str()], "localhost:7791");
+    assert_eq!(sent.headers["x-forwarded-host"], "localhost:7791");
+
+    // The provider's return: Auth's session cookie, and back to the page the sign-in was for.
+    let (status, headers, _) = pilot.send(get("/api/auth/social/google/callback?state=st_cart&code=good", None)).await;
+    assert_eq!((status, headers[header::LOCATION].to_str().unwrap()), (StatusCode::FOUND, "/account/cart"));
+    let set = cookies_set(&headers);
+    assert!(set["chase_sets_session"].starts_with("chase_sets_session=tok_google;"), "{headers:?}");
+    assert!(set["chase_sets_account_selection"].contains("Max-Age=0"), "both of Auth's cookies: {headers:?}");
+
+    // More than one account: the pilot's account selection, with the selection's cookie.
+    let (_, headers, _) = pilot.send(get("/api/auth/social/google/callback?state=st_cart&code=member", None)).await;
+    assert_eq!(headers[header::LOCATION], "/account/select?returnTo=%2Faccount%2Fcart");
+    assert!(cookies_set(&headers)["chase_sets_account_selection"].starts_with("chase_sets_account_selection=sel_1;"));
+
+    // A page the pilot does not serve is marketplace's, as a sign-in's `returnTo` is.
+    let (_, headers, _) = pilot.send(get("/api/auth/social/google/callback?state=st_away&code=good", None)).await;
+    assert_eq!(headers[header::LOCATION], "http://localhost:7753/not-a-pilot-page");
+
+    // A refusal comes back to the pilot's sign-in, which says it.
+    let (_, headers, _) = pilot.send(get("/api/auth/social/google/callback?state=st_old&code=good", None)).await;
+    let back = headers[header::LOCATION].to_str().unwrap().to_owned();
+    assert_eq!(back, "/sign-in?socialLoginError=invalid_state");
+    assert!(cookies_set(&headers).is_empty());
+    let (status, _, html) = pilot.send(get(&back, None)).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(text(&html).contains("Social login could not be completed."), "{html}");
+
+    // Only a lowercase provider and Auth's two steps: nothing else reaches Auth.
+    let before = pilot.stand.calls.lock().unwrap().len();
+    for path in ["/api/auth/social/Google/start", "/api/auth/social/google/link", "/api/auth/social/go.x/start"] {
+        let (status, _, _) = pilot.send(get(path, None)).await;
+        assert_eq!(status, StatusCode::NOT_FOUND, "{path}");
+    }
+    assert_eq!(pilot.stand.calls.lock().unwrap().len(), before);
+}
+#[tokio::test]
+async fn a_passkey_signs_in_with_its_credential_and_without_one_says_it_failed() {
+    let pilot = Pilot::new().await;
+    let at = "/sign-in?returnTo=%2Faccount%2Fcart&signInIdentifier=collector%40example.test&signInMethod=passkey";
+    let body = format!("intent=passkey-sign-in&email=collector%40example.test&{PASSKEY_SIGNED}");
+    let (status, headers, html) = pilot.send(sign_in_post(at, None, &body)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
+    assert_eq!(headers[header::LOCATION], "/account/cart");
+    assert!(cookies_set(&headers)["chase_sets_session"].starts_with("chase_sets_session=tok_passkey;"), "{headers:?}");
+    let sent = auth_calls(&pilot, "/api/auth/passkeys/sign-in");
+    assert_eq!(sent[0].headers["x-forwarded-host"], "localhost:7791", "the page's origin, which Auth checks");
+    assert_eq!(
+        serde_json::from_str::<Value>(&sent[0].body).unwrap(),
+        json!({
+            "challengeId": "cmd_1", "challenge": "Y2hhbGxlbmdl", "externalCredentialId": "cred_1", "webauthnResponse": "signed",
+        })
+    );
+
+    // No credential: the step's script did not run. Nothing is sent.
+    let (status, _, html) = pilot.send(sign_in_post(at, None, "intent=passkey-sign-in&email=collector%40example.test")).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(text(&html).contains("Passkey sign-in failed."), "{html}");
+    assert!(html.contains(r#"value="passkey-sign-in""#), "the passkey's step again: {html}");
+    assert_eq!(auth_calls(&pilot, "/api/auth/passkeys/sign-in").len(), 1);
+
+    // A credential Auth refuses is the generic failure, as marketplace's.
+    let refused = body.replace("webauthnResponse=signed", "webauthnResponse=forged");
+    let (status, headers, html) = pilot.send(sign_in_post(at, None, &refused)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(headers.get(header::SET_COOKIE).is_none());
+    assert!(text(&html).contains("This request could not be completed."), "{html}");
+}
+
+#[tokio::test]
+async fn a_passkey_registration_lands_on_the_new_account_or_says_to_sign_in_with_the_passkey_added() {
+    let pilot = Pilot::new().await;
+    let credential = "challengeId=cmd_1&challenge=Y2hhbGxlbmdl&externalCredentialId=cred_1&webauthnResponse=created";
+    let body = format!("intent=passkey-register&displayName=New+Seller&email=new%40example.test&{credential}");
+    let (status, headers, html) = pilot.send(sign_in_post("/register", None, &body)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
+    let to = headers[header::LOCATION].to_str().unwrap();
+    assert!(to.starts_with("/account?after_write=") && to.contains("78"), "the account's page, after Identity's write: {to}");
+    assert!(cookies_set(&headers)["chase_sets_session"].starts_with("chase_sets_session=tok_pk;"), "{headers:?}");
+    let sent = auth_calls(&pilot, "/api/auth/passkeys/register");
+    assert_eq!(sent[0].headers["x-forwarded-host"], "localhost:7791");
+    assert_eq!(
+        serde_json::from_str::<Value>(&sent[0].body).unwrap(),
+        json!({
+            "displayName": "New Seller", "email": "new@example.test", "label": "Passkey", "challengeId": "cmd_1",
+            "challenge": "Y2hhbGxlbmdl", "externalCredentialId": "cred_1", "webauthnResponse": "created",
+        })
+    );
+
+    // A passkey added to an existing user starts no session (marketplace's `passkey-recovery`).
+    let known = body.replace("new%40example.test", "known%40example.test");
+    let (status, headers, html) = pilot.send(sign_in_post("/register", None, &known)).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(headers.get(header::SET_COOKIE).is_none());
+    let page = text(&html);
+    assert!(page.contains("Passkey added") && page.contains("Sign in with it to continue."), "{page}");
+
+    // No credential: nothing is sent, and what was typed stays.
+    let bare = "intent=passkey-register&displayName=New+Seller&email=new%40example.test";
+    let (status, _, html) = pilot.send(sign_in_post("/register", None, bare)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(text(&html).contains("Passkey registration failed."), "{html}");
+    assert!(html.contains(r#"value="New Seller""#) && html.contains(r#"aria-current="true">Passkey"#), "{html}");
+    assert_eq!(auth_calls(&pilot, "/api/auth/passkeys/register").len(), 2);
+}
+
+#[tokio::test]
+async fn a_passkey_accepts_an_invitation_as_one_attempt_and_without_a_credential_sends_nothing() {
+    let pilot = Pilot::new().await;
+    let credential = "challengeId=cmd_1&challenge=Y2hhbGxlbmdl&externalCredentialId=cred_1&webauthnResponse=created";
+    let body = format!("attempt={INVITE_ATTEMPT}&intent=passkey&{credential}");
+    let (status, headers, html) = pilot.send(sign_in_post("/invite/ivt_1?token=good", None, &body)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
+    assert!(cookies_set(&headers)["chase_sets_session"].starts_with("chase_sets_session=tok_invitee;"), "{headers:?}");
+    let sent = auth_calls(&pilot, "/api/auth/invitations/accept");
+    assert_eq!(sent[0].headers["idempotency-key"], INVITE_ATTEMPT, "the attempt is the key");
+    assert_eq!(
+        serde_json::from_str::<Value>(&sent[0].body).unwrap(),
+        json!({
+            "invitationId": "ivt_1", "token": "good", "attemptId": INVITE_ATTEMPT, "label": "Passkey",
+            "challengeId": "cmd_1", "challenge": "Y2hhbGxlbmdl", "externalCredentialId": "cred_1", "webauthnResponse": "created",
+        }),
+        "a credential in place of a password"
+    );
+
+    let (status, _, html) =
+        pilot.send(sign_in_post("/invite/ivt_1?token=good", None, &format!("attempt={INVITE_ATTEMPT}&intent=passkey"))).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(text(&html).contains("Invitation could not be accepted"), "{html}");
+    assert!(html.contains(r#"value="passkey""#), "the passkey's form again: {html}");
+    assert_eq!(auth_calls(&pilot, "/api/auth/invitations/accept").len(), 1, "nothing sent without a credential");
 }
 
 #[tokio::test]
@@ -12909,6 +14587,7 @@ async fn payout_setup_shows_the_status_what_it_needs_and_stripes_form() {
         csp.contains("https://connect-js.stripe.com") && csp.contains("'sha256-0hAheEzaMe6uXIKV4EehS9pu1am1lj/KnnzrOYqckXk='"),
         "{csp}"
     );
+    assert!(csp.contains("trusted-types corten default"), "Connect.js loads through <Corten />'s policy: {csp}");
     assert_eq!(headers["cross-origin-opener-policy"], "unsafe-none");
     // Every other page keeps same-origin and no Connect.js.
     let (_, headers, _) = pilot.send(get(MONEY, Some("banker"))).await;
@@ -13186,7 +14865,9 @@ async fn a_payouts_page_shows_its_status_amounts_moments_and_timeline() {
     assert!(words.contains("$10.00") && words.contains("$0.27") && words.contains("Completed"), "{words}");
     assert!(words.contains("Last provider check"), "{words}");
     assert!(words.contains("The payout provider accepted the transfer."), "{words}");
-    assert_eq!(html.matches(r#"data-status="complete""#).count(), 5, "every step done: {html}");
+    // The kit's Steps as a timeline, an <ol> named by its label (no <nav>), every step done.
+    assert!(html.contains(r#"<div class="steps__steps steps__timeline"><ol aria-label="Status Timeline">"#), "{html}");
+    assert_eq!(words.matches("(done)").count(), 5, "every step done: {words}");
     assert!(!words.contains("Payout requested") && !words.contains("needs review"), "{words}");
     assert!(html.contains(r#"href="/account/desk/money""#), "Back to payouts: {html}");
 
@@ -13196,7 +14877,9 @@ async fn a_payouts_page_shows_its_status_amounts_moments_and_timeline() {
     assert!(words.contains("Payout account needs review"), "{words}");
     assert!(html.contains(r#"href="/account/desk/settings?mode=manage""#), "Review payout details is the pilot's: {html}");
     assert!(html.contains(r#"href="/account/support""#), "Contact support is the pilot's: {html}");
-    assert!(html.contains(r#"data-status="issue""#), "{html}");
+    // The last step failed, drawn with the kit's failed mark and read with its words.
+    assert!(html.contains(r#"<li class="steps__failed">"#), "{html}");
+    assert!(words.contains("Needs attention (failed) Bank account temporarily unavailable"), "{words}");
 
     let (_, _, html) = pilot.send(get("/account/desk/payouts/pyo_noted?requested=1", Some("banker"))).await;
     let words = text(&html);
@@ -13632,6 +15315,9 @@ async fn the_review_summary_shows_both_ratings_and_the_newest_reviews() {
     assert!(html.contains("<h1") && html.contains("Chase Seller"), "the account's name: {html}");
     assert!(html.contains("4.5") && html.contains("(2)"), "as a seller: {html}");
     assert!(html.contains("0 ratings included · 1 reviews"), "as a buyer, context only: {html}");
+    // Each star's share is the kit's meter, a measure and not progress: a 5 and a 4 are half each.
+    assert!(html.contains(r#"<meter class="meter__meter" min="0" max="100" value="50">50%</meter>"#), "{html}");
+    assert!(!html.contains("<progress"), "{html}");
     assert!(html.contains("Binder Bob") && html.contains("Thanks for the order!"), "the reply: {html}");
     assert!(html.contains("Shared for context · rating not included"), "{html}");
     assert!(html.contains("Carrier-related issue") && html.contains("Refund issued"), "the scoring context: {html}");
@@ -13934,7 +15620,7 @@ async fn an_invite_sends_its_attempt_then_asks_auth_for_the_link_and_a_replay_do
     let body = format!("intent=create-invitation&attempt={ATTEMPT}&email=fresh%40chasesets.test&role_key=manager");
     let mut req = post(TEAM, "teamer", &body, false);
     let peer: std::net::SocketAddr = "203.0.113.9:50000".parse().unwrap();
-    req.extensions_mut().insert(corten::axum::extract::ConnectInfo(peer));
+    req.extensions_mut().insert(corten::PeerAddr(peer));
     let (status, headers, _) = pilot.send(req).await;
     assert_eq!(status, StatusCode::SEE_OTHER);
     let to = headers["location"].to_str().unwrap().to_owned();
@@ -14186,7 +15872,7 @@ async fn a_support_case_shows_who_acts_next_and_only_the_viewers_part() {
     assert!(html.contains(r#"<option value="provide-tracking" selected>Provide tracking</option>"#), "{html}");
     assert!(html.contains(r#"<option value="offer-partial-refund">Offer a partial refund</option>"#), "{html}");
     // corten-ui's RequiredWhen requires the amount for a partial refund only (todd-skelton/corten#269).
-    assert!(html.contains("ui.required_when.connect(") && html.contains("[&quot;offer-partial-refund&quot;]"), "{html}");
+    assert!(html.contains("ui.required_when.connect(") && html.contains(r#"["offer-partial-refund"]"#), "{html}");
     assert!(!html.contains(r#"<option value="request-support-review""#), "review is its own button: {html}");
     assert!(html.contains("Request support review</button>") && !html.contains("Cancel case"), "the buyer opened it: {html}");
     let order: Vec<usize> = ["Case opened", "Evidence submitted", "Offer made", "Offer declined"]
@@ -14595,6 +16281,8 @@ async fn report_a_problem_walks_its_steps_in_the_address() {
     assert!(html.contains(r#"role="alert">Select every item affected by the same problem."#), "Continue with none: {html}");
     // corten-ui's CheckboxGroup stops Continue with none in the browser first (todd-skelton/corten#272).
     assert!(html.contains("ui.checkbox_group.connect(") && html.contains("<legend>Affected items</legend>"), "{html}");
+    // The kit's Checkboxes draws the group: its fieldset is the wrapper's child.
+    assert!(html.contains(r#"<div class="checkboxes__checkboxes"><fieldset"#), "{html}");
     let (_, _, html) = page("/account/support?orderId=ord_two&line=ln_1&step=issue").await;
     assert!(html.contains(r#"<input type="hidden" name="line" value="ln_1">"#), "{html}");
     assert!(html.contains(r#"value="product-damaged" checked required"#) && html.contains("Product not received"), "{html}");
@@ -15413,6 +17101,7 @@ async fn saved_payment_methods_are_cards_each_with_its_own_writes() {
     assert_eq!(status, StatusCode::OK, "{html}");
     let csp = headers[header::CONTENT_SECURITY_POLICY].to_str().unwrap();
     assert!(csp.contains("https://js.stripe.com"), "Add's secure step may load Stripe.js: {csp}");
+    assert!(csp.contains("trusted-types corten default"), "{csp}");
     assert!(html.contains("Saved payment methods") && html.contains("Synthetic spm_card"), "{html}");
     assert!(
         html.contains(">Setup Required<") && html.contains("Bank account"),
@@ -15458,6 +17147,10 @@ async fn add_answers_with_stripes_secure_step_and_the_answer_is_never_kept() {
     let sent = payment_method_calls(&pilot).into_iter().find(|c| c.path.ends_with("/setup-sessions")).expect("a setup started");
     let body: Value = serde_json::from_str(&sent.body).unwrap();
     assert_eq!(body, json!({ "accountId": "acc_seller", "attemptId": PM_OK, "returnUrlPath": "/account/payment-methods" }));
+    // Only the write's answer: the page itself keeps the default's caching (`no_store(post)`).
+    let (status, headers, _) = pilot.send(get(PAYMENT_METHODS, Some("payer"))).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(!headers[header::CACHE_CONTROL].to_str().unwrap().contains("no-store"), "{headers:?}");
 }
 
 #[tokio::test]
@@ -15617,13 +17310,16 @@ fn import_batch(id: &str, status: &str, total: u64, accepted: u64, rejected: u64
 fn import_row(id: &str, number: u64, status: &str, resolution: &str, product: Option<&str>, errors: &[&str]) -> Value {
     json!({
         "row_id": id, "row_number": number, "status": status, "external_reference": null, "row_fingerprint": format!("fp_{id}"),
-        "quantity_mode": "add", "quantity_delta": 2, "set_quantity": null, "total_quantity": null,
+        "row_version": ROW_VERSION, "quantity_mode": "add", "quantity_delta": 2, "set_quantity": null, "total_quantity": null,
         "resolution_status": resolution, "catalog_item_id": product.map(|_| "cat_card"), "product_id": product,
         "listing_price_amount": null, "listing_price_currency_code": null, "listing_quantity_cap": null, "row_note": null,
         "validation_errors": errors, "committed_inventory_item_id": null, "committed_listing_id": null, "committed_at": null,
         "needs_seller": status == "rejected" && (resolution == "unresolved" || product.is_none()),
     })
 }
+
+/// Every stand-in import row's version (Inventory's opaque UTC microsecond text).
+const ROW_VERSION: &str = "2026-11-01T13:53:37.123456Z";
 
 /// A durable job's public snapshot.
 fn import_job(id: &str, status: &str) -> Value {
@@ -15636,7 +17332,8 @@ fn import_job(id: &str, status: &str) -> Value {
 /// yet), `imb_gone` unknown; a read that waits for 43 is
 /// still catching up. Jobs: `job_run` running, `job_done` finished with `imb_1` and a receipt at
 /// 42, `job_fail` failed, `job_other` another account's. A create needs its attempt and refuses
-/// rows that say `bad`; a commit needs its attempt and refuses `imb_done`.
+/// rows that say `bad`; a commit needs its attempt and refuses `imb_done`. A row's fix needs its
+/// attempt and exactly the five members, and is refused (409) when its version is not the row's.
 fn imports_api(method: &Method, uri: &Uri, headers: &HeaderMap, body: &str) -> Option<Response> {
     let rest = uri.path().strip_prefix(IMPORT_BATCHES)?;
     let attempt = headers.get("inventory-mutation-attempt").and_then(|v| v.to_str().ok()).unwrap_or_default();
@@ -15728,6 +17425,24 @@ fn imports_api(method: &Method, uri: &Uri, headers: &HeaderMap, body: &str) -> O
         }
         ("POST", fix) if fix.starts_with("/imb_1/rows/") && fix.ends_with("/resolve") => {
             let sent: Value = serde_json::from_str(body).unwrap_or_default();
+            let mut members: Vec<&str> = sent.as_object().map(|o| o.keys().map(String::as_str).collect()).unwrap_or_default();
+            members.sort_unstable();
+            let five = ["catalogItemId", "expectedRowFingerprint", "expectedRowVersion", "selectedOptions", "storageLocationId"];
+            if attempt.is_empty() || members != five {
+                return Some(refusal(
+                    StatusCode::BAD_REQUEST,
+                    "invalid_resolve_request",
+                    "Import row fix request is invalid. Reload the batch and try again.",
+                ));
+            }
+            let row = fix.trim_start_matches("/imb_1/rows/").trim_end_matches("/resolve");
+            if sent["expectedRowVersion"] != ROW_VERSION || sent["expectedRowFingerprint"] != format!("fp_{row}") {
+                return Some(refusal(
+                    StatusCode::CONFLICT,
+                    "stale_row_facts",
+                    "Import row changed since it was loaded. Reload the batch and try again.",
+                ));
+            }
             if sent["storageLocationId"] == "loc_old" {
                 return Some(refusal(StatusCode::BAD_REQUEST, "validation_failed", "Storage location is archived."));
             }
@@ -16018,6 +17733,11 @@ async fn the_resolution_drawer_finds_an_item_sends_the_fix_and_moves_to_the_next
     let shown = text(&html);
     assert!(shown.contains("Resolve import row 2 Close Row 1 of 1 to resolve No catalog product matches this row."), "{shown}");
     assert!(
+        html.contains("ui.dialog.failed(")
+            && html.contains(r#"hidden>That did not go through, and may not have been saved. Check and try again.</p>"#),
+        "an Apply that gets no answer is said in the drawer, hidden until then: {html}"
+    );
+    assert!(
         html.contains(r#"method="post" action="/account/inventory/imports/imb_1?resolveRowId=row_2" data-patch"#),
         "the picker's GETs read the batch: {html}"
     );
@@ -16026,6 +17746,12 @@ async fn the_resolution_drawer_finds_an_item_sends_the_fix_and_moves_to_the_next
         "Apply alone posts: {html}"
     );
     assert!(html.contains(r#"href="/account/inventory/imports/imb_1">Close</a>"#), "Close goes back to the batch: {html}");
+    assert!(
+        html.contains(&format!(r#"<input type="hidden" name="expectedRowVersion" value="{ROW_VERSION}">"#))
+            && html.contains(r#"<input type="hidden" name="expectedRowFingerprint" value="fp_row_2">"#)
+            && html.contains(r#"name="attempt""#),
+        "the fix carries the row's facts as read and its attempt: {html}"
+    );
     // Resolve opens the drawer here, not on marketplace.
     assert!(html.contains(r#"href="/account/inventory/imports/imb_1?resolveRowId=row_2""#), "{html}");
 
@@ -16044,25 +17770,34 @@ async fn the_resolution_drawer_finds_an_item_sends_the_fix_and_moves_to_the_next
     assert!(html.contains(r#"<option value="loc_main" selected>"#), "the location kept: {html}");
     assert!(!html.contains("/rows/row_2/resolve\" disabled"), "every required option has its first: {html}");
 
-    // Apply: the API's body, then the next row that needs the seller.
-    let body = "catalogItemId=cat_card&option.dim_form=chc_raw&option.dim_condition=chc_lp&storageLocationId=loc_main&offset=0";
+    // Apply: the API's body with the row's facts, as the form's attempt, then the next row that needs the seller.
+    let attempt = new_attempt();
+    let body = format!(
+        "catalogItemId=cat_card&option.dim_form=chc_raw&option.dim_condition=chc_lp&storageLocationId=loc_main&offset=0\
+         &expectedRowVersion={ROW_VERSION}&expectedRowFingerprint=fp_row_2&attempt={attempt}"
+    );
     let (status, headers, _) =
-        pilot.send(post(&format!("{IMPORTS_SCREEN}/imb_1/rows/row_2/resolve"), "seller", body, false)).await;
+        pilot.send(post(&format!("{IMPORTS_SCREEN}/imb_1/rows/row_2/resolve"), "seller", &body, false)).await;
     assert_eq!(status, StatusCode::SEE_OTHER);
     assert_eq!(headers["location"].to_str().unwrap(), "/account/inventory/imports/imb_1?resolveRowId=row_4");
     let sent = import_calls(&pilot).into_iter().find(|c| c.path.ends_with("/resolve")).unwrap();
     assert_eq!(sent.path, format!("{IMPORT_BATCHES}/imb_1/rows/row_2/resolve"));
+    assert_eq!(sent.headers["inventory-mutation-attempt"].to_str().unwrap(), attempt);
     assert_eq!(
         serde_json::from_str::<Value>(&sent.body).unwrap(),
         json!({ "catalogItemId": "cat_card", "storageLocationId": "loc_main", "selectedOptions": [
             { "dimensionId": "dim_form", "optionId": "chc_raw" }, { "dimensionId": "dim_condition", "optionId": "chc_lp" },
-        ] })
+        ], "expectedRowVersion": ROW_VERSION, "expectedRowFingerprint": "fp_row_2" })
     );
 
     // The last row fixed closes the drawer.
-    let body = "catalogItemId=cat_etb&storageLocationId=loc_main&offset=0";
+    let body = format!(
+        "catalogItemId=cat_etb&storageLocationId=loc_main&offset=0\
+         &expectedRowVersion={ROW_VERSION}&expectedRowFingerprint=fp_row_4&attempt={}",
+        new_attempt()
+    );
     let (status, headers, _) =
-        pilot.send(post(&format!("{IMPORTS_SCREEN}/imb_1/rows/row_4/resolve"), "seller", body, false)).await;
+        pilot.send(post(&format!("{IMPORTS_SCREEN}/imb_1/rows/row_4/resolve"), "seller", &body, false)).await;
     assert_eq!(status, StatusCode::SEE_OTHER);
     assert_eq!(headers["location"].to_str().unwrap(), "/account/inventory/imports/imb_1");
 }
@@ -16076,13 +17811,35 @@ async fn a_fix_that_is_incomplete_or_refused_is_the_drawer_again_and_a_reader_ca
     assert!(html.contains("fix-dialog") && html.contains(r#"role="alert""#), "{html}");
     assert!(!import_calls(&pilot).iter().any(|c| c.path.ends_with("/resolve")), "not sent without an item");
 
-    let body = "catalogItemId=cat_etb&storageLocationId=loc_old&offset=0";
-    let (status, _, html) = pilot.send(post(&fix, "seller", body, false)).await;
+    let facts =
+        |version: &str, attempt: &str| format!("&expectedRowVersion={version}&expectedRowFingerprint=fp_row_2&attempt={attempt}");
+    let body = format!("catalogItemId=cat_etb&storageLocationId=loc_old&offset=0{}", facts(ROW_VERSION, &new_attempt()));
+    let (status, _, html) = pilot.send(post(&fix, "seller", &body, false)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
     assert!(text(&html).contains("Storage location is archived."), "{}", text(&html));
     assert!(html.contains(r#"<p class="#) && html.contains("Twilight Masquerade Elite Trainer Box"), "the item kept: {html}");
 
-    let (status, _, _) = pilot.send(post(&fix, "reader", "catalogItemId=cat_etb&storageLocationId=loc_main", false)).await;
+    // A row changed since the drawer read it: Inventory's refusal, and the drawer again with the row as it now is.
+    let stale = "2026-11-01T13:53:37.000001Z";
+    let body = format!("catalogItemId=cat_etb&storageLocationId=loc_main&offset=0{}", facts(stale, &new_attempt()));
+    let (status, _, html) = pilot.send(post(&fix, "seller", &body, false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(text(&html).contains("Import row changed since it was loaded. Reload the batch and try again."), "{}", text(&html));
+    assert!(
+        html.contains(&format!(r#"name="expectedRowVersion" value="{ROW_VERSION}""#)) && !html.contains(stale),
+        "the next Apply is sent against the row as read now: {html}"
+    );
+
+    // A form without its key is refused before the API.
+    let before = import_calls(&pilot).iter().filter(|c| c.path.ends_with("/resolve")).count();
+    let body = format!("catalogItemId=cat_etb&storageLocationId=loc_main&offset=0{}", facts(ROW_VERSION, ""));
+    let (status, _, html) = pilot.send(post(&fix, "seller", &body, false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(html.contains("fix-dialog") && html.contains(r#"role="alert""#), "{html}");
+    assert_eq!(import_calls(&pilot).iter().filter(|c| c.path.ends_with("/resolve")).count(), before, "not sent");
+
+    let body = format!("catalogItemId=cat_etb&storageLocationId=loc_main{}", facts(ROW_VERSION, &new_attempt()));
+    let (status, _, _) = pilot.send(post(&fix, "reader", &body, false)).await;
     assert_eq!(status, StatusCode::FORBIDDEN);
 }
 
@@ -16437,7 +18194,13 @@ fn channels_api(method: &Method, uri: &Uri, body: &str) -> Option<Response> {
         return Some(answer);
     }
     let query = uri.query().unwrap_or_default();
-    let connection = |id: &str, status: &str| json!({ "connectionId": id, "providerKey": "tcgplayer", "environment": "sandbox", "status": status, "createdAt": "2026-10-29T08:00:00.000Z" });
+    let allowed = |status: &str| match status {
+        "pending-setup" => json!(["disconnect"]),
+        "active" => json!(["pause", "disconnect"]),
+        "paused" => json!(["resume", "disconnect"]),
+        _ => json!([]),
+    };
+    let connection = |id: &str, status: &str| json!({ "connectionId": id, "providerKey": "tcgplayer", "environment": "sandbox", "status": status, "createdAt": "2026-10-29T08:00:00.000Z", "allowedActions": allowed(status) });
     let status_of = |id: &str| match id {
         "conn_pending" => Some("pending-setup"),
         "conn_active" => Some("active"),
@@ -16466,8 +18229,14 @@ fn channels_api(method: &Method, uri: &Uri, body: &str) -> Option<Response> {
                     .into_response()
             }
         }
+        ("GET", "/api/channels/connections/providers") => {
+            Json(json!({ "items": [{ "providerKey": "tcgplayer", "environment": "sandbox" }] })).into_response()
+        }
         ("POST", "/api/channels/connections") if body.contains("\"providerKey\":\"tcgplayer\"") => {
             committed(StatusCode::CREATED, "channels", "49", connection("conn_new", "pending-setup"))
+        }
+        ("POST", "/api/channels/connections") => {
+            refusal(StatusCode::BAD_REQUEST, "provider-setup-unavailable", "provider-setup-unavailable")
         }
         ("GET", "/api/channels/publication") => {
             Json(json!({ "items": [{ "connectionId": "conn_active", "providerKey": "tcgplayer",
@@ -16792,7 +18561,9 @@ async fn channels_lists_the_connections_by_status_and_page_and_shows_a_connectio
     {
         assert!(words.contains(expected), "{expected}: {words}");
     }
-    assert!(html.contains(r#"<option value="tcgplayer">tcgplayer</option>"#), "{html}");
+    assert!(html.contains(r#"<option value="tcgplayer">tcgplayer</option>"#), "Channels' providers: {html}");
+    let reads: Vec<String> = pilot.stand.calls.lock().unwrap().iter().map(|c| c.path.clone()).collect();
+    assert!(reads.iter().any(|p| p == "/api/channels/connections/providers"), "{reads:?}");
     assert!(html.contains(r#"href="/account/channels" aria-current="page""#), "{html}");
     assert!(html.contains(r#"href="/account/channels?status=pending-setup""#), "{html}");
     assert!(
@@ -16810,9 +18581,11 @@ async fn channels_lists_the_connections_by_status_and_page_and_shows_a_connectio
     let (status, _, html) = pilot.send(get("/account/channels?status=disconnected", Some("channeler"))).await;
     assert_eq!(status, StatusCode::BAD_GATEWAY);
     assert!(text(&html).contains("Connections could not be loaded"), "{html}");
-    // A reader cannot connect.
+    // A reader cannot connect, and the providers are not read for them.
+    let before = pilot.stand.calls.lock().unwrap().len();
     let (_, _, html) = pilot.send(get(CHANNELS_SCREEN, Some("channel_reader"))).await;
     assert!(html.contains("conn_active") && !html.contains("Connect a channel"), "{html}");
+    assert!(!pilot.stand.calls.lock().unwrap()[before..].iter().any(|c| c.path.ends_with("/providers")));
 
     // A connection: its status and the actions it allows; setup on the locations not archived.
     let (status, _, html) = pilot.send(get("/account/channels/conn_active", Some("channeler"))).await;
@@ -16846,12 +18619,12 @@ async fn channels_connects_pauses_activates_and_says_what_was_refused() {
     let (status, headers, _) = pilot.send(post(CHANNELS_SCREEN, "channeler", "providerKey=tcgplayer", false)).await;
     assert_eq!(status, StatusCode::SEE_OTHER);
     assert!(headers[header::LOCATION].to_str().unwrap().starts_with("/account/channels/conn_new?after_write="));
-    // A provider the seller may not connect is refused before Channels sees it.
-    let calls = pilot.stand.calls.lock().unwrap().len();
+    // A provider the seller may not connect is Channels' to refuse: the list says so.
     let (status, _, html) = pilot.send(post(CHANNELS_SCREEN, "channeler", "providerKey=ebay", false)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
     assert!(text(&html).contains("Connection action failed."), "{html}");
-    assert!(!pilot.stand.calls.lock().unwrap()[calls..].iter().any(|c| c.method == Method::POST));
+    let sent = pilot.stand.calls.lock().unwrap().iter().rev().find(|c| c.method == Method::POST).map(|c| c.body.clone());
+    assert_eq!(sent.as_deref(), Some(r#"{"providerKey":"ebay"}"#), "the provider chosen, as sent");
     let (status, _, _) = pilot.send(post(CHANNELS_SCREEN, "channel_reader", "providerKey=tcgplayer", false)).await;
     assert_eq!(status, StatusCode::FORBIDDEN);
 
@@ -16938,13 +18711,15 @@ async fn a_connections_manual_sync_shows_channels_panel_and_its_writes() {
     assert_eq!(headers[header::CONTENT_DISPOSITION], "attachment; filename=\"tcgplayer-staged-run_1.csv\"");
     assert!(!headers.get_all(header::SET_COOKIE).iter().any(|c| c == "leak=1"), "{headers:?}");
     assert!(csv.starts_with("TCGplayer Id,Add to Quantity"), "{csv}");
-    // A refused download goes back to the connection, which says so.
-    let (status, headers, _) =
+    // A refused download is the connection, which says so, as the panel's other writes are.
+    let (status, headers, html) =
         pilot.send(post(&download, "channeler", "intent=download&runId=run_1&expectedRevision=1", false)).await;
-    assert_eq!(status, StatusCode::SEE_OTHER);
-    assert_eq!(headers[header::LOCATION], "/account/channels/conn_active?manual=failed");
-    let (_, _, html) = pilot.send(get("/account/channels/conn_active?manual=failed", Some("channeler"))).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    assert!(headers[header::CONTENT_TYPE].to_str().unwrap().starts_with("text/html"), "{headers:?}");
     assert!(text(&html).contains("Manual sync action failed Reload the current run state"), "{html}");
+    // Without a run there is nothing to download: the connection, saying the action was not valid.
+    let (status, _, html) = pilot.send(post(&download, "channeler", "intent=download", false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
 
     // Compose without a newer Staged export says to ingest one; Release goes back to the connection.
     let write = format!("{CONNECTION}/manual-sync");
@@ -17028,6 +18803,21 @@ fn visitor_post(uri: &str, cookie: Option<&str>, body: &str) -> Request<Body> {
     req.body(Body::from(body.to_owned())).unwrap()
 }
 
+/// A guest entry's answer, checked: a 307 to `at` with `guestEntry=1` that carries only the new
+/// guest's token. Then the same form sent on as a browser follows it, presenting that guest and the
+/// browser's other cookies (`cookie`).
+fn followed_post(headers: &HeaderMap, at: &str, cookie: Option<&str>, body: &str) -> Request<Body> {
+    let to = headers[header::LOCATION].to_str().unwrap();
+    let sep = if at.contains('?') { '&' } else { '?' };
+    assert_eq!(to, format!("{at}{sep}guestEntry=1"), "the same address, marked");
+    let set = cookies_set(headers);
+    assert_eq!(set.len(), 1, "only the guest's token: {set:?}");
+    let token = set["chase_sets_guest_checkout"].split(';').next().unwrap().to_owned();
+    assert_eq!(token, "chase_sets_guest_checkout=gst_new");
+    let cookie = cookie.map_or(token.clone(), |c| format!("{c}; {token}"));
+    visitor_post(to, Some(&cookie), body)
+}
+
 #[tokio::test]
 async fn checkout_start_shows_the_listing_and_continue_for_an_account_and_sign_in_for_a_visitor() {
     let pilot = Pilot::new().await;
@@ -17090,18 +18880,30 @@ async fn checkout_start_for_the_cart_reads_its_readiness_and_a_refusal_shows_its
 async fn checkout_start_for_a_visitor_starts_a_guest_checkout_and_keeps_its_token() {
     let pilot = Pilot::new().await;
     let cookie = "chase_sets_anonymous_cart=anon_full";
-    let (status, headers, html) =
-        pilot.send(visitor_post(START_LISTING, Some(cookie), "entryAttemptKey=chkentry_01JBXQ5V7Z3N4M8K2R6T9GUEST")).await;
+    let body = "entryAttemptKey=chkentry_01JBXQ5V7Z3N4M8K2R6T9GUEST";
+    // The visitor's Continue starts a guest and writes nothing more: a 307 with the guest's token.
+    let (status, headers, html) = pilot.send(visitor_post(START_LISTING, Some(cookie), body)).await;
+    assert_eq!(status, StatusCode::TEMPORARY_REDIRECT, "{html}");
+    assert!(cookies_set(&headers)["chase_sets_guest_checkout"].contains("Max-Age="), "{headers:?}");
+    assert!(pilot.stand.calls.lock().unwrap().iter().all(|c| !c.path.ends_with("/checkout-sessions")), "no session yet");
+    // The browser sends the form on as the guest: the session starts as that guest, the guest cart forgotten.
+    let (status, headers, html) = pilot.send(followed_post(&headers, START_LISTING, Some(cookie), body)).await;
     assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
     assert!(headers[header::LOCATION].to_str().unwrap().starts_with("/checkout/buy/session/chk_1"), "{headers:?}");
-    let set: Vec<_> = headers.get_all(header::SET_COOKIE).iter().map(|v| v.to_str().unwrap().to_owned()).collect();
-    assert!(set.iter().any(|c| c.starts_with("chase_sets_guest_checkout=gst_new;") && c.contains("Max-Age=")), "{set:?}");
-    assert!(set.iter().any(|c| c.starts_with("chase_sets_anonymous_cart=;")), "the guest cart is forgotten: {set:?}");
+    assert!(cookies_set(&headers)["chase_sets_anonymous_cart"].contains("Max-Age=0"), "the guest cart is forgotten: {headers:?}");
     let calls = pilot.stand.calls.lock().unwrap().clone();
     assert_eq!(calls.iter().filter(|c| c.path == "/api/auth/guest-checkout/start").count(), 1);
     let started = calls.iter().find(|c| c.path.ends_with("/checkout-sessions")).unwrap();
     let as_guest = started.headers[header::COOKIE].to_str().unwrap();
-    assert_eq!(as_guest, "chase_sets_guest_checkout=gst_new", "the session starts as the new guest");
+    assert!(as_guest.contains("chase_sets_guest_checkout=gst_new"), "the session starts as the new guest: {as_guest}");
+    assert_eq!(serde_json::from_str::<Value>(&started.body).unwrap()["entryAttemptKey"], "chkentry_01JBXQ5V7Z3N4M8K2R6T9GUEST");
+
+    // A followed form whose guest is not there (the cookie refused or expired): no second guest.
+    let to = format!("{START_LISTING}&guestEntry=1");
+    let (status, headers, html) = pilot.send(visitor_post(&to, None, body)).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED, "{html}");
+    assert!(headers.get(header::SET_COOKIE).is_none(), "{headers:?}");
+    assert_eq!(pilot.stand.calls.lock().unwrap().iter().filter(|c| c.path == "/api/auth/guest-checkout/start").count(), 1);
 
     // An offer needs an account: nothing starts.
     let offer =
@@ -17189,18 +18991,21 @@ async fn checkout_start_for_a_visitor_whose_entry_is_ambiguous_keeps_the_one_gue
     let pilot = Pilot::new().await;
     let body = "entryAttemptKey=chkentry_unknown_000000000000000";
     let (status, headers, html) = pilot.send(visitor_post(START_LISTING, None, body)).await;
+    assert_eq!(status, StatusCode::TEMPORARY_REDIRECT, "{html}");
+    // The browser already keeps the guest, so the page and a later look are that guest's.
+    let (status, headers, html) = pilot.send(followed_post(&headers, START_LISTING, None, body)).await;
     assert_eq!(status, StatusCode::OK, "{html}");
     assert!(text(&html).contains("We could not confirm whether your checkout started."), "{html}");
-    let set: Vec<_> = headers.get_all(header::SET_COOKIE).iter().map(|v| v.to_str().unwrap().to_owned()).collect();
-    assert!(set.iter().any(|c| c.starts_with("chase_sets_guest_checkout=gst_new;")), "{set:?}");
+    assert!(headers.get(header::SET_COOKIE).is_none(), "nothing more to keep: {headers:?}");
     let calls = pilot.stand.calls.lock().unwrap().clone();
     assert_eq!(calls.iter().filter(|c| c.path == "/api/auth/guest-checkout/start").count(), 1);
     let looked = calls.iter().find(|c| c.path.starts_with(CART_ATTEMPTS)).expect("one lookup");
     assert_eq!(looked.headers[header::COOKIE].to_str().unwrap(), "chase_sets_guest_checkout=gst_new", "as the new guest");
 
-    // A visitor's refusal is the page's, with no second guest started.
+    // A followed form's refusal is the page's, and a followed form never starts a second guest.
     let body = "entryAttemptKey=chkentry_closed_00000000000000000";
-    let (status, headers, html) = pilot.send(visitor_post(START_LISTING, None, body)).await;
+    let (_, headers, _) = pilot.send(visitor_post(START_LISTING, None, body)).await;
+    let (status, headers, html) = pilot.send(followed_post(&headers, START_LISTING, None, body)).await;
     assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE, "{html}");
     assert!(headers.get(header::SET_COOKIE).is_none(), "{headers:?}");
     assert_eq!(pilot.stand.calls.lock().unwrap().iter().filter(|c| c.path == "/api/auth/guest-checkout/start").count(), 2);
@@ -17349,16 +19154,9 @@ async fn a_guest_payment_is_the_pilots_page_with_retry_and_save() {
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
     assert!(text(&html).contains("This payment cannot be retried."), "{html}");
 
-    // Paid: Save this order, marketplace's page at the same address.
+    // Paid: Save this order (see the claim's own test).
     let (_, _, html) = pilot.send(as_guest(Method::GET, "/checkout/payments/pay_paid", "")).await;
     assert!(text(&html).contains("Save this order"), "{html}");
-    assert!(html.contains(r#"href="http://localhost:7753/checkout/payments/pay_paid""#), "{html}");
-    // A claim link's landing goes on to marketplace's page with it.
-    let (status, headers, _) = pilot.send(as_guest(Method::GET, "/checkout/payments/pay_paid?claimContinuation=cc_1", "")).await;
-    assert_eq!(
-        (status, headers[header::LOCATION].to_str().unwrap()),
-        (StatusCode::SEE_OTHER, "http://localhost:7753/checkout/payments/pay_paid?claimContinuation=cc_1")
-    );
 
     // An account goes to its own payment page; no guest checkout, or one Payments refuses, is told
     // the link is no longer good.
@@ -17369,6 +19167,176 @@ async fn a_guest_payment_is_the_pilots_page_with_retry_and_save() {
     assert!(text(&html).contains("This guest checkout payment link is invalid or expired."), "{html}");
     let (status, _, html) = pilot.send(as_guest(Method::GET, "/checkout/payments/pay_gone", "")).await;
     assert_eq!(status, StatusCode::UNAUTHORIZED, "{html}");
+}
+
+/// A guest claim call's sent JSON.
+fn claim_sent(pilot: &Pilot, claim: &str) -> Vec<Value> {
+    let path = format!("/api/auth/guest-checkout/{claim}");
+    auth_calls(pilot, &path).iter().map(|c| serde_json::from_str(&c.body).unwrap()).collect()
+}
+
+#[tokio::test]
+async fn a_paid_guest_order_is_saved_to_an_account_with_a_passkey_or_a_claim_link() {
+    let pilot = Pilot::new().await;
+    // Save this order, for the contact Auth reports bound: a passkey for its email (the passkey
+    // step, which asks the sign-in's challenge route), and a claim link sent there.
+    let (status, _, html) = pilot.send(as_guest(Method::GET, "/checkout/payments/pay_paid", "")).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let page = text(&html);
+    for says in [
+        "Save this order",
+        "Save with passkey",
+        "We will save this order to guest@example.test.",
+        "Send a claim link to guest@example.test.",
+        "Email me a claim link",
+        "Other options",
+    ] {
+        assert!(page.contains(says), "{says}: {page}");
+    }
+    assert!(html.contains(r#"value="claim-passkey""#) && html.contains(r#"value="Guest Buyer""#), "{html}");
+    assert!(html.contains(r#"name="label" value="Passkey""#) && html.contains("/sign-in/passkey"), "{html}");
+    assert!(!html.contains("claim-link-consume"), "no token to type: {html}");
+    assert_eq!(claim_sent(&pilot, "claim-context"), [json!({ "paymentId": "pay_paid" })]);
+    // The internal capability goes on Auth's claim calls and nothing else.
+    let calls = pilot.stand.calls.lock().unwrap().clone();
+    for call in &calls {
+        let internal = call.headers.get("x-chase-sets-internal-auth").map(|v| v.to_str().unwrap().to_owned());
+        let claim = call.path.starts_with("/api/auth/guest-checkout/claim");
+        assert_eq!(internal.as_deref(), claim.then_some(INTERNAL), "{}", call.path);
+    }
+
+    // An unbound contact, or a read Auth refuses, leaves Save this order off a page that still
+    // shows the payment (chase-sets/chase-sets#11253).
+    for id in ["pay_unbound", "pay_limited"] {
+        let (status, _, html) = pilot.send(as_guest(Method::GET, &format!("/checkout/payments/{id}"), "")).await;
+        assert_eq!(status, StatusCode::OK, "{id}: {html}");
+        assert!(!text(&html).contains("Save this order") && text(&html).contains("Payment Status"), "{id}: {html}");
+    }
+
+    // The passkey: the credential, the name and Auth's label go to Auth, which signs the guest in;
+    // the account's payment, read after the claim, with the guest checkout's cookie cleared.
+    let body = "intent=claim-passkey&displayName=Guest+Buyer&email=guest%40example.test&label=Passkey\
+                &challengeId=cmd_1&challenge=Y2hhbGxlbmdl&externalCredentialId=crd_ext&webauthnResponse=created";
+    let (status, headers, html) = pilot.send(as_guest(Method::POST, "/checkout/payments/pay_paid", body)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
+    assert!(headers[header::LOCATION].to_str().unwrap().starts_with("/account/payments/pay_paid?afterWrite="), "{headers:?}");
+    let set = cookies_set(&headers);
+    assert!(set["chase_sets_session"].starts_with("chase_sets_session=tok_claimed"), "{set:?}");
+    assert!(set["chase_sets_guest_checkout"].contains("Max-Age=0"), "{set:?}");
+    let sent = claim_sent(&pilot, "claim-with-passkey").pop().unwrap();
+    assert_eq!(
+        (&sent["displayName"], &sent["paymentId"], &sent["label"], &sent["challengeId"]),
+        (&json!("Guest Buyer"), &json!("pay_paid"), &json!("Passkey"), &json!("cmd_1")),
+        "{sent}"
+    );
+    // Without a credential (no script) nothing is sent; Auth's refusal says what was wrong.
+    let (status, _, html) =
+        pilot.send(as_guest(Method::POST, "/checkout/payments/pay_paid", "intent=claim-passkey&displayName=Guest")).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    assert!(text(&html).contains("Could not save order") && text(&html).contains("Passkey registration failed."), "{html}");
+    assert_eq!(claim_sent(&pilot, "claim-with-passkey").len(), 1);
+    let forged = "intent=claim-passkey&displayName=Guest&challengeId=cmd_1&challenge=x&webauthnResponse=forged";
+    let (status, _, html) = pilot.send(as_guest(Method::POST, "/checkout/payments/pay_paid", forged)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    assert!(text(&html).contains("Passkey registration failed."), "{html}");
+
+    // A claim link: sent to the contact, from the page's origin; the page says so and shows no
+    // token, which only the email carries here.
+    let (status, _, html) = pilot
+        .send(as_guest(Method::POST, "/checkout/payments/pay_paid", "intent=claim-link-request&displayName=Guest+Buyer"))
+        .await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(text(&html).contains("We sent a claim link to guest@example.test."), "{html}");
+    assert!(!html.contains("clm_1"), "{html}");
+    let sent = claim_sent(&pilot, "claim-link/request").pop().unwrap();
+    assert_eq!(sent, json!({ "paymentId": "pay_paid", "origin": "http://localhost:7791" }));
+    let (status, _, html) =
+        pilot.send(as_guest(Method::POST, "/checkout/payments/pay_paid", "intent=claim-link-consume&token=clm_1")).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    assert!(text(&html).contains("Claim token entry is not available here."), "{html}");
+    assert!(claim_sent(&pilot, "claim-with-magic-link").is_empty());
+    // A payment not yet paid cannot be saved.
+    let (status, _, html) = pilot.send(as_guest(Method::POST, "/checkout/payments/pay_1", "intent=claim-link-request")).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    assert!(text(&html).contains("You can save this order after payment is complete."), "{html}");
+    // A link sent when the contact cannot be read again still says it was sent; a request Auth
+    // rate limits says why.
+    let (status, _, html) =
+        pilot.send(as_guest(Method::POST, "/checkout/payments/pay_limited", "intent=claim-link-request")).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let page = text(&html);
+    assert!(page.contains("We sent a claim link to this order") && page.contains("contact email."), "{html}");
+    assert!(!page.contains("Email me a claim link"), "{html}");
+    let (status, _, html) =
+        pilot.send(as_guest(Method::POST, "/checkout/payments/pay_unbound", "intent=claim-link-request")).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    let page = text(&html);
+    assert!(page.contains("Could not save order") && page.contains("Too many claim link requests. Try again later."), "{html}");
+
+    // The link's landing claims with its continuation, in any browser, and signs in the same way;
+    // a spent or unknown one says the link is no longer good.
+    let (status, headers, html) = pilot.send(get("/checkout/payments/pay_paid?claimContinuation=cc_1", None)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
+    assert!(headers[header::LOCATION].to_str().unwrap().starts_with("/account/payments/pay_paid?afterWrite="), "{headers:?}");
+    assert!(cookies_set(&headers)["chase_sets_session"].starts_with("chase_sets_session=tok_claimed"), "{headers:?}");
+    assert_eq!(claim_sent(&pilot, "claim-with-continuation"), [json!({ "continuation": "cc_1", "paymentId": "pay_paid" })]);
+    let (status, _, html) = pilot.send(get("/checkout/payments/pay_paid?claimContinuation=cc_old", None)).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED, "{html}");
+    assert!(text(&html).contains("This claim link is invalid or expired."), "{html}");
+    // One Auth rate limits says to wait, not that the link is spent.
+    let (status, _, html) = pilot.send(get("/checkout/payments/pay_paid?claimContinuation=cc_busy", None)).await;
+    assert_eq!(status, StatusCode::TOO_MANY_REQUESTS, "{html}");
+    let page = text(&html);
+    assert!(page.contains("Too many attempts") && page.contains("Try the link again later."), "{html}");
+    assert!(!page.contains("invalid or expired"), "{html}");
+}
+
+#[tokio::test]
+async fn a_claim_links_token_is_typed_only_where_the_page_shows_it() {
+    let envs = |node: Option<&str>, deployment: Option<&str>| [node.map(str::to_owned), deployment.map(str::to_owned)];
+    assert!(crate::app::claim_token_entry(Some(" Yes "), envs(None, None)));
+    assert!(crate::app::claim_token_entry(Some("1"), envs(Some("development"), Some("staging"))));
+    assert!(!crate::app::claim_token_entry(Some("on"), envs(None, Some("production"))));
+    assert!(!crate::app::claim_token_entry(Some("on"), envs(Some("production"), Some("staging"))), "React's NODE_ENV leg");
+    assert!(
+        !crate::app::claim_token_entry(Some("0"), envs(None, None)) && !crate::app::claim_token_entry(None, envs(None, None))
+    );
+
+    let pilot = Pilot::configured(|config| config.claim_token_entry = true).await;
+    let (status, _, html) = pilot
+        .send(as_guest(Method::POST, "/checkout/payments/pay_paid", "intent=claim-link-request&displayName=Guest+Buyer"))
+        .await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains(r#"value="claim-link-consume""#) && html.contains(r#"value="clm_1""#), "{html}");
+    assert!(text(&html).contains("Verify email and save order"), "{html}");
+    let (status, _, html) = pilot
+        .send(as_guest(Method::POST, "/checkout/payments/pay_paid", "intent=claim-link-consume&displayName=Guest&token=clm_2"))
+        .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    assert!(text(&html).contains("This claim link is invalid or expired."), "{html}");
+    // A link sent when the contact cannot be read again says so and draws no form, so no token:
+    // the emailed link still claims.
+    let (status, _, html) =
+        pilot.send(as_guest(Method::POST, "/checkout/payments/pay_limited", "intent=claim-link-request")).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(text(&html).contains("We sent a claim link to this order"), "{html}");
+    assert!(!html.contains("clm_1") && !html.contains(r#"value="claim-link-consume""#), "{html}");
+    let body = "intent=claim-link-consume&displayName=Guest+Buyer&token=clm_1";
+    let (status, headers, html) = pilot.send(as_guest(Method::POST, "/checkout/payments/pay_paid", body)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
+    assert!(headers[header::LOCATION].to_str().unwrap().starts_with("/account/payments/pay_paid?afterWrite="), "{headers:?}");
+    let sent = claim_sent(&pilot, "claim-with-magic-link").pop().unwrap();
+    assert_eq!(sent, json!({ "token": "clm_1", "paymentId": "pay_paid", "displayName": "Guest Buyer" }));
+}
+
+#[tokio::test]
+async fn without_the_internal_capability_a_paid_guest_page_shows_no_save_this_order() {
+    let pilot = Pilot::configured(|config| config.platform = config.platform.clone().with_internal_auth(None)).await;
+    let (status, _, html) = pilot.send(as_guest(Method::GET, "/checkout/payments/pay_paid", "")).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(!text(&html).contains("Save this order"), "{html}");
+    let calls = auth_calls(&pilot, "/api/auth/guest-checkout/claim-context");
+    assert!(calls.len() == 1 && !calls[0].headers.contains_key("x-chase-sets-internal-auth"), "{calls:?}");
 }
 
 #[tokio::test]
@@ -17503,6 +19471,7 @@ async fn the_site_files_are_marketplaces() {
     assert_eq!(manifest["description"], "Purchase and sell trading cards.");
     assert_eq!(manifest["theme_color"], "#4845c6");
     assert_eq!(manifest["background_color"], "#f7f5f1");
+    assert_eq!((&manifest["orientation"], &manifest["categories"]), (&json!("any"), &json!(["shopping", "productivity"])));
     let icons = manifest["icons"].as_array().unwrap();
     assert_eq!(icons.len(), 4);
     for icon in icons {
@@ -17589,11 +19558,10 @@ async fn a_search_results_picture_and_title_send_its_place_and_the_searchs_keys(
     assert_eq!(status, StatusCode::OK, "{html}");
     let first = &html[html.find(r#"<li id="result-1""#).unwrap()..];
     let first = &first[..first.find("</li>").unwrap()];
-    let opened =
-        format!(r#"data-on="click:rail_analytics.searchResult(1,&quot;{QUERY_HASH}&quot;,&quot;{RESULT_SET_KEY}&quot;)""#);
+    let opened = format!(r#"data-on='click:rail_analytics.searchResult(1,"{QUERY_HASH}","{RESULT_SET_KEY}")'"#);
     // The picture's link and the title's, not Buy, Sell or Watch.
     assert_eq!(first.matches(&opened).count(), 2, "{first}");
-    assert_eq!(first.matches("data-on=").count(), 2, "{first}");
+    assert_eq!(first.matches("data-on='click:").count(), 2, "{first}");
     assert!(html.contains("rail_analytics.searchResult(24,"), "the 24th is 24: {html}");
     // The page loads the script.
     assert!(html.contains("rail_analytics"), "{html}");
@@ -17605,9 +19573,7 @@ async fn the_item_pages_sides_and_similar_items_send_the_rails_events() {
     let (status, _, html) = pilot.send(get(ITEM_PAGE, None)).await;
     assert_eq!(status, StatusCode::OK, "{html}");
     let call = |changed: bool, intent: &str, workflow: &str, selection: &str, surface: &str| {
-        format!(
-            "rail_analytics.railIntent({changed},&quot;{intent}&quot;,&quot;{workflow}&quot;,&quot;{selection}&quot;,&quot;guest&quot;,&quot;{surface}&quot;)"
-        )
+        format!(r#"rail_analytics.railIntent({changed},"{intent}","{workflow}","{selection}","guest","{surface}")"#)
     };
     // The rail's sides: Buy is current (nothing to count), with its best listing chosen for it.
     assert!(html.contains(&call(false, "buy", "best_available_listing", "implicit", "desktop_rail")), "{html}");
@@ -17616,13 +19582,14 @@ async fn the_item_pages_sides_and_similar_items_send_the_rails_events() {
     assert!(html.contains(&call(true, "buy", "best_available_listing", "implicit", "mobile_action_bar")), "{html}");
     let similar = &html[html.find(r#"aria-labelledby="similar-items""#).unwrap()..];
     let similar = &similar[..similar.find("</section>").unwrap()];
-    assert_eq!(similar.matches(r#"data-on="click:rail_analytics.similarItem()""#).count(), 3, "{similar}");
+    assert_eq!(similar.matches("data-on='click:rail_analytics.similarItem()'").count(), 3, "{similar}");
 }
 
 #[tokio::test]
 async fn the_rails_sections_forms_refusals_payout_and_gate_send_marketplaces_events() {
     let pilot = Pilot::new().await;
-    let q = |s: &str| s.replace('"', "&quot;");
+    // A handler's arguments are as written: `data-on` is single-quoted (corten-run/corten#1281).
+    let q = |s: &str| s.to_owned();
     // Buy: the listing's form names both sets of labels, and each section counts its opening.
     let (_, _, buy) = pilot.send(get(SAVE_PAGE, None)).await;
     for hook in [
@@ -17674,11 +19641,24 @@ async fn the_rails_sections_forms_refusals_payout_and_gate_send_marketplaces_eve
 fn plain(html: &str) -> String {
     let mut out = String::with_capacity(html.len());
     let mut rest = html;
-    while let Some(at) = rest.find(" data-on=\"") {
+    while let Some(at) = rest.find(" data-on='") {
         out.push_str(&rest[..at]);
-        let after = &rest[at + " data-on=\"".len()..];
-        rest = after.find('"').map_or("", |end| &after[end + 1..]);
+        let after = &rest[at + " data-on='".len()..];
+        rest = after.find('\'').map_or("", |end| &after[end + 1..]);
     }
     out.push_str(rest);
     out
+}
+
+/// The page before the layout's toaster (`</main>` on), or all of an answer that has no `<main>`
+/// (a patch): where a page's own `role="status"` is looked for.
+fn main_of(html: &str) -> &str {
+    html.split_once("</main>").map_or(html, |(main, _)| main)
+}
+
+/// The declarations the scripts take Rust values by (`types/app.d.ts`): the payment step's
+/// `Defaults`. Fails, rewriting the file, while it is stale.
+#[test]
+fn script_types_match_the_server() {
+    corten::types::Types::new().add::<crate::payment::Defaults>().sync(concat!(env!("CARGO_MANIFEST_DIR"), "/types/app.d.ts"));
 }

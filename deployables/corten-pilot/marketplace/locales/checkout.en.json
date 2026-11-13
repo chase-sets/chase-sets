@@ -1,4 +1,9 @@
 {
+  "payment.summary.not.found": "Payment summary not found.",
+  "payment.quote.required": "Review the latest payable total before payment starts.",
+  "payment.email.verification.required": "Verify your email before you pay. Nothing was reserved or ordered.",
+  "payment.authority.required": "This account cannot pay for purchases. Nothing was reserved or ordered.",
+  "payment.start.pending": "Payment setup is still catching up. Review checkout again before payment starts.",
   "page.add.a.product.before.starting.checkout": "Add a product before starting checkout.",
   "page.address.line1": "Address line 1",
   "page.address.line2": "Address line 2",
@@ -184,6 +189,7 @@
   "page.no.available.supply": "No available supply",
   "page.place.purchase.intent": "Submit offer",
   "page.pay.now": "Pay now",
+  "page.verify.email.to.pay": "Verify your email to pay",
   "page.pay.now.with.saved.payment": "Pay now with {paymentMethodCategory}",
   "page.pending": "Pending",
   "page.placing.purchase.intent": "Submitting offer",

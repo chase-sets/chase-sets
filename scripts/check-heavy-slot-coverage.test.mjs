@@ -75,7 +75,6 @@ test("derives every heavy artifact entry point and requires a reachable guard ac
     "contracts/tcgplayer-market-observations/vitest.config.ts",
     "deployables/platform-api/vitest.config.ts",
     "deployables/tcgplayer-operator-extension/vitest.config.ts",
-    "infrastructure/stripe-appearance/vitest.config.ts",
     "playwright.config.ts",
     "scripts/browser-e2e-probe.mjs",
     // The handoff command performs two connector builds and therefore uses build admission.
@@ -97,7 +96,7 @@ test("derives every heavy artifact entry point and requires a reachable guard ac
     "scripts/run-workspaces.mjs",
     "vitest.scripts.config.mjs",
   ];
-  assert.equal(result.entrypoints.length, 90);
+  assert.equal(result.entrypoints.length, 89);
   assert.deepEqual(
     expectedEntrypoints.filter((entrypoint) => !result.entrypoints.includes(entrypoint)),
     [],
@@ -487,11 +486,11 @@ const inheritedOwnerWaivers = Object.freeze({
   "scripts/browser-e2e-probe.test.mjs": "browser probe is not an inherited-owner dependent",
   "scripts/bundle-node-service.test.mjs": "bundle tests invoke the exported builder, not the guarded CLI",
   "scripts/change-scope.test.mjs": "change-scope fixtures do not spawn a guarded child",
-  "scripts/check-structure/authoritative-stream-read-classification.test.mjs":
-    "static classification does not spawn the guard",
   "scripts/check-structure/brand-foil-sites.test.mjs": "brand-foil checks do not spawn the guard",
   "scripts/check-structure/brand-mark-representations.test.mjs": "icon checks do not spawn the guard",
   "scripts/check-structure/browser-e2e-disclosure-guard.test.mjs": "disclosure fixture does not spawn the guard",
+  "scripts/check-structure/channels-context-foundation.test.mjs":
+    "channels partition checks invoke only workspaceScriptNames, not the guarded CLI",
   "scripts/check-structure/provider-scope-picker-shape-guard.test.mjs":
     "provider shape fixture does not spawn the guard",
   "scripts/check-structure/regenerate-lockfile-bound-artifacts.test.mjs":
@@ -516,7 +515,6 @@ const inheritedOwnerWaivers = Object.freeze({
   "scripts/route-census/publication.test.mjs": "route census does not spawn the guard",
   "scripts/run-e2e-suite.test.mjs": "suite test does not spawn a guarded child",
   "scripts/run-workspaces.test.mjs": "workspace test owns its child admission",
-  "scripts/verify-static-scoped.test.mjs": "scoped gate owns its aggregate admission",
   "scripts/check-heavy-slot-coverage.test.mjs": "inventory owner; inert fixture controllers only",
 });
 
@@ -567,7 +565,7 @@ function classifyInheritedOwnerCandidates(
 test("every script test that reaches a real heavy-slot acquisition is a declared inherited-owner test", () => {
   const candidates = deriveInheritedOwnerCandidates();
   const classification = classifyInheritedOwnerCandidates(candidates);
-  assert.equal(candidates.length, 31);
+  assert.equal(candidates.length, 30);
   assert.equal(inheritedOwnerScriptTests.length, 5);
   assert.deepEqual(classification, {
     unclassified: [],

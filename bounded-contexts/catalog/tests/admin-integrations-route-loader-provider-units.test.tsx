@@ -74,9 +74,15 @@ vi.mock("react-router", async () => {
   };
 });
 
-vi.mock("../support/request-support/api-client", () => ({
-  createCatalogRequestApiClient: mockCreateCatalogRequestApiClient,
-}));
+vi.mock("../support/request-support/api-client", async () => {
+  const { withCatalogSurfaceReads } = await vi.importActual<
+    typeof import("../features/source-observations/tests/integrations-surface-read-test-client")
+  >("../features/source-observations/tests/integrations-surface-read-test-client");
+  return {
+    createCatalogRequestApiClient: (request: Request) =>
+      withCatalogSurfaceReads(mockCreateCatalogRequestApiClient(request), request),
+  };
+});
 
 vi.mock("@chase-sets/platform-runtime/auth", () => ({
   isTransientAuthResolutionError: mockIsTransientAuthResolutionError,
@@ -225,7 +231,6 @@ describe("Catalog integrations route", () => {
       context: {},
     } as Parameters<typeof loader>[0]);
 
-    expect(listSourceObservationProviderProfiles).toHaveBeenCalledOnce();
     expect(routeData.readModel.routeContext).toMatchObject({
       providerKey: "tcgplayer",
       unitKey: null,
@@ -243,6 +248,10 @@ describe("Catalog integrations route", () => {
     ]);
 
     const deferredSourceOptions = await routeData.deferredSourceOptions;
+    await expect(routeData.deferredImportPreview).resolves.toBeNull();
+    // The surface, source options and import preview each read profiles once;
+    // a failed read is never retried.
+    expect(listSourceObservationProviderProfiles).toHaveBeenCalledTimes(3);
     expect(listSourceObservationIntegrationOptions).not.toHaveBeenCalled();
     expect(deferredSourceOptions.pages).toEqual([]);
   });

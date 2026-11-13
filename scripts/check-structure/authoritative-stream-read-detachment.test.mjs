@@ -196,8 +196,8 @@ describe("authoritative-stream-read-diagnostics-transport-control", () => {
     expect(production.totals).toMatchObject({
       roots: production.roots.length,
       loadedRoots: production.roots.length,
-      discoveredCallCandidates: 20,
-      authoritativeSites: 18,
+      discoveredCallCandidates: 21,
+      authoritativeSites: 19,
       helperSites: 1,
       ambiguousOriginSites: 0,
       outOfLocationHelperSites: 0,
@@ -220,10 +220,10 @@ describe("authoritative-stream-read-diagnostics-transport-control", () => {
     expect(detachment.totals.detachmentEscapeSites).toBe(detachment.diagnostics.length);
   });
 
-  it("derives thirty-one green grammar instances across twenty-seven live locations without a registry", () => {
+  it("derives thirty-two green grammar instances across twenty-eight live locations without a registry", () => {
     const green = productionGrammar;
-    expect(green).toHaveLength(31);
-    expect(new Set(green.map((entry) => `${entry.file}:${entry.line}`))).toHaveLength(27);
+    expect(green).toHaveLength(32);
+    expect(new Set(green.map((entry) => `${entry.file}:${entry.line}`))).toHaveLength(28);
     const declarations = resolveGrammarSelectors(green, memberDeclarationSelectors);
     expect(declarations.errors).toEqual([]);
     expect(declarations.resolved).toHaveLength(memberDeclarationSelectors.length);
@@ -323,6 +323,28 @@ describe("authoritative-stream-read-diagnostics-transport-control", () => {
     expect(resolveGrammarSelectors(incomplete, memberDeclarationSelectors).errors).toEqual([
       `${label}: expected one declaration, found 0`,
     ]);
+  });
+
+  it("rejects a census missing the bulk draft removal harness declaration", () => {
+    const green = productionGrammar;
+    const selector = memberDeclarationSelectors.find(
+      (entry) =>
+        entry.file === "bounded-contexts/catalog/features/catalog-items/api/bulk-remove-drafts-test-harness.ts",
+    );
+    expect(selector).toEqual({
+      category: "member-declaration",
+      file: "bounded-contexts/catalog/features/catalog-items/api/bulk-remove-drafts-test-harness.ts",
+      symbol: "createBulkRemoveDraftsHarness.eventStore.readStream",
+    });
+    const present = resolveGrammarSelectors(green, [selector]);
+    expect(present.errors).toEqual([]);
+    const [{ instance }] = present.resolved;
+
+    const missing = green.filter((entry) => entry !== instance);
+    expect(missing).toHaveLength(green.length - 1);
+    const expected = [`${selectorLabel(selector)}: expected one declaration, found 0`];
+    expect(resolveGrammarSelectors(missing, [selector]).errors).toEqual(expected);
+    expect(resolveGrammarSelectors(missing, memberDeclarationSelectors).errors).toEqual(expected);
   });
 });
 
@@ -658,6 +680,10 @@ const memberDeclarationSelectors = [
   [
     "bounded-contexts/marketplace/features/listings/api/inventory-draft-consumer.ts",
     "createInventoryDraftListingConsumer.accept.accepted.receipt.eventStore.readStream",
+  ],
+  [
+    "bounded-contexts/catalog/features/catalog-items/api/bulk-remove-drafts-test-harness.ts",
+    "createBulkRemoveDraftsHarness.eventStore.readStream",
   ],
 ].map(([file, symbol]) => ({ category: "member-declaration", file, symbol }));
 const sharedReaderSelectors = ["member-declaration", "type-position"].map((category) => ({

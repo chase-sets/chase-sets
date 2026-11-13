@@ -8,7 +8,7 @@
 //! | Route | Answers |
 //! |---|---|
 //! | `GET /platform/insights/offer-economics?from&to` | the page, for the window `from` to `to` (the API's last 60 days when absent) |
-use corten::{axum::http::HeaderMap, prelude::*};
+use corten::{http::HeaderMap, prelude::*};
 use serde::{Deserialize, Serialize};
 
 pub mod ops;

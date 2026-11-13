@@ -10,7 +10,7 @@
 //! |---|---|
 //! | `GET /support/reference-lookup?reference` | the search, and the record a reference names |
 use corten::{
-    axum::http::{HeaderMap, StatusCode},
+    http::{HeaderMap, StatusCode},
     prelude::*,
 };
 use serde::{Deserialize, Serialize};
@@ -81,10 +81,11 @@ pub struct LookupScreen {
     pub failed: bool,
 }
 
-/// An admin-web path the API gave, on admin-web; anything that is not a path on this site is
-/// not linked.
-fn record_href(path: &str) -> Option<String> {
-    (path.starts_with('/') && !path.starts_with("//") && !path.starts_with("/\\")).then(|| crate::access::admin_web(path))
+/// An admin-web path the API gave: the pilot's page when it serves the path, admin-web's otherwise;
+/// anything that is not a path on this site is not linked.
+fn record_href(req: &Req, path: &str) -> Option<String> {
+    let local = path.starts_with('/') && !path.starts_with("//") && !path.starts_with("/\\");
+    local.then(|| crate::views::link_to(req, path)).flatten()
 }
 
 async fn lookup(
@@ -102,7 +103,7 @@ async fn lookup(
         let path = format!("/api/platform/support-reference-lookup/{}", segment(&screen.query));
         match caller.read::<Answer>(&path, CONTEXT).await {
             Ok(answer) => {
-                screen.href = answer.result.admin_href.as_deref().and_then(record_href);
+                screen.href = answer.result.admin_href.as_deref().and_then(|path| record_href(&req, path));
                 screen.found = Some(answer.result);
             }
             Err(error) if error.status() == Some(StatusCode::NOT_FOUND) => {}

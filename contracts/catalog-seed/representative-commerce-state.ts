@@ -6,6 +6,7 @@ import type { AccountId, ListingId, OfferId, TenantId, UserId } from "@chase-set
 import type { ProductMeasureSnapshot } from "@chase-sets/product-measures";
 
 const DEFAULT_CANDIDATE_LIMIT = 50;
+const MAX_REPRESENTATIVE_OFFER_SUBMISSIONS_PER_BUYER = 5;
 
 export type RepresentativeQueryResult<Row> = Readonly<{
   rows: Row[];
@@ -124,7 +125,8 @@ export type MarketplaceRepresentativeOfferResult = Readonly<{
   catalogItemId: string;
   buyerAccountId: string;
   offerId: string;
-  status: "created" | "already-present";
+  status: "created" | "already-present" | "skipped";
+  reason: "representative_offer_submission_limit_reached" | "offer_daily_submission_cap_reached" | null;
 }>;
 
 export type MarketplaceRepresentativeOfferAcceptanceResult = Readonly<{
@@ -894,17 +896,39 @@ export async function submitRepresentativeOffers(
   stockItems: readonly MarketplaceRepresentativeInventoryStock[],
 ): Promise<readonly MarketplaceRepresentativeOfferResult[]> {
   const results: MarketplaceRepresentativeOfferResult[] = [];
-
-  for (const [index, stock] of stockItems.entries()) {
+  const offerBudgetUsedByBuyer = new Map<string, number>();
+  const existingOfferIds = new Set<string>();
+  const plannedOffers = stockItems.map((stock, index) => {
     const buyerAccountId = representativeBuyerAccountId(index);
-    const offerId = createRepresentativeOfferId(stock, buyerAccountId);
-    const existing = await getOfferStatus(services.db, offerId);
-    if (existing) {
+    return { stock, index, buyerAccountId, offerId: createRepresentativeOfferId(stock, buyerAccountId) };
+  });
+  for (const { buyerAccountId, offerId } of plannedOffers) {
+    if (await getOfferStatus(services.db, offerId)) {
+      existingOfferIds.add(offerId);
+      offerBudgetUsedByBuyer.set(buyerAccountId, (offerBudgetUsedByBuyer.get(buyerAccountId) ?? 0) + 1);
+    }
+  }
+
+  for (const { stock, index, buyerAccountId, offerId } of plannedOffers) {
+    if (existingOfferIds.has(offerId)) {
       results.push({
         catalogItemId: stock.catalogItemId,
         buyerAccountId,
         offerId,
         status: "already-present",
+        reason: null,
+      });
+      continue;
+    }
+
+    const submissionCount = offerBudgetUsedByBuyer.get(buyerAccountId) ?? 0;
+    if (submissionCount >= MAX_REPRESENTATIVE_OFFER_SUBMISSIONS_PER_BUYER) {
+      results.push({
+        catalogItemId: stock.catalogItemId,
+        buyerAccountId,
+        offerId,
+        status: "skipped",
+        reason: "representative_offer_submission_limit_reached",
       });
       continue;
     }
@@ -920,34 +944,54 @@ export async function submitRepresentativeOffers(
       selection: stock.selectedOptions,
     });
 
-    const submitted = await services.offers.submitOffer(
-      {
-        offerId,
-        attemptId: `representative_submit_${offerId}`,
-        buyerAccountId: buyerAccountId as AccountId,
-        catalogItemId: stock.catalogItemId,
-        productId: product.productId,
-        itemTitle: catalogItem.title,
-        itemSubtitle: catalogItem.subtitle,
-        selectedOptions: product.selection,
-        productSummary: summarizeRepresentativeSelectedOptions(catalogItem.product_schema, product.selection),
-        shippingDestinationSnapshot: representativeBuyerShippingAddress(index),
-        priceAmount: representativeOfferPrice(index),
-        priceCurrencyCode: "USD",
-        quantityRequested: index % 2 === 0 ? 1 : Math.min(3, Math.max(1, stock.totalQuantity)),
-      },
-      {
-        ...representativeSeedContext,
-        audit: { ...representativeSeedContext.audit, forAccountId: buyerAccountId as AccountId },
-      },
-    );
+    offerBudgetUsedByBuyer.set(buyerAccountId, submissionCount + 1);
+    try {
+      const submitted = await services.offers.submitOffer(
+        {
+          offerId,
+          attemptId: `representative_submit_${offerId}`,
+          buyerAccountId: buyerAccountId as AccountId,
+          catalogItemId: stock.catalogItemId,
+          productId: product.productId,
+          itemTitle: catalogItem.title,
+          itemSubtitle: catalogItem.subtitle,
+          selectedOptions: product.selection,
+          productSummary: summarizeRepresentativeSelectedOptions(catalogItem.product_schema, product.selection),
+          shippingDestinationSnapshot: representativeBuyerShippingAddress(index),
+          priceAmount: representativeOfferPrice(index),
+          priceCurrencyCode: "USD",
+          quantityRequested: index % 2 === 0 ? 1 : Math.min(3, Math.max(1, stock.totalQuantity)),
+        },
+        {
+          ...representativeSeedContext,
+          audit: { ...representativeSeedContext.audit, forAccountId: buyerAccountId as AccountId },
+        },
+      );
 
-    results.push({
-      catalogItemId: stock.catalogItemId,
-      buyerAccountId,
-      offerId: submitted.offerId,
-      status: "created",
-    });
+      results.push({
+        catalogItemId: stock.catalogItemId,
+        buyerAccountId,
+        offerId: submitted.offerId,
+        status: "created",
+        reason: null,
+      });
+    } catch (error) {
+      if (
+        !(error instanceof Error) ||
+        error.name !== "MarketplaceOfferAbuseControlError" ||
+        !("code" in error) ||
+        error.code !== "offer_daily_submission_cap_reached"
+      ) {
+        throw error;
+      }
+      results.push({
+        catalogItemId: stock.catalogItemId,
+        buyerAccountId,
+        offerId,
+        status: "skipped",
+        reason: "offer_daily_submission_cap_reached",
+      });
+    }
   }
 
   return results;
@@ -1269,7 +1313,7 @@ async function loadNameMap(
     return new Map();
   }
 
-  const result = await db.query<Record<string, string>>(
+  const result = await db.query<Readonly<{ id: string; name: string }>>(
     `SELECT ${idColumn} AS id, ${nameColumn} AS name FROM ${table} WHERE ${idColumn} = ANY($1::text[])`,
     [ids],
   );
@@ -1325,8 +1369,9 @@ function normalizeSelectedOptionsForSchema(
       continue;
     }
 
-    if (dimension.required && allowedOptionIds.length > 0) {
-      nextSelections[dimension.dimensionId] = allowedOptionIds[0];
+    const [firstAllowedOptionId] = allowedOptionIds;
+    if (dimension.required && firstAllowedOptionId !== undefined) {
+      nextSelections[dimension.dimensionId] = firstAllowedOptionId;
       continue;
     }
 

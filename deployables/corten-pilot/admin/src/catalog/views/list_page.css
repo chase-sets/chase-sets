@@ -64,10 +64,26 @@
 .table tr:last-child td {
   border-bottom: 0;
 }
-/* A number column (`align: "right"`): the category list's display order. */
+/* Stacked on a phone, a row is one block: a line between rows, not under each of its cells. */
+@media not (--md) {
+  .table td {
+    padding-block: var(--space-1);
+    border-bottom: 0;
+  }
+  .table tbody tr:not(:last-child) {
+    border-bottom: 1px solid var(--color-border);
+  }
+}
+/* A number column (`align: "right"`): the category list's display order. Stacked, it starts
+   where the other values do. */
 .table .number {
   text-align: end;
   font-variant-numeric: tabular-nums;
+}
+@media not (--md) {
+  .table .number {
+    text-align: start;
+  }
 }
 .view {
   display: inline-flex;

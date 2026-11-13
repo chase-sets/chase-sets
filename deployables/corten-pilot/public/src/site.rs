@@ -5,7 +5,7 @@
 //! `/health/ready` and `/health/live` are Corten's own.
 use std::time::Duration;
 
-use corten::{Media, NoStore, axum::http::StatusCode, prelude::*};
+use corten::{Media, http::StatusCode, prelude::*};
 use serde_json::json;
 
 use crate::text::HomeMsg;
@@ -49,6 +49,6 @@ pub(crate) async fn favicon() -> Public<Media> {
 
 /// `/.well-known/appspecific/com.chrome.devtools.json`: nothing, so Chrome stops asking and the
 /// log has no 404 for it.
-pub(crate) async fn devtools() -> NoStore<StatusCode> {
-    NoStore(StatusCode::NO_CONTENT)
+pub(crate) async fn devtools() -> StatusCode {
+    StatusCode::NO_CONTENT
 }

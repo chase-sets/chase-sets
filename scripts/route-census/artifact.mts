@@ -20,6 +20,11 @@ import {
   type MountRecord,
   type RouteCapture,
 } from "./model.mts";
+import {
+  assertAdmittedApiRegistrySource,
+  assertRecordedApiRegistrySource,
+  type CaptureSide,
+} from "./registry-source.mts";
 import { isPathInside, loadTargetHonoAuthority, sha256 } from "./target-authority.mts";
 
 const execFile = promisify(execFileCallback);
@@ -282,6 +287,7 @@ async function validateLiveFile(root: string, evidence: FileEvidence, pathName: 
 async function validateProvenance(
   value: unknown,
   pathName: string,
+  side: CaptureSide,
   options: ValidationOptions,
 ): Promise<{ provenance: RouteCapture["provenance"]; authority: Awaited<ReturnType<typeof loadTargetHonoAuthority>> }> {
   const object = record(value, pathName, [
@@ -328,15 +334,11 @@ async function validateProvenance(
   const sourceFiles = array(object.sourceFiles, `${pathName}.sourceFiles`).map((item, index) =>
     validateFileEvidence(item, `${pathName}.sourceFiles[${index}]`),
   );
-  const expectedSources = [
-    "deployables/platform-api/src/generated/api-context-registry.ts",
-    "infrastructure/bounded-context-runtime/api-mounts.ts",
-    "deployables/platform-api/src/app.ts",
-    "pnpm-lock.yaml",
-  ];
+  const [registrySource, ...otherSources] = sourceFiles.map(({ relativePath }) => relativePath);
+  assertAdmittedApiRegistrySource(side, registrySource, `${pathName}.sourceFiles[0]`);
   exact(
-    sourceFiles.map(({ relativePath }) => relativePath),
-    expectedSources,
+    otherSources,
+    ["infrastructure/bounded-context-runtime/api-mounts.ts", "deployables/platform-api/src/app.ts", "pnpm-lock.yaml"],
     `${pathName}.sourceFiles is incomplete or reordered.`,
   );
   const authority = await loadTargetHonoAuthority(root);
@@ -370,6 +372,7 @@ async function validateProvenance(
     if (options.requireCleanTrees && (await git(root, ["status", "--porcelain=v1", "--untracked-files=all"]))) {
       fail("E_WORKTREE_DIRTY", `${pathName}.root is dirty.`);
     }
+    await assertRecordedApiRegistrySource(root, side, registrySource, `${pathName}.sourceFiles[0]`);
     await validateLiveFile(root, effectiveTsconfig, `${pathName}.effectiveTsconfig`);
     for (let index = 0; index < sourceFiles.length; index += 1) {
       await validateLiveFile(root, sourceFiles[index], `${pathName}.sourceFiles[${index}]`);
@@ -378,7 +381,12 @@ async function validateProvenance(
   return { provenance: object as RouteCapture["provenance"], authority };
 }
 
-async function validateCapture(value: unknown, pathName: string, options: ValidationOptions): Promise<RouteCapture> {
+async function validateCapture(
+  value: unknown,
+  pathName: string,
+  side: CaptureSide,
+  options: ValidationOptions,
+): Promise<RouteCapture> {
   const object = record(value, pathName, [
     "provenance",
     "counts",
@@ -390,7 +398,12 @@ async function validateCapture(value: unknown, pathName: string, options: Valida
     "mountedBlockStart",
     "primitiveSha256",
   ]);
-  const { provenance, authority } = await validateProvenance(object.provenance, `${pathName}.provenance`, options);
+  const { provenance, authority } = await validateProvenance(
+    object.provenance,
+    `${pathName}.provenance`,
+    side,
+    options,
+  );
   const mounts = array(object.mountRecords, `${pathName}.mountRecords`).map((item, index) =>
     validateMount(item, `${pathName}.mountRecords[${index}]`),
   );
@@ -740,8 +753,8 @@ export async function validateArtifactObject(
     collisionFixtureVector,
     "Artifact collision vector does not match the executable shared vector.",
   );
-  const base = await validateCapture(object.base, "artifact.base", options);
-  const candidate = await validateCapture(object.candidate, "artifact.candidate", options);
+  const base = await validateCapture(object.base, "artifact.base", "base", options);
+  const candidate = await validateCapture(object.candidate, "artifact.candidate", "candidate", options);
   if (!options.allowSameRootForTests && base.provenance.root === candidate.provenance.root) {
     invalid("Artifact base and candidate must be separately rooted worktrees.");
   }

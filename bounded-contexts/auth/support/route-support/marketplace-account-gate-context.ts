@@ -8,6 +8,7 @@ export type MarketplaceAccountGateContextMessage = Readonly<{
 
 const MARKETPLACE_RETURN_ORIGIN = "https://marketplace.chasesets.local";
 const PURCHASE_DETAIL_PATH = /^\/account\/purchases\/[^/]+$/;
+const BUY_CHECKOUT_SESSION_PATH = /^\/checkout\/buy\/session\/[^/]+$/;
 
 export function marketplaceAccountGateContextMessage(returnTo: string): MarketplaceAccountGateContextMessage | null {
   let url: URL;
@@ -42,6 +43,16 @@ export function marketplaceAccountGateContextMessage(returnTo: string): Marketpl
     return {
       title: t("auth.routes.marketplace.accountGate.purchase.cancel.verify.title"),
       description: t("auth.routes.marketplace.accountGate.purchase.cancel.verify.description"),
+    };
+  }
+
+  if (
+    BUY_CHECKOUT_SESSION_PATH.test(url.pathname) &&
+    url.searchParams.get(EMAIL_VERIFICATION_RETURN_PARAMETER) === ("pay-checkout" satisfies EmailVerificationPurpose)
+  ) {
+    return {
+      title: t("auth.routes.marketplace.accountGate.checkout.pay.verify.title"),
+      description: t("auth.routes.marketplace.accountGate.checkout.pay.verify.description"),
     };
   }
 

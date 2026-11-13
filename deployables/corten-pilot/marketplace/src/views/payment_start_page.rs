@@ -112,16 +112,21 @@ fn StartCard<'a>(t: PaymentStartMsg, screen: &'a StartScreen) -> impl Render {
         None => t.no_wallet_balance_is_available_for().to_owned(),
     };
     let custom_says = match wallet {
-        Some(w) => {
-            t.wallet_available_custom_description(&w.available_balance_amount, &w.currency_code.to_ascii_uppercase()).to_string()
-        }
+        Some(w) => t
+            .wallet_available_custom_description(crate::text::payment_start_msg::WalletAvailableCustomDescription {
+                amount: &w.available_balance_amount,
+                currency: &w.currency_code.to_ascii_uppercase(),
+            })
+            .to_string(),
         None => t.apply_available_wallet_balance_to_this().to_owned(),
     };
     html! {
         <section class={Card} aria-labelledby="start-setup-title">
             <p><span class={Badge} data-tone="accent">{t.payment_setup_2()}</span></p>
             <h2 id="start-setup-title" class={Strong}>{t.ready_to_initialize_payment()}</h2>
-            <p class={Muted}>{t.payment_covers_purchases(&count.to_string(), label)}</p>
+            <p class={Muted}>
+                {t.payment_covers_purchases(crate::text::payment_start_msg::PaymentCoversPurchases { count: &count.to_string(), purchase_label: label })}
+            </p>
             // What Payments withholds from this quote (the wallet's credit until the buyer accepts the
             // current terms): marketplace's page does not say, and the payment is then charged in full
             // (chase-sets/chase-sets#10820).
@@ -322,6 +327,28 @@ fn Purchase<'a>(t: PaymentStartMsg, order: &'a PaymentOrder) -> impl Render {
                 </a>
             </p>
         </li>
+    }
+}
+
+/// Why this account cannot start a payment, with the purchase's page when one order was asked for.
+#[component(css = PaymentStartPage)]
+pub fn PaymentStartRefused<'a>(t: PaymentStartMsg, message: &'a str, purchase: Option<&'a str>) -> impl Render {
+    html! {
+        <div class={Page}>
+            <header class={Header}>
+                <div class={Tight}>
+                    <p class={Eyebrow}>{t.secure_checkout()}</p>
+                    <h1 class={Title}>{t.start_payment()}</h1>
+                </div>
+                <a class={(Button, Secondary)} href={url::Purchases::default()}>{t.back_to_purchases()}</a>
+            </header>
+            <div class={Banner} data-tone="warning" role="status">
+                <p class={Strong}>{message}</p>
+                if let Some(purchase) = purchase {
+                    <p><a href={purchase}>{t.open_purchase()}</a></p>
+                }
+            </div>
+        </div>
     }
 }
 

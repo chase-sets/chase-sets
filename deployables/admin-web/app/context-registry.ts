@@ -1,0 +1,89 @@
+import type { WebContextRegistry } from "@chase-sets/platform-runtime/web";
+
+import authManifest from "@chase-sets/auth/context";
+import catalogManifest from "@chase-sets/catalog/context";
+import channelsManifest from "@chase-sets/channels/context";
+import commercialTermsManifest from "@chase-sets/commercial-terms/context";
+import customerFeedbackManifest from "@chase-sets/customer-feedback/context";
+import discoveryManifest from "@chase-sets/discovery/context";
+import fulfillmentManifest from "@chase-sets/fulfillment/context";
+import identityManifest from "@chase-sets/identity/context";
+import inventoryManifest from "@chase-sets/inventory/context";
+import marketplaceManifest from "@chase-sets/marketplace/context";
+import orderingManifest from "@chase-sets/ordering/context";
+import platformOperationsManifest from "@chase-sets/platform-operations/context";
+import publicPresenceManifest from "@chase-sets/public-presence/context";
+import settlementManifest from "@chase-sets/settlement/context";
+
+export const webContextRegistry = [
+  {
+    contextName: "auth",
+    packageName: "@chase-sets/auth",
+    manifest: authManifest as WebContextRegistry[number]["manifest"],
+  },
+  {
+    contextName: "catalog",
+    packageName: "@chase-sets/catalog",
+    manifest: catalogManifest as WebContextRegistry[number]["manifest"],
+  },
+  {
+    contextName: "channels",
+    packageName: "@chase-sets/channels",
+    manifest: channelsManifest as WebContextRegistry[number]["manifest"],
+  },
+  {
+    contextName: "commercial-terms",
+    packageName: "@chase-sets/commercial-terms",
+    manifest: commercialTermsManifest as WebContextRegistry[number]["manifest"],
+  },
+  {
+    contextName: "customer-feedback",
+    packageName: "@chase-sets/customer-feedback",
+    manifest: customerFeedbackManifest as WebContextRegistry[number]["manifest"],
+  },
+  {
+    contextName: "discovery",
+    packageName: "@chase-sets/discovery",
+    manifest: discoveryManifest as WebContextRegistry[number]["manifest"],
+  },
+  {
+    contextName: "fulfillment",
+    packageName: "@chase-sets/fulfillment",
+    manifest: fulfillmentManifest as WebContextRegistry[number]["manifest"],
+  },
+  {
+    contextName: "identity",
+    packageName: "@chase-sets/identity",
+    manifest: identityManifest as WebContextRegistry[number]["manifest"],
+  },
+  {
+    contextName: "inventory",
+    packageName: "@chase-sets/inventory",
+    manifest: inventoryManifest as WebContextRegistry[number]["manifest"],
+  },
+  {
+    contextName: "marketplace",
+    packageName: "@chase-sets/marketplace",
+    manifest: marketplaceManifest as WebContextRegistry[number]["manifest"],
+  },
+  {
+    contextName: "ordering",
+    packageName: "@chase-sets/ordering",
+    manifest: orderingManifest as WebContextRegistry[number]["manifest"],
+  },
+  {
+    contextName: "platform-operations",
+    packageName: "@chase-sets/platform-operations",
+    manifest: platformOperationsManifest as WebContextRegistry[number]["manifest"],
+  },
+  {
+    contextName: "public-presence",
+    packageName: "@chase-sets/public-presence",
+    manifest: publicPresenceManifest as WebContextRegistry[number]["manifest"],
+  },
+  {
+    contextName: "settlement",
+    packageName: "@chase-sets/settlement",
+    manifest: settlementManifest as WebContextRegistry[number]["manifest"],
+  },
+] as const satisfies WebContextRegistry;

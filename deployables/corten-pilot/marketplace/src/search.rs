@@ -17,23 +17,28 @@
 //! Without it, the form loads the address with a page more (`more=24`), up to the 192 the API reads
 //! at once.
 //!
-//! Not ported: Add to List and the bulk add to the buy cart from a result, the realtime market
-//! patches, the facet option search and the automatic load on scroll.
+//! A result's Add to List posts to the item's `/items/{slug}/save` with `prepare` (`saving`), which
+//! answers the dialog this page has empty, or the item page to choose the options the filters do
+//! not name.
+//!
+//! Add matching products to Buy Cart previews and adds every match of the search (`bulk_cart`).
+//!
+//! Not ported: the realtime market patches, the facet option search and the automatic load on
+//! scroll.
 use std::collections::BTreeMap;
 
 use corten::{
-    axum::http::{HeaderMap, StatusCode, Uri},
+    http::{HeaderMap, StatusCode, Uri},
     prelude::*,
     view::Append,
 };
 
-use crate::chrome::Chrome;
 use crate::{
     api::{Interpretation, Search, SearchCategory, SearchResults, segment},
     app::{Shared, marketplace_origin, url},
     auth::Session,
     items::Raw,
-    text::{Pilot, SearchMsg},
+    text::{ItemMsg, Pilot, SearchMsg},
     views,
 };
 
@@ -193,7 +198,7 @@ impl Terms {
         // A family's filters in the order the page writes them: dimensions, fields, references.
         filters.sort_by_key(|f: &Filter| f.kind);
         Terms {
-            q: first(f.q.as_str()).or_else(|| first("search")).unwrap_or("").to_owned(),
+            q: first(f.q.as_str()).or_else(|| first(OLDER_Q)).unwrap_or("").to_owned(),
             category: first(f.category.as_str()).unwrap_or("").to_owned(),
             tag: first(f.tag.as_str()).unwrap_or("").to_owned(),
             language: first(f.language.as_str()).unwrap_or("").to_owned(),
@@ -229,6 +234,22 @@ impl Terms {
     /// The API's query string for the page after `cursor`, or the first `limit` results with
     /// their total when there is none.
     pub fn api_query_from(&self, category: &str, limit: usize, cursor: Option<&str>) -> String {
+        let page = match cursor {
+            Some(cursor) => [("limit", limit.to_string()), (CURSOR, cursor.to_owned())],
+            None => [("limit", limit.to_string()), ("includeTotal", "true".to_owned())],
+        };
+        encode(&self.api_pairs(category, &page))
+    }
+
+    /// The API's query string for every result at once, as the bulk add's preview reads them
+    /// (`buildSearchQuery`, which the API reads up to its own limit).
+    pub fn bulk_query(&self, category: &str) -> String {
+        encode(&self.api_pairs(category, &[]))
+    }
+
+    /// The search's parameters as the API reads them, with `page`'s (the limit and the cursor)
+    /// after the sort.
+    fn api_pairs(&self, category: &str, page: &[(&str, String)]) -> Vec<(String, String)> {
         let mut pairs: Vec<(String, String)> = Vec::new();
         let mut put = |key: &str, value: &str| {
             if !value.is_empty() {
@@ -244,10 +265,8 @@ impl Terms {
         put("priceMax", &self.price_max);
         put("inStock", if self.in_stock { "true" } else { "" });
         put("sort", &self.sort);
-        put("limit", &limit.to_string());
-        match cursor {
-            Some(cursor) => put(CURSOR, cursor),
-            None => put("includeTotal", "true"),
+        for (key, value) in page {
+            put(key, value);
         }
         for filter in &self.filters {
             put(&filter.key(), &filter.value);
@@ -255,7 +274,7 @@ impl Terms {
         if let Some(keys) = &self.interpreted {
             pairs.push(("interpreted".to_owned(), keys.clone()));
         }
-        encode(&pairs)
+        pairs
     }
 
     /// Whether the page shows results for something (`hasFocusedResults`); otherwise it is the
@@ -346,6 +365,9 @@ fn encode(pairs: &[(String, String)]) -> String {
     pairs.iter().map(|(k, v)| format!("{}={}", segment(k), segment(v))).collect::<Vec<_>>().join("&")
 }
 
+/// The words' older parameter name, read when there is no `q` and never written.
+const OLDER_Q: &str = "search";
+
 /// The address's parameters as marketplace names them (camelCase, as serde reads the fields), in
 /// the order the page writes them: an empty one is left out, and the dynamic filters are their
 /// three families (`dimension.<id>=<option>`, `field.`, `reference.`). Its `FIELDS` name the
@@ -355,9 +377,6 @@ fn encode(pairs: &[(String, String)]) -> String {
 #[serde(rename_all = "camelCase")]
 pub struct TermsQuery<'a> {
     q: Option<&'a str>,
-    /// The words' older name, read when there is no `q` and never written: a `FromQuery` set's
-    /// `Read` takes only names its `Link` has (todd-skelton/corten#577).
-    search: Option<&'a str>,
     category: Option<&'a str>,
     tag: Option<&'a str>,
     language: Option<&'a str>,
@@ -385,6 +404,8 @@ pub struct TermsQuery<'a> {
 #[serde(rename_all = "camelCase")]
 pub struct TermsRead {
     q: Vec<String>,
+    /// The words' older name, read when there is no `q` and never written.
+    #[route(read_only)]
     search: Vec<String>,
     category: Vec<String>,
     tag: Vec<String>,
@@ -412,7 +433,7 @@ impl TermsRead {
         let f = TermsQuery::FIELDS;
         for (key, values) in [
             (f.q.as_str(), self.q),
-            (f.search.as_str(), self.search),
+            (OLDER_Q, self.search),
             (f.category.as_str(), self.category),
             (f.tag.as_str(), self.tag),
             (f.language.as_str(), self.language),
@@ -461,7 +482,6 @@ impl corten::route::FromQuery for Terms {
             dimensions,
             fields,
             references,
-            search: None,
             interpreted: self.interpreted.as_deref(),
             more: (self.more > 0).then_some(self.more),
         }
@@ -522,6 +542,9 @@ pub struct SearchScreen {
     /// On the home page with nothing asked (`isHomeLanding`), when there is something to show.
     pub shelf: Option<HomeShelf>,
     pub home: bool,
+    /// Add matching products to Buy Cart's sheet, open (without JavaScript); `None` draws it empty
+    /// for a script to fill.
+    pub bulk: Option<crate::bulk_cart::Sheet>,
 }
 
 impl SearchScreen {
@@ -543,20 +566,18 @@ impl SearchScreen {
 
 pub(crate) async fn page(
     req: Req,
-    chrome: Chrome,
     session: Option<corten::Caller<Session>>,
     State(config): State<Shared>,
     headers: HeaderMap,
     uri: Uri,
     Form(raw): Form<Raw>,
 ) -> HtmlResult {
-    show(req, session, config, headers, uri, raw, None, chrome).await
+    show(req, session, config, headers, uri, raw, None).await
 }
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn category(
     req: Req,
-    chrome: Chrome,
     session: Option<corten::Caller<Session>>,
     State(config): State<Shared>,
     headers: HeaderMap,
@@ -565,7 +586,7 @@ pub(crate) async fn category(
     Form(raw): Form<Raw>,
 ) -> HtmlResult {
     let slug = route.slug;
-    show(req, session, config, headers, uri, raw, Some(slug), chrome).await
+    show(req, session, config, headers, uri, raw, Some(slug)).await
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -577,7 +598,6 @@ async fn show(
     uri: Uri,
     raw: Raw,
     slug: Option<String>,
-    chrome: Chrome,
 ) -> HtmlResult {
     // `page` is gone for good: the same address without it, as sent.
     if raw.contains_key("page") {
@@ -686,8 +706,36 @@ async fn show(
         HomeShelf { featured, arrivals }
     });
     let shelf = shelf.filter(|s| !s.featured.is_empty() || !s.arrivals.is_empty());
-    let screen = SearchScreen { terms, category, categories, results, shelf, home };
-    render(&req, viewer, &screen, failed, chrome.cart().await)
+    let screen = SearchScreen { terms, category, categories, results, shelf, home, bulk: None };
+    let status = if failed { StatusCode::BAD_GATEWAY } else { StatusCode::OK };
+    render(&req, viewer, &screen, failed, status)
+}
+
+/// The results for `terms` in `category` with Add matching products to Buy Cart's `sheet` open,
+/// answered `status` (a 502 when the results' read fails): its answer for a browser without
+/// JavaScript. Nothing is moved or read again from the words: the address it came from was already
+/// the search's own.
+pub(crate) async fn with_sheet(
+    req: &Req,
+    session: Option<&Session>,
+    caller: &impl Search,
+    terms: Terms,
+    category: String,
+    sheet: crate::bulk_cart::Sheet,
+    status: StatusCode,
+) -> HtmlResult {
+    let limit = PAGE_SIZE + terms.more.min(MOST_SHOWN - PAGE_SIZE);
+    let query = terms.api_query(&category, limit);
+    let (results, categories) = tokio::join!(caller.search(&query), caller.categories());
+    let results = results.inspect_err(|error| tracing::warn!("the search's read failed: {error}")).ok();
+    let categories = categories.unwrap_or_else(|error| {
+        tracing::warn!("the categories' read failed: {error}");
+        Vec::new()
+    });
+    let failed = results.is_none();
+    let status = if failed { StatusCode::BAD_GATEWAY } else { status };
+    let screen = SearchScreen { terms, category, categories, results, shelf: None, home: false, bulk: Some(sheet) };
+    render(req, session.and_then(Session::viewer), &screen, failed, status)
 }
 
 /// The page after `cursor`: its rows added after the ones the page has (`terms.more` of them),
@@ -695,7 +743,8 @@ async fn show(
 /// its first page replaces the rows instead. A failed read leaves the rows and offers Load more
 /// again, saying it failed.
 async fn more(req: &Req, caller: &impl Search, place: Place<'_>, terms: &Terms, cursor: &str) -> HtmlResult {
-    let t: SearchMsg = req.t();
+    let (t, i): (SearchMsg, ItemMsg) = (req.t(), req.t());
+    let from = place.href(terms);
     let category = match place {
         Place::Category(slug) => slug,
         _ => "",
@@ -703,7 +752,7 @@ async fn more(req: &Req, caller: &impl Search, place: Place<'_>, terms: &Terms, 
     let shown = terms.more;
     match caller.search(&terms.api_query_from(category, PAGE_SIZE, Some(cursor))).await {
         Ok(page) if page.cursor_restarted => req.patch(html! {
-            <views::ResultRows t={t} items={&page.items} terms={terms} first={0} keys={page.keys()} />
+            <views::ResultRows t={t} i={i} items={&page.items} terms={terms} first={0} keys={page.keys()} from={&from} />
             <views::LoadMore
                 t={t}
                 place={place}
@@ -717,7 +766,7 @@ async fn more(req: &Req, caller: &impl Search, place: Place<'_>, terms: &Terms, 
             let keys = page.keys();
             let (items, next) = (&page.items, page.next_cursor.as_deref());
             req.patch(html! {
-                {Append(views::ResultsId, html! { for (n, item) in items.iter().enumerate() { <views::ResultCard t={t} item={item} terms={terms} index={shown + n} keys={keys} /> } })}
+                {Append(views::ResultsId, html! { for (n, item) in items.iter().enumerate() { <views::ResultCard t={t} i={i} item={item} terms={terms} index={shown + n} keys={keys} from={&from} /> } })}
                 <views::LoadMore
                     t={t}
                     place={place}
@@ -737,7 +786,13 @@ async fn more(req: &Req, caller: &impl Search, place: Place<'_>, terms: &Terms, 
     }
 }
 
-fn render(req: &Req, viewer: Option<&crate::auth::Viewer>, screen: &SearchScreen, failed: bool, cart: Option<u64>) -> HtmlResult {
+fn render(
+    req: &Req,
+    viewer: Option<&crate::auth::Viewer>,
+    screen: &SearchScreen,
+    failed: bool,
+    status: StatusCode,
+) -> HtmlResult {
     let t: SearchMsg = req.t();
     let terms = &screen.terms;
     let title = if terms.q.is_empty() {
@@ -757,12 +812,11 @@ fn render(req: &Req, viewer: Option<&crate::auth::Viewer>, screen: &SearchScreen
         <meta property="og:type" content="website">
     };
     let p: Pilot = req.t();
-    let status = if failed { StatusCode::BAD_GATEWAY } else { StatusCode::OK };
     req.page_with_status(
         status,
         html! {
-            <views::Layout req={req} viewer={viewer} cart={cart} title={&title} head={head}>
-                <views::SearchPage t={t} p={p} screen={screen} failed={failed} />
+            <views::Layout req={req} viewer={viewer} title={&title} head={head}>
+                <views::SearchPage t={t} i={req.t()} p={p} screen={screen} failed={failed} />
             </views::Layout>
         },
     )

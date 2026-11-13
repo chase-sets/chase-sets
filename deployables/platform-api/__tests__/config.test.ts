@@ -17,7 +17,7 @@ import {
   RepresentativeCatalogProfileEnvironmentError,
 } from "../src/config";
 import { getApiHostContextNames } from "@chase-sets/platform-runtime/api";
-import { apiContextRegistry } from "../src/generated/api-context-registry";
+import { apiContextRegistry } from "../src/context-registry";
 
 const loadStripeProviderConfigCallCount = vi.hoisted(() => ({ value: 0 }));
 
@@ -242,6 +242,7 @@ function resetConfigEnv() {
   delete process.env.CHASE_SETS_RATE_LIMIT_PAYMENTS_PAYMENT_CREATE_ACCOUNT_WINDOW_MS;
   delete process.env.CHASE_SETS_RATE_LIMIT_PAYMENTS_PAYMENT_CREATE_ACCOUNT_DISABLED;
   delete process.env.PROJECTION_INLINE_APPLY_ENABLED;
+  delete process.env.CONNECTOR_STAGING_PERSONA_MAGIC_LINK_VERIFIER_SHA256;
   delete process.env.CHASE_SETS_CHECKOUT_CLOSED;
   delete process.env.CHASE_SETS_OFFER_LIFECYCLE_OPEN;
 }
@@ -320,6 +321,42 @@ describe("platform api config", () => {
       else process.env.CHANNELS_CREDENTIAL_KEYRING_JSON = previous;
     }
   });
+  it("mounts the staging persona verifier only on staging and rejects malformed values", () => {
+    process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
+    process.env.PLATFORM_CONTROL_DATABASE_URL = "postgresql://localhost/control";
+    process.env.PLATFORM_INTERNAL_AUTH_SECRET = "synthetic-platform-internal-auth-secret";
+    process.env.DEPLOYMENT_ENVIRONMENT = "staging";
+    process.env.STRIPE_CONNECT_WEBHOOK_SECRET = "whsec_staging_connect_test";
+    process.env.CONNECTOR_STAGING_PERSONA_MAGIC_LINK_VERIFIER_SHA256 = "a".repeat(64);
+    process.env.CHANNELS_CREDENTIAL_KEYRING_JSON = JSON.stringify({
+      activeKeyId: "channel-synthetic",
+      keys: [{ keyId: "channel-synthetic", keyBase64: Buffer.alloc(32, 9).toString("base64") }],
+    });
+    expect(loadConfig()).toMatchObject({
+      stagingPersonaMagicLinkVerifierSha256: "a".repeat(64),
+      channelCredentialKeyring: { activeKeyId: "channel-synthetic" },
+    });
+
+    process.env.CONNECTOR_STAGING_PERSONA_MAGIC_LINK_VERIFIER_SHA256 = "not-a-digest";
+    expect(() => loadConfig()).toThrow("must be a lowercase SHA-256 digest");
+
+    process.env.CONNECTOR_STAGING_PERSONA_MAGIC_LINK_VERIFIER_SHA256 = "";
+    expect(loadConfig().stagingPersonaMagicLinkVerifierSha256).toBeUndefined();
+
+    delete process.env.CONNECTOR_STAGING_PERSONA_MAGIC_LINK_VERIFIER_SHA256;
+    delete process.env.STRIPE_CONNECT_WEBHOOK_SECRET;
+    delete process.env.CHANNELS_CREDENTIAL_KEYRING_JSON;
+    process.env.NODE_ENV = "production";
+    process.env.CATALOG_ASSET_STORAGE_KIND = "s3";
+    process.env.CATALOG_ASSET_S3_BUCKET = "catalog-assets";
+    process.env.CATALOG_ASSET_S3_REGION = "nyc3";
+    process.env.CATALOG_ASSET_PUBLIC_BASE_URL = "https://assets.chasesets.com";
+    process.env.DEPLOYMENT_ENVIRONMENT = "production";
+    process.env.CHASE_SETS_RUNTIME_PROFILE = "landing";
+    expect(loadConfig().stagingPersonaMagicLinkVerifierSha256).toBeUndefined();
+    process.env.CONNECTOR_STAGING_PERSONA_MAGIC_LINK_VERIFIER_SHA256 = "a".repeat(64);
+    expect(() => loadConfig()).toThrow("may only be configured for staging");
+  });
   it("defaults checkout admission open and parses the explicit closure switch", () => {
     process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
     expect(loadConfig().checkoutClosed).toBe(false);
@@ -359,7 +396,7 @@ describe("platform api config", () => {
       pollIntervalMs: 75,
       exactDependencyMode: "enabled",
       routeTuning: defaultCriticalReadConsistencyRouteTuning,
-      wakeBeforeWaitEnabled: false,
+      wakeBeforeWaitEnabled: true,
       readinessNotificationsEnabled: false,
     });
     expect(config.projectionInlineApplyEnabled).toBe(false);
@@ -1230,7 +1267,7 @@ describe("platform api config", () => {
           exactDependencyMode: "enabled",
         },
       ],
-      wakeBeforeWaitEnabled: false,
+      wakeBeforeWaitEnabled: true,
       readinessNotificationsEnabled: false,
     });
   });
@@ -1240,6 +1277,13 @@ describe("platform api config", () => {
     process.env.READ_CONSISTENCY_WAKE_BEFORE_WAIT_ENABLED = "true";
 
     expect(loadConfig().readConsistency?.wakeBeforeWaitEnabled).toBe(true);
+  });
+
+  it("retains the read consistency wake-before-wait opt-out", () => {
+    process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
+    process.env.READ_CONSISTENCY_WAKE_BEFORE_WAIT_ENABLED = "false";
+
+    expect(loadConfig().readConsistency?.wakeBeforeWaitEnabled).toBe(false);
   });
 
   it("enables projection inline apply from its environment kill switch", () => {

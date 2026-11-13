@@ -2,7 +2,7 @@ import { resolveWebHostNavItems } from "@chase-sets/platform-runtime/web";
 import type { WebHostSection } from "@chase-sets/platform-runtime/web";
 import { resolveWebHostRouteConfigRecords } from "@chase-sets/platform-runtime/web-route-config";
 import type { NavigationItem } from "@chase-sets/design-system";
-import { webContextRegistry } from "./generated/web-context-registry";
+import { webContextRegistry } from "./context-registry";
 
 const adminSectionLabels: Record<WebHostSection, string> = {
   access: "Access",

@@ -288,11 +288,16 @@ export function submitted(event, root) {
   });
 }
 
-/** The hero's form adds the first priority the visitor chose in the full form. @param {FormDataEvent} event @param {HTMLFormElement} form */
+/**
+ * The hero's form adds the first priority the visitor chose in the full form.
+ * @param {FormDataEvent} event
+ * @param {HTMLFormElement} form
+ */
 export function fill(event, form) {
   const root = form.closest("[data-variant]");
-  if (!(root instanceof HTMLElement) || event.formData.has("interests")) return;
-  event.formData.append("interests", state(root).interest);
+  const data = event.formData;
+  if (!(root instanceof HTMLElement) || data.has("interests")) return;
+  data.append("interests", state(root).interest);
 }
 
 const opened = new Set();

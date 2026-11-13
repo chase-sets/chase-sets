@@ -1,8 +1,8 @@
 //! A read kept for a while across requests, in this process: the home page's policy values, promo
 //! bar and counter, which change rarely and would otherwise be read again for every visitor that
 //! carries a cookie (a cache in front keeps only the ones without). public-web keeps its policy
-//! read five minutes the same way (`loadLandingFeePresentation`). Corten has no such cache
-//! (todd-skelton/corten#121 asks for one); remove this when it does.
+//! read five minutes the same way (`loadLandingFeePresentation`). Corten leaves such a cache to the
+//! app (todd-skelton/corten#121, closed as not planned), so this is the pilot's own.
 use std::{
     sync::Mutex,
     time::{Duration, Instant},

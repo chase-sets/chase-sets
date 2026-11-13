@@ -25,10 +25,8 @@ use std::{
 
 use corten::{
     LiveResponse,
-    axum::{
-        extract::State,
-        http::{HeaderMap, StatusCode, Uri},
-    },
+    extract::State,
+    http::{HeaderMap, StatusCode, Uri},
     prelude::*,
     route::Params,
 };
@@ -36,7 +34,6 @@ use futures_util::StreamExt;
 use platform::{realtime::Tick, receipt::Receipt};
 use serde::{Deserialize, Serialize};
 
-use crate::chrome::Chrome;
 use crate::{
     api::{
         ApiError, Caller, Dimension, DimensionOption, Discovery, Item, Listing, MarketHistory as _, MarketStats,
@@ -864,7 +861,6 @@ pub fn canonical(slug: &str) -> String {
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn page(
     req: Req,
-    chrome: Chrome,
     session: Option<corten::Caller<Session>>,
     State(config): State<Shared>,
     headers: HeaderMap,
@@ -935,7 +931,7 @@ pub(crate) async fn page(
     let listing_pending = address.listing.clone().filter(|_| behind && receipt.is_some());
     let behind = behind || setup == ListingSetup::Recovering;
     let reads = PageReads { terms, behind, setup, listing_pending, similar, history, save };
-    render(&req, session, item, &address, notice.as_ref(), StatusCode::OK, reads, chrome.cart().await)
+    render(&req, session, item, &address, notice.as_ref(), StatusCode::OK, reads)
 }
 
 /// The Sales tab's market history (`market-history-loader.ts`), when it is the tab shown: the
@@ -1207,7 +1203,6 @@ pub fn render(
     notice: Option<&BuyNotice>,
     status: StatusCode,
     reads: PageReads,
-    cart: Option<u64>,
 ) -> HtmlResult {
     let mut screen = Viewing::of(session).screen(item, address);
     screen.offer_terms = reads.terms;
@@ -1256,7 +1251,7 @@ pub fn render(
         status,
         &screen,
         html! {
-            <views::Layout req={req} viewer={session.and_then(Session::viewer)} cart={cart} title={&title} head={head}>
+            <views::Layout req={req} viewer={session.and_then(Session::viewer)} title={&title} head={head}>
                 {view}
             </views::Layout>
         },

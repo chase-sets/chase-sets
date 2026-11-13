@@ -2,6 +2,7 @@
 //! area's shared parts: the list's filters, rows, bulk bar and create dialog, and the page's
 //! values, status change and edit dialog.
 use corten::prelude::*;
+use platform::ui::table::TableLayout;
 
 use super::{
     ActionBar, Bar, Bulk, BulkRows, CatalogDialog, CategoryForm, CategoryRow, DetailPage, Draft, Empty, Filters, KeyValues,
@@ -88,6 +89,7 @@ pub fn category_list<'a>(
         </Filters>
         <corten-live src={&live}>{category_rows(t, p, query, screen, bulk.manage)}</corten-live>
         <CatalogDialog
+            p={p}
             id={ids::CREATE_DIALOG}
             title={t.category_list_create_category()}
             description={None}
@@ -135,7 +137,7 @@ pub fn category_rows<'a>(
             if screen.items.is_empty() {
                 <Empty title={&empty_title} description={&empty_description} />
             } else {
-                <Table label={title} head={&head} all={select}>
+                <Table label={title} head={&head} all={select} layout={TableLayout::Stack}>
                     for row in &screen.items {
                         <CategoryRow t={t} row={row} select={select} />
                     }
@@ -205,6 +207,7 @@ pub fn category_page<'a>(
         </DetailPage>
         if editable {
             <CatalogDialog
+                p={p}
                 id={ids::EDIT_DIALOG}
                 title={t.category_edit_category()}
                 description={None}

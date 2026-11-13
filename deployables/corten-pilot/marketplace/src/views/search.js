@@ -4,6 +4,8 @@
 // data-keep-place, so the navigation keeps the page's scroll position, the rail's own scroll, the
 // groups the user unfolded and the focus on the field.
 
+/** @import { ElementId } from "corten" */
+
 /**
  * A choice changed: send its form. The words box waits for Enter or its button, and a choice in
  * the filters dialog (a phone) waits for Show results, as the dialog would close.
@@ -27,9 +29,27 @@ export function apply(event) {
  * @param {FormDataEvent} event
  */
 export function tidy(event) {
-  for (const [key, value] of Array.from(event.formData.entries())) {
-    if (value === "" || (key === "sort" && value === "relevance")) event.formData.delete(key);
+  const data = event.formData;
+  for (const [key, value] of Array.from(data.entries())) {
+    if (value === "" || (key === "sort" && value === "relevance")) data.delete(key);
   }
+}
+
+/**
+ * A sheet's trigger is being sent (Add to List, Add matching products to Buy Cart): a sheet the
+ * user closed becomes an empty hidden element of its id, so the answer, which draws it open,
+ * opens it. Otherwise the patch keeps the dialog closed as the user left it
+ * (a Corten gap, in the README's open workarounds); remove this once a patch the user asked for
+ * opens what it draws open.
+ * @param {ElementId} id
+ */
+export function fresh(id) {
+  const sheet = document.getElementById(id);
+  if (!(sheet instanceof HTMLDialogElement) || sheet.open) return;
+  const empty = document.createElement("div");
+  empty.id = id;
+  empty.hidden = true;
+  sheet.replaceWith(empty);
 }
 
 /**

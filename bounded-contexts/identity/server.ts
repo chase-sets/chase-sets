@@ -18,7 +18,11 @@ import { attachResponseMetadata } from "@chase-sets/http/responses";
 import { createIdentityApiClient, IdentityApiError } from "./support/request-support/api-client";
 import { hasPermission } from "./support/request-support/permissions";
 export { createIdentityWalletFundingEligibilityResolver } from "./features/accounts/api/wallet-funding-eligibility";
-export { createIdentityOperatorAuthority } from "./features/memberships/api/operator-authority";
+export {
+  createIdentityOperatorAuthority,
+  type IdentityOperatorAuthority,
+  type OperatorGrantCreator,
+} from "./features/memberships/api/operator-authority";
 export { createIdentityPaymentsTermsAcceptanceResolver } from "./features/consents/api/terms-acceptance-resolver";
 export type { PaymentsTermsAcceptanceStatus } from "./features/consents/read-model/terms-acceptance";
 
@@ -30,6 +34,7 @@ export {
   displayRole,
 } from "./support/shell-support/current-actor-display";
 export { resolveIdentityShellViewer } from "./support/shell-support/viewer";
+export { resolveCurrentActorDisplay, resolveMarketplaceRootTheme } from "./support/shell-support/marketplace-root";
 export type { IdentityShellViewer, IdentityShellViewerPreferences } from "./support/shell-support/viewer";
 export {
   USER_PREFERENCES_COLOR_MODE_COOKIE_NAME,
@@ -106,6 +111,7 @@ export type {
   IdentityAuthMutationClient,
   IdentityCommandSnapshot,
 } from "./support/request-support/auth-mutation-client";
+export { type SocialLoginSubjectResolution } from "./features/users/api/social-login-ownership";
 import type { IdentityAuthMutationClient } from "./support/request-support/auth-mutation-client";
 
 async function parseJsonResponse<T>(response: Response): Promise<T> {
@@ -155,6 +161,7 @@ export function createIdentityAuthRequestClient(request: Request): IdentityAuthM
         providerSubject,
         email,
       }),
+    resolveSocialLoginSubject: (params) => postJson("social-login-subjects/resolve", params),
     claimGuestAccount: ({ accountId, userId, roleKey }) =>
       postJson(`guest-accounts/${accountId}/claim`, {
         userId,

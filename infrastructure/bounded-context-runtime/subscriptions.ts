@@ -755,19 +755,24 @@ export function createSubscriptionRunner(
       const storedCheckpoint = recoveryState.recoveryRequired ? null : recoveryState.checkpoint;
       const checkpoint = storedCheckpoint ?? ZERO_GLOBAL_POSITION;
       const errorSummary = await loadProjectionErrorSummary(targetPool, checkpointKey);
-      status.initialized = storedCheckpoint !== null;
-      status.recoveryRequired = recoveryState.recoveryRequired;
-      status.lastGlobalPosition = checkpoint;
-      status.sourceHeadGlobalPosition = await readSourceHeadGlobalPosition(sourcePool);
-      status.outstandingEventCount = calculateOutstandingEventCount(checkpoint, status.sourceHeadGlobalPosition);
-      applyLagMetrics(status);
-      status.blockedStreamCount = errorSummary.blockedStreamCount;
-      status.poisonEventCount = errorSummary.poisonEventCount;
-      if (status.state !== "running" && status.state !== "error") {
-        status.state = deriveSubscriptionReplayState(checkpoint, status.sourceHeadGlobalPosition, errorSummary);
+      const sourceHeadGlobalPosition = await readSourceHeadGlobalPosition(sourcePool);
+      const refreshedStatus = {
+        ...status,
+        initialized: storedCheckpoint !== null,
+        recoveryRequired: recoveryState.recoveryRequired,
+        lastGlobalPosition: checkpoint,
+        sourceHeadGlobalPosition,
+        outstandingEventCount: calculateOutstandingEventCount(checkpoint, sourceHeadGlobalPosition),
+        blockedStreamCount: errorSummary.blockedStreamCount,
+        poisonEventCount: errorSummary.poisonEventCount,
+        updatedAt: new Date().toISOString(),
+      };
+      applyLagMetrics(refreshedStatus);
+      if (refreshedStatus.state !== "running" && refreshedStatus.state !== "error") {
+        refreshedStatus.state = deriveSubscriptionReplayState(checkpoint, sourceHeadGlobalPosition, errorSummary);
       }
-      status.updatedAt = new Date().toISOString();
-      return { ...status };
+      Object.assign(status, refreshedStatus);
+      return refreshedStatus;
     },
     ...(subscription.inlineApply === true
       ? {
@@ -1757,8 +1762,9 @@ export async function retryLocalProjectionBlockedStream(
 export async function drainContextProcesses(
   processSet: ContextProcessSet,
   context?: ProjectionRunContext,
-): Promise<void> {
+): Promise<number> {
   let processed = 0;
+  let totalProcessed = 0;
 
   do {
     processed = 0;
@@ -1767,8 +1773,10 @@ export async function drainContextProcesses(
       context?.throwIfLeaseLost?.();
       const result = await runner.runOnce(context);
       processed += result.processed;
+      totalProcessed += result.processed;
     }
   } while (processed > 0);
+  return totalProcessed;
 }
 
 export async function syncContextSubscriptions(

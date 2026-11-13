@@ -111,6 +111,7 @@ export type ProviderUsageSnapshot = Readonly<{
   totalCredits: number | null;
   remainingCredits: number | null;
   usedCredits: number | null;
+  billingPeriod?: Readonly<{ startsAt: string; endsAt: string; overageCreditsConsumed: number }> | null;
   /** Last successful usage read; null when usage was never observed. */
   observedAt: string | null;
   /** Latest usage read attempt; null when no read was attempted. */

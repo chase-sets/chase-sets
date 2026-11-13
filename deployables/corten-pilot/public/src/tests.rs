@@ -2,13 +2,14 @@
 //! that nothing about the visitor reaches the API.
 use std::sync::{Arc, Mutex};
 
-use corten::axum::{
+// The stand-in API is a server of its own, a plain axum router (a dev-dependency) with axum's
+// `State`, `Json` and `Response`; the app under test is a `corten::Router`, and the rest names Corten.
+use axum::{
     Json, Router,
-    body::Body,
     extract::State,
-    http::{HeaderMap, Request, StatusCode, Uri, header},
     response::{IntoResponse, Response},
 };
+use corten::http::{Body, Bytes, HeaderMap, Request, StatusCode, Uri, header};
 use http_body_util::BodyExt;
 use serde_json::json;
 use tower::ServiceExt;
@@ -24,7 +25,7 @@ type Calls = Arc<Mutex<Vec<(String, HeaderMap)>>>;
 /// Pricing's public market pages: `twilight` has a last sale and asks, and a revised display
 /// policy's `s-maxage` (an hour), `charizard` a series in two currencies and no cache header,
 /// `down` fails, anything else is not found.
-async fn pricing(State(calls): State<Calls>, uri: Uri, headers: HeaderMap, body: corten::axum::body::Bytes) -> Response {
+async fn pricing(State(calls): State<Calls>, uri: Uri, headers: HeaderMap, body: Bytes) -> Response {
     calls.lock().unwrap().push((uri.path().to_owned(), headers.clone()));
     if uri.path().starts_with("/api/public-presence/") {
         return presence(uri.path(), &headers, &body);
@@ -163,7 +164,7 @@ fn policy_values() -> serde_json::Value {
 }
 
 struct Site {
-    router: Router,
+    router: corten::Router,
     calls: Calls,
 }
 
@@ -178,7 +179,7 @@ impl Site {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let api = format!("http://{}", listener.local_addr().unwrap());
         let stand_in = Router::new().fallback(pricing).with_state(calls.clone());
-        tokio::spawn(async move { corten::axum::serve(listener, stand_in).await.unwrap() });
+        tokio::spawn(async move { axum::serve(listener, stand_in).await.unwrap() });
         let config = Config {
             platform: Platform::new(&api),
             origin: origin.into(),
@@ -205,7 +206,7 @@ impl Site {
         let mut req = req.body(Body::from(form.to_owned())).unwrap();
         if let Some((peer, _)) = from {
             let peer: std::net::SocketAddr = format!("{peer}:50000").parse().unwrap();
-            req.extensions_mut().insert(corten::axum::extract::ConnectInfo(peer));
+            req.extensions_mut().insert(corten::PeerAddr(peer));
         }
         let res = self.router.clone().oneshot(req).await.unwrap();
         let (status, headers) = (res.status(), res.headers().clone());
@@ -388,6 +389,25 @@ fn indexing_is_on_unless_the_variable_says_off() {
 }
 
 #[tokio::test]
+async fn both_layouts_have_one_toaster_after_main_that_says_a_submit_that_got_no_answer() {
+    let site = Site::new(true, "https://chasesets.com").await;
+    for path in ["/", "/welcome?signup=wls_01"] {
+        let (status, headers, page) = site.get(path, None).await;
+        assert_eq!(status, StatusCode::OK, "{path}: {page}");
+        // The home page stays the same for everyone with the toaster; the welcome page is one signup's.
+        if path == "/" {
+            assert!(cache(&headers).starts_with("public"), "{path}: the toaster keeps the page the same for everyone");
+        }
+        assert_eq!(page.matches(r#"id="ui-toast""#).count(), 1, "{path}: {page}");
+        let after = page.split_once("</main>").map_or("", |(_, after)| after);
+        assert!(
+            after.contains("That did not go through, and may not have been saved. Check and try again."),
+            "{path}: the failed text: {after}"
+        );
+    }
+}
+
+#[tokio::test]
 async fn the_home_page_draws_the_waitlists_landing_and_any_cache_may_keep_it() {
     let site = Site::new(true, "https://chasesets.com").await;
     let (status, headers, page) = site.get("/", None).await;
@@ -409,6 +429,9 @@ async fn the_home_page_draws_the_waitlists_landing_and_any_cache_may_keep_it() {
     assert_eq!(page.matches(r#"<form class="home-page__form" method="post" action="/""#).count(), 2, "{page}");
     assert!(page.contains(r#"<input type="radio" name="role" value="both" checked>"#), "{page}");
     assert!(page.contains(r#"name="website" tabindex="-1""#), "the honeypot: {page}");
+    // The brand links home and the nav to the hero's form, by the id the form has.
+    assert!(page.contains(r#"href="/" aria-label="#) && page.contains(r#"id="waitlist-form""#), "{page}");
+    assert!(page.contains(r#"href="/#waitlist-form" data-cta="nav""#), "{page}");
     // The live terms reach the FAQ and its structured data; the counter and the titled promos are drawn.
     assert!(page.contains("3.25% + $0.30 by card, 0% by bank account"), "{page}");
     assert!(
@@ -641,8 +664,8 @@ async fn the_welcome_page_says_where_the_signup_stands_and_asks_a_seller_the_wav
     );
     // Copy is corten-ui's CopyButton on the link's field, counted when it reports a copy.
     assert!(page.contains(r#"<input class="#) && page.contains(r#"id="welcome-referral-link" type="url" readonly"#), "{page}");
-    assert!(page.contains(r#"data-scope="ui-copy-button" type="button" hidden"#), "{page}");
-    assert!(page.contains("&quot;welcome-referral-link&quot;"), "Copy names the field: {page}");
+    assert!(page.contains(r#"data-scope="ui-copy-button" type="button" class="welcome-page__copy-link" hidden"#), "{page}");
+    assert!(page.contains(r#""welcome-referral-link""#), "Copy names the field: {page}");
     assert!(page.contains("ui-copied:"), "the copy is counted: {page}");
     assert!(page.contains(r#"href="https://twitter.com/intent/tweet?text=Chase%20Sets%20founders"#), "{page}");
     // A seller is asked: the signup's games checked (an unknown one left out), Save without a script.
@@ -689,11 +712,11 @@ async fn a_wave_answer_saves_one_field_with_a_script_and_every_answered_field_wi
         .body(Body::from("field=inventory_size&games=pokemon&inventory_size=&store_url=https%3A%2F%2Fshop.example"))
         .unwrap();
     let mut req = req;
-    req.extensions_mut().insert(corten::axum::extract::ConnectInfo("203.0.113.9:50000".parse::<std::net::SocketAddr>().unwrap()));
+    req.extensions_mut().insert(corten::PeerAddr("203.0.113.9:50000".parse::<std::net::SocketAddr>().unwrap()));
     let res = site.router.clone().oneshot(req).await.unwrap();
     assert_eq!(res.status(), StatusCode::OK);
     let body = String::from_utf8(res.into_body().collect().await.unwrap().to_bytes().to_vec()).unwrap();
-    assert!(body.contains(">Saved</p>") && body.contains(r#"role="status""#), "{body}");
+    assert!(body.contains(">Saved</p>") && main_of(&body).contains(r#"role="status""#), "{body}");
     let (sent, client) = COHORTS.lock().unwrap().pop().unwrap();
     assert_eq!(sent, json!({ "inventorySize": null }), "only the field that changed");
     assert_eq!(client.as_deref(), Some("203.0.113.9"), "the visitor's address, which the limiter keys on");
@@ -885,6 +908,7 @@ async fn a_compare_page_sets_the_live_schedule_beside_the_competitors_and_works_
     assert!(page.contains(r#"action="/compare/tcgplayer#fee-calculator" data-patch"#), "{page}");
     assert!(page.contains(r#"href="/compare/ebay""#) && page.contains("Compare Chase Sets vs eBay"), "{page}");
     assert!(page.contains(r#"href="/sales-fees""#), "{page}");
+    assert!(page.contains(r#"href="/#waitlist-form" data-cta="#), "the call to action goes to the hero's form: {page}");
     // eBay's page, and a competitor that is not one.
     let (status, _, page) = site.get("/compare/ebay", None).await;
     assert_eq!(status, StatusCode::OK);
@@ -1086,4 +1110,10 @@ async fn the_site_files_are_public_webs_manifest_favicon_and_devtools_probe() {
         assert!(page.contains(r#"<link rel="icon" href="/favicon.svg" type="image/svg+xml">"#), "{path}: {page}");
         assert!(page.contains(r#"<link rel="alternate icon" href="/favicon.ico" sizes="any">"#), "{path}: {page}");
     }
+}
+
+/// The page before the layout's toaster (`</main>` on), or all of an answer that has no `<main>`
+/// (a patch): where a page's own `role="status"` is looked for.
+fn main_of(html: &str) -> &str {
+    html.split_once("</main>").map_or(html, |(main, _)| main)
 }

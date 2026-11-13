@@ -2,19 +2,20 @@
 //! `views/`; `static/style.css` has the element defaults and the shell's frame.
 use corten::{
     Component,
-    axum::http::{StatusCode, Uri},
+    http::{StatusCode, Uri},
     prelude::*,
 };
+use corten_ui::{Toast, Toaster};
 use platform::{
     section::{PageHeader, Section},
     theme,
+    ui::toasts::Toasts,
 };
 
 use crate::{
     app::url,
     auth::{Session, Viewer},
     cart::CartScreen,
-    chrome::Chrome,
     form::LocationInput,
     locations::Screen,
     recovery::{Check, Status},
@@ -26,11 +27,13 @@ mod account_home_page;
 mod account_page;
 mod address_page;
 mod agents_page;
+mod bulk_cart_sheet;
 mod bulk_reprice_page;
 mod cart_item;
 mod channels_page;
 mod checkout_page;
 mod checkout_start_page;
+mod command_center_page;
 mod consents_page;
 mod decision_card;
 mod desk_page;
@@ -60,6 +63,7 @@ mod recommendations_page;
 mod recovery;
 mod repricing_page;
 mod reviews_page;
+mod save_dialog;
 mod search_page;
 mod security_page;
 mod sell_checkout_page;
@@ -79,6 +83,7 @@ pub use account_home_page::AccountHomePage;
 pub use account_page::{AccountPage, FeedbackId, ReviewId};
 pub use address_page::AddressPage;
 pub use agents_page::{AgentConsentPage, AgentPage, AgentsPage};
+pub use bulk_cart_sheet::BulkCartSheet;
 pub use bulk_reprice_page::{BulkRepricePage, bulk_reprice_part};
 pub use cart_item::{
     AttemptBanner, CartHeading, CartIssue, CartItem, CartList, CartNotice, CartStack, CartTotals, CheckoutBar, CheckoutForm,
@@ -87,6 +92,7 @@ pub use cart_item::{
 pub use channels_page::{ChannelConnectionPage, ChannelPublicationPage, ChannelPublicationsPage, ChannelsPage, ChannelsPending};
 pub use checkout_page::{BuyConfirmationPage, CheckoutPage, CheckoutRecovery};
 pub use checkout_start_page::CheckoutStartPage;
+pub use command_center_page::CommandCenterPage;
 pub use consents_page::ConsentsPage;
 pub use decision_card::{Decided, DecisionCard, DecisionDraft, DecisionList, NoDecisions, RestockForm, WriteOffForm};
 pub use desk_page::DeskPage;
@@ -95,9 +101,9 @@ pub use inventory_item_page::{InventoryItemPage, refused_stock};
 pub use inventory_page::{CreateItemForm, InventoryPage, SaleForm, refused_item};
 pub use item_detail::{ItemDetail, breadcrumb_json_ld, item_image, item_live_parts, item_page, product_json_ld, purchase_limit};
 pub use listing_new_page::{ListingAccessRequired, NewListingPage, NewListingParts};
-pub use listing_page::{ListingNotice, ListingPage, fulfillment, grouped, listing_price, unbuyable};
+pub use listing_page::{ListingNotice, ListingPage, fulfillment, grouped, listing_json_ld, listing_price, unbuyable};
 pub use location_card::{ArchiveForm, CardList, CreateForm, LocationCard, UpdateForm};
-pub use market_nav::MarketNav;
+pub use market_nav::{CartBadge, MarketNav};
 pub use money_page::{MoneyPage, PayoutPage, PayoutPreparing};
 pub use notification_page::{AlertsSection, FeedSection, NotificationPage, PreferenceSwitch, ProductAlertsId};
 pub use offer_matches_page::{OfferMatchPage, OfferMatchesPage, offer_matches_live_parts};
@@ -109,13 +115,14 @@ pub use packing_slips_page::PackingSlipsPage;
 pub use page_actions::PageActions;
 pub use payment_methods_page::PaymentMethodsPage;
 pub use payment_page::{PaymentContent, PaymentNotice, PaymentPage, PaymentWatch};
-pub use payment_start_page::{PaymentStartMissing, PaymentStartPage};
+pub use payment_start_page::{PaymentStartMissing, PaymentStartPage, PaymentStartRefused};
 pub use payout_setup_page::{PayoutSetupAccessRequired, PayoutSetupPage};
 pub use pricing_health_page::PricingHealthPage;
 pub use recommendations_page::{RecommendationsPage, recommendations_notice, recommendations_part};
 pub use recovery::{Notice, Recovery, WriteForm, handlers};
 pub use repricing_page::{RepricingPage, RepricingPolicyCatchingUp, RepricingPolicyPage, repricing_dry_run_part};
 pub use reviews_page::{ReviewAnchorId, ReviewPage, ReviewPreparing, ReviewsPage};
+pub use save_dialog::SaveDialog;
 pub use search_page::{LoadMore, ResultCard, ResultRows, ResultsId, SearchPage};
 pub use security_page::SecurityPage;
 pub use sell_checkout_page::{SellCheckoutPage, SellConfirmationPage};
@@ -133,7 +140,18 @@ pub use support_page::SupportPage;
 pub use team_page::TeamPage;
 
 /// Every component with a stylesheet or a script that pages in both areas render, tokens first.
-pub const COMPONENTS: &[Component] = &[theme::TOKENS, MarketNav, market_nav::badge::COMPONENT, Section];
+/// The kit's `Stack` is most screens' columns, so it is here rather than in each area's list.
+pub const COMPONENTS: &[Component] = &[
+    theme::TOKENS,
+    platform::ui::stack::Stack,
+    platform::ui::icon::Icon,
+    platform::ui::input::Input,
+    platform::ui::input_group::InputGroup,
+    MarketNav,
+    Section,
+    Toasts,
+    Toaster,
+];
 
 /// The inventory screens' components (`/account/inventory`), the import page's too.
 /// The inventory list uses Create listing's catalog picker script, and corten-ui's handler that
@@ -151,35 +169,60 @@ pub const INVENTORY: &[Component] = &[
     corten_ui::dialog::COMPONENT,
 ];
 
-/// The cart's components (`/account/cart`).
-pub const CART: &[Component] = &[CartItem];
+/// The cart's components (`/account/cart`), and checkout start's page, which a guest's Check out
+/// draws when it cannot start (`checkout_start::cart_as_guest`).
+pub const CART: &[Component] =
+    &[CartItem, CheckoutStartPage, cart_item::handlers::COMPONENT, corten_ui::NumberField, platform::ui::stepper::Stepper];
 
 /// The offline page (`/offline`), which the service worker keeps for a navigation it cannot make.
 pub const OFFLINE: &[Component] = &[OfflinePage];
 
 /// The buy checkout page (`/checkout/buy/session/{id}`) and the script that says a changed field
 /// needs its totals updated.
-pub const CHECKOUT: &[Component] = &[CheckoutPage, checkout_page::handlers::COMPONENT];
+pub const CHECKOUT: &[Component] = &[CheckoutPage, checkout_page::handlers::COMPONENT, platform::ui::steps::Steps];
 
 /// Checkout start's components (`/checkout/buy/readiness`).
 pub const CHECKOUT_START: &[Component] = &[CheckoutStartPage];
 
-/// The item page's components (`/items`): its stylesheet, the Sales tab's chart, corten-ui's
-/// handler that makes Add to List's dialog modal when the server draws it open, and the analytics.
-pub const ITEM: &[Component] =
-    &[ItemDetail, platform::chart::TimeSeries, corten_ui::dialog::COMPONENT, item_detail::analytics::COMPONENT];
+/// The item page's components (`/items`): its stylesheet, the Sales tab's chart, the kit's
+/// Stats for its figures and its Segmented for the rail's side and the chart's range, corten-ui's handler that makes Add to List's dialog modal when the server
+/// draws it open, the analytics, and checkout start's page, which a guest's Buy now draws when it
+/// cannot start (`checkout_start::buy_as_guest`).
+pub const ITEM: &[Component] = &[
+    ItemDetail,
+    platform::chart::TimeSeries,
+    platform::ui::stats::Stats,
+    platform::ui::segmented::Segmented,
+    corten_ui::dialog::COMPONENT,
+    item_detail::analytics::COMPONENT,
+    CheckoutStartPage,
+];
 
 /// Search's components (the home page, `/search`, `/categories`, and `/sets` for its cards): its
-/// stylesheet, the script that applies a filter as it changes, and the analytics a result's click
-/// sends. In `App::components`, since the home page is outside every area.
-pub const SEARCH: &[Component] = &[SearchPage, search_page::handlers::COMPONENT, item_detail::analytics::COMPONENT];
+/// stylesheet, the script that applies a filter as it changes, the analytics a result's click
+/// sends, the kit's `VisuallyHidden` (search's hidden heading and legends, and the item page's
+/// chart summary), Add to List's dialog and Add matching products to Buy Cart's sheet with
+/// corten-ui's handler that makes each modal. In
+/// `App::components`, since the home page is outside every area. The dialog is here rather than
+/// with the item page because a result's Add to List patches it into the search page from the
+/// item's handler (`/items/{slug}/save`), and a patch brings no stylesheet of its own
+/// (corten-run/corten#1366).
+pub const SEARCH: &[Component] = &[
+    SearchPage,
+    search_page::handlers::COMPONENT,
+    item_detail::analytics::COMPONENT,
+    platform::ui::visually_hidden::VisuallyHidden,
+    SaveDialog,
+    BulkCartSheet,
+    corten_ui::dialog::COMPONENT,
+];
 
 /// A set's page (`/sets`). Its cards are search's (`ItemCards`), in `App::components`.
 pub const SET: &[Component] = &[SetPage];
 
 /// An account's public page (`/accounts`): its stylesheet, and corten-ui's handler that makes a
 /// refused Report review's dialog modal.
-pub const ACCOUNT: &[Component] = &[AccountPage, corten_ui::dialog::COMPONENT];
+pub const ACCOUNT: &[Component] = &[AccountPage, corten_ui::dialog::COMPONENT, platform::ui::meter::Meter];
 
 /// The account's own page (`/account`). Its prefix holds every other `/account/..` area, and a page
 /// under nested areas links each one's stylesheet, so an area of its own would put this on every
@@ -203,7 +246,7 @@ pub const TEAM: &[Component] = &[TeamPage];
 pub const CONSENTS: &[Component] = &[ConsentsPage];
 /// The account's reviews (`/account/reviews`, `/received`, `/written` and a review's own page):
 /// their stylesheet.
-pub const REVIEWS: &[Component] = &[ReviewsPage];
+pub const REVIEWS: &[Component] = &[ReviewsPage, platform::ui::meter::Meter];
 
 /// The account's connected agents (`/account/agents` and a grant's page) and an agent's consent:
 /// their stylesheet and corten-ui's Copy for the connector URL and a new signing secret. Revoke
@@ -216,8 +259,10 @@ pub const SESSIONS: &[Component] = &[SessionsPage];
 /// Create listing's page and its script.
 pub const NEW_LISTING: &[Component] = &[NewListingPage, listing_new_page::handlers::COMPONENT];
 
-/// The seller's listings (`/account/listings`): the list with its script, and a listing's page.
-pub const SELLER_LISTING: &[Component] = &[SellerListingsPage, seller_listings_page::handlers::COMPONENT, SellerListingPage];
+/// The seller's listings (`/account/listings`): the list with its script, a listing's page, and
+/// Create listing's stylesheet for its "Account access required" page (`ListingAccessRequired`).
+pub const SELLER_LISTING: &[Component] =
+    &[SellerListingsPage, seller_listings_page::handlers::COMPONENT, SellerListingPage, NewListingPage];
 
 /// The Sell List (`/account/sell-list`) and the Seller Desk's Offers & sell list (`/account/desk/offers`):
 /// its stylesheet. No script: Decline selected's dialog opens with `command="show-modal"`.
@@ -233,12 +278,22 @@ pub const DESK: &[Component] = &[DeskPage];
 /// The Seller Desk's money page (`/account/desk/money`). A payout's breakdown opens with
 /// `command="show-modal"`; a wallet adjustment's is drawn open (corten-ui's `dialog::modalClosedBy`).
 pub const MONEY: &[Component] = &[MoneyPage];
+/// A payout's page (`/account/desk/payouts/{id}`), with its status timeline in the kit's `Steps`.
+pub const PAYOUT: &[Component] = &[MoneyPage, platform::ui::steps::Steps];
 /// Payout setup (`/account/desk/settings`), with Stripe's Connect components and the Stripe.js
-/// module their appearance comes from.
+/// module their script's URL comes from.
 pub const PAYOUT_SETUP: &[Component] = &[PayoutSetupPage, payout_setup_page::ConnectSurface, payment_page::stripe::COMPONENT];
 /// A buyer's payment, with Stripe's step and the Stripe.js loader it imports, and starting a payment
 /// for the buyer's orders (`/account/payments/new`, no script).
 pub const PAYMENT: &[Component] = &[PaymentPage, payment_page::PaymentEntry, payment_page::stripe::COMPONENT, PaymentStartPage];
+/// A guest's payment: the same, and the passkey step's script, which Save this order's passkey uses.
+pub const GUEST_PAYMENT: &[Component] = &[
+    PaymentPage,
+    payment_page::PaymentEntry,
+    payment_page::stripe::COMPONENT,
+    PaymentStartPage,
+    platform::auth::passkey::COMPONENT,
+];
 
 /// The account's saved payment methods (`/account/payment-methods`), with Add's secure step and the
 /// Stripe.js loader it imports.
@@ -248,18 +303,19 @@ pub const PAYMENT_METHODS: &[Component] =
 /// The account's support (`/account/support`) and a Support Request's participant page
 /// (`/account/support/{id}`), with corten-ui's `CheckboxGroup` on the affected items and
 /// `RequiredWhen` on a partial refund's amount; the handlers check both without a script.
-pub const SUPPORT: &[Component] = &[SupportListPage, SupportPage, corten_ui::CheckboxGroup, corten_ui::RequiredWhen];
+pub const SUPPORT: &[Component] =
+    &[SupportListPage, SupportPage, corten_ui::CheckboxGroup, corten_ui::RequiredWhen, platform::ui::checkboxes::Checkboxes];
 
-/// The Seller Desk's repricing page (`/account/desk/repricing`) and the script that applies an
-/// editor's choice as it changes.
-pub const REPRICING: &[Component] = &[RepricingPage, repricing_page::handlers::COMPONENT];
-/// The pricing recommendations (`/account/repricing`).
-pub const RECOMMENDATIONS: &[Component] = &[RecommendationsPage];
+/// The Seller Desk's repricing page (`/account/desk/repricing`), the script that applies an
+/// editor's choice as it changes, and the kit's Stats for the preview's and activity's counts.
+pub const REPRICING: &[Component] = &[RepricingPage, repricing_page::handlers::COMPONENT, platform::ui::stats::Stats];
+/// The pricing recommendations (`/account/repricing`) and the kit's Stats for its signals.
+pub const RECOMMENDATIONS: &[Component] = &[RecommendationsPage, platform::ui::stats::Stats];
 /// Pricing health (`/account/desk/pricing-health`).
 pub const PRICING_HEALTH: &[Component] = &[PricingHealthPage];
 pub const CHANNELS: &[Component] = &[ChannelsPage];
-/// Bulk reprice (`/account/bulk-reprice`).
-pub const BULK_REPRICE: &[Component] = &[BulkRepricePage];
+/// Bulk reprice (`/account/bulk-reprice`) and the kit's Stats for its job's counts.
+pub const BULK_REPRICE: &[Component] = &[BulkRepricePage, platform::ui::stats::Stats];
 
 /// The seller's offer matches (`/account/offers/matches`), the list and a match's page.
 pub const OFFER_MATCHES: &[Component] = &[OfferMatchesPage];
@@ -269,27 +325,32 @@ pub const SUBMITTED_OFFERS: &[Component] = &[SubmittedOffersPage, submitted_offe
 pub const ORDERS: &[Component] = &[OrderPage, OrderReviewPage];
 /// The buyer's shipment pages (Fulfillment's).
 pub const SHIPMENTS: &[Component] = &[ShipmentPage];
-/// The seller's: a shipment's page, the packing page with its script, which the shipment page's
-/// Start packing form also uses, and the packing slips with Print's. Not the buyer's, whose pages
-/// never pack.
+/// The seller's: the command center, a shipment's page, the packing page with its script, which
+/// the command center and the shipment page's Start packing form also use, and the packing slips
+/// with Print's. Not the buyer's, whose pages never pack.
 pub const SALE_SHIPMENTS: &[Component] = &[
+    CommandCenterPage,
     ShipmentPage,
     PackingPage,
+    platform::ui::steps::Steps,
+    platform::ui::progress::Progress,
     packing_page::handlers::COMPONENT,
     corten_ui::CopyButton,
     PackingSlipsPage,
     corten_ui::PrintButton,
 ];
 
-/// A listing's public page (`/listings`).
-pub const LISTING: &[Component] = &[ListingPage];
+/// A listing's public page (`/listings`), and checkout start's page, which a guest's Buy now draws
+/// when it cannot start (`checkout_start::buy_as_guest`).
+pub const LISTING: &[Component] = &[ListingPage, CheckoutStartPage];
 
-/// Signing in's pages (`/sign-in`, `/account/select`): the sign-in page's stylesheet.
-pub const SIGN_IN: &[Component] = &[SignInPage];
+/// Signing in's pages (`/sign-in`, `/account/select`): the sign-in page's stylesheet and the
+/// passkey step's script.
+pub const SIGN_IN: &[Component] = &[SignInPage, platform::auth::passkey::COMPONENT];
 
 /// Creating an account (`/register`) and accepting an invitation (`/invite`): the sign-in page's
-/// stylesheet, which they share.
-pub const REGISTER: &[Component] = &[SignInPage];
+/// stylesheet, which they share, and the passkey step's script.
+pub const REGISTER: &[Component] = &[SignInPage, platform::auth::passkey::COMPONENT];
 
 /// A form's values and what is wrong with them.
 #[derive(Clone, Debug)]
@@ -356,30 +417,32 @@ pub fn srcset_on_marketplace(srcset: &str) -> String {
 /// phone's bottom bar) and the user's color mode, `title`, the page's own `head` tags
 /// (description, canonical, social, JSON-LD, `ReadAgain`) and the page (`children`). A client
 /// navigation gets only the title, the head tags and `<main>`'s children. `viewer` is the handler's
-/// `Caller` (none for a visitor, who gets the visitor's shell), and `cart` the cart's count its
-/// `Chrome` read (`crate::chrome`).
+/// `Caller` (none for a visitor, who gets the visitor's shell); the cart's count is the layout
+/// read's (`crate::chrome::CartCount`), which Corten draws in the shell.
 #[component]
 pub fn Layout<'a, H: Render, C: Render>(
     req: &'a Req,
     viewer: Option<&'a Viewer>,
-    cart: Option<u64>,
     title: &'a str,
     head: H,
     children: C,
 ) -> impl Document + 'a {
     html! {
-        <Frame req={req} viewer={viewer} cart={cart} shell={true} title={title} head={head}>{children}</Frame>
+        <Frame req={req} viewer={viewer} shell={true} title={title} head={head}>{children}</Frame>
     }
 }
 
 /// `Layout`'s document, with the shell (`shell`) or without it: for a page that cannot say who is
 /// asking, the offline page (the same for everyone; marketplace serves it outside its layout) and
 /// a session the API could not read, where a visitor's Sign in would be wrong.
+///
+/// Outside `<main>` is corten-ui's toaster, kept by a navigation: it shows a redirect's notice
+/// (`req.notice()`) and says a `data-patch` submit that got no answer (`corten:error`), so a
+/// write that did not go through is never silent.
 #[component]
 pub fn Frame<'a, H: Render, C: Render>(
     req: &'a Req,
     viewer: Option<&'a Viewer>,
-    cart: Option<u64>,
     shell: bool,
     title: &'a str,
     head: H,
@@ -408,9 +471,17 @@ pub fn Frame<'a, H: Render, C: Render>(
             </head>
             <body data-shell={shell}>
                 if shell {
-                    <MarketNav p={p} viewer={viewer} cart={cart} path={req.path()} />
+                    <MarketNav p={p} req={req} viewer={viewer} />
                 }
                 <main>{children}</main>
+                <Toasts>
+                    <Toaster
+                        close={p.shell_toast_close()}
+                        seconds={5}
+                        toast={Toast { message: req.notice(), failed: false }}
+                        failed={p.shell_not_sent()}
+                    />
+                </Toasts>
             </body>
         </html>
     }
@@ -418,14 +489,21 @@ pub fn Frame<'a, H: Render, C: Render>(
 
 /// The page for a failed request, in the layout (`App::error_page`), for who is asking: a member's
 /// shell and theme, a visitor's shell, and no shell when the session could not be read. Under
-/// `corten dev` it shows the error; Corten sends it with `X-Robots-Tag: noindex`.
-pub async fn error_page(failure: Failure, req: Req, chrome: Chrome, session: Option<Caller<Session>>) -> HtmlResult {
+/// `corten dev` it shows the error; Corten sends it with `X-Robots-Tag: noindex`. Corten starts the
+/// layout's reads for a failure the request is at fault for, a handler's `Refused` too, so the
+/// cart's count is drawn as on every other page.
+pub async fn error_page(failure: Failure, req: Req, session: Option<Caller<Session>>) -> HtmlResult {
     let p: Pilot = req.t();
     // Each case is named, so a case Corten adds stops this compiling.
     let (title, text) = match &failure {
         Failure::NotFound => (p.error_not_found_title(), p.error_not_found()),
         Failure::Refused { .. } | Failure::CrossSite => (p.error_forbidden_title(), p.error_forbidden()),
         Failure::Failed { status, .. } if *status == StatusCode::FORBIDDEN => (p.error_forbidden_title(), p.error_forbidden()),
+        // The request did not arrive whole before the deadline (a 408 under `corten::serve`): an
+        // upload whose connection stopped sending.
+        Failure::Failed { status, .. } if *status == StatusCode::REQUEST_TIMEOUT => {
+            (p.error_not_received_title(), p.error_not_received())
+        }
         // The platform API could not say whose the session is (`Refused::unavailable`).
         Failure::Unidentified { .. } => (p.error_unidentified_title(), p.error_unidentified()),
         // A form Corten could not read (a submit key that is not one, a field of the wrong kind):
@@ -434,6 +512,7 @@ pub async fn error_page(failure: Failure, req: Req, chrome: Chrome, session: Opt
             (p.error_failed_title(), p.check_attempt())
         }
         Failure::WrongMethod
+        | Failure::UnknownMethod
         | Failure::Rejected { .. }
         | Failure::Failed { .. }
         | Failure::Panicked { .. }
@@ -442,7 +521,6 @@ pub async fn error_page(failure: Failure, req: Req, chrome: Chrome, session: Opt
     };
     let detail = failure.detail().map(str::to_owned);
     let viewer = session.as_ref().and_then(|Caller(session)| session.viewer());
-    let cart = chrome.cart().await;
     // An account refused the seller's listings may not manage listings: marketplace's "Account
     // access required" page (`AccountAccessRequiredPage`), back to the page asked for.
     if let (Failure::Refused { .. }, Some(viewer)) = (&failure, viewer)
@@ -451,7 +529,7 @@ pub async fn error_page(failure: Failure, req: Req, chrome: Chrome, session: Opt
         let t: crate::text::ListingNewMsg = req.t();
         let back = req.path().to_owned();
         return req.page(html! {
-            <Layout req={&req} viewer={Some(viewer)} cart={cart} title={t.route_account_access_required_title()} head="">
+            <Layout req={&req} viewer={Some(viewer)} title={t.route_account_access_required_title()} head="">
                 <ListingAccessRequired t={t} back={&back} />
             </Layout>
         });
@@ -459,7 +537,7 @@ pub async fn error_page(failure: Failure, req: Req, chrome: Chrome, session: Opt
     // Who is asking is unknown when the session could not be read: no shell, not a visitor's.
     let shell = !matches!(failure, Failure::Unidentified { .. });
     req.page(html! {
-        <Frame req={&req} viewer={viewer} cart={cart} shell={shell} title={title} head="">
+        <Frame req={&req} viewer={viewer} shell={shell} title={title} head="">
             <h1>{title}</h1>
             <p>{text}</p>
             if let Some(detail) = &detail {
@@ -650,7 +728,7 @@ pub fn RefusedDecision<'a>(
 
 /// The cart page (marketplace's `CheckoutCartPage`): its one notice, the lines, the totals and
 /// the checkout bar, or the empty cart.
-pub fn cart_page<'a>(t: CartMsg, screen: &'a CartScreen, notice: Option<&'a crate::cart::Notice>) -> impl Render + 'a {
+pub fn cart_page<'a>(t: CartMsg, p: Pilot, screen: &'a CartScreen, notice: Option<&'a crate::cart::Notice>) -> impl Render + 'a {
     use crate::cart::Notice as Said;
     let paused = matches!(notice, Some(Said::Attempt(a)) if a.pauses());
     let readiness = screen.readiness.as_ref();
@@ -666,7 +744,12 @@ pub fn cart_page<'a>(t: CartMsg, screen: &'a CartScreen, notice: Option<&'a crat
     let offered = screen.offered();
     let offered_seller = offered.and_then(|o| o.seller_display_name.as_deref().map(|name| crate::cart::Seller::of(name, o)));
     let offer_title = match &offered_seller {
-        Some(seller) => t.page_optimization_switch_to_seller_title(&savings, seller.name).to_string(),
+        Some(seller) => t
+            .page_optimization_switch_to_seller_title(crate::text::cart_msg::PageOptimizationSwitchToSellerTitle {
+                savings: &savings,
+                seller: seller.name,
+            })
+            .to_string(),
         None => t.page_optimization_available_title(&savings).to_string(),
     };
     let context = if screen.ready() || readiness.is_none() {
@@ -678,12 +761,7 @@ pub fn cart_page<'a>(t: CartMsg, screen: &'a CartScreen, notice: Option<&'a crat
     let check_out = readiness.map(|r| &r.declined).filter(|s| s.status == "ready");
     let lower_price = readiness.and_then(|r| r.accepted.as_ref()).filter(|_| screen.offer());
     let (search, resolve) = (cart_item::link("/search"), url::CheckoutStart.href());
-    // The nav's badge keeps the count this read found (a client navigation keeps the layout).
-    let count = (!screen.pending).then(|| screen.item_count());
     html! {
-        if let Some(count) = count {
-            <span hidden on:connect={market_nav::badge::known(count)}></span>
-        }
         <PageHeader eyebrow={t.page_buy_cart()} title={t.page_your_cart()} description={t.page_simple_cart_description()} />
         <CartHeading title={t.page_items()} description={t.page_review_items_before_checkout()} />
         match notice {
@@ -718,7 +796,7 @@ pub fn cart_page<'a>(t: CartMsg, screen: &'a CartScreen, notice: Option<&'a crat
                 }
                 <CartList>
                     for line in &screen.lines {
-                        <CartItem t={t} line={line} paused={paused} />
+                        <CartItem t={t} p={p} line={line} paused={paused} />
                     }
                 </CartList>
                 <CartTotals t={t} items={screen.item_count()} total={&total} known={known} />

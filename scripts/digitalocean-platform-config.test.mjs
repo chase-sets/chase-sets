@@ -12,6 +12,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { isDeepStrictEqual } from "node:util";
 import { describe, expect, it } from "vitest";
 import { parse } from "yaml";
 import { ADMIN_WEB_API_DEPENDENCIES } from "./admin-shell-smoke-matrix.mjs";
@@ -181,7 +182,12 @@ function executeOperatorBlock(block, overrides = {}, run = block.source.run) {
         rev-parse) [[ "$CONTROL_FAILURE" != tag ]] || return 1; printf '%s\\n' "$CONTROL_SHA" ;;
       esac
     }
-    gh() { trace gh "$@"; }
+    gh() {
+      trace gh "$@"
+      if [[ "$1" == api && "$2" == --method && "$3" == POST ]]; then
+        printf '%s' "\${CONTROL_CREATED_TYPE-Bug}"
+      fi
+    }
     doctl() { trace doctl "$@"; }
     docker() { trace docker "$@"; [[ "$CONTROL_FAILURE" != image ]]; }
     jq() { trace jq "$@"; if [[ "$1" == -cn ]]; then printf '[]'; else printf '{}'; fi; }
@@ -1236,7 +1242,8 @@ describe("operator inputs before shell parsing (#8993)", () => {
       expect(result.evidence).toBe("scenario_seed_error<<SCENARIO_SEED_ERROR_EOF\n\nSCENARIO_SEED_ERROR_EOF\n");
     } else if (block.step === "Create, update, or resolve advisory evidence incident") {
       expect(result.trace).toContain("gh <issue> <list>");
-      expect(result.trace).toContain("gh <issue> <create>");
+      expect(result.trace).toContain("gh <api> <--method> <POST>");
+      expect(result.trace).toContain("<-f> <type=Bug>");
       expect(result.trace).toContain(`- Release commit: ${operatorSha}`);
     } else {
       expect(result.trace).toBe(
@@ -1244,6 +1251,15 @@ describe("operator inputs before shell parsing (#8993)", () => {
       );
     }
     if (block.file === "platform-rollback-readiness.yml") expect(result.evidence).toContain("image_exists=true");
+  });
+
+  it.each(["", "Slice", "disabled"])("rejects advisory creation with invalid native type %s", (type) => {
+    const block = operatorBlocks.find(
+      (entry) => entry.step === "Create, update, or resolve advisory evidence incident",
+    );
+    const result = executeOperatorBlock(block, { CONTROL_CREATED_TYPE: type });
+    expect(result.status).toBe(1);
+    expect(result.output).toContain("ISSUE_CREATION_TYPE_MISMATCH");
   });
 
   it.each(operatorCases)(
@@ -2387,7 +2403,291 @@ function platformApiExposedContextNames(runtimeProfile) {
     .sort((left, right) => left.localeCompare(right, "en"));
 }
 
+const productionWorkflowFile = ".github/workflows/platform-production.yml";
+const markerAppTokenAction = "actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1";
+const markerAppMint = {
+  "app-id": "${{ vars.PRODUCTION_MARKER_APP_ID }}",
+  "private-key": "${{ secrets.PRODUCTION_MARKER_APP_PRIVATE_KEY }}",
+  owner: "${{ github.repository_owner }}",
+  repositories: "${{ github.event.repository.name }}",
+  "permission-contents": "write",
+  "permission-workflows": "write",
+};
+// Each step that can publish, the mint step immediately before it, and their skip predicates.
+const markerPublishers = [
+  {
+    jobId: "deploy-production",
+    mintId: "retry_marker_push_token",
+    consumer: "Capture production rollback target",
+    mintIf: "env.SHOULD_DEPLOY != 'false' && env.PRODUCTION_MARKER_RETRY_ATTEMPT == 'true'",
+    consumerIf: "env.SHOULD_DEPLOY != 'false'",
+    command: "node ./scripts/production-release-marker.mjs reconcile",
+    // Capture's later git, doctl and docker commands share the step, so the token is unset right after reconcile.
+    sharesStep: true,
+  },
+  {
+    jobId: "deploy-production",
+    mintId: "production_marker_push_token",
+    consumer: "Mark production release",
+    mintIf: "env.SHOULD_DEPLOY != 'false'",
+    consumerIf: "env.SHOULD_DEPLOY != 'false'",
+    command: "node ./scripts/production-release-marker.mjs publish",
+  },
+  {
+    jobId: "reconcile-production-marker",
+    mintId: "recovery_marker_push_token",
+    consumer: "Reconcile retained production marker",
+    mintIf: undefined,
+    consumerIf: undefined,
+    command: "node ./scripts/production-release-marker.mjs marker-only",
+  },
+];
+const markerAuthorityReference = /PRODUCTION_MARKER_APP_|PRODUCTION_MARKER_PUSH_TOKEN|_marker_push_token\b/;
+
+function markerAppAuthorityViolations(workflows) {
+  const violations = [];
+  const production = workflows[productionWorkflowFile];
+  for (const publisher of markerPublishers) {
+    const job = production.jobs[publisher.jobId];
+    const steps = job?.steps ?? [];
+    const index = steps.findIndex((step) => step.name === publisher.consumer);
+    const [mint, consumer] = index > 0 ? [steps[index - 1], steps[index]] : [];
+    if (job?.environment !== "production") violations.push(`${publisher.jobId}: key environment is not production`);
+    if (mint?.id !== publisher.mintId || mint.uses !== markerAppTokenAction) {
+      violations.push(`${publisher.consumer}: no adjacent App token mint`);
+    } else {
+      if (!isDeepStrictEqual(mint.with, markerAppMint)) violations.push(`${publisher.consumer}: widened App token`);
+      if (mint.if !== publisher.mintIf) violations.push(`${publisher.consumer}: changed mint skip`);
+      if (mint["continue-on-error"] !== true) violations.push(`${publisher.consumer}: mint failure escapes the marker`);
+      if (mint.env !== undefined) violations.push(`${publisher.consumer}: mint receives step env`);
+    }
+    if (consumer?.if !== publisher.consumerIf) violations.push(`${publisher.consumer}: changed consumer skip`);
+    if (consumer?.env?.PRODUCTION_MARKER_PUSH_TOKEN !== `\${{ steps.${publisher.mintId}.outputs.token }}`)
+      violations.push(`${publisher.consumer}: missing token binding`);
+    if (consumer?.env?.GITHUB_TOKEN !== "${{ github.token }}")
+      violations.push(`${publisher.consumer}: reads lost the default token`);
+    const commands = (consumer?.run ?? "")
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => line && !line.startsWith("#") && line !== "set -euo pipefail");
+    const confined = publisher.sharesStep
+      ? commands[0] === publisher.command && commands[1] === "unset PRODUCTION_MARKER_PUSH_TOKEN"
+      : commands.at(-1) === publisher.command &&
+        commands.slice(0, -1).every((line) => line === "mkdir -p artifacts/release-health");
+    if (!confined) violations.push(`${publisher.consumer}: token reaches another command`);
+  }
+  for (const [file, workflow] of Object.entries(workflows)) {
+    for (const [jobId, job] of Object.entries(workflow.jobs ?? {})) {
+      if (markerAuthorityReference.test(JSON.stringify({ ...job, steps: [] })))
+        violations.push(`${file} ${jobId}: job-wide marker App authority`);
+      for (const step of job.steps ?? []) {
+        const owned = markerPublishers.some(
+          ({ jobId: owner, mintId, consumer }) =>
+            file === productionWorkflowFile && jobId === owner && (step.id === mintId || step.name === consumer),
+        );
+        if (!owned && markerAuthorityReference.test(JSON.stringify(step)))
+          violations.push(`${file} ${jobId} ${step.name ?? step.uses}: unscoped marker App authority`);
+      }
+    }
+    // An App-token push starts workflows, unlike a github.token push, so nothing may run on production or release-* pushes.
+    const on = workflow.on;
+    const events =
+      typeof on === "string"
+        ? { [on]: null }
+        : Array.isArray(on)
+          ? Object.fromEntries(on.map((event) => [event, null]))
+          : (on ?? {});
+    if (Object.hasOwn(events, "create")) violations.push(`${file}: triggers on ref creation`);
+    if (Object.hasOwn(events, "push")) {
+      const push = events.push ?? {};
+      if (
+        !Array.isArray(push.branches) ||
+        ["branches-ignore", "tags", "tags-ignore"].some((filter) => Object.hasOwn(push, filter)) ||
+        push.branches.some((branch) => branch === "production" || /[*?[\]!+]/.test(branch))
+      )
+        violations.push(`${file}: push trigger can match production or release-* pushes`);
+    }
+  }
+  return violations;
+}
+
+// https://github.com/chase-sets/chase-sets/issues/11174
+function providerCacheWiringErrors(
+  workflow,
+  loadAction = (path) => parse(readFileSync(resolve(path, "action.yml"), "utf8")),
+) {
+  const errors = [];
+  let scanned = 0;
+  let total = 0;
+  const cacheAction = "actions/cache@caa296126883cff596d87d8935842f9db880ef25";
+  const key =
+    "terraform-providers-${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-${{ hashFiles('infrastructure/digitalocean/*/.terraform.lock.hcl') }}";
+  function initCount(step, seen = new Set()) {
+    const run = (step.run ?? "").replace(/^\s*#.*$/gm, "");
+    const direct = [
+      ...run.matchAll(
+        /\bterraform(?:\s+-chdir=(?:"[^"]*"|'[^']*'|[^\s;]+))?\s+init\b|(?:[\w./-]+\/)?terraform-init-with-retry\.sh\b/g,
+      ),
+    ].length;
+    if (direct && step.env?.TF_PLUGIN_CACHE_DIR) errors.push("init overrides inherited cache directory");
+    if (!step.uses?.startsWith("./")) return direct;
+    if (seen.has(step.uses)) throw new Error(`Composite cycle: ${step.uses}`);
+    const action = loadAction(step.uses);
+    if (action.runs?.using !== "composite") return direct;
+    return (
+      direct + (action.runs.steps ?? []).reduce((n, child) => n + initCount(child, new Set([...seen, step.uses])), 0)
+    );
+  }
+  for (const [id, job] of Object.entries(workflow.jobs)) {
+    const steps = job.steps ?? [];
+    const inits = steps.map((step, index) => ({ step, index, count: initCount(step) })).filter(({ count }) => count);
+    total += inits.reduce((n, item) => n + item.count, 0);
+    if (!inits.length) continue;
+    const caches = steps
+      .map((step, index) => ({ step, index }))
+      .filter(({ step }) => step.with?.key?.startsWith("terraform-providers-"));
+    const setup = steps.findIndex((step) => step.uses?.startsWith("hashicorp/setup-terraform@"));
+    if (caches.length !== 1) {
+      errors.push(`${id}: expected one provider cache step`);
+      continue;
+    }
+    const { step: cache, index } = caches[0];
+    const prepare = steps.findIndex(
+      (step) =>
+        step.run?.includes('mkdir -p "$RUNNER_TEMP/terraform-providers"') &&
+        step.run?.includes('echo "TF_PLUGIN_CACHE_DIR=$RUNNER_TEMP/terraform-providers" >> "$GITHUB_ENV"'),
+    );
+    if (
+      cache.uses !== cacheAction ||
+      cache.with.key !== key ||
+      cache.with.path !== "${{ runner.temp }}/terraform-providers" ||
+      cache.with["restore-keys"] !== "terraform-providers-${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-\n"
+    )
+      errors.push(`${id}: cache identity`);
+    if (
+      setup < 0 ||
+      index <= setup ||
+      prepare <= setup ||
+      prepare >= index ||
+      cache.if !== steps[setup].if ||
+      steps[prepare]?.if !== steps[setup].if
+    )
+      errors.push(`${id}: setup ordering/condition`);
+    if (
+      cache.env ||
+      JSON.stringify(cache).includes("secrets.") ||
+      JSON.stringify(cache).includes("TF_VAR_") ||
+      JSON.stringify(job.env ?? {}).includes("runner.")
+    )
+      errors.push(`${id}: cache credential/context boundary`);
+    for (const init of inits) {
+      scanned += init.count;
+      if (
+        index >= init.index ||
+        prepare >= init.index ||
+        init.step.env?.TF_PLUGIN_CACHE_DIR ||
+        job.env?.TF_PLUGIN_CACHE_DIR
+      )
+        errors.push(`${id}: init at ${init.index + 1} lacks existing inherited cache`);
+    }
+  }
+  return { errors, scanned, total };
+}
+
 describe("DigitalOcean platform configuration", () => {
+  it("restores the lock-verified Terraform provider cache before every Platform Deploy init", () => {
+    const result = providerCacheWiringErrors(parse(platformProductionWorkflow));
+    process.stdout.write(`Platform Deploy provider cache: scanned=${result.scanned}/total=${result.total}\n`);
+    expect(result.total).toBeGreaterThan(0);
+    expect(result.scanned).toBe(result.total);
+    expect(result.errors).toEqual([]);
+  });
+
+  it.each([
+    [
+      "removed",
+      (steps) =>
+        steps.splice(
+          steps.findIndex((step) => step.name === "Restore locked Terraform providers"),
+          1,
+        ),
+    ],
+    [
+      "late",
+      (steps) =>
+        steps.push(
+          ...steps.splice(
+            steps.findIndex((step) => step.name === "Restore locked Terraform providers"),
+            1,
+          ),
+        ),
+    ],
+    [
+      "shared-key",
+      (steps) => {
+        const cache = steps.find((step) => step.name === "Restore locked Terraform providers");
+        cache.with.key = cache.with.key.replace("-${{ github.job }}", "");
+      },
+    ],
+    [
+      "secret",
+      (steps) => {
+        steps.find((step) => step.name === "Restore locked Terraform providers").env = {
+          TOKEN: "${{ secrets.SYNTHETIC }}",
+        };
+      },
+    ],
+  ])("rejects provider cache wiring mutant %s through real init discovery", (_, mutate) => {
+    const workflow = parse(platformProductionWorkflow);
+    mutate(workflow.jobs["deploy-staging"].steps);
+    expect(providerCacheWiringErrors(workflow).errors.some((error) => error.startsWith("deploy-staging:"))).toBe(true);
+  });
+
+  it.each(["terraform init -backend=false", 'terraform -chdir="synthetic" init -backend=false', "composite"])(
+    "discovers an uncached new sibling init: %s",
+    (shape) => {
+      const workflow = parse(platformProductionWorkflow);
+      workflow.jobs.synthetic = {
+        steps: [shape === "composite" ? { uses: "./synthetic-new-composite" } : { run: shape }],
+      };
+      const loadAction = (path) =>
+        path === "./synthetic-new-composite"
+          ? { runs: { using: "composite", steps: [{ run: "terraform init -backend=false" }] } }
+          : parse(readFileSync(resolve(path, "action.yml"), "utf8"));
+      const result = providerCacheWiringErrors(workflow, loadAction);
+      expect(result.errors).toContain("synthetic: expected one provider cache step");
+      expect(result.total).toBeGreaterThan(result.scanned);
+    },
+  );
+
+  it("never relaxes Terraform provider lock verification", () => {
+    const retry = readFileSync(resolve("scripts/terraform-init-with-retry.sh"), "utf8");
+    const proof = readFileSync(resolve("scripts/digitalocean-terraform-provider-cache-proof.sh"), "utf8");
+    for (const source of [platformProductionWorkflow, retry, proof]) {
+      expect(source).not.toMatch(/TF_PLUGIN_CACHE_MAY_BREAK_DEPENDENCY_LOCK_FILE|-plugin-dir|providers\s+lock/);
+    }
+    expect(retry).toContain('mkdir -p "$TF_PLUGIN_CACHE_DIR"');
+    expect(retry).toContain('terraform init "$@"');
+    const fixture = readFileSync(resolve("scripts/fixtures/terraform-provider-cache/registry.py"), "utf8");
+    for (const control of [
+      "tampered-denied",
+      "tampered-trusted",
+      "empty-trusted",
+      "bad-package",
+      "bad-signature",
+      "removed-h1",
+      "stale-key",
+      "evicted",
+      "absent",
+    ])
+      expect(fixture).toContain(`"${control}"`);
+    expect(proof).toContain("sudo unshare --net");
+    expect(proof).toContain('exec setpriv --reuid="$8" --regid="$9" --clear-groups env -i');
+    const preview = parse(platformPrWorkflow).jobs["terraform-preview-plan"].steps;
+    expect(preview.some((step) => step.run?.includes("provider-cache-proof.sh acquire"))).toBe(true);
+    expect(preview.some((step) => step.run?.includes("provider-cache-proof.sh prove"))).toBe(true);
+  });
+
   it("keeps marker recovery admitted only on immutable main and shares initialized DOKS context", () => {
     const recoveryJob = workflowJob(platformProductionWorkflow, "reconcile-production-marker");
     const admission = workflowStep(recoveryJob, "Validate marker-only admission");
@@ -2446,6 +2746,79 @@ describe("DigitalOcean platform configuration", () => {
         const markerStep = steps[firstMarkerIndex];
         expect(markerStep.env?.GITHUB_TOKEN).toBe("${{ github.token }}");
       }
+    }
+  });
+
+  it("all marker publishers receive scoped App authority", () => {
+    const workflows = Object.fromEntries(
+      readdirSync(resolve(".github/workflows"))
+        .filter((name) => /\.ya?ml$/.test(name))
+        .map((name) => [`.github/workflows/${name}`, parse(readFileSync(resolve(".github/workflows", name), "utf8"))]),
+    );
+    expect(markerAppAuthorityViolations(workflows)).toEqual([]);
+    const retryAttempt =
+      parse(platformProductionWorkflow).jobs["deploy-production"].env.PRODUCTION_MARKER_RETRY_ATTEMPT;
+    expect(retryAttempt).toBe("${{ github.run_attempt != '1' && 'true' || 'false' }}");
+
+    const stepNamed = (workflow, jobId, name) => workflow.jobs[jobId].steps.find((step) => step.name === name);
+    const mutants = {
+      "missing binding": (workflow) =>
+        delete stepNamed(workflow, "deploy-production", "Mark production release").env.PRODUCTION_MARKER_PUSH_TOKEN,
+      "missing reconcile mint": (workflow) => {
+        const steps = workflow.jobs["deploy-production"].steps;
+        steps.splice(
+          steps.findIndex((step) => step.id === "retry_marker_push_token"),
+          1,
+        );
+      },
+      "widened selection": (workflow) =>
+        delete stepNamed(workflow, "reconcile-production-marker", "Mint recovery marker push token").with.repositories,
+      "widened permission": (workflow) => {
+        stepNamed(workflow, "deploy-production", "Mint production marker push token").with["permission-actions"] =
+          "write";
+      },
+      "unrevoked token": (workflow) => {
+        stepNamed(workflow, "deploy-production", "Mint production marker push token").with["skip-token-revoke"] = true;
+      },
+      "attempt-1 reconcile mint": (workflow) => {
+        stepNamed(workflow, "deploy-production", "Mint retry marker push token").if = "env.SHOULD_DEPLOY != 'false'";
+      },
+      "changed consumer skip": (workflow) => {
+        stepNamed(workflow, "deploy-production", "Mark production release").if = "always()";
+      },
+      "job-failing mint": (workflow) =>
+        delete stepNamed(workflow, "deploy-production", "Mint production marker push token")["continue-on-error"],
+      "retain-identity authority": (workflow) => {
+        stepNamed(
+          workflow,
+          "deploy-production",
+          "Verify production Kubernetes deployment transition",
+        ).env.PRODUCTION_MARKER_PUSH_TOKEN = "${{ steps.production_marker_push_token.outputs.token }}";
+      },
+      "token reaches capture commands": (workflow) => {
+        const capture = stepNamed(workflow, "deploy-production", "Capture production rollback target");
+        capture.run = capture.run.replace("unset PRODUCTION_MARKER_PUSH_TOKEN\n", "");
+      },
+      "job-wide token": (workflow) => {
+        workflow.jobs["deploy-production"].env.PRODUCTION_MARKER_PUSH_TOKEN = "${{ github.token }}";
+      },
+      "other job": (workflow) => {
+        workflow.jobs["deploy-staging"].steps.push({ uses: markerAppTokenAction, with: { ...markerAppMint } });
+      },
+      "production push trigger": (_workflow, all) => {
+        all[".github/workflows/platform-release-candidate.yml"].on.push.branches.push("production");
+      },
+      "release tag trigger": (_workflow, all) => {
+        all[".github/workflows/corten-pilot.yml"].on.push.tags = ["release-*"];
+      },
+      "ref creation trigger": (_workflow, all) => {
+        all[".github/workflows/corten-pilot.yml"].on.create = null;
+      },
+    };
+    for (const [name, mutate] of Object.entries(mutants)) {
+      const copy = structuredClone(workflows);
+      mutate(copy[productionWorkflowFile], copy);
+      expect(markerAppAuthorityViolations(copy), name).not.toEqual([]);
     }
   });
 
@@ -3741,7 +4114,9 @@ describe("DigitalOcean platform configuration", () => {
 
     const dbProfileJob = workflowJob(platformPrWorkflow, "db-tests");
     expect(dbProfileJob).toContain("timeout-minutes: 30");
-    expect(dbProfileJob).toContain("image: pgvector/pgvector:pg16");
+    expect(dbProfileJob).toContain(
+      "image: ghcr.io/chase-sets/ci-mirror-pgvector:pg16@sha256:7b822b0aac60967beb1ea5e576b8602c94c300a157d187f385ae3e0da199b90a",
+    );
     expect(dbProfileJob).toContain("TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres");
     expect(dbProfileJob).toContain("target_max_locks_per_transaction=512");
     expect(dbProfileJob).toContain("id: platform-api-selected");
@@ -4157,8 +4532,14 @@ describe("DigitalOcean platform configuration", () => {
     expect(dockerfile.indexOf("RUN pnpm install --frozen-lockfile")).toBeLessThan(
       dockerfile.indexOf("COPY --chown=node:node bounded-contexts ./bounded-contexts"),
     );
-    expect(dockerfile).toContain("FROM node:24-bookworm-slim AS runtime");
-    const runtimeStage = dockerfile.slice(dockerfile.indexOf("FROM node:24-bookworm-slim AS runtime"));
+    expect(dockerfile).toContain(
+      "FROM ghcr.io/chase-sets/ci-mirror-node:24-bookworm-slim@sha256:d6aa754f16b3197301076f047b5def2f02ea1dbbc2ca920407d46d7ec7f87b20 AS runtime",
+    );
+    const runtimeStage = dockerfile.slice(
+      dockerfile.indexOf(
+        "FROM ghcr.io/chase-sets/ci-mirror-node:24-bookworm-slim@sha256:d6aa754f16b3197301076f047b5def2f02ea1dbbc2ca920407d46d7ec7f87b20 AS runtime",
+      ),
+    );
     expect(runtimeStage).toContain("RUN pnpm install --frozen-lockfile --prod");
     expect(runtimeStage.indexOf("RUN pnpm install --frozen-lockfile --prod")).toBeLessThan(
       runtimeStage.indexOf("COPY --chown=node:node bounded-contexts ./bounded-contexts"),
@@ -4247,28 +4628,45 @@ describe("DigitalOcean platform configuration", () => {
     expect(doksFoundationAuthority).toContain('"name:Preflight DOKS version change#');
   });
 
-  it("executes the preflight against provider object and array response shapes", () => {
+  it("executes the preflight against a one-element provider array", () => {
     const cluster = { id: "synthetic-cluster-id", version: "1.36.5-do.1" };
     const oneElement = executeDoksPreflight({ providerResponse: [cluster] });
     expect(oneElement).toMatchObject({
       status: 0,
       artifact: { state: "present", id: cluster.id, version: cluster.version },
     });
+  });
+
+  it("executes the preflight against a provider object", () => {
+    const cluster = { id: "synthetic-cluster-id", version: "1.36.5-do.1" };
     expect(executeDoksPreflight({ providerResponse: cluster })).toMatchObject({
       status: 0,
       artifact: { state: "present", id: cluster.id, version: cluster.version },
     });
+  });
+
+  it("refuses an empty provider array during preflight", () => {
     const empty = executeDoksPreflight({ providerResponse: [] });
     expect(empty.status).not.toBe(0);
     expect(empty.artifact).toMatchObject({ state: "read-error" });
+  });
+
+  it("refuses multiple provider clusters during preflight", () => {
+    const cluster = { id: "synthetic-cluster-id", version: "1.36.5-do.1" };
     const multiple = executeDoksPreflight({
       providerResponse: [cluster, { id: "other-cluster", version: cluster.version }],
     });
     expect(multiple.status).not.toBe(0);
     expect(multiple.artifact).toMatchObject({ state: "read-error" });
+  });
+
+  it("refuses a malformed provider response during preflight", () => {
     const malformed = executeDoksPreflight({ providerResponse: null, providerResponseText: "not-json" });
     expect(malformed.status).not.toBe(0);
     expect(malformed.artifact).toMatchObject({ state: "read-error" });
+  });
+
+  it("refuses a provider read error during preflight", () => {
     const readError = executeDoksPreflight({ providerResponse: null, providerReadFails: true });
     expect(readError.status).not.toBe(0);
     expect(readError.artifact).toMatchObject({ state: "read-error" });
@@ -5548,14 +5946,15 @@ describe("DigitalOcean platform configuration", () => {
       "uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0",
     );
     expect(stagingPlaywrightCacheStep).toContain("id: staging-playwright-chromium-cache");
-    expect(stagingPlaywrightCacheStep).toContain("path: /home/runner/.cache/ms-playwright");
+    expect(stagingPlaywrightCacheStep).toContain("path: ${{ runner.temp }}/playwright-chromium");
     expect(stagingPlaywrightCacheStep).toContain(
       "key: playwright-chromium-${{ runner.os }}-${{ steps.staging-playwright-chromium.outputs.version }}",
     );
     expect(stagingPlaywrightCacheStep).toContain("playwright-chromium-${{ runner.os }}-");
     expect(stagingPlaywrightInstallStep).not.toContain("cache-hit != 'true'");
-    expect(stagingPlaywrightInstallStep).toContain("PLAYWRIGHT_BROWSERS_PATH: /home/runner/.cache/ms-playwright");
-    expect(stagingPlaywrightInstallStep).toContain("pnpm exec playwright install --with-deps chromium");
+    expect(stagingPlaywrightInstallStep).toContain("PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/playwright-chromium");
+    expect(stagingPlaywrightInstallStep).toContain("PLAYWRIGHT_INSTALL_SITE: platform-staging-advisory-evidence");
+    expect(stagingPlaywrightInstallStep).toContain("node scripts/playwright-chromium-install.mjs");
     expect(platformStagingAdvisoryEvidenceWorkflow.indexOf("- name: Resolve Playwright Chromium version")).toBeLessThan(
       platformStagingAdvisoryEvidenceWorkflow.indexOf("- name: Cache Playwright Chromium for staging critical flows"),
     );
@@ -5569,7 +5968,7 @@ describe("DigitalOcean platform configuration", () => {
     ).toBeLessThan(platformStagingAdvisoryEvidenceWorkflow.indexOf("- name: Staging marketplace critical flows"));
     expect(stagingCriticalFlowStep).toContain("PLAYWRIGHT_SKIP_WEB_SERVER");
     expect(stagingCriticalFlowStep).toContain("continue-on-error: true");
-    expect(stagingCriticalFlowStep).toContain("PLAYWRIGHT_BROWSERS_PATH: /home/runner/.cache/ms-playwright");
+    expect(stagingCriticalFlowStep).toContain("PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/playwright-chromium");
     expect(stagingCriticalFlowStep).toContain('admin_domain="$(terraform output -raw admin_domain)"');
     expect(stagingCriticalFlowStep).toContain('ADMIN_WEB_URL="https://${admin_domain}"');
     expect(stagingCriticalFlowStep).toContain('MARKETPLACE_WEB_URL="https://${marketplace_domain}"');
@@ -5605,7 +6004,7 @@ describe("DigitalOcean platform configuration", () => {
     expect(stagingMoneySmokeStep).not.toContain("continue-on-error");
     expect(platformStagingAdvisoryEvidenceWorkflow).toContain("staging-advisory-evidence");
     expect(stagingBuyNowProbesStep).toContain("GUEST_BUY_NOW_PROBE_SEARCH_QUERY");
-    expect(stagingBuyNowProbesStep).toContain("PLAYWRIGHT_BROWSERS_PATH: /home/runner/.cache/ms-playwright");
+    expect(stagingBuyNowProbesStep).toContain("PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/playwright-chromium");
     expect(stagingBuyNowProbesStep).toContain("vars.STAGING_GUEST_BUY_NOW_CANARY_SEARCH_QUERY");
     expect(stagingBuyNowProbesStep).toContain("'air balloon'");
     expect(stagingBuyNowProbesStep).not.toContain("vars.MARKETPLACE_E2E_SEARCH_QUERY");
@@ -6043,9 +6442,14 @@ describe("DigitalOcean platform configuration", () => {
     expect(preflight["timeout-minutes"]).toBeGreaterThan(cap + postWaitReadMinutes);
     const later = job.steps.slice(preflightIndex + 1);
     for (const step of later) expect(step["timeout-minutes"], step.name).toBeGreaterThan(0);
-    expect(cap + later.reduce((total, step) => total + step["timeout-minutes"], 0)).toBeLessThanOrEqual(
-      job["timeout-minutes"],
-    );
+    const install = later.find((step) => step.name === "Install Playwright Chromium for staging critical flows");
+    const consumer = later.find((step) => step.id === "marketplace_e2e");
+    expect(later.find((step) => step.id === "staging-playwright-chromium")["timeout-minutes"]).toBe(2);
+    expect(install["timeout-minutes"]).toBe(11);
+    expect(consumer["timeout-minutes"]).toBe(10);
+    expect(605 + consumer["timeout-minutes"] * 60 + 55).toBeLessThanOrEqual(job["timeout-minutes"] * 60);
+    const laterTimeoutTotal = later.reduce((sum, step) => sum + step["timeout-minutes"], 0);
+    expect(cap + laterTimeoutTotal).toBeLessThanOrEqual(job["timeout-minutes"]);
     expect(job["timeout-minutes"]).toBe(90);
     const awaitStep = later.find((step) => step.id === "await_scenario_seed");
     const deadline = Number(awaitStep.run.match(/deadline=\$\(\( \$\(date \+%s\) \+ (\d+) \)\)/u)?.[1]);

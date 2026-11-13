@@ -43,6 +43,8 @@ export function createCheckoutServices(pool: PgTransactionalPool, ports: Checkou
   });
   const checkpointStore = createPostgresProjectionStore({ db: pool });
   const db = pool as PgQueryable;
+  // Standalone seed and seed-inspection paths construct services without host ports.
+  // API and worker hosts must supply the resolver backed by the Commercial Terms pool.
   const commercialTermsResolver = ports.commercialTermsResolver ?? createCheckoutCommercialTermsResolver(db);
   const cart = createCheckoutCartRuntime({ eventStore, checkpointStore, db });
   const sellList = createCheckoutSellListRuntime({ eventStore, checkpointStore, db, commercialTermsResolver });

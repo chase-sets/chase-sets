@@ -46,7 +46,112 @@ const catalogItem: CatalogItemDetail = {
   updated_at: "2026-05-13T00:00:00.000Z",
 };
 
+type CatalogFetchCall = readonly [RequestInfo | URL, RequestInit?];
+
+function imageUrlsPutRequests(fetch: { mock: { calls: ReadonlyArray<CatalogFetchCall> } }): CatalogFetchCall[] {
+  return fetch.mock.calls.filter(([request, init]) => {
+    const url = String(request);
+    return url.includes("/items/cat_1/image-urls") && init?.method === "PUT";
+  });
+}
+
 describe("CatalogItemDetailPage", () => {
+  it("saves multiline image URLs from the labelled textarea in order", async () => {
+    const fetch = stubCatalogFetches();
+
+    render(<CatalogItemDetailPage id="cat_1" initialData={catalogItem} />);
+    fireEvent.click(screen.getByRole("button", { name: /^Image URLs/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Set Image URLs" }));
+
+    const dialog = screen.getByRole("dialog", { name: "Set Image URLs" });
+    const input = within(dialog).getByLabelText("Image URLs");
+    expect(input.tagName).toBe("TEXTAREA");
+    fireEvent.change(input, {
+      target: {
+        value:
+          "  https://images.example/one.png\r\n\nhttps://images.example/two.png  \r\nhttps://images.example/one.png",
+      },
+    });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(imageUrlsPutRequests(fetch)).toHaveLength(1));
+    const imageUrlsRequest = imageUrlsPutRequests(fetch)[0];
+    expect(JSON.parse(String(imageUrlsRequest?.[1]?.body))).toEqual({
+      imageUrls: ["https://images.example/one.png", "https://images.example/two.png", "https://images.example/one.png"],
+    });
+  });
+
+  it("saves an empty image URL list for blank-only input", async () => {
+    const storedUrls = ["https://images.example/stored.png"];
+    const fetch = stubCatalogFetches({ imageUrls: storedUrls });
+
+    render(<CatalogItemDetailPage id="cat_1" initialData={{ ...catalogItem, image_urls: storedUrls }} />);
+    fireEvent.click(screen.getByRole("button", { name: /^Image URLs/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Set Image URLs" }));
+
+    const dialog = screen.getByRole("dialog", { name: "Set Image URLs" });
+    fireEvent.change(within(dialog).getByLabelText("Image URLs"), {
+      target: { value: "  \r\n\n  " },
+    });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(imageUrlsPutRequests(fetch)).toHaveLength(1));
+    expect(JSON.parse(String(imageUrlsPutRequests(fetch)[0]?.[1]?.body))).toEqual({ imageUrls: [] });
+  });
+
+  it("discards unsaved image URL edits when the dialog is closed and reopened", () => {
+    const storedUrls = ["https://images.example/stored.png"];
+    const fetch = stubCatalogFetches({ imageUrls: storedUrls });
+
+    render(<CatalogItemDetailPage id="cat_1" initialData={{ ...catalogItem, image_urls: storedUrls }} />);
+    fireEvent.click(screen.getByRole("button", { name: /^Image URLs/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Set Image URLs" }));
+
+    let dialog = screen.getByRole("dialog", { name: "Set Image URLs" });
+    fireEvent.change(within(dialog).getByLabelText("Image URLs"), {
+      target: { value: "https://images.example/abandoned.png" },
+    });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Close" }));
+
+    fireEvent.click(screen.getByRole("button", { name: "Set Image URLs" }));
+    dialog = screen.getByRole("dialog", { name: "Set Image URLs" });
+    expect((within(dialog).getByLabelText("Image URLs") as HTMLTextAreaElement).value).toBe(storedUrls.join("\n"));
+    expect(imageUrlsPutRequests(fetch)).toHaveLength(0);
+  });
+
+  it("opens stored image URLs on separate lines and refreshes them after save", async () => {
+    const storedUrls = ["https://images.example/one.png", "https://images.example/two.png"];
+    const refreshedItem = vi.fn();
+    const fetch = stubCatalogFetches({
+      imageUrls: storedUrls,
+      onCatalogItemRead: refreshedItem,
+      recheckDetail: { ...catalogItem, title: "Refreshed Bulbasaur" },
+    });
+
+    render(<CatalogItemDetailPage id="cat_1" initialData={{ ...catalogItem, image_urls: storedUrls }} />);
+    fireEvent.click(screen.getByRole("button", { name: /^Image URLs/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Set Image URLs" }));
+
+    let dialog = screen.getByRole("dialog", { name: "Set Image URLs" });
+    const input = within(dialog).getByLabelText("Image URLs");
+    expect(input.tagName).toBe("TEXTAREA");
+    expect((input as HTMLTextAreaElement).value).toBe(storedUrls.join("\n"));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Set Image URLs" })).toBeNull());
+    await waitFor(() => expect(refreshedItem).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(screen.getAllByText("Refreshed Bulbasaur").length).toBeGreaterThan(0));
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Set Image URLs" })).toBeNull());
+    fireEvent.click(screen.getByRole("button", { name: /^Image URLs/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Set Image URLs" }));
+    dialog = screen.getByRole("dialog", { name: "Set Image URLs" });
+    expect((within(dialog).getByLabelText("Image URLs") as HTMLTextAreaElement).value).toBe(storedUrls.join("\n"));
+
+    const imageUrlsRequests = imageUrlsPutRequests(fetch);
+    expect(imageUrlsRequests).toHaveLength(1);
+    expect(JSON.parse(String(imageUrlsRequests[0]?.[1]?.body))).toEqual({ imageUrls: storedUrls });
+  });
+
   it("renders catalog item language codes as localized labels", () => {
     const html = renderToString(<CatalogItemDetailPage id="cat_1" initialData={catalogItem} />);
 
@@ -460,6 +565,8 @@ function stubCatalogFetches(
   input: {
     contentLines?: unknown[];
     containerLines?: unknown[];
+    imageUrls?: string[];
+    onCatalogItemRead?: () => void;
     productContentsSaveError?: string;
     publicationResponses?: Response[];
     recheckDetail?: CatalogItemDetail;
@@ -467,6 +574,8 @@ function stubCatalogFetches(
 ) {
   const contentLines = input.contentLines ?? [];
   const containerLines = input.containerLines ?? [];
+  let imageUrls = input.imageUrls ?? [];
+  let imageUrlsSaved = false;
   const jsonResponse = (body: unknown) =>
     Promise.resolve(
       new Response(JSON.stringify(body), {
@@ -492,7 +601,17 @@ function stubCatalogFetches(
         );
       }
       if (url.endsWith("/items/cat_1")) {
-        return jsonResponse(input.recheckDetail ?? catalogItem);
+        input.onCatalogItemRead?.();
+        const detail = input.recheckDetail ?? catalogItem;
+        return jsonResponse({
+          ...detail,
+          ...(input.imageUrls !== undefined || imageUrlsSaved ? { image_urls: imageUrls } : {}),
+        });
+      }
+      if (url.includes("/items/cat_1/image-urls") && init?.method === "PUT") {
+        imageUrls = (JSON.parse(String(init.body)) as { imageUrls?: string[] }).imageUrls ?? [];
+        imageUrlsSaved = true;
+        return jsonResponse({ status: "accepted" });
       }
       if (url.includes("/product-contents/content-types")) {
         return jsonResponse({

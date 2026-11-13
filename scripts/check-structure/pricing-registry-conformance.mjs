@@ -115,11 +115,11 @@ export async function validatePricingRegistryConformance({ repoRoot }) {
             );
           continue;
         }
-        const reference = referenceOf(suiteProperty(call.suite, "registry"));
+        const reference = referenceOf(suiteProperty(call.suite, "registry", facts.objectLiterals));
         const target = reference === null ? null : bindingTarget(reference);
         if (typeof target === "string" && registryIds.has(target)) {
           const [factoryFile, name] = target.split("#");
-          const production = suiteProperty(call.suite, "production");
+          const production = suiteProperty(call.suite, "production", facts.objectLiterals);
           if (production) {
             const productionReference = referenceOf(production);
             const binding = productionReference === null ? null : enumerationOf(bindingTarget(productionReference));
@@ -248,6 +248,7 @@ function moduleFacts(sourceFile, file, sources) {
   // Module-level `const <name> = <callee>(...)` and `const <name> = <local>.<member>`; `let` may be reassigned.
   const constructedLocals = new Map();
   const memberReads = new Map();
+  const objectLiterals = new Map();
 
   for (const statement of sourceFile.statements) {
     if (ts.isImportDeclaration(statement) && ts.isStringLiteral(statement.moduleSpecifier)) {
@@ -295,6 +296,7 @@ function moduleFacts(sourceFile, file, sources) {
           initializer && (ts.isArrowFunction(initializer) || ts.isFunctionExpression(initializer)) ? initializer : null;
         declare(declaration.name.text, statement, functionNode, hasExportModifier(statement));
         if (!constant || !initializer) continue;
+        if (ts.isObjectLiteralExpression(initializer)) objectLiterals.set(declaration.name.text, initializer);
         const callee = ts.isCallExpression(initializer) ? referenceOf(initializer.expression) : null;
         if (callee !== null) constructedLocals.set(declaration.name.text, { callee, line: lineOf(initializer) });
         else if (ts.isPropertyAccessExpression(initializer) && ts.isIdentifier(initializer.expression))
@@ -355,6 +357,7 @@ function moduleFacts(sourceFile, file, sources) {
     calls,
     constructedLocals,
     memberReads,
+    objectLiterals,
   };
 }
 
@@ -387,9 +390,11 @@ function valueIdentifiers(sourceFile) {
 }
 
 /** The value node of a suite literal's property `name`, or null. */
-function suiteProperty(suite, name) {
-  if (!suite || !ts.isObjectLiteralExpression(suite)) return null;
-  const property = suite.properties.find(
+function suiteProperty(suite, name, objectLiterals) {
+  let value = suite && unwrap(suite);
+  if (value && ts.isIdentifier(value)) value = objectLiterals?.get(value.text);
+  if (!value || !ts.isObjectLiteralExpression(value)) return null;
+  const property = value.properties.find(
     (candidate) => candidate.name && ts.isIdentifier(candidate.name) && candidate.name.text === name,
   );
   if (property && ts.isShorthandPropertyAssignment(property)) return property.name;

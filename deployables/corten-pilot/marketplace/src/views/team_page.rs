@@ -31,7 +31,9 @@ pub struct CancelInvitationDialogId<'a>(pub &'a str);
 fn machine(known: Option<&'static str>, t: TeamMsg, family: &str, value: &str) -> String {
     match (known, humanized(value)) {
         (Some(word), _) => word.to_owned(),
-        (None, Some(human)) => t.value_unrecognized_with_value(family, &human).to_string(),
+        (None, Some(human)) => t
+            .value_unrecognized_with_value(crate::text::team_msg::ValueUnrecognizedWithValue { family, value: &human })
+            .to_string(),
         (None, None) => t.value_unrecognized(family).to_string(),
     }
 }
@@ -181,9 +183,15 @@ fn MemberRow<'a>(t: TeamMsg, p: Pilot, member: &'a Membership, said: &'a Said) -
     let id = member.membership_id.as_str();
     let user = user_label(member);
     let account = account_label(&member.account_display_name, &member.account_name, &member.account_id);
-    let summary = t.page_membership_summary(role(t, &member.role_key), membership_status(t, &member.status)).to_string();
+    let summary = t
+        .page_membership_summary(crate::text::team_msg::PageMembershipSummary {
+            role: role(t, &member.role_key),
+            status: membership_status(t, &member.status),
+        })
+        .to_string();
     let title = t.page_revoke_confirm_title(user).to_string();
-    let description = t.page_revoke_confirm_description(user, account).to_string();
+    let description =
+        t.page_revoke_confirm_description(crate::text::team_msg::PageRevokeConfirmDescription { user, account }).to_string();
     let (title_id, text_id) = (format!("revoke-title-{id}"), format!("revoke-text-{id}"));
     let active = member.status == "active";
     html! {
@@ -246,9 +254,15 @@ fn InvitationRow<'a>(t: TeamMsg, p: Pilot, invitation: &'a Invitation, said: &'a
     let id = invitation.invitation_id.as_str();
     let email = invitation.email.as_str();
     let account = account_label(&invitation.account_display_name, &invitation.account_name, &invitation.account_id);
-    let summary = t.page_invitation_summary(role(t, &invitation.role_key), invitation_status(t, &invitation.status)).to_string();
+    let summary = t
+        .page_invitation_summary(crate::text::team_msg::PageInvitationSummary {
+            role: role(t, &invitation.role_key),
+            status: invitation_status(t, &invitation.status),
+        })
+        .to_string();
     let title = t.page_cancel_confirm_title(email).to_string();
-    let description = t.page_cancel_confirm_description(email, account).to_string();
+    let description =
+        t.page_cancel_confirm_description(crate::text::team_msg::PageCancelConfirmDescription { email, account }).to_string();
     let (title_id, text_id) = (format!("cancel-title-{id}"), format!("cancel-text-{id}"));
     let pending = invitation.status == "pending";
     html! {

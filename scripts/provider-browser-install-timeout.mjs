@@ -54,7 +54,10 @@ export async function resolveInstallerIdentity(
     !env.GH_TOKEN ||
     typeof env.RUNNER_NAME !== "string" ||
     !env.RUNNER_NAME ||
-    !["Static Checks", "Synthetic browser installer timeout"].includes(jobName)
+    !(
+      ["Static Checks", "Synthetic browser installer timeout"].includes(jobName) ||
+      /^E2E Tests \([a-z0-9_,-]+\)$/.test(jobName)
+    )
   ) {
     throw refuse("invalid-environment");
   }
@@ -267,7 +270,6 @@ export function runInstaller({
   let released = false;
   let abortListener;
   let spawned = false;
-  // Set only when no installer child ever started; callers must not retry it.
   let startRefused = false;
 
   return new Promise((resolve) => {
@@ -338,7 +340,6 @@ export function runInstaller({
     const releaseIfComplete = () => {
       if (!released && !stopping && !settled && installerStatus === 0 && (!requireComplete || complete) && !failure) {
         released = true;
-        clearTimeout(deadline);
         child.send("release");
       }
     };
@@ -393,9 +394,6 @@ export function runInstaller({
       }
       releaseIfComplete();
     });
-    // A spawn error arrives before "spawn" and leaves no child to clean up. A later
-    // error belongs to a started child, which may still be live: it takes the same
-    // TERM, grace and KILL barrier, and an error while stopping changes nothing.
     child.once("spawn", () => {
       spawned = true;
     });

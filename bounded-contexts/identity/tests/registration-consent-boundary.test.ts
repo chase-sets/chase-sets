@@ -65,9 +65,7 @@ function createServices() {
           : [],
       })),
     },
-    users: {
-      getUserBySocialLogin: vi.fn(async () => null),
-    },
+    users: {},
     policies: {
       // Cached document values are not Consent Activation Authority.
       resolvePolicy: vi.fn(async () => ({ value: { version: "v99" } })),

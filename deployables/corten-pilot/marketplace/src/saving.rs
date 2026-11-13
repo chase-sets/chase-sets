@@ -16,17 +16,22 @@
 //! sent twice is one addition. The form posts the page's address and the product it showed; the
 //! product's options are taken from the page the form was drawn as, not the form, and Collections
 //! checks the product against the catalog.
+//!
+//! A search result's Add to List posts `prepare` with the item's address (the search's option
+//! filters) and the search page it is on (`from`), as marketplace's `prepare-saved-list` does: an
+//! account gets the dialog for the product those filters name, which a script patches into the
+//! search page and which is otherwise the item page with it open; a guest the intent and
+//! registration, back to the search; a product whose options the filters do not name, the item
+//! page to choose them (marketplace's `options-required`). Add Product from that dialog goes back
+//! to the search page saying where the product went.
 use corten::{
-    axum::{
-        extract::State,
-        http::{HeaderMap, StatusCode, Uri, header},
-    },
+    extract::State,
+    http::{HeaderMap, StatusCode, Uri, header},
     prelude::*,
     security::cookie,
 };
 use serde::Serialize;
 
-use crate::chrome::Chrome;
 use crate::{
     api::{ApiError, Caller, Discovery as _, Item, RecentSavedList, SavedLists as _, Selected, segment},
     app::{Shared, sign_in_at, url},
@@ -70,6 +75,8 @@ pub struct SaveFields {
     line: String,
     new_list: String,
     new_list_command: String,
+    prepare: String,
+    from: String,
 }
 
 /// The names as text.
@@ -83,6 +90,10 @@ pub mod field {
     pub const LINE: &str = SaveFields::FIELDS.line.as_str();
     pub const NEW_LIST: &str = SaveFields::FIELDS.new_list.as_str();
     pub const NEW_LIST_COMMAND: &str = SaveFields::FIELDS.new_list_command.as_str();
+    /// `1`: a search result's Add to List, which asks for the dialog rather than adding.
+    pub const PREPARE: &str = SaveFields::FIELDS.prepare.as_str();
+    /// The page Add to List was asked from, when it is not the item page.
+    pub const FROM: &str = SaveFields::FIELDS.from.as_str();
 }
 
 /// The ids an addition is made with (`createSavedListAdditionTokens`), drawn with the form: the
@@ -125,6 +136,8 @@ pub struct SaveInput {
     pub title: String,
     pub quantity: String,
     pub tokens: Tokens,
+    /// The page the addition goes back to (`from`), empty for the item page.
+    pub from: String,
 }
 
 /// What the page's Add to List can do for the viewer.
@@ -324,17 +337,15 @@ async fn refused(
     input: SaveInput,
     message: String,
     status: StatusCode,
-    chrome: &Chrome,
 ) -> HtmlResult {
     let notice = BuyNotice::SaveRefused { message, input };
     let reads = PageReads { save: state(session, caller).await, ..Default::default() };
-    items::render(req, session, item, address, Some(&notice), status, reads, chrome.cart().await)
+    items::render(req, session, item, address, Some(&notice), status, reads)
 }
 
 /// Add to List's Add Product, and a guest's Add to List.
 pub(crate) async fn save(
     req: Req,
-    chrome: Chrome,
     session: Option<corten::Caller<Session>>,
     State(config): State<Shared>,
     headers: HeaderMap,
@@ -360,33 +371,62 @@ pub(crate) async fn save(
         Some(Session::Account(viewer)) => Some(viewer),
         _ => None,
     };
-    let screen = ItemScreen::of(item.clone(), &address, viewer.map(|v| v.actor.account_id.clone()));
-    let product_id = first(field::PRODUCT);
+    let prepare = first(field::PREPARE) == "1";
+    // A search result's Add to List names its product by the options it posts alone
+    // (`createDiscoveryProductDescriptor`), never the one the item page falls back to from its only
+    // listing: the screen is read as a filtered address. Redirects and the page keep `address`.
+    let named = if prepare { Address { filtered: true, ..address.clone() } } else { address.clone() };
+    let screen = ItemScreen::of(item.clone(), &named, viewer.map(|v| v.actor.account_id.clone()));
+    // A search result's: the page it is on, when this app serves it.
+    let from = corten::Local::parse(&first(field::FROM)).filter(|local| req.serves(local));
+    let surface = if from.is_some() { "search" } else { "item-detail" };
     let tokens = Tokens::read(first);
     let mut input = SaveInput {
         list: first(field::LIST),
         title: first(field::TITLE),
         quantity: first(field::QUANTITY),
         tokens: tokens.clone().unwrap_or_else(Tokens::new),
+        from: from.as_ref().map(ToString::to_string).unwrap_or_default(),
     };
     let unprocessable = StatusCode::UNPROCESSABLE_ENTITY;
-    if product_id.is_empty() || screen.product_id.as_deref() != Some(product_id.as_str()) {
-        let message = t.saved_api_product_invalid().to_owned();
-        return refused(&req, session, &caller, item, &address, input, message, unprocessable, &chrome).await;
-    }
+    let product_id = match (prepare, screen.product_id.clone()) {
+        // Only a product the filters name in full (`createDiscoveryProductDescriptor`), not the one
+        // the page would fall back to from its best listing.
+        (true, Some(product_id)) if screen.complete => product_id,
+        // Options the search's filters do not name: the item page, to choose them.
+        (true, _) => {
+            let slug = item.slug.as_deref().unwrap_or(&slug);
+            return req.redirect(&url::Item { slug, state: address, after: Default::default() });
+        }
+        (false, shown) => {
+            let product_id = first(field::PRODUCT);
+            if product_id.is_empty() || shown.as_deref() != Some(product_id.as_str()) {
+                let message = t.saved_api_product_invalid().to_owned();
+                return refused(&req, session, &caller, item, &address, input, message, unprocessable).await;
+            }
+            product_id
+        }
+    };
     let product =
         Product { catalog_item_id: &item.catalog_item_id, product_id: &product_id, selected_options: &screen.product_options };
     let Some(viewer) = viewer else {
         // No one signed in: the intent, then marketplace's registration, which claims it on the
-        // way back to marketplace's item page.
-        let source =
-            url::Item { slug: item.slug.as_deref().unwrap_or(&slug), state: address.clone(), after: Default::default() }.href();
+        // way back to the page it was asked from (marketplace's item page, or its search).
+        let source = match &from {
+            Some(from) => from.to_string(),
+            None => url::Item { slug: item.slug.as_deref().unwrap_or(&slug), state: address.clone(), after: Default::default() }
+                .href(),
+        };
         let label = product_label(&screen);
-        let intent = IntentRequest { source_path: &source, source_surface: "item-detail", product, product_summary: &label };
+        let intent = IntentRequest { source_path: &source, source_surface: surface, product, product_summary: &label };
         let owner = guest_owner(&headers);
         let intent = match caller.saved_list_intent(&owner, &intent).await {
             Ok(intent) => intent,
-            Err(error) => return refusal(&req, session, &caller, item, &address, input, error, &chrome).await,
+            // From a search result: back to the search saying why, not the item page in its place.
+            Err(error) => match (&from, error.refusal()) {
+                (Some(from), Some(message)) => return req.redirect_with_notice(from, message.to_owned()),
+                _ => return refusal(&req, session, &caller, item, &address, input, error).await,
+            },
         };
         let to: Uri = register_href(&source, &intent.intent_id).parse().map_err(corten::Error::new)?;
         let mut res = req.redirect(&to)?;
@@ -395,19 +435,22 @@ pub(crate) async fn save(
         res.headers_mut().append(header::SET_COOKIE, keep.header());
         return Ok(res);
     };
+    if prepare {
+        let save = state(session, &caller).await;
+        return opened(&req, session, item, &address, &screen, save, &product_id, input).await;
+    }
     if !viewer.actor.can(ACCOUNTS_VIEW) {
         let message = t.saved_api_account_forbidden().to_owned();
-        return refused(&req, session, &caller, item, &address, input, message, StatusCode::FORBIDDEN, &chrome).await;
+        return refused(&req, session, &caller, item, &address, input, message, StatusCode::FORBIDDEN).await;
     }
     // A form without its ids is not one the page drew (or one from before the ids): drawn again
     // with new ones, nothing sent.
     if tokens.is_none() {
-        return refused(&req, session, &caller, item, &address, input, p.check_attempt().to_owned(), unprocessable, &chrome)
-            .await;
+        return refused(&req, session, &caller, item, &address, input, p.check_attempt().to_owned(), unprocessable).await;
     }
     let Some(tracked) = quantity(&input.quantity) else {
         let message = p.item_saved_quantity_invalid().to_owned();
-        return refused(&req, session, &caller, item, &address, input, message, unprocessable, &chrome).await;
+        return refused(&req, session, &caller, item, &address, input, message, unprocessable).await;
     };
     let destination = if input.list == NEW_LIST {
         match title(&input.title) {
@@ -416,12 +459,12 @@ pub(crate) async fn save(
             }
             None => {
                 let message = p.item_saved_title_required().to_owned();
-                return refused(&req, session, &caller, item, &address, input, message, unprocessable, &chrome).await;
+                return refused(&req, session, &caller, item, &address, input, message, unprocessable).await;
             }
         }
     } else if input.list.is_empty() {
         let message = p.item_saved_choose_list().to_owned();
-        return refused(&req, session, &caller, item, &address, input, message, unprocessable, &chrome).await;
+        return refused(&req, session, &caller, item, &address, input, message, unprocessable).await;
     } else {
         Destination::Existing { list_id: &input.list }
     };
@@ -431,9 +474,30 @@ pub(crate) async fn save(
         line_id: &input.tokens.line,
         product,
         tracked_quantity: tracked,
-        source_surface: "item-detail",
+        source_surface: surface,
     };
     match caller.add_to_saved_list(&addition).await {
+        Ok((added, receipt)) if from.is_some() => {
+            // Back to the search, saying where the product went: a new list by the title typed,
+            // a recent one by the title the picker reads.
+            let _ = receipt;
+            let title = if input.list == NEW_LIST {
+                Some(input.title.trim().to_owned())
+            } else {
+                caller
+                    .recent_saved_lists()
+                    .await
+                    .inspect_err(|error| tracing::warn!("the recent Saved Lists were not read for the notice: {error}"))
+                    .ok()
+                    .and_then(|lists| lists.into_iter().find(|l| l.list_id == added.list_id))
+                    .map(|l| l.title)
+            };
+            let said = match title {
+                Some(title) => t.saved_success_title(&title).to_string(),
+                None => p.item_saved_to_list().to_owned(),
+            };
+            req.redirect_with_notice(from.as_ref().expect("matched"), said)
+        }
         Ok((added, receipt)) => {
             let receipt = receipt.map(|r| r.param()).unwrap_or_default();
             let slug = item.slug.as_deref().unwrap_or(&slug);
@@ -450,7 +514,12 @@ pub(crate) async fn save(
             })
         }
         Err(error) if error.status() == Some(StatusCode::UNAUTHORIZED) => {
-            match sign_in_at(&url::Item { slug: &slug, state: address, after: Default::default() }.href()) {
+            // Back to the search the form was sent from, else the item page.
+            let back = match &from {
+                Some(from) => from.to_string(),
+                None => url::Item { slug: &slug, state: address, after: Default::default() }.href(),
+            };
+            match sign_in_at(&back) {
                 Some(to) => req.redirect(&to),
                 None => Err(corten::Error::status(StatusCode::INTERNAL_SERVER_ERROR)),
             }
@@ -458,9 +527,42 @@ pub(crate) async fn save(
         Err(error) => {
             // A new list's title stays as typed; the ids stay, so trying again is the same addition.
             input.title = input.title.trim().to_owned();
-            refusal(&req, session, &caller, item, &address, input, error, &chrome).await
+            refusal(&req, session, &caller, item, &address, input, error).await
         }
     }
+}
+
+/// A search result's Add to List for an account: with a script, the dialog (`SaveToListId`) the search
+/// page has empty, open; without, the item page with it open. Its form goes back to `input.from`.
+#[allow(clippy::too_many_arguments)]
+async fn opened(
+    req: &Req,
+    session: Option<&Session>,
+    item: Item,
+    address: &Address,
+    screen: &ItemScreen,
+    save: SaveState,
+    product: &str,
+    input: SaveInput,
+) -> HtmlResult {
+    if req.mode == corten::Mode::Action {
+        let t: ItemMsg = req.t();
+        let (label, page) = (product_label(screen), address.pairs());
+        let action = url::ItemSave { slug: item.slug.as_deref().unwrap_or(&item.catalog_item_id) }.href();
+        let dialog = views::SaveDialog {
+            t,
+            save: Some(&save),
+            label: &label,
+            product,
+            page: &page,
+            action: &action,
+            input: Some(&input),
+            message: None,
+        };
+        return req.patch(dialog);
+    }
+    let reads = PageReads { save, ..Default::default() };
+    items::render(req, session, item, address, Some(&BuyNotice::SaveOpen { input }), StatusCode::OK, reads)
 }
 
 /// A write the API refused shows its reason in the dialog; anything else is the API failing.
@@ -473,12 +575,11 @@ async fn refusal(
     address: &Address,
     input: SaveInput,
     error: ApiError,
-    chrome: &Chrome,
 ) -> HtmlResult {
     match error.refusal() {
         Some(message) => {
             let message = message.to_owned();
-            refused(req, session, caller, item, address, input, message, StatusCode::UNPROCESSABLE_ENTITY, chrome).await
+            refused(req, session, caller, item, address, input, message, StatusCode::UNPROCESSABLE_ENTITY).await
         }
         None => Err(corten::Error::new(error).with_status(StatusCode::BAD_GATEWAY)),
     }

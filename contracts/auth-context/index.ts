@@ -58,6 +58,14 @@ export type ResolvedActor = Readonly<{
    * carry grants (guest checkout, UCP/agent bearer tokens).
    */
   capabilityAssignments?: readonly ResolvedActorCapabilityAssignment[];
+  /**
+   * What backs `sessionId`, set by the Auth resolver that built this actor:
+   * a real Auth Session stream, a guest-checkout token (`guest:<token>`), or a
+   * linked-platform/UCP grant (`ucp:<authorization>`). Only a real Auth
+   * Session can be the current Session; read it through
+   * `currentAuthSessionIdOf`, never from the ID's shape.
+   */
+  sessionProvenance?: AuthSessionProvenance;
 }>;
 
 export type ResolvedActorCapabilityAssignment = Readonly<{
@@ -65,6 +73,38 @@ export type ResolvedActorCapabilityAssignment = Readonly<{
   assignmentId: string;
   version: number;
 }>;
+
+export const AUTH_SESSION_PROVENANCES = ["auth-session", "guest-checkout", "linked-platform"] as const;
+export type AuthSessionProvenance = (typeof AUTH_SESSION_PROVENANCES)[number];
+
+export const GUEST_CHECKOUT_SESSION_ID_PREFIX = "guest:";
+export const LINKED_PLATFORM_SESSION_ID_PREFIX = "ucp:";
+
+/** True for the synthetic actor handles guest-checkout and linked-platform actors carry as `sessionId`. */
+export function isSyntheticAuthSessionId(sessionId: string): boolean {
+  return (
+    sessionId.startsWith(GUEST_CHECKOUT_SESSION_ID_PREFIX) || sessionId.startsWith(LINKED_PLATFORM_SESSION_ID_PREFIX)
+  );
+}
+
+/**
+ * The actor's current real Auth Session, or `null`. Only an actor
+ * Auth resolved from a real Session stream has one; guest-checkout and
+ * linked-platform actors, an actor without provenance, and a real-provenance
+ * actor carrying a synthetic or empty ID never do, so none of them can be
+ * listed, preserved, or acted on as the current Session.
+ */
+export function currentAuthSessionIdOf(
+  actor: Pick<ResolvedActor, "sessionId" | "sessionProvenance"> | null | undefined,
+): string | null {
+  if (actor?.sessionProvenance !== "auth-session") {
+    return null;
+  }
+  const { sessionId } = actor;
+  return typeof sessionId === "string" && sessionId.length > 0 && !isSyntheticAuthSessionId(sessionId)
+    ? sessionId
+    : null;
+}
 
 /**
  * The recent-authentication ("step-up") outcome for a sensitive action, per
@@ -121,7 +161,7 @@ export const PERMISSION_KEYS = [
   "commercial-terms.agreements.manage",
   "commercial-terms.manage",
   "commercial-terms.view",
-  // Customer Feedback attention checks this; no role grants it.
+  // Sensitive Customer Feedback exports require this distinct staff capability.
   "customer-feedback.privacy.export-sensitive-feedback",
   "fulfillment.manage",
   "fulfillment.view",
@@ -231,6 +271,7 @@ export const ROLE_PERMISSIONS = {
     "commercial-terms.agreements.manage",
     "commercial-terms.manage",
     "commercial-terms.view",
+    "customer-feedback.privacy.export-sensitive-feedback",
     "google-shopping.manage",
     "google-shopping.view",
     "listing-evidence-policy.activate",
@@ -435,7 +476,7 @@ export function permissionAwaitsEmailVerification(
 
 /** Sign-in return marker naming the withheld action a member verifies their email to finish. */
 export const EMAIL_VERIFICATION_RETURN_PARAMETER = "verifyEmail";
-export type EmailVerificationPurpose = "cancel-purchase";
+export type EmailVerificationPurpose = "cancel-purchase" | "pay-checkout";
 
 /**
  * The marketplace sign-in path that emails a magic link and, once the link is

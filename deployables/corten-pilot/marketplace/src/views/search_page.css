@@ -7,14 +7,6 @@
   gap: var(--space-4);
   min-width: 0;
 }
-.visually-hidden {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  clip-path: inset(50%);
-  white-space: nowrap;
-}
 .muted {
   margin: 0;
   color: var(--color-text-secondary);
@@ -72,17 +64,6 @@
 }
 .words label {
   flex: 1;
-  min-width: 0;
-}
-.words input {
-  width: 100%;
-  min-height: 2.75rem;
-  padding: var(--control-py) var(--control-px);
-  border: 1px solid var(--color-input);
-  border-radius: var(--radius-md);
-  background: var(--color-surface);
-  color: var(--color-text);
-  font: inherit;
 }
 
 .controls {
@@ -480,6 +461,14 @@
   padding: var(--space-1) var(--space-3);
   font-size: 0.875rem;
 }
+/* Add to List's form, whose button sits among the intents. */
+.save {
+  display: contents;
+}
+/* Add matching products to Buy Cart's form, whose button sits among the controls. */
+.bulk {
+  display: contents;
+}
 
 /* The home page's shelf: featured categories (1, 2 from md, 4 from xl) and new arrivals (1, 2
    from lg, 3 from 2xl), as marketplace's grids are. */
@@ -531,7 +520,7 @@
   margin-top: auto;
 }
 
-@media (min-width: 48rem) {
+@media (--md) {
   .card {
     grid-template-columns: 10.25rem minmax(0, 1fr);
   }
@@ -549,11 +538,15 @@
   .arrivals {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
-  /* The dialog drawn in place as the rail: a closed dialog is only hidden by display. */
+  /* The dialog drawn in place as the rail, by the rule Corten's styles guide gives for a closed
+     dialog drawn from a breakpoint: components.css hides a closed dialog with !important, and
+     this one outranks it while leaving a rail hidden with `hidden` hidden. */
+  .filters:not([open], [hidden]) {
+    display: block !important;
+  }
   .filters {
     position: sticky;
     top: var(--space-4);
-    display: block;
     height: auto;
     max-height: calc(100vh - 2 * var(--space-4));
     overflow-y: auto;

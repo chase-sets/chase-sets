@@ -13,8 +13,8 @@ platform image; do not add a `Dockerfile` here, since `deployables/*/Dockerfile`
 PR build and preview the platform. Business
 rules stay in the platform API; the pilot checks only the shape of what it sends. A gap another
 Corten app would hit goes to Corten (one issue per gap, with a repro in one of its `examples/`
-apps); a workaround here links to it. Move the Corten pin in `Cargo.toml` only on purpose, in its
-own commit that says why. Run `node --import tsx deployables/corten-pilot/scripts/export.mjs`
+apps); a workaround here links to it. Move the Corten pin in `Cargo.toml` forward to Corten's latest
+`main` whenever it moves, in its own commit that says why. Run `node --import tsx deployables/corten-pilot/scripts/export.mjs`
 before building (it writes two files that are not committed) and with `--check` after changing
 text, nav or tokens the pilot exports.
 

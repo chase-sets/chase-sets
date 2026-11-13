@@ -24,7 +24,7 @@
   font: 600 2.25rem/1.15 var(--font-display);
   overflow-wrap: anywhere;
 }
-@media (min-width: 48rem) {
+@media (--md) {
   .title {
     font-size: 3rem;
   }
@@ -88,7 +88,7 @@
   border-radius: var(--radius-lg);
   background: var(--color-surface-2);
 }
-@media (min-width: 48rem) {
+@media (--md) {
   .card {
     padding: var(--space-5);
   }
@@ -117,11 +117,8 @@
 .link-row .input {
   flex: 1 1 14rem;
 }
-/* corten-ui's CopyButton, styled through its wrapper as a secondary button. */
+/* corten-ui's CopyButton, as a secondary button. */
 .copy-link {
-  display: contents;
-}
-.copy-link > button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -135,13 +132,10 @@
   font: 600 0.875rem/1.25 var(--font-body);
   cursor: pointer;
 }
-.copy-link > button[hidden] {
-  display: none;
-}
-.copy-link > button:hover {
+.copy-link:hover {
   border-color: var(--color-border-strong);
 }
-.copy-link > button:focus-visible {
+.copy-link:focus-visible {
   outline: 2px solid var(--color-ring);
   outline-offset: 2px;
 }
@@ -170,34 +164,6 @@
   gap: var(--space-2);
   font-size: 0.875rem;
   font-weight: 600;
-}
-.bar {
-  width: 100%;
-  height: 0.5rem;
-  border: 0;
-  border-radius: 999px;
-  background: var(--color-surface-3);
-  accent-color: var(--color-primary);
-  appearance: none;
-  overflow: hidden;
-}
-.bar::-webkit-progress-bar {
-  background: var(--color-surface-3);
-  border-radius: 999px;
-}
-.bar::-webkit-progress-value {
-  background: var(--color-primary);
-  border-radius: 999px;
-}
-.bar::-moz-progress-bar {
-  background: var(--color-primary);
-  border-radius: 999px;
-}
-.done::-webkit-progress-value {
-  background: var(--color-success);
-}
-.done::-moz-progress-bar {
-  background: var(--color-success);
 }
 .badge {
   justify-self: start;
@@ -294,7 +260,7 @@
   display: grid;
   gap: var(--space-3);
 }
-@media (min-width: 48rem) {
+@media (--md) {
   .fields {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     align-items: start;
