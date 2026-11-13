@@ -29,7 +29,7 @@ const publishedEffectiveAt = "2026-09-01T00:00:00.000Z";
 const invalidEffectiveAts = ["not-a-date", "2026-09-01", "2026-09-01T00:00:00", "2026-02-31T00:00:00.000Z"] as const;
 
 const payoutPanelProps: Parameters<typeof SettlementPayoutRequestPanel>[0] = {
-  canRequestPayouts: true,
+  availability: { can_request: true, unavailable_reasons: [], unavailable_reason_details: [] },
   quickAmounts: {
     currency_code: "usd",
     minimum_amount: "5.00",
@@ -47,27 +47,6 @@ const payoutPanelProps: Parameters<typeof SettlementPayoutRequestPanel>[0] = {
     negative_balance_started_at: null,
     collections_escalated_at: null,
     opened_at: "2026-09-01T00:00:00.000Z",
-    updated_at: "2026-09-01T00:00:00.000Z",
-  },
-  payoutReadiness: {
-    account_id: "synthetic-payout-disclosure-account",
-    status: "ready",
-    missing_requirements: [],
-    advisory_requirements: [],
-    disabled_reason: null,
-    requirements_deadline: null,
-    provider_reference: "synthetic-provider-account",
-    contact_email: null,
-    onboarding_status: "complete",
-    transfer_capability_status: "active",
-    payout_capability_status: "active",
-    payout_destination_status: "ready",
-    payout_destination_fingerprint: null,
-    payout_destination_changed_at: null,
-    payout_account_dashboard: "none",
-    losses_collector: "application",
-    fees_collector: "application",
-    requirements_collector: "application",
     updated_at: "2026-09-01T00:00:00.000Z",
   },
 };

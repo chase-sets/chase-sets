@@ -56,6 +56,14 @@ const data: PricingHealthData = {
 };
 
 describe("Pricing Health page states", () => {
+  it("renders an unavailable what-if chart while retaining verdict, comparison and grades (F2)", () => {
+    const html = renderToStaticMarkup(<PricingHealthPage data={{ ...data, whatIf: { status: "unavailable" } }} />);
+    expect(html).toContain("Chart unavailable");
+    expect(html).toContain("S1 ");
+    expect(html).toContain("Compare goals");
+    expect(html).toContain("Forecast Grade");
+    expect(html).not.toContain("[missing:");
+  });
   it("renders every S1-S9 field, currencies, unavailable economics, provenance and freshness without missing translations", () => {
     const html = renderToStaticMarkup(<PricingHealthPage data={data} />);
     for (let stat = 1; stat <= 9; stat++) expect(html).toContain(`S${stat} `);

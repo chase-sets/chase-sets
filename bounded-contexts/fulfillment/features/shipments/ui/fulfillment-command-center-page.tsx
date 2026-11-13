@@ -82,24 +82,10 @@ function itemTitle(item: FulfillmentCommandCenterItem) {
   return t("fulfillment.features.shipments.ui.commandCenter.shipment", { reference: item.displayReference });
 }
 
+// An action form posts only which shipment it is for: the Fulfillment API decides the action's
+// legality against the shipment's stored state, not the state this page was drawn with.
 function HiddenState({ item }: { item: FulfillmentCommandCenterItem }) {
-  return (
-    <>
-      <HiddenInput type="hidden" name="shipmentId" value={item.shipmentId} readOnly />
-      <HiddenInput type="hidden" name="status" value={item.status} readOnly />
-      <HiddenInput type="hidden" name="labelStatus" value={item.labelStatus} readOnly />
-      <HiddenInput
-        type="hidden"
-        name="hasOrderCancellationConflict"
-        value={String(
-          item.conflicts.some(
-            (conflict) => conflict.conflict_kind === "cancellation" && conflict.origin === "order-cancelled",
-          ),
-        )}
-        readOnly
-      />
-    </>
-  );
+  return <HiddenInput type="hidden" name="shipmentId" value={item.shipmentId} readOnly />;
 }
 
 // A single disclosed action rendered as its own inline form so it resolves in place over

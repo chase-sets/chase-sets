@@ -97,16 +97,6 @@ const plannedCatalogTools: readonly McpToolDescriptor[] = [
     "catalog-item",
     ["Use before mapping inventory, listings, or pricing to a canonical catalog item."],
   ),
-  readTool(
-    "catalog",
-    "get-blueprint",
-    "Get Blueprint",
-    "Read blueprint dimensions, components, and product resolution rules.",
-    "catalog.view",
-    objectSchema({ blueprintId: stringProperty("Blueprint identifier.") }, ["blueprintId"]),
-    "blueprint",
-    ["Use to understand valid product metadata and dimensions."],
-  ),
   writeTool(
     "catalog",
     "publish-item",
@@ -119,7 +109,174 @@ const plannedCatalogTools: readonly McpToolDescriptor[] = [
   ),
 ];
 
+const blueprintQuery = {
+  search: stringProperty("Blueprint search term."),
+  status: stringProperty("Blueprint lifecycle status."),
+  hasComponents: stringProperty("Filter by component presence: true or false."),
+  hasFieldRules: stringProperty("Filter by field-rule presence: true or false."),
+  hasDimensionRules: stringProperty("Filter by dimension-rule presence: true or false."),
+};
+const blueprintId = { blueprintId: stringProperty("Blueprint identifier.") };
+const localizedText = {
+  ...objectSchema({ defaultLocale: stringProperty("Default locale."), values: unknownObject("Text by locale.") }, [
+    "defaultLocale",
+    "values",
+  ]),
+  description: "Localized text map.",
+};
+const blueprintMetadata = { key: stringProperty("Blueprint key."), name: localizedText, description: localizedText };
+const blueprintSelection = {
+  ...objectSchema(
+    {
+      mode: stringProperty("Selection mode.", ["ids", "filter"]),
+      ids: arrayProperty("Explicit Blueprint identifiers.", stringProperty("Blueprint identifier.")),
+      query: { ...objectSchema(blueprintQuery), description: "Matching Blueprints; incomplete scans fail visibly." },
+    },
+    ["mode"],
+  ),
+  description: "ids mode requires ids; filter mode requires query. Branches are exclusive.",
+};
+const blueprintBulk = {
+  action: stringProperty("Lifecycle action.", ["publish", "deprecate", "archive"]),
+  selection: blueprintSelection,
+};
+const blueprintWrite = (
+  name: string,
+  title: string,
+  properties: Parameters<typeof objectSchema>[0] = {},
+  required: readonly string[] = [],
+  risk: "sensitive" | "destructive" = "sensitive",
+) => ({
+  ...opWrite(
+    name,
+    title,
+    "catalog.manage",
+    {
+      ...blueprintId,
+      ...properties,
+      ...writeFields,
+      confirmed: booleanProperty("Confirm this exact action."),
+    },
+    ["blueprintId", ...required, ...writeRequired],
+    "blueprint",
+  ),
+  risk,
+});
+
+const blueprintTools: readonly McpToolDescriptor[] = [
+  opRead(
+    "list-blueprints",
+    "List Blueprints",
+    "catalog.view",
+    {
+      ...blueprintQuery,
+      limit: { type: "number", description: "Original list page limit." },
+      offset: { type: "number", description: "Original list page offset." },
+    },
+    [],
+    "blueprint",
+  ),
+  opRead("get-blueprint", "Get Blueprint", "catalog.view", blueprintId, ["blueprintId"], "blueprint"),
+  opRead(
+    "get-authoring-job",
+    "Get Authoring Job",
+    "catalog.view",
+    { jobId: stringProperty("Authoring job identifier.") },
+    ["jobId"],
+    "authoring-job",
+  ),
+  opRead(
+    "preview-bulk-blueprint-lifecycle",
+    "Preview Bulk Blueprint Lifecycle",
+    "catalog.manage",
+    blueprintBulk,
+    ["action", "selection"],
+    "blueprint",
+  ),
+  {
+    ...opWrite(
+      "confirm-bulk-blueprint-lifecycle",
+      "Confirm Bulk Blueprint Lifecycle",
+      "catalog.manage",
+      {
+        ...blueprintBulk,
+        ...writeFields,
+        confirmed: booleanProperty("Confirm this exact action."),
+      },
+      ["action", "selection", ...writeRequired],
+      "blueprint",
+    ),
+    risk: "destructive",
+  },
+  blueprintWrite("create-blueprint", "Create Blueprint", blueprintMetadata, ["key", "name"]),
+  blueprintWrite("revise-blueprint", "Revise Blueprint", blueprintMetadata, ["key", "name"]),
+  blueprintWrite("attach-component", "Attach Component", { componentId: stringProperty("Component identifier.") }, [
+    "componentId",
+  ]),
+  blueprintWrite(
+    "detach-component",
+    "Detach Component",
+    { componentId: stringProperty("Component identifier.") },
+    ["componentId"],
+    "destructive",
+  ),
+  blueprintWrite(
+    "set-blueprint-fields",
+    "Set Blueprint Fields",
+    {
+      fieldRules: arrayProperty("Blueprint field rules.", {
+        ...objectSchema(
+          { fieldId: stringProperty("Field identifier."), required: booleanProperty("Whether the field is required.") },
+          ["fieldId", "required"],
+        ),
+        description: "A field rule.",
+      }),
+    },
+    ["fieldRules"],
+  ),
+  blueprintWrite(
+    "set-blueprint-dimensions",
+    "Set Blueprint Dimensions",
+    {
+      dimensionRules: arrayProperty("Blueprint dimension rules.", {
+        ...objectSchema(
+          {
+            dimensionId: stringProperty("Dimension identifier."),
+            required: booleanProperty("Whether the dimension is required."),
+            allowedOptionIds: arrayProperty("Allowed options.", stringProperty("Option identifier.")),
+            appliesWhen: arrayProperty("Conditional dimension applicability.", {
+              ...objectSchema(
+                {
+                  dimensionId: stringProperty("Condition dimension identifier."),
+                  optionIds: arrayProperty("Condition options.", stringProperty("Option identifier.")),
+                },
+                ["dimensionId", "optionIds"],
+              ),
+              description: "An applicability clause.",
+            }),
+          },
+          ["dimensionId", "required", "allowedOptionIds"],
+        ),
+        description: "A dimension rule.",
+      }),
+    },
+    ["dimensionRules"],
+  ),
+  blueprintWrite(
+    "set-blueprint-product-resolution-rules",
+    "Set Blueprint Product Resolution Rules",
+    {
+      canonicalDimensionOrder: arrayProperty("Canonical dimension order.", stringProperty("Dimension identifier.")),
+    },
+    ["canonicalDimensionOrder"],
+  ),
+  blueprintWrite("publish-blueprint", "Publish Blueprint"),
+  blueprintWrite("deprecate-blueprint", "Deprecate Blueprint"),
+  blueprintWrite("archive-blueprint", "Archive Blueprint", {}, [], "destructive"),
+];
+
 const tools: readonly McpToolDescriptor[] = [
+  ...blueprintTools,
   opRead(
     "list-provider-refresh-schedules",
     "List Provider Refresh Schedules",

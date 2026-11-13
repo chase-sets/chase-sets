@@ -59,7 +59,7 @@ export type DiscoveryItemSearchServices = Readonly<{
   suggestItems: (query: string, limit?: number) => Promise<DiscoverySearchSuggestion[]>;
   searchItems: (
     params?: DiscoverySearchParams,
-    options?: Readonly<{ signal?: AbortSignal }>,
+    options?: Readonly<{ signal?: AbortSignal; correlationId?: string }>,
   ) => Promise<DiscoverySearchInvocationResult>;
   previewBulkAdd: (params?: DiscoverySearchParams) => Promise<DiscoveryBulkCartPreview>;
   rebuildSearchIndex: (db: PgQueryable) => Promise<void>;
@@ -76,6 +76,7 @@ export type DiscoverySearchRetrievalOptions = Readonly<{
   hybridEnabled?: boolean;
   recordSearchQuery?: (signal: DiscoverySearchQuerySignal) => void;
   recordQueryEmbeddingLoad?: (observation: QueryEmbeddingLoadObservation) => void;
+  recordSearchRetrievalFailure?: (event: Readonly<{ correlationId?: string; error: unknown }>) => void;
 }>;
 
 export function createDiscoveryItemSearchRuntime(
@@ -115,6 +116,16 @@ export function createDiscoveryItemSearchRuntime(
       try {
         result = await retrieveDiscoveryItems(retrievalDependencies, params);
         return { ...result, queryHash, resultSetKey };
+      } catch (error) {
+        try {
+          retrieval.recordSearchRetrievalFailure?.({
+            correlationId: options.correlationId,
+            error,
+          });
+        } catch {
+          // Failure observability must never replace the original retrieval error.
+        }
+        throw error;
       } finally {
         try {
           retrieval.recordSearchQuery?.({

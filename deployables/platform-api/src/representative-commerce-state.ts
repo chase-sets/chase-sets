@@ -270,6 +270,7 @@ export type RepresentativeCommerceStateEvidence = Readonly<{
   representativeListingAccountCount: number;
   representativeOfferCount: number;
   representativeOfferBuyerAccountCount: number;
+  representativeOfferSkippedCount: number;
   representativeAcceptedOfferCount: number;
   representativeAcceptedOfferSkippedCount: number;
   representativeOrderingSupplyState: unknown;
@@ -547,6 +548,7 @@ export async function runRepresentativeCommerceState(
     const offers = await runStep("submit representative offers", () =>
       submitRepresentativeOffers(getMarketplaceServices(runtime.services), inventoryStock),
     );
+    const submittedOffers = offers.filter((offer) => offer.status !== "skipped");
     await syncProjection("marketplace", "marketplace-offer-projection");
     const acceptedOffers = await runStep("accept representative offers", () =>
       acceptRepresentativeOffers(getMarketplaceServices(runtime.services), inventoryStock),
@@ -591,7 +593,7 @@ export async function runRepresentativeCommerceState(
         { discoveryDb: getDiscoveryDb(runtime.services) },
         {
           listingIds: listings.map((listing) => listing.listingId),
-          offerIds: offers.map((offer) => offer.offerId),
+          offerIds: submittedOffers.map((offer) => offer.offerId),
         },
       ),
     );
@@ -627,8 +629,9 @@ export async function runRepresentativeCommerceState(
       representativeInventoryStockAccountCount: new Set(inventoryStock.map((stock) => stock.accountId)).size,
       representativeListingCount: listings.length,
       representativeListingAccountCount: new Set(listings.map((listing) => listing.accountId)).size,
-      representativeOfferCount: offers.length,
-      representativeOfferBuyerAccountCount: new Set(offers.map((offer) => offer.buyerAccountId)).size,
+      representativeOfferCount: submittedOffers.length,
+      representativeOfferBuyerAccountCount: new Set(submittedOffers.map((offer) => offer.buyerAccountId)).size,
+      representativeOfferSkippedCount: offers.length - submittedOffers.length,
       representativeAcceptedOfferCount: acceptedOffers.filter(
         (offer) => offer.status === "accepted" || offer.status === "already-accepted",
       ).length,

@@ -41,6 +41,11 @@ export {
   type TimeSeriesCurve,
   type TimeSeriesSeries,
   type TimeSeriesChartProps,
+  NumericSeriesChart,
+  type NumericSeries,
+  type NumericSeriesPoint,
+  type NumericSeriesMarker,
+  type NumericSeriesChartProps,
   type ChartTone,
 } from "./chart";
 export {

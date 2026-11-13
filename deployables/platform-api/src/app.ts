@@ -1,4 +1,4 @@
-import { Hono, type Context, type Next } from "hono";
+import { Hono } from "hono";
 import { createCheckoutClosedMiddleware } from "./middleware/checkout-closed";
 import { module as authModule } from "@chase-sets/auth";
 import type { ShipmentGroupAdmissionAuthority } from "@chase-sets/order-groups";
@@ -10,6 +10,7 @@ import {
   fenceAgentGrantActor,
   createConnectorOAuthService,
   UCP_OAUTH_SUPPORTED_SCOPES,
+  type ReceiptLookupActorOptions,
 } from "@chase-sets/auth/server";
 import {
   createCheckoutUcpHandlers,
@@ -35,9 +36,11 @@ import {
   discoveryRealtimeTopicPolicyManifest,
 } from "@chase-sets/discovery/server";
 import {
+  catalogApiPermissionMiddleware,
   catalogRealtimeManifest,
   createCatalogProviderConnectionsReadSource,
   type CatalogServices,
+  type CatalogOperatorAuthority,
   catalogRealtimeTopicPolicyManifest,
   resolveCatalogProductSelection,
 } from "@chase-sets/catalog/server";
@@ -214,13 +217,13 @@ import {
 import {
   createIdentityAuthMiddleware,
   createPlatformActorMiddleware,
+  createReceiptLookupActorMiddleware,
   type AnonymousRouteDeclaration,
   type PlatformActorResolver,
   type TenantContextEnv,
 } from "./middleware/auth-context";
 import type { PlatformApiRuntimeProfile } from "@chase-sets/platform-runtime/runtime-profiles";
 import { errorHandler } from "@chase-sets/platform-runtime/error-handler";
-import { authenticationRequiredResponse, forbiddenResponse } from "@chase-sets/http/responses";
 import type { PolicyDefinition } from "@chase-sets/platform-policy/define-policy";
 import { createPolicyResolver } from "@chase-sets/platform-policy/resolver";
 import { listActivePolicyDocuments } from "@chase-sets/platform-policy/queries";
@@ -290,6 +293,7 @@ export type BuildPlatformApiOptions = Readonly<{
   getProjectionReplay?: () => HealthProjectionReplaySummary | Promise<HealthProjectionReplaySummary>;
   readinessChecks?: readonly ReadinessCheck[];
   resolveActor?: PlatformActorResolver;
+  receiptLookupActor?: Omit<ReceiptLookupActorOptions, "canonicalAdminOrigin">;
   realtimeObserver?: RealtimeObserver;
   realtimeResourceLimits?: RealtimeResourceLimits;
   realtimeRouteTuning?: RealtimeRouteTuning;
@@ -418,6 +422,10 @@ export function createPlatformApiHost(
       return identity.memberships.getMembershipState(membershipId);
     },
   });
+  const catalogOperatorAuthority: CatalogOperatorAuthority = {
+    forActor: operatorAuthority,
+    forGrantCreator: operatorAuthority.forGrantCreator,
+  };
   const termsAcceptanceResolver = identityPool ? createIdentityTermsAcceptanceResolver(identityPool) : undefined;
   const walletFundingEligibilityResolver: WalletFundingEligibilityResolver | undefined = identityPool
     ? createIdentityWalletFundingEligibilityResolver(identityPool)
@@ -630,13 +638,7 @@ export function createPlatformApiHost(
       ? { sources: supportReferenceLookupCrossContextSources }
       : undefined;
   const draftListingCreator: InventoryDraftListingCreator = async (params, context) => {
-    const marketplaceServices = runtime?.services.marketplace as
-      | {
-          listings?: {
-            createBatchDraftListingFromInventorySnapshot?: InventoryDraftListingCreator;
-          };
-        }
-      | undefined;
+    const marketplaceServices = runtime?.services.marketplace as MarketplaceServices | undefined;
     const createDraft = marketplaceServices?.listings?.createBatchDraftListingFromInventorySnapshot;
     if (!createDraft) {
       throw new Error("Marketplace draft listing service is unavailable.");
@@ -728,6 +730,7 @@ export function createPlatformApiHost(
       savedListAnalyticsRecorder: createSavedListAnalyticsRecorder(),
       registrationAdmission,
       operatorAuthority,
+      catalogOperatorAuthority,
       ...(policyConsoleCrossContext ? { policyConsoleCrossContext } : {}),
       ...(supportReferenceLookupCrossContext ? { supportReferenceLookupCrossContext } : {}),
       ...(opsMarketAnalyticsCrossContext ? { opsMarketAnalyticsCrossContext } : {}),
@@ -1097,6 +1100,7 @@ export function buildPlatformApiApp(runtime: ApiHostRuntime, options: BuildPlatf
 
   app.onError(errorHandler);
   app.use("*", createHonoObservabilityMiddleware());
+  app.use("/api/channels/staff/*", createReceiptLookupActorMiddleware(options.receiptLookupActor));
   const connectorChannels = runtime.services.channels;
   if (isChannelsServices(connectorChannels)) app.use("/api/channels/*", connectorAuditMiddleware(connectorChannels.db));
   app.route(
@@ -1335,22 +1339,6 @@ function resolveAuthIdentityAnonymousRoutes(runtime: ApiHostRuntime): readonly A
       const module = entry.module as Readonly<{ anonymousRoutes?: readonly AnonymousRouteDeclaration[] }>;
       return module.anonymousRoutes ?? [];
     });
-}
-
-async function catalogApiPermissionMiddleware(c: Context<TenantContextEnv>, next: Next): Promise<Response | void> {
-  const actor = c.get("actor");
-  if (!actor) {
-    return c.json(authenticationRequiredResponse(), 401);
-  }
-
-  const method = c.req.method.toUpperCase();
-  const requiredPermission =
-    method === "GET" || method === "HEAD" || method === "OPTIONS" ? "catalog.view" : "catalog.manage";
-  if (!actor.permissions.includes(requiredPermission)) {
-    return c.json(forbiddenResponse(), 403);
-  }
-
-  await next();
 }
 
 function isPaymentProcessorPublicConfig(value: unknown): value is Parameters<typeof createPaymentsUcpHandoff>[0] {

@@ -4,7 +4,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-libra
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ChaseRoot } from "@chase-sets/design-system/theme";
 import { OperatorExtensionPopup } from "../ui/extension-popup/popup";
-import { serializeSetNamesProbeReport } from "../domain/extension/set-names/probe";
+import { probeTcgplayerSetNames, serializeSetNamesProbeReport } from "../domain/extension/set-names/probe";
 
 afterEach(() => cleanup());
 
@@ -50,6 +50,8 @@ describe("TCGplayer SetNames popup states", () => {
       fireEvent.change(input, { target: { value: "" } });
     expect(screen.getByText("Enter at least one product-line id to run the probe.")).toBeTruthy();
     expect((screen.getByRole("button", { name: "Run probe" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.queryByLabelText("Report")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Copy report" })).toBeNull();
   });
 
   it("renders loading while a run is pending", async () => {
@@ -62,9 +64,85 @@ describe("TCGplayer SetNames popup states", () => {
     }) => void;
     const request = vi.fn(() => new Promise((done) => (resolve = done))).mockName("setNamesRequest");
     mount(request);
+    for (const input of screen
+      .getAllByRole("textbox")
+      .filter((element) => element.getAttribute("inputmode") === "numeric")
+      .slice(1))
+      fireEvent.change(input, { target: { value: "" } });
     fireEvent.click(screen.getByRole("button", { name: "Run probe" }));
     expect((screen.getByRole("button", { name: "Running probe…" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.queryByLabelText("Report")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Copy report" })).toBeNull();
     await act(async () => resolve({ ok: true, status: 200, contentClass: "json", bytes: 10, body: validBody }));
+    await waitFor(() => expect(screen.getByLabelText("Report")).toBeTruthy());
+  });
+
+  it("publishes the canonical report and hash together only after the held real digest resolves", async () => {
+    const response = { ok: true, status: 200, contentClass: "json" as const, bytes: 10, body: validBody };
+    const probedAt = "2026-10-27T00:00:00.000Z";
+    const expectedReport = serializeSetNamesProbeReport(
+      await probeTcgplayerSetNames({
+        request: async () => response,
+        extensionVersion: "0.1.0",
+        buildCommit: "unknown",
+        browserMajor: "unknown",
+        probedAt,
+        productLineIds: ["1"],
+      }),
+    );
+    const expectedSha = createHash("sha256").update(expectedReport, "utf8").digest("hex");
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(probedAt);
+    let releaseDigest!: () => void;
+    const held = new Promise<void>((resolve) => (releaseDigest = resolve));
+    let digestEntered!: () => void;
+    const entered = new Promise<void>((resolve) => (digestEntered = resolve));
+    let digestFinished!: () => void;
+    const finished = new Promise<void>((resolve) => (digestFinished = resolve));
+    const realDigest = globalThis.crypto.subtle.digest.bind(globalThis.crypto.subtle);
+    const digest = vi.spyOn(globalThis.crypto.subtle, "digest").mockImplementation(async (...args) => {
+      digestEntered();
+      await held;
+      const result = await realDigest(...args);
+      digestFinished();
+      return result;
+    });
+    const request = vi.fn(async () => response);
+    const copyProbeReport = vi.fn(async () => {});
+    try {
+      mount(request, copyProbeReport);
+      for (const input of screen
+        .getAllByRole("textbox")
+        .filter((element) => element.getAttribute("inputmode") === "numeric")
+        .slice(1))
+        fireEvent.change(input, { target: { value: "" } });
+      fireEvent.click(screen.getByRole("button", { name: "Run probe" }));
+      await act(async () => await entered);
+      expect(request).toHaveBeenCalledExactlyOnceWith("1");
+      expect((screen.getByRole("button", { name: "Running probe…" }) as HTMLButtonElement).disabled).toBe(true);
+      expect(screen.queryByLabelText("Report")).toBeNull();
+      expect(screen.queryByText("Probe report ready")).toBeNull();
+      expect(screen.queryByRole("button", { name: "Copy report" })).toBeNull();
+      expect(screen.queryByText(/^Canonical report SHA-256:/)).toBeNull();
+      await act(async () => {
+        releaseDigest();
+        await finished;
+      });
+      const report = screen.getByLabelText("Report") as HTMLTextAreaElement;
+      expect(report.value).toBe(expectedReport);
+      expect(screen.getByText("Probe report ready")).toBeTruthy();
+      expect(
+        screen.getByText((_, element) => element?.textContent === `Canonical report SHA-256: ${expectedSha}`),
+      ).toBeTruthy();
+      expect((screen.getByRole("button", { name: "Run probe" }) as HTMLButtonElement).disabled).toBe(false);
+      fireEvent.click(screen.getByRole("button", { name: "Copy report" }));
+      expect(copyProbeReport).toHaveBeenCalledExactlyOnceWith(expectedReport);
+      expect(screen.queryByRole("alert")).toBeNull();
+    } finally {
+      releaseDigest();
+      digest.mockRestore();
+      vi.useRealTimers();
+    }
   });
 
   it("shows a localized copy failure and a canonical report textarea and hash", async () => {
@@ -92,10 +170,11 @@ describe("TCGplayer SetNames popup states", () => {
     ).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Copy report" }));
     await waitFor(() =>
-      expect(screen.getByText("Copy failed. Select and copy the report text manually.")).toBeTruthy(),
+      expect(screen.getByText("Copy failed. Select and copy the report text manually.").getAttribute("role")).toBe(
+        "alert",
+      ),
     );
-    expect(copyProbeReport).toHaveBeenCalled();
-    expect(copyProbeReport).toHaveBeenCalledWith(report.value);
+    expect(copyProbeReport).toHaveBeenCalledExactlyOnceWith(report.value);
   });
 
   it("renders fixed qualification reason codes as the error state", async () => {

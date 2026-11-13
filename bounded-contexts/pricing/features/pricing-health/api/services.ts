@@ -3,7 +3,9 @@ import type { PolicyRuntime } from "@chase-sets/platform-policy/runtime";
 import type { RepricingEngineServices } from "../../repricing-engine/api/runtime";
 import type { RepricingPolicyServices } from "../../repricing-policies/api/runtime";
 import { hashRepricingDryRunBody } from "../../repricing-engine/api/dry-run";
+import { normalizeMoneyAmount } from "@chase-sets/primitives/money";
 import type { RepricingPolicyState } from "../../repricing-policies/domain/domain";
+import { bindGoalAuthoringIntent } from "../../repricing-policies/domain/authoring-intent";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { listAccountRepricingPolicies } from "../../repricing-policies/read-model/queries";
 import { forecastLedgerPolicy } from "../../forecast-ledger/domain/policy";
@@ -12,16 +14,26 @@ import { gradingRulesVersion } from "../../forecast-ledger/domain/grade-ledger";
 import { listForecastGrades } from "../../forecast-ledger/read-model/queries";
 import { discloseForecastGrade, type PricingHealthGrade } from "./grades";
 import { readCandidateComparison, readComparisonFacts, readPricingHealthRun } from "../read-model/queries";
-import { pricingGoalDefinitions } from "../../repricing-policies/domain/domain";
+import { pricingGoalDefinitions, resolvePricingGoal } from "../../repricing-policies/domain/domain";
 import {
   buildCandidateBody,
   isOneRuleUnconditional,
   recommendGoalChange,
   selectableGoalChoices,
+  validateGoalParameterRequests,
+  type GoalParameterRequest,
   type CandidateMetrics,
   type GoalChoice,
   type Recommendation,
 } from "./goal-comparison";
+import {
+  type PricingHealthEconomicsResolver,
+  createPricingHealthWhatIfAdapter,
+  type PricingHealthWhatIfResult,
+} from "./portfolio-what-if";
+import type { EconomicsServices } from "../../economics/api/services";
+import type { ResolveEconomicsRequest } from "../../economics/domain/contracts";
+import type { EconomicsResolution } from "../../economics/domain/resolution";
 
 export class PricingHealthCandidateRefusedError extends Error {
   constructor() {
@@ -78,6 +90,7 @@ export function createPricingHealthServices({
   repricingEngine,
   repricingPolicies,
   forecastLedger,
+  economics,
 }: Readonly<{
   db: PgQueryable;
   policies: Pick<PolicyRuntime, "resolvePolicy">;
@@ -87,7 +100,20 @@ export function createPricingHealthServices({
     "loadOwnedRepricingPolicy" | "executeOwnedRepricingPolicy" | "getHalt"
   >;
   forecastLedger: Pick<ForecastLedgerServices, "listGoalAdoptions">;
+  economics: Pick<EconomicsServices, "resolve">;
 }>) {
+  const readWhatIf = async (
+    accountId: string,
+    now: string,
+    resolve: PricingHealthEconomicsResolver,
+  ): Promise<PricingHealthWhatIfResult | null> => {
+    const whatIf = createPricingHealthWhatIfAdapter({ db, economics, resolve });
+    try {
+      return await whatIf.get(accountId, now);
+    } catch {
+      return { status: "unavailable" };
+    }
+  };
   const currentTarget = async (accountId: string, policyId: string) => {
     const loaded = await repricingPolicies.loadOwnedRepricingPolicy(policyId, accountId);
     const state = loaded?.state;
@@ -116,15 +142,85 @@ export function createPricingHealthServices({
       }),
     };
   };
-  const choices = async (): Promise<readonly GoalChoice[]> => {
+  const choices = async (
+    accountId?: string,
+    target?: Awaited<ReturnType<typeof currentTarget>>,
+    now?: string,
+    resolve?: PricingHealthEconomicsResolver,
+  ): Promise<readonly GoalChoice[]> => {
     const adoptions = await forecastLedger.listGoalAdoptions();
-    return selectableGoalChoices(pricingGoalDefinitions(), adoptions);
+    const selected = selectableGoalChoices(pricingGoalDefinitions(), adoptions);
+    if (!accountId || !target || !now || !selected.some((goal) => goal.requiresEconomics)) return selected;
+    const listing = await db.query<{
+      inventory_item_id: string | null;
+      catalog_catalog_item_id: string;
+      product_id: string;
+      price_amount: string;
+      price_currency_code: string | null;
+    }>(
+      `SELECT inventory_item_id, catalog_catalog_item_id, product_id, price_amount::text, price_currency_code
+       FROM pricing_market_listing_inputs
+       WHERE seller_account_id=$1 AND status='active'
+         AND (
+           $2::text = 'all-listings'
+           OR ($2::text = 'listing-set' AND listing_id = ANY($3::text[]))
+           OR ($2::text = 'catalog-filter' AND EXISTS (
+             SELECT 1 FROM pricing_catalog_item_inputs AS catalog_item
+             WHERE catalog_item.catalog_item_id = pricing_market_listing_inputs.catalog_catalog_item_id
+               AND catalog_item.category_ids && $4::text[]
+           ))
+         )
+         AND NOT (listing_id = ANY($5::text[]))
+       ORDER BY catalog_catalog_item_id, product_id, listing_id LIMIT 1`,
+      [
+        accountId,
+        target.scope.kind,
+        target.scope.kind === "listing-set" ? target.scope.listingIds : [],
+        target.scope.kind === "catalog-filter" ? target.scope.categoryIds : [],
+        target.excludedListingIds,
+      ],
+    );
+    const row = listing.rows[0];
+    const resolution =
+      row?.inventory_item_id && row.price_currency_code
+        ? await resolve!({
+            accountId,
+            scope: { kind: "native-marketplace" },
+            catalogItemId: row.catalog_catalog_item_id,
+            inventoryItemId: row.inventory_item_id,
+            marketUnitPrice: {
+              amount: normalizeMoneyAmount(row.price_amount),
+              currency: row.price_currency_code.toLowerCase(),
+            },
+            quantity: 1,
+            effectiveAt: now,
+          })
+        : null;
+    const provenance = resolution
+      ? resolution.kind === "resolved"
+        ? {
+            availability: "resolved" as const,
+            currency: resolution.economics.currency,
+            effectiveAt: resolution.economics.effectiveAt,
+            reason: null,
+            facts: economicsFacts(resolution.economics.facts),
+          }
+        : {
+            availability: "unavailable" as const,
+            currency: resolution.currency,
+            effectiveAt: resolution.effectiveAt,
+            reason: resolution.reason,
+            facts: economicsFacts(resolution.facts),
+          }
+      : null;
+    return selected.map((goal) => ({ ...goal, economics: goal.requiresEconomics ? provenance : null }));
   };
   return {
     getHealth: async (
       accountId: string,
       policyId: string | undefined,
       now: string,
+      parameterRequests?: readonly GoalParameterRequest[],
     ): Promise<PricingHealthData | null> => {
       const active = (await listAccountRepricingPolicies(db, { accountId })).filter(
         ({ status }) => status === "active",
@@ -145,9 +241,11 @@ export function createPricingHealthServices({
           goals: [],
           comparison: [],
           branch: "create-editor",
+          whatIf: null,
         };
       const target = await currentTarget(accountId, selected.policyId);
       if (!target) return null;
+      const resolve = createRequestScopedEconomicsResolver(economics.resolve);
       const stored = await readPricingHealthRun(db, {
         accountId,
         policyId: target.policyId,
@@ -189,8 +287,12 @@ export function createPricingHealthServices({
           goals: [],
           comparison: [],
           branch: target.rules.length === 0 ? "create-editor" : "advanced-editor",
+          whatIf: await readWhatIf(accountId, now, resolve),
         };
-      const goalChoices = await choices();
+      const goalChoices = validateGoalParameterRequests(
+        await choices(accountId, target, now, resolve),
+        parameterRequests,
+      );
       const currentFacts = stored.run
         ? await readComparisonFacts(db, { accountId, dryRunId: stored.run.dryRunId, now })
         : null;
@@ -239,6 +341,7 @@ export function createPricingHealthServices({
         run: currentHealth ? stored.run : null,
         computing: stored.computing || comparison.some(({ status }) => status === "queued" || status === "running"),
         grades,
+        whatIf: await readWhatIf(accountId, now, resolve),
       };
     },
     compute: async (
@@ -257,10 +360,11 @@ export function createPricingHealthServices({
       accountId: string,
       policyId: string,
       context: Parameters<RepricingEngineServices["enqueueDryRun"]>[1],
+      parameterRequests?: readonly GoalParameterRequest[],
     ) => {
       const target = await currentTarget(accountId, policyId);
       if (!target || !isOneRuleUnconditional(target.rules)) return null;
-      const goalChoices = await choices();
+      const goalChoices = validateGoalParameterRequests(await choices(), parameterRequests);
       const runs = [];
       for (const choice of goalChoices) {
         const body = buildCandidateBody(target.body, choice);
@@ -372,7 +476,7 @@ export function createPricingHealthServices({
           command: {
             type: "ReviseRepricingPolicy",
             name: target.name,
-            ...expectedBody,
+            ...bindGoalAuthoringIntent(expectedBody, resolvePricingGoal),
             revisedAt: new Date().toISOString(),
           },
         })) as RepricingPolicyState;
@@ -402,6 +506,45 @@ export function createPricingHealthServices({
   };
 }
 
+function createRequestScopedEconomicsResolver(resolve: EconomicsServices["resolve"]): PricingHealthEconomicsResolver {
+  const memo = new Map<string, Promise<EconomicsResolution>>();
+  return (request: ResolveEconomicsRequest) => {
+    const key = JSON.stringify(request);
+    const existing = memo.get(key);
+    if (existing) return existing;
+    const pending = resolve(request);
+    memo.set(key, pending);
+    return pending;
+  };
+}
+
+function economicsFacts(
+  facts: Readonly<
+    Record<
+      string,
+      Readonly<{
+        effectiveValue: unknown;
+        observedAt: string;
+        source: Readonly<{ kind: string; reason?: string }>;
+        override: unknown;
+      }>
+    >
+  >,
+) {
+  return Object.fromEntries(
+    Object.entries(facts).map(([name, fact]) => [
+      name,
+      {
+        effectiveValue: fact.effectiveValue,
+        observedAt: fact.observedAt,
+        source: fact.source.kind,
+        sourceReason: fact.source.reason ?? null,
+        override: fact.override,
+      },
+    ]),
+  );
+}
+
 export type PricingHealthData = Readonly<{
   policies: readonly { policyId: string; name: string }[];
   target: { policyId: string; name: string; version: number; bodyHash?: string } | null;
@@ -414,5 +557,6 @@ export type PricingHealthData = Readonly<{
   recommendation?: Recommendation;
   branch?: "comparison" | "advanced-editor" | "create-editor";
   canCompute?: boolean;
+  whatIf?: PricingHealthWhatIfResult | null;
 }>;
 export type PricingHealthServices = ReturnType<typeof createPricingHealthServices>;

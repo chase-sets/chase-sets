@@ -279,6 +279,7 @@ describe("agent tier in the credential inventory (AC1)", () => {
     expect(inventory.agentTier).toEqual({
       project: "chase-sets-agent-dev",
       keys: [
+        { name: "CONNECTOR_STAGING_PERSONA_MAGIC_LINK_SECRET", testPrefixes: ["cs_stg_persona_"] },
         { name: "EASYPOST_API_KEY", testPrefixes: ["EZTK"] },
         { name: "EBAY_RECEIPT_LOOKUP_STAGING_ACTOR_JSON", testPrefixes: [] },
         { name: "EBAY_SANDBOX_APP_ID", testPrefixes: [] },
@@ -507,8 +508,8 @@ describe("credential tiers CLI (AC2)", () => {
     const lines = result.stdout.split("\n").filter(Boolean);
     const headings = lines.filter((line) => !/^ {2}[A-Z_][A-Z0-9_]*$/.test(line));
     expect(headings).toEqual([
-      "Agent tier (Bitwarden project chase-sets-agent-dev), 11 names:",
-      `CI/deploy-only, ${repositoryInventory.secrets.length - 11} names:`,
+      "Agent tier (Bitwarden project chase-sets-agent-dev), 12 names:",
+      `CI/deploy-only, ${repositoryInventory.secrets.length - 12} names:`,
     ]);
     const printed = lines.filter((line) => !headings.includes(line)).map((line) => line.trim());
     const names = repositoryInventory.secrets.map((secret) => secret.name);

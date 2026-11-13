@@ -28,6 +28,7 @@ import {
   upsertPasswordCredential,
 } from "../auth-support/store";
 import { verifyPasskeyRegistration } from "../auth-support/webauthn";
+import { getSafeSameSitePath } from "../auth-support/same-site-path";
 import { startInteractiveAuth, type AuthServices } from "../runtime-support/services";
 import {
   createIdentityMutations,
@@ -64,8 +65,7 @@ function identityMutationStatus(error: unknown) {
 }
 
 function safeLandingPath(value: unknown, fallback: string) {
-  const path = typeof value === "string" ? value.trim() : "";
-  return path.startsWith("/") && !path.startsWith("//") ? path : fallback;
+  return getSafeSameSitePath(value, { trim: true }) ?? fallback;
 }
 
 function invitationTokenExpiresAt(invitationExpiresAt: string, magicLinkTtlMs: number) {
@@ -80,10 +80,12 @@ function buildInvitationAcceptanceLink(
     landingPath: unknown;
   }>,
 ) {
-  const url = new URL(
-    safeLandingPath(input.landingPath, `/invite/${encodeURIComponent(input.invitationId)}`),
-    resolvePublicRequestOrigin(request),
-  );
+  const origin = resolvePublicRequestOrigin(request);
+  const fallback = `/invite/${encodeURIComponent(input.invitationId)}`;
+  let url = new URL(safeLandingPath(input.landingPath, fallback), origin);
+  if (url.origin !== origin) {
+    url = new URL(fallback, origin);
+  }
   url.searchParams.set("invitationId", input.invitationId);
   url.searchParams.set("token", input.token);
   return url.toString();

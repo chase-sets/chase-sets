@@ -18,6 +18,7 @@ async function preview(f: Fixture) {
   return f.policies.execute(
     "bop_one",
     {
+      attemptId: String(`preview_${policy.version}`).padEnd(22, "_"),
       type: "PreviewBuyerOfferPolicy",
       expectedVersion: policy.version,
       operationId: `preview_${policy.version}`,
@@ -30,6 +31,7 @@ async function authorize(f: Fixture, p: Awaited<ReturnType<typeof preview>>) {
   return f.policies.execute(
     "bop_one",
     {
+      attemptId: String(`authorize_${p.version}`).padEnd(22, "_"),
       type: "AuthorizeBuyerOfferPolicy",
       expectedVersion: p.version,
       operationId: `authorize_${p.version}`,
@@ -128,12 +130,13 @@ describe("held managed Offer explanation boundaries", () => {
     await f.offers.applyManagedOffer("off_one" as never, "initial", context);
     await f.offers.updateOfferPrice(
       {
+        attemptId: "test_attempt_5493_identity",
         offerId: "off_one" as never,
         buyerAccountId: "acc_buyer" as never,
         priceAmount: "11.00",
         priceCurrencyCode: "USD",
       },
-      context,
+      { ...context, audit: { ...context.audit, forAccountId: "acc_buyer" as never } },
     );
     const before = await stream(f);
     await f.offers.applyManagedOffer("off_one" as never, "after_edit", context);
@@ -165,12 +168,19 @@ describe("held managed Offer explanation boundaries", () => {
     f.setTarget(held());
     await f.offers.applyManagedOffer("off_one" as never, "initial", context);
     await f.offers.applyManagedOffer("off_one" as never, "repeat", context);
-    await expect(f.offers.acceptOffer(await f.acceptance(), context)).rejects.toMatchObject({
+    await expect(
+      f.offers.acceptOffer(await f.acceptance(), { ...context, audit: { ...context.audit, forAccountId: "acc_one" } }),
+    ).rejects.toMatchObject({
       code: "managed_offer_held",
     });
     await f.policies.execute(
       "bop_one",
-      { type: "PauseBuyerOfferPolicy", expectedVersion: 3, operationId: "pause" },
+      {
+        attemptId: String("pause").padEnd(22, "_"),
+        type: "PauseBuyerOfferPolicy",
+        expectedVersion: 3,
+        operationId: "pause",
+      },
       context,
     );
     await expect(f.offers.applyManagedOffer("off_one" as never, "later", context)).rejects.toThrow("active");
@@ -187,12 +197,18 @@ describe("held managed Offer explanation boundaries", () => {
     await f.offers.applyManagedOffer("off_one" as never, "initial", context);
     const recorded = await stream(f);
     f.setTarget({ status: "target", unitItemAmount: "10.00", evidence: {} });
-    await f.offers.acceptOffer(await f.acceptance("two"), context);
+    await f.offers.acceptOffer(await f.acceptance("two"), {
+      ...context,
+      audit: { ...context.audit, forAccountId: "acc_two" },
+    });
     f.setTarget(held());
     await f.offers.applyManagedOffer("off_one" as never, "after_acceptance", context);
     expect(await stream(f)).toEqual(recorded);
     f.setTarget({ status: "target", unitItemAmount: "10.00", evidence: {} });
-    await f.offers.acceptOffer(await f.acceptance(), context);
+    await f.offers.acceptOffer(await f.acceptance(), {
+      ...context,
+      audit: { ...context.audit, forAccountId: "acc_one" },
+    });
     expect((await f.policies.get("bop_one", "acc_buyer")).version).toBe(3);
     expect((await f.store.readAll()).filter((event) => event.eventType === "marketplace.offer.accepted")).toHaveLength(
       2,

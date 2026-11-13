@@ -35,6 +35,8 @@ CREATE TABLE IF NOT EXISTS marketplace_listing_pages (
   evidence_requirements jsonb NULL,
   evidence jsonb NOT NULL DEFAULT '[]'::jsonb,
   status text NOT NULL DEFAULT 'draft',
+  pause_reason text NULL,
+  inventory_capacity_recovery_block text NULL,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
 );
@@ -60,6 +62,10 @@ ALTER TABLE marketplace_listing_pages
   ADD COLUMN IF NOT EXISTS max_units_per_day integer NULL,
   ADD COLUMN IF NOT EXISTS max_units_per_customer_account integer NULL,
   ADD COLUMN IF NOT EXISTS fee_locks jsonb NOT NULL DEFAULT '[]'::jsonb;
+
+ALTER TABLE marketplace_listing_pages
+  ADD COLUMN IF NOT EXISTS pause_reason text NULL,
+  ADD COLUMN IF NOT EXISTS inventory_capacity_recovery_block text NULL;
 
 CREATE TABLE IF NOT EXISTS marketplace_anonymous_listing_draft_intents (
   intent_id text PRIMARY KEY,
@@ -136,6 +142,17 @@ CREATE TABLE IF NOT EXISTS marketplace_seller_order_capacity_pages (
 `;
 
 export const marketplaceListingSchemaMigrations: readonly BcSchemaMigration[] = [
+  {
+    migrationId: "20261028_marketplace_inventory_capacity_recovery",
+    description:
+      "Persist explicit Listing pause provenance and actionable blocked capacity recovery without relabeling history.",
+    statements: [
+      "SET lock_timeout = '5s';",
+      `ALTER TABLE marketplace_listing_pages
+  ADD COLUMN IF NOT EXISTS pause_reason text NULL,
+  ADD COLUMN IF NOT EXISTS inventory_capacity_recovery_block text NULL`,
+    ],
+  },
   {
     migrationId: "20261023_marketplace_listing_channel_only_nullable_fees",
     description: "Allow channel-only Listing creation rows to retain absent native fee state without sentinel values.",

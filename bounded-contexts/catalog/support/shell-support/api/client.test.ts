@@ -1,7 +1,109 @@
 import { describe, expect, it, vi } from "vitest";
 import { ApiError, CatalogItemPublicationApiError, createCatalogApiClient } from "./client";
 
+// Issue #11130: only the location, not a web-authored preview scope, crosses the read boundary.
+it("forwards the selected import preview location and request transport unchanged", async () => {
+  const answer = { status: "unavailable" };
+  const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(Response.json(answer));
+  const client = createCatalogApiClient({
+    baseUrl: "/api/catalog/",
+    fetch,
+    headers: { "x-test": "synthetic" },
+    credentials: "same-origin",
+  });
+  const location = "/catalog/integrations?productId=synthetic+A&languageCode=en";
+  await expect(client.getCatalogPrimaryWorkbenchDeferredImportPreview(location)).resolves.toEqual(answer);
+  expect(fetch).toHaveBeenCalledExactlyOnceWith(
+    `/api/catalog/source-observations/workbench-surfaces/daily/import-preview?${new URLSearchParams({ location })}`,
+    { method: "GET", headers: { "x-test": "synthetic" }, credentials: "same-origin" },
+  );
+});
+
+describe("provider profile lifecycle confirmation serialization", () => {
+  it.each([
+    ["rollback", "rollbackSourceObservationProviderProfile"],
+    ["deprecate", "deprecateSourceObservationProviderProfile"],
+    ["retire", "retireSourceObservationProviderProfile"],
+  ] as const)("forwards caller input unchanged for %s", async (operation, method) => {
+    const result = { providerKey: "synthetic provider", profileVersion: "synthetic/version" };
+    const fetch = vi.fn<typeof globalThis.fetch>().mockImplementation(async () => Response.json(result));
+    const client = createCatalogApiClient({
+      baseUrl: "/api/catalog/",
+      fetch,
+      headers: { "x-test": "synthetic" },
+      credentials: "same-origin",
+    });
+    for (const lifecycleConfirmation of [
+      null,
+      "",
+      " mismatched caller input ",
+      `confirm:provider-profile.${operation}:synthetic provider:synthetic/version`,
+    ]) {
+      await expect(client[method](result.providerKey, result.profileVersion, lifecycleConfirmation)).resolves.toEqual(
+        result,
+      );
+      expect(fetch).toHaveBeenLastCalledWith(
+        `/api/catalog/source-observations/provider-profiles/synthetic%20provider/synthetic%2Fversion/${operation}`,
+        {
+          method: "POST",
+          headers: { "x-test": "synthetic", "content-type": "application/json" },
+          credentials: "same-origin",
+          body: JSON.stringify({ lifecycleConfirmation }),
+        },
+      );
+    }
+  });
+});
+
 describe("catalog API durable job client", () => {
+  it("C1: posts bulk removal preview selection and parses the response", async () => {
+    const selection = { mode: "ids", ids: ["cat_1", "cat_2"] };
+    const result = { item_ids: selection.ids, ready_count: 1, blocked_count: 1, total: 2, candidates: [] };
+    const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(Response.json(result));
+    const client = createCatalogApiClient({ baseUrl: "/api/catalog", fetch });
+    expect(await client.previewBulkRemoveDrafts(selection)).toEqual(result);
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(String(fetch.mock.calls[0]![0])).toBe("/api/catalog/items/bulk-remove-drafts/preview");
+    expect(fetch.mock.calls[0]![1]).toMatchObject({ method: "POST", body: JSON.stringify({ selection }) });
+  });
+
+  it("C2: confirms one removal job, streams progress and reconnects to its retained result", async () => {
+    const selection = { mode: "filter", query: { language: "en" } };
+    const result = {
+      item_ids: ["cat_1", "cat_2"],
+      total: 2,
+      succeeded_count: 1,
+      skipped_count: 1,
+      failed_count: 0,
+      candidates: [{ catalog_item_id: "cat_2", outcome: "skipped", reason: "Only draft items can be removed." }],
+    };
+    const snapshot = (status: "queued" | "running" | "completed") => ({
+      jobId: "job_removal",
+      kind: "catalog.authoring.items.remove-drafts",
+      status,
+      progress: { phase: status, completed: status === "completed" ? 2 : 0, total: 2, currentName: null, status: null },
+      result: status === "completed" ? result : null,
+      errorMessage: null,
+    });
+    const fetch = vi
+      .fn<typeof globalThis.fetch>()
+      .mockResolvedValueOnce(Response.json(snapshot("queued"), { status: 202 }))
+      .mockResolvedValueOnce(sseResponse(`id: 7\nevent: status\ndata: ${JSON.stringify(snapshot("running"))}\n\n`))
+      .mockResolvedValueOnce(sseResponse(`id: 8\nevent: status\ndata: ${JSON.stringify(snapshot("completed"))}\n\n`));
+    const progress = vi.fn();
+    const client = createCatalogApiClient({ baseUrl: "/api/catalog", fetch });
+    expect(await client.confirmBulkRemoveDrafts(selection, { onProgress: progress })).toEqual(result);
+    expect(fetch).toHaveBeenCalledTimes(3);
+    expect(String(fetch.mock.calls[0]![0])).toBe("/api/catalog/items/bulk-remove-drafts/confirm");
+    expect(fetch.mock.calls[0]![1]).toMatchObject({ method: "POST", body: JSON.stringify({ selection }) });
+    expect(fetch.mock.calls.slice(1).map(([url]) => String(url))).toEqual([
+      "/api/catalog/bulk-authoring-jobs/job_removal/events",
+      "/api/catalog/bulk-authoring-jobs/job_removal/events",
+    ]);
+    expect(fetch.mock.calls[2]![1]?.headers).toMatchObject({ "last-event-id": "7" });
+    expect(progress.mock.calls.map(([value]) => value.phase)).toEqual(["queued", "running", "completed"]);
+  });
+
   it.each(["merge-candidate-promote", "merge-candidate-defer"] as const)(
     "posts %s with the scope, headers and configured credentials",
     async (kind) => {
@@ -126,13 +228,40 @@ describe("catalog API durable job client", () => {
     );
     const client = createCatalogApiClient({ baseUrl: "http://catalog.test/api/catalog", fetch });
 
-    const error = await client.publishCatalogItem("cat_1", true, []).catch((caught) => caught);
+    const error = await client.publishCatalogItem("cat_1").catch((caught) => caught);
 
     expect(error).toBeInstanceOf(CatalogItemPublicationApiError);
     expect(error).toMatchObject({
       code: "display-identity-outdated",
       readiness: "outdated",
       missingTokens: [],
+    });
+  });
+
+  it("parses publication-precondition refusals with missing field IDs", async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          error: {
+            code: "publication-precondition",
+            reason_code: "publication-precondition",
+            message: "Missing required field values: fld_name, fld_set.",
+            missingFieldIds: ["fld_name", "fld_set"],
+          },
+        }),
+        { status: 409, headers: { "content-type": "application/json" } },
+      ),
+    );
+    const client = createCatalogApiClient({ baseUrl: "http://catalog.test/api/catalog", fetch });
+
+    const error = await client.publishCatalogItem("cat_1").catch((caught) => caught);
+
+    expect(error).toBeInstanceOf(CatalogItemPublicationApiError);
+    expect(error).toMatchObject({
+      code: "publication-precondition",
+      readiness: "precondition",
+      missingFieldIds: ["fld_name", "fld_set"],
+      message: "Missing required field values: fld_name, fld_set.",
     });
   });
 
@@ -572,6 +701,137 @@ data: ${JSON.stringify(jobSnapshot({ status: "completed", result: completedResul
 
     await expect(client.watchSourceObservationIntegrationJob("job_1")).resolves.toEqual(completedResult);
     expect(fetch).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("bulk Source Observation promotion confirms its preview", () => {
+  const scope = { provider: "tcgdex", language: "ja", seriesId: "sv", setId: "sv8" };
+  const confirmation = {
+    unitKey: "tcgdex:pokemon:single-card:source-observation-import",
+    importScope: "ja:SV:SV8",
+    profileVersion: "2026.06.04",
+    scope,
+  };
+  const promoteOptions = { promoteAsDraft: true, previewToken: "spp1.synthetic", confirmation };
+  const staleBody = { error: { code: "stale_promotion_preview", message: "Preview again." } };
+  type Selection = Readonly<{ observationIds: string[] } | { scope: typeof scope }>;
+  const selections: ReadonlyArray<readonly [string, Selection]> = [
+    ["selected ids", { observationIds: ["obs_1", "obs_2"] }],
+    ["a scope", { scope }],
+  ];
+
+  function promote(
+    client: ReturnType<typeof createCatalogApiClient>,
+    selection: Selection,
+    options: Parameters<ReturnType<typeof createCatalogApiClient>["bulkPromoteSourceObservations"]>[1],
+  ) {
+    return "observationIds" in selection
+      ? client.bulkPromoteSourceObservations(selection.observationIds, options)
+      : client.bulkPromoteSourceObservationsByScope(selection.scope, options);
+  }
+
+  it.each(selections)("sends the token, draft choice and confirmation when promoting %s", async (_name, selection) => {
+    const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValueOnce(jsonResponse({ jobId: "job_promote" }));
+    const client = createCatalogApiClient({ baseUrl: "/api/catalog", fetch });
+
+    await expect(promote(client, selection, promoteOptions)).resolves.toEqual({ jobId: "job_promote" });
+
+    expect(String(fetch.mock.calls[0][0])).toBe("/api/catalog/source-observations/bulk-promote");
+    expect(JSON.parse(String(fetch.mock.calls[0][1]?.body))).toEqual({
+      ...selection,
+      promoteAsDraft: true,
+      previewToken: "spp1.synthetic",
+      confirmation,
+    });
+  });
+
+  it.each(selections)(
+    "sends the same body to the job route when promoting %s with progress",
+    async (_name, selection) => {
+      const completedResult = { requested: 2, promoted: 2, failed: 0, outcomes: [] };
+      const fetch = vi
+        .fn<typeof globalThis.fetch>()
+        .mockResolvedValueOnce(jsonResponse(jobSnapshot({ status: "queued", result: null })))
+        .mockResolvedValueOnce(
+          sseResponse(
+            `id: 1
+event: status
+data: ${JSON.stringify(jobSnapshot({ status: "completed", result: completedResult }))}
+
+`,
+          ),
+        );
+      const progress = vi.fn();
+      const client = createCatalogApiClient({ baseUrl: "/api/catalog", fetch });
+
+      await expect(promote(client, selection, { ...promoteOptions, onProgress: progress })).resolves.toEqual(
+        completedResult,
+      );
+
+      expect(String(fetch.mock.calls[0][0])).toBe("/api/catalog/source-observations/bulk-promote/jobs");
+      expect(JSON.parse(String(fetch.mock.calls[0][1]?.body))).toEqual({
+        ...selection,
+        promoteAsDraft: true,
+        previewToken: "spp1.synthetic",
+        confirmation,
+      });
+      expect(String(fetch.mock.calls[1][0])).toBe("/api/catalog/source-observations/bulk-jobs/job_1/events");
+      expect(progress).toHaveBeenCalled();
+    },
+  );
+
+  it.each(selections)("sends null for a missing token and confirmation when promoting %s", async (_name, selection) => {
+    const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValueOnce(jsonResponse({ jobId: "job_promote" }));
+    const client = createCatalogApiClient({ baseUrl: "/api/catalog", fetch });
+
+    await promote(client, selection, {});
+
+    expect(JSON.parse(String(fetch.mock.calls[0][1]?.body))).toEqual({
+      ...selection,
+      promoteAsDraft: false,
+      previewToken: null,
+      confirmation: null,
+    });
+  });
+
+  it("sends the confirmation with both previews", async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>(async () => jsonResponse({ previewToken: "spp1.synthetic" }));
+    const client = createCatalogApiClient({ baseUrl: "/api/catalog", fetch });
+    const previewOptions = { promoteAsDraft: true, validationAfter: "obs_9", confirmation };
+
+    await client.previewBulkPromoteSourceObservations(scope, previewOptions);
+    await client.previewBulkPromoteSourceObservationIds(["obs_1"], previewOptions);
+
+    expect(fetch.mock.calls.map(([url]) => String(url))).toEqual([
+      "/api/catalog/source-observations/bulk-promote/preview",
+      "/api/catalog/source-observations/bulk-promote/preview",
+    ]);
+    expect(fetch.mock.calls.map(([, init]) => JSON.parse(String(init?.body)))).toEqual([
+      { scope, promoteAsDraft: true, validationAfter: "obs_9", confirmation },
+      { observationIds: ["obs_1"], promoteAsDraft: true, validationAfter: "obs_9", confirmation },
+    ]);
+  });
+
+  it.each([
+    ["without progress", {}],
+    ["with progress", { onProgress: () => {} }],
+  ])("surfaces a stale preview refusal as an ApiError %s", async (_name, extra) => {
+    for (const [, selection] of selections) {
+      const fetch = vi
+        .fn<typeof globalThis.fetch>()
+        .mockResolvedValueOnce(
+          new Response(JSON.stringify(staleBody), { status: 409, headers: { "content-type": "application/json" } }),
+        );
+      const client = createCatalogApiClient({ baseUrl: "/api/catalog", fetch });
+
+      const error = await promote(client, selection, { ...promoteOptions, ...extra }).catch(
+        (caught: unknown) => caught,
+      );
+
+      expect(error).toBeInstanceOf(ApiError);
+      expect(error).toMatchObject({ status: 409, body: staleBody });
+      expect(fetch).toHaveBeenCalledTimes(1);
+    }
   });
 });
 

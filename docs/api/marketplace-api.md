@@ -112,6 +112,8 @@ Buy Cart to checkout:
 5. `POST /api/marketplace/account/checkout-sessions/{sessionId}/confirm`
 6. `GET /api/marketplace/account/payments/{id}`
 
+Cancel checkout: before step 5 creates orders, the session owner can `POST /api/marketplace/account/checkout-sessions/{sessionId}/cancel` to release every held item; a repeat answers `already-cancelled` and releases nothing. After orders exist the route answers `409 checkout_session_not_cancellable`, and the holds are released by cancelling the purchase.
+
 Offer Match to Sell List review:
 
 1. `GET /api/marketplace/account/offers/matches`
@@ -151,6 +153,10 @@ Sale shipment printing:
 
 1. `GET /api/marketplace/account/sales/shipments`
 2. `GET /api/marketplace/account/sales/shipments/packing-slips?shipmentIds=shp_1,shp_2`
+
+Seller fulfillment command center:
+
+1. `GET /api/marketplace/account/sales/shipments/command-center`: the shipments that need the seller now (not cancelled, in a working status or holding a conflict), bucketed as exceptions, ready to dispatch, needs label and needs packing, ordered by the Seller Desk attention policy, each with its next action and disclosed actions. Each action's own command decides its legality against the shipment's stored state.
 
 Notification center:
 

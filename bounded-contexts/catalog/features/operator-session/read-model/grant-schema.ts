@@ -9,7 +9,7 @@ export const catalogOperatorSessionGrantSchemaSql = `CREATE TABLE IF NOT EXISTS 
   last_used_at timestamptz NOT NULL CHECK (isfinite(last_used_at)),
   idle_expires_at timestamptz NOT NULL CHECK (isfinite(idle_expires_at)),
   revoked_at timestamptz NULL CHECK (revoked_at IS NULL OR isfinite(revoked_at)),
-  revoke_reason text NULL CHECK (revoke_reason IN ('replaced', 'disconnect', 'unpair')),
+  revoke_reason text NULL CHECK (revoke_reason IN ('replaced', 'disconnect', 'unpair', 'authority-lost')),
   CHECK ((revoked_at IS NULL) = (revoke_reason IS NULL))
 );`;
 
@@ -58,6 +58,21 @@ const validateCreatorIdentitySql = `DO $$ BEGIN
     VALIDATE CONSTRAINT catalog_operator_session_grants_creator_membership_id_bounded;
 END $$;`;
 
+const widenRevokeReasonSql = `DO $$ BEGIN
+  SET LOCAL lock_timeout = '5s';
+  IF EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conrelid = 'catalog_operator_session_grants'::regclass
+      AND conname = 'catalog_operator_session_grants_revoke_reason_check'
+  ) THEN
+    ALTER TABLE catalog_operator_session_grants
+      DROP CONSTRAINT catalog_operator_session_grants_revoke_reason_check;
+  END IF;
+  ALTER TABLE catalog_operator_session_grants
+    ADD CONSTRAINT catalog_operator_session_grants_revoke_reason_check
+    CHECK (revoke_reason IN ('replaced', 'disconnect', 'unpair', 'authority-lost'));
+END $$;`;
+
 export const catalogOperatorSessionGrantSchemaMigrations: readonly BcSchemaMigration[] = [
   {
     migrationId: "20261002_catalog_operator_session_grants_v1",
@@ -68,5 +83,10 @@ export const catalogOperatorSessionGrantSchemaMigrations: readonly BcSchemaMigra
     migrationId: "20261013_catalog_operator_session_grant_creator_ids_text_v2",
     description: "Store bounded Identity-compatible grant creator ids as text, preserving retained UUID values.",
     statements: [creatorIdentityTextSql, validateCreatorIdentitySql, requireValidGrantIndexSql],
+  },
+  {
+    migrationId: "20261024_catalog_operator_session_grant_authority_lost_revoke_reason_v3",
+    description: "Widen operator-session grant revocation reasons for live creator authority loss.",
+    statements: [widenRevokeReasonSql],
   },
 ];

@@ -79,6 +79,7 @@ describe("nullable MCP input schema vocabulary", () => {
       "ordering.revise-postage-policy.input.effectiveUntil",
       "ordering.revise-postage-policy.input.insuranceRequiredDeclaredValueAmount",
       "ordering.revise-postage-policy.input.signatureRequiredDeclaredValueAmount",
+      "settlement.list-payouts.output.next_payout",
     ]);
   });
 });

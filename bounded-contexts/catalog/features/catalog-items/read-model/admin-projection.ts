@@ -1,4 +1,4 @@
-import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
+import { createTransientProjectionError, type ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { extractIdFromStreamId } from "@chase-sets/event-core";
 import {
@@ -14,6 +14,12 @@ import {
   type LocalizedTextMap,
 } from "../../../support/runtime-support/common";
 import { resolveAndPersistCatalogItemDisplayIdentities, type PersistedDisplayIdentityResult } from "./display-identity";
+import {
+  evolveCatalogItem,
+  initialCatalogItemState,
+  type CatalogItemEvent,
+  type CatalogItemState,
+} from "../domain/domain";
 import {
   enqueueAllCatalogItemDisplayIdentityRecomputeWork,
   enqueueCatalogItemDisplayIdentityRecomputeWork,
@@ -46,6 +52,27 @@ type BaseCatalogItemRow = Readonly<{
   product_asset_sets: unknown;
   image_fallback: unknown;
   updated_at: string;
+  // pg returns bigint as a string; a source-history rebuild supplies the event's number.
+  source_stream_version: string | number;
+}>;
+
+type CatalogAdminPageSourceVersionRow = Readonly<{
+  catalog_item_id: string;
+  source_stream_version: string | number;
+}>;
+
+type CatalogItemReferenceOverrides = Readonly<{
+  externalProductReferencesByItemId: ReadonlyMap<string, readonly ExternalProductReferenceRow[]>;
+  externalCatalogItemReferencesByItemId: ReadonlyMap<string, readonly ExternalCatalogItemReferenceRow[]>;
+}>;
+
+type CatalogItemSourceEvent = Readonly<{ type: string; data: unknown }>;
+
+type CatalogItemSourceEventRow = Readonly<{
+  event_id: string;
+  event_type: string;
+  payload: unknown;
+  stream_version: number;
 }>;
 
 type ExternalProductReferenceRow = Readonly<{
@@ -104,7 +131,7 @@ export async function refreshCatalogAdminCatalogItemPages(db: PgQueryable, itemI
 
 async function ensureCatalogItemParentForCreatedEvent(
   db: PgQueryable,
-  event: Readonly<{ streamId: string; data: unknown; timing: { recordedAt: string } }>,
+  event: Readonly<{ streamId: string; streamVersion: number; data: unknown; timing: { recordedAt: string } }>,
 ): Promise<string> {
   const data = event.data as CatalogItemCreatedEventData;
   const itemId =
@@ -126,9 +153,10 @@ async function ensureCatalogItemParentForCreatedEvent(
        description_i18n,
        description,
        status,
-       updated_at
+       updated_at,
+       source_stream_version
      )
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'draft', $9)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'draft', $9, $10)
      ON CONFLICT (catalog_item_id) DO NOTHING`,
     [
       itemId,
@@ -140,10 +168,114 @@ async function ensureCatalogItemParentForCreatedEvent(
       JSON.stringify(descriptionI18n),
       resolveLocalizedTextMap(descriptionI18n),
       event.timing.recordedAt,
+      event.streamVersion,
     ],
   );
 
   return itemId;
+}
+
+// Reads the item stream through its triggering event on the projection's own connection. The runtime's
+// source-history reader takes a second pool connection, which a one-connection seed pool cannot grant while
+// this application holds its only one.
+async function loadCatalogItemSourceHistory(
+  db: PgQueryable,
+  event: Readonly<{ id: string; streamId: string; streamVersion: number }>,
+): Promise<CatalogItemSourceEvent[]> {
+  const result = await db.query<CatalogItemSourceEventRow>(
+    `SELECT event_id, event_type, payload, stream_version::integer AS stream_version
+     FROM event_store_events
+     WHERE stream_id = $1
+       AND stream_version <= $2
+     ORDER BY stream_version ASC`,
+    [event.streamId, event.streamVersion],
+  );
+  const complete =
+    result.rows.length === event.streamVersion &&
+    result.rows.every((row, index) => row.stream_version === index + 1) &&
+    result.rows.at(-1)?.event_id === event.id;
+  if (!complete) {
+    throw new Error(`Source history for ${event.streamId} through event ${event.id} is incomplete.`);
+  }
+
+  return result.rows.map((row) => ({ type: row.event_type, data: row.payload }));
+}
+
+function catalogItemRowFromSourceHistory(
+  history: readonly CatalogItemSourceEvent[],
+  itemId: string,
+  updatedAt: string,
+  sourceStreamVersion: number,
+): { item: BaseCatalogItemRow; references: CatalogItemReferenceOverrides } {
+  const state = history.reduce<CatalogItemState>(
+    (current, sourceEvent) => evolveCatalogItem(current, normalizeCatalogItemSourceEvent(sourceEvent)),
+    initialCatalogItemState,
+  );
+  if (state.id !== itemId || state.title === null) {
+    throw new Error(`Source history for Catalog Item ${itemId} did not produce a complete item state.`);
+  }
+
+  const externalProductReferences = state.externalProductReferences.map((reference) => ({
+    catalog_item_id: itemId,
+    provider_key: reference.providerKey,
+    external_key: reference.externalKey,
+    selected_options: reference.selectedOptions,
+    updated_at: updatedAt,
+  }));
+  const externalCatalogItemReferences = state.externalCatalogItemReferences.map((reference) => ({
+    catalog_item_id: itemId,
+    provider_key: reference.providerKey,
+    external_key: reference.externalKey,
+    updated_at: updatedAt,
+  }));
+
+  return {
+    item: {
+      catalog_item_id: itemId,
+      language_code: state.languageCode,
+      title_i18n: state.title,
+      title: resolveLocalizedTextMap(state.title),
+      subtitle_i18n: state.subtitle,
+      subtitle: state.subtitle ? resolveLocalizedTextMap(state.subtitle) : null,
+      description_i18n: state.description,
+      description: resolveLocalizedTextMap(state.description),
+      blueprint_id: state.blueprintId,
+      status: state.status,
+      field_values: state.fieldValues,
+      category_ids: state.categoryIds,
+      tags: state.tags,
+      image_urls: state.imageUrls,
+      product_asset_sets: state.productAssetSets,
+      image_fallback: state.imageFallback,
+      updated_at: updatedAt,
+      source_stream_version: sourceStreamVersion,
+    },
+    references: {
+      externalProductReferencesByItemId: new Map([[itemId, externalProductReferences]]),
+      externalCatalogItemReferencesByItemId: new Map([[itemId, externalCatalogItemReferences]]),
+    },
+  };
+}
+
+function normalizeCatalogItemSourceEvent(sourceEvent: CatalogItemSourceEvent): CatalogItemEvent {
+  if (
+    sourceEvent.type !== "catalog.catalog-item.created" &&
+    sourceEvent.type !== "catalog.catalog-item.metadata-revised"
+  ) {
+    return sourceEvent as unknown as CatalogItemEvent;
+  }
+
+  const data = sourceEvent.data as Record<string, unknown>;
+  return {
+    ...sourceEvent,
+    data: {
+      ...data,
+      title: typeof data.title === "string" ? localizedTextMapFromEnglish(data.title) : data.title,
+      subtitle: typeof data.subtitle === "string" ? localizedTextMapFromEnglish(data.subtitle) : data.subtitle,
+      description:
+        typeof data.description === "string" ? localizedTextMapFromEnglish(data.description) : data.description,
+    },
+  } as unknown as CatalogItemEvent;
 }
 
 async function refreshCatalogAdminCatalogItemPagesForItems(db: PgQueryable, itemIds: readonly string[]): Promise<void> {
@@ -165,7 +297,51 @@ async function refreshCatalogAdminCatalogItemPagesForItems(db: PgQueryable, item
   const items = uniqueItemIds
     .map((itemId) => itemsById.get(itemId))
     .filter((item): item is BaseCatalogItemRow => Boolean(item));
+  if (items.length === 0) {
+    return;
+  }
 
+  // A page at a later stream version than its item row holds facts the item projection has not applied yet;
+  // rewriting it from that row would lose them, so retry until the item projection catches up.
+  const itemSourceVersionById = new Map(
+    items.map((item) => [item.catalog_item_id, Number(item.source_stream_version)]),
+  );
+  const pageSourceVersionResult = await db.query<CatalogAdminPageSourceVersionRow>(
+    `
+    SELECT catalog_item_id, source_stream_version
+    FROM catalog_admin_catalog_item_list_pages
+    WHERE catalog_item_id = ANY($1)
+    UNION ALL
+    SELECT catalog_item_id, source_stream_version
+    FROM catalog_admin_catalog_item_detail_pages
+    WHERE catalog_item_id = ANY($1)
+  `,
+    [items.map((item) => item.catalog_item_id)],
+  );
+  const stalePageItemIds = [
+    ...new Set(
+      pageSourceVersionResult.rows
+        .filter((page) => {
+          const itemSourceVersion = itemSourceVersionById.get(page.catalog_item_id);
+          return itemSourceVersion !== undefined && Number(page.source_stream_version) > itemSourceVersion;
+        })
+        .map((page) => page.catalog_item_id),
+    ),
+  ];
+  if (stalePageItemIds.length > 0) {
+    throw createTransientProjectionError(
+      `Catalog Item source projection is behind admin pages for: ${stalePageItemIds.join(", ")}.`,
+    );
+  }
+
+  await refreshCatalogAdminCatalogItemPagesForRows(db, items);
+}
+
+async function refreshCatalogAdminCatalogItemPagesForRows(
+  db: PgQueryable,
+  items: readonly BaseCatalogItemRow[],
+  referenceOverrides?: CatalogItemReferenceOverrides,
+): Promise<void> {
   if (items.length === 0) {
     return;
   }
@@ -217,8 +393,12 @@ async function refreshCatalogAdminCatalogItemPagesForItems(db: PgQueryable, item
     db,
     items.flatMap((item) => referenceIdsByItemId.get(item.catalog_item_id) ?? []),
   );
-  const externalProductReferencesByItemId = await loadExternalProductReferencesByItemId(db, uniqueItemIds);
-  const externalCatalogItemReferencesByItemId = await loadExternalCatalogItemReferencesByItemId(db, uniqueItemIds);
+  const itemIds = items.map((item) => item.catalog_item_id);
+  const externalProductReferencesByItemId =
+    referenceOverrides?.externalProductReferencesByItemId ?? (await loadExternalProductReferencesByItemId(db, itemIds));
+  const externalCatalogItemReferencesByItemId =
+    referenceOverrides?.externalCatalogItemReferencesByItemId ??
+    (await loadExternalCatalogItemReferencesByItemId(db, itemIds));
 
   await upsertCatalogAdminCatalogItemListPages(db, items, displayIdentityResults, blueprintNames);
   await upsertCatalogAdminCatalogItemDetailPages(db, {
@@ -266,7 +446,8 @@ async function upsertCatalogAdminCatalogItemListPages(
       blueprint,
       status,
       tags,
-      updated_at
+      updated_at,
+      source_stream_version
     )
     SELECT
       input.catalog_item_id,
@@ -282,7 +463,8 @@ async function upsertCatalogAdminCatalogItemListPages(
       input.blueprint::jsonb,
       input.status,
       input.tags::jsonb,
-      input.updated_at
+      input.updated_at,
+      input.source_stream_version
     FROM unnest(
       $1::text[],
       $2::text[],
@@ -297,7 +479,8 @@ async function upsertCatalogAdminCatalogItemListPages(
       $11::text[],
       $12::text[],
       $13::text[],
-      $14::timestamptz[]
+      $14::timestamptz[],
+      $15::bigint[]
     ) AS input(
       catalog_item_id,
       language_code,
@@ -312,7 +495,8 @@ async function upsertCatalogAdminCatalogItemListPages(
       blueprint,
       status,
       tags,
-      updated_at
+      updated_at,
+      source_stream_version
     )
     ON CONFLICT (catalog_item_id) DO UPDATE SET
       language_code = EXCLUDED.language_code,
@@ -327,7 +511,9 @@ async function upsertCatalogAdminCatalogItemListPages(
       blueprint = EXCLUDED.blueprint,
       status = EXCLUDED.status,
       tags = EXCLUDED.tags,
-      updated_at = EXCLUDED.updated_at`,
+      updated_at = EXCLUDED.updated_at,
+      source_stream_version = EXCLUDED.source_stream_version
+    WHERE catalog_admin_catalog_item_list_pages.source_stream_version <= EXCLUDED.source_stream_version`,
     [
       items.map((item) => item.catalog_item_id),
       items.map((item) => item.language_code),
@@ -347,6 +533,7 @@ async function upsertCatalogAdminCatalogItemListPages(
       items.map((item) => item.status),
       items.map((item) => JSON.stringify(asStringArray(item.tags))),
       items.map((item) => item.updated_at),
+      items.map((item) => item.source_stream_version),
     ],
   );
 }
@@ -400,7 +587,8 @@ async function upsertCatalogAdminCatalogItemDetailPages(
       image_urls,
       product_asset_sets,
       image_fallback,
-      updated_at
+      updated_at,
+      source_stream_version
     )
     SELECT
       input.catalog_item_id,
@@ -425,7 +613,8 @@ async function upsertCatalogAdminCatalogItemDetailPages(
       input.image_urls::jsonb,
       input.product_asset_sets::jsonb,
       input.image_fallback::jsonb,
-      input.updated_at
+      input.updated_at,
+      input.source_stream_version
     FROM unnest(
       $1::text[],
       $2::text[],
@@ -449,7 +638,8 @@ async function upsertCatalogAdminCatalogItemDetailPages(
       $20::text[],
       $21::text[],
       $22::text[],
-      $23::timestamptz[]
+      $23::timestamptz[],
+      $24::bigint[]
     ) AS input(
       catalog_item_id,
       language_code,
@@ -473,7 +663,8 @@ async function upsertCatalogAdminCatalogItemDetailPages(
       image_urls,
       product_asset_sets,
       image_fallback,
-      updated_at
+      updated_at,
+      source_stream_version
     )
     ON CONFLICT (catalog_item_id) DO UPDATE SET
       language_code = EXCLUDED.language_code,
@@ -497,7 +688,9 @@ async function upsertCatalogAdminCatalogItemDetailPages(
       image_urls = EXCLUDED.image_urls,
       product_asset_sets = EXCLUDED.product_asset_sets,
       image_fallback = EXCLUDED.image_fallback,
-      updated_at = EXCLUDED.updated_at`,
+      updated_at = EXCLUDED.updated_at,
+      source_stream_version = EXCLUDED.source_stream_version
+    WHERE catalog_admin_catalog_item_detail_pages.source_stream_version <= EXCLUDED.source_stream_version`,
     [
       detailRows.map((row) => row.catalogItemId),
       detailRows.map((row) => row.languageCode),
@@ -522,6 +715,7 @@ async function upsertCatalogAdminCatalogItemDetailPages(
       detailRows.map((row) => row.productAssetSets),
       detailRows.map((row) => row.imageFallback),
       detailRows.map((row) => row.updatedAt),
+      detailRows.map((row) => row.sourceStreamVersion),
     ],
   );
 }
@@ -590,6 +784,7 @@ function buildCatalogAdminCatalogItemDetailPageRow(item: BaseCatalogItemRow, inp
     productAssetSets: JSON.stringify(asArray(item.product_asset_sets)),
     imageFallback: item.image_fallback === null ? null : JSON.stringify(item.image_fallback),
     updatedAt: item.updated_at,
+    sourceStreamVersion: item.source_stream_version,
   };
 }
 
@@ -778,6 +973,23 @@ async function enqueueItemAndRefresh(
   await refreshCatalogItemIds(db, [itemId], reason, source);
 }
 
+async function enqueueItemAndRefreshFromEvent(
+  db: PgQueryable,
+  event: Parameters<NonNullable<ProjectorHandlerMap[string]>>[0],
+  reason: DisplayIdentityRecomputeReason,
+  enqueue = true,
+): Promise<void> {
+  const itemId = extractIdFromStreamId(event.streamId, ITEM_STREAM_PREFIX);
+  const source = sourceFromEvent(event);
+  if (enqueue) {
+    await enqueueCatalogItemDisplayIdentityRecomputeWork(db, [itemId], reason, source);
+  }
+
+  const history = await loadCatalogItemSourceHistory(db, event);
+  const authoritative = catalogItemRowFromSourceHistory(history, itemId, event.timing.recordedAt, event.streamVersion);
+  await refreshCatalogAdminCatalogItemPagesForRows(db, [authoritative.item], authoritative.references);
+}
+
 function sourceFromEvent(event: { type?: unknown; streamId?: unknown; timing?: { recordedAt?: unknown } }) {
   return {
     eventType: typeof event.type === "string" ? event.type : undefined,
@@ -819,93 +1031,58 @@ export function buildCatalogAdminCatalogItemProjectionHandlers(db: PgQueryable):
       await enqueueItemAndRefresh(db, itemId, "catalog-item-changed", sourceFromEvent(event));
     },
     "catalog.catalog-item.blueprint-assigned": async (event) => {
-      await enqueueItemAndRefresh(
-        db,
-        extractIdFromStreamId(event.streamId, ITEM_STREAM_PREFIX),
-        "catalog-item-changed",
-        sourceFromEvent(event),
-      );
+      await enqueueItemAndRefreshFromEvent(db, event, "catalog-item-changed");
     },
     "catalog.catalog-item.field-value-set": async (event) => {
-      await enqueueItemAndRefresh(
-        db,
-        extractIdFromStreamId(event.streamId, ITEM_STREAM_PREFIX),
-        "catalog-item-changed",
-        sourceFromEvent(event),
-      );
+      await enqueueItemAndRefreshFromEvent(db, event, "catalog-item-changed");
     },
     "catalog.catalog-item.field-value-cleared": async (event) => {
-      await enqueueItemAndRefresh(
-        db,
-        extractIdFromStreamId(event.streamId, ITEM_STREAM_PREFIX),
-        "catalog-item-changed",
-        sourceFromEvent(event),
-      );
+      await enqueueItemAndRefreshFromEvent(db, event, "catalog-item-changed");
     },
     "catalog.catalog-item.category-assigned": async (event) => {
-      await enqueueItemAndRefresh(
-        db,
-        extractIdFromStreamId(event.streamId, ITEM_STREAM_PREFIX),
-        "catalog-item-changed",
-        sourceFromEvent(event),
-      );
+      await enqueueItemAndRefreshFromEvent(db, event, "catalog-item-changed");
     },
     "catalog.catalog-item.category-removed": async (event) => {
-      await enqueueItemAndRefresh(
-        db,
-        extractIdFromStreamId(event.streamId, ITEM_STREAM_PREFIX),
-        "catalog-item-changed",
-        sourceFromEvent(event),
-      );
+      await enqueueItemAndRefreshFromEvent(db, event, "catalog-item-changed");
     },
     "catalog.catalog-item.published": async (event) => {
-      await enqueueItemAndRefresh(
-        db,
-        extractIdFromStreamId(event.streamId, ITEM_STREAM_PREFIX),
-        "catalog-item-changed",
-        sourceFromEvent(event),
-      );
+      await enqueueItemAndRefreshFromEvent(db, event, "catalog-item-changed");
     },
     "catalog.catalog-item.metadata-revised": async (event) => {
-      await enqueueItemAndRefresh(
-        db,
-        extractIdFromStreamId(event.streamId, ITEM_STREAM_PREFIX),
-        "catalog-item-changed",
-        sourceFromEvent(event),
-      );
+      await enqueueItemAndRefreshFromEvent(db, event, "catalog-item-changed");
     },
     "catalog.catalog-item.tags-set": async (event) => {
-      await refreshCatalogAdminCatalogItemPages(db, extractIdFromStreamId(event.streamId, ITEM_STREAM_PREFIX));
+      await enqueueItemAndRefreshFromEvent(db, event, "catalog-item-changed", false);
     },
     "catalog.catalog-item.image-urls-set": async (event) => {
-      await refreshCatalogAdminCatalogItemPages(db, extractIdFromStreamId(event.streamId, ITEM_STREAM_PREFIX));
+      await enqueueItemAndRefreshFromEvent(db, event, "catalog-item-changed", false);
     },
     "catalog.catalog-item.product-asset-sets-set": async (event) => {
-      await refreshCatalogAdminCatalogItemPages(db, extractIdFromStreamId(event.streamId, ITEM_STREAM_PREFIX));
+      await enqueueItemAndRefreshFromEvent(db, event, "catalog-item-changed", false);
     },
     "catalog.catalog-item.image-fallback-set": async (event) => {
-      await refreshCatalogAdminCatalogItemPages(db, extractIdFromStreamId(event.streamId, ITEM_STREAM_PREFIX));
+      await enqueueItemAndRefreshFromEvent(db, event, "catalog-item-changed", false);
     },
     "catalog.catalog-item.image-fallback-cleared": async (event) => {
-      await refreshCatalogAdminCatalogItemPages(db, extractIdFromStreamId(event.streamId, ITEM_STREAM_PREFIX));
+      await enqueueItemAndRefreshFromEvent(db, event, "catalog-item-changed", false);
     },
     "catalog.catalog-item.external-product-reference-linked": async (event) => {
-      await refreshCatalogAdminCatalogItemPages(db, extractIdFromStreamId(event.streamId, ITEM_STREAM_PREFIX));
+      await enqueueItemAndRefreshFromEvent(db, event, "catalog-item-changed", false);
     },
     "catalog.catalog-item.external-catalog-item-reference-linked": async (event) => {
-      await refreshCatalogAdminCatalogItemPages(db, extractIdFromStreamId(event.streamId, ITEM_STREAM_PREFIX));
+      await enqueueItemAndRefreshFromEvent(db, event, "catalog-item-changed", false);
     },
     "catalog.catalog-item.external-product-reference-unlinked": async (event) => {
-      await refreshCatalogAdminCatalogItemPages(db, extractIdFromStreamId(event.streamId, ITEM_STREAM_PREFIX));
+      await enqueueItemAndRefreshFromEvent(db, event, "catalog-item-changed", false);
     },
     "catalog.catalog-item.external-catalog-item-reference-unlinked": async (event) => {
-      await refreshCatalogAdminCatalogItemPages(db, extractIdFromStreamId(event.streamId, ITEM_STREAM_PREFIX));
+      await enqueueItemAndRefreshFromEvent(db, event, "catalog-item-changed", false);
     },
     "catalog.catalog-item.retired": async (event) => {
-      await refreshCatalogAdminCatalogItemPages(db, extractIdFromStreamId(event.streamId, ITEM_STREAM_PREFIX));
+      await enqueueItemAndRefreshFromEvent(db, event, "catalog-item-changed", false);
     },
     "catalog.catalog-item.archived": async (event) => {
-      await refreshCatalogAdminCatalogItemPages(db, extractIdFromStreamId(event.streamId, ITEM_STREAM_PREFIX));
+      await enqueueItemAndRefreshFromEvent(db, event, "catalog-item-changed", false);
     },
     "catalog.catalog-item.draft-removed": async (event) => {
       const itemId = extractIdFromStreamId(event.streamId, ITEM_STREAM_PREFIX);

@@ -1,4 +1,5 @@
 import type { ProviderSendWindowReadout } from "./providers/provider-send-runtime";
+import type { ProductContentsEvidenceLabelRows } from "./admin/source-observation-evidence-read";
 import type { CommandHandler } from "@chase-sets/event-core/command-handler";
 import { type ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
@@ -8,6 +9,7 @@ import {
   type DurableJobWorkUnitSummary,
 } from "@chase-sets/platform-runtime/durable-job-work-units";
 import { type JsonValue } from "@chase-sets/primitives/json";
+import type { SourceObservationPromotionConfirmation } from "./promotion/promotion-preview-token";
 import type { CatalogItemId, ReferenceRecordId } from "../../../ids";
 import { type CatalogScopeSyncUnitState } from "../../scope-sync-state/domain/state";
 import {
@@ -46,6 +48,7 @@ import {
   type TcgdexSeriesOption,
 } from "./providers/tcgdex-client";
 import type { CatalogAliasCandidate } from "../../alias-equivalence/domain/alias";
+import type { CatalogMergeCandidateEditRequest } from "./promotion/catalog-merge-candidate-edit";
 import { type PromotionAliasServices } from "./promotion/provider-promotion-alias-writer";
 import {
   getActiveCatalogProviderIntegrationProfileVersion,
@@ -268,6 +271,12 @@ export type CatalogMergeCandidateApplicationDiagnosticCode = "asset-processing-f
 export type CatalogMergeCandidateBulkUnitResult = Readonly<{
   candidateId: string;
   status: "promoted" | "deferred" | "skipped-not-eligible" | "failed";
+  /**
+   * Optional and version-1 only: `reference-only` marks a `skipped-not-eligible`
+   * candidate with no item-producing member, whose members supply provenance and
+   * references but never author a Catalog Item. Stored results that omit it stay valid.
+   */
+  disposition?: "reference-only";
   /** Historical matched Catalog Item from the reviewed snapshot; never application authority. */
   catalogItemId: string | null;
   reason: string | null;
@@ -573,6 +582,33 @@ export function isSourceObservationIntegrationJobLifecycleCommandError(
   error: unknown,
 ): error is SourceObservationIntegrationJobLifecycleCommandError {
   return error instanceof SourceObservationIntegrationJobLifecycleCommandError;
+}
+
+// Why the Catalog API refused a merge candidate's update or split: the candidate moved on from the
+// version the operator saw (`stale_merge_candidate`), the edit corrects a fact that is not one of
+// the candidate's text facts, or the split names Source Observations that are not members, would
+// leave none, or would leave a side with no reference of its own.
+export type CatalogMergeCandidateReviewCommandErrorCode =
+  | "stale_merge_candidate"
+  | "edit_fact_not_editable"
+  | "split_selection_invalid"
+  | "split_requires_two_members"
+  | "split_requires_separable_reference_provenance";
+
+export class CatalogMergeCandidateReviewCommandError extends Error {
+  public readonly code: CatalogMergeCandidateReviewCommandErrorCode;
+
+  constructor(code: CatalogMergeCandidateReviewCommandErrorCode, message: string) {
+    super(message);
+    this.name = "CatalogMergeCandidateReviewCommandError";
+    this.code = code;
+  }
+}
+
+export function isCatalogMergeCandidateReviewCommandError(
+  error: unknown,
+): error is CatalogMergeCandidateReviewCommandError {
+  return error instanceof CatalogMergeCandidateReviewCommandError;
 }
 
 export const OPERATOR_CANCELLED_INTEGRATION_IMPORT_MESSAGE = "Operator cancelled provider import job.";
@@ -980,6 +1016,19 @@ export type BulkReviewJobServices = Readonly<{
     promoteAsDraft?: boolean;
     context: EventStoreContext;
   }) => Promise<SourceObservationBulkJob>;
+  /**
+   * Enqueues a bulk promotion only while `previewToken` is the token of a
+   * fresh preview of the same selection, draft choice and review page, with the
+   * check and the enqueue in one transaction. Null when it is missing or stale.
+   */
+  admitBulkPromotionJob: (input: {
+    observationIds: readonly string[];
+    scope?: SourceObservationFilterScope;
+    promoteAsDraft: boolean;
+    previewToken: string;
+    confirmation: SourceObservationPromotionConfirmation;
+    context: EventStoreContext;
+  }) => Promise<SourceObservationBulkJob | null>;
   getBulkReviewJob: (jobId: string, context?: EventStoreContext | null) => Promise<SourceObservationBulkJob | null>;
   listBulkReviewJobEvents: (
     jobId: string,
@@ -1142,6 +1191,8 @@ export type SourceObservationReadServices = Readonly<{
     setId?: string;
   }) => Promise<readonly SourceObservationIntegrationScopeRow[]>;
   getSourceObservationDetail: (observationId: string) => ReturnType<typeof getSourceObservationDetail>;
+  /** The content types and inclusion policies that label an evidence sheet's Product contents. */
+  listProductContentsEvidenceLabels?: () => Promise<ProductContentsEvidenceLabelRows>;
 }>;
 
 export type CatalogMergeCandidateGenerationResult = Readonly<{
@@ -1179,22 +1230,26 @@ export type CatalogMergeCandidateServices = Readonly<{
   }) => Promise<CatalogMergeCandidateGenerationResult>;
   promoteCatalogMergeCandidate: (input: {
     candidateId: string;
+    expectedVersion: number;
     reason: string;
     conflictResolutions?: readonly CatalogMergeCandidateConflictResolution[];
     context: EventStoreContext;
   }) => Promise<CatalogMergeCandidateActionResult>;
+  // Split the named Source Observations off the candidate. The runtime builds both snapshots and
+  // the split candidate's id from the snapshot it holds, at `expectedVersion`.
   splitCatalogMergeCandidate: (input: {
     candidateId: string;
-    remainingSnapshot: CatalogMergeCandidateReviewSnapshot;
-    splitCandidateId: string;
-    splitSnapshot: CatalogMergeCandidateReviewSnapshot;
+    expectedVersion: number;
+    splitObservationIds: readonly string[];
     reason: string;
     conflictResolutions?: readonly CatalogMergeCandidateConflictResolution[];
     context: EventStoreContext;
   }) => Promise<CatalogMergeCandidateActionResult>;
+  // Apply the operator's typed edit to the candidate's stored snapshot, at `expectedVersion`.
   updateCatalogMergeCandidate: (input: {
     candidateId: string;
-    snapshot: CatalogMergeCandidateReviewSnapshot;
+    expectedVersion: number;
+    edit: CatalogMergeCandidateEditRequest;
     reason: string;
     conflictResolutions?: readonly CatalogMergeCandidateConflictResolution[];
     context: EventStoreContext;

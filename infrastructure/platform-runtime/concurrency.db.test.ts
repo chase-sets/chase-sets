@@ -2504,10 +2504,12 @@ describe("busy-group-pass-attribution Postgres", () => {
 
 describe("subscription pass checkpoint bounds Postgres", () => {
   let pools: Readonly<Record<"checkpoint", PgTransactionalPool>>;
+  let databaseName: string;
 
   beforeAll(async () => {
     if (!adminDatabaseUrl) throw new Error("TEST_DATABASE_URL is required for checkpoint bounds DB tests.");
     const urls = createMultiContextTestDatabaseUrls(adminDatabaseUrl, ["checkpoint"], "checkpoint_bounds");
+    databaseName = new URL(urls.checkpoint).pathname.slice(1);
     await ensureMultiContextTestDatabases(adminDatabaseUrl, urls);
     pools = createMultiContextTestPools(urls);
   });
@@ -2569,6 +2571,9 @@ describe("subscription pass checkpoint bounds Postgres", () => {
       const mount = () =>
         createMountedContextTestRuntime([{ contextName: "checkpoint", module, pool: pools.checkpoint, ports: {} }]);
       const runtime = mount();
+      const checkpointKeys = runtime.projectionGroups
+        .map((group) => group.subscriptionRunners[0]!.checkpointKey)
+        .sort();
       const session = runtime.projectionGroups.find((group) => group.projectionName === "session")!;
       const subscription = session.subscriptionRunners[0]!;
       const controlPlane = createPostgresPlatformControlPlane(pools.checkpoint);
@@ -2601,6 +2606,13 @@ describe("subscription pass checkpoint bounds Postgres", () => {
           FOR EACH ROW EXECUTE FUNCTION count_checkpoint_write();
       `);
       const event = (await append("second"))[0]!;
+      const unrelatedKey = `unrelated:${event.eventId}`;
+      await pools.checkpoint.query(
+        `INSERT INTO event_subscription_checkpoints
+          (checkpoint_key, projection_name, source_context_name, subscription_version, last_global_position, updated_at)
+         VALUES ($1, $1, 'checkpoint', 1, $2::bigint, now())`,
+        [unrelatedKey, event.globalPosition],
+      );
       const before = await subscription.refreshStatus();
       expect(before.lastGlobalPosition).toBe(first.globalPosition);
       expect(before.sourceHeadGlobalPosition).toBe(event.globalPosition);
@@ -2612,12 +2624,30 @@ describe("subscription pass checkpoint bounds Postgres", () => {
         ],
       });
       const headers = { [CHASE_SETS_READ_AFTER_WRITE_HEADER]: receipt };
+      const wakeEnqueueGate = testGate();
+      const wakeEnqueues: Promise<number>[] = [];
+      // A timed-out API may leave its wake enqueue running. Hold that boundary deterministically.
+      const workSignalGateway: NonNullable<typeof signals.readConsistencyGateway> = {
+        ...signals.readConsistencyGateway,
+        requestWake: (input) => {
+          const work = (async () => {
+            wakeEnqueueGate.enter();
+            await wakeEnqueueGate.promise;
+            return signals.readConsistencyGateway!.requestWake!({
+              ...input,
+              metadata: { ...input.metadata, testOperationEventId: event.eventId },
+            });
+          })();
+          wakeEnqueues.push(work);
+          return work;
+        },
+      };
       const createApi = (groups: typeof runtime.projectionGroups) => {
         const app = new Hono();
         attachReadConsistencyMiddleware(app, [{ contextName: "checkpoint", mountPath: "/checkpoint" }], groups, {
           timeoutMs: 100,
           pollIntervalMs: 10,
-          workSignalGateway: signals.readConsistencyGateway,
+          workSignalGateway,
         });
         app.get("/checkpoint/composite-review", async (c) =>
           c.json(
@@ -2638,6 +2668,7 @@ describe("subscription pass checkpoint bounds Postgres", () => {
             requiredPosition: event.globalPosition,
             priorityLane: "hot",
             origin,
+            metadata: { testOperationEventId: event.eventId },
           });
         }
       } else {
@@ -2646,7 +2677,35 @@ describe("subscription pass checkpoint bounds Postgres", () => {
         expect(await pending.json()).toMatchObject({
           error: { code: "projection_freshness_timeout", waitMode: "target-context" },
         });
+        await wakeEnqueueGate.entered;
       }
+      wakeEnqueueGate.resolve();
+      expect(await Promise.all(wakeEnqueues)).toEqual(origin === "api-wait" ? [2] : []);
+      const wakeRows = await pools.checkpoint.query(
+        `SELECT current_database() AS database, checkpoint_key, state, required_position::text AS required
+         FROM platform_projection_wake_intents
+         WHERE current_database() = $1 AND checkpoint_key = ANY($2::text[])
+           AND required_position = $3::bigint AND metadata->>'testOperationEventId' = $4
+         ORDER BY checkpoint_key`,
+        [databaseName, checkpointKeys, event.globalPosition, event.eventId],
+      );
+      console.info(
+        JSON.stringify({
+          proof: "idle-tail-wake",
+          origin,
+          operation: event.eventId,
+          phase: "enqueued",
+          rows: wakeRows.rows,
+        }),
+      );
+      expect.soft(wakeRows.rows).toEqual(
+        checkpointKeys.map((checkpoint_key) => ({
+          database: databaseName,
+          checkpoint_key,
+          state: "queued",
+          required: event.globalPosition,
+        })),
+      );
       const [scheduler] = createProjectionWakeSchedulerRunners({
         workerId: "idle-tail-worker",
         controlPlane,
@@ -2658,24 +2717,39 @@ describe("subscription pass checkpoint bounds Postgres", () => {
       expect(Date.now() - primedAt, "test must remain inside the ordinary idle heartbeat").toBeLessThan(60_000);
       const durable = await subscription.refreshStatus();
       const progress = await pools.checkpoint.query(
-        `SELECT c.last_global_position::text AS checkpoint, r.ready_position::text AS readiness,
+        `SELECT current_database() AS database, c.checkpoint_key, c.last_global_position::text AS checkpoint, r.ready_position::text AS readiness,
           w.state, w.origin, w.required_position::text AS required
          FROM event_subscription_checkpoints c
          JOIN platform_projection_checkpoint_readiness r USING (checkpoint_key)
          JOIN platform_projection_wake_intents w USING (checkpoint_key)
-         WHERE c.checkpoint_key = $1`,
-        [subscription.checkpointKey],
+         WHERE current_database() = $1 AND c.checkpoint_key = ANY($2::text[])
+           AND w.required_position = $3::bigint AND w.metadata->>'testOperationEventId' = $4
+           AND r.source_context_name = w.source_context_name
+           AND r.metadata->>'wakeIntentId' = w.wake_intent_id
+         ORDER BY c.checkpoint_key`,
+        [databaseName, checkpointKeys, event.globalPosition, event.eventId],
+      );
+      console.info(
+        JSON.stringify({
+          proof: "idle-tail-wake",
+          origin,
+          operation: event.eventId,
+          phase: "settled",
+          rows: progress.rows,
+        }),
       );
       // Soft assertions retain the main's false-completion/read-failure evidence together.
-      expect.soft(progress.rows).toEqual([
-        {
+      expect.soft(progress.rows).toEqual(
+        checkpointKeys.map((checkpoint_key) => ({
+          database: databaseName,
+          checkpoint_key,
           checkpoint: event.globalPosition,
           readiness: event.globalPosition,
           state: "completed",
           origin,
           required: event.globalPosition,
-        },
-      ]);
+        })),
+      );
       expect.soft(durable.lastGlobalPosition).toBe(event.globalPosition);
       expect
         .soft(
@@ -2695,15 +2769,22 @@ describe("subscription pass checkpoint bounds Postgres", () => {
           { event_id: event.eventId, position: event.globalPosition },
         ]);
       expect((await pools.checkpoint.query("SELECT * FROM session_owned")).rows).toEqual([]);
-      expect
-        .soft((await createApi(mount().projectionGroups).request("/checkpoint/composite-review", { headers })).status)
-        .toBe(200);
+      const freshApi = await createApi(mount().projectionGroups).request("/checkpoint/composite-review", { headers });
+      expect.soft(freshApi.status).toBe(200);
+      if (freshApi.status === 200)
+        expect(await freshApi.json()).toEqual([
+          { event_id: first.eventId, position: first.globalPosition },
+          { event_id: event.eventId, position: event.globalPosition },
+        ]);
 
       const checkpointRows = () =>
         pools.checkpoint.query(
-          "SELECT checkpoint_key, last_global_position::text, xmin::text FROM event_subscription_checkpoints ORDER BY checkpoint_key",
+          `SELECT checkpoint_key, last_global_position::text, xmin::text FROM event_subscription_checkpoints
+           WHERE checkpoint_key = ANY($1::text[]) ORDER BY checkpoint_key`,
+          [checkpointKeys],
         );
       const saved = (await checkpointRows()).rows;
+      expect(saved).toHaveLength(checkpointKeys.length);
       for (const group of runtime.projectionGroups) {
         await signals.enqueueProjectionWakeIntent({
           sourceContextName: "checkpoint",
@@ -2713,6 +2794,7 @@ describe("subscription pass checkpoint bounds Postgres", () => {
           requiredPosition: event.globalPosition,
           priorityLane: "hot",
           origin,
+          metadata: { testOperationEventId: event.eventId },
         });
       }
       await scheduler.runOnce();
@@ -2721,7 +2803,9 @@ describe("subscription pass checkpoint bounds Postgres", () => {
       expect(
         (
           await pools.checkpoint.query(
-            "SELECT checkpoint_key, count(*)::integer AS count FROM checkpoint_writes GROUP BY checkpoint_key ORDER BY checkpoint_key",
+            `SELECT checkpoint_key, count(*)::integer AS count FROM checkpoint_writes
+             WHERE checkpoint_key = ANY($1::text[]) GROUP BY checkpoint_key ORDER BY checkpoint_key`,
+            [checkpointKeys],
           )
         ).rows,
       ).toEqual(
@@ -2732,6 +2816,14 @@ describe("subscription pass checkpoint bounds Postgres", () => {
           }))
           .sort((left, right) => left.checkpoint_key.localeCompare(right.checkpoint_key)),
       );
+      expect(
+        (
+          await pools.checkpoint.query(
+            "SELECT last_global_position::text FROM event_subscription_checkpoints WHERE checkpoint_key = $1",
+            [unrelatedKey],
+          )
+        ).rows,
+      ).toEqual([{ last_global_position: event.globalPosition }]);
     },
   );
 

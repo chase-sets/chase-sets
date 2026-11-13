@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
 import type { JsonValue } from "@chase-sets/primitives/json";
 import { readFileSync } from "node:fs";
@@ -7,14 +8,23 @@ import { describe, expect, it, vi } from "vitest";
 import type { CatalogRuntimeDeps } from "../../../support/authoring-support/runtime-support";
 import type { ReferenceRecordId, ReferenceTypeId } from "../../../ids";
 import { createReferenceDataRuntime, type ReferenceDataServices } from "../../reference-data/api/runtime";
+import { pokemonExpansionReferenceRecordSeeds } from "../../reference-data/api/seed";
 import type { ReferenceRecordCommand, ReferenceTypeCommand } from "../../reference-data/domain/domain";
 import type { SourceObservationPokemonCardNormalized } from "../domain/domain";
+import enSets from "./__fixtures__/tcgdex/en-sets.json";
+import jaSets from "./__fixtures__/tcgdex/ja-sets.json";
 import {
   lorcanajsonLorcanaCardReferenceProviderProfile,
   tcgdexPokemonTcgProviderProfile,
   type CatalogProviderIntegrationProfile,
 } from "./provider-integration-profiles";
-import { context, lorcanaCardPrintObservation, pokemonObservation } from "./seeding/runtime-test-harness";
+import {
+  capturedTcgdexSet,
+  context,
+  lorcanaCardPrintObservation,
+  pokemonObservation,
+  tcgdexSetObservation,
+} from "./seeding/runtime-test-harness";
 import {
   resolvePromotionReferenceHierarchy,
   resolvePromotionReferenceHierarchyReadOnly,
@@ -664,6 +674,205 @@ describe("promotion reference hierarchy provisioning against authoritative Refer
       ).rejects.toThrow(/inclusive read expected 1/);
       expect(await h.types(recordStream)).toEqual(activeRecordHistory);
     });
+  });
+});
+
+/** The exact English TCGdex id each seeded Pokemon expansion must hold (`/v2/en/sets`, 2026-10-18). */
+const englishTcgdexSetIdBySeedKey: Readonly<Record<string, string>> = {
+  "base-set": "base1",
+  jungle: "base2",
+  "neo-genesis": "neo1",
+  "wizards-black-star-promos": "basep",
+  "prismatic-evolutions": "sv08.5",
+  "surging-sparks": "sv08",
+  "twilight-masquerade": "sv06",
+};
+const surgingSparks = pokemonExpansionReferenceRecordSeeds.find((def) => def.key === "surging-sparks")!;
+const provisionedSurgingSparksDuplicateId = "ref_tcgdex_expansion_sv08" as ReferenceRecordId;
+
+/**
+ * The seeded Pokemon expansions behind the real Reference Data command handlers,
+ * with a projection that follows each command the way the read model does, so
+ * the discovery queries see each record's projected lifecycle status.
+ */
+function seededExpansionHarness() {
+  const { eventStore } = createInMemoryEventStore();
+  const projected = new Map<string, ProjectedReferenceRecord & { status: string }>();
+  const deps = {
+    eventStore,
+    db: {
+      query: async <T>(sql: string, values: readonly unknown[] = []) => {
+        const discoverable = [...projected.values()].filter(
+          (row) => !sql.includes("status IN ('draft', 'active')") || row.status === "draft" || row.status === "active",
+        );
+        const rows = sql.includes("attributes ->> $2")
+          ? discoverable.filter((row) => row.type_key === values[0] && row.attributes[String(values[1])] === values[2])
+          : sql.includes("WHERE type_key = $1 AND key = $2")
+            ? discoverable.filter((row) => row.type_key === values[0] && row.key === values[1])
+            : [];
+        return {
+          rowCount: rows.length,
+          rows: rows.map((row) => ({
+            reference_record_id: row.reference_record_id,
+            attributes: row.attributes,
+          })) as T[],
+        };
+      },
+    },
+  } as object as CatalogRuntimeDeps;
+  const runtime = createReferenceDataRuntime(deps);
+  const projectedStatus: Partial<Record<ReferenceRecordCommand["type"], string>> = {
+    PublishReferenceRecord: "active",
+    DeprecateReferenceRecord: "deprecated",
+    ArchiveReferenceRecord: "archived",
+  };
+  const referenceData: ReferenceDataServices = {
+    ...runtime,
+    referenceRecordCommandHandler: async (input) => {
+      const result = await runtime.referenceRecordCommandHandler(input);
+      const id = input.streamId.slice("catalog.reference-record-".length);
+      const { command } = input;
+      if (command.type === "CreateReferenceRecord") {
+        projected.set(id, {
+          reference_record_id: id,
+          type_key: command.typeKey,
+          key: command.key,
+          attributes: command.attributes ?? {},
+          status: "draft",
+        });
+      }
+      const row = projected.get(id);
+      const status = projectedStatus[command.type];
+      if (row && status) row.status = status;
+      return result;
+    },
+  };
+  const text = (en: string) => ({ defaultLocale: "en" as const, values: { en } });
+  const recordCommand = (id: ReferenceRecordId, command: ReferenceRecordCommand) =>
+    referenceData.referenceRecordCommandHandler({ streamId: `catalog.reference-record-${id}`, command, context });
+  const types = async (id: ReferenceRecordId) =>
+    (await eventStore.readStream({ streamId: `catalog.reference-record-${id}` })).map((event) => event.eventType);
+  return {
+    recordCommand,
+    text,
+    types,
+    seededHistories: () => Promise.all(pokemonExpansionReferenceRecordSeeds.map((def) => types(def.referenceRecordId))),
+    seedExpansions: async () => {
+      for (const def of pokemonExpansionReferenceRecordSeeds) {
+        await recordCommand(def.referenceRecordId, {
+          type: "CreateReferenceRecord",
+          referenceRecordId: def.referenceRecordId,
+          typeKey: def.typeKey,
+          key: def.key,
+          name: text(def.name),
+          description: text(def.description),
+          attributes: def.attributes ?? {},
+          relationships: def.relationships ?? [],
+        });
+        await recordCommand(def.referenceRecordId, { type: "PublishReferenceRecord" });
+      }
+    },
+    provision: async (normalized: SourceObservationPokemonCardNormalized) =>
+      (
+        await resolvePromotionReferenceHierarchy({
+          deps,
+          referenceData,
+          profile: tcgdexPokemonTcgProviderProfile,
+          normalized,
+          context,
+        })
+      ).targetReferenceRecordId,
+    preview: async (normalized: SourceObservationPokemonCardNormalized) =>
+      (
+        await resolvePromotionReferenceHierarchyReadOnly({
+          deps,
+          profile: tcgdexPokemonTcgProviderProfile,
+          normalized,
+        })
+      ).targetReferenceRecordId,
+  };
+}
+
+describe("TCGdex English and Japanese set ids against the seeded Pokemon expansions (#10062)", () => {
+  it("pins the set-list fixtures to the captured /v2/en/sets and /v2/ja/sets responses", () => {
+    const digest = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
+
+    expect(digest(enSets)).toBe("5d1d49cc20ff35b5b93bd14226d80e9298b6ab33ce086ab128fbb6bd8cb5c79a");
+    expect(digest(jaSets)).toBe("7f6a4c31dfd3344523f9565796a39fe01f98033acfd5dfb1b7498255131b0770");
+  });
+
+  it("reuses each seeded expansion for its English TCGdex set and none of them for Japanese SV8, SV9 and SV1a", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    const h = seededExpansionHarness();
+    await h.seedExpansions();
+    const seededHistories = await h.seededHistories();
+
+    const englishTargets: Record<string, { preview: string; provision: string }> = {};
+    for (const def of pokemonExpansionReferenceRecordSeeds) {
+      const normalized = tcgdexSetObservation("en", capturedTcgdexSet(enSets, englishTcgdexSetIdBySeedKey[def.key]!));
+      englishTargets[def.key] = { preview: await h.preview(normalized), provision: await h.provision(normalized) };
+    }
+    const japaneseTargets: Record<string, string> = {};
+    for (const setId of ["SV8", "SV9", "SV1a", "neo1"]) {
+      japaneseTargets[setId] = await h.provision(tcgdexSetObservation("ja", capturedTcgdexSet(jaSets, setId)));
+    }
+
+    expect(englishTargets).toEqual(
+      Object.fromEntries(
+        pokemonExpansionReferenceRecordSeeds.map((def) => [
+          def.key,
+          { preview: def.referenceRecordId, provision: def.referenceRecordId },
+        ]),
+      ),
+    );
+    expect(japaneseTargets).toEqual({
+      SV8: "ref_tcgdex_expansion_ja_sv8",
+      SV9: "ref_tcgdex_expansion_ja_sv9",
+      SV1a: "ref_tcgdex_expansion_ja_sv1a",
+      neo1: "ref_tcgdex_expansion_ja_neo1",
+    });
+    expect(await h.seededHistories()).toEqual(seededHistories);
+    expect(fetchSpy).not.toHaveBeenCalled();
+    fetchSpy.mockRestore();
+  });
+
+  it("reuses the seeded Surging Sparks for English sv08 once the provisioned duplicate is retired", async () => {
+    const h = seededExpansionHarness();
+    await h.seedExpansions();
+    // The record TCGdex promotion provisioned beside the seeded Surging Sparks
+    // while the seed held `sv8`, after the seed retired it.
+    await h.recordCommand(provisionedSurgingSparksDuplicateId, {
+      type: "CreateReferenceRecord",
+      referenceRecordId: provisionedSurgingSparksDuplicateId,
+      typeKey: "expansion",
+      key: "sv08",
+      name: h.text("Surging Sparks"),
+      description: h.text("Surging Sparks Pokemon TCG expansion."),
+      attributes: { abbreviation: "SSP", "tcgdex-set-id": "sv08" },
+    });
+    await h.recordCommand(provisionedSurgingSparksDuplicateId, { type: "PublishReferenceRecord" });
+    await h.recordCommand(provisionedSurgingSparksDuplicateId, { type: "DeprecateReferenceRecord" });
+    const duplicateHistory = await h.types(provisionedSurgingSparksDuplicateId);
+    const normalized = tcgdexSetObservation("en", capturedTcgdexSet(enSets, "sv08"));
+
+    expect(await h.preview(normalized)).toBe(surgingSparks.referenceRecordId);
+    expect(await h.provision(normalized)).toBe(surgingSparks.referenceRecordId);
+    expect(await h.types(provisionedSurgingSparksDuplicateId)).toEqual(duplicateHistory);
+    expect(await h.types(surgingSparks.referenceRecordId)).toEqual(activeRecordHistory);
+  });
+
+  it("still refuses a retired seeded expansion instead of provisioning a new record beside it", async () => {
+    const h = seededExpansionHarness();
+    await h.seedExpansions();
+    await h.recordCommand(surgingSparks.referenceRecordId, { type: "DeprecateReferenceRecord" });
+    const retiredHistory = await h.types(surgingSparks.referenceRecordId);
+    const normalized = tcgdexSetObservation("en", capturedTcgdexSet(enSets, "sv08"));
+    const refused = `promotion-reference-history-invalid:catalog.reference-record-${surgingSparks.referenceRecordId}`;
+
+    await expect(h.preview(normalized)).rejects.toThrow(refused);
+    await expect(h.provision(normalized)).rejects.toThrow(refused);
+    expect(await h.types(surgingSparks.referenceRecordId)).toEqual(retiredHistory);
+    expect(await h.types(provisionedSurgingSparksDuplicateId)).toEqual([]);
   });
 });
 

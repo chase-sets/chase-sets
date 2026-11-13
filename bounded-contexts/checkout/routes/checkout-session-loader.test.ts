@@ -12,6 +12,7 @@ import {
   mockCreateMarketplaceRequestApiClient,
   mockCreateOrderingRequestApiClient,
   mockCreatePaymentsRequestApiClient,
+  mockConfirmCheckoutSession,
   mockGetCheckoutPaymentConfirmation,
   mockGetCheckoutStatus,
   mockGetCheckoutSession,
@@ -22,6 +23,9 @@ import {
   mockPreviewCheckoutStatus,
   mockRequireActorFromAuthApi,
   mockResolveActorFromAuthApi,
+  mockSelectAuthenticityCheckOptIn,
+  mockSelectShippingAddress,
+  mockSelectShippingOption,
 } from "../tests/support/checkout-route-test-harness";
 
 vi.mock("@chase-sets/platform-runtime/auth", async () => {
@@ -150,6 +154,43 @@ function stubValidatedZeroWallet() {
 }
 
 describe("checkout web routes: checkout session loader", () => {
+  it.each([
+    ["guest", null],
+    ["signed-in", { accountId: "acc_buyer", roleKey: "owner", permissions: ["orders.view", "payouts.view"] }],
+    ["saved-method", { accountId: "acc_buyer", roleKey: "owner", permissions: ["orders.view", "payouts.view"] }],
+  ])("navigation does not authorize checkout for %s", async (_actorKind, actor) => {
+    mockResolveActorFromAuthApi.mockResolvedValue(actor);
+    mockGetCheckoutSession.mockResolvedValue(walletCheckoutSession());
+    mockCreateCheckoutRequestApiClient.mockReturnValue({ getCheckoutSession: mockGetCheckoutSession });
+    mockCreatePaymentsRequestApiClient.mockReturnValue({
+      listSavedCheckoutInstruments: vi.fn(async () => ({ items: [] })),
+    });
+
+    await checkoutSessionLoader({
+      request: new Request("http://localhost/checkout/buy/session/chk_wallet?resumePaymentStart=1"),
+      params: { sessionId: "chk_wallet" },
+      context: undefined,
+    } as never);
+
+    expect(mockConfirmCheckoutSession).not.toHaveBeenCalled();
+    expect(mockSelectShippingOption).not.toHaveBeenCalled();
+    expect(mockSelectShippingAddress).not.toHaveBeenCalled();
+    expect(mockSelectAuthenticityCheckOptIn).not.toHaveBeenCalled();
+  });
+
+  it("quote and forged flag are not authority in the loader", () => {
+    const source = readFileSync(new URL("./checkout-session.tsx", import.meta.url), "utf8");
+    expect(source).not.toContain("autoResumePaymentStart");
+    expect(source).not.toContain("!session.payment_id && paymentPreview !== null");
+  });
+
+  it("keeps production checkout closed", () => {
+    const runtimeValues = JSON.parse(
+      readFileSync(new URL("../../../infrastructure/helm/platform/runtime-values.json", import.meta.url), "utf8"),
+    ) as { productionEnvOverrides?: { CHASE_SETS_CHECKOUT_CLOSED?: string } };
+    expect(runtimeValues.productionEnvOverrides?.CHASE_SETS_CHECKOUT_CLOSED).toBe("true");
+  });
+
   it("AC6 expired handoff has localized notice and no payment entry or preview", async () => {
     mockResolveActorFromAuthApi.mockResolvedValue({
       accountId: "acc_buyer",
@@ -169,7 +210,7 @@ describe("checkout web routes: checkout session loader", () => {
     expect(result.expiredCheckout).toBe(true);
     expect(result.paymentPreview).toBeNull();
     expect(result.preparedPayment).toBeNull();
-    expect(result.autoResumePaymentStart).toBe(false);
+    expect("autoResumePaymentStart" in result).toBe(false);
     expect(mockGetCheckoutPaymentConfirmation).not.toHaveBeenCalled();
     expect(mockPreviewCheckoutFulfillment).not.toHaveBeenCalled();
     const source = readFileSync(new URL("./checkout-session.tsx", import.meta.url), "utf8");
@@ -217,9 +258,37 @@ describe("checkout web routes: checkout session loader", () => {
       expect(result.walletUnavailable).toBe(false);
       expect(result.paymentPreview?.wallet_credit.requested_amount).toBe(amount);
       expect(result.paymentPreview?.marketplace_checkout_fee.quote_fingerprint).toContain(`|${amount}|`);
-      expect(result.autoResumePaymentStart).toBe(true);
+      expect("autoResumePaymentStart" in result).toBe(false);
     },
   );
+
+  // #10785: Auth withholds orders.manage until the buyer verifies their email, and Payments will not
+  // start a payment without it, so Pay now becomes the verification link instead.
+  it.each([
+    ["an owner whose email is unverified", { roleKey: "owner", permissions: ["orders.view"] }, true],
+    ["an owner who may pay", { roleKey: "owner", permissions: ["orders.view", "orders.manage"] }, false],
+    ["a role that never pays", { roleKey: "fulfillment", permissions: ["orders.view", "fulfillment.view"] }, false],
+  ])("offers email verification instead of Pay now only to %s", async (_label, actor, expected) => {
+    mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", ...actor });
+    mockGetCheckoutSession.mockResolvedValue(walletCheckoutSession());
+    mockCreateCheckoutRequestApiClient.mockReturnValue({ getCheckoutSession: mockGetCheckoutSession });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(null, { status: 403 })),
+    );
+
+    const result = await checkoutSessionLoader({
+      request: new Request("http://localhost/checkout/buy/session/chk_wallet"),
+      params: { sessionId: "chk_wallet" },
+      context: undefined,
+    } as never);
+
+    expect(result.paymentVerifyEmailHref).toBe(
+      expected
+        ? `/sign-in?${new URLSearchParams({ returnTo: "/checkout/buy/session/chk_wallet?verifyEmail=pay-checkout", signInMethod: "magic-link" })}`
+        : null,
+    );
+  });
 
   it("keeps payment start available without fetching a wallet for an actor lacking payouts.view", async () => {
     mockResolveActorFromAuthApi.mockResolvedValue({
@@ -243,7 +312,7 @@ describe("checkout web routes: checkout session loader", () => {
     expect(result.walletUnavailable).toBe(false);
     expect(result.paymentPreview).not.toBeNull();
     expect(result.paymentPreview?.wallet_credit.requested_amount).toBe("0.00");
-    expect(result.autoResumePaymentStart).toBe(true);
+    expect("autoResumePaymentStart" in result).toBe(false);
   });
 
   it.each([
@@ -278,7 +347,7 @@ describe("checkout web routes: checkout session loader", () => {
     expect(result.wallet).toBeNull();
     expect(result.walletUnavailable).toBe(true);
     expect(result.paymentPreview).toBeNull();
-    expect(result.autoResumePaymentStart).toBe(false);
+    expect("autoResumePaymentStart" in result).toBe(false);
     expect(JSON.stringify(result)).not.toContain("secret-wallet-marker");
   });
 
@@ -407,7 +476,7 @@ describe("checkout web routes: checkout session loader", () => {
     const recovered = await loadSignedInWalletCheckout();
     expect(recovered.walletUnavailable).toBe(false);
     expect(recovered.paymentPreview?.wallet_credit.requested_amount).toBe("7.00");
-    expect(recovered.autoResumePaymentStart).toBe(true);
+    expect("autoResumePaymentStart" in recovered).toBe(false);
   });
 
   it("still loads an already-created Payment confirmation during a wallet outage", async () => {
@@ -436,7 +505,7 @@ describe("checkout web routes: checkout session loader", () => {
     } as never);
     expect(result.walletUnavailable).toBe(true);
     expect(result.preparedPayment).toEqual({ payment_id: "pay_existing", status: "pending-confirmation" });
-    expect(result.autoResumePaymentStart).toBe(false);
+    expect("autoResumePaymentStart" in result).toBe(false);
   });
 
   it("keeps checkout visible when checkout totals are temporarily unavailable", async () => {
@@ -908,9 +977,101 @@ describe("checkout web routes: checkout session loader", () => {
     expect(result.paymentPreview?.marketplace_checkout_fee.quote_fingerprint).toBe(
       "marketplace-checkout-fee-v1|card|37.99|0.00|37.99|1.45|39.44|39.44",
     );
-    expect(result.autoResumePaymentStart).toBe(true);
+    expect("autoResumePaymentStart" in result).toBe(false);
   });
 
+  // https://github.com/chase-sets/chase-sets/issues/10785: confirm created the orders and cleared the preview, but started no payment.
+  function committedOrdersWithoutPaymentSession(overrides: Record<string, unknown> = {}) {
+    return {
+      ...walletCheckoutSession(),
+      fulfillment_preview_revision: "rev_committed",
+      fulfillment_preview_snapshot: null,
+      order_ids: ["ord_checkout_1", "ord_checkout_2"],
+      last_recorded_quote: fulfillmentPreviewSnapshot({
+        revision: "rev_committed",
+        totals: {
+          itemSubtotalAmount: "30.00",
+          shippingAmount: "5.99",
+          salesTaxAmount: "2.00",
+          totalAmount: "37.99",
+          packageCount: 2,
+        },
+      }),
+      ...overrides,
+    };
+  }
+
+  function signInBuyerWithWallet() {
+    mockResolveActorFromAuthApi.mockResolvedValue({
+      accountId: "acc_buyer",
+      roleKey: "owner",
+      permissions: ["orders.view", "orders.manage", "payouts.view"],
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => Response.json({ available_balance_amount: "5.00", currency_code: "usd" })),
+    );
+    mockCreateCheckoutRequestApiClient.mockReturnValue({ getCheckoutSession: mockGetCheckoutSession });
+    mockCreatePaymentsRequestApiClient.mockReturnValue({
+      getCheckoutStatus: mockGetCheckoutStatus,
+      previewCheckoutStatus: mockPreviewCheckoutStatus,
+    });
+  }
+
+  function loadCommittedOrderCheckout() {
+    return checkoutSessionLoader({
+      request: new Request("http://localhost/checkout/buy/session/chk_wallet?paymentMethodCategory=card"),
+      params: { sessionId: "chk_wallet" },
+      context: undefined,
+    } as never);
+  }
+
+  it("quotes Pay now from the quote the orders confirm created were bound to once the preview is gone", async () => {
+    signInBuyerWithWallet();
+    mockGetCheckoutSession.mockResolvedValue(committedOrdersWithoutPaymentSession());
+
+    const result = await loadCommittedOrderCheckout();
+
+    expect(result.previewError).toBeNull();
+    expect(result.paymentPreview).toMatchObject({
+      order_ids: ["ord_checkout_1", "ord_checkout_2"],
+      currency_code: "usd",
+      amount: "37.99",
+      wallet_credit: { requested_amount: "5.00", applied_amount: "5.00", external_amount: "32.99" },
+      can_start_payment: true,
+      marketplace_checkout_fee: { payment_method_category: "card" },
+    });
+  });
+
+  it("reads no other context to quote the orders confirm created", async () => {
+    signInBuyerWithWallet();
+    mockGetCheckoutSession.mockResolvedValue(committedOrdersWithoutPaymentSession());
+
+    await loadCommittedOrderCheckout();
+
+    expect(mockCreatePaymentsRequestApiClient).not.toHaveBeenCalled();
+    expect(mockGetCheckoutStatus).not.toHaveBeenCalled();
+    expect(mockPreviewCheckoutStatus).not.toHaveBeenCalled();
+    expect(readFileSync(new URL("./checkout-session.tsx", import.meta.url), "utf8")).not.toMatch(
+      /createPaymentsRequestApiClient|getCheckoutStatus/,
+    );
+  });
+
+  it.each([
+    ["was recorded for another revision", { fulfillment_preview_revision: "rev_other" }],
+    ["is missing", { last_recorded_quote: null }],
+    ["is absent from the read", { last_recorded_quote: undefined }],
+    ["has no revision the orders kept, as before this change", { fulfillment_preview_revision: null }],
+  ])("keeps the totals notice and no Pay now quote when the session's quote %s", async (_case, overrides) => {
+    signInBuyerWithWallet();
+    mockGetCheckoutSession.mockResolvedValue(committedOrdersWithoutPaymentSession(overrides));
+
+    const result = await loadCommittedOrderCheckout();
+
+    expect(result.paymentPreview).toBeNull();
+    expect(result.previewError).toBe("Checkout totals are temporarily unavailable. Refresh before confirming payment.");
+    expect(mockCreatePaymentsRequestApiClient).not.toHaveBeenCalled();
+  });
   it("arms signed-in payment-start resume from stored order freshness after compact recovery token is gone", async () => {
     mockResolveActorFromAuthApi.mockResolvedValue({
       accountId: "acc_buyer",
@@ -1023,7 +1184,7 @@ describe("checkout web routes: checkout session loader", () => {
     expect(result.paymentPreview?.marketplace_checkout_fee.quote_fingerprint).toBe(
       "marketplace-checkout-fee-v1|card|37.99|0.00|37.99|1.45|39.44|39.44",
     );
-    expect(result.autoResumePaymentStart).toBe(true);
+    expect("autoResumePaymentStart" in result).toBe(false);
   });
 
   it("keeps signed-in tokenless payment-start resume in recovery while stored order freshness catches up", async () => {
@@ -1119,7 +1280,7 @@ describe("checkout web routes: checkout session loader", () => {
     expect(result.paymentPreview?.marketplace_checkout_fee.quote_fingerprint).toBe(
       "marketplace-checkout-fee-v1|card|37.99|0.00|37.99|1.45|39.44|39.44",
     );
-    expect(result.autoResumePaymentStart).toBe(true);
+    expect("autoResumePaymentStart" in result).toBe(false);
   });
 
   it("keeps post-order payment-start refresh in recovery while Payments order input catches up", async () => {
@@ -1212,7 +1373,7 @@ describe("checkout web routes: checkout session loader", () => {
     expect(result.paymentPreview?.marketplace_checkout_fee.quote_fingerprint).toBe(
       "marketplace-checkout-fee-v1|card|37.99|0.00|37.99|1.45|39.44|39.44",
     );
-    expect(result.autoResumePaymentStart).toBe(true);
+    expect("autoResumePaymentStart" in result).toBe(false);
   });
 
   it("keeps post-order payment-start recovery safe when the compact post-write token expires", async () => {

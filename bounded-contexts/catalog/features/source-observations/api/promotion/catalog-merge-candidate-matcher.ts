@@ -483,10 +483,14 @@ function providerScopeMappingMatchesObservation(
   row: SourceObservationListRow,
 ): boolean {
   const normalized = row.normalized;
+  const setIdCoordinates =
+    row.provider_key.toLowerCase() === "scryfall"
+      ? textValues(valueAt(normalized, "setCode"))
+      : textValues(valueAt(normalized, "setId"), valueAt(normalized, "expansionId"));
   const coordinateChecks: readonly Readonly<{ expected: string | null; observed: readonly string[] }>[] = [
     {
       expected: mapping.set_id,
-      observed: textValues(valueAt(normalized, "setId"), valueAt(normalized, "expansionId")),
+      observed: setIdCoordinates,
     },
     {
       expected: mapping.set_name,

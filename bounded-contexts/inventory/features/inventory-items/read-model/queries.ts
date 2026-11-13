@@ -1,6 +1,9 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
-import type { InventoryAdjustmentReason } from "@chase-sets/event-core/public-event-payloads";
+import type {
+  InventoryAdjustmentReason,
+  InventoryProducerAdjustmentReason,
+} from "@chase-sets/event-core/public-event-payloads";
 import type { GradedCardDetails } from "../domain/domain";
 import type { InventoryHoldRow } from "../../holds/read-model/queries";
 import {
@@ -60,7 +63,7 @@ export type InventoryItemLedgerRow = Readonly<{
   hold_quantity: number | null;
   purpose: string | null;
   reason: string;
-  reason_code: InventoryAdjustmentReason | null;
+  reason_code: InventoryAdjustmentReason | InventoryProducerAdjustmentReason | null;
   note: string | null;
   sale_price_amount: string | null;
   channel: string | null;
@@ -407,7 +410,7 @@ export async function getInventoryItem(db: PgQueryable, itemId: string, accountI
        actor,
        event_type,
        stream_id,
-       stream_version,
+       stream_version::integer AS stream_version,
        recorded_at
      FROM inventory_item_ledger
      WHERE item_id = $1

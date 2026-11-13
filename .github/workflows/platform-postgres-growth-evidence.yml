@@ -69,7 +69,12 @@ jobs:
         env:
           NODE_OPTIONS: --no-deprecation
 
+      - name: Prepare Postgres growth evidence artifacts
+        run: mkdir -p artifacts/release-health
+
       - name: Export database URLs and TLS trust
+        id: export-authority
+        continue-on-error: true
         uses: ./.github/actions/export-managed-postgres-authority
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
@@ -78,6 +83,25 @@ jobs:
         with:
           environment: ${{ env.TARGET_ENVIRONMENT }}
           connection-mode: pooled
+          selection-mode: pooled-only
+          retry-attempts: "3"
+          retry-backoff-ms: "250"
+          failure-output-path: ${{ github.workspace }}/artifacts/release-health/postgres-growth-authority-export-failure.json
+          inventory-output-path: ${{ github.workspace }}/artifacts/release-health/postgres-growth-context-pool-inventory.json
+
+      - name: Gate Postgres growth on authority export
+        if: ${{ always() }}
+        env:
+          EXPORT_OUTCOME: ${{ steps.export-authority.outcome }}
+          FAILURE_ARTIFACT: artifacts/release-health/postgres-growth-authority-export-failure.json
+        run: |
+          set -euo pipefail
+          if [ "$EXPORT_OUTCOME" = "failure" ] && [ ! -f "$FAILURE_ARTIFACT" ]; then
+            printf '%s\n' '{"result":"failure","mode":"url-export","environment":"'"$TARGET_ENVIRONMENT"'","class":"managed-postgres-authority-export-failed","attempts":0}' > "$FAILURE_ARTIFACT"
+          fi
+          if [ "$EXPORT_OUTCOME" = "failure" ]; then
+            exit 1
+          fi
 
       - name: Build Postgres growth evidence
         id: growth
@@ -114,6 +138,24 @@ jobs:
         run: |
           set -euo pipefail
           record="artifacts/release-health/postgres-growth-evidence.json"
+          failure_record="artifacts/release-health/postgres-growth-authority-export-failure.json"
+          if [ -f "$failure_record" ]; then
+            node - "$failure_record" >> "$GITHUB_STEP_SUMMARY" <<'NODE'
+          const fs = require("node:fs");
+          const record = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
+          console.log("## Postgres Growth Evidence");
+          console.log("");
+          console.log(`- Result: ${record.result}`);
+          console.log(`- Environment: ${record.environment}`);
+          console.log(`- Mode: ${record.mode}`);
+          console.log(`- Class: ${record.class}`);
+          console.log(`- Attempts: ${record.attempts}`);
+          if (record.status !== undefined) console.log(`- Provider status: ${record.status}`);
+          if (record.code !== undefined) console.log(`- Provider code: ${record.code}`);
+          if (record.context !== undefined) console.log(`- Context: ${record.context}`);
+          NODE
+            exit 0
+          fi
           if [ ! -f "$record" ]; then
             echo "No Postgres growth evidence record was written." >> "$GITHUB_STEP_SUMMARY"
             exit 0
@@ -142,6 +184,17 @@ jobs:
         with:
           name: platform-postgres-growth-evidence-${{ env.TARGET_ENVIRONMENT }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: artifacts/release-health/postgres-growth-evidence.json
+          if-no-files-found: ignore
+          retention-days: 30
+
+      - name: Upload Postgres growth authority artifacts
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: platform-postgres-growth-authority-${{ env.TARGET_ENVIRONMENT }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            artifacts/release-health/postgres-growth-authority-export-failure.json
+            artifacts/release-health/postgres-growth-context-pool-inventory.json
           if-no-files-found: ignore
           retention-days: 30
 

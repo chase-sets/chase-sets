@@ -3,7 +3,7 @@ import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-se
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { createId } from "@chase-sets/primitives/typed-ids";
-import type { RiskAlertAction } from "./contracts";
+import { RiskAlertActionRejectedError, type RiskAlertAction } from "./contracts";
 import { buildRiskAlertProjectionHandlers } from "../read-model/projection";
 import { getRiskAlertQueueItem, getRiskAlertQueueMetrics, listRiskAlertQueue } from "../read-model/queries";
 
@@ -24,6 +24,14 @@ export function createRiskAlertRuntime(deps: Readonly<{ db: PgQueryable; eventSt
     getRiskAlertQueueItem: (alertId) => getRiskAlertQueueItem(deps.db, alertId),
     getRiskAlertQueueMetrics: () => getRiskAlertQueueMetrics(deps.db),
     recordRiskAlertAction: async (params, context) => {
+      const alert = await getRiskAlertQueueItem(deps.db, params.alertId);
+      if (!alert) {
+        throw new RiskAlertActionRejectedError("alert-not-found");
+      }
+      if (params.action === "request-manual-payout-review" && !alert.manual_payout_review_candidate) {
+        throw new RiskAlertActionRejectedError("action-not-allowed");
+      }
+
       const actionId = createId("raa");
       const recordedAt = new Date().toISOString();
       await deps.eventStore.appendToStream({

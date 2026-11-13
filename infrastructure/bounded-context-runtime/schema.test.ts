@@ -12,11 +12,252 @@ import {
   SCHEMA_BOOTSTRAP_LOCK_WAIT_TIMEOUT_MS,
   SCHEMA_MIGRATIONS_TABLE,
   SCHEMA_BOOTSTRAP_ADVISORY_LOCK_NAMESPACE,
+  withSchemaBootstrapLock,
 } from "./index";
 
 const NO_API_ENTRIES: readonly BcApiEntry[] = [];
 
+function schemaRetryPool(error: unknown, failures = 1) {
+  let schemaAttempts = 0;
+  const connectedAt: number[] = [];
+  const clients = Array.from({ length: 8 }, () => ({
+    query: vi.fn(async (sql: string): Promise<{ rows: Record<string, unknown>[] }> => {
+      if (sql.includes("pg_try_advisory_lock")) return { rows: [{ acquired: true }] };
+      if (sql.includes("schema_retry_control") && schemaAttempts++ < failures) throw error;
+      return { rows: [] };
+    }),
+    release: vi.fn(),
+  }));
+  let nextClient = 0;
+  const pool = {
+    query: vi.fn(async () => ({ rows: [] })),
+    connect: vi.fn(async () => {
+      connectedAt.push(Date.now());
+      return clients[nextClient++];
+    }),
+  };
+  return { pool, clients, connectedAt };
+}
+
+const retryControlModule = { contextName: "example", schemaSql: "CREATE TABLE schema_retry_control (id text);" };
+
 describe("bounded context runtime schema", () => {
+  describe.each(["acquire", "held-by-caller"] as const)(
+    "retry classification with %s lock mode",
+    (advisoryLockMode) => {
+      it.each([false, true])("retries neutral-message 40P01 (cause-wrapped=%s) on a fresh client", async (wrapped) => {
+        vi.useFakeTimers();
+        const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+        try {
+          const direct = Object.assign(new Error("neutral SECRET_MARKER"), { code: "40P01", detail: "SECRET_MARKER" });
+          const error = wrapped ? new Error("neutral SECRET_MARKER", { cause: direct }) : direct;
+          const { pool, clients } = schemaRetryPool(error);
+          const holder = { query: vi.fn(async () => ({ rows: [{ acquired: true }] })), release: vi.fn() };
+          const bootstrap = () => bootstrapContextDatabase(retryControlModule, pool, { advisoryLockMode });
+          const result = (
+            advisoryLockMode === "held-by-caller"
+              ? withSchemaBootstrapLock({ ...pool, connect: async () => holder }, {}, bootstrap)
+              : bootstrap()
+          ).then(
+            () => undefined,
+            (failure: unknown) => failure,
+          );
+          await vi.advanceTimersByTimeAsync(2_000);
+          expect(await result).toBeUndefined();
+          expect(pool.connect).toHaveBeenCalledTimes(2);
+          expect(clients[0].release).toHaveBeenCalledWith(error);
+          expect(clients[1].release).toHaveBeenCalledWith(advisoryLockMode === "acquire" ? true : undefined);
+          for (const client of clients.slice(0, 2)) {
+            expect(client.query).toHaveBeenCalledWith("RESET lock_timeout");
+            expect(client.query.mock.calls.filter(([sql]) => sql.includes("pg_try_advisory_lock"))).toHaveLength(
+              advisoryLockMode === "acquire" ? 1 : 0,
+            );
+            expect(client.query.mock.calls.filter(([sql]) => sql.includes("pg_advisory_unlock"))).toHaveLength(
+              advisoryLockMode === "acquire" ? 2 : 0,
+            );
+          }
+          if (advisoryLockMode === "held-by-caller") {
+            expect(holder.query.mock.calls).toHaveLength(3);
+            expect(holder.release).toHaveBeenCalledWith(true);
+          }
+          expect(log.mock.calls).toEqual([
+            ["Schema bootstrap retryable failure: condition=deadlock code=40P01 attempt=1 remainingBudgetMs=600000."],
+          ]);
+          expect(JSON.stringify(log.mock.calls)).not.toContain("SECRET_MARKER");
+        } finally {
+          log.mockRestore();
+          vi.useRealTimers();
+        }
+      });
+
+      it.each(["40001", "57014", "42601"])("rejects neutral-message %s on attempt one", async (code) => {
+        const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+        try {
+          const error = Object.assign(new Error("neutral SECRET_MARKER"), { code });
+          const { pool, clients } = schemaRetryPool(error);
+          await expect(bootstrapContextDatabase(retryControlModule, pool, { advisoryLockMode })).rejects.toBe(error);
+          expect(pool.connect).toHaveBeenCalledTimes(1);
+          expect(clients[0].release).toHaveBeenCalledWith(error);
+          expect(log).not.toHaveBeenCalled();
+        } finally {
+          log.mockRestore();
+        }
+      });
+    },
+  );
+
+  it.each([
+    { code: "40P01", message: "neutral SECRET_MARKER", condition: "deadlock", safeCode: "40P01", wrapped: false },
+    { code: "40P01", message: "neutral SECRET_MARKER", condition: "deadlock", safeCode: "40P01", wrapped: true },
+    { code: "55P03", message: "neutral SECRET_MARKER", condition: "lock_timeout", safeCode: "55P03", wrapped: false },
+    {
+      code: "SECRET_MARKER",
+      message: "canceling statement due to lock timeout SECRET_MARKER",
+      condition: "lock_timeout",
+      safeCode: "none",
+      wrapped: true,
+    },
+    {
+      code: "08P01",
+      message: "query_wait_timeout SECRET_MARKER",
+      condition: "query_wait_timeout",
+      safeCode: "08P01",
+      wrapped: true,
+    },
+  ])(
+    "bounds $condition retries and safe exhaustion (wrapped=$wrapped, code=$code)",
+    async ({ code, message, condition, safeCode, wrapped }) => {
+      vi.useFakeTimers();
+      vi.setSystemTime(0);
+      const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+      try {
+        const direct = Object.assign(new Error(message), { code, detail: "SECRET_MARKER", sql: "SECRET_MARKER" });
+        const error = wrapped ? new Error("SECRET_MARKER", { cause: direct }) : direct;
+        const { pool, clients, connectedAt } = schemaRetryPool(error, Infinity);
+        const result = bootstrapContextDatabase(retryControlModule, pool, { lockTimeoutRetryBudgetMs: 40_000 }).then(
+          () => undefined,
+          (failure: unknown) => failure,
+        );
+        await vi.advanceTimersByTimeAsync(40_000);
+        const failure = await result;
+        expect(failure).toMatchObject({
+          message: expect.stringContaining(`Schema bootstrap hit PostgreSQL ${condition} for 6 attempts over 40000ms`),
+          cause: error,
+        });
+        expect((failure as Error).message).not.toContain("SECRET_MARKER");
+        expect(connectedAt).toEqual([0, 1_137, 3_411, 7_822, 15_870, 31_055]);
+        expect(pool.connect).toHaveBeenCalledTimes(6);
+        expect(log.mock.calls).toEqual(
+          connectedAt.map((at, index) => [
+            `Schema bootstrap retryable failure: condition=${condition} code=${safeCode} attempt=${index + 1} remainingBudgetMs=${40_000 - at}.`,
+          ]),
+        );
+        expect(JSON.stringify(log.mock.calls)).not.toContain("SECRET_MARKER");
+        for (const client of clients.slice(0, 6)) expect(client.release).toHaveBeenCalledWith(error);
+      } finally {
+        log.mockRestore();
+        vi.useRealTimers();
+      }
+    },
+  );
+
+  it("logs advisory-lock-query timeout without changing its deadline admission", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    try {
+      const { pool, clients, connectedAt } = schemaRetryPool(undefined, 0);
+      for (const client of clients) {
+        client.query.mockImplementation(async (sql) =>
+          sql.includes("pg_try_advisory_lock") ? new Promise(() => undefined) : { rows: [] },
+        );
+      }
+      const result = bootstrapContextDatabase(retryControlModule, pool, {
+        lockQueryTimeoutMs: 10,
+        lockTimeoutRetryBudgetMs: 2_000,
+      }).then(
+        () => undefined,
+        (failure: unknown) => failure,
+      );
+      await vi.advanceTimersByTimeAsync(2_000);
+      expect(await result).toMatchObject({
+        message: expect.stringContaining("PostgreSQL advisory_lock_query_timeout for 2 attempts over 2000ms"),
+        cause: clients[1].release.mock.calls[0]?.[0],
+      });
+      expect(connectedAt).toEqual([0, 1_147]);
+      expect(log.mock.calls).toEqual([
+        [
+          "Schema bootstrap retryable failure: condition=advisory_lock_query_timeout code=none attempt=1 remainingBudgetMs=1990.",
+        ],
+        [
+          "Schema bootstrap retryable failure: condition=advisory_lock_query_timeout code=none attempt=2 remainingBudgetMs=843.",
+        ],
+      ]);
+    } finally {
+      log.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
+  it("logs zero remaining budget after an in-flight retryable failure without admitting another attempt", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    try {
+      const error = Object.assign(new Error("neutral"), { code: "40P01" });
+      const { pool, clients } = schemaRetryPool(error);
+      clients[0].query.mockImplementation(async (sql) => {
+        if (sql.includes("schema_retry_control")) {
+          await new Promise((resolve) => setTimeout(resolve, 100));
+          throw error;
+        }
+        return { rows: [{ acquired: true }] };
+      });
+      const result = bootstrapContextDatabase(retryControlModule, pool, { lockTimeoutRetryBudgetMs: 50 }).then(
+        () => undefined,
+        (failure: unknown) => failure,
+      );
+      await vi.advanceTimersByTimeAsync(100);
+      expect(await result).toMatchObject({ cause: error, message: expect.stringContaining("1 attempts over 100ms") });
+      expect(pool.connect).toHaveBeenCalledTimes(1);
+      expect(log.mock.calls).toEqual([
+        ["Schema bootstrap retryable failure: condition=deadlock code=40P01 attempt=1 remainingBudgetMs=0."],
+      ]);
+    } finally {
+      log.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
+  it.each([
+    ["40P01", "55P03", "lock_timeout"],
+    ["55P03", "40P01", "deadlock"],
+  ])("exhaustion names the last retried condition (%s then %s)", async (firstCode, lastCode, condition) => {
+    vi.useFakeTimers();
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    try {
+      const first = Object.assign(new Error("neutral"), { code: firstCode });
+      const last = Object.assign(new Error("neutral"), { code: lastCode });
+      const { pool, clients } = schemaRetryPool(first, Infinity);
+      clients[1].query.mockImplementation(async (sql) => {
+        if (sql.includes("schema_retry_control")) throw last;
+        return { rows: [{ acquired: true }] };
+      });
+      const result = bootstrapContextDatabase(retryControlModule, pool, { lockTimeoutRetryBudgetMs: 2_000 }).then(
+        () => undefined,
+        (failure: unknown) => failure,
+      );
+      await vi.advanceTimersByTimeAsync(2_000);
+      expect(await result).toMatchObject({
+        message: expect.stringContaining(`Schema bootstrap hit PostgreSQL ${condition} for 2 attempts over 2000ms`),
+        cause: last,
+      });
+    } finally {
+      log.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
   it("creates projection generation metadata for generation-aware rebuilds", () => {
     expect(eventSubscriptionSchemaSql).toContain("CREATE TABLE IF NOT EXISTS event_projection_group_generations");
     expect(eventSubscriptionSchemaSql).toContain("active_generation bigint NOT NULL DEFAULT 1");
@@ -127,6 +368,7 @@ describe("bounded context runtime schema", () => {
         "20260710_event_store_write_hot_fillfactor",
         "20260710_projection_recovery_marker_backfill",
         "20261015_subscription_reaction_output_positions",
+        "20261022_configuration_epoch_closure",
         "20260703_example_pages_concurrent_indexes",
       ]),
     );

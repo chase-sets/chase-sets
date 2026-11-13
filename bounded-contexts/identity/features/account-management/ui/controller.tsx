@@ -8,7 +8,7 @@ import {
   type FormEvent,
   type ReactNode,
 } from "react";
-import { useLocation, useNavigate, useRevalidator } from "react-router";
+import { useLocation, useMatches, useNavigate, useNavigation, useRevalidator } from "react-router";
 import { Banner, Button, Stack, Text } from "@chase-sets/design-system";
 import { RouterForm, type RouterFormProps } from "@chase-sets/design-system/react-router";
 import { t } from "@chase-sets/localization";
@@ -49,7 +49,7 @@ export function AccountMutationForm({
     (controller.activeForm === ref.current && ["reauth-required", "route-denied"].includes(controller.state));
   useLayoutEffect(() => {
     setHeld(Boolean(ref.current && controller?.isHeld(ref.current)));
-  }, [controller]);
+  });
   useLayoutEffect(() => {
     if (controller?.state === "succeeded") {
       entered.current = null;
@@ -117,6 +117,11 @@ export function AccountMutationBoundary({
   );
   const [activeForm, setActiveForm] = useState<HTMLFormElement | null>(null);
   const [pendingForm, setPendingForm] = useState<HTMLFormElement | null>(null);
+  const settlement = useRef<{ generation: number; retained: boolean; from: unknown } | null>(null);
+  const matches = useMatches();
+  const navigation = useNavigation();
+  const committedMatches = useRef<unknown>(matches);
+  const [settlementVersion, setSettlementVersion] = useState(0);
   const status = useRef<HTMLDivElement>(null);
   const descriptor = useRef<MutationDescriptor | null>(null);
   const held = useRef(new Map<string, MutationDescriptor>());
@@ -172,6 +177,7 @@ export function AccountMutationBoundary({
     setState("editing");
     setActiveForm(null);
     setPendingForm(null);
+    settlement.current = null;
     setRefusals(0);
     setSuggestion(null);
     setCallerPresented(false);
@@ -181,8 +187,25 @@ export function AccountMutationBoundary({
       held.current.clear();
       remember(null);
       busy.current = false;
+      settlement.current = null;
     };
   }, [actorKey, parent !== null]);
+
+  function commitSettlement() {
+    const pending = settlement.current;
+    if (!pending || pending.generation !== generation.current) return;
+    if (navigation.state !== "idle" || revalidator.state !== "idle") return;
+    if (committedMatches.current === pending.from) return;
+    settlement.current = null;
+    busy.current = pending.retained;
+    setPendingForm(null);
+    setRefusals(0);
+  }
+
+  useLayoutEffect(() => {
+    committedMatches.current = matches;
+    commitSettlement();
+  }, [matches, navigation.state, revalidator.state, settlementVersion]);
 
   const activeNotification = useRef<MutationNotificationHandler | undefined>(undefined);
 
@@ -247,9 +270,11 @@ export function AccountMutationBoundary({
       }
     };
     const currentGeneration = generation.current;
+    const from = committedMatches.current;
     void (async () => {
       let sent = false;
       let retained = false;
+      let awaitingSettlement = false;
       try {
         if (!Object.hasOwn(actionFields, action) || new URL(form.action).origin !== window.location.origin)
           throw new Error("INDETERMINATE");
@@ -322,6 +347,11 @@ export function AccountMutationBoundary({
           if (result.destination && result.destination !== location.pathname)
             await navigate(result.destination, { replace: true });
           else await revalidator.revalidate();
+          if (generation.current === currentGeneration) {
+            settlement.current = { generation: currentGeneration, retained, from };
+            awaitingSettlement = true;
+            setSettlementVersion((version) => version + 1);
+          }
         }
       } catch {
         if (generation.current !== currentGeneration) return;
@@ -332,9 +362,13 @@ export function AccountMutationBoundary({
       } finally {
         // The lock outlives success navigation/revalidation; a superseded generation was already reset.
         if (generation.current === currentGeneration) {
-          busy.current = retained;
-          setPendingForm(null);
-          setRefusals(0);
+          if (awaitingSettlement) {
+            // Forms release from their layout effect after the settled route data commit.
+          } else {
+            busy.current = retained;
+            setPendingForm(null);
+            setRefusals(0);
+          }
         }
       }
     })();

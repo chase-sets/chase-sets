@@ -12,21 +12,17 @@ import {
   Badge,
   Banner,
   Button,
-  resolveEmbeddedSurfaceTheme,
   Inline,
   LinkButton,
   LoadingSpinner,
-  observeEmbeddedSurfaceTheme,
   Page,
   PageHeader,
   PageSection,
   ProgressiveDisclosure,
   Stack,
-  embeddedSurfaceThemeSnapshot,
   Text,
 } from "@chase-sets/design-system";
-import { createStripeConnectAppearance } from "@chase-sets/stripe-appearance";
-import type { SettlementPayoutReadinessRow } from "../read-model/queries";
+import type { SettlementPayoutReadinessRow } from "../../../client";
 import { buildMissingRequirementGroups, type MissingRequirementGroup } from "../domain/setup-progress";
 import { PayoutReadinessPanel } from "./payout-readiness-panel";
 import { StripeConnectNotificationBanner } from "./stripe-connect-notification-banner";
@@ -48,13 +44,11 @@ export function loadStripeConnectComponent({
   publishableKey,
   fetchClientSecret,
   contactEmail,
-  appearanceScope = null,
 }: {
   mode: PayoutSetupMode;
   publishableKey: string;
   fetchClientSecret?: FetchClientSecret;
   contactEmail?: string | null;
-  appearanceScope?: Element | null;
 }) {
   if (typeof window === "undefined") {
     throw new Error(t("settlement.features.payoutReadiness.ui.payoutSetupPage.connect.can.only.load.in.browser"));
@@ -64,7 +58,6 @@ export function loadStripeConnectComponent({
     publishableKey,
     fetchClientSecret: fetchClientSecret ?? (() => fetchEmbeddedClientSecret(mode, contactEmail)),
     locale: "en-US",
-    appearance: createStripeConnectAppearance({ theme: resolveEmbeddedSurfaceTheme({ scope: appearanceScope }) }),
   });
 }
 
@@ -149,9 +142,8 @@ function createStripeConnectElement(
   publishableKey: string,
   fetchClientSecret?: FetchClientSecret,
   contactEmail?: string | null,
-  appearanceScope?: Element | null,
 ): ConnectHTMLElementRecord[StripeConnectComponentName] {
-  return loadStripeConnectComponent({ mode, publishableKey, fetchClientSecret, contactEmail, appearanceScope }).create(
+  return loadStripeConnectComponent({ mode, publishableKey, fetchClientSecret, contactEmail }).create(
     componentName(mode),
   );
 }
@@ -239,27 +231,15 @@ export function StripeConnectEmbeddedComponent({
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const componentRef = useRef<StripeConnectElement | null>(null);
-  const [appearanceScope, setAppearanceScope] = useState<HTMLDivElement | null>(null);
-  const [appearanceVersion, setAppearanceVersion] = useState<string | null>(null);
+  const [container, setContainerNode] = useState<HTMLDivElement | null>(null);
   const [status, setStatus] = useState<"loading" | "visible" | "error" | "step-up">("loading");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [retryCount, setRetryCount] = useState(0);
 
   const setContainer = useCallback((node: HTMLDivElement | null) => {
     containerRef.current = node;
-    setAppearanceScope(node);
-    setAppearanceVersion(node ? embeddedSurfaceThemeSnapshot({ scope: node }) : null);
+    setContainerNode(node);
   }, []);
-
-  useEffect(() => {
-    if (!appearanceScope) {
-      return undefined;
-    }
-
-    return observeEmbeddedSurfaceTheme({ scope: appearanceScope }, () => {
-      setAppearanceVersion(embeddedSurfaceThemeSnapshot({ scope: appearanceScope }));
-    });
-  }, [appearanceScope]);
 
   useEffect(() => {
     if (!publishableKey) {
@@ -268,7 +248,7 @@ export function StripeConnectEmbeddedComponent({
       return;
     }
 
-    if (!appearanceScope || appearanceVersion === null) {
+    if (!container) {
       return;
     }
 
@@ -280,7 +260,7 @@ export function StripeConnectEmbeddedComponent({
     const mount = async () => {
       const clientSecret = await fetchEmbeddedClientSecret(mode, contactEmail);
       let preflightClientSecretAvailable = true;
-      if (cancelled || containerRef.current !== appearanceScope) {
+      if (cancelled || containerRef.current !== container) {
         return;
       }
 
@@ -296,7 +276,6 @@ export function StripeConnectEmbeddedComponent({
           return fetchEmbeddedClientSecret(mode, contactEmail);
         },
         contactEmail,
-        appearanceScope,
       ) as StripeConnectElement;
 
       component.setOnLoaderStart?.(() => {
@@ -317,7 +296,7 @@ export function StripeConnectEmbeddedComponent({
         onProviderExit?.();
       });
 
-      appearanceScope.replaceChildren(component);
+      container.replaceChildren(component);
       componentRef.current = component;
       mountedComponent = component;
       setStatus("visible");
@@ -348,9 +327,9 @@ export function StripeConnectEmbeddedComponent({
       if (componentRef.current === mountedComponent) {
         componentRef.current = null;
       }
-      appearanceScope.replaceChildren();
+      container.replaceChildren();
     };
-  }, [appearanceScope, appearanceVersion, contactEmail, mode, onProviderExit, publishableKey, retryCount]);
+  }, [container, contactEmail, mode, onProviderExit, publishableKey, retryCount]);
 
   return (
     <Stack gap={3}>
@@ -421,16 +400,14 @@ export function PayoutSetupPage({
   providerErrorMessage?: string | null;
   onProviderExit?: () => void;
 }) {
-  const hasProviderAccount = Boolean(payoutReadiness.provider_reference);
+  const hasProviderAccount = payoutReadiness.provider_management_available === true;
   const missingRequirementGroups = buildMissingRequirementGroups(payoutReadiness.missing_requirements);
-  const hasSellerActionableRequirement = missingRequirementGroups.some((group) => group.id !== "platform-review");
   const canRenderProviderComponent =
     mode === "setup"
-      ? payoutReadiness.status !== "ready" && (missingRequirementGroups.length === 0 || hasSellerActionableRequirement)
-      : hasProviderAccount;
+      ? payoutReadiness.provider_setup_available === true
+      : payoutReadiness.provider_management_available === true;
   const missingRequirementCount = missingRequirementGroups.reduce((count, group) => count + group.count, 0);
-  const showSupportEscalation =
-    payoutReadiness.status === "restricted" || providerErrorMessage !== null || missingRequirementCount > 0;
+  const showSupportEscalation = payoutReadiness.support_recommended === true || providerErrorMessage !== null;
 
   return (
     <Page>

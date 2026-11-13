@@ -7,6 +7,8 @@ import type {
   BulkEditCatalogItemResult,
   BulkPublishPreview,
   BulkPublishResult,
+  BulkRemoveDraftPreview,
+  BulkRemoveDraftResult,
   CatalogItemDetail,
   CatalogItemImageFallback,
   CatalogItemListItem,
@@ -116,8 +118,8 @@ export function removeCategory(id: string, categoryId: string) {
   return api.removeCategory<CommandResponse>(id, categoryId);
 }
 
-export function publishCatalogItem(id: string, blueprintIsActive: boolean, requiredFieldIds: string[]) {
-  return api.publishCatalogItem<CommandResponse>(id, blueprintIsActive, requiredFieldIds);
+export function publishCatalogItem(id: string) {
+  return api.publishCatalogItem<CommandResponse>(id);
 }
 
 export function previewBulkPublishCatalogItems(selection: unknown) {
@@ -162,6 +164,14 @@ export function confirmBulkCatalogItemEdit(
 
 export function removeDraftCatalogItem(id: string) {
   return api.removeDraftCatalogItem<CommandResponse>(id);
+}
+
+export function previewBulkRemoveDrafts(selection: unknown) {
+  return api.previewBulkRemoveDrafts<BulkRemoveDraftPreview>(selection);
+}
+
+export function confirmBulkRemoveDrafts(selection: unknown, options: BulkLifecycleProgressOptions = {}) {
+  return api.confirmBulkRemoveDrafts<BulkRemoveDraftResult>(selection, options);
 }
 
 export function setTags(id: string, tags: string[]) {

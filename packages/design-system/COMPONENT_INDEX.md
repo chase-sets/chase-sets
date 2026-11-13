@@ -4,7 +4,7 @@
 
 This index is generated from the root `@chase-sets/design-system` export surface and the production consumer inventory used by `scripts/check-design-system-dead-exports.mjs`.
 
-- Runtime exports indexed: 362
+- Runtime exports indexed: 363
 - Source modules covered: 128
 - Example consumers scan: production files under `bounded-contexts/` and `deployables/`, excluding tests
 
@@ -114,7 +114,7 @@ This index is generated from the root `@chase-sets/design-system` export surface
 | `Dialog` | `packages/design-system/src/components/feedback/dialog.tsx` | Purpose not documented; symbol name suggests: Dialog. | `bounded-contexts/catalog/features/blueprints/ui/blueprint-detail-page.tsx` |
 | `Divider` | `packages/design-system/src/primitives/layout.tsx` | Purpose not documented; symbol name suggests: Divider. | `bounded-contexts/auth/features/registration/ui/register-page.tsx` |
 | `EmbeddedProviderSurface` | `packages/design-system/src/primitives/layout.tsx` | Full-width host for provider-managed embedded flows whose iframe dimensions are controlled by a vendor runtime. | `bounded-contexts/payments/features/payments/ui/account-payment/stripe-confirmation-card.tsx` |
-| `embeddedSurfaceThemeSnapshot` | `packages/design-system/src/theme/embedded-surface-theme.ts` | Purpose not documented; symbol name suggests: embedded Surface Theme Snapshot. | `bounded-contexts/payments/features/payments/ui/account-payment/stripe-confirmation-card.tsx` |
+| `embeddedSurfaceThemeSnapshot` | `packages/design-system/src/theme/embedded-surface-theme.ts` | Purpose not documented; symbol name suggests: embedded Surface Theme Snapshot. | `No production consumer yet.` |
 | `EmptyState` | `packages/design-system/src/components/feedback/empty-state.tsx` | Purpose not documented; symbol name suggests: Empty State. | `bounded-contexts/catalog/features/attention-queue/ui/attention-queue-panel.tsx` |
 | `EmptyStateIllustration` | `packages/design-system/src/primitives/typography.tsx` | Purpose not documented; symbol name suggests: Empty State Illustration. | `No production consumer yet.` |
 | `EvidenceCodeBlock` | `packages/design-system/src/patterns/dense-admin-workbench.tsx` | Purpose not documented; symbol name suggests: Evidence Code Block. | `bounded-contexts/auth/features/agent-grants/ui/agent-grant-detail-page.tsx` |
@@ -204,8 +204,9 @@ This index is generated from the root `@chase-sets/design-system` export surface
 | `normalizeFormErrors` | `packages/design-system/src/components/forms/form-state.ts` | Purpose not documented; symbol name suggests: normalize Form Errors. | `bounded-contexts/auth/support/ui-support/auth-form-feedback.ts` |
 | `NotificationCenterSheet` | `packages/design-system/src/patterns/commerce-overlays.tsx` | Purpose not documented; symbol name suggests: Notification Center Sheet. | `No production consumer yet.` |
 | `NumberField` | `packages/design-system/src/components/forms/number-field.tsx` | Purpose not documented; symbol name suggests: Number Field. | `bounded-contexts/channels/features/listing-composition/ui/publication-pages.tsx` |
+| `NumericSeriesChart` | `packages/design-system/src/components/data-display/chart.tsx` | Purpose not documented; symbol name suggests: Numeric Series Chart. | `bounded-contexts/pricing/features/pricing-health/ui/what-if-panels.tsx` |
 | `NumericValue` | `packages/design-system/src/primitives/typography.tsx` | Closed inline role carrier for prices and market data: IBM Plex Mono with tabular figures. | `bounded-contexts/pricing/features/public-market-pages/ui/market-price-history-page.tsx` |
-| `observeEmbeddedSurfaceTheme` | `packages/design-system/src/theme/embedded-surface-theme.ts` | Purpose not documented; symbol name suggests: observe Embedded Surface Theme. | `bounded-contexts/payments/features/payments/ui/account-payment/stripe-confirmation-card.tsx` |
+| `observeEmbeddedSurfaceTheme` | `packages/design-system/src/theme/embedded-surface-theme.ts` | Purpose not documented; symbol name suggests: observe Embedded Surface Theme. | `No production consumer yet.` |
 | `OfferCard` | `packages/design-system/src/components/commerce/panels.tsx` | Purpose not documented; symbol name suggests: Offer Card. | `bounded-contexts/marketplace/features/offers/ui/submitted-offer-detail-page.tsx` |
 | `OperationalLockBanner` | `packages/design-system/src/components/data-display/operational-workflow/operational-lock-banner.tsx` | Lock notice: a warning-toned surface with a padlock glyph that signals a workstation task is frozen against edits while it is in progress. | `bounded-contexts/fulfillment/features/shipments/ui/shipment-packing-page.tsx` |
 | `OperationalStatusBanner` | `packages/design-system/src/components/data-display/operational-workflow/operational-status-banner.tsx` | Operational status notice: a tone-tinted surface pairing a status glyph, heading, and supporting copy with an optional trailing action, used to flag the live state of a workstation task. | `bounded-contexts/catalog/features/provider-scope-mapping/ui/scope-coverage-matrix-panel.tsx` |
@@ -253,7 +254,7 @@ This index is generated from the root `@chase-sets/design-system` export surface
 | `resolveChaseMotion` | `packages/design-system/src/motion/config.ts` | Purpose not documented; symbol name suggests: resolve Chase Motion. | `No production consumer yet.` |
 | `resolveColumnsClass` | `packages/design-system/src/utils/system.ts` | Purpose not documented; symbol name suggests: resolve Columns Class. | `No production consumer yet.` |
 | `resolveDirectionClass` | `packages/design-system/src/utils/system.ts` | Purpose not documented; symbol name suggests: resolve Direction Class. | `No production consumer yet.` |
-| `resolveEmbeddedSurfaceTheme` | `packages/design-system/src/theme/embedded-surface-theme.ts` | Purpose not documented; symbol name suggests: resolve Embedded Surface Theme. | `bounded-contexts/payments/features/payments/ui/account-payment/stripe-confirmation-card.tsx` |
+| `resolveEmbeddedSurfaceTheme` | `packages/design-system/src/theme/embedded-surface-theme.ts` | Purpose not documented; symbol name suggests: resolve Embedded Surface Theme. | `No production consumer yet.` |
 | `resolveJustifyClass` | `packages/design-system/src/utils/system.ts` | Purpose not documented; symbol name suggests: resolve Justify Class. | `No production consumer yet.` |
 | `resolveResponsiveClass` | `packages/design-system/src/utils/system.ts` | Purpose not documented; symbol name suggests: resolve Responsive Class. | `No production consumer yet.` |
 | `resolveSpaceClass` | `packages/design-system/src/utils/system.ts` | Purpose not documented; symbol name suggests: resolve Space Class. | `No production consumer yet.` |

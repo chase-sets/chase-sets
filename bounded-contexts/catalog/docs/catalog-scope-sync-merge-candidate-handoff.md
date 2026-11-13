@@ -192,11 +192,26 @@ candidates through two candidate-owned checkpoints around the existing candidate
 planner and the shared executor:
 
 1. Preflight from the approved snapshot, never the latest observations: fold
-   each member's Source Observation stream and use the exact reviewed revision;
-   resolve each promotable member's active promotion profile, enforce the
-   global/provider/unit promotion rollout controls, require every member to agree
-   on blueprint, category, fields and hierarchy Reference Record, and nominate
-   reuse targets from the duplicate resolver. Reference provisioning and image
+   each member's Source Observation stream and use the exact reviewed revision
+   (the whole membership tuple). A member is item-producing only when the unit
+   it was reviewed under (its own provider, profile key and version) carries
+   Catalog Item promotion; that unit's active promotion profile is resolved or
+   the unit fails closed as `promotion-profile-unavailable` (unregistered),
+   `promotion-profile-inactive`, `promotion-profile-ambiguous` or
+   `promotion-profile-incompatible` (maps another kind). Every other member, such
+   as MTGJSON card or set reference data and Scryfall image evidence, supplies
+   membership, provenance and references only; neither candidate-wide presence,
+   another member's profile nor an external reference qualifies it. A candidate
+   with no item-producing member returns `skipped-not-eligible` with
+   `disposition: "reference-only"` before any write. Each mapped fact the plan
+   would write must be carried by an item-producing member's own revision or be
+   a reviewer's correction, and the name must be carried at all
+   (`promotion-facts-missing`, before planning; the planner's `missing-title` and
+   `missing-field-value` are unchanged). Then enforce the
+   global/provider/unit promotion rollout controls, require every item-producing
+   member to agree on blueprint, category, fields and hierarchy Reference Record,
+   and nominate reuse targets from the duplicate resolver under each member's
+   own provider and external key. Reference provisioning and image
    storage are idempotent preparation and may precede a block; a block appends no
    approval and writes no Catalog Item (`promotion-plan-blocked:<code>`). A ready
    candidate stays ready; an approved one stays approved-but-unapplied and the
@@ -235,7 +250,10 @@ checkpoints refuse (`promotion-application-conflicting-history`) without writes.
 Results: version-1 unit results are `promoted`, `failed` or
 `skipped-not-eligible`; any other or missing status fails closed. They carry
 `appliedCatalogItemId`, `appliedMode`, `approvalVersion` and `planFingerprint`,
-non-null exactly when `promoted`.
+non-null exactly when `promoted`. The optional `disposition: "reference-only"`
+appears only on a `skipped-not-eligible` result without a diagnostic code and
+counts in `skippedNotEligible`; stored results without it stay valid, and any
+other value or placement fails closed.
 `catalogItemId` stays the historical match. An inner image-preparation failure
 records `diagnosticCode: "asset-processing-failed"`; other failures carry none
 and stay unclassified. Readers reconcile the complete completed-job history by

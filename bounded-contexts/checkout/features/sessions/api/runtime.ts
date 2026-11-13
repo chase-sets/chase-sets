@@ -9,6 +9,10 @@ import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { PostageLabelProvider } from "@chase-sets/postage-labels";
 import type { AccountId, CheckoutSessionId, PaymentId } from "@chase-sets/primitives/typed-ids";
 import type { CheckoutCartServices } from "../../cart/api/runtime";
+import {
+  checkoutShippingAddressFromSavedAddress,
+  listCheckoutShipFromAddresses,
+} from "../../cart/integrations/identity/identity-queries";
 import type { CartReadinessDecisionInput } from "../../cart/domain/readiness";
 import { CheckoutDomainError, normalizeShippingOption } from "../../../support/runtime-support/common";
 import {
@@ -47,6 +51,8 @@ import {
   type CheckoutAddressVerificationOutcome,
 } from "./address-verification";
 import { commitMetadataFromStoredEvents, createCheckoutSessionEntryServices } from "./session-entry";
+import { lookupCheckoutEntryAttempt, type CheckoutEntryAttempt } from "../../command-attempts/api/entry-attempt";
+import type { CheckoutCommandAttemptResult } from "../../command-attempts/api/contracts";
 import { createCheckoutSessionCleanupService, OrderCartCleanupError } from "./session-cleanup";
 import {
   assertCurrentCartReadinessForUncommittedSession,
@@ -63,6 +69,10 @@ export type CheckoutSessionMutationResult = Readonly<{
   commitPositions?: readonly { sourceContextName: string; maxGlobalPosition: string; eventIds: readonly string[] }[];
 }>;
 export { OrderCartCleanupError };
+export type CheckoutSessionCancellationRead = Readonly<{
+  status: "already-cancelled" | "cancellable";
+  session: CheckoutSessionRow;
+}>;
 export type CheckoutSessionCreateResult = Readonly<{
   sessionId: CheckoutSessionId;
   commitPosition?: string;
@@ -89,6 +99,7 @@ export type CheckoutSessionServices = Readonly<{
       readinessDecisions?: CartReadinessDecisionInput | null;
       presentedAnonymousCartId?: string | null;
       sessionIdOverride?: CheckoutSessionId;
+      entryAttempt?: CheckoutEntryAttempt;
     }>,
     context: EventStoreContext,
   ) => Promise<CheckoutSessionCreateResult>;
@@ -113,6 +124,7 @@ export type CheckoutSessionServices = Readonly<{
       handoffExpiresAt?: string | null;
       createdAt?: string;
       sessionIdOverride?: CheckoutSessionId;
+      entryAttempt?: CheckoutEntryAttempt;
     }>,
     context: EventStoreContext,
   ) => Promise<CheckoutSessionCreateResult>;
@@ -131,9 +143,27 @@ export type CheckoutSessionServices = Readonly<{
       optimizationGoal?: CheckoutOptimizationGoal;
       shippingOption?: string;
       sessionIdOverride?: CheckoutSessionId;
+      entryAttempt?: CheckoutEntryAttempt;
     }>,
     context: EventStoreContext,
   ) => Promise<CheckoutSessionCreateResult>;
+  /**
+   * Reads one entry attempt before any entry work: the first Session it
+   * opened, `null` when the key is new, or `CheckoutEntryAttemptConflict` when
+   * the key was used with a different canonical payload. Never appends.
+   */
+  resolveEntryAttempt: (
+    params: Readonly<{ accountId: AccountId; entryAttempt: CheckoutEntryAttempt }>,
+  ) => Promise<CheckoutSessionCreateResult | null>;
+  /** The owner lookup for one entry attempt of the presenting Account; one stream read, no write. */
+  lookupEntryAttempt: (
+    params: Readonly<{ ownerKey: string; attemptId: string; requestHash: string }>,
+  ) => Promise<CheckoutCommandAttemptResult>;
+  /** The bound confirmation hashes rehydrated from the buyer's own Session stream; null when it is not theirs. */
+  getConfirmationBinding: (
+    sessionId: string,
+    accountId: AccountId,
+  ) => Promise<Readonly<{ orderHash: string | null; paymentHash: string | null }> | null>;
   selectShippingOption: (
     params: Readonly<{ sessionId: string; accountId: AccountId; shippingOption: string }>,
     context: EventStoreContext,
@@ -160,6 +190,12 @@ export type CheckoutSessionServices = Readonly<{
     }>,
     context: EventStoreContext,
   ) => Promise<CheckoutSessionMutationResult>;
+  /**
+   * The address a session's first preview is computed for while the session has none: the buyer's
+   * default saved address, else their most recently updated one (the address book's order), which is
+   * the address the checkout page preselects. Null when the buyer has no saved address.
+   */
+  firstPreviewShippingAddress: (accountId: AccountId) => Promise<CheckoutShippingAddress | null>;
   verifyShippingAddress: (
     address: CheckoutShippingAddress,
     decision?: AddressVerificationDecision,
@@ -175,6 +211,9 @@ export type CheckoutSessionServices = Readonly<{
       orderIds: readonly string[];
       fulfilledLineKeys?: readonly string[];
       orderWriteCommitPositions?: readonly CheckoutSourceCommitPosition[];
+      orderHash?: string | null;
+      fulfillmentPreviewRevision?: string | null;
+      acknowledgedMaterialChanges?: boolean | null;
     }>,
     context: EventStoreContext,
   ) => Promise<CheckoutSessionMutationResult>;
@@ -190,7 +229,7 @@ export type CheckoutSessionServices = Readonly<{
     params: Readonly<{ sessionId: string; accountId: AccountId }>,
   ) => Promise<CheckoutSessionRow>;
   recordPaymentStarted: (
-    params: Readonly<{ sessionId: string; accountId: AccountId; paymentId: string }>,
+    params: Readonly<{ sessionId: string; accountId: AccountId; paymentId: string; paymentHash?: string | null }>,
     context: EventStoreContext,
   ) => Promise<CheckoutSessionMutationResult>;
   recordOfferSubmitted: (
@@ -201,10 +240,19 @@ export type CheckoutSessionServices = Readonly<{
     params: Readonly<{ sessionId: string; accountId: AccountId }>,
     context: EventStoreContext,
   ) => Promise<CheckoutSessionMutationResult>;
+  /**
+   * The buyer's own session read from its stream, not the page projection, for
+   * owner cancellation: already cancelled, or holding only reservations. Throws
+   * `checkout_session_not_cancellable` once orders, payment or purchase intent
+   * exist; those holds belong to Ordering and Payments.
+   */
+  readSessionForCancellation: (
+    params: Readonly<{ sessionId: string; accountId: AccountId }>,
+  ) => Promise<CheckoutSessionCancellationRead>;
   getSession: (sessionId: string, accountId: string) => ReturnType<typeof getCheckoutSession>;
   /** The buyer's session's last recorded quote, read from its stream; null when unknown or never quoted. */
   getLastRecordedQuote: (sessionId: string, accountId: string) => Promise<CheckoutFulfillmentPreview | null>;
-  getPaymentSummary: (paymentId: string) => Promise<CheckoutPaymentSummaryRow | null>;
+  getPaymentSummary: (paymentId: string, buyerAccountId: string) => Promise<CheckoutPaymentSummaryRow | null>;
   getPaymentConfirmation: (sessionId: string, accountId: string) => Promise<CheckoutPaymentConfirmation | null>;
   listSavedPaymentInstruments: (accountId: AccountId) => Promise<CheckoutSavedPaymentInstrumentRow[]>;
   projectors: readonly ProjectionHandlerSet[];
@@ -258,7 +306,6 @@ export function createCheckoutSessionRuntime(deps: CheckoutSessionRuntimeDeps): 
     db: deps.db,
     cart: deps.cart,
     commandHandler,
-    repository,
   });
   const reads = createCheckoutSessionReadServices({
     db: deps.db,
@@ -345,6 +392,10 @@ export function createCheckoutSessionRuntime(deps: CheckoutSessionRuntimeDeps): 
         context,
       );
     },
+    firstPreviewShippingAddress: async (accountId) => {
+      const [address] = await listCheckoutShipFromAddresses(deps.db, accountId);
+      return address ? checkoutShippingAddressFromSavedAddress(address) : null;
+    },
     verifyShippingAddress: (address, decision) =>
       verifyCheckoutShippingAddress(deps.addressVerificationProvider, address, decision ?? null),
     selectAuthenticityCheckOptIn: (params, context) =>
@@ -383,11 +434,17 @@ export function createCheckoutSessionRuntime(deps: CheckoutSessionRuntimeDeps): 
           command: {
             type: "RecordPaymentStarted",
             paymentId: params.paymentId as PaymentId,
+            paymentHash: params.paymentHash,
             recordedAt: new Date().toISOString(),
           },
         },
         context,
       ),
+    lookupEntryAttempt: (params) => lookupCheckoutEntryAttempt(deps.eventStore, params),
+    getConfirmationBinding: async (sessionId, accountId) => {
+      const state = await loadSessionStateForBuyerOrNull(sessionId, accountId);
+      return state ? { orderHash: state.orderHash ?? null, paymentHash: state.paymentHash ?? null } : null;
+    },
     recordOfferSubmitted: (params, context) =>
       applySessionCommandForBuyer(
         {
@@ -401,7 +458,21 @@ export function createCheckoutSessionRuntime(deps: CheckoutSessionRuntimeDeps): 
         { ...params, command: { type: "CancelCheckoutSession", cancelledAt: new Date().toISOString() } },
         context,
       ),
-    getPaymentSummary: (paymentId) => getCheckoutPaymentSummary(deps.db, paymentId),
+    readSessionForCancellation: async (params) => {
+      const state = await loadSessionStateForBuyer(params.sessionId, params.accountId);
+      const session = stateToCheckoutSessionRow(state);
+      if (state.cancelledAt) {
+        return { status: "already-cancelled", session };
+      }
+      if (state.paymentId || state.orderIds.length > 0 || state.submittedOfferId) {
+        throw new CheckoutDomainError(
+          "This checkout already created orders or started payment, so cancel it from your purchases instead.",
+          "checkout_session_not_cancellable",
+        );
+      }
+      return { status: "cancellable", session };
+    },
+    getPaymentSummary: (paymentId, buyerAccountId) => getCheckoutPaymentSummary(deps.db, paymentId, buyerAccountId),
     getPaymentConfirmation: async (sessionId, accountId) => {
       const payment = await getCheckoutPaymentConfirmationProjection(deps.db, sessionId, accountId);
       return payment ? exposeCheckoutPaymentConfirmation(payment, deps.paymentProcessorPublicConfiguration) : null;

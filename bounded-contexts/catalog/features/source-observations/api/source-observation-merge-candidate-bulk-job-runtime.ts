@@ -678,7 +678,8 @@ function readCatalogMergeCandidateBulkJobDiscriminator(
 
 /**
  * Version-1 outcomes are only promoted, failed or skipped-not-eligible, carrying
- * completion facts exactly when promoted; legacy results are returned as stored.
+ * completion facts exactly when promoted and a `reference-only` disposition only
+ * on an undiagnosed skip; legacy results are returned as stored.
  */
 function requireCatalogMergeCandidateBulkJobResult(
   jobId: string,
@@ -706,6 +707,13 @@ function requireCatalogMergeCandidateBulkJobResult(
 
 function isWellFormedApplicationOutcome(outcome: CatalogMergeCandidateBulkUnitResult): boolean {
   if (outcome.diagnosticCode !== undefined && outcome.diagnosticCode !== "asset-processing-failed") return false;
+  if (
+    outcome.disposition !== undefined &&
+    (outcome.disposition !== "reference-only" ||
+      outcome.status !== "skipped-not-eligible" ||
+      outcome.diagnosticCode !== undefined)
+  )
+    return false;
   switch (outcome.status) {
     case "promoted":
       return (

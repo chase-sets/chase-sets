@@ -1,4 +1,16 @@
 import { getSupportFlowDefinition } from "../domain/flow-catalog";
+import { projectSupportParticipantPolicy, type SupportFlowDetail } from "../api/support-flow-projection";
+
+/** The account-scoped detail body: the row plus the participant policy the API projects for `accountId`. */
+export function withParticipantPolicy<
+  Detail extends Readonly<{ buyer_account_id: string; flow: Pick<SupportFlowDetail, "allowedResponses"> }>,
+>(detail: Detail, accountId: string) {
+  const role = detail.buyer_account_id === accountId ? "buyer" : "seller";
+  return {
+    ...detail,
+    participantPolicy: projectSupportParticipantPolicy(detail as never, { role, accountId }, detail.flow),
+  };
+}
 
 export function supportParticipantDetailFixture() {
   return {

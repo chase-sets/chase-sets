@@ -1,0 +1,5 @@
+{
+  "name": "unrelated unauthorized remains unknown",
+  "input": { "phase": "build-image", "message": "unauthorized: registry credentials rejected" },
+  "expected": { "rootCauseCode": "unknown" }
+}

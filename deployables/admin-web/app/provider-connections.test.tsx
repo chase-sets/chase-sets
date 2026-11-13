@@ -1,5 +1,7 @@
+import { readFileSync } from "node:fs";
+import { resolve as resolvePath } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, render, screen } from "@testing-library/react";
+import { act, render, screen, within } from "@testing-library/react";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { mountApiRouters, resolveModuleApiMounts } from "@chase-sets/bounded-context-runtime";
 import { createTestApp } from "@chase-sets/bounded-context-runtime/test-support";
@@ -157,6 +159,54 @@ afterEach(() => {
 });
 
 describe("provider connections real loader and owner exports", () => {
+  it("renders the API freshness state without recomputing it", async () => {
+    const evaluatedAt = "2026-09-29T12:00:00.000Z";
+    const response = {
+      evaluatedAt,
+      catalog: {
+        state: "available",
+        rows: [
+          {
+            id: "catalog-connection",
+            provider: "catalog-provider",
+            owner: "catalog",
+            capability: "catalog-integration",
+            accountId: null,
+            credentialReadiness: "unknown",
+            health: "unknown",
+            observedAt: evaluatedAt,
+            freshness: { freshWithinSeconds: 15, staleAfterSeconds: 60, unavailableAfterSeconds: 300 },
+            destination: null,
+            freshnessState: "stale",
+            ageSeconds: 61,
+          },
+        ],
+      },
+      channels: { state: "available", rows: [] },
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(JSON.stringify(response), { status: 200 })),
+    );
+
+    await route();
+
+    const catalogList = await screen.findByRole("list");
+    const catalogProvider = within(catalogList).getByText("catalog-provider", { exact: true });
+    const catalogRow = catalogProvider.closest('[role="listitem"]');
+    expect(catalogRow).not.toBeNull();
+    expect(within(catalogRow as HTMLElement).getByText("Stale", { exact: true })).toBeTruthy();
+    expect(screen.queryByText("Fresh")).toBeNull();
+    const pageSource = readFileSync(
+      resolvePath(
+        process.cwd(),
+        "../../bounded-contexts/platform-operations/features/provider-connections/ui/provider-connections-page.tsx",
+      ),
+      "utf8",
+    );
+    expect(pageSource).not.toMatch(/providerConnectionAge|\/freshness/);
+  });
+
   it("renders both owners and scopes, unknown/old/absent observations, and only registered Catalog actions", async () => {
     const { api } = fixture();
     vi.stubGlobal(
