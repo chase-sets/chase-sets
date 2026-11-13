@@ -130,6 +130,7 @@ describe("new set over MCP journey", () => {
           },
         }),
         providerScopeMappingCommandHandler: services.providerScopeMappings.commandHandler,
+        referenceRecordCommandHandler: services.referenceData.referenceRecordCommandHandler,
       },
     );
     const discoveryHandlers = createProviderScopeDiscoveryMcpHandlers(discovery).toolHandlers;

@@ -113,6 +113,11 @@ export const marketplaceEnglishTranslations = {
   "marketplace.features.listings.api.route.error.bulkPriceUpdateInvalid":
     "Bulk price updates are not available with the current settings.",
   "marketplace.features.listings.api.route.error.evidenceInvalid": "Check the listing photos and try again.",
+  "marketplace.features.listings.api.listingBatch.target.recorded":
+    "The batch already recorded this target as {outcome}.",
+  "marketplace.features.listings.api.listingBatch.target.unknown": "The target's outcome is unknown; retry the batch.",
+  "marketplace.features.listings.api.listingBatch.target.changed":
+    "The batch already recorded a different request for this target.",
   "marketplace.features.listings.api.listingGatePolicyRoute.error.invalid":
     "Check the listing policy settings and try again.",
   "marketplace.features.listings.api.route.error.evidenceIncomplete":
