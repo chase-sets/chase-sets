@@ -846,6 +846,10 @@ export async function publishRepresentativeListings(
   for (const [index, stock] of stockItems.entries()) {
     const listingId = createRepresentativeListingId(stock);
     const accountId = stock.accountId as AccountId;
+    const context = {
+      ...representativeSeedContext,
+      audit: { ...representativeSeedContext.audit, forAccountId: accountId },
+    };
     const priceAmount = representativePrice(index);
     let current = await services.listings.readAuthoritativeListing({ accountId, listingId });
     if (current.kind === "present" && current.state.status !== "draft") {
@@ -864,7 +868,7 @@ export async function publishRepresentativeListings(
             expectedVersion: current.version,
             idempotencyKey: representativeListingAttemptKey("price", accountId, listingId, current.version),
           },
-          representativeSeedContext,
+          context,
         );
 
         results.push({
@@ -901,7 +905,7 @@ export async function publishRepresentativeListings(
           listingPhotoUploads: buildRepresentativeListingPhotoUpload(listingId),
           idempotencyKey: representativeListingAttemptKey("create", accountId, listingId, 0),
         },
-        representativeSeedContext,
+        context,
       );
       current = await services.listings.readAuthoritativeListing({ accountId, listingId });
       if (current.kind === "absent")
@@ -916,7 +920,7 @@ export async function publishRepresentativeListings(
         expectedVersion: current.version,
         idempotencyKey: representativeListingAttemptKey("publish", accountId, listingId, current.version),
       },
-      representativeSeedContext,
+      context,
     );
 
     results.push({

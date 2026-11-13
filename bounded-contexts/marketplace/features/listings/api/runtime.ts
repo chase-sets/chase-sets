@@ -2172,7 +2172,7 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
   }
 
   function unusableListingHistory(reason: string): never {
-    throw new MarketplaceAttemptError("history_incomplete", `Listing history is unusable: ${reason}.`);
+    throw new MarketplaceAttemptError("history_incomplete", `Listing history is unusable: ${reason}.`, "unsafe");
   }
 
   async function readAuthoritativeListing(
@@ -2183,7 +2183,7 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
     try {
       history = await readCompleteStream(deps.eventStore, { streamId });
     } catch {
-      return unusableListingHistory("history incomplete");
+      throw new MarketplaceAttemptError("history_incomplete", "Listing history is unusable: history incomplete.");
     }
     if (history.length === 0) return { kind: "absent" };
     const created = history[0]!;

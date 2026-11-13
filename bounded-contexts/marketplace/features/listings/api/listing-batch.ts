@@ -251,15 +251,19 @@ export async function runListingBatch<Target extends ListingBatchTarget>(input: 
     if (changed.length > 0) {
       try {
         await persistVector(input.store, input.batch, input.context, prior, changed);
-      } catch (error) {
-        if ((error as { code?: unknown } | null)?.code === "concurrency_conflict") {
-          // A concurrent retry settled the vector first; its terminal outcomes are the batch's outcomes.
-          const winner = await readListingBatchVector(input.store, input.batch).catch(() => null);
-          for (const target of toDrive) {
-            const recorded = winner?.entries.get(target.targetId);
-            if (recorded && matchesTarget(recorded, target) && recorded.outcome !== "unknown")
-              decided.set(target.targetId, recordedDecision(recorded));
-          }
+      } catch {
+        // Any append failure may have committed or lost to a concurrent retry. Only the durable vector settles it.
+        const winner = await readListingBatchVector(input.store, input.batch).catch(() => null);
+        for (const target of toDrive) {
+          const recorded = winner?.entries.get(target.targetId);
+          decided.set(
+            target.targetId,
+            recorded && !matchesTarget(recorded, target)
+              ? changedTargetDecision
+              : recorded && recorded.outcome !== "unknown"
+                ? recordedDecision(recorded)
+                : unknownDecision,
+          );
         }
       }
     }

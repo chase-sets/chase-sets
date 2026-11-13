@@ -73,6 +73,61 @@ describe("marketplace-channel-inbound-clamp membership reconciliation", () => {
 });
 
 describe("marketplace-channel-inbound-clamp keyed pause and release convergence", () => {
+  it.each(["pause", "publish"] as const)(
+    "retries the saved %s attempt after commit loss and an unreadable receipt",
+    async (kind) => {
+      const world = clampWorld();
+      const runtime = createMarketplaceChannelInboundClampRuntime(world.pool as never, world.listings as never);
+      if (kind === "publish") await runtime.engage(input(), context);
+      world.loseResponse(kind);
+      const resume = () => (kind === "pause" ? runtime.engage(input(), context) : runtime.recover(input(), context));
+      await expect(resume()).resolves.toMatchObject({ kind: "recovery" });
+      expect(world.clamp()).toMatchObject({ state: kind === "pause" ? "pending" : "engaged" });
+      await expect(runtime.recover(input(), context)).resolves.toMatchObject({ kind: "recovery" });
+      if (kind === "publish") {
+        await expect(runtime.engage(input(), context)).resolves.toMatchObject({ kind: "recovery" });
+        expect(world.clamp()).toMatchObject({ state: "engaged", paused: 2 });
+      }
+      await expect(resume()).resolves.toMatchObject({ kind: "recovery" });
+      world.restoreReceipts();
+      await expect(resume()).resolves.toMatchObject({ kind: kind === "pause" ? "engaged" : "released" });
+      expect(world.writes.filter((write) => write.startsWith(kind))).toHaveLength(1);
+      const calls =
+        kind === "pause" ? world.listings.pauseListing.mock.calls : world.listings.publishListing.mock.calls;
+      expect(new Set(calls.map(([params]) => params.idempotencyKey)).size).toBe(1);
+      expect(calls.every(([params]) => params.expectedVersion === (kind === "pause" ? 1 : 2))).toBe(true);
+    },
+  );
+
+  it("keeps an engaged pause resumable when its authoritative confirmation is temporarily unreadable", async () => {
+    const world = clampWorld();
+    const runtime = createMarketplaceChannelInboundClampRuntime(world.pool as never, world.listings as never);
+    await runtime.engage(input(), context);
+    world.listings.readAuthoritativeListing.mockRejectedValueOnce(new Error("synthetic read outage"));
+    await expect(runtime.engage(input(), context)).resolves.toMatchObject({ kind: "recovery" });
+    expect(world.clamp()).toMatchObject({ state: "engaged", paused: 2 });
+    await expect(runtime.engage(input(), context)).resolves.toMatchObject({ kind: "engaged" });
+    expect(world.writes).toHaveLength(1);
+  });
+
+  it("retires a proven malformed pause history rather than retrying it indefinitely", async () => {
+    const world = clampWorld();
+    world.listings.pauseListing.mockRejectedValueOnce(
+      Object.assign(new Error("synthetic malformed history"), {
+        code: "history_incomplete",
+        historyDisposition: "unsafe",
+      }),
+    );
+    const runtime = createMarketplaceChannelInboundClampRuntime(world.pool as never, world.listings as never);
+    await expect(runtime.engage(input(), context)).resolves.toMatchObject({ kind: "recovery" });
+    expect(world.clamp()).toMatchObject({ state: "recovery" });
+    await expect(runtime.recover(input(), context)).resolves.toMatchObject({
+      kind: "recovery",
+      releasedListingCount: 0,
+    });
+    expect(world.writes).toEqual([]);
+  });
+
   it("resumes a pause that committed before the crash from its receipt and never pauses twice", async () => {
     const world = clampWorld();
     const runtime = createMarketplaceChannelInboundClampRuntime(world.pool as never, world.listings as never);
@@ -165,6 +220,8 @@ function clampWorld() {
   const writes: string[] = [];
   let row: { state: string; observed: number; paused: number | null } | null = null;
   const crashes = new Set<string>();
+  let lossKind: "pause" | "publish" | null = null;
+  let receiptsUnreadable = false;
   let crashed = false;
   const trip = (point: string) => {
     if (crashed) throw new Error("synthetic crash: process is down");
@@ -180,6 +237,8 @@ function clampWorld() {
   ) => {
     trip(`${kind}Listing`);
     const key = params.idempotencyKey ?? "";
+    if (receiptsUnreadable)
+      throw Object.assign(new Error("synthetic unreadable receipt"), { code: "history_incomplete" });
     const receipt = receipts.get(key);
     if (receipt !== undefined) return { listingId: LISTING, version: receipt };
     if (params.expectedVersion !== stream.version)
@@ -189,6 +248,11 @@ function clampWorld() {
     stream.status = kind === "pause" ? "paused" : "active";
     stream.pauseReason = kind === "pause" ? (params.reason ?? "seller") : null;
     receipts.set(key, stream.version);
+    if (lossKind === kind) {
+      lossKind = null;
+      receiptsUnreadable = true;
+      throw Object.assign(new Error("synthetic commit then response loss"), { code: "history_incomplete" });
+    }
     return { listingId: LISTING, version: stream.version };
   };
   const listings = {
@@ -262,6 +326,8 @@ function clampWorld() {
     if (sql.includes("SELECT listing_id,paused_stream_version")) {
       return { rows: row?.state === "engaged" ? [{ listing_id: LISTING, paused_stream_version: row.paused }] : [] };
     }
+    if (sql.includes("SELECT count(*) AS unresolved"))
+      return { rows: [{ unresolved: row && row.state !== "released" ? 1 : 0 }] };
     if (sql.includes("NOT (owner.connection_id=$3 AND owner.run_id=$4)")) return { rows: [] };
     throw new Error(`Unexpected clamp query: ${sql}`);
   });
@@ -272,6 +338,12 @@ function clampWorld() {
     listings,
     pool: { connect: vi.fn(async () => client), query },
     clamp: () => row,
+    loseResponse: (kind: "pause" | "publish") => {
+      lossKind = kind;
+    },
+    restoreReceipts: () => {
+      receiptsUnreadable = false;
+    },
     crashOn: (point: string) => crashes.add(point),
     restart: () => {
       crashed = false;

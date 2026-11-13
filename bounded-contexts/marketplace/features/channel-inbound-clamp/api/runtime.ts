@@ -85,10 +85,17 @@ async function engage(
       continue;
     }
     if (candidate.clampState === "engaged") {
-      if (await heldByClamp(listings, input.accountId, candidate.listingId, candidate.pausedStreamVersion)) {
+      const ownership = await heldByClamp(
+        listings,
+        input.accountId,
+        candidate.listingId,
+        candidate.pausedStreamVersion,
+      );
+      if (ownership === "held") {
         clampedListingCount += 1;
       } else {
-        await markRecovery(pool, input, candidate.listingId, candidate.streamVersion);
+        // A release may already have committed without its response. Recovery must replay that saved attempt
+        // before deciding whether a changed stream is foreign; do not retire its engaged ownership here.
         recoveryListingIds.add(candidate.listingId);
       }
       continue;
@@ -98,14 +105,14 @@ async function engage(
       // Resume re-drives the same deterministic pause: a committed pause replays its receipt with zero appends,
       // an uncommitted one appends at the observed version, and any other writer's change conflicts.
       const observedVersion = candidate.observedStreamVersion ?? candidate.streamVersion;
-      const pausedVersion = await pauseOnce(listings, input, candidate.listingId, observedVersion, context);
+      const pause = await pauseOnce(listings, input, candidate.listingId, observedVersion, context);
       if (
-        pausedVersion !== null &&
-        (await markPendingEngaged(pool, input, candidate.listingId, observedVersion, pausedVersion)) === 1
+        pause.kind === "paused" &&
+        (await markPendingEngaged(pool, input, candidate.listingId, observedVersion, pause.version)) === 1
       ) {
         clampedListingCount += 1;
       } else {
-        await markRecovery(pool, input, candidate.listingId, observedVersion);
+        if (pause.kind === "unsafe") await markRecovery(pool, input, candidate.listingId, observedVersion);
         recoveryListingIds.add(candidate.listingId);
       }
       continue;
@@ -113,7 +120,8 @@ async function engage(
 
     if (candidate.sharedObservedStreamVersion !== null && candidate.sharedPausedStreamVersion !== null) {
       if (
-        (await heldByClamp(listings, input.accountId, candidate.listingId, candidate.sharedPausedStreamVersion)) &&
+        (await heldByClamp(listings, input.accountId, candidate.listingId, candidate.sharedPausedStreamVersion)) ===
+          "held" &&
         (await insertSharedEngagedClamp(pool, input, candidate))
       ) {
         clampedListingCount += 1;
@@ -124,12 +132,12 @@ async function engage(
     }
 
     await insertPendingClamp(pool, input, candidate);
-    const pausedVersion = await pauseOnce(listings, input, candidate.listingId, candidate.streamVersion, context);
+    const pause = await pauseOnce(listings, input, candidate.listingId, candidate.streamVersion, context);
     if (
-      pausedVersion === null ||
-      (await markPendingEngaged(pool, input, candidate.listingId, candidate.streamVersion, pausedVersion)) !== 1
+      pause.kind !== "paused" ||
+      (await markPendingEngaged(pool, input, candidate.listingId, candidate.streamVersion, pause.version)) !== 1
     ) {
-      await markRecovery(pool, input, candidate.listingId, candidate.streamVersion);
+      if (pause.kind === "unsafe") await markRecovery(pool, input, candidate.listingId, candidate.streamVersion);
       recoveryListingIds.add(candidate.listingId);
       continue;
     }
@@ -173,7 +181,7 @@ async function markPendingEngaged(
 
 /**
  * Pauses at exactly the observed version under the run's deterministic attempt, then confirms from the complete
- * stream that the run's pause is the current fact. Any refusal, conflict or unreadable history is null.
+ * stream that the run's pause is the current fact. Unresolved reads retain the saved attempt for retry.
  */
 async function pauseOnce(
   listings: MarketplaceChannelInboundClampListings,
@@ -181,7 +189,7 @@ async function pauseOnce(
   listingId: string,
   observedVersion: number,
   context: EventStoreContext,
-): Promise<number | null> {
+): Promise<Readonly<{ kind: "paused"; version: number }> | Readonly<{ kind: "unsafe" | "unknown" }>> {
   try {
     const result = await listings.pauseListing(
       {
@@ -193,32 +201,43 @@ async function pauseOnce(
       },
       context,
     );
-    if (result.version !== observedVersion + 1) return null;
-    return (await heldByClamp(listings, input.accountId, listingId, result.version)) ? result.version : null;
-  } catch {
-    return null;
+    if (result.version !== observedVersion + 1) return { kind: "unsafe" };
+    const ownership = await heldByClamp(listings, input.accountId, listingId, result.version);
+    return ownership === "held" ? { kind: "paused", version: result.version } : { kind: ownership };
+  } catch (error) {
+    return { kind: definiteRefusal(error) ? "unsafe" : "unknown" };
   }
 }
 
-/** True only when the complete owner stream ends at `version` with this account's dark-inbound pause. */
+function definiteRefusal(error: unknown): boolean {
+  const failure = error as { code?: unknown; historyDisposition?: unknown } | null;
+  return (
+    failure?.code === "concurrency_conflict" ||
+    failure?.code === "attempt_conflict" ||
+    failure?.code === "invalid_attempt" ||
+    failure?.historyDisposition === "unsafe"
+  );
+}
+
+/** Ownership is confirmed only by the complete stream; an unreadable stream is not a foreign transition. */
 async function heldByClamp(
   listings: MarketplaceChannelInboundClampListings,
   accountId: string,
   listingId: string,
   version: number | null,
-): Promise<boolean> {
-  if (version === null) return false;
+): Promise<"held" | "unsafe" | "unknown"> {
+  if (version === null) return "unsafe";
   try {
     const listing = await listings.readAuthoritativeListing({ accountId, listingId });
-    return (
-      listing.kind === "present" &&
+    return listing.kind === "present" &&
       listing.version === version &&
       listing.state.accountId === accountId &&
       listing.state.status === "paused" &&
       listing.state.pauseReason === "channel-inbound-dark"
-    );
-  } catch {
-    return false;
+      ? "held"
+      : "unsafe";
+  } catch (error) {
+    return definiteRefusal(error) ? "unsafe" : "unknown";
   }
 }
 
@@ -258,8 +277,9 @@ async function recover(
       [input.accountId, row.listing_id, input.connectionId, input.runId],
     );
     if (otherOwners.rows.length > 0) {
-      if (!(await heldByClamp(listings, input.accountId, row.listing_id, pausedVersion))) {
-        await markRecovery(pool, input, row.listing_id, pausedVersion);
+      const ownership = await heldByClamp(listings, input.accountId, row.listing_id, pausedVersion);
+      if (ownership !== "held") {
+        if (ownership === "unsafe") await markRecovery(pool, input, row.listing_id, pausedVersion);
         recoveryListingCount += 1;
         continue;
       }
@@ -281,12 +301,18 @@ async function recover(
         context,
       );
       releasedListingCount += await releaseOwnership(pool, input, row.listing_id, pausedVersion);
-    } catch {
-      await markRecovery(pool, input, row.listing_id, pausedVersion);
+    } catch (error) {
+      if (definiteRefusal(error)) await markRecovery(pool, input, row.listing_id, pausedVersion);
       recoveryListingCount += 1;
     }
   }
 
+  const unresolved = await pool.query<{ unresolved: string | number }>(
+    `SELECT count(*) AS unresolved FROM marketplace_channel_inbound_clamps
+      WHERE account_id=$1 AND connection_id=$2 AND run_id=$3 AND state<>'released'`,
+    [input.accountId, input.connectionId, input.runId],
+  );
+  recoveryListingCount = Math.max(recoveryListingCount, toNonNegativeInteger(unresolved.rows[0]?.unresolved));
   return {
     kind: recoveryListingCount === 0 ? "released" : "recovery",
     examinedListingCount: rows.rows.length,

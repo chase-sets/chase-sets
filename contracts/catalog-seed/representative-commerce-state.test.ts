@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import {
   acceptRepresentativeOffers,
   ensureRepresentativeInventoryStock,
@@ -799,6 +800,12 @@ describe("representative listing publication restart safety", () => {
     ]);
     expect(harness.updated).toEqual([]);
     expect(harness.published).toHaveLength(1);
+    expect(harness.contexts).toHaveLength(2);
+    for (const context of harness.contexts)
+      expect(context.audit).toMatchObject({
+        forAccountId: representativeStock().accountId,
+        performedByUserId: "usr_repr_support_ops_user",
+      });
     expect(results).toEqual([expect.objectContaining({ status: "created" })]);
   });
 
@@ -836,6 +843,7 @@ describe("representative listing publication restart safety", () => {
         idempotencyKey: expect.stringMatching(/^repr_listing_price_[a-f0-9]{48}$/),
       }),
     ]);
+    expect(harness.contexts[0]?.audit.forAccountId).toBe(representativeStock().accountId);
     expect(results).toEqual([expect.objectContaining({ status: "price-repaired" })]);
     expect(harness.queries.every(([sql]) => /^\s*SELECT\b/.test(sql))).toBe(true);
   });
@@ -1222,6 +1230,7 @@ function listingHarness(
   const published: unknown[] = [];
   const queries: QueryCall[] = [];
   const own: string[] = [];
+  const contexts: EventStoreContext[] = [];
   let crashPoint: "create" | "publish" | "price" | null = null;
   let interleave: (() => void) | null = null;
   type KeyedParams = Readonly<{
@@ -1254,6 +1263,7 @@ function listingHarness(
     published,
     queries,
     writes: () => [...own],
+    contexts,
     crashAfter: (kind: "create" | "publish" | "price") => {
       crashPoint = kind;
     },
@@ -1279,7 +1289,11 @@ function listingHarness(
           const { version, ...state } = listing;
           return { kind: "present" as const, version, state };
         },
-        createListing: async (params: KeyedParams & Readonly<{ priceAmount: string; priceCurrencyCode: string }>) => {
+        createListing: async (
+          params: KeyedParams & Readonly<{ priceAmount: string; priceCurrencyCode: string }>,
+          context: EventStoreContext,
+        ) => {
+          contexts.push(context);
           created.push(params);
           const result = keyed("create", params, () => ({
             status: "draft",
@@ -1291,7 +1305,9 @@ function listingHarness(
         },
         updateListingPrice: async (
           params: KeyedParams & Readonly<{ priceAmount: string; priceCurrencyCode: string }>,
+          context: EventStoreContext,
         ) => {
+          contexts.push(context);
           updated.push(params);
           return keyed("price", params, (current) => ({
             status: current?.status ?? "active",
@@ -1300,7 +1316,8 @@ function listingHarness(
             feeQuoteFingerprint: current?.feeQuoteFingerprint ?? null,
           }));
         },
-        publishListing: async (params: KeyedParams) => {
+        publishListing: async (params: KeyedParams, context: EventStoreContext) => {
+          contexts.push(context);
           published.push(params);
           return keyed("publish", params, (current) => ({
             status: "active",

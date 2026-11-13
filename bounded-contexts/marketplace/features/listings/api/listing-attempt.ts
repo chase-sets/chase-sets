@@ -219,6 +219,7 @@ export async function readListingAttemptReceipt(
     throw new MarketplaceAttemptError(
       "history_incomplete",
       "Marketplace recovery history is missing its terminal fact.",
+      "unsafe",
     );
   return { id: attempt.receiptId, version: history.state.version, last: history.state.last };
 }
