@@ -4628,28 +4628,45 @@ describe("DigitalOcean platform configuration", () => {
     expect(doksFoundationAuthority).toContain('"name:Preflight DOKS version change#');
   });
 
-  it("executes the preflight against provider object and array response shapes", () => {
+  it("executes the preflight against a one-element provider array", () => {
     const cluster = { id: "synthetic-cluster-id", version: "1.36.5-do.1" };
     const oneElement = executeDoksPreflight({ providerResponse: [cluster] });
     expect(oneElement).toMatchObject({
       status: 0,
       artifact: { state: "present", id: cluster.id, version: cluster.version },
     });
+  });
+
+  it("executes the preflight against a provider object", () => {
+    const cluster = { id: "synthetic-cluster-id", version: "1.36.5-do.1" };
     expect(executeDoksPreflight({ providerResponse: cluster })).toMatchObject({
       status: 0,
       artifact: { state: "present", id: cluster.id, version: cluster.version },
     });
+  });
+
+  it("refuses an empty provider array during preflight", () => {
     const empty = executeDoksPreflight({ providerResponse: [] });
     expect(empty.status).not.toBe(0);
     expect(empty.artifact).toMatchObject({ state: "read-error" });
+  });
+
+  it("refuses multiple provider clusters during preflight", () => {
+    const cluster = { id: "synthetic-cluster-id", version: "1.36.5-do.1" };
     const multiple = executeDoksPreflight({
       providerResponse: [cluster, { id: "other-cluster", version: cluster.version }],
     });
     expect(multiple.status).not.toBe(0);
     expect(multiple.artifact).toMatchObject({ state: "read-error" });
+  });
+
+  it("refuses a malformed provider response during preflight", () => {
     const malformed = executeDoksPreflight({ providerResponse: null, providerResponseText: "not-json" });
     expect(malformed.status).not.toBe(0);
     expect(malformed.artifact).toMatchObject({ state: "read-error" });
+  });
+
+  it("refuses a provider read error during preflight", () => {
     const readError = executeDoksPreflight({ providerResponse: null, providerReadFails: true });
     expect(readError.status).not.toBe(0);
     expect(readError.artifact).toMatchObject({ state: "read-error" });
