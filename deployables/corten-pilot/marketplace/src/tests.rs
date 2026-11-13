@@ -3724,6 +3724,12 @@ fn discovery_item(stand: &Stand, id: &str) -> Response {
             item["image_urls"] = json!(["/fake-cdn/front.png", "/fake-cdn/back.png"]);
             Json(item).into_response()
         }
+        "single" => {
+            let mut item = item();
+            item["slug"] = json!("single");
+            item["market_listings"].as_array_mut().unwrap().retain(|l| l["listing_id"] == "lst_vault");
+            Json(item).into_response()
+        }
         "unlisted" => {
             let mut item = item();
             item["slug"] = json!("unlisted");
@@ -4941,6 +4947,24 @@ async fn add_product_from_a_search_result_goes_back_to_the_search_saying_where_i
     let (_, headers, _) = pilot.send(post(SAVE, "watcher", &format!("{body}&from=%2Fsearch%3Fq%3Dchar"), true)).await;
     assert_eq!(headers["corten-location"], "/search?q=char");
     assert!(cookies_set(&headers)["__Host-corten-notice"].contains("m=Added+to+Binder"), "{headers:?}");
+}
+
+#[tokio::test]
+async fn a_search_results_add_to_list_without_its_options_goes_to_the_item_page_even_with_one_listing() {
+    let pilot = Pilot::new().await;
+    // `single` has one listing, whose product the item page would pick; a result's filters that
+    // name no options still name no product.
+    let body = "prepare=1&from=%2Fsearch%3Fq%3Dchar";
+    let (status, headers, html) = pilot.send(post("/items/single/save", "watcher", body, true)).await;
+    assert_eq!(status, StatusCode::NO_CONTENT, "{html}");
+    assert_eq!(headers["corten-location"], "/items/single");
+    assert!(!html.contains(r#"aria-labelledby="save-to-list-title" open"#), "{html}");
+    // Signed out: the item page too, and no intent.
+    let (status, headers, html) = pilot.send(post_signed_out("/items/single/save", body)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
+    assert_eq!(headers[header::LOCATION], "/items/single");
+    let intents = saved_list_calls(&pilot).into_iter().filter(|c| c.path == GUEST_SAVED_LIST_INTENTS).count();
+    assert_eq!(intents, 0, "no intent for a product the filters do not name");
 }
 
 #[tokio::test]
