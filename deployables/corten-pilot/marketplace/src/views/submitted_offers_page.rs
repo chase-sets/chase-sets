@@ -17,7 +17,7 @@ use platform::{
     ui::stack::{Gap, Stack as KitStack},
 };
 
-use super::listing_page::options;
+use super::{MarketFollowing, listing_page::options};
 use crate::{
     api::{LifecycleOutcome, OfferStatusCounts, SubmittedOffer},
     app::url,
@@ -117,6 +117,16 @@ pub fn SubmittedOffersPage<'a>(t: SubmittedOffersMsg, p: Pilot, screen: &'a Offe
         }
         if let Some(outcomes) = &screen.outcomes {
             <Outcomes t={t} outcomes={outcomes} offers={&screen.offers.items} />
+        }
+        if let Some(following) = &screen.following {
+            <MarketFollowing
+                t={t}
+                following={following}
+                offers={&screen.offers.items}
+                manage={screen.manage}
+                action={url::SubmittedOffersFollowing { place: screen.place.clone() }.href()}
+                opens={opens(following, |id| url::SubmittedOffers { place: Place { policy: Some(id.to_owned()), ..screen.place.clone() } }.href())}
+            />
         }
         <section class={Section} aria-labelledby="submitted-offers-title">
             <h2 id="submitted-offers-title" class={PartTitle}>{t.list_submitted_offers_2()}</h2>
@@ -426,6 +436,11 @@ fn outcome_line(t: SubmittedOffersMsg, outcome: &LifecycleOutcome, offer: &str) 
     }
 }
 
+/// Each policy's address, in the section's order (none for a policy without an id).
+fn opens(following: &crate::market_following::Following, href: impl Fn(&str) -> String) -> Vec<Option<String>> {
+    following.policies.iter().map(|p| p.policy_id.as_deref().map(&href)).collect()
+}
+
 /// A label written as a prefix (`Offer price: `) used as a term.
 fn term(label: &str) -> &str {
     label.trim_end_matches([':', ' '])
@@ -464,6 +479,16 @@ pub fn SubmittedOfferPage<'a>(t: SubmittedOffersMsg, p: Pilot, screen: &'a Offer
                 <p class={Strong}>{t.list_offer_status_issue()}</p>
                 <p>{message}</p>
             </div>
+        }
+        if let Some(following) = &screen.following {
+            <MarketFollowing
+                t={t}
+                following={following}
+                offers={std::slice::from_ref(offer)}
+                manage={screen.manage}
+                action={url::SubmittedOfferFollowing { id }.href()}
+                opens={opens(following, |policy| url::SubmittedOffer { id, place: OfferPlace { after_write: None, policy: Some(policy.to_owned()) } }.href())}
+            />
         }
         if !available.is_empty() || screen.outcomes.is_some() {
             <section class={Section} aria-labelledby="offer-manage-title">
