@@ -195,7 +195,7 @@ pub type Shared = Arc<Config>;
 pub mod url {
     pub use account_home::AccountHome;
     pub use account_select::AccountSelect;
-    pub use accounts::{Account, AccountReviewReport};
+    pub use accounts::{Account, AccountLive, AccountReviewReport};
     pub use addresses::{AddressArchive, AddressDefault, AddressUpdate, ShippingAddresses};
     pub use agent_consent::AgentConsent;
     pub use agents::{AgentMandate, AgentPage, AgentRevoke, AgentWebhook, AgentWebhookDisable, Agents};
@@ -219,7 +219,7 @@ pub mod url {
     };
     pub use invite::Invite;
     pub use items::{Item, ItemBuy, ItemCart, ItemList, ItemLive, ItemOffer, ItemSave, ItemSellList, ItemShipFrom, ItemWatch};
-    pub use listings::{PublicListing, PublicListingBuy, PublicListingReport};
+    pub use listings::{PublicListing, PublicListingBuy, PublicListingLive, PublicListingReport};
     pub use money::Money;
     pub use new_listing::NewListing;
     pub use notifications::{NotificationPreference, NotificationRead, NotificationReadAll, Notifications, ProductAlertChange};
@@ -248,7 +248,9 @@ pub mod url {
     pub use sets::Set;
     pub use shipments::{Shipment, Shipments};
     pub use sign_in::{MagicLink, PasskeyChallenge, SignIn};
-    pub use submitted_offers::{SubmittedOffer, SubmittedOffers, SubmittedOffersLive};
+    pub use submitted_offers::{
+        SubmittedOffer, SubmittedOfferFollowing, SubmittedOffers, SubmittedOffersFollowing, SubmittedOffersLive,
+    };
     pub use support::{SupportCase, SupportList};
     pub use team::Team;
 
@@ -421,6 +423,13 @@ pub mod url {
             pub query: crate::accounts::AccountQuery,
         }
 
+        /// The account's parts on each change to it (`<corten-live>`); `id` is the account's id,
+        /// which names its realtime topic and which the account's read takes as well as its slug.
+        #[route("/accounts/{id}/live", get = crate::accounts::live)]
+        pub struct AccountLive<'a> {
+            pub id: &'a str,
+        }
+
         /// Report a review, from the page with its role and page.
         #[route("/accounts/{slug}/reviews/{review}/report", post = crate::accounts::report_review)]
         pub struct AccountReviewReport<'a> {
@@ -454,6 +463,14 @@ pub mod url {
         #[route("/listings/{slug}/buy", post = crate::public_listing::buy)]
         pub struct PublicListingBuy<'a> {
             pub slug: &'a str,
+        }
+
+        /// The listing's parts on each change to it (`<corten-live>`); `id` is the listing's id,
+        /// which names its realtime topic.
+        #[route("/listings/{slug}/live/{id}", get = crate::public_listing::live)]
+        pub struct PublicListingLive<'a> {
+            pub slug: &'a str,
+            pub id: &'a str,
         }
 
         /// Report the listing.
@@ -1421,7 +1438,8 @@ pub mod url {
     }
 
     /// The buyer's submitted offers (marketplace's `account-offers-submitted`): the list in a
-    /// status, drawn again live, and its Pause, Resume and Withdraw (see `submitted_offers`). Every
+    /// status, drawn again live, its Pause, Resume and Withdraw, and market following's steps (see
+    /// `submitted_offers` and `market_following`). Every
     /// handler takes an `OfferBuyer`.
     #[corten::routes(state = crate::app::Shared, area = SubmittedOffers, caller = crate::auth::OfferBuyer)]
     pub mod submitted_offers {
@@ -1433,9 +1451,8 @@ pub mod url {
             pub place: crate::submitted_offers::Place,
         }
 
-        /// The status counts and the rows, drawn again on each change to the account's offers.
-        #[derive(Clone, Debug, Default)]
         /// One offer: its overview, and Pause, Resume and Withdraw for it.
+        #[derive(Clone, Debug, Default)]
         #[route("/account/offers/submitted/{id}", get = crate::submitted_offers::detail, post = crate::submitted_offers::change_one)]
         pub struct SubmittedOffer<'a> {
             pub id: &'a str,
@@ -1443,10 +1460,26 @@ pub mod url {
             pub place: crate::submitted_offers::OfferPlace,
         }
 
+        /// The status counts and the rows, drawn again on each change to the account's offers.
         #[route("/account/offers/submitted/live", get = crate::submitted_offers::live)]
         pub struct SubmittedOffersLive {
             #[route(query)]
             pub place: crate::submitted_offers::Place,
+        }
+
+        /// A market-following step for the list's offers: the list with its policy opened (303), or
+        /// again with a refused or unconfirmed step.
+        #[route("/account/offers/submitted/following", post = crate::submitted_offers::follow)]
+        pub struct SubmittedOffersFollowing {
+            #[route(query)]
+            pub place: crate::submitted_offers::Place,
+        }
+
+        /// A market-following step for one offer: its page with its policy opened (303), or again
+        /// with a refused or unconfirmed step.
+        #[route("/account/offers/submitted/{id}/following", post = crate::submitted_offers::follow_one)]
+        pub struct SubmittedOfferFollowing<'a> {
+            pub id: &'a str,
         }
     }
 

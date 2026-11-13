@@ -466,6 +466,8 @@ async fn platform(State(stand): State<Stand>, method: Method, uri: Uri, headers:
             "guest" => actor(&["guest-checkout.manage"]),
             // An account that sees items as a seller and may take offers.
             "trader" => actor(&["offers.view", "listings.view", "offers.manage"]),
+            // A trader whose market-following policies cannot be listed (503).
+            "offers_dark" => actor(&["offers.view", "listings.view", "offers.manage"]),
             // An account that may save Watch alerts.
             "watcher" | "notices_down" => actor(&["accounts.view"]),
             // Sellers who may list at a price: `lister` has a Listing stock location, `starter` has
@@ -595,6 +597,9 @@ async fn platform(State(stand): State<Stand>, method: Method, uri: Uri, headers:
         return answer;
     }
     if let Some(answer) = offer_matches(&method, uri.path()) {
+        return answer;
+    }
+    if let Some(answer) = offer_policies(session, &method, &uri, &body) {
         return answer;
     }
     if let Some(answer) = submitted_offers(&method, &uri, &headers, &body) {
@@ -6279,6 +6284,35 @@ fn a_listing_writes_no_product_unless_it_is_buyable_production_and_its_payload_i
 }
 
 #[tokio::test]
+async fn a_change_to_a_listing_draws_its_header_purchase_and_seller_again_and_not_its_report_form() {
+    let pilot = Pilot::new().await;
+    let (_, _, html) = pilot.send(get("/listings/psa-8", None)).await;
+    assert!(html.contains(r#"<corten-live src="/listings/psa-8/live/lst_psa_8"></corten-live>"#), "{html}");
+    let events = pilot.events(get("/listings/psa-8/live/lst_psa_8", None), 1).await;
+    assert_eq!(events.len(), 1, "one change, one redraw: {events:?}");
+    let (event, cursor, data) = &events[0];
+    assert_eq!((event.as_str(), cursor.as_str()), ("patch", "c2"));
+    for id in [r#"id="listing-head""#, r#"id="listing-buy""#, r#"id="listing-seller""#] {
+        assert!(data.contains(id), "{id}: {data}");
+    }
+    assert!(data.contains(r#"<form method="post" action="/listings/psa-8/buy">"#) && data.contains("$749.00"), "{data}");
+    assert!(!data.contains(r#"name="reason""#), "the report form keeps what was typed: {data}");
+    let calls = pilot.stand.calls.lock().unwrap().clone();
+    assert!(calls.iter().any(|c| c.path == "/api/realtime/public/events?topic=listing%3Alst_psa_8"), "the listing's topic only");
+    let reads = calls.iter().filter(|c| c.path == "/api/marketplace/listings/psa-8").count();
+    assert_eq!(reads, 2, "the page's read and the change's: {calls:?}");
+}
+
+#[tokio::test]
+async fn a_change_to_a_listing_the_read_no_longer_finds_says_it_is_not_found() {
+    let pilot = Pilot::new().await;
+    let events = pilot.events(get("/listings/nope/live/lst_gone", None), 1).await;
+    let (_, _, data) = &events[0];
+    assert!(data.contains(">Listing not found</h1>") && data.contains("This listing is not available right now."), "{data}");
+    assert!(data.contains(r#"id="listing-buy" class="listing-page__column" hidden"#) && !data.contains("/buy"), "{data}");
+}
+
+#[tokio::test]
 async fn an_old_listing_slug_moves_with_its_query_an_unknown_one_is_not_found_and_a_failed_read_a_bad_gateway() {
     let pilot = Pilot::new().await;
     let (status, headers, _) = pilot.send(get("/listings/old-psa-8?ref=x", None)).await;
@@ -6469,6 +6503,36 @@ async fn an_old_slug_or_id_moves_an_unknown_account_is_not_found_and_a_closed_on
     assert!(html.contains(r#"<meta name="robots" content="noindex" "#), "{html}");
     assert!(html.contains(">Chase Sets&#39;s marketplace profile isn&#39;t available right now.</p>"), "{html}");
     assert!(!html.contains("id=\"feedback\""), "a closed account shows no feedback: {html}");
+}
+
+#[tokio::test]
+async fn a_change_to_an_account_draws_its_standing_and_listings_again_and_not_its_feedback() {
+    let pilot = Pilot::new().await;
+    let (_, _, html) = pilot.send(get("/accounts/chase-sets?role=seller&page=2", None)).await;
+    assert!(html.contains(r#"<corten-live src="/accounts/acc_chase/live"></corten-live>"#), "{html}");
+    let events = pilot.events(get("/accounts/acc_chase/live", None), 1).await;
+    let (event, cursor, data) = &events[0];
+    assert_eq!((event.as_str(), cursor.as_str()), ("patch", "c2"));
+    assert!(data.contains(r#"id="account-head""#) && data.contains(r#"id="account-listings""#), "{data}");
+    assert!(data.contains(r#"href="/listings/psa-8">View listing</a>"#), "{data}");
+    assert!(!data.contains(r#"id="feedback""#) && !data.contains("/report"), "the feedback keeps its dialogs: {data}");
+    let calls = pilot.stand.calls.lock().unwrap().clone();
+    assert!(calls.iter().any(|c| c.path == "/api/realtime/public/events?topic=public-account%3Aacc_chase"), "{calls:?}");
+    assert!(calls.iter().any(|c| c.path == "/api/marketplace/accounts/acc_chase?limit=10&offset=0"), "{calls:?}");
+}
+
+#[tokio::test]
+async fn an_account_no_longer_active_or_found_replaces_the_page_and_ends_the_stream() {
+    let pilot = Pilot::new().await;
+    let events = pilot.events(get("/accounts/closed/live", None), 3).await;
+    assert_eq!(events.iter().map(|(e, _, _)| e.as_str()).collect::<Vec<_>>(), ["patch", "end"], "{events:?}");
+    let data = &events[0].2;
+    assert!(data.contains(r#"id="account-page""#) && data.contains(">Account unavailable</h1>"), "{data}");
+    let events = pilot.events(get("/accounts/acc_gone/live", None), 3).await;
+    assert_eq!(events.len(), 2, "{events:?}");
+    assert!(events[0].2.contains(">Account not found</h1>"), "{events:?}");
+    let (_, _, html) = pilot.send(get("/accounts/closed", None)).await;
+    assert!(!html.contains("corten-live"), "a closed account is not followed: {html}");
 }
 
 #[tokio::test]
@@ -11169,6 +11233,344 @@ fn submitted_offers(method: &Method, uri: &Uri, headers: &HeaderMap, body: &str)
 
 const SUBMITTED_OFFERS: &str = "/account/offers/submitted";
 
+/// A market-following policy as the API answers it.
+fn offer_policy(id: &str, status: &str, version: u64, authority: Option<Value>, preview: Option<Value>) -> Value {
+    json!({
+        "policyId": id, "status": status, "version": version, "currency": "USD",
+        "authority": authority, "preview": preview, "offerVersions": { "off_open": 3 },
+    })
+}
+
+/// Terms over one offer with its cap.
+fn policy_terms(offer: &str, cap: &str, bps: i64) -> Value {
+    json!({
+        "currency": "USD", "adjustmentBps": bps,
+        "offers": [{
+            "offerId": offer, "offerVersion": 5, "catalogItemId": "cat_char", "productId": "cat_char::form:raw",
+            "selectedOptions": [], "quantity": 1, "maximumUnitItemAmount": cap,
+        }],
+    })
+}
+
+/// The preview id the stand-in's previews carry.
+const PREVIEW_ID: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+
+/// A draft's preview of `terms`: `off_open` targeted at 16.50 against a Market Price of 17.00.
+fn policy_preview(terms: &Value) -> Value {
+    let outcome = json!({
+        "offerId": "off_open", "currentUnitItemAmount": "17.75",
+        "result": { "status": "target", "unitItemAmount": "16.50", "evidence": { "marketPrice": {
+            "amount": "17.00", "currencyCode": "USD", "estimateVersion": "mpe_7",
+            "freshUntil": "2026-11-13T18:00:00.000Z",
+        } } },
+    });
+    json!({ "previewId": PREVIEW_ID, "terms": terms, "outcomes": [outcome] })
+}
+
+/// Market following's calls, as the stand-in answers them. `bop_live` is active over `off_paused`
+/// at -1.5%, and every list names it, reading `off_open` at version 3, except `offers_dark`'s,
+/// which fail (503). A new policy's create answers its draft at 1 and its preview (`policy_preview`),
+/// unless the adjustment is -25% (`stale_preview`); `bop_new1` reads as that draft at 2, over
+/// `off_open` at -2% capped at 18.00. Authorize makes it active at 3, and Pause on `bop_live`
+/// answers it paused at 4. Stop on `bop_lost` and `bop_dark` has no answer (502): `bop_lost`'s
+/// attempt is found committed at 9, where the policy reads stopped, and `bop_dark`'s is not found.
+/// Any command on `bop_signed_out` asks for a sign-in (401); other commands are refused (422).
+fn offer_policies(session: &str, method: &Method, uri: &Uri, body: &str) -> Option<Response> {
+    const POLICIES: &str = "/api/marketplace/account/offer-policies";
+    const ATTEMPTS: &str = "/api/marketplace/mutation-attempts/";
+    let live = || offer_policy("bop_live", "active", 3, Some(policy_terms("off_paused", "20.00", -150)), None);
+    if let Some(attempt) = uri.path().strip_prefix(ATTEMPTS) {
+        let query = |key: &str| {
+            let raw = uri.query().unwrap_or_default().split('&').find_map(|p| p.strip_prefix(&format!("{key}=")))?;
+            Some(percent_encoding::percent_decode_str(raw).decode_utf8_lossy().into_owned())
+        };
+        let (Some(target), Some(hash)) = (query("target"), query("requestHash")) else {
+            return Some(refusal(StatusCode::BAD_REQUEST, "invalid_attempt", "Invalid attempt."));
+        };
+        if target != "bop_lost" || query("kind").as_deref() != Some("offer-policy.command") {
+            return Some(refusal(StatusCode::NOT_FOUND, "not_found", "Attempt not found."));
+        }
+        let key = json!({ "kind": "offer-policy", "id": target });
+        let fingerprint = crate::market_following::request_hash(&json!(["acc_buyer", "offer-policy.command", key, attempt]));
+        return Some(
+            Json(json!({
+                "schemaVersion": 1, "mutationKind": "offer-policy.command", "attemptKeyFingerprint": fingerprint,
+                "actorBinding": { "accountId": "acc_buyer" }, "target": key, "canonicalRequestHash": hash,
+                "ownerStatus": "committed", "ownerReceipt": { "id": "bop_lost", "version": 9 },
+            }))
+            .into_response(),
+        );
+    }
+    let rest = uri.path().strip_prefix(POLICIES)?;
+    let sent: Value = serde_json::from_str(body).unwrap_or_default();
+    Some(match (method.as_str(), rest) {
+        ("GET", "") if session == "offers_dark" => refusal(StatusCode::SERVICE_UNAVAILABLE, "unavailable", "Try again."),
+        ("GET", "") => {
+            Json(json!({ "items": [live()], "offerVersions": { "off_open": 3, "off_paused": 5 }, "nextCursor": null }))
+                .into_response()
+        }
+        ("GET", "/bop_live") => Json(live()).into_response(),
+        ("GET", "/bop_new1") => {
+            let preview = policy_preview(&policy_terms("off_open", "18.00", -200));
+            Json(offer_policy("bop_new1", "draft", 2, None, Some(preview))).into_response()
+        }
+        ("GET", "/bop_lost") => Json(offer_policy("bop_lost", "stopped", 9, None, None)).into_response(),
+        ("GET", _) => refusal(StatusCode::NOT_FOUND, "not_found", "Policy not found."),
+        ("POST", path) => {
+            let id = path.strip_prefix('/')?.strip_suffix("/commands")?;
+            if id == "bop_signed_out" {
+                return Some(refusal(StatusCode::UNAUTHORIZED, "unauthenticated", "Sign in."));
+            }
+            match sent["type"].as_str().unwrap_or_default() {
+                "CreateBuyerOfferPolicy" => Json(offer_policy(id, "draft", 1, None, None)).into_response(),
+                "PreviewBuyerOfferPolicy" if sent["terms"]["adjustmentBps"] == -2500 => {
+                    refusal(StatusCode::CONFLICT, "stale_preview", "The preview is stale.")
+                }
+                "PreviewBuyerOfferPolicy" => {
+                    Json(offer_policy(id, "draft", 2, None, Some(policy_preview(&sent["terms"])))).into_response()
+                }
+                "AuthorizeBuyerOfferPolicy" => {
+                    Json(offer_policy(id, "active", 3, Some(policy_terms("off_open", "18.00", -200)), None)).into_response()
+                }
+                "PauseBuyerOfferPolicy" if id == "bop_live" => {
+                    Json(offer_policy(id, "paused", 4, Some(policy_terms("off_paused", "20.00", -150)), None)).into_response()
+                }
+                "StopBuyerOfferPolicy" if matches!(id, "bop_lost" | "bop_dark") => {
+                    refusal(StatusCode::BAD_GATEWAY, "upstream_unavailable", "No answer.")
+                }
+                _ => refusal(StatusCode::UNPROCESSABLE_ENTITY, "invalid_authority", "Refused."),
+            }
+        }
+        _ => return None,
+    })
+}
+
+/// The commands the pilot sent to `policy`, as their bodies.
+fn policy_commands(pilot: &Pilot, policy: &str) -> Vec<String> {
+    let path = format!("/api/marketplace/account/offer-policies/{policy}/commands");
+    pilot
+        .stand
+        .calls
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|c| c.method == Method::POST && c.path == path)
+        .map(|c| c.body.clone())
+        .collect()
+}
+
+const POLICY_ATTEMPT: &str = "attempt_0123456789abcdefghij";
+
+#[tokio::test]
+async fn market_following_lists_the_policies_and_opens_one_with_its_steps() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get(SUBMITTED_OFFERS, Some("trader"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let page = text(&html);
+    assert!(page.contains("Market-following Offers Draft"), "{page}");
+    assert!(html.contains(r#"href="/account/offers/submitted?policy=bop_live""#), "{html}");
+    assert!(page.contains("Manage Active: off_paused"), "{page}");
+    // A new policy: only the open offer may be chosen, at version 0, under a new id.
+    assert!(html.contains(r#"action="/account/offers/submitted/following""#), "{html}");
+    assert!(
+        html.contains(r#"name="offerId" value="off_open""#) && !html.contains(r#"name="offerId" value="off_paused""#),
+        "{html}"
+    );
+    assert!(html.contains(r#"name="expectedVersion" value="0""#) && html.contains(r#"name="policyId" value="bop_"#), "{html}");
+    let calls = list_calls(&pilot, "/api/marketplace/account/offer-policies?");
+    assert!(calls.iter().any(|c| c.contains("offerId=off_open&offerId=off_paused&offerId=off_taken")), "{calls:?}");
+
+    // Opened: its authority, Pause and Stop, and the form at its terms.
+    let (status, _, html) = pilot.send(get("/account/offers/submitted?policy=bop_live", Some("trader"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let page = text(&html);
+    assert!(page.contains("Market-following Offers Active"), "{page}");
+    assert!(
+        page.contains("Offer off_paused. Product cat_char::form:raw. Quantity: 1. Maximum unit item amount: $20.00."),
+        "{page}"
+    );
+    assert!(html.contains(r#"name="step" value="pause""#) && html.contains(r#"name="step" value="stop""#), "{html}");
+    assert!(html.contains(r#"name="confirmStop" value="true" required"#), "{html}");
+    assert!(html.contains(r#"name="adjustment""#) && html.contains(r#"value="-1.5""#), "{html}");
+
+    // A reader without offers.manage sees the policies and no step.
+    let (_, _, html) = pilot.send(get(SUBMITTED_OFFERS, Some("lister"))).await;
+    assert!(text(&html).contains("Manage Active: off_paused") && !html.contains(r#"name="step""#), "{html}");
+    let (status, _, _) =
+        pilot.send(post("/account/offers/submitted/following", "lister", "step=pause&policyId=bop_live", false)).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn a_first_preview_creates_the_policy_and_authorize_needs_consent() {
+    let pilot = Pilot::new().await;
+    let here = "/account/offers/submitted/off_open/following";
+    let form = format!(
+        "step=preview&policyId=bop_new1&expectedVersion=0&attemptId={POLICY_ATTEMPT}&operationId=op_1&offerId=off_open&cap.off_open=18&adjustment=-2"
+    );
+    // Applied: the offer's page opens the draft at its own address, so reloading it reads again.
+    let opened = "/account/offers/submitted/off_open?policy=bop_new1";
+    let (status, headers, html) = pilot.send(post(here, "trader", &form, false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
+    assert_eq!(headers[header::LOCATION], opened);
+    let (status, _, html) = pilot.send(get(opened, Some("trader"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let page = text(&html);
+    assert!(page.contains("Review exact Offer authority Currency: USD. Adjustment: -2%."), "{page}");
+    assert!(page.contains("Market Price: $17.00. Estimate version: mpe_7."), "{page}");
+    assert!(page.contains("Proposed unit item amount: $16.50"), "{page}");
+    assert!(html.contains(&format!(r#"name="previewId" value="{PREVIEW_ID}""#)), "{html}");
+    assert!(html.contains(r#"name="consent" value="true" required"#), "{html}");
+    let sent = policy_commands(&pilot, "bop_new1");
+    assert_eq!(sent.len(), 2, "{sent:?}");
+    assert!(sent[0].contains(r#""type":"CreateBuyerOfferPolicy""#), "{}", sent[0]);
+    assert!(
+        sent[0].contains(r#""attemptId":"bop_new1______________""#) && sent[0].contains(r#""operationId":"create_bop_new1""#)
+    );
+    for part in [
+        r#""type":"PreviewBuyerOfferPolicy""#,
+        r#""expectedVersion":1"#,
+        r#""adjustmentBps":-200"#,
+        r#""maximumUnitItemAmount":"18.00""#,
+        r#""offerVersion":3"#,
+        r#""productId":"cat_pika::form:raw""#,
+        r#""selectedOptions":[{"dimensionId":"dim_form","optionId":"raw"}]"#,
+        r#""attemptId":"attempt_0123456789abcdefghij""#,
+    ] {
+        assert!(sent[1].contains(part), "{part} in {}", sent[1]);
+    }
+
+    // Authorize without consent is refused before the API; with it, the policy is active.
+    let authorize = format!(
+        "step=authorize&policyId=bop_new1&expectedVersion=2&attemptId={POLICY_ATTEMPT}&operationId=op_2&previewId={PREVIEW_ID}"
+    );
+    let (status, _, html) = pilot.send(post(here, "trader", &authorize, false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    assert!(text(&html).contains("Review your Offer controls"), "{html}");
+    assert_eq!(policy_commands(&pilot, "bop_new1").len(), 2);
+    let (status, headers, html) = pilot.send(post(here, "trader", &format!("{authorize}&consent=true"), false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
+    assert_eq!(headers[header::LOCATION], opened);
+    let sent = policy_commands(&pilot, "bop_new1");
+    assert!(sent[2].contains(&format!(r#""previewId":"{PREVIEW_ID}""#)) && sent[2].contains(r#""consent":true"#), "{}", sent[2]);
+}
+
+#[tokio::test]
+async fn a_refused_or_stale_preview_keeps_what_was_sent() {
+    let pilot = Pilot::new().await;
+    let here = "/account/offers/submitted/following";
+    let preview = |adjustment: &str| {
+        format!(
+            "step=preview&policyId=bop_new2&expectedVersion=0&attemptId={POLICY_ATTEMPT}&operationId=op_1&offerId=off_open&cap.off_open=18.5&adjustment={adjustment}"
+        )
+    };
+    // The evidence moved under the preview: said so, and the inputs kept.
+    let (status, _, html) = pilot.send(post(here, "trader", &preview("-25"), false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    assert!(text(&html).contains("The Offer or Market Price evidence changed."), "{html}");
+    assert!(html.contains(r#"value="18.5""#) && html.contains(r#"value="-25""#), "{html}");
+    // An adjustment above 0% is refused before the API.
+    let before = policy_commands(&pilot, "bop_new2").len();
+    let (status, _, html) = pilot.send(post(here, "trader", &preview("5"), false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    assert!(text(&html).contains("Check the selected Offers, matching currency and item limits"), "{html}");
+    assert_eq!(policy_commands(&pilot, "bop_new2").len(), before);
+    // Stop asks for its own confirmation.
+    let stop = format!("step=stop&policyId=bop_live&expectedVersion=3&attemptId={POLICY_ATTEMPT}&operationId=op_1");
+    let (status, _, _) = pilot.send(post(here, "trader", &stop, false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(policy_commands(&pilot, "bop_live").is_empty());
+}
+
+#[tokio::test]
+async fn a_step_with_no_answer_is_looked_up_once_and_an_unconfirmed_one_turns_the_steps_off() {
+    let pilot = Pilot::new().await;
+    let here = "/account/offers/submitted/following";
+    let stop = |policy: &str| {
+        format!("step=stop&policyId={policy}&expectedVersion=3&attemptId={POLICY_ATTEMPT}&operationId=op_3&confirmStop=true")
+    };
+    let (status, headers, html) = pilot.send(post(here, "trader", &stop("bop_lost"), false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
+    assert_eq!(headers[header::LOCATION], "/account/offers/submitted?policy=bop_lost");
+    let (_, _, html) = pilot.send(get("/account/offers/submitted?policy=bop_lost", Some("trader"))).await;
+    let page = text(&html);
+    assert!(page.contains("Market-following Offers Stopped") && page.contains("Stop is permanent."), "{page}");
+    let hash = crate::market_following::request_hash(
+        &json!({ "type": "StopBuyerOfferPolicy", "operationId": "op_3", "expectedVersion": 3 }),
+    );
+    let lookups = list_calls(&pilot, "/api/marketplace/mutation-attempts/");
+    assert_eq!(lookups.len(), 1, "{lookups:?}");
+    assert!(
+        lookups[0].contains(&format!("{POLICY_ATTEMPT}?kind=offer-policy.command&target=bop_lost&requestHash={hash}")),
+        "{lookups:?}"
+    );
+
+    // Nothing to find: the result could not be confirmed, and every step is off.
+    let (status, _, html) = pilot.send(post(here, "trader", &stop("bop_dark"), false)).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(text(&html).contains("We could not confirm the result."), "{html}");
+    assert!(html.contains(r#"type="submit" disabled"#), "{html}");
+    assert_eq!(list_calls(&pilot, "/api/marketplace/mutation-attempts/").len(), 2);
+}
+
+#[tokio::test]
+async fn pause_redirects_to_the_paused_policy_and_a_refused_one_keeps_the_page() {
+    let pilot = Pilot::new().await;
+    let here = "/account/offers/submitted/following";
+    let pause =
+        |policy: &str| format!("step=pause&policyId={policy}&expectedVersion=3&attemptId={POLICY_ATTEMPT}&operationId=op_4");
+    let (status, headers, html) = pilot.send(post(here, "trader", &pause("bop_live"), false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
+    assert_eq!(headers[header::LOCATION], "/account/offers/submitted?policy=bop_live");
+    let sent = policy_commands(&pilot, "bop_live");
+    assert_eq!(sent.len(), 1, "{sent:?}");
+    assert!(sent[0].contains(r#""type":"PauseBuyerOfferPolicy""#) && sent[0].contains(r#""expectedVersion":3"#), "{}", sent[0]);
+
+    // The API refuses it: said so on the page, the policy (gone) not opened.
+    let (status, _, html) = pilot.send(post(here, "trader", &pause("bop_other"), false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    assert!(text(&html).contains("Review your Offer controls"), "{html}");
+    assert_eq!(policy_commands(&pilot, "bop_other").len(), 1);
+
+    // The API asks for a sign-in.
+    let (status, headers, _) = pilot.send(post(here, "trader", &pause("bop_signed_out"), false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert!(headers[header::LOCATION].to_str().unwrap().starts_with("/sign-in?returnTo="), "{headers:?}");
+
+    // An offer's page opens a policy from its address too.
+    let (status, _, html) = pilot.send(get("/account/offers/submitted/off_open?policy=bop_live", Some("trader"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(text(&html).contains("Market-following Offers Active"), "{html}");
+}
+
+#[tokio::test]
+async fn a_failed_policies_read_is_the_pages_read_failure_and_a_bad_cap_makes_no_draft() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get(SUBMITTED_OFFERS, Some("offers_dark"))).await;
+    assert_eq!(status, StatusCode::BAD_GATEWAY, "{html}");
+    let (status, _, _) = pilot.send(get("/account/offers/submitted/off_open", Some("offers_dark"))).await;
+    assert_eq!(status, StatusCode::BAD_GATEWAY);
+
+    // A preview of a policy whose offers' versions cannot be read sends nothing, and is not a refusal.
+    let here = "/account/offers/submitted/following";
+    let preview = |policy: &str, version: u64, cap: &str| {
+        format!(
+            "step=preview&policyId={policy}&expectedVersion={version}&attemptId={POLICY_ATTEMPT}&operationId=op_5&offerId=off_open&cap.off_open={cap}&adjustment=-2"
+        )
+    };
+    let (status, _, _) = pilot.send(post(here, "offers_dark", &preview("bop_live", 3, "18"), false)).await;
+    assert_eq!(status, StatusCode::BAD_GATEWAY);
+    assert!(policy_commands(&pilot, "bop_live").is_empty());
+
+    // A cap the contract refuses is refused before a new policy's draft is made.
+    for cap in ["12.345", "0", "abc"] {
+        let (status, _, html) = pilot.send(post(here, "trader", &preview("bop_new3", 0, cap), false)).await;
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{cap}: {html}");
+        assert!(html.contains(&format!(r#"name="cap.off_open" inputmode="decimal" value="{cap}""#)), "{cap} kept: {html}");
+    }
+    assert!(policy_commands(&pilot, "bop_new3").is_empty());
+}
+
 #[tokio::test]
 async fn the_submitted_offers_show_each_offer_with_its_status_and_changes() {
     let pilot = Pilot::new().await;
@@ -12103,6 +12505,7 @@ fn repricing(stand: &Stand, session: &str, method: &Method, uri: &Uri, headers: 
         }
         ("GET", "/budget") => Json(json!({ "day": "2026-10-29", "changesUsed": 3 })).into_response(),
         ("GET", "/pol_1") => Json(repricing_policy_stand()).into_response(),
+        ("GET", "/pol_4") => Json(repricing_preset_stand()).into_response(),
         ("GET", "/pol_2") if waits_for(headers).as_deref() == Some("43") => refusal(StatusCode::NOT_FOUND, "not_found", "Not yet."),
         ("GET", "/pol_1/activity") => {
             let query = uri.query().unwrap_or_default();
@@ -12138,6 +12541,13 @@ fn repricing(stand: &Stand, session: &str, method: &Method, uri: &Uri, headers: 
         ("POST", "/pol_1/pause") => committed(StatusCode::OK, "pricing", "42", json!({})),
         ("POST", "/pol_1/delete") => committed(StatusCode::OK, "pricing", "44", json!({})),
         ("POST", "/pol_2/resume") => committed(StatusCode::OK, "pricing", "43", json!({})),
+        // A revise whose daily cap is 0 is refused with its details.
+        ("POST", "/pol_1/revise" | "/pol_4/revise") if serde_json::from_str::<Value>(body).ok()?["maxChangesPerDay"] == json!(0) => {
+            let details = json!([{ "path": "maxChangesPerDay", "message": "Allow at least one change a day." }]);
+            (StatusCode::UNPROCESSABLE_ENTITY, Json(json!({ "error": { "code": "validation_failed", "message": "Invalid policy.", "details": details } })))
+                .into_response()
+        }
+        ("POST", "/pol_1/revise" | "/pol_4/revise") => committed(StatusCode::OK, "pricing", "45", json!({})),
         ("POST", _) => refusal(StatusCode::CONFLICT, "policy_not_found", "That policy is gone."),
         _ => return None,
     })
@@ -12167,6 +12577,43 @@ fn repricing_policy_stand() -> Value {
                 "terminal": { "kind": "pause", "reason": "my own words" } } },
         ],
     })
+}
+
+/// `pol_4` as marketplace's editor writes Beat the lowest listing (knob 2, USD, a cost basis and
+/// fallback 4.00), its authoring intent bound.
+fn repricing_preset_stand() -> Value {
+    let floor = json!({ "mode": "cost-basis-plus-margin", "marginPercent": 10, "absoluteFallbackAmount": "4.00" });
+    let body = crate::repricing_body::compile_preset(
+        crate::repricing::Preset::Beat,
+        "Beat",
+        "USD",
+        floor,
+        2.0,
+        45,
+        json!({ "kind": "all-listings" }),
+    );
+    let mut policy = repricing_policy_stand();
+    for (key, value) in body.as_object().unwrap() {
+        policy[key] = value.clone();
+    }
+    policy["policyId"] = json!("pol_4");
+    policy
+}
+
+/// A form body of `pairs`, each name and value encoded.
+fn encoded(pairs: &[(&str, &str)]) -> String {
+    let encode = |text: &str| percent_encoding::utf8_percent_encode(text, percent_encoding::NON_ALPHANUMERIC).to_string();
+    pairs.iter().map(|(name, value)| format!("{}={}", encode(name), encode(value))).collect::<Vec<_>>().join("&")
+}
+
+/// The body a policy's editor drew, from its hidden field.
+fn drawn_body(html: &str) -> Value {
+    let at = html.find(r#"name="body" value=""#).expect("the editor's body") + r#"name="body" value=""#.len();
+    let raw = &html[at..at + html[at..].find('"').unwrap()];
+    serde_json::from_str(
+        &raw.replace("&quot;", "\"").replace("&#39;", "'").replace("&lt;", "<").replace("&gt;", ">").replace("&amp;", "&"),
+    )
+    .unwrap()
 }
 
 const BULK_API: &str = "/api/marketplace/account/bulk-reprice";
@@ -12642,7 +13089,8 @@ async fn a_policys_page_reads_the_policy_then_its_halt_changes_and_activity() {
             && html.contains(r#"value="engage-halt""#)
     );
     assert!(html.contains(r#"action="/account/desk/repricing/pol_1""#), "every write posts to the page");
-    assert!(html.contains("/account/desk/repricing/pol_1?edit=1"), "Edit opens marketplace's editor");
+    assert!(html.contains("/account/desk/repricing/pol_1?edit=open"), "Edit opens the page's editor");
+    assert!(!html.contains("data-repricing-editor"), "the editor is closed until Edit opens it");
     let calls = pricing_calls(&pilot);
     let read = |path: &str| calls.iter().any(|(m, p, _)| *m == Method::GET && p == path);
     assert!(
@@ -12672,8 +13120,10 @@ async fn a_policys_page_reads_the_policy_then_its_halt_changes_and_activity() {
         !html.contains("pause-policy")
             && !html.contains("delete-policy")
             && !html.contains("engage-halt")
-            && !html.contains("edit=1")
+            && !html.contains("edit=open")
     );
+    let (_, _, html) = pilot.send(get(&format!("{page}?edit=open"), Some("price_reader"))).await;
+    assert!(!html.contains("data-repricing-editor"), "a reader's address does not open the editor");
     let (status, _, _) = pilot.send(post(page, "price_reader", "intent=pause-policy", false)).await;
     assert_eq!(status, StatusCode::FORBIDDEN);
     let (status, _, _) = pilot.send(get("/account/desk/repricing/pol_9", Some("pricer"))).await;
@@ -12718,6 +13168,189 @@ async fn a_policys_writes_go_back_to_it_with_their_receipt_and_delete_goes_to_th
 }
 
 #[tokio::test]
+async fn a_policys_edit_opens_its_editor_in_the_controls_its_intent_says() {
+    let pilot = Pilot::new().await;
+    // A preset's policy opens in the preset's controls, drawn from its body.
+    let (status, _, html) = pilot.send(get("/account/desk/repricing/pol_4?edit=open", Some("pricer"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains(r#"data-repricing-editor="revise""#) && html.contains(r#"data-repricing-tier="preset""#), "{html}");
+    assert!(html.contains(r#"<option value="beat-lowest" selected>"#), "the preset");
+    assert!(html.contains(r#"name="knob" value="2""#) && html.contains(r#"name="fallback" value="4.00""#), "{html}");
+    assert!(html.contains(r#"value="open-up""#) && html.contains(r#"value="revise-policy""#));
+    assert!(!html.contains("data-repricing-activate"), "a revise saves without a preview");
+    assert_eq!(drawn_body(&html)["authoringIntent"]["source"]["preset"], json!("beat-lowest"));
+
+    // A custom policy of two rules opens in the advanced editor, its rows named by rule and place;
+    // a Pricing Goal a seller may not choose says so, and no simple controls are offered.
+    for address in ["/account/desk/repricing/pol_1?edit=open", "/account/desk/repricing/pol_1?edit=1"] {
+        let (status, _, html) = pilot.send(get(address, Some("pricer"))).await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(html.contains(r#"data-repricing-tier="advanced""#), "{address}: {html}");
+        assert!(html.contains("data-repricing-unsupported-goal") && html.contains("data-repricing-custom"), "{html}");
+        assert!(html.contains(r#"name="conditions[0-1].value" value="2""#), "{html}");
+        assert!(html.contains(r#"name="anchors[0-0].source""#) && html.contains(r#"name="rules[1].terminalValue""#), "{html}");
+        assert!(html.contains(r#"data-repricing-anchor="1-0""#) && text(&html).contains("Pricing goal"), "{html}");
+        assert!(html.contains(r#"value="add-rule""#) && html.contains(r#"value="remove-condition:0:1""#), "{html}");
+    }
+    let calls = pricing_calls(&pilot);
+    let preview = calls.iter().find(|(m, p, _)| *m == Method::POST && p.ends_with("/scope-preview")).expect("the scope preview");
+    assert_eq!(
+        serde_json::from_str::<Value>(&preview.2).unwrap()["replacingPolicyId"],
+        json!("pol_4"),
+        "the preview replaces the policy"
+    );
+}
+
+#[tokio::test]
+async fn a_policys_editor_posts_draw_it_again_and_save_revises_the_policy() {
+    let pilot = Pilot::new().await;
+    let page = "/account/desk/repricing/pol_4";
+    let (_, _, html) = pilot.send(get(&format!("{page}?edit=open"), Some("pricer"))).await;
+    let body = drawn_body(&html).to_string();
+    let preset = |intent: &'static str, knob: &'static str| {
+        vec![
+            ("intent", intent),
+            ("tier", "preset"),
+            ("name", "Beat"),
+            ("preset", "beat-lowest"),
+            ("from", "beat-lowest"),
+            ("knob", knob),
+            ("currency", "USD"),
+            ("floor", "cost-basis-plus-margin"),
+            ("margin", "10"),
+            ("fallback", "4.00"),
+            ("scope", "all-listings"),
+        ]
+    };
+
+    // Save policy revises the policy with the preset's body and its intent, and reads the page
+    // after it.
+    let mut fields = preset("revise-policy", "3");
+    fields.push(("body", &body));
+    let (status, headers, html) = pilot.send(post(page, "pricer", &encoded(&fields), false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
+    assert!(headers[header::LOCATION].to_str().unwrap().starts_with("/account/desk/repricing/pol_4?after_write="));
+    let calls = pricing_calls(&pilot);
+    let (_, _, sent) = calls.iter().find(|(m, p, _)| *m == Method::POST && p.ends_with("/pol_4/revise")).expect("the revise");
+    let sent: Value = serde_json::from_str(sent).unwrap();
+    assert_eq!(sent["rules"][0]["directive"]["offset"], json!({ "mode": "percent", "percent": -3 }));
+    assert_eq!(sent["authoringIntent"]["source"], json!({ "kind": "preset", "preset": "beat-lowest", "knob": 3, "ageDays": 45 }));
+    assert_eq!(sent["name"], json!("Beat"));
+
+    // Open up this preset: one rule opens in the structured editor, which can go back.
+    let mut fields = preset("open-up", "2");
+    fields.push(("body", &body));
+    let (status, _, html) = pilot.send(post(page, "pricer", &encoded(&fields), false)).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains(r#"data-repricing-tier="structured""#) && html.contains("data-repricing-simple"), "{html}");
+    let opened = drawn_body(&html).to_string();
+
+    // A change to what the policy does drops the intent: no simple controls any more.
+    let fields = [
+        ("intent", "apply"),
+        ("tier", "structured"),
+        ("body", opened.as_str()),
+        ("rules[0].offset", "percent"),
+        ("rules[0].offsetValue", "-5"),
+    ];
+    let (_, _, html) = pilot.send(post(page, "pricer", &encoded(&fields), false)).await;
+    let changed = drawn_body(&html);
+    assert_eq!(changed["rules"][0]["directive"]["offset"]["percent"], json!(-5));
+    assert!(changed["authoringIntent"].is_null() && html.contains("data-repricing-custom"), "{html}");
+
+    // Return to simple controls from what the preset wrote.
+    let fields = [("intent", "simple"), ("tier", "structured"), ("body", opened.as_str())];
+    let (_, _, html) = pilot.send(post(page, "pricer", &encoded(&fields), false)).await;
+    assert!(html.contains(r#"data-repricing-tier="preset""#), "{html}");
+
+    // A refused save keeps what was posted, with Pricing's words.
+    let fields = [("intent", "revise-policy"), ("tier", "structured"), ("body", opened.as_str()), ("cap", "0")];
+    let (status, _, html) = pilot.send(post(page, "pricer", &encoded(&fields), false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(
+        text(&html).contains("Allow at least one change a day.") && drawn_body(&html)["maxChangesPerDay"] == json!(0),
+        "{html}"
+    );
+
+    // A post the editor cannot read opens it at the policy again.
+    let (status, _, html) = pilot.send(post(page, "pricer", "intent=apply&tier=advanced&body=nope", false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(html.contains(r#"data-repricing-tier="preset""#), "{html}");
+}
+
+#[tokio::test]
+async fn a_policys_advanced_editor_changes_its_rules_and_previews_them_in_place() {
+    let pilot = Pilot::new().await;
+    let page = "/account/desk/repricing/pol_1";
+    let (_, _, html) = pilot.send(get(&format!("{page}?edit=open"), Some("pricer"))).await;
+    let body = drawn_body(&html).to_string();
+    let with = |extra: &[(&'static str, &'static str)]| {
+        let mut fields = vec![("tier", "advanced"), ("body", body.as_str())];
+        fields.extend_from_slice(extra);
+        encoded(&fields)
+    };
+
+    // Add rule before default copies the default with a category condition; each button changes
+    // the rules' shape, answered with the editor drawn again.
+    let (status, _, html) = pilot.send(post(page, "pricer", &with(&[("op", "add-rule")]), false)).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let rules = drawn_body(&html)["rules"].clone();
+    assert_eq!(rules.as_array().unwrap().len(), 3);
+    assert_eq!(rules[1]["conditions"], json!([{ "type": "category", "categoryId": "" }]));
+    let (_, _, html) = pilot.send(post(page, "pricer", &with(&[("op", "remove-condition:0:0")]), false)).await;
+    assert_eq!(drawn_body(&html)["rules"][0]["conditions"], json!([{ "type": "quantity-at-least", "quantity": 2 }]));
+    let (_, _, html) = pilot.send(post(page, "pricer", &with(&[("op", "move-anchor-up:0:1")]), false)).await;
+    assert_eq!(drawn_body(&html)["rules"][0]["directive"]["anchorChain"][0], json!({ "source": "market-estimate" }));
+    let (_, _, html) = pilot.send(post(page, "pricer", &with(&[("op", "remove-rule:1")]), false)).await;
+    assert_eq!(drawn_body(&html)["rules"].as_array().unwrap().len(), 2, "the default rule stays");
+
+    // A changed choice starts that part again from its defaults; the controls draw over the body.
+    let fields = [
+        ("intent", "apply"),
+        ("conditions[0-0].kind", "schedule-window"),
+        ("anchors[0-0].source", "lowest-competing-ask"),
+        ("anchors[0-0].strata", "any"),
+        ("rules[1].ceiling", "none"),
+        ("rules[1].maxMove", "12"),
+    ];
+    let (_, _, html) = pilot.send(post(page, "pricer", &with(&fields), false)).await;
+    let drawn = drawn_body(&html);
+    assert_eq!(
+        drawn["rules"][0]["conditions"][0],
+        json!({ "type": "schedule-window", "daysOfWeek": [], "startTime": "", "endTime": "" })
+    );
+    assert_eq!(
+        drawn["rules"][0]["directive"]["anchorChain"][0],
+        json!({ "source": "lowest-competing-ask", "strata": "any", "band": { "ground": "market-estimate", "minPercentOfGround": null } })
+    );
+    assert!(drawn["rules"][1]["directive"]["ceiling"].is_null() && drawn["rules"][1]["directive"]["maxMovePercent"] == json!(12));
+    assert_eq!(drawn["rules"][1]["directive"]["anchorChain"][0]["source"], json!("curve-objective"), "a goal's anchor stays");
+
+    // Preview starts the dry run of the policy as it is now, replacing this one, and draws its part
+    // in the editor: no Activate, since Save policy revises it.
+    let (status, _, html) = pilot.send(post(page, "pricer", &with(&[("intent", "preview")]), false)).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let calls = pricing_calls(&pilot);
+    let (_, _, sent) = calls.iter().find(|(m, p, _)| *m == Method::POST && p.ends_with("/dry-runs")).expect("the dry run");
+    let sent: Value = serde_json::from_str(sent).unwrap();
+    assert_eq!(sent["replacingPolicyId"], json!("pol_1"));
+    assert_eq!(sent["rules"], serde_json::from_str::<Value>(&body).unwrap()["rules"]);
+    assert!(html.contains(r#"name="dryRun" value="repricing-dry-run:new""#) && html.contains("lst_1"), "{html}");
+    assert!(!html.contains("data-repricing-activate") && !html.contains("data-repricing-stale"), "{html}");
+
+    // With the runtime, the answer is the editor alone.
+    let (status, _, patch) = pilot.send(post(page, "pricer", &with(&[("intent", "apply")]), true)).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(patch.contains(r#"data-repricing-editor="revise""#) && !patch.contains("data-repricing-policy-settings"), "{patch}");
+
+    // A refused preview keeps the editor with Pricing's words.
+    let (status, _, html) =
+        pilot.send(post(page, "pricer", &with(&[("intent", "preview"), ("rules[0].amount", "0")]), false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(text(&html).contains("Floor must be above zero.") && html.contains(r#"data-repricing-tier="advanced""#), "{html}");
+}
+
+#[tokio::test]
 async fn the_halt_posts_its_change_and_goes_back_to_the_list() {
     let pilot = Pilot::new().await;
     let (status, headers, _) = pilot.send(post(REPRICING_SCREEN, "pricer", "intent=engage-halt", false)).await;
@@ -12756,8 +13389,12 @@ async fn the_editor_previews_the_compiled_preset_and_activates_only_its_own_prev
     );
     let calls = pricing_calls(&pilot);
     let (_, _, sent) = calls.iter().find(|(m, p, _)| *m == Method::POST && p.ends_with("/dry-runs")).expect("the dry run");
+    let mut sent = serde_json::from_str::<Value>(sent).unwrap();
+    // The preset's authoring intent, which opens the policy in these controls again.
+    let intent = sent.as_object_mut().unwrap().remove("authoringIntent").unwrap_or_default();
+    assert_eq!(intent["source"], json!({ "kind": "preset", "preset": "beat-lowest", "knob": 2, "ageDays": 45 }));
     assert_eq!(
-        serde_json::from_str::<Value>(sent).unwrap(),
+        sent,
         json!({ "name": "Beat", "scope": { "kind": "all-listings" }, "excludedListingIds": [], "maxChangesPerDay": 250,
           "rules": [ { "conditions": [], "directive": {
             "currencyCode": "USD",
@@ -17970,7 +18607,7 @@ async fn an_offer_whose_read_has_not_caught_up_says_it_is_preparing_and_reads_ag
     let receipt = platform::receipt::Receipt::of_metadata(Some("73"), &raw).unwrap().param();
     let to = {
         use corten::prelude::*;
-        let place = crate::submitted_offers::OfferPlace { after_write: Some(receipt) };
+        let place = crate::submitted_offers::OfferPlace { after_write: Some(receipt), policy: None };
         crate::app::url::SubmittedOffer { id: "off_open", place }.href()
     };
     let (status, _, html) = pilot.send(get(&to, Some("trader"))).await;

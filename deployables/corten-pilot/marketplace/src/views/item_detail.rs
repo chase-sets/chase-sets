@@ -2088,8 +2088,8 @@ fn Reputation<'a>(t: ItemMsg, name: &'a str, slug: Option<&'a str>, rating: Opti
     }
 }
 
-/// The market book (`ItemDetailMarketBook`): the listings, the offers and the details, a tab
-/// each, as links. The Sales tab (the market's history) is not ported.
+/// The market book (`ItemDetailMarketBook`): the listings, the offers, the sales (the market's
+/// history, `Sales`) and the details, a tab each, as links.
 #[component(css = ItemDetail)]
 fn MarketBook<'a>(t: ItemMsg, screen: &'a ItemScreen, address: &'a Address, slug: &'a str) -> impl Render {
     let book = address.book();
