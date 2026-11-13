@@ -10844,7 +10844,10 @@ async fn a_preview_offers_confirm_and_submit_with_its_balance_revision_and_a_req
     let (status, _, html) = pilot.send(post_as("wallet-stepup", WALLET_PAGE, request, false)).await;
     assert_eq!(status, StatusCode::UNAUTHORIZED, "{html}");
     assert!(html.contains("Reauthentication required") && html.contains("Sign in again in a new tab"), "{html}");
-    assert!(html.contains(r#"target="_blank""#) && html.contains("returnTo=%2Fcommerce%2Fwallet-workbench%2Facc_1"), "{html}");
+    assert!(
+        html.contains(r#"href="/access/sign-in?returnTo=%2Fcommerce%2Fwallet-workbench%2Facc_1" target="_blank""#),
+        "the pilot's own sign-in, whose session the command needs: {html}"
+    );
 }
 
 #[tokio::test]
