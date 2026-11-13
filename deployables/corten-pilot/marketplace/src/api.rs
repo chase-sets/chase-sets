@@ -6307,6 +6307,9 @@ impl OfferMatchCalls for Caller<'_> {
 pub struct SubmittedOffer {
     pub offer_id: String,
     pub catalog_catalog_item_id: String,
+    /// The product it is for and the options that name it, which market following binds.
+    pub product_id: String,
+    pub selected_options: Vec<Selected>,
     pub item_title: String,
     pub item_subtitle: Option<String>,
     pub product_summary: Option<String>,
@@ -6419,6 +6422,139 @@ impl SubmittedOfferCalls for Caller<'_> {
         let (answer, receipt) =
             self.write::<BulkLifecycleAnswer>(self.request(Method::POST, &path, MARKETPLACE).json(&body)).await?;
         Ok((answer.items, receipt))
+    }
+}
+
+/// A buyer's market-following policy for submitted offers (`BuyerOfferPolicySnapshot`): its
+/// status (`draft`, `active`, `paused` or `stopped`), its version, the terms it is authorized
+/// for, the preview waiting for consent, and the offer versions it read.
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct OfferPolicy {
+    pub policy_id: Option<String>,
+    pub status: String,
+    pub version: u64,
+    pub currency: Option<String>,
+    pub authority: Option<PolicyTerms>,
+    pub preview: Option<PolicyPreview>,
+    pub offer_versions: BTreeMap<String, u64>,
+}
+
+impl OfferPolicy {
+    /// Its status, `draft` until the API says otherwise.
+    pub fn status(&self) -> &str {
+        if self.status.is_empty() { "draft" } else { &self.status }
+    }
+}
+
+/// What a policy may do (`BuyerOfferPolicyTerms`): the currency, the adjustment to the Market
+/// Price in basis points (0 to -2500), and each offer it may reprice, up to its cap.
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct PolicyTerms {
+    pub currency: String,
+    pub adjustment_bps: i64,
+    pub offers: Vec<PolicySelection>,
+}
+
+/// One offer of the terms (`BuyerOfferPolicySelection`), as the command sends it.
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct PolicySelection {
+    pub offer_id: String,
+    pub offer_version: u64,
+    pub catalog_item_id: String,
+    pub product_id: String,
+    pub selected_options: Vec<Selected>,
+    pub quantity: u64,
+    pub maximum_unit_item_amount: String,
+}
+
+/// A preview of terms (`BuyerOfferPolicyPreview`): the id consent names, and what each offer
+/// would do now.
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct PolicyPreview {
+    pub preview_id: String,
+    pub terms: PolicyTerms,
+    pub outcomes: Option<Vec<PolicyOutcome>>,
+}
+
+/// What a preview found for one offer (`BuyerOfferPolicyOutcome`): a `target` amount, or
+/// `held` with why, and the evidence it read (the Market Price among it).
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct PolicyOutcome {
+    pub offer_id: String,
+    pub result: PolicyResult,
+}
+
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct PolicyResult {
+    pub status: String,
+    pub unit_item_amount: Option<String>,
+    pub reason: Option<String>,
+    pub evidence: serde_json::Map<String, serde_json::Value>,
+}
+
+/// The account's policies for some offers (`GET /account/offer-policies?offerId=..`), with the
+/// offers' versions as the API read them.
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct OfferPolicies {
+    pub items: Vec<OfferPolicy>,
+    pub offer_versions: BTreeMap<String, u64>,
+}
+
+/// Market following's calls (marketplace's offer-policy client).
+pub trait OfferPolicyCalls {
+    /// The account's policies that name any of `offer_ids`, in an authority or a preview.
+    async fn offer_policies(&self, offer_ids: &[&str]) -> Result<OfferPolicies, ApiError>;
+    /// One of the account's policies.
+    async fn offer_policy(&self, id: &str) -> Result<OfferPolicy, ApiError>;
+    /// A command to a policy (`POST /account/offer-policies/{id}/commands`), as sent.
+    async fn command_offer_policy(&self, id: &str, command: &serde_json::Value) -> Result<OfferPolicy, ApiError>;
+    /// What became of a marketplace command's attempt (`GET /mutation-attempts/{id}`), unparsed.
+    async fn marketplace_attempt(
+        &self,
+        attempt: &str,
+        kind: &str,
+        target: &str,
+        request_hash: &str,
+    ) -> Result<serde_json::Value, ApiError>;
+}
+
+impl OfferPolicyCalls for Caller<'_> {
+    async fn offer_policies(&self, offer_ids: &[&str]) -> Result<OfferPolicies, ApiError> {
+        let query: Vec<String> = offer_ids.iter().map(|id| format!("offerId={}", segment(id))).collect();
+        self.read(&format!("{ACCOUNT}/offer-policies?{}", query.join("&")), MARKETPLACE).await
+    }
+
+    async fn offer_policy(&self, id: &str) -> Result<OfferPolicy, ApiError> {
+        self.read(&format!("{ACCOUNT}/offer-policies/{}", segment(id)), MARKETPLACE).await
+    }
+
+    async fn command_offer_policy(&self, id: &str, command: &serde_json::Value) -> Result<OfferPolicy, ApiError> {
+        let path = format!("{ACCOUNT}/offer-policies/{}/commands", segment(id));
+        Ok(self.write(self.request(Method::POST, &path, MARKETPLACE).json(command)).await?.0)
+    }
+
+    async fn marketplace_attempt(
+        &self,
+        attempt: &str,
+        kind: &str,
+        target: &str,
+        request_hash: &str,
+    ) -> Result<serde_json::Value, ApiError> {
+        let path = format!(
+            "/api/marketplace/mutation-attempts/{}?kind={}&target={}&requestHash={}",
+            segment(attempt),
+            segment(kind),
+            segment(target),
+            segment(request_hash)
+        );
+        self.read(&path, MARKETPLACE).await
     }
 }
 
@@ -6659,6 +6795,24 @@ pub struct RepricingScopePreview {
 pub struct RepricingPrerequisites {
     pub listing_currency_codes: Vec<String>,
     pub has_cost_basis: bool,
+    /// Which Pricing Goal versions a seller may choose (the Adoption Gate's `goalAdoption`).
+    pub goal_adoption: Vec<GoalAdoption>,
+}
+
+impl RepricingPrerequisites {
+    /// A seller may choose this Pricing Goal version now.
+    pub fn selectable(&self, goal_id: &str, goal_version: f64) -> bool {
+        self.goal_adoption.iter().any(|goal| goal.goal_id == goal_id && goal.goal_version == goal_version && goal.selectable)
+    }
+}
+
+/// A registered Pricing Goal version and whether a seller may choose it (`GoalAdoption`).
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct GoalAdoption {
+    pub goal_id: String,
+    pub goal_version: f64,
+    pub selectable: bool,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -6939,7 +7093,10 @@ pub trait RepricingCalls {
     /// `pause` or `resume` a policy.
     async fn repricing_lifecycle(&self, policy_id: &str, change: &str) -> Result<Option<Receipt>, PricingRefusal>;
     async fn set_repricing_halt(&self, engaged: bool) -> Result<Option<Receipt>, PricingRefusal>;
-    async fn repricing_policy(&self, id: &str) -> Result<RepricingPolicy, ApiError>;
+    /// The policy, and its JSON as Pricing answered it, which a revise edits.
+    async fn repricing_policy(&self, id: &str) -> Result<(RepricingPolicy, serde_json::Value), ApiError>;
+    /// Replaces the policy's body (`revise`).
+    async fn revise_repricing_policy(&self, id: &str, body: &serde_json::Value) -> Result<Option<Receipt>, PricingRefusal>;
     async fn repricing_budget(&self) -> Result<RepricingBudget, ApiError>;
     /// A page of the policy's activity under `filter`, after the listing `after`.
     async fn repricing_activity(
@@ -7014,8 +7171,19 @@ impl RepricingCalls for Caller<'_> {
         Ok(pricing_answer(req).await?.1)
     }
 
-    async fn repricing_policy(&self, id: &str) -> Result<RepricingPolicy, ApiError> {
-        self.read(&format!("{REPRICING}/{}", segment(id)), PRICING).await
+    async fn repricing_policy(&self, id: &str) -> Result<(RepricingPolicy, serde_json::Value), ApiError> {
+        let raw: serde_json::Value = self.read(&format!("{REPRICING}/{}", segment(id)), PRICING).await?;
+        let policy = serde_json::from_value(raw.clone()).map_err(|error| ApiError::Status {
+            status: StatusCode::BAD_GATEWAY,
+            code: None,
+            message: format!("a repricing policy the page cannot read: {error}"),
+        })?;
+        Ok((policy, raw))
+    }
+
+    async fn revise_repricing_policy(&self, id: &str, body: &serde_json::Value) -> Result<Option<Receipt>, PricingRefusal> {
+        let req = self.request(Method::POST, &format!("{REPRICING}/{}/revise", segment(id)), PRICING).json(body);
+        Ok(pricing_answer(req).await?.1)
     }
 
     async fn repricing_budget(&self) -> Result<RepricingBudget, ApiError> {
