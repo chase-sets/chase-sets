@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, 
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { GIT_LISTING_MAX_BUFFER } from "../lib/git-listing.mjs";
 import { CONTEXT_REGISTRY_HOST_ARMS, contextManifestContributesToApiHost, repoRoot } from "../lib/repo.mjs";
 import {
   CONTEXT_REGISTRIES,
@@ -212,7 +213,7 @@ describe("context registry guard on the real tree", () => {
         "infrastructure/platform-runtime/*context-registry*",
         ...RETIRED_CONTEXT_REGISTRY_PATHS,
       ],
-      { encoding: "utf8" },
+      { encoding: "utf8", maxBuffer: GIT_LISTING_MAX_BUFFER },
     );
 
     expect(tracked).toBe("");

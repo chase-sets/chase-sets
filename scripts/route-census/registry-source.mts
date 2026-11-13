@@ -2,6 +2,7 @@ import { execFile as execFileCallback } from "node:child_process";
 import { lstat, readdir, realpath } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
+import { GIT_LISTING_MAX_BUFFER } from "../lib/git-listing.mjs";
 import { fail } from "./errors.mts";
 import { isPathInside } from "./target-authority.mts";
 
@@ -54,7 +55,7 @@ async function trackedWithExactSpelling(root: string, relativePath: string): Pro
     ({ stdout } = await execFile(
       "git",
       ["-C", root, "ls-files", "-z", "--cached", "--full-name", "--", `:(literal)${relativePath}`],
-      { encoding: "utf8", windowsHide: true },
+      { encoding: "utf8", maxBuffer: GIT_LISTING_MAX_BUFFER, windowsHide: true },
     ));
   } catch {
     fail("E_PROVENANCE", `Git tracked-source query failed for '${root}'.`);
