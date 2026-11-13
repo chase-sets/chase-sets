@@ -16,13 +16,14 @@ use super::{
 use crate::{
     api::{Facet, SearchCategory, SearchItem, SearchResults},
     app::url,
+    bulk_cart::Asked,
     items::{Address, Market},
     saving,
     search::{
         Activity, CURSOR, Filter, HomeShelf, Kind, MOST_SHOWN, PAGE_SIZE, Place, SearchScreen, Terms, TermsQuery, category_href,
     },
     text::{ItemMsg, Pilot, SearchMsg},
-    views::SaveDialog,
+    views::{BulkCartSheet, SaveDialog},
 };
 
 corten::script::script!(pub mod handlers = "search.js");
@@ -236,6 +237,10 @@ pub fn SearchPage<'a>(t: SearchMsg, i: ItemMsg, p: Pilot, screen: &'a SearchScre
     };
     let form = SearchFormId;
     let f = TermsQuery::FIELDS;
+    // Add matching products to Buy Cart, once the search asks for something and has results
+    // (`bulkCanPreview`), with the search's parameters.
+    let bulk = focused && !failed && !results.items.is_empty() && screen.shelf.is_none();
+    let bulk_pairs = Asked { terms: Terms { more: 0, ..terms.clone() }, category: screen.category.clone() }.pairs();
     html! {
         <div class={Page} on:change={handlers::apply(event)}>
             if focused {
@@ -250,6 +255,14 @@ pub fn SearchPage<'a>(t: SearchMsg, i: ItemMsg, p: Pilot, screen: &'a SearchScre
                             }
                         </select>
                     </label>
+                    if bulk {
+                        <form class={Bulk} method="get" action={url::SearchCart.href()} data-patch>
+                            for (name, value) in &bulk_pairs {
+                                <input type="hidden" name={name} value={value}>
+                            }
+                            <button type="submit" class={Secondary}>{t.page_add_matching_to_cart()}</button>
+                        </form>
+                    }
                     <a class={Secondary} href={&url::Search { terms: Terms::default() }.href()}>{t.page_clear_all_filters()}</a>
                 </div>
                 if !chips.is_empty() {
@@ -308,6 +321,8 @@ pub fn SearchPage<'a>(t: SearchMsg, i: ItemMsg, p: Pilot, screen: &'a SearchScre
             </div>
             // Add to List's dialog, empty until a result's Add to List fills it.
             <SaveDialog t={i} save={None} label="" product="" page={&[]} action="" input={None} message={None} />
+            // Add matching products to Buy Cart's sheet: empty until its preview fills it, or open.
+            <BulkCartSheet t={t} sheet={screen.bulk.as_ref()} pairs={&bulk_pairs} />
         </div>
     }
 }

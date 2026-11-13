@@ -21,8 +21,10 @@
 //! answers the dialog this page has empty, or the item page to choose the options the filters do
 //! not name.
 //!
-//! Not ported: the bulk add to the buy cart from a result, the realtime market patches, the facet
-//! option search and the automatic load on scroll.
+//! Add matching products to Buy Cart previews and adds every match of the search (`bulk_cart`).
+//!
+//! Not ported: the realtime market patches, the facet option search and the automatic load on
+//! scroll.
 use std::collections::BTreeMap;
 
 use corten::{
@@ -232,6 +234,22 @@ impl Terms {
     /// The API's query string for the page after `cursor`, or the first `limit` results with
     /// their total when there is none.
     pub fn api_query_from(&self, category: &str, limit: usize, cursor: Option<&str>) -> String {
+        let page = match cursor {
+            Some(cursor) => [("limit", limit.to_string()), (CURSOR, cursor.to_owned())],
+            None => [("limit", limit.to_string()), ("includeTotal", "true".to_owned())],
+        };
+        encode(&self.api_pairs(category, &page))
+    }
+
+    /// The API's query string for every result at once, as the bulk add's preview reads them
+    /// (`buildSearchQuery`, which the API reads up to its own limit).
+    pub fn bulk_query(&self, category: &str) -> String {
+        encode(&self.api_pairs(category, &[]))
+    }
+
+    /// The search's parameters as the API reads them, with `page`'s (the limit and the cursor)
+    /// after the sort.
+    fn api_pairs(&self, category: &str, page: &[(&str, String)]) -> Vec<(String, String)> {
         let mut pairs: Vec<(String, String)> = Vec::new();
         let mut put = |key: &str, value: &str| {
             if !value.is_empty() {
@@ -247,10 +265,8 @@ impl Terms {
         put("priceMax", &self.price_max);
         put("inStock", if self.in_stock { "true" } else { "" });
         put("sort", &self.sort);
-        put("limit", &limit.to_string());
-        match cursor {
-            Some(cursor) => put(CURSOR, cursor),
-            None => put("includeTotal", "true"),
+        for (key, value) in page {
+            put(key, value);
         }
         for filter in &self.filters {
             put(&filter.key(), &filter.value);
@@ -258,7 +274,7 @@ impl Terms {
         if let Some(keys) = &self.interpreted {
             pairs.push(("interpreted".to_owned(), keys.clone()));
         }
-        encode(&pairs)
+        pairs
     }
 
     /// Whether the page shows results for something (`hasFocusedResults`); otherwise it is the
@@ -526,6 +542,9 @@ pub struct SearchScreen {
     /// On the home page with nothing asked (`isHomeLanding`), when there is something to show.
     pub shelf: Option<HomeShelf>,
     pub home: bool,
+    /// Add matching products to Buy Cart's sheet, open (without JavaScript); `None` draws it empty
+    /// for a script to fill.
+    pub bulk: Option<crate::bulk_cart::Sheet>,
 }
 
 impl SearchScreen {
@@ -687,8 +706,36 @@ async fn show(
         HomeShelf { featured, arrivals }
     });
     let shelf = shelf.filter(|s| !s.featured.is_empty() || !s.arrivals.is_empty());
-    let screen = SearchScreen { terms, category, categories, results, shelf, home };
-    render(&req, viewer, &screen, failed)
+    let screen = SearchScreen { terms, category, categories, results, shelf, home, bulk: None };
+    let status = if failed { StatusCode::BAD_GATEWAY } else { StatusCode::OK };
+    render(&req, viewer, &screen, failed, status)
+}
+
+/// The results for `terms` in `category` with Add matching products to Buy Cart's `sheet` open,
+/// answered `status` (a 502 when the results' read fails): its answer for a browser without
+/// JavaScript. Nothing is moved or read again from the words: the address it came from was already
+/// the search's own.
+pub(crate) async fn with_sheet(
+    req: &Req,
+    session: Option<&Session>,
+    caller: &impl Search,
+    terms: Terms,
+    category: String,
+    sheet: crate::bulk_cart::Sheet,
+    status: StatusCode,
+) -> HtmlResult {
+    let limit = PAGE_SIZE + terms.more.min(MOST_SHOWN - PAGE_SIZE);
+    let query = terms.api_query(&category, limit);
+    let (results, categories) = tokio::join!(caller.search(&query), caller.categories());
+    let results = results.inspect_err(|error| tracing::warn!("the search's read failed: {error}")).ok();
+    let categories = categories.unwrap_or_else(|error| {
+        tracing::warn!("the categories' read failed: {error}");
+        Vec::new()
+    });
+    let failed = results.is_none();
+    let status = if failed { StatusCode::BAD_GATEWAY } else { status };
+    let screen = SearchScreen { terms, category, categories, results, shelf: None, home: false, bulk: Some(sheet) };
+    render(req, session.and_then(Session::viewer), &screen, failed, status)
 }
 
 /// The page after `cursor`: its rows added after the ones the page has (`terms.more` of them),
@@ -739,7 +786,13 @@ async fn more(req: &Req, caller: &impl Search, place: Place<'_>, terms: &Terms, 
     }
 }
 
-fn render(req: &Req, viewer: Option<&crate::auth::Viewer>, screen: &SearchScreen, failed: bool) -> HtmlResult {
+fn render(
+    req: &Req,
+    viewer: Option<&crate::auth::Viewer>,
+    screen: &SearchScreen,
+    failed: bool,
+    status: StatusCode,
+) -> HtmlResult {
     let t: SearchMsg = req.t();
     let terms = &screen.terms;
     let title = if terms.q.is_empty() {
@@ -759,7 +812,6 @@ fn render(req: &Req, viewer: Option<&crate::auth::Viewer>, screen: &SearchScreen
         <meta property="og:type" content="website">
     };
     let p: Pilot = req.t();
-    let status = if failed { StatusCode::BAD_GATEWAY } else { StatusCode::OK };
     req.page_with_status(
         status,
         html! {
