@@ -3,8 +3,11 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { pathToFileURL } from "node:url";
 import { createFilesystemObjectStorage, createS3ObjectStorage, type ObjectStorage } from "@chase-sets/object-storage";
-import { bootstrapPlatformControlPlane } from "@chase-sets/platform-runtime/control-plane";
-import { seedApiHostIfEmpty } from "@chase-sets/platform-runtime/api";
+import {
+  bootstrapPlatformControlPlane,
+  createPostgresPlatformControlPlane,
+} from "@chase-sets/platform-runtime/control-plane";
+import { createProjectionGroupLeasePort, seedApiHostIfEmpty } from "@chase-sets/platform-runtime/api";
 import {
   ADMIN_QA_ACTOR_FIXTURES,
   provisionAdminQaActorFixtures,
@@ -87,6 +90,7 @@ export async function runAdminQaActorFixtures(options: Readonly<{ config?: Platf
   const pools = createSeedCommandPools(config);
   try {
     await bootstrapPlatformControlPlane(pools.control);
+    const controlPlane = createPostgresPlatformControlPlane(pools.control);
     const paymentProcessorGateway = createFakePaymentProcessorGateway();
     const runtime = createPlatformApiHost({
       pools,
@@ -106,6 +110,8 @@ export async function runAdminQaActorFixtures(options: Readonly<{ config?: Platf
       environmentName: config.deploymentEnvironment ?? null,
       runtimeProfile: config.runtimeProfile,
       schemaBootstrapLockPool: pools.schemaBootstrapLockPool,
+      projectionGroupLeasePort: createProjectionGroupLeasePort(controlPlane, "platform-api"),
+      substepTimeoutMs: 600_000,
     });
 
     const identityServices = getIdentityServices(runtime.services);

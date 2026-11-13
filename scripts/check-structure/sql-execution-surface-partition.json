@@ -529,7 +529,7 @@
     "infrastructure/platform-runtime/realtime-stream-limiter.ts"
   ],
   "unresolvedMemberRoots": {
-    "count": 277,
+    "count": 278,
     "fileCounts": {
       "bounded-contexts/auth/features/sessions/api/route.ts": 1,
       "bounded-contexts/auth/support/ucp-support/connector-oauth.ts": 1,
@@ -625,6 +625,7 @@
       "deployables/platform-api/src/main.ts": 1,
       "deployables/platform-worker/src/main.ts": 1,
       "infrastructure/bounded-context-runtime/projection-groups.ts": 1,
+      "infrastructure/platform-runtime/inline-seed-db-test-support.ts": 1,
       "infrastructure/platform-runtime/projection-operations-routes.ts": 10,
       "infrastructure/platform-runtime/realtime-outbox-store.ts": 1
     }
