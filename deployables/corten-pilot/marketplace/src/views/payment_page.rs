@@ -179,12 +179,13 @@ pub fn PaymentContent<'a>(t: PaymentMsg, screen: &'a PaymentScreen) -> impl Patc
                             <p>{says}</p>
                         </div>
                     </section>
-                    if screen.claim.is_some() || screen.claim_error.is_some() {
+                    if screen.claim.is_some() || screen.claim_error.is_some() || screen.claim_sent.is_some() {
                         <SaveOrder
                             t={t}
                             id={&payment.payment_id}
                             claim={screen.claim.as_ref()}
                             error={screen.claim_error.as_deref()}
+                            sent={screen.claim_sent.as_deref()}
                         />
                     }
                     <section class={Section} aria-labelledby="payment-timeline-title">
@@ -493,9 +494,16 @@ pub fn PaymentWatch<'a>(again: Option<&'a WatchRoute<'a>>) -> impl Patch {
 /// not save it, then a passkey for the contact's email (the shared passkey step creates it and
 /// sends the form with its credential; without a script the form comes without one and the page
 /// says so), a claim link emailed there and, once sent, that it was, with the token to type where
-/// the page shows it.
+/// the page shows it. A link sent when the contact could not be read again says only that it was
+/// sent (`sent`).
 #[component(css = PaymentPage)]
-fn SaveOrder<'a>(t: PaymentMsg, id: &'a str, claim: Option<&'a Claim>, error: Option<&'a str>) -> impl Render {
+fn SaveOrder<'a>(
+    t: PaymentMsg,
+    id: &'a str,
+    claim: Option<&'a Claim>,
+    error: Option<&'a str>,
+    sent: Option<&'a str>,
+) -> impl Render {
     let f = GuestForm::FIELDS;
     let action = url::GuestPayment { id, place: Default::default() };
     let (challenge_id, challenge, credential_id, response, button, warning) = refs();
@@ -512,6 +520,11 @@ fn SaveOrder<'a>(t: PaymentMsg, id: &'a str, claim: Option<&'a Claim>, error: Op
                     <div class={Banner} data-tone="danger" role="alert">
                         <p class={Strong}>{t.could_not_save_order()}</p>
                         <p>{error}</p>
+                    </div>
+                }
+                if let Some(sent) = sent {
+                    <div class={Banner} role="status">
+                        <p>{sent}</p>
                     </div>
                 }
                 if let Some(claim) = claim {

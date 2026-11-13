@@ -16,7 +16,10 @@
     "payment_link_expired": "This guest checkout payment link is invalid or expired.",
     "claim_link_sent": "We sent a claim link to {email}. Open it to save this order to an account.",
     "claim_link_expired_title": "Claim link expired",
-    "claim_link_expired": "This claim link is invalid or expired."
+    "claim_link_expired": "This claim link is invalid or expired.",
+    "claim_link_sent_unread": "We sent a claim link to this order's contact email. Open it to save this order to an account.",
+    "claim_link_rate_limited_title": "Too many attempts",
+    "claim_link_rate_limited": "There were too many attempts. Try the link again later."
   },
   "check": {
     "required": "Enter a value.",
