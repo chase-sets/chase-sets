@@ -12,8 +12,10 @@
 //! (chase-sets/chase-sets#10615), the pilot says it was received, or already reported, or to try
 //! again later.
 //!
-//! Not ported: the realtime patches to the listing, and its Product JSON-LD, which marketplace
-//! writes only on the production marketplace when the listing carries a Google Shopping payload.
+//! On the production marketplace, a listing whose Google Shopping payload is eligible and matches
+//! it writes its Product JSON-LD (`views::listing_json_ld`), as marketplace's page does.
+//!
+//! Not ported: the realtime patches to the listing.
 use corten::{
     http::{HeaderMap, StatusCode, Uri, header},
     prelude::*,
@@ -106,6 +108,7 @@ fn render(
         marketplace_origin(),
         url::PublicListing { slug: &listing.listing_slug, reported: Reported::default() }.href()
     );
+    let product = views::listing_json_ld(listing, &canonical);
     let (og_title, og_description) = (title.as_str(), description.as_str());
     let head = html! {
         <meta name="description" content={og_description}>
@@ -113,6 +116,9 @@ fn render(
         <meta property="og:title" content={og_title}>
         <meta property="og:description" content={og_description}>
         <meta property="og:type" content="product">
+        if let Some(ld) = &product {
+            <JsonLd value={ld} />
+        }
     };
     let viewer = session.and_then(Session::viewer);
     req.page_with_status(

@@ -1823,6 +1823,7 @@ fn public_listings(method: &Method, path: &str, headers: &HeaderMap) -> Option<R
             "seller_listing_availability_status": if away { "unavailable" } else { "available" },
             "seller_available_again_at": if away { json!("2026-11-08T00:00:00.000Z") } else { Value::Null },
             "seller_at_capacity": false, "created_at": "2026-10-24T03:55:32.446Z", "updated_at": "2026-10-24T03:55:33.413Z",
+            "google_shopping_structured_data_payload": shopping_payload(),
         })
     };
     Some(match rest {
@@ -5774,6 +5775,88 @@ async fn a_listing_page_shows_the_listing_its_purchase_panel_and_its_seller() {
     assert!(html.contains(r#"href="/accounts/chase-sets#feedback">View account</a>"#), "{html}");
     assert!(html.contains(r#"<select name="reason" required>"#) && html.contains(r#"maxlength="1000""#), "{html}");
     assert!(!main_of(&html).contains(r#"role="status""#), "no notice in the page (the layout's toaster is after it): {html}");
+    assert!(!html.contains("application/ld+json"), "structured data is for the production marketplace only: {html}");
+}
+
+/// The stand-in listing's eligible Google Shopping payload, linking the production page.
+fn shopping_payload() -> Value {
+    json!({
+        "offerId": "cs-listing-lst_psa_8", "title": "Charizard Base Set PSA 8", "description": "A </script> Base Set Charizard.",
+        "link": "https://marketplace.chasesets.com/listings/psa-8", "imageLink": "https://assets.chasesets.com/catalog/charizard.webp",
+        "priceAmount": "749.00", "currencyCode": "USD", "availability": "in stock", "condition": "used",
+        "brand": "Pokemon", "productType": "Trading Cards",
+    })
+}
+
+/// The stand-in's listing with `change` made to it.
+fn shopping_listing(change: impl FnOnce(&mut Value)) -> crate::api::PublicListing {
+    let mut value = json!({
+        "listing_id": "lst_psa_8", "listing_slug": "psa-8", "account_id": "acc_chase", "catalog_catalog_item_id": "cat_charizard",
+        "product_id": "cat_charizard::psa8", "price_amount": "749.00", "price_currency_code": "USD", "status": "active",
+        "seller_display_name": "Chase Sets", "seller_listing_availability_status": "available",
+        "google_shopping_structured_data_payload": shopping_payload(),
+    });
+    change(&mut value);
+    serde_json::from_value(value).unwrap()
+}
+
+const LISTING_CANONICAL: &str = "https://marketplace.chasesets.com/listings/psa-8";
+
+#[test]
+fn a_production_listing_writes_its_product_and_offer_from_its_shopping_payload_that_nothing_can_end() {
+    use corten::prelude::*;
+    let product = crate::views::listing_json_ld(&shopping_listing(|_| {}), LISTING_CANONICAL).expect("an eligible listing");
+    assert_eq!(
+        product,
+        json!({
+            "@context": "https://schema.org", "@type": "Product", "name": "Charizard Base Set PSA 8",
+            "description": "A </script> Base Set Charizard.", "image": "https://assets.chasesets.com/catalog/charizard.webp",
+            "sku": "cs-listing-lst_psa_8", "brand": { "@type": "Brand", "name": "Pokemon" }, "category": "Trading Cards",
+            "offers": {
+                "@type": "Offer", "url": LISTING_CANONICAL, "priceCurrency": "USD", "price": "749.00",
+                "availability": "https://schema.org/InStock", "itemCondition": "https://schema.org/UsedCondition",
+                "seller": { "@type": "Organization", "name": "Chase Sets" },
+            },
+        })
+    );
+    let html = html! { <JsonLd value={&product} /> }.to_html();
+    let json =
+        html.strip_prefix(r#"<script type="application/ld+json">"#).and_then(|s| s.strip_suffix("</script>")).expect(&html);
+    assert!(!json.contains('<'), "{json}");
+    assert_eq!(serde_json::from_str::<Value>(json).unwrap(), product);
+}
+
+#[test]
+fn a_listings_availability_and_condition_follow_its_shopping_payload() {
+    let listing = shopping_listing(|l| {
+        l["google_shopping_structured_data_payload"]["availability"] = json!("out of stock");
+        l["google_shopping_structured_data_payload"]["condition"] = json!("new");
+    });
+    let offer = &crate::views::listing_json_ld(&listing, LISTING_CANONICAL).unwrap()["offers"];
+    assert_eq!(offer["availability"], "https://schema.org/OutOfStock");
+    assert_eq!(offer["itemCondition"], "https://schema.org/NewCondition");
+}
+
+#[test]
+fn a_listing_writes_no_product_unless_it_is_buyable_production_and_its_payload_is_its_own() {
+    let none = |change: fn(&mut Value), canonical: &str| {
+        assert_eq!(crate::views::listing_json_ld(&shopping_listing(change), canonical), None, "{canonical}");
+    };
+    none(|l| l["status"] = json!("paused"), LISTING_CANONICAL);
+    none(|l| l["seller_listing_availability_status"] = json!("unavailable"), LISTING_CANONICAL);
+    none(|_| {}, "https://marketplace.staging.chasesets.com/listings/psa-8");
+    none(|_| {}, "http://marketplace.chasesets.com/listings/psa-8");
+    none(
+        |l| l["google_shopping_structured_data_payload"]["link"] = json!("https://marketplace.chasesets.com/listings/other"),
+        LISTING_CANONICAL,
+    );
+    none(|l| l["price_amount"] = json!("700.00"), LISTING_CANONICAL);
+    none(|l| l["price_currency_code"] = json!("EUR"), LISTING_CANONICAL);
+    none(|l| l["price_currency_code"] = Value::Null, LISTING_CANONICAL);
+    none(|l| l["google_shopping_structured_data_payload"]["imageLink"] = json!(""), LISTING_CANONICAL);
+    none(|l| l["google_shopping_structured_data_payload"]["condition"] = json!("refurbished"), LISTING_CANONICAL);
+    none(|l| l["google_shopping_structured_data_payload"] = json!("not an object"), LISTING_CANONICAL);
+    none(|l| l["google_shopping_structured_data_payload"] = Value::Null, LISTING_CANONICAL);
 }
 
 #[tokio::test]
