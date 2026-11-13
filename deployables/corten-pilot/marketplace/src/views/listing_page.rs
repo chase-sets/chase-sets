@@ -251,7 +251,8 @@ pub fn listing_live_parts<'a>(t: ListingMsg, p: Pilot, listing: &'a PublicListin
 }
 
 /// What `<corten-live>` draws when the listing is gone (marketplace's patch removes it and its page
-/// says it is not found): the header says so and the purchase column is empty.
+/// says it is not found): the header says so and the purchase column is hidden, so the seller's card
+/// takes the row.
 #[component(css = ListingPage)]
 pub fn ListingGone(t: ListingMsg) -> impl Render {
     html! {
@@ -259,7 +260,7 @@ pub fn ListingGone(t: ListingMsg) -> impl Render {
             <h1 class={Title}>{t.page_listing_not_found()}</h1>
             <p class={Muted}>{t.page_this_listing_is_not_available_right()}</p>
         </header>
-        <div id={ListingBuyId} class={Column}></div>
+        <div id={ListingBuyId} class={Column} hidden></div>
     }
 }
 

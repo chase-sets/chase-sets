@@ -5991,7 +5991,7 @@ async fn a_change_to_a_listing_the_read_no_longer_finds_says_it_is_not_found() {
     let events = pilot.events(get("/listings/nope/live/lst_gone", None), 1).await;
     let (_, _, data) = &events[0];
     assert!(data.contains(">Listing not found</h1>") && data.contains("This listing is not available right now."), "{data}");
-    assert!(data.contains(r#"id="listing-buy""#) && !data.contains("/buy"), "the purchase column is emptied: {data}");
+    assert!(data.contains(r#"id="listing-buy" class="listing-page__column" hidden"#) && !data.contains("/buy"), "{data}");
 }
 
 #[tokio::test]
