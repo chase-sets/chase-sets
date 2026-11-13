@@ -106,7 +106,7 @@ export type RepricingMarketplaceGateway = Readonly<{
   }) => Promise<{
     items: readonly Readonly<{
       listingId: string;
-      outcome: "applied" | "no_op" | "conflict" | "error";
+      outcome: "applied" | "no_op" | "conflict" | "error" | "unknown";
       message?: string;
     }>[];
   }>;
@@ -543,7 +543,7 @@ async function executeAdmittedProductRound(
 
   type CommandOutcome = Readonly<{
     listingId: string;
-    outcome: "applied" | "no_op" | "conflict" | "error";
+    outcome: "applied" | "no_op" | "conflict" | "error" | "unknown";
     message?: string;
   }>;
   const outcomesByListingId = new Map<string, CommandOutcome>();
