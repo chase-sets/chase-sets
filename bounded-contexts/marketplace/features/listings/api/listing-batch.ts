@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import { readCompleteStream } from "@chase-sets/event-core/complete-stream";
+import { t } from "@chase-sets/localization";
 import type { EventStore } from "@chase-sets/event-core/event-store";
 import type { EventStoreContext, StoredEvent } from "@chase-sets/event-core/storage";
 import type { JsonObject } from "@chase-sets/primitives/json";
@@ -150,7 +151,7 @@ function recordedDecision(entry: ListingBatchEntry): ListingBatchDecision {
     ...(entry.noOp ? { noOp: true as const } : {}),
     ...(entry.outcome === "succeeded"
       ? {}
-      : { message: `The batch already recorded this target as ${entry.outcome}.` }),
+      : { message: t("marketplace.features.listings.api.listingBatch.target.recorded", { outcome: entry.outcome }) }),
   };
 }
 
@@ -164,12 +165,12 @@ function matchesTarget(entry: ListingBatchEntry, target: ListingBatchTarget): bo
 const unknownDecision: ListingBatchDecision = {
   outcome: "unknown",
   version: 0,
-  message: "The target's outcome is unknown; retry the batch.",
+  message: t("marketplace.features.listings.api.listingBatch.target.unknown"),
 };
 const changedTargetDecision: ListingBatchDecision = {
   outcome: "conflict",
   version: 0,
-  message: "The batch already recorded a different request for this target.",
+  message: t("marketplace.features.listings.api.listingBatch.target.changed"),
 };
 
 async function persistVector(
