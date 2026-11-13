@@ -13,6 +13,7 @@ mod agents;
 mod api;
 mod app;
 mod auth;
+mod bulk_cart;
 mod bulk_reprice;
 mod buying;
 mod cart;

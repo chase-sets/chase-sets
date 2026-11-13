@@ -3,7 +3,7 @@
 //! filters are one GET form: a rail beside the results from 64rem, and below that a dialog the
 //! Filters button opens. The words box and the sort are in the form by its id, so changing any
 //! of them sends every choice.
-use corten::prelude::*;
+use corten::{prelude::*, script::ElementId};
 use platform::{
     search::SearchGlyph,
     ui::{input::Input, input_group::InputGroup, visually_hidden::VisuallyHidden},
@@ -16,13 +16,14 @@ use super::{
 use crate::{
     api::{Facet, SearchCategory, SearchItem, SearchResults},
     app::url,
+    bulk_cart::Asked,
     items::{Address, Market},
     saving,
     search::{
         Activity, CURSOR, Filter, HomeShelf, Kind, MOST_SHOWN, PAGE_SIZE, Place, SearchScreen, Terms, TermsQuery, category_href,
     },
     text::{ItemMsg, Pilot, SearchMsg},
-    views::SaveDialog,
+    views::{BulkCartSheet, SaveDialog, bulk_cart_sheet::BulkCartId, save_dialog::SaveToListId},
 };
 
 corten::script::script!(pub mod handlers = "search.js");
@@ -41,6 +42,10 @@ pub struct FiltersTitleId;
 /// A result, so Load more without JavaScript can bring the browser to the first one it adds.
 #[derive(Id)]
 pub struct ResultId<'a>(pub &'a str);
+
+/// Add matching products to Buy Cart's form, which its button in the control bar sends.
+#[derive(Id)]
+pub struct BulkTriggerId;
 
 /// The results' list, which Load more adds rows to.
 #[derive(Id)]
@@ -236,6 +241,10 @@ pub fn SearchPage<'a>(t: SearchMsg, i: ItemMsg, p: Pilot, screen: &'a SearchScre
     };
     let form = SearchFormId;
     let f = TermsQuery::FIELDS;
+    // Add matching products to Buy Cart, once the search asks for something and has results
+    // (`bulkCanPreview`), with the search's parameters.
+    let bulk = focused && !failed && !results.items.is_empty() && screen.shelf.is_none();
+    let bulk_pairs = Asked { terms: Terms { more: 0, ..terms.clone() }, category: screen.category.clone() }.pairs();
     html! {
         <div class={Page} on:change={handlers::apply(event)}>
             if focused {
@@ -250,6 +259,9 @@ pub fn SearchPage<'a>(t: SearchMsg, i: ItemMsg, p: Pilot, screen: &'a SearchScre
                             }
                         </select>
                     </label>
+                    if bulk {
+                        <button type="submit" class={Secondary} form={BulkTriggerId}>{t.page_add_matching_to_cart()}</button>
+                    }
                     <a class={Secondary} href={&url::Search { terms: Terms::default() }.href()}>{t.page_clear_all_filters()}</a>
                 </div>
                 if !chips.is_empty() {
@@ -308,6 +320,26 @@ pub fn SearchPage<'a>(t: SearchMsg, i: ItemMsg, p: Pilot, screen: &'a SearchScre
             </div>
             // Add to List's dialog, empty until a result's Add to List fills it.
             <SaveDialog t={i} save={None} label="" product="" page={&[]} action="" input={None} message={None} />
+            // Add matching products to Buy Cart's form, after the filters: its hidden fields repeat
+            // the filters' names and values, and a filter's navigation gives focus back to the
+            // first control of its name and value in <main>, so above the rail they would take it
+            // (corten-run/corten#1372). Its button is in the control bar.
+            if bulk {
+                <form
+                    class={Bulk}
+                    id={BulkTriggerId}
+                    method="get"
+                    action={url::SearchCart.href()}
+                    data-patch
+                    on:submit={handlers::fresh(ElementId::of(&BulkCartId))}
+                >
+                    for (name, value) in &bulk_pairs {
+                        <input type="hidden" name={name} value={value}>
+                    }
+                </form>
+            }
+            // Add matching products to Buy Cart's sheet: empty until its preview fills it, or open.
+            <BulkCartSheet t={t} sheet={screen.bulk.as_ref()} pairs={&bulk_pairs} />
         </div>
     }
 }
@@ -964,7 +996,13 @@ pub fn ResultCard<'a>(
                         <a class={Ghost} href={&buy} aria-label={t.page_buy()}>{t.page_buy_intent()}</a>
                     }
                     <a class={Ghost} href={&watch} aria-label={t.page_watch()}>{t.page_watch_intent()}</a>
-                    <form class={Save} method="post" action={&save} data-patch>
+                    <form
+                        class={Save}
+                        method="post"
+                        action={&save}
+                        data-patch
+                        on:submit={handlers::fresh(ElementId::of(&SaveToListId))}
+                    >
                         for (key, value) in &address {
                             <input type="hidden" name={key} value={value}>
                         }

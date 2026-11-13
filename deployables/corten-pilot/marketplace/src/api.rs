@@ -622,8 +622,14 @@ pub struct CartAttempt {
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CommandOutcome {
+    /// The command's place in what was sent (a bulk add's line).
+    #[serde(default)]
+    pub index: usize,
     /// `succeeded`, `conflict` or `error`.
     pub outcome: String,
+    /// What it did to the cart: `added` or `merged` for an add, among others.
+    #[serde(default)]
+    pub status: Option<String>,
     pub message: Option<String>,
 }
 
@@ -680,6 +686,12 @@ impl CartWrite {
     pub fn add_line(line: &impl Serialize, guest: Option<String>) -> Self {
         let body = serde_json::to_value(line).unwrap_or_default();
         CartWrite { path: "", kind: "cart.add-line", body, guest }
+    }
+
+    /// Many new lines in one attempt (`POST /account/cart/bulk`, or `/guest/cart/bulk`), each
+    /// line's outcome in the attempt's vector at its index.
+    pub fn add_lines(lines: &[serde_json::Value], guest: Option<String>) -> Self {
+        CartWrite { path: "/bulk", kind: "cart.add-lines", body: serde_json::json!({ "lines": lines }), guest }
     }
 
     /// The same write to the guest cart `guest` (`/guest/cart/commands`), or the account's.
@@ -2716,6 +2728,11 @@ pub struct PublicListing {
     pub seller_listing_availability_status: Option<String>,
     /// When an away seller's listings return; `None` for an indefinite away.
     pub seller_available_again_at: Option<String>,
+    /// The listing's eligible, live Google Shopping feed row
+    /// (`DiscoveryGoogleShoppingStructuredDataPayload`), which its Product JSON-LD is written
+    /// from. Kept as JSON: a payload of an unexpected shape writes no structured data rather than
+    /// failing the page.
+    pub google_shopping_structured_data_payload: Option<serde_json::Value>,
 }
 
 /// A page of search results (`GET /api/marketplace/items?..`, `DiscoverySearchResponse`), the
@@ -2850,6 +2867,47 @@ struct Categories {
     items: Vec<SearchCategory>,
 }
 
+/// What adding a search's results to the buy cart would add (`DiscoveryBulkCartPreview`): the
+/// lines it can add, each a product the result names in full, and the results it skips until
+/// their options are chosen. Over `limit` matches, nothing is added.
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BulkCartPreview {
+    pub total_matches: Option<u64>,
+    pub eligible_count: u64,
+    pub skipped_count: u64,
+    pub over_limit: bool,
+    pub limit: u64,
+    #[serde(default)]
+    pub lines: Vec<BulkCartLine>,
+    #[serde(default)]
+    pub skipped_items: Vec<BulkCartSkipped>,
+}
+
+/// A line the bulk add sends, as the preview gives it.
+#[derive(Clone, Debug, Deserialize)]
+pub struct BulkCartLine {
+    pub catalog_item_id: String,
+    pub product_id: String,
+    pub title: String,
+    pub subtitle: Option<String>,
+    pub image_url: Option<String>,
+    pub image_srcset: Option<String>,
+    pub image_loading_url: Option<String>,
+    pub image_loading_alt: Option<String>,
+    pub image_loading_srcset: Option<String>,
+    pub product_summary: Option<String>,
+    pub quantity: u64,
+    #[serde(default)]
+    pub selected_options: Vec<serde_json::Value>,
+}
+
+/// A result the bulk add leaves out: why, in a sentence that names it.
+#[derive(Clone, Debug, Deserialize)]
+pub struct BulkCartSkipped {
+    pub message: String,
+}
+
 /// Marketplace search's calls.
 pub trait Search {
     /// A page of results; `query` is the API's query string, without the `?`.
@@ -2860,11 +2918,18 @@ pub trait Search {
     async fn category(&self, slug: &str) -> Result<Option<SearchCategory>, ApiError>;
     /// The set with the slug (or an old one) and its first items; `None` when there is none.
     async fn set(&self, slug: &str) -> Result<Option<SetPage>, ApiError>;
+    /// What adding every result of `query` (a search's query string) to the buy cart would add
+    /// (`previewBulkAddSearchResults`).
+    async fn bulk_cart_preview(&self, query: &str) -> Result<BulkCartPreview, ApiError>;
 }
 
 impl Search for Caller<'_> {
     async fn search(&self, query: &str) -> Result<SearchResults, ApiError> {
         self.read(&format!("{ITEMS}?{query}"), DISCOVERY).await
+    }
+
+    async fn bulk_cart_preview(&self, query: &str) -> Result<BulkCartPreview, ApiError> {
+        self.read(&format!("{ITEMS}/bulk-cart-preview?{query}"), DISCOVERY).await
     }
 
     async fn categories(&self) -> Result<Vec<SearchCategory>, ApiError> {

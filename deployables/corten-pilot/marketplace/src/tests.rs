@@ -656,6 +656,9 @@ async fn platform(State(stand): State<Stand>, method: Method, uri: Uri, headers:
     if let Some(answer) = sitemaps(&uri) {
         return answer;
     }
+    if let Some(answer) = bulk_cart(&stand, &method, &uri, &headers, &body) {
+        return answer;
+    }
     if let Some(id) = uri.path().strip_prefix(ITEMS) {
         // Discovery has not caught up with a listing published at 44.
         if waits_for(&headers).as_deref() == Some("44") {
@@ -1766,6 +1769,82 @@ fn search(uri: &Uri) -> Option<Response> {
     Some(Json(page).into_response())
 }
 
+const BULK_PREVIEW: &str = "/api/marketplace/items/bulk-cart-preview";
+const ACCOUNT_CART_BULK: &str = "/api/marketplace/account/cart/bulk";
+const GUEST_CART_BULK: &str = "/api/marketplace/guest/cart/bulk";
+
+/// Add matching products to Buy Cart, as the stand-in answers it. The preview's words say what it
+/// finds: `broken` fails, `lots` is over the limit, `none` names no product in full; any other is
+/// Card 1 and Card 3, with Card 2 needing its options, each line's product named for the words.
+/// The add keeps its attempt, Card 1 added and Card 3 merged, at position 14: `partial`'s Card 3
+/// has no listing, `refused`'s add is refused, and `lost`'s answer is lost with nothing kept.
+fn bulk_cart(stand: &Stand, method: &Method, uri: &Uri, headers: &HeaderMap, body: &str) -> Option<Response> {
+    let path = uri.path();
+    if path == BULK_PREVIEW && *method == Method::GET {
+        let sent = query(&uri.to_string());
+        let words = sent.get("search").map_or("", String::as_str);
+        let line = |n: u32| {
+            json!({
+                "catalog_item_id": format!("cat_{n}"), "slug": format!("card-{n}"), "title": format!("Card {n}"),
+                "subtitle": "Base Set", "product_id": format!("cat_{n}::{words}"), "image_url": format!("/img/{n}.png"),
+                "image_srcset": null, "image_loading_url": null, "image_loading_alt": null, "image_loading_srcset": null,
+                "product_summary": "Raw / Near Mint", "quantity": 1,
+                "selected_options": [{ "dimensionId": "dim_condition", "optionId": "chc_nm" }],
+            })
+        };
+        let skipped = json!([{
+            "catalog_item_id": "cat_2", "slug": "card-2", "title": "Card 2",
+            "message": "Card 2 needs product options before it can be added.", "reason": "product-options-required",
+        }]);
+        let preview = |eligible: u64, over: bool, lines: Vec<Value>, skipped: Value| {
+            let skipped_count = skipped.as_array().map_or(0, Vec::len);
+            json!({
+                "totalMatches": eligible + skipped_count as u64, "eligibleCount": eligible, "skippedCount": skipped_count,
+                "overLimit": over, "limit": 250, "lines": lines, "skippedItems": skipped,
+            })
+        };
+        return Some(match words {
+            "broken" => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+            "lots" => Json(preview(300, true, Vec::new(), json!([]))).into_response(),
+            "none" => Json(preview(0, false, Vec::new(), skipped)).into_response(),
+            _ => Json(preview(2, false, vec![line(1), line(3)], skipped)).into_response(),
+        });
+    }
+    if *method != Method::POST || (path != ACCOUNT_CART_BULK && path != GUEST_CART_BULK) {
+        return None;
+    }
+    let guest = headers.get("x-checkout-anonymous-cart-id").and_then(|v| v.to_str().ok()).filter(|id| id.starts_with("anon_"));
+    if path == GUEST_CART_BULK && guest.is_none() {
+        return Some(refusal(StatusCode::BAD_REQUEST, "anonymous_cart_required", "A guest cart is required."));
+    }
+    let sent: Value = serde_json::from_str(body).unwrap_or_default();
+    let attempt = sent["attemptId"].as_str().unwrap_or_default().to_owned();
+    let products: Vec<&str> = sent["lines"].as_array().into_iter().flatten().filter_map(|l| l["productId"].as_str()).collect();
+    if products.iter().any(|p| p.ends_with("::refused")) {
+        return Some(refusal(StatusCode::UNPROCESSABLE_ENTITY, "validation_failed", "Buy Cart is closed for changes."));
+    }
+    if products.iter().any(|p| p.ends_with("::lost")) {
+        return Some(StatusCode::SERVICE_UNAVAILABLE.into_response());
+    }
+    let vector: Vec<Value> = products
+        .iter()
+        .enumerate()
+        .map(|(index, product)| match index {
+            1 if product.ends_with("::partial") => json!({
+                "index": 1, "command": "add", "outcome": "conflict", "lineId": null, "status": null, "version": 0,
+                "message": "No listings are available.",
+            }),
+            _ => json!({
+                "index": index, "command": "add", "outcome": "succeeded", "lineId": format!("cli_{index}"),
+                "status": if index == 0 { "added" } else { "merged" }, "version": 1, "message": null,
+            }),
+        })
+        .collect();
+    let kept = json!({ "ownerStatus": "committed", "vector": vector, "commitReceipt": { "eventId": "evt_bulk", "globalPosition": "14" } });
+    stand.kept.lock().unwrap().insert(attempt, kept.clone());
+    Some(committed(StatusCode::OK, "checkout", "14", json!({ "status": "completed", "attempt": kept })))
+}
+
 /// A set's read, as the stand-in answers it: `base-set` (old slug `base`) with two of its three
 /// items, one listed; `empty-set` with none; `down` failing; any other unknown.
 fn set(slug: &str) -> Response {
@@ -1826,6 +1905,7 @@ fn public_listings(method: &Method, path: &str, headers: &HeaderMap) -> Option<R
             "seller_listing_availability_status": if away { "unavailable" } else { "available" },
             "seller_available_again_at": if away { json!("2026-11-08T00:00:00.000Z") } else { Value::Null },
             "seller_at_capacity": false, "created_at": "2026-10-24T03:55:32.446Z", "updated_at": "2026-10-24T03:55:33.413Z",
+            "google_shopping_structured_data_payload": shopping_payload(),
         })
     };
     Some(match rest {
@@ -4894,7 +4974,9 @@ async fn a_search_results_add_to_list_opens_the_dialog_for_the_product_its_filte
     // dialog, empty, for the answer.
     let (status, _, html) = pilot.send(get("/search?q=pika&dimension.dim_grade=chc_10", Some("watcher"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");
-    let form = html.split(r#"<form class="search-page__save" method="post" action="/items/card-1/save" data-patch>"#).nth(1);
+    // Its submit opens a closed dialog again (corten-run/corten#1371's workaround).
+    let save = r#"<form class="search-page__save" method="post" action="/items/card-1/save" data-patch data-on='submit:search.fresh("save-to-list")'>"#;
+    let form = html.split(save).nth(1);
     let form = form.expect("card 1's Add to List").split("</form>").next().unwrap();
     for field in [
         r#"<input type="hidden" name="dimension.dim_grade" value="chc_10">"#,
@@ -4982,6 +5064,204 @@ async fn a_guests_add_to_list_from_a_search_result_registers_back_to_the_search(
     let sent: Value = serde_json::from_str(&saved_list_calls(&pilot)[0].body).unwrap();
     assert_eq!((&sent["sourcePath"], &sent["sourceSurface"]), (&json!("/search?q=char"), &json!("search")));
     assert_eq!(sent["product"]["productId"], OFFERED);
+}
+
+/// Add matching products to Buy Cart's preview and add.
+const BULK: &str = "/search/cart";
+const BULK_ATTEMPT: &str = "4f1c2b9e-7d3a-4e8b-a1c0-1234567890ab";
+
+/// The bulk add's previews Discovery was asked for, as their queries.
+fn bulk_previews(pilot: &Pilot) -> Vec<HashMap<String, String>> {
+    let calls = pilot.stand.calls.lock().unwrap();
+    calls.iter().filter(|c| c.path.starts_with(BULK_PREVIEW)).map(|c| query(&c.path)).collect()
+}
+
+/// The bulk adds Checkout was sent.
+fn bulk_adds(pilot: &Pilot) -> Vec<Call> {
+    let calls = pilot.stand.calls.lock().unwrap();
+    calls.iter().filter(|c| c.path == ACCOUNT_CART_BULK || c.path == GUEST_CART_BULK).cloned().collect()
+}
+
+#[tokio::test]
+async fn add_matching_products_to_buy_cart_previews_what_the_search_would_add() {
+    let pilot = Pilot::new().await;
+    // A search with results offers it, a GET form with the search's parameters; the page has the
+    // sheet, empty, for its answer.
+    let (status, _, html) = pilot.send(get("/search?q=pika&dimension.dim_grade=chc_10", Some("watcher"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let trigger = r#"<form class="search-page__bulk" id="bulk-trigger" method="get" action="/search/cart" data-patch data-on='submit:search.fresh("bulk-cart")'>"#;
+    let form = html.split(trigger).nth(1);
+    let form = form.expect("the bulk add's form").split("</form>").next().unwrap();
+    for field in
+        [r#"<input type="hidden" name="q" value="pika">"#, r#"<input type="hidden" name="dimension.dim_grade" value="chc_10">"#]
+    {
+        assert!(form.contains(field), "{field}: {form}");
+    }
+    // Its button is in the control bar, its fields after the filters, whose focus they would take.
+    let button =
+        r#"<button type="submit" class="search-page__secondary" form="bulk-trigger">Add matching products to Buy Cart</button>"#;
+    let (bar, after) = html.split_once(button).expect("the bulk add's button");
+    assert!(!bar.contains(r#"id="search-filters""#), "the button is above the filters: {html}");
+    assert!(
+        after.find(r#"id="search-filters""#).unwrap() < after.find(r#"id="bulk-trigger""#).unwrap(),
+        "the form's fields come after the filters: {html}"
+    );
+    assert!(html.contains(r#"<dialog id="bulk-cart" class="bulk-cart-sheet__dialog"></dialog>"#), "{html}");
+    assert!(bulk_previews(&pilot).is_empty(), "nothing is previewed until it is asked for");
+    // The landing and a failed search offer none.
+    for page in ["/", "/search?q=broken"] {
+        let (_, _, html) = pilot.send(get(page, Some("watcher"))).await;
+        assert!(!html.contains(r#"action="/search/cart""#), "{page}: {html}");
+    }
+
+    // With a script, the sheet, open: what the add would do, read for every match of the search.
+    let (status, headers, html) = pilot.send(get_patch("/search/cart?q=pika&dimension.dim_grade=chc_10")).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(headers.contains_key("corten-patch"), "a patch: {headers:?}");
+    assert!(
+        html.contains(r#"<dialog class="bulk-cart-sheet__dialog" id="bulk-cart" aria-labelledby="bulk-cart-title" open"#),
+        "{html}"
+    );
+    let sheet = text(&html);
+    for said in
+        ["Add matching products to Buy Cart", "2 ready, 1 need product options.", "Matches 3", "Ready 2", "Need options 1"]
+    {
+        assert!(sheet.contains(said), "{said}: {sheet}");
+    }
+    assert!(sheet.contains("Card 2 needs product options before it can be added."), "{sheet}");
+    let read = bulk_previews(&pilot).pop().unwrap();
+    assert_eq!((read["search"].as_str(), read["dimension.dim_grade"].as_str()), ("pika", "chc_10"), "{read:?}");
+    assert!(!read.contains_key("limit") && !read.contains_key("includeTotal"), "every match, as the API reads them: {read:?}");
+    // Add eligible products posts the search again with an attempt.
+    let add = html.split(r#"<form class="bulk-cart-sheet__add" method="post" action="/search/cart" data-patch>"#).nth(1);
+    let add = add.expect("Add eligible products").split("</form>").next().unwrap();
+    assert!(add.contains(r#"name="attempt""#) && add.contains(r#"<input type="hidden" name="q" value="pika">"#), "{add}");
+    assert!(add.contains(">Add eligible products</button>") && !add.contains("disabled"), "{add}");
+
+    // Without one, the search's page with the sheet open.
+    let (status, _, html) = pilot.send(get("/search/cart?q=pika", Some("watcher"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains(r#"id="bulk-cart" aria-labelledby="bulk-cart-title" open"#), "{html}");
+    assert!(html.contains(r#"<li id="result-1""#), "the results: {html}");
+
+    // On a category's page, the form sends its slug, which the preview reads.
+    let (_, _, html) = pilot.send(get("/categories/singles-x1?q=pika", Some("watcher"))).await;
+    let form = html.split(r#"id="bulk-trigger""#).nth(1).unwrap().split("</form>").next().unwrap();
+    assert!(form.contains(r#"<input type="hidden" name="category" value="singles-x1">"#), "{form}");
+    pilot.send(get_patch("/search/cart?q=pika&category=singles-x1")).await;
+    assert_eq!(bulk_previews(&pilot).pop().unwrap()["category"], "singles-x1");
+}
+
+#[tokio::test]
+async fn adding_matching_products_sends_one_cart_attempt_and_goes_back_to_the_search_saying_how_many() {
+    let pilot = Pilot::new().await;
+    let body = format!("q=pika&dimension.dim_grade=chc_10&attempt={BULK_ATTEMPT}");
+    let (status, headers, html) = pilot.send(post(BULK, "watcher", &body, false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
+    let to = headers[header::LOCATION].to_str().unwrap();
+    assert!(
+        to.starts_with("/search?q=pika&dimension.dim_grade=chc_10&after_write="),
+        "after the write, for the shell's count: {to}"
+    );
+    let notice = cookies_set(&headers).remove("__Host-corten-notice").expect("the notice");
+    assert!(notice.contains("m=1+added%2C+1+merged"), "{notice}");
+    // One attempt with every line the preview gave, for Smart Match to fill.
+    let adds = bulk_adds(&pilot);
+    assert_eq!(adds.len(), 1, "{adds:?}");
+    assert_eq!(adds[0].path, ACCOUNT_CART_BULK);
+    let sent: Value = serde_json::from_str(&adds[0].body).unwrap();
+    assert_eq!(sent["attemptId"], BULK_ATTEMPT);
+    assert_eq!(sent["lines"].as_array().map(Vec::len), Some(2), "{sent}");
+    assert_eq!(
+        sent["lines"][0],
+        json!({
+            "catalogItemId": "cat_1", "productId": "cat_1::pika", "itemTitle": "Card 1", "itemSubtitle": "Base Set",
+            "itemImageUrl": "/img/1.png", "itemImageSrcSet": null, "itemImageLoadingUrl": null, "itemImageLoadingAlt": null,
+            "itemImageLoadingSrcSet": null, "selectedOptions": [{ "dimensionId": "dim_condition", "optionId": "chc_nm" }],
+            "productSummary": "Raw / Near Mint", "quantity": 1, "fulfillmentMode": "optimize", "lockedListingId": null,
+        })
+    );
+    // The page it goes back to draws the shell's count after the write.
+    pilot.send(get(to, Some("watcher"))).await;
+    let calls = pilot.stand.calls.lock().unwrap().clone();
+    assert!(calls.iter().any(|c| c.path == CART && waits_for(&c.headers).as_deref() == Some("14")), "the count waits for 14");
+    // With a script, the same, which the runtime follows; the form sent again is the same attempt.
+    let (status, headers, _) = pilot.send(post(BULK, "watcher", &body, true)).await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    assert!(headers["corten-location"].to_str().unwrap().starts_with("/search?q=pika&dimension.dim_grade=chc_10&after_write="));
+    let attempts: Vec<Value> =
+        bulk_adds(&pilot).iter().map(|c| serde_json::from_str::<Value>(&c.body).unwrap()["attemptId"].clone()).collect();
+    assert_eq!(attempts, [json!(BULK_ATTEMPT), json!(BULK_ATTEMPT)]);
+    // From a category, back to its page.
+    let (_, headers, _) =
+        pilot.send(post(BULK, "watcher", &format!("q=pika&category=singles-x1&attempt={BULK_ATTEMPT}"), false)).await;
+    assert!(headers[header::LOCATION].to_str().unwrap().starts_with("/categories/singles-x1?q=pika&after_write="), "{headers:?}");
+}
+
+#[tokio::test]
+async fn a_guests_bulk_add_goes_to_a_guest_cart_the_browser_keeps() {
+    let pilot = Pilot::new().await;
+    let (status, headers, html) = pilot.send(post_signed_out(BULK, &format!("q=pika&attempt={BULK_ATTEMPT}"))).await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
+    let add = bulk_adds(&pilot).pop().expect("the add");
+    assert_eq!(add.path, GUEST_CART_BULK);
+    let guest = add.headers["x-checkout-anonymous-cart-id"].to_str().unwrap().to_owned();
+    assert!(guest.starts_with("anon_"), "{guest}");
+    let kept = cookies_set(&headers).remove("chase_sets_anonymous_cart").expect("the guest cart's cookie");
+    assert!(kept.starts_with(&format!("chase_sets_anonymous_cart={guest};")), "{kept}");
+}
+
+#[tokio::test]
+async fn a_bulk_add_that_did_not_wholly_apply_says_so_in_its_sheet() {
+    let pilot = Pilot::new().await;
+    // Each case its own attempt: an attempt sent again is the one the API kept.
+    let attempt = |words: &str| format!("bulk-attempt-{words}-0123456789");
+    let sent = |words: &str| format!("q={words}&attempt={}", attempt(words));
+    // Some lines added: the counts, each line that was not, and Review Buy Cart.
+    let (status, headers, html) = pilot.send(post(BULK, "watcher", &sent("partial"), true)).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(headers.contains_key("corten-patch"), "{headers:?}");
+    let sheet = text(&html);
+    for said in ["Buy Cart updated", "Card 3: No listings are available.", "1 added, 0 merged", "1 products could not be added."]
+    {
+        assert!(sheet.contains(said), "{said}: {sheet}");
+    }
+    assert!(html.contains(r#"href="/account/cart">Review Buy Cart</a>"#), "{html}");
+    assert!(!sheet.contains("Add eligible products"), "{sheet}");
+    // Without a script, the search with it open, and the shell's count read after the add.
+    let (status, _, html) = pilot.send(post(BULK, "watcher", &sent("partial"), false)).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains(r#"id="bulk-cart" aria-labelledby="bulk-cart-title" open"#), "{html}");
+    let calls = pilot.stand.calls.lock().unwrap().clone();
+    assert!(calls.iter().any(|c| c.path == CART && waits_for(&c.headers).as_deref() == Some("14")), "the count waits for 14");
+
+    // Its answer lost: not known, so the same attempt again, never on its own.
+    let (status, _, html) = pilot.send(post(BULK, "watcher", &sent("lost"), true)).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{html}");
+    let sheet = text(&html);
+    assert!(sheet.contains("We couldn&#39;t confirm this bulk add"), "{sheet}");
+    assert!(html.contains(&format!(r#"<input type="hidden" name="attempt" value="{}">"#, attempt("lost"))), "{html}");
+    assert!(html.contains(">Send the same add again</button>") && !sheet.contains("Add eligible products"), "{html}");
+    // Refused: nothing added, with the API's reason, and the add offered again.
+    let (status, _, html) = pilot.send(post(BULK, "watcher", &sent("refused"), true)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    let sheet = text(&html);
+    assert!(sheet.contains("No products were added") && sheet.contains("Buy Cart is closed for changes."), "{sheet}");
+    assert!(sheet.contains("Add eligible products"), "{sheet}");
+
+    // Over the limit, or nothing named in full: the preview again, and nothing sent.
+    let before = bulk_adds(&pilot).len();
+    for (words, said) in [("lots", "Too many matches"), ("none", "0 ready, 1 need product options.")] {
+        let (status, _, html) = pilot.send(post(BULK, "watcher", &sent(words), true)).await;
+        assert_eq!(status, StatusCode::OK, "{html}");
+        assert!(text(&html).contains(said), "{said}: {html}");
+        assert!(html.contains(" disabled>Add eligible products</button>"), "{html}");
+    }
+    assert_eq!(bulk_adds(&pilot).len(), before, "nothing is added");
+    // A preview that fails says so, with or without a script.
+    let (status, _, html) = pilot.send(get_patch("/search/cart?q=broken")).await;
+    assert_eq!(status, StatusCode::BAD_GATEWAY, "{html}");
+    assert!(text(&html).contains("Could not add matching products"), "{html}");
 }
 
 const LIST: &str = "/items/charizard/list";
@@ -5883,6 +6163,88 @@ async fn a_listing_page_shows_the_listing_its_purchase_panel_and_its_seller() {
     assert!(html.contains(r#"href="/accounts/chase-sets#feedback">View account</a>"#), "{html}");
     assert!(html.contains(r#"<select name="reason" required>"#) && html.contains(r#"maxlength="1000""#), "{html}");
     assert!(!main_of(&html).contains(r#"role="status""#), "no notice in the page (the layout's toaster is after it): {html}");
+    assert!(!html.contains("application/ld+json"), "structured data is for the production marketplace only: {html}");
+}
+
+/// The stand-in listing's eligible Google Shopping payload, linking the production page.
+fn shopping_payload() -> Value {
+    json!({
+        "offerId": "cs-listing-lst_psa_8", "title": "Charizard Base Set PSA 8", "description": "A </script> Base Set Charizard.",
+        "link": "https://marketplace.chasesets.com/listings/psa-8", "imageLink": "https://assets.chasesets.com/catalog/charizard.webp",
+        "priceAmount": "749.00", "currencyCode": "USD", "availability": "in stock", "condition": "used",
+        "brand": "Pokemon", "productType": "Trading Cards",
+    })
+}
+
+/// The stand-in's listing with `change` made to it.
+fn shopping_listing(change: impl FnOnce(&mut Value)) -> crate::api::PublicListing {
+    let mut value = json!({
+        "listing_id": "lst_psa_8", "listing_slug": "psa-8", "account_id": "acc_chase", "catalog_catalog_item_id": "cat_charizard",
+        "product_id": "cat_charizard::psa8", "price_amount": "749.00", "price_currency_code": "USD", "status": "active",
+        "seller_display_name": "Chase Sets", "seller_listing_availability_status": "available",
+        "google_shopping_structured_data_payload": shopping_payload(),
+    });
+    change(&mut value);
+    serde_json::from_value(value).unwrap()
+}
+
+const LISTING_CANONICAL: &str = "https://marketplace.chasesets.com/listings/psa-8";
+
+#[test]
+fn a_production_listing_writes_its_product_and_offer_from_its_shopping_payload_that_nothing_can_end() {
+    use corten::prelude::*;
+    let product = crate::views::listing_json_ld(&shopping_listing(|_| {}), LISTING_CANONICAL).expect("an eligible listing");
+    assert_eq!(
+        product,
+        json!({
+            "@context": "https://schema.org", "@type": "Product", "name": "Charizard Base Set PSA 8",
+            "description": "A </script> Base Set Charizard.", "image": "https://assets.chasesets.com/catalog/charizard.webp",
+            "sku": "cs-listing-lst_psa_8", "brand": { "@type": "Brand", "name": "Pokemon" }, "category": "Trading Cards",
+            "offers": {
+                "@type": "Offer", "url": LISTING_CANONICAL, "priceCurrency": "USD", "price": "749.00",
+                "availability": "https://schema.org/InStock", "itemCondition": "https://schema.org/UsedCondition",
+                "seller": { "@type": "Organization", "name": "Chase Sets" },
+            },
+        })
+    );
+    let html = html! { <JsonLd value={&product} /> }.to_html();
+    let json =
+        html.strip_prefix(r#"<script type="application/ld+json">"#).and_then(|s| s.strip_suffix("</script>")).expect(&html);
+    assert!(!json.contains('<'), "{json}");
+    assert_eq!(serde_json::from_str::<Value>(json).unwrap(), product);
+}
+
+#[test]
+fn a_listings_availability_and_condition_follow_its_shopping_payload() {
+    let listing = shopping_listing(|l| {
+        l["google_shopping_structured_data_payload"]["availability"] = json!("out of stock");
+        l["google_shopping_structured_data_payload"]["condition"] = json!("new");
+    });
+    let offer = &crate::views::listing_json_ld(&listing, LISTING_CANONICAL).unwrap()["offers"];
+    assert_eq!(offer["availability"], "https://schema.org/OutOfStock");
+    assert_eq!(offer["itemCondition"], "https://schema.org/NewCondition");
+}
+
+#[test]
+fn a_listing_writes_no_product_unless_it_is_buyable_production_and_its_payload_is_its_own() {
+    let none = |change: fn(&mut Value), canonical: &str| {
+        assert_eq!(crate::views::listing_json_ld(&shopping_listing(change), canonical), None, "{canonical}");
+    };
+    none(|l| l["status"] = json!("paused"), LISTING_CANONICAL);
+    none(|l| l["seller_listing_availability_status"] = json!("unavailable"), LISTING_CANONICAL);
+    none(|_| {}, "https://marketplace.staging.chasesets.com/listings/psa-8");
+    none(|_| {}, "http://marketplace.chasesets.com/listings/psa-8");
+    none(
+        |l| l["google_shopping_structured_data_payload"]["link"] = json!("https://marketplace.chasesets.com/listings/other"),
+        LISTING_CANONICAL,
+    );
+    none(|l| l["price_amount"] = json!("700.00"), LISTING_CANONICAL);
+    none(|l| l["price_currency_code"] = json!("EUR"), LISTING_CANONICAL);
+    none(|l| l["price_currency_code"] = Value::Null, LISTING_CANONICAL);
+    none(|l| l["google_shopping_structured_data_payload"]["imageLink"] = json!(""), LISTING_CANONICAL);
+    none(|l| l["google_shopping_structured_data_payload"]["condition"] = json!("refurbished"), LISTING_CANONICAL);
+    none(|l| l["google_shopping_structured_data_payload"] = json!("not an object"), LISTING_CANONICAL);
+    none(|l| l["google_shopping_structured_data_payload"] = Value::Null, LISTING_CANONICAL);
 }
 
 #[tokio::test]
@@ -19463,7 +19825,7 @@ async fn a_search_results_picture_and_title_send_its_place_and_the_searchs_keys(
     let opened = format!(r#"data-on='click:rail_analytics.searchResult(1,"{QUERY_HASH}","{RESULT_SET_KEY}")'"#);
     // The picture's link and the title's, not Buy, Sell or Watch.
     assert_eq!(first.matches(&opened).count(), 2, "{first}");
-    assert_eq!(first.matches("data-on=").count(), 2, "{first}");
+    assert_eq!(first.matches("data-on='click:").count(), 2, "{first}");
     assert!(html.contains("rail_analytics.searchResult(24,"), "the 24th is 24: {html}");
     // The page loads the script.
     assert!(html.contains("rail_analytics"), "{html}");
