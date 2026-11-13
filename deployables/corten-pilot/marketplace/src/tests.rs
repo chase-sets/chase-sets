@@ -653,7 +653,7 @@ async fn platform(State(stand): State<Stand>, method: Method, uri: Uri, headers:
     if let Some(answer) = sitemaps(&uri) {
         return answer;
     }
-    if let Some(answer) = bulk_cart(&stand, &method, &uri, &headers, &body) {
+    if let Some(answer) = bulk_cart(&stand, session, &method, &uri, &headers, &body) {
         return answer;
     }
     if let Some(id) = uri.path().strip_prefix(ITEMS) {
@@ -1774,8 +1774,9 @@ const GUEST_CART_BULK: &str = "/api/marketplace/guest/cart/bulk";
 /// finds: `broken` fails, `lots` is over the limit, `none` names no product in full; any other is
 /// Card 1 and Card 3, with Card 2 needing its options, each line's product named for the words.
 /// The add keeps its attempt, Card 1 added and Card 3 merged, at position 14: `partial`'s Card 3
-/// has no listing, `refused`'s add is refused, and `lost`'s answer is lost with nothing kept.
-fn bulk_cart(stand: &Stand, method: &Method, uri: &Uri, headers: &HeaderMap, body: &str) -> Option<Response> {
+/// has no listing, `refused`'s add is refused, and `lost`'s answer is lost with nothing kept. The
+/// `stale` session's add asks for a sign-in.
+fn bulk_cart(stand: &Stand, session: &str, method: &Method, uri: &Uri, headers: &HeaderMap, body: &str) -> Option<Response> {
     let path = uri.path();
     if path == BULK_PREVIEW && *method == Method::GET {
         let sent = query(&uri.to_string());
@@ -1813,6 +1814,9 @@ fn bulk_cart(stand: &Stand, method: &Method, uri: &Uri, headers: &HeaderMap, bod
     let guest = headers.get("x-checkout-anonymous-cart-id").and_then(|v| v.to_str().ok()).filter(|id| id.starts_with("anon_"));
     if path == GUEST_CART_BULK && guest.is_none() {
         return Some(refusal(StatusCode::BAD_REQUEST, "anonymous_cart_required", "A guest cart is required."));
+    }
+    if path == ACCOUNT_CART_BULK && session == "stale" {
+        return Some(refusal(StatusCode::UNAUTHORIZED, "unauthenticated", "Sign in."));
     }
     let sent: Value = serde_json::from_str(body).unwrap_or_default();
     let attempt = sent["attemptId"].as_str().unwrap_or_default().to_owned();
@@ -5141,6 +5145,10 @@ async fn add_matching_products_to_buy_cart_previews_what_the_search_would_add() 
     assert!(html.contains(r#"id="bulk-cart" aria-labelledby="bulk-cart-title" open"#), "{html}");
     assert!(html.contains(r#"<li id="result-1""#), "the results: {html}");
 
+    // On the home page, the form says so, for the add to go back to it.
+    let (_, _, html) = pilot.send(get("/?q=pika", Some("watcher"))).await;
+    let form = html.split(r#"id="bulk-trigger""#).nth(1).unwrap().split("</form>").next().unwrap();
+    assert!(form.contains(r#"<input type="hidden" name="home" value="true">"#), "{form}");
     // On a category's page, the form sends its slug, which the preview reads.
     let (_, _, html) = pilot.send(get("/categories/singles-x1?q=pika", Some("watcher"))).await;
     let form = html.split(r#"id="bulk-trigger""#).nth(1).unwrap().split("</form>").next().unwrap();
@@ -5178,8 +5186,11 @@ async fn adding_matching_products_sends_one_cart_attempt_and_goes_back_to_the_se
             "productSummary": "Raw / Near Mint", "quantity": 1, "fulfillmentMode": "optimize", "lockedListingId": null,
         })
     );
-    // The page it goes back to draws the shell's count after the write.
-    pilot.send(get(to, Some("watcher"))).await;
+    // The page it goes back to draws the shell's count after the write, and says how many.
+    let notice = notice.split(';').next().unwrap();
+    let (status, _, html) = pilot.send(with_cookie(to, &format!("chase_sets_session=watcher; {notice}"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(text(&html).contains("1 added, 1 merged"), "{html}");
     let calls = pilot.stand.calls.lock().unwrap().clone();
     assert!(calls.iter().any(|c| c.path == CART && waits_for(&c.headers).as_deref() == Some("14")), "the count waits for 14");
     // With a script, the same, which the runtime follows; the form sent again is the same attempt.
@@ -5189,10 +5200,25 @@ async fn adding_matching_products_sends_one_cart_attempt_and_goes_back_to_the_se
     let attempts: Vec<Value> =
         bulk_adds(&pilot).iter().map(|c| serde_json::from_str::<Value>(&c.body).unwrap()["attemptId"].clone()).collect();
     assert_eq!(attempts, [json!(BULK_ATTEMPT), json!(BULK_ATTEMPT)]);
-    // From a category, back to its page.
+    // From a category, back to its page; from the home page, back to it; with Load more's rows,
+    // back to as many.
     let (_, headers, _) =
         pilot.send(post(BULK, "watcher", &format!("q=pika&category=singles-x1&attempt={BULK_ATTEMPT}"), false)).await;
     assert!(headers[header::LOCATION].to_str().unwrap().starts_with("/categories/singles-x1?q=pika&after_write="), "{headers:?}");
+    let (_, headers, _) = pilot.send(post(BULK, "watcher", &format!("q=pika&home=true&attempt={BULK_ATTEMPT}"), false)).await;
+    assert!(headers[header::LOCATION].to_str().unwrap().starts_with("/?q=pika&after_write="), "{headers:?}");
+    let (_, headers, _) = pilot.send(post(BULK, "watcher", &format!("q=pika&more=24&attempt={BULK_ATTEMPT}"), false)).await;
+    assert!(headers[header::LOCATION].to_str().unwrap().starts_with("/search?q=pika&more=24&after_write="), "{headers:?}");
+    assert!(bulk_previews(&pilot).iter().all(|read| !read.contains_key("more")), "the preview reads every match");
+}
+
+#[tokio::test]
+async fn a_bulk_add_after_the_session_ended_signs_in_back_to_the_search() {
+    let pilot = Pilot::new().await;
+    let (status, headers, _) = pilot.send(post(BULK, "stale", &format!("q=pika&attempt={BULK_ATTEMPT}"), false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert_eq!(headers[header::LOCATION], "/sign-in?returnTo=%2Fsearch%3Fq%3Dpika");
+    assert!(cart_lookups(&pilot).is_empty(), "a refusal is not a lost answer");
 }
 
 #[tokio::test]
@@ -5259,6 +5285,21 @@ async fn a_bulk_add_that_did_not_wholly_apply_says_so_in_its_sheet() {
     let (status, _, html) = pilot.send(get_patch("/search/cart?q=broken")).await;
     assert_eq!(status, StatusCode::BAD_GATEWAY, "{html}");
     assert!(text(&html).contains("Could not add matching products"), "{html}");
+    let (status, _, html) = pilot.send(get("/search/cart?q=broken", Some("watcher"))).await;
+    assert_eq!(status, StatusCode::BAD_GATEWAY, "{html}");
+    assert!(html.contains(r#"id="bulk-cart" aria-labelledby="bulk-cart-title" open"#), "{html}");
+    assert!(text(&html).contains("Could not add matching products"), "{html}");
+
+    // Without a script, the lost and the refused add are the search with the sheet open.
+    for (words, status, said) in [
+        ("lost", StatusCode::CONFLICT, "We couldn&#39;t confirm this bulk add"),
+        ("refused", StatusCode::UNPROCESSABLE_ENTITY, "Buy Cart is closed for changes."),
+    ] {
+        let (answered, _, html) = pilot.send(post(BULK, "watcher", &sent(words), false)).await;
+        assert_eq!(answered, status, "{words}: {html}");
+        assert!(html.contains(r#"id="bulk-cart" aria-labelledby="bulk-cart-title" open"#), "{words}: {html}");
+        assert!(text(&html).contains(said) && html.contains(r#"<li id="result-1""#), "{words}: {html}");
+    }
 }
 
 const LIST: &str = "/items/charizard/list";
