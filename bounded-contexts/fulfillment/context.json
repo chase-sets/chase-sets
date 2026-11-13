@@ -152,6 +152,11 @@
   ],
   "hostPorts": [
     {
+      "portName": "operatorAuthority",
+      "providedBy": "platform-api",
+      "purpose": "Identity aggregate-backed platform-admin authority for audited seller shipping support initialization, enable and revoke."
+    },
+    {
       "portName": "postageLabelProvider",
       "providedBy": "platform-api",
       "purpose": "Supplies the configured USPS-compatible postage provider so fulfillment can purchase, void, and test labels without owning deployable environment configuration."
@@ -316,6 +321,28 @@
   ],
   "rawFetchCensus": "complete",
   "mutationConsistencyInventory": [
+    {
+      "id": "fulfillment.seller-shipping-command-snapshots",
+      "owner": "fulfillment",
+      "risk": "critical",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "api-route:bounded-contexts/fulfillment/features/seller-checkout-readiness/api/route.ts:PUT /account/seller-shipping-setup",
+        "api-route:bounded-contexts/fulfillment/features/seller-checkout-readiness/api/route.ts:PUT /guest/seller-shipping-setup",
+        "api-route:bounded-contexts/fulfillment/features/seller-checkout-readiness/api/route.ts:POST /operations/seller-shipping-support"
+      ],
+      "visibleDestination": {
+        "description": "Setup and audited admin support commands return their committed owner snapshot, revision and recording instant, never a lagging projection or carrier-success promise."
+      },
+      "proof": {
+        "authoritativeResponse": "Seller shipping routes return the transactional command result. Setup GET and readiness resolve the indexed canonical stream head and exact committed event; reads do not initialize support.",
+        "tests": [
+          "bounded-contexts/fulfillment/features/seller-checkout-readiness/api/setup.test.ts",
+          "bounded-contexts/fulfillment/features/seller-checkout-readiness/api/support.test.ts",
+          "bounded-contexts/fulfillment/features/seller-checkout-readiness/api/production-source.db.test.ts"
+        ]
+      }
+    },
     {
       "id": "fulfillment.shipment-command-snapshots",
       "owner": "fulfillment",
@@ -768,7 +795,7 @@
     "runtime-support": {
       "classification": "support",
       "purpose": "Provide reusable runtime-support assets shared by fulfillment-owned features and composition seams.",
-      "expectedConsumers": ["shipments"]
+      "expectedConsumers": ["seller-checkout-readiness"]
     },
     "seed-support": {
       "classification": "support",
