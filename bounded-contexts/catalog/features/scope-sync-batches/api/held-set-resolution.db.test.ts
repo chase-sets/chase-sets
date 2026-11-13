@@ -152,6 +152,83 @@ describeDb("scope-sync-held-set-resolution real DB matrix", () => {
     });
   });
 
+  it("resolves held Magic only after an operator-extension post plus accepted mappings, including an exact Unicode id", async () => {
+    const held = exportFixture([
+      ["Magic", "Synthetic Magic Core Set"],
+      ["Magic", "Synthetic Unicode Edition"],
+      ["  MAGIC ", " synthetic unicode   EDITION "],
+    ]);
+    const reasons = async () =>
+      Object.fromEntries(
+        (await resolveHeldSetExport(pools.catalog, held)).unresolved.map((row) => [row.setName, row.reason]),
+      );
+    expect(await reasons()).toEqual({
+      "Synthetic Magic Core Set": "set-unresolved",
+      "Synthetic Unicode Edition": "set-unresolved",
+    });
+
+    const services = catalogModule.createServices(pools.catalog, {});
+    await services.providerScopeDiscovery.recordExtensionScopeObservations({
+      unitKey: TCGPLAYER_MTG_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+      productLineId: 1,
+      sets: [
+        extensionSet(900001, "Synthetic Magic Core Set", "Synthetic Magic Core Set"),
+        extensionSet(900101, "Synthetic Unicode Edition", "﻿Synthetic Unicode Edition"),
+      ],
+      provenance: {
+        grantId: "00000000-0000-0000-0000-0000000000a1",
+        creatorUserId: "usr_set_name_creator",
+        creatorMembershipId: "mbr_set_name_creator",
+      },
+      context: {
+        tenantId: "tnt_identity",
+        audit: { performedByUserId: "usr_set_name_creator", forAccountId: "acc_identity_system" },
+      } as never,
+    });
+    expect(await reasons()).toEqual({
+      "Synthetic Magic Core Set": "mapping-missing",
+      "Synthetic Unicode Edition": "mapping-missing",
+    });
+
+    await seedScope("scope-synthetic-magic-core", "magic", "set", "Synthetic Magic Core");
+    await seedScope("scope-synthetic-unicode", "magic", "set", "Synthetic Unicode");
+    await seedMapping(
+      "mapping-synthetic-magic-core",
+      "scope-synthetic-magic-core",
+      TCGPLAYER_MTG_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+      "Synthetic Magic Core Set",
+      "accepted",
+    );
+    await seedMapping(
+      "mapping-synthetic-unicode",
+      "scope-synthetic-unicode",
+      TCGPLAYER_MTG_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+      "﻿Synthetic Unicode Edition",
+      "accepted",
+    );
+
+    const result = await resolveHeldSetExport(pools.catalog, held);
+    expect(result.unresolved).toEqual([]);
+    expect(result.resolved).toEqual([
+      expect.objectContaining({ scopeRecordId: "scope-synthetic-magic-core", productDomain: "magic", rowCount: 1 }),
+      expect.objectContaining({ scopeRecordId: "scope-synthetic-unicode", productDomain: "magic", rowCount: 2 }),
+    ]);
+  });
+
+  function extensionSet(setNameId: number, name: string, cleanSetName: string) {
+    return {
+      setNameId,
+      categoryId: 1,
+      name,
+      cleanSetName,
+      urlName: cleanSetName.toLowerCase().replaceAll(" ", "-"),
+      abbreviation: null,
+      releaseDate: "2024-02-09T00:00:00",
+      isSupplemental: false,
+      active: true,
+    };
+  }
+
   async function seedScope(
     id: string,
     productDomain: "pokemon" | "magic" | "yugioh" | "one-piece",

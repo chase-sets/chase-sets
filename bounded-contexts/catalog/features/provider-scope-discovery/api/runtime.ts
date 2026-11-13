@@ -8,7 +8,12 @@ import {
   type ProviderScopeMappingEvent,
   type ProviderScopeMappingState,
 } from "../../provider-scope-mapping/domain/domain";
-import type { CatalogProviderIntegrationProfileVersionRecord } from "../../source-observations/api/provider-integration-profiles";
+import { parseCatalogIntegrationUnitKey } from "../../source-observations/api/integration-unit";
+import {
+  catalogProviderIntegrationProfileVersions,
+  catalogProviderProfileVersionIngestionUnitKey,
+  type CatalogProviderIntegrationProfileVersionRecord,
+} from "../../source-observations/api/provider-integration-profiles";
 import type { CatalogProviderOptionQueryPage } from "../../source-observations/api/provider-option-query-cache";
 import { listProviderScopeDiscoveryTargets, type ProviderScopeDiscoveryTarget } from "./discovery-targets";
 import {
@@ -79,7 +84,47 @@ export type ProviderScopeDiscoveryPorts = Readonly<{
   >;
 }>;
 
+// One TCGplayer SetNames entry as posted by the operator extension and admitted by the
+// set-name contract parser; values are provider text and are recorded unchanged.
+export type ExtensionSetNameObservation = Readonly<{
+  setNameId: number;
+  categoryId: number;
+  name: string;
+  cleanSetName: string;
+  urlName: string;
+  abbreviation: string | null;
+  releaseDate: string | null;
+  isSupplemental: boolean;
+  active: boolean;
+}>;
+
+export type ExtensionScopeObservationProvenance = Readonly<{
+  grantId: string;
+  creatorUserId: string;
+  creatorMembershipId: string;
+}>;
+
+export type ExtensionScopeObservationResult = Readonly<{
+  observationCount: number;
+  newObservationCount: number;
+  mappingsProposed: number;
+}>;
+
+export class ExtensionScopeObservationError extends Error {
+  constructor(public readonly code: "scope-observation-target-unavailable" | "scope-observations-unavailable") {
+    super(code);
+    this.name = "ExtensionScopeObservationError";
+  }
+}
+
 export type ProviderScopeDiscoveryServices = Readonly<{
+  recordExtensionScopeObservations: (input: {
+    unitKey: string;
+    productLineId: number;
+    sets: readonly ExtensionSetNameObservation[];
+    provenance: ExtensionScopeObservationProvenance;
+    context: EventStoreContext;
+  }) => Promise<ExtensionScopeObservationResult>;
   processScheduledRefresh: (input: {
     context: EventStoreContext;
     now?: Date;
@@ -238,6 +283,89 @@ export function createProviderScopeDiscoveryRuntime(
   }
 
   return {
+    // Operator-extension posts replace server discovery for TCGplayer set names: one complete
+    // product-line list is one scan through the existing writer and proposal seam. Absent sets
+    // are not deleted; inactive sets are not recorded.
+    async recordExtensionScopeObservations(input) {
+      const target = extensionSetNameTarget(input.unitKey);
+      if (!target) {
+        throw new ExtensionScopeObservationError("scope-observation-target-unavailable");
+      }
+      const scanId = createId("job");
+      const now = new Date();
+      const triggeredBy = `operator-extension-grant:${input.provenance.grantId}`;
+      const parent = String(input.productLineId);
+      const observations = input.sets
+        .filter((set) => set.active)
+        .map(
+          (set): ProviderScopeObservationInput => ({
+            providerKey: target.providerKey,
+            unitKey: target.ingestionUnitKey,
+            scopeKind: target.scopeKind,
+            sourceQueryKind: target.queryKind,
+            languageCode: target.languageCode,
+            externalId: set.cleanSetName,
+            label: set.name,
+            parents: [parent],
+            imageUrl: null,
+            metadata: {
+              productLineId: parent,
+              setNameId: String(set.setNameId),
+              categoryId: String(set.categoryId),
+              cleanSetName: set.cleanSetName,
+              urlName: set.urlName,
+              abbreviation: set.abbreviation,
+              releaseDate: set.releaseDate,
+              isSupplemental: String(set.isSupplemental),
+              active: String(set.active),
+              grantId: input.provenance.grantId,
+              creatorUserId: input.provenance.creatorUserId,
+              creatorMembershipId: input.provenance.creatorMembershipId,
+            },
+          }),
+        );
+
+      await reconcileProviderRefreshSchedules(db, cadenceConfig);
+      try {
+        const written = await upsertProviderScopeObservations(db, {
+          scanId,
+          scannedAt: now,
+          observations,
+          preserveRawIdentity: true,
+        });
+        const mappingsProposed = await proposeMappingsForTarget({
+          db,
+          ports,
+          target,
+          written,
+          scanId,
+          context: input.context,
+          actor: triggeredBy,
+        });
+        await recordProviderRefreshRun(db, {
+          providerKey: target.providerKey,
+          status: "succeeded",
+          observationCount: written.length,
+          triggeredBy,
+        });
+        return {
+          observationCount: written.length,
+          newObservationCount: written.filter((record) => record.newlyObserved).length,
+          mappingsProposed,
+        };
+      } catch {
+        // The run record carries a fixed code, never a raw exception or provider text.
+        await recordProviderRefreshRun(db, {
+          providerKey: target.providerKey,
+          status: "failed",
+          observationCount: 0,
+          errorMessage: "scope-observations-unavailable",
+          triggeredBy,
+        }).catch(() => undefined);
+        throw new ExtensionScopeObservationError("scope-observations-unavailable");
+      }
+    },
+
     async processScheduledRefresh(input) {
       const now = input.now ?? new Date();
       const triggeredBy = input.triggeredBy ?? "schedule";
@@ -461,6 +589,40 @@ function currentScanKey(
   return `${target.providerKey}:${target.ingestionUnitKey}:${providerScope}`;
 }
 
+function extensionSetNameTarget(unitKey: string): ProviderScopeDiscoveryTarget | null {
+  const providerKey = "tcgplayer";
+  const providerScope = "set-name";
+  let productDomain: string;
+  try {
+    productDomain = parseCatalogIntegrationUnitKey(unitKey).productDomain;
+  } catch {
+    return null;
+  }
+  const classification = classifyProviderScopeDiscoveryTarget({ productDomain, providerScope });
+  const profile = catalogProviderIntegrationProfileVersions.find(
+    (version) =>
+      version.providerKey === providerKey &&
+      version.active &&
+      version.lifecycle === "active" &&
+      catalogProviderProfileVersionIngestionUnitKey(version) === unitKey,
+  );
+  if (!classification || !profile) {
+    return null;
+  }
+  return {
+    providerKey,
+    profileKey: profile.profileKey,
+    ingestionUnitKey: unitKey,
+    productDomain: classification.productDomain,
+    queryKind: "set-names",
+    providerScope,
+    parentScope: "product-line/category",
+    parentRequired: true,
+    scopeKind: classification.scopeKind,
+    languageCode: "en",
+  };
+}
+
 async function proposeMappingsForTarget(input: {
   db: CatalogRuntimeDeps["db"];
   ports: ProviderScopeDiscoveryPorts;
@@ -468,6 +630,7 @@ async function proposeMappingsForTarget(input: {
   written: readonly ProviderScopeObservationRecord[];
   scanId: string;
   context: EventStoreContext;
+  actor?: string;
 }): Promise<number> {
   const candidates = await matchScopeObservationsToScopeRecords(input.db, {
     target: input.target,
@@ -479,7 +642,7 @@ async function proposeMappingsForTarget(input: {
   for (const { candidate } of candidates) {
     const result = await input.ports.providerScopeMappingCommandHandler({
       streamId: providerScopeMappingStreamId(candidate),
-      command: { type: "ProposeProviderScopeMapping", candidate, actor: SCHEDULED_ACTOR },
+      command: { type: "ProposeProviderScopeMapping", candidate, actor: input.actor ?? SCHEDULED_ACTOR },
       context: input.context,
     });
     proposed += result.newEvents.length;

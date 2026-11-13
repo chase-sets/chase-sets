@@ -692,7 +692,7 @@
     },
     "operator-session": {
       "classification": "slice",
-      "purpose": "Own Catalog encrypted TCGplayer Operator Session custody, Todd-only push grants, monotonic clearing fences, and per-attempt credential resolution.",
+      "purpose": "Own Catalog encrypted TCGplayer Operator Session custody, Todd-only push grants, monotonic clearing fences, per-attempt credential resolution, and grant-authorized operator-extension observation posts.",
       "expectedConsumers": [
         "source-observations",
         "Internal catalog module composition",
@@ -917,6 +917,25 @@
         "tests": [
           "deployables/platform-api/__tests__/operator-session/operator-session-grant-mint.db.test.ts",
           "deployables/platform-api/__tests__/operator-session/operator-session-grant-scope.db.test.ts"
+        ]
+      }
+    },
+    {
+      "id": "catalog.operator-extension-scope-observation-posts",
+      "owner": "catalog",
+      "risk": "important",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "api-route:bounded-contexts/catalog/features/operator-session/api/route.ts:POST /scope-observations/tcgplayer-set-names"
+      ],
+      "visibleDestination": {
+        "description": "The extension receives the committed observation, new-observation and proposed-mapping counts for its one post; rows carry grant provenance ids, never the bearer or any TCGplayer credential."
+      },
+      "proof": {
+        "authoritativeResponse": "The route responds only after the observation upserts, mapping proposals and refresh-run record return; refusals carry fixed codes and write nothing.",
+        "tests": [
+          "bounded-contexts/catalog/features/operator-session/tests/set-name-observation-post.db.test.ts",
+          "bounded-contexts/catalog/features/operator-session/tests/set-name-observation-post.test.ts"
         ]
       }
     },

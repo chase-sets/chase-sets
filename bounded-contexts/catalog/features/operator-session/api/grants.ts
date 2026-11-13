@@ -2,8 +2,12 @@ import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { withPgTransaction, type PgQueryable, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { createInMemoryRateLimiter } from "@chase-sets/http/rate-limit";
 import type { OperatorAuthority, OperatorAuthorityDecision, ResolvedActor } from "@chase-sets/auth-context";
-import { withOperatorSessionBackend } from "./operation";
+import { observationWriteLockId, withOperatorSessionBackend } from "./operation";
 import { OperatorSessionRequestError, readGrantBearer, requireEmptyBody } from "./request";
+import {
+  createTcgplayerSetNameObservationPost,
+  type TcgplayerSetNameObservationRecorder,
+} from "./set-name-observations";
 
 type Action = "metadata" | "mint" | "disconnect" | "unpair";
 type GrantRow = { id: string; active: boolean; created_at: Date; last_used_at: Date; idle_expires_at: Date };
@@ -25,9 +29,14 @@ function grantsCatalogManage(
   );
 }
 
+export type OperatorObservationRecorders = Readonly<{
+  tcgplayerSetNames?: TcgplayerSetNameObservationRecorder;
+}>;
+
 export function createOperatorSessionGrants(
   pool: PgTransactionalPool,
   catalogOperatorAuthority?: Pick<CatalogOperatorAuthority, "forActor" | "forGrantCreator">,
+  observationRecorders: OperatorObservationRecorders = {},
 ) {
   const globalLimit = createInMemoryRateLimiter({ max: 120, windowMs: 60_000, maxBuckets: 1 });
   const grantLimit = createInMemoryRateLimiter({ max: 6, windowMs: 60_000 });
@@ -111,6 +120,11 @@ export function createOperatorSessionGrants(
   }
   return {
     authorizeObservationGrant,
+    recordTcgplayerSetNameObservations: createTcgplayerSetNameObservationPost({
+      authorizeObservationGrant,
+      record: observationRecorders.tcgplayerSetNames,
+      serializeWrites: (work) => withOperatorSessionBackend(pool, () => work(), observationWriteLockId),
+    }),
     async execute(action: Action, request: Request, actor?: ResolvedActor | null): Promise<Response> {
       let admitted = false;
       try {

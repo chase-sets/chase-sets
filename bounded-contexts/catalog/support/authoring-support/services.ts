@@ -180,7 +180,9 @@ export function createCatalogServices(
   });
 
   return {
-    operatorSession: createOperatorSessionGrants(pool, ports.catalogOperatorAuthority),
+    operatorSession: createOperatorSessionGrants(pool, ports.catalogOperatorAuthority, {
+      tcgplayerSetNames: providerScopeDiscovery.recordExtensionScopeObservations,
+    }),
     dimensions,
     displayTemplates,
     fields,

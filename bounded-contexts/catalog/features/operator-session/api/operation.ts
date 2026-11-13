@@ -1,12 +1,15 @@
 import type { PgPoolClient, PgQueryResult, PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { OperatorSessionRequestError } from "./request";
 
-const lockId = "84518450";
+const grantLockId = "84518450";
+// Serializes operator-extension observation writes across API replicas without blocking grant operations.
+export const observationWriteLockId = "84518451";
 const unavailable = () => new OperatorSessionRequestError("custody-unavailable", 503);
 
 export async function withOperatorSessionBackend<T>(
   pool: PgTransactionalPool,
   work: (bound: PgTransactionalPool) => Promise<T>,
+  lockId: string = grantLockId,
 ): Promise<T> {
   let client: PgPoolClient | undefined;
   let poisoned = false;
