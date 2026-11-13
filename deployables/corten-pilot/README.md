@@ -238,7 +238,7 @@ and preview the platform.
 | `CHASE_SETS_PUBLIC_INDEXING` | on | public: `0`, `false`, `no` or `off` adds `noindex`, closes `robots.txt` and empties the sitemap |
 | `CHASE_SETS_MARKETPLACE_INDEXING` | on | marketplace: `0`, `false`, `no` or `off` closes `robots.txt` and empties the sitemaps |
 | `PLATFORM_INTERNAL_AUTH_SECRET` | none | marketplace: the platform's internal capability, sent only on Auth's guest claim calls. Without it a paid guest order offers no Save this order. The pilot has no development default, unlike the React hosts; locally, set the value the platform API uses |
-| `GUEST_PAYMENT_CLAIM_LOCAL_RECOVERY_TOKEN_ENABLED` | off | marketplace: `1`, `true`, `yes` or `on` shows a claim link's token on the page to type by hand (no email locally); never where `DEPLOYMENT_ENVIRONMENT` is `production` |
+| `GUEST_PAYMENT_CLAIM_LOCAL_RECOVERY_TOKEN_ENABLED` | off | marketplace: `1`, `true`, `yes` or `on` shows a claim link's token on the page to type by hand (no email locally); never where `NODE_ENV` or `DEPLOYMENT_ENVIRONMENT` is `production` |
 | `PUBLIC_WEB_ORIGIN` | `http://localhost:7754` | public: public-web's pages it does not serve (the developer pages, `llms.txt`) and its analytics endpoint |
 | `PROXIES` | none | every app (read by Corten): the proxies in front, comma separated addresses or networks (`10.0.0.0/8`), whose `X-Forwarded-For` `ClientIp` follows back to the visitor; without it the visitor is the connection's peer. Set it where a deploy would have set `CHASE_SETS_TRUST_FORWARDED_HEADERS` for the Node apps. public's Join sends the address to the API |
 | `CHASE_SETS_DISCORD_INVITE_URL` | none | public: the Discord invite the home page links, when set |
