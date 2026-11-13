@@ -2201,9 +2201,10 @@ const INTERNAL: &str = "stand-in-internal-capability";
 /// Auth's guest checkout claim calls, each refused without the platform's internal capability (a
 /// 401, as `auth-context.ts` refuses it). `pay_paid`'s claim context is bound to
 /// `guest@example.test` (Guest Buyer); `pay_unbound`'s is not, and `pay_limited`'s read is rate
-/// limited. A link request answers token `clm_1`; claiming with token `clm_1`, with continuation
-/// `cc_1` or with a passkey's credential `created` signs in with Identity's receipt (position 91),
-/// and anything else is refused as Auth refuses it.
+/// limited. A link request answers token `clm_1` (for `pay_limited` too), and is rate limited for
+/// `pay_unbound`; claiming with token `clm_1`, with continuation `cc_1` or with a passkey's
+/// credential `created` signs in with Identity's receipt (position 91), continuation `cc_busy` is
+/// rate limited, and anything else is refused as Auth refuses it.
 fn guest_claims(method: &Method, path: &str, headers: &HeaderMap, body: &str) -> Option<Response> {
     let claim = path.strip_prefix("/api/auth/guest-checkout/")?;
     let claims =
@@ -2240,11 +2241,17 @@ fn guest_claims(method: &Method, path: &str, headers: &HeaderMap, body: &str) ->
                 .into_response()
             }
         },
-        "claim-link/request" if paid => {
+        "claim-link/request" if text("paymentId") == "pay_unbound" => {
+            refusal(StatusCode::TOO_MANY_REQUESTS, "rate_limited", "Too many claim link requests. Try again later.")
+        }
+        "claim-link/request" if paid || text("paymentId") == "pay_limited" => {
             Json(json!({ "tokenId": "cmd_claim", "token": "clm_1", "expiresAt": "2099-01-01T00:00:00.000Z" })).into_response()
         }
         "claim-with-magic-link" if paid && text("token") == "clm_1" => signed_in(),
         "claim-with-continuation" if paid && text("continuation") == "cc_1" => signed_in(),
+        "claim-with-continuation" if text("continuation") == "cc_busy" => {
+            refusal(StatusCode::TOO_MANY_REQUESTS, "rate_limited", "Slow down.")
+        }
         "claim-with-passkey" if paid && text("challengeId") == "cmd_1" && text("webauthnResponse") == "created" => signed_in(),
         "claim-with-passkey" => refused("Passkey challenge is invalid or expired."),
         _ => refused("Claim link is invalid or expired."),
@@ -18784,6 +18791,19 @@ async fn a_paid_guest_order_is_saved_to_an_account_with_a_passkey_or_a_claim_lin
     let (status, _, html) = pilot.send(as_guest(Method::POST, "/checkout/payments/pay_1", "intent=claim-link-request")).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
     assert!(text(&html).contains("You can save this order after payment is complete."), "{html}");
+    // A link sent when the contact cannot be read again still says it was sent; a request Auth
+    // rate limits says why.
+    let (status, _, html) =
+        pilot.send(as_guest(Method::POST, "/checkout/payments/pay_limited", "intent=claim-link-request")).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let page = text(&html);
+    assert!(page.contains("We sent a claim link to this order") && page.contains("contact email."), "{html}");
+    assert!(!page.contains("Email me a claim link") && !html.contains("clm_1"), "{html}");
+    let (status, _, html) =
+        pilot.send(as_guest(Method::POST, "/checkout/payments/pay_unbound", "intent=claim-link-request")).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    let page = text(&html);
+    assert!(page.contains("Could not save order") && page.contains("Too many claim link requests. Try again later."), "{html}");
 
     // The link's landing claims with its continuation, in any browser, and signs in the same way;
     // a spent or unknown one says the link is no longer good.
@@ -18795,14 +18815,24 @@ async fn a_paid_guest_order_is_saved_to_an_account_with_a_passkey_or_a_claim_lin
     let (status, _, html) = pilot.send(get("/checkout/payments/pay_paid?claimContinuation=cc_old", None)).await;
     assert_eq!(status, StatusCode::UNAUTHORIZED, "{html}");
     assert!(text(&html).contains("This claim link is invalid or expired."), "{html}");
+    // One Auth rate limits says to wait, not that the link is spent.
+    let (status, _, html) = pilot.send(get("/checkout/payments/pay_paid?claimContinuation=cc_busy", None)).await;
+    assert_eq!(status, StatusCode::TOO_MANY_REQUESTS, "{html}");
+    let page = text(&html);
+    assert!(page.contains("Too many attempts") && page.contains("Wait a few minutes, then open it again."), "{html}");
+    assert!(!page.contains("invalid or expired"), "{html}");
 }
 
 #[tokio::test]
 async fn a_claim_links_token_is_typed_only_where_the_page_shows_it() {
-    assert!(crate::app::claim_token_entry(Some(" Yes "), None));
-    assert!(crate::app::claim_token_entry(Some("1"), Some("staging")));
-    assert!(!crate::app::claim_token_entry(Some("on"), Some("production")));
-    assert!(!crate::app::claim_token_entry(Some("0"), None) && !crate::app::claim_token_entry(None, None));
+    let envs = |node: Option<&str>, deployment: Option<&str>| [node.map(str::to_owned), deployment.map(str::to_owned)];
+    assert!(crate::app::claim_token_entry(Some(" Yes "), envs(None, None)));
+    assert!(crate::app::claim_token_entry(Some("1"), envs(Some("development"), Some("staging"))));
+    assert!(!crate::app::claim_token_entry(Some("on"), envs(None, Some("production"))));
+    assert!(!crate::app::claim_token_entry(Some("on"), envs(Some("production"), Some("staging"))), "React's NODE_ENV leg");
+    assert!(
+        !crate::app::claim_token_entry(Some("0"), envs(None, None)) && !crate::app::claim_token_entry(None, envs(None, None))
+    );
 
     let pilot = Pilot::configured(|config| config.claim_token_entry = true).await;
     let (status, _, html) = pilot

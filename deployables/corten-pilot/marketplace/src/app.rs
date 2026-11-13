@@ -136,7 +136,7 @@ pub struct Config {
     pub indexing: bool,
     /// Whether a claim link's token is shown on the page to enter by hand, for local work without
     /// email (`GUEST_PAYMENT_CLAIM_LOCAL_RECOVERY_TOKEN_ENABLED`: `1`, `true`, `yes` or `on`, never where
-    /// `DEPLOYMENT_ENVIRONMENT` is `production`, as marketplace decides).
+    /// `NODE_ENV` or `DEPLOYMENT_ENVIRONMENT` is `production`, as marketplace decides).
     pub claim_token_entry: bool,
 }
 
@@ -154,7 +154,7 @@ impl Config {
             indexing: indexing(std::env::var("CHASE_SETS_MARKETPLACE_INDEXING").ok().as_deref()),
             claim_token_entry: claim_token_entry(
                 std::env::var("GUEST_PAYMENT_CLAIM_LOCAL_RECOVERY_TOKEN_ENABLED").ok().as_deref(),
-                std::env::var("DEPLOYMENT_ENVIRONMENT").ok().as_deref(),
+                [std::env::var("NODE_ENV").ok(), std::env::var("DEPLOYMENT_ENVIRONMENT").ok()],
             ),
         }
     }
@@ -173,9 +173,10 @@ pub fn indexing(value: Option<&str>) -> bool {
     !matches!(value.map(|v| v.trim().to_ascii_lowercase()).as_deref(), Some("0" | "false" | "no" | "off"))
 }
 
-/// `canExposeGuestPaymentClaimLocalRecoveryToken`: on when the variable says so, never in production.
-pub fn claim_token_entry(value: Option<&str>, deployment: Option<&str>) -> bool {
-    deployment.map(str::trim) != Some("production")
+/// `canExposeGuestPaymentClaimLocalRecoveryToken`: on when the variable says so, never where
+/// `NODE_ENV` or `DEPLOYMENT_ENVIRONMENT` (`environments`) says `production`.
+pub fn claim_token_entry(value: Option<&str>, environments: [Option<String>; 2]) -> bool {
+    !environments.iter().flatten().any(|env| env.trim() == "production")
         && matches!(value.map(|v| v.trim().to_ascii_lowercase()).as_deref(), Some("1" | "true" | "yes" | "on"))
 }
 
