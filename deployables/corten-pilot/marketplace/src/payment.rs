@@ -182,6 +182,8 @@ pub struct PaymentScreen {
     pub claim: Option<Claim>,
     /// Why the last claim did not save the order.
     pub claim_error: Option<String>,
+    /// That a claim link was sent, when the contact could not be read again to say where.
+    pub claim_sent: Option<String>,
     /// The status part to read while the payment waits for the buyer.
     #[serde(skip)]
     pub watch: Option<Watching>,
@@ -415,6 +417,7 @@ async fn read(
         retry_error: None,
         claim,
         claim_error: None,
+        claim_sent: None,
         payment,
         orders,
         watch,
@@ -536,8 +539,8 @@ pub(crate) async fn guest_page(
 }
 
 /// A claim link's landing (`claimGuestCheckoutWithClaimContinuation`): signed in at the account's
-/// payment, or told the link is no longer good. The link may be opened in any browser, so no guest
-/// checkout is needed.
+/// payment, told the link is no longer good, or, when Auth limits the link's tries (429), told to
+/// wait. The link may be opened in any browser, so no guest checkout is needed.
 async fn claim_with_link(
     req: &Req,
     session: Option<Caller<Session>>,
@@ -558,21 +561,22 @@ async fn claim_with_link(
         Some(Caller(Session::Account(viewer))) => Some(viewer),
         _ => None,
     };
-    if !matches!(error.status(), Some(StatusCode::UNAUTHORIZED | StatusCode::BAD_REQUEST)) {
-        return read_failed(req, viewer.as_ref(), error, None);
-    }
     let (t, p): (PaymentMsg, Pilot) = (req.t(), req.t());
+    let (status, title, says) = match error.status() {
+        Some(StatusCode::UNAUTHORIZED | StatusCode::BAD_REQUEST) => {
+            (StatusCode::UNAUTHORIZED, p.guest_claim_link_expired_title(), p.guest_claim_link_expired())
+        }
+        Some(StatusCode::TOO_MANY_REQUESTS) => {
+            (StatusCode::TOO_MANY_REQUESTS, p.guest_claim_link_rate_limited_title(), p.guest_claim_link_rate_limited())
+        }
+        _ => return read_failed(req, viewer.as_ref(), error, None),
+    };
     let head = html! { <meta name="robots" content="noindex"> };
     req.page_with_status(
-        StatusCode::UNAUTHORIZED,
+        status,
         html! {
-            <Layout req={req} viewer={viewer.as_ref()} title={p.guest_claim_link_expired_title()} head={head}>
-                <views::PaymentNotice
-                    t={t}
-                    title={p.guest_claim_link_expired_title()}
-                    says={p.guest_claim_link_expired()}
-                    guest={true}
-                />
+            <Layout req={req} viewer={viewer.as_ref()} title={title} head={head}>
+                <views::PaymentNotice t={t} title={title} says={says} guest={true} />
             </Layout>
         },
     )
@@ -678,12 +682,16 @@ pub(crate) async fn guest_write(
                     let p: Pilot = req.t();
                     let token = config.claim_token_entry.then_some(sent.token);
                     redraw(&req, &viewer, &config, &headers, client, &id, StatusCode::OK, move |screen| {
-                        if let Some(claim) = &mut screen.claim {
-                            claim.link_sent = Some(p.guest_claim_link_sent(&claim.contact_email).to_string());
-                            claim.token = token;
-                            if !display_name.is_empty() {
-                                claim.display_name = display_name;
+                        match &mut screen.claim {
+                            Some(claim) => {
+                                claim.link_sent = Some(p.guest_claim_link_sent(&claim.contact_email).to_string());
+                                claim.token = token;
+                                if !display_name.is_empty() {
+                                    claim.display_name = display_name;
+                                }
                             }
+                            // Auth sent the link but the contact's read after it failed.
+                            None => screen.claim_sent = Some(p.guest_claim_link_sent_unread().to_owned()),
                         }
                     })
                     .await

@@ -29,9 +29,16 @@ impl InternalAuth {
     }
 
     /// The capability the environment holds, if any. Unlike the React hosts the pilot has no
-    /// development default: without it the calls that need it are refused by the API.
+    /// development default: without it the calls that need it are refused by the API. A value set
+    /// that a header cannot carry is said here, once, on standard error, rather than only by those
+    /// refusals: this runs at startup, before `corten::serve` installs a `tracing` subscriber.
     pub fn from_env() -> Option<Self> {
-        std::env::var(Self::ENV).ok().as_deref().and_then(Self::new)
+        let value = std::env::var(Self::ENV).ok()?;
+        let found = Self::new(&value);
+        if found.is_none() && !value.trim().is_empty() {
+            eprintln!("{} is set but is not a value a header can carry, so it is not sent", Self::ENV);
+        }
+        found
     }
 }
 
