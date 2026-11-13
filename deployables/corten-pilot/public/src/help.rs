@@ -22,7 +22,7 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
-use corten::{axum::http::StatusCode, prelude::*};
+use corten::{http::StatusCode, prelude::*};
 use serde::Deserialize;
 use serde_json::{Map, Value};
 

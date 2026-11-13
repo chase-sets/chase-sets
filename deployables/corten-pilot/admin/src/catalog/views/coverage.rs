@@ -18,8 +18,13 @@ use crate::{
 /// The inbox: what is waiting, the product domain filter, and a row per scope.
 pub fn coverage_inbox<'a>(t: Cat, p: Pilot, screen: &'a InboxScreen) -> impl Render + 'a {
     let counts = &screen.inbox.counts;
-    let summary =
-        t.inbox_summary_description(counts.total_groups, counts.total_candidates, counts.high_confidence_candidates).to_string();
+    let summary = t
+        .inbox_summary_description(crate::text::cat::InboxSummaryDescription {
+            groups: counts.total_groups,
+            candidates: counts.total_candidates,
+            high_confidence: counts.high_confidence_candidates,
+        })
+        .to_string();
     let tone = if counts.total_groups > 0 { InboxTone::Warning } else { InboxTone::Success };
     let domains: Vec<(&str, &str)> = scopes::product_domains().iter().map(|d| (d.as_str(), d.as_str())).collect();
     let f = url::InboxQuery::FIELDS;

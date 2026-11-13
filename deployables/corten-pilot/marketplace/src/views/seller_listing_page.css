@@ -67,8 +67,6 @@
   margin-block-end: var(--space-6);
 }
 .stack {
-  display: grid;
-  gap: var(--space-3);
   min-width: 0;
   margin: 0;
 }
@@ -378,7 +376,7 @@
 .dialog > * + * {
   margin-block-start: var(--space-3);
 }
-@media (min-width: 48rem) {
+@media (--md) {
   .cards,
   .photos,
   .grid {

@@ -54,6 +54,37 @@
   font-size: 0.75rem;
   color: var(--color-text-secondary);
 }
+.coverage {
+  display: grid;
+  gap: var(--space-2);
+}
+.coverage-list {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+}
+.coverage-kind {
+  display: grid;
+  gap: var(--space-1);
+}
+.coverage-kind dt {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--color-text-secondary);
+}
+.coverage-kind dd {
+  margin: 0;
+}
+.kind-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+  font-size: 0.875rem;
+}
+.coverage-links {
+  margin: 0;
+}
 .scroll {
   max-height: 32rem;
   overflow: auto;
@@ -195,8 +226,16 @@
   color: var(--color-text-secondary);
 }
 
+/* Wider: each kind's name beside its line. */
+@media (--md) {
+  .coverage-kind {
+    grid-template-columns: minmax(10rem, 14rem) 1fr;
+    align-items: center;
+  }
+}
+
 /* A phone: each row a card, each cell under its heading. */
-@media (max-width: 40rem) {
+@media not (--md) {
   .table thead {
     position: absolute;
     width: 1px;

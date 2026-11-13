@@ -1,5 +1,7 @@
 {
   "shell": {
+    "toast_close": "Close",
+    "not_sent": "That did not go through, and may not have been saved. Check and try again.",
     "marketplace": "Chase Sets Marketplace",
     "navigation": "Marketplace",
     "pilot": "Corten pilot",
@@ -44,8 +46,14 @@
     "not_found": "There is nothing at this address.",
     "failed_title": "Something went wrong",
     "failed": "The platform API did not answer. Try again in a moment.",
+    "not_received_title": "Not received",
+    "not_received": "Check your connection and try again.",
     "unidentified_title": "Not available",
     "unidentified": "We could not check who you are. Try again in a moment."
+  },
+  "cart": {
+    "quantity": "Enter a whole number of 1 or more.",
+    "update": "Update quantity"
   },
   "listing": {
     "price": "Price",
@@ -88,12 +96,16 @@
     "sale_pending": "We are preparing your sale. Refresh in a moment and it should appear.",
     "purchase_unverified": "Purchase handoff is no longer valid.",
     "sale_unverified": "Sale handoff is no longer valid.",
-    "evidence_alt": "{title} evidence"
+    "evidence_alt": "{title} evidence",
+    "verify_to_pay_title": "Verify your email to pay for or cancel this {label}",
+    "verify_to_pay_description": "Paying and cancelling need a verified email. We will email you a link; opening it verifies your email and brings you back here.",
+    "cannot_pay": "This account cannot pay for purchases.",
+    "pay_needs_verified_email": "Verify your email before you pay. The purchase's page has the link that verifies it."
   },
   "shipments": {
     "line": "{count} line",
     "lines": "{count} lines",
-    "actions_on_marketplace": "Labels and the shipment's other actions are on marketplace for now.",
+    "actions_on_marketplace": "This shipment's actions are on marketplace for now.",
     "open_on_marketplace": "Open on marketplace"
   },
   "packing": {
@@ -106,6 +118,8 @@
     "discard": "Discard recovery metadata",
     "discard_confirmation": "Discard recovery metadata only? This does not cancel or undo the original change. Contact support if its result is still uncertain.",
     "storage_unavailable": "Shipment recovery storage is unavailable. No change was sent.",
+    "center_unconfirmed_title": "We could not confirm your last shipment action",
+    "center_unconfirmed": "Shipment actions are paused until we can confirm whether it was saved. Check again in a moment.",
     "copied": "Copied"
   },
   "addresses": {
@@ -211,6 +225,8 @@
     "options": "Product options",
     "choose_option": "Choose an option",
     "delta": "Enter a whole number other than 0, like -1 or 5.",
+    "item_pending_title": "Inventory item is still updating",
+    "item_pending": "Your change was saved. This page reads the item again in a moment.",
     "item_unverified": "Inventory item update could not be verified. Reload this page and try again.",
     "ledger_offline_sale": "Sold offline"
   },
@@ -249,7 +265,8 @@
   "auth": {
     "sign_in_title": "Sign In | Marketplace",
     "register_title": "Register | Marketplace",
-    "account_selection_title": "Select Account | Marketplace"
+    "account_selection_title": "Select Account | Marketplace",
+    "passkey_added_sign_in": "The passkey was added. Sign in with it to continue."
   },
   "team": {
     "pending": "Your team is still updating. This page reads it again in a moment."
@@ -282,5 +299,11 @@
     "mandate_unsupported": "Spending mandates are not available yet.",
     "activity_unavailable": "Activity is not available yet.",
     "failed": "The change could not be confirmed. The connection is shown as it is now."
+  },
+  "steps": {
+    "done": "(done)",
+    "not_started": "(not started)",
+    "blocked": "(blocked)",
+    "failed": "(failed)"
   }
 }

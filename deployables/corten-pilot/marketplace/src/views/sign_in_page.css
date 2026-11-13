@@ -64,6 +64,10 @@
   border-color: var(--color-success);
   background: var(--color-success-soft);
 }
+.banner[data-tone="warning"] {
+  border-color: var(--color-warning);
+  background: var(--color-warning-soft);
+}
 .card {
   display: grid;
   gap: var(--space-3);

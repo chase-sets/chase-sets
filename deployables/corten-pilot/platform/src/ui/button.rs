@@ -1,25 +1,29 @@
-// corten ui 0.1.0: button 71f206bc167066a1
-//! A button's look, on the `<button>` or `<a>` written inside it. The element stays yours, so
-//! `html!` still checks everything it takes (`type`, `disabled`, `href={url::Home}`,
-//! `on:click`, `commandfor`), and the wrapper adds no box (`display: contents`):
+// corten ui 0.1.0: button d057506fed65eb6d
+//! A button's look, as the classes of the `<button>` or `<a>` you write. The element is yours,
+//! so `html!` still checks everything it takes (`type`, `disabled`, `href={url::Home}`,
+//! `on:click`, `commandfor`), and the page has no element of the kit's around it:
 //!
 //! ```rust,ignore
-//! <Button variant={ButtonVariant::Destructive} size={ButtonSize::Sm}>
-//!     <button type="submit">"Delete"</button>
-//! </Button>
-//! <Button variant={ButtonVariant::Link} size={ButtonSize::Md}>
-//!     <a href={url::Home}>"Home"</a>
-//! </Button>
+//! <button type="submit" class={Button { variant: ButtonVariant::Destructive, size: ButtonSize::Sm }}>"Delete"</button>
+//! <button type="submit" class={Button { variant: ButtonVariant::Warning, size: ButtonSize::Md }}>"Buy postage"</button>
+//! <a href={url::Home} class={(Button { variant: ButtonVariant::Link, size: ButtonSize::Md }, Wide)}>"Home"</a>
 //! ```
 use corten::prelude::*;
 
-/// Each variant is a class in `button.css`, so one without a rule does not compile.
+/// Each variant is a class in `button.css`, so one without a rule does not compile. `Info`,
+/// `Success`, `Warning` and `Destructive` are filled with their tone, as a `Solid` Badge or
+/// Alert is: what tells or opens more (`Info`), what goes ahead (`Success`), what spends money
+/// or changes a mode (`Warning`), what deletes or cannot be undone (`Destructive`). Their text
+/// meets WCAG AA in both themes (the theme's `-foreground` pairs).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ButtonVariant {
     Primary,
     Secondary,
     Outline,
     Ghost,
+    Info,
+    Success,
+    Warning,
     Destructive,
     Link,
 }
@@ -29,7 +33,8 @@ pub enum ButtonSize {
     Sm,
     Md,
     Lg,
-    /// A square button holding an icon; give the element an `aria-label`.
+    /// A square button holding an icon. Name the `<button>` you write with `aria-label`; a
+    /// control whose element the kit draws (a `MenuButton`'s trigger) takes `VisuallyHidden` text.
     Icon,
 }
 
@@ -44,12 +49,15 @@ pub enum ButtonSize {
 /// }
 /// ```
 #[component(css)]
-pub fn Button<C: Render>(variant: ButtonVariant, size: ButtonSize, children: C) -> impl Render {
+pub fn Button(variant: ButtonVariant, size: ButtonSize) -> impl ClassList {
     let variant = match variant {
         ButtonVariant::Primary => Primary,
         ButtonVariant::Secondary => Secondary,
         ButtonVariant::Outline => Outline,
         ButtonVariant::Ghost => Ghost,
+        ButtonVariant::Info => Info,
+        ButtonVariant::Success => Success,
+        ButtonVariant::Warning => Warning,
         ButtonVariant::Destructive => Destructive,
         ButtonVariant::Link => Link,
     };
@@ -59,5 +67,5 @@ pub fn Button<C: Render>(variant: ButtonVariant, size: ButtonSize, children: C) 
         ButtonSize::Lg => Lg,
         ButtonSize::Icon => Icon,
     };
-    html! { <span class={(Button, variant, size)}>{children}</span> }
+    (Button, variant, size)
 }

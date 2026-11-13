@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { batchBrowserE2eSuiteIds, e2eSuites, e2eSuiteIdsForChangedFile, orderE2eSuiteIds } from "./e2e-suites.mjs";
 import { listWorkspacePackages, normalizePath, repoRoot } from "./lib/repo.mjs";
 import { classifyIntegrationRisk } from "./lib/risk-policy-v1.mjs";
+import { resolveRequiredProofPaths, unavailableChangeSetSelectionMode } from "./lib/context-proof-sets.mjs";
 
 const rootDir = fileURLToPath(new URL("../", import.meta.url));
 
@@ -610,6 +611,7 @@ export function classifyChanges({
     composeSmokeRequired,
     exposurePostureChanged: exposurePostureCategories.size > 0,
     exposurePostureCategories: [...exposurePostureCategories].sort(),
+    requiredProofPaths: resolveRequiredProofPaths({ changedFiles: normalizedFiles, baseDir }),
   };
 }
 
@@ -677,7 +679,7 @@ class ScopeDerivationError extends Error {
   }
 }
 
-function fullScopeForUnavailableChangeSet(workspaces, reason) {
+function fullScopeForUnavailableChangeSet(workspaces, reason, baseDir) {
   const workspaceNames = workspaces.map((workspace) => workspace.name).sort();
   return {
     changedFiles: [],
@@ -704,6 +706,12 @@ function fullScopeForUnavailableChangeSet(workspaces, reason) {
     composeSmokeRequired: true,
     exposurePostureChanged: true,
     exposurePostureCategories: Object.keys(exposurePosturePatterns).sort(),
+    requiredProofPaths: resolveRequiredProofPaths({
+      changedFiles: [],
+      selectionMode: unavailableChangeSetSelectionMode,
+      baseDir,
+    }),
+    requiredProofSelectionMode: unavailableChangeSetSelectionMode,
   };
 }
 
@@ -719,7 +727,7 @@ export function resolveChangeScope(base, head, options = {}) {
   } catch (error) {
     const reason = error instanceof ScopeDerivationError ? error.reason : "scope-derivation-failed";
     return {
-      scope: fullScopeForUnavailableChangeSet(workspaces, reason),
+      scope: fullScopeForUnavailableChangeSet(workspaces, reason, baseDir),
       fallbackReason: reason,
     };
   }
@@ -782,6 +790,7 @@ export function toOutputMap(scope) {
     exposure_posture_changed: String(scope.exposurePostureChanged),
     exposure_posture_categories: scope.exposurePostureCategories.join(","),
     exposure_posture_categories_json: JSON.stringify(scope.exposurePostureCategories),
+    required_proof_paths_json: JSON.stringify(scope.requiredProofPaths),
   };
 }
 

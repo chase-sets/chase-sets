@@ -115,6 +115,10 @@ export const checkoutEnglishTranslations = {
   "checkout.features.sessions.api.route.payment.summary.not.found": "Payment summary not found.",
   "checkout.features.sessions.api.route.payment.quote.required":
     "Review the latest payable total before payment starts.",
+  "checkout.features.sessions.api.route.payment.email.verification.required":
+    "Verify your email before you pay. Nothing was reserved or ordered.",
+  "checkout.features.sessions.api.route.payment.authority.required":
+    "This account cannot pay for purchases. Nothing was reserved or ordered.",
   "checkout.features.sessions.api.route.payment.start.pending":
     "Payment setup is still catching up. Review checkout again before payment starts.",
   "checkout.features.sessions.api.route.register.or.sign.in.before.placing.purchase.intent":
@@ -356,6 +360,7 @@ export const checkoutEnglishTranslations = {
   "checkout.features.sessions.ui.checkoutPage.no.available.supply": "No available supply",
   "checkout.features.sessions.ui.checkoutPage.place.purchase.intent": "Submit offer",
   "checkout.features.sessions.ui.checkoutPage.pay.now": "Pay now",
+  "checkout.features.sessions.ui.checkoutPage.verify.email.to.pay": "Verify your email to pay",
   "checkout.features.sessions.ui.checkoutPage.pay.now.with.saved.payment": "Pay now with {paymentMethodCategory}",
   "checkout.features.sessions.ui.checkoutPage.pending": "Pending",
   "checkout.features.sessions.ui.checkoutPage.placing.purchase.intent": "Submitting offer",

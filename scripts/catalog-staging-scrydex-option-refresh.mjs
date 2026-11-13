@@ -1,9 +1,12 @@
 import { createHash } from "node:crypto";
-import { mkdir, readdir, writeFile } from "node:fs/promises";
+import { appendFile, lstat, mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { buildCatalogPrimaryWorkbenchSourceOptionRequests } from "../bounded-contexts/catalog/features/source-observations/ui/primary-workbench-source-options.ts";
-import { scrydexCacheCaptureUnits } from "../bounded-contexts/catalog/features/scope-sync-batches/domain/scrydex-cache-capture.ts";
+import {
+  scrydexCacheCaptureLandingPath,
+  scrydexCacheCaptureUnits,
+} from "../bounded-contexts/catalog/features/scope-sync-batches/domain/scrydex-cache-capture.ts";
 import {
   buildScrydexOptionRefreshReceipt,
   classifyScrydexOptionRefreshRequest,
@@ -119,6 +122,8 @@ export async function runScrydexOptionRefresh(input) {
   let forced = 0;
   let refusals = 0;
   let outcome = "stopped";
+  let interruptedUnit = null;
+  let periodDecision = null;
   try {
     before = await input.selectDeployment();
     if (!before) throw refused("deployment-before");
@@ -137,8 +142,12 @@ export async function runScrydexOptionRefresh(input) {
       providerSendWindow: overview?.providerSendWindow,
       rolloutControls: overview?.readiness?.rolloutControls,
       unitKeys: units.map((unit) => unit.unitKey),
+      periodReserve: input.periodReserve,
+      runId: input.dispatchId ?? "",
+      now: input.now(),
     });
     preflight = gate.preflight;
+    periodDecision = gate.decision ?? null;
     if (!gate.admitted) throw refused(gate.reason);
     const profileEnvelope = await input.read("/api/catalog/source-observations/provider-profiles");
     const profiles = profileEnvelope?.body?.items ?? profileEnvelope?.items;
@@ -154,7 +163,17 @@ export async function runScrydexOptionRefresh(input) {
         ),
       );
       if (!verdict.allowed) throw refused(`${verdict.reason}:${unit.unitKey}`);
+      const age = Date.parse(input.now()) - Date.parse(periodDecision?.observedAt ?? "");
+      if (
+        !Number.isFinite(age) ||
+        age < 0 ||
+        age > 900_000 ||
+        Date.parse(input.now()) >= Date.parse(periodDecision?.period?.endsAt ?? "")
+      )
+        throw refused("usage-period-cap");
       forced += 1;
+      interruptedUnit = unit;
+      unit.status = "uncertain";
       let response;
       try {
         response = await input.read(requests[0].refreshHref);
@@ -195,12 +214,28 @@ export async function runScrydexOptionRefresh(input) {
       };
       unit.total = total;
       unit.providerPagesUpperBound = providerPagesUpperBound(total);
+      interruptedUnit = null;
     }
     if (forced === 5 && units.every((unit) => unit.status === "bypass" || unit.status === "live")) outcome = "complete";
     else outcome = "stopped";
   } catch (error) {
     refusals += 1;
-    failures.push(error instanceof Error ? error.message.replace(/^scrydex-option-refresh-refused:/, "") : "refused");
+    const name = error instanceof Error && /^[A-Za-z][A-Za-z0-9]{0,63}$/.test(error.name) ? error.name : "Error";
+    failures.push(
+      error instanceof Error && error.message.startsWith("scrydex-option-refresh-refused:")
+        ? error.message.slice("scrydex-option-refresh-refused:".length)
+        : `runner-error:${name}`,
+    );
+    if (interruptedUnit) {
+      Object.assign(interruptedUnit, {
+        status: "uncertain",
+        httpStatus: null,
+        cache: null,
+        total: null,
+        providerPagesUpperBound: null,
+        completedAt: null,
+      });
+    }
     outcome = forced === 0 ? "refused" : "stopped";
   } finally {
     after = await input.selectDeployment().catch(() => null);
@@ -227,19 +262,46 @@ export async function runScrydexOptionRefresh(input) {
       "one usage read",
       "up to 100 dropped records covered by +1 page",
     ],
+    periodLedger: periodDecision
+      ? {
+          decision: periodDecision,
+          outcome: outcome === "complete" ? "complete" : forced === 0 ? "refused" : "uncertain",
+          unreflectedCredits:
+            outcome === "complete" ? creditsSpentUpperBound : forced === 0 ? 1 : periodDecision.plannedCredits,
+        }
+      : null,
   });
   return receipt;
 }
 
-export async function writeRefreshArtifact(receipt, env, workspace = process.cwd()) {
-  const errors = validateScrydexOptionRefreshReceipt(receipt);
+export async function writeRefreshArtifact(
+  receipt,
+  env,
+  workspace = process.cwd(),
+  { maxBytes = scrydexOptionRefreshMaxBytes } = {},
+) {
   const serialized = JSON.stringify(receipt);
-  if (
-    errors.length ||
-    Buffer.byteLength(serialized) > scrydexOptionRefreshMaxBytes ||
-    forbiddenNames.some((name) => env[name] && serialized.includes(env[name]))
-  )
-    throw refused("receipt-invalid");
+  const errors = validateScrydexOptionRefreshReceipt(JSON.parse(serialized));
+  const rejection =
+    errors.length > 0
+      ? "schema"
+      : Buffer.byteLength(serialized) > maxBytes
+        ? "size"
+        : forbiddenNames.some((name) => env[name] && serialized.includes(env[name]))
+          ? "credential"
+          : null;
+  if (rejection) {
+    const count = (value) => (Number.isSafeInteger(value) && value >= 0 && value <= 56 ? value : null);
+    const diagnostics = {
+      class: rejection,
+      errors: errors
+        .slice(0, 20)
+        .filter((error) => !forbiddenNames.some((name) => env[name] && error.includes(env[name]))),
+      requests: { forced: count(receipt?.requests?.forced) },
+      creditsSpentUpperBound: count(receipt?.creditsSpentUpperBound),
+    };
+    throw refused(`receipt-invalid:${JSON.stringify(diagnostics)}`);
+  }
   const path = resolve(
     workspace,
     receipt.outcome === "complete" ? scrydexOptionRefreshArtifactPath : scrydexOptionRefreshDiagnosticArtifactPath,
@@ -250,6 +312,97 @@ export async function writeRefreshArtifact(receipt, env, workspace = process.cwd
   return { path, sha256: sha256(serialized) };
 }
 
+export async function validateRefreshUpload(env = process.env, workspace = process.cwd()) {
+  const identity = refreshRunnerIdentity(env);
+  const candidates = [];
+  for (const path of [scrydexOptionRefreshArtifactPath, scrydexOptionRefreshDiagnosticArtifactPath]) {
+    const fullPath = resolve(workspace, path);
+    const info = await lstat(fullPath).catch((error) => {
+      if (error.code === "ENOENT") return null;
+      throw refused("artifact-unreadable");
+    });
+    if (!info) continue;
+    if (!info.isFile() || info.isSymbolicLink() || info.size > scrydexOptionRefreshMaxBytes)
+      throw refused("artifact-size-or-type");
+    candidates.push(fullPath);
+  }
+  if (candidates.length !== 1) throw refused("artifact-count");
+  const bytes = await readFile(candidates[0]);
+  if (bytes.byteLength > scrydexOptionRefreshMaxBytes) throw refused("artifact-size-or-type");
+  const serialized = bytes.toString("utf8");
+  if (forbiddenNames.some((name) => env[name] && serialized.includes(env[name]))) throw refused("artifact-credential");
+  let receipt;
+  try {
+    receipt = JSON.parse(serialized);
+  } catch {
+    throw refused("artifact-json");
+  }
+  if (validateScrydexOptionRefreshReceipt(receipt).length > 0) throw refused("artifact-schema");
+  if (JSON.stringify(receipt.runner) !== JSON.stringify(identity)) throw refused("artifact-runner");
+  const expectedPath =
+    receipt.outcome === "complete" ? scrydexOptionRefreshArtifactPath : scrydexOptionRefreshDiagnosticArtifactPath;
+  if (candidates[0] !== resolve(workspace, expectedPath)) throw refused("artifact-outcome-path");
+  if (!env.GITHUB_OUTPUT) throw refused("output-missing");
+  await appendFile(env.GITHUB_OUTPUT, `refresh_outcome=${receipt.outcome}\n`);
+  return receipt.outcome;
+}
+
+export async function signInForRefresh(page, env, enterRefresh) {
+  await page.goto(
+    `${scrydexOptionRefreshOrigin}/access/sign-in?returnTo=${encodeURIComponent(scrydexCacheCaptureLandingPath)}`,
+    {
+      waitUntil: "domcontentloaded",
+    },
+  );
+  await page.getByRole("textbox", { name: /email|phone/i }).fill(env.CATALOG_ADMIN_E2E_EMAIL);
+  await page.getByRole("button", { name: /continue/i }).click();
+  const passwordChoice = page.getByRole("radio", { name: /^Password$/ });
+  if (await passwordChoice.isVisible()) await passwordChoice.check();
+  await page.locator('input[name="password"], input[type="password"]').first().fill(env.CATALOG_ADMIN_E2E_PASSWORD);
+  await page.getByRole("button", { name: /sign in/i }).click();
+  await page.waitForURL(`${scrydexOptionRefreshOrigin}${scrydexCacheCaptureLandingPath}`);
+  enterRefresh();
+}
+
+export async function readRefreshJsonInPage({ path, byteCap, deadlineMs }) {
+  const controller = new AbortController();
+  const deadline = setTimeout(() => controller.abort(), deadlineMs);
+  try {
+    const response = await fetch(path, {
+      method: "GET",
+      credentials: "same-origin",
+      redirect: "error",
+      cache: "no-store",
+      headers: { accept: "application/json" },
+      signal: controller.signal,
+    });
+    if (!response.ok) {
+      await response.body?.cancel();
+      return { status: response.status, body: null };
+    }
+    if (!response.body) throw new Error("refresh-read-refused");
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let bytes = 0;
+    let text = "";
+    try {
+      while (true) {
+        const chunk = await reader.read();
+        if (chunk.done) break;
+        bytes += chunk.value.byteLength;
+        if (bytes > byteCap) throw new Error("refresh-read-refused");
+        text += decoder.decode(chunk.value, { stream: true });
+      }
+      return { status: response.status, body: JSON.parse(text + decoder.decode()) };
+    } finally {
+      await reader.cancel().catch(() => undefined);
+      reader.releaseLock();
+    }
+  } finally {
+    clearTimeout(deadline);
+  }
+}
+
 export async function capture(env = process.env, workspace = process.cwd()) {
   const runner = refreshRunnerIdentity(env);
   let browser;
@@ -257,6 +410,14 @@ export async function capture(env = process.env, workspace = process.cwd()) {
   let phase = "sign-in";
   const receipt = await runScrydexOptionRefresh({
     runner,
+    dispatchId: env.SCRYDEX_REFRESH_DISPATCH_ID,
+    periodReserve: (() => {
+      try {
+        return JSON.parse(env.SCRYDEX_REFRESH_PERIOD_RESERVE ?? "null");
+      } catch {
+        return null;
+      }
+    })(),
     now: () => new Date().toISOString(),
     selectDeployment: async () => {
       const result = await selectStagingDeployGeneration({
@@ -278,32 +439,17 @@ export async function capture(env = process.env, workspace = process.cwd()) {
       const context = await browser.newContext({ serviceWorkers: "block", acceptDownloads: false });
       await context.route("**/*", (route) => applyScrydexOptionRefreshRouteFence(route, phase));
       page = await context.newPage();
-      await page.goto(`${scrydexOptionRefreshOrigin}/access/sign-in?returnTo=%2Fcatalog%2Fintegrations`);
-      await page.getByRole("textbox", { name: /email|phone/i }).fill(env.CATALOG_ADMIN_E2E_EMAIL);
-      await page.getByRole("button", { name: /continue/i }).click();
-      await page.locator('input[name="password"], input[type="password"]').first().fill(env.CATALOG_ADMIN_E2E_PASSWORD);
-      await page.getByRole("button", { name: /sign in/i }).click();
-      phase = "refresh";
+      await signInForRefresh(page, env, () => {
+        phase = "refresh";
+      });
     },
     read: async (path) => {
       if (!page) throw refused("page-missing");
-      return page.evaluate(
-        async (target) => {
-          const response = await fetch(target, {
-            method: "GET",
-            credentials: "same-origin",
-            redirect: "error",
-            cache: "no-store",
-            headers: { accept: "application/json" },
-          });
-          const bytes = await response.arrayBuffer();
-          if (bytes.byteLength > scrydexOptionRefreshMaxBytes)
-            return { status: response.status, body: null, overCap: true };
-          const text = new TextDecoder().decode(bytes);
-          return { status: response.status, body: response.status === 200 ? JSON.parse(text) : null, overCap: false };
-        },
-        path.startsWith("http") ? path : `${scrydexOptionRefreshOrigin}${path}`,
-      );
+      return page.evaluate(readRefreshJsonInPage, {
+        path: path.startsWith("http") ? path : `${scrydexOptionRefreshOrigin}${path}`,
+        byteCap: refreshReadByteCap(),
+        deadlineMs: refreshReadDeadlineMs,
+      });
     },
   });
   await browser?.close();
@@ -311,10 +457,17 @@ export async function capture(env = process.env, workspace = process.cwd()) {
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  if (process.argv[2] === "validate") process.exitCode = 0;
-  else
-    capture().catch((error) => {
-      console.error(error.message);
-      process.exitCode = 1;
-    });
+  try {
+    if (process.argv[2] === "validate") await validateRefreshUpload();
+    else if (process.argv.length === 2) await capture();
+    else throw refused("command");
+  } catch (error) {
+    const name = error instanceof Error && /^[A-Za-z][A-Za-z0-9]{0,63}$/.test(error.name) ? error.name : "Error";
+    console.error(
+      error instanceof Error && error.message.startsWith("scrydex-option-refresh-refused:")
+        ? error.message
+        : `scrydex-option-refresh-refused:runner-error:${name}`,
+    );
+    process.exitCode = 1;
+  }
 }

@@ -176,6 +176,24 @@ jobs:
       - uses: ${uses}
 `;
 
+  const restoreSha = "caa296126883cff596d87d8935842f9db880ef25";
+
+  it.each([
+    "actions/cache/restore",
+    "actions/cache/save",
+    "actions/cache/restore/extra",
+    "digitalocean/action-doctl/unadmitted",
+  ])("rejects unadmitted sub-action %s with the same otherwise-valid SHA and release", (actionName) => {
+    const rootDir = workflowRootWith(workflowUsing(`${actionName}@${restoreSha} # v5.1.0`));
+
+    expect(checkGithubActionsRuntime({ rootDir })).toEqual({
+      passed: false,
+      violations: [
+        expect.stringContaining(`external action '${actionName}' is not in the Node 24 compatibility allowlist`),
+      ],
+    });
+  });
+
   it("accepts only the exact trusted composite Docker Hub guard pin without a release comment", () => {
     const rootDir = workflowRootWith(workflowUsing(`${trustedGuardAction}@${trustedGuardSha}`));
 

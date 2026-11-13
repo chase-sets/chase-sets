@@ -2,7 +2,7 @@
 //! with no session: an item's page data and the slugs of the pages worth indexing.
 use std::time::Duration;
 
-use corten::axum::http::{HeaderMap, header};
+use corten::http::{HeaderMap, header};
 use serde::Deserialize;
 
 pub use platform::api::{ApiError, Caller, Platform, segment};
@@ -119,7 +119,7 @@ impl Pricing for Caller<'_> {
                 page.shared = shared_lifetime(&headers);
                 Ok(Some(page))
             }
-            Err(error) if error.status() == Some(corten::axum::http::StatusCode::NOT_FOUND) => Ok(None),
+            Err(error) if error.status() == Some(corten::http::StatusCode::NOT_FOUND) => Ok(None),
             Err(error) => Err(error),
         }
     }

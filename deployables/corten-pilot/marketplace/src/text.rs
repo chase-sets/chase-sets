@@ -4,45 +4,45 @@
 //! scripts/export.mjs, so the copy cannot drift); `Pilot` is the pilot's shell, input checks and
 //! the routes' own messages. `messages!` checks every call against the catalogs when the crate
 //! compiles.
-pub use account::AccountMsg;
-pub use account_home::AccountHomeMsg;
+pub use account::{AccountMsg, account_msg};
+pub use account_home::{AccountHomeMsg, account_home_msg};
 pub use addresses::AddressesMsg;
-pub use agents::AgentsMsg;
-pub use cart::CartMsg;
-pub use channels::ChannelsMsg;
-pub use checkout::CheckoutMsg;
-pub use consents::ConsentsMsg;
-pub use desk::DeskMsg;
-pub use imports::ImportsMsg;
+pub use agents::{AgentsMsg, agents_msg};
+pub use cart::{CartMsg, cart_msg};
+pub use channels::{ChannelsMsg, channels_msg};
+pub use checkout::{CheckoutMsg, checkout_msg};
+pub use consents::{ConsentsMsg, consents_msg};
+pub use desk::{DeskMsg, desk_msg};
+pub use imports::{ImportsMsg, imports_msg};
 pub use inventory::Msg;
-pub use inventory_list::InventoryMsg;
-pub use item::ItemMsg;
+pub use inventory_list::{InventoryMsg, inventory_msg};
+pub use item::{ItemMsg, item_msg};
 pub use listing::ListingMsg;
-pub use listing_new::ListingNewMsg;
+pub use listing_new::{ListingNewMsg, listing_new_msg};
 pub use money::MoneyMsg;
 pub use notifications::NotificationsMsg;
-pub use offer_matches::OfferMatchesMsg;
-pub use orders::OrdersMsg;
-pub use payment::PaymentMsg;
+pub use offer_matches::{OfferMatchesMsg, offer_matches_msg};
+pub use orders::{OrdersMsg, orders_msg};
+pub use payment::{PaymentMsg, payment_msg};
 pub use payment_methods::PaymentMethodsMsg;
-pub use payment_start::PaymentStartMsg;
+pub use payment_start::{PaymentStartMsg, payment_start_msg};
 pub use pilot::Pilot;
-pub use repricing::RepricingMsg;
+pub use repricing::{RepricingMsg, repricing_msg};
 pub use restock::Restock;
-pub use reviews::ReviewsMsg;
-pub use search::SearchMsg;
-pub use security::SecurityMsg;
+pub use reviews::{ReviewsMsg, reviews_msg};
+pub use search::{SearchMsg, search_msg};
+pub use security::{SecurityMsg, security_msg};
 pub use sell_checkout::SellCheckoutMsg;
-pub use sell_list::SellListMsg;
-pub use seller_listing::SellerListingMsg;
-pub use seller_listings::SellerListingsMsg;
-pub use sessions::SessionsMsg;
-pub use shipments::ShipmentsMsg;
-pub use sign_in::SignInMsg;
+pub use sell_list::{SellListMsg, sell_list_msg};
+pub use seller_listing::{SellerListingMsg, seller_listing_msg};
+pub use seller_listings::{SellerListingsMsg, seller_listings_msg};
+pub use sessions::{SessionsMsg, sessions_msg};
+pub use shipments::{ShipmentsMsg, shipments_msg};
+pub use sign_in::{SignInMsg, sign_in_msg};
 pub use site::SiteMsg;
-pub use submitted_offers::SubmittedOffersMsg;
-pub use support::SupportMsg;
-pub use team::TeamMsg;
+pub use submitted_offers::{SubmittedOffersMsg, submitted_offers_msg};
+pub use support::{SupportMsg, support_msg};
+pub use team::{TeamMsg, team_msg};
 
 mod sign_in {
     corten::i18n::messages! {
@@ -273,8 +273,10 @@ mod search {
     }
 }
 
-mod pilot {
+/// The arguments of Pilot's messages that take two or more are `text::pilot::..`.
+pub(crate) mod pilot {
     corten::i18n::messages! {
         pub struct Pilot { "en" => "locales/pilot.en.json" }
     }
+    pub(crate) use self::pilot::*;
 }

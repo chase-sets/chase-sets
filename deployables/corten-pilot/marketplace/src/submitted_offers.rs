@@ -29,17 +29,14 @@
 //! preview, authorize, pause and stop), on the list and on an offer's page.
 use corten::{
     LiveResponse,
-    axum::{
-        extract::State,
-        http::{HeaderMap, StatusCode},
-    },
+    extract::State,
+    http::{HeaderMap, StatusCode},
     prelude::*,
 };
 use futures_util::StreamExt;
 use platform::{realtime::Tick, receipt::Receipt};
 use serde::Deserialize;
 
-use crate::chrome::Chrome;
 use crate::{
     api::{ApiError, LifecycleOutcome, SubmittedOffer, SubmittedOfferCalls as _, SubmittedOffers},
     app::{OFFERS_MANAGE, Shared, read_failed, sign_in},
@@ -54,7 +51,7 @@ pub const STATUSES: [&str; 4] = ["submitted", "paused", "withdrawn", "accepted"]
 pub const ACTIONS: [&str; 3] = ["pause", "resume", "withdraw"];
 
 /// The list's address: the status it shows.
-#[derive(Clone, Debug, Default, Deserialize, Fields, Route)]
+#[derive(Clone, Debug, Default, Fields, Route)]
 #[route(query)]
 pub struct Place {
     pub status: Option<String>,
@@ -87,7 +84,7 @@ pub struct OfferScreen {
 }
 
 /// A lifecycle change: one row's (`row`), or the checked offers' (`lifecycleAction`, `offerIds`).
-#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[derive(Clone, Debug, Default, Fields)]
 #[serde(rename_all = "camelCase", default)]
 pub struct LifecycleForm {
     pub lifecycle_action: String,
@@ -156,11 +153,10 @@ async fn render(
     outcomes: Option<Vec<LifecycleOutcome>>,
     refusal: Option<String>,
     status: StatusCode,
-    chrome: &Chrome,
 ) -> HtmlResult {
     let mut offers = match read(config, headers, place.status(), receipt.as_ref()).await {
         Ok(offers) => offers,
-        Err(error) => return read_failed(req, Some(viewer), error, None, chrome.cart().await),
+        Err(error) => return read_failed(req, Some(viewer), error, None),
     };
     if let Some(outcomes) = &outcomes {
         overlay(&mut offers, outcomes);
@@ -168,9 +164,8 @@ async fn render(
     let manage = viewer.actor.can(OFFERS_MANAGE);
     let screen = OffersScreen { offers, place, manage, outcomes, refusal };
     let t: SubmittedOffersMsg = req.t();
-    let cart = chrome.cart().await;
     let page = html! {
-        <Layout req={req} viewer={Some(viewer)} cart={cart} title={t.route_submitted_offers_marketplace()} head={()}>
+        <Layout req={req} viewer={Some(viewer)} title={t.route_submitted_offers_marketplace()} head={()}>
             <views::SubmittedOffersPage t={t} p={req.t()} screen={&screen} />
         </Layout>
     };
@@ -179,14 +174,13 @@ async fn render(
 
 pub(crate) async fn list(
     req: Req,
-    chrome: Chrome,
     Caller(OfferBuyer(viewer)): Caller<OfferBuyer>,
     State(config): State<Shared>,
     headers: HeaderMap,
     Params(route): Params<crate::app::url::submitted_offers::SubmittedOffers>,
 ) -> HtmlResult {
     let place = route.place;
-    render(&req, &viewer, &config, &headers, place, None, None, None, StatusCode::OK, &chrome).await
+    render(&req, &viewer, &config, &headers, place, None, None, None, StatusCode::OK).await
 }
 
 /// Each offer once, in the order checked.
@@ -217,7 +211,6 @@ fn rejected(ids: &[String], code: &str) -> Vec<LifecycleOutcome> {
 /// offer's outcome.
 pub(crate) async fn change(
     req: Req,
-    chrome: Chrome,
     Caller(OfferBuyer(viewer)): Caller<OfferBuyer>,
     State(config): State<Shared>,
     headers: HeaderMap,
@@ -231,18 +224,7 @@ pub(crate) async fn change(
         None => (form.lifecycle_action, distinct(form.offer_ids)),
     };
     let refuse = |message: String| {
-        render(
-            &req,
-            &viewer,
-            &config,
-            &headers,
-            place.clone(),
-            None,
-            None,
-            Some(message),
-            StatusCode::UNPROCESSABLE_ENTITY,
-            &chrome,
-        )
+        render(&req, &viewer, &config, &headers, place.clone(), None, None, Some(message), StatusCode::UNPROCESSABLE_ENTITY)
     };
     if !ACTIONS.contains(&action.as_str()) {
         return refuse(p.submitted_offers_unknown_action().to_owned()).await;
@@ -274,7 +256,7 @@ pub(crate) async fn change(
             _ => return Err(corten::Error::new(error).with_status(StatusCode::BAD_GATEWAY)),
         },
     };
-    render(&req, &viewer, &config, &headers, place, receipt, Some(outcomes), None, StatusCode::OK, &chrome).await
+    render(&req, &viewer, &config, &headers, place, receipt, Some(outcomes), None, StatusCode::OK).await
 }
 
 /// The counts and the rows again on each change to the account's offers (marketplace's
@@ -353,7 +335,6 @@ async fn render_offer(
     outcomes: Option<Vec<LifecycleOutcome>>,
     refusal: Option<String>,
     status: StatusCode,
-    chrome: &Chrome,
 ) -> HtmlResult {
     let t: SubmittedOffersMsg = req.t();
     let mut offer = match read_offer(config, headers, id, receipt.as_ref()).await {
@@ -367,12 +348,10 @@ async fn render_offer(
                 return req.redirect(&here);
             }
             let head = html! { <ReadAgain after={std::time::Duration::from_secs(2)} /> };
-            let cart = chrome.cart().await;
             let page = html! {
                 <Layout
                     req={req}
                     viewer={Some(viewer)}
-                    cart={cart}
                     title={t.detail_route_submitted_offer_marketplace()}
                     head={head}
                 >
@@ -381,7 +360,7 @@ async fn render_offer(
             };
             return req.page(page);
         }
-        Err(error) => return read_failed(req, Some(viewer), error, None, chrome.cart().await),
+        Err(error) => return read_failed(req, Some(viewer), error, None),
     };
     if let Some(outcomes) = &outcomes {
         let mut list = SubmittedOffers { items: vec![offer], ..SubmittedOffers::default() };
@@ -390,9 +369,8 @@ async fn render_offer(
     }
     let manage = viewer.actor.can(OFFERS_MANAGE);
     let screen = OfferScreen { offer, manage, outcomes, refusal };
-    let cart = chrome.cart().await;
     let page = html! {
-        <Layout req={req} viewer={Some(viewer)} cart={cart} title={t.detail_route_submitted_offer_marketplace()} head={()}>
+        <Layout req={req} viewer={Some(viewer)} title={t.detail_route_submitted_offer_marketplace()} head={()}>
             <views::SubmittedOfferPage t={t} p={req.t()} screen={&screen} />
         </Layout>
     };
@@ -402,21 +380,19 @@ async fn render_offer(
 /// An offer's page, read after the write its address names.
 pub(crate) async fn detail(
     req: Req,
-    chrome: Chrome,
     Caller(OfferBuyer(viewer)): Caller<OfferBuyer>,
     State(config): State<Shared>,
     headers: HeaderMap,
     Params(route): Params<crate::app::url::submitted_offers::SubmittedOffer<'_>>,
 ) -> HtmlResult {
     let receipt = Receipt::from_param(route.place.after_write.as_deref());
-    render_offer(&req, &viewer, &config, &headers, &route.id, receipt, None, None, StatusCode::OK, &chrome).await
+    render_offer(&req, &viewer, &config, &headers, &route.id, receipt, None, None, StatusCode::OK).await
 }
 
 /// Pause, Resume or Withdraw this offer (`row` is `{action}:{offer id}`, as the list's): the page
 /// again with the outcome, read after the write.
 pub(crate) async fn change_one(
     req: Req,
-    chrome: Chrome,
     Caller(OfferBuyer(viewer)): Caller<OfferBuyer>,
     State(config): State<Shared>,
     headers: HeaderMap,
@@ -439,7 +415,6 @@ pub(crate) async fn change_one(
                 None,
                 Some(message),
                 StatusCode::UNPROCESSABLE_ENTITY,
-                &chrome,
             )
             .await;
         }
@@ -470,12 +445,11 @@ pub(crate) async fn change_one(
                     None,
                     Some(message),
                     StatusCode::UNPROCESSABLE_ENTITY,
-                    &chrome,
                 )
                 .await;
             }
             _ => return Err(corten::Error::new(error).with_status(StatusCode::BAD_GATEWAY)),
         },
     };
-    render_offer(&req, &viewer, &config, &headers, &id, receipt, Some(outcomes), None, StatusCode::OK, &chrome).await
+    render_offer(&req, &viewer, &config, &headers, &id, receipt, Some(outcomes), None, StatusCode::OK).await
 }

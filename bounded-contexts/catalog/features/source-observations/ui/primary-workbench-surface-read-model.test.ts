@@ -18,6 +18,35 @@ import {
 import { tcgplayerSourceOptionKinds } from "./primary-workbench-test-fixtures";
 import { afterEach, vi } from "vitest";
 
+// Helper-built summaries cannot authorize a held preview without the API's coverage answer.
+it("defaults the promotion commit verdict closed and combines the API answer with freshness", () => {
+  const input = fullSurfaceInput("import-to-promotion");
+  const requestUrl = `${input.requestUrl}&promotionPreviewId=held-token`;
+  expect(
+    buildCatalogPrimaryWorkbenchReadModelForSurface("health", { ...input, requestUrl }).promotionPreview
+      .previewCommittable,
+  ).toBe(false);
+  expect(
+    buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
+      ...input,
+      requestUrl,
+      promotionPreviewCommittable: true,
+    }).promotionPreview.previewCommittable,
+  ).toBe(true);
+  expect(
+    buildCatalogPrimaryWorkbenchReadModelForSurface("health", { ...input, promotionPreviewCommittable: true })
+      .promotionPreview.previewCommittable,
+  ).toBe(false);
+  expect(
+    buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
+      ...input,
+      requestUrl,
+      canManageCatalog: false,
+      promotionPreviewCommittable: true,
+    }).promotionPreview.previewCommittable,
+  ).toBe(false);
+});
+
 // Inputs rich enough that every supporting slice has real provider data to render,
 // so a per-surface slice that matches the full builder proves it computed that
 // slice from the same inputs (rather than collapsing to an empty default).

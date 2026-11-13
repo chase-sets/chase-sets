@@ -17,7 +17,7 @@
 //! replaced as a whole list (the API's only write for them): the pilot reads the lines when the
 //! write is sent, not when the page was drawn, and sends them back with one more or one less
 //! (chase-sets/chase-sets#10538 asks for a write that cannot drop another's line).
-use corten::{axum::http::HeaderMap, prelude::*};
+use corten::{http::HeaderMap, prelude::*};
 use futures_util::future::{join, join3};
 use platform::receipt::Receipt;
 use serde_json::{Value, json};
@@ -48,7 +48,7 @@ pub mod url {
     use serde::Deserialize;
 
     /// What a write did, for the page it redirects to: the toast, and the part it opens.
-    #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, corten::UrlValue)]
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, corten::UrlValue)]
     #[serde(rename_all = "snake_case")]
     pub enum Change {
         Published,
@@ -366,11 +366,13 @@ async fn render(
     };
     let t: Cat = req.t();
     let (notice, open) = (after.done.map(|done| done.notice(t)), after.done.and_then(Change::fold));
-    let view = views::item_page(t, req.t(), &screen, notice, open, back);
+    let view = views::item_page(req, t, req.t(), &screen, notice, open, back);
     req.screen(
         &screen,
         html! {
-            <crate::views::Layout req={req} viewer={Some(viewer)} title={t.route_item()} head="">{view}</crate::views::Layout>
+            <crate::views::OwnToastLayout req={req} viewer={Some(viewer)} title={t.route_item()} head="">
+                {view}
+            </crate::views::OwnToastLayout>
         },
     )
 }

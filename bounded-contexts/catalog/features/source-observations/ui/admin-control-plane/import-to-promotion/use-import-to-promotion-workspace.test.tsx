@@ -2,6 +2,7 @@
 import { act, cleanup, render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { CatalogPrimaryWorkbenchReadModel } from "../../../api/primary-workbench-admin-contracts";
+import { catalogPrimaryWorkbenchDailyFlowFor } from "../../primary-workbench-daily-flow";
 import { parseCatalogPrimaryWorkbenchRouteContext } from "../../primary-workbench-route-context";
 import {
   useImportToPromotionWorkspace,
@@ -22,7 +23,8 @@ type ReviewSlice = Readonly<{
 // Build the smallest typed read model the hook reads: the route context (real, so
 // the persisted href serializes), the review slice (drives the server-derived
 // stage + selection-impact counts), the promotion preview/result (drive the stage),
-// and the two blocker lists. Everything else is irrelevant to this hook.
+// and the two blocker lists, plus the flow the API derives from them. Everything
+// else is irrelevant to this hook.
 function readModel(
   options: Readonly<{
     requestUrl?: string;
@@ -35,9 +37,10 @@ function readModel(
     options.requestUrl ?? "https://admin.example/catalog/integrations?providerKey=tcgdex",
   );
 
-  return {
+  const model = {
     routeContext,
     readiness: { blockers: [] },
+    importJobs: { jobs: [] },
     promotionPreview: { previewId: options.previewId ?? null, blockers: [] },
     promotionResult: options.promotionResult ?? null,
     sourceObservationReview: {
@@ -46,6 +49,8 @@ function readModel(
       counts: { observed: 0, changed: 0, promoted: 0, rejected: 0, eligible: 0, blocked: 0, ...options.review?.counts },
     },
   } as unknown as CatalogPrimaryWorkbenchReadModel;
+
+  return { ...model, flow: catalogPrimaryWorkbenchDailyFlowFor(model) };
 }
 
 // A reviewable row the hook can count for selection impact. The hook only reads
@@ -79,6 +84,20 @@ describe("useImportToPromotionWorkspace — stage reconciliation with server tru
 
   it("lands on the server-derived stage with nothing to review", () => {
     render(<Probe model={readModel()} />);
+    expect(latest.activeStage).toBe("run-sync");
+  });
+
+  it("uses only the effective API open stage and preserves a manual choice across unchanged answers", () => {
+    const base = readModel();
+    const sentinel = { ...base, flow: { ...base.flow, openStage: "create-items" as const } };
+    const { rerender } = render(<Probe model={sentinel} />);
+    expect(latest.activeStage).toBe("create-items");
+    act(() => latest.setActiveStage("review-changes"));
+    rerender(
+      <Probe model={{ ...sentinel, promotionPreview: { ...sentinel.promotionPreview, previewId: "contrary" } }} />,
+    );
+    expect(latest.activeStage).toBe("review-changes");
+    rerender(<Probe model={{ ...base, flow: { ...base.flow, openStage: "run-sync" } }} />);
     expect(latest.activeStage).toBe("run-sync");
   });
 

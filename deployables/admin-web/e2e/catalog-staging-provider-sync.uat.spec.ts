@@ -4931,7 +4931,7 @@ async function promoteSelectedScopeFromSharedImporter(
   const promotionPreviewId = await tryPromotionPreviewReady(page, 15_000);
   if (!promotionPreviewId) {
     console.log(
-      `[catalog-staging-provider-uat] ${lorcanaDownstreamCatalogItemsJourney.unitKey} source-scope promotion preview did not produce a routable preview id for ${selectedScope.displayLabel}; trying to execute any fresh visible preview before row-level or reapply fallback.`,
+      `[catalog-staging-provider-uat] ${lorcanaDownstreamCatalogItemsJourney.unitKey} source-scope promotion preview did not produce an action-bound preview id for ${selectedScope.displayLabel}; trying to execute any fresh visible preview before row-level or reapply fallback.`,
     );
   }
   const freshPreview = await executePromotionFromFreshPreview(page, selectedScope, {
@@ -4948,7 +4948,7 @@ async function promoteSelectedScopeFromSharedImporter(
     unitKey: lorcanaDownstreamCatalogItemsJourney.unitKey,
     selectedScope: selectedScope.displayLabel,
     selectedObservationIds: [],
-    promotionPreviewId: promotionPreviewId ?? currentSearchParam(page, "promotionPreviewId"),
+    promotionPreviewId,
     jobId,
   };
 }
@@ -5089,7 +5089,9 @@ async function clickCommandFormButtonIfEnabled(form: Locator): Promise<boolean> 
 async function expectPromotionPreviewReady(page: Page): Promise<string> {
   const promotionPreviewId = await tryPromotionPreviewReady(page, syncTimeoutMs);
   if (!promotionPreviewId) {
-    throw new Error("Expected promotion preview to be ready with a routable promotionPreviewId before the timeout.");
+    throw new Error(
+      "Expected promotion preview to be ready with an action-bound promotionPreviewId before the timeout.",
+    );
   }
 
   return promotionPreviewId;
@@ -5111,7 +5113,16 @@ async function tryPromotionPreviewReady(page: Page, timeout: number): Promise<st
       .first(),
   ).toBeVisible({ timeout });
 
-  return waitForSearchParamOrNull(page, "promotionPreviewId", timeout);
+  const executeForm = page
+    .locator('form[data-catalog-primary-workbench-command="observation.promote"]')
+    .filter({
+      has: page.locator('input[name="promotionPhase"][value="execute"]'),
+    })
+    .first();
+  await expect
+    .poll(() => hiddenInputValue(executeForm, "promotionPreviewId").then(emptyToNull), { timeout })
+    .not.toBeNull();
+  return hiddenInputValue(executeForm, "promotionPreviewId").then(emptyToNull);
 }
 
 async function waitForFreshPromotionPreviewOrOperatorBlocker(
@@ -7687,9 +7698,11 @@ async function wholeGameSettle(
     }
 
     const observedJobs: WholeGamePromoteJob[] = [];
+    const convergedJobs = new Map<string, WholeGamePromoteJob[]>();
     for (const scopeRecordId of step.scopeRecordIds) {
       let converged = false;
       while (!converged) {
+        const passJobs: WholeGamePromoteJob[] = [];
         const active = await readActivePromoteJobs(page, scopeRecordId, runtime);
         const plan = planScopePromotion(scopeRecordId, active);
         const jobIds =
@@ -7712,9 +7725,11 @@ async function wholeGameSettle(
           if (job.promotionApplicationVersion !== 1)
             throw new WholeGameRehearsalRefusal("promoted-catalog-item-unresolved");
           observedJobs.push(job);
+          passJobs.push(job);
           counts.promotedThisDispatch = promotedCatalogItems(observedJobs).promotedOutcomes;
           converged = job.result.promoted === 0;
         }
+        if (converged) convergedJobs.set(scopeRecordId, passJobs);
       }
       counts.scopesPromoted += 1;
     }
@@ -7759,7 +7774,12 @@ async function wholeGameSettle(
     }
 
     for (const scopeRecordId of step.scopeRecordIds) {
-      counts.readyRemaining += await readReadyCandidateCount(page, scopeRecordId, runtime);
+      counts.readyRemaining += await readReadyCandidateCount(
+        page,
+        scopeRecordId,
+        convergedJobs.get(scopeRecordId) ?? [],
+        runtime,
+      );
     }
     for (const filter of filters)
       counts.draftsRemaining += await readWholeGameTotal(page, draftItemsPath(filter), runtime);
@@ -7795,12 +7815,60 @@ async function readActivePromoteJobs(
   return (await readWholeGameJson<WholeGameJobPage>(page, promoteJobsPath(scopeRecordId, "active"), runtime)).items;
 }
 
-async function readReadyCandidateCount(page: Page, scopeRecordId: string, runtime?: WholeGameRuntime): Promise<number> {
-  return readWholeGameTotal(
-    page,
-    `/api/catalog/source-observations/merge-candidates?${wholeGameQuery({ scopeRecordId, status: "ready", limit: "1" })}`,
-    runtime,
+async function readReadyCandidateCount(
+  page: Page,
+  scopeRecordId: string,
+  convergedJobs: readonly WholeGamePromoteJob[],
+  runtime?: WholeGameRuntime,
+): Promise<number> {
+  // Only the current convergence pass can exempt a reference-only candidate.
+  // Historical skips may predate a membership change that made it item-producing.
+  const referenceOnly = new Map(
+    convergedJobs.flatMap((job) =>
+      job.scopeRecordId === scopeRecordId &&
+      job.kind === "merge-candidate-promote" &&
+      job.status === "completed" &&
+      job.promotionApplicationVersion === 1 &&
+      job.result?.promoted === 0 &&
+      !job.result.failed
+        ? job.result.outcomes.flatMap((outcome) =>
+            outcome.status === "skipped-not-eligible" && outcome.disposition === "reference-only" && outcome.candidateId
+              ? [[outcome.candidateId, Date.parse(job.createdAt ?? "")] as const]
+              : [],
+          )
+        : [],
+    ),
   );
+  const seen = new Set<string>();
+  let total: number | undefined;
+  let remaining = 0;
+  for (let offset = 0; ; ) {
+    const result = await readWholeGameJson<{
+      total: number;
+      items: readonly { candidate_id: string; updated_at: string }[];
+    }>(
+      page,
+      `/api/catalog/source-observations/merge-candidates?${wholeGameQuery({ scopeRecordId, status: "ready", limit: "100", offset: String(offset) })}`,
+      runtime,
+    );
+    if (!Number.isSafeInteger(result.total) || result.total < 0 || (total !== undefined && total !== result.total))
+      throw new WholeGameRehearsalRefusal("ready-candidates-incomplete");
+    total = result.total;
+    for (const candidate of result.items) {
+      if (!candidate.candidate_id || seen.has(candidate.candidate_id))
+        throw new WholeGameRehearsalRefusal("ready-candidates-incomplete");
+      seen.add(candidate.candidate_id);
+      // An edit after job creation invalidates its disposition; unknown dates fail closed.
+      if (
+        !(Date.parse(candidate.updated_at) <= (referenceOnly.get(candidate.candidate_id) ?? Number.NEGATIVE_INFINITY))
+      )
+        remaining += 1;
+    }
+    offset += result.items.length;
+    if (offset > total || (offset < total && result.items.length === 0))
+      throw new WholeGameRehearsalRefusal("ready-candidates-incomplete");
+    if (offset === total) return remaining;
+  }
 }
 
 // Acts only through the form carrying the requested batch id, so another batch

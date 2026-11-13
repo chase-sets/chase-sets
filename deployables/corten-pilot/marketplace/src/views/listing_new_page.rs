@@ -562,7 +562,9 @@ fn Checklist<'a>(t: ListingNewMsg, readiness: &'a EvidenceReadiness) -> impl Ren
             <li class={Check}>
                 <p class={Strong}>{t.evidence_minimum_photo_count(c.minimum_photo_count)}</p>
                 <span class={State} data-done={enough}>{state(enough)}</span>
-                <p class={Muted}>{t.evidence_photo_count_progress(c.active_photo_count, c.minimum_photo_count)}</p>
+                <p class={Muted}>
+                    {t.evidence_photo_count_progress(crate::text::listing_new_msg::EvidencePhotoCountProgress { present: c.active_photo_count, required: c.minimum_photo_count })}
+                </p>
                 if !enough {
                     <p>{t.coverage_min_photo_count_unmet()}</p>
                 }
@@ -578,7 +580,9 @@ fn Checklist<'a>(t: ListingNewMsg, readiness: &'a EvidenceReadiness) -> impl Ren
                         <p class={Tags}>
                             <span class={Tag}>{&required.slot_id}</span>
                             if let (Some(w), Some(h)) = (required.minimum_width_pixels, required.minimum_height_pixels) {
-                                <span class={Tag}>{t.evidence_minimum_dimensions(w, h)}</span>
+                                <span class={Tag}>
+                                    {t.evidence_minimum_dimensions(crate::text::listing_new_msg::EvidenceMinimumDimensions { width: w, height: h })}
+                                </span>
                             }
                         </p>
                     }

@@ -15,13 +15,12 @@
 //! | `POST /account/consents` | withdraw a consent (`intent=withdraw`) |
 use crate::recovery::attempt_text;
 use corten::{
-    axum::http::{HeaderMap, StatusCode},
+    http::{HeaderMap, StatusCode},
     prelude::*,
 };
 use platform::receipt::Receipt;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
-use crate::chrome::Chrome;
 use crate::{
     addresses::Said,
     api::{AccountAction, AccountAnswer, Addresses as _, ApiError, Consent, ConsentCalls as _},
@@ -35,7 +34,7 @@ use crate::{
 /// What the page's address carries: the last withdrawal's receipt (`after_write`), the attempt
 /// that answer settles (`saved`), and an attempt to ask the API about (`check`, the consent it
 /// was for in `target`).
-#[derive(Clone, Debug, Default, Deserialize, Fields, Route)]
+#[derive(Clone, Debug, Default, Fields, Route)]
 #[route(query)]
 pub struct Place {
     pub after_write: Option<String>,
@@ -46,7 +45,7 @@ pub struct Place {
 
 /// Withdraw's fields: the write (`intent`, marketplace's), the attempt it was drawn with, and the
 /// consent.
-#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[derive(Clone, Debug, Default, Fields)]
 #[serde(default)]
 pub struct ConsentInput {
     pub intent: String,
@@ -67,7 +66,6 @@ pub struct ConsentsScreen {
 
 pub(crate) async fn page(
     req: Req,
-    chrome: Chrome,
     Caller(ConsentHolder(viewer)): Caller<ConsentHolder>,
     State(config): State<Shared>,
     headers: HeaderMap,
@@ -82,7 +80,7 @@ pub(crate) async fn page(
         None if place.saved.is_some() => Said::Saved,
         None => Said::Editing,
     };
-    render(&req, &viewer, &config, &headers, place.after_write.as_deref(), said, None, StatusCode::OK, &chrome).await
+    render(&req, &viewer, &config, &headers, place.after_write.as_deref(), said, None, StatusCode::OK).await
 }
 
 /// What the API says came of the withdrawal `attempt` of `target`, for the page.
@@ -114,7 +112,6 @@ async fn render(
     said: Said,
     refused: Option<&'static str>,
     status: StatusCode,
-    chrome: &Chrome,
 ) -> HtmlResult {
     let receipt = Receipt::from_param(after_write);
     let caller = config.platform.caller(headers, config.proto, receipt.as_ref());
@@ -126,10 +123,10 @@ async fn render(
             let plain = config.platform.caller(headers, config.proto, None);
             match plain.consents(user, account).await {
                 Ok(consents) => (consents, true),
-                Err(error) => return read_failed(req, Some(viewer), error, None, chrome.cart().await),
+                Err(error) => return read_failed(req, Some(viewer), error, None),
             }
         }
-        Err(error) => return read_failed(req, Some(viewer), error, None, chrome.cart().await),
+        Err(error) => return read_failed(req, Some(viewer), error, None),
     };
     let screen = ConsentsScreen { consents, pending, said, refused };
     let t: ConsentsMsg = req.t();
@@ -139,9 +136,8 @@ async fn render(
         }
     };
     let view = html! { <views::ConsentsPage t={t} p={req.t()} screen={&screen} /> };
-    let cart = chrome.cart().await;
     let page = html! {
-        <Layout req={req} viewer={Some(viewer)} cart={cart} title={t.route_consents_marketplace()} head={head}>{view}</Layout>
+        <Layout req={req} viewer={Some(viewer)} title={t.route_consents_marketplace()} head={head}>{view}</Layout>
     };
     if status == StatusCode::OK { req.screen(&screen, page) } else { req.page_with_status(status, page) }
 }
@@ -149,7 +145,6 @@ async fn render(
 /// Withdraw.
 pub(crate) async fn write(
     req: Req,
-    chrome: Chrome,
     Caller(ConsentHolder(viewer)): Caller<ConsentHolder>,
     State(config): State<Shared>,
     headers: HeaderMap,
@@ -158,7 +153,7 @@ pub(crate) async fn write(
     let (t, p): (ConsentsMsg, Pilot) = (req.t(), req.t());
     let (req, viewer, config, headers) = (&req, &viewer, &config, &headers);
     let refuse = |message: &'static str| {
-        render(req, viewer, config, headers, None, Said::NotSaved, Some(message), StatusCode::UNPROCESSABLE_ENTITY, &chrome)
+        render(req, viewer, config, headers, None, Said::NotSaved, Some(message), StatusCode::UNPROCESSABLE_ENTITY)
     };
     if input.intent != "withdraw" {
         return refuse(t.route_unknown_action()).await;
@@ -178,7 +173,7 @@ pub(crate) async fn write(
             tracing::warn!("a consent withdrawal had no answer: {error}");
             AccountAnswer::Indeterminate
         }
-        Err(error) => return failed(req, viewer, config, headers, error, &chrome).await,
+        Err(error) => return failed(req, viewer, config, headers, error).await,
     };
     // No answer that says what happened: ask what came of the attempt, as marketplace does.
     let action = AccountAction::Withdraw;
@@ -199,9 +194,7 @@ pub(crate) async fn write(
         }
         AccountAnswer::NotRecorded { code, .. } if code == "validation-failed" => refuse(t.action_validation()).await,
         AccountAnswer::NotRecorded { .. } => refuse(t.manage_state_failed_safe()).await,
-        AccountAnswer::Conflict => {
-            render(req, viewer, config, headers, None, Said::Conflict, None, StatusCode::CONFLICT, &chrome).await
-        }
+        AccountAnswer::Conflict => render(req, viewer, config, headers, None, Said::Conflict, None, StatusCode::CONFLICT).await,
         AccountAnswer::Indeterminate => unreachable!("asked about above"),
     }
 }
@@ -209,21 +202,14 @@ pub(crate) async fn write(
 /// A withdrawal the API refused for who is asking: sign in again, or the page saying they may not.
 /// Any other refusal (a consent another one replaced, one that is not there) is a rule the API
 /// keeps, and the page says nothing was recorded.
-async fn failed(
-    req: &Req,
-    viewer: &Viewer,
-    config: &Shared,
-    headers: &HeaderMap,
-    error: ApiError,
-    chrome: &Chrome,
-) -> HtmlResult {
+async fn failed(req: &Req, viewer: &Viewer, config: &Shared, headers: &HeaderMap, error: ApiError) -> HtmlResult {
     match error.status() {
         Some(StatusCode::UNAUTHORIZED) => sign_in(req),
         Some(StatusCode::FORBIDDEN) => {
-            render(req, viewer, config, headers, None, Said::Denied, None, StatusCode::FORBIDDEN, chrome).await
+            render(req, viewer, config, headers, None, Said::Denied, None, StatusCode::FORBIDDEN).await
         }
         Some(status) if status.is_client_error() => {
-            render(req, viewer, config, headers, None, Said::NotSaved, None, StatusCode::UNPROCESSABLE_ENTITY, chrome).await
+            render(req, viewer, config, headers, None, Said::NotSaved, None, StatusCode::UNPROCESSABLE_ENTITY).await
         }
         _ => Err(corten::Error::new(error).with_status(StatusCode::BAD_GATEWAY)),
     }

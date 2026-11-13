@@ -22,6 +22,7 @@ import {
   type RehearsalCountPreparationReceipt,
   type RehearsalCountPreparationRefusalCode,
 } from "../domain/rehearsal-count-preparation-receipt";
+import { scrydexPeriodDecisionSchema, type ScrydexPeriodDecision } from "../domain/scrydex-billing-period";
 
 // Staging-only preparation of governed Scrydex counts before a whole-game
 // rehearsal pass reserves and starts its batch. It drives only the existing
@@ -44,7 +45,11 @@ export type RehearsalCountAdminResponse = Readonly<{ status: number; body: unkno
 export type RehearsalCountAdmin = Readonly<{
   quote(input: { selection: unknown; cap?: number }): Promise<RehearsalCountAdminResponse>;
   readPreparation(quoteId: string): Promise<RehearsalCountAdminResponse>;
-  acquire(input: { quoteId: string; fingerprint: string }): Promise<RehearsalCountAdminResponse>;
+  acquire(input: {
+    quoteId: string;
+    fingerprint: string;
+    periodReserve: unknown;
+  }): Promise<RehearsalCountAdminResponse>;
 }>;
 export type RehearsalCountRunIdentity = Readonly<{ sha: string; runId: string; runAttempt: string }>;
 
@@ -94,7 +99,8 @@ export function createRehearsalCountAdminClient(deps: {
       redirect: "manual",
       signal: AbortSignal.timeout(timeoutMs),
     });
-    if (response.status < 200 || response.status >= 300) {
+    // A 409 refusal body is read too: it may carry the billing-period decision.
+    if ((response.status < 200 || response.status >= 300) && response.status !== 409) {
       await response.body?.cancel().catch(() => undefined);
       return { status: response.status, body: null };
     }
@@ -112,7 +118,12 @@ export function createRehearsalCountAdminClient(deps: {
     acquire: (input) =>
       call(
         "/acquire",
-        { quoteId: input.quoteId, fingerprint: input.fingerprint, admission: "whole-quote" },
+        {
+          quoteId: input.quoteId,
+          fingerprint: input.fingerprint,
+          admission: "whole-quote",
+          periodReserve: input.periodReserve,
+        },
         acquireTimeoutMs,
       ),
   };
@@ -211,6 +222,29 @@ function parseQuote(response: RehearsalCountAdminResponse): ParsedQuote | null {
   if (response.status !== 200) return null;
   const parsed = countQuoteSchema.safeParse(response.body);
   return parsed.success ? parsed.data : null;
+}
+
+/**
+ * The acquire response: a 200 quote carrying the admission's period decision, or
+ * the locked 409 refusal that may carry it. A malformed decision is never kept.
+ */
+function submissionOf(response: RehearsalCountAdminResponse): {
+  quote: ParsedQuote | null;
+  periodDecision: ScrydexPeriodDecision | null;
+} {
+  const body = response.body && typeof response.body === "object" ? (response.body as Record<string, unknown>) : {};
+  if (response.status === 200) {
+    const { periodDecision, ...quote } = body;
+    const decision = scrydexPeriodDecisionSchema.safeParse(periodDecision);
+    return {
+      quote: parseQuote({ status: 200, body: quote }),
+      periodDecision: decision.success ? decision.data : null,
+    };
+  }
+  const refusal = response.status === 409 ? (body.error as Record<string, unknown> | undefined) : undefined;
+  const decision =
+    refusal?.code === "usage-period-cap" ? scrydexPeriodDecisionSchema.safeParse(refusal.decision) : null;
+  return { quote: null, periodDecision: decision?.success ? decision.data : null };
 }
 
 function parseView(response: RehearsalCountAdminResponse): ParsedView | null {
@@ -350,8 +384,17 @@ export function admitRehearsalCountAcquisition(input: {
   const approval = parseRehearsalCountPreparationApproval(input.approval);
   if (countFingerprint(approval.pass) !== countFingerprint(input.pass))
     throw new RehearsalCountPreparationRefusal("approval-pass-mismatch");
-  if (approval.dispatchId !== input.dispatchId)
+  if (approval.dispatchId !== input.dispatchId || approval.periodReserve.runId !== input.dispatchId)
     throw new RehearsalCountPreparationRefusal("approval-dispatch-mismatch");
+  // The reserve must be known and for the billing period in force now; the server
+  // re-checks it against its retained snapshot under the headroom lock.
+  const reserve = approval.periodReserve;
+  if (
+    reserve.credits === null ||
+    Date.parse(reserve.startsAt) > Date.parse(input.now) ||
+    Date.parse(reserve.endsAt) <= Date.parse(input.now)
+  )
+    throw new RehearsalCountPreparationRefusal("approval-invalid");
   if (approval.perKindCost.cards + approval.perKindCost.sealed !== approval.plannedCredits)
     throw new RehearsalCountPreparationRefusal("approval-invalid");
   if (approval.plannedCredits < 1) throw new RehearsalCountPreparationRefusal("nothing-to-acquire");
@@ -361,7 +404,7 @@ export function admitRehearsalCountAcquisition(input: {
   if (approval.authority.headroom < approval.plannedCredits)
     throw new RehearsalCountPreparationRefusal("headroom-below-planned");
   if (!currentAt(approval.approvedAt, input.now)) throw new RehearsalCountPreparationRefusal("approval-stale");
-  if (!currentAt(approval.authority.observedAt, input.now))
+  if (!currentAt(approval.authority.observedAt, input.now) || !currentAt(reserve.observedAt, input.now))
     throw new RehearsalCountPreparationRefusal("authority-stale");
   if (Date.parse(approval.quote.expiresAt) < Date.parse(input.now))
     throw new RehearsalCountPreparationRefusal("quote-expired");
@@ -512,12 +555,16 @@ export async function acquireRehearsalCounts(input: {
     status: null,
     state: null,
   };
+  let periodDecision: NonNullable<RehearsalCountPreparationReceipt["acquisition"]>["periodDecision"] = null;
   try {
     const result = await input.admin.acquire({
       quoteId: pending.quote.quoteId,
       fingerprint: pending.quote.fingerprint,
+      periodReserve: approval.periodReserve,
     });
-    response = { status: result.status, state: parseQuote(result)?.state ?? null };
+    const submitted = submissionOf(result);
+    response = { status: result.status, state: submitted.quote?.state ?? null };
+    periodDecision = submitted.periodDecision;
   } catch {
     // An interrupted or overflowing submission may have sent; it stays uncertain.
   }
@@ -540,12 +587,13 @@ export async function acquireRehearsalCounts(input: {
     quote,
     authority,
     roster: inspection.roster,
-    acquisition: { admission: "whole-quote", submittedAt, response, readback },
+    acquisition: { admission: "whole-quote", submittedAt, response, readback, periodDecision },
     sources,
     accounting,
     outcome: rehearsalCountAcquisitionOutcome({
       response,
       readback,
+      periodDecision,
       accounting,
       sourced: sources.length === inspection.roster.length,
     }),
