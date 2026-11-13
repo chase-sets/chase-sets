@@ -102,7 +102,7 @@ note it on the PR and the pilot task fixes the pilot. Where a problem goes:
 | `marketplace/` | Create listing, `/account/listings/new` |
 | `marketplace/` | A seller's listing, `/account/listings/{id}` |
 | `marketplace/` | A set's page, `/sets/{slug}` |
-| `marketplace/` | Search and the home page, `/search`, `/categories/{slug}` and `/` |
+| `marketplace/` | Search and the home page, `/search`, `/categories/{slug}` and `/`, with each result's Add to List: the dialog for the product the search's option filters name, patched into the page (or the item page with it open without a script, or the item page to choose its options), a guest's registration back to the search, and Add Product back to the search saying where the product went |
 | `public/` | An item's market page, `/market/{slug}`, with `robots.txt` and `sitemap.xml` |
 | `public/` | The home page, `/` (chasesets.com's waitlist landing) |
 | `public/` | The policy documents, `/terms`, `/privacy`, `/founders`, `/seller-agreement`, `/payments-terms`, `/agent-terms` and `/authenticity-terms` |
@@ -302,6 +302,7 @@ but keep their own bordered choice rows, which are the design system's `Checkbox
 | Issue | Workaround |
 | --- | --- |
 | [corten-run/corten#1065 Kit Stack and Cluster always print a literal gap, so an app on its own token spacing scale cannot use them with its gap utility](https://github.com/corten-run/corten/issues/1065) | closed by Corten's `Gap::App` (pinned since `f4f37f95`). Every page column is the kit's `Stack { gap: Gap::App }` with the theme's `gap_N()`: the five whose children keep their own width (support requests, command center, order, packing, shipment) are `StackStart { gap: Gap::App }` in its place. A page's own `.stack` keeps only what the kit's does not set (`min-width: 0` in a grid track, a padding or margin) |
+| [corten-run/corten#1366 A patch answered by another area's handler draws that area's components unstyled: the runtime's patch loads no section stylesheet and check_rendered reads the handler's path](https://github.com/corten-run/corten/issues/1366) | open. Add to List's dialog (`SaveDialog`), which a search result's Add to List patches into the search page from the item's handler, is listed in `views::SEARCH`, so in `App::components`, rather than in the item page's area ([marketplace/src/views.rs](marketplace/src/views.rs)) |
 
 Every Corten gap the pilot found and how it closed is in the [README before it was cut](https://github.com/chase-sets/chase-sets/blob/5a683c4eb5/deployables/corten-pilot/README.md) ("Corten gaps").
 
