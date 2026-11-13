@@ -78,6 +78,7 @@ export class MarketplaceAttemptError extends Error {
   constructor(
     public readonly code: "attempt_conflict" | "history_incomplete" | "invalid_attempt",
     message: string,
+    public readonly historyDisposition?: "unsafe",
   ) {
     super(message);
     this.name = "MarketplaceAttemptError";

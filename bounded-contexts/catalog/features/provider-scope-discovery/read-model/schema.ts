@@ -56,6 +56,7 @@ const catalogScopeRecordProposalSchemaSql = `CREATE TABLE IF NOT EXISTS catalog_
   language_editions jsonb NOT NULL DEFAULT '[]'::jsonb,
   parent_external_ids jsonb NOT NULL DEFAULT '[]'::jsonb,
   review_status text NOT NULL DEFAULT 'proposed',
+  accepted_scope_record_id text NULL,
   evidence jsonb NOT NULL DEFAULT '{}'::jsonb,
   first_proposed_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
@@ -122,6 +123,16 @@ export const catalogProviderScopeDiscoverySchemaMigrations: readonly BcSchemaMig
   ON catalog_provider_scope_observations (provider_key, unit_key, scope_kind, language_code);`,
       `CREATE INDEX CONCURRENTLY IF NOT EXISTS catalog_provider_scope_observations_hash_idx
   ON catalog_provider_scope_observations (observation_hash);`,
+    ],
+  },
+  {
+    migrationId: "20261113_catalog_scope_record_proposal_accepted_target",
+    description:
+      "Record the Scope Record an accepted canonical proposal resolved to; existing proposals stay unaccepted with a null target.",
+    statements: [
+      "SET LOCAL lock_timeout = '5s';",
+      `ALTER TABLE catalog_scope_record_proposals
+  ADD COLUMN IF NOT EXISTS accepted_scope_record_id text NULL`,
     ],
   },
 ];

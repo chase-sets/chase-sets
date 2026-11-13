@@ -119,6 +119,21 @@ function harness(currency: string | null = null, version = 0, fresh = false) {
     marketplace: {
       db: { query },
       listings: {
+        readAuthoritativeListing: vi.fn(async ({ listingId }: { listingId: string }) => {
+          row.listing_id = listingId;
+          return present
+            ? {
+                kind: "present" as const,
+                version: Math.max(row.listing_stream_version, 1),
+                state: {
+                  status: row.status,
+                  priceAmount: row.price_amount,
+                  priceCurrencyCode: row.price_currency_code,
+                  feeQuoteFingerprint: "synthetic-quote",
+                },
+              }
+            : { kind: "absent" as const };
+        }),
         updateListingPrice,
         createListing,
         publishListing: vi.fn(),

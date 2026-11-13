@@ -947,6 +947,9 @@ describe("Catalog primary workbench surface routes", () => {
         },
         listScopeObservations: async () => [],
         listCanonicalScopeRecordProposals: async () => [],
+        acceptCanonicalScopeRecordProposal: async () => {
+          throw new Error("Unexpected command");
+        },
       },
       providerIntegrationProfiles: mutableProfileStore(),
       sourceObservations: {

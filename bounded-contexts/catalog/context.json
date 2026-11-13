@@ -845,6 +845,7 @@
         "fields",
         "product-contents",
         "product-measures",
+        "provider-scope-discovery",
         "provider-scope-mapping",
         "reference-data",
         "scope-registry",
@@ -1002,6 +1003,25 @@
       "proof": {
         "authoritativeResponse": "Pause and resume respond with the UPDATE ... RETURNING schedule row and run-now responds with the synchronous refresh result; the schedule list read is a direct read of the mutated table, never a projection. bounded-contexts/catalog/features/provider-scope-discovery/api/runtime.db.test.ts proves a pause is visible on the immediately following schedule list read and that run outcomes land on the schedule row before the command returns.",
         "tests": ["bounded-contexts/catalog/features/provider-scope-discovery/api/runtime.db.test.ts"]
+      }
+    },
+    {
+      "id": "catalog.provider-scope-discovery-proposal-acceptance",
+      "owner": "catalog",
+      "risk": "important",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "api-route:bounded-contexts/catalog/features/provider-scope-discovery/api/route.ts:POST /canonical-scope-record-proposals/:proposalId/accept"
+      ],
+      "visibleDestination": {
+        "description": "Accepting a canonical Scope Record proposal returns the accepted proposal row, the Scope Record id it resolved to, any Reference Record it created and published, and the per-unit mapping re-point summary. The proposal list reads the same catalog_scope_record_proposals table the command updated; the created Scope Record and the re-pointed mappings reach their read models through the Scope Registry and Provider Scope Mapping projections."
+      },
+      "proof": {
+        "authoritativeResponse": "The response carries the proposal row from the conditional UPDATE ... RETURNING (or its reread when a retry finds it already accepted) and ids decided from the Reference Record and Provider Scope Mapping streams, never from a projection. bounded-contexts/catalog/features/provider-scope-discovery/api/proposal-acceptance.db.test.ts proves the accepted proposal is visible on the next list read and that the created Scope Record projects active after a drain; runtime.db.test.ts proves the re-pointed mappings land on the accepted id.",
+        "tests": [
+          "bounded-contexts/catalog/features/provider-scope-discovery/api/proposal-acceptance.db.test.ts",
+          "bounded-contexts/catalog/features/provider-scope-discovery/api/runtime.db.test.ts"
+        ]
       }
     },
     {
