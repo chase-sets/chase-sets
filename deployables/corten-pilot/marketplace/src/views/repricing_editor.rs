@@ -421,8 +421,7 @@ fn ConditionFields<'a>(
     let category = mode(condition, "categoryId");
     let graded = mode(condition, "grading") == "graded";
     html! {
-        <fieldset class={(Group, Fieldset)} data-repricing-condition={at.as_str()}>
-            <legend class={Label}>{t.editor_condition()}</legend>
+        <fieldset class={(Group, Fieldset)} aria-label={t.editor_condition()} data-repricing-condition={at.as_str()}>
             <label class={Field}>
                 <span class={Label}>{t.editor_condition()}</span>
                 <select class={Input} name={row.kind}>
