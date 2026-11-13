@@ -66,7 +66,7 @@ describe("support reference routing primitive", () => {
     });
   });
 
-  it("routes raw ord_/shp_/pyo_/sup_/wad_ typed ULIDs by parsing them via parseTypedId", () => {
+  it("routes raw ord_/shp_/pyo_/sup_/wad_ typed ULIDs with canonical ULID validation", () => {
     expect(parseSupportReference("ord_01JZ6DKP7S7Z4AZ5N5E6K7M8N9")).toEqual({
       kind: "typed-id",
       contextName: "ordering",
@@ -105,6 +105,7 @@ describe("support reference routing primitive", () => {
     expect(parseSupportReference("not-a-reference")).toBeNull();
     expect(parseSupportReference("ORD-")).toBeNull();
     expect(parseSupportReference("acc_01JZ6DKP7S7Z4AZ5N5E6K7M8N9")).toBeNull();
+    expect(parseSupportReference("sup_seed_resolved_partial_refund")).toBeNull();
   });
 
   it("normalizeSupportReferenceInput only trims, leaving casing to the caller", () => {

@@ -5,8 +5,8 @@ import { describeWithMarketplaceSeedDatabase, useMarketplaceSeedRuntime } from "
 const seedIds = {
   demoAccountId: "acc_seed_demo_account",
   supportRequests: {
-    activeProductNotReceived: "sup_seed_active_product_not_received",
-    resolvedPartialRefund: "sup_seed_resolved_partial_refund",
+    activeProductNotReceived: "sup_01JZ6DKP7S7Z4AZ5N5E6K7M8N9",
+    resolvedPartialRefund: "sup_01JZ6DKR7S7Z4AZ5N5G6K7M8N9",
   },
 } as const;
 
