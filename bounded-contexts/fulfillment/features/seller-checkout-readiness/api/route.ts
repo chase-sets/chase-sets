@@ -1,4 +1,4 @@
-import { Hono, type Context } from "hono";
+import { Hono, type Context, type MiddlewareHandler } from "hono";
 import type { AuthenticatedApiEnv } from "@chase-sets/auth-context";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { AccountId, TenantId, UserId } from "@chase-sets/primitives/typed-ids";
@@ -13,10 +13,16 @@ const anonymousContext: EventStoreContext = {
 
 export function createSellerShippingSetupRoutes(services: SellerShippingSetupServices) {
   const app = new Hono<AuthenticatedApiEnv>();
-  app.use("*", async (c, next) => {
+  const noStore: MiddlewareHandler<AuthenticatedApiEnv> = async (c, next) => {
     c.header("Cache-Control", "no-store");
     await next();
-  });
+  };
+  for (const path of [
+    "/account/seller-shipping-setup",
+    "/guest/seller-shipping-setup",
+    "/operations/seller-shipping-support",
+  ])
+    app.use(path, noStore);
   app.onError((error, c) => {
     const code = error instanceof SellerShippingError ? error.code : "source-unavailable";
     const status =

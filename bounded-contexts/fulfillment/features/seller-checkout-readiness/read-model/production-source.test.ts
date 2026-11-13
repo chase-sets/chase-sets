@@ -3,6 +3,7 @@ import { Hono } from "hono";
 import type { AuthenticatedApiEnv } from "@chase-sets/auth-context";
 import { contextManifest, module as fulfillmentModule } from "../../../index";
 import type { SellerCheckoutReadinessKey } from "../domain/contract";
+import { SellerShippingError } from "../domain/shipping-setup";
 import { decodeSellerShippingRow } from "../api/runtime";
 import {
   actor,
@@ -102,9 +103,54 @@ describe("production-bound seller checkout source", () => {
         body: JSON.stringify(initialize),
       });
       expect(response.status).toBe(operatorAuthority ? 403 : 503);
+      expect(response.headers.get("Cache-Control")).toBe("no-store");
       expect(h.query).not.toHaveBeenCalled();
       expect(h.events).toHaveLength(0);
     }
+  });
+
+  it("limits no-store to seller-shipping responses on the shared marketplace API base", async () => {
+    const h = createShippingTestHarness();
+    const runtime = fulfillmentModule.createServices(h.pool);
+    const app = new Hono<AuthenticatedApiEnv>();
+    app.use("*", async (c, next) => {
+      c.set("actor", actor);
+      c.set("context", context);
+      await next();
+    });
+    const router = fulfillmentModule.buildApis(runtime)[0]!.router;
+    if (!(router instanceof Hono)) throw new Error("The Fulfillment API must register a Hono router.");
+    app.route("/api/marketplace", router);
+    const ordering = new Hono();
+    ordering.get("/account/purchases", (c) => c.json({ purchases: [] }));
+    app.route("/api/marketplace", ordering);
+
+    const purchases = await app.request("/api/marketplace/account/purchases");
+    expect(purchases.status).toBe(200);
+    expect(purchases.headers.get("Cache-Control")).toBeNull();
+    const setupResponse = await app.request("/api/marketplace/account/seller-shipping-setup");
+    expect(setupResponse.status).toBe(200);
+    expect(setupResponse.headers.get("Cache-Control")).toBe("no-store");
+    const refused = await app.request("/api/marketplace/guest/seller-shipping-setup");
+    expect(refused.status).toBe(400);
+    expect(refused.headers.get("Cache-Control")).toBe("no-store");
+    const missing = await app.request("/api/marketplace/unknown");
+    expect(missing.status).toBe(404);
+    expect(missing.headers.get("Cache-Control")).toBeNull();
+  });
+
+  it.each([
+    [new SellerShippingError("invalid-input"), 400],
+    [new SellerShippingError("forbidden"), 403],
+    [new SellerShippingError("conflicting-operation"), 409],
+    [new SellerShippingError("source-unavailable"), 503],
+    [new Error("source offline"), 503],
+  ])("keeps no-store when a seller-shipping read fails with %s", async (error, status) => {
+    const h = createShippingTestHarness();
+    vi.spyOn(h.services, "readSetup").mockRejectedValueOnce(error);
+    const response = await h.app.request("/api/marketplace/account/seller-shipping-setup");
+    expect(response.status).toBe(status);
+    expect(response.headers.get("Cache-Control")).toBe("no-store");
   });
 
   it("suppresses stamps for failed, duplicate, lagging and malformed authoritative head reads", async () => {
