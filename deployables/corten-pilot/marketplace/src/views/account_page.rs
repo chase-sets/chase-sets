@@ -29,6 +29,15 @@ use crate::{
 /// The feedback section, which the role and page links go to.
 #[derive(Id)]
 pub struct FeedbackId;
+/// The page, which `<corten-live>` replaces with Account unavailable once the account is not active.
+#[derive(Id)]
+pub struct AccountPageId;
+/// The account's standing, drawn again on each change to the account.
+#[derive(Id)]
+pub struct AccountHeadId;
+/// The active listings (or that there are none), drawn again on each change to the account.
+#[derive(Id)]
+pub struct AccountListingsId;
 /// The picture every listing card shows (`discoveryAssetUrls.defaultProductImage`).
 const CARD_BACK: &str = "/fake-cdn/assets/pokemon_tcg_back.png";
 
@@ -144,18 +153,17 @@ pub fn page_range(page: u64, pages: u64) -> Vec<Option<u64>> {
     out
 }
 
-/// The page.
+/// The page. The account's standing and its listings are drawn again on each change to the account
+/// (`accounts::live`); the feedback is not, as its Report review dialogs hold what the user typed.
 #[component(css)]
 pub fn AccountPage<'a>(t: AccountMsg, p: Pilot, screen: &'a AccountScreen) -> impl Render {
     let account = &screen.account;
     let name = account.account_display_name.as_deref().unwrap_or(t.page_account());
+    let live = url::AccountLive { id: &account.account_id }.href();
     html! {
-        <div class={Page}>
+        <div id={AccountPageId} class={Page}>
             if account.status != "active" {
-                <section class={Card}>
-                    <h1 class={Title}>{t.page_account_unavailable()}</h1>
-                    <p class={Muted}>{&t.page_account_profile_unavailable_description(name).to_string()}</p>
-                </section>
+                <Unavailable t={t} account={Some(account)} />
             } else {
                 <Header t={t} account={account} name={name} />
                 <Chips t={t} screen={screen} />
@@ -208,25 +216,86 @@ pub fn AccountPage<'a>(t: AccountMsg, p: Pilot, screen: &'a AccountScreen) -> im
                         </li>
                     </ul>
                 </section>
-                if account.listings.is_empty() {
-                    <section class={Card}>
-                        <h2 class={CardTitle}>{t.page_no_active_listings()}</h2>
-                        <p class={Muted}>{t.page_this_account_does_not_have_active()}</p>
-                        <p>
-                            <a class={Primary} href={&url::Search { terms: crate::search::Terms::default() }.href()}>
-                                {t.page_browse_marketplace()}
-                            </a>
-                        </p>
-                    </section>
-                } else {
-                    <ul class={Listings} aria-label={t.page_active_listings()}>
-                        for (index, listing) in account.listings.iter().enumerate() {
-                            <ListingCard t={t} account={account} name={name} listing={listing} index={index} />
-                        }
-                    </ul>
-                }
+                <Listings t={t} account={account} name={name} />
             }
         </div>
+        if account.status == "active" {
+            <corten-live src={&live}></corten-live>
+        }
+    }
+}
+
+/// The parts of the page `<corten-live>` draws again on a change to the account: while it is
+/// active, its standing and its listings, by their ids; else the page itself, saying the account is
+/// unavailable (or, when the read no longer finds it, not found), as marketplace's page stops showing
+/// its reputation and listings once a patch removes the account, until it is loaded again.
+pub fn account_live_parts<'a>(t: AccountMsg, account: Option<&'a PublicAccount>) -> impl Render + 'a {
+    let name = account.and_then(|a| a.account_display_name.as_deref()).unwrap_or(t.page_account());
+    html! {
+        match account.filter(|a| a.status == "active") {
+            Some(active) => {
+                <Header t={t} account={active} name={name} />
+                <Listings t={t} account={active} name={name} />
+            }
+            None => { <UnavailablePage t={t} account={account} /> }
+        }
+    }
+}
+
+/// The page once the account is not active or not found: only that.
+#[component(css = AccountPage)]
+fn UnavailablePage<'a>(t: AccountMsg, account: Option<&'a PublicAccount>) -> impl Render {
+    html! {
+        <div id={AccountPageId} class={Page}>
+            <Unavailable t={t} account={account} />
+        </div>
+    }
+}
+
+/// Account unavailable (a suspended or closed account), or Account not found (`None`).
+#[component(css = AccountPage)]
+fn Unavailable<'a>(t: AccountMsg, account: Option<&'a PublicAccount>) -> impl Render {
+    html! {
+        <section class={Card}>
+            match account {
+                Some(account) => {
+                    <h1 class={Title}>{t.page_account_unavailable()}</h1>
+                    <p class={Muted}>
+                        {&t.page_account_profile_unavailable_description(
+                            account.account_display_name.as_deref().unwrap_or(t.page_account()),
+                        ).to_string()}
+                    </p>
+                }
+                None => {
+                    <h1 class={Title}>{t.page_account_not_found()}</h1>
+                    <p class={Muted}>{t.page_this_account_is_not_available_right()}</p>
+                }
+            }
+        </section>
+    }
+}
+
+/// The account's active listings (`ListingCard`), or that it has none.
+#[component(css = AccountPage)]
+fn Listings<'a>(t: AccountMsg, account: &'a PublicAccount, name: &'a str) -> impl Render {
+    html! {
+        if account.listings.is_empty() {
+            <section id={AccountListingsId} class={Card}>
+                <h2 class={CardTitle}>{t.page_no_active_listings()}</h2>
+                <p class={Muted}>{t.page_this_account_does_not_have_active()}</p>
+                <p>
+                    <a class={Primary} href={&url::Search { terms: crate::search::Terms::default() }.href()}>
+                        {t.page_browse_marketplace()}
+                    </a>
+                </p>
+            </section>
+        } else {
+            <ul id={AccountListingsId} class={Listings} aria-label={t.page_active_listings()}>
+                for (index, listing) in account.listings.iter().enumerate() {
+                    <ListingCard t={t} account={account} name={name} listing={listing} index={index} />
+                }
+            </ul>
+        }
     }
 }
 
@@ -246,7 +315,7 @@ fn Header<'a>(t: AccountMsg, account: &'a PublicAccount, name: &'a str) -> impl 
         t.page_new_account_protected_checkout()
     };
     html! {
-        <section class={Card} aria-labelledby="account-name">
+        <section id={AccountHeadId} class={Card} aria-labelledby="account-name">
             <div class={HeadRow}>
                 <div class={(KitStack { gap: Gap::App }, gap_2(), Stack)}>
                     <div class={Inline}>
