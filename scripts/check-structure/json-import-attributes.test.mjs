@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import ts from "@chase-sets/typescript-compiler-api";
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 import { GIT_LISTING_MAX_BUFFER } from "../lib/git-listing.mjs";
 import {
   inspectJsonImportAttributes,
@@ -14,6 +14,40 @@ import {
 } from "./json-import-attributes.mjs";
 import { findContextRootExportViolation, isApprovedCrossContextTypeContractImport } from "./run.mjs";
 import { workspaceRoots } from "../lib/repo.mjs";
+
+// Counts full-repository censuses at the module boundary across both entry
+// points. Fixture and path-scoped calls are not full censuses.
+const fullCensus = vi.hoisted(() => ({ invocations: 0 }));
+vi.mock("./json-import-attributes.mjs", async (importOriginal) => {
+  const actual = await importOriginal();
+  const { repoRoot } = await import("../lib/repo.mjs");
+  const { resolve } = await import("node:path");
+  const counted =
+    (census) =>
+    (options = {}) => {
+      if (
+        options.paths === undefined &&
+        (options.rootDir === undefined || resolve(options.rootDir) === resolve(repoRoot))
+      ) {
+        fullCensus.invocations += 1;
+      }
+      return census(options);
+    };
+  return {
+    ...actual,
+    inspectJsonImportAttributes: counted(actual.inspectJsonImportAttributes),
+    validateJsonImportAttributes: counted(actual.validateJsonImportAttributes),
+  };
+});
+
+// Freezes the census data. Compiler nodes stay mutable because the compiler
+// may cache data on them.
+function deepFreeze(value) {
+  const prototype = value !== null && typeof value === "object" ? Object.getPrototypeOf(value) : undefined;
+  if (prototype !== Object.prototype && prototype !== Array.prototype) return value;
+  for (const child of Object.values(value)) deepFreeze(child);
+  return Object.freeze(value);
+}
 
 function withFixture(files, callback) {
   const rootDir = mkdtempSync(path.join(os.tmpdir(), "json-import-attributes-"));
@@ -698,94 +732,6 @@ describe("manifest host-registration predicate parity", () => {
 });
 
 describe("real repository execution membership", () => {
-  it("census work stays source-bounded", async () => {
-    const { inventory } = await validateJsonImportAttributes();
-    const { work } = inventory;
-    const parseSources = new Set([
-      ...work.manifestCandidates,
-      ...work.configParses,
-      ...work.closures.flatMap(({ relevant }) => relevant),
-    ]);
-    console.info(
-      JSON.stringify({
-        censusWork: {
-          gitSubprocesses: work.gitSubprocesses,
-          wholeTreeScans: work.wholeTreeScans,
-          indexCandidates: work.indexCandidates.length,
-          discoveredWorkspaces: work.discoveredWorkspaces.length,
-          enrolledWorkspaces: work.enrolledWorkspaces.length,
-          sourceIndex: {
-            kind: work.sourceIndex.kind,
-            pathCount: work.sourceIndex.pathCount,
-            sourceCount: work.sourceIndex.sourceCount,
-            prefilterCount: work.sourceIndex.prefilterCount,
-            candidateCount: work.sourceIndex.candidateCount,
-          },
-          distinctReads: new Set(work.fileReads).size,
-          repeatedReads: work.fileReads.length - new Set(work.fileReads).size,
-          fullParses: work.fullParses.length,
-          repeatedParses: work.fullParses.length - new Set(work.fullParses).size,
-          sourceDerivedParseCeiling: parseSources.size,
-          closures: work.closures.map(({ seeds, indexed, relevant, size }) => ({
-            seeds,
-            indexed,
-            relevant: relevant.length,
-            size,
-          })),
-        },
-      }),
-    );
-    expect(
-      work.fullParses.length,
-      "full parses exceed source-derived manifest ancestor/config ceiling",
-    ).toBeLessThanOrEqual(parseSources.size);
-    expect(work.fullParses.every((file) => parseSources.has(file))).toBe(true);
-    expect(work.fileReads.length).toBe(new Set(work.fileReads).size);
-    expect(work.fullParses.length).toBe(new Set(work.fullParses).size);
-    expect(work.wholeTreeScans).toBeLessThanOrEqual(1);
-    expect(work.gitSubprocesses).toBe(2);
-    const indexedSources = execFileSync("git", ["ls-files", "--", "*.ts", "*.tsx", "*.mts", "*.cts"], {
-      encoding: "utf8",
-      timeout: 10_000,
-      maxBuffer: GIT_LISTING_MAX_BUFFER,
-    })
-      .trim()
-      .split(/\r?\n/)
-      .sort();
-    expect(work.indexCandidates).toEqual(indexedSources);
-    expect(work.sourceIndex).toMatchObject({
-      kind: "git-index-source/v1",
-      pathCount: new Set(
-        execFileSync("git", ["ls-files"], {
-          encoding: "utf8",
-          maxBuffer: GIT_LISTING_MAX_BUFFER,
-        })
-          .trim()
-          .split(/\r?\n/)
-          .filter(Boolean),
-      ).size,
-      sourceCount: indexedSources.length,
-      candidateCount: work.manifestCandidates.length,
-    });
-    expect(work.sourceIndex.candidates).toEqual(work.manifestCandidates);
-    expect(work.sourceIndex.prefilterCount).toBeGreaterThanOrEqual(work.sourceIndex.candidateCount);
-    const indexedSourceSet = new Set(indexedSources);
-    expect(
-      work.fileReads.filter((file) => /\.(?:ts|tsx|mts|cts)$/.test(file)).every((file) => indexedSourceSet.has(file)),
-    ).toBe(true);
-    const workspacePackageJson = new RegExp(`^(?:${workspaceRoots.join("|")})/[^/]+/package\\.json$`);
-    const indexedWorkspaces = execFileSync("git", ["ls-files", "--", "*/package.json"], {
-      encoding: "utf8",
-      timeout: 10_000,
-      maxBuffer: GIT_LISTING_MAX_BUFFER,
-    })
-      .trim()
-      .split(/\r?\n/)
-      .filter((file) => workspacePackageJson.test(file))
-      .sort();
-    expect([...work.enrolledWorkspaces].sort()).toEqual(indexedWorkspaces);
-  });
-
   it("retains cyclic value paths without promoting type-only edges or parsing irrelevant branches", () => {
     withFixture(
       contextFiles('export { default as contextManifest } from "./context.json" with { type: "json" };', {
@@ -903,111 +849,201 @@ describe("real repository execution membership", () => {
     );
   });
 
-  it("derives the exact real census and execution partition within the default timeout", async () => {
-    const result = await validateJsonImportAttributes();
+  // Only the two real-repository tests share this hook, so a hook failure
+  // cannot skip the fixture controls in the enclosing describe.
+  describe("shared real-repository census", () => {
+    let census;
 
-    expect(result.violations, result.violations.join("\n")).toEqual([]);
-    expect(result.inventory.parserVersion).toBe("6.0.3");
-    expect(result.inventory.declarations).toHaveLength(138);
-    expect(result.inventory.partition).toEqual({
-      "node-enforced": 57,
-      "vite-excluded": 54,
-      "vitest-excluded": 27,
-      "manifest-only": 0,
-      indeterminate: 0,
+    beforeAll(async () => {
+      census = deepFreeze(await validateJsonImportAttributes());
     });
-    const normalized = result.inventory.declarations.map(
-      ({ relativeFile, form, specifier, attributeText, resolved, disposition }) => ({
-        relativeFile,
-        form,
-        specifier,
-        attributeText,
-        resolved,
-        disposition,
-      }),
-    );
-    expect(createHash("sha256").update(JSON.stringify(normalized)).digest("hex")).toBe(
-      "03eca3984bcae3de2b7028e954da494e921628f696fb2a76ed3f6eb354ba2597",
-    );
-    expect(
-      normalized.filter(
-        (entry) =>
-          entry.relativeFile === "bounded-contexts/pricing/features/pricing-health/tests/pricing-health-route.test.tsx",
-      ),
-    ).toEqual([
-      {
-        relativeFile: "bounded-contexts/pricing/features/pricing-health/tests/pricing-health-route.test.tsx",
-        form: "import",
-        specifier: "../../../context.json",
-        attributeText: null,
-        resolved: "bounded-contexts/pricing/context.json",
+
+    it("census work stays source-bounded", () => {
+      expect(fullCensus.invocations).toBe(1);
+      expect(Object.isFrozen(census.inventory.work.fileReads)).toBe(true);
+      const { inventory } = census;
+      const { work } = inventory;
+      const parseSources = new Set([
+        ...work.manifestCandidates,
+        ...work.configParses,
+        ...work.closures.flatMap(({ relevant }) => relevant),
+      ]);
+      console.info(
+        JSON.stringify({
+          censusWork: {
+            fullCensusInvocations: fullCensus.invocations,
+            gitSubprocesses: work.gitSubprocesses,
+            wholeTreeScans: work.wholeTreeScans,
+            indexCandidates: work.indexCandidates.length,
+            discoveredWorkspaces: work.discoveredWorkspaces.length,
+            enrolledWorkspaces: work.enrolledWorkspaces.length,
+            sourceIndex: {
+              kind: work.sourceIndex.kind,
+              pathCount: work.sourceIndex.pathCount,
+              sourceCount: work.sourceIndex.sourceCount,
+              prefilterCount: work.sourceIndex.prefilterCount,
+              candidateCount: work.sourceIndex.candidateCount,
+            },
+            distinctReads: new Set(work.fileReads).size,
+            repeatedReads: work.fileReads.length - new Set(work.fileReads).size,
+            fullParses: work.fullParses.length,
+            repeatedParses: work.fullParses.length - new Set(work.fullParses).size,
+            sourceDerivedParseCeiling: parseSources.size,
+            closures: work.closures.map(({ seeds, indexed, relevant, size }) => ({
+              seeds,
+              indexed,
+              relevant: relevant.length,
+              size,
+            })),
+          },
+        }),
+      );
+      expect(
+        work.fullParses.length,
+        "full parses exceed source-derived manifest ancestor/config ceiling",
+      ).toBeLessThanOrEqual(parseSources.size);
+      expect(work.fullParses.every((file) => parseSources.has(file))).toBe(true);
+      expect(work.fileReads.length).toBe(new Set(work.fileReads).size);
+      expect(work.fullParses.length).toBe(new Set(work.fullParses).size);
+      expect(work.wholeTreeScans).toBeLessThanOrEqual(1);
+      expect(work.gitSubprocesses).toBe(2);
+      // One independent Git listing is the oracle for every index assertion.
+      const trackedFiles = execFileSync("git", ["ls-files"], {
+        encoding: "utf8",
+        timeout: 10_000,
+        maxBuffer: GIT_LISTING_MAX_BUFFER,
+      })
+        .trim()
+        .split(/\r?\n/)
+        .filter(Boolean);
+      const indexedSources = trackedFiles.filter((file) => /\.(?:ts|tsx|mts|cts)$/.test(file)).sort();
+      expect(work.indexCandidates).toEqual(indexedSources);
+      expect(work.sourceIndex).toMatchObject({
+        kind: "git-index-source/v1",
+        pathCount: new Set(trackedFiles).size,
+        sourceCount: indexedSources.length,
+        candidateCount: work.manifestCandidates.length,
+      });
+      expect(work.sourceIndex.candidates).toEqual(work.manifestCandidates);
+      expect(work.sourceIndex.prefilterCount).toBeGreaterThanOrEqual(work.sourceIndex.candidateCount);
+      const indexedSourceSet = new Set(indexedSources);
+      expect(
+        work.fileReads.filter((file) => /\.(?:ts|tsx|mts|cts)$/.test(file)).every((file) => indexedSourceSet.has(file)),
+      ).toBe(true);
+      const workspacePackageJson = new RegExp(`^(?:${workspaceRoots.join("|")})/[^/]+/package\\.json$`);
+      const indexedWorkspaces = trackedFiles.filter((file) => workspacePackageJson.test(file)).sort();
+      expect([...work.enrolledWorkspaces].sort()).toEqual(indexedWorkspaces);
+    });
+
+    it("derives the exact real census and execution partition within the default timeout", () => {
+      expect(fullCensus.invocations).toBe(1);
+      const result = census;
+
+      expect(result.violations, result.violations.join("\n")).toEqual([]);
+      expect(result.inventory.parserVersion).toBe("6.0.3");
+      expect(result.inventory.declarations).toHaveLength(138);
+      expect(result.inventory.partition).toEqual({
+        "node-enforced": 57,
+        "vite-excluded": 54,
+        "vitest-excluded": 27,
+        "manifest-only": 0,
+        indeterminate: 0,
+      });
+      const normalized = result.inventory.declarations.map(
+        ({ relativeFile, form, specifier, attributeText, resolved, disposition }) => ({
+          relativeFile,
+          form,
+          specifier,
+          attributeText,
+          resolved,
+          disposition,
+        }),
+      );
+      expect(createHash("sha256").update(JSON.stringify(normalized)).digest("hex")).toBe(
+        "03eca3984bcae3de2b7028e954da494e921628f696fb2a76ed3f6eb354ba2597",
+      );
+      expect(
+        normalized.filter(
+          (entry) =>
+            entry.relativeFile ===
+            "bounded-contexts/pricing/features/pricing-health/tests/pricing-health-route.test.tsx",
+        ),
+      ).toEqual([
+        {
+          relativeFile: "bounded-contexts/pricing/features/pricing-health/tests/pricing-health-route.test.tsx",
+          form: "import",
+          specifier: "../../../context.json",
+          attributeText: null,
+          resolved: "bounded-contexts/pricing/context.json",
+          disposition: "vitest-excluded",
+        },
+      ]);
+      expect(
+        normalized.filter((entry) => entry.relativeFile.startsWith("bounded-contexts/pricing/routes/marketplace/")),
+      ).toEqual([
+        {
+          relativeFile: "bounded-contexts/pricing/routes/marketplace/account-desk-repricing-policy.tsx",
+          form: "import",
+          specifier: "../../context.json",
+          attributeText: null,
+          resolved: "bounded-contexts/pricing/context.json",
+          disposition: "vite-excluded",
+        },
+        {
+          relativeFile: "bounded-contexts/pricing/routes/marketplace/account-desk-repricing.tsx",
+          form: "import",
+          specifier: "../../context.json",
+          attributeText: null,
+          resolved: "bounded-contexts/pricing/context.json",
+          disposition: "vite-excluded",
+        },
+      ]);
+      expect(
+        normalized.filter(
+          (entry) => entry.relativeFile === "bounded-contexts/pricing/tests/account-repricing-route.test.ts",
+        ),
+      ).toEqual([
+        {
+          relativeFile: "bounded-contexts/pricing/tests/account-repricing-route.test.ts",
+          form: "import",
+          specifier: "../context.json",
+          attributeText: null,
+          resolved: "bounded-contexts/pricing/context.json",
+          disposition: "vitest-excluded",
+        },
+      ]);
+      expect(
+        result.inventory.declarations.find(
+          (entry) => entry.relativeFile === "bounded-contexts/catalog/support/authoring-support/index.ts",
+        ),
+      ).toMatchObject({ disposition: "node-enforced", attributeText: 'with { type: "json" }' });
+      expect(
+        result.inventory.declarations.find(
+          (entry) => entry.relativeFile === "bounded-contexts/settlement/routes/marketplace/account-desk-payout.tsx",
+        ),
+      ).toMatchObject({ disposition: "vite-excluded" });
+      expect(
+        result.inventory.declarations.find(
+          (entry) => entry.relativeFile === "deployables/admin-web/app/generated/web-context-registry.ts",
+        ),
+      ).toMatchObject({ disposition: "vite-excluded" });
+      expect(
+        result.inventory.declarations.find(
+          (entry) =>
+            entry.relativeFile === "bounded-contexts/ordering/tests/inventory-reservation-subscription.test.ts",
+        ),
+      ).toMatchObject({ disposition: "vitest-excluded" });
+      expect(
+        result.inventory.declarations.find(
+          (entry) =>
+            entry.relativeFile ===
+            "bounded-contexts/platform-operations/features/seller-compliance-sales/read-model/projection.test.ts",
+        ),
+      ).toMatchObject({
         disposition: "vitest-excluded",
-      },
-    ]);
-    expect(
-      normalized.filter((entry) => entry.relativeFile.startsWith("bounded-contexts/pricing/routes/marketplace/")),
-    ).toEqual([
-      {
-        relativeFile: "bounded-contexts/pricing/routes/marketplace/account-desk-repricing-policy.tsx",
-        form: "import",
-        specifier: "../../context.json",
-        attributeText: null,
-        resolved: "bounded-contexts/pricing/context.json",
-        disposition: "vite-excluded",
-      },
-      {
-        relativeFile: "bounded-contexts/pricing/routes/marketplace/account-desk-repricing.tsx",
-        form: "import",
-        specifier: "../../context.json",
-        attributeText: null,
-        resolved: "bounded-contexts/pricing/context.json",
-        disposition: "vite-excluded",
-      },
-    ]);
-    expect(
-      normalized.filter(
-        (entry) => entry.relativeFile === "bounded-contexts/pricing/tests/account-repricing-route.test.ts",
-      ),
-    ).toEqual([
-      {
-        relativeFile: "bounded-contexts/pricing/tests/account-repricing-route.test.ts",
-        form: "import",
-        specifier: "../context.json",
-        attributeText: null,
-        resolved: "bounded-contexts/pricing/context.json",
-        disposition: "vitest-excluded",
-      },
-    ]);
-    expect(
-      result.inventory.declarations.find(
-        (entry) => entry.relativeFile === "bounded-contexts/catalog/support/authoring-support/index.ts",
-      ),
-    ).toMatchObject({ disposition: "node-enforced", attributeText: 'with { type: "json" }' });
-    expect(
-      result.inventory.declarations.find(
-        (entry) => entry.relativeFile === "bounded-contexts/settlement/routes/marketplace/account-desk-payout.tsx",
-      ),
-    ).toMatchObject({ disposition: "vite-excluded" });
-    expect(
-      result.inventory.declarations.find(
-        (entry) => entry.relativeFile === "deployables/admin-web/app/generated/web-context-registry.ts",
-      ),
-    ).toMatchObject({ disposition: "vite-excluded" });
-    expect(
-      result.inventory.declarations.find(
-        (entry) => entry.relativeFile === "bounded-contexts/ordering/tests/inventory-reservation-subscription.test.ts",
-      ),
-    ).toMatchObject({ disposition: "vitest-excluded" });
-    expect(
-      result.inventory.declarations.find(
-        (entry) =>
-          entry.relativeFile ===
-          "bounded-contexts/platform-operations/features/seller-compliance-sales/read-model/projection.test.ts",
-      ),
-    ).toMatchObject({
-      disposition: "vitest-excluded",
-      resolved: "bounded-contexts/platform-operations/context.json",
-      attributeText: 'with { type: "json" }',
+        resolved: "bounded-contexts/platform-operations/context.json",
+        attributeText: 'with { type: "json" }',
+      });
     });
   });
 
