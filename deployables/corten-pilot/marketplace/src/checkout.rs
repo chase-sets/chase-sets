@@ -883,7 +883,10 @@ pub fn payment_href(guest: bool, id: &str, after_write: Option<String>) -> Strin
 
 /// The offer a purchase intent became, read after `receipt`.
 fn submitted_offer<'a>(id: &'a str, receipt: Option<&Receipt>) -> url::SubmittedOffer<'a> {
-    url::SubmittedOffer { id, place: crate::submitted_offers::OfferPlace { after_write: receipt.map(Receipt::param) } }
+    url::SubmittedOffer {
+        id,
+        place: crate::submitted_offers::OfferPlace { after_write: receipt.map(Receipt::param), policy: None },
+    }
 }
 
 pub(crate) async fn page(

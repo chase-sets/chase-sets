@@ -248,7 +248,9 @@ pub mod url {
     pub use sets::Set;
     pub use shipments::{Shipment, Shipments};
     pub use sign_in::{MagicLink, PasskeyChallenge, SignIn};
-    pub use submitted_offers::{SubmittedOffer, SubmittedOffers, SubmittedOffersLive};
+    pub use submitted_offers::{
+        SubmittedOffer, SubmittedOfferFollowing, SubmittedOffers, SubmittedOffersFollowing, SubmittedOffersLive,
+    };
     pub use support::{SupportCase, SupportList};
     pub use team::Team;
 
@@ -1413,7 +1415,8 @@ pub mod url {
     }
 
     /// The buyer's submitted offers (marketplace's `account-offers-submitted`): the list in a
-    /// status, drawn again live, and its Pause, Resume and Withdraw (see `submitted_offers`). Every
+    /// status, drawn again live, its Pause, Resume and Withdraw, and market following's steps (see
+    /// `submitted_offers` and `market_following`). Every
     /// handler takes an `OfferBuyer`.
     #[corten::routes(state = crate::app::Shared, area = SubmittedOffers, caller = crate::auth::OfferBuyer)]
     pub mod submitted_offers {
@@ -1425,9 +1428,8 @@ pub mod url {
             pub place: crate::submitted_offers::Place,
         }
 
-        /// The status counts and the rows, drawn again on each change to the account's offers.
-        #[derive(Clone, Debug, Default)]
         /// One offer: its overview, and Pause, Resume and Withdraw for it.
+        #[derive(Clone, Debug, Default)]
         #[route("/account/offers/submitted/{id}", get = crate::submitted_offers::detail, post = crate::submitted_offers::change_one)]
         pub struct SubmittedOffer<'a> {
             pub id: &'a str,
@@ -1435,10 +1437,26 @@ pub mod url {
             pub place: crate::submitted_offers::OfferPlace,
         }
 
+        /// The status counts and the rows, drawn again on each change to the account's offers.
         #[route("/account/offers/submitted/live", get = crate::submitted_offers::live)]
         pub struct SubmittedOffersLive {
             #[route(query)]
             pub place: crate::submitted_offers::Place,
+        }
+
+        /// A market-following step for the list's offers: the list with its policy opened (303), or
+        /// again with a refused or unconfirmed step.
+        #[route("/account/offers/submitted/following", post = crate::submitted_offers::follow)]
+        pub struct SubmittedOffersFollowing {
+            #[route(query)]
+            pub place: crate::submitted_offers::Place,
+        }
+
+        /// A market-following step for one offer: its page with its policy opened (303), or again
+        /// with a refused or unconfirmed step.
+        #[route("/account/offers/submitted/{id}/following", post = crate::submitted_offers::follow_one)]
+        pub struct SubmittedOfferFollowing<'a> {
+            pub id: &'a str,
         }
     }
 

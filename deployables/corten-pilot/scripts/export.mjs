@@ -1771,6 +1771,8 @@ const outputs = [
         ["marketplace.features.offers.ui.submittedOfferDetailPage.", "detail"],
         ["marketplace.routes.accountOfferSubmitted.", "detail_route"],
         ["marketplace.features.offers.ui.offerDetailRecoveryPage.", "recovery"],
+        ["marketplace.marketFollowing.", "following"],
+        ["marketplace.recovery.", "command"],
       ]),
     ),
   ],

@@ -44,6 +44,7 @@ mod item_detail;
 mod listing_new_page;
 mod listing_page;
 mod location_card;
+mod market_following;
 mod market_nav;
 mod money_page;
 mod notification_page;
@@ -104,6 +105,7 @@ pub use item_detail::{ItemDetail, breadcrumb_json_ld, item_image, item_live_part
 pub use listing_new_page::{ListingAccessRequired, NewListingPage, NewListingParts};
 pub use listing_page::{ListingNotice, ListingPage, fulfillment, grouped, listing_json_ld, listing_price, unbuyable};
 pub use location_card::{ArchiveForm, CardList, CreateForm, LocationCard, UpdateForm};
+pub use market_following::MarketFollowing;
 pub use market_nav::{CartBadge, MarketNav};
 pub use money_page::{MoneyPage, PayoutPage, PayoutPreparing};
 pub use notification_page::{AlertsSection, FeedSection, NotificationPage, PreferenceSwitch, ProductAlertsId};
@@ -321,7 +323,10 @@ pub const BULK_REPRICE: &[Component] = &[BulkRepricePage, platform::ui::stats::S
 
 /// The seller's offer matches (`/account/offers/matches`), the list and a match's page.
 pub const OFFER_MATCHES: &[Component] = &[OfferMatchesPage];
-pub const SUBMITTED_OFFERS: &[Component] = &[SubmittedOffersPage, submitted_offers_page::handlers::COMPONENT];
+/// The buyer's submitted offers (`/account/offers/submitted`), with market following and the kit's
+/// Checkbox for its choices.
+pub const SUBMITTED_OFFERS: &[Component] =
+    &[SubmittedOffersPage, submitted_offers_page::handlers::COMPONENT, MarketFollowing, platform::ui::checkbox::Checkbox];
 
 /// The account's orders (`/account/purchases` and `/account/sales`).
 pub const ORDERS: &[Component] = &[OrderPage, OrderReviewPage];
