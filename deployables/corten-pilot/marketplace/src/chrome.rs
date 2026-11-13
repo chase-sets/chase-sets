@@ -9,7 +9,12 @@
 //! reads the cart itself and gives the count it found (`cart::render`), so its `GET` starts none.
 use std::future::Future;
 
-use corten::{LayoutRead, http::request::Parts, prelude::*};
+use corten::{
+    LayoutRead,
+    http::{HeaderMap, request::Parts},
+    prelude::*,
+};
+use platform::receipt::Receipt;
 
 use crate::{
     api::Checkout as _,
@@ -50,12 +55,27 @@ impl LayoutRead for CartCount {
 async fn count(head: &Parts, config: &Shared) -> u64 {
     let (headers, uri) = (&head.headers, &head.uri);
     let account = matches!(crate::auth::find(head, config).await, Found::Account(viewer) if !viewer.guest());
+    let guest = if account { None } else { anonymous_cart(headers) };
+    let receipt = after_write(uri).or_else(|| crate::auth::receipt_named(uri, ADDED));
+    count_of(config, headers, account, guest, receipt.as_ref()).await
+}
+
+/// The count of the account's cart (`account`) or the guest cart `guest`, read after `receipt`
+/// when there is one, and as it stands if that read fails: for a page that draws itself after its
+/// own cart write and gives the count (`HtmlResponse::give`), since the read the layout starts
+/// knows neither the write's receipt nor a guest cart the write just made.
+pub(crate) async fn count_of(
+    config: &Shared,
+    headers: &HeaderMap,
+    account: bool,
+    guest: Option<&str>,
+    receipt: Option<&Receipt>,
+) -> u64 {
     let read = |receipt| async move {
         let caller = config.platform.caller(headers, config.proto, receipt);
-        if account { caller.cart().await } else { caller.guest_cart(anonymous_cart(headers)).await }
+        if account { caller.cart().await } else { caller.guest_cart(guest).await }
     };
-    let receipt = after_write(uri).or_else(|| crate::auth::receipt_named(uri, ADDED));
-    let read = match receipt.as_ref() {
+    let read = match receipt {
         Some(receipt) => match read(Some(receipt)).await {
             Ok(cart) => Ok(cart),
             Err(_) => read(None).await,

@@ -27,6 +27,7 @@ mod account_home_page;
 mod account_page;
 mod address_page;
 mod agents_page;
+mod bulk_cart_sheet;
 mod bulk_reprice_page;
 mod cart_item;
 mod channels_page;
@@ -83,6 +84,7 @@ pub use account_home_page::AccountHomePage;
 pub use account_page::{AccountPage, FeedbackId, ReviewId};
 pub use address_page::AddressPage;
 pub use agents_page::{AgentConsentPage, AgentPage, AgentsPage};
+pub use bulk_cart_sheet::BulkCartSheet;
 pub use bulk_reprice_page::{BulkRepricePage, bulk_reprice_part};
 pub use cart_item::{
     AttemptBanner, CartHeading, CartIssue, CartItem, CartList, CartNotice, CartStack, CartTotals, CheckoutBar, CheckoutForm,
@@ -201,7 +203,8 @@ pub const ITEM: &[Component] = &[
 /// Search's components (the home page, `/search`, `/categories`, and `/sets` for its cards): its
 /// stylesheet, the script that applies a filter as it changes, the analytics a result's click
 /// sends, the kit's `VisuallyHidden` (search's hidden heading and legends, and the item page's
-/// chart summary), and Add to List's dialog with corten-ui's handler that makes it modal. In
+/// chart summary), Add to List's dialog and Add matching products to Buy Cart's sheet with
+/// corten-ui's handler that makes each modal. In
 /// `App::components`, since the home page is outside every area. The dialog is here rather than
 /// with the item page because a result's Add to List patches it into the search page from the
 /// item's handler (`/items/{slug}/save`), and a patch brings no stylesheet of its own
@@ -212,6 +215,7 @@ pub const SEARCH: &[Component] = &[
     item_detail::analytics::COMPONENT,
     platform::ui::visually_hidden::VisuallyHidden,
     SaveDialog,
+    BulkCartSheet,
     corten_ui::dialog::COMPONENT,
 ];
 
