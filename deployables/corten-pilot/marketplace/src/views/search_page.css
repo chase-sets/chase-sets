@@ -465,6 +465,10 @@
 .save {
   display: contents;
 }
+/* Add matching products to Buy Cart's form, whose button sits among the controls. */
+.bulk {
+  display: contents;
+}
 
 /* The home page's shelf: featured categories (1, 2 from md, 4 from xl) and new arrivals (1, 2
    from lg, 3 from 2xl), as marketplace's grids are. */
