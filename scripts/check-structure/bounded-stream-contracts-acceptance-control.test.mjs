@@ -78,6 +78,8 @@ const expectedInventory = [
   ["contracts/event-core/complete-stream.ts#readStream#1", "EVENT_STORE_READ_PAGE_SIZE_MAX"],
   // The owner-transaction adapter forwards the complete request unchanged.
   ["bounded-contexts/inventory/support/runtime-support/mutation-attempt.ts#readStream#1", null],
+  // The non-DB shipping test seam forwards the complete read request to the in-memory store unchanged.
+  ["bounded-contexts/fulfillment/features/seller-checkout-readiness/api/test-support.ts#readStream#1", null],
   // The owner-checking lookup reader forwards the complete history request unchanged.
   ["bounded-contexts/marketplace/features/mutation-recovery/api/lookup.ts#readStream#1", null],
   // Listing-attempt owner lookup forwards the complete history request unchanged.
