@@ -7,6 +7,7 @@ import ts from "@chase-sets/typescript-compiler-api";
 import { describe, expect, it, vi } from "vitest";
 import { Hono } from "hono";
 import { module as authModule } from "@chase-sets/auth";
+import { contextManifest as catalogContextManifest } from "@chase-sets/catalog";
 import { module as checkoutModule } from "@chase-sets/checkout";
 import { module as identityModule } from "@chase-sets/identity";
 import { module as inventoryModule } from "@chase-sets/inventory";
@@ -246,16 +247,15 @@ function createCatalogRuntime() {
   const catalogRouter = new Hono();
   catalogRouter.get("/source-observations/provider-profiles", (c) => c.json({ items: [] }));
   catalogRouter.post("/source-observations/provider-profiles", (c) => c.json({ created: true }, 201));
+  const publicRouter = new Hono();
+  publicRouter.delete("/grant", (c) => c.json({ publicRouteReached: true }));
   const catalogModule = {
     contextName: "catalog",
-    apiMounts: [
-      {
-        mountPath: "/api/catalog",
-        kind: "primary",
-        requiresAuth: true,
-      },
+    apiMounts: catalogContextManifest.apiMounts,
+    buildApis: () => [
+      { mountPath: "/api/catalog", contextMountOrdinal: 1, router: catalogRouter },
+      { mountPath: "/api/public/catalog/operator-session", contextMountOrdinal: 2, router: publicRouter },
     ],
-    buildApis: () => [{ mountPath: "/api/catalog", contextMountOrdinal: 1, router: catalogRouter }],
     projectionHandlerSets: () => [],
   };
 
@@ -1109,6 +1109,50 @@ describe("platform api app wiring", () => {
     await expect(response.json()).resolves.toMatchObject({
       error: { code: "authentication_required" },
     });
+  });
+
+  it("platform api holds no catalog permission policy", () => {
+    const root = repositoryRootFromTests();
+    for (const file of collectRepositorySourceFiles(join(root, "deployables/platform-api/src"))) {
+      const source = readFileSync(file, "utf8");
+      const tree = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true);
+      function visit(node: ts.Node) {
+        if (ts.isStringLiteralLike(node)) {
+          expect(["catalog.view", "catalog.manage"], file).not.toContain(node.text);
+        }
+        if (ts.isFunctionDeclaration(node) || ts.isVariableDeclaration(node)) {
+          expect(node.name?.getText(tree), file).not.toBe("catalogApiPermissionMiddleware");
+        }
+        ts.forEachChild(node, visit);
+      }
+      visit(tree);
+    }
+    const appSource = readFileSync(join(root, "deployables/platform-api/src/app.ts"), "utf8");
+    const tree = ts.createSourceFile("app.ts", appSource, ts.ScriptTarget.Latest, true);
+    expect(
+      tree.statements.some(
+        (node) =>
+          ts.isImportDeclaration(node) &&
+          ts.isStringLiteral(node.moduleSpecifier) &&
+          node.moduleSpecifier.text === "@chase-sets/catalog/server" &&
+          node.importClause?.namedBindings &&
+          ts.isNamedImports(node.importClause.namedBindings) &&
+          node.importClause.namedBindings.elements.some(
+            (entry) => entry.name.text === "catalogApiPermissionMiddleware",
+          ),
+      ),
+    ).toBe(true);
+  });
+
+  it("catalog permission middleware is not attached to the public operator-session mount", async () => {
+    const resolveActor = vi.fn(async () => null);
+    const app = buildPlatformApiApp(createCatalogRuntime(), { resolveActor });
+
+    const response = await app.request("/api/public/catalog/operator-session/grant", { method: "DELETE" });
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ publicRouteReached: true });
+    expect(resolveActor).not.toHaveBeenCalled();
   });
 
   it("rejects forged identity context headers on the mounted Identity consent API", async () => {
