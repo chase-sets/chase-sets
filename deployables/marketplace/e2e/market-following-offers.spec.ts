@@ -152,7 +152,7 @@ test("market-following consent, changed target, Checkout acceptance and permanen
       expect(metadata?.commitPositions.length, "retain the real command's commit receipt").toBeGreaterThan(0);
       writes.push(metadata);
     };
-    const freshReadHeaders = (target: "marketplace" | "ordering") => {
+    const freshReadHeaders = (target: "marketplace" | "ordering" | "checkout") => {
       const receipt = readFreshWriteToken(appendFreshWriteTokenFromSources("http://localhost/", writes));
       expect(receipt, "carry the captured command receipts into the exact read").not.toBeNull();
       return {
@@ -742,6 +742,19 @@ test("market-following consent, changed target, Checkout acceptance and permanen
             return { can_fulfill: match.can_fulfill, amount: match.price_amount, listingId: match.listing_id };
           })
           .toEqual({ can_fulfill: true, amount: "135.00", listingId });
+        // Accept and the Sell List read Checkout's own Offer and seller-option projections, which neither
+        // fence above covers. Fence Checkout on the same receipts through the route Accept itself reads.
+        const checkoutMatch = await seller.request.get(
+          `/api/marketplace/account/sell-list/offer-matches/${controlOfferId}`,
+          { headers: freshReadHeaders("checkout") },
+        );
+        expect(checkoutMatch.ok(), "Checkout has applied the test-owned Listing and Offer receipts").toBe(true);
+        expect(await checkoutMatch.json()).toMatchObject({
+          offer_id: controlOfferId,
+          listing_id: listingId,
+          price_amount: "135.00",
+          status: "submitted",
+        });
         seller.on("response", (response) => {
           const request = response.request();
           if (request.method() === "POST") {
@@ -772,6 +785,30 @@ test("market-following consent, changed target, Checkout acceptance and permanen
           expect(await seller.content()).not.toContain(`"${field}"`);
         await seller.getByRole("button", { name: "Accept offer match", exact: true }).first().click();
         await expect(seller).toHaveURL(/\/account\/sell-list/);
+        // The rendered Sell List is a snapshot; name the Checkout input that would keep its control disabled.
+        const [review, payout] = await Promise.all([
+          seller.request.get("/api/marketplace/account/sell-list/composite-review"),
+          seller.request.get("/api/marketplace/account/sell-list/payout-readiness"),
+        ]);
+        expect([review.status(), payout.status()], "Checkout Sell List readiness reads").toEqual([200, 200]);
+        const { offerReviews } = await review.json();
+        expect(
+          {
+            payout: (await payout.json()).status,
+            offerReviews: offerReviews.map(
+              (entry: {
+                status: string;
+                message: string | null;
+                evidence: { coverage: { complete: boolean } } | null;
+              }) => ({
+                status: entry.status,
+                message: entry.message,
+                evidenceComplete: entry.evidence?.coverage.complete ?? null,
+              }),
+            ),
+          },
+          "Checkout inputs behind the seller checkout control",
+        ).toEqual({ payout: "ready", offerReviews: [{ status: "ready", message: null, evidenceComplete: true }] });
         await seller
           .locator('a[href*="/checkout/sell/"], button')
           .filter({ hasText: /seller checkout|review sale/i })
