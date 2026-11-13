@@ -5883,6 +5883,35 @@ async fn a_listing_page_shows_the_listing_its_purchase_panel_and_its_seller() {
 }
 
 #[tokio::test]
+async fn a_change_to_a_listing_draws_its_header_purchase_and_seller_again_and_not_its_report_form() {
+    let pilot = Pilot::new().await;
+    let (_, _, html) = pilot.send(get("/listings/psa-8", None)).await;
+    assert!(html.contains(r#"<corten-live src="/listings/psa-8/live/lst_psa_8"></corten-live>"#), "{html}");
+    let events = pilot.events(get("/listings/psa-8/live/lst_psa_8", None), 1).await;
+    assert_eq!(events.len(), 1, "one change, one redraw: {events:?}");
+    let (event, cursor, data) = &events[0];
+    assert_eq!((event.as_str(), cursor.as_str()), ("patch", "c2"));
+    for id in [r#"id="listing-head""#, r#"id="listing-buy""#, r#"id="listing-seller""#] {
+        assert!(data.contains(id), "{id}: {data}");
+    }
+    assert!(data.contains(r#"<form method="post" action="/listings/psa-8/buy">"#) && data.contains("$749.00"), "{data}");
+    assert!(!data.contains(r#"name="reason""#), "the report form keeps what was typed: {data}");
+    let calls = pilot.stand.calls.lock().unwrap().clone();
+    assert!(calls.iter().any(|c| c.path == "/api/realtime/public/events?topic=listing%3Alst_psa_8"), "the listing's topic only");
+    let reads = calls.iter().filter(|c| c.path == "/api/marketplace/listings/psa-8").count();
+    assert_eq!(reads, 2, "the page's read and the change's: {calls:?}");
+}
+
+#[tokio::test]
+async fn a_change_to_a_listing_the_read_no_longer_finds_says_it_is_not_found() {
+    let pilot = Pilot::new().await;
+    let events = pilot.events(get("/listings/nope/live/lst_gone", None), 1).await;
+    let (_, _, data) = &events[0];
+    assert!(data.contains(">Listing not found</h1>") && data.contains("This listing is not available right now."), "{data}");
+    assert!(data.contains(r#"id="listing-buy""#) && !data.contains("/buy"), "the purchase column is emptied: {data}");
+}
+
+#[tokio::test]
 async fn an_old_listing_slug_moves_with_its_query_an_unknown_one_is_not_found_and_a_failed_read_a_bad_gateway() {
     let pilot = Pilot::new().await;
     let (status, headers, _) = pilot.send(get("/listings/old-psa-8?ref=x", None)).await;
@@ -6073,6 +6102,36 @@ async fn an_old_slug_or_id_moves_an_unknown_account_is_not_found_and_a_closed_on
     assert!(html.contains(r#"<meta name="robots" content="noindex" "#), "{html}");
     assert!(html.contains(">Chase Sets&#39;s marketplace profile isn&#39;t available right now.</p>"), "{html}");
     assert!(!html.contains("id=\"feedback\""), "a closed account shows no feedback: {html}");
+}
+
+#[tokio::test]
+async fn a_change_to_an_account_draws_its_standing_and_listings_again_and_not_its_feedback() {
+    let pilot = Pilot::new().await;
+    let (_, _, html) = pilot.send(get("/accounts/chase-sets?role=seller&page=2", None)).await;
+    assert!(html.contains(r#"<corten-live src="/accounts/acc_chase/live"></corten-live>"#), "{html}");
+    let events = pilot.events(get("/accounts/acc_chase/live", None), 1).await;
+    let (event, cursor, data) = &events[0];
+    assert_eq!((event.as_str(), cursor.as_str()), ("patch", "c2"));
+    assert!(data.contains(r#"id="account-head""#) && data.contains(r#"id="account-listings""#), "{data}");
+    assert!(data.contains(r#"href="/listings/psa-8">View listing</a>"#), "{data}");
+    assert!(!data.contains(r#"id="feedback""#) && !data.contains("/report"), "the feedback keeps its dialogs: {data}");
+    let calls = pilot.stand.calls.lock().unwrap().clone();
+    assert!(calls.iter().any(|c| c.path == "/api/realtime/public/events?topic=public-account%3Aacc_chase"), "{calls:?}");
+    assert!(calls.iter().any(|c| c.path == "/api/marketplace/accounts/acc_chase?limit=10&offset=0"), "{calls:?}");
+}
+
+#[tokio::test]
+async fn an_account_no_longer_active_or_found_replaces_the_page_and_ends_the_stream() {
+    let pilot = Pilot::new().await;
+    let events = pilot.events(get("/accounts/closed/live", None), 3).await;
+    assert_eq!(events.iter().map(|(e, _, _)| e.as_str()).collect::<Vec<_>>(), ["patch", "end"], "{events:?}");
+    let data = &events[0].2;
+    assert!(data.contains(r#"id="account-page""#) && data.contains(">Account unavailable</h1>"), "{data}");
+    let events = pilot.events(get("/accounts/acc_gone/live", None), 3).await;
+    assert_eq!(events.len(), 2, "{events:?}");
+    assert!(events[0].2.contains(">Account not found</h1>"), "{events:?}");
+    let (_, _, html) = pilot.send(get("/accounts/closed", None)).await;
+    assert!(!html.contains("corten-live"), "a closed account is not followed: {html}");
 }
 
 #[tokio::test]
