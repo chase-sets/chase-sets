@@ -597,6 +597,9 @@ async fn platform(State(stand): State<Stand>, method: Method, uri: Uri, headers:
     if let Some(answer) = offer_matches(&method, uri.path()) {
         return answer;
     }
+    if let Some(answer) = offer_policies(&method, &uri, &body) {
+        return answer;
+    }
     if let Some(answer) = submitted_offers(&method, &uri, &headers, &body) {
         return answer;
     }
@@ -10773,6 +10776,267 @@ fn submitted_offers(method: &Method, uri: &Uri, headers: &HeaderMap, body: &str)
 
 const SUBMITTED_OFFERS: &str = "/account/offers/submitted";
 
+/// A market-following policy as the API answers it.
+fn offer_policy(id: &str, status: &str, version: u64, authority: Option<Value>, preview: Option<Value>) -> Value {
+    json!({
+        "policyId": id, "status": status, "version": version, "currency": "USD",
+        "authority": authority, "preview": preview, "offerVersions": { "off_open": 3 },
+    })
+}
+
+/// Terms over one offer with its cap.
+fn policy_terms(offer: &str, cap: &str, bps: i64) -> Value {
+    json!({
+        "currency": "USD", "adjustmentBps": bps,
+        "offers": [{
+            "offerId": offer, "offerVersion": 5, "catalogItemId": "cat_char", "productId": "cat_char::form:raw",
+            "selectedOptions": [], "quantity": 1, "maximumUnitItemAmount": cap,
+        }],
+    })
+}
+
+/// The preview id the stand-in's previews carry.
+const PREVIEW_ID: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+
+/// Market following's calls, as the stand-in answers them. `bop_live` is active over `off_paused`
+/// at -1.5%, and every list names it, reading `off_open` at version 3. A new policy's create
+/// answers its draft at 1 and its preview `off_open` targeted at 16.50 against a Market Price of
+/// 17.00, unless the adjustment is -25% (`stale_preview`); Authorize makes it active at 3, and
+/// Pause on `bop_live` answers it paused at 4. Stop on `bop_lost` and `bop_dark` has no answer
+/// (502): `bop_lost`'s attempt is found committed at 9, where the policy reads stopped, and
+/// `bop_dark`'s is not found.
+fn offer_policies(method: &Method, uri: &Uri, body: &str) -> Option<Response> {
+    const POLICIES: &str = "/api/marketplace/account/offer-policies";
+    const ATTEMPTS: &str = "/api/marketplace/mutation-attempts/";
+    let live = || offer_policy("bop_live", "active", 3, Some(policy_terms("off_paused", "20.00", -150)), None);
+    if let Some(attempt) = uri.path().strip_prefix(ATTEMPTS) {
+        let query = |key: &str| {
+            let raw = uri.query().unwrap_or_default().split('&').find_map(|p| p.strip_prefix(&format!("{key}=")))?;
+            Some(percent_encoding::percent_decode_str(raw).decode_utf8_lossy().into_owned())
+        };
+        let (Some(target), Some(hash)) = (query("target"), query("requestHash")) else {
+            return Some(refusal(StatusCode::BAD_REQUEST, "invalid_attempt", "Invalid attempt."));
+        };
+        if target != "bop_lost" || query("kind").as_deref() != Some("offer-policy.command") {
+            return Some(refusal(StatusCode::NOT_FOUND, "not_found", "Attempt not found."));
+        }
+        let key = json!({ "kind": "offer-policy", "id": target });
+        let fingerprint = crate::market_following::request_hash(&json!(["acc_buyer", "offer-policy.command", key, attempt]));
+        return Some(
+            Json(json!({
+                "schemaVersion": 1, "mutationKind": "offer-policy.command", "attemptKeyFingerprint": fingerprint,
+                "actorBinding": { "accountId": "acc_buyer" }, "target": key, "canonicalRequestHash": hash,
+                "ownerStatus": "committed", "ownerReceipt": { "id": "bop_lost", "version": 9 },
+            }))
+            .into_response(),
+        );
+    }
+    let rest = uri.path().strip_prefix(POLICIES)?;
+    let sent: Value = serde_json::from_str(body).unwrap_or_default();
+    Some(match (method.as_str(), rest) {
+        ("GET", "") => {
+            Json(json!({ "items": [live()], "offerVersions": { "off_open": 3, "off_paused": 5 }, "nextCursor": null }))
+                .into_response()
+        }
+        ("GET", "/bop_live") => Json(live()).into_response(),
+        ("GET", "/bop_lost") => Json(offer_policy("bop_lost", "stopped", 9, None, None)).into_response(),
+        ("GET", _) => refusal(StatusCode::NOT_FOUND, "not_found", "Policy not found."),
+        ("POST", path) => {
+            let id = path.strip_prefix('/')?.strip_suffix("/commands")?;
+            match sent["type"].as_str().unwrap_or_default() {
+                "CreateBuyerOfferPolicy" => Json(offer_policy(id, "draft", 1, None, None)).into_response(),
+                "PreviewBuyerOfferPolicy" if sent["terms"]["adjustmentBps"] == -2500 => {
+                    refusal(StatusCode::CONFLICT, "stale_preview", "The preview is stale.")
+                }
+                "PreviewBuyerOfferPolicy" => {
+                    let outcome = json!({
+                        "offerId": "off_open", "currentUnitItemAmount": "17.75",
+                        "result": { "status": "target", "unitItemAmount": "16.50", "evidence": { "marketPrice": {
+                            "amount": "17.00", "currencyCode": "USD", "estimateVersion": "mpe_7",
+                            "freshUntil": "2026-11-13T18:00:00.000Z",
+                        } } },
+                    });
+                    let preview = json!({ "previewId": PREVIEW_ID, "terms": sent["terms"], "outcomes": [outcome] });
+                    Json(offer_policy(id, "draft", 2, None, Some(preview))).into_response()
+                }
+                "AuthorizeBuyerOfferPolicy" => {
+                    Json(offer_policy(id, "active", 3, Some(policy_terms("off_open", "18.00", -200)), None)).into_response()
+                }
+                "PauseBuyerOfferPolicy" if id == "bop_live" => {
+                    Json(offer_policy(id, "paused", 4, Some(policy_terms("off_paused", "20.00", -150)), None)).into_response()
+                }
+                "StopBuyerOfferPolicy" if matches!(id, "bop_lost" | "bop_dark") => {
+                    refusal(StatusCode::BAD_GATEWAY, "upstream_unavailable", "No answer.")
+                }
+                _ => refusal(StatusCode::UNPROCESSABLE_ENTITY, "invalid_authority", "Refused."),
+            }
+        }
+        _ => return None,
+    })
+}
+
+/// The commands the pilot sent to `policy`, as their bodies.
+fn policy_commands(pilot: &Pilot, policy: &str) -> Vec<String> {
+    let path = format!("/api/marketplace/account/offer-policies/{policy}/commands");
+    pilot
+        .stand
+        .calls
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|c| c.method == Method::POST && c.path == path)
+        .map(|c| c.body.clone())
+        .collect()
+}
+
+const POLICY_ATTEMPT: &str = "attempt_0123456789abcdefghij";
+
+#[tokio::test]
+async fn market_following_lists_the_policies_and_opens_one_with_its_steps() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get(SUBMITTED_OFFERS, Some("trader"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let page = text(&html);
+    assert!(page.contains("Market-following Offers Draft"), "{page}");
+    assert!(html.contains(r#"href="/account/offers/submitted?policy=bop_live""#), "{html}");
+    assert!(page.contains("Manage Active: off_paused"), "{page}");
+    // A new policy: only the open offer may be chosen, at version 0, under a new id.
+    assert!(html.contains(r#"action="/account/offers/submitted/following""#), "{html}");
+    assert!(
+        html.contains(r#"name="offerId" value="off_open""#) && !html.contains(r#"name="offerId" value="off_paused""#),
+        "{html}"
+    );
+    assert!(html.contains(r#"name="expectedVersion" value="0""#) && html.contains(r#"name="policyId" value="bop_"#), "{html}");
+    let calls = list_calls(&pilot, "/api/marketplace/account/offer-policies?");
+    assert!(calls.iter().any(|c| c.contains("offerId=off_open&offerId=off_paused&offerId=off_taken")), "{calls:?}");
+
+    // Opened: its authority, Pause and Stop, and the form at its terms.
+    let (status, _, html) = pilot.send(get("/account/offers/submitted?policy=bop_live", Some("trader"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let page = text(&html);
+    assert!(page.contains("Market-following Offers Active"), "{page}");
+    assert!(
+        page.contains("Offer off_paused. Product cat_char::form:raw. Quantity: 1. Maximum unit item amount: $20.00."),
+        "{page}"
+    );
+    assert!(html.contains(r#"name="step" value="pause""#) && html.contains(r#"name="step" value="stop""#), "{html}");
+    assert!(html.contains(r#"name="confirmStop" value="true" required"#), "{html}");
+    assert!(html.contains(r#"name="adjustment""#) && html.contains(r#"value="-1.5""#), "{html}");
+
+    // A reader without offers.manage sees the policies and no step.
+    let (_, _, html) = pilot.send(get(SUBMITTED_OFFERS, Some("lister"))).await;
+    assert!(text(&html).contains("Manage Active: off_paused") && !html.contains(r#"name="step""#), "{html}");
+    let (status, _, _) =
+        pilot.send(post("/account/offers/submitted/following", "lister", "step=pause&policyId=bop_live", false)).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn a_first_preview_creates_the_policy_and_authorize_needs_consent() {
+    let pilot = Pilot::new().await;
+    let here = "/account/offers/submitted/off_open/following";
+    let form = format!(
+        "step=preview&policyId=bop_new1&expectedVersion=0&attemptId={POLICY_ATTEMPT}&operationId=op_1&offerId=off_open&cap.off_open=18&adjustment=-2"
+    );
+    let (status, _, html) = pilot.send(post(here, "trader", &form, false)).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let page = text(&html);
+    assert!(page.contains("Review exact Offer authority Currency: USD. Adjustment: -2%."), "{page}");
+    assert!(page.contains("Market Price: $17.00. Estimate version: mpe_7."), "{page}");
+    assert!(page.contains("Proposed unit item amount: $16.50"), "{page}");
+    assert!(html.contains(&format!(r#"name="previewId" value="{PREVIEW_ID}""#)), "{html}");
+    assert!(html.contains(r#"name="consent" value="true" required"#), "{html}");
+    let sent = policy_commands(&pilot, "bop_new1");
+    assert_eq!(sent.len(), 2, "{sent:?}");
+    assert!(sent[0].contains(r#""type":"CreateBuyerOfferPolicy""#), "{}", sent[0]);
+    assert!(
+        sent[0].contains(r#""attemptId":"bop_new1______________""#) && sent[0].contains(r#""operationId":"create_bop_new1""#)
+    );
+    for part in [
+        r#""type":"PreviewBuyerOfferPolicy""#,
+        r#""expectedVersion":1"#,
+        r#""adjustmentBps":-200"#,
+        r#""maximumUnitItemAmount":"18.00""#,
+        r#""offerVersion":3"#,
+        r#""productId":"cat_pika::form:raw""#,
+        r#""selectedOptions":[{"dimensionId":"dim_form","optionId":"raw"}]"#,
+        r#""attemptId":"attempt_0123456789abcdefghij""#,
+    ] {
+        assert!(sent[1].contains(part), "{part} in {}", sent[1]);
+    }
+
+    // Authorize without consent is refused before the API; with it, the policy is active.
+    let authorize = format!(
+        "step=authorize&policyId=bop_new1&expectedVersion=2&attemptId={POLICY_ATTEMPT}&operationId=op_2&previewId={PREVIEW_ID}"
+    );
+    let (status, _, html) = pilot.send(post(here, "trader", &authorize, false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    assert!(text(&html).contains("Review your Offer controls"), "{html}");
+    assert_eq!(policy_commands(&pilot, "bop_new1").len(), 2);
+    let (status, _, html) = pilot.send(post(here, "trader", &format!("{authorize}&consent=true"), false)).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(text(&html).contains("Market-following Offers Active"), "{html}");
+    assert!(html.contains(r#"name="step" value="pause""#), "{html}");
+    let sent = policy_commands(&pilot, "bop_new1");
+    assert!(sent[2].contains(&format!(r#""previewId":"{PREVIEW_ID}""#)) && sent[2].contains(r#""consent":true"#), "{}", sent[2]);
+}
+
+#[tokio::test]
+async fn a_refused_or_stale_preview_keeps_what_was_sent() {
+    let pilot = Pilot::new().await;
+    let here = "/account/offers/submitted/following";
+    let preview = |adjustment: &str| {
+        format!(
+            "step=preview&policyId=bop_new2&expectedVersion=0&attemptId={POLICY_ATTEMPT}&operationId=op_1&offerId=off_open&cap.off_open=18.5&adjustment={adjustment}"
+        )
+    };
+    // The evidence moved under the preview: said so, and the inputs kept.
+    let (status, _, html) = pilot.send(post(here, "trader", &preview("-25"), false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    assert!(text(&html).contains("The Offer or Market Price evidence changed."), "{html}");
+    assert!(html.contains(r#"value="18.5""#) && html.contains(r#"value="-25""#), "{html}");
+    // An adjustment above 0% is refused before the API.
+    let before = policy_commands(&pilot, "bop_new2").len();
+    let (status, _, html) = pilot.send(post(here, "trader", &preview("5"), false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    assert!(text(&html).contains("Check the selected Offers, matching currency and item limits"), "{html}");
+    assert_eq!(policy_commands(&pilot, "bop_new2").len(), before);
+    // Stop asks for its own confirmation.
+    let stop = format!("step=stop&policyId=bop_live&expectedVersion=3&attemptId={POLICY_ATTEMPT}&operationId=op_1");
+    let (status, _, _) = pilot.send(post(here, "trader", &stop, false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(policy_commands(&pilot, "bop_live").is_empty());
+}
+
+#[tokio::test]
+async fn a_step_with_no_answer_is_looked_up_once_and_an_unconfirmed_one_turns_the_steps_off() {
+    let pilot = Pilot::new().await;
+    let here = "/account/offers/submitted/following";
+    let stop = |policy: &str| {
+        format!("step=stop&policyId={policy}&expectedVersion=3&attemptId={POLICY_ATTEMPT}&operationId=op_3&confirmStop=true")
+    };
+    let (status, _, html) = pilot.send(post(here, "trader", &stop("bop_lost"), false)).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let page = text(&html);
+    assert!(page.contains("Market-following Offers Stopped") && page.contains("Stop is permanent."), "{page}");
+    let hash = crate::market_following::request_hash(
+        &json!({ "type": "StopBuyerOfferPolicy", "operationId": "op_3", "expectedVersion": 3 }),
+    );
+    let lookups = list_calls(&pilot, "/api/marketplace/mutation-attempts/");
+    assert_eq!(lookups.len(), 1, "{lookups:?}");
+    assert!(
+        lookups[0].contains(&format!("{POLICY_ATTEMPT}?kind=offer-policy.command&target=bop_lost&requestHash={hash}")),
+        "{lookups:?}"
+    );
+
+    // Nothing to find: the result could not be confirmed, and every step is off.
+    let (status, _, html) = pilot.send(post(here, "trader", &stop("bop_dark"), false)).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(text(&html).contains("We could not confirm the result."), "{html}");
+    assert!(html.contains(r#"type="submit" disabled"#), "{html}");
+    assert_eq!(list_calls(&pilot, "/api/marketplace/mutation-attempts/").len(), 2);
+}
+
 #[tokio::test]
 async fn the_submitted_offers_show_each_offer_with_its_status_and_changes() {
     let pilot = Pilot::new().await;
@@ -17574,7 +17838,7 @@ async fn an_offer_whose_read_has_not_caught_up_says_it_is_preparing_and_reads_ag
     let receipt = platform::receipt::Receipt::of_metadata(Some("73"), &raw).unwrap().param();
     let to = {
         use corten::prelude::*;
-        let place = crate::submitted_offers::OfferPlace { after_write: Some(receipt) };
+        let place = crate::submitted_offers::OfferPlace { after_write: Some(receipt), policy: None };
         crate::app::url::SubmittedOffer { id: "off_open", place }.href()
     };
     let (status, _, html) = pilot.send(get(&to, Some("trader"))).await;

@@ -118,8 +118,8 @@ note it on the PR and the pilot task fixes the pilot. Where a problem goes:
 | `marketplace/` | Buy > Saved payment methods, `/account/payment-methods` |
 | `marketplace/` | Packing slips, `/account/sales/shipments/packing-slips?shipmentIds=..&format=..` |
 | `marketplace/` | Inventory import, `/account/inventory/imports`, `/account/inventory/imports/{batch}` |
-| `marketplace/` | The buyer's submitted offers, `/account/offers/submitted` |
-| `marketplace/` | A submitted offer's page, `/account/offers/submitted/{id}` |
+| `marketplace/` | The buyer's submitted offers, `/account/offers/submitted`, with market following: the policies naming the listed offers (`?policy={id}` opens one), and Preview, Authorize, Pause and Stop, each a form that works without JavaScript and posts to `/account/offers/submitted/following` |
+| `marketplace/` | A submitted offer's page, `/account/offers/submitted/{id}`, with market following for that offer (posting to `/account/offers/submitted/{id}/following`) |
 | `marketplace/` | Support, `/account/support` and a case's page, `/account/support/{id}` |
 | `marketplace/` | Product alerts, `/account/product-alerts` |
 | `marketplace/` | The site's own files: `/robots.txt`, the sitemap index `/sitemap.xml` and its pages `/sitemap/{kind}/{page}.xml` (the home page and search, then Discovery's public items, categories, sellers, listings and sets), `/favicon.svg`, `/favicon.ico`, `/.well-known/appspecific/com.chrome.devtools.json`, the web app manifest and service worker (Corten's PWA, leaving marketplace-web's private paths to the network) and `/offline` |

@@ -25,8 +25,9 @@
 //! has not caught up with the write the address follows is marketplace's "Preparing submitted
 //! offer" with Refresh, read again in 2 s.
 //!
-//! Not ported yet: market following (`MarketFollowingOfferControls`, an offer's buyer policy:
-//! preview, authorize, pause and stop), on the list and on an offer's page.
+//! Market following (`market_following`) is a section on the list and on an offer's page, above
+//! the offers: the policies naming the page's offers, the one the address opens (`?policy={id}`),
+//! and its steps, which post to `following` beside the page and answer with the page again.
 use corten::{
     LiveResponse,
     extract::State,
@@ -41,6 +42,8 @@ use crate::{
     api::{ApiError, LifecycleOutcome, SubmittedOffer, SubmittedOfferCalls as _, SubmittedOffers},
     app::{OFFERS_MANAGE, Shared, read_failed, sign_in},
     auth::{OfferBuyer, Viewer},
+    items::Raw,
+    market_following::{self, Following, Problem},
     text::{Pilot, SubmittedOffersMsg},
     views::{self, Layout},
 };
@@ -50,11 +53,12 @@ pub const STATUSES: [&str; 4] = ["submitted", "paused", "withdrawn", "accepted"]
 /// The changes a buyer can make (`submittedOfferLifecycleActionValues`).
 pub const ACTIONS: [&str; 3] = ["pause", "resume", "withdraw"];
 
-/// The list's address: the status it shows.
+/// The list's address: the status it shows, and the market-following policy it opens.
 #[derive(Clone, Debug, Default, Fields, Route)]
 #[route(query)]
 pub struct Place {
     pub status: Option<String>,
+    pub policy: Option<String>,
 }
 
 impl Place {
@@ -64,15 +68,17 @@ impl Place {
     }
 
     pub fn of(status: Option<&str>) -> Place {
-        Place { status: status.map(str::to_owned) }
+        Place { status: status.map(str::to_owned), policy: None }
     }
 }
 
-/// An offer page's address: the receipt of the write it follows.
+/// An offer page's address: the receipt of the write it follows, and the market-following policy
+/// it opens.
 #[derive(Clone, Debug, Default, Deserialize, Route)]
 #[route(query)]
 pub struct OfferPlace {
     pub after_write: Option<String>,
+    pub policy: Option<String>,
 }
 
 /// What an offer's page shows.
@@ -81,6 +87,8 @@ pub struct OfferScreen {
     pub manage: bool,
     pub outcomes: Option<Vec<LifecycleOutcome>>,
     pub refusal: Option<String>,
+    /// Market following, when the policies could be read.
+    pub following: Option<Following>,
 }
 
 /// A lifecycle change: one row's (`row`), or the checked offers' (`lifecycleAction`, `offerIds`).
@@ -103,6 +111,8 @@ pub struct OffersScreen {
     pub outcomes: Option<Vec<LifecycleOutcome>>,
     /// Why a change was refused as a whole.
     pub refusal: Option<String>,
+    /// Market following, when the policies could be read.
+    pub following: Option<Following>,
 }
 
 /// The buyer actions a status admits (`submittedOfferLifecycleActions`): withdrawn and accepted
@@ -130,6 +140,38 @@ async fn read(
     }
 }
 
+/// Market following for `offers`: the policy the address opens, after the step the form sent, if
+/// any. `Err` when the API asked for a sign-in.
+async fn following(
+    config: &Shared,
+    headers: &HeaderMap,
+    offers: &[SubmittedOffer],
+    opened: Option<&str>,
+    step: Option<&Raw>,
+) -> Result<Option<Following>, ()> {
+    let caller = config.platform.caller(headers, config.proto, None);
+    let ran = match step {
+        Some(raw) => {
+            let ran = market_following::run(&caller, offers, raw).await;
+            if ran.unauthorized {
+                return Err(());
+            }
+            Some(ran)
+        }
+        None => None,
+    };
+    Ok(market_following::following(&caller, offers, opened, ran).await)
+}
+
+/// A refused step answers 422, as a refused lifecycle change does; one whose result could not be
+/// confirmed answers as the page.
+fn step_status(status: StatusCode, step: Option<&Raw>, following: Option<&Following>) -> StatusCode {
+    match following.and_then(|f| f.problem) {
+        Some(Problem::Invalid | Problem::Stale) if step.is_some() => StatusCode::UNPROCESSABLE_ENTITY,
+        _ => status,
+    }
+}
+
 /// Each outcome newer than the read is its offer's status until the read catches up.
 fn overlay(offers: &mut SubmittedOffers, outcomes: &[LifecycleOutcome]) {
     for offer in &mut offers.items {
@@ -152,6 +194,7 @@ async fn render(
     receipt: Option<Receipt>,
     outcomes: Option<Vec<LifecycleOutcome>>,
     refusal: Option<String>,
+    step: Option<&Raw>,
     status: StatusCode,
 ) -> HtmlResult {
     let mut offers = match read(config, headers, place.status(), receipt.as_ref()).await {
@@ -161,8 +204,12 @@ async fn render(
     if let Some(outcomes) = &outcomes {
         overlay(&mut offers, outcomes);
     }
+    let Ok(following) = following(config, headers, &offers.items, place.policy.as_deref(), step).await else {
+        return sign_in(req);
+    };
+    let status = step_status(status, step, following.as_ref());
     let manage = viewer.actor.can(OFFERS_MANAGE);
-    let screen = OffersScreen { offers, place, manage, outcomes, refusal };
+    let screen = OffersScreen { offers, place, manage, outcomes, refusal, following };
     let t: SubmittedOffersMsg = req.t();
     let page = html! {
         <Layout req={req} viewer={Some(viewer)} title={t.route_submitted_offers_marketplace()} head={()}>
@@ -180,7 +227,19 @@ pub(crate) async fn list(
     Params(route): Params<crate::app::url::submitted_offers::SubmittedOffers>,
 ) -> HtmlResult {
     let place = route.place;
-    render(&req, &viewer, &config, &headers, place, None, None, None, StatusCode::OK).await
+    render(&req, &viewer, &config, &headers, place, None, None, None, None, StatusCode::OK).await
+}
+
+/// A market-following step for the list's offers: the list again with what it came to.
+pub(crate) async fn follow(
+    req: Req,
+    Caller(OfferBuyer(viewer)): Caller<OfferBuyer>,
+    State(config): State<Shared>,
+    headers: HeaderMap,
+    Params(route): Params<crate::app::url::submitted_offers::SubmittedOffersFollowing>,
+    Form(raw): Form<Raw>,
+) -> HtmlResult {
+    render(&req, &viewer, &config, &headers, route.place, None, None, None, Some(&raw), StatusCode::OK).await
 }
 
 /// Each offer once, in the order checked.
@@ -224,7 +283,7 @@ pub(crate) async fn change(
         None => (form.lifecycle_action, distinct(form.offer_ids)),
     };
     let refuse = |message: String| {
-        render(&req, &viewer, &config, &headers, place.clone(), None, None, Some(message), StatusCode::UNPROCESSABLE_ENTITY)
+        render(&req, &viewer, &config, &headers, place.clone(), None, None, Some(message), None, StatusCode::UNPROCESSABLE_ENTITY)
     };
     if !ACTIONS.contains(&action.as_str()) {
         return refuse(p.submitted_offers_unknown_action().to_owned()).await;
@@ -256,7 +315,7 @@ pub(crate) async fn change(
             _ => return Err(corten::Error::new(error).with_status(StatusCode::BAD_GATEWAY)),
         },
     };
-    render(&req, &viewer, &config, &headers, place, receipt, Some(outcomes), None, StatusCode::OK).await
+    render(&req, &viewer, &config, &headers, place, receipt, Some(outcomes), None, None, StatusCode::OK).await
 }
 
 /// The counts and the rows again on each change to the account's offers (marketplace's
@@ -293,7 +352,7 @@ pub(crate) async fn live(
                         return None;
                     }
                 };
-                let screen = OffersScreen { offers, place, manage, outcomes: None, refusal: None };
+                let screen = OffersScreen { offers, place, manage, outcomes: None, refusal: None, following: None };
                 let html = views::submitted_offers_live_parts(t, p, &screen).to_html();
                 Some(match cursor {
                     Some(cursor) => corten::Fragment::new(html).cursor(cursor),
@@ -334,6 +393,8 @@ async fn render_offer(
     receipt: Option<Receipt>,
     outcomes: Option<Vec<LifecycleOutcome>>,
     refusal: Option<String>,
+    opened: Option<&str>,
+    step: Option<&Raw>,
     status: StatusCode,
 ) -> HtmlResult {
     let t: SubmittedOffersMsg = req.t();
@@ -341,7 +402,8 @@ async fn render_offer(
         Ok(OfferRead::Found(offer)) => *offer,
         Ok(OfferRead::NotFound) => return Err(corten::Error::status(StatusCode::NOT_FOUND)),
         Ok(OfferRead::Preparing) => {
-            let here = crate::app::url::SubmittedOffer { id, place: OfferPlace { after_write: receipt.map(|r| r.param()) } };
+            let place = OfferPlace { after_write: receipt.map(|r| r.param()), policy: None };
+            let here = crate::app::url::SubmittedOffer { id, place };
             // After a change, go to the address that carries the receipt, so reading again (and
             // Refresh) waits for the write rather than reading the post's address.
             if outcomes.is_some() {
@@ -367,8 +429,12 @@ async fn render_offer(
         overlay(&mut list, outcomes);
         offer = list.items.remove(0);
     }
+    let Ok(following) = following(config, headers, std::slice::from_ref(&offer), opened, step).await else {
+        return sign_in(req);
+    };
+    let status = step_status(status, step, following.as_ref());
     let manage = viewer.actor.can(OFFERS_MANAGE);
-    let screen = OfferScreen { offer, manage, outcomes, refusal };
+    let screen = OfferScreen { offer, manage, outcomes, refusal, following };
     let page = html! {
         <Layout req={req} viewer={Some(viewer)} title={t.detail_route_submitted_offer_marketplace()} head={()}>
             <views::SubmittedOfferPage t={t} p={req.t()} screen={&screen} />
@@ -386,7 +452,20 @@ pub(crate) async fn detail(
     Params(route): Params<crate::app::url::submitted_offers::SubmittedOffer<'_>>,
 ) -> HtmlResult {
     let receipt = Receipt::from_param(route.place.after_write.as_deref());
-    render_offer(&req, &viewer, &config, &headers, &route.id, receipt, None, None, StatusCode::OK).await
+    let opened = route.place.policy.as_deref();
+    render_offer(&req, &viewer, &config, &headers, &route.id, receipt, None, None, opened, None, StatusCode::OK).await
+}
+
+/// A market-following step for this offer: its page again with what it came to.
+pub(crate) async fn follow_one(
+    req: Req,
+    Caller(OfferBuyer(viewer)): Caller<OfferBuyer>,
+    State(config): State<Shared>,
+    headers: HeaderMap,
+    Params(route): Params<crate::app::url::submitted_offers::SubmittedOfferFollowing<'_>>,
+    Form(raw): Form<Raw>,
+) -> HtmlResult {
+    render_offer(&req, &viewer, &config, &headers, &route.id, None, None, None, None, Some(&raw), StatusCode::OK).await
 }
 
 /// Pause, Resume or Withdraw this offer (`row` is `{action}:{offer id}`, as the list's): the page
@@ -414,6 +493,8 @@ pub(crate) async fn change_one(
                 None,
                 None,
                 Some(message),
+                None,
+                None,
                 StatusCode::UNPROCESSABLE_ENTITY,
             )
             .await;
@@ -444,6 +525,8 @@ pub(crate) async fn change_one(
                     None,
                     None,
                     Some(message),
+                    None,
+                    None,
                     StatusCode::UNPROCESSABLE_ENTITY,
                 )
                 .await;
@@ -451,5 +534,5 @@ pub(crate) async fn change_one(
             _ => return Err(corten::Error::new(error).with_status(StatusCode::BAD_GATEWAY)),
         },
     };
-    render_offer(&req, &viewer, &config, &headers, &id, receipt, Some(outcomes), None, StatusCode::OK).await
+    render_offer(&req, &viewer, &config, &headers, &id, receipt, Some(outcomes), None, None, None, StatusCode::OK).await
 }
