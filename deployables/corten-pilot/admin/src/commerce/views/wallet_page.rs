@@ -471,7 +471,7 @@ pub fn WalletPage<'a>(t: Com, screen: &'a WalletScreen, title: &'a str) -> impl 
         let view = screen.route_view();
         let label = screen.label();
         let here = format!("/commerce/wallet-workbench/{}", segment(id));
-        let sign_in = crate::views::admin_web(&format!("/access/sign-in?returnTo={}", segment(&here))).map_or(here.clone(), |u| u.to_string());
+        let sign_in = crate::sign_in::url::SignIn { ask: crate::sign_in::Ask::back_to(&here) }.href().to_string();
         let (standing, standing_tone) = match w.negative_balance_status.as_str() {
             "collections" => (t.ww_standing_collections(), Danger),
             "negative" => (t.ww_standing_negative(), Warning),

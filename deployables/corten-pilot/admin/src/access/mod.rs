@@ -504,8 +504,3 @@ pub fn badges(t: Acc, account: &Account) -> Vec<String> {
         })
         .collect()
 }
-
-/// An admin-web page of the section (an account's workspace and the rest not in the pilot yet).
-pub fn admin_web(path: &str) -> String {
-    crate::views::admin_web(path).map(|uri| uri.to_string()).unwrap_or_else(|| path.to_owned())
-}
