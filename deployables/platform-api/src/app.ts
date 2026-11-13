@@ -16,6 +16,7 @@ import {
   createCheckoutUcpHandlers,
   createCheckoutInventoryReservationAuthority,
   lookupCheckoutSupportReference,
+  type CheckoutOfferAcceptanceTermsSource,
   type CheckoutSupportLookupResult,
 } from "@chase-sets/checkout/server";
 import type { SavedListInventoryImportBatchCreator } from "@chase-sets/collections/server";
@@ -228,6 +229,7 @@ import type { PolicyDefinition } from "@chase-sets/platform-policy/define-policy
 import { createPolicyResolver } from "@chase-sets/platform-policy/resolver";
 import { listActivePolicyDocuments } from "@chase-sets/platform-policy/queries";
 import type { JsonValue } from "@chase-sets/primitives/json";
+import type { AccountId, OfferId } from "@chase-sets/primitives/typed-ids";
 import { apiContextRegistry } from "./context-registry";
 import {
   createChannelActionAttentionSourceFromReadModel,
@@ -724,6 +726,9 @@ export function createPlatformApiHost(
       },
       ...(pricingPool ? { managedOfferPricing: createBuyerOfferPricing(pricingPool) } : {}),
       ...(commercialTermsResolver ? { commercialTermsResolver } : {}),
+      offerAcceptanceTermsSource: createMarketplaceOfferAcceptanceTermsSource(
+        () => runtime?.services.marketplace as MarketplaceServices | undefined,
+      ),
       ...(balanceCreditResolver ? { balanceCreditResolver } : {}),
       ...(walletFundingEligibilityResolver ? { walletFundingEligibilityResolver } : {}),
       ...(checkoutProcessingFeePolicyResolver ? { checkoutProcessingFeePolicyResolver } : {}),
@@ -852,6 +857,24 @@ function createChannelConnectionIdentityReader(
             environment: connection.environment,
           }
         : null;
+    },
+  };
+}
+
+export function createMarketplaceOfferAcceptanceTermsSource(
+  getMarketplaceServices: () => MarketplaceServices | undefined,
+): CheckoutOfferAcceptanceTermsSource {
+  return {
+    previewOfferAcceptanceTerms: async ({ offerId, sellerAccountId, listingId }) => {
+      const offers = getMarketplaceServices()?.offers;
+      if (!offers) {
+        throw new Error("Marketplace Offer acceptance terms are unavailable.");
+      }
+      return offers.previewOfferAcceptanceTerms({
+        offerId: offerId as OfferId,
+        sellerAccountId: sellerAccountId as AccountId,
+        listingId,
+      });
     },
   };
 }
