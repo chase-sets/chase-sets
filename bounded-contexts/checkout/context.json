@@ -290,6 +290,11 @@
   ],
   "hostPorts": [
     {
+      "portName": "commercialTermsResolver",
+      "providedBy": "commercial-terms",
+      "purpose": "Resolve Sell List terms through Commercial Terms without Checkout querying Commercial Terms storage."
+    },
+    {
       "portName": "checkoutObservabilityTelemetry",
       "providedBy": "platform-api",
       "purpose": "Emits bounded, redacted Milestone #17 Checkout observability events through the platform observability runtime."

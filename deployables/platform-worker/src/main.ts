@@ -254,6 +254,9 @@ const commercialTermsResolver = pools["commercial-terms"]
       ),
     })
   : undefined;
+if (pools.checkout && !commercialTermsResolver) {
+  throw new Error("Checkout requires a Commercial Terms resolver backed by the Commercial Terms database.");
+}
 const pricingHostPorts: PricingHostPorts | undefined = pools.pricing
   ? {
       commercialTermsResolver: requirePricingCommercialTermsResolver(commercialTermsResolver),

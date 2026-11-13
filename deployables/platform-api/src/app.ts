@@ -391,6 +391,9 @@ export function createPlatformApiHost(
         ),
       })
     : undefined;
+  if (checkoutPool && !commercialTermsResolver) {
+    throw new Error("Checkout requires a Commercial Terms resolver backed by the Commercial Terms database.");
+  }
   const standardScheduleResolver = commercialTermsPool
     ? createStandardScheduleResolver(commercialTermsPool)
     : undefined;
