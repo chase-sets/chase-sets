@@ -91,7 +91,7 @@ note it on the PR and the pilot task fixes the pilot. Where a problem goes:
 | `marketplace/` | The user's consent history, `/account/consents` |
 | `marketplace/` | The account's reviews, `/account/reviews`, `/account/reviews/received`, `/account/reviews/written`, `/account/reviews/{id}` |
 | `marketplace/` | An item's page, `/items/{slug}`. marketplace-web's JSON route `/items/{id}/market-history` is not served: its panel fetches it after load and on a range change, while the pilot keeps the range in the address (`range=`), reads the Sales tab's history with the page, and redraws it on each `item:{id}` change through the page's live parts, so nothing calls it |
-| `marketplace/` | A listing's page, `/listings/{slug}` |
+| `marketplace/` | A listing's page, `/listings/{slug}`, with its Product JSON-LD from its Google Shopping payload on the production marketplace |
 | `marketplace/` | An account's page, `/accounts/{slug}` |
 | `marketplace/` | The notification center, `/account/notifications` |
 | `marketplace/` | The account's orders, `/account/purchases`, `/account/sales` and each order's page |
@@ -253,7 +253,7 @@ registered files.
 
 ## Corten pin
 
-`Cargo.toml` pins Corten to `958e543f` (Corten `main` on 2026-11-13), whose framework package is
+`Cargo.toml` pins Corten to `87344049` (Corten `main` on 2026-11-13), whose framework package is
 `corten-run` (the library is still `corten`). Corten 0.2.0 is released (tag `v0.2.0`, `a833b4e3`), and the pin is a git revision past it. The
 pin follows Corten's latest `main` (Todd, 2026-11-02), and each move is its own commit that says
 what changed; the workarounds a move lets go follow it in commits of their own. The history of every move is in the

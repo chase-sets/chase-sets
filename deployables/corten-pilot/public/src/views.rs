@@ -177,6 +177,7 @@ pub async fn error_page(failure: Failure, req: Req) -> HtmlResult {
     let (title, text) = match &failure {
         Failure::NotFound => (t.root_page_not_found(), t.root_page_not_found_description()),
         Failure::WrongMethod
+        | Failure::UnknownMethod
         | Failure::Refused { .. }
         | Failure::CrossSite
         | Failure::Unidentified { .. }

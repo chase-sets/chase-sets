@@ -2716,6 +2716,11 @@ pub struct PublicListing {
     pub seller_listing_availability_status: Option<String>,
     /// When an away seller's listings return; `None` for an indefinite away.
     pub seller_available_again_at: Option<String>,
+    /// The listing's eligible, live Google Shopping feed row
+    /// (`DiscoveryGoogleShoppingStructuredDataPayload`), which its Product JSON-LD is written
+    /// from. Kept as JSON: a payload of an unexpected shape writes no structured data rather than
+    /// failing the page.
+    pub google_shopping_structured_data_payload: Option<serde_json::Value>,
 }
 
 /// A page of search results (`GET /api/marketplace/items?..`, `DiscoverySearchResponse`), the

@@ -149,7 +149,8 @@ pub fn item_image(item: &Item) -> Option<Image> {
     })
 }
 
-fn production(canonical: &str) -> bool {
+/// The canonical address is on the production marketplace (`isProductionMarketplaceUrl`).
+pub(super) fn production(canonical: &str) -> bool {
     canonical.strip_prefix("https://").and_then(|rest| rest.split('/').next()) == Some(PRODUCTION_HOST)
 }
 
