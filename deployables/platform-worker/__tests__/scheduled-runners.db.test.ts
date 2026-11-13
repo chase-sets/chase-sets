@@ -14,13 +14,10 @@ import { module as orderingModule } from "@chase-sets/ordering";
 import { module as pricingModule } from "@chase-sets/pricing";
 import { buildTransportEvent } from "@chase-sets/event-core/test-support";
 import { toTransportEvent } from "@chase-sets/event-core/transport";
+import { createMarketplaceOfferRuntime, createManagedOfferWork } from "@chase-sets/marketplace/server";
 import type { MarketplaceServices } from "@chase-sets/marketplace/server";
 import type { InventoryServices } from "@chase-sets/inventory/server";
-import {
-  createManagedOfferWork,
-  createMarketplaceOfferRuntime,
-  module as marketplaceModule,
-} from "@chase-sets/marketplace";
+import { module as marketplaceModule } from "@chase-sets/marketplace";
 import { createNoopCommercialTermsResolver } from "@chase-sets/commercial-terms/server";
 import { isChannelsServices } from "@chase-sets/channels/server";
 import { createBuyerOfferPricing, type PricingHostPorts } from "@chase-sets/pricing/server";

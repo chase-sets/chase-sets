@@ -3,10 +3,6 @@ import { defineBcProjectionGroupReset, type BcProjectionGroup } from "@chase-set
 import { createCheckpointKey } from "@chase-sets/bounded-context-runtime";
 import { resetProductMeasurePublicationParts, type PgQueryable } from "@chase-sets/event-core-postgres";
 export { default as contextManifest } from "./context.json" with { type: "json" };
-// Exported from the module entry, not ./server: the web SSR bundle imports ./server, and the
-// Offer runtime reaches the native `sharp` dependency through Listing photo normalization.
-export { createMarketplaceOfferRuntime } from "./features/offers/api/runtime";
-export { createManagedOfferWork } from "./features/offers/integrations/managed-work";
 
 import {
   buildEventReactionsFromManifest,
