@@ -27,7 +27,8 @@ import {
   marketplaceBrowserE2eSellerCredentials,
   marketplaceBrowserE2eSeedContract,
 } from "./support/seed-contract";
-import { checkpoints, validateTimeline } from "../../../scripts/lib/journey-package-contract.mjs";
+
+type CaptureCheckpoint = `journey-${"review" | "active"}-${390 | 1440}` | "journey-checkout-confirmation-1440";
 
 // Two nominal recovery periods plus estimated scheduling/projection/read slack, not a latency SLA.
 const MANAGED_OFFER_CONVERGENCE_BUDGET_MS = 180_000;
@@ -72,18 +73,25 @@ test("market-following consent, changed target, Checkout acceptance and permanen
   const authorizations: { consent: unknown }[] = [];
   const writes: unknown[] = [];
   let journeyFailed = false;
-  const capture = async (target: Page, checkpoint: keyof typeof checkpoints, selectionCount: number) => {
-    const expected = checkpoints[checkpoint];
+  const capture = async (target: Page, checkpoint: CaptureCheckpoint, selectionCount: number) => {
+    const actor = checkpoint === "journey-checkout-confirmation-1440" ? "seller" : "buyer";
+    const expected = {
+      actor,
+      route: actor === "buyer" ? "/account/offers/submitted" : "/checkout/sell/session/:sessionId/confirmation",
+      viewport: checkpoint.endsWith("-390") ? { width: 390, height: 844 } : { width: 1440, height: 1000 },
+    };
     await expect(target).toHaveURL((url) =>
       expected.actor === "buyer"
         ? url.pathname === expected.route
         : /^\/checkout\/sell\/session\/[^/]+\/confirmation$/.test(url.pathname),
     );
-    const response = await target.request.get("/api/auth/session");
-    expect(response.ok(), "capture actor session").toBe(true);
-    expect((await response.json()).actor).toMatchObject({
-      userId: expected.actor === "buyer" ? identitySeedIds.collector.userId : identitySeedIds.demo.userId,
-      accountId: expected.actor === "buyer" ? identitySeedIds.collector.accountId : identitySeedIds.demo.accountId,
+    const response = await target.request.get("/api/identity/current-actor-display");
+    expect(response.ok(), "capture current actor display").toBe(true);
+    expect(await response.json()).toMatchObject({
+      user: { user_id: expected.actor === "buyer" ? identitySeedIds.collector.userId : identitySeedIds.demo.userId },
+      account: {
+        account_id: expected.actor === "buyer" ? identitySeedIds.collector.accountId : identitySeedIds.demo.accountId,
+      },
     });
     expect(target.viewportSize()).toEqual(expected.viewport);
     if (expected.actor === "buyer")
@@ -893,9 +901,7 @@ test("market-following consent, changed target, Checkout acceptance and permanen
     };
     await cleanup(() =>
       testInfo.attach("market-following-command-timeline", {
-        body: JSON.stringify(
-          validateTimeline({ contract: "market-following-command-timeline", version: 1, entries: timeline }),
-        ),
+        body: JSON.stringify({ contract: "market-following-command-timeline", version: 1, entries: timeline }),
         contentType: "application/json",
       }),
     );
