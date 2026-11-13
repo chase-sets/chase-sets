@@ -849,7 +849,12 @@ export async function publishRepresentativeListings(
     const priceAmount = representativePrice(index);
     let current = await services.listings.readAuthoritativeListing({ accountId, listingId });
     if (current.kind === "present" && current.state.status !== "draft") {
-      if (index === 0 && (current.state.priceAmount !== priceAmount || current.state.priceCurrencyCode !== "USD")) {
+      if (
+        index === 0 &&
+        (current.state.priceAmount !== priceAmount ||
+          current.state.priceCurrencyCode !== "USD" ||
+          (await representativeProjectionUnversioned(services.db, listingId)))
+      ) {
         await services.listings.updateListingPrice(
           {
             accountId,
@@ -1572,6 +1577,20 @@ function createRepresentativeOfferId(stock: MarketplaceRepresentativeInventorySt
     .slice(0, 24);
 
   return `off_repr_${hash}`;
+}
+
+/**
+ * Buyer visibility needs a projected stream version. The caller drains the Listing projection before deciding,
+ * so a row still at version 0 is a legacy projection the canary heals with one repair keyed to the stream version;
+ * a resumed run drains the projection again first, so a repair already committed and projected removes the trigger.
+ */
+async function representativeProjectionUnversioned(db: RepresentativeQueryable, listingId: string): Promise<boolean> {
+  const result = await db.query<{ listing_stream_version: number | null }>(
+    `SELECT listing_stream_version FROM marketplace_listing_pages WHERE listing_id = $1`,
+    [listingId],
+  );
+  const row = result.rows[0];
+  return row !== undefined && (row.listing_stream_version ?? 0) <= 0;
 }
 
 async function getOfferStatus(db: RepresentativeQueryable, offerId: string): Promise<string | null> {

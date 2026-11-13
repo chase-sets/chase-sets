@@ -837,7 +837,28 @@ describe("representative listing publication restart safety", () => {
       }),
     ]);
     expect(results).toEqual([expect.objectContaining({ status: "price-repaired" })]);
-    expect(harness.queries).toEqual([]);
+    expect(harness.queries.every(([sql]) => /^\s*SELECT\b/.test(sql))).toBe(true);
+  });
+
+  it("heals a drained legacy canary projection at version 0 once, then never again", async () => {
+    const store = listingStore({
+      status: "active",
+      price_amount: "9.99",
+      price_currency_code: "USD",
+      listing_stream_version: 0,
+    });
+    const first = listingHarness(null, store);
+
+    await expect(publishRepresentativeListings(first.services as never, [representativeStock()])).resolves.toEqual([
+      expect.objectContaining({ status: "price-repaired" }),
+    ]);
+    expect(first.updated).toEqual([expect.objectContaining({ priceCurrencyCode: "USD", expectedVersion: 0 })]);
+
+    const repeat = listingHarness(null, store);
+    await expect(publishRepresentativeListings(repeat.services as never, [representativeStock()])).resolves.toEqual([
+      expect.objectContaining({ status: "already-present" }),
+    ]);
+    expect(repeat.writes()).toEqual([]);
   });
 
   it("resumes a crash after each append from the first receipt and writes nothing on repeat, reboot or day-after", async () => {
@@ -1241,8 +1262,13 @@ function listingHarness(
     },
     services: {
       db: {
+        // The drained Listing projection mirrors each stream's version.
         query: async <Row>(sql: string, params?: readonly unknown[]) => {
           queries.push([sql, params]);
+          if (sql.includes("FROM marketplace_listing_pages")) {
+            const listing = store.read(String(params?.[0]));
+            return { rows: listing ? [{ listing_stream_version: listing.version } as Row] : [] };
+          }
           return { rows: [] as Row[] };
         },
       },
