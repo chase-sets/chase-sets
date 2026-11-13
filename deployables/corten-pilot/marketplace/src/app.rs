@@ -195,7 +195,7 @@ pub type Shared = Arc<Config>;
 pub mod url {
     pub use account_home::AccountHome;
     pub use account_select::AccountSelect;
-    pub use accounts::{Account, AccountReviewReport};
+    pub use accounts::{Account, AccountLive, AccountReviewReport};
     pub use addresses::{AddressArchive, AddressDefault, AddressUpdate, ShippingAddresses};
     pub use agent_consent::AgentConsent;
     pub use agents::{AgentMandate, AgentPage, AgentRevoke, AgentWebhook, AgentWebhookDisable, Agents};
@@ -219,7 +219,7 @@ pub mod url {
     };
     pub use invite::Invite;
     pub use items::{Item, ItemBuy, ItemCart, ItemList, ItemLive, ItemOffer, ItemSave, ItemSellList, ItemShipFrom, ItemWatch};
-    pub use listings::{PublicListing, PublicListingBuy, PublicListingReport};
+    pub use listings::{PublicListing, PublicListingBuy, PublicListingLive, PublicListingReport};
     pub use money::Money;
     pub use new_listing::NewListing;
     pub use notifications::{NotificationPreference, NotificationRead, NotificationReadAll, Notifications, ProductAlertChange};
@@ -415,6 +415,13 @@ pub mod url {
             pub query: crate::accounts::AccountQuery,
         }
 
+        /// The account's parts on each change to it (`<corten-live>`); `id` is the account's id,
+        /// which names its realtime topic and which the account's read takes as well as its slug.
+        #[route("/accounts/{id}/live", get = crate::accounts::live)]
+        pub struct AccountLive<'a> {
+            pub id: &'a str,
+        }
+
         /// Report a review, from the page with its role and page.
         #[route("/accounts/{slug}/reviews/{review}/report", post = crate::accounts::report_review)]
         pub struct AccountReviewReport<'a> {
@@ -448,6 +455,14 @@ pub mod url {
         #[route("/listings/{slug}/buy", post = crate::public_listing::buy)]
         pub struct PublicListingBuy<'a> {
             pub slug: &'a str,
+        }
+
+        /// The listing's parts on each change to it (`<corten-live>`); `id` is the listing's id,
+        /// which names its realtime topic.
+        #[route("/listings/{slug}/live/{id}", get = crate::public_listing::live)]
+        pub struct PublicListingLive<'a> {
+            pub slug: &'a str,
+            pub id: &'a str,
         }
 
         /// Report the listing.
