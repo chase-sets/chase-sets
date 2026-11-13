@@ -292,10 +292,10 @@ describeDb("manual-sync-dark-inbound-clamp and recovery", () => {
     ]);
   });
 
-  it("keeps the final owner in recovery when the production publication adapter fails", async () => {
+  it("keeps the final owner engaged until an uncertain publication can be retried", async () => {
     const services = createMarketplaceServices(pools.marketplace);
     await seedActiveListing(pools.marketplace, services, "lst_publication_failure", "itm_publication_failure");
-    const publishListing = vi.fn(async () => {
+    const publishListing = vi.fn(services.listings.publishListing).mockImplementationOnce(async () => {
       throw new Error("synthetic publication failure");
     });
     const clamp = createMarketplaceChannelInboundClampRuntime(pools.marketplace, {
@@ -311,6 +311,7 @@ describeDb("manual-sync-dark-inbound-clamp and recovery", () => {
     } as const;
 
     await expect(clamp.engage(input, context)).resolves.toMatchObject({ kind: "engaged", clampedListingCount: 1 });
+    const pausedVersion = await streamVersion(pools.marketplace, input.listingIds[0]);
     await expect(clamp.recover(input, context)).resolves.toEqual({
       kind: "recovery",
       examinedListingCount: 1,
@@ -329,7 +330,18 @@ describeDb("manual-sync-dark-inbound-clamp and recovery", () => {
           WHERE connection_id=$1 AND run_id=$2 AND listing_id=$3`,
         [input.connectionId, input.runId, input.listingIds[0]],
       ),
-    ).resolves.toMatchObject({ rows: [{ state: "recovery", paused_stream_version: null }] });
+    ).resolves.toMatchObject({ rows: [{ state: "engaged", paused_stream_version: String(pausedVersion) }] });
+
+    await expect(clamp.recover(input, context)).resolves.toEqual({
+      kind: "released",
+      examinedListingCount: 1,
+      releasedListingCount: 1,
+      retainedListingCount: 0,
+      recoveryListingCount: 0,
+    });
+    expect(publishListing).toHaveBeenCalledTimes(2);
+    expect(publishListing.mock.calls[1]).toEqual(publishListing.mock.calls[0]);
+    expect((await services.listings.loadListingState(input.listingIds[0])).status).toBe("active");
   });
 
   it("refuses duplicate and foreign requested membership without pausing either account", async () => {
@@ -436,7 +448,9 @@ describeDb("manual-sync-dark-inbound-clamp and recovery", () => {
     await seedActiveListing(pools.marketplace, services, "lst_partial_a", "itm_partial");
     await seedActiveListing(pools.marketplace, services, "lst_partial_b", "itm_partial");
     const pauseListing: typeof services.listings.pauseListing = async (params, eventContext) => {
-      if (params.listingId === "lst_partial_b") throw new Error("synthetic concurrent seller write");
+      if (params.listingId === "lst_partial_b") {
+        throw Object.assign(new Error("synthetic concurrent seller write"), { code: "concurrency_conflict" });
+      }
       return services.listings.pauseListing(params, eventContext);
     };
     const clamp = createMarketplaceChannelInboundClampRuntime(pools.marketplace, {
