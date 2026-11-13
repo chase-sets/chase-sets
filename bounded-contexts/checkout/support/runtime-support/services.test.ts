@@ -56,6 +56,49 @@ describe("checkout host ports", () => {
       expect(commercialTermsQuery).not.toHaveBeenCalled();
     },
   );
+
+  it("passes the Marketplace Offer acceptance terms source to the Sell List runtime on the API host", () => {
+    const query = vi.fn(async () => ({ rows: [] }));
+    const offerAcceptanceTermsSource = {
+      previewOfferAcceptanceTerms: vi.fn(async () => {
+        throw new Error("Service construction must not read Marketplace acceptance terms.");
+      }),
+    };
+    const createSellListRuntime = vi.spyOn(sellListRuntime, "createCheckoutSellListRuntime");
+
+    createApiHost(
+      [
+        {
+          contextName: "checkout",
+          packageName: "@chase-sets/checkout",
+          manifest: contextManifest,
+          module: {
+            ...checkoutModule,
+            eventSubscriptions: [],
+            eventReactions: [],
+            buildSubscriptions: () => [],
+            projectionGroups: [],
+            buildProjectionGroups: () => [],
+          },
+        },
+      ],
+      "platform-api",
+      {
+        pools: { checkout: { query } as never },
+        hostPorts: {
+          commercialTermsResolver: createCheckoutCommercialTermsResolver({ query }),
+          offerAcceptanceTermsSource,
+        },
+      },
+    );
+
+    expect(createSellListRuntime.mock.calls[0]?.[0].offerAcceptanceTermsSource).toBe(offerAcceptanceTermsSource);
+    expect(contextManifest.hostPorts).toContainEqual(
+      expect.objectContaining({ portName: "offerAcceptanceTermsSource", providedBy: "marketplace" }),
+    );
+    expect(offerAcceptanceTermsSource.previewOfferAcceptanceTerms).not.toHaveBeenCalled();
+    expect(query).not.toHaveBeenCalled();
+  });
 });
 
 describe("checkout projection eligibility", () => {
