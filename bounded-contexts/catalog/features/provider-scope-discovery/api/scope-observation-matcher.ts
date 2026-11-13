@@ -54,6 +54,8 @@ type MatchableScopeRecord = Readonly<{
   scopeRecordId: string;
   scopeKind: CatalogScopeRecordKind;
   name: string;
+  /** Normalized names that match by name; an accepted proposal adds its own to its Scope Record's. */
+  matchNames: readonly string[];
   identityKeys: readonly string[];
   officialSetCode: string | null;
   releaseDate: string | null;
@@ -137,15 +139,15 @@ export async function matchScopeObservationsToScopeRecords(
   }
 
   const proposals = await listCanonicalScopeRecordProposals(db, { productDomain, limit: 2_000 });
-  const matchableRecords: MatchableScopeRecord[] = [
+  const matchable = matchableScopeRecordSet([
     ...canonicalRecords.map(toMatchableCanonicalRecord),
     ...proposals.map(toMatchableProposal),
-  ];
+  ]);
 
   const candidates: ScopeObservationMappingCandidate[] = [];
   for (const observation of observations) {
     const scopeKind = observation.scopeKind as CatalogScopeRecordKind;
-    const recordsForKind = matchableRecords.filter((record) => record.scopeKind === scopeKind);
+    const recordsForKind = matchable.records.filter((record) => record.scopeKind === scopeKind);
     const match = matchObservation(observation, recordsForKind);
 
     if (match) {
@@ -181,7 +183,7 @@ export async function matchScopeObservationsToScopeRecords(
       parentExternalIds: observation.parents,
       evidence: proposalEvidence(observation, input.target, input.scanId),
     });
-    matchableRecords.push(toMatchableProposal(proposal));
+    matchable.add(toMatchableProposal(proposal));
 
     if (proposal.reviewStatus === "rejected") {
       continue;
@@ -306,7 +308,7 @@ function matchObservation(
   }
 
   const normalizedName = normalizeScopeMatchKey(observation.label);
-  const byName = records.filter((record) => normalizeScopeMatchKey(record.name) === normalizedName);
+  const byName = records.filter((record) => record.matchNames.includes(normalizedName));
   if (byName.length > 0) {
     return resolveAmbiguity(observation, byName, "normalized-name");
   }
@@ -392,7 +394,7 @@ function mappingCandidate(input: {
       matchedBy: input.matchedBy,
       scopeRecordName: input.record.name,
       scopeRecordOfficialSetCode: input.record.officialSetCode,
-      proposedCanonicalScopeRecord: input.record.proposalStatus !== null,
+      proposedCanonicalScopeRecord: input.record.proposalStatus === "proposed",
     },
   });
 }
@@ -446,12 +448,8 @@ function toMatchableCanonicalRecord(row: ScopeRecordRow): MatchableScopeRecord {
     scopeRecordId: row.scope_record_id,
     scopeKind: row.scope_kind,
     name: row.name,
-    identityKeys: normalizedIdentityKeys([
-      row.scope_record_id,
-      row.reference_record_id,
-      row.reference_record_key,
-      row.official_set_code,
-    ]),
+    matchNames: [normalizeScopeMatchKey(row.name)],
+    identityKeys: scopeRecordIdentityKeys(row),
     officialSetCode: row.official_set_code,
     releaseDate: dateOnly(row.release_date),
     aliases: row.aliases,
@@ -459,12 +457,22 @@ function toMatchableCanonicalRecord(row: ScopeRecordRow): MatchableScopeRecord {
   };
 }
 
+/**
+ * An accepted proposal stands for its accepted Scope Record, never for its
+ * `proposed-scope-*` id. Until that Scope Record is projected it still matches,
+ * as a reviewable (never auto-accepted) target on the accepted id.
+ */
 function toMatchableProposal(proposal: CanonicalScopeRecordProposalRecord): MatchableScopeRecord {
+  const scopeRecordId =
+    proposal.reviewStatus === "accepted" && proposal.acceptedScopeRecordId
+      ? proposal.acceptedScopeRecordId
+      : proposal.scopeRecordId;
   return {
-    scopeRecordId: proposal.scopeRecordId,
+    scopeRecordId,
     scopeKind: proposal.scopeKind,
     name: proposal.name,
-    identityKeys: normalizedIdentityKeys([proposal.scopeRecordId, proposal.officialSetCode]),
+    matchNames: [normalizeScopeMatchKey(proposal.name)],
+    identityKeys: scopeValueIdentityKeys([scopeRecordId, proposal.officialSetCode]),
     officialSetCode: proposal.officialSetCode,
     releaseDate: proposal.releaseDate,
     aliases: [],
@@ -472,7 +480,46 @@ function toMatchableProposal(proposal: CanonicalScopeRecordProposalRecord): Matc
   };
 }
 
-function normalizedIdentityKeys(values: readonly (string | null)[]): readonly string[] {
+/**
+ * One match competitor per Scope Record id: an accepted proposal merges its
+ * identity keys and name into the record it was accepted onto (the canonical
+ * record when projected), so it never competes with that record.
+ */
+function matchableScopeRecordSet(initial: readonly MatchableScopeRecord[]) {
+  const records: MatchableScopeRecord[] = [];
+  const indexById = new Map<string, number>();
+  const add = (record: MatchableScopeRecord): void => {
+    const index = indexById.get(record.scopeRecordId);
+    if (index === undefined) {
+      indexById.set(record.scopeRecordId, records.length);
+      records.push(record);
+      return;
+    }
+    const existing = records[index]!;
+    records[index] = {
+      ...existing,
+      matchNames: [...new Set([...existing.matchNames, ...record.matchNames])],
+      identityKeys: [...new Set([...existing.identityKeys, ...record.identityKeys])],
+    };
+  };
+  initial.forEach(add);
+  return { records, add };
+}
+
+/** The matcher's identity keys for a projected Scope Record. */
+export function scopeRecordIdentityKeys(
+  row: Pick<ScopeRecordRow, "scope_record_id" | "reference_record_id" | "reference_record_key" | "official_set_code">,
+): readonly string[] {
+  return scopeValueIdentityKeys([
+    row.scope_record_id,
+    row.reference_record_id,
+    row.reference_record_key,
+    row.official_set_code,
+  ]);
+}
+
+/** The matcher's identity keys for raw ids and codes. */
+export function scopeValueIdentityKeys(values: readonly (string | null)[]): readonly string[] {
   return [
     ...new Set(values.filter((value): value is string => Boolean(value)).flatMap(normalizedIdentifierKeys)),
   ].filter(Boolean);

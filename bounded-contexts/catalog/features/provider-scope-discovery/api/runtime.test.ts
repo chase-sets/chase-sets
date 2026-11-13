@@ -101,6 +101,9 @@ function stalledMtgjsonHarness(input: { cachedOptions: readonly CatalogProviderI
     providerScopeMappingCommandHandler: async () => {
       throw new Error("unexpected provider scope mapping proposal");
     },
+    referenceRecordCommandHandler: async () => {
+      throw new Error("unexpected Reference Record command");
+    },
   });
 
   return {
