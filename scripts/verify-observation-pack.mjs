@@ -471,7 +471,6 @@ export function buildClosedCommercePackCohortEvidence({
     "inventoryReconciledCatalogItemCount",
     "representativeInventoryStockCount",
     "representativeListingCount",
-    "representativeOfferCount",
   ]) {
     requireEqualCount(
       `Representative commerce ${field}`,
@@ -479,6 +478,11 @@ export function buildClosedCommercePackCohortEvidence({
       commerceCompletion.selectedCatalogItemCount,
     );
   }
+  requireEqualCount(
+    "Representative commerce Offer coverage",
+    commerceCompletion.representativeOfferCount + commerceCompletion.representativeOfferSkippedCount,
+    commerceCompletion.selectedCatalogItemCount,
+  );
 
   const cohort = buildCommercePackCohortEvidence({
     commerceCatalogItemIds: commerceCompletion.selectedCatalogItemIds,
@@ -870,7 +874,10 @@ export function assertRepresentativeCommerceProjectionClosure({
   requireExactCatalogItemSet("Discovery search", discoverySearchCatalogItemIds, selectedCatalogItemIds);
   requireExactCatalogItemSet("Discovery detail", discoveryDetailCatalogItemIds, selectedCatalogItemIds);
   requireExactCatalogItemSet("Marketplace listing", listingCatalogItemIds, selectedCatalogItemIds);
-  requireExactCatalogItemSet("Marketplace offer", offerCatalogItemIds, selectedCatalogItemIds);
+  const selectedCatalogItemSet = new Set(selectedCatalogItemIds);
+  if (offerCatalogItemIds.some((catalogItemId) => !selectedCatalogItemSet.has(catalogItemId))) {
+    throw new Error("Marketplace offer Catalog Item set mismatch.");
+  }
   requireEqualCount("Marketplace representative listing", listingRowCount, expectedListingRowCount);
   requireEqualCount("Marketplace representative offer", offerRowCount, expectedOfferRowCount);
 }

@@ -896,13 +896,21 @@ export async function submitRepresentativeOffers(
   stockItems: readonly MarketplaceRepresentativeInventoryStock[],
 ): Promise<readonly MarketplaceRepresentativeOfferResult[]> {
   const results: MarketplaceRepresentativeOfferResult[] = [];
-  const submissionCountByBuyer = new Map<string, number>();
-
-  for (const [index, stock] of stockItems.entries()) {
+  const offerBudgetUsedByBuyer = new Map<string, number>();
+  const existingOfferIds = new Set<string>();
+  const plannedOffers = stockItems.map((stock, index) => {
     const buyerAccountId = representativeBuyerAccountId(index);
-    const offerId = createRepresentativeOfferId(stock, buyerAccountId);
-    const existing = await getOfferStatus(services.db, offerId);
-    if (existing) {
+    return { stock, index, buyerAccountId, offerId: createRepresentativeOfferId(stock, buyerAccountId) };
+  });
+  for (const { buyerAccountId, offerId } of plannedOffers) {
+    if (await getOfferStatus(services.db, offerId)) {
+      existingOfferIds.add(offerId);
+      offerBudgetUsedByBuyer.set(buyerAccountId, (offerBudgetUsedByBuyer.get(buyerAccountId) ?? 0) + 1);
+    }
+  }
+
+  for (const { stock, index, buyerAccountId, offerId } of plannedOffers) {
+    if (existingOfferIds.has(offerId)) {
       results.push({
         catalogItemId: stock.catalogItemId,
         buyerAccountId,
@@ -913,7 +921,7 @@ export async function submitRepresentativeOffers(
       continue;
     }
 
-    const submissionCount = submissionCountByBuyer.get(buyerAccountId) ?? 0;
+    const submissionCount = offerBudgetUsedByBuyer.get(buyerAccountId) ?? 0;
     if (submissionCount >= MAX_REPRESENTATIVE_OFFER_SUBMISSIONS_PER_BUYER) {
       results.push({
         catalogItemId: stock.catalogItemId,
@@ -936,7 +944,7 @@ export async function submitRepresentativeOffers(
       selection: stock.selectedOptions,
     });
 
-    submissionCountByBuyer.set(buyerAccountId, submissionCount + 1);
+    offerBudgetUsedByBuyer.set(buyerAccountId, submissionCount + 1);
     try {
       const submitted = await services.offers.submitOffer(
         {
