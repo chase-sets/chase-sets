@@ -353,6 +353,7 @@ export type PlatformApiConfig = Omit<PlatformApiBaseConfig, "realtime"> &
     providerModeObservation: PlatformApiProviderModeObservation;
     ucpBusinessSigningKeys?: UcpBusinessSigningKeySet;
     ucpSignatureCreatedFreshnessWindowMs: number;
+    stagingPersonaMagicLinkVerifierSha256?: string;
   }>;
 
 export type PlatformApiMobileMessagingConfig =
@@ -463,6 +464,20 @@ function loadRegistrationAdmissionMode(environmentName: string): PlatformApiRegi
   }
 
   return isLongLivedEnvironment(environmentName) ? "invitation" : "open";
+}
+
+const STAGING_PERSONA_MAGIC_LINK_VERIFIER_ENV = "CONNECTOR_STAGING_PERSONA_MAGIC_LINK_VERIFIER_SHA256";
+
+function loadStagingPersonaMagicLinkVerifierSha256(environmentName: string | undefined): string | undefined {
+  const configured = getOptionalEnv(STAGING_PERSONA_MAGIC_LINK_VERIFIER_ENV);
+  if (!configured) return undefined;
+  if (environmentName !== "staging") {
+    throw new Error(`${STAGING_PERSONA_MAGIC_LINK_VERIFIER_ENV} may only be configured for staging deployments.`);
+  }
+  if (!/^[a-f0-9]{64}$/.test(configured)) {
+    throw new Error(`${STAGING_PERSONA_MAGIC_LINK_VERIFIER_ENV} must be a lowercase SHA-256 digest.`);
+  }
+  return configured;
 }
 
 // Mirrors bounded-contexts/auth/features/sessions/domain/auth-flow.ts's
@@ -924,6 +939,7 @@ export function loadConfig(): PlatformApiConfig {
     adminGoogleWorkspaceSso,
     ucpBusinessSigningKeys,
     ucpSignatureCreatedFreshnessWindowMs,
+    stagingPersonaMagicLinkVerifierSha256: loadStagingPersonaMagicLinkVerifierSha256(baseConfig.deploymentEnvironment),
     paymentProcessor: stripeProvider.paymentProcessor,
     stripeEffectiveMode: stripeProvider.effectiveMode,
   };

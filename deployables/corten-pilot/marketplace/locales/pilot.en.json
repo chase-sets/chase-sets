@@ -265,7 +265,8 @@
   "auth": {
     "sign_in_title": "Sign In | Marketplace",
     "register_title": "Register | Marketplace",
-    "account_selection_title": "Select Account | Marketplace"
+    "account_selection_title": "Select Account | Marketplace",
+    "passkey_added_sign_in": "The passkey was added. Sign in with it to continue."
   },
   "team": {
     "pending": "Your team is still updating. This page reads it again in a moment."

@@ -129,6 +129,8 @@ export type AuthServices = Readonly<{
   socialLoginProviders: readonly SocialLoginProvider[];
   adminGoogleWorkspaceSso: AdminGoogleWorkspaceSsoConfig | null;
   registrationAdmission: RegistrationAdmissionHostConfig;
+  /** Staging-only SHA-256 verifier for the connector persona sign-in route. */
+  stagingPersonaMagicLinkVerifierSha256?: string;
   projectors: readonly ProjectionHandlerSet[];
   /**
    * Bounds-validated session/token lifetimes. Always populated by
@@ -158,6 +160,8 @@ export type AuthHostPorts = Readonly<{
    */
   securityLifetimes?: Partial<AuthSecurityLifetimesMs>;
   operatorAuthority?: OperatorAuthority;
+  /** Staging-only SHA-256 verifier; never the raw bearer secret. */
+  stagingPersonaMagicLinkVerifierSha256?: string;
 }>;
 
 export type AgentWebhookOrderResolvers = Readonly<{
@@ -245,6 +249,7 @@ export function createAuthServices(pool: PgTransactionalPool, ports: AuthHostPor
     socialLoginProviders: ports.socialLoginProviders ?? [],
     adminGoogleWorkspaceSso: ports.adminGoogleWorkspaceSso ?? null,
     registrationAdmission: resolveRegistrationAdmissionConfig(ports.registrationAdmission),
+    stagingPersonaMagicLinkVerifierSha256: ports.stagingPersonaMagicLinkVerifierSha256,
     projectors: [...sessions.projectors],
     securityLifetimes,
   };

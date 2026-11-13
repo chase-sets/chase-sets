@@ -3,8 +3,11 @@
 //!
 //! The invitation's email links here with its `token`; the page asks the API what the invitation
 //! is (`POST /api/auth/invitations/inspect`). A pending one offers a passkey or a password, each at
-//! its own address (`credentialMethod`), as marketplace's segmented control does. A passkey needs
-//! the browser's WebAuthn, so it is a link to marketplace's page, as on sign-in.
+//! its own address (`credentialMethod`), as marketplace's segmented control does. A passkey is the
+//! browser's WebAuthn, through the shared passkey step (`platform::auth`'s `passkey.js`), which
+//! asks the sign-in's challenge route and creates a passkey for the invited email; the acceptance
+//! then carries its credential in place of a password. One that comes without a credential (no
+//! script ran, or the browser has no passkeys) sends nothing and is the form again, failed safe.
 //!
 //! An acceptance is one attempt: the form's `SubmitKey`, sent as `attemptId` and
 //! `Idempotency-Key` (`POST /api/auth/invitations/accept`). The API applies an attempt once, so
@@ -29,7 +32,10 @@ use corten::{
     http::{HeaderMap, StatusCode},
     prelude::*,
 };
-use platform::receipt::Receipt;
+use platform::{
+    auth::{Credential, PASSKEY_LABEL},
+    receipt::Receipt,
+};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
@@ -115,13 +121,47 @@ pub enum Invitation {
     Unavailable,
 }
 
-/// The acceptance form's fields: the attempt (`SubmitKey`), and the password.
+/// The acceptance form's fields: the attempt (`SubmitKey`), and the password or the passkey's
+/// credential, which the passkey step fills in (`intent=passkey`).
 #[derive(Clone, Debug, Default, Fields)]
 #[serde(rename_all = "camelCase", default)]
 pub struct AcceptForm {
     pub intent: String,
     pub attempt: Option<SubmitKey>,
     pub password: String,
+    pub challenge_id: String,
+    pub challenge: String,
+    pub external_credential_id: String,
+    pub webauthn_response: String,
+}
+
+impl AcceptForm {
+    /// The passkey's credential, as the passkey step filled it in.
+    pub fn credential(&self) -> Credential<'_> {
+        Credential {
+            challenge_id: &self.challenge_id,
+            challenge: &self.challenge,
+            external_credential_id: &self.external_credential_id,
+            webauthn_response: &self.webauthn_response,
+        }
+    }
+
+    /// The acceptance's body: the credential for a passkey, else the password.
+    fn body(&self, id: &str, token: &str, attempt: &str) -> Value {
+        let mut body = if self.intent == "passkey" {
+            let mut fields = self.credential().json();
+            fields.insert("label".into(), PASSKEY_LABEL.into());
+            fields
+        } else {
+            let mut fields = serde_json::Map::new();
+            fields.insert("password".into(), self.password.clone().into());
+            fields
+        };
+        body.insert("invitationId".into(), id.into());
+        body.insert("token".into(), token.into());
+        body.insert("attemptId".into(), attempt.into());
+        Value::Object(body)
+    }
 }
 
 /// Where an attempt stands, once its answer is not a session (the action's `state`).
@@ -293,17 +333,18 @@ pub(crate) async fn write(
 ) -> HtmlResult {
     let caller = config.platform.caller(&headers, config.proto, None);
     let (id, token) = (route.id.as_str(), route.invited.token());
+    let passkey = form.intent == "passkey";
     let mut screen = InviteScreen {
         id: id.to_owned(),
-        method: Method::Password,
+        method: if passkey { Method::Passkey } else { Method::Password },
         invited: route.invited.clone(),
         invitation: Invitation::Unavailable,
         phase: None,
         failed_safe: false,
     };
     let attempt = attempt_text(&form.attempt).to_owned();
-    if !valid_attempt(&attempt) {
-        // No attempt the API could apply: nothing was sent.
+    if !valid_attempt(&attempt) || (passkey && form.credential().is_missing()) {
+        // No attempt the API could apply, or a passkey without its credential: nothing was sent.
         screen.invitation = inspect(&caller, client, id, token).await.unwrap_or(Invitation::Unavailable);
         screen.failed_safe = true;
         return render(&req, StatusCode::UNPROCESSABLE_ENTITY, &screen);
@@ -312,7 +353,7 @@ pub(crate) async fn write(
         screen.phase = Some((status(&caller, client, id, token, &attempt).await, attempt));
         return render(&req, StatusCode::OK, &screen);
     }
-    let body = json!({ "invitationId": id, "token": token, "attemptId": attempt, "password": form.password });
+    let body = form.body(id, token, &attempt);
     let answer = post::<Value>(&caller, client, "/api/auth/invitations/accept", Some(&attempt), body).await;
     let phase = match read_answer(answer) {
         Ok(Accepted::Signed(result, receipt)) => {
@@ -328,12 +369,6 @@ pub(crate) async fn write(
     };
     screen.phase = Some((phase, attempt));
     render(&req, StatusCode::OK, &screen)
-}
-
-/// Marketplace's page, for a passkey (WebAuthn is its page's script).
-pub fn on_marketplace(id: &str, invited: &Invited) -> String {
-    let address = url::Invite { id, invited: Invited { credential_method: None, ..invited.clone() } }.href();
-    views::on_marketplace(&address)
 }
 
 #[cfg(test)]

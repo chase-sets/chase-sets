@@ -70,7 +70,8 @@ fn written(status: StatusCode, id: &str) -> Response {
 
 /// Auth's sign-in routes, as far as the sign-in page uses them: `staff@example.test` with `right`
 /// starts a session, `member@example.test` must choose an account first (`sel_1`), and
-/// `limited@example.test` is rate limited.
+/// `limited@example.test` is rate limited. A passkey challenge is `cmd_1`, and a passkey sign-in
+/// with the credential `signed` starts a session.
 fn auth(method: &Method, path: &str, body: &str) -> Option<Response> {
     if *method != Method::POST || !path.starts_with("/api/auth/") {
         return None;
@@ -100,6 +101,11 @@ fn auth(method: &Method, path: &str, body: &str) -> Option<Response> {
         "/api/auth/magic-link/request" => Json(json!({ "tokenId": "ml_1", "expiresAt": later })).into_response(),
         "/api/auth/magic-link/consume" => match text("token").as_str() {
             "good" => started("tok_magic"),
+            _ => unknown(),
+        },
+        "/api/auth/passkeys/challenge" => Json(json!({ "challengeId": "cmd_1", "challenge": "Y2hhbGxlbmdl" })).into_response(),
+        "/api/auth/passkeys/sign-in" => match (text("challengeId").as_str(), text("webauthnResponse").as_str()) {
+            ("cmd_1", "signed") => started("tok_passkey"),
             _ => unknown(),
         },
         "/api/auth/phone-code/request" => {
@@ -1169,6 +1175,37 @@ async fn a_password_starts_the_session_and_goes_back_to_the_page() {
     assert!(set_cookies(&headers).is_empty(), "no session");
     let (status, _, _) = pilot.send(visitor_post(at, None, "intent=password&email=limited%40example.test&password=x")).await;
     assert_eq!(status, StatusCode::TOO_MANY_REQUESTS);
+}
+
+#[tokio::test]
+async fn a_passkey_is_the_pilots_step_and_signs_in_with_its_credential() {
+    let pilot = Pilot::new().await;
+    let at = "/access/sign-in?returnTo=%2Fcatalog&signInIdentifier=staff%40example.test&signInMethod=passkey";
+    let (status, _, html) = pilot.send(get(at, None)).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains(r#"value="passkey-sign-in""#) && html.contains(r#"name="webauthnResponse""#), "{html}");
+    assert!(!html.contains("http://localhost:7752/access/sign-in"), "no longer admin-web's: {html}");
+
+    let (status, headers, json) =
+        pilot.send(visitor_post("/access/sign-in/passkey", None, "purpose=passkey-sign-in&email=staff%40example.test")).await;
+    assert_eq!(status, StatusCode::OK, "{json}");
+    assert!(headers[header::CACHE_CONTROL].to_str().unwrap().contains("no-store"), "{headers:?}");
+    assert_eq!(serde_json::from_str::<Value>(&json).unwrap(), json!({ "challengeId": "cmd_1", "challenge": "Y2hhbGxlbmdl" }));
+    let challenge = pilot.calls.lock().unwrap().iter().find(|c| c.path == "/api/auth/passkeys/challenge").cloned().unwrap();
+    assert_eq!(challenge.headers["x-forwarded-host"], "localhost:7790", "the page's origin, which Auth checks");
+
+    let credential = "challengeId=cmd_1&challenge=Y2hhbGxlbmdl&externalCredentialId=cred_1&webauthnResponse=signed";
+    let body = format!("intent=passkey-sign-in&email=staff%40example.test&{credential}");
+    let (status, headers, _) = pilot.send(visitor_post(at, None, &body)).await;
+    assert_eq!((status, &headers[header::LOCATION]), (StatusCode::SEE_OTHER, &header::HeaderValue::from_static("/catalog")));
+    assert!(set_cookies(&headers).iter().any(|c| c.starts_with("chase_sets_session=tok_passkey;")));
+
+    // No credential: the step's script did not run. Nothing is sent.
+    let (status, _, html) = pilot.send(visitor_post(at, None, "intent=passkey-sign-in&email=staff%40example.test")).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(html.contains("Passkey sign-in failed."), "{html}");
+    let sent = pilot.calls.lock().unwrap().iter().filter(|c| c.path == "/api/auth/passkeys/sign-in").count();
+    assert_eq!(sent, 1);
 }
 
 #[tokio::test]
