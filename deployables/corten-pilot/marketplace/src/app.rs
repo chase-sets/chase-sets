@@ -134,19 +134,28 @@ pub struct Config {
     /// Whether crawlers may index the site (`CHASE_SETS_MARKETPLACE_INDEXING`, `shouldIndexFromEnv`:
     /// anything but `0`, `false`, `no` or `off`).
     pub indexing: bool,
+    /// Whether a claim link's token is shown on the page to enter by hand, for local work without
+    /// email (`GUEST_PAYMENT_CLAIM_LOCAL_RECOVERY_TOKEN_ENABLED`: `1`, `true`, `yes` or `on`, never where
+    /// `DEPLOYMENT_ENVIRONMENT` is `production`, as marketplace decides).
+    pub claim_token_entry: bool,
 }
 
 impl Config {
     pub fn from_env() -> Self {
         let var = |name: &str, default: &str| std::env::var(name).unwrap_or_else(|_| default.into());
         Config {
-            platform: Platform::new(&var("PLATFORM_API_ORIGIN", "http://localhost:7762")),
+            platform: Platform::new(&var("PLATFORM_API_ORIGIN", "http://localhost:7762"))
+                .with_internal_auth(platform::api::InternalAuth::from_env()),
             proto: if var("PUBLIC_PROTO", "http") == "https" { "https" } else { "http" },
             stripe_publishable_key: std::env::var("STRIPE_PUBLISHABLE_KEY")
                 .ok()
                 .map(|key| key.trim().to_owned())
                 .filter(|key| !key.is_empty()),
             indexing: indexing(std::env::var("CHASE_SETS_MARKETPLACE_INDEXING").ok().as_deref()),
+            claim_token_entry: claim_token_entry(
+                std::env::var("GUEST_PAYMENT_CLAIM_LOCAL_RECOVERY_TOKEN_ENABLED").ok().as_deref(),
+                std::env::var("DEPLOYMENT_ENVIRONMENT").ok().as_deref(),
+            ),
         }
     }
 
@@ -162,6 +171,12 @@ impl Config {
 /// `shouldIndexFromEnv`: on unless the variable says off.
 pub fn indexing(value: Option<&str>) -> bool {
     !matches!(value.map(|v| v.trim().to_ascii_lowercase()).as_deref(), Some("0" | "false" | "no" | "off"))
+}
+
+/// `canExposeGuestPaymentClaimLocalRecoveryToken`: on when the variable says so, never in production.
+pub fn claim_token_entry(value: Option<&str>, deployment: Option<&str>) -> bool {
+    deployment.map(str::trim) != Some("production")
+        && matches!(value.map(|v| v.trim().to_ascii_lowercase()).as_deref(), Some("1" | "true" | "yes" | "on"))
 }
 
 /// Marketplace's origin (`MARKETPLACE_WEB_ORIGIN`), for sign-in and the pages the pilot links to.
@@ -1141,9 +1156,10 @@ pub mod url {
         #[route("/checkout/payments")]
         pub struct GuestPaymentsArea;
 
-        /// The payment, read after the write whose receipt it carries; Retry payment posts to it.
+        /// The payment, read after the write whose receipt it carries, or a claim link's landing;
+        /// Retry payment and Save this order's forms post to it.
         #[derive(Clone, Debug)]
-        #[route("/checkout/payments/{id}", get = crate::payment::guest_page, post = crate::payment::guest_retry)]
+        #[route("/checkout/payments/{id}", get = crate::payment::guest_page, post = crate::payment::guest_write)]
         pub struct GuestPayment<'a> {
             pub id: &'a str,
             #[route(query)]
@@ -1908,7 +1924,7 @@ pub fn app(config: Config) -> App {
         // Stripe.js and its fields are allowed on the payment pages and the saved payment methods
         // only (todd-skelton/corten#275).
         .area(|area| url::payments::area(area, shared.clone()).components(views::PAYMENT).policy(stripe))
-        .area(|area| url::guest_payments::area(area, shared.clone()).components(views::PAYMENT).policy(stripe))
+        .area(|area| url::guest_payments::area(area, shared.clone()).components(views::GUEST_PAYMENT).policy(stripe))
         .area(|area| url::payment_methods::area(area, shared.clone()).components(views::PAYMENT_METHODS).policy(stripe))
         .area(|area| url::support::area(area, shared.clone()).components(views::SUPPORT))
         .area(|area| url::repricing::area(area, shared.clone()).components(views::REPRICING))

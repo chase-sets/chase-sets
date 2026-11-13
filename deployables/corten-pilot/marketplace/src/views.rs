@@ -274,6 +274,14 @@ pub const PAYOUT_SETUP: &[Component] = &[PayoutSetupPage, payout_setup_page::Con
 /// A buyer's payment, with Stripe's step and the Stripe.js loader it imports, and starting a payment
 /// for the buyer's orders (`/account/payments/new`, no script).
 pub const PAYMENT: &[Component] = &[PaymentPage, payment_page::PaymentEntry, payment_page::stripe::COMPONENT, PaymentStartPage];
+/// A guest's payment: the same, and the passkey step's script, which Save this order's passkey uses.
+pub const GUEST_PAYMENT: &[Component] = &[
+    PaymentPage,
+    payment_page::PaymentEntry,
+    payment_page::stripe::COMPONENT,
+    PaymentStartPage,
+    platform::auth::passkey::COMPONENT,
+];
 
 /// The account's saved payment methods (`/account/payment-methods`), with Add's secure step and the
 /// Stripe.js loader it imports.
