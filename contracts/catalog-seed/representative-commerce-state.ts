@@ -144,9 +144,26 @@ export type RepresentativeListingPhotoUpload = Readonly<{
   altText?: string | null;
 }>;
 
+/** The complete owner stream's decision state; a partial, foreign or promoted-only history throws instead. */
+export type RepresentativeAuthoritativeListing =
+  | Readonly<{ kind: "absent" }>
+  | Readonly<{
+      kind: "present";
+      version: number;
+      state: Readonly<{
+        status: string;
+        priceAmount: string | null;
+        priceCurrencyCode: string | null;
+        feeQuoteFingerprint: string | null;
+      }>;
+    }>;
+
 export type RepresentativeMarketplaceServices = Readonly<{
   db: RepresentativeQueryable;
   listings: Readonly<{
+    readAuthoritativeListing: (
+      params: Readonly<{ accountId: AccountId; listingId: string }>,
+    ) => Promise<RepresentativeAuthoritativeListing>;
     createListing: (
       params: Readonly<{
         accountId: AccountId;
@@ -156,11 +173,18 @@ export type RepresentativeMarketplaceServices = Readonly<{
         quantityCap: number;
         listingIdOverride?: ListingId;
         listingPhotoUploads?: readonly RepresentativeListingPhotoUpload[] | null;
+        idempotencyKey?: string;
       }>,
       context: EventStoreContext,
     ) => Promise<Readonly<{ listingId: string; version: number; feeQuoteFingerprint: string }>>;
     publishListing: (
-      params: Readonly<{ accountId: AccountId; listingId: string; feeQuoteFingerprint: string }>,
+      params: Readonly<{
+        accountId: AccountId;
+        listingId: string;
+        feeQuoteFingerprint: string | null;
+        idempotencyKey?: string;
+        expectedVersion?: number;
+      }>,
       context: EventStoreContext,
     ) => Promise<Readonly<{ listingId: string; version: number }>>;
     updateListingPrice: (
@@ -169,6 +193,8 @@ export type RepresentativeMarketplaceServices = Readonly<{
         listingId: string;
         priceAmount: string;
         priceCurrencyCode: string;
+        idempotencyKey?: string;
+        expectedVersion?: number;
       }>,
       context: EventStoreContext,
     ) => Promise<Readonly<{ listingId: string; version: number }>>;
@@ -814,25 +840,35 @@ export async function publishRepresentativeListings(
 ): Promise<readonly MarketplaceRepresentativeListingResult[]> {
   const results: MarketplaceRepresentativeListingResult[] = [];
 
+  // Every decision reads the complete Listing stream, never the projection, and every write carries one attempt
+  // per command and decided version: a repeat, restart or resumed crash replays the first receipt, and a stream
+  // that moved after the decision conflicts instead of writing twice.
   for (const [index, stock] of stockItems.entries()) {
     const listingId = createRepresentativeListingId(stock);
+    const accountId = stock.accountId as AccountId;
+    const context = {
+      ...representativeSeedContext,
+      audit: { ...representativeSeedContext.audit, forAccountId: accountId },
+    };
     const priceAmount = representativePrice(index);
-    const existing = await getRepresentativeListingState(services.db, listingId);
-    if (existing !== null && existing.status !== "draft") {
+    let current = await services.listings.readAuthoritativeListing({ accountId, listingId });
+    if (current.kind === "present" && current.state.status !== "draft") {
       if (
         index === 0 &&
-        (existing.priceAmount !== priceAmount ||
-          existing.priceCurrencyCode !== "USD" ||
-          (existing.listingStreamVersion ?? 0) <= 0)
+        (current.state.priceAmount !== priceAmount ||
+          current.state.priceCurrencyCode !== "USD" ||
+          (await representativeProjectionUnversioned(services.db, listingId)))
       ) {
         await services.listings.updateListingPrice(
           {
-            accountId: stock.accountId as AccountId,
+            accountId,
             listingId,
             priceAmount,
             priceCurrencyCode: "USD",
+            expectedVersion: current.version,
+            idempotencyKey: representativeListingAttemptKey("price", accountId, listingId, current.version),
           },
-          representativeSeedContext,
+          context,
         );
 
         results.push({
@@ -855,28 +891,36 @@ export async function publishRepresentativeListings(
       continue;
     }
 
-    const created = await services.listings.createListing(
-      {
-        accountId: stock.accountId as AccountId,
-        inventoryItemId: stock.inventoryItemId,
-        priceAmount,
-        priceCurrencyCode: "USD",
-        quantityCap: Math.max(1, Math.min(stock.totalQuantity, index % 2 === 0 ? 2 : 4)),
-        listingIdOverride: listingId as ListingId,
-        // A retained draft already carries its creation photo evidence;
-        // re-uploading on resume would append duplicate photo events.
-        listingPhotoUploads: existing?.status === "draft" ? null : buildRepresentativeListingPhotoUpload(listingId),
-      },
-      representativeSeedContext,
-    );
+    // A retained draft already carries its creation photo evidence and fee quote; it is published, not re-created.
+    const retainedDraft = current.kind === "present";
+    if (current.kind === "absent") {
+      await services.listings.createListing(
+        {
+          accountId,
+          inventoryItemId: stock.inventoryItemId,
+          priceAmount,
+          priceCurrencyCode: "USD",
+          quantityCap: Math.max(1, Math.min(stock.totalQuantity, index % 2 === 0 ? 2 : 4)),
+          listingIdOverride: listingId as ListingId,
+          listingPhotoUploads: buildRepresentativeListingPhotoUpload(listingId),
+          idempotencyKey: representativeListingAttemptKey("create", accountId, listingId, 0),
+        },
+        context,
+      );
+      current = await services.listings.readAuthoritativeListing({ accountId, listingId });
+      if (current.kind === "absent")
+        throw new Error(`Representative Listing '${listingId}' has no authoritative stream after creation.`);
+    }
 
     await services.listings.publishListing(
       {
-        accountId: stock.accountId as AccountId,
-        listingId: created.listingId,
-        feeQuoteFingerprint: created.feeQuoteFingerprint,
+        accountId,
+        listingId,
+        feeQuoteFingerprint: current.state.feeQuoteFingerprint,
+        expectedVersion: current.version,
+        idempotencyKey: representativeListingAttemptKey("publish", accountId, listingId, current.version),
       },
-      representativeSeedContext,
+      context,
     );
 
     results.push({
@@ -884,11 +928,25 @@ export async function publishRepresentativeListings(
       accountId: stock.accountId,
       inventoryItemId: stock.inventoryItemId,
       listingId,
-      status: existing ? "already-present" : "created",
+      status: retainedDraft ? "already-present" : "created",
     });
   }
 
   return results;
+}
+
+/** One Listing attempt per representative command and decided stream version. */
+export function representativeListingAttemptKey(
+  command: "create" | "publish" | "price",
+  accountId: string,
+  listingId: string,
+  decidedVersion: number,
+): string {
+  const digest = createHash("sha256")
+    .update(JSON.stringify(["representative-listing", command, accountId, listingId, decidedVersion]))
+    .digest("hex")
+    .slice(0, 48);
+  return `repr_listing_${command}_${digest}`;
 }
 
 export async function submitRepresentativeOffers(
@@ -1525,42 +1583,18 @@ function createRepresentativeOfferId(stock: MarketplaceRepresentativeInventorySt
   return `off_repr_${hash}`;
 }
 
-type RepresentativeListingState = Readonly<{
-  status: string;
-  priceAmount: string;
-  priceCurrencyCode: string | null;
-  listingStreamVersion: number | null;
-}>;
-
-async function getRepresentativeListingState(
-  db: RepresentativeQueryable,
-  listingId: string,
-): Promise<RepresentativeListingState | null> {
-  const result = await db.query<{
-    status: string;
-    price_amount: string;
-    price_currency_code: string | null;
-    listing_stream_version: number | null;
-  }>(
-    `SELECT
-       status,
-       price_amount::text AS price_amount,
-       price_currency_code,
-       listing_stream_version
-     FROM marketplace_listing_pages
-     WHERE listing_id = $1`,
+/**
+ * Buyer visibility needs a projected stream version. The caller drains the Listing projection before deciding,
+ * so a row still at version 0 is a legacy projection the canary heals with one repair keyed to the stream version;
+ * a resumed run drains the projection again first, so a repair already committed and projected removes the trigger.
+ */
+async function representativeProjectionUnversioned(db: RepresentativeQueryable, listingId: string): Promise<boolean> {
+  const result = await db.query<{ listing_stream_version: number | null }>(
+    `SELECT listing_stream_version FROM marketplace_listing_pages WHERE listing_id = $1`,
     [listingId],
   );
   const row = result.rows[0];
-
-  return row
-    ? {
-        status: row.status,
-        priceAmount: row.price_amount,
-        priceCurrencyCode: row.price_currency_code,
-        listingStreamVersion: row.listing_stream_version,
-      }
-    : null;
+  return row !== undefined && (row.listing_stream_version ?? 0) <= 0;
 }
 
 async function getOfferStatus(db: RepresentativeQueryable, offerId: string): Promise<string | null> {

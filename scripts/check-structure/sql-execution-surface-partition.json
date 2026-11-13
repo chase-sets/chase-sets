@@ -48,6 +48,7 @@
     "bounded-contexts/catalog/features/product-contents/read-model/queries.ts",
     "bounded-contexts/catalog/features/product-measures/api/runtime.ts",
     "bounded-contexts/catalog/features/product-measures/read-model/queries.ts",
+    "bounded-contexts/catalog/features/provider-scope-discovery/api/proposal-acceptance.ts",
     "bounded-contexts/catalog/features/provider-scope-discovery/api/refresh-schedule-store.ts",
     "bounded-contexts/catalog/features/provider-scope-discovery/api/runtime.ts",
     "bounded-contexts/catalog/features/provider-scope-discovery/api/scope-observation-matcher.ts",

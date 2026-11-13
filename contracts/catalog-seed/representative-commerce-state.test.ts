@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import {
   acceptRepresentativeOffers,
   ensureRepresentativeInventoryStock,
@@ -799,41 +800,135 @@ describe("representative listing publication restart safety", () => {
     ]);
     expect(harness.updated).toEqual([]);
     expect(harness.published).toHaveLength(1);
+    expect(harness.contexts).toHaveLength(2);
+    for (const context of harness.contexts)
+      expect(context.audit).toMatchObject({
+        forAccountId: representativeStock().accountId,
+        performedByUserId: "usr_repr_support_ops_user",
+      });
     expect(results).toEqual([expect.objectContaining({ status: "created" })]);
   });
 
-  it("publishes a retained draft without re-uploading photo evidence", async () => {
+  it("publishes a retained draft from its own fee quote at its decided version without re-creating it", async () => {
     const harness = listingHarness("draft");
 
     const results = await publishRepresentativeListings(harness.services as never, [representativeStock()]);
 
-    expect(harness.created).toEqual([expect.objectContaining({ listingPhotoUploads: null })]);
+    expect(harness.created).toEqual([]);
     expect(harness.updated).toEqual([]);
-    expect(harness.published).toHaveLength(1);
+    expect(harness.published).toEqual([
+      expect.objectContaining({ feeQuoteFingerprint: "fee_retained", expectedVersion: 2 }),
+    ]);
     expect(results).toEqual([expect.objectContaining({ status: "already-present" })]);
   });
 
-  it("repairs an amount-only or stream-version-zero retained canary through the seller Listing command", async () => {
-    for (const retained of [
-      { status: "active", price_amount: "9.99", price_currency_code: null, listing_stream_version: 2 },
-      { status: "active", price_amount: "9.99", price_currency_code: "USD", listing_stream_version: 0 },
-    ]) {
-      const harness = listingHarness(retained);
+  it("repairs an amount-only retained canary through the keyed seller Listing command at its decided version", async () => {
+    const harness = listingHarness({
+      status: "active",
+      price_amount: "9.99",
+      price_currency_code: null,
+      listing_stream_version: 2,
+    });
 
-      const results = await publishRepresentativeListings(harness.services as never, [representativeStock()]);
+    const results = await publishRepresentativeListings(harness.services as never, [representativeStock()]);
 
-      expect(harness.created).toEqual([]);
-      expect(harness.published).toEqual([]);
-      expect(harness.updated).toEqual([
-        expect.objectContaining({
-          accountId: "acc_repr_card_vault_account",
-          priceAmount: "9.99",
-          priceCurrencyCode: "USD",
-        }),
-      ]);
-      expect(results).toEqual([expect.objectContaining({ status: "price-repaired" })]);
-      expect(harness.queries.every(([sql]) => /^\s*SELECT\b/.test(sql))).toBe(true);
+    expect(harness.created).toEqual([]);
+    expect(harness.published).toEqual([]);
+    expect(harness.updated).toEqual([
+      expect.objectContaining({
+        accountId: "acc_repr_card_vault_account",
+        priceAmount: "9.99",
+        priceCurrencyCode: "USD",
+        expectedVersion: 2,
+        idempotencyKey: expect.stringMatching(/^repr_listing_price_[a-f0-9]{48}$/),
+      }),
+    ]);
+    expect(harness.contexts[0]?.audit.forAccountId).toBe(representativeStock().accountId);
+    expect(results).toEqual([expect.objectContaining({ status: "price-repaired" })]);
+    expect(harness.queries.every(([sql]) => /^\s*SELECT\b/.test(sql))).toBe(true);
+  });
+
+  it("heals a drained legacy canary projection at version 0 once, then never again", async () => {
+    const store = listingStore({
+      status: "active",
+      price_amount: "9.99",
+      price_currency_code: "USD",
+      listing_stream_version: 0,
+    });
+    const first = listingHarness(null, store);
+
+    await expect(publishRepresentativeListings(first.services as never, [representativeStock()])).resolves.toEqual([
+      expect.objectContaining({ status: "price-repaired" }),
+    ]);
+    expect(first.updated).toEqual([expect.objectContaining({ priceCurrencyCode: "USD", expectedVersion: 0 })]);
+
+    const repeat = listingHarness(null, store);
+    await expect(publishRepresentativeListings(repeat.services as never, [representativeStock()])).resolves.toEqual([
+      expect.objectContaining({ status: "already-present" }),
+    ]);
+    expect(repeat.writes()).toEqual([]);
+  });
+
+  it("resumes a crash after each append from the first receipt and writes nothing on repeat, reboot or day-after", async () => {
+    for (const crashAfter of ["create", "publish"] as const) {
+      const store = listingStore();
+      const crashed = listingHarness(null, store);
+      crashed.crashAfter(crashAfter);
+      await expect(publishRepresentativeListings(crashed.services as never, [representativeStock()])).rejects.toThrow(
+        `synthetic crash after ${crashAfter}`,
+      );
+
+      const resumed = listingHarness(null, store);
+      await expect(
+        publishRepresentativeListings(resumed.services as never, [representativeStock()]),
+      ).resolves.toHaveLength(1);
+      for (const boot of ["same-boot repeat", "second boot", "day-after"]) {
+        const repeat = listingHarness(null, store);
+        await expect(publishRepresentativeListings(repeat.services as never, [representativeStock()])).resolves.toEqual(
+          [expect.objectContaining({ status: "already-present" })],
+        );
+        expect({ boot, writes: repeat.writes() }).toEqual({ boot, writes: [] });
+      }
+      expect(store.writes.map((write) => write.split(":")[0])).toEqual(["create@0", "publish@1"]);
     }
+  });
+
+  it("resumes a crash after the price-repair append without repairing twice", async () => {
+    const store = listingStore([
+      { status: "active", price_amount: "27.50", price_currency_code: "EUR", listing_stream_version: 7 },
+    ]);
+    const crashed = listingHarness(null, store);
+    crashed.crashAfter("price");
+    await expect(publishRepresentativeListings(crashed.services as never, [representativeStock()])).rejects.toThrow(
+      "synthetic crash after price",
+    );
+
+    const resumed = listingHarness(null, store);
+    await expect(publishRepresentativeListings(resumed.services as never, [representativeStock()])).resolves.toEqual([
+      expect.objectContaining({ status: "already-present" }),
+    ]);
+    expect(store.writes.map((write) => write.split(":")[0])).toEqual(["price@7"]);
+  });
+
+  it("fails closed on an unusable Listing history and a stream that moved after the decision", async () => {
+    const poisoned = listingHarness(null);
+    poisoned.services.listings.readAuthoritativeListing = async () => {
+      throw Object.assign(new Error("Listing history is unusable"), { code: "history_incomplete" });
+    };
+    await expect(publishRepresentativeListings(poisoned.services as never, [representativeStock()])).rejects.toThrow(
+      "Listing history is unusable",
+    );
+    expect(poisoned.writes()).toEqual([]);
+
+    const store = listingStore("draft");
+    const raced = listingHarness(null, store);
+    raced.interleaveBeforeWrite(() => store.foreignWrite());
+    await expect(publishRepresentativeListings(raced.services as never, [representativeStock()])).rejects.toMatchObject(
+      {
+        code: "concurrency_conflict",
+      },
+    );
+    expect(store.writes).toEqual(["foreign@2"]);
   });
 
   it("repairs a stale retained canary to its intended USD Listing Price", async () => {
@@ -1051,61 +1146,185 @@ type ListingHarnessRow = Readonly<{
   listing_stream_version: number | null;
 }>;
 
-function listingHarness(existing: string | ListingHarnessRow | readonly ListingHarnessRow[] | null) {
-  const created: unknown[] = [];
-  const updated: unknown[] = [];
-  const published: unknown[] = [];
-  const queries: QueryCall[] = [];
-  const rows = Array.isArray(existing)
+type HarnessListing = Readonly<{
+  version: number;
+  status: string;
+  priceAmount: string | null;
+  priceCurrencyCode: string | null;
+  feeQuoteFingerprint: string | null;
+}>;
+
+/**
+ * Complete Listing streams keyed by Listing id. Retained rows are assigned in first-read order, and the store
+ * honors the C1 contract the seed relies on: a recorded attempt replays its receipt with zero appends, and an
+ * unrecorded one appends only at its `expectedVersion`.
+ */
+function listingStore(existing: string | ListingHarnessRow | readonly ListingHarnessRow[] | null = null) {
+  const rows: readonly ListingHarnessRow[] = Array.isArray(existing)
     ? existing
     : existing
       ? [
           typeof existing === "string"
-            ? {
-                status: existing,
-                price_amount: "9.99",
-                price_currency_code: "USD",
-                listing_stream_version: 2,
-              }
-            : existing,
+            ? { status: existing, price_amount: "9.99", price_currency_code: "USD", listing_stream_version: 2 }
+            : (existing as ListingHarnessRow),
         ]
       : [];
-  let queryIndex = 0;
+  const listings = new Map<string, HarnessListing>();
+  const assigned = new Set<string>();
+  const receipts = new Map<string, number>();
+  const writes: string[] = [];
+  let nextRow = 0;
+
+  return {
+    writes,
+    read(listingId: string): HarnessListing | null {
+      if (!assigned.has(listingId)) {
+        assigned.add(listingId);
+        const row = rows[nextRow];
+        nextRow += 1;
+        if (row)
+          listings.set(listingId, {
+            version: row.listing_stream_version ?? 1,
+            status: row.status,
+            priceAmount: row.price_amount,
+            priceCurrencyCode: row.price_currency_code,
+            feeQuoteFingerprint: "fee_retained",
+          });
+      }
+      return listings.get(listingId) ?? null;
+    },
+    apply(
+      kind: "create" | "publish" | "price",
+      listingId: string,
+      key: string | undefined,
+      expectedVersion: number | undefined,
+      mutate: (current: HarnessListing | null) => Omit<HarnessListing, "version">,
+    ): Readonly<{ version: number; replayed: boolean }> {
+      const receipt = key === undefined ? undefined : receipts.get(key);
+      if (receipt !== undefined) return { version: receipt, replayed: true };
+      const current = listings.get(listingId) ?? null;
+      const version = current?.version ?? 0;
+      if ((expectedVersion !== undefined && expectedVersion !== version) || (kind === "create" && current))
+        throw Object.assign(new Error("Listing changed after the decision"), { code: "concurrency_conflict" });
+      writes.push(`${kind}@${version}:${key ?? "unkeyed"}`);
+      const next = { ...mutate(current), version: version + 1 };
+      listings.set(listingId, next);
+      if (key !== undefined) receipts.set(key, next.version);
+      return { version: next.version, replayed: false };
+    },
+    foreignWrite() {
+      const [listingId, listing] = [...listings][0] ?? [];
+      if (!listingId || !listing) throw new Error("No Listing to change.");
+      writes.push(`foreign@${listing.version}`);
+      listings.set(listingId, { ...listing, version: listing.version + 1 });
+    },
+  };
+}
+
+function listingHarness(
+  existing: string | ListingHarnessRow | readonly ListingHarnessRow[] | null,
+  store: ReturnType<typeof listingStore> = listingStore(existing),
+) {
+  const created: unknown[] = [];
+  const updated: unknown[] = [];
+  const published: unknown[] = [];
+  const queries: QueryCall[] = [];
+  const own: string[] = [];
+  const contexts: EventStoreContext[] = [];
+  let crashPoint: "create" | "publish" | "price" | null = null;
+  let interleave: (() => void) | null = null;
+  type KeyedParams = Readonly<{
+    listingId?: string;
+    listingIdOverride?: string;
+    idempotencyKey?: string;
+    expectedVersion?: number;
+  }>;
+  const keyed = (
+    kind: "create" | "publish" | "price",
+    params: KeyedParams,
+    mutate: (current: HarnessListing | null) => Omit<HarnessListing, "version">,
+  ) => {
+    const run = interleave;
+    interleave = null;
+    run?.();
+    const listingId = params.listingId ?? params.listingIdOverride ?? "";
+    const result = store.apply(kind, listingId, params.idempotencyKey, params.expectedVersion, mutate);
+    if (!result.replayed) own.push(`${kind}:${listingId}`);
+    if (crashPoint === kind) {
+      crashPoint = null;
+      throw new Error(`synthetic crash after ${kind}`);
+    }
+    return { listingId, version: result.version };
+  };
 
   return {
     created,
     updated,
     published,
     queries,
+    writes: () => [...own],
+    contexts,
+    crashAfter: (kind: "create" | "publish" | "price") => {
+      crashPoint = kind;
+    },
+    interleaveBeforeWrite: (write: () => void) => {
+      interleave = write;
+    },
     services: {
       db: {
+        // The drained Listing projection mirrors each stream's version.
         query: async <Row>(sql: string, params?: readonly unknown[]) => {
           queries.push([sql, params]);
           if (sql.includes("FROM marketplace_listing_pages")) {
-            const row = rows[queryIndex];
-            queryIndex += 1;
-            return { rows: row ? [row as Row] : [] };
+            const listing = store.read(String(params?.[0]));
+            return { rows: listing ? [{ listing_stream_version: listing.version } as Row] : [] };
           }
-
           return { rows: [] as Row[] };
         },
       },
       listings: {
-        createListing: async (params: unknown) => {
+        readAuthoritativeListing: async ({ listingId }: { listingId: string }) => {
+          const listing = store.read(listingId);
+          if (!listing) return { kind: "absent" as const };
+          const { version, ...state } = listing;
+          return { kind: "present" as const, version, state };
+        },
+        createListing: async (
+          params: KeyedParams & Readonly<{ priceAmount: string; priceCurrencyCode: string }>,
+          context: EventStoreContext,
+        ) => {
+          contexts.push(context);
           created.push(params);
-          return {
-            listingId: (params as { listingIdOverride: string }).listingIdOverride,
-            version: 1,
+          const result = keyed("create", params, () => ({
+            status: "draft",
+            priceAmount: params.priceAmount,
+            priceCurrencyCode: params.priceCurrencyCode,
             feeQuoteFingerprint: "fee_1",
-          };
+          }));
+          return { ...result, feeQuoteFingerprint: "fee_1" };
         },
-        updateListingPrice: async (params: unknown) => {
+        updateListingPrice: async (
+          params: KeyedParams & Readonly<{ priceAmount: string; priceCurrencyCode: string }>,
+          context: EventStoreContext,
+        ) => {
+          contexts.push(context);
           updated.push(params);
-          return { listingId: (params as { listingId: string }).listingId, version: 3 };
+          return keyed("price", params, (current) => ({
+            status: current?.status ?? "active",
+            priceAmount: params.priceAmount,
+            priceCurrencyCode: params.priceCurrencyCode,
+            feeQuoteFingerprint: current?.feeQuoteFingerprint ?? null,
+          }));
         },
-        publishListing: async (params: unknown) => {
+        publishListing: async (params: KeyedParams, context: EventStoreContext) => {
+          contexts.push(context);
           published.push(params);
-          return { listingId: (params as { listingId: string }).listingId, version: 2 };
+          return keyed("publish", params, (current) => ({
+            status: "active",
+            priceAmount: current?.priceAmount ?? null,
+            priceCurrencyCode: current?.priceCurrencyCode ?? null,
+            feeQuoteFingerprint: current?.feeQuoteFingerprint ?? null,
+          }));
         },
       },
     },

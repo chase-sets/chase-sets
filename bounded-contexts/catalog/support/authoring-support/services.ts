@@ -177,6 +177,7 @@ export function createCatalogServices(
     listProfileVersions: () => providerIntegrationProfiles.listProfileVersions(),
     queryIntegrationOptions: (input) => sourceObservations.queryIntegrationOptions(input),
     providerScopeMappingCommandHandler: providerScopeMappings.commandHandler,
+    referenceRecordCommandHandler: referenceData.referenceRecordCommandHandler,
   });
 
   return {

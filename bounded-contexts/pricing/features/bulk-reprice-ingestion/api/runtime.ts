@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import {
@@ -38,6 +39,46 @@ export class BulkRepriceIngestionDomainError extends Error {
   }
 }
 
+/** The attempt identity already names a job for different parsed rows. */
+export class BulkRepriceAttemptConflictError extends BulkRepriceIngestionDomainError {
+  constructor() {
+    super("This upload attempt was already used for different rows. Start a new upload attempt.");
+    this.name = "BulkRepriceAttemptConflictError";
+  }
+}
+
+const BULK_REPRICE_ATTEMPT_KEY = /^[A-Za-z0-9_-]{22,128}$/;
+
+function bulkRepriceDigest(parts: readonly unknown[]): string {
+  return createHash("sha256").update(JSON.stringify(parts)).digest("hex");
+}
+
+/**
+ * One job per account and upload attempt. The job id binds the attempt; the input id also binds the canonical
+ * parsed rows, so an identical retry shares its input and a changed retry can never overwrite the first one.
+ */
+function bulkRepriceAttempt(accountId: string, idempotencyKey: string, rows: readonly BulkRepriceInputRow[]) {
+  if (!BULK_REPRICE_ATTEMPT_KEY.test(idempotencyKey)) {
+    throw new BulkRepriceIngestionDomainError("The upload attempt identity is invalid.");
+  }
+  const attempt = bulkRepriceDigest(["bulk-reprice-attempt", accountId, idempotencyKey]).slice(0, 40);
+  const rowsHash = bulkRepriceDigest(["bulk-reprice-rows", rows]);
+  return {
+    jobId: `job_bri_${attempt}`,
+    inputId: `bri_${attempt}_${rowsHash.slice(0, 24)}`,
+    rowsHash,
+  };
+}
+
+/** One target attempt per job row: a re-claimed wave replays each row's first Listing receipt. */
+function bulkRepriceTargetKey(jobId: string, listingId: string, rowNumber: number): string {
+  return `bri_row_${bulkRepriceDigest(["bulk-reprice-row", jobId, listingId, rowNumber]).slice(0, 48)}`;
+}
+
+function bulkRepriceWaveBatchId(jobId: string, waveIndex: number): string {
+  return `bri_wave_${bulkRepriceDigest(["bulk-reprice-wave", jobId, waveIndex]).slice(0, 48)}`;
+}
+
 /**
  * The Marketplace port this feature drives to apply the diffed deltas --
  * the SAME chunked-append + per-account-terms-session path (the m113 throughput lane)
@@ -47,14 +88,20 @@ export class BulkRepriceIngestionDomainError extends Error {
  */
 export type BulkRepriceListingOutcome = Readonly<{
   listingId: string;
-  outcome: "applied" | "no_op" | "conflict" | "error";
+  outcome: "applied" | "no_op" | "conflict" | "error" | "unknown";
   message?: string;
 }>;
 
 export type BulkRepriceMarketplaceListingGateway = Readonly<{
   applyBulkListingPriceUpdates: (
     body: Readonly<{
-      updates: readonly Readonly<{ listingId: string; priceAmount: string; priceCurrencyCode: string }>[];
+      batchId?: string;
+      updates: readonly Readonly<{
+        listingId: string;
+        priceAmount: string;
+        priceCurrencyCode: string;
+        idempotencyKey?: string;
+      }>[];
     }>,
   ) => Promise<Readonly<{ items: readonly BulkRepriceListingOutcome[] }>>;
 }>;
@@ -79,6 +126,8 @@ export type BulkRepriceJobPayload = Readonly<{
   accountId: string;
   inputId: string;
   rowCount: number;
+  /** Present on attempt-keyed jobs: the canonical parsed-row hash an identical retry must match. */
+  rowsHash?: string;
 }>;
 
 export type BulkRepriceJobProgress = Readonly<{
@@ -147,6 +196,8 @@ export type BulkRepriceIngestionServices = Readonly<{
       csvText?: string;
       rows?: readonly Readonly<{ sellerSku?: unknown; listingId?: unknown; newPriceAmount?: unknown }>[];
       sourceFilename?: string | null;
+      /** Upload attempt identity: an identical retry returns the first job, changed rows conflict. */
+      idempotencyKey?: string;
     }>,
     context: EventStoreContext,
   ) => Promise<BulkRepriceJob>;
@@ -257,24 +308,52 @@ export function createBulkRepriceIngestionRuntime(deps: BulkRepriceRuntimeDeps):
       );
     }
 
-    const inputId = createInternalId("bri");
+    const attempt =
+      params.idempotencyKey === undefined ? null : bulkRepriceAttempt(params.accountId, params.idempotencyKey, rows);
+    const adopt = (job: BulkRepriceJob) => {
+      if (job.payload.accountId !== params.accountId || job.payload.rowsHash !== attempt?.rowsHash) {
+        throw new BulkRepriceAttemptConflictError();
+      }
+      return job;
+    };
+    if (attempt) {
+      const existing = await jobStore.get(attempt.jobId);
+      if (existing) return adopt(existing);
+    }
+    const inputId = attempt?.inputId ?? createInternalId("bri");
     await deps.db.query(
       `INSERT INTO pricing_bulk_reprice_job_inputs (input_id, account_id, rows, row_count, source_filename, created_at)
-       VALUES ($1, $2, $3::jsonb, $4, $5, now())`,
+       VALUES ($1, $2, $3::jsonb, $4, $5, now())
+       ON CONFLICT (input_id) DO NOTHING`,
       [inputId, params.accountId, JSON.stringify(rows), rows.length, params.sourceFilename ?? null],
     );
 
     try {
       return await jobStore.enqueue({
-        jobId: createInternalId("job"),
+        jobId: attempt?.jobId ?? createInternalId("job"),
         jobKind: BULK_REPRICE_JOB_KIND,
-        payload: { accountId: params.accountId, inputId, rowCount: rows.length },
+        payload: {
+          accountId: params.accountId,
+          inputId,
+          rowCount: rows.length,
+          ...(attempt ? { rowsHash: attempt.rowsHash } : {}),
+        },
         progress: jobProgress("queued", 0, rows.length, "Bulk reprice job queued."),
         eventContext: context,
       });
     } catch (error) {
+      // An identical attempt that won the race owns this input; only an unreferenced input is removed.
+      const raced = attempt ? await jobStore.get(attempt.jobId) : null;
+      if (raced) return adopt(raced);
       await deps.db
-        .query(`DELETE FROM pricing_bulk_reprice_job_inputs WHERE input_id = $1`, [inputId])
+        .query(
+          `DELETE FROM pricing_bulk_reprice_job_inputs AS input
+            WHERE input.input_id = $1
+              AND NOT EXISTS (
+                SELECT 1 FROM pricing_bulk_reprice_jobs AS job WHERE job.payload->>'inputId' = input.input_id
+              )`,
+          [inputId],
+        )
         .catch(() => undefined);
       if (isActiveJobUniqueConflict(error)) {
         throw new BulkRepriceIngestionDomainError(
@@ -297,6 +376,11 @@ export function createBulkRepriceIngestionRuntime(deps: BulkRepriceRuntimeDeps):
       allowedStatuses: ["queued", "running"],
     });
     if (!cancelled) {
+      // A cancel whose response was lost converges on the recorded cancellation instead of failing.
+      const current = await jobStore.get(jobId);
+      if (current?.status === "failed" && current.errorMessage === BULK_REPRICE_CANCELLED_ERROR) {
+        return finalizeCancelledJob(current, await loadInputRows(current.payload.inputId));
+      }
       throw new BulkRepriceIngestionDomainError("Bulk reprice job could not be cancelled.");
     }
     return finalizeCancelledJob(cancelled, await loadInputRows(cancelled.payload.inputId));
@@ -354,7 +438,7 @@ export function createBulkRepriceIngestionRuntime(deps: BulkRepriceRuntimeDeps):
       const waves = chunkItems(inputRows, policy.chunkSize);
       let completed = 0;
 
-      for (const wave of waves) {
+      for (const [waveIndex, wave] of waves.entries()) {
         jobContext.throwIfCancelled();
         await runDurableJobSideEffect(
           jobContext,
@@ -364,6 +448,7 @@ export function createBulkRepriceIngestionRuntime(deps: BulkRepriceRuntimeDeps):
               jobId: claimed.jobId,
               accountId,
               wave,
+              batchId: bulkRepriceWaveBatchId(claimed.jobId, waveIndex),
               marketplaceGateway,
               inventoryGateway,
             }),
@@ -455,10 +540,11 @@ async function processBulkRepriceWave(params: {
   jobId: string;
   accountId: string;
   wave: readonly BulkRepriceInputRow[];
+  batchId: string;
   marketplaceGateway: BulkRepriceMarketplaceListingGateway;
   inventoryGateway: BulkRepriceInventorySkuGateway;
 }): Promise<void> {
-  const { db, jobId, accountId, wave, marketplaceGateway, inventoryGateway } = params;
+  const { db, jobId, accountId, wave, batchId, marketplaceGateway, inventoryGateway } = params;
   const outcomes: BulkRepriceRowUpsert[] = [];
 
   const invalidRows = wave.filter((row) => row.validationErrors.length > 0);
@@ -648,12 +734,14 @@ async function processBulkRepriceWave(params: {
   }
 
   if (updatesByListingId.size > 0) {
+    // One batch per job wave plus one target attempt per row, so a re-claimed wave re-sends only unknown targets.
     const updates = [...updatesByListingId.entries()].map(([listingId, entry]) => ({
       listingId,
       priceAmount: entry.priceAmount,
       priceCurrencyCode: entry.priceCurrencyCode,
+      idempotencyKey: bulkRepriceTargetKey(jobId, listingId, entry.rowNumber),
     }));
-    const bulkResult = await marketplaceGateway.applyBulkListingPriceUpdates({ updates });
+    const bulkResult = await marketplaceGateway.applyBulkListingPriceUpdates({ batchId, updates });
     const outcomeByListingId = new Map(bulkResult.items.map((item) => [item.listingId, item] as const));
 
     for (const [listingId, entry] of updatesByListingId) {

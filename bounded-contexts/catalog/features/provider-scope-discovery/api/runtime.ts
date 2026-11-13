@@ -8,9 +8,19 @@ import {
   type ProviderScopeMappingEvent,
   type ProviderScopeMappingState,
 } from "../../provider-scope-mapping/domain/domain";
+import type {
+  ReferenceRecordCommand,
+  ReferenceRecordEvent,
+  ReferenceRecordState,
+} from "../../reference-data/domain/domain";
 import type { CatalogProviderIntegrationProfileVersionRecord } from "../../source-observations/api/provider-integration-profiles";
 import type { CatalogProviderOptionQueryPage } from "../../source-observations/api/provider-option-query-cache";
 import { listProviderScopeDiscoveryTargets, type ProviderScopeDiscoveryTarget } from "./discovery-targets";
+import {
+  acceptCanonicalScopeRecordProposal,
+  type CanonicalScopeRecordProposalAcceptRequest,
+  type CanonicalScopeRecordProposalAcceptResult,
+} from "./proposal-acceptance";
 import {
   getProviderRefreshCadence,
   PROVIDER_REFRESH_CADENCE_CONFIG,
@@ -77,6 +87,8 @@ export type ProviderScopeDiscoveryPorts = Readonly<{
     ProviderScopeMappingState,
     ProviderScopeMappingEvent
   >;
+  /** Proposal acceptance authors Scope Records only through Reference Record commands. */
+  referenceRecordCommandHandler: CommandHandler<ReferenceRecordCommand, ReferenceRecordState, ReferenceRecordEvent>;
 }>;
 
 export type ProviderScopeDiscoveryServices = Readonly<{
@@ -112,6 +124,12 @@ export type ProviderScopeDiscoveryServices = Readonly<{
       limit?: number;
     }>,
   ) => Promise<readonly CanonicalScopeRecordProposalRecord[]>;
+  acceptCanonicalScopeRecordProposal: (input: {
+    proposalId: string;
+    request: CanonicalScopeRecordProposalAcceptRequest;
+    actor: string;
+    context: EventStoreContext;
+  }) => Promise<CanonicalScopeRecordProposalAcceptResult>;
 }>;
 
 const SCHEDULED_ACTOR = "system:scheduled-provider-scope-refresh";
@@ -328,6 +346,15 @@ export function createProviderScopeDiscoveryRuntime(
 
     listScopeObservations: (input = {}) => listProviderScopeObservations(db, input),
     listCanonicalScopeRecordProposals: (input = {}) => listCanonicalScopeRecordProposals(db, input),
+    acceptCanonicalScopeRecordProposal: (input) =>
+      acceptCanonicalScopeRecordProposal(
+        deps,
+        {
+          referenceRecordCommandHandler: ports.referenceRecordCommandHandler,
+          providerScopeMappingCommandHandler: ports.providerScopeMappingCommandHandler,
+        },
+        input,
+      ),
   };
 }
 
