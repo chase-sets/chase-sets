@@ -491,6 +491,11 @@ async function quoteOfferAcceptanceTerms(
     sellerAccountId: params.sellerAccountId,
     listingId: params.listingId,
   });
+  // Checkout's Offer projection can trail Marketplace, so a live quote for another price
+  // would authorize a sale the review does not show.
+  if (moneyCents(terms.basis_amount) !== moneyCents(params.priceAmount)) {
+    throw new Error("Offer price changed. Refresh the Sell List review.");
+  }
   return {
     account_type: terms.account_type,
     basis_amount: terms.basis_amount,

@@ -112,12 +112,11 @@ const productLine = sellListLine({
 });
 
 /** Answers only the Checkout projections the composite review reads. */
-function createCheckoutDb() {
+function createCheckoutDb(productMatches = [offerMatchRow("off_product", "cat_mewtwo::graded", "lst_product")]) {
   return {
     query: vi.fn(async (sql: string, values: readonly unknown[] = []) => {
       if (sql.includes("FROM checkout_sell_list_line_pages")) return { rows: [selectedLine, productLine] };
-      if (sql.includes("offer.product_id = ANY($2::text[])"))
-        return { rows: [offerMatchRow("off_product", "cat_mewtwo::graded", "lst_product")] };
+      if (sql.includes("offer.product_id = ANY($2::text[])")) return { rows: productMatches };
       if (sql.includes("WHERE offer.offer_id = $2"))
         return { rows: [offerMatchRow("off_managed", "cat_mewtwo::raw", "lst_best_match")] };
       if (sql.includes("FROM checkout_sell_offer_pages") && values[0] === "off_managed")
@@ -131,11 +130,14 @@ function createCheckoutDb() {
  * Stands in for Marketplace's managed-Offer contract: acceptance succeeds only
  * with the fingerprint its acceptance-terms preview returns for the current
  * Offer and Listing versions. The test never builds that value itself.
+ * `livePrices` overrides Marketplace's current price for an Offer; Checkout's
+ * projection stays at 135.00.
  */
-function createManagedMarketplace() {
+function createManagedMarketplace(livePrices: Readonly<Record<string, string>> = {}) {
   const versions = new Map<string, number>([
     ["off_managed", 2],
     ["off_product", 2],
+    ["off_product_next", 2],
   ]);
   const currentFingerprint = (offerId: string, listingId: string) =>
     `managed:${offerId}@${versions.get(offerId)}:${listingId}`;
@@ -143,7 +145,7 @@ function createManagedMarketplace() {
     async ({ offerId, listingId }) =>
       ({
         account_type: "personal",
-        basis_amount: "135.00",
+        basis_amount: livePrices[offerId] ?? "135.00",
         marketplace_sales_fee_unit_amount: "6.75",
         seller_net_unit_amount: "128.25",
         marketplace_sales_fee_percentage_bps: 500,
@@ -171,11 +173,14 @@ function createManagedMarketplace() {
   };
 }
 
-async function reviewSellList(marketplace: ReturnType<typeof createManagedMarketplace>) {
+async function reviewSellList(
+  marketplace: ReturnType<typeof createManagedMarketplace>,
+  productMatches?: Parameters<typeof createCheckoutDb>[0],
+) {
   const sellList = createCheckoutSellListRuntime({
     eventStore: {} as never,
     checkpointStore: {} as never,
-    db: createCheckoutDb(),
+    db: createCheckoutDb(productMatches),
     commercialTermsResolver,
     offerAcceptanceTermsSource: marketplace.source,
   });
@@ -290,5 +295,62 @@ describe("Sell List acceptance of a managed Offer", () => {
       terms: null,
       message: "Create a matching listing before accepting this offer.",
     });
+  });
+
+  it("keeps a selected Offer unavailable when Marketplace prices it differently than the review shows", async () => {
+    const marketplace = createManagedMarketplace({ off_managed: "125.00" });
+
+    const review = await reviewSellList(marketplace);
+
+    expect(selectedLine.offer_price_amount).toBe("135.00");
+    expect(marketplace.previewOfferAcceptanceTerms).toHaveBeenCalledWith({
+      offerId: "off_managed",
+      sellerAccountId: "acc_seller",
+      listingId: "lst_seller",
+    });
+    expect(review.offerReviews[0]).toMatchObject({
+      lineId: "sll_selected",
+      status: "unavailable",
+      terms: null,
+      message: "Offer price changed. Refresh the Sell List review.",
+    });
+  });
+
+  it("leaves out a Smart Match candidate that Marketplace prices differently than the review shows", async () => {
+    const marketplace = createManagedMarketplace({ off_product: "125.00" });
+
+    const review = await reviewSellList(marketplace, [
+      offerMatchRow("off_product", "cat_mewtwo::graded", "lst_product"),
+      offerMatchRow("off_product_next", "cat_mewtwo::graded", "lst_product"),
+    ]);
+
+    expect(marketplace.previewOfferAcceptanceTerms).toHaveBeenCalledWith({
+      offerId: "off_product",
+      sellerAccountId: "acc_seller",
+      listingId: "lst_product",
+    });
+    expect(review.productOfferReviews[0]).toMatchObject({ lineId: "sll_product", status: "ready" });
+    expect(
+      review.productOfferReviews[0]?.offers.map(({ offer, terms }) => [
+        offer.offer_id,
+        terms.basis_amount,
+        terms.fee_quote_fingerprint,
+      ]),
+    ).toEqual([["off_product_next", "135.00", "managed:off_product_next@2:lst_product"]]);
+  });
+
+  it("forwards Marketplace's opaque fingerprint when its price equals the review's in another notation", async () => {
+    const marketplace = createManagedMarketplace({ off_managed: "135.0", off_product: "135" });
+
+    const review = await reviewSellList(marketplace);
+
+    expect(review.offerReviews[0]).toMatchObject({
+      lineId: "sll_selected",
+      status: "ready",
+      terms: { basis_amount: "135.0", fee_quote_fingerprint: "managed:off_managed@2:lst_seller" },
+    });
+    expect(review.productOfferReviews[0]?.offers.map(({ terms }) => terms.fee_quote_fingerprint)).toEqual([
+      "managed:off_product@2:lst_product",
+    ]);
   });
 });
