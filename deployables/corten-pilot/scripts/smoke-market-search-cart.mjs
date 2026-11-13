@@ -1,7 +1,7 @@
 // Uses Add matching products to Buy Cart on the marketplace search page in a browser, against the
 // real platform API, signed in (scripts/sign-in.mjs <marketplace> <state> marketplace) and as a guest.
 // - With JavaScript at 1280 px: the trigger opens the preview as a modal dialog without leaving the
-//   search, Close shuts it, the trigger opens it again (corten-run/corten#1371), and Add eligible
+//   search, Close shuts it, the trigger opens it again (the README's open workarounds), and Add eligible
 //   products goes back to the search saying how many were added and merged, with the cart's count
 //   shown. A result's Add to List (words naming a product whose options need no filter, `[list-words]`)
 //   opens its dialog in the search, and again after Close.

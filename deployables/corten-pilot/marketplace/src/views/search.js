@@ -39,7 +39,8 @@ export function tidy(event) {
  * A sheet's trigger is being sent (Add to List, Add matching products to Buy Cart): a sheet the
  * user closed becomes an empty hidden element of its id, so the answer, which draws it open,
  * opens it. Otherwise the patch keeps the dialog closed as the user left it
- * (corten-run/corten#1371); remove this once a patch the user asked for opens what it draws open.
+ * (a Corten gap, in the README's open workarounds); remove this once a patch the user asked for
+ * opens what it draws open.
  * @param {ElementId} id
  */
 export function fresh(id) {
