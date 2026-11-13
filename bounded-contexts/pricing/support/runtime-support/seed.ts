@@ -1,4 +1,5 @@
 import { createPostgresEventStore, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import { readCompleteStream } from "@chase-sets/event-core/complete-stream";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { toTransportEvent } from "@chase-sets/event-core/transport";
 import { marketPriceEstimatedEventType } from "../../features/market-estimates/domain/domain";
@@ -48,7 +49,7 @@ export async function seedSyntheticOfferMarketPrice(
     "SELECT estimate_version::text FROM pricing_market_price_estimates WHERE catalog_catalog_item_id=$1 AND product_id=$2",
     [fixture.catalogItemId, fixture.productId],
   );
-  const history = await eventStore.readStream({ streamId });
+  const history = await readCompleteStream(eventStore, { streamId, maxEvents: 100 });
   const previous = history.at(-1);
   if (fixture.previousEstimateVersion) {
     if (

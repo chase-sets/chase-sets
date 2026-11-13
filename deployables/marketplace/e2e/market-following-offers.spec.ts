@@ -1,4 +1,4 @@
-import { expect, test, type APIResponse, type BrowserContext } from "@playwright/test";
+import { expect, test, type APIResponse, type BrowserContext, type Page } from "@playwright/test";
 import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { parseEnv } from "node:util";
@@ -27,6 +27,7 @@ import {
   marketplaceBrowserE2eSellerCredentials,
   marketplaceBrowserE2eSeedContract,
 } from "./support/seed-contract";
+import { checkpoints, validateTimeline } from "../../../scripts/lib/journey-package-contract.mjs";
 
 // Two nominal recovery periods plus estimated scheduling/projection/read slack, not a latency SLA.
 const MANAGED_OFFER_CONVERGENCE_BUDGET_MS = 180_000;
@@ -68,9 +69,40 @@ test("market-following consent, changed target, Checkout acceptance and permanen
   let listingId: string | undefined;
   let policyId: string | undefined;
   let sellerContext: BrowserContext | undefined;
-  const authorizations: unknown[] = [];
+  const authorizations: { consent: unknown }[] = [];
   const writes: unknown[] = [];
   let journeyFailed = false;
+  const capture = async (target: Page, checkpoint: keyof typeof checkpoints, selectionCount: number) => {
+    const expected = checkpoints[checkpoint];
+    await expect(target).toHaveURL((url) =>
+      expected.actor === "buyer"
+        ? url.pathname === expected.route
+        : /^\/checkout\/sell\/session\/[^/]+\/confirmation$/.test(url.pathname),
+    );
+    const response = await target.request.get("/api/auth/session");
+    expect(response.ok(), "capture actor session").toBe(true);
+    expect((await response.json()).actor).toMatchObject({
+      userId: expected.actor === "buyer" ? identitySeedIds.collector.userId : identitySeedIds.demo.userId,
+      accountId: expected.actor === "buyer" ? identitySeedIds.collector.accountId : identitySeedIds.demo.accountId,
+    });
+    expect(target.viewportSize()).toEqual(expected.viewport);
+    if (expected.actor === "buyer")
+      await expect(target.getByRole("checkbox", { name: /^Select .+\(off_/, checked: true })).toHaveCount(
+        selectionCount,
+      );
+    const at = new Date().toISOString();
+    const body = await target.screenshot({ fullPage: true });
+    timeline.push({
+      kind: "capture",
+      at,
+      checkpoint,
+      route: expected.route,
+      actor: expected.actor,
+      viewport: expected.viewport,
+      selectionCount,
+    });
+    await testInfo.attach(checkpoint, { body, contentType: "image/png" });
+  };
   try {
     await test.step("Prepare and verify the exact synthetic Pricing estimate before Preview (not worker proof)", async () => {
       removeEstimates.push(await seedSyntheticOfferMarketPrice(pool, fixture));
@@ -168,14 +200,32 @@ test("market-following consent, changed target, Checkout acceptance and permanen
       );
     }
     const [controlOfferId, heldControlOfferId] = controlOfferIds;
-    page.on("request", (request) => {
+    page.on("response", (response) => {
+      const request = response.request();
       if (request.method() === "POST" && request.url().includes("/account/offers/submitted")) {
         const fields = new URLSearchParams(request.postData() ?? "");
         policyId = fields.get("policyId") ?? policyId;
-        const command = fields.get("command");
-        if (command && JSON.parse(command).type === "AuthorizeBuyerOfferPolicy")
-          authorizations.push(JSON.parse(command));
-        if (command) timeline.push({ step: "buyer policy command", command: JSON.parse(command) });
+        const encoded = fields.get("command");
+        if (!encoded) return;
+        const command = JSON.parse(encoded);
+        if (command.type === "AuthorizeBuyerOfferPolicy") authorizations.push({ consent: command.consent });
+        if (
+          [
+            "CreateBuyerOfferPolicy",
+            "PreviewBuyerOfferPolicy",
+            "AuthorizeBuyerOfferPolicy",
+            "PauseBuyerOfferPolicy",
+            "StopBuyerOfferPolicy",
+          ].includes(command.type)
+        )
+          timeline.push({
+            kind: "command",
+            at: new Date().toISOString(),
+            actor: "buyer",
+            command: command.type,
+            httpStatus: response.status(),
+            offerIds: [...controlOfferIds],
+          });
       }
     });
     await page.goto(appendFreshWriteTokenFromSources("/account/offers/submitted", writes));
@@ -230,6 +280,7 @@ test("market-following consent, changed target, Checkout acceptance and permanen
       await expect(page.getByRole("button", { name: "Authorize reviewed Offers" })).toBeDisabled();
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
       await page.screenshot({ path: testInfo.outputPath(`market-following-review-${width}.png`), fullPage: true });
+      if (width === 390 || width === 1440) await capture(page, `journey-review-${width}`, controlOfferIds.length);
     }
     const consent = page.getByRole("checkbox", { name: /^I authorize/ });
     await consent.focus();
@@ -261,33 +312,23 @@ test("market-following consent, changed target, Checkout acceptance and permanen
       companionPools.push(marketplacePool);
       const marketplace = createPostgresEventStore({ pool: marketplacePool });
       const convergence = {
-        step: "managed Offer convergence",
+        kind: "convergence",
         offerId: controlOfferId,
-        buyerAccountId: actor.accountId,
-        policyId,
-        catalogItemId: fixture.catalogItemId,
-        productId: fixture.productId,
-        startedAt: null as string | null,
-        endedAt: null as string | null,
+        startedAt: new Date().toISOString(),
+        endedAt: new Date().toISOString(),
         elapsedMs: 0,
         budgetMs: MANAGED_OFFER_CONVERGENCE_BUDGET_MS,
         pollCount: 0,
-        baselineStreamVersion: null as number | null,
-        currentStreamVersion: null as number | null,
-        events: [] as { eventId: string; eventType: string; streamVersion: number; payload: unknown }[],
-        authoritativePair: null as { priceUpdateVersion: number; evaluationVersion: number } | null,
-        http: null as {
-          status: number;
-          offerId?: string;
-          buyerAccountId?: string;
-          amount?: string;
-          currencyCode?: string;
-          streamVersion?: number;
-          offerStatus?: string;
-        } | null,
-        outcome: "not observed",
+        baselineStreamVersion: 0,
+        currentStreamVersion: 0,
+        eventTypes: [] as string[],
+        priceUpdateVersion: null as number | null,
+        evaluationVersion: null as number | null,
+        amount: null as string | null,
+        currency: null as string | null,
+        offerStatus: null as string | null,
+        outcome: "not-converged",
       };
-      timeline.push(convergence);
       let startedAtMs: number | undefined;
       let streamReadFailure: unknown;
       const client = await marketplacePool.connect();
@@ -322,12 +363,12 @@ test("market-following consent, changed target, Checkout acceptance and permanen
         ).rejects.toThrow("exact previous owned estimate");
         startedAtMs = performance.now();
         convergence.startedAt = new Date().toISOString();
+        convergence.endedAt = convergence.startedAt;
+        timeline.push(convergence);
         const deadline = startedAtMs + MANAGED_OFFER_CONVERGENCE_BUDGET_MS;
-        let deadlineExpired = false;
         const remainingBudget = () => {
           const remaining = Math.floor(deadline - performance.now());
           if (remaining <= 0) {
-            deadlineExpired = true;
             throw new Error("Managed Offer convergence deadline exhausted.");
           }
           return remaining;
@@ -339,7 +380,6 @@ test("market-following consent, changed target, Checkout acceptance and permanen
             return await Promise.race([
               new Promise<never>((_, reject) => {
                 timer = setTimeout(() => {
-                  deadlineExpired = true;
                   reject(new Error("Managed Offer read exceeded its remaining budget."));
                 }, remainingBudget());
               }),
@@ -365,7 +405,7 @@ test("market-following consent, changed target, Checkout acceptance and permanen
                 convergence.pollCount += 1;
                 try {
                   const events = await beforeDeadline(readOfferStream);
-                  convergence.currentStreamVersion = events.at(-1)?.streamVersion ?? null;
+                  convergence.currentStreamVersion = events.at(-1)?.streamVersion ?? baselineVersion;
                   const relevant = events.filter((event) =>
                     ["marketplace.offer.price-updated", "marketplace.offer.managed-evaluated"].includes(
                       event.eventType,
@@ -389,22 +429,7 @@ test("market-following consent, changed target, Checkout acceptance and permanen
                           },
                     );
                   }
-                  convergence.events = relevant.slice(-12).map((event) => ({
-                    eventId: event.eventId,
-                    eventType: event.eventType,
-                    streamVersion: event.streamVersion,
-                    payload: {
-                      offerId: event.payload.offerId,
-                      buyerAccountId: event.payload.buyerAccountId,
-                      policyId: event.payload.policyId,
-                      priceAmount: event.payload.priceAmount,
-                      priceCurrencyCode: event.payload.priceCurrencyCode,
-                      status: event.payload.status,
-                      reason: event.payload.reason,
-                      marketPrice:
-                        (event.payload.evidence as { marketPrice?: unknown } | undefined)?.marketPrice ?? null,
-                    },
-                  }));
+                  convergence.eventTypes = relevant.map((event) => event.eventType);
                   const evaluationIndex = events.findIndex((event, index) => {
                     const price = events[index - 1];
                     const evidence = event.payload.evidence as { marketPrice?: Record<string, unknown> } | undefined;
@@ -431,12 +456,8 @@ test("market-following consent, changed target, Checkout acceptance and permanen
                     );
                   });
                   const evaluation = events[evaluationIndex];
-                  convergence.authoritativePair = evaluation
-                    ? {
-                        priceUpdateVersion: events[evaluationIndex - 1]!.streamVersion,
-                        evaluationVersion: evaluation.streamVersion,
-                      }
-                    : null;
+                  convergence.priceUpdateVersion = evaluation ? events[evaluationIndex - 1]!.streamVersion : null;
+                  convergence.evaluationVersion = evaluation?.streamVersion ?? null;
                   const latestFirst = [...events].reverse();
                   const latestPrice = latestFirst.find((event) =>
                     [
@@ -461,7 +482,6 @@ test("market-following consent, changed target, Checkout acceptance and permanen
                       maxRetries: 0,
                     },
                   );
-                  convergence.http = { status: response.status() };
                   expect(response.ok(), "buyer-authenticated submitted Offer read during convergence").toBe(true);
                   const detail = await beforeDeadline(() => response.json());
                   expect(detail).toMatchObject({
@@ -473,16 +493,12 @@ test("market-following consent, changed target, Checkout acceptance and permanen
                     last_stream_version: expect.any(Number),
                   });
                   expect(Number.isSafeInteger(detail.last_stream_version) && detail.last_stream_version > 0).toBe(true);
-                  convergence.http = {
-                    status: response.status(),
-                    offerId: detail.offer_id,
-                    buyerAccountId: detail.buyer_account_id,
-                    amount: detail.price_amount,
-                    currencyCode: detail.price_currency_code,
-                    streamVersion: detail.last_stream_version,
-                    offerStatus: detail.status,
-                  };
+                  convergence.amount = detail.price_amount;
+                  convergence.currency = detail.price_currency_code;
+                  convergence.offerStatus = detail.status;
                   remainingBudget();
+                  convergence.endedAt = new Date().toISOString();
+                  convergence.elapsedMs = Math.floor(performance.now() - startedAtMs!);
                   return evaluation &&
                     latestPrice?.payload.priceAmount === "135.00" &&
                     latestPrice.payload.priceCurrencyCode === "USD" &&
@@ -509,20 +525,14 @@ test("market-following consent, changed target, Checkout acceptance and permanen
           if (readFailure) throw readFailure;
           convergence.outcome = "converged";
         } catch (error) {
-          convergence.outcome =
-            readFailure && !deadlineExpired && performance.now() < deadline
-              ? "read failed; convergence not proven"
-              : convergence.authoritativePair
-                ? "authoritative update observed; projection not caught up"
-                : "no matching authoritative update observed";
+          convergence.outcome = "not-converged";
           throw error;
         }
       } catch (error) {
         streamReadFailure = error;
         throw error;
       } finally {
-        convergence.endedAt = new Date().toISOString();
-        convergence.elapsedMs = startedAtMs === undefined ? 0 : Math.round(performance.now() - startedAtMs);
+        // Preserve the last completed in-budget observation, not a fabricated capped duration.
         try {
           client.release(streamReadFailure);
         } catch (error) {
@@ -531,8 +541,13 @@ test("market-following consent, changed target, Checkout acceptance and permanen
       }
       await page.reload();
       await expect(page.getByText("$135.00", { exact: true }).first()).toBeVisible();
+      await page
+        .getByRole("button", { name: /^Manage Active/ })
+        .filter({ hasText: controlOfferId })
+        .click();
       for (const [width, height] of [
         [360, 800],
+        [390, 844],
         [1440, 1000],
       ]) {
         await page.setViewportSize({ width: width!, height: height! });
@@ -540,11 +555,17 @@ test("market-following consent, changed target, Checkout acceptance and permanen
         await expect(page.getByRole("button", { name: "Pause market following" })).toBeVisible();
         expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
         await page.screenshot({ path: testInfo.outputPath(`market-following-active-${width}.png`), fullPage: true });
+        if (width === 390 || width === 1440) await capture(page, `journey-active-${width}`, controlOfferIds.length);
       }
       timeline.push({
-        step: "worker target observed",
+        kind: "observation",
+        at: new Date().toISOString(),
+        observation: "target-observed",
         offerId: controlOfferId,
+        orderId: null,
+        eventId: null,
         amount: "135.00",
+        quantity: null,
         estimateVersion: "8347002",
       });
     });
@@ -692,7 +713,17 @@ test("market-following consent, changed target, Checkout acceptance and permanen
           (entry) => entry.sourceContextName === "settlement",
         )!;
         await projector.handlers["settlement.payout-readiness.recorded"]!(toTransportEvent(ready!));
-        timeline.push({ step: "synthetic payout readiness", eventId: ready!.eventId });
+        timeline.push({
+          kind: "observation",
+          at: new Date().toISOString(),
+          observation: "payout-readiness-recorded",
+          offerId: null,
+          orderId: null,
+          eventId: ready!.eventId,
+          amount: null,
+          quantity: null,
+          estimateVersion: null,
+        });
         await expect
           .poll(async () => {
             const response = await seller.request.get(`/api/marketplace/account/offers/matches/${controlOfferId}`, {
@@ -703,15 +734,29 @@ test("market-following consent, changed target, Checkout acceptance and permanen
             return { can_fulfill: match.can_fulfill, amount: match.price_amount, listingId: match.listing_id };
           })
           .toEqual({ can_fulfill: true, amount: "135.00", listingId });
-        seller.on("request", (request) => {
+        seller.on("response", (response) => {
+          const request = response.request();
           if (request.method() === "POST") {
             const fields = new URLSearchParams(request.postData() ?? "");
-            timeline.push({
-              step: "seller command",
-              path: new URL(request.url()).pathname,
-              intent: fields.get("intent"),
-              sessionId: fields.get("sessionId"),
-            });
+            const intent = fields.get("intent");
+            if (
+              intent &&
+              [
+                "add-selected-offer",
+                "review-sell-list-checkout",
+                "select-optimization-goal",
+                "refresh-checkout-preview",
+                "confirm-checkout",
+              ].includes(intent)
+            )
+              timeline.push({
+                kind: "command",
+                at: new Date().toISOString(),
+                actor: "seller",
+                command: intent,
+                httpStatus: response.status(),
+                offerIds: [controlOfferId],
+              });
           }
         });
         await seller.goto(`/account/offers/matches/${controlOfferId}`);
@@ -769,8 +814,24 @@ test("market-following consent, changed target, Checkout acceptance and permanen
         expect(order.lines).toEqual([
           expect.objectContaining({ unit_price_amount: "135.00", quantity: accepted.quantity_requested }),
         ]);
-        timeline.push({ step: "immutable acceptance", offer: accepted, order });
+        timeline.push({
+          kind: "observation",
+          at: new Date().toISOString(),
+          observation: "offer-accepted",
+          offerId: controlOfferId,
+          orderId: orders[0].order_id,
+          eventId: null,
+          amount: accepted.price_amount,
+          quantity: accepted.quantity_requested,
+          estimateVersion: null,
+        });
+        await seller.setViewportSize({ width: 1440, height: 1000 });
+        await capture(seller, "journey-checkout-confirmation-1440", 1);
         await page.goto("/account/offers/submitted");
+        await page
+          .getByRole("button", { name: /^Manage Active/ })
+          .filter({ hasText: controlOfferId })
+          .click();
         await page.getByRole("button", { name: "Pause market following" }).click();
         await expect(page.getByText("Paused", { exact: true }).first()).toBeVisible();
         removeEstimates.push(
@@ -813,6 +874,13 @@ test("market-following consent, changed target, Checkout acceptance and permanen
     await expect(page.getByText(/Stop is permanent/)).toBeVisible();
   } catch (error) {
     journeyFailed = true;
+    timeline.push({
+      kind: "failure",
+      at: new Date().toISOString(),
+      classification: "unknown",
+      knownLocator: "unknown",
+      location: null,
+    });
     throw error;
   } finally {
     let teardownError: unknown;
@@ -825,7 +893,9 @@ test("market-following consent, changed target, Checkout acceptance and permanen
     };
     await cleanup(() =>
       testInfo.attach("market-following-command-timeline", {
-        body: JSON.stringify(timeline, null, 2),
+        body: JSON.stringify(
+          validateTimeline({ contract: "market-following-command-timeline", version: 1, entries: timeline }),
+        ),
         contentType: "application/json",
       }),
     );

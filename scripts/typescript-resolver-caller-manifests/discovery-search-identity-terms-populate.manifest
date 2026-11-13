@@ -715,6 +715,8 @@
 ["candidate","edges",{"from":"bounded-contexts/marketplace/server.ts","specifier":"./features/mutation-recovery/domain/contracts","resolved":"repo:/bounded-contexts/marketplace/features/mutation-recovery/domain/contracts.ts"}]
 ["candidate","edges",{"from":"bounded-contexts/marketplace/server.ts","specifier":"./features/offers/api/lifecycle-admission","resolved":"repo:/bounded-contexts/marketplace/features/offers/api/lifecycle-admission.ts"}]
 ["candidate","edges",{"from":"bounded-contexts/marketplace/server.ts","specifier":"./features/offers/api/managed-authority","resolved":"repo:/bounded-contexts/marketplace/features/offers/api/managed-authority.ts"}]
+["candidate","edges",{"from":"bounded-contexts/marketplace/server.ts","specifier":"./features/offers/api/runtime","resolved":"repo:/bounded-contexts/marketplace/features/offers/api/runtime.ts"}]
+["candidate","edges",{"from":"bounded-contexts/marketplace/server.ts","specifier":"./features/offers/integrations/managed-work","resolved":"repo:/bounded-contexts/marketplace/features/offers/integrations/managed-work.ts"}]
 ["candidate","edges",{"from":"bounded-contexts/marketplace/server.ts","specifier":"./features/seller-metrics/domain/behavioral-metrics-policy","resolved":"repo:/bounded-contexts/marketplace/features/seller-metrics/domain/behavioral-metrics-policy.ts"}]
 ["candidate","edges",{"from":"bounded-contexts/marketplace/server.ts","specifier":"./support/realtime-support/topics","resolved":"repo:/bounded-contexts/marketplace/support/realtime-support/topics.ts"}]
 ["candidate","edges",{"from":"bounded-contexts/marketplace/server.ts","specifier":"./support/request-support/anonymous-listing-draft","resolved":"repo:/bounded-contexts/marketplace/support/request-support/anonymous-listing-draft.ts"}]
