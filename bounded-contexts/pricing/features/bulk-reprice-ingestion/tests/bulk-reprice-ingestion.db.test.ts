@@ -9,7 +9,11 @@ import {
 } from "@chase-sets/bounded-context-runtime/test-support";
 import { module as pricingModule } from "../../../index";
 import { buildPricingMarketplaceInputProjectionHandlers } from "../../recommendations/integrations/source/source-projection";
-import { createBulkRepriceIngestionRuntime, type BulkRepriceMarketplaceListingGateway } from "../api/runtime";
+import {
+  BulkRepriceAttemptConflictError,
+  createBulkRepriceIngestionRuntime,
+  type BulkRepriceMarketplaceListingGateway,
+} from "../api/runtime";
 import { listBulkRepriceRows, upsertBulkRepriceRows } from "../read-model/queries";
 import { pricingBulkRepriceIngestionSchemaMigrations } from "../read-model/schema";
 
@@ -522,6 +526,66 @@ describeDb("pricing bulk reprice ingestion job engine (#4328)", () => {
     });
 
     expect(processed).toBe(0);
+    expect(marketplaceGateway.calls).toBe(0);
+  });
+
+  it("bulk reprice attempt identity", async () => {
+    const pool = pools.pricing;
+    await seedListings(pool);
+    const runtime = createBulkRepriceIngestionRuntime({ db: pool });
+    const attempt = "bulk_reprice_attempt_0000000001";
+    const rows = [{ listingId: "lst_1", newPriceAmount: "11.00" }];
+    const counts = async () =>
+      (
+        await pool.query<{ jobs: number; inputs: number }>(
+          `SELECT (SELECT count(*)::int FROM pricing_bulk_reprice_jobs WHERE payload->>'accountId' = 'acc_seller') AS jobs,
+                  (SELECT count(*)::int FROM pricing_bulk_reprice_job_inputs WHERE account_id = 'acc_seller') AS inputs`,
+        )
+      ).rows[0];
+
+    const first = await runtime.enqueueJob(
+      { accountId: "acc_seller", rows, idempotencyKey: attempt },
+      eventContext("acc_seller"),
+    );
+    // Commit-then-loss: the identical retry, even from another replica, returns the first job and no second input.
+    const retried = await createBulkRepriceIngestionRuntime({ db: pool }).enqueueJob(
+      { accountId: "acc_seller", rows: rows.map((row) => ({ ...row })), idempotencyKey: attempt },
+      eventContext("acc_seller"),
+    );
+    expect(retried.jobId).toBe(first.jobId);
+    await expect(counts()).resolves.toEqual({ jobs: 1, inputs: 1 });
+
+    // Changed-row mutant: the same attempt with different parsed rows conflicts and leaves nothing behind.
+    await expect(
+      runtime.enqueueJob(
+        { accountId: "acc_seller", rows: [{ listingId: "lst_1", newPriceAmount: "12.00" }], idempotencyKey: attempt },
+        eventContext("acc_seller"),
+      ),
+    ).rejects.toBeInstanceOf(BulkRepriceAttemptConflictError);
+    await expect(counts()).resolves.toEqual({ jobs: 1, inputs: 1 });
+
+    // Cancel-then-loss mutant: a cancel retried after its response was lost converges on the one cancellation.
+    const cancelled = await runtime.cancelJob(first.jobId, "acc_seller");
+    await expect(runtime.cancelJob(first.jobId, "acc_seller")).resolves.toMatchObject({
+      jobId: cancelled.jobId,
+      status: "failed",
+      errorMessage: cancelled.errorMessage,
+    });
+    // The identical attempt still names the one cancelled job instead of starting a second one.
+    await expect(
+      runtime.enqueueJob({ accountId: "acc_seller", rows, idempotencyKey: attempt }, eventContext("acc_seller")),
+    ).resolves.toMatchObject({ jobId: first.jobId, status: "failed" });
+    await expect(counts()).resolves.toEqual({ jobs: 1, inputs: 1 });
+
+    const marketplaceGateway = fakeMarketplaceGateway();
+    await expect(
+      runtime.processNextBulkRepriceJob({
+        claimOwnerId: "worker_1",
+        claimTtlMs: 30_000,
+        marketplaceListingGatewayForAccount: () => marketplaceGateway,
+        inventorySkuGatewayForAccount: () => fakeInventoryGateway(),
+      }),
+    ).resolves.toBe(0);
     expect(marketplaceGateway.calls).toBe(0);
   });
 
