@@ -540,6 +540,8 @@ describeDb("Listing attempts on PostgreSQL", () => {
     const f = await fixture(pools.marketplace);
     const store = createPostgresEventStore({ pool: pools.marketplace });
     const listingId = await f.activeListing("lst_history_owned");
+    // Projected before any poisoned history is planted: the fixture projector replays every stored event.
+    const withdrawn = await f.activeListing("lst_history_withdrawn");
     const owned = await f.listings.readAuthoritativeListing({ accountId: "acc_seller", listingId });
     expect(owned).toMatchObject({ kind: "present", state: { status: "active" } });
 
@@ -636,7 +638,6 @@ describeDb("Listing attempts on PostgreSQL", () => {
     expect((await f.streamLengths([draft]))[draft]).toBe(partialLength);
 
     // Terminal-mismatched vector: a later fact re-recording a terminal target differently poisons the vector.
-    const withdrawn = await f.activeListing("lst_history_withdrawn");
     const mismatchBatch = key("mismatch");
     const mismatchInput = {
       accountId: "acc_seller",
