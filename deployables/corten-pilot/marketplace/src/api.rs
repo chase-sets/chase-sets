@@ -6544,6 +6544,24 @@ pub struct RepricingScopePreview {
 pub struct RepricingPrerequisites {
     pub listing_currency_codes: Vec<String>,
     pub has_cost_basis: bool,
+    /// Which Pricing Goal versions a seller may choose (the Adoption Gate's `goalAdoption`).
+    pub goal_adoption: Vec<GoalAdoption>,
+}
+
+impl RepricingPrerequisites {
+    /// A seller may choose this Pricing Goal version now.
+    pub fn selectable(&self, goal_id: &str, goal_version: f64) -> bool {
+        self.goal_adoption.iter().any(|goal| goal.goal_id == goal_id && goal.goal_version == goal_version && goal.selectable)
+    }
+}
+
+/// A registered Pricing Goal version and whether a seller may choose it (`GoalAdoption`).
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct GoalAdoption {
+    pub goal_id: String,
+    pub goal_version: f64,
+    pub selectable: bool,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -6824,7 +6842,10 @@ pub trait RepricingCalls {
     /// `pause` or `resume` a policy.
     async fn repricing_lifecycle(&self, policy_id: &str, change: &str) -> Result<Option<Receipt>, PricingRefusal>;
     async fn set_repricing_halt(&self, engaged: bool) -> Result<Option<Receipt>, PricingRefusal>;
-    async fn repricing_policy(&self, id: &str) -> Result<RepricingPolicy, ApiError>;
+    /// The policy, and its JSON as Pricing answered it, which a revise edits.
+    async fn repricing_policy(&self, id: &str) -> Result<(RepricingPolicy, serde_json::Value), ApiError>;
+    /// Replaces the policy's body (`revise`).
+    async fn revise_repricing_policy(&self, id: &str, body: &serde_json::Value) -> Result<Option<Receipt>, PricingRefusal>;
     async fn repricing_budget(&self) -> Result<RepricingBudget, ApiError>;
     /// A page of the policy's activity under `filter`, after the listing `after`.
     async fn repricing_activity(
@@ -6899,8 +6920,19 @@ impl RepricingCalls for Caller<'_> {
         Ok(pricing_answer(req).await?.1)
     }
 
-    async fn repricing_policy(&self, id: &str) -> Result<RepricingPolicy, ApiError> {
-        self.read(&format!("{REPRICING}/{}", segment(id)), PRICING).await
+    async fn repricing_policy(&self, id: &str) -> Result<(RepricingPolicy, serde_json::Value), ApiError> {
+        let raw: serde_json::Value = self.read(&format!("{REPRICING}/{}", segment(id)), PRICING).await?;
+        let policy = serde_json::from_value(raw.clone()).map_err(|error| ApiError::Status {
+            status: StatusCode::BAD_GATEWAY,
+            code: None,
+            message: format!("a repricing policy the page cannot read: {error}"),
+        })?;
+        Ok((policy, raw))
+    }
+
+    async fn revise_repricing_policy(&self, id: &str, body: &serde_json::Value) -> Result<Option<Receipt>, PricingRefusal> {
+        let req = self.request(Method::POST, &format!("{REPRICING}/{}/revise", segment(id)), PRICING).json(body);
+        Ok(pricing_answer(req).await?.1)
     }
 
     async fn repricing_budget(&self) -> Result<RepricingBudget, ApiError> {

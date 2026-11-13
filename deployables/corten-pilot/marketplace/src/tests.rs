@@ -11707,6 +11707,7 @@ fn repricing(stand: &Stand, session: &str, method: &Method, uri: &Uri, headers: 
         }
         ("GET", "/budget") => Json(json!({ "day": "2026-10-29", "changesUsed": 3 })).into_response(),
         ("GET", "/pol_1") => Json(repricing_policy_stand()).into_response(),
+        ("GET", "/pol_4") => Json(repricing_preset_stand()).into_response(),
         ("GET", "/pol_2") if waits_for(headers).as_deref() == Some("43") => refusal(StatusCode::NOT_FOUND, "not_found", "Not yet."),
         ("GET", "/pol_1/activity") => {
             let query = uri.query().unwrap_or_default();
@@ -11742,6 +11743,13 @@ fn repricing(stand: &Stand, session: &str, method: &Method, uri: &Uri, headers: 
         ("POST", "/pol_1/pause") => committed(StatusCode::OK, "pricing", "42", json!({})),
         ("POST", "/pol_1/delete") => committed(StatusCode::OK, "pricing", "44", json!({})),
         ("POST", "/pol_2/resume") => committed(StatusCode::OK, "pricing", "43", json!({})),
+        // A revise whose daily cap is 0 is refused with its details.
+        ("POST", "/pol_1/revise" | "/pol_4/revise") if serde_json::from_str::<Value>(body).ok()?["maxChangesPerDay"] == json!(0) => {
+            let details = json!([{ "path": "maxChangesPerDay", "message": "Allow at least one change a day." }]);
+            (StatusCode::UNPROCESSABLE_ENTITY, Json(json!({ "error": { "code": "validation_failed", "message": "Invalid policy.", "details": details } })))
+                .into_response()
+        }
+        ("POST", "/pol_1/revise" | "/pol_4/revise") => committed(StatusCode::OK, "pricing", "45", json!({})),
         ("POST", _) => refusal(StatusCode::CONFLICT, "policy_not_found", "That policy is gone."),
         _ => return None,
     })
@@ -11771,6 +11779,43 @@ fn repricing_policy_stand() -> Value {
                 "terminal": { "kind": "pause", "reason": "my own words" } } },
         ],
     })
+}
+
+/// `pol_4` as marketplace's editor writes Beat the lowest listing (knob 2, USD, a cost basis and
+/// fallback 4.00), its authoring intent bound.
+fn repricing_preset_stand() -> Value {
+    let floor = json!({ "mode": "cost-basis-plus-margin", "marginPercent": 10, "absoluteFallbackAmount": "4.00" });
+    let body = crate::repricing_body::compile_preset(
+        crate::repricing::Preset::Beat,
+        "Beat",
+        "USD",
+        floor,
+        2.0,
+        45,
+        json!({ "kind": "all-listings" }),
+    );
+    let mut policy = repricing_policy_stand();
+    for (key, value) in body.as_object().unwrap() {
+        policy[key] = value.clone();
+    }
+    policy["policyId"] = json!("pol_4");
+    policy
+}
+
+/// A form body of `pairs`, each name and value encoded.
+fn encoded(pairs: &[(&str, &str)]) -> String {
+    let encode = |text: &str| percent_encoding::utf8_percent_encode(text, percent_encoding::NON_ALPHANUMERIC).to_string();
+    pairs.iter().map(|(name, value)| format!("{}={}", encode(name), encode(value))).collect::<Vec<_>>().join("&")
+}
+
+/// The body a policy's editor drew, from its hidden field.
+fn drawn_body(html: &str) -> Value {
+    let at = html.find(r#"name="body" value=""#).expect("the editor's body") + r#"name="body" value=""#.len();
+    let raw = &html[at..at + html[at..].find('"').unwrap()];
+    serde_json::from_str(
+        &raw.replace("&quot;", "\"").replace("&#39;", "'").replace("&lt;", "<").replace("&gt;", ">").replace("&amp;", "&"),
+    )
+    .unwrap()
 }
 
 const BULK_API: &str = "/api/marketplace/account/bulk-reprice";
@@ -12246,7 +12291,8 @@ async fn a_policys_page_reads_the_policy_then_its_halt_changes_and_activity() {
             && html.contains(r#"value="engage-halt""#)
     );
     assert!(html.contains(r#"action="/account/desk/repricing/pol_1""#), "every write posts to the page");
-    assert!(html.contains("/account/desk/repricing/pol_1?edit=1"), "Edit opens marketplace's editor");
+    assert!(html.contains("/account/desk/repricing/pol_1?edit=open"), "Edit opens the page's editor");
+    assert!(!html.contains("data-repricing-editor"), "the editor is closed until Edit opens it");
     let calls = pricing_calls(&pilot);
     let read = |path: &str| calls.iter().any(|(m, p, _)| *m == Method::GET && p == path);
     assert!(
@@ -12276,8 +12322,10 @@ async fn a_policys_page_reads_the_policy_then_its_halt_changes_and_activity() {
         !html.contains("pause-policy")
             && !html.contains("delete-policy")
             && !html.contains("engage-halt")
-            && !html.contains("edit=1")
+            && !html.contains("edit=open")
     );
+    let (_, _, html) = pilot.send(get(&format!("{page}?edit=open"), Some("price_reader"))).await;
+    assert!(!html.contains("data-repricing-editor"), "a reader's address does not open the editor");
     let (status, _, _) = pilot.send(post(page, "price_reader", "intent=pause-policy", false)).await;
     assert_eq!(status, StatusCode::FORBIDDEN);
     let (status, _, _) = pilot.send(get("/account/desk/repricing/pol_9", Some("pricer"))).await;
@@ -12322,6 +12370,189 @@ async fn a_policys_writes_go_back_to_it_with_their_receipt_and_delete_goes_to_th
 }
 
 #[tokio::test]
+async fn a_policys_edit_opens_its_editor_in_the_controls_its_intent_says() {
+    let pilot = Pilot::new().await;
+    // A preset's policy opens in the preset's controls, drawn from its body.
+    let (status, _, html) = pilot.send(get("/account/desk/repricing/pol_4?edit=open", Some("pricer"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains(r#"data-repricing-editor="revise""#) && html.contains(r#"data-repricing-tier="preset""#), "{html}");
+    assert!(html.contains(r#"<option value="beat-lowest" selected>"#), "the preset");
+    assert!(html.contains(r#"name="knob" value="2""#) && html.contains(r#"name="fallback" value="4.00""#), "{html}");
+    assert!(html.contains(r#"value="open-up""#) && html.contains(r#"value="revise-policy""#));
+    assert!(!html.contains("data-repricing-activate"), "a revise saves without a preview");
+    assert_eq!(drawn_body(&html)["authoringIntent"]["source"]["preset"], json!("beat-lowest"));
+
+    // A custom policy of two rules opens in the advanced editor, its rows named by rule and place;
+    // a Pricing Goal a seller may not choose says so, and no simple controls are offered.
+    for address in ["/account/desk/repricing/pol_1?edit=open", "/account/desk/repricing/pol_1?edit=1"] {
+        let (status, _, html) = pilot.send(get(address, Some("pricer"))).await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(html.contains(r#"data-repricing-tier="advanced""#), "{address}: {html}");
+        assert!(html.contains("data-repricing-unsupported-goal") && html.contains("data-repricing-custom"), "{html}");
+        assert!(html.contains(r#"name="conditions[0-1].value" value="2""#), "{html}");
+        assert!(html.contains(r#"name="anchors[0-0].source""#) && html.contains(r#"name="rules[1].terminalValue""#), "{html}");
+        assert!(html.contains(r#"data-repricing-anchor="1-0""#) && text(&html).contains("Pricing goal"), "{html}");
+        assert!(html.contains(r#"value="add-rule""#) && html.contains(r#"value="remove-condition:0:1""#), "{html}");
+    }
+    let calls = pricing_calls(&pilot);
+    let preview = calls.iter().find(|(m, p, _)| *m == Method::POST && p.ends_with("/scope-preview")).expect("the scope preview");
+    assert_eq!(
+        serde_json::from_str::<Value>(&preview.2).unwrap()["replacingPolicyId"],
+        json!("pol_4"),
+        "the preview replaces the policy"
+    );
+}
+
+#[tokio::test]
+async fn a_policys_editor_posts_draw_it_again_and_save_revises_the_policy() {
+    let pilot = Pilot::new().await;
+    let page = "/account/desk/repricing/pol_4";
+    let (_, _, html) = pilot.send(get(&format!("{page}?edit=open"), Some("pricer"))).await;
+    let body = drawn_body(&html).to_string();
+    let preset = |intent: &'static str, knob: &'static str| {
+        vec![
+            ("intent", intent),
+            ("tier", "preset"),
+            ("name", "Beat"),
+            ("preset", "beat-lowest"),
+            ("from", "beat-lowest"),
+            ("knob", knob),
+            ("currency", "USD"),
+            ("floor", "cost-basis-plus-margin"),
+            ("margin", "10"),
+            ("fallback", "4.00"),
+            ("scope", "all-listings"),
+        ]
+    };
+
+    // Save policy revises the policy with the preset's body and its intent, and reads the page
+    // after it.
+    let mut fields = preset("revise-policy", "3");
+    fields.push(("body", &body));
+    let (status, headers, html) = pilot.send(post(page, "pricer", &encoded(&fields), false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
+    assert!(headers[header::LOCATION].to_str().unwrap().starts_with("/account/desk/repricing/pol_4?after_write="));
+    let calls = pricing_calls(&pilot);
+    let (_, _, sent) = calls.iter().find(|(m, p, _)| *m == Method::POST && p.ends_with("/pol_4/revise")).expect("the revise");
+    let sent: Value = serde_json::from_str(sent).unwrap();
+    assert_eq!(sent["rules"][0]["directive"]["offset"], json!({ "mode": "percent", "percent": -3 }));
+    assert_eq!(sent["authoringIntent"]["source"], json!({ "kind": "preset", "preset": "beat-lowest", "knob": 3, "ageDays": 45 }));
+    assert_eq!(sent["name"], json!("Beat"));
+
+    // Open up this preset: one rule opens in the structured editor, which can go back.
+    let mut fields = preset("open-up", "2");
+    fields.push(("body", &body));
+    let (status, _, html) = pilot.send(post(page, "pricer", &encoded(&fields), false)).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains(r#"data-repricing-tier="structured""#) && html.contains("data-repricing-simple"), "{html}");
+    let opened = drawn_body(&html).to_string();
+
+    // A change to what the policy does drops the intent: no simple controls any more.
+    let fields = [
+        ("intent", "apply"),
+        ("tier", "structured"),
+        ("body", opened.as_str()),
+        ("rules[0].offset", "percent"),
+        ("rules[0].offsetValue", "-5"),
+    ];
+    let (_, _, html) = pilot.send(post(page, "pricer", &encoded(&fields), false)).await;
+    let changed = drawn_body(&html);
+    assert_eq!(changed["rules"][0]["directive"]["offset"]["percent"], json!(-5));
+    assert!(changed["authoringIntent"].is_null() && html.contains("data-repricing-custom"), "{html}");
+
+    // Return to simple controls from what the preset wrote.
+    let fields = [("intent", "simple"), ("tier", "structured"), ("body", opened.as_str())];
+    let (_, _, html) = pilot.send(post(page, "pricer", &encoded(&fields), false)).await;
+    assert!(html.contains(r#"data-repricing-tier="preset""#), "{html}");
+
+    // A refused save keeps what was posted, with Pricing's words.
+    let fields = [("intent", "revise-policy"), ("tier", "structured"), ("body", opened.as_str()), ("cap", "0")];
+    let (status, _, html) = pilot.send(post(page, "pricer", &encoded(&fields), false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(
+        text(&html).contains("Allow at least one change a day.") && drawn_body(&html)["maxChangesPerDay"] == json!(0),
+        "{html}"
+    );
+
+    // A post the editor cannot read opens it at the policy again.
+    let (status, _, html) = pilot.send(post(page, "pricer", "intent=apply&tier=advanced&body=nope", false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(html.contains(r#"data-repricing-tier="preset""#), "{html}");
+}
+
+#[tokio::test]
+async fn a_policys_advanced_editor_changes_its_rules_and_previews_them_in_place() {
+    let pilot = Pilot::new().await;
+    let page = "/account/desk/repricing/pol_1";
+    let (_, _, html) = pilot.send(get(&format!("{page}?edit=open"), Some("pricer"))).await;
+    let body = drawn_body(&html).to_string();
+    let with = |extra: &[(&'static str, &'static str)]| {
+        let mut fields = vec![("tier", "advanced"), ("body", body.as_str())];
+        fields.extend_from_slice(extra);
+        encoded(&fields)
+    };
+
+    // Add rule before default copies the default with a category condition; each button changes
+    // the rules' shape, answered with the editor drawn again.
+    let (status, _, html) = pilot.send(post(page, "pricer", &with(&[("op", "add-rule")]), false)).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let rules = drawn_body(&html)["rules"].clone();
+    assert_eq!(rules.as_array().unwrap().len(), 3);
+    assert_eq!(rules[1]["conditions"], json!([{ "type": "category", "categoryId": "" }]));
+    let (_, _, html) = pilot.send(post(page, "pricer", &with(&[("op", "remove-condition:0:0")]), false)).await;
+    assert_eq!(drawn_body(&html)["rules"][0]["conditions"], json!([{ "type": "quantity-at-least", "quantity": 2 }]));
+    let (_, _, html) = pilot.send(post(page, "pricer", &with(&[("op", "move-anchor-up:0:1")]), false)).await;
+    assert_eq!(drawn_body(&html)["rules"][0]["directive"]["anchorChain"][0], json!({ "source": "market-estimate" }));
+    let (_, _, html) = pilot.send(post(page, "pricer", &with(&[("op", "remove-rule:1")]), false)).await;
+    assert_eq!(drawn_body(&html)["rules"].as_array().unwrap().len(), 2, "the default rule stays");
+
+    // A changed choice starts that part again from its defaults; the controls draw over the body.
+    let fields = [
+        ("intent", "apply"),
+        ("conditions[0-0].kind", "schedule-window"),
+        ("anchors[0-0].source", "lowest-competing-ask"),
+        ("anchors[0-0].strata", "any"),
+        ("rules[1].ceiling", "none"),
+        ("rules[1].maxMove", "12"),
+    ];
+    let (_, _, html) = pilot.send(post(page, "pricer", &with(&fields), false)).await;
+    let drawn = drawn_body(&html);
+    assert_eq!(
+        drawn["rules"][0]["conditions"][0],
+        json!({ "type": "schedule-window", "daysOfWeek": [], "startTime": "", "endTime": "" })
+    );
+    assert_eq!(
+        drawn["rules"][0]["directive"]["anchorChain"][0],
+        json!({ "source": "lowest-competing-ask", "strata": "any", "band": { "ground": "market-estimate", "minPercentOfGround": null } })
+    );
+    assert!(drawn["rules"][1]["directive"]["ceiling"].is_null() && drawn["rules"][1]["directive"]["maxMovePercent"] == json!(12));
+    assert_eq!(drawn["rules"][1]["directive"]["anchorChain"][0]["source"], json!("curve-objective"), "a goal's anchor stays");
+
+    // Preview starts the dry run of the policy as it is now, replacing this one, and draws its part
+    // in the editor: no Activate, since Save policy revises it.
+    let (status, _, html) = pilot.send(post(page, "pricer", &with(&[("intent", "preview")]), false)).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let calls = pricing_calls(&pilot);
+    let (_, _, sent) = calls.iter().find(|(m, p, _)| *m == Method::POST && p.ends_with("/dry-runs")).expect("the dry run");
+    let sent: Value = serde_json::from_str(sent).unwrap();
+    assert_eq!(sent["replacingPolicyId"], json!("pol_1"));
+    assert_eq!(sent["rules"], serde_json::from_str::<Value>(&body).unwrap()["rules"]);
+    assert!(html.contains(r#"name="dryRun" value="repricing-dry-run:new""#) && html.contains("lst_1"), "{html}");
+    assert!(!html.contains("data-repricing-activate") && !html.contains("data-repricing-stale"), "{html}");
+
+    // With the runtime, the answer is the editor alone.
+    let (status, _, patch) = pilot.send(post(page, "pricer", &with(&[("intent", "apply")]), true)).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(patch.contains(r#"data-repricing-editor="revise""#) && !patch.contains("data-repricing-policy-settings"), "{patch}");
+
+    // A refused preview keeps the editor with Pricing's words.
+    let (status, _, html) =
+        pilot.send(post(page, "pricer", &with(&[("intent", "preview"), ("rules[0].amount", "0")]), false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(text(&html).contains("Floor must be above zero.") && html.contains(r#"data-repricing-tier="advanced""#), "{html}");
+}
+
+#[tokio::test]
 async fn the_halt_posts_its_change_and_goes_back_to_the_list() {
     let pilot = Pilot::new().await;
     let (status, headers, _) = pilot.send(post(REPRICING_SCREEN, "pricer", "intent=engage-halt", false)).await;
@@ -12360,8 +12591,12 @@ async fn the_editor_previews_the_compiled_preset_and_activates_only_its_own_prev
     );
     let calls = pricing_calls(&pilot);
     let (_, _, sent) = calls.iter().find(|(m, p, _)| *m == Method::POST && p.ends_with("/dry-runs")).expect("the dry run");
+    let mut sent = serde_json::from_str::<Value>(sent).unwrap();
+    // The preset's authoring intent, which opens the policy in these controls again.
+    let intent = sent.as_object_mut().unwrap().remove("authoringIntent").unwrap_or_default();
+    assert_eq!(intent["source"], json!({ "kind": "preset", "preset": "beat-lowest", "knob": 2, "ageDays": 45 }));
     assert_eq!(
-        serde_json::from_str::<Value>(sent).unwrap(),
+        sent,
         json!({ "name": "Beat", "scope": { "kind": "all-listings" }, "excludedListingIds": [], "maxChangesPerDay": 250,
           "rules": [ { "conditions": [], "directive": {
             "currencyCode": "USD",

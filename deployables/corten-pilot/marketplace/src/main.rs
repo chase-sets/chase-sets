@@ -52,6 +52,7 @@ mod recommendations;
 mod recovery;
 mod register;
 mod repricing;
+mod repricing_body;
 mod repricing_policy;
 mod restock;
 mod review;
