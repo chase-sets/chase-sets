@@ -8,15 +8,21 @@
 //! transport does: the API limits failed sign-ins by that address, and without it every browser
 //! would share the web host's
 //! ([chase-sets/chase-sets#10686](https://github.com/chase-sets/chase-sets/issues/10686)).
+//!
+//! A passkey is the browser's WebAuthn (`passkey.js`, Auth's passkey-browser.ts): the form's press
+//! asks the app's challenge route ([`passkey_challenge`]) for a challenge, the browser signs it or
+//! creates a credential for it, and the form is sent again with the [`Credential`], which the
+//! app's action hands to Auth. Auth checks the credential against the origin the call forwards
+//! (`X-Forwarded-Host` and `X-Forwarded-Proto`), the page's, as it checks the React hosts'.
 use std::time::{Duration, SystemTime};
 
 use corten::{
-    ClientIp, Local,
+    ClientIp, Fields, Json, JsonResult, Local, ToJson,
     http::{HeaderMap, StatusCode},
     i18n::parse_timestamp,
     security::cookie::{self, SetCookie},
 };
-use serde::{Deserialize, de::DeserializeOwned};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::{Value, json};
 
 use crate::{
@@ -213,6 +219,115 @@ pub fn selection_token(headers: &HeaderMap) -> Option<&str> {
     cookie::get(headers, SELECTION_COOKIE).filter(|token| !token.is_empty())
 }
 
+// The passkey step's script: `passkey::sign_in`, `passkey::register` and `passkey::accept` on a
+// form's `on:submit`, each listed with `passkey::COMPONENT` where its form is drawn.
+corten::script::script!(pub mod passkey = "passkey.js");
+
+/// The label Auth stores with a new passkey, as the React hosts send it.
+pub const PASSKEY_LABEL: &str = "Passkey";
+
+/// What a passkey's challenge is for (`requestChallenge`'s `purpose`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PasskeyPurpose {
+    SignIn,
+    Register,
+}
+
+impl PasskeyPurpose {
+    pub fn key(self) -> &'static str {
+        match self {
+            PasskeyPurpose::SignIn => "passkey-sign-in",
+            PasskeyPurpose::Register => "passkey-register",
+        }
+    }
+
+    pub fn parse(key: &str) -> Option<Self> {
+        [PasskeyPurpose::SignIn, PasskeyPurpose::Register].into_iter().find(|p| p.key() == key)
+    }
+}
+
+/// The challenge route's form: what the challenge is for, and the email it is for.
+#[derive(Clone, Debug, Default, Fields)]
+#[serde(rename_all = "camelCase", default)]
+pub struct ChallengeForm {
+    pub purpose: String,
+    pub email: String,
+}
+
+/// A challenge the browser signs, and its id, which the form sends back with the credential
+/// (`PasskeyChallengeResponse`).
+#[derive(Debug, Deserialize, Serialize, ToJson)]
+#[serde(rename_all = "camelCase")]
+pub struct PasskeyChallenge {
+    pub challenge_id: String,
+    pub challenge: String,
+}
+
+/// A challenge the route could not give: the script shows the form's warning either way.
+#[derive(Serialize, ToJson)]
+pub struct ChallengeRefused {
+    pub error: &'static str,
+}
+
+/// A challenge for the passkey step's script (`POST /api/auth/passkeys/challenge`), kept by no
+/// cache. A purpose the step does not ask for is a 400, and Auth's refusal keeps its 4xx; no answer
+/// from Auth is a 502.
+pub async fn passkey_challenge(
+    caller: &Caller<'_>,
+    client: Option<ClientIp>,
+    form: &ChallengeForm,
+) -> JsonResult<PasskeyChallenge> {
+    let refused = |status: StatusCode, error: &'static str| Json(ChallengeRefused { error }).with_status(status).into();
+    let Some(purpose) = PasskeyPurpose::parse(&form.purpose) else {
+        return Err(refused(StatusCode::BAD_REQUEST, "unknown_purpose"));
+    };
+    let body = json!({ "purpose": purpose.key(), "email": form.email.trim() });
+    match call::<PasskeyChallenge>(caller, client, "/api/auth/passkeys/challenge", body).await {
+        Ok(issued) => Ok(Json(issued)),
+        Err(error) => {
+            tracing::warn!("a passkey challenge could not be issued: {error}");
+            let status = error.status().filter(StatusCode::is_client_error).unwrap_or(StatusCode::BAD_GATEWAY);
+            Err(refused(status, "challenge_unavailable"))
+        }
+    }
+}
+
+/// A passkey's credential as the form sends it back (`PasskeyHiddenFields`): the challenge it
+/// signed and WebAuthn's answer, which Auth verifies.
+#[derive(Clone, Copy, Debug)]
+pub struct Credential<'a> {
+    pub challenge_id: &'a str,
+    pub challenge: &'a str,
+    pub external_credential_id: &'a str,
+    pub webauthn_response: &'a str,
+}
+
+impl Credential<'_> {
+    /// The form came without one: no script ran, or the browser has no passkeys.
+    pub fn is_missing(&self) -> bool {
+        self.challenge_id.trim().is_empty() || self.webauthn_response.trim().is_empty()
+    }
+
+    /// Its fields as Auth's calls name them, `label` included for a new passkey.
+    pub fn json(&self) -> serde_json::Map<String, Value> {
+        let mut fields = serde_json::Map::new();
+        fields.insert("challengeId".into(), self.challenge_id.into());
+        fields.insert("challenge".into(), self.challenge.into());
+        fields.insert("externalCredentialId".into(), self.external_credential_id.into());
+        fields.insert("webauthnResponse".into(), self.webauthn_response.into());
+        fields
+    }
+}
+
+/// A passkey sign-in (`POST /api/auth/passkeys/sign-in`).
+pub async fn passkey(
+    caller: &Caller<'_>,
+    client: Option<ClientIp>,
+    credential: &Credential<'_>,
+) -> Result<Authenticated, ApiError> {
+    call(caller, client, "/api/auth/passkeys/sign-in", Value::Object(credential.json())).await
+}
+
 /// What a refusal means for the page (`authApiActionError`), which each app says in its words.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Refusal {
@@ -254,7 +369,7 @@ impl Refusal {
                         | "registration_consent_expired"
                         | "registration_consent_affirmation_required"
                 )
-            ) && matches!(intent, "password" | "phone-code-consume") =>
+            ) && matches!(intent, "password" | "phone-code-consume" | "passkey-register") =>
             {
                 Refusal::ConsentUnavailable
             }
