@@ -1444,14 +1444,16 @@ pub mod url {
             pub place: crate::submitted_offers::Place,
         }
 
-        /// A market-following step for the list's offers: the list again with what it came to.
+        /// A market-following step for the list's offers: the list with its policy opened (303), or
+        /// again with a refused or unconfirmed step.
         #[route("/account/offers/submitted/following", post = crate::submitted_offers::follow)]
         pub struct SubmittedOffersFollowing {
             #[route(query)]
             pub place: crate::submitted_offers::Place,
         }
 
-        /// A market-following step for one offer: its page again with what it came to.
+        /// A market-following step for one offer: its page with its policy opened (303), or again
+        /// with a refused or unconfirmed step.
         #[route("/account/offers/submitted/{id}/following", post = crate::submitted_offers::follow_one)]
         pub struct SubmittedOfferFollowing<'a> {
             pub id: &'a str,

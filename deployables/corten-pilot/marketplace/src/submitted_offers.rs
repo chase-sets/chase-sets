@@ -27,7 +27,9 @@
 //!
 //! Market following (`market_following`) is a section on the list and on an offer's page, above
 //! the offers: the policies naming the page's offers, the one the address opens (`?policy={id}`),
-//! and its steps, which post to `following` beside the page and answer with the page again.
+//! and its steps, which post to `following` beside the page. A step the API applies redirects
+//! (303) to the page's own address with its policy opened; a refused or unconfirmed one answers
+//! with the page again, its inputs kept. A failed read of the policies is the page's read failure.
 use corten::{
     LiveResponse,
     extract::State,
@@ -87,7 +89,7 @@ pub struct OfferScreen {
     pub manage: bool,
     pub outcomes: Option<Vec<LifecycleOutcome>>,
     pub refusal: Option<String>,
-    /// Market following, when the policies could be read.
+    /// Market following; none in the live parts, which do not draw it.
     pub following: Option<Following>,
 }
 
@@ -111,7 +113,7 @@ pub struct OffersScreen {
     pub outcomes: Option<Vec<LifecycleOutcome>>,
     /// Why a change was refused as a whole.
     pub refusal: Option<String>,
-    /// Market following, when the policies could be read.
+    /// Market following; none in the live parts, which do not draw it.
     pub following: Option<Following>,
 }
 
@@ -140,27 +142,48 @@ async fn read(
     }
 }
 
+/// What market following came to for a page.
+enum Followed {
+    /// The section, with what a refused or unconfirmed step came to.
+    Section(Box<Following>),
+    /// The step's command answered with this policy: the page opens it at its own address.
+    Opened(String),
+    /// The API asked for a sign-in.
+    SignIn,
+    /// A read failed: the page's read failure.
+    ReadFailed(ApiError),
+}
+
 /// Market following for `offers`: the policy the address opens, after the step the form sent, if
-/// any. `Err` when the API asked for a sign-in.
+/// any.
 async fn following(
     config: &Shared,
     headers: &HeaderMap,
     offers: &[SubmittedOffer],
     opened: Option<&str>,
     step: Option<&Raw>,
-) -> Result<Option<Following>, ()> {
+) -> Followed {
     let caller = config.platform.caller(headers, config.proto, None);
     let ran = match step {
         Some(raw) => {
-            let ran = market_following::run(&caller, offers, raw).await;
+            let mut ran = market_following::run(&caller, offers, raw).await;
             if ran.unauthorized {
-                return Err(());
+                return Followed::SignIn;
+            }
+            if let Some(error) = ran.read_error.take() {
+                return Followed::ReadFailed(error);
+            }
+            if let Some(policy) = ran.answered() {
+                return Followed::Opened(policy.to_owned());
             }
             Some(ran)
         }
         None => None,
     };
-    Ok(market_following::following(&caller, offers, opened, ran).await)
+    match market_following::following(&caller, offers, opened, ran).await {
+        Ok(following) => Followed::Section(Box::new(following)),
+        Err(error) => Followed::ReadFailed(error),
+    }
 }
 
 /// A refused step answers 422, as a refused lifecycle change does; one whose result could not be
@@ -204,8 +227,13 @@ async fn render(
     if let Some(outcomes) = &outcomes {
         overlay(&mut offers, outcomes);
     }
-    let Ok(following) = following(config, headers, &offers.items, place.policy.as_deref(), step).await else {
-        return sign_in(req);
+    let following = match following(config, headers, &offers.items, place.policy.as_deref(), step).await {
+        Followed::Section(following) => Some(*following),
+        Followed::Opened(policy) => {
+            return req.redirect(&crate::app::url::SubmittedOffers { place: Place { policy: Some(policy), ..place } });
+        }
+        Followed::SignIn => return sign_in(req),
+        Followed::ReadFailed(error) => return read_failed(req, Some(viewer), error, None),
     };
     let status = step_status(status, step, following.as_ref());
     let manage = viewer.actor.can(OFFERS_MANAGE);
@@ -230,7 +258,8 @@ pub(crate) async fn list(
     render(&req, &viewer, &config, &headers, place, None, None, None, None, StatusCode::OK).await
 }
 
-/// A market-following step for the list's offers: the list again with what it came to.
+/// A market-following step for the list's offers: the list with its policy opened when the API
+/// applied it, else the list again with what it came to.
 pub(crate) async fn follow(
     req: Req,
     Caller(OfferBuyer(viewer)): Caller<OfferBuyer>,
@@ -429,8 +458,14 @@ async fn render_offer(
         overlay(&mut list, outcomes);
         offer = list.items.remove(0);
     }
-    let Ok(following) = following(config, headers, std::slice::from_ref(&offer), opened, step).await else {
-        return sign_in(req);
+    let following = match following(config, headers, std::slice::from_ref(&offer), opened, step).await {
+        Followed::Section(following) => Some(*following),
+        Followed::Opened(policy) => {
+            let place = OfferPlace { after_write: None, policy: Some(policy) };
+            return req.redirect(&crate::app::url::SubmittedOffer { id, place });
+        }
+        Followed::SignIn => return sign_in(req),
+        Followed::ReadFailed(error) => return read_failed(req, Some(viewer), error, None),
     };
     let status = step_status(status, step, following.as_ref());
     let manage = viewer.actor.can(OFFERS_MANAGE);
@@ -456,7 +491,8 @@ pub(crate) async fn detail(
     render_offer(&req, &viewer, &config, &headers, &route.id, receipt, None, None, opened, None, StatusCode::OK).await
 }
 
-/// A market-following step for this offer: its page again with what it came to.
+/// A market-following step for this offer: its page with its policy opened when the API applied
+/// it, else its page again with what it came to.
 pub(crate) async fn follow_one(
     req: Req,
     Caller(OfferBuyer(viewer)): Caller<OfferBuyer>,

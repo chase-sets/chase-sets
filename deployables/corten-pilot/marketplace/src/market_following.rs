@@ -6,9 +6,12 @@
 //! (`?policy={id}`, marketplace's `load-policy`), and the opened policy's status and authority.
 //! Unless it is stopped, the steps follow: Preview the chosen offers with their caps and the
 //! adjustment, Authorize the reviewed preview with consent, Pause an active policy, and Stop,
-//! which asks for its own confirmation. Every step is a form that works without JavaScript and
-//! answers with the page and the policy as the command left it. A refused step keeps what was
-//! sent.
+//! which asks for its own confirmation. Every step is a form that works without JavaScript. One
+//! the API applies redirects to the page with the policy opened, as the command left it; a
+//! refused step answers with the page again and keeps what was sent. A read that fails before a
+//! command (the API failed, did not answer, or refused the caller) is the page's read failure, not
+//! a refusal of what was sent, and every chosen offer's cap is checked before a new policy's draft
+//! is made.
 //!
 //! A command with no definite answer is looked up once by its attempt
 //! (`recoverMarketplaceCommand`): a committed attempt for this policy and request is the policy as
@@ -19,6 +22,8 @@ use std::collections::BTreeMap;
 use serde::Deserialize;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
+
+use corten::http::StatusCode;
 
 use crate::{
     api::{ApiError, Caller, OfferPolicy, OfferPolicyCalls as _, PolicySelection, PolicyTerms, SubmittedOffer},
@@ -76,11 +81,22 @@ pub struct Ran {
     pub posted: Option<Posted>,
     /// The API asked for a sign-in.
     pub unauthorized: bool,
+    /// A read before any command failed (a 5xx, no answer, or a 403): the page's read failure,
+    /// not a refusal of what was sent.
+    pub read_error: Option<ApiError>,
 }
 
 impl Ran {
     fn refused(problem: Problem, policy_id: Option<String>, posted: Option<Posted>) -> Ran {
         Ran { problem: Some(problem), policy_id, posted, ..Ran::default() }
+    }
+
+    /// The policy a step's command answered with, when it did: the page opens it at its own address.
+    pub fn answered(&self) -> Option<&str> {
+        match (&self.policy, self.problem) {
+            (Some(policy), None) => policy.policy_id.as_deref().or(self.policy_id.as_deref()),
+            _ => None,
+        }
     }
 }
 
@@ -95,9 +111,6 @@ pub struct Following {
     pub posted: Option<Posted>,
     /// A new policy's id, for a first preview (`bop_{uuid}`).
     pub draft_id: String,
-    /// The attempt and the operation the next step sends.
-    pub attempt: String,
-    pub operation: String,
 }
 
 impl Following {
@@ -119,25 +132,17 @@ impl Following {
 }
 
 /// The section for `offers`: the policies naming them, and the opened one (`opened`, or the one
-/// a step was for), with what the step came to. `None` when the policies cannot be read.
+/// a step was for), with what the step came to. `Err` when the policies cannot be read, which the
+/// page answers as its own read failure, as marketplace's loaders do.
 pub async fn following(
     caller: &Caller<'_>,
     offers: &[SubmittedOffer],
     opened: Option<&str>,
     ran: Option<Ran>,
-) -> Option<Following> {
+) -> Result<Following, ApiError> {
     let ids: Vec<&str> = offers.iter().map(|o| o.offer_id.as_str()).collect();
-    let policies = if ids.is_empty() {
-        Vec::new()
-    } else {
-        match caller.offer_policies(&ids).await {
-            Ok(list) => list.items,
-            Err(error) => {
-                tracing::warn!("the offers' policies could not be read: {error}");
-                return None;
-            }
-        }
-    };
+    let policies = if ids.is_empty() { Vec::new() } else { caller.offer_policies(&ids).await?.items };
+    let stepped = ran.is_some();
     let ran = ran.unwrap_or_default();
     let mut problem = ran.problem;
     let policy = match ran.policy {
@@ -146,25 +151,19 @@ pub async fn following(
             Some(id) => match caller.offer_policy(id).await {
                 Ok(policy) => Some(policy),
                 // A first preview refused before its draft was made has no policy to open.
-                Err(_) if problem.is_some() => None,
+                Err(error) if problem.is_some() && error.status() == Some(StatusCode::NOT_FOUND) => None,
                 Err(error) => {
                     tracing::warn!("the policy {id} could not be read: {error}");
-                    problem = Some(Problem::Invalid);
+                    // After a step, a policy that cannot be read again is not drawn as a new
+                    // draft (its steps would start another policy): the steps wait for a reload.
+                    problem = Some(if stepped { Problem::Ambiguous } else { Problem::Invalid });
                     None
                 }
             },
             None => None,
         },
     };
-    Some(Following {
-        policies,
-        policy,
-        problem,
-        posted: ran.posted,
-        draft_id: format!("bop_{}", uuid::Uuid::new_v4()),
-        attempt: uuid::Uuid::new_v4().to_string(),
-        operation: uuid::Uuid::new_v4().to_string(),
-    })
+    Ok(Following { policies, policy, problem, posted: ran.posted, draft_id: format!("bop_{}", uuid::Uuid::new_v4()) })
 }
 
 /// A step the form sent, for the page's `offers`.
@@ -223,7 +222,7 @@ async fn preview(
     let current = if expected > 0 {
         match caller.offer_policy(&policy_id).await {
             Ok(policy) => Some(policy),
-            Err(error) => return failed(error, policy_id, Some(posted)),
+            Err(error) => return read_failed(error, policy_id, Some(posted)),
         }
     } else {
         None
@@ -234,7 +233,7 @@ async fn preview(
     let ids: Vec<&str> = selected.iter().map(|o| o.offer_id.as_str()).collect();
     let versions = match caller.offer_policies(&ids).await {
         Ok(list) => list.offer_versions,
-        Err(error) => return failed(error, policy_id, Some(posted)),
+        Err(error) => return read_failed(error, policy_id, Some(posted)),
     };
     let Some(currency) = selected[0].price_currency_code.clone().or_else(|| current.as_ref().and_then(|p| p.currency.clone()))
     else {
@@ -248,6 +247,12 @@ async fn preview(
         return refuse(Problem::Stale);
     }
     let Some(bps) = adjustment_bps(&posted.adjustment) else { return refuse(Problem::Invalid) };
+    // Each chosen offer's cap is checked before anything is sent, as marketplace parses the whole
+    // command first, so a refused cap makes no draft.
+    let cap = |o: &SubmittedOffer| posted.caps.get(&o.offer_id).cloned().unwrap_or_else(|| o.price_amount.clone());
+    if selected.iter().any(|o| !cap_ok(&cap(o))) {
+        return refuse(Problem::Invalid);
+    }
     if selected.iter().any(|o| o.price_currency_code.as_deref() != Some(currency.as_str())) {
         return refuse(Problem::Invalid);
     }
@@ -263,7 +268,7 @@ async fn preview(
                 product_id: o.product_id.clone(),
                 selected_options: o.selected_options.clone(),
                 quantity: o.quantity_requested,
-                maximum_unit_item_amount: canonical_amount(posted.caps.get(&o.offer_id).map_or(&o.price_amount, |c| c)),
+                maximum_unit_item_amount: canonical_amount(&cap(o)),
             })
             .collect(),
     };
@@ -293,10 +298,19 @@ fn answered(answer: Result<OfferPolicy, Sent>, policy_id: String, posted: Option
     }
 }
 
+/// A read before the step's commands that failed: the page's read failure when the API did not
+/// answer, failed or refused the caller, else as a command's answer.
+fn read_failed(error: ApiError, policy_id: String, posted: Option<Posted>) -> Ran {
+    match error.status() {
+        Some(status) if status.is_client_error() && status != StatusCode::FORBIDDEN => failed(error, policy_id, posted),
+        _ => Ran { read_error: Some(error), ..Ran::default() },
+    }
+}
+
 /// A call's error as the action reads it: a sign-in, a stale preview, or a refusal.
 fn failed(error: ApiError, policy_id: String, posted: Option<Posted>) -> Ran {
     match (error.status(), error.code()) {
-        (Some(status), _) if status == corten::http::StatusCode::UNAUTHORIZED => Ran { unauthorized: true, ..Ran::default() },
+        (Some(StatusCode::UNAUTHORIZED), _) => Ran { unauthorized: true, ..Ran::default() },
         (_, Some("stale_preview")) => Ran::refused(Problem::Stale, Some(policy_id), posted),
         _ => Ran::refused(Problem::Invalid, Some(policy_id), posted),
     }
@@ -334,13 +348,27 @@ pub async fn send(caller: &Caller<'_>, policy_id: &str, command: &Value) -> Resu
         Err(error) => error,
     };
     tracing::warn!("a policy command had no definite answer, looking up its attempt: {error}");
-    let Ok(observed) = caller.marketplace_attempt(&attempt, KIND, policy_id, &hash).await else {
+    let observed = match caller.marketplace_attempt(&attempt, KIND, policy_id, &hash).await {
+        Ok(observed) => observed,
+        Err(error) => {
+            tracing::warn!("the policy command's attempt {attempt} could not be looked up: {error}");
+            return Err(Sent::Ambiguous);
+        }
+    };
+    let Some(version) = committed(observed, &attempt, policy_id, &hash) else {
+        tracing::warn!("the policy command's attempt {attempt} is not a committed attempt for this request");
         return Err(Sent::Ambiguous);
     };
-    let Some(version) = committed(observed, &attempt, policy_id, &hash) else { return Err(Sent::Ambiguous) };
     match caller.offer_policy(policy_id).await {
         Ok(policy) if policy.version == version && policy.policy_id.is_some() => Ok(policy),
-        _ => Err(Sent::Ambiguous),
+        Ok(policy) => {
+            tracing::warn!("the policy {policy_id} reads at {}, not the committed {version}", policy.version);
+            Err(Sent::Ambiguous)
+        }
+        Err(error) => {
+            tracing::warn!("the policy {policy_id} could not be read after its attempt committed: {error}");
+            Err(Sent::Ambiguous)
+        }
     }
 }
 
@@ -448,6 +476,19 @@ pub fn percent(bps: i64) -> String {
     let text = format!("{:.2}", bps as f64 / 100.0);
     let text = text.trim_end_matches('0').trim_end_matches('.');
     if text == "-0" { "0".to_owned() } else { text.to_owned() }
+}
+
+/// A cap the policy contract takes (`amount`): a positive amount of at most two decimals, at most
+/// 13 characters once written canonically.
+pub fn cap_ok(text: &str) -> bool {
+    let canonical = canonical_amount(text);
+    let Some((whole, fraction)) = canonical.split_once('.') else { return false };
+    !whole.is_empty()
+        && whole.bytes().all(|b| b.is_ascii_digit())
+        && fraction.len() == 2
+        && fraction.bytes().all(|b| b.is_ascii_digit())
+        && canonical.len() <= 13
+        && canonical != "0.00"
 }
 
 /// A cap as the command sends it: a plain amount with two decimals, anything else as typed.

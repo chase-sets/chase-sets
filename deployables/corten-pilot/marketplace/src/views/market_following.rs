@@ -213,7 +213,7 @@ pub fn MarketFollowing<'a>(
                     <details class={Follow} open={open}>
                         <summary class={(Button, Secondary)}>{t.following_toggle()}</summary>
                         <form class={Form} method="post" action={&action}>
-                            <Operation step="preview" policy={&policy_id} version={&version} following={following} />
+                            <Operation step="preview" policy={&policy_id} version={&version} />
                             for offer in &choosable {
                                 <div class={Offer}>
                                     <div class={Choice}>
@@ -243,7 +243,6 @@ pub fn MarketFollowing<'a>(
                                         class={Input {}}
                                         name={mf::cap_field(&offer.offer_id)}
                                         inputmode="decimal"
-                                        required
                                         value={start.caps.get(&offer.offer_id).unwrap_or(&offer.price_amount)}
                                     >
                                 </div>
@@ -273,7 +272,7 @@ pub fn MarketFollowing<'a>(
                 }
                 if let Some(preview) = review {
                     <form class={(Form, Review)} method="post" action={&action}>
-                        <Operation step="authorize" policy={&policy_id} version={&version} following={following} />
+                        <Operation step="authorize" policy={&policy_id} version={&version} />
                         <input type="hidden" name={mf::PREVIEW} value={&preview.preview_id}>
                         <p class={Strong}>{t.following_review()}</p>
                         <p>
@@ -314,13 +313,13 @@ pub fn MarketFollowing<'a>(
                 }
                 if status == "active" {
                     <form class={Row} method="post" action={&action}>
-                        <Operation step="pause" policy={&policy_id} version={&version} following={following} />
+                        <Operation step="pause" policy={&policy_id} version={&version} />
                         <button class={(Button, Secondary)} type="submit" disabled={blocked}>{t.following_pause()}</button>
                     </form>
                 }
                 if policy.is_some_and(|p| p.policy_id.is_some()) {
                     <form class={Form} method="post" action={&action}>
-                        <Operation step="stop" policy={&policy_id} version={&version} following={following} />
+                        <Operation step="stop" policy={&policy_id} version={&version} />
                         <div class={Choice}>
                             <Checkbox label={t.following_stop_effects()}>
                                 <input type="checkbox" name={mf::CONFIRM_STOP} value="true" required>
@@ -337,14 +336,16 @@ pub fn MarketFollowing<'a>(
 }
 
 /// A step's hidden fields: the step, the policy and its version, and the attempt and operation
-/// it sends.
+/// it sends, a new pair for each form, as marketplace draws one per command.
 #[component]
-fn Operation<'a>(step: &'static str, policy: &'a str, version: &'a str, following: &'a Following) -> impl Render {
+fn Operation<'a>(step: &'static str, policy: &'a str, version: &'a str) -> impl Render {
+    let attempt = uuid::Uuid::new_v4().to_string();
+    let operation = uuid::Uuid::new_v4().to_string();
     html! {
         <input type="hidden" name={mf::STEP} value={step}>
         <input type="hidden" name={mf::POLICY} value={policy}>
         <input type="hidden" name={mf::VERSION} value={version}>
-        <input type="hidden" name={mf::ATTEMPT} value={&following.attempt}>
-        <input type="hidden" name={mf::OPERATION} value={&following.operation}>
+        <input type="hidden" name={mf::ATTEMPT} value={attempt}>
+        <input type="hidden" name={mf::OPERATION} value={operation}>
     }
 }
