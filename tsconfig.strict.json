@@ -3,9 +3,8 @@
 // they import under both flags. A strict-set file that imports non-strict code
 // surfaces that code's errors: fix or avoid the import. Adding another root, or
 // editing an imported file outside these roots, needs its own issue.
-// contracts/catalog-seed is excluded by name until a sibling issue repairs it
-// under both flags. A child "exclude" replaces the parent's list, so
-// tsconfig.json's entries are restated here.
+// A child "exclude" replaces the parent's list, so tsconfig.json's entries are
+// restated here.
 {
   "extends": "./tsconfig.json",
   "compilerOptions": {
@@ -20,7 +19,6 @@
     "**/build/**",
     "**/coverage/**",
     "**/dist/**",
-    "**/node_modules/**",
-    "contracts/catalog-seed/**"
+    "**/node_modules/**"
   ]
 }
