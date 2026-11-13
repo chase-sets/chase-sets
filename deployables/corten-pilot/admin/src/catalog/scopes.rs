@@ -9,8 +9,8 @@
 //!
 //! Each row's View opens the scope's page ([`scope`](super::scope)). Above the list, after the
 //! queue, is the all-scopes alias review (`alias-review?limit=200`, folded as admin-web's is), whose
-//! commands post to the attention routes ([`attention`](super::attention)). Not ported: its bulk
-//! selection, which admin-web keeps in the browser; each candidate has its own commands.
+//! commands post to the attention routes ([`attention`](super::attention)): each candidate's own,
+//! and the bulk bar's for the checked candidates (`views::AliasReviewPart`).
 use corten::{
     http::{HeaderMap, StatusCode},
     prelude::*,
