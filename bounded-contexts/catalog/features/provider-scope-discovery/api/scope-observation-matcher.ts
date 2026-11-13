@@ -7,8 +7,11 @@ import {
   type ProviderScopeMappingReviewStatus,
 } from "../../provider-scope-mapping/domain/mapping";
 import {
+  catalogScopeLanguageEditionFilter,
   catalogScopeProductDomainContracts,
+  catalogScopeUnqualifiedLanguageCode,
   normalizeCatalogScopeProductDomain,
+  type CatalogScopeLanguageEditionFilter,
   type CatalogScopeProductDomain,
   type CatalogScopeRecordKind,
 } from "../../scope-registry/domain/contract";
@@ -19,6 +22,7 @@ import type {
 } from "./discovery-targets";
 import type { ProviderScopeObservationRecord } from "./refresh-schedule-store";
 import {
+  languageEditionCondition,
   listCanonicalScopeRecordProposals,
   normalizeScopeIdentifierKey,
   normalizeScopeMatchKey,
@@ -117,8 +121,8 @@ export async function matchScopeObservationsToScopeRecords(
     return [];
   }
 
-  const canonicalRecords = await loadCanonicalScopeRecords(db, productDomain);
   if (input.target.providerScope === "product-line/category") {
+    const canonicalRecords = await loadCanonicalScopeRecords(db, productDomain, null);
     const binding = contractProductLineBinding(input.target, currentObservations, canonicalRecords);
     if (!binding || !binding.observation.changed) {
       return [];
@@ -138,17 +142,27 @@ export async function matchScopeObservationsToScopeRecords(
     return [];
   }
 
-  const proposals = await listCanonicalScopeRecordProposals(db, { productDomain, limit: 2_000 });
+  // Every observation of a target is in the target's language. In a domain
+  // that keeps one Scope Record per language edition it competes only with
+  // records and proposals of that edition.
+  const languageEdition = catalogScopeLanguageEditionFilter(productDomain, input.target.languageCode);
+  const canonicalRecords = await loadCanonicalScopeRecords(db, productDomain, languageEdition);
+  const proposals = await listCanonicalScopeRecordProposals(db, { productDomain, languageEdition, limit: 2_000 });
   const matchable = matchableScopeRecordSet([
     ...canonicalRecords.map(toMatchableCanonicalRecord),
     ...proposals.map(toMatchableProposal),
   ]);
+  // The name match key keeps only Latin letters and digits, so it cannot
+  // compare names outside the unqualified language: most Japanese names
+  // normalize to nothing. Such observations match by id or code only, and a
+  // new proposal takes the provider id as its code.
+  const matchesByName = isUnqualifiedLanguage(input.target.languageCode);
 
   const candidates: ScopeObservationMappingCandidate[] = [];
   for (const observation of observations) {
     const scopeKind = observation.scopeKind as CatalogScopeRecordKind;
     const recordsForKind = matchable.records.filter((record) => record.scopeKind === scopeKind);
-    const match = matchObservation(observation, recordsForKind);
+    const match = matchObservation(observation, recordsForKind, matchesByName);
 
     if (match) {
       for (const record of match.records) {
@@ -177,7 +191,7 @@ export async function matchScopeObservationsToScopeRecords(
       productDomain,
       scopeKind,
       name: observation.label,
-      officialSetCode: observationSetCodes(observation)[0] ?? null,
+      officialSetCode: observationSetCodes(observation)[0] ?? (matchesByName ? null : observation.externalId),
       releaseDate: observationReleaseDate(observation),
       languageEditions: [observation.languageCode],
       parentExternalIds: observation.parents,
@@ -221,7 +235,7 @@ export async function resolveProviderScopeDiscoveryCascadeParent(
   if (!productDomain) {
     return null;
   }
-  const canonicalRecords = await loadCanonicalScopeRecords(db, productDomain);
+  const canonicalRecords = await loadCanonicalScopeRecords(db, productDomain, null);
   const binding = contractProductLineBinding(input.target, input.parentObservations, canonicalRecords);
   return binding ? { parentValue: binding.observation.externalId, scopeRecordId: binding.record.scopeRecordId } : null;
 }
@@ -254,7 +268,12 @@ function contractProductLineBinding(
 async function loadCanonicalScopeRecords(
   db: PgQueryable,
   productDomain: CatalogScopeProductDomain,
+  languageEdition: CatalogScopeLanguageEditionFilter | null,
 ): Promise<readonly ScopeRecordRow[]> {
+  const params: unknown[] = [productDomain];
+  const languageCondition = languageEdition
+    ? `AND ${languageEditionCondition("records.language_editions", languageEdition, params)}`
+    : "";
   const result = await db.query<ScopeRecordRow>(
     `SELECT records.scope_record_id,
             records.reference_record_id,
@@ -279,6 +298,7 @@ async function loadCanonicalScopeRecords(
       AND aliases.alias_type IN ('set-equivalent', 'series-equivalent')
      WHERE records.product_domain = $1
        AND records.lifecycle_status IN ('draft', 'active')
+       ${languageCondition}
      GROUP BY records.scope_record_id,
               records.reference_record_id,
               records.reference_record_key,
@@ -286,7 +306,7 @@ async function loadCanonicalScopeRecords(
               records.name,
               records.official_set_code,
               records.release_date`,
-    [productDomain],
+    params,
   );
   return result.rows;
 }
@@ -294,6 +314,7 @@ async function loadCanonicalScopeRecords(
 function matchObservation(
   observation: ProviderScopeObservationRecord,
   records: readonly MatchableScopeRecord[],
+  matchesByName: boolean,
 ): Readonly<{
   records: readonly MatchableScopeRecord[];
   matchedBy: ScopeObservationMatchMethod;
@@ -305,6 +326,9 @@ function matchObservation(
   const byIdentity = records.filter((record) => record.identityKeys.some((key) => identityKeys.has(key)));
   if (byIdentity.length > 0) {
     return resolveAmbiguity(observation, byIdentity, "exact-id-or-code");
+  }
+  if (!matchesByName) {
+    return null;
   }
 
   const normalizedName = normalizeScopeMatchKey(observation.label);
@@ -408,7 +432,7 @@ export function providerScopeMappingCoordinates(
     return null;
   }
   const parentCoordinates = coordinatesForDeclaredParent(target.parentScope, parentValue);
-  const language = null;
+  const language = { languageCode: observation.languageCode };
   switch (target.providerScope) {
     case "product-line/category":
       return { productLineId: observation.externalId, seriesId: null, setId: null, setName: null, language };
@@ -527,6 +551,10 @@ export function scopeValueIdentityKeys(values: readonly (string | null)[]): read
 
 function normalizedIdentifierKeys(value: string): readonly string[] {
   return [normalizeScopeMatchKey(value), normalizeScopeIdentifierKey(value)];
+}
+
+function isUnqualifiedLanguage(languageCode: string): boolean {
+  return languageCode.trim().toLowerCase() === catalogScopeUnqualifiedLanguageCode;
 }
 
 function observationSetCodes(observation: ProviderScopeObservationRecord): readonly string[] {

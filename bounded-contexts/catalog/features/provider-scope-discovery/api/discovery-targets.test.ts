@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { catalogProviderIntegrationProfileVersions } from "../../source-observations/api/provider-integration-profiles";
-import { listProviderScopeDiscoveryTargets } from "./discovery-targets";
+import { listProviderScopeDiscoveryTargets, type ProviderScopeDiscoveryTarget } from "./discovery-targets";
 import { classifyProviderScopeDiscoveryTarget } from "./scope-observation-matcher";
+
+const TCGDEX_UNIT = "tcgdex:pokemon:single-card:source-observation-import";
 
 describe("provider scope discovery targets", () => {
   const targets = listProviderScopeDiscoveryTargets(
@@ -9,11 +11,54 @@ describe("provider scope discovery targets", () => {
     classifyProviderScopeDiscoveryTarget,
   );
 
-  it("derives scope-level option queries from active provider profiles", () => {
+  it("discovers the TCGdex Pokemon unit in English and Japanese", () => {
     const tcgdexTargets = targets.filter((target) => target.providerKey === "tcgdex");
 
-    expect(tcgdexTargets.map((target) => target.queryKind).sort()).toEqual(["expansions", "languages", "series"]);
+    expect(tcgdexTargets.map(targetKey)).toEqual([
+      `tcgdex:${TCGDEX_UNIT}:languages:en`,
+      `tcgdex:${TCGDEX_UNIT}:languages:ja`,
+      `tcgdex:${TCGDEX_UNIT}:series:en`,
+      `tcgdex:${TCGDEX_UNIT}:series:ja`,
+      `tcgdex:${TCGDEX_UNIT}:expansions:en`,
+      `tcgdex:${TCGDEX_UNIT}:expansions:ja`,
+    ]);
     expect(tcgdexTargets.every((target) => target.productDomain === "pokemon")).toBe(true);
+  });
+
+  it("keeps every other unit's English targets and keys", () => {
+    expect(targets.filter((target) => target.providerKey !== "tcgdex").map(targetKey)).toEqual([
+      "mtgjson:mtgjson:mtg:single-card:reference-data:sets:en",
+      "mtgjson:mtgjson:mtg:set:reference-data:sets:en",
+      "lorcanajson:lorcanajson:lorcana:single-card:reference-data:sets:en",
+      "lorcanajson:lorcanajson:lorcana:set:reference-data:sets:en",
+      "lorcast:lorcast:lorcana:single-card:reference-data:sets:en",
+      "lorcast:lorcast:lorcana:set:reference-data:sets:en",
+      "scryfall:scryfall:mtg:single-card:reference-data:sets:en",
+      "scrydex:scrydex:one-piece:single-card:source-observation-import:sets:en",
+      "scrydex:scrydex:one-piece:set:reference-data:sets:en",
+      "scrydex:scrydex:one-piece:sealed-product:source-observation-import:sets:en",
+      "scrydex:scrydex:lorcana:single-card:source-observation-import:sets:en",
+      "scrydex:scrydex:lorcana:set:reference-data:sets:en",
+      "ygoprodeck:ygoprodeck:yugioh:single-card:reference-data:sets:en",
+      "ygojson:ygojson:yugioh:set:reference-data:sets:en",
+    ]);
+  });
+
+  it("discovers a declared language only where the unit's profile offers it", () => {
+    const tcgdex = catalogProviderIntegrationProfileVersions.find(
+      (version) => version.providerKey === "tcgdex" && version.active && version.lifecycle === "active",
+    )!;
+    const languagesFor = (languageOptions: readonly string[]) =>
+      new Set(
+        listProviderScopeDiscoveryTargets(
+          [{ ...tcgdex, profile: { ...tcgdex.profile, languageOptions } }],
+          classifyProviderScopeDiscoveryTarget,
+        ).map((target) => target.languageCode),
+      );
+
+    expect(languagesFor(["en", "fr", "ko"])).toEqual(new Set(["en"]));
+    expect(languagesFor([])).toEqual(new Set(["en"]));
+    expect(languagesFor(["ja"])).toEqual(new Set(["en", "ja"]));
   });
 
   it("does not emit TCGplayer runtime option queries after server-side transport retirement", () => {
@@ -36,10 +81,8 @@ describe("provider scope discovery targets", () => {
     expect(queryKinds.has("skus")).toBe(false);
   });
 
-  it("emits each provider-unit query kind exactly once across competing profiles", () => {
-    const keys = targets.map(
-      (target) => `${target.providerKey}:${target.ingestionUnitKey}:${target.queryKind}:${target.languageCode}`,
-    );
+  it("emits each provider-unit query kind exactly once per language across competing profiles", () => {
+    const keys = targets.map(targetKey);
 
     expect(new Set(keys).size).toBe(keys.length);
   });
@@ -62,3 +105,7 @@ describe("provider scope discovery targets", () => {
     ).toEqual(targets);
   });
 });
+
+function targetKey(target: ProviderScopeDiscoveryTarget): string {
+  return `${target.providerKey}:${target.ingestionUnitKey}:${target.queryKind}:${target.languageCode}`;
+}
