@@ -144,12 +144,44 @@ describeDb("canonical Scope Record proposal acceptance db", () => {
     app.route("/", providerScopeDiscoveryRoutes(runtime));
 
     const drain = () => drainLocalProjectionHandlerSets("catalog", pool, services.projectors);
+    const authorScopeRecord = async (record: {
+      id: string;
+      typeKey: string;
+      key: string;
+      name: string;
+      parent?: string;
+      attributes?: Record<string, CatalogValue>;
+    }) => {
+      const streamId = `catalog.reference-record-${record.id}`;
+      await services.referenceData.referenceRecordCommandHandler({
+        streamId,
+        command: {
+          type: "CreateReferenceRecord",
+          referenceRecordId: record.id as ReferenceRecordId,
+          typeKey: record.typeKey,
+          key: record.key,
+          name: localizedTextMapFromEnglish(record.name),
+          attributes: record.attributes ?? {},
+          relationships: record.parent
+            ? [{ relationshipType: "part-of", referenceId: record.parent as ReferenceRecordId }]
+            : [],
+        },
+        context: TEST_CONTEXT,
+      });
+      await services.referenceData.referenceRecordCommandHandler({
+        streamId,
+        command: { type: "PublishReferenceRecord" },
+        context: TEST_CONTEXT,
+      });
+      await drain();
+    };
 
     return {
       services,
       runtime,
       drain,
       crashes,
+      authorScopeRecord,
       async refreshYgoprodeck(next: readonly YgoprodeckSet[]) {
         sets.ygoprodeck = next;
         const result = await runtime.runProviderRefreshNow({ providerKey: "ygoprodeck", context: TEST_CONTEXT });
@@ -174,50 +206,19 @@ describeDb("canonical Scope Record proposal acceptance db", () => {
         expect(response.status).toBe(200);
         return ((await response.json()) as { items: CanonicalScopeRecordProposalRecord[] }).items;
       },
-      async authorScopeRecord(record: {
-        id: string;
-        typeKey: string;
-        key: string;
-        name: string;
-        parent?: string;
-        attributes?: Record<string, CatalogValue>;
-      }) {
-        const streamId = `catalog.reference-record-${record.id}`;
-        await services.referenceData.referenceRecordCommandHandler({
-          streamId,
-          command: {
-            type: "CreateReferenceRecord",
-            referenceRecordId: record.id as ReferenceRecordId,
-            typeKey: record.typeKey,
-            key: record.key,
-            name: localizedTextMapFromEnglish(record.name),
-            attributes: record.attributes ?? {},
-            relationships: record.parent
-              ? [{ relationshipType: "part-of", referenceId: record.parent as ReferenceRecordId }]
-              : [],
-          },
-          context: TEST_CONTEXT,
-        });
-        await services.referenceData.referenceRecordCommandHandler({
-          streamId,
-          command: { type: "PublishReferenceRecord" },
-          context: TEST_CONTEXT,
-        });
-        await drain();
-      },
       async authorProductLine(domain: keyof typeof PRODUCT_LINE) {
         const contract = {
           yugioh: { key: "yu-gi-oh-official-card-game", name: "Yu-Gi-Oh! Official Card Game" },
           magic: { key: "magic-the-gathering", name: "Magic: The Gathering" },
           pokemon: { key: "pokemon-trading-card-game", name: "Pokemon Trading Card Game" },
         }[domain];
-        await this.authorScopeRecord({ id: PRODUCT_LINE[domain], typeKey: "product-line", ...contract });
+        await authorScopeRecord({ id: PRODUCT_LINE[domain], typeKey: "product-line", ...contract });
       },
     };
   }
 
   async function ygoprodeckSet(): Promise<YgoprodeckSet> {
-    return (await fixture("ygoprodeck-yugioh-set-reference/normal.json")).set as YgoprodeckSet;
+    return (await fixture("ygoprodeck-yugioh-set-reference/normal.json")).set as unknown as YgoprodeckSet;
   }
 
   async function onlyProposal(harness: Awaited<ReturnType<typeof buildHarness>>) {
