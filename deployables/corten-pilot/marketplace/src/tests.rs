@@ -645,7 +645,7 @@ async fn platform(State(stand): State<Stand>, method: Method, uri: Uri, headers:
         return rollups(rest);
     }
     if uri.path() == "/api/realtime/public/events" || uri.path() == "/api/realtime/account/events" {
-        return realtime();
+        return realtime(&uri);
     }
     if let Some(answer) = search(&uri) {
         return answer;
@@ -3842,10 +3842,16 @@ const ITEM_PAGE: &str = "/items/charizard";
 
 const ROLLUPS: &str = "/api/marketplace/market-rollups/";
 
-/// The platform's realtime stream: a heartbeat, then one change to Charizard (a listing's
-/// patch), then the stream ends (the client connects again).
-fn realtime() -> Response {
-    let patch = r#"{"kind":"projection.patch","context":"discovery","projection":"discovery-market","topics":["item:cat_charizard"],"changes":[{"op":"upsert","entity":"discovery.marketListing","id":"lst_vault","value":{}}]}"#;
+/// The platform's realtime stream: a heartbeat, then one change, then the stream ends (the client
+/// connects again). On `public:market` the change is Card 3's market summary and a listing's;
+/// on any other topic it is a listing of Charizard's.
+fn realtime(uri: &Uri) -> Response {
+    let market = uri.query().is_some_and(|q| q.split('&').any(|p| p == "topic=public%3Amarket"));
+    let patch = if market {
+        r#"{"kind":"projection.patch","context":"discovery","projection":"discovery-market","topics":["public:market"],"changes":[{"op":"summary","entity":"discovery.marketSummary","id":"cat_3","value":{}},{"op":"upsert","entity":"discovery.marketListing","id":"lst_other","value":{}}]}"#
+    } else {
+        r#"{"kind":"projection.patch","context":"discovery","projection":"discovery-market","topics":["item:cat_charizard"],"changes":[{"op":"upsert","entity":"discovery.marketListing","id":"lst_vault","value":{}}]}"#
+    };
     let body = format!("id: c1\nevent: heartbeat\ndata: {{}}\nretry: 1000\n\nid: c2\nevent: projection.patch\ndata: {patch}\n\n");
     ([(header::CONTENT_TYPE, "text/event-stream")], body).into_response()
 }
@@ -5612,6 +5618,34 @@ async fn a_change_to_the_item_draws_its_market_parts_again_and_a_reconnect_resum
         .map(|c| c.path.clone())
         .collect();
     assert_eq!(streams[1], "/api/realtime/public/events?topic=item%3Acat_charizard&cursor=c2");
+}
+
+#[tokio::test]
+async fn a_market_change_to_a_result_the_page_drew_draws_its_market_again() {
+    let pilot = Pilot::new().await;
+    let (_, _, html) = pilot.send(get("/categories/singles-x1?q=pika", None)).await;
+    let src = html.split(r#"<corten-live src=""#).nth(1).and_then(|s| s.split('"').next()).expect("the results' stream");
+    let src = src.replace("&amp;", "&");
+    assert!(src.starts_with("/search/live?q=pika&slug=singles-x1&item=cat_1&item=cat_2&"), "{src}");
+    assert_eq!(src.matches("&item=").count(), 24, "every row the page drew: {src}");
+    assert!(html.contains(r#"id="result-market-cat_3""#), "{html}");
+    let events = pilot.events(get(&src, None), 1).await;
+    assert_eq!(events.len(), 1, "one change, one redraw: {events:?}");
+    let (event, cursor, data) = &events[0];
+    assert_eq!((event.as_str(), cursor.as_str()), ("patch", "c2"));
+    // Only the result the change names, its price and intents, by its item; Add to List goes back
+    // to the category's page.
+    assert!(data.contains(r#"id="result-market-cat_3""#) && !data.contains(r#"id="result-market-cat_1""#), "{data}");
+    assert!(data.contains("$389.00") && data.contains(r#"href="/items/card-3?market=watch""#), "{data}");
+    assert!(data.contains(r#"name="from" value="/categories/singles-x1?q=pika""#), "{data}");
+    let calls = pilot.stand.calls.lock().unwrap().clone();
+    assert!(calls.iter().any(|c| c.path == "/api/realtime/public/events?topic=public%3Amarket"), "{calls:?}");
+    let reads: Vec<_> = calls.iter().filter(|c| c.path.starts_with("/api/marketplace/items?")).map(|c| c.path.clone()).collect();
+    assert_eq!(reads.len(), 2, "the page's read and the change's: {reads:?}");
+    assert_eq!(reads[0], reads[1], "the same search");
+    // A search with nothing found follows nothing.
+    let (_, _, html) = pilot.send(get("/search?q=broken", None)).await;
+    assert!(!html.contains("<corten-live"), "{html}");
 }
 
 #[tokio::test]

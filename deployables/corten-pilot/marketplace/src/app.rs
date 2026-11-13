@@ -239,7 +239,7 @@ pub mod url {
     pub use sale_reviews::SaleReview;
     pub use sale_shipments::{Pack, Packing, PackingLine, PackingScan, PackingSlips, PackingStart, SaleShipment, SaleShipments};
     pub use sales::{Sale, SaleCancel, Sales};
-    pub use search::{Search, SearchCart};
+    pub use search::{Search, SearchCart, SearchLive};
     pub use security::Security;
     pub use sell_checkout::{SellCheckout, SellConfirmation};
     pub use sell_list::{SellList, SellListEvidence};
@@ -375,6 +375,14 @@ pub mod url {
         /// the sheet) and the add (see `bulk_cart`).
         #[route("/search/cart", get = crate::bulk_cart::preview, post = crate::bulk_cart::commit)]
         pub struct SearchCart;
+
+        /// The prices and market intents of the results a search page drew, drawn again on each
+        /// change to them (`search::live`).
+        #[route("/search/live", get = crate::search::live)]
+        pub struct SearchLive {
+            #[route(query)]
+            pub shown: crate::search::Shown,
+        }
     }
 
     /// A category's search page, public.

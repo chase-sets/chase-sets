@@ -23,18 +23,23 @@
 //!
 //! Add matching products to Buy Cart previews and adds every match of the search (`bulk_cart`).
 //!
-//! Not ported: the realtime market patches, the facet option search and the automatic load on
-//! scroll.
+//! The results' prices and market intents follow the market (`live`), as marketplace's page
+//! patches each result's market summary from `public:market`.
+//!
+//! Not ported: the facet option search and the automatic load on scroll.
 use std::collections::BTreeMap;
 
 use corten::{
+    LiveResponse,
     http::{HeaderMap, StatusCode, Uri},
     prelude::*,
     view::Append,
 };
+use futures_util::StreamExt;
+use platform::realtime::Tick;
 
 use crate::{
-    api::{Interpretation, Search, SearchCategory, SearchResults, segment},
+    api::{Interpretation, Search, SearchCategory, SearchItem, SearchResults, segment},
     app::{Shared, marketplace_origin, url},
     auth::Session,
     items::Raw,
@@ -510,6 +515,114 @@ impl Place<'_> {
             Place::Home => url::Home { terms: terms.clone() }.href(),
         }
     }
+}
+
+/// The results a search page drew, for its live stream (`url::SearchLive`): the search, where it
+/// is (its category page's slug, or the home page), and each result's catalog item.
+#[derive(Clone, Debug, Default, Route)]
+#[route(query)]
+pub struct Shown {
+    #[route(query)]
+    pub terms: Terms,
+    pub slug: Option<String>,
+    pub home: Option<bool>,
+    #[serde(default)]
+    pub item: Vec<String>,
+}
+
+impl Shown {
+    /// What `screen` drew: `items`, its results.
+    pub fn of(screen: &SearchScreen, items: &[SearchItem]) -> Shown {
+        Shown {
+            terms: screen.terms.clone(),
+            slug: Some(screen.category.clone()).filter(|s| !s.is_empty()),
+            home: (screen.category.is_empty() && screen.home).then_some(true),
+            item: items.iter().map(|i| i.card.catalog_item_id.clone()).collect(),
+        }
+    }
+
+    fn place(&self) -> Place<'_> {
+        match (&self.slug, self.home) {
+            (Some(slug), _) => Place::Category(slug),
+            (None, Some(true)) => Place::Home,
+            (None, _) => Place::Search,
+        }
+    }
+}
+
+/// The topic every change to the marketplace's market is published on (`discoveryRealtimeTopics.publicMarket`).
+const PUBLIC_MARKET: &str = "public:market";
+
+/// The results' market for `<corten-live>` (marketplace's `useRealtimePatchedSnapshot` with
+/// `applyDiscoverySearchPatch`): on each change to `public:market` that names a result the page
+/// drew (or asks for a full read, `sync.required`), the search is read again, and each named
+/// result's market (`views::ResultMarket`, its price and intents) is drawn again by its item. A
+/// result the read no longer has keeps what it shows, as marketplace's patch leaves a row it does
+/// not find. Rows a script's Load more added are not followed: the stream's address names the rows
+/// the page was drawn with. Each fragment carries the stream's cursor, so a reconnect goes on from
+/// there.
+pub(crate) async fn live(
+    req: Req,
+    State(config): State<Shared>,
+    headers: HeaderMap,
+    since: corten::LiveSince,
+    Params(route): Params<url::SearchLive>,
+) -> LiveResponse {
+    let (t, i): (SearchMsg, ItemMsg) = (req.t(), req.t());
+    let shown = route.shown;
+    let from = shown.place().href(&shown.terms);
+    let slug = shown.slug.clone().unwrap_or_default();
+    let limit = PAGE_SIZE + shown.terms.more.min(MOST_SHOWN - PAGE_SIZE);
+    let query = shown.terms.api_query(&slug, limit);
+    let (terms, drawn) = (shown.terms, shown.item);
+    let changes = config.platform.caller(&headers, config.proto, None).changes(&[PUBLIC_MARKET], since.0);
+    let fragments = changes
+        .take_while(|tick| std::future::ready(!matches!(tick, Tick::Refused(_))))
+        .filter_map(move |tick| {
+            std::future::ready(match tick {
+                Tick::Changed(cursor, changes) => {
+                    let named: Vec<String> = if changes.sync {
+                        drawn.clone()
+                    } else {
+                        changes.ids.into_iter().filter(|id| drawn.contains(id)).collect()
+                    };
+                    (!named.is_empty()).then_some((cursor, named))
+                }
+                // The page was drawn just now; a reconnect resumes from its last cursor.
+                Tick::Opened(_) | Tick::Refused(_) => None,
+            })
+        })
+        .then(move |(cursor, named)| {
+            let (config, headers, query, terms, from) =
+                (config.clone(), headers.clone(), query.clone(), terms.clone(), from.clone());
+            async move {
+                let caller = config.platform.caller(&headers, config.proto, None);
+                let results = match caller.search(&query).await {
+                    Ok(results) => results,
+                    Err(error) => {
+                        tracing::warn!("the search's read for a market change failed: {error}");
+                        return None;
+                    }
+                };
+                let changed: Vec<&SearchItem> =
+                    results.items.iter().filter(|item| named.contains(&item.card.catalog_item_id)).collect();
+                if changed.is_empty() {
+                    return None;
+                }
+                let html = html! {
+                    for item in &changed {
+                        <views::ResultMarket t={t} i={i} item={item} terms={&terms} from={&from} />
+                    }
+                }
+                .to_html();
+                Some(match cursor {
+                    Some(cursor) => corten::Fragment::new(html).cursor(cursor),
+                    None => corten::Fragment::new(html),
+                })
+            }
+        })
+        .filter_map(std::future::ready);
+    corten::live(fragments)
 }
 
 /// Featured categories the home page shows (`HOME_FEATURED_CATEGORY_LIMIT`).
