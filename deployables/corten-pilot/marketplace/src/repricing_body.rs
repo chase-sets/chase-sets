@@ -12,8 +12,8 @@
 //! (`changeBody`); the Pricing Goal's simple controls bind it again (`changeSimpleGoal`).
 //!
 //! A rule's conditions and anchors are rows of their own keyed by the rule and their place
-//! (`{rule}-{index}`), since a Corten form's row cannot hold rows (see the README's open
-//! workarounds).
+//! (`{rule}-{index}`), since a Corten form's row cannot hold rows (corten-run/corten#1395, in the
+//! README's open workarounds).
 use std::collections::BTreeMap;
 
 use corten::prelude::*;
