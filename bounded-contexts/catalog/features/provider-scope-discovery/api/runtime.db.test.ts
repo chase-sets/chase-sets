@@ -762,6 +762,9 @@ INSERT INTO catalog_scope_record_proposals (
       expect(await mappingEvents(lobRejected)).toHaveLength(1);
       await harness.review(sdySource, "AcceptProviderScopeMapping");
       await harness.review(lobRejected, "RejectProviderScopeMapping");
+      // The YGOJSON mapping reached the LOB proposal by a name match, not in the
+      // proposal's evidence, so the re-point finds it through the mapping read model.
+      await harness.drain();
       const sdyProposed = (await mappingEvents(sdySource))[0]!.payload;
       const lobProposed = (await mappingEvents(lobSource))[0]!.payload;
 
