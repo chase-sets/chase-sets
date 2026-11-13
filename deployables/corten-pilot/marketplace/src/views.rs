@@ -100,7 +100,7 @@ pub use inventory_page::{CreateItemForm, InventoryPage, SaleForm, refused_item};
 pub use item_detail::{ItemDetail, breadcrumb_json_ld, item_image, item_live_parts, item_page, product_json_ld, purchase_limit};
 pub use listing_new_page::{ListingAccessRequired, NewListingPage, NewListingParts};
 pub use listing_page::{
-    ListingGone, ListingNotice, ListingPage, fulfillment, grouped, listing_live_parts, listing_price, unbuyable,
+    ListingGone, ListingNotice, ListingPage, fulfillment, grouped, listing_json_ld, listing_live_parts, listing_price, unbuyable,
 };
 pub use location_card::{ArchiveForm, CardList, CreateForm, LocationCard, UpdateForm};
 pub use market_nav::{CartBadge, MarketNav};

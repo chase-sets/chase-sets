@@ -3,8 +3,9 @@
 //! listing and Compare market; the seller (`AccountTrustCard`); and Report Listing. One column,
 //! two from 64rem. A seller away or at capacity shows a warning, and the page offers no Buy.
 use corten::prelude::*;
+use serde_json::{Map, Value, json};
 
-use super::{purchase_limit, set_page::long_date};
+use super::{item_detail::production, purchase_limit, set_page::long_date};
 use crate::{
     api::PublicListing,
     app::url,
@@ -26,6 +27,66 @@ pub enum ListingNotice {
     ReportRefused { message: String, reason: String, details: String },
     /// Buy this listing was refused.
     BuyRefused(String),
+}
+
+/// The listing as a schema.org Product with its Offer (`buildPublicListingProductJsonLd`), from
+/// its Google Shopping payload: only an active listing whose seller is available, on the
+/// production marketplace, whose payload links to this canonical address, is complete, and
+/// carries the listing's own price and currency.
+pub fn listing_json_ld(listing: &PublicListing, canonical: &str) -> Option<Value> {
+    let l = &listing.listing;
+    let payload = listing.google_shopping_structured_data_payload.as_ref()?.as_object()?;
+    let text = |key: &str| payload.get(key).and_then(Value::as_str).filter(|v| !v.is_empty());
+    let currency = l.price_currency_code.as_deref().filter(|c| !c.is_empty())?;
+    let link = text("link")?;
+    let available = listing.seller_listing_availability_status.as_deref().unwrap_or("available") == "available";
+    if l.status != "active"
+        || !available
+        || !production(canonical)
+        || link != canonical
+        || text("priceAmount")? != l.price_amount
+        || text("currencyCode")? != currency
+    {
+        return None;
+    }
+    let availability = match text("availability")? {
+        "in stock" => "https://schema.org/InStock",
+        "out of stock" => "https://schema.org/OutOfStock",
+        _ => return None,
+    };
+    let condition = match text("condition")? {
+        "new" => "https://schema.org/NewCondition",
+        "used" => "https://schema.org/UsedCondition",
+        _ => return None,
+    };
+    let mut offer = json!({
+        "@type": "Offer",
+        "url": link,
+        "priceCurrency": currency,
+        "price": l.price_amount,
+        "availability": availability,
+        "itemCondition": condition,
+    });
+    if let Some(seller) = l.seller_display_name.as_deref().filter(|s| !s.is_empty()) {
+        offer["seller"] = json!({ "@type": "Organization", "name": seller });
+    }
+    let mut product = Map::new();
+    product.insert("@context".into(), json!("https://schema.org"));
+    product.insert("@type".into(), json!("Product"));
+    product.insert("name".into(), json!(text("title")?));
+    product.insert("description".into(), json!(text("description")?));
+    product.insert("image".into(), json!(text("imageLink")?));
+    product.insert("sku".into(), json!(text("offerId")?));
+    if let Some(brand) = text("brand") {
+        product.insert("brand".into(), json!({ "@type": "Brand", "name": brand }));
+    }
+    for (from, to) in [("gtin", "gtin"), ("mpn", "mpn"), ("productType", "category")] {
+        if let Some(value) = text(from) {
+            product.insert(to.into(), json!(value));
+        }
+    }
+    product.insert("offers".into(), offer);
+    Some(Value::Object(product))
 }
 
 /// The listing's price (`formatMoney`), or "Market price unavailable" without a currency.

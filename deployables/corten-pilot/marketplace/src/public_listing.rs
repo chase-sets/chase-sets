@@ -12,11 +12,11 @@
 //! (chase-sets/chase-sets#10615), the pilot says it was received, or already reported, or to try
 //! again later.
 //!
+//! On the production marketplace, a listing whose Google Shopping payload is eligible and matches
+//! it writes its Product JSON-LD (`views::listing_json_ld`), as marketplace's page does.
+//!
 //! The header, the purchase column and the seller's card are drawn again on each change to the
 //! listing (`live`), as marketplace's page follows the listing's realtime topic.
-//!
-//! Not ported: its Product JSON-LD, which marketplace writes only on the production marketplace
-//! when the listing carries a Google Shopping payload.
 use corten::{
     LiveResponse,
     http::{HeaderMap, StatusCode, Uri, header},
@@ -161,6 +161,7 @@ fn render(
         marketplace_origin(),
         url::PublicListing { slug: &listing.listing_slug, reported: Reported::default() }.href()
     );
+    let product = views::listing_json_ld(listing, &canonical);
     let (og_title, og_description) = (title.as_str(), description.as_str());
     let head = html! {
         <meta name="description" content={og_description}>
@@ -168,6 +169,9 @@ fn render(
         <meta property="og:title" content={og_title}>
         <meta property="og:description" content={og_description}>
         <meta property="og:type" content="product">
+        if let Some(ld) = &product {
+            <JsonLd value={ld} />
+        }
     };
     let viewer = session.and_then(Session::viewer);
     req.page_with_status(
