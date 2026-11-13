@@ -11,12 +11,21 @@ import { providerScopeMappingStreamId } from "../../provider-scope-mapping/domai
 import { buildProviderScopeMappingCandidate } from "../../provider-scope-mapping/domain/mapping";
 import { createReferenceDataRuntime } from "../../reference-data/api/runtime";
 import {
+  catalogProviderIntegrationProfileVersions,
+  catalogProviderProfileVersionIngestionUnitKey,
+} from "../../source-observations/api/provider-integration-profiles";
+import { listProviderScopeDiscoveryTargets } from "./discovery-targets";
+import {
   acceptCanonicalScopeRecordProposal,
   acceptedReferenceRecordIdForProposal,
   acceptedReferenceRecordKey,
   type CanonicalScopeRecordProposalAcceptRequest,
 } from "./proposal-acceptance";
 import { parseScopeRecordProposalAcceptRequest } from "./route";
+import {
+  classifyProviderScopeDiscoveryTarget,
+  matchScopeObservationsToScopeRecords,
+} from "./scope-observation-matcher";
 import { normalizeScopeMatchKey } from "./scope-record-proposal-store";
 
 const TEST_CONTEXT = {
@@ -119,6 +128,117 @@ describe("parseScopeRecordProposalAcceptRequest", () => {
 });
 
 describe("acceptCanonicalScopeRecordProposal", () => {
+  it.each(["normalized-name", "exact-id-or-code"])(
+    "moves both discovery units with an empty mapping projection after a later %s match",
+    async (matchedBy) => {
+      const harness = buildHarness();
+      const targets = listProviderScopeDiscoveryTargets(
+        catalogProviderIntegrationProfileVersions,
+        classifyProviderScopeDiscoveryTarget,
+      ).filter((target) => target.productDomain === "yugioh" && target.scopeKind === "set");
+      const first = targets.find((target) => target.providerKey === "ygoprodeck")!;
+      const second = targets.find((target) => target.providerKey === "ygojson")!;
+      const observe = async (target: typeof first, later: boolean) => {
+        const externalId = later ? "later-sdy" : "first-sdy";
+        const matches = await matchScopeObservationsToScopeRecords(harness.db, {
+          target,
+          scanId: "scan-regression",
+          observations: [
+            {
+              providerKey: target.providerKey,
+              unitKey: target.ingestionUnitKey,
+              scopeKind: "set",
+              sourceQueryKind: target.queryKind,
+              languageCode: "en",
+              externalId,
+              label: later && matchedBy === "exact-id-or-code" ? "Another provider label" : "Starter Deck: Yugi",
+              parents: [],
+              imageUrl: null,
+              metadata: {
+                ...(later && matchedBy === "normalized-name" ? {} : { setCode: "SDY" }),
+                releaseDate: "2002-03-29",
+              },
+              scanId: "scan-regression",
+              scannedAt: "2026-11-13T00:00:00.000Z",
+              firstObservedAt: "2026-11-13T00:00:00.000Z",
+              observationHash: `hash-${externalId}`,
+              newlyObserved: true,
+              changed: true,
+            },
+          ],
+        });
+        expect(matches).toHaveLength(1);
+        expect(matches[0]!.matchedBy).toBe(later ? matchedBy : "new-canonical-scope");
+        const candidate = matches[0]!.candidate;
+        await harness.mappings.commandHandler({
+          streamId: providerScopeMappingStreamId(candidate),
+          command: { type: "ProposeProviderScopeMapping", candidate, actor: "system:discovery" },
+          context: TEST_CONTEXT,
+        });
+        return candidate;
+      };
+      const original = await observe(first, false);
+      const proposal = [...harness.proposals.values()][0]!;
+      const evidence = structuredClone(proposal.evidence);
+      const later = await observe(second, true);
+      expect(proposal.evidence).toEqual(evidence);
+      expect(JSON.stringify(evidence)).not.toContain(second.ingestionUnitKey);
+      harness.scopeRecords.push(setRow("ref_bound", "yugioh", "sdy", "Starter Deck: Yugi", "SDY", ["en"]));
+
+      const result = await harness.accept(proposal.proposal_id, { mode: "bind", scopeRecordId: "ref_bound" });
+
+      expect(result).toMatchObject({ ok: true, acceptance: { mappings: { conflicts: [], retained: [] } } });
+      if (!result.ok) throw new Error("Acceptance refused");
+      expect(result.acceptance.mappings.repointed).toHaveLength(2);
+      for (const source of [original, later]) {
+        expect(harness.eventTypes(providerScopeMappingStreamId(source))).toEqual([
+          "catalog.provider-scope-mapping.proposed",
+          "catalog.provider-scope-mapping.rejected",
+        ]);
+        expect(harness.payloads(providerScopeMappingStreamId({ ...source, scopeRecordId: "ref_bound" }))).toEqual([
+          expect.objectContaining({
+            reviewStatus: "proposed",
+            coordinates: source.coordinates,
+            provenance: source.provenance,
+          }),
+        ]);
+      }
+    },
+  );
+
+  it.each(["CreateReferenceRecord", "PublishReferenceRecord"])(
+    "returns the same accepted id when another caller completes before %s dispatch",
+    async (command) => {
+      const harness = buildHarness();
+      harness.addProductLine("yugioh", "ref_yugioh_line", "yu-gi-oh-official-card-game");
+      const proposal = harness.addProposal(sdyProposal());
+      const pause = harness.pauseBefore(command);
+      const delayed = harness.accept(proposal.proposal_id, CREATE);
+      // Observe rejection immediately too, so the RED run cannot leak an unhandled promise.
+      const delayedResult = delayed.then(
+        (result) => ({ result }),
+        (error: unknown) => ({ error }),
+      );
+      await pause.reached;
+      let winner;
+      try {
+        winner = await harness.accept(proposal.proposal_id, CREATE);
+      } finally {
+        pause.resume();
+      }
+      expect(await delayedResult).toMatchObject({
+        result: { ok: true, acceptance: { scopeRecordId: acceptedReferenceRecordIdForProposal(proposal.proposal_id) } },
+      });
+      expect(winner).toMatchObject({
+        ok: true,
+        acceptance: { scopeRecordId: acceptedReferenceRecordIdForProposal(proposal.proposal_id) },
+      });
+      expect(
+        harness.eventTypes(`catalog.reference-record-${acceptedReferenceRecordIdForProposal(proposal.proposal_id)}`),
+      ).toEqual(["catalog.reference-record.created", "catalog.reference-record.published"]);
+    },
+  );
+
   it("creates and publishes one Reference Record and a repeat appends nothing", async () => {
     const harness = buildHarness();
     harness.addProductLine("yugioh", "ref_yugioh_line", "yu-gi-oh-official-card-game");
@@ -447,6 +567,43 @@ function buildHarness() {
         const row = proposals.get(String(params[0]));
         return { rows: row ? [{ ...row }] : [] };
       }
+      if (text.startsWith("SELECT * FROM catalog_scope_record_proposals")) {
+        return { rows: [...proposals.values()].filter((row) => row.product_domain === params[0]) };
+      }
+      if (text.startsWith("INSERT INTO catalog_scope_record_proposals")) {
+        const row: ProposalRow = {
+          ...sdyProposal(),
+          proposal_id: String(params[0]),
+          scope_record_id: String(params[1]),
+          product_domain: String(params[2]),
+          scope_kind: String(params[3]),
+          name: String(params[4]),
+          normalized_name: String(params[5]),
+          official_set_code: params[6] as string | null,
+          release_date: params[7] as string | null,
+          language_editions: JSON.parse(String(params[8])),
+          parent_external_ids: JSON.parse(String(params[9])),
+          evidence: JSON.parse(String(params[10])),
+        };
+        proposals.set(row.proposal_id, row);
+        return { rows: [row] };
+      }
+      if (text.includes("FROM catalog_scope_records records")) return { rows: [] };
+      if (text.includes("FROM catalog_provider_integration_profile_versions")) {
+        return {
+          rows: catalogProviderIntegrationProfileVersions.map((version) => ({
+            provider_key: version.providerKey,
+            profile_key: version.profileKey,
+            profile_version: version.profileVersion,
+            ingestion_unit_key: catalogProviderProfileVersionIngestionUnitKey(version),
+            lifecycle: version.lifecycle,
+            active: version.active,
+            profile_json: version.profile,
+            source_contract_json: version.sourceContract,
+            fixture_contract_json: version.fixtures,
+          })),
+        };
+      }
       if (text.startsWith("UPDATE catalog_scope_record_proposals SET review_status = 'accepted'")) {
         const row = proposals.get(String(params[0]));
         if (!row || row.review_status !== "proposed") {
@@ -501,6 +658,7 @@ function buildHarness() {
   const referenceData = createReferenceDataRuntime(deps);
   const mappings = createProviderScopeMappingRuntime(deps);
   const crashes: string[] = [];
+  let pause: { type: string; reached: () => void; wait: Promise<void> } | null = null;
   const crashBefore = (type: string) => {
     const index = crashes.indexOf(type);
     if (index >= 0) {
@@ -510,11 +668,25 @@ function buildHarness() {
   };
 
   return {
+    db,
+    proposals,
     scopeRecords,
     referenceKeys,
     referenceData,
     mappings,
     crashes,
+    pauseBefore(type: string) {
+      let reached!: () => void;
+      let resume!: () => void;
+      const reachedPromise = new Promise<void>((resolve) => {
+        reached = resolve;
+      });
+      const wait = new Promise<void>((resolve) => {
+        resume = resolve;
+      });
+      pause = { type, reached, wait };
+      return { reached: reachedPromise, resume };
+    },
     addProductLine(productDomain: string, id: string, key: string) {
       scopeRecords.push({ ...setRow(id, productDomain, key, key, null, []), scope_kind: "product-line" });
     },
@@ -550,6 +722,12 @@ function buildHarness() {
         { db, eventStore },
         {
           referenceRecordCommandHandler: async (input) => {
+            if (pause?.type === input.command.type) {
+              const current = pause;
+              pause = null;
+              current.reached();
+              await current.wait;
+            }
             crashBefore(input.command.type);
             return referenceData.referenceRecordCommandHandler(input);
           },

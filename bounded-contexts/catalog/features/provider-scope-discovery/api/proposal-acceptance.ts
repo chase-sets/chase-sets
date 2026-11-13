@@ -7,7 +7,11 @@ import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { JsonObject } from "@chase-sets/primitives/json";
 import type { ReferenceRecordId } from "../../../ids";
 import type { CatalogRuntimeDeps } from "../../../support/authoring-support/runtime-support";
-import { localizedTextMapFromEnglish, type CatalogValue } from "../../../support/runtime-support/common";
+import {
+  CatalogDomainError,
+  localizedTextMapFromEnglish,
+  type CatalogValue,
+} from "../../../support/runtime-support/common";
 import {
   evolveProviderScopeMapping,
   initialProviderScopeMappingState,
@@ -36,7 +40,13 @@ import {
   type CatalogScopeRecordKind,
 } from "../../scope-registry/domain/contract";
 import { getCatalogScopeRecord, type CatalogScopeRecordRow } from "../../scope-registry/read-model/queries";
-import { scopeRecordIdentityKeys, scopeValueIdentityKeys } from "./scope-observation-matcher";
+import { createCatalogProviderIntegrationProfileVersionStore } from "../../source-observations/api/provider-integration-profile-store";
+import { listProviderScopeDiscoveryTargets } from "./discovery-targets";
+import {
+  classifyProviderScopeDiscoveryTarget,
+  scopeRecordIdentityKeys,
+  scopeValueIdentityKeys,
+} from "./scope-observation-matcher";
 import {
   getCanonicalScopeRecordProposal,
   markCanonicalScopeRecordProposalAccepted,
@@ -152,6 +162,7 @@ type CandidateScopeRecordRow = Readonly<{
 }>;
 
 const MAX_CONCURRENCY_ATTEMPTS = 2;
+class ReferenceRecordAcceptanceProgress extends Error {}
 
 /**
  * Accepts one canonical Scope Record proposal onto exactly one Scope Record:
@@ -176,7 +187,10 @@ export async function acceptCanonicalScopeRecordProposal(
     try {
       return await acceptOnce(deps, ports, input);
     } catch (error) {
-      if (attempt >= MAX_CONCURRENCY_ATTEMPTS || !isConcurrencyConflict(error)) {
+      if (
+        attempt >= MAX_CONCURRENCY_ATTEMPTS ||
+        (!isConcurrencyConflict(error) && !(error instanceof ReferenceRecordAcceptanceProgress))
+      ) {
         throw error;
       }
     }
@@ -264,7 +278,7 @@ async function acceptOnce(
     if (keyRefusal) {
       return keyRefusal;
     }
-    const result = await ports.referenceRecordCommandHandler({
+    const result = await dispatchAcceptanceReferenceRecord(deps, ports, plan, {
       streamId: referenceRecordStreamId(plan.referenceRecordId),
       command: {
         type: "CreateReferenceRecord",
@@ -280,6 +294,7 @@ async function acceptOnce(
       context: input.context,
       expectedVersion: 0,
     });
+    if (!result.ok) return result;
     version = result.version;
     created = true;
   } else if (!historyRepresentsPlan(history.state, plan)) {
@@ -288,12 +303,13 @@ async function acceptOnce(
 
   let published = false;
   if (created || history.state.status === "draft") {
-    await ports.referenceRecordCommandHandler({
+    const result = await dispatchAcceptanceReferenceRecord(deps, ports, plan, {
       streamId: referenceRecordStreamId(plan.referenceRecordId),
       command: { type: "PublishReferenceRecord" },
       context: input.context,
       expectedVersion: version,
     });
+    if (!result.ok) return result;
     published = true;
   }
 
@@ -302,6 +318,36 @@ async function acceptOnce(
     created,
     published,
   });
+}
+
+async function dispatchAcceptanceReferenceRecord(
+  deps: Pick<CatalogRuntimeDeps, "eventStore">,
+  ports: CanonicalScopeRecordProposalAcceptancePorts,
+  plan: CreatePlan,
+  input: Parameters<CanonicalScopeRecordProposalAcceptancePorts["referenceRecordCommandHandler"]>[0] &
+    Readonly<{ expectedVersion: number }>,
+): Promise<Readonly<{ ok: true; version: number }> | Refused> {
+  try {
+    const result = await ports.referenceRecordCommandHandler(input);
+    return { ok: true, version: result.version };
+  } catch (error) {
+    const progressMessage =
+      input.command.type === "CreateReferenceRecord"
+        ? "Reference record has already been created."
+        : input.command.type === "PublishReferenceRecord"
+          ? "Only draft reference records can be published."
+          : null;
+    if (!(error instanceof CatalogDomainError) || error.message !== progressMessage) throw error;
+
+    // The decider runs before the append version fence. Only verified progress
+    // on this plan may turn its stale-state domain error into an acceptance retry.
+    const history = await readReferenceRecordHistory(deps, plan.referenceRecordId);
+    if (!history || !historyRepresentsPlan(history.state, plan)) return historyConflict(plan.referenceRecordId);
+    if (history.version <= input.expectedVersion) throw error;
+    throw new ReferenceRecordAcceptanceProgress("Reference Record advanced during proposal acceptance.", {
+      cause: error,
+    });
+  }
 }
 
 async function transitionAndRepoint(
@@ -613,9 +659,9 @@ async function listCreateCandidates(
  * accepted Scope Record as `proposed`, with identical coordinates and
  * provenance, then rejects (or revokes, when it was accepted) the old one with a
  * reason naming the target. Rejected and revoked mappings stay where they are.
- * Mappings are found through the mapping read model and, so a lagging
- * projection cannot hide the matcher's own mappings, the provider units recorded
- * in the proposal's evidence; each is then decided from its own stream. The
+ * Mappings are found through persisted discovery profiles (including historical
+ * units), the mapping read model, and proposal evidence. Each deterministic
+ * mapping stream is rehydrated so projection lag cannot hide later matches. The
  * target is written before the old mapping is retired, so a retry after a crash
  * finds the old mapping still live and finishes the re-point.
  */
@@ -633,6 +679,14 @@ async function repointProposalMappings(
   const units = new Map<string, Readonly<{ providerKey: string; unitKey: string }>>();
   const addUnit = (providerKey: string, unitKey: string) =>
     units.set(JSON.stringify([providerKey, unitKey]), { providerKey, unitKey });
+  const profiles = await createCatalogProviderIntegrationProfileVersionStore(deps.db).listProfileVersions();
+  for (const target of listProviderScopeDiscoveryTargets(profiles, classifyProviderScopeDiscoveryTarget, {
+    includeInactive: true,
+  })) {
+    if (target.productDomain === input.proposal.productDomain && target.scopeKind === input.proposal.scopeKind) {
+      addUnit(target.providerKey, target.ingestionUnitKey);
+    }
+  }
   for (const row of await listProviderScopeMappingsByScopeRecord(deps.db, sourceScopeRecordId)) {
     addUnit(row.provider_key, row.unit_key);
   }
