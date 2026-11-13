@@ -106,6 +106,16 @@
   padding-block-end: var(--space-3);
   border-bottom: 1px solid var(--color-border);
 }
+/* The kit's Checkbox label is 20 px tall whatever --control-height is (a Corten gap, in the README's
+   open workarounds): its row is the control height, and the label fills it, so the whole row is the
+   target. */
+.choice {
+  display: grid;
+  min-height: var(--control-height);
+}
+.choice > * {
+  min-height: var(--control-height);
+}
 .label {
   font-size: 0.875rem;
   font-weight: 600;

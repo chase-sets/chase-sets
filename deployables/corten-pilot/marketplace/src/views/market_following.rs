@@ -8,7 +8,8 @@
 //! and Preview. The review lists each offer's proposed amount (or why it is held) with the Market
 //! Price it read, and Authorize asks for consent in a required checkbox; Stop asks for its own.
 //! While a result could not be confirmed every step is off until the page is opened again. One
-//! column; every control is at least `--control-height` tall.
+//! column; every control is at least `--control-height` tall, a kit checkbox's row too (its label
+//! is 20 px, filed as a Corten gap in the README's open workarounds).
 use std::collections::BTreeMap;
 
 use corten::{
@@ -215,16 +216,18 @@ pub fn MarketFollowing<'a>(
                             <Operation step="preview" policy={&policy_id} version={&version} following={following} />
                             for offer in &choosable {
                                 <div class={Offer}>
-                                    <Checkbox
-                                        label={&t.following_select(msg::FollowingSelect { title: &offer.item_title, offer: &offer.offer_id }).to_string()}
-                                    >
-                                        <input
-                                            type="checkbox"
-                                            name={mf::OFFER}
-                                            value={&offer.offer_id}
-                                            checked={start.chosen.contains(&offer.offer_id)}
+                                    <div class={Choice}>
+                                        <Checkbox
+                                            label={&t.following_select(msg::FollowingSelect { title: &offer.item_title, offer: &offer.offer_id }).to_string()}
                                         >
-                                    </Checkbox>
+                                            <input
+                                                type="checkbox"
+                                                name={mf::OFFER}
+                                                value={&offer.offer_id}
+                                                checked={start.chosen.contains(&offer.offer_id)}
+                                            >
+                                        </Checkbox>
+                                    </div>
                                     <p class={Hint}>
                                         {t.following_current(msg::FollowingCurrent {
                                             amount: &offer.price_currency_code.as_deref().map(|c| money(t, &offer.price_amount, c)).unwrap_or_default(),
@@ -299,9 +302,11 @@ pub fn MarketFollowing<'a>(
                                 </li>
                             }
                         </ul>
-                        <Checkbox label={t.following_consent()}>
-                            <input type="checkbox" name={mf::CONSENT} value="true" required>
-                        </Checkbox>
+                        <div class={Choice}>
+                            <Checkbox label={t.following_consent()}>
+                                <input type="checkbox" name={mf::CONSENT} value="true" required>
+                            </Checkbox>
+                        </div>
                         <p class={Row}>
                             <button class={Button} type="submit" disabled={blocked}>{t.following_authorize()}</button>
                         </p>
@@ -316,9 +321,11 @@ pub fn MarketFollowing<'a>(
                 if policy.is_some_and(|p| p.policy_id.is_some()) {
                     <form class={Form} method="post" action={&action}>
                         <Operation step="stop" policy={&policy_id} version={&version} following={following} />
-                        <Checkbox label={t.following_stop_effects()}>
-                            <input type="checkbox" name={mf::CONFIRM_STOP} value="true" required>
-                        </Checkbox>
+                        <div class={Choice}>
+                            <Checkbox label={t.following_stop_effects()}>
+                                <input type="checkbox" name={mf::CONFIRM_STOP} value="true" required>
+                            </Checkbox>
+                        </div>
                         <p class={Row}>
                             <button class={(Button, Secondary)} type="submit" disabled={blocked}>{t.following_stop()}</button>
                         </p>
