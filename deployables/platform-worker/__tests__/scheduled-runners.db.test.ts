@@ -24,7 +24,7 @@ import { createPostgresWorkSignalStore } from "@chase-sets/platform-runtime/work
 import { createWorkerHost, type WorkerHostRuntime, type WorkerRunner } from "@chase-sets/platform-runtime/worker";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { getPlatformWorkerContextsForRuntimeProfile } from "../src/config";
-import { workerContextRegistry } from "../src/generated/worker-context-registry";
+import { workerContextRegistry } from "../src/context-registry";
 import { createPlatformChannelSaleRecorder } from "../src/channels-reconciliation-runners";
 import {
   createInventoryProductResolutionMaintenanceRunners,

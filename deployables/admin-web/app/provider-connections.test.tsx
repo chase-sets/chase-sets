@@ -12,7 +12,7 @@ import { createChannelConnectionsOperatorReadSourceFromReadModel } from "@chase-
 import { module as platformOperations } from "@chase-sets/platform-operations";
 import ProviderConnectionsRoute, { loader } from "@chase-sets/platform-operations/routes/admin/provider-connections";
 import { resolveWebHostRouteConfigRecords } from "@chase-sets/platform-runtime/web-route-config";
-import { webContextRegistry } from "./generated/web-context-registry";
+import { webContextRegistry } from "./context-registry";
 
 const auth = vi.hoisted(() => ({ resolve: vi.fn() }));
 vi.mock("@chase-sets/platform-runtime/auth", () => ({ resolveActorFromAuthApi: auth.resolve }));

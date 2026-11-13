@@ -300,18 +300,18 @@ describe("worktree sandbox", () => {
     expect(listSandboxDatabases(sandbox).map(({ key }) => key)).toEqual(["control", "catalog", "marketplace"]);
   });
 
-  it("sandbox-platform-api-database-owner-parity matches the generated registry and rejects a deletion mutant", () => {
+  it("sandbox-platform-api-database-owner-parity matches the API context registry and rejects a deletion mutant", () => {
     const registrySource = readFileSync(
-      path.join(repoRoot, "deployables", "platform-api", "src", "generated", "api-context-registry.ts"),
+      path.join(repoRoot, "deployables", "platform-api", "src", "context-registry.ts"),
       "utf8",
     );
-    const generatedContextNames = [...registrySource.matchAll(/^\s+contextName: "([^"]+)",$/gmu)].map(
+    const registryContextNames = [...registrySource.matchAll(/^\s+contextName: "([^"]+)",$/gmu)].map(
       ([, contextName]) => contextName,
     );
     const sandbox = resolveWorktreeSandbox({ rootDir: repoRoot, env: {}, contextNames: undefined });
 
-    expect(sandbox.contextNames).toEqual(generatedContextNames);
-    expect(sandbox.contextNames).not.toEqual(generatedContextNames.slice(1));
+    expect(sandbox.contextNames).toEqual(registryContextNames);
+    expect(sandbox.contextNames).not.toEqual(registryContextNames.slice(1));
 
     const injected = resolveWorktreeSandbox({ rootDir: repoRoot, env: {}, contextNames: ["neutral-injected"] });
     expect(injected.contextNames).toEqual(["neutral-injected"]);

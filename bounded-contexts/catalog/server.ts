@@ -1,4 +1,5 @@
 export { createCatalogRequestApiClient } from "./support/request-support/api-client";
+export { catalogApiPermissionMiddleware } from "./support/request-support/permission-middleware";
 export {
   resolveCatalogProductSelection,
   type CatalogProductSelection,

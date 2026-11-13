@@ -2,23 +2,18 @@ import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import ts from "@chase-sets/typescript-compiler-api";
-import { listWorkspacePackages, repoRoot } from "../lib/repo.mjs";
+import { CONTEXT_REGISTRY_HOST_ARMS, listWorkspacePackages, repoRoot } from "../lib/repo.mjs";
 import { GIT_LISTING_MAX_BUFFER } from "../lib/git-listing.mjs";
 
 const sourceExtensions = [".ts", ".tsx", ".mts", ".cts"];
 const sourceExtensionSet = new Set(sourceExtensions);
 const jsonAttributeText = 'with { type: "json" }';
 const nodeClosureSeeds = [
-  "deployables/platform-api/src/generated/api-context-registry.ts",
-  "deployables/platform-worker/src/generated/worker-context-registry.ts",
+  "deployables/platform-api/src/context-registry.ts",
+  "deployables/platform-worker/src/context-registry.ts",
 ];
 export const manifestHostRegistrationFields = Object.freeze([
-  "apiDeployables",
-  "runtimeDeployables",
-  "sourceRuntimeDeployables",
-  "sourceRuntimeProfiles",
-  "deployableContributions",
-  "shellContributions",
+  ...new Set(CONTEXT_REGISTRY_HOST_ARMS.map((arm) => arm.field)),
 ]);
 
 function normalizePath(value) {

@@ -1,4 +1,4 @@
-import { Hono, type Context, type Next } from "hono";
+import { Hono } from "hono";
 import { createCheckoutClosedMiddleware } from "./middleware/checkout-closed";
 import { module as authModule } from "@chase-sets/auth";
 import type { ShipmentGroupAdmissionAuthority } from "@chase-sets/order-groups";
@@ -36,6 +36,7 @@ import {
   discoveryRealtimeTopicPolicyManifest,
 } from "@chase-sets/discovery/server";
 import {
+  catalogApiPermissionMiddleware,
   catalogRealtimeManifest,
   createCatalogProviderConnectionsReadSource,
   type CatalogServices,
@@ -223,12 +224,11 @@ import {
 } from "./middleware/auth-context";
 import type { PlatformApiRuntimeProfile } from "@chase-sets/platform-runtime/runtime-profiles";
 import { errorHandler } from "@chase-sets/platform-runtime/error-handler";
-import { authenticationRequiredResponse, forbiddenResponse } from "@chase-sets/http/responses";
 import type { PolicyDefinition } from "@chase-sets/platform-policy/define-policy";
 import { createPolicyResolver } from "@chase-sets/platform-policy/resolver";
 import { listActivePolicyDocuments } from "@chase-sets/platform-policy/queries";
 import type { JsonValue } from "@chase-sets/primitives/json";
-import { apiContextRegistry } from "./generated/api-context-registry";
+import { apiContextRegistry } from "./context-registry";
 import {
   createChannelActionAttentionSourceFromReadModel,
   createChannelConnectionsOperatorReadSourceFromReadModel,
@@ -1339,22 +1339,6 @@ function resolveAuthIdentityAnonymousRoutes(runtime: ApiHostRuntime): readonly A
       const module = entry.module as Readonly<{ anonymousRoutes?: readonly AnonymousRouteDeclaration[] }>;
       return module.anonymousRoutes ?? [];
     });
-}
-
-async function catalogApiPermissionMiddleware(c: Context<TenantContextEnv>, next: Next): Promise<Response | void> {
-  const actor = c.get("actor");
-  if (!actor) {
-    return c.json(authenticationRequiredResponse(), 401);
-  }
-
-  const method = c.req.method.toUpperCase();
-  const requiredPermission =
-    method === "GET" || method === "HEAD" || method === "OPTIONS" ? "catalog.view" : "catalog.manage";
-  if (!actor.permissions.includes(requiredPermission)) {
-    return c.json(forbiddenResponse(), 403);
-  }
-
-  await next();
 }
 
 function isPaymentProcessorPublicConfig(value: unknown): value is Parameters<typeof createPaymentsUcpHandoff>[0] {

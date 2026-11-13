@@ -371,11 +371,15 @@ pub(crate) async fn save(
         Some(Session::Account(viewer)) => Some(viewer),
         _ => None,
     };
-    let screen = ItemScreen::of(item.clone(), &address, viewer.map(|v| v.actor.account_id.clone()));
+    let prepare = first(field::PREPARE) == "1";
+    // A search result's Add to List names its product by the options it posts alone
+    // (`createDiscoveryProductDescriptor`), never the one the item page falls back to from its only
+    // listing: the screen is read as a filtered address. Redirects and the page keep `address`.
+    let named = if prepare { Address { filtered: true, ..address.clone() } } else { address.clone() };
+    let screen = ItemScreen::of(item.clone(), &named, viewer.map(|v| v.actor.account_id.clone()));
     // A search result's: the page it is on, when this app serves it.
     let from = corten::Local::parse(&first(field::FROM)).filter(|local| req.serves(local));
     let surface = if from.is_some() { "search" } else { "item-detail" };
-    let prepare = first(field::PREPARE) == "1";
     let tokens = Tokens::read(first);
     let mut input = SaveInput {
         list: first(field::LIST),
@@ -418,7 +422,11 @@ pub(crate) async fn save(
         let owner = guest_owner(&headers);
         let intent = match caller.saved_list_intent(&owner, &intent).await {
             Ok(intent) => intent,
-            Err(error) => return refusal(&req, session, &caller, item, &address, input, error).await,
+            // From a search result: back to the search saying why, not the item page in its place.
+            Err(error) => match (&from, error.refusal()) {
+                (Some(from), Some(message)) => return req.redirect_with_notice(from, message.to_owned()),
+                _ => return refusal(&req, session, &caller, item, &address, input, error).await,
+            },
         };
         let to: Uri = register_href(&source, &intent.intent_id).parse().map_err(corten::Error::new)?;
         let mut res = req.redirect(&to)?;
@@ -479,6 +487,7 @@ pub(crate) async fn save(
                 caller
                     .recent_saved_lists()
                     .await
+                    .inspect_err(|error| tracing::warn!("the recent Saved Lists were not read for the notice: {error}"))
                     .ok()
                     .and_then(|lists| lists.into_iter().find(|l| l.list_id == added.list_id))
                     .map(|l| l.title)
@@ -505,7 +514,12 @@ pub(crate) async fn save(
             })
         }
         Err(error) if error.status() == Some(StatusCode::UNAUTHORIZED) => {
-            match sign_in_at(&url::Item { slug: &slug, state: address, after: Default::default() }.href()) {
+            // Back to the search the form was sent from, else the item page.
+            let back = match &from {
+                Some(from) => from.to_string(),
+                None => url::Item { slug: &slug, state: address, after: Default::default() }.href(),
+            };
+            match sign_in_at(&back) {
                 Some(to) => req.redirect(&to),
                 None => Err(corten::Error::status(StatusCode::INTERNAL_SERVER_ERROR)),
             }
