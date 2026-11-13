@@ -31,7 +31,7 @@ import { createSupportEvidenceSeedContext } from "@chase-sets/platform-operation
 import { expect } from "vitest";
 import { createPlatformApiHost } from "../src/app";
 import type { PlatformApiContextName } from "../src/config";
-import { apiContextRegistry } from "../src/generated/api-context-registry";
+import { apiContextRegistry } from "../src/context-registry";
 import {
   createPlatformApiRetainedStateHandoff,
   listingPhotoStorage,

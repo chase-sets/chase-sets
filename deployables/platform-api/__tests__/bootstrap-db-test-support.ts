@@ -9,7 +9,7 @@ import type { PgPoolClient } from "@chase-sets/event-core-postgres";
 import { getApiHostContextNames } from "@chase-sets/platform-runtime/api";
 import type { ListingPhotoStorage } from "@chase-sets/marketplace/server";
 import { closePlatformApiPools, createPlatformApiPools } from "../src/database-pools";
-import { apiContextRegistry } from "../src/generated/api-context-registry";
+import { apiContextRegistry } from "../src/context-registry";
 import type { PlatformApiContextName } from "../src/config";
 
 export type PlatformApiTestPools = ReturnType<typeof createPlatformApiPools>;
