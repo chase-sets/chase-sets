@@ -260,7 +260,7 @@ const feeQuotes = "bounded-contexts/marketplace/support/runtime-support/fee-quot
 type Citation = readonly [ref: string, ...patterns: RegExp[]];
 const quoteChain: Citation[] = [
   [
-    `${listingRuntime}:1232-1249`,
+    `${listingRuntime}:1359-1376`,
     /async function quoteListingTerms\(accountId: string, priceAmount: string\)\s*\{\s*return quoteMarketplaceTerms\(deps.commercialTermsResolver,/,
     /providedFingerprint !== currentQuote.fee_quote_fingerprint/,
   ],
@@ -289,7 +289,7 @@ const creationChain: Citation[] = [
     /feeLocks: event.data.feeLocks/,
   ],
   [
-    `${listingRuntime}:1764-1818`,
+    `${listingRuntime}:1891-1945`,
     /params.publicationScope === "channel-only" \? null : await quoteListingTerms\(params.accountId, params.priceAmount\)/,
     /type: "CreateListing"/,
     /feeLock: quote \? feeLockFromMarketplaceTermsQuote\(params.quantityCap, quote\) : null/,
@@ -380,14 +380,19 @@ const citationRules: readonly (readonly [assertionStart: string, citations: read
     "Single and bulk",
     [
       [
-        `${listingRuntime}:2141-2172`,
+        `${listingRuntime}:2494-2526`,
         /updateListingPrice: async/,
         /listing.feeLocks.map\(\(lock\) => requoteMarketplaceListingFeeLock\(lock, params.priceAmount\)\)/,
         /type: "UpdateListingPrice"/,
       ],
       [
-        `${listingRuntime}:2174-2293`,
+        `${listingRuntime}:2528-2598`,
         /applyBulkListingPriceUpdates: async/,
+        /driveBulkPriceUpdates\(params.accountId, /,
+      ],
+      [
+        `${listingRuntime}:1995-2095`,
+        /async function driveBulkPriceUpdates\(/,
         /assertConfirmedFeeQuote\(update.feeQuoteFingerprint, quote\)/,
         /listing.feeLocks.map\(\(lock\) => requoteMarketplaceListingFeeLock\(lock, update.priceAmount\)\)/,
         /type: "UpdateListingPrice"/,
@@ -460,7 +465,7 @@ const citationRules: readonly (readonly [assertionStart: string, citations: read
         /const latest = resized.pop\(\)/,
       ],
       [
-        `${listingRuntime}:2295-2335`,
+        `${listingRuntime}:2641-2681`,
         /addedUnitCount = Math.max\(0, params.quantityCap - listing.quantityCap\)/,
         /addedUnitCount > 0 \? await quoteListingTerms\(params.accountId, listing.priceAmount\) : null/,
         /assertConfirmedFeeQuote\(params.feeQuoteFingerprint, quote\)/,
@@ -622,29 +627,30 @@ describe("founders clause-level source authority", () => {
         /marketplaceGatewayForAccount\(accountId\).applyBulkListingPriceUpdates\(\{ updates \}\)/,
       ],
       [
-        "bounded-contexts/pricing/features/recommendations/api/runtime.ts:732-741",
+        "bounded-contexts/pricing/features/recommendations/api/runtime.ts:744-758",
         /marketplaceListings.applyBulkListingPriceUpdates/,
         /updates: bulkUpdates.map/,
       ],
       [
-        "bounded-contexts/pricing/features/bulk-reprice-ingestion/api/runtime.ts:656-657",
-        /marketplaceGateway.applyBulkListingPriceUpdates\(\{ updates \}\)/,
+        "bounded-contexts/pricing/features/bulk-reprice-ingestion/api/runtime.ts:744-744",
+        /marketplaceGateway.applyBulkListingPriceUpdates\(\{ batchId, updates \}\)/,
       ],
       [
         "bounded-contexts/pricing/support/request-support/marketplace-listings.ts:25-25",
         /applyBulkListingPriceUpdates: \(body, options\) => marketplaceApi.applyBulkListingPriceUpdates\(body, options\)/,
       ],
       [
-        "bounded-contexts/marketplace/client.ts:620-634",
+        "bounded-contexts/marketplace/client.ts:631-648",
         /async applyBulkListingPriceUpdates/,
         /"\/account\/listings\/prices\/bulk"/,
         /method: "POST"/,
       ],
       [
-        "bounded-contexts/marketplace/features/listings/api/route.ts:1470-1502",
+        "bounded-contexts/marketplace/features/listings/api/route.ts:1503-1535",
         /"\/listings\/prices\/bulk"/,
+        /const batch = parseBulkListingPriceUpdates\(body, c\.req\.header\("Idempotency-Key"\)\)/,
         /services.applyBulkListingPriceUpdates/,
-        /updates: parseBulkListingPriceUpdates\(body, c\.req\.header\("Idempotency-Key"\)\)/,
+        /batchId: batch\.batchId, updates: batch\.updates/,
       ],
     ];
     for (const [ref, ...patterns] of callers) {

@@ -360,7 +360,7 @@ pub fn cart_line(t: ItemMsg, item: &Item, screen: &ItemScreen, input: &BuyInput)
 
 /// Whose cart a request writes: the account's (`None`), or a guest's, by the id the browser keeps
 /// or a new one (`ensureAnonymousCartId`). A guest checkout's session writes a guest cart too.
-fn guest_cart(session: Option<&Session>, headers: &HeaderMap) -> Result<Option<String>, corten::Error> {
+pub(crate) fn guest_cart(session: Option<&Session>, headers: &HeaderMap) -> Result<Option<String>, corten::Error> {
     match session {
         Some(Session::Account(viewer)) if !viewer.actor.can(GUEST_CHECKOUT) => Ok(None),
         Some(Session::Unavailable) => Err(corten::Error::status(StatusCode::BAD_GATEWAY)),
@@ -371,6 +371,12 @@ fn guest_cart(session: Option<&Session>, headers: &HeaderMap) -> Result<Option<S
                 .unwrap_or_else(|| format!("anon_cmd_{}", uuid::Uuid::new_v4().simple())),
         )),
     }
+}
+
+/// The cookie that keeps the guest cart `id` (`appendAnonymousCartCookie`), `Secure` over https.
+pub(crate) fn guest_cart_cookie(id: &str, proto: &str) -> cookie::SetCookie {
+    let keep = cookie::SetCookie::new(ANONYMOUS_CART_COOKIE, id).max_age(GUEST_CART_SECONDS);
+    if proto == "https" { keep } else { keep.insecure() }
 }
 
 /// Is the request a guest's (no account cart)?
