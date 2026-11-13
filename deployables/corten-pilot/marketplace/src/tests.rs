@@ -6270,12 +6270,18 @@ async fn a_change_to_a_listing_draws_its_header_purchase_and_seller_again_and_no
 }
 
 #[tokio::test]
-async fn a_change_to_a_listing_the_read_no_longer_finds_says_it_is_not_found() {
+async fn a_change_to_a_listing_the_read_no_longer_finds_says_it_is_not_found_and_ends_the_stream() {
     let pilot = Pilot::new().await;
-    let events = pilot.events(get("/listings/nope/live/lst_gone", None), 1).await;
+    let events = pilot.events(get("/listings/nope/live/lst_gone", None), 3).await;
+    assert_eq!(events.iter().map(|(e, _, _)| e.as_str()).collect::<Vec<_>>(), ["patch", "end"], "{events:?}");
     let (_, _, data) = &events[0];
     assert!(data.contains(">Listing not found</h1>") && data.contains("This listing is not available right now."), "{data}");
     assert!(data.contains(r#"id="listing-buy" class="listing-page__column" hidden"#) && !data.contains("/buy"), "{data}");
+
+    // A slug that now names another listing than the one the page was drawn for: not this one.
+    let events = pilot.events(get("/listings/psa-8/live/lst_other", None), 3).await;
+    assert_eq!(events.iter().map(|(e, _, _)| e.as_str()).collect::<Vec<_>>(), ["patch", "end"], "{events:?}");
+    assert!(events[0].2.contains(">Listing not found</h1>") && !events[0].2.contains("$749.00"), "{events:?}");
 }
 
 #[tokio::test]
