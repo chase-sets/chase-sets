@@ -52,6 +52,7 @@ export async function createManualSyncBrowserRecovery(
   let exited = false;
   let exitCode: number | null = null;
   const stdout: Buffer[] = [];
+  const stderr: Buffer[] = [];
   let outBytes = 0;
   let errBytes = 0;
   child.stdout!.on("data", (chunk: Buffer) => {
@@ -61,6 +62,7 @@ export async function createManualSyncBrowserRecovery(
   });
   child.stderr!.on("data", (chunk: Buffer) => {
     errBytes += Buffer.byteLength(chunk);
+    if (errBytes <= 2048) stderr.push(Buffer.from(chunk));
     if (errBytes > 2048) invalid = true;
   });
   child.stdout!.on("error", () => {
@@ -92,7 +94,18 @@ export async function createManualSyncBrowserRecovery(
   } finally {
     child.stdin!.destroy();
   }
-  if (invalid || !exited || exitCode !== 0 || closeCode !== 0 || errBytes !== 0) throw fail();
+  if (invalid || !exited || exitCode !== 0 || closeCode !== 0 || errBytes !== 0) {
+    const text = errBytes <= 2048 ? Buffer.concat(stderr).toString("utf8") : "";
+    const reason =
+      /^OWNED_RECOVERY_FAILED (owned-recovery-(?:input-required|database-required|database-not-local|web-server-required|listing-required|listing-collision|connection-required|run-collision|member-required|initial-state-required|close-failed)|type-error|unexpected-error)\n$/.exec(
+        text,
+      )?.[1];
+    const loaderCode =
+      /\b(ERR_MODULE_NOT_FOUND|ERR_PACKAGE_PATH_NOT_EXPORTED|ERR_UNKNOWN_FILE_EXTENSION|ERR_UNSUPPORTED_DIR_IMPORT|ERR_REQUIRE_ESM|ERR_REQUIRE_ASYNC_MODULE)\b/.exec(
+        text,
+      )?.[1];
+    throw reason || loaderCode ? new Error(`owned-recovery-child-failed: ${reason ?? loaderCode}`) : fail();
+  }
   let receipt: unknown;
   try {
     receipt = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(Buffer.concat(stdout)));

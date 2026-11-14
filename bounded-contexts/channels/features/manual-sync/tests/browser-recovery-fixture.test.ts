@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { Readable, Writable } from "node:stream";
+import { spawn } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { demoIdentitySeedIds } from "@chase-sets/identity-seed";
 import { assertBrowserRecoveryFixtureInput, createBrowserRecoveryFixture } from "./browser-recovery-fixture";
 import {
@@ -126,6 +128,33 @@ beforeEach(() => {
 });
 
 describe("finite recovery Node entry", () => {
+  it("loads the actual Node facade and refuses null stdin without opening a database", async () => {
+    const root = fileURLToPath(new URL("../../../../../", import.meta.url));
+    const facade = fileURLToPath(new URL("../../../support/seed-support/manual-sync-browser.ts", import.meta.url));
+    const env = Object.fromEntries(
+      ["PATH", "SystemRoot", "TEMP", "TMP", "TMPDIR"].flatMap((key) =>
+        process.env[key] === undefined ? [] : [[key, process.env[key]]],
+      ),
+    );
+    const child = spawn(process.execPath, ["--import", "tsx", facade, "--owned-recovery-stdin"], {
+      cwd: root,
+      env,
+      shell: false,
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+    const stdout: Buffer[] = [];
+    const stderr: Buffer[] = [];
+    child.stdout.on("data", (chunk) => stdout.push(Buffer.from(chunk)));
+    child.stderr.on("data", (chunk) => stderr.push(Buffer.from(chunk)));
+    const closed = new Promise((resolve, reject) => {
+      child.once("error", reject);
+      child.once("close", resolve);
+    });
+    child.stdin.end("null");
+    await expect(closed).resolves.toBe(1);
+    expect(Buffer.concat(stdout).toString()).toBe("");
+    expect(Buffer.concat(stderr).toString()).toBe("OWNED_RECOVERY_FAILED\n");
+  });
   const databases = {
     channels: "postgresql://cs_owned_channels:cs_owned_channels@localhost:5432/cs_owned_channels",
     catalog: "postgresql://cs_owned_catalog:cs_owned_catalog@localhost:5432/cs_owned_catalog",
@@ -233,7 +262,7 @@ describe("finite recovery Node entry", () => {
     );
     for (const end of ends) expect(end).toHaveBeenCalledOnce();
   });
-  it("returns only the fixed failure marker for null panel stdin and closes every pool", async () => {
+  it("returns only a closed diagnostic for null panel stdin and closes every pool", async () => {
     const ends = composition();
     h.channels.mockReturnValueOnce({
       ...setup().services,
@@ -253,7 +282,7 @@ describe("finite recovery Node entry", () => {
       runOwnedRecoveryStdin(Readable.from([Buffer.from(JSON.stringify(request()))]), sink(out), sink(err)),
     ).resolves.toBe(1);
     expect(out).toEqual([]);
-    expect(err.join("")).toBe("OWNED_RECOVERY_FAILED\n");
+    expect(err.join("")).toBe("OWNED_RECOVERY_FAILED owned-recovery-initial-state-required\n");
     for (const end of ends) expect(end).toHaveBeenCalledOnce();
   });
   it("requires matching local origins and each context's own role, including both query/hash refusals", () => {

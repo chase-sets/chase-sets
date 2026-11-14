@@ -390,8 +390,39 @@ describe("finite manual-sync recovery transport", () => {
     expect(error).toBeInstanceOf(Error);
     if (!(error instanceof Error)) throw new Error("Expected owned recovery transport refusal");
     expect(error.message).toBe("owned-recovery-child-failed");
-    expect(JSON.stringify({ message: error.message, stack: error.stack, ...error })).not.toContain("private-marker");
+    expect(JSON.stringify({ ...error, message: error.message, stack: error.stack })).not.toContain("private-marker");
     expect(value.stdin.destroyed).toBe(true);
+  });
+  it.each([
+    ["OWNED_RECOVERY_FAILED owned-recovery-member-required\n", "owned-recovery-member-required"],
+    ["OWNED_RECOVERY_FAILED type-error\n", "type-error"],
+    ["OWNED_RECOVERY_FAILED unexpected-error\n", "unexpected-error"],
+    ["Error [ERR_MODULE_NOT_FOUND]: private-marker postgres://private-marker", "ERR_MODULE_NOT_FOUND"],
+  ])("surfaces only closed sanitized child stderr diagnostics %#", async (stderr, reason) => {
+    const value = child();
+    const result = createManualSyncBrowserRecovery(fixture, metadata);
+    value.stderr.write(stderr);
+    finish(value, 1);
+    const error = await result.catch((error: unknown) => error);
+    expect(error).toBeInstanceOf(Error);
+    if (!(error instanceof Error)) throw new Error("Expected owned recovery transport refusal");
+    expect(error.message).toBe(`owned-recovery-child-failed: ${reason}`);
+    expect(JSON.stringify({ ...error, message: error.message, stack: error.stack })).not.toContain("private-marker");
+    expect(value.stdin.destroyed).toBe(true);
+  });
+  it("does not expose unknown, extended, or oversized diagnostic contents", async () => {
+    for (const stderr of [
+      "OWNED_RECOVERY_FAILED owned-recovery-private-marker\n",
+      "OWNED_RECOVERY_FAILED owned-recovery-member-required private-marker\n",
+      "OWNED_RECOVERY_FAILED owned-recovery-member-required\nprivate-marker",
+      "OWNED_RECOVERY_FAILED owned-recovery-member-required\n" + "private-marker".repeat(200),
+    ]) {
+      const value = child();
+      const result = createManualSyncBrowserRecovery(fixture, metadata);
+      value.stderr.write(stderr);
+      finish(value, 1);
+      await expect(result).rejects.toThrow(/^owned-recovery-child-failed$/);
+    }
   });
   it("does not expose synchronous spawn errors", async () => {
     h.spawn.mockImplementation(() => {

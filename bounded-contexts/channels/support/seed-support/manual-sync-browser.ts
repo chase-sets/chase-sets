@@ -197,10 +197,33 @@ export async function runOwnedRecoveryStdin(
     await new Promise<void>((resolve, reject) =>
       output.write(serialized, (error) => (error ? reject(error) : resolve())),
     );
-  } catch {
+  } catch (error) {
     code = 1;
+    const reason = error instanceof Error ? error.message : "";
+    const knownReasons = [
+      "owned-recovery-input-required",
+      "owned-recovery-database-required",
+      "owned-recovery-database-not-local",
+      "owned-recovery-web-server-required",
+      "owned-recovery-listing-required",
+      "owned-recovery-listing-collision",
+      "owned-recovery-connection-required",
+      "owned-recovery-run-collision",
+      "owned-recovery-member-required",
+      "owned-recovery-initial-state-required",
+      "owned-recovery-close-failed",
+    ];
+    const diagnostic = knownReasons.includes(reason)
+      ? reason
+      : reason === "owned-recovery-protocol-invalid"
+        ? ""
+        : error instanceof TypeError
+          ? "type-error"
+          : "unexpected-error";
     await new Promise<void>((resolve, reject) =>
-      errors.write("OWNED_RECOVERY_FAILED\n", (error) => (error ? reject(error) : resolve())),
+      errors.write(`OWNED_RECOVERY_FAILED${diagnostic ? ` ${diagnostic}` : ""}\n`, (error) =>
+        error ? reject(error) : resolve(),
+      ),
     );
   } finally {
     await new Promise<void>((resolve) => {
