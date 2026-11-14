@@ -1,5 +1,6 @@
 import type { AggregateDecider, AggregateEvolver, DomainEvent } from "@chase-sets/event-core";
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
+import type { SellerCheckoutOwnerReadCapture } from "./owner-reads";
 import {
   assert,
   assertNever,
@@ -149,31 +150,33 @@ export type SellListReadinessConfirmationEvidence = Readonly<{
 
 export type SellListSellerConfirmationEvidence = Readonly<{
   shipFrom: Readonly<{
-    status: "ready";
+    status: "ready" | "blocked";
     addressId: string | null;
     country: string;
     region: string;
     postalCode: string;
   }>;
   payout: Readonly<{
-    status: "ready";
+    status: "ready" | "blocked";
     method: "saved-payout";
     readinessStatus: string;
     lastCheckedAt: string | null;
   }>;
   label: Readonly<{
-    status: "ready";
+    status: "ready" | "blocked";
     preference: "prepaid-label" | "seller-label-later";
   }>;
   risk: Readonly<{
-    status: "clear";
+    status: "clear" | "hold" | "block" | "not-clear";
   }>;
   provider: Readonly<{
-    status: "ready";
+    status: "ready" | "blocked";
   }>;
   freshness: Readonly<{
-    status: "current";
+    status: "current" | "stale";
   }>;
+  authorityRevision?: string;
+  ownerReads?: SellerCheckoutOwnerReadCapture;
 }>;
 
 export type SellListConfirmationSummary = Readonly<{

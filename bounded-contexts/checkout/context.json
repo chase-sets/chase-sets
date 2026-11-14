@@ -11,11 +11,13 @@
   "allowedContextDependencies": [
     "@chase-sets/auth",
     "@chase-sets/commercial-terms",
+    "@chase-sets/fulfillment",
     "@chase-sets/identity",
     "@chase-sets/inventory",
     "@chase-sets/marketplace",
     "@chase-sets/ordering",
-    "@chase-sets/payments"
+    "@chase-sets/payments",
+    "@chase-sets/settlement"
   ],
   "seedRequirements": ["catalog", "commercial-terms", "identity", "inventory", "marketplace"],
   "eventSubscriptions": [
@@ -289,6 +291,11 @@
     }
   ],
   "hostPorts": [
+    {
+      "portName": "sellerCheckoutOwners",
+      "providedBy": "platform-api",
+      "purpose": "Bind seller checkout risk, shipping readiness, origin resolution and anonymous invalidation to their authoritative owner stores."
+    },
     {
       "portName": "commercialTermsResolver",
       "providedBy": "commercial-terms",

@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { mkdir, writeFile } from "node:fs/promises";
 import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
 import type { EventStore } from "@chase-sets/event-core/event-store";
 import type { ProjectionCheckpointStore } from "@chase-sets/event-core/projector";
@@ -15,6 +16,14 @@ import { createSellListReadinessSnapshot } from "../domain/readiness";
 import type { SellListConfirmationSummary, SellListSellerConfirmationEvidence } from "../domain/domain";
 import { listSellListReadinessLines, type CheckoutSellListLineRow } from "../read-model/queries";
 import { createCheckoutSellListRuntime } from "./runtime";
+import {
+  checkoutOwnerRuntimeFixture,
+  choices,
+  fixtureLine,
+  ownedAbsentRisk,
+  ownerPortsFixture,
+  stamp,
+} from "./owner-read.fixture";
 
 /**
  * Seed row for the marketplace evidence read-model the confirm path consults.
@@ -352,11 +361,7 @@ describe("sell list checkout runtime readiness boundary", () => {
     await seedSellListAggregate(services, [selectedOfferLine, productLine], allEvents);
     // The selected offer's exact Listing is evidence-ready, so the only thing
     // holding checkout back is the product line's unresolved sale action.
-    const readiness = createSellListReadinessSnapshot(
-      await listSellListReadinessLines(db as never, "acc_seller"),
-      null,
-      sellerEvidence,
-    );
+    const readiness = await services.createReadinessSnapshot({ sellerAccountId: "acc_seller" });
 
     await expect(
       services.confirmSellListCheckout(
@@ -450,14 +455,19 @@ describe("sell list checkout runtime readiness boundary", () => {
         readinessStatus: "restricted",
       },
     };
-    const readiness = createSellListReadinessSnapshot([selectedOfferLine], null, restrictedPayoutEvidence);
-    const { allEvents, eventStore } = createInMemoryEventStore();
-    const services = createCheckoutSellListRuntime({
-      eventStore,
-      checkpointStore: createCheckpointStore(),
-      db: createDb([selectedOfferLine]) as never,
+    const f = checkoutOwnerRuntimeFixture();
+    f.setPayout("restricted");
+    const services = f.services;
+    const allEvents = f.memory.allEvents;
+    const readiness = await services.createReadinessSnapshot({ sellerAccountId: "acc_seller", ...choices });
+    expect(readiness.sellerReadiness).toMatchObject({
+      shipFrom: "ready",
+      label: "ready",
+      risk: "ready",
+      provider: "ready",
+      freshness: "ready",
+      payout: "blocked",
     });
-    await seedSellListAggregate(services, [selectedOfferLine], allEvents);
 
     await expect(
       services.confirmSellListCheckout(
@@ -467,11 +477,12 @@ describe("sell list checkout runtime readiness boundary", () => {
           readinessSnapshotId: readiness.snapshotId,
           readinessSourceRevision: readiness.sourceRevision,
           sellerEvidence: restrictedPayoutEvidence,
+          ...choices,
           handoffSummary,
         },
         context,
       ),
-    ).rejects.toThrow("Seller confirmation evidence must include payout readiness facts.");
+    ).rejects.toThrow("Seller confirmation evidence must be ready before Sell List checkout can confirm.");
 
     expect(allEvents).toEqual([]);
   });
@@ -685,6 +696,7 @@ describe("sell list checkout runtime readiness boundary", () => {
       eventStore,
       checkpointStore: createCheckpointStore(),
       db: createDb([]) as never,
+      sellerCheckoutOwners: ownerPortsFixture(),
     });
     await seedSellListAggregate(services, [anonymousProductLine], allEvents);
 
@@ -743,6 +755,7 @@ describe("sell list checkout runtime readiness boundary", () => {
       eventStore,
       checkpointStore: createCheckpointStore(),
       db: createDb([]) as never,
+      sellerCheckoutOwners: ownerPortsFixture(),
     });
     await seedSellListAggregate(services, [anonymousSelectedOfferLine, targetSelectedOfferLine], allEvents);
 
@@ -791,5 +804,170 @@ describe("sell list checkout runtime readiness boundary", () => {
       services.removeLine({ sellerAccountId: "acc_seller" as never, lineId: "sll_product" as never }, context),
     ).resolves.toEqual({ lineId: "sll_product", version: 0 });
     await expect(services.listLines("acc_seller")).resolves.toEqual([]);
+  });
+});
+
+describe("AC4 composed readiness, pre-confirm and merge timing", () => {
+  it.each(["unchanged", "missing", "incomplete", "invalid-timestamp", "policy-hash", "policy-version", "timestamp"])(
+    "revalidates Smart Match %s evidence before confirmation events with unchanged payout",
+    async (change) => {
+      const f = checkoutOwnerRuntimeFixture();
+      const line = { ...fixtureLine, line_type: "product" as const, offer_id: null, listing_id: null };
+      f.setLines([line]);
+      await seedSellListAggregate(f.services, [line], f.memory.allEvents);
+      const decisions = { lineActions: [{ lineId: line.line_id, action: "smart-match" as const }] };
+      const request = { sellerAccountId: "acc_seller", ...choices, decisions };
+      const before = await f.services.createReadinessSnapshot(request);
+      expect(before.sellerReadiness.status).toBe("ready");
+      const evidence = f.getListingEvidence()!;
+      if (change === "missing") f.setListingEvidence(null);
+      if (change === "incomplete") evidence.evidence_requirements.requirements.minimumPhotoCount = 1;
+      if (change === "invalid-timestamp") evidence.updated_at = "not-a-timestamp";
+      if (change === "policy-hash") evidence.evidence_requirements.policyHash = "synthetic_policy_changed";
+      if (change === "policy-version") evidence.evidence_requirements.policyVersion = 2;
+      if (change === "timestamp") evidence.updated_at = "2026-11-06T01:02:04.000Z";
+      const after = await f.services.createReadinessSnapshot(request);
+      expect(after.ownerReads?.estimate).toEqual(before.ownerReads?.estimate);
+      expect(after.sellerReadiness.status).toBe(
+        ["missing", "incomplete", "invalid-timestamp"].includes(change) ? "blocked" : "ready",
+      );
+      const confirm = f.services.confirmSellListCheckout(
+        {
+          ...request,
+          sellerAccountId: "acc_seller" as never,
+          confirmationId: "slc_smart_match_evidence",
+          readinessSnapshotId: before.snapshotId,
+          readinessSourceRevision: before.sourceRevision,
+          readinessDecisions: decisions,
+          sellerEvidence,
+          handoffSummary,
+        },
+        context,
+      );
+      if (change === "unchanged") {
+        expect(after.snapshotId).toBe(before.snapshotId);
+        await expect(confirm).resolves.toMatchObject({ status: "confirmed" });
+        expect(f.memory.allEvents.map((event) => event.eventType)).toContain("checkout.sell-list.checkout-confirmed");
+      } else {
+        expect(after.snapshotId).not.toBe(before.snapshotId);
+        await expect(confirm).rejects.toThrow("Sell List readiness snapshot is stale.");
+        expect(f.memory.allEvents).toEqual([]);
+      }
+    },
+  );
+
+  it("reads the same owner/key twice, records risk-only drift and emits an executed timing capture", async () => {
+    const f = checkoutOwnerRuntimeFixture();
+    await seedSellListAggregate(f.services, [fixtureLine], f.memory.allEvents);
+    const readiness = await f.services.createReadinessSnapshot({ sellerAccountId: "acc_seller", ...choices });
+    expect(readiness.sellerReadiness.status).toBe("ready");
+    f.ports.readRisk.mockResolvedValue({
+      ...ownedAbsentRisk,
+      rowState: "present",
+      sourceRevision: 4,
+      sourceTimestamp: stamp as never,
+    });
+    const confirmed = await f.services.confirmSellListCheckout(
+      {
+        sellerAccountId: "acc_seller" as never,
+        confirmationId: "slc_timing",
+        readinessSnapshotId: readiness.snapshotId,
+        readinessSourceRevision: readiness.sourceRevision,
+        sellerEvidence,
+        handoffSummary,
+        ...choices,
+      },
+      context,
+    );
+    expect(confirmed.status).toBe("confirmed");
+    expect(f.ports.readRisk.mock.calls).toEqual([
+      [{ kind: "account", accountId: "acc_seller" }],
+      [{ kind: "account", accountId: "acc_seller" }],
+    ]);
+    expect(f.ports.readFulfillment.mock.calls[1]).toEqual(f.ports.readFulfillment.mock.calls[0]);
+    const evidence = confirmed.confirmation.seller_evidence;
+    if (!evidence || typeof evidence !== "object" || !("ownerReads" in evidence))
+      throw new Error("Missing owner capture");
+    const captured = evidence.ownerReads;
+    expect(captured).toMatchObject({
+      moment: "pre-confirm",
+      confirmationId: "slc_timing",
+      owner: { kind: "account", accountId: "acc_seller" },
+      risk: { sourceRevision: 4, sourceTimestamp: stamp },
+    });
+    await mkdir("../../artifacts/seller-checkout-owner-reads", { recursive: true });
+    await writeFile(
+      "../../artifacts/seller-checkout-owner-reads/authority-timing-probe.json",
+      JSON.stringify({ readiness: readiness.ownerReads, preConfirm: captured }, null, 2) + "\n",
+    );
+  });
+
+  it("refuses coherent Fulfillment revision drift before any confirmation event", async () => {
+    const f = checkoutOwnerRuntimeFixture();
+    await seedSellListAggregate(f.services, [fixtureLine], f.memory.allEvents);
+    const readiness = await f.services.createReadinessSnapshot({ sellerAccountId: "acc_seller", ...choices });
+    const resolved = await f.ports.resolveOrigin(
+      { kind: "account", accountId: "acc_seller" as never },
+      { origin: choices.shipFrom, labelPreference: choices.label.preference },
+    );
+    if (resolved.status !== "accepted") throw new Error("Invalid fixture");
+    f.ports.resolveOrigin.mockResolvedValue({ ...resolved, sourceRevision: 3 });
+    const fulfillment = await f.ports.readFulfillment(resolved.key);
+    f.ports.readFulfillment.mockResolvedValue({ ...fulfillment, sourceRevision: 3 });
+    await expect(
+      f.services.confirmSellListCheckout(
+        {
+          sellerAccountId: "acc_seller" as never,
+          confirmationId: "slc_drift",
+          readinessSnapshotId: readiness.snapshotId,
+          readinessSourceRevision: readiness.sourceRevision,
+          sellerEvidence,
+          handoffSummary,
+          ...choices,
+        },
+        context,
+      ),
+    ).rejects.toThrow("Sell List readiness snapshot is stale.");
+    expect(f.memory.allEvents).toEqual([]);
+  });
+
+  it("fences even an empty merge and every replay before reading aggregates", async () => {
+    const f = checkoutOwnerRuntimeFixture("anon_list");
+    f.setLines([]);
+    const read = vi.spyOn(f.memory.eventStore, "readStream");
+    for (let attempt = 0; attempt < 2; attempt++) {
+      await expect(
+        f.services.mergeSellListIntoAccount(
+          { sourceOwnerId: "anon_list", targetAccountId: "acc_seller" as never },
+          context,
+        ),
+      ).resolves.toEqual({ mergedLineCount: 0 });
+    }
+    expect(f.ports.invalidateAnonymousOwner).toHaveBeenCalledTimes(2);
+    expect(f.ports.invalidateAnonymousOwner.mock.invocationCallOrder[0]).toBeLessThan(
+      read.mock.invocationCallOrder[0]!,
+    );
+    expect(f.ports.invalidateAnonymousOwner).toHaveBeenCalledWith(
+      { owner: { kind: "anonymous", anonymousSellListId: "anon_list" }, targetAccountId: "acc_seller" },
+      context,
+    );
+  });
+
+  it("refuses missing, failed and malformed invalidation without reading or mutating lines", async () => {
+    const f = checkoutOwnerRuntimeFixture("anon_list");
+    const read = vi.spyOn(f.memory.eventStore, "readStream");
+    const params = { sourceOwnerId: "anon_list", targetAccountId: "acc_seller" as never };
+    await expect(
+      createCheckoutSellListRuntime({ ...f.deps, sellerCheckoutOwners: undefined }).mergeSellListIntoAccount(
+        params,
+        context,
+      ),
+    ).rejects.toThrow("cannot be invalidated");
+    f.ports.invalidateAnonymousOwner.mockRejectedValueOnce(new Error("durable fence failed"));
+    await expect(f.services.mergeSellListIntoAccount(params, context)).rejects.toThrow("durable fence failed");
+    f.ports.invalidateAnonymousOwner.mockResolvedValueOnce({ revision: 0, recordedAt: stamp as never });
+    await expect(f.services.mergeSellListIntoAccount(params, context)).rejects.toThrow("cannot be invalidated");
+    expect(read).not.toHaveBeenCalled();
+    expect(f.memory.allEvents).toEqual([]);
   });
 });

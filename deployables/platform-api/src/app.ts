@@ -3,6 +3,7 @@ import { createCheckoutClosedMiddleware } from "./middleware/checkout-closed";
 import { module as authModule } from "@chase-sets/auth";
 import type { ShipmentGroupAdmissionAuthority } from "@chase-sets/order-groups";
 import type { module as fulfillmentModule } from "@chase-sets/fulfillment";
+import type { module as checkoutModule } from "@chase-sets/checkout";
 import {
   createUcpOAuthMetadataRoutes,
   createUcpOAuthRoutes,
@@ -82,6 +83,8 @@ import {
 } from "@chase-sets/ordering/server";
 import {
   createShipByAttentionSourceFromReadModel,
+  createSellerShippingSetupServices,
+  createSellerCheckoutReadinessReader,
   lookupShipmentBySupportId,
   lookupShipmentBySupportReference,
   type FulfillmentSupportLookupRow,
@@ -136,6 +139,7 @@ import {
 } from "@chase-sets/pricing/server";
 import {
   createBlockedPayoutAttentionSourceFromReadModel,
+  createSellerCheckoutRiskReader,
   createSettlementBalanceCreditResolver,
   createSettlementWalletSpendHoldPort,
   getProtectionReserveSummary,
@@ -726,6 +730,9 @@ export function createPlatformApiHost(
       },
       ...(pricingPool ? { managedOfferPricing: createBuyerOfferPricing(pricingPool) } : {}),
       ...(commercialTermsResolver ? { commercialTermsResolver } : {}),
+      ...(fulfillmentPool && settlementPool
+        ? { sellerCheckoutOwners: createPlatformSellerCheckoutOwners(fulfillmentPool, settlementPool) }
+        : {}),
       offerAcceptanceTermsSource: createMarketplaceOfferAcceptanceTermsSource(
         () => runtime?.services.marketplace as MarketplaceServices | undefined,
       ),
@@ -797,6 +804,16 @@ function createPublicPolicySource<Value>(
       };
     },
   };
+}
+
+function createPlatformSellerCheckoutOwners(fulfillmentPool: PgTransactionalPool, settlementPool: PgTransactionalPool) {
+  const shipping = createSellerShippingSetupServices({ pool: fulfillmentPool });
+  return {
+    readRisk: createSellerCheckoutRiskReader(settlementPool),
+    readFulfillment: createSellerCheckoutReadinessReader(fulfillmentPool),
+    resolveOrigin: shipping.resolveOrigin,
+    invalidateAnonymousOwner: shipping.invalidateAnonymousOwner,
+  } satisfies NonNullable<NonNullable<Parameters<typeof checkoutModule.createServices>[1]>["sellerCheckoutOwners"]>;
 }
 
 function getPlatformApiPool(value: unknown): PgTransactionalPool | undefined {

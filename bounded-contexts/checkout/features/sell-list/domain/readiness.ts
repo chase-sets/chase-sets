@@ -1,5 +1,6 @@
 import { parseReadinessDecisionInputBase } from "../../../support/request-support/readiness-decision-parser";
 import type { SellListSellerConfirmationEvidence } from "./domain";
+import type { SellerCheckoutOwnerReadCapture } from "./owner-reads";
 
 /**
  * Marketplace-owned Listing Evidence readiness for the exact Listing a
@@ -76,6 +77,7 @@ export type SellListReadinessDecisionInput = Readonly<{
 }>;
 
 export type SellListReadinessSnapshot = Readonly<{
+  ownerReads?: SellerCheckoutOwnerReadCapture;
   schemaVersion: "checkout.sell-list-readiness.v1";
   source: "sell-list";
   sourceRevision: string;
@@ -156,6 +158,7 @@ function sellerEvidenceRevisionFor(evidence: SellListSellerConfirmationEvidence)
     risk: evidence.risk,
     provider: evidence.provider,
     freshness: evidence.freshness,
+    ...(evidence.authorityRevision ? { authorityRevision: evidence.authorityRevision } : {}),
   });
 }
 
