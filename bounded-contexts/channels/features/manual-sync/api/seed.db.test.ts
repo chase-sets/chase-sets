@@ -391,7 +391,7 @@ describeDb("invocation-owned browser recovery with the real Marketplace clamp", 
       ownershipId,
       connectionId: `chn_${ownershipId}`,
       listingId: `lst_${ownershipId}`,
-      inventoryItemId: `itm_${ownershipId}`,
+      inventoryItemId: `inv_${ownershipId}`,
       createdAfter: new Date(Date.now() - 1000).toISOString(),
     };
     const events = createPostgresEventStore({ pool: pools.channels });
