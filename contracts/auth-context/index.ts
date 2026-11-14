@@ -2,6 +2,7 @@ import type { EventStoreContext } from "@chase-sets/event-core/storage";
 
 export const AUTH_SESSION_COOKIE_NAME = "chase_sets_session";
 export const AUTH_GUEST_CHECKOUT_COOKIE_NAME = "chase_sets_guest_checkout";
+export const CHECKOUT_ANONYMOUS_SELL_LIST_COOKIE_NAME = "chase_sets_anonymous_sell_list";
 export const STAGING_EBAY_RECEIPT_LOOKUP_SERVICE_ID = "staging-ebay-receipt-lookup";
 export const EBAY_RECEIPT_LOOKUP_PERMISSION = "channels.receipt.lookup";
 export type ReceiptLookupCredential = Readonly<{ version: 1; token: string; expiresAt: string }>;
