@@ -2621,9 +2621,19 @@ async function readApplicationWorkloadIdentities(options) {
         `${workload.kind}/${workload.name} must expose exactly one canonical ${workload.component} application container; observed ${primaryImages.length}.`,
       );
     }
-    if (primaryImages[0].image !== options.expectedImageRef) {
+    const component = options.values.components[workload.component];
+    const expectedImageRef = Object.hasOwn(component, "image")
+      ? requiredOption(component.image, `components.${workload.component}.image`)
+      : options.expectedImageRef;
+    if (Object.hasOwn(component, "image")) {
+      requiredSha256Digest(
+        parsePlatformImageRef(expectedImageRef).digest,
+        `components.${workload.component}.image digest`,
+      );
+    }
+    if (primaryImages[0].image !== expectedImageRef) {
       throw new Error(
-        `${workload.kind}/${workload.name} container ${primaryImages[0].container} image ${primaryImages[0].image} does not match ${options.expectedImageRef}.`,
+        `${workload.kind}/${workload.name} container ${primaryImages[0].container} image ${primaryImages[0].image} does not match ${expectedImageRef}.`,
       );
     }
   }

@@ -5293,6 +5293,120 @@ describe("platform Kubernetes deployment", () => {
     });
   });
 
+  describe("component image rollback identity", () => {
+    const pilotImage = `registry.digitalocean.com/chase-sets/chase-sets-corten-admin@sha256:${"c".repeat(64)}`;
+    const values = {
+      ...rollbackValues,
+      components: {
+        ...rollbackValues.components,
+        "admin-corten": { enabled: true, kind: "service", image: pilotImage },
+      },
+    };
+    const before = [{ revision: 3, status: "deployed", description: "Upgrade complete" }];
+    const after = [
+      { revision: 3, status: "superseded", description: "Upgrade complete" },
+      { revision: 4, status: "deployed", description: "Rollback to 3" },
+    ];
+    const workloadList = (image = pilotImage) => {
+      const list = JSON.parse(rollbackWorkloadList());
+      list.items.push({
+        kind: "Deployment",
+        metadata: {
+          name: "proof-chase-sets-platform-admin-corten",
+          labels: { "app.kubernetes.io/component": "admin-corten" },
+        },
+        spec: { template: { spec: { containers: [{ name: "admin-corten", image }] } } },
+      });
+      return JSON.stringify(list);
+    };
+    const captureOptions = (image = pilotImage, recordedValues = values) => ({
+      values: recordedValues,
+      release: "proof",
+      namespace: "staging",
+      registryName: "chase-sets",
+      repository: "chase-sets-platform",
+      tag: rollbackTag,
+      digest: rollbackDigest,
+      lastKnownGoodCommit: rollbackTag,
+      releaseTag: "release-synthetic-split-image",
+      spawn: completedSpawn(
+        [],
+        [
+          { code: 0, stdout: helmHistory(before) },
+          { code: 0, stdout: JSON.stringify(recordedValues) },
+          { code: 0, stdout: workloadList(image) },
+          { code: 0, stdout: helmHistory(before) },
+        ],
+      ),
+    });
+
+    it("captures the recorded pilot digest alongside the global platform image", async () => {
+      const target = await captureKubernetesRollbackTarget(captureOptions());
+      expect(target.workloadIdentities).toEqual([
+        expect.objectContaining({
+          component: "admin-corten",
+          images: [{ container: "admin-corten", containerType: "application", image: pilotImage }],
+        }),
+        expect.objectContaining({
+          component: "platform-worker",
+          images: [{ container: "platform-worker", containerType: "application", image: rollbackImageRef }],
+        }),
+      ]);
+    });
+
+    it("refuses capture when the pilot digest differs from its recorded image", async () => {
+      await expect(
+        captureKubernetesRollbackTarget(captureOptions(pilotImage.replace("c".repeat(64), "d".repeat(64)))),
+      ).rejects.toThrow("does not match");
+    });
+
+    it.each(["", "registry.digitalocean.com/chase-sets/chase-sets-corten-admin:latest"])(
+      "refuses a recorded pilot image without an immutable digest: %s",
+      async (image) => {
+        const recordedValues = structuredClone(values);
+        recordedValues.components["admin-corten"].image = image;
+        await expect(captureKubernetesRollbackTarget(captureOptions(pilotImage, recordedValues))).rejects.toThrow();
+      },
+    );
+
+    it.each([false, true])("verifies restored pilot identity with altered digest=%s", async (altered) => {
+      const rollbackTarget = await captureKubernetesRollbackTarget(captureOptions());
+      const result = await rollbackPlatformOnKubernetes({
+        values,
+        release: "proof",
+        namespace: "staging",
+        releaseExists: true,
+        revision: "3",
+        rollbackTarget,
+        spawn: completedSpawn(
+          [],
+          [
+            { code: 0, stdout: helmHistory(before) },
+            { code: 0, stdout: JSON.stringify(values) },
+            { code: 0, stdout: helmHistory(before) },
+            { code: 0 },
+            { code: 0 },
+            { code: 0 },
+            { code: 0, stdout: helmHistory(after) },
+            { code: 0, stdout: JSON.stringify(values) },
+            {
+              code: 0,
+              stdout: workloadList(altered ? pilotImage.replace("c".repeat(64), "d".repeat(64)) : pilotImage),
+            },
+            { code: 0, stdout: helmHistory(after) },
+          ],
+        ),
+      });
+      expect(result.result).toBe(altered ? "failure" : "success");
+      if (altered) {
+        expect(result.reason).toContain("admin-corten");
+        expect(result.reason).toContain("does not match");
+      } else {
+        expect(result.rollbackIdentity.workloadIdentities).toEqual(rollbackTarget.workloadIdentities);
+      }
+    });
+  });
+
   it("cryptographically binds an index to its digest before accepting its production platform manifest", async () => {
     const rawIndex = JSON.stringify(productionIndex);
     const capturedIndexDigest = `sha256:${createHash("sha256").update(rawIndex).digest("hex")}`;

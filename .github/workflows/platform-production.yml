@@ -2142,7 +2142,7 @@ jobs:
             exit 1
           fi
 
-          # #5564: probe exactly the 4 hosts DOKS serves (landing, admin,
+          # #11327: probe every host DOKS serves (landing, both admins,
           # marketplace, staging-root — matching buildDoksIngressHosts() in
           # scripts/render-platform-helm-values.mjs). The legacy
           # landing-/marketplace-/admin-staging redirect hostnames were
@@ -2151,6 +2151,7 @@ jobs:
           ingress_urls=(
             "https://${landing_domain}/health/ready"
             "https://${admin_domain}/health/ready"
+            "https://admin-corten.staging.chasesets.com/health/ready"
           )
           for hostname in "${marketplace_domains[@]}" "${staging_root_marketplace_domains[@]}"; do
             ingress_urls+=("https://${hostname}/health/ready")
@@ -2247,6 +2248,10 @@ jobs:
 
           cd ../../..
           export MARKETPLACE_ROOT_WEB_URL="https://${staging_root_marketplace_domain}"
+          node ./scripts/platform-ingress-wait.mjs \
+            --attempts 1 \
+            --expect-status 200 \
+            --url "https://admin-corten.staging.chasesets.com/health/ready"
           pnpm run smoke:platform -- \
             "https://${landing_domain}" \
             "https://${admin_domain}" \

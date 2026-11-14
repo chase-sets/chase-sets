@@ -32,6 +32,8 @@ components:
         value: "https"
       - name: "CHASE_SETS_INTERNAL_API_ORIGIN"
         value: ""
+      - name: "PLATFORM_API_ORIGIN"
+        value: ""
       - name: "PLATFORM_INTERNAL_AUTH_SECRET"
         secret: true
         secretKey: "PLATFORM_INTERNAL_AUTH_SECRET"

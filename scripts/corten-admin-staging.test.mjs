@@ -113,6 +113,7 @@ describe("Corten admin staging deployment", () => {
       PUBLIC_PROTO: "https",
       PROXIES: "",
       CHASE_SETS_INTERNAL_API_ORIGIN: "",
+      PLATFORM_API_ORIGIN: "",
       ADMIN_WEB_ORIGIN: "https://admin.staging.chasesets.com",
       CHASE_SETS_MARKETPLACE_ORIGIN: "https://marketplace.staging.chasesets.com",
     });
@@ -165,6 +166,9 @@ describe("Corten admin staging deployment", () => {
     expect(container.livenessProbe.httpGet.path).toBe("/health/live");
     expect(container.env.find(({ name }) => name === "CHASE_SETS_INTERNAL_API_ORIGIN").value).toBe(
       "http://chase-sets-platform-chase-sets-platform-platform-api:8080",
+    );
+    expect(container.env.find(({ name }) => name === "PLATFORM_API_ORIGIN").value).toBe(
+      container.env.find(({ name }) => name === "CHASE_SETS_INTERNAL_API_ORIGIN").value,
     );
     expect(staged.find((item) => item.kind === "Service" && item.metadata.name === name).spec.ports[0].port).toBe(8080);
     const ingress = staged.find(
@@ -225,6 +229,17 @@ describe("Corten admin staging deployment", () => {
     expect(dockerfile).toContain("USER node");
     expect(read(".dockerignore")).toContain("\ndeployables/corten-pilot\n");
     expect(read("Dockerfile.corten-admin.dockerignore")).not.toContain("\ndeployables/corten-pilot\n");
+  });
+
+  it("requires pilot readiness in both staging ingress wait and admin smoke", () => {
+    const steps = workflow.jobs["deploy-staging"].steps;
+    const url = "https://admin-corten.staging.chasesets.com/health/ready";
+    expect(steps.find(({ name }) => name === "Wait for staging ingress URLs").run).toContain(url);
+    const smoke = steps.find(({ name }) => name === "Smoke check").run;
+    expect(smoke).toContain(`--url "${url}"`);
+    expect(smoke).toContain("node ./scripts/platform-ingress-wait.mjs");
+    expect(smoke).toContain("--expect-status 200");
+    expect(smoke).toContain('"https://${admin_domain}"');
   });
 
   it("uses the existing release writer admission and passes its immutable output only to staging", () => {

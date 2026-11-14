@@ -14,6 +14,7 @@
         { "name": "PROXIES", "value": "" },
         { "name": "PUBLIC_PROTO", "value": "https" },
         { "name": "CHASE_SETS_INTERNAL_API_ORIGIN", "value": "" },
+        { "name": "PLATFORM_API_ORIGIN", "value": "" },
         { "name": "PLATFORM_INTERNAL_AUTH_SECRET", "secret": true, "secretKey": "PLATFORM_INTERNAL_AUTH_SECRET" },
         { "name": "ADMIN_WEB_ORIGIN", "value": "https://admin.staging.chasesets.com" },
         { "name": "CHASE_SETS_MARKETPLACE_ORIGIN", "value": "https://marketplace.staging.chasesets.com" }
