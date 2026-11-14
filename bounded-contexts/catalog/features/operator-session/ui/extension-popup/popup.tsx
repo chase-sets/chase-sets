@@ -9,6 +9,8 @@ import { Text, Heading } from "@chase-sets/design-system/typography";
 import { ChaseRoot } from "@chase-sets/design-system/theme";
 import { catalogOperatorExtensionEnglishTranslations as copy } from "@chase-sets/localization/locales/en/catalog/operator-extension";
 import { createOperatorPopupClient } from "../../domain/extension/bridge";
+import { SetNamesAction } from "./set-names";
+import type { SetNamesPost } from "../../domain/extension/set-names/transport";
 import {
   probeTcgplayerSetNames,
   serializeSetNamesProbeReport,
@@ -28,6 +30,7 @@ const t = (key: keyof typeof copy) => copy[key];
 export function OperatorExtensionPopup({
   request,
   setNameRequest,
+  postSetNames,
   copyProbeReport,
   extensionVersion = "0.1.0",
   buildCommit = "unknown",
@@ -35,6 +38,7 @@ export function OperatorExtensionPopup({
 }: {
   request: (command: OperatorCommand) => Promise<OperatorStatus>;
   setNameRequest?: SetNamesRequest;
+  postSetNames?: SetNamesPost;
   copyProbeReport?: (text: string) => Promise<void>;
   extensionVersion?: string;
   buildCommit?: string;
@@ -43,6 +47,7 @@ export function OperatorExtensionPopup({
   const [environment, setEnvironment] = useState<OperatorEnvironment>("staging");
   const [status, setStatus] = useState<OperatorStatus | null>(null);
   const [busy, setBusy] = useState(false);
+  const [setNamesBusy, setSetNamesBusy] = useState(false);
   const [failed, setFailed] = useState(false);
   const [grant, setGrant] = useState("");
   const input = useRef<HTMLInputElement>(null);
@@ -84,7 +89,7 @@ export function OperatorExtensionPopup({
     window.addEventListener("pagehide", dismiss);
     return () => window.removeEventListener("pagehide", dismiss);
   }, []);
-  const locked = busy || status?.state === "upgrade-required";
+  const locked = busy || setNamesBusy || status?.state === "upgrade-required";
   async function runProbe() {
     if (!setNameRequest) return;
     setProbeBusy(true);
@@ -119,7 +124,7 @@ export function OperatorExtensionPopup({
         <NativeSelect
           label={t("catalog.operatorExtension.environment")}
           value={environment}
-          disabled={busy}
+          disabled={busy || setNamesBusy || probeBusy}
           items={[
             { value: "staging", label: t("catalog.operatorExtension.staging") },
             { value: "production", label: t("catalog.operatorExtension.production") },
@@ -180,7 +185,11 @@ export function OperatorExtensionPopup({
         >
           {t("catalog.operatorExtension.unpair")}
         </Button>
-        <Button tone="secondary" disabled={busy} onClick={() => void run({ action: "status", environment })}>
+        <Button
+          tone="secondary"
+          disabled={busy || setNamesBusy}
+          onClick={() => void run({ action: "status", environment })}
+        >
           {t("catalog.operatorExtension.refresh")}
         </Button>
         <Button
@@ -191,6 +200,16 @@ export function OperatorExtensionPopup({
           {t("catalog.operatorExtension.recover")}
         </Button>
         <Text size="sm">{t("catalog.operatorExtension.offboarding")}</Text>
+        <SetNamesAction
+          environment={environment}
+          paired={status?.paired ?? false}
+          disabled={locked || probeBusy}
+          request={setNameRequest}
+          post={postSetNames}
+          copyReceipt={copyProbeReport}
+          onBusyChange={setSetNamesBusy}
+          onGrantInvalid={() => void run({ action: "status", environment })}
+        />
         <Heading level={2}>{t("catalog.operatorExtension.probe.title")}</Heading>
         <Stack gap={2}>
           {setNamesProbeUnitConstraints.map((unit) => (
@@ -207,7 +226,9 @@ export function OperatorExtensionPopup({
           ))}
         </Stack>
         <Button
-          disabled={probeBusy || !Object.values(productLineIds).some((value) => /^\d+$/.test(value.trim()))}
+          disabled={
+            probeBusy || setNamesBusy || !Object.values(productLineIds).some((value) => /^\d+$/.test(value.trim()))
+          }
           onClick={() => void runProbe()}
         >
           {probeBusy ? t("catalog.operatorExtension.probe.running") : t("catalog.operatorExtension.probe.run")}
@@ -258,6 +279,7 @@ export function renderOperatorExtensionPopup(
   bridgeOrigin: string,
   options: Readonly<{
     setNameRequest?: SetNamesRequest;
+    postSetNames?: SetNamesPost;
     copyProbeReport?: (text: string) => Promise<void>;
     extensionVersion?: string;
     buildCommit?: string;
@@ -272,6 +294,7 @@ export function renderOperatorExtensionPopup(
         {...options}
         request={client.request}
         setNameRequest={options.setNameRequest ?? client.requestSetNames}
+        postSetNames={options.postSetNames ?? client.postSetNames}
         copyProbeReport={options.copyProbeReport ?? client.copyProbeReport}
       />
     </ChaseRoot>,
