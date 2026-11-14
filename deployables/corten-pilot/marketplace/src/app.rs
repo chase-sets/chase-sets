@@ -24,7 +24,7 @@
 //! | `GET /checkout/payments/{id}?<place>`, `POST ..`, `../status?<watch>` | a guest checkout's payment, its Retry payment and its status part (see `payment`) |
 //! | `GET /items/{slug}?<choice>` | an item, its product options and its market book, to anyone |
 //! | `POST /items/{slug}/cart`, `/buy`, `/offer`, `/sell-list`, `/watch` | the rail's buy, sell and watch forms |
-//! | `POST /items/{slug}/save` | Add to List: add the product to a Saved List, or a guest's intent |
+//! | `POST /items/{slug}` | Add to List: add the product to a Saved List, or a guest's intent |
 //! | `POST /items/{slug}/list`, `/ship-from` | list the product at a price, and the ship-from setup it needs |
 //! | `GET /account/purchases`, `/account/sales` and each order's page, `POST ../{id}/cancel` | the account's orders (see `orders`) |
 //! | `GET /account/shipments`, each buyer and sale shipment's page | the account's shipments (see `shipments`) |
@@ -198,7 +198,7 @@ pub mod url {
     pub use accounts::{Account, AccountLive, AccountReviewReport};
     pub use addresses::{AddressArchive, AddressDefault, AddressUpdate, ShippingAddresses};
     pub use agent_consent::AgentConsent;
-    pub use agents::{AgentMandate, AgentPage, AgentRevoke, AgentWebhook, AgentWebhookDisable, Agents};
+    pub use agents::{AgentMandate, AgentPage, AgentRevoke, AgentWebhookDisable, Agents};
     pub use bulk_reprice::{BulkReprice, BulkRepriceCancel, BulkRepriceLive, BulkRepriceResults, BulkRepriceTemplate};
     pub use cart::{Cart, CartCheckout, CartLock, CartQuantity, CartRemove};
     pub use categories::Category;
@@ -215,10 +215,10 @@ pub mod url {
     pub use home::{Home, Sitemap, SitemapPage, SocialSignIn};
     pub use inventory::{
         Archive, ImportBatch, ImportCommit, ImportExport, ImportResolve, ImportTemplate, Imports, Inventory, Location, Locations,
-        OfflineSale, Restock, Restocked, StockAdjust, StockHold, StockItem, StockRelease, StockSale, WrittenOff,
+        OfflineSale, Restock, Restocked, StockHold, StockItem, StockRelease, StockSale, WrittenOff,
     };
     pub use invite::Invite;
-    pub use items::{Item, ItemBuy, ItemCart, ItemList, ItemLive, ItemOffer, ItemSave, ItemSellList, ItemShipFrom, ItemWatch};
+    pub use items::{Item, ItemBuy, ItemCart, ItemList, ItemLive, ItemOffer, ItemSellList, ItemShipFrom, ItemWatch};
     pub use listings::{PublicListing, PublicListingBuy, PublicListingLive, PublicListingReport};
     pub use money::Money;
     pub use new_listing::NewListing;
@@ -508,9 +508,11 @@ pub mod url {
         pub struct ItemsArea;
 
         /// An item, and what the buyer chose of it (`id` is its slug or its id; an id moves to the
-        /// slug).
+        /// slug). Add to List posts here, from the item page or a search result: an account's
+        /// first step opens the list form without writing anything, so the page it draws is at the
+        /// item's own address.
         #[derive(Clone, Debug)]
-        #[route("/items/{slug}", get = crate::items::page)]
+        #[route("/items/{slug}", get = crate::items::page, post = crate::saving::save)]
         pub struct Item<'a> {
             pub slug: &'a str,
             #[route(query)]
@@ -561,13 +563,6 @@ pub mod url {
             pub slug: &'a str,
         }
 
-        /// Add the product the item page shows to a Saved List (Add to List): an account's
-        /// addition, or a guest's intent and then marketplace's registration.
-        #[route("/items/{slug}/save", post = crate::saving::save)]
-        pub struct ItemSave<'a> {
-            pub slug: &'a str,
-        }
-
         /// List the product the Sell tab shows at a price: an account's listing, published, or a
         /// guest's draft and then marketplace's registration.
         #[route("/items/{slug}/list", post = crate::listing::list)]
@@ -609,21 +604,16 @@ pub mod url {
         }
 
         /// An inventory item's page: the ledger's filter, what the last sale did, and the write
-        /// to confirm.
+        /// to confirm. Adjust Quantity posts here: an adjustment the API records as a collision
+        /// with orders' holds changes nothing on hand and is drawn at the page's own address.
         #[derive(Clone, Debug)]
-        #[route("/account/inventory/items/{id}", get = crate::inventory_item::open)]
+        #[route("/account/inventory/items/{id}", get = crate::inventory_item::open, post = crate::inventory_item::adjust)]
         pub struct StockItem<'a> {
             pub id: &'a str,
             #[route(query)]
             pub place: crate::inventory_item::ItemPlace,
             #[route(query)]
             pub check: Check,
-        }
-
-        /// Adjust Quantity, from the item's page.
-        #[route("/account/inventory/items/{id}/adjustments", post = crate::inventory_item::adjust)]
-        pub struct StockAdjust<'a> {
-            pub id: &'a str,
         }
 
         /// Create Hold, from the item's page.
@@ -799,9 +789,11 @@ pub mod url {
         #[route("/account/agents", get = crate::agents::list)]
         pub struct Agents;
 
-        /// A grant, saying what the last write did.
+        /// A grant, saying what the last write did. Its webhook form posts here: the answer shows
+        /// the webhook's new signing secret once, at the grant's own address, so nothing may keep
+        /// the page (`no_store`).
         #[derive(Clone, Debug)]
-        #[route("/account/agents/{id}", get = crate::agents::page)]
+        #[route("/account/agents/{id}", get = crate::agents::page, post = crate::agents::webhook, no_store)]
         pub struct AgentPage<'a> {
             pub id: &'a str,
             #[route(query)]
@@ -817,12 +809,6 @@ pub mod url {
         /// Save the spending mandate.
         #[route("/account/agents/{id}/mandate", post = crate::agents::mandate)]
         pub struct AgentMandate<'a> {
-            pub id: &'a str,
-        }
-
-        /// Save the webhook's address; the answer shows its new signing secret.
-        #[route("/account/agents/{id}/webhook", post = crate::agents::webhook, no_store)]
-        pub struct AgentWebhook<'a> {
             pub id: &'a str,
         }
 
@@ -1329,8 +1315,11 @@ pub mod url {
             pub id: &'a str,
         }
 
-        /// Ingest a Live or Staged export (`multipart/form-data`).
-        #[route("/account/channels/{id}/manual-sync/ingest", post = crate::channels::manual_sync_ingest)]
+        /// Ingest a Live or Staged export (`multipart/form-data`): the connection with Channels'
+        /// receipt, drawn here. Its `GET` is the connection, so the address works when opened
+        /// again. A workaround: the connection's route takes the panel's other writes as its one
+        /// `POST`, urlencoded (corten-run/corten#1403).
+        #[route("/account/channels/{id}/manual-sync/ingest", get = crate::channels::to_connection, post = crate::channels::manual_sync_ingest)]
         pub struct ChannelManualSyncIngest<'a> {
             pub id: &'a str,
         }

@@ -18,7 +18,8 @@
 //! The manual sync panel is Channels' (`ManualSyncPanel`): which actions the run allows is its
 //! answer. Its writes post to `{id}/manual-sync` (an export's ingest, a file, to
 //! `{id}/manual-sync/ingest`) and go back to the connection, or draw it with what was refused; an
-//! ingest draws it with Channels' receipt. Clamp and download posts to `{id}/manual-sync/download`
+//! ingest draws it with Channels' receipt (422 when Channels refused the export), and its address
+//! opened again is the connection. Clamp and download posts to `{id}/manual-sync/download`
 //! and answers Channels' CSV, or, refused, the connection with what was refused, as the other
 //! writes do (`PageOr`; marketplace shows Channels' JSON instead,
 //! [chase-sets/chase-sets#10812](https://github.com/chase-sets/chase-sets/issues/10812)).
@@ -579,10 +580,21 @@ pub(crate) async fn manual_sync_ingest(
     let caller = config.platform.caller(&headers, config.proto, None);
     match caller.ingest_export(id, &surface, &file.filename, file.bytes).await {
         Ok(receipt) => {
-            manual_page(&req, &viewer, &config, &headers, id, ManualSaid::Ingested(Box::new(receipt)), StatusCode::OK).await
+            // Channels' refusal comes as a receipt too: the page draws it, as a refusal.
+            let status = if receipt.outcome.kind == "ingested" { StatusCode::OK } else { StatusCode::UNPROCESSABLE_ENTITY };
+            manual_page(&req, &viewer, &config, &headers, id, ManualSaid::Ingested(Box::new(receipt)), status).await
         }
         Err(error) => manual_refused(&req, &viewer, &config, &headers, id, error).await,
     }
+}
+
+/// The ingest's address opened again (a reload from history, a bookmark): the connection.
+pub(crate) async fn to_connection(
+    req: Req,
+    _: Caller<ChannelsMember>,
+    Params(route): Params<url::channels::ChannelManualSyncIngest<'_>>,
+) -> HtmlResult {
+    req.redirect(&url::channels::ChannelConnection { id: &route.id, place: ConnectionPlace::default() })
 }
 
 /// Clamp and download CSV: Channels claims the composed run and sends its Staged batch, passed on

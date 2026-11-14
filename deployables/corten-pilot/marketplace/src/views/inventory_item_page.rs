@@ -268,7 +268,7 @@ pub fn AdjustForm<'a>(t: InventoryMsg, m: Msg, viewer: &'a Viewer, screen: &'a I
         <WriteForm
             t={m}
             id={AdjustFormId}
-            action={url::StockAdjust { id }}
+            action={url::StockItem { id, place: Default::default(), check: Default::default() }}
             viewer={viewer}
             family={Family::ItemAdjust}
             target={id}

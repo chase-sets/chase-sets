@@ -1047,7 +1047,7 @@ pub fn ResultMarket<'a>(t: SearchMsg, i: ItemMsg, item: &'a SearchItem, terms: &
     let card = &item.card;
     let slug = if card.slug.is_empty() { card.catalog_item_id.as_str() } else { card.slug.as_str() };
     let options = terms.dimensions();
-    let save = url::ItemSave { slug }.href();
+    let save = url::Item { slug, state: Default::default(), after: Default::default() }.href();
     let address = Address { options: options.clone(), filtered: !options.is_empty(), ..Address::default() }.pairs();
     let identity = identity(t, card);
     let listings = item.market_summary.as_ref().map_or(0, |m| m.active_listing_count);

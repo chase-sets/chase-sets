@@ -7,7 +7,7 @@
 //! |---|---|
 //! | `GET /catalog/components?search&status&has_field_rules&has_dimension_rules&page` | the list; `POST` creates |
 //! | `GET /catalog/components/live?...` | the list's rows, again on each change (`<corten-live>`) |
-//! | `POST /catalog/components/bulk?...`, `.../bulk/confirm?...` | a bulk change's preview; starts it |
+//! | `GET /catalog/components/bulk?...`, `POST .../bulk/confirm?...` | a bulk change's preview; starts it |
 //! | `GET /catalog/components/{id}`, `POST .../edit`, `.../lifecycle` | the component; revise it; its status |
 //! | `POST /catalog/components/{id}/field-rules`, `.../field-rules/{field_id}/remove` | add or remove a field rule |
 //! | `POST /catalog/components/{id}/dimension-rules`, `.../dimension-rules/{dimension_id}/remove` | add or remove a dimension rule |
@@ -31,7 +31,7 @@ use super::{
 use crate::{
     api::{ApiError, Caller, Method},
     app::{Shared, live_rows, read_failed},
-    auth::{CatalogAccess, Staff, Viewer},
+    auth::{CatalogAccess, CatalogManage, Staff, Viewer},
     text::{Cat, Pilot},
 };
 
@@ -101,12 +101,7 @@ pub mod url {
         pub query: ComponentQuery,
     }
 
-    /// A bulk change's preview.
-    #[route("/catalog/components/bulk", post = preview_bulk)]
-    pub struct ComponentsBulk {
-        #[route(query)]
-        pub query: ComponentQuery,
-    }
+    pub use crate::catalog::previews::url::ComponentsBulk;
 
     /// The preview's confirm: it starts the change.
     #[route("/catalog/components/bulk/confirm", post = confirm_bulk)]
@@ -508,9 +503,9 @@ fn selection_filter(query: &url::ComponentQuery) -> Value {
     filter_query(&filters(query))
 }
 
-async fn preview_bulk(
+pub(crate) async fn preview_bulk(
     req: Req,
-    corten::Caller(staff): corten::Caller<Staff<CatalogAccess>>,
+    corten::Caller(staff): corten::Caller<Staff<CatalogManage>>,
     State(config): State<Shared>,
     headers: HeaderMap,
     Params(route): Params<crate::catalog::components::url::ComponentsBulk>,

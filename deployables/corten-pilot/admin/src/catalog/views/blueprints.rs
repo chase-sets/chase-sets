@@ -161,7 +161,7 @@ pub fn blueprint_rows<'a>(
     let (previous, next) = pages_around(screen, |page| {
         url::Blueprints::of(&url::BlueprintQuery { page: (page > 1).then_some(page), ..query.clone() }).href()
     });
-    let preview = url::BlueprintsBulk { query: query.clone() }.href();
+    let preview = url::BlueprintsBulk { query: query.clone() };
     let actions = blueprint_actions(t);
     let select = manage.then_some(p);
     html! {

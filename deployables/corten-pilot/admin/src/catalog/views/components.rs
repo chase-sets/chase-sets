@@ -113,7 +113,7 @@ pub fn component_rows<'a>(
     let (previous, next) = pages_around(screen, |page| {
         url::Components::of(&url::ComponentQuery { page: (page > 1).then_some(page), ..query.clone() }).href()
     });
-    let preview = url::ComponentsBulk { query: query.clone() }.href();
+    let preview = url::ComponentsBulk { query: query.clone() };
     let actions = bulk_actions(t.component_activate(), t.component_deprecate(), t.component_archive());
     let select = manage.then_some(p);
     html! {

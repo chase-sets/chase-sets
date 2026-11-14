@@ -213,7 +213,7 @@ pub const ITEM: &[Component] = &[
 /// corten-ui's handler that makes each modal. In
 /// `App::components`, since the home page is outside every area. The dialog is here rather than
 /// with the item page because a result's Add to List patches it into the search page from the
-/// item's handler (`/items/{slug}/save`), and a patch brings no stylesheet of its own
+/// item's handler (`POST /items/{slug}`), and a patch brings no stylesheet of its own
 /// (corten-run/corten#1366).
 pub const SEARCH: &[Component] = &[
     SearchPage,

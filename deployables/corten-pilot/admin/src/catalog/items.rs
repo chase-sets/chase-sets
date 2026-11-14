@@ -5,9 +5,9 @@
 //! |---|---|
 //! | `GET /catalog/catalog-items?<filters>&page` | the list; `POST` creates; with the script, a Reload (its rows, and a new stream of changes) |
 //! | `GET /catalog/catalog-items/live?<filters>&page` | how many items changed since, on each change (`<corten-live>`) |
-//! | `POST /catalog/catalog-items/bulk?...` | a bulk preview: a publish's, an archive's or an edit's |
+//! | `GET /catalog/catalog-items/bulk?...` | a bulk preview: a publish's, an archive's or an edit's |
 //! | `POST /catalog/catalog-items/bulk/confirm?...` | starts it: a redirect to the list, following its job (`?job=`) |
-//! | `POST /catalog/catalog-items/drafts?...` | the checked rows' removal preview |
+//! | `GET /catalog/catalog-items/drafts?...` | the checked rows' removal preview |
 //! | `POST /catalog/catalog-items/drafts/confirm?...` | starts it: a redirect to the list, following its job (`?job=`) |
 //!
 //! The list is live as admin-web's is (`useCatalogRealtimeRevalidation` in manual mode): a change
@@ -41,7 +41,7 @@ use super::{
 use crate::{
     api::Method,
     app::{Denied, Shared, read_failed, refused},
-    auth::{CatalogAccess, Staff, Viewer},
+    auth::{CatalogAccess, CatalogManage, Staff, Viewer},
     text::{Cat, Pilot},
 };
 
@@ -157,12 +157,7 @@ pub mod url {
         pub query: ItemQuery,
     }
 
-    /// A bulk change's preview.
-    #[route("/catalog/catalog-items/bulk", post = preview)]
-    pub struct ItemsBulk {
-        #[route(query)]
-        pub query: ItemQuery,
-    }
+    pub use crate::catalog::previews::url::ItemsBulk;
 
     /// The preview's confirm: it starts the change.
     #[route("/catalog/catalog-items/bulk/confirm", post = confirm)]
@@ -171,12 +166,7 @@ pub mod url {
         pub query: ItemQuery,
     }
 
-    /// The checked rows' removal: its preview.
-    #[route("/catalog/catalog-items/drafts", post = drafts)]
-    pub struct ItemsDrafts {
-        #[route(query)]
-        pub query: ItemQuery,
-    }
+    pub use crate::catalog::previews::url::ItemsDrafts;
 
     /// Its confirm: starts the removal's job.
     #[route("/catalog/catalog-items/drafts/confirm", post = remove_drafts)]
@@ -411,9 +401,9 @@ async fn answer(
     item_list(req, viewer, config, headers, query, &none, None, Some(dialog)).await
 }
 
-async fn preview(
+pub(crate) async fn preview(
     req: Req,
-    corten::Caller(staff): corten::Caller<Staff<CatalogAccess>>,
+    corten::Caller(staff): corten::Caller<Staff<CatalogManage>>,
     State(config): State<Shared>,
     headers: HeaderMap,
     Params(route): Params<crate::catalog::items::url::ItemsBulk>,
@@ -492,9 +482,9 @@ async fn removal_preview(caller: &crate::api::Caller<'_>, ids: &[String]) -> Res
 
 /// The checked rows' removal preview (admin-web's Remove drafts dialog): which the API may remove
 /// and which it blocks, and why.
-async fn drafts(
+pub(crate) async fn drafts(
     req: Req,
-    corten::Caller(staff): corten::Caller<Staff<CatalogAccess>>,
+    corten::Caller(staff): corten::Caller<Staff<CatalogManage>>,
     State(config): State<Shared>,
     headers: HeaderMap,
     Params(route): Params<crate::catalog::items::url::ItemsDrafts>,

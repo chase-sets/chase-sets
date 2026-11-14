@@ -197,6 +197,7 @@ impl Site {
     async fn post(&self, path: &str, form: &str, from: Option<(&str, &str)>) -> (StatusCode, HeaderMap, String) {
         let mut req = Request::post(path)
             .header(header::HOST, "localhost:7797")
+            .header(header::ACCEPT, "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
             .header(header::ORIGIN, "http://localhost:7797")
             .header("sec-fetch-site", "same-origin")
             .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded");

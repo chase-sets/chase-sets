@@ -178,6 +178,7 @@ pub fn OptionTable<'a>(
     dimension: &'a DimensionDetail,
     editing: Option<&'a (String, Draft<OptionInput>)>,
     refused: Option<&'a (String, Errors)>,
+    open: Option<&'a str>,
 ) -> impl Render {
     let head = [
         t.dimension_code(),
@@ -194,7 +195,15 @@ pub fn OptionTable<'a>(
         } else {
             <Table label={&label} head={&head} all={None} layout={TableLayout::Scroll}>
                 for option in &dimension.options {
-                    <OptionRow t={t} p={p} dimension={dimension} option={option} editing={editing} refused={refused} />
+                    <OptionRow
+                        t={t}
+                        p={p}
+                        dimension={dimension}
+                        option={option}
+                        editing={editing}
+                        refused={refused}
+                        open={open}
+                    />
                 }
             </Table>
         }
@@ -210,6 +219,7 @@ pub fn OptionRow<'a>(
     option: &'a DimensionOption,
     editing: Option<&'a (String, Draft<OptionInput>)>,
     refused: Option<&'a (String, Errors)>,
+    open: Option<&'a str>,
 ) -> impl Render {
     let id = dimension.dimension.dimension_id.as_str();
     let option_id = option.option_id.as_str();
@@ -237,7 +247,7 @@ pub fn OptionRow<'a>(
                             id={&dialog}
                             title={&title}
                             description={None}
-                            open={came_back.is_some()}
+                            open={came_back.is_some() || open == Some(option_id)}
                             close={p.catalog_close()}
                         >
                             <OptionForm t={t} id={&ids::option_form(option_id)} action={&edit} add={false} form={&draft} />

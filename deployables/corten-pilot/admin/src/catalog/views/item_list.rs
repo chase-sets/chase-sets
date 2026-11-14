@@ -313,7 +313,7 @@ pub fn item_rows<'a>(
     ];
     let (previous, next) =
         pages_around(screen, |page| url::Items::of(&url::ItemQuery { page: (page > 1).then_some(page), ..query.clone() }).href());
-    let preview = url::ItemsBulk { query: query.clone() }.href();
+    let preview = url::ItemsBulk { query: query.clone() };
     let drafts = url::ItemsDrafts { query: query.clone() }.href();
     let operations = item_operations(t);
     let select = manage.then_some(p);

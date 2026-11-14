@@ -129,7 +129,7 @@ pub fn category_rows<'a>(
     let (previous, next) = pages_around(screen, |page| {
         url::Categories::of(&url::CategoryQuery { page: (page > 1).then_some(page), ..query.clone() }).href()
     });
-    let preview = url::CategoriesBulk { query: query.clone() }.href();
+    let preview = url::CategoriesBulk { query: query.clone() };
     let actions = category_actions(t);
     let select = manage.then_some(p);
     html! {
