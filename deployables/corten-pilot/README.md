@@ -102,7 +102,7 @@ note it on the PR and the pilot task fixes the pilot. Where a problem goes:
 | `marketplace/` | Create listing, `/account/listings/new` |
 | `marketplace/` | A seller's listing, `/account/listings/{id}` |
 | `marketplace/` | A set's page, `/sets/{slug}` |
-| `marketplace/` | Search and the home page, `/search`, `/categories/{slug}` and `/`, with each result's Add to List: the dialog for the product the search's option filters name, patched into the page (or the item page with it open without a script, or the item page to choose its options), a guest's registration back to the search, and Add Product back to the search saying where the product went; and Add matching products to Buy Cart, `/search/cart`: the preview of every match in a sheet (patched in, or the search with it open without a script), then one cart attempt for the account's or a guest cart, back to the search after the write saying how many, or the sheet saying what was not added, nothing added, or that the add is not known with the same attempt to send again; and each result's price and market intents drawn again on a change to its market (`public:market`, `/search/live`) |
+| `marketplace/` | Search and the home page, `/search`, `/categories/{slug}` and `/`, with each result's Add to List: the dialog for the product the search's option filters name, patched into the page (or the item page with it open without a script, or the item page to choose its options), a guest's registration back to the search, and Add Product back to the search saying where the product went; and Add matching products to Buy Cart, `/search/cart`: the preview of every match in a sheet (patched in, or the search with it open without a script), then one cart attempt for the account's or a guest cart, back to the search after the write saying how many, or the sheet saying what was not added, nothing added, or that the add is not known with the same attempt to send again; and each result's price and market intents drawn again on a change to its market (`public:market`, `/search/live`); and each filter group's first six choices with Show more for the rest, and an option search for a facet of more than eight values once the script runs |
 | `public/` | An item's market page, `/market/{slug}`, with `robots.txt` and `sitemap.xml` |
 | `public/` | The home page, `/` (chasesets.com's waitlist landing) |
 | `public/` | The policy documents, `/terms`, `/privacy`, `/founders`, `/seller-agreement`, `/payments-terms`, `/agent-terms` and `/authenticity-terms` |
@@ -253,7 +253,7 @@ registered files.
 
 ## Corten pin
 
-`Cargo.toml` pins Corten to `3bafe4ee` (Corten `main` on 2026-11-13), whose framework package is
+`Cargo.toml` pins Corten to `0ff569c6` (Corten `main` on 2026-11-14), whose framework package is
 `corten-run` (the library is still `corten`). Corten 0.2.0 is released (tag `v0.2.0`, `a833b4e3`), and the pin is a git revision past it. The
 pin follows Corten's latest `main` (Todd, 2026-11-02), and each move is its own commit that says
 what changed; the workarounds a move lets go follow it in commits of their own. The history of every move is in the
