@@ -63,6 +63,10 @@ function syntheticGh({
   missing = false,
   stale = false,
   malformed = false,
+  manualCloseout = false,
+  issueState = "CLOSED",
+  linkedMerged = true,
+  linked = true,
 } = {}) {
   const selectedJob = syntheticJob();
   if (stale) {
@@ -107,8 +111,31 @@ function syntheticGh({
         data: {
           repository: {
             issue: {
+              state: issueState,
               closedByPullRequestsReferences: {
-                nodes: [{ number: issue, merged: true, mergeCommit: { oid: "c".repeat(40) } }],
+                nodes:
+                  manualCloseout && issue === 10640
+                    ? []
+                    : [{ number: issue, merged: true, mergeCommit: { oid: "c".repeat(40) } }],
+                pageInfo: { hasNextPage: false },
+              },
+              timelineItems: {
+                nodes: linked
+                  ? [
+                      {
+                        __typename: "CrossReferencedEvent",
+                        source: {
+                          __typename: "PullRequest",
+                          number: 19001,
+                          merged: linkedMerged,
+                          mergeCommit: { oid: "c".repeat(40) },
+                          baseRefName: "main",
+                          repository: { nameWithOwner: "chase-sets/chase-sets" },
+                        },
+                      },
+                    ]
+                  : [],
+                pageInfo: { hasNextPage: false },
               },
             },
           },
@@ -159,8 +186,18 @@ describe("staging pairing command with its real deploy adapter and receipt-floor
     expect(gh.mock.calls.map(([args]) => args.at(-1))).toContain(`${repo}/actions/jobs/${jobId}`);
   });
 
+  it("passes the receipt-floor boundary for a manually closed prerequisite without sign-in or browser launch", async () => {
+    await expect(invoke(syntheticGh({ manualCloseout: true }))).rejects.toBe(edgeBoundary);
+    expect(edgeRequest).toHaveBeenCalledTimes(1);
+    expect(launch).not.toHaveBeenCalled();
+  });
+
   it.each([
     ["missing", { missing: true }],
+    ["open prerequisite", { manualCloseout: true, issueState: "OPEN" }],
+    ["unmerged linked PR", { manualCloseout: true, linkedMerged: false }],
+    ["uncontained linked PR", { manualCloseout: true, contained: false }],
+    ["no linked PR", { manualCloseout: true, linked: false }],
     ["malformed JSON", { malformed: true }],
     [
       "wrong job identity",

@@ -16,11 +16,30 @@ const repo = "repos/chase-sets/chase-sets";
 const mergeOf = (issue) => issue.toString(16).padStart(40, "e");
 const pairingIssues = [10110, 9985, 10639, 10640];
 
+const linkedPr = (overrides = {}) => ({
+  __typename: "PullRequest",
+  number: 19001,
+  merged: true,
+  mergeCommit: { oid: mergeOf(10640) },
+  baseRefName: "main",
+  repository: { nameWithOwner: "chase-sets/chase-sets" },
+  ...overrides,
+});
+const crossReference = (pr = linkedPr()) => ({ __typename: "CrossReferencedEvent", source: pr });
+
 /**
  * A fake `gh api`: Platform Deploy listings, attempts' jobs and the deploy log from the captured fixture, one
- * merged closing PR per issue, and a compare status per merge commit.
+ * merged closing PR per issue, optional timeline-linked PRs, and a compare status per merge commit.
  */
-function fakeGh({ closing = {}, compare = {}, fail = () => false } = {}) {
+function fakeGh({
+  closing = {},
+  linked = [],
+  state = "CLOSED",
+  truncated = false,
+  closingTruncated = false,
+  compare = {},
+  fail = () => false,
+} = {}) {
   const calls = [];
   const gh = vi.fn(async (args) => {
     calls.push(args);
@@ -29,7 +48,17 @@ function fakeGh({ closing = {}, compare = {}, fail = () => false } = {}) {
     if (args[0] === "graphql") {
       const issue = Number(args.find((arg) => arg.startsWith("number=")).slice("number=".length));
       const nodes = closing[issue] ?? [{ number: issue, merged: true, mergeCommit: { oid: mergeOf(issue) } }];
-      return json({ data: { repository: { issue: { closedByPullRequestsReferences: { nodes } } } } });
+      return json({
+        data: {
+          repository: {
+            issue: {
+              state,
+              closedByPullRequestsReferences: { nodes, pageInfo: { hasNextPage: closingTruncated } },
+              timelineItems: { nodes: linked, pageInfo: { hasNextPage: truncated } },
+            },
+          },
+        },
+      });
     }
     const path = args.at(-1);
     let match = /^repos\/chase-sets\/chase-sets\/compare\/([a-f0-9]{40})\.\.\.([a-f0-9]{40})\?per_page=1$/.exec(path);
@@ -95,6 +124,7 @@ describe("connector-pairing-drill-deploy-binding", () => {
       pairingIssues.map((issue) => `number=${issue}`),
     );
     expect(calls.map((args) => args.at(-1))).toContain(`${repo}/actions/jobs/118064914233/logs`);
+    expect(calls.some((args) => args.some((arg) => arg.includes("timelineItems")))).toBe(false);
   });
 
   it("returns the selector's stop for a newer unfinished, indeterminate or missing deploy", async () => {
@@ -110,6 +140,73 @@ describe("connector-pairing-drill-deploy-binding", () => {
     });
     expect(await read({}, { gh: fakeGh().gh, selectGeneration: throwing })).toEqual({
       stop: "deploy-generation-unavailable",
+    });
+  });
+
+  it.each(["CrossReferencedEvent", "ConnectedEvent"])(
+    "accepts a manually closed prerequisite's unique contained %s PR",
+    async (type) => {
+      const pr = linkedPr();
+      const event = type === "ConnectedEvent" ? { __typename: type, subject: pr } : crossReference(pr);
+      const { gh, calls } = fakeGh({
+        closing: { 10640: [] },
+        linked: [event, event, crossReference(linkedPr({ number: 19002, mergeCommit: { oid: "f".repeat(40) } }))],
+        compare: { ["f".repeat(40)]: "behind" },
+      });
+      const result = await read({}, { gh, readReceiptFloor: async () => capturedRun });
+      expect(result.binding.requiredMerges.at(-1)).toEqual({
+        issue: 10640,
+        pullRequest: pr.number,
+        mergeCommit: pr.mergeCommit.oid,
+        contained: true,
+      });
+      expect(
+        calls.filter((args) => args[0] === "graphql" && args.some((arg) => arg.includes("timelineItems"))),
+      ).toHaveLength(1);
+    },
+  );
+
+  it.each([
+    ["open issue", { state: "OPEN" }],
+    ["unmerged PR", { linked: [crossReference(linkedPr({ merged: false }))] }],
+    ["PR targeting another branch", { linked: [crossReference(linkedPr({ baseRefName: "release" }))] }],
+    ["foreign repository PR", { linked: [crossReference(linkedPr({ repository: { nameWithOwner: "other/repo" } }))] }],
+    ["uncontained PR", { compare: { [mergeOf(10640)]: "behind" } }],
+    ["diverged PR", { compare: { [mergeOf(10640)]: "diverged" } }],
+    ["no linked PR", { linked: [] }],
+    ["issue link rather than PR", { linked: [crossReference({ __typename: "Issue", number: 19001 })] }],
+    [
+      "two contained PRs",
+      { linked: [crossReference(), crossReference(linkedPr({ number: 19002, mergeCommit: { oid: "f".repeat(40) } }))] },
+    ],
+  ])("refuses a manual closeout with %s", async (_name, options) => {
+    const { gh } = fakeGh({ closing: { 10640: [] }, linked: [crossReference()], ...options });
+    const { binding } = await read({}, { gh, readReceiptFloor: async () => capturedRun });
+    expect(binding.requiredMerges.at(-1)).toMatchObject({ issue: 10640, contained: false });
+  });
+
+  it("refuses an incomplete linked-PR listing", async () => {
+    const { gh } = fakeGh({ closing: { 10640: [] }, linked: [crossReference()], truncated: true });
+    expect(await read({}, { gh, readReceiptFloor: async () => capturedRun })).toEqual({
+      stop: "required-merge-unreadable",
+    });
+  });
+
+  it("refuses incomplete closing-PR authority instead of falling back", async () => {
+    const { gh } = fakeGh({ closingTruncated: true, linked: [crossReference()] });
+    expect(await read({}, { gh, readReceiptFloor: async () => capturedRun })).toEqual({
+      stop: "required-merge-unreadable",
+    });
+  });
+
+  it("refuses an unknown linked comparison even beside a contained candidate", async () => {
+    const { gh } = fakeGh({
+      closing: { 10640: [] },
+      linked: [crossReference(), crossReference(linkedPr({ number: 19002, mergeCommit: { oid: "f".repeat(40) } }))],
+      compare: { ["f".repeat(40)]: "unknown" },
+    });
+    expect(await read({}, { gh, readReceiptFloor: async () => capturedRun })).toEqual({
+      stop: "required-merge-unreadable",
     });
   });
 
