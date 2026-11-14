@@ -9,6 +9,7 @@
 //! the seller is (`seller_listings::seller_zone`). The page's script counts the checked listings. One
 //! column on a phone; a listing's facts beside it from 64rem.
 use corten::{
+    SubmitKey,
     i18n::{Currency, DateStyle, Decimal, TimeStyle, parse_timestamp},
     prelude::*,
 };
@@ -651,6 +652,7 @@ fn BulkForm<'a>(t: SellerListingsMsg, p: Pilot, screen: &'a ListingsScreen) -> i
             on:reset={handlers::cleared(form, count, t.js().list_bulk_selected())}
             on:connect={handlers::picked(form, count, t.js().list_bulk_selected())}
         >
+            {SubmitKey::field(f.attempt)}
             <Rows t={t} p={p} page={&screen.page} filters={&screen.filters} />
             <div class={Bar}>
                 <output ref={count} class={Strong}></output>

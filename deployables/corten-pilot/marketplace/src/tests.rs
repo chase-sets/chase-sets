@@ -471,8 +471,9 @@ async fn platform(State(stand): State<Stand>, method: Method, uri: Uri, headers:
             // An account that may save Watch alerts.
             "watcher" | "notices_down" => actor(&["accounts.view"]),
             // Sellers who may list at a price: `lister` has a Listing stock location, `starter` has
-            // none until its ship-from setup is saved.
-            "lister" | "starter" => actor(&["listings.view", "listings.manage", "offers.view"]),
+            // none until its ship-from setup is saved. `lister_ended`'s session ends before its bulk
+            // change is sent.
+            "lister" | "starter" | "lister_ended" => actor(&["listings.view", "listings.manage", "offers.view"]),
             // A seller who may read its listings but not change them.
             "lookout" => actor(&["listings.view"]),
             // The account's orders: `shopper` buys and may cancel, `merchant` sells too, `looker`
@@ -658,7 +659,7 @@ async fn platform(State(stand): State<Stand>, method: Method, uri: Uri, headers:
     if let Some(answer) = sitemaps(&uri) {
         return answer;
     }
-    if let Some(answer) = bulk_cart(&stand, &method, &uri, &headers, &body) {
+    if let Some(answer) = bulk_cart(&stand, session, &method, &uri, &headers, &body) {
         return answer;
     }
     if let Some(id) = uri.path().strip_prefix(ITEMS) {
@@ -1779,8 +1780,9 @@ const GUEST_CART_BULK: &str = "/api/marketplace/guest/cart/bulk";
 /// finds: `broken` fails, `lots` is over the limit, `none` names no product in full; any other is
 /// Card 1 and Card 3, with Card 2 needing its options, each line's product named for the words.
 /// The add keeps its attempt, Card 1 added and Card 3 merged, at position 14: `partial`'s Card 3
-/// has no listing, `refused`'s add is refused, and `lost`'s answer is lost with nothing kept.
-fn bulk_cart(stand: &Stand, method: &Method, uri: &Uri, headers: &HeaderMap, body: &str) -> Option<Response> {
+/// has no listing, `refused`'s add is refused, and `lost`'s answer is lost with nothing kept. The
+/// `stale` session's add asks for a sign-in.
+fn bulk_cart(stand: &Stand, session: &str, method: &Method, uri: &Uri, headers: &HeaderMap, body: &str) -> Option<Response> {
     let path = uri.path();
     if path == BULK_PREVIEW && *method == Method::GET {
         let sent = query(&uri.to_string());
@@ -1818,6 +1820,9 @@ fn bulk_cart(stand: &Stand, method: &Method, uri: &Uri, headers: &HeaderMap, bod
     let guest = headers.get("x-checkout-anonymous-cart-id").and_then(|v| v.to_str().ok()).filter(|id| id.starts_with("anon_"));
     if path == GUEST_CART_BULK && guest.is_none() {
         return Some(refusal(StatusCode::BAD_REQUEST, "anonymous_cart_required", "A guest cart is required."));
+    }
+    if path == ACCOUNT_CART_BULK && session == "stale" {
+        return Some(refusal(StatusCode::UNAUTHORIZED, "unauthenticated", "Sign in."));
     }
     let sent: Value = serde_json::from_str(body).unwrap_or_default();
     let attempt = sent["attemptId"].as_str().unwrap_or_default().to_owned();
@@ -5146,6 +5151,10 @@ async fn add_matching_products_to_buy_cart_previews_what_the_search_would_add() 
     assert!(html.contains(r#"id="bulk-cart" aria-labelledby="bulk-cart-title" open"#), "{html}");
     assert!(html.contains(r#"<li id="result-1""#), "the results: {html}");
 
+    // On the home page, the form says so, for the add to go back to it.
+    let (_, _, html) = pilot.send(get("/?q=pika", Some("watcher"))).await;
+    let form = html.split(r#"id="bulk-trigger""#).nth(1).unwrap().split("</form>").next().unwrap();
+    assert!(form.contains(r#"<input type="hidden" name="home" value="true">"#), "{form}");
     // On a category's page, the form sends its slug, which the preview reads.
     let (_, _, html) = pilot.send(get("/categories/singles-x1?q=pika", Some("watcher"))).await;
     let form = html.split(r#"id="bulk-trigger""#).nth(1).unwrap().split("</form>").next().unwrap();
@@ -5183,8 +5192,11 @@ async fn adding_matching_products_sends_one_cart_attempt_and_goes_back_to_the_se
             "productSummary": "Raw / Near Mint", "quantity": 1, "fulfillmentMode": "optimize", "lockedListingId": null,
         })
     );
-    // The page it goes back to draws the shell's count after the write.
-    pilot.send(get(to, Some("watcher"))).await;
+    // The page it goes back to draws the shell's count after the write, and says how many.
+    let notice = notice.split(';').next().unwrap();
+    let (status, _, html) = pilot.send(with_cookie(to, &format!("chase_sets_session=watcher; {notice}"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(text(&html).contains("1 added, 1 merged"), "{html}");
     let calls = pilot.stand.calls.lock().unwrap().clone();
     assert!(calls.iter().any(|c| c.path == CART && waits_for(&c.headers).as_deref() == Some("14")), "the count waits for 14");
     // With a script, the same, which the runtime follows; the form sent again is the same attempt.
@@ -5194,10 +5206,25 @@ async fn adding_matching_products_sends_one_cart_attempt_and_goes_back_to_the_se
     let attempts: Vec<Value> =
         bulk_adds(&pilot).iter().map(|c| serde_json::from_str::<Value>(&c.body).unwrap()["attemptId"].clone()).collect();
     assert_eq!(attempts, [json!(BULK_ATTEMPT), json!(BULK_ATTEMPT)]);
-    // From a category, back to its page.
+    // From a category, back to its page; from the home page, back to it; with Load more's rows,
+    // back to as many.
     let (_, headers, _) =
         pilot.send(post(BULK, "watcher", &format!("q=pika&category=singles-x1&attempt={BULK_ATTEMPT}"), false)).await;
     assert!(headers[header::LOCATION].to_str().unwrap().starts_with("/categories/singles-x1?q=pika&after_write="), "{headers:?}");
+    let (_, headers, _) = pilot.send(post(BULK, "watcher", &format!("q=pika&home=true&attempt={BULK_ATTEMPT}"), false)).await;
+    assert!(headers[header::LOCATION].to_str().unwrap().starts_with("/?q=pika&after_write="), "{headers:?}");
+    let (_, headers, _) = pilot.send(post(BULK, "watcher", &format!("q=pika&more=24&attempt={BULK_ATTEMPT}"), false)).await;
+    assert!(headers[header::LOCATION].to_str().unwrap().starts_with("/search?q=pika&more=24&after_write="), "{headers:?}");
+    assert!(bulk_previews(&pilot).iter().all(|read| !read.contains_key("more")), "the preview reads every match");
+}
+
+#[tokio::test]
+async fn a_bulk_add_after_the_session_ended_signs_in_back_to_the_search() {
+    let pilot = Pilot::new().await;
+    let (status, headers, _) = pilot.send(post(BULK, "stale", &format!("q=pika&attempt={BULK_ATTEMPT}"), false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert_eq!(headers[header::LOCATION], "/sign-in?returnTo=%2Fsearch%3Fq%3Dpika");
+    assert!(cart_lookups(&pilot).is_empty(), "a refusal is not a lost answer");
 }
 
 #[tokio::test]
@@ -5264,6 +5291,21 @@ async fn a_bulk_add_that_did_not_wholly_apply_says_so_in_its_sheet() {
     let (status, _, html) = pilot.send(get_patch("/search/cart?q=broken")).await;
     assert_eq!(status, StatusCode::BAD_GATEWAY, "{html}");
     assert!(text(&html).contains("Could not add matching products"), "{html}");
+    let (status, _, html) = pilot.send(get("/search/cart?q=broken", Some("watcher"))).await;
+    assert_eq!(status, StatusCode::BAD_GATEWAY, "{html}");
+    assert!(html.contains(r#"id="bulk-cart" aria-labelledby="bulk-cart-title" open"#), "{html}");
+    assert!(text(&html).contains("Could not add matching products"), "{html}");
+
+    // Without a script, the lost and the refused add are the search with the sheet open.
+    for (words, status, said) in [
+        ("lost", StatusCode::CONFLICT, "We couldn&#39;t confirm this bulk add"),
+        ("refused", StatusCode::UNPROCESSABLE_ENTITY, "Buy Cart is closed for changes."),
+    ] {
+        let (answered, _, html) = pilot.send(post(BULK, "watcher", &sent(words), false)).await;
+        assert_eq!(answered, status, "{words}: {html}");
+        assert!(html.contains(r#"id="bulk-cart" aria-labelledby="bulk-cart-title" open"#), "{words}: {html}");
+        assert!(text(&html).contains(said) && html.contains(r#"<li id="result-1""#), "{words}: {html}");
+    }
 }
 
 const LIST: &str = "/items/charizard/list";
@@ -10163,8 +10205,9 @@ fn attention_queue() -> Value {
 /// The seller's list of listings' calls, as the stand-in answers them. The page holds `lst_active`
 /// and `lst_draft` of 250 (two active, one draft, one paused); `lookout`'s metrics and open
 /// order count fail; a read that waits for 43 is still catching up. Turning listings off with
-/// the reason `bogus` is refused, as is an order capacity of 1000; pausing `lst_locked` is
-/// refused and `lst_broken` fails. Every other write applies at 51.
+/// the reason `bogus` is refused, as is an order capacity of 1000. In a batch, `lst_locked` is an
+/// error and `lst_unsure` unknown; a batch naming `lst_foreign` is refused, one naming
+/// `lst_broken` fails, and `lister_ended`'s ended. A batch applies at 50; every other write at 51.
 fn listing_list(session: &str, method: &Method, uri: &Uri, headers: &HeaderMap, body: &str) -> Option<Response> {
     const ACCOUNT: &str = "/api/marketplace/account";
     let path = uri.path().strip_prefix(ACCOUNT)?;
@@ -10249,10 +10292,31 @@ fn listing_list(session: &str, method: &Method, uri: &Uri, headers: &HeaderMap, 
             | "/order-capacity",
         )
         | ("DELETE", "/listing-availability/away-window" | "/order-capacity") => applied(),
-        ("POST", "/listings/lst_locked/pause") => {
-            refusal(StatusCode::BAD_REQUEST, "listing_command_rejected", "Listing cannot be paused from its current status.")
+        ("POST", "/listings/batch") => {
+            let ids: Vec<&str> =
+                sent["listingIds"].as_array().map(|ids| ids.iter().filter_map(Value::as_str).collect()).unwrap_or_default();
+            if session == "lister_ended" {
+                refusal(StatusCode::UNAUTHORIZED, "authentication_required", "Authentication required.")
+            } else if ids.contains(&"lst_broken") {
+                StatusCode::INTERNAL_SERVER_ERROR.into_response()
+            } else if ids.contains(&"lst_foreign") {
+                refusal(StatusCode::BAD_REQUEST, "id-invalid", "Listing batch targets are invalid.")
+            } else {
+                let items: Vec<Value> = ids
+                    .iter()
+                    .map(|id| {
+                        let outcome = match *id {
+                            "lst_locked" => "error",
+                            "lst_unsure" => "unknown",
+                            _ => "succeeded",
+                        };
+                        json!({ "targetId": id, "outcome": outcome, "version": 2 })
+                    })
+                    .collect();
+                let body = json!({ "batchId": sent["batchId"], "family": sent["family"], "items": items, "total": ids.len() });
+                committed(StatusCode::OK, "marketplace", "50", body)
+            }
         }
-        ("POST", "/listings/lst_broken/pause") => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
         _ => return None,
     })
 }
@@ -10842,34 +10906,63 @@ async fn while_a_setting_catches_up_the_list_shows_what_was_set() {
 }
 
 #[tokio::test]
-async fn pause_selected_writes_each_listing_once_and_shows_each_outcome() {
+async fn pause_selected_sends_the_checked_listings_as_one_batch_and_shows_each_outcome() {
     let pilot = Pilot::new().await;
-    let body = "intent=bulk-pause-listings&listingIds=lst_active&listingIds=lst_locked&listingIds=lst_active";
-    let (status, _, html) = pilot.send(post("/account/listings?status=active", "lister", body, false)).await;
+    // The bulk form is drawn with its batch id.
+    let (_, _, html) = pilot.send(get(LISTINGS, Some("lister"))).await;
+    let pause = html.find(r#"value="bulk-pause-listings""#).expect("Pause selected");
+    let form = &html[html[..pause].rfind("<form").unwrap()..pause];
+    assert!(form.contains(r#"name="attempt""#), "{form}");
+    let key = crate::recovery::new_attempt();
+    let body = format!(
+        "intent=bulk-pause-listings&attempt={key}&listingIds=lst_active&listingIds=lst_locked&listingIds=lst_unsure&listingIds=lst_active"
+    );
+    let (status, _, html) = pilot.send(post("/account/listings?status=active", "lister", &body, false)).await;
     assert_eq!(status, StatusCode::OK, "{html}");
     let page = text(&html);
-    assert!(page.contains("1 succeeded, 1 failed"), "{page}");
+    assert!(page.contains("1 succeeded, 2 failed"), "{page}");
     assert!(page.contains("Succeeded Listing lst_active"), "{page}");
-    assert!(page.contains("Failed Listing lst_locked This listing change is not available."), "{page}");
-    let writes = list_calls(&pilot, "/api/marketplace/account/listings/lst_");
-    assert_eq!(
-        writes,
-        [
-            "POST /api/marketplace/account/listings/lst_active/pause {}",
-            "POST /api/marketplace/account/listings/lst_locked/pause {}"
-        ]
+    assert!(page.contains("Failed Listing lst_locked Bulk listing action failed."), "{page}");
+    assert!(page.contains("Failed Listing lst_unsure Bulk listing action failed."), "{page}");
+    // One batch, its id the form's, each listing once; no listing's own command.
+    let batch = format!(
+        r#"POST /api/marketplace/account/listings/batch {{"batchId":"{key}","family":"listing.pause","listingIds":["lst_active","lst_locked","lst_unsure"]}}"#
     );
-    // The page is read after the write that applied, with the filters it was posted with.
+    assert_eq!(list_calls(&pilot, "/api/marketplace/account/listings/batch"), [batch]);
+    assert!(list_calls(&pilot, "/api/marketplace/account/listings/lst_").is_empty());
+    // The page is read after the batch, with the filters it was posted with.
     let calls = pilot.stand.calls.lock().unwrap().clone();
     let read = calls.iter().rev().find(|c| c.path.starts_with("/api/marketplace/account/listings?")).unwrap();
     assert_eq!(read.path, "/api/marketplace/account/listings?limit=100&offset=0&status=active");
     assert_eq!(waits_for(&read.headers).as_deref(), Some("50"));
-    // Nothing checked, and a listing whose write fails.
+}
+
+#[tokio::test]
+async fn a_bulk_change_that_is_refused_fails_or_needs_a_sign_in_says_so() {
+    let pilot = Pilot::new().await;
+    // Nothing checked.
     let (status, _, html) = pilot.send(post(LISTINGS, "lister", "intent=bulk-withdraw-listings", false)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
     assert!(text(&html).contains("Check the listings to pause or withdraw first."), "{html}");
-    let (status, _, _) = pilot.send(post(LISTINGS, "lister", "intent=bulk-pause-listings&listingIds=lst_broken", false)).await;
+    assert!(list_calls(&pilot, "/api/marketplace/account/listings/batch").is_empty());
+    // A refused batch fails every listing it named, and a form without a batch id gets one.
+    let body = "intent=bulk-withdraw-listings&listingIds=lst_active&listingIds=lst_foreign";
+    let (status, _, html) = pilot.send(post(LISTINGS, "lister", body, false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    let page = text(&html);
+    assert!(page.contains("0 succeeded, 2 failed") && page.contains("Failed Listing lst_foreign"), "{page}");
+    let sent = list_calls(&pilot, "/api/marketplace/account/listings/batch");
+    let sent: Value = serde_json::from_str(sent[0].split_once(" {").map(|(_, b)| format!("{{{b}")).unwrap().as_str()).unwrap();
+    assert_eq!(sent["family"], "listing.withdraw");
+    assert!(crate::recovery::valid_attempt(sent["batchId"].as_str().unwrap()), "{sent}");
+    // A failure is the error page; an ended session signs in.
+    let body = "intent=bulk-pause-listings&listingIds=lst_broken";
+    let (status, _, _) = pilot.send(post(LISTINGS, "lister", body, false)).await;
     assert_eq!(status, StatusCode::BAD_GATEWAY);
+    let (status, headers, _) =
+        pilot.send(post(LISTINGS, "lister_ended", "intent=bulk-pause-listings&listingIds=lst_active", false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert!(headers["location"].to_str().unwrap().starts_with("/sign-in"), "{headers:?}");
 }
 
 #[tokio::test]
@@ -13242,6 +13335,72 @@ async fn a_policys_editor_posts_draw_it_again_and_save_revises_the_policy() {
     let (status, _, html) = pilot.send(post(page, "pricer", "intent=apply&tier=advanced&body=nope", false)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
     assert!(html.contains(r#"data-repricing-tier="preset""#), "{html}");
+}
+
+#[tokio::test]
+async fn a_policys_editor_opens_up_only_a_complete_preset_and_keeps_choices_its_lists_do_not_offer() {
+    let pilot = Pilot::new().await;
+    let page = "/account/desk/repricing/pol_4";
+    let (_, _, html) = pilot.send(get(&format!("{page}?edit=open"), Some("pricer"))).await;
+    let body = drawn_body(&html).to_string();
+    let preset = |intent: &'static str, currency: &'static str, amount: &'static str| {
+        vec![
+            ("intent", intent),
+            ("tier", "preset"),
+            ("name", "Beat"),
+            ("preset", "beat-lowest"),
+            ("from", "beat-lowest"),
+            ("knob", "2"),
+            ("currency", currency),
+            ("floor", "absolute"),
+            ("amount", amount),
+        ]
+    };
+
+    // Open up this preset before its floor has an amount: the preset again, saying why.
+    let mut fields = preset("open-up", "USD", "");
+    fields.extend([("scope", "all-listings"), ("body", body.as_str())]);
+    let (status, _, html) = pilot.send(post(page, "pricer", &encoded(&fields), false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    assert!(html.contains(r#"data-repricing-tier="preset""#), "{html}");
+    assert!(text(&html).contains("The policy could not be accepted."), "{html}");
+
+    // A currency no listing prices in and a category the list does not offer stay chosen.
+    let mut fields = preset("apply", "EUR", "5.00");
+    fields.extend([("scope", "catalog-filter"), ("categories", "cat-9"), ("categories", "cat-1"), ("body", body.as_str())]);
+    let (status, _, html) = pilot.send(post(page, "pricer", &encoded(&fields), false)).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains(r#"<option value="EUR" selected>EUR</option>"#), "{html}");
+    assert!(html.contains(r#"value="cat-9" checked>"#) && html.contains(r#"value="cat-1" checked>"#), "{html}");
+
+    // In the advanced editor too: a condition's category and the scope's, drawn and posted back.
+    let mut fields = preset("open-up", "USD", "5.00");
+    fields.extend([("scope", "all-listings"), ("body", body.as_str())]);
+    let (_, _, html) = pilot.send(post(page, "pricer", &encoded(&fields), false)).await;
+    let mut opened = drawn_body(&html);
+    opened["scope"] = json!({ "kind": "catalog-filter", "categoryIds": ["cat-9"] });
+    let mut first = opened["rules"][0].clone();
+    first["conditions"] = json!([{ "type": "category", "categoryId": "cat-9" }]);
+    opened["rules"] = json!([first, opened["rules"][0].clone()]);
+    let opened = opened.to_string();
+    let fields = [("intent", "apply"), ("tier", "advanced"), ("body", opened.as_str())];
+    let (_, _, html) = pilot.send(post(page, "pricer", &encoded(&fields), false)).await;
+    assert!(html.contains(r#"<option value="cat-9" selected>cat-9</option>"#), "{html}");
+    assert!(html.contains(r#"value="cat-9" checked>"#), "{html}");
+    let drawn = drawn_body(&html).to_string();
+    let fields = [
+        ("intent", "apply"),
+        ("tier", "advanced"),
+        ("body", drawn.as_str()),
+        ("scope", "catalog-filter"),
+        ("categories", "cat-9"),
+        ("conditions[0-0].kind", "category"),
+        ("conditions[0-0].category", "cat-9"),
+    ];
+    let (_, _, html) = pilot.send(post(page, "pricer", &encoded(&fields), false)).await;
+    let kept = drawn_body(&html);
+    assert_eq!(kept["scope"]["categoryIds"], json!(["cat-9"]), "{html}");
+    assert_eq!(kept["rules"][0]["conditions"][0]["categoryId"], json!("cat-9"), "{html}");
 }
 
 #[tokio::test]
