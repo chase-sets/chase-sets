@@ -12,13 +12,19 @@
 //! (chase-sets/chase-sets#10615), the pilot says it was received, or already reported, or to try
 //! again later.
 //!
-//! Not ported: the realtime patches to the listing, and its Product JSON-LD, which marketplace
-//! writes only on the production marketplace when the listing carries a Google Shopping payload.
+//! On the production marketplace, a listing whose Google Shopping payload is eligible and matches
+//! it writes its Product JSON-LD (`views::listing_json_ld`), as marketplace's page does.
+//!
+//! The header, the purchase column and the seller's card are drawn again on each change to the
+//! listing (`live`), as marketplace's page follows the listing's realtime topic.
 use corten::{
+    LiveResponse,
     http::{HeaderMap, StatusCode, Uri, header},
     prelude::*,
     security::cookie,
 };
+use futures_util::StreamExt;
+use platform::realtime::Tick;
 use serde_json::json;
 
 use crate::{
@@ -86,6 +92,63 @@ pub(crate) async fn page(
     render(&req, session, &listing, notice.as_ref(), StatusCode::OK)
 }
 
+/// The page's parts for `<corten-live>` (discovery's `useRealtimePatchedSnapshot` on the listing's
+/// topics): on each change to the listing (`listing:{id}`, which its patches name), the listing is
+/// read again and its header, purchase column and seller's card are drawn again. Report Listing is
+/// not: it holds what the user typed. A listing the read no longer finds, or whose slug now names
+/// another listing than the one the page was drawn for, says it is not found, as marketplace's page
+/// does once a patch removes it, and the stream ends. Each fragment carries the realtime stream's
+/// cursor, so a reconnect goes on from there. Marketplace also listens to `public:market`, every
+/// change in the marketplace; the listing's own topic carries every change the page shows.
+pub(crate) async fn live(
+    req: Req,
+    State(config): State<Shared>,
+    headers: HeaderMap,
+    since: corten::LiveSince,
+    Params(route): Params<crate::app::url::listings::PublicListingLive<'_>>,
+) -> LiveResponse {
+    let (t, p): (ListingMsg, Pilot) = (req.t(), req.t());
+    let (slug, id) = (route.slug.to_owned(), route.id.to_owned());
+    let topic = format!("listing:{id}");
+    let changes = config.platform.caller(&headers, config.proto, None).changes(&[&topic], since.0);
+    let fragments = changes
+        .take_while(|tick| std::future::ready(!matches!(tick, Tick::Refused(_))))
+        .filter_map(|tick| {
+            std::future::ready(match tick {
+                Tick::Changed(cursor, _) => Some(cursor),
+                // The page was drawn just now; a reconnect resumes from its last cursor.
+                Tick::Opened(_) | Tick::Refused(_) => None,
+            })
+        })
+        .then(move |cursor| {
+            let (config, headers, slug, id) = (config.clone(), headers.clone(), slug.clone(), id.clone());
+            async move {
+                let caller = config.platform.caller(&headers, config.proto, None);
+                let (html, ends) = match caller.public_listing(&slug).await {
+                    Ok(Some(listing)) if listing.listing.listing_id == id => {
+                        (views::listing_live_parts(t, p, &listing).to_html(), false)
+                    }
+                    Ok(_) => (views::ListingGone { t }.to_html(), true),
+                    Err(error) => {
+                        tracing::warn!("the listing's read for a change failed: {error}");
+                        return None;
+                    }
+                };
+                let part = match cursor {
+                    Some(cursor) => corten::Fragment::new(html).cursor(cursor),
+                    None => corten::Fragment::new(html),
+                };
+                Some((part, ends))
+            }
+        })
+        .filter_map(std::future::ready)
+        // The part that says the listing is not found is the last: the stream ends after it.
+        .flat_map(|(part, ends)| futures_util::stream::iter(std::iter::once(Some(part)).chain(ends.then_some(None))))
+        .take_while(|part| std::future::ready(part.is_some()))
+        .filter_map(std::future::ready);
+    corten::live(fragments)
+}
+
 /// The page, with what happened to a form it was sent from.
 fn render(
     req: &Req,
@@ -106,6 +169,7 @@ fn render(
         marketplace_origin(),
         url::PublicListing { slug: &listing.listing_slug, reported: Reported::default() }.href()
     );
+    let product = views::listing_json_ld(listing, &canonical);
     let (og_title, og_description) = (title.as_str(), description.as_str());
     let head = html! {
         <meta name="description" content={og_description}>
@@ -113,6 +177,9 @@ fn render(
         <meta property="og:title" content={og_title}>
         <meta property="og:description" content={og_description}>
         <meta property="og:type" content="product">
+        if let Some(ld) = &product {
+            <JsonLd value={ld} />
+        }
     };
     let viewer = session.and_then(Session::viewer);
     req.page_with_status(

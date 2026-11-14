@@ -195,6 +195,9 @@
     "next": "Next page",
     "page_of": "Page {page} of {pages}",
     "choose_listings": "Check the listings to pause or withdraw first.",
+    "unconfirmed": "Not confirmed: this may have applied. Send the same batch again to finish it; a listing it already changed is not changed twice.",
+    "send_again": "Send the same batch again",
+    "results_unconfirmed": "{succeeded} succeeded, {unconfirmed} unconfirmed, {failed} failed",
     "date": "Enter a date as YYYY-MM-DD."
   },
   "offer_matches": {

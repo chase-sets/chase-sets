@@ -466,11 +466,14 @@ async fn platform(State(stand): State<Stand>, method: Method, uri: Uri, headers:
             "guest" => actor(&["guest-checkout.manage"]),
             // An account that sees items as a seller and may take offers.
             "trader" => actor(&["offers.view", "listings.view", "offers.manage"]),
+            // A trader whose market-following policies cannot be listed (503).
+            "offers_dark" => actor(&["offers.view", "listings.view", "offers.manage"]),
             // An account that may save Watch alerts.
             "watcher" | "notices_down" => actor(&["accounts.view"]),
             // Sellers who may list at a price: `lister` has a Listing stock location, `starter` has
-            // none until its ship-from setup is saved.
-            "lister" | "starter" => actor(&["listings.view", "listings.manage", "offers.view"]),
+            // none until its ship-from setup is saved. `lister_ended`'s session ends before its bulk
+            // change is sent.
+            "lister" | "starter" | "lister_ended" => actor(&["listings.view", "listings.manage", "offers.view"]),
             // A seller who may read its listings but not change them.
             "lookout" => actor(&["listings.view"]),
             // The account's orders: `shopper` buys and may cancel, `merchant` sells too, `looker`
@@ -597,6 +600,9 @@ async fn platform(State(stand): State<Stand>, method: Method, uri: Uri, headers:
     if let Some(answer) = offer_matches(&method, uri.path()) {
         return answer;
     }
+    if let Some(answer) = offer_policies(session, &method, &uri, &body) {
+        return answer;
+    }
     if let Some(answer) = submitted_offers(&method, &uri, &headers, &body) {
         return answer;
     }
@@ -645,12 +651,15 @@ async fn platform(State(stand): State<Stand>, method: Method, uri: Uri, headers:
         return rollups(rest);
     }
     if uri.path() == "/api/realtime/public/events" || uri.path() == "/api/realtime/account/events" {
-        return realtime();
+        return realtime(&uri);
     }
     if let Some(answer) = search(&uri) {
         return answer;
     }
     if let Some(answer) = sitemaps(&uri) {
+        return answer;
+    }
+    if let Some(answer) = bulk_cart(&stand, session, &method, &uri, &headers, &body) {
         return answer;
     }
     if let Some(id) = uri.path().strip_prefix(ITEMS) {
@@ -1763,6 +1772,86 @@ fn search(uri: &Uri) -> Option<Response> {
     Some(Json(page).into_response())
 }
 
+const BULK_PREVIEW: &str = "/api/marketplace/items/bulk-cart-preview";
+const ACCOUNT_CART_BULK: &str = "/api/marketplace/account/cart/bulk";
+const GUEST_CART_BULK: &str = "/api/marketplace/guest/cart/bulk";
+
+/// Add matching products to Buy Cart, as the stand-in answers it. The preview's words say what it
+/// finds: `broken` fails, `lots` is over the limit, `none` names no product in full; any other is
+/// Card 1 and Card 3, with Card 2 needing its options, each line's product named for the words.
+/// The add keeps its attempt, Card 1 added and Card 3 merged, at position 14: `partial`'s Card 3
+/// has no listing, `refused`'s add is refused, and `lost`'s answer is lost with nothing kept. The
+/// `stale` session's add asks for a sign-in.
+fn bulk_cart(stand: &Stand, session: &str, method: &Method, uri: &Uri, headers: &HeaderMap, body: &str) -> Option<Response> {
+    let path = uri.path();
+    if path == BULK_PREVIEW && *method == Method::GET {
+        let sent = query(&uri.to_string());
+        let words = sent.get("search").map_or("", String::as_str);
+        let line = |n: u32| {
+            json!({
+                "catalog_item_id": format!("cat_{n}"), "slug": format!("card-{n}"), "title": format!("Card {n}"),
+                "subtitle": "Base Set", "product_id": format!("cat_{n}::{words}"), "image_url": format!("/img/{n}.png"),
+                "image_srcset": null, "image_loading_url": null, "image_loading_alt": null, "image_loading_srcset": null,
+                "product_summary": "Raw / Near Mint", "quantity": 1,
+                "selected_options": [{ "dimensionId": "dim_condition", "optionId": "chc_nm" }],
+            })
+        };
+        let skipped = json!([{
+            "catalog_item_id": "cat_2", "slug": "card-2", "title": "Card 2",
+            "message": "Card 2 needs product options before it can be added.", "reason": "product-options-required",
+        }]);
+        let preview = |eligible: u64, over: bool, lines: Vec<Value>, skipped: Value| {
+            let skipped_count = skipped.as_array().map_or(0, Vec::len);
+            json!({
+                "totalMatches": eligible + skipped_count as u64, "eligibleCount": eligible, "skippedCount": skipped_count,
+                "overLimit": over, "limit": 250, "lines": lines, "skippedItems": skipped,
+            })
+        };
+        return Some(match words {
+            "broken" => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+            "lots" => Json(preview(300, true, Vec::new(), json!([]))).into_response(),
+            "none" => Json(preview(0, false, Vec::new(), skipped)).into_response(),
+            _ => Json(preview(2, false, vec![line(1), line(3)], skipped)).into_response(),
+        });
+    }
+    if *method != Method::POST || (path != ACCOUNT_CART_BULK && path != GUEST_CART_BULK) {
+        return None;
+    }
+    let guest = headers.get("x-checkout-anonymous-cart-id").and_then(|v| v.to_str().ok()).filter(|id| id.starts_with("anon_"));
+    if path == GUEST_CART_BULK && guest.is_none() {
+        return Some(refusal(StatusCode::BAD_REQUEST, "anonymous_cart_required", "A guest cart is required."));
+    }
+    if path == ACCOUNT_CART_BULK && session == "stale" {
+        return Some(refusal(StatusCode::UNAUTHORIZED, "unauthenticated", "Sign in."));
+    }
+    let sent: Value = serde_json::from_str(body).unwrap_or_default();
+    let attempt = sent["attemptId"].as_str().unwrap_or_default().to_owned();
+    let products: Vec<&str> = sent["lines"].as_array().into_iter().flatten().filter_map(|l| l["productId"].as_str()).collect();
+    if products.iter().any(|p| p.ends_with("::refused")) {
+        return Some(refusal(StatusCode::UNPROCESSABLE_ENTITY, "validation_failed", "Buy Cart is closed for changes."));
+    }
+    if products.iter().any(|p| p.ends_with("::lost")) {
+        return Some(StatusCode::SERVICE_UNAVAILABLE.into_response());
+    }
+    let vector: Vec<Value> = products
+        .iter()
+        .enumerate()
+        .map(|(index, product)| match index {
+            1 if product.ends_with("::partial") => json!({
+                "index": 1, "command": "add", "outcome": "conflict", "lineId": null, "status": null, "version": 0,
+                "message": "No listings are available.",
+            }),
+            _ => json!({
+                "index": index, "command": "add", "outcome": "succeeded", "lineId": format!("cli_{index}"),
+                "status": if index == 0 { "added" } else { "merged" }, "version": 1, "message": null,
+            }),
+        })
+        .collect();
+    let kept = json!({ "ownerStatus": "committed", "vector": vector, "commitReceipt": { "eventId": "evt_bulk", "globalPosition": "14" } });
+    stand.kept.lock().unwrap().insert(attempt, kept.clone());
+    Some(committed(StatusCode::OK, "checkout", "14", json!({ "status": "completed", "attempt": kept })))
+}
+
 /// A set's read, as the stand-in answers it: `base-set` (old slug `base`) with two of its three
 /// items, one listed; `empty-set` with none; `down` failing; any other unknown.
 fn set(slug: &str) -> Response {
@@ -1823,6 +1912,7 @@ fn public_listings(method: &Method, path: &str, headers: &HeaderMap) -> Option<R
             "seller_listing_availability_status": if away { "unavailable" } else { "available" },
             "seller_available_again_at": if away { json!("2026-11-08T00:00:00.000Z") } else { Value::Null },
             "seller_at_capacity": false, "created_at": "2026-10-24T03:55:32.446Z", "updated_at": "2026-10-24T03:55:33.413Z",
+            "google_shopping_structured_data_payload": shopping_payload(),
         })
     };
     Some(match rest {
@@ -3762,10 +3852,16 @@ const ITEM_PAGE: &str = "/items/charizard";
 
 const ROLLUPS: &str = "/api/marketplace/market-rollups/";
 
-/// The platform's realtime stream: a heartbeat, then one change to Charizard (a listing's
-/// patch), then the stream ends (the client connects again).
-fn realtime() -> Response {
-    let patch = r#"{"kind":"projection.patch","context":"discovery","projection":"discovery-market","topics":["item:cat_charizard"],"changes":[{"op":"upsert","entity":"discovery.marketListing","id":"lst_vault","value":{}}]}"#;
+/// The platform's realtime stream: a heartbeat, then one change, then the stream ends (the client
+/// connects again). On `public:market` the change is Card 3's market summary and a listing's;
+/// on any other topic it is a listing of Charizard's.
+fn realtime(uri: &Uri) -> Response {
+    let market = uri.query().is_some_and(|q| q.split('&').any(|p| p == "topic=public%3Amarket"));
+    let patch = if market {
+        r#"{"kind":"projection.patch","context":"discovery","projection":"discovery-market","topics":["public:market"],"changes":[{"op":"summary","entity":"discovery.marketSummary","id":"cat_3","value":{}},{"op":"upsert","entity":"discovery.marketListing","id":"lst_other","value":{}}]}"#
+    } else {
+        r#"{"kind":"projection.patch","context":"discovery","projection":"discovery-market","topics":["item:cat_charizard"],"changes":[{"op":"upsert","entity":"discovery.marketListing","id":"lst_vault","value":{}}]}"#
+    };
     let body = format!("id: c1\nevent: heartbeat\ndata: {{}}\nretry: 1000\n\nid: c2\nevent: projection.patch\ndata: {patch}\n\n");
     ([(header::CONTENT_TYPE, "text/event-stream")], body).into_response()
 }
@@ -4891,7 +4987,9 @@ async fn a_search_results_add_to_list_opens_the_dialog_for_the_product_its_filte
     // dialog, empty, for the answer.
     let (status, _, html) = pilot.send(get("/search?q=pika&dimension.dim_grade=chc_10", Some("watcher"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");
-    let form = html.split(r#"<form class="search-page__save" method="post" action="/items/card-1/save" data-patch>"#).nth(1);
+    // Its submit opens a closed dialog again (corten-run/corten#1371's workaround).
+    let save = r#"<form class="search-page__save" method="post" action="/items/card-1/save" data-patch data-on='submit:search.fresh("save-to-list")'>"#;
+    let form = html.split(save).nth(1);
     let form = form.expect("card 1's Add to List").split("</form>").next().unwrap();
     for field in [
         r#"<input type="hidden" name="dimension.dim_grade" value="chc_10">"#,
@@ -4979,6 +5077,241 @@ async fn a_guests_add_to_list_from_a_search_result_registers_back_to_the_search(
     let sent: Value = serde_json::from_str(&saved_list_calls(&pilot)[0].body).unwrap();
     assert_eq!((&sent["sourcePath"], &sent["sourceSurface"]), (&json!("/search?q=char"), &json!("search")));
     assert_eq!(sent["product"]["productId"], OFFERED);
+}
+
+/// Add matching products to Buy Cart's preview and add.
+const BULK: &str = "/search/cart";
+const BULK_ATTEMPT: &str = "4f1c2b9e-7d3a-4e8b-a1c0-1234567890ab";
+
+/// The bulk add's previews Discovery was asked for, as their queries.
+fn bulk_previews(pilot: &Pilot) -> Vec<HashMap<String, String>> {
+    let calls = pilot.stand.calls.lock().unwrap();
+    calls.iter().filter(|c| c.path.starts_with(BULK_PREVIEW)).map(|c| query(&c.path)).collect()
+}
+
+/// The bulk adds Checkout was sent.
+fn bulk_adds(pilot: &Pilot) -> Vec<Call> {
+    let calls = pilot.stand.calls.lock().unwrap();
+    calls.iter().filter(|c| c.path == ACCOUNT_CART_BULK || c.path == GUEST_CART_BULK).cloned().collect()
+}
+
+#[tokio::test]
+async fn add_matching_products_to_buy_cart_previews_what_the_search_would_add() {
+    let pilot = Pilot::new().await;
+    // A search with results offers it, a GET form with the search's parameters; the page has the
+    // sheet, empty, for its answer.
+    let (status, _, html) = pilot.send(get("/search?q=pika&dimension.dim_grade=chc_10", Some("watcher"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let trigger = r#"<form class="search-page__bulk" id="bulk-trigger" method="get" action="/search/cart" data-patch data-on='submit:search.fresh("bulk-cart")'>"#;
+    let form = html.split(trigger).nth(1);
+    let form = form.expect("the bulk add's form").split("</form>").next().unwrap();
+    for field in
+        [r#"<input type="hidden" name="q" value="pika">"#, r#"<input type="hidden" name="dimension.dim_grade" value="chc_10">"#]
+    {
+        assert!(form.contains(field), "{field}: {form}");
+    }
+    // Its button is in the control bar, its fields after the filters, whose focus they would take.
+    let button =
+        r#"<button type="submit" class="search-page__secondary" form="bulk-trigger">Add matching products to Buy Cart</button>"#;
+    let (bar, after) = html.split_once(button).expect("the bulk add's button");
+    assert!(!bar.contains(r#"id="search-filters""#), "the button is above the filters: {html}");
+    assert!(
+        after.find(r#"id="search-filters""#).unwrap() < after.find(r#"id="bulk-trigger""#).unwrap(),
+        "the form's fields come after the filters: {html}"
+    );
+    assert!(html.contains(r#"<dialog id="bulk-cart" class="bulk-cart-sheet__dialog"></dialog>"#), "{html}");
+    assert!(bulk_previews(&pilot).is_empty(), "nothing is previewed until it is asked for");
+    // The landing and a failed search offer none.
+    for page in ["/", "/search?q=broken"] {
+        let (_, _, html) = pilot.send(get(page, Some("watcher"))).await;
+        assert!(!html.contains(r#"action="/search/cart""#), "{page}: {html}");
+    }
+
+    // With a script, the sheet, open: what the add would do, read for every match of the search.
+    let (status, headers, html) = pilot.send(get_patch("/search/cart?q=pika&dimension.dim_grade=chc_10")).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(headers.contains_key("corten-patch"), "a patch: {headers:?}");
+    assert!(
+        html.contains(r#"<dialog class="bulk-cart-sheet__dialog" id="bulk-cart" aria-labelledby="bulk-cart-title" open"#),
+        "{html}"
+    );
+    let sheet = text(&html);
+    for said in
+        ["Add matching products to Buy Cart", "2 ready, 1 need product options.", "Matches 3", "Ready 2", "Need options 1"]
+    {
+        assert!(sheet.contains(said), "{said}: {sheet}");
+    }
+    assert!(sheet.contains("Card 2 needs product options before it can be added."), "{sheet}");
+    let read = bulk_previews(&pilot).pop().unwrap();
+    assert_eq!((read["search"].as_str(), read["dimension.dim_grade"].as_str()), ("pika", "chc_10"), "{read:?}");
+    assert!(!read.contains_key("limit") && !read.contains_key("includeTotal"), "every match, as the API reads them: {read:?}");
+    // Add eligible products posts the search again with an attempt.
+    let add = html.split(r#"<form class="bulk-cart-sheet__add" method="post" action="/search/cart" data-patch>"#).nth(1);
+    let add = add.expect("Add eligible products").split("</form>").next().unwrap();
+    assert!(add.contains(r#"name="attempt""#) && add.contains(r#"<input type="hidden" name="q" value="pika">"#), "{add}");
+    assert!(add.contains(">Add eligible products</button>") && !add.contains("disabled"), "{add}");
+
+    // Without one, the search's page with the sheet open.
+    let (status, _, html) = pilot.send(get("/search/cart?q=pika", Some("watcher"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains(r#"id="bulk-cart" aria-labelledby="bulk-cart-title" open"#), "{html}");
+    assert!(html.contains(r#"<li id="result-1""#), "the results: {html}");
+
+    // On the home page, the form says so, for the add to go back to it.
+    let (_, _, html) = pilot.send(get("/?q=pika", Some("watcher"))).await;
+    let form = html.split(r#"id="bulk-trigger""#).nth(1).unwrap().split("</form>").next().unwrap();
+    assert!(form.contains(r#"<input type="hidden" name="home" value="true">"#), "{form}");
+    // On a category's page, the form sends its slug, which the preview reads.
+    let (_, _, html) = pilot.send(get("/categories/singles-x1?q=pika", Some("watcher"))).await;
+    let form = html.split(r#"id="bulk-trigger""#).nth(1).unwrap().split("</form>").next().unwrap();
+    assert!(form.contains(r#"<input type="hidden" name="category" value="singles-x1">"#), "{form}");
+    pilot.send(get_patch("/search/cart?q=pika&category=singles-x1")).await;
+    assert_eq!(bulk_previews(&pilot).pop().unwrap()["category"], "singles-x1");
+}
+
+#[tokio::test]
+async fn adding_matching_products_sends_one_cart_attempt_and_goes_back_to_the_search_saying_how_many() {
+    let pilot = Pilot::new().await;
+    let body = format!("q=pika&dimension.dim_grade=chc_10&attempt={BULK_ATTEMPT}");
+    let (status, headers, html) = pilot.send(post(BULK, "watcher", &body, false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
+    let to = headers[header::LOCATION].to_str().unwrap();
+    assert!(
+        to.starts_with("/search?q=pika&dimension.dim_grade=chc_10&after_write="),
+        "after the write, for the shell's count: {to}"
+    );
+    let notice = cookies_set(&headers).remove("__Host-corten-notice").expect("the notice");
+    assert!(notice.contains("m=1+added%2C+1+merged"), "{notice}");
+    // One attempt with every line the preview gave, for Smart Match to fill.
+    let adds = bulk_adds(&pilot);
+    assert_eq!(adds.len(), 1, "{adds:?}");
+    assert_eq!(adds[0].path, ACCOUNT_CART_BULK);
+    let sent: Value = serde_json::from_str(&adds[0].body).unwrap();
+    assert_eq!(sent["attemptId"], BULK_ATTEMPT);
+    assert_eq!(sent["lines"].as_array().map(Vec::len), Some(2), "{sent}");
+    assert_eq!(
+        sent["lines"][0],
+        json!({
+            "catalogItemId": "cat_1", "productId": "cat_1::pika", "itemTitle": "Card 1", "itemSubtitle": "Base Set",
+            "itemImageUrl": "/img/1.png", "itemImageSrcSet": null, "itemImageLoadingUrl": null, "itemImageLoadingAlt": null,
+            "itemImageLoadingSrcSet": null, "selectedOptions": [{ "dimensionId": "dim_condition", "optionId": "chc_nm" }],
+            "productSummary": "Raw / Near Mint", "quantity": 1, "fulfillmentMode": "optimize", "lockedListingId": null,
+        })
+    );
+    // The page it goes back to draws the shell's count after the write, and says how many.
+    let notice = notice.split(';').next().unwrap();
+    let (status, _, html) = pilot.send(with_cookie(to, &format!("chase_sets_session=watcher; {notice}"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(text(&html).contains("1 added, 1 merged"), "{html}");
+    let calls = pilot.stand.calls.lock().unwrap().clone();
+    assert!(calls.iter().any(|c| c.path == CART && waits_for(&c.headers).as_deref() == Some("14")), "the count waits for 14");
+    // With a script, the same, which the runtime follows; the form sent again is the same attempt.
+    let (status, headers, _) = pilot.send(post(BULK, "watcher", &body, true)).await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    assert!(headers["corten-location"].to_str().unwrap().starts_with("/search?q=pika&dimension.dim_grade=chc_10&after_write="));
+    let attempts: Vec<Value> =
+        bulk_adds(&pilot).iter().map(|c| serde_json::from_str::<Value>(&c.body).unwrap()["attemptId"].clone()).collect();
+    assert_eq!(attempts, [json!(BULK_ATTEMPT), json!(BULK_ATTEMPT)]);
+    // From a category, back to its page; from the home page, back to it; with Load more's rows,
+    // back to as many.
+    let (_, headers, _) =
+        pilot.send(post(BULK, "watcher", &format!("q=pika&category=singles-x1&attempt={BULK_ATTEMPT}"), false)).await;
+    assert!(headers[header::LOCATION].to_str().unwrap().starts_with("/categories/singles-x1?q=pika&after_write="), "{headers:?}");
+    let (_, headers, _) = pilot.send(post(BULK, "watcher", &format!("q=pika&home=true&attempt={BULK_ATTEMPT}"), false)).await;
+    assert!(headers[header::LOCATION].to_str().unwrap().starts_with("/?q=pika&after_write="), "{headers:?}");
+    let (_, headers, _) = pilot.send(post(BULK, "watcher", &format!("q=pika&more=24&attempt={BULK_ATTEMPT}"), false)).await;
+    assert!(headers[header::LOCATION].to_str().unwrap().starts_with("/search?q=pika&more=24&after_write="), "{headers:?}");
+    assert!(bulk_previews(&pilot).iter().all(|read| !read.contains_key("more")), "the preview reads every match");
+}
+
+#[tokio::test]
+async fn a_bulk_add_after_the_session_ended_signs_in_back_to_the_search() {
+    let pilot = Pilot::new().await;
+    let (status, headers, _) = pilot.send(post(BULK, "stale", &format!("q=pika&attempt={BULK_ATTEMPT}"), false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert_eq!(headers[header::LOCATION], "/sign-in?returnTo=%2Fsearch%3Fq%3Dpika");
+    assert!(cart_lookups(&pilot).is_empty(), "a refusal is not a lost answer");
+}
+
+#[tokio::test]
+async fn a_guests_bulk_add_goes_to_a_guest_cart_the_browser_keeps() {
+    let pilot = Pilot::new().await;
+    let (status, headers, html) = pilot.send(post_signed_out(BULK, &format!("q=pika&attempt={BULK_ATTEMPT}"))).await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
+    let add = bulk_adds(&pilot).pop().expect("the add");
+    assert_eq!(add.path, GUEST_CART_BULK);
+    let guest = add.headers["x-checkout-anonymous-cart-id"].to_str().unwrap().to_owned();
+    assert!(guest.starts_with("anon_"), "{guest}");
+    let kept = cookies_set(&headers).remove("chase_sets_anonymous_cart").expect("the guest cart's cookie");
+    assert!(kept.starts_with(&format!("chase_sets_anonymous_cart={guest};")), "{kept}");
+}
+
+#[tokio::test]
+async fn a_bulk_add_that_did_not_wholly_apply_says_so_in_its_sheet() {
+    let pilot = Pilot::new().await;
+    // Each case its own attempt: an attempt sent again is the one the API kept.
+    let attempt = |words: &str| format!("bulk-attempt-{words}-0123456789");
+    let sent = |words: &str| format!("q={words}&attempt={}", attempt(words));
+    // Some lines added: the counts, each line that was not, and Review Buy Cart.
+    let (status, headers, html) = pilot.send(post(BULK, "watcher", &sent("partial"), true)).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(headers.contains_key("corten-patch"), "{headers:?}");
+    let sheet = text(&html);
+    for said in ["Buy Cart updated", "Card 3: No listings are available.", "1 added, 0 merged", "1 products could not be added."]
+    {
+        assert!(sheet.contains(said), "{said}: {sheet}");
+    }
+    assert!(html.contains(r#"href="/account/cart">Review Buy Cart</a>"#), "{html}");
+    assert!(!sheet.contains("Add eligible products"), "{sheet}");
+    // Without a script, the search with it open, and the shell's count read after the add.
+    let (status, _, html) = pilot.send(post(BULK, "watcher", &sent("partial"), false)).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains(r#"id="bulk-cart" aria-labelledby="bulk-cart-title" open"#), "{html}");
+    let calls = pilot.stand.calls.lock().unwrap().clone();
+    assert!(calls.iter().any(|c| c.path == CART && waits_for(&c.headers).as_deref() == Some("14")), "the count waits for 14");
+
+    // Its answer lost: not known, so the same attempt again, never on its own.
+    let (status, _, html) = pilot.send(post(BULK, "watcher", &sent("lost"), true)).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{html}");
+    let sheet = text(&html);
+    assert!(sheet.contains("We couldn&#39;t confirm this bulk add"), "{sheet}");
+    assert!(html.contains(&format!(r#"<input type="hidden" name="attempt" value="{}">"#, attempt("lost"))), "{html}");
+    assert!(html.contains(">Send the same add again</button>") && !sheet.contains("Add eligible products"), "{html}");
+    // Refused: nothing added, with the API's reason, and the add offered again.
+    let (status, _, html) = pilot.send(post(BULK, "watcher", &sent("refused"), true)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    let sheet = text(&html);
+    assert!(sheet.contains("No products were added") && sheet.contains("Buy Cart is closed for changes."), "{sheet}");
+    assert!(sheet.contains("Add eligible products"), "{sheet}");
+
+    // Over the limit, or nothing named in full: the preview again, and nothing sent.
+    let before = bulk_adds(&pilot).len();
+    for (words, said) in [("lots", "Too many matches"), ("none", "0 ready, 1 need product options.")] {
+        let (status, _, html) = pilot.send(post(BULK, "watcher", &sent(words), true)).await;
+        assert_eq!(status, StatusCode::OK, "{html}");
+        assert!(text(&html).contains(said), "{said}: {html}");
+        assert!(html.contains(" disabled>Add eligible products</button>"), "{html}");
+    }
+    assert_eq!(bulk_adds(&pilot).len(), before, "nothing is added");
+    // A preview that fails says so, with or without a script.
+    let (status, _, html) = pilot.send(get_patch("/search/cart?q=broken")).await;
+    assert_eq!(status, StatusCode::BAD_GATEWAY, "{html}");
+    assert!(text(&html).contains("Could not add matching products"), "{html}");
+    let (status, _, html) = pilot.send(get("/search/cart?q=broken", Some("watcher"))).await;
+    assert_eq!(status, StatusCode::BAD_GATEWAY, "{html}");
+    assert!(html.contains(r#"id="bulk-cart" aria-labelledby="bulk-cart-title" open"#), "{html}");
+    assert!(text(&html).contains("Could not add matching products"), "{html}");
+
+    // Without a script, the lost and the refused add are the search with the sheet open.
+    for (words, status, said) in [
+        ("lost", StatusCode::CONFLICT, "We couldn&#39;t confirm this bulk add"),
+        ("refused", StatusCode::UNPROCESSABLE_ENTITY, "Buy Cart is closed for changes."),
+    ] {
+        let (answered, _, html) = pilot.send(post(BULK, "watcher", &sent(words), false)).await;
+        assert_eq!(answered, status, "{words}: {html}");
+        assert!(html.contains(r#"id="bulk-cart" aria-labelledby="bulk-cart-title" open"#), "{words}: {html}");
+        assert!(text(&html).contains(said) && html.contains(r#"<li id="result-1""#), "{words}: {html}");
+    }
 }
 
 const LIST: &str = "/items/charizard/list";
@@ -5332,6 +5665,34 @@ async fn a_change_to_the_item_draws_its_market_parts_again_and_a_reconnect_resum
         .map(|c| c.path.clone())
         .collect();
     assert_eq!(streams[1], "/api/realtime/public/events?topic=item%3Acat_charizard&cursor=c2");
+}
+
+#[tokio::test]
+async fn a_market_change_to_a_result_the_page_drew_draws_its_market_again() {
+    let pilot = Pilot::new().await;
+    let (_, _, html) = pilot.send(get("/categories/singles-x1?q=pika", None)).await;
+    let src = html.split(r#"<corten-live src=""#).nth(1).and_then(|s| s.split('"').next()).expect("the results' stream");
+    let src = src.replace("&amp;", "&");
+    assert!(src.starts_with("/search/live?q=pika&slug=singles-x1&item=cat_1&item=cat_2&"), "{src}");
+    assert_eq!(src.matches("&item=").count(), 24, "every row the page drew: {src}");
+    assert!(html.contains(r#"id="result-market-cat_3""#), "{html}");
+    let events = pilot.events(get(&src, None), 1).await;
+    assert_eq!(events.len(), 1, "one change, one redraw: {events:?}");
+    let (event, cursor, data) = &events[0];
+    assert_eq!((event.as_str(), cursor.as_str()), ("patch", "c2"));
+    // Only the result the change names, its price and intents, by its item; Add to List goes back
+    // to the category's page.
+    assert!(data.contains(r#"id="result-market-cat_3""#) && !data.contains(r#"id="result-market-cat_1""#), "{data}");
+    assert!(data.contains("$389.00") && data.contains(r#"href="/items/card-3?market=watch""#), "{data}");
+    assert!(data.contains(r#"name="from" value="/categories/singles-x1?q=pika""#), "{data}");
+    let calls = pilot.stand.calls.lock().unwrap().clone();
+    assert!(calls.iter().any(|c| c.path == "/api/realtime/public/events?topic=public%3Amarket"), "{calls:?}");
+    let reads: Vec<_> = calls.iter().filter(|c| c.path.starts_with("/api/marketplace/items?")).map(|c| c.path.clone()).collect();
+    assert_eq!(reads.len(), 2, "the page's read and the change's: {reads:?}");
+    assert_eq!(reads[0], reads[1], "the same search");
+    // A search with nothing found follows nothing.
+    let (_, _, html) = pilot.send(get("/search?q=broken", None)).await;
+    assert!(!html.contains("<corten-live"), "{html}");
 }
 
 #[tokio::test]
@@ -5880,6 +6241,123 @@ async fn a_listing_page_shows_the_listing_its_purchase_panel_and_its_seller() {
     assert!(html.contains(r#"href="/accounts/chase-sets#feedback">View account</a>"#), "{html}");
     assert!(html.contains(r#"<select name="reason" required>"#) && html.contains(r#"maxlength="1000""#), "{html}");
     assert!(!main_of(&html).contains(r#"role="status""#), "no notice in the page (the layout's toaster is after it): {html}");
+    assert!(!html.contains("application/ld+json"), "structured data is for the production marketplace only: {html}");
+}
+
+/// The stand-in listing's eligible Google Shopping payload, linking the production page.
+fn shopping_payload() -> Value {
+    json!({
+        "offerId": "cs-listing-lst_psa_8", "title": "Charizard Base Set PSA 8", "description": "A </script> Base Set Charizard.",
+        "link": "https://marketplace.chasesets.com/listings/psa-8", "imageLink": "https://assets.chasesets.com/catalog/charizard.webp",
+        "priceAmount": "749.00", "currencyCode": "USD", "availability": "in stock", "condition": "used",
+        "brand": "Pokemon", "productType": "Trading Cards",
+    })
+}
+
+/// The stand-in's listing with `change` made to it.
+fn shopping_listing(change: impl FnOnce(&mut Value)) -> crate::api::PublicListing {
+    let mut value = json!({
+        "listing_id": "lst_psa_8", "listing_slug": "psa-8", "account_id": "acc_chase", "catalog_catalog_item_id": "cat_charizard",
+        "product_id": "cat_charizard::psa8", "price_amount": "749.00", "price_currency_code": "USD", "status": "active",
+        "seller_display_name": "Chase Sets", "seller_listing_availability_status": "available",
+        "google_shopping_structured_data_payload": shopping_payload(),
+    });
+    change(&mut value);
+    serde_json::from_value(value).unwrap()
+}
+
+const LISTING_CANONICAL: &str = "https://marketplace.chasesets.com/listings/psa-8";
+
+#[test]
+fn a_production_listing_writes_its_product_and_offer_from_its_shopping_payload_that_nothing_can_end() {
+    use corten::prelude::*;
+    let product = crate::views::listing_json_ld(&shopping_listing(|_| {}), LISTING_CANONICAL).expect("an eligible listing");
+    assert_eq!(
+        product,
+        json!({
+            "@context": "https://schema.org", "@type": "Product", "name": "Charizard Base Set PSA 8",
+            "description": "A </script> Base Set Charizard.", "image": "https://assets.chasesets.com/catalog/charizard.webp",
+            "sku": "cs-listing-lst_psa_8", "brand": { "@type": "Brand", "name": "Pokemon" }, "category": "Trading Cards",
+            "offers": {
+                "@type": "Offer", "url": LISTING_CANONICAL, "priceCurrency": "USD", "price": "749.00",
+                "availability": "https://schema.org/InStock", "itemCondition": "https://schema.org/UsedCondition",
+                "seller": { "@type": "Organization", "name": "Chase Sets" },
+            },
+        })
+    );
+    let html = html! { <JsonLd value={&product} /> }.to_html();
+    let json =
+        html.strip_prefix(r#"<script type="application/ld+json">"#).and_then(|s| s.strip_suffix("</script>")).expect(&html);
+    assert!(!json.contains('<'), "{json}");
+    assert_eq!(serde_json::from_str::<Value>(json).unwrap(), product);
+}
+
+#[test]
+fn a_listings_availability_and_condition_follow_its_shopping_payload() {
+    let listing = shopping_listing(|l| {
+        l["google_shopping_structured_data_payload"]["availability"] = json!("out of stock");
+        l["google_shopping_structured_data_payload"]["condition"] = json!("new");
+    });
+    let offer = &crate::views::listing_json_ld(&listing, LISTING_CANONICAL).unwrap()["offers"];
+    assert_eq!(offer["availability"], "https://schema.org/OutOfStock");
+    assert_eq!(offer["itemCondition"], "https://schema.org/NewCondition");
+}
+
+#[test]
+fn a_listing_writes_no_product_unless_it_is_buyable_production_and_its_payload_is_its_own() {
+    let none = |change: fn(&mut Value), canonical: &str| {
+        assert_eq!(crate::views::listing_json_ld(&shopping_listing(change), canonical), None, "{canonical}");
+    };
+    none(|l| l["status"] = json!("paused"), LISTING_CANONICAL);
+    none(|l| l["seller_listing_availability_status"] = json!("unavailable"), LISTING_CANONICAL);
+    none(|_| {}, "https://marketplace.staging.chasesets.com/listings/psa-8");
+    none(|_| {}, "http://marketplace.chasesets.com/listings/psa-8");
+    none(
+        |l| l["google_shopping_structured_data_payload"]["link"] = json!("https://marketplace.chasesets.com/listings/other"),
+        LISTING_CANONICAL,
+    );
+    none(|l| l["price_amount"] = json!("700.00"), LISTING_CANONICAL);
+    none(|l| l["price_currency_code"] = json!("EUR"), LISTING_CANONICAL);
+    none(|l| l["price_currency_code"] = Value::Null, LISTING_CANONICAL);
+    none(|l| l["google_shopping_structured_data_payload"]["imageLink"] = json!(""), LISTING_CANONICAL);
+    none(|l| l["google_shopping_structured_data_payload"]["condition"] = json!("refurbished"), LISTING_CANONICAL);
+    none(|l| l["google_shopping_structured_data_payload"] = json!("not an object"), LISTING_CANONICAL);
+    none(|l| l["google_shopping_structured_data_payload"] = Value::Null, LISTING_CANONICAL);
+}
+
+#[tokio::test]
+async fn a_change_to_a_listing_draws_its_header_purchase_and_seller_again_and_not_its_report_form() {
+    let pilot = Pilot::new().await;
+    let (_, _, html) = pilot.send(get("/listings/psa-8", None)).await;
+    assert!(html.contains(r#"<corten-live src="/listings/psa-8/live/lst_psa_8"></corten-live>"#), "{html}");
+    let events = pilot.events(get("/listings/psa-8/live/lst_psa_8", None), 1).await;
+    assert_eq!(events.len(), 1, "one change, one redraw: {events:?}");
+    let (event, cursor, data) = &events[0];
+    assert_eq!((event.as_str(), cursor.as_str()), ("patch", "c2"));
+    for id in [r#"id="listing-head""#, r#"id="listing-buy""#, r#"id="listing-seller""#] {
+        assert!(data.contains(id), "{id}: {data}");
+    }
+    assert!(data.contains(r#"<form method="post" action="/listings/psa-8/buy">"#) && data.contains("$749.00"), "{data}");
+    assert!(!data.contains(r#"name="reason""#), "the report form keeps what was typed: {data}");
+    let calls = pilot.stand.calls.lock().unwrap().clone();
+    assert!(calls.iter().any(|c| c.path == "/api/realtime/public/events?topic=listing%3Alst_psa_8"), "the listing's topic only");
+    let reads = calls.iter().filter(|c| c.path == "/api/marketplace/listings/psa-8").count();
+    assert_eq!(reads, 2, "the page's read and the change's: {calls:?}");
+}
+
+#[tokio::test]
+async fn a_change_to_a_listing_the_read_no_longer_finds_says_it_is_not_found_and_ends_the_stream() {
+    let pilot = Pilot::new().await;
+    let events = pilot.events(get("/listings/nope/live/lst_gone", None), 3).await;
+    assert_eq!(events.iter().map(|(e, _, _)| e.as_str()).collect::<Vec<_>>(), ["patch", "end"], "{events:?}");
+    let (_, _, data) = &events[0];
+    assert!(data.contains(">Listing not found</h1>") && data.contains("This listing is not available right now."), "{data}");
+    assert!(data.contains(r#"id="listing-buy" class="listing-page__column" hidden"#) && !data.contains("/buy"), "{data}");
+
+    // A slug that now names another listing than the one the page was drawn for: not this one.
+    let events = pilot.events(get("/listings/psa-8/live/lst_other", None), 3).await;
+    assert_eq!(events.iter().map(|(e, _, _)| e.as_str()).collect::<Vec<_>>(), ["patch", "end"], "{events:?}");
+    assert!(events[0].2.contains(">Listing not found</h1>") && !events[0].2.contains("$749.00"), "{events:?}");
 }
 
 #[tokio::test]
@@ -6073,6 +6551,36 @@ async fn an_old_slug_or_id_moves_an_unknown_account_is_not_found_and_a_closed_on
     assert!(html.contains(r#"<meta name="robots" content="noindex" "#), "{html}");
     assert!(html.contains(">Chase Sets&#39;s marketplace profile isn&#39;t available right now.</p>"), "{html}");
     assert!(!html.contains("id=\"feedback\""), "a closed account shows no feedback: {html}");
+}
+
+#[tokio::test]
+async fn a_change_to_an_account_draws_its_standing_and_listings_again_and_not_its_feedback() {
+    let pilot = Pilot::new().await;
+    let (_, _, html) = pilot.send(get("/accounts/chase-sets?role=seller&page=2", None)).await;
+    assert!(html.contains(r#"<corten-live src="/accounts/acc_chase/live"></corten-live>"#), "{html}");
+    let events = pilot.events(get("/accounts/acc_chase/live", None), 1).await;
+    let (event, cursor, data) = &events[0];
+    assert_eq!((event.as_str(), cursor.as_str()), ("patch", "c2"));
+    assert!(data.contains(r#"id="account-head""#) && data.contains(r#"id="account-listings""#), "{data}");
+    assert!(data.contains(r#"href="/listings/psa-8">View listing</a>"#), "{data}");
+    assert!(!data.contains(r#"id="feedback""#) && !data.contains("/report"), "the feedback keeps its dialogs: {data}");
+    let calls = pilot.stand.calls.lock().unwrap().clone();
+    assert!(calls.iter().any(|c| c.path == "/api/realtime/public/events?topic=public-account%3Aacc_chase"), "{calls:?}");
+    assert!(calls.iter().any(|c| c.path == "/api/marketplace/accounts/acc_chase?limit=10&offset=0"), "{calls:?}");
+}
+
+#[tokio::test]
+async fn an_account_no_longer_active_or_found_replaces_the_page_and_ends_the_stream() {
+    let pilot = Pilot::new().await;
+    let events = pilot.events(get("/accounts/closed/live", None), 3).await;
+    assert_eq!(events.iter().map(|(e, _, _)| e.as_str()).collect::<Vec<_>>(), ["patch", "end"], "{events:?}");
+    let data = &events[0].2;
+    assert!(data.contains(r#"id="account-page""#) && data.contains(">Account unavailable</h1>"), "{data}");
+    let events = pilot.events(get("/accounts/acc_gone/live", None), 3).await;
+    assert_eq!(events.len(), 2, "{events:?}");
+    assert!(events[0].2.contains(">Account not found</h1>"), "{events:?}");
+    let (_, _, html) = pilot.send(get("/accounts/closed", None)).await;
+    assert!(!html.contains("corten-live"), "a closed account is not followed: {html}");
 }
 
 #[tokio::test]
@@ -9737,8 +10245,9 @@ fn attention_queue() -> Value {
 /// The seller's list of listings' calls, as the stand-in answers them. The page holds `lst_active`
 /// and `lst_draft` of 250 (two active, one draft, one paused); `lookout`'s metrics and open
 /// order count fail; a read that waits for 43 is still catching up. Turning listings off with
-/// the reason `bogus` is refused, as is an order capacity of 1000; pausing `lst_locked` is
-/// refused and `lst_broken` fails. Every other write applies at 51.
+/// the reason `bogus` is refused, as is an order capacity of 1000. In a batch, `lst_locked` is an
+/// error and `lst_unsure` unknown; a batch naming `lst_foreign` is refused, one naming
+/// `lst_broken` fails, and `lister_ended`'s ended. A batch applies at 50; every other write at 51.
 fn listing_list(session: &str, method: &Method, uri: &Uri, headers: &HeaderMap, body: &str) -> Option<Response> {
     const ACCOUNT: &str = "/api/marketplace/account";
     let path = uri.path().strip_prefix(ACCOUNT)?;
@@ -9823,10 +10332,31 @@ fn listing_list(session: &str, method: &Method, uri: &Uri, headers: &HeaderMap, 
             | "/order-capacity",
         )
         | ("DELETE", "/listing-availability/away-window" | "/order-capacity") => applied(),
-        ("POST", "/listings/lst_locked/pause") => {
-            refusal(StatusCode::BAD_REQUEST, "listing_command_rejected", "Listing cannot be paused from its current status.")
+        ("POST", "/listings/batch") => {
+            let ids: Vec<&str> =
+                sent["listingIds"].as_array().map(|ids| ids.iter().filter_map(Value::as_str).collect()).unwrap_or_default();
+            if session == "lister_ended" {
+                refusal(StatusCode::UNAUTHORIZED, "authentication_required", "Authentication required.")
+            } else if ids.contains(&"lst_broken") {
+                StatusCode::INTERNAL_SERVER_ERROR.into_response()
+            } else if ids.contains(&"lst_foreign") {
+                refusal(StatusCode::BAD_REQUEST, "id-invalid", "Listing batch targets are invalid.")
+            } else {
+                let items: Vec<Value> = ids
+                    .iter()
+                    .map(|id| {
+                        let outcome = match *id {
+                            "lst_locked" => "error",
+                            "lst_unsure" => "unknown",
+                            _ => "succeeded",
+                        };
+                        json!({ "targetId": id, "outcome": outcome, "version": 2 })
+                    })
+                    .collect();
+                let body = json!({ "batchId": sent["batchId"], "family": sent["family"], "items": items, "total": ids.len() });
+                committed(StatusCode::OK, "marketplace", "50", body)
+            }
         }
-        ("POST", "/listings/lst_broken/pause") => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
         _ => return None,
     })
 }
@@ -10416,34 +10946,76 @@ async fn while_a_setting_catches_up_the_list_shows_what_was_set() {
 }
 
 #[tokio::test]
-async fn pause_selected_writes_each_listing_once_and_shows_each_outcome() {
+async fn pause_selected_sends_the_checked_listings_as_one_batch_and_shows_each_outcome() {
     let pilot = Pilot::new().await;
-    let body = "intent=bulk-pause-listings&listingIds=lst_active&listingIds=lst_locked&listingIds=lst_active";
-    let (status, _, html) = pilot.send(post("/account/listings?status=active", "lister", body, false)).await;
+    // The bulk form is drawn with its batch id.
+    let (_, _, html) = pilot.send(get(LISTINGS, Some("lister"))).await;
+    let pause = html.find(r#"value="bulk-pause-listings""#).expect("Pause selected");
+    let form = &html[html[..pause].rfind("<form").unwrap()..pause];
+    assert!(form.contains(r#"name="attempt""#), "{form}");
+    let key = crate::recovery::new_attempt();
+    let body = format!(
+        "intent=bulk-pause-listings&attempt={key}&listingIds=lst_active&listingIds=lst_locked&listingIds=lst_unsure&listingIds=lst_active"
+    );
+    let (status, _, html) = pilot.send(post("/account/listings?status=active", "lister", &body, false)).await;
     assert_eq!(status, StatusCode::OK, "{html}");
     let page = text(&html);
-    assert!(page.contains("1 succeeded, 1 failed"), "{page}");
+    assert!(page.contains("1 succeeded, 1 unconfirmed, 1 failed"), "{page}");
     assert!(page.contains("Succeeded Listing lst_active"), "{page}");
-    assert!(page.contains("Failed Listing lst_locked This listing change is not available."), "{page}");
-    let writes = list_calls(&pilot, "/api/marketplace/account/listings/lst_");
-    assert_eq!(
-        writes,
-        [
-            "POST /api/marketplace/account/listings/lst_active/pause {}",
-            "POST /api/marketplace/account/listings/lst_locked/pause {}"
-        ]
+    assert!(page.contains("Failed Listing lst_locked Bulk listing action failed."), "{page}");
+    // An unknown outcome is not called a failure: it may have applied, and the page offers the
+    // same batch again.
+    assert!(page.contains("Unconfirmed Listing lst_unsure Not confirmed: this may have applied."), "{page}");
+    let again = html.find(">Send the same batch again</button>").expect("Send the same batch again");
+    let form = &html[html[..again].rfind("<form").unwrap()..again];
+    assert!(form.contains(&format!(r#"name="attempt" value="{key}""#)), "the same batch id: {form}");
+    assert!(!form.contains("data-submit"), "not a fresh attempt: {form}");
+    for id in ["lst_active", "lst_locked", "lst_unsure"] {
+        assert!(form.contains(&format!(r#"name="listingIds" value="{id}""#)), "{id}: {form}");
+    }
+    assert!(
+        form.contains(r#"value="bulk-pause-listings""#) && form.contains(r#"action="/account/listings?status=active""#),
+        "{form}"
     );
-    // The page is read after the write that applied, with the filters it was posted with.
+    // One batch, its id the form's, each listing once; no listing's own command.
+    let batch = format!(
+        r#"POST /api/marketplace/account/listings/batch {{"batchId":"{key}","family":"listing.pause","listingIds":["lst_active","lst_locked","lst_unsure"]}}"#
+    );
+    assert_eq!(list_calls(&pilot, "/api/marketplace/account/listings/batch"), [batch]);
+    assert!(list_calls(&pilot, "/api/marketplace/account/listings/lst_").is_empty());
+    // The page is read after the batch, with the filters it was posted with.
     let calls = pilot.stand.calls.lock().unwrap().clone();
     let read = calls.iter().rev().find(|c| c.path.starts_with("/api/marketplace/account/listings?")).unwrap();
     assert_eq!(read.path, "/api/marketplace/account/listings?limit=100&offset=0&status=active");
     assert_eq!(waits_for(&read.headers).as_deref(), Some("50"));
-    // Nothing checked, and a listing whose write fails.
+}
+
+#[tokio::test]
+async fn a_bulk_change_that_is_refused_fails_or_needs_a_sign_in_says_so() {
+    let pilot = Pilot::new().await;
+    // Nothing checked.
     let (status, _, html) = pilot.send(post(LISTINGS, "lister", "intent=bulk-withdraw-listings", false)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
     assert!(text(&html).contains("Check the listings to pause or withdraw first."), "{html}");
-    let (status, _, _) = pilot.send(post(LISTINGS, "lister", "intent=bulk-pause-listings&listingIds=lst_broken", false)).await;
+    assert!(list_calls(&pilot, "/api/marketplace/account/listings/batch").is_empty());
+    // A refused batch fails every listing it named, and a form without a batch id gets one.
+    let body = "intent=bulk-withdraw-listings&listingIds=lst_active&listingIds=lst_foreign";
+    let (status, _, html) = pilot.send(post(LISTINGS, "lister", body, false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    let page = text(&html);
+    assert!(page.contains("0 succeeded, 2 failed") && page.contains("Failed Listing lst_foreign"), "{page}");
+    let sent = list_calls(&pilot, "/api/marketplace/account/listings/batch");
+    let sent: Value = serde_json::from_str(sent[0].split_once(" {").map(|(_, b)| format!("{{{b}")).unwrap().as_str()).unwrap();
+    assert_eq!(sent["family"], "listing.withdraw");
+    assert!(crate::recovery::valid_attempt(sent["batchId"].as_str().unwrap()), "{sent}");
+    // A failure is the error page; an ended session signs in.
+    let body = "intent=bulk-pause-listings&listingIds=lst_broken";
+    let (status, _, _) = pilot.send(post(LISTINGS, "lister", body, false)).await;
     assert_eq!(status, StatusCode::BAD_GATEWAY);
+    let (status, headers, _) =
+        pilot.send(post(LISTINGS, "lister_ended", "intent=bulk-pause-listings&listingIds=lst_active", false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert!(headers["location"].to_str().unwrap().starts_with("/sign-in"), "{headers:?}");
 }
 
 #[tokio::test]
@@ -10772,6 +11344,344 @@ fn submitted_offers(method: &Method, uri: &Uri, headers: &HeaderMap, body: &str)
 }
 
 const SUBMITTED_OFFERS: &str = "/account/offers/submitted";
+
+/// A market-following policy as the API answers it.
+fn offer_policy(id: &str, status: &str, version: u64, authority: Option<Value>, preview: Option<Value>) -> Value {
+    json!({
+        "policyId": id, "status": status, "version": version, "currency": "USD",
+        "authority": authority, "preview": preview, "offerVersions": { "off_open": 3 },
+    })
+}
+
+/// Terms over one offer with its cap.
+fn policy_terms(offer: &str, cap: &str, bps: i64) -> Value {
+    json!({
+        "currency": "USD", "adjustmentBps": bps,
+        "offers": [{
+            "offerId": offer, "offerVersion": 5, "catalogItemId": "cat_char", "productId": "cat_char::form:raw",
+            "selectedOptions": [], "quantity": 1, "maximumUnitItemAmount": cap,
+        }],
+    })
+}
+
+/// The preview id the stand-in's previews carry.
+const PREVIEW_ID: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+
+/// A draft's preview of `terms`: `off_open` targeted at 16.50 against a Market Price of 17.00.
+fn policy_preview(terms: &Value) -> Value {
+    let outcome = json!({
+        "offerId": "off_open", "currentUnitItemAmount": "17.75",
+        "result": { "status": "target", "unitItemAmount": "16.50", "evidence": { "marketPrice": {
+            "amount": "17.00", "currencyCode": "USD", "estimateVersion": "mpe_7",
+            "freshUntil": "2026-11-13T18:00:00.000Z",
+        } } },
+    });
+    json!({ "previewId": PREVIEW_ID, "terms": terms, "outcomes": [outcome] })
+}
+
+/// Market following's calls, as the stand-in answers them. `bop_live` is active over `off_paused`
+/// at -1.5%, and every list names it, reading `off_open` at version 3, except `offers_dark`'s,
+/// which fail (503). A new policy's create answers its draft at 1 and its preview (`policy_preview`),
+/// unless the adjustment is -25% (`stale_preview`); `bop_new1` reads as that draft at 2, over
+/// `off_open` at -2% capped at 18.00. Authorize makes it active at 3, and Pause on `bop_live`
+/// answers it paused at 4. Stop on `bop_lost` and `bop_dark` has no answer (502): `bop_lost`'s
+/// attempt is found committed at 9, where the policy reads stopped, and `bop_dark`'s is not found.
+/// Any command on `bop_signed_out` asks for a sign-in (401); other commands are refused (422).
+fn offer_policies(session: &str, method: &Method, uri: &Uri, body: &str) -> Option<Response> {
+    const POLICIES: &str = "/api/marketplace/account/offer-policies";
+    const ATTEMPTS: &str = "/api/marketplace/mutation-attempts/";
+    let live = || offer_policy("bop_live", "active", 3, Some(policy_terms("off_paused", "20.00", -150)), None);
+    if let Some(attempt) = uri.path().strip_prefix(ATTEMPTS) {
+        let query = |key: &str| {
+            let raw = uri.query().unwrap_or_default().split('&').find_map(|p| p.strip_prefix(&format!("{key}=")))?;
+            Some(percent_encoding::percent_decode_str(raw).decode_utf8_lossy().into_owned())
+        };
+        let (Some(target), Some(hash)) = (query("target"), query("requestHash")) else {
+            return Some(refusal(StatusCode::BAD_REQUEST, "invalid_attempt", "Invalid attempt."));
+        };
+        if target != "bop_lost" || query("kind").as_deref() != Some("offer-policy.command") {
+            return Some(refusal(StatusCode::NOT_FOUND, "not_found", "Attempt not found."));
+        }
+        let key = json!({ "kind": "offer-policy", "id": target });
+        let fingerprint = crate::market_following::request_hash(&json!(["acc_buyer", "offer-policy.command", key, attempt]));
+        return Some(
+            Json(json!({
+                "schemaVersion": 1, "mutationKind": "offer-policy.command", "attemptKeyFingerprint": fingerprint,
+                "actorBinding": { "accountId": "acc_buyer" }, "target": key, "canonicalRequestHash": hash,
+                "ownerStatus": "committed", "ownerReceipt": { "id": "bop_lost", "version": 9 },
+            }))
+            .into_response(),
+        );
+    }
+    let rest = uri.path().strip_prefix(POLICIES)?;
+    let sent: Value = serde_json::from_str(body).unwrap_or_default();
+    Some(match (method.as_str(), rest) {
+        ("GET", "") if session == "offers_dark" => refusal(StatusCode::SERVICE_UNAVAILABLE, "unavailable", "Try again."),
+        ("GET", "") => {
+            Json(json!({ "items": [live()], "offerVersions": { "off_open": 3, "off_paused": 5 }, "nextCursor": null }))
+                .into_response()
+        }
+        ("GET", "/bop_live") => Json(live()).into_response(),
+        ("GET", "/bop_new1") => {
+            let preview = policy_preview(&policy_terms("off_open", "18.00", -200));
+            Json(offer_policy("bop_new1", "draft", 2, None, Some(preview))).into_response()
+        }
+        ("GET", "/bop_lost") => Json(offer_policy("bop_lost", "stopped", 9, None, None)).into_response(),
+        ("GET", _) => refusal(StatusCode::NOT_FOUND, "not_found", "Policy not found."),
+        ("POST", path) => {
+            let id = path.strip_prefix('/')?.strip_suffix("/commands")?;
+            if id == "bop_signed_out" {
+                return Some(refusal(StatusCode::UNAUTHORIZED, "unauthenticated", "Sign in."));
+            }
+            match sent["type"].as_str().unwrap_or_default() {
+                "CreateBuyerOfferPolicy" => Json(offer_policy(id, "draft", 1, None, None)).into_response(),
+                "PreviewBuyerOfferPolicy" if sent["terms"]["adjustmentBps"] == -2500 => {
+                    refusal(StatusCode::CONFLICT, "stale_preview", "The preview is stale.")
+                }
+                "PreviewBuyerOfferPolicy" => {
+                    Json(offer_policy(id, "draft", 2, None, Some(policy_preview(&sent["terms"])))).into_response()
+                }
+                "AuthorizeBuyerOfferPolicy" => {
+                    Json(offer_policy(id, "active", 3, Some(policy_terms("off_open", "18.00", -200)), None)).into_response()
+                }
+                "PauseBuyerOfferPolicy" if id == "bop_live" => {
+                    Json(offer_policy(id, "paused", 4, Some(policy_terms("off_paused", "20.00", -150)), None)).into_response()
+                }
+                "StopBuyerOfferPolicy" if matches!(id, "bop_lost" | "bop_dark") => {
+                    refusal(StatusCode::BAD_GATEWAY, "upstream_unavailable", "No answer.")
+                }
+                _ => refusal(StatusCode::UNPROCESSABLE_ENTITY, "invalid_authority", "Refused."),
+            }
+        }
+        _ => return None,
+    })
+}
+
+/// The commands the pilot sent to `policy`, as their bodies.
+fn policy_commands(pilot: &Pilot, policy: &str) -> Vec<String> {
+    let path = format!("/api/marketplace/account/offer-policies/{policy}/commands");
+    pilot
+        .stand
+        .calls
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|c| c.method == Method::POST && c.path == path)
+        .map(|c| c.body.clone())
+        .collect()
+}
+
+const POLICY_ATTEMPT: &str = "attempt_0123456789abcdefghij";
+
+#[tokio::test]
+async fn market_following_lists_the_policies_and_opens_one_with_its_steps() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get(SUBMITTED_OFFERS, Some("trader"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let page = text(&html);
+    assert!(page.contains("Market-following Offers Draft"), "{page}");
+    assert!(html.contains(r#"href="/account/offers/submitted?policy=bop_live""#), "{html}");
+    assert!(page.contains("Manage Active: off_paused"), "{page}");
+    // A new policy: only the open offer may be chosen, at version 0, under a new id.
+    assert!(html.contains(r#"action="/account/offers/submitted/following""#), "{html}");
+    assert!(
+        html.contains(r#"name="offerId" value="off_open""#) && !html.contains(r#"name="offerId" value="off_paused""#),
+        "{html}"
+    );
+    assert!(html.contains(r#"name="expectedVersion" value="0""#) && html.contains(r#"name="policyId" value="bop_"#), "{html}");
+    let calls = list_calls(&pilot, "/api/marketplace/account/offer-policies?");
+    assert!(calls.iter().any(|c| c.contains("offerId=off_open&offerId=off_paused&offerId=off_taken")), "{calls:?}");
+
+    // Opened: its authority, Pause and Stop, and the form at its terms.
+    let (status, _, html) = pilot.send(get("/account/offers/submitted?policy=bop_live", Some("trader"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let page = text(&html);
+    assert!(page.contains("Market-following Offers Active"), "{page}");
+    assert!(
+        page.contains("Offer off_paused. Product cat_char::form:raw. Quantity: 1. Maximum unit item amount: $20.00."),
+        "{page}"
+    );
+    assert!(html.contains(r#"name="step" value="pause""#) && html.contains(r#"name="step" value="stop""#), "{html}");
+    assert!(html.contains(r#"name="confirmStop" value="true" required"#), "{html}");
+    assert!(html.contains(r#"name="adjustment""#) && html.contains(r#"value="-1.5""#), "{html}");
+
+    // A reader without offers.manage sees the policies and no step.
+    let (_, _, html) = pilot.send(get(SUBMITTED_OFFERS, Some("lister"))).await;
+    assert!(text(&html).contains("Manage Active: off_paused") && !html.contains(r#"name="step""#), "{html}");
+    let (status, _, _) =
+        pilot.send(post("/account/offers/submitted/following", "lister", "step=pause&policyId=bop_live", false)).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn a_first_preview_creates_the_policy_and_authorize_needs_consent() {
+    let pilot = Pilot::new().await;
+    let here = "/account/offers/submitted/off_open/following";
+    let form = format!(
+        "step=preview&policyId=bop_new1&expectedVersion=0&attemptId={POLICY_ATTEMPT}&operationId=op_1&offerId=off_open&cap.off_open=18&adjustment=-2"
+    );
+    // Applied: the offer's page opens the draft at its own address, so reloading it reads again.
+    let opened = "/account/offers/submitted/off_open?policy=bop_new1";
+    let (status, headers, html) = pilot.send(post(here, "trader", &form, false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
+    assert_eq!(headers[header::LOCATION], opened);
+    let (status, _, html) = pilot.send(get(opened, Some("trader"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let page = text(&html);
+    assert!(page.contains("Review exact Offer authority Currency: USD. Adjustment: -2%."), "{page}");
+    assert!(page.contains("Market Price: $17.00. Estimate version: mpe_7."), "{page}");
+    assert!(page.contains("Proposed unit item amount: $16.50"), "{page}");
+    assert!(html.contains(&format!(r#"name="previewId" value="{PREVIEW_ID}""#)), "{html}");
+    assert!(html.contains(r#"name="consent" value="true" required"#), "{html}");
+    let sent = policy_commands(&pilot, "bop_new1");
+    assert_eq!(sent.len(), 2, "{sent:?}");
+    assert!(sent[0].contains(r#""type":"CreateBuyerOfferPolicy""#), "{}", sent[0]);
+    assert!(
+        sent[0].contains(r#""attemptId":"bop_new1______________""#) && sent[0].contains(r#""operationId":"create_bop_new1""#)
+    );
+    for part in [
+        r#""type":"PreviewBuyerOfferPolicy""#,
+        r#""expectedVersion":1"#,
+        r#""adjustmentBps":-200"#,
+        r#""maximumUnitItemAmount":"18.00""#,
+        r#""offerVersion":3"#,
+        r#""productId":"cat_pika::form:raw""#,
+        r#""selectedOptions":[{"dimensionId":"dim_form","optionId":"raw"}]"#,
+        r#""attemptId":"attempt_0123456789abcdefghij""#,
+    ] {
+        assert!(sent[1].contains(part), "{part} in {}", sent[1]);
+    }
+
+    // Authorize without consent is refused before the API; with it, the policy is active.
+    let authorize = format!(
+        "step=authorize&policyId=bop_new1&expectedVersion=2&attemptId={POLICY_ATTEMPT}&operationId=op_2&previewId={PREVIEW_ID}"
+    );
+    let (status, _, html) = pilot.send(post(here, "trader", &authorize, false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    assert!(text(&html).contains("Review your Offer controls"), "{html}");
+    assert_eq!(policy_commands(&pilot, "bop_new1").len(), 2);
+    let (status, headers, html) = pilot.send(post(here, "trader", &format!("{authorize}&consent=true"), false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
+    assert_eq!(headers[header::LOCATION], opened);
+    let sent = policy_commands(&pilot, "bop_new1");
+    assert!(sent[2].contains(&format!(r#""previewId":"{PREVIEW_ID}""#)) && sent[2].contains(r#""consent":true"#), "{}", sent[2]);
+}
+
+#[tokio::test]
+async fn a_refused_or_stale_preview_keeps_what_was_sent() {
+    let pilot = Pilot::new().await;
+    let here = "/account/offers/submitted/following";
+    let preview = |adjustment: &str| {
+        format!(
+            "step=preview&policyId=bop_new2&expectedVersion=0&attemptId={POLICY_ATTEMPT}&operationId=op_1&offerId=off_open&cap.off_open=18.5&adjustment={adjustment}"
+        )
+    };
+    // The evidence moved under the preview: said so, and the inputs kept.
+    let (status, _, html) = pilot.send(post(here, "trader", &preview("-25"), false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    assert!(text(&html).contains("The Offer or Market Price evidence changed."), "{html}");
+    assert!(html.contains(r#"value="18.5""#) && html.contains(r#"value="-25""#), "{html}");
+    // An adjustment above 0% is refused before the API.
+    let before = policy_commands(&pilot, "bop_new2").len();
+    let (status, _, html) = pilot.send(post(here, "trader", &preview("5"), false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    assert!(text(&html).contains("Check the selected Offers, matching currency and item limits"), "{html}");
+    assert_eq!(policy_commands(&pilot, "bop_new2").len(), before);
+    // Stop asks for its own confirmation.
+    let stop = format!("step=stop&policyId=bop_live&expectedVersion=3&attemptId={POLICY_ATTEMPT}&operationId=op_1");
+    let (status, _, _) = pilot.send(post(here, "trader", &stop, false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(policy_commands(&pilot, "bop_live").is_empty());
+}
+
+#[tokio::test]
+async fn a_step_with_no_answer_is_looked_up_once_and_an_unconfirmed_one_turns_the_steps_off() {
+    let pilot = Pilot::new().await;
+    let here = "/account/offers/submitted/following";
+    let stop = |policy: &str| {
+        format!("step=stop&policyId={policy}&expectedVersion=3&attemptId={POLICY_ATTEMPT}&operationId=op_3&confirmStop=true")
+    };
+    let (status, headers, html) = pilot.send(post(here, "trader", &stop("bop_lost"), false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
+    assert_eq!(headers[header::LOCATION], "/account/offers/submitted?policy=bop_lost");
+    let (_, _, html) = pilot.send(get("/account/offers/submitted?policy=bop_lost", Some("trader"))).await;
+    let page = text(&html);
+    assert!(page.contains("Market-following Offers Stopped") && page.contains("Stop is permanent."), "{page}");
+    let hash = crate::market_following::request_hash(
+        &json!({ "type": "StopBuyerOfferPolicy", "operationId": "op_3", "expectedVersion": 3 }),
+    );
+    let lookups = list_calls(&pilot, "/api/marketplace/mutation-attempts/");
+    assert_eq!(lookups.len(), 1, "{lookups:?}");
+    assert!(
+        lookups[0].contains(&format!("{POLICY_ATTEMPT}?kind=offer-policy.command&target=bop_lost&requestHash={hash}")),
+        "{lookups:?}"
+    );
+
+    // Nothing to find: the result could not be confirmed, and every step is off.
+    let (status, _, html) = pilot.send(post(here, "trader", &stop("bop_dark"), false)).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(text(&html).contains("We could not confirm the result."), "{html}");
+    assert!(html.contains(r#"type="submit" disabled"#), "{html}");
+    assert_eq!(list_calls(&pilot, "/api/marketplace/mutation-attempts/").len(), 2);
+}
+
+#[tokio::test]
+async fn pause_redirects_to_the_paused_policy_and_a_refused_one_keeps_the_page() {
+    let pilot = Pilot::new().await;
+    let here = "/account/offers/submitted/following";
+    let pause =
+        |policy: &str| format!("step=pause&policyId={policy}&expectedVersion=3&attemptId={POLICY_ATTEMPT}&operationId=op_4");
+    let (status, headers, html) = pilot.send(post(here, "trader", &pause("bop_live"), false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
+    assert_eq!(headers[header::LOCATION], "/account/offers/submitted?policy=bop_live");
+    let sent = policy_commands(&pilot, "bop_live");
+    assert_eq!(sent.len(), 1, "{sent:?}");
+    assert!(sent[0].contains(r#""type":"PauseBuyerOfferPolicy""#) && sent[0].contains(r#""expectedVersion":3"#), "{}", sent[0]);
+
+    // The API refuses it: said so on the page, the policy (gone) not opened.
+    let (status, _, html) = pilot.send(post(here, "trader", &pause("bop_other"), false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    assert!(text(&html).contains("Review your Offer controls"), "{html}");
+    assert_eq!(policy_commands(&pilot, "bop_other").len(), 1);
+
+    // The API asks for a sign-in.
+    let (status, headers, _) = pilot.send(post(here, "trader", &pause("bop_signed_out"), false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert!(headers[header::LOCATION].to_str().unwrap().starts_with("/sign-in?returnTo="), "{headers:?}");
+
+    // An offer's page opens a policy from its address too.
+    let (status, _, html) = pilot.send(get("/account/offers/submitted/off_open?policy=bop_live", Some("trader"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(text(&html).contains("Market-following Offers Active"), "{html}");
+}
+
+#[tokio::test]
+async fn a_failed_policies_read_is_the_pages_read_failure_and_a_bad_cap_makes_no_draft() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get(SUBMITTED_OFFERS, Some("offers_dark"))).await;
+    assert_eq!(status, StatusCode::BAD_GATEWAY, "{html}");
+    let (status, _, _) = pilot.send(get("/account/offers/submitted/off_open", Some("offers_dark"))).await;
+    assert_eq!(status, StatusCode::BAD_GATEWAY);
+
+    // A preview of a policy whose offers' versions cannot be read sends nothing, and is not a refusal.
+    let here = "/account/offers/submitted/following";
+    let preview = |policy: &str, version: u64, cap: &str| {
+        format!(
+            "step=preview&policyId={policy}&expectedVersion={version}&attemptId={POLICY_ATTEMPT}&operationId=op_5&offerId=off_open&cap.off_open={cap}&adjustment=-2"
+        )
+    };
+    let (status, _, _) = pilot.send(post(here, "offers_dark", &preview("bop_live", 3, "18"), false)).await;
+    assert_eq!(status, StatusCode::BAD_GATEWAY);
+    assert!(policy_commands(&pilot, "bop_live").is_empty());
+
+    // A cap the contract refuses is refused before a new policy's draft is made.
+    for cap in ["12.345", "0", "abc"] {
+        let (status, _, html) = pilot.send(post(here, "trader", &preview("bop_new3", 0, cap), false)).await;
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{cap}: {html}");
+        assert!(html.contains(&format!(r#"name="cap.off_open" inputmode="decimal" value="{cap}""#)), "{cap} kept: {html}");
+    }
+    assert!(policy_commands(&pilot, "bop_new3").is_empty());
+}
 
 #[tokio::test]
 async fn the_submitted_offers_show_each_offer_with_its_status_and_changes() {
@@ -11707,6 +12617,7 @@ fn repricing(stand: &Stand, session: &str, method: &Method, uri: &Uri, headers: 
         }
         ("GET", "/budget") => Json(json!({ "day": "2026-10-29", "changesUsed": 3 })).into_response(),
         ("GET", "/pol_1") => Json(repricing_policy_stand()).into_response(),
+        ("GET", "/pol_4") => Json(repricing_preset_stand()).into_response(),
         ("GET", "/pol_2") if waits_for(headers).as_deref() == Some("43") => refusal(StatusCode::NOT_FOUND, "not_found", "Not yet."),
         ("GET", "/pol_1/activity") => {
             let query = uri.query().unwrap_or_default();
@@ -11742,6 +12653,13 @@ fn repricing(stand: &Stand, session: &str, method: &Method, uri: &Uri, headers: 
         ("POST", "/pol_1/pause") => committed(StatusCode::OK, "pricing", "42", json!({})),
         ("POST", "/pol_1/delete") => committed(StatusCode::OK, "pricing", "44", json!({})),
         ("POST", "/pol_2/resume") => committed(StatusCode::OK, "pricing", "43", json!({})),
+        // A revise whose daily cap is 0 is refused with its details.
+        ("POST", "/pol_1/revise" | "/pol_4/revise") if serde_json::from_str::<Value>(body).ok()?["maxChangesPerDay"] == json!(0) => {
+            let details = json!([{ "path": "maxChangesPerDay", "message": "Allow at least one change a day." }]);
+            (StatusCode::UNPROCESSABLE_ENTITY, Json(json!({ "error": { "code": "validation_failed", "message": "Invalid policy.", "details": details } })))
+                .into_response()
+        }
+        ("POST", "/pol_1/revise" | "/pol_4/revise") => committed(StatusCode::OK, "pricing", "45", json!({})),
         ("POST", _) => refusal(StatusCode::CONFLICT, "policy_not_found", "That policy is gone."),
         _ => return None,
     })
@@ -11771,6 +12689,43 @@ fn repricing_policy_stand() -> Value {
                 "terminal": { "kind": "pause", "reason": "my own words" } } },
         ],
     })
+}
+
+/// `pol_4` as marketplace's editor writes Beat the lowest listing (knob 2, USD, a cost basis and
+/// fallback 4.00), its authoring intent bound.
+fn repricing_preset_stand() -> Value {
+    let floor = json!({ "mode": "cost-basis-plus-margin", "marginPercent": 10, "absoluteFallbackAmount": "4.00" });
+    let body = crate::repricing_body::compile_preset(
+        crate::repricing::Preset::Beat,
+        "Beat",
+        "USD",
+        floor,
+        2.0,
+        45,
+        json!({ "kind": "all-listings" }),
+    );
+    let mut policy = repricing_policy_stand();
+    for (key, value) in body.as_object().unwrap() {
+        policy[key] = value.clone();
+    }
+    policy["policyId"] = json!("pol_4");
+    policy
+}
+
+/// A form body of `pairs`, each name and value encoded.
+fn encoded(pairs: &[(&str, &str)]) -> String {
+    let encode = |text: &str| percent_encoding::utf8_percent_encode(text, percent_encoding::NON_ALPHANUMERIC).to_string();
+    pairs.iter().map(|(name, value)| format!("{}={}", encode(name), encode(value))).collect::<Vec<_>>().join("&")
+}
+
+/// The body a policy's editor drew, from its hidden field.
+fn drawn_body(html: &str) -> Value {
+    let at = html.find(r#"name="body" value=""#).expect("the editor's body") + r#"name="body" value=""#.len();
+    let raw = &html[at..at + html[at..].find('"').unwrap()];
+    serde_json::from_str(
+        &raw.replace("&quot;", "\"").replace("&#39;", "'").replace("&lt;", "<").replace("&gt;", ">").replace("&amp;", "&"),
+    )
+    .unwrap()
 }
 
 const BULK_API: &str = "/api/marketplace/account/bulk-reprice";
@@ -12246,7 +13201,8 @@ async fn a_policys_page_reads_the_policy_then_its_halt_changes_and_activity() {
             && html.contains(r#"value="engage-halt""#)
     );
     assert!(html.contains(r#"action="/account/desk/repricing/pol_1""#), "every write posts to the page");
-    assert!(html.contains("/account/desk/repricing/pol_1?edit=1"), "Edit opens marketplace's editor");
+    assert!(html.contains("/account/desk/repricing/pol_1?edit=open"), "Edit opens the page's editor");
+    assert!(!html.contains("data-repricing-editor"), "the editor is closed until Edit opens it");
     let calls = pricing_calls(&pilot);
     let read = |path: &str| calls.iter().any(|(m, p, _)| *m == Method::GET && p == path);
     assert!(
@@ -12276,8 +13232,10 @@ async fn a_policys_page_reads_the_policy_then_its_halt_changes_and_activity() {
         !html.contains("pause-policy")
             && !html.contains("delete-policy")
             && !html.contains("engage-halt")
-            && !html.contains("edit=1")
+            && !html.contains("edit=open")
     );
+    let (_, _, html) = pilot.send(get(&format!("{page}?edit=open"), Some("price_reader"))).await;
+    assert!(!html.contains("data-repricing-editor"), "a reader's address does not open the editor");
     let (status, _, _) = pilot.send(post(page, "price_reader", "intent=pause-policy", false)).await;
     assert_eq!(status, StatusCode::FORBIDDEN);
     let (status, _, _) = pilot.send(get("/account/desk/repricing/pol_9", Some("pricer"))).await;
@@ -12322,6 +13280,255 @@ async fn a_policys_writes_go_back_to_it_with_their_receipt_and_delete_goes_to_th
 }
 
 #[tokio::test]
+async fn a_policys_edit_opens_its_editor_in_the_controls_its_intent_says() {
+    let pilot = Pilot::new().await;
+    // A preset's policy opens in the preset's controls, drawn from its body.
+    let (status, _, html) = pilot.send(get("/account/desk/repricing/pol_4?edit=open", Some("pricer"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains(r#"data-repricing-editor="revise""#) && html.contains(r#"data-repricing-tier="preset""#), "{html}");
+    assert!(html.contains(r#"<option value="beat-lowest" selected>"#), "the preset");
+    assert!(html.contains(r#"name="knob" value="2""#) && html.contains(r#"name="fallback" value="4.00""#), "{html}");
+    assert!(html.contains(r#"value="open-up""#) && html.contains(r#"value="revise-policy""#));
+    assert!(!html.contains("data-repricing-activate"), "a revise saves without a preview");
+    assert_eq!(drawn_body(&html)["authoringIntent"]["source"]["preset"], json!("beat-lowest"));
+
+    // A custom policy of two rules opens in the advanced editor, its rows named by rule and place;
+    // a Pricing Goal a seller may not choose says so, and no simple controls are offered.
+    for address in ["/account/desk/repricing/pol_1?edit=open", "/account/desk/repricing/pol_1?edit=1"] {
+        let (status, _, html) = pilot.send(get(address, Some("pricer"))).await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(html.contains(r#"data-repricing-tier="advanced""#), "{address}: {html}");
+        assert!(html.contains("data-repricing-unsupported-goal") && html.contains("data-repricing-custom"), "{html}");
+        assert!(html.contains(r#"name="conditions[0-1].value" value="2""#), "{html}");
+        assert!(html.contains(r#"name="anchors[0-0].source""#) && html.contains(r#"name="rules[1].terminalValue""#), "{html}");
+        assert!(html.contains(r#"data-repricing-anchor="1-0""#) && text(&html).contains("Pricing goal"), "{html}");
+        assert!(html.contains(r#"value="add-rule""#) && html.contains(r#"value="remove-condition:0:1""#), "{html}");
+    }
+    let calls = pricing_calls(&pilot);
+    let preview = calls.iter().find(|(m, p, _)| *m == Method::POST && p.ends_with("/scope-preview")).expect("the scope preview");
+    assert_eq!(
+        serde_json::from_str::<Value>(&preview.2).unwrap()["replacingPolicyId"],
+        json!("pol_4"),
+        "the preview replaces the policy"
+    );
+}
+
+#[tokio::test]
+async fn a_policys_editor_posts_draw_it_again_and_save_revises_the_policy() {
+    let pilot = Pilot::new().await;
+    let page = "/account/desk/repricing/pol_4";
+    let (_, _, html) = pilot.send(get(&format!("{page}?edit=open"), Some("pricer"))).await;
+    let body = drawn_body(&html).to_string();
+    let preset = |intent: &'static str, knob: &'static str| {
+        vec![
+            ("intent", intent),
+            ("tier", "preset"),
+            ("name", "Beat"),
+            ("preset", "beat-lowest"),
+            ("from", "beat-lowest"),
+            ("knob", knob),
+            ("currency", "USD"),
+            ("floor", "cost-basis-plus-margin"),
+            ("margin", "10"),
+            ("fallback", "4.00"),
+            ("scope", "all-listings"),
+        ]
+    };
+
+    // Save policy revises the policy with the preset's body and its intent, and reads the page
+    // after it.
+    let mut fields = preset("revise-policy", "3");
+    fields.push(("body", &body));
+    let (status, headers, html) = pilot.send(post(page, "pricer", &encoded(&fields), false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
+    assert!(headers[header::LOCATION].to_str().unwrap().starts_with("/account/desk/repricing/pol_4?after_write="));
+    let calls = pricing_calls(&pilot);
+    let (_, _, sent) = calls.iter().find(|(m, p, _)| *m == Method::POST && p.ends_with("/pol_4/revise")).expect("the revise");
+    let sent: Value = serde_json::from_str(sent).unwrap();
+    assert_eq!(sent["rules"][0]["directive"]["offset"], json!({ "mode": "percent", "percent": -3 }));
+    assert_eq!(sent["authoringIntent"]["source"], json!({ "kind": "preset", "preset": "beat-lowest", "knob": 3, "ageDays": 45 }));
+    assert_eq!(sent["name"], json!("Beat"));
+
+    // Open up this preset: one rule opens in the structured editor, which can go back.
+    let mut fields = preset("open-up", "2");
+    fields.push(("body", &body));
+    let (status, _, html) = pilot.send(post(page, "pricer", &encoded(&fields), false)).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains(r#"data-repricing-tier="structured""#) && html.contains("data-repricing-simple"), "{html}");
+    let opened = drawn_body(&html).to_string();
+
+    // A change to what the policy does drops the intent: no simple controls any more.
+    let fields = [
+        ("intent", "apply"),
+        ("tier", "structured"),
+        ("body", opened.as_str()),
+        ("rules[0].offset", "percent"),
+        ("rules[0].offsetValue", "-5"),
+    ];
+    let (_, _, html) = pilot.send(post(page, "pricer", &encoded(&fields), false)).await;
+    let changed = drawn_body(&html);
+    assert_eq!(changed["rules"][0]["directive"]["offset"]["percent"], json!(-5));
+    assert!(changed["authoringIntent"].is_null() && html.contains("data-repricing-custom"), "{html}");
+
+    // Return to simple controls from what the preset wrote.
+    let fields = [("intent", "simple"), ("tier", "structured"), ("body", opened.as_str())];
+    let (_, _, html) = pilot.send(post(page, "pricer", &encoded(&fields), false)).await;
+    assert!(html.contains(r#"data-repricing-tier="preset""#), "{html}");
+
+    // A refused save keeps what was posted, with Pricing's words.
+    let fields = [("intent", "revise-policy"), ("tier", "structured"), ("body", opened.as_str()), ("cap", "0")];
+    let (status, _, html) = pilot.send(post(page, "pricer", &encoded(&fields), false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(
+        text(&html).contains("Allow at least one change a day.") && drawn_body(&html)["maxChangesPerDay"] == json!(0),
+        "{html}"
+    );
+
+    // A post the editor cannot read opens it at the policy again.
+    let (status, _, html) = pilot.send(post(page, "pricer", "intent=apply&tier=advanced&body=nope", false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(html.contains(r#"data-repricing-tier="preset""#), "{html}");
+}
+
+#[tokio::test]
+async fn a_policys_editor_opens_up_only_a_complete_preset_and_keeps_choices_its_lists_do_not_offer() {
+    let pilot = Pilot::new().await;
+    let page = "/account/desk/repricing/pol_4";
+    let (_, _, html) = pilot.send(get(&format!("{page}?edit=open"), Some("pricer"))).await;
+    let body = drawn_body(&html).to_string();
+    let preset = |intent: &'static str, currency: &'static str, amount: &'static str| {
+        vec![
+            ("intent", intent),
+            ("tier", "preset"),
+            ("name", "Beat"),
+            ("preset", "beat-lowest"),
+            ("from", "beat-lowest"),
+            ("knob", "2"),
+            ("currency", currency),
+            ("floor", "absolute"),
+            ("amount", amount),
+        ]
+    };
+
+    // Open up this preset before its floor has an amount: the preset again, saying why.
+    let mut fields = preset("open-up", "USD", "");
+    fields.extend([("scope", "all-listings"), ("body", body.as_str())]);
+    let (status, _, html) = pilot.send(post(page, "pricer", &encoded(&fields), false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    assert!(html.contains(r#"data-repricing-tier="preset""#), "{html}");
+    assert!(text(&html).contains("The policy could not be accepted."), "{html}");
+
+    // A currency no listing prices in and a category the list does not offer stay chosen.
+    let mut fields = preset("apply", "EUR", "5.00");
+    fields.extend([("scope", "catalog-filter"), ("categories", "cat-9"), ("categories", "cat-1"), ("body", body.as_str())]);
+    let (status, _, html) = pilot.send(post(page, "pricer", &encoded(&fields), false)).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains(r#"<option value="EUR" selected>EUR</option>"#), "{html}");
+    assert!(html.contains(r#"value="cat-9" checked>"#) && html.contains(r#"value="cat-1" checked>"#), "{html}");
+
+    // In the advanced editor too: a condition's category and the scope's, drawn and posted back.
+    let mut fields = preset("open-up", "USD", "5.00");
+    fields.extend([("scope", "all-listings"), ("body", body.as_str())]);
+    let (_, _, html) = pilot.send(post(page, "pricer", &encoded(&fields), false)).await;
+    let mut opened = drawn_body(&html);
+    opened["scope"] = json!({ "kind": "catalog-filter", "categoryIds": ["cat-9"] });
+    let mut first = opened["rules"][0].clone();
+    first["conditions"] = json!([{ "type": "category", "categoryId": "cat-9" }]);
+    opened["rules"] = json!([first, opened["rules"][0].clone()]);
+    let opened = opened.to_string();
+    let fields = [("intent", "apply"), ("tier", "advanced"), ("body", opened.as_str())];
+    let (_, _, html) = pilot.send(post(page, "pricer", &encoded(&fields), false)).await;
+    assert!(html.contains(r#"<option value="cat-9" selected>cat-9</option>"#), "{html}");
+    assert!(html.contains(r#"value="cat-9" checked>"#), "{html}");
+    let drawn = drawn_body(&html).to_string();
+    let fields = [
+        ("intent", "apply"),
+        ("tier", "advanced"),
+        ("body", drawn.as_str()),
+        ("scope", "catalog-filter"),
+        ("categories", "cat-9"),
+        ("conditions[0-0].kind", "category"),
+        ("conditions[0-0].category", "cat-9"),
+    ];
+    let (_, _, html) = pilot.send(post(page, "pricer", &encoded(&fields), false)).await;
+    let kept = drawn_body(&html);
+    assert_eq!(kept["scope"]["categoryIds"], json!(["cat-9"]), "{html}");
+    assert_eq!(kept["rules"][0]["conditions"][0]["categoryId"], json!("cat-9"), "{html}");
+}
+
+#[tokio::test]
+async fn a_policys_advanced_editor_changes_its_rules_and_previews_them_in_place() {
+    let pilot = Pilot::new().await;
+    let page = "/account/desk/repricing/pol_1";
+    let (_, _, html) = pilot.send(get(&format!("{page}?edit=open"), Some("pricer"))).await;
+    let body = drawn_body(&html).to_string();
+    let with = |extra: &[(&'static str, &'static str)]| {
+        let mut fields = vec![("tier", "advanced"), ("body", body.as_str())];
+        fields.extend_from_slice(extra);
+        encoded(&fields)
+    };
+
+    // Add rule before default copies the default with a category condition; each button changes
+    // the rules' shape, answered with the editor drawn again.
+    let (status, _, html) = pilot.send(post(page, "pricer", &with(&[("op", "add-rule")]), false)).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let rules = drawn_body(&html)["rules"].clone();
+    assert_eq!(rules.as_array().unwrap().len(), 3);
+    assert_eq!(rules[1]["conditions"], json!([{ "type": "category", "categoryId": "" }]));
+    let (_, _, html) = pilot.send(post(page, "pricer", &with(&[("op", "remove-condition:0:0")]), false)).await;
+    assert_eq!(drawn_body(&html)["rules"][0]["conditions"], json!([{ "type": "quantity-at-least", "quantity": 2 }]));
+    let (_, _, html) = pilot.send(post(page, "pricer", &with(&[("op", "move-anchor-up:0:1")]), false)).await;
+    assert_eq!(drawn_body(&html)["rules"][0]["directive"]["anchorChain"][0], json!({ "source": "market-estimate" }));
+    let (_, _, html) = pilot.send(post(page, "pricer", &with(&[("op", "remove-rule:1")]), false)).await;
+    assert_eq!(drawn_body(&html)["rules"].as_array().unwrap().len(), 2, "the default rule stays");
+
+    // A changed choice starts that part again from its defaults; the controls draw over the body.
+    let fields = [
+        ("intent", "apply"),
+        ("conditions[0-0].kind", "schedule-window"),
+        ("anchors[0-0].source", "lowest-competing-ask"),
+        ("anchors[0-0].strata", "any"),
+        ("rules[1].ceiling", "none"),
+        ("rules[1].maxMove", "12"),
+    ];
+    let (_, _, html) = pilot.send(post(page, "pricer", &with(&fields), false)).await;
+    let drawn = drawn_body(&html);
+    assert_eq!(
+        drawn["rules"][0]["conditions"][0],
+        json!({ "type": "schedule-window", "daysOfWeek": [], "startTime": "", "endTime": "" })
+    );
+    assert_eq!(
+        drawn["rules"][0]["directive"]["anchorChain"][0],
+        json!({ "source": "lowest-competing-ask", "strata": "any", "band": { "ground": "market-estimate", "minPercentOfGround": null } })
+    );
+    assert!(drawn["rules"][1]["directive"]["ceiling"].is_null() && drawn["rules"][1]["directive"]["maxMovePercent"] == json!(12));
+    assert_eq!(drawn["rules"][1]["directive"]["anchorChain"][0]["source"], json!("curve-objective"), "a goal's anchor stays");
+
+    // Preview starts the dry run of the policy as it is now, replacing this one, and draws its part
+    // in the editor: no Activate, since Save policy revises it.
+    let (status, _, html) = pilot.send(post(page, "pricer", &with(&[("intent", "preview")]), false)).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let calls = pricing_calls(&pilot);
+    let (_, _, sent) = calls.iter().find(|(m, p, _)| *m == Method::POST && p.ends_with("/dry-runs")).expect("the dry run");
+    let sent: Value = serde_json::from_str(sent).unwrap();
+    assert_eq!(sent["replacingPolicyId"], json!("pol_1"));
+    assert_eq!(sent["rules"], serde_json::from_str::<Value>(&body).unwrap()["rules"]);
+    assert!(html.contains(r#"name="dryRun" value="repricing-dry-run:new""#) && html.contains("lst_1"), "{html}");
+    assert!(!html.contains("data-repricing-activate") && !html.contains("data-repricing-stale"), "{html}");
+
+    // With the runtime, the answer is the editor alone.
+    let (status, _, patch) = pilot.send(post(page, "pricer", &with(&[("intent", "apply")]), true)).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(patch.contains(r#"data-repricing-editor="revise""#) && !patch.contains("data-repricing-policy-settings"), "{patch}");
+
+    // A refused preview keeps the editor with Pricing's words.
+    let (status, _, html) =
+        pilot.send(post(page, "pricer", &with(&[("intent", "preview"), ("rules[0].amount", "0")]), false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(text(&html).contains("Floor must be above zero.") && html.contains(r#"data-repricing-tier="advanced""#), "{html}");
+}
+
+#[tokio::test]
 async fn the_halt_posts_its_change_and_goes_back_to_the_list() {
     let pilot = Pilot::new().await;
     let (status, headers, _) = pilot.send(post(REPRICING_SCREEN, "pricer", "intent=engage-halt", false)).await;
@@ -12360,8 +13567,12 @@ async fn the_editor_previews_the_compiled_preset_and_activates_only_its_own_prev
     );
     let calls = pricing_calls(&pilot);
     let (_, _, sent) = calls.iter().find(|(m, p, _)| *m == Method::POST && p.ends_with("/dry-runs")).expect("the dry run");
+    let mut sent = serde_json::from_str::<Value>(sent).unwrap();
+    // The preset's authoring intent, which opens the policy in these controls again.
+    let intent = sent.as_object_mut().unwrap().remove("authoringIntent").unwrap_or_default();
+    assert_eq!(intent["source"], json!({ "kind": "preset", "preset": "beat-lowest", "knob": 2, "ageDays": 45 }));
     assert_eq!(
-        serde_json::from_str::<Value>(sent).unwrap(),
+        sent,
         json!({ "name": "Beat", "scope": { "kind": "all-listings" }, "excludedListingIds": [], "maxChangesPerDay": 250,
           "rules": [ { "conditions": [], "directive": {
             "currencyCode": "USD",
@@ -17574,7 +18785,7 @@ async fn an_offer_whose_read_has_not_caught_up_says_it_is_preparing_and_reads_ag
     let receipt = platform::receipt::Receipt::of_metadata(Some("73"), &raw).unwrap().param();
     let to = {
         use corten::prelude::*;
-        let place = crate::submitted_offers::OfferPlace { after_write: Some(receipt) };
+        let place = crate::submitted_offers::OfferPlace { after_write: Some(receipt), policy: None };
         crate::app::url::SubmittedOffer { id: "off_open", place }.href()
     };
     let (status, _, html) = pilot.send(get(&to, Some("trader"))).await;
@@ -19199,7 +20410,7 @@ async fn a_search_results_picture_and_title_send_its_place_and_the_searchs_keys(
     let opened = format!(r#"data-on='click:rail_analytics.searchResult(1,"{QUERY_HASH}","{RESULT_SET_KEY}")'"#);
     // The picture's link and the title's, not Buy, Sell or Watch.
     assert_eq!(first.matches(&opened).count(), 2, "{first}");
-    assert_eq!(first.matches("data-on=").count(), 2, "{first}");
+    assert_eq!(first.matches("data-on='click:").count(), 2, "{first}");
     assert!(html.contains("rail_analytics.searchResult(24,"), "the 24th is 24: {html}");
     // The page loads the script.
     assert!(html.contains("rail_analytics"), "{html}");

@@ -9,6 +9,7 @@
 //! the seller is (`seller_listings::seller_zone`). The page's script counts the checked listings. One
 //! column on a phone; a listing's facts beside it from 64rem.
 use corten::{
+    SubmitKey,
     i18n::{Currency, DateStyle, Decimal, TimeStyle, parse_timestamp},
     prelude::*,
 };
@@ -21,7 +22,7 @@ use super::listing_page::options;
 use crate::{
     api::{FeeLockRow, ListingPage, ListingRow, SellerMetrics, StatusCounts},
     app::url,
-    seller_listings::{Filters, ListingsForm, ListingsScreen, Outcome, Place, REASONS, STATUSES},
+    seller_listings::{Bulk, Filters, ListingsForm, ListingsScreen, Place, REASONS, STATUSES, Settled},
     text::{Pilot, SellerListingsMsg},
 };
 
@@ -196,8 +197,8 @@ pub fn SellerListingsPage<'a>(t: SellerListingsMsg, p: Pilot, screen: &'a Listin
         <section class={Section} aria-labelledby="current-title">
             <h2 id="current-title" class={PartTitle}>{t.list_current_listings()}</h2>
             <FilterForm t={t} filters={filters} />
-            if let Some(outcomes) = &screen.outcomes {
-                <BulkResults t={t} outcomes={outcomes} />
+            if let Some(bulk) = &screen.bulk {
+                <BulkResults t={t} p={p} bulk={bulk} filters={&screen.filters} />
             }
             <BulkForm t={t} p={p} screen={screen} />
         </section>
@@ -603,25 +604,48 @@ fn FilterForm<'a>(t: SellerListingsMsg, filters: &'a Filters) -> impl Render {
     }
 }
 
-/// What a bulk Pause or Withdraw did to each listing.
+/// What a bulk Pause or Withdraw did to each listing, and, when one is not confirmed, the same
+/// batch to send again: its id as a plain field, not a fresh attempt, so the resend is that batch.
 #[component(css = SellerListingsPage)]
-fn BulkResults<'a>(t: SellerListingsMsg, outcomes: &'a [Outcome]) -> impl Render {
-    let succeeded = outcomes.iter().filter(|o| o.ok).count();
-    let failed = outcomes.len() - succeeded;
+fn BulkResults<'a>(t: SellerListingsMsg, p: Pilot, bulk: &'a Bulk, filters: &'a Filters) -> impl Render {
+    let outcomes = &bulk.outcomes;
+    let count = |state: Settled| outcomes.iter().filter(|o| o.state == state).count();
+    let (succeeded, unconfirmed) = (count(Settled::Succeeded), count(Settled::Unknown));
+    // Marketplace's count calls every listing that did not succeed failed; an unconfirmed one may
+    // have applied, so a batch with one says so apart.
+    let header = if unconfirmed == 0 {
+        let failed = outcomes.len() - succeeded;
+        t.list_bulk_action_results(crate::text::seller_listings_msg::ListBulkActionResults { succeeded, failed }).to_string()
+    } else {
+        let failed = outcomes.len() - succeeded - unconfirmed;
+        p.seller_listings_results_unconfirmed(crate::text::pilot::SellerListingsResultsUnconfirmed {
+            succeeded,
+            unconfirmed,
+            failed,
+        })
+        .to_string()
+    };
+    let f = ListingsForm::FIELDS;
     html! {
         <div class={(Card, Tinted)} role="status" tabindex="-1">
-            <p class={Strong}>
-                {t.list_bulk_action_results(crate::text::seller_listings_msg::ListBulkActionResults { succeeded, failed })}
-            </p>
+            <p class={Strong}>{header}</p>
             <ul class={Outcomes}>
                 for outcome in outcomes {
                     <li>
-                        <span class={Badge} data-tone={if outcome.ok { "success" } else { "danger" }}>
-                            if outcome.ok {
-                                {t.list_bulk_action_succeeded()}
-                            } else {
-                                {t.list_bulk_action_failed()}
-                            }
+                        <span
+                            class={Badge}
+                            data-tone={match outcome.state {
+                                Settled::Succeeded => "success",
+                                Settled::Conflict | Settled::Unknown => "warning",
+                                Settled::Failed => "danger",
+                            }}
+                        >
+                            {match outcome.state {
+                                Settled::Succeeded => t.list_bulk_action_succeeded(),
+                                Settled::Conflict => t.list_bulk_action_conflict(),
+                                Settled::Unknown => t.list_bulk_action_unknown(),
+                                Settled::Failed => t.list_bulk_action_failed(),
+                            }}
                         </span>
                         <span>{t.route_bulk_action_listing_label(&outcome.listing_id)}</span>
                         if let Some(message) = &outcome.message {
@@ -630,6 +654,17 @@ fn BulkResults<'a>(t: SellerListingsMsg, outcomes: &'a [Outcome]) -> impl Render
                     </li>
                 }
             </ul>
+            if let Some(resend) = &bulk.resend {
+                <form method="post" action={filters.here()}>
+                    <input type="hidden" name={f.attempt} value={&resend.batch_id}>
+                    for id in &resend.listing_ids {
+                        <input type="hidden" name={f.listing_ids} value={id}>
+                    }
+                    <button class={Button} type="submit" name={f.intent} value={resend.intent}>
+                        {p.seller_listings_send_again()}
+                    </button>
+                </form>
+            }
         </div>
     }
 }
@@ -651,6 +686,7 @@ fn BulkForm<'a>(t: SellerListingsMsg, p: Pilot, screen: &'a ListingsScreen) -> i
             on:reset={handlers::cleared(form, count, t.js().list_bulk_selected())}
             on:connect={handlers::picked(form, count, t.js().list_bulk_selected())}
         >
+            {SubmitKey::field(f.attempt)}
             <Rows t={t} p={p} page={&screen.page} filters={&screen.filters} />
             <div class={Bar}>
                 <output ref={count} class={Strong}></output>

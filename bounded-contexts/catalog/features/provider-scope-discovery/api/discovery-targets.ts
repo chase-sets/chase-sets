@@ -55,11 +55,12 @@ const DEFAULT_DISCOVERY_LANGUAGE = "en";
 export function listProviderScopeDiscoveryTargets(
   profileVersions: readonly CatalogProviderIntegrationProfileVersionRecord[],
   classifyTarget: ProviderScopeDiscoveryTargetClassifier,
+  options: Readonly<{ includeInactive?: boolean }> = {},
 ): readonly ProviderScopeDiscoveryTarget[] {
   const targets = new Map<string, ProviderScopeDiscoveryTarget>();
 
   for (const version of profileVersions) {
-    if (!version.active || version.lifecycle !== "active") {
+    if (!options.includeInactive && (!version.active || version.lifecycle !== "active")) {
       continue;
     }
     if (!version.profile.capabilities.includes("provider-option-query")) {

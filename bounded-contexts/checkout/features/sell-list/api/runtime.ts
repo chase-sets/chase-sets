@@ -47,6 +47,7 @@ import {
   loadCheckoutGuestSellListOfferReviews,
   loadCheckoutSellListCompositeReview,
   type CheckoutCommercialTermsResolver,
+  type CheckoutOfferAcceptanceTermsSource,
   type CheckoutSellListConfirmationRow,
   type CheckoutSellListLineRow,
   type CheckoutSellPayoutReadinessRow,
@@ -155,6 +156,7 @@ export type CheckoutSellListRuntimeDeps = Readonly<{
   checkpointStore: ProjectionCheckpointStore;
   db: PgQueryable;
   commercialTermsResolver?: CheckoutCommercialTermsResolver;
+  offerAcceptanceTermsSource?: CheckoutOfferAcceptanceTermsSource;
 }>;
 
 export type CheckoutSellListServices = Readonly<{
@@ -512,6 +514,7 @@ export function createCheckoutSellListRuntime(deps: CheckoutSellListRuntimeDeps)
         sellerAccountId,
         lines,
         includeStandardComparison: options.includeStandardComparison,
+        offerAcceptanceTermsSource: deps.offerAcceptanceTermsSource,
       });
     },
     loadGuestOfferReviews: async (ownerId) => {

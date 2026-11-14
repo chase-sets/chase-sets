@@ -52,4 +52,13 @@ describe("provider scope discovery targets", () => {
 
     expect(listProviderScopeDiscoveryTargets(inactiveOnly, classifyProviderScopeDiscoveryTarget)).toHaveLength(0);
   });
+
+  it("can inventory historical discovery units without making them refresh targets", () => {
+    const historical = catalogProviderIntegrationProfileVersions
+      .filter((version) => version.active && version.lifecycle === "active")
+      .map((version) => ({ ...version, active: false }));
+    expect(
+      listProviderScopeDiscoveryTargets(historical, classifyProviderScopeDiscoveryTarget, { includeInactive: true }),
+    ).toEqual(targets);
+  });
 });

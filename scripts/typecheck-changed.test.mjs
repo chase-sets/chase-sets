@@ -51,7 +51,7 @@ describe("typecheck:changed", () => {
     ).toThrowError(TypecheckChangedError);
   });
 
-  it("admits before writing the temporary program and removes it after compiler failure", async () => {
+  it("runs without heavy admission and removes the temporary program after compiler failure", async () => {
     const { root, workspace } = fixture();
     const order = [];
     let configPath;
@@ -61,8 +61,7 @@ describe("typecheck:changed", () => {
         env: { CHANGED_FILES_JSON: JSON.stringify(["bounded-contexts/settlement/src/changed.ts"]) },
         listWorkspaces: () => [workspace],
         acquireSlot: () => {
-          order.push("admit");
-          return true;
+          throw new Error("scoped typecheck must not acquire heavy admission");
         },
         runCompiler: (candidate) => {
           order.push("compile");
@@ -77,14 +76,14 @@ describe("typecheck:changed", () => {
         stderr: () => {},
       });
       expect(status).toBe(7);
-      expect(order).toEqual(["admit", "compile"]);
+      expect(order).toEqual(["compile"]);
       expect(existsSync(configPath)).toBe(false);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
   });
 
-  it("does not create a temporary program after admission refusal", async () => {
+  it("runs the scoped program even when a slot client would refuse admission", async () => {
     const { root, workspace } = fixture();
     try {
       const status = await runTypecheckChanged({
@@ -93,13 +92,12 @@ describe("typecheck:changed", () => {
         listWorkspaces: () => [workspace],
         acquireSlot: () => false,
         runCompiler: () => {
-          throw new Error("compiler must not run");
+          return 0;
         },
         stdout: () => {},
         stderr: () => {},
       });
-      expect(status).toBe(73);
-      expect(existsSync(path.join(root, ".tmp"))).toBe(false);
+      expect(status).toBe(0);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
@@ -124,7 +122,6 @@ describe("typecheck:changed", () => {
         repoRoot: root,
         env: { CHANGED_FILES_JSON: JSON.stringify(["bounded-contexts/settlement/src/changed.ts"]) },
         listWorkspaces: () => [workspace, untouched],
-        acquireSlot: () => true,
         runCompiler: (configPath) => {
           const tscPath = path.join(path.dirname(require.resolve("typescript")), "tsc.js");
           resolved = JSON.parse(
@@ -208,11 +205,11 @@ describe("typecheck:changed", () => {
           CHANGED_FILES_JSON: JSON.stringify(["package.json", "bounded-contexts/settlement/src/changed.ts"]),
         },
         listWorkspaces: () => [workspace],
-        acquireSlot: () => false,
+        runCompiler: () => 0,
         stdout: (message) => output.push(message),
         stderr: () => {},
       });
-      expect(status).toBe(73);
+      expect(status).toBe(0);
       expect(output).toContain(
         "[TYPECHECK_CHANGED_GLOBAL_INPUT] package.json; hosted Typecheck remains authoritative.",
       );

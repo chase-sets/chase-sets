@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
 import { runInNewContext } from "node:vm";
 import { parse as parseYaml } from "yaml";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { scrydexCacheCaptureUnits } from "../bounded-contexts/catalog/features/scope-sync-batches/domain/scrydex-cache-capture.ts";
 import {
   applyScrydexOptionRefreshRouteFence,
@@ -356,7 +356,7 @@ const runnerEnv = (workspace) => ({
   GH_TOKEN: "",
 });
 
-async function tsx(args, cwd, env) {
+async function tsx(args, cwd, env, onSpawn) {
   const argv = ["--import", import.meta.resolve("tsx"), ...args];
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, argv, {
@@ -364,7 +364,7 @@ async function tsx(args, cwd, env) {
       env,
       shell: false,
       windowsHide: true,
-      stdio: ["ignore", "pipe", "pipe"],
+      stdio: onSpawn ? ["ignore", "pipe", "pipe", "ipc"] : ["ignore", "pipe", "pipe"],
     });
     let stdout = "";
     let stderr = "";
@@ -376,6 +376,7 @@ async function tsx(args, cwd, env) {
     });
     child.on("error", reject);
     child.on("close", (code) => resolve({ code, stdout, stderr }));
+    onSpawn?.(child);
   });
 }
 
@@ -624,8 +625,8 @@ describe("independent artifact guards", () => {
     }
   }
 
-  async function guardInput(kind) {
-    const receipt = await fourAttemptReceipt();
+  async function guardInput(kind, baseReceipt) {
+    const receipt = baseReceipt === undefined ? await fourAttemptReceipt() : structuredClone(baseReceipt);
     if (kind === "schema") receipt.reason = "invalid reason\nprivate";
     if (kind === "credential") receipt.assumptions.push(secret);
     const serialized = JSON.stringify(receipt);
@@ -795,40 +796,78 @@ describe("independent artifact guards", () => {
     expect(completed).toBe(true);
   });
 
-  it("retains isolated writer import serialization and refusal output", async () => {
-    const workspace = await temporaryWorkspace();
-    const inputs = await Promise.all(
-      ["schema", "size", "credential"].map(async (kind) => ({
-        kind,
-        ...(await guardInput(kind)),
-        workspace: join(workspace, kind),
-      })),
-    );
-    await writeFile(join(workspace, "input.json"), JSON.stringify(inputs));
-    const script = join(workspace, "write.mjs");
-    await writeFile(
-      script,
-      `import {readFile} from ${JSON.stringify("node:fs/promises")};
+  describe("isolated writer", () => {
+    let inputs;
+    let child;
+    let result;
+
+    // Warm the real import once; the test starts all three writes over IPC.
+    beforeAll(async () => {
+      const startedAt = performance.now();
+      const workspace = await temporaryWorkspace();
+      const baseReceipt = await fourAttemptReceipt();
+      inputs = await Promise.all(
+        ["schema", "size", "credential"].map(async (kind) => ({
+          kind,
+          ...(await guardInput(kind, baseReceipt)),
+          workspace: join(workspace, kind),
+        })),
+      );
+      await writeFile(join(workspace, "input.json"), JSON.stringify(inputs));
+      const script = join(workspace, "write.mjs");
+      await writeFile(
+        script,
+        `import {readFile} from ${JSON.stringify("node:fs/promises")};
 import {writeRefreshArtifact} from ${JSON.stringify(runnerUrl.href)};
-const inputs = JSON.parse(await readFile(new URL('./input.json', import.meta.url)));
-for (const input of inputs) {
-  try { await writeRefreshArtifact(JSON.parse(input.serialized), input.env, input.workspace, input.options); }
-  catch (error) { console.error(error.message); process.exitCode = 1; }
-}`,
-    );
-    const result = await tsx([script], process.cwd(), runnerEnv(workspace));
-    expect(result.code, result.stderr.slice(0, 2000)).toBe(1);
-    expect(result.stdout).toBe("");
-    const lines = result.stderr
-      .trim()
-      .split(/\r?\n/)
-      .filter((line) => !line.includes("NO_COLOR") && !line.includes("trace-warnings"));
-    expect(lines, result.stderr.slice(0, 2000)).toHaveLength(inputs.length);
-    for (const [index, input] of inputs.entries()) {
-      assertRefusal(lines[index], input.kind);
-      await assertAbsent(join(input.workspace, scrydexOptionRefreshDiagnosticArtifactPath));
-      await assertAbsent(join(input.workspace, scrydexOptionRefreshArtifactPath));
-    }
+process.once('message', async () => {
+  const inputs = JSON.parse(await readFile(new URL('./input.json', import.meta.url)));
+  for (const input of inputs) {
+    try { await writeRefreshArtifact(JSON.parse(input.serialized), input.env, input.workspace, input.options); }
+    catch (error) { console.error(error.message); process.exitCode = 1; }
+  }
+  process.disconnect();
+});
+process.send('ready');`,
+      );
+      await new Promise((ready, reject) => {
+        result = tsx([script], process.cwd(), runnerEnv(workspace), (spawned) => {
+          child = spawned;
+          child.once("message", (message) => {
+            if (message === "ready") ready();
+            else reject(new Error("unexpected isolated writer readiness message"));
+          });
+        });
+        result.then(
+          ({ code, stderr }) => reject(new Error(`isolated writer exited before ready: ${code}\n${stderr}`)),
+          reject,
+        );
+      });
+      console.info(`isolatedWriterSetup elapsedMs=${(performance.now() - startedAt).toFixed(2)}`);
+    });
+
+    afterAll(async () => {
+      child?.kill();
+      await result;
+    });
+
+    it("retains isolated writer import serialization and refusal output", async () => {
+      const startedAt = performance.now();
+      child.send("write");
+      const output = await result;
+      expect(output.code, output.stderr.slice(0, 2000)).toBe(1);
+      expect(output.stdout).toBe("");
+      const lines = output.stderr
+        .trim()
+        .split(/\r?\n/)
+        .filter((line) => !line.includes("NO_COLOR") && !line.includes("trace-warnings"));
+      expect(lines, output.stderr.slice(0, 2000)).toHaveLength(inputs.length);
+      for (const [index, input] of inputs.entries()) {
+        assertRefusal(lines[index], input.kind);
+        await assertAbsent(join(input.workspace, scrydexOptionRefreshDiagnosticArtifactPath));
+        await assertAbsent(join(input.workspace, scrydexOptionRefreshArtifactPath));
+      }
+      console.info(`isolatedWriterRefusals elapsedMs=${(performance.now() - startedAt).toFixed(2)}`);
+    });
   });
 });
 

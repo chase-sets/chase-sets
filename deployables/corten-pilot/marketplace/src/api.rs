@@ -622,8 +622,14 @@ pub struct CartAttempt {
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CommandOutcome {
+    /// The command's place in what was sent (a bulk add's line).
+    #[serde(default)]
+    pub index: usize,
     /// `succeeded`, `conflict` or `error`.
     pub outcome: String,
+    /// What it did to the cart: `added` or `merged` for an add, among others.
+    #[serde(default)]
+    pub status: Option<String>,
     pub message: Option<String>,
 }
 
@@ -680,6 +686,12 @@ impl CartWrite {
     pub fn add_line(line: &impl Serialize, guest: Option<String>) -> Self {
         let body = serde_json::to_value(line).unwrap_or_default();
         CartWrite { path: "", kind: "cart.add-line", body, guest }
+    }
+
+    /// Many new lines in one attempt (`POST /account/cart/bulk`, or `/guest/cart/bulk`), each
+    /// line's outcome in the attempt's vector at its index.
+    pub fn add_lines(lines: &[serde_json::Value], guest: Option<String>) -> Self {
+        CartWrite { path: "/bulk", kind: "cart.add-lines", body: serde_json::json!({ "lines": lines }), guest }
     }
 
     /// The same write to the guest cart `guest` (`/guest/cart/commands`), or the account's.
@@ -2716,6 +2728,11 @@ pub struct PublicListing {
     pub seller_listing_availability_status: Option<String>,
     /// When an away seller's listings return; `None` for an indefinite away.
     pub seller_available_again_at: Option<String>,
+    /// The listing's eligible, live Google Shopping feed row
+    /// (`DiscoveryGoogleShoppingStructuredDataPayload`), which its Product JSON-LD is written
+    /// from. Kept as JSON: a payload of an unexpected shape writes no structured data rather than
+    /// failing the page.
+    pub google_shopping_structured_data_payload: Option<serde_json::Value>,
 }
 
 /// A page of search results (`GET /api/marketplace/items?..`, `DiscoverySearchResponse`), the
@@ -2850,6 +2867,47 @@ struct Categories {
     items: Vec<SearchCategory>,
 }
 
+/// What adding a search's results to the buy cart would add (`DiscoveryBulkCartPreview`): the
+/// lines it can add, each a product the result names in full, and the results it skips until
+/// their options are chosen. Over `limit` matches, nothing is added.
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BulkCartPreview {
+    pub total_matches: Option<u64>,
+    pub eligible_count: u64,
+    pub skipped_count: u64,
+    pub over_limit: bool,
+    pub limit: u64,
+    #[serde(default)]
+    pub lines: Vec<BulkCartLine>,
+    #[serde(default)]
+    pub skipped_items: Vec<BulkCartSkipped>,
+}
+
+/// A line the bulk add sends, as the preview gives it.
+#[derive(Clone, Debug, Deserialize)]
+pub struct BulkCartLine {
+    pub catalog_item_id: String,
+    pub product_id: String,
+    pub title: String,
+    pub subtitle: Option<String>,
+    pub image_url: Option<String>,
+    pub image_srcset: Option<String>,
+    pub image_loading_url: Option<String>,
+    pub image_loading_alt: Option<String>,
+    pub image_loading_srcset: Option<String>,
+    pub product_summary: Option<String>,
+    pub quantity: u64,
+    #[serde(default)]
+    pub selected_options: Vec<serde_json::Value>,
+}
+
+/// A result the bulk add leaves out: why, in a sentence that names it.
+#[derive(Clone, Debug, Deserialize)]
+pub struct BulkCartSkipped {
+    pub message: String,
+}
+
 /// Marketplace search's calls.
 pub trait Search {
     /// A page of results; `query` is the API's query string, without the `?`.
@@ -2860,11 +2918,18 @@ pub trait Search {
     async fn category(&self, slug: &str) -> Result<Option<SearchCategory>, ApiError>;
     /// The set with the slug (or an old one) and its first items; `None` when there is none.
     async fn set(&self, slug: &str) -> Result<Option<SetPage>, ApiError>;
+    /// What adding every result of `query` (a search's query string) to the buy cart would add
+    /// (`previewBulkAddSearchResults`).
+    async fn bulk_cart_preview(&self, query: &str) -> Result<BulkCartPreview, ApiError>;
 }
 
 impl Search for Caller<'_> {
     async fn search(&self, query: &str) -> Result<SearchResults, ApiError> {
         self.read(&format!("{ITEMS}?{query}"), DISCOVERY).await
+    }
+
+    async fn bulk_cart_preview(&self, query: &str) -> Result<BulkCartPreview, ApiError> {
+        self.read(&format!("{ITEMS}/bulk-cart-preview?{query}"), DISCOVERY).await
     }
 
     async fn categories(&self) -> Result<Vec<SearchCategory>, ApiError> {
@@ -5684,6 +5749,42 @@ pub enum ListingCommand {
     Withdraw,
 }
 
+/// The bulk changes a seller makes to many listings at once (`MarketplaceListingBatchFamily`'s
+/// listing families).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+pub enum BatchFamily {
+    #[serde(rename = "listing.pause")]
+    Pause,
+    #[serde(rename = "listing.withdraw")]
+    Withdraw,
+}
+
+/// One bulk Pause or Withdraw (`POST /account/listings/batch`): its batch id, which a retry sends
+/// again, and the listings.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ListingBatch<'a> {
+    pub batch_id: &'a str,
+    pub family: BatchFamily,
+    pub listing_ids: &'a [String],
+}
+
+/// What a batch came to (`MarketplaceListingBatchResult`): each listing's terminal outcome.
+#[derive(Clone, Debug, Default, Deserialize)]
+pub struct BatchResult {
+    #[serde(default)]
+    pub items: Vec<BatchItem>,
+}
+
+/// A listing's outcome in a batch: `succeeded`, or `conflict`, `error` or `unknown` (the only
+/// one a retry of the batch sends again).
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BatchItem {
+    pub target_id: String,
+    pub outcome: String,
+}
+
 /// Why a listing command was not applied.
 #[derive(Debug)]
 pub enum CommandError {
@@ -5708,6 +5809,10 @@ pub trait SellerListings {
     async fn seller_listing(&self, id: &str) -> Result<SellerListing, ApiError>;
     async fn fee_history(&self, id: &str) -> Result<Vec<FeeHistoryEntry>, ApiError>;
     async fn listing_command(&self, id: &str, command: &ListingCommand) -> Result<Option<Receipt>, CommandError>;
+    /// Pauses or withdraws many listings as one batch: each one's outcome, and the receipt the
+    /// next read waits for. Marketplace keeps each batch's outcomes, so the same batch sent again
+    /// sends only the listings whose outcome was unknown.
+    async fn listing_batch(&self, batch: &ListingBatch<'_>) -> Result<(BatchResult, Option<Receipt>), ApiError>;
     /// Adds photos to a draft, each with `alt_text` when there is one.
     async fn add_listing_photos(
         &self,
@@ -5812,6 +5917,10 @@ impl SellerListings for Caller<'_> {
             req = req.json(&body);
         }
         answer(req).await
+    }
+
+    async fn listing_batch(&self, batch: &ListingBatch<'_>) -> Result<(BatchResult, Option<Receipt>), ApiError> {
+        self.write(self.request(Method::POST, "/api/marketplace/account/listings/batch", MARKETPLACE).json(batch)).await
     }
 
     async fn add_listing_photos(
@@ -6192,6 +6301,9 @@ impl OfferMatchCalls for Caller<'_> {
 pub struct SubmittedOffer {
     pub offer_id: String,
     pub catalog_catalog_item_id: String,
+    /// The product it is for and the options that name it, which market following binds.
+    pub product_id: String,
+    pub selected_options: Vec<Selected>,
     pub item_title: String,
     pub item_subtitle: Option<String>,
     pub product_summary: Option<String>,
@@ -6304,6 +6416,139 @@ impl SubmittedOfferCalls for Caller<'_> {
         let (answer, receipt) =
             self.write::<BulkLifecycleAnswer>(self.request(Method::POST, &path, MARKETPLACE).json(&body)).await?;
         Ok((answer.items, receipt))
+    }
+}
+
+/// A buyer's market-following policy for submitted offers (`BuyerOfferPolicySnapshot`): its
+/// status (`draft`, `active`, `paused` or `stopped`), its version, the terms it is authorized
+/// for, the preview waiting for consent, and the offer versions it read.
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct OfferPolicy {
+    pub policy_id: Option<String>,
+    pub status: String,
+    pub version: u64,
+    pub currency: Option<String>,
+    pub authority: Option<PolicyTerms>,
+    pub preview: Option<PolicyPreview>,
+    pub offer_versions: BTreeMap<String, u64>,
+}
+
+impl OfferPolicy {
+    /// Its status, `draft` until the API says otherwise.
+    pub fn status(&self) -> &str {
+        if self.status.is_empty() { "draft" } else { &self.status }
+    }
+}
+
+/// What a policy may do (`BuyerOfferPolicyTerms`): the currency, the adjustment to the Market
+/// Price in basis points (0 to -2500), and each offer it may reprice, up to its cap.
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct PolicyTerms {
+    pub currency: String,
+    pub adjustment_bps: i64,
+    pub offers: Vec<PolicySelection>,
+}
+
+/// One offer of the terms (`BuyerOfferPolicySelection`), as the command sends it.
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct PolicySelection {
+    pub offer_id: String,
+    pub offer_version: u64,
+    pub catalog_item_id: String,
+    pub product_id: String,
+    pub selected_options: Vec<Selected>,
+    pub quantity: u64,
+    pub maximum_unit_item_amount: String,
+}
+
+/// A preview of terms (`BuyerOfferPolicyPreview`): the id consent names, and what each offer
+/// would do now.
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct PolicyPreview {
+    pub preview_id: String,
+    pub terms: PolicyTerms,
+    pub outcomes: Option<Vec<PolicyOutcome>>,
+}
+
+/// What a preview found for one offer (`BuyerOfferPolicyOutcome`): a `target` amount, or
+/// `held` with why, and the evidence it read (the Market Price among it).
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct PolicyOutcome {
+    pub offer_id: String,
+    pub result: PolicyResult,
+}
+
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct PolicyResult {
+    pub status: String,
+    pub unit_item_amount: Option<String>,
+    pub reason: Option<String>,
+    pub evidence: serde_json::Map<String, serde_json::Value>,
+}
+
+/// The account's policies for some offers (`GET /account/offer-policies?offerId=..`), with the
+/// offers' versions as the API read them.
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct OfferPolicies {
+    pub items: Vec<OfferPolicy>,
+    pub offer_versions: BTreeMap<String, u64>,
+}
+
+/// Market following's calls (marketplace's offer-policy client).
+pub trait OfferPolicyCalls {
+    /// The account's policies that name any of `offer_ids`, in an authority or a preview.
+    async fn offer_policies(&self, offer_ids: &[&str]) -> Result<OfferPolicies, ApiError>;
+    /// One of the account's policies.
+    async fn offer_policy(&self, id: &str) -> Result<OfferPolicy, ApiError>;
+    /// A command to a policy (`POST /account/offer-policies/{id}/commands`), as sent.
+    async fn command_offer_policy(&self, id: &str, command: &serde_json::Value) -> Result<OfferPolicy, ApiError>;
+    /// What became of a marketplace command's attempt (`GET /mutation-attempts/{id}`), unparsed.
+    async fn marketplace_attempt(
+        &self,
+        attempt: &str,
+        kind: &str,
+        target: &str,
+        request_hash: &str,
+    ) -> Result<serde_json::Value, ApiError>;
+}
+
+impl OfferPolicyCalls for Caller<'_> {
+    async fn offer_policies(&self, offer_ids: &[&str]) -> Result<OfferPolicies, ApiError> {
+        let query: Vec<String> = offer_ids.iter().map(|id| format!("offerId={}", segment(id))).collect();
+        self.read(&format!("{ACCOUNT}/offer-policies?{}", query.join("&")), MARKETPLACE).await
+    }
+
+    async fn offer_policy(&self, id: &str) -> Result<OfferPolicy, ApiError> {
+        self.read(&format!("{ACCOUNT}/offer-policies/{}", segment(id)), MARKETPLACE).await
+    }
+
+    async fn command_offer_policy(&self, id: &str, command: &serde_json::Value) -> Result<OfferPolicy, ApiError> {
+        let path = format!("{ACCOUNT}/offer-policies/{}/commands", segment(id));
+        Ok(self.write(self.request(Method::POST, &path, MARKETPLACE).json(command)).await?.0)
+    }
+
+    async fn marketplace_attempt(
+        &self,
+        attempt: &str,
+        kind: &str,
+        target: &str,
+        request_hash: &str,
+    ) -> Result<serde_json::Value, ApiError> {
+        let path = format!(
+            "/api/marketplace/mutation-attempts/{}?kind={}&target={}&requestHash={}",
+            segment(attempt),
+            segment(kind),
+            segment(target),
+            segment(request_hash)
+        );
+        self.read(&path, MARKETPLACE).await
     }
 }
 
@@ -6544,6 +6789,24 @@ pub struct RepricingScopePreview {
 pub struct RepricingPrerequisites {
     pub listing_currency_codes: Vec<String>,
     pub has_cost_basis: bool,
+    /// Which Pricing Goal versions a seller may choose (the Adoption Gate's `goalAdoption`).
+    pub goal_adoption: Vec<GoalAdoption>,
+}
+
+impl RepricingPrerequisites {
+    /// A seller may choose this Pricing Goal version now.
+    pub fn selectable(&self, goal_id: &str, goal_version: f64) -> bool {
+        self.goal_adoption.iter().any(|goal| goal.goal_id == goal_id && goal.goal_version == goal_version && goal.selectable)
+    }
+}
+
+/// A registered Pricing Goal version and whether a seller may choose it (`GoalAdoption`).
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct GoalAdoption {
+    pub goal_id: String,
+    pub goal_version: f64,
+    pub selectable: bool,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -6824,7 +7087,10 @@ pub trait RepricingCalls {
     /// `pause` or `resume` a policy.
     async fn repricing_lifecycle(&self, policy_id: &str, change: &str) -> Result<Option<Receipt>, PricingRefusal>;
     async fn set_repricing_halt(&self, engaged: bool) -> Result<Option<Receipt>, PricingRefusal>;
-    async fn repricing_policy(&self, id: &str) -> Result<RepricingPolicy, ApiError>;
+    /// The policy, and its JSON as Pricing answered it, which a revise edits.
+    async fn repricing_policy(&self, id: &str) -> Result<(RepricingPolicy, serde_json::Value), ApiError>;
+    /// Replaces the policy's body (`revise`).
+    async fn revise_repricing_policy(&self, id: &str, body: &serde_json::Value) -> Result<Option<Receipt>, PricingRefusal>;
     async fn repricing_budget(&self) -> Result<RepricingBudget, ApiError>;
     /// A page of the policy's activity under `filter`, after the listing `after`.
     async fn repricing_activity(
@@ -6899,8 +7165,19 @@ impl RepricingCalls for Caller<'_> {
         Ok(pricing_answer(req).await?.1)
     }
 
-    async fn repricing_policy(&self, id: &str) -> Result<RepricingPolicy, ApiError> {
-        self.read(&format!("{REPRICING}/{}", segment(id)), PRICING).await
+    async fn repricing_policy(&self, id: &str) -> Result<(RepricingPolicy, serde_json::Value), ApiError> {
+        let raw: serde_json::Value = self.read(&format!("{REPRICING}/{}", segment(id)), PRICING).await?;
+        let policy = serde_json::from_value(raw.clone()).map_err(|error| ApiError::Status {
+            status: StatusCode::BAD_GATEWAY,
+            code: None,
+            message: format!("a repricing policy the page cannot read: {error}"),
+        })?;
+        Ok((policy, raw))
+    }
+
+    async fn revise_repricing_policy(&self, id: &str, body: &serde_json::Value) -> Result<Option<Receipt>, PricingRefusal> {
+        let req = self.request(Method::POST, &format!("{REPRICING}/{}/revise", segment(id)), PRICING).json(body);
+        Ok(pricing_answer(req).await?.1)
     }
 
     async fn repricing_budget(&self) -> Result<RepricingBudget, ApiError> {

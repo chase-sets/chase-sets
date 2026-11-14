@@ -27,6 +27,7 @@ mod account_home_page;
 mod account_page;
 mod address_page;
 mod agents_page;
+mod bulk_cart_sheet;
 mod bulk_reprice_page;
 mod cart_item;
 mod channels_page;
@@ -43,6 +44,7 @@ mod item_detail;
 mod listing_new_page;
 mod listing_page;
 mod location_card;
+mod market_following;
 mod market_nav;
 mod money_page;
 mod notification_page;
@@ -60,6 +62,7 @@ mod payout_setup_page;
 mod pricing_health_page;
 mod recommendations_page;
 mod recovery;
+mod repricing_editor;
 mod repricing_page;
 mod reviews_page;
 mod save_dialog;
@@ -79,9 +82,10 @@ mod support_page;
 mod team_page;
 
 pub use account_home_page::AccountHomePage;
-pub use account_page::{AccountPage, FeedbackId, ReviewId};
+pub use account_page::{AccountPage, FeedbackId, ReviewId, account_live_parts};
 pub use address_page::AddressPage;
 pub use agents_page::{AgentConsentPage, AgentPage, AgentsPage};
+pub use bulk_cart_sheet::BulkCartSheet;
 pub use bulk_reprice_page::{BulkRepricePage, bulk_reprice_part};
 pub use cart_item::{
     AttemptBanner, CartHeading, CartIssue, CartItem, CartList, CartNotice, CartStack, CartTotals, CheckoutBar, CheckoutForm,
@@ -99,8 +103,11 @@ pub use inventory_item_page::{InventoryItemPage, refused_stock};
 pub use inventory_page::{CreateItemForm, InventoryPage, SaleForm, refused_item};
 pub use item_detail::{ItemDetail, breadcrumb_json_ld, item_image, item_live_parts, item_page, product_json_ld, purchase_limit};
 pub use listing_new_page::{ListingAccessRequired, NewListingPage, NewListingParts};
-pub use listing_page::{ListingNotice, ListingPage, fulfillment, grouped, listing_price, unbuyable};
+pub use listing_page::{
+    ListingGone, ListingNotice, ListingPage, fulfillment, grouped, listing_json_ld, listing_live_parts, listing_price, unbuyable,
+};
 pub use location_card::{ArchiveForm, CardList, CreateForm, LocationCard, UpdateForm};
+pub use market_following::MarketFollowing;
 pub use market_nav::{CartBadge, MarketNav};
 pub use money_page::{MoneyPage, PayoutPage, PayoutPreparing};
 pub use notification_page::{AlertsSection, FeedSection, NotificationPage, PreferenceSwitch, ProductAlertsId};
@@ -118,10 +125,11 @@ pub use payout_setup_page::{PayoutSetupAccessRequired, PayoutSetupPage};
 pub use pricing_health_page::PricingHealthPage;
 pub use recommendations_page::{RecommendationsPage, recommendations_notice, recommendations_part};
 pub use recovery::{Notice, Recovery, WriteForm, handlers};
+pub use repricing_editor::ReviseSection;
 pub use repricing_page::{RepricingPage, RepricingPolicyCatchingUp, RepricingPolicyPage, repricing_dry_run_part};
 pub use reviews_page::{ReviewAnchorId, ReviewPage, ReviewPreparing, ReviewsPage};
 pub use save_dialog::SaveDialog;
-pub use search_page::{LoadMore, ResultCard, ResultRows, ResultsId, SearchPage};
+pub use search_page::{LoadMore, ResultCard, ResultMarket, ResultRows, ResultsId, SearchPage};
 pub use security_page::SecurityPage;
 pub use sell_checkout_page::{SellCheckoutPage, SellConfirmationPage};
 pub use sell_list_page::SellListPage;
@@ -199,7 +207,8 @@ pub const ITEM: &[Component] = &[
 /// Search's components (the home page, `/search`, `/categories`, and `/sets` for its cards): its
 /// stylesheet, the script that applies a filter as it changes, the analytics a result's click
 /// sends, the kit's `VisuallyHidden` (search's hidden heading and legends, and the item page's
-/// chart summary), and Add to List's dialog with corten-ui's handler that makes it modal. In
+/// chart summary), Add to List's dialog and Add matching products to Buy Cart's sheet with
+/// corten-ui's handler that makes each modal. In
 /// `App::components`, since the home page is outside every area. The dialog is here rather than
 /// with the item page because a result's Add to List patches it into the search page from the
 /// item's handler (`/items/{slug}/save`), and a patch brings no stylesheet of its own
@@ -210,6 +219,7 @@ pub const SEARCH: &[Component] = &[
     item_detail::analytics::COMPONENT,
     platform::ui::visually_hidden::VisuallyHidden,
     SaveDialog,
+    BulkCartSheet,
     corten_ui::dialog::COMPONENT,
 ];
 
@@ -315,7 +325,10 @@ pub const BULK_REPRICE: &[Component] = &[BulkRepricePage, platform::ui::stats::S
 
 /// The seller's offer matches (`/account/offers/matches`), the list and a match's page.
 pub const OFFER_MATCHES: &[Component] = &[OfferMatchesPage];
-pub const SUBMITTED_OFFERS: &[Component] = &[SubmittedOffersPage, submitted_offers_page::handlers::COMPONENT];
+/// The buyer's submitted offers (`/account/offers/submitted`), with market following and the kit's
+/// Checkbox for its choices.
+pub const SUBMITTED_OFFERS: &[Component] =
+    &[SubmittedOffersPage, submitted_offers_page::handlers::COMPONENT, MarketFollowing, platform::ui::checkbox::Checkbox];
 
 /// The account's orders (`/account/purchases` and `/account/sales`).
 pub const ORDERS: &[Component] = &[OrderPage, OrderReviewPage];
@@ -508,6 +521,7 @@ pub async fn error_page(failure: Failure, req: Req, session: Option<Caller<Sessi
             (p.error_failed_title(), p.check_attempt())
         }
         Failure::WrongMethod
+        | Failure::UnknownMethod
         | Failure::Rejected { .. }
         | Failure::Failed { .. }
         | Failure::Panicked { .. }
