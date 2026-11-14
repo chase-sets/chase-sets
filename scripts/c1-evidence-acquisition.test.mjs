@@ -714,11 +714,11 @@ function admissionFixture() {
     apiVersion: "v1",
     kind: "Node",
     metadata: meta("node", {
-      labels: { "chase-sets.com/pool": "preview", "node.kubernetes.io/instance-type": "s-4vcpu-8gb" },
+      labels: { "chase-sets.com/pool": "preview", "node.kubernetes.io/instance-type": "s-8vcpu-16gb" },
     }),
     spec: { taints: [{ key: "chase-sets.com/preview-only", value: "true", effect: "NoSchedule" }] },
     status: {
-      allocatable: { cpu: "4", memory: "8Gi", pods: "110" },
+      allocatable: { cpu: "8", memory: "16Gi", pods: "110" },
       conditions: ["Ready", "MemoryPressure", "DiskPressure", "PIDPressure"].map((type) => ({
         type,
         status: type === "Ready" ? "True" : "False",
@@ -1632,6 +1632,12 @@ describe("producer inventory", () => {
 });
 
 describe("admission recheck", () => {
+  it("refuses the old preview slug while replacement nodes drain", async () => {
+    const f = admissionFixture();
+    f.bodies.nodes.items[0].metadata.labels["node.kubernetes.io/instance-type"] = "s-4vcpu-8gb";
+    expect(await f.run()).toMatchObject({ state: "REFUSED", reasons: ["INSTANCE_TYPE"] });
+  });
+
   it("retains admitted input bytes and the original UID across mutable producer references", async () => {
     const f = admissionFixture(),
       originalHash = f.input.admitted.sourceHash,
