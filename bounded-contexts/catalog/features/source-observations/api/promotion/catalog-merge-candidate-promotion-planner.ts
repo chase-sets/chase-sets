@@ -17,7 +17,7 @@ import type {
   CatalogMergeCandidateWarning,
 } from "../../domain/catalog-merge-candidate";
 import type { CatalogMergeCandidateListRow } from "../../read-model/queries";
-import { snapshotWithConflictResolutions } from "../../domain/catalog-merge-candidate-conflict-resolutions";
+import { snapshotWithConflictResolutions } from "../../domain/catalog-merge-candidate";
 import type { LocalizedTextMap } from "../../../../support/runtime-support/common";
 import type { ProductAssetSet } from "../../../../support/runtime-support/product-assets";
 import {

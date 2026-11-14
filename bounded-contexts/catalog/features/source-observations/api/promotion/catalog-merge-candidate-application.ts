@@ -22,6 +22,7 @@ import {
   decideCatalogMergeCandidate,
   evolveCatalogMergeCandidate,
   initialCatalogMergeCandidateState,
+  snapshotWithConflictResolutions,
   type CatalogMergeCandidateCommand,
   type CatalogMergeCandidateConflictResolution,
   type CatalogMergeCandidateEvent,
@@ -32,7 +33,6 @@ import {
   type CatalogMergeCandidateReviewSnapshot,
   type CatalogMergeCandidateState,
 } from "../../domain/catalog-merge-candidate";
-import { snapshotWithConflictResolutions } from "../../domain/catalog-merge-candidate-conflict-resolutions";
 import {
   assertCatalogIntegrationProfileUnitAllowed,
   type CatalogIntegrationRolloutControlPolicy,
