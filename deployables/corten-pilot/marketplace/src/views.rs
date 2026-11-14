@@ -333,7 +333,7 @@ pub const SUBMITTED_OFFERS: &[Component] =
     &[SubmittedOffersPage, submitted_offers_page::handlers::COMPONENT, MarketFollowing, platform::ui::checkbox::Checkbox];
 
 /// The account's orders (`/account/purchases` and `/account/sales`).
-pub const ORDERS: &[Component] = &[OrderPage, OrderReviewPage];
+pub const ORDERS: &[Component] = &[OrderPage, OrderReviewPage, order_review_page::draft::COMPONENT];
 /// The buyer's shipment pages (Fulfillment's).
 pub const SHIPMENTS: &[Component] = &[ShipmentPage];
 /// The seller's: the command center, a shipment's page, the packing page with its script, which
