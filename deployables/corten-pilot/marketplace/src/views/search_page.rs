@@ -249,7 +249,7 @@ pub fn SearchPage<'a>(t: SearchMsg, i: ItemMsg, p: Pilot, screen: &'a SearchScre
     // Add matching products to Buy Cart, once the search asks for something and has results
     // (`bulkCanPreview`), with the search's parameters.
     let bulk = focused && !failed && !results.items.is_empty() && screen.shelf.is_none();
-    let bulk_pairs = Asked { terms: Terms { more: 0, ..terms.clone() }, category: screen.category.clone() }.pairs();
+    let bulk_pairs = Asked { terms: terms.clone(), category: screen.category.clone(), home: screen.home }.pairs();
     html! {
         <div class={Page} on:change={handlers::apply(event)}>
             if focused {
