@@ -1,5 +1,4 @@
 import { describe, expect, it, vi } from "vitest";
-import { runTcgplayerSetNames } from "@chase-sets/catalog/client";
 import {
   fetchTcgplayerSetNames,
   TCGPLAYER_SET_NAMES_BODY_CAP_BYTES,
@@ -18,27 +17,16 @@ const entry = (categoryId = 3) => ({
   isSupplemental: false,
   active: true,
 });
-const counts = { outcome: "recorded" as const, observationCount: 1, newObservationCount: 1, mappingsProposed: 0 };
 
-describe("SetNames Run uses the unchanged endpoint", () => {
+describe("SetNames Run endpoint adapter", () => {
   it.each([1, 2, 3, 68])(
-    "makes one credential-free bounded request and one post for bound line %s",
+    "makes one unchanged credential-free request for selected bound line %s",
     async (productLineId) => {
+      const body = { errors: [], results: [entry(productLineId)] };
       const fetcher = vi.fn(
-        async () =>
-          new Response(JSON.stringify({ errors: [], results: [entry(productLineId)] }), {
-            headers: { "content-type": "application/json" },
-          }),
+        async () => new Response(JSON.stringify(body), { headers: { "content-type": "application/json" } }),
       );
-      const post = vi.fn(async () => counts);
-      expect(
-        await runTcgplayerSetNames({
-          productLineId,
-          environment: "staging",
-          request: (id) => fetchTcgplayerSetNames(id, fetcher),
-          post,
-        }),
-      ).toEqual(counts);
+      expect(await fetchTcgplayerSetNames(String(productLineId), fetcher)).toMatchObject({ ok: true, body });
       expect(fetcher).toHaveBeenCalledExactlyOnceWith(`${TCGPLAYER_SET_NAMES_URL}?categoryId=${productLineId}`, {
         method: "GET",
         credentials: "omit",
@@ -48,34 +36,21 @@ describe("SetNames Run uses the unchanged endpoint", () => {
       });
       expect(TCGPLAYER_SET_NAMES_TIMEOUT_MS).toBe(15_000);
       expect(TCGPLAYER_SET_NAMES_BODY_CAP_BYTES).toBe(4 * 1024 * 1024);
-      expect(post).toHaveBeenCalledOnce();
     },
   );
-  it.each([71, 82, 0, NaN])("never requests or posts unbound line %s", async (productLineId) => {
-    const request = vi.fn();
-    const post = vi.fn();
-    expect(await runTcgplayerSetNames({ productLineId, environment: "staging", request, post })).toEqual({
-      outcome: "refused",
-    });
-    expect(request).not.toHaveBeenCalled();
-    expect(post).not.toHaveBeenCalled();
-  });
   it("accepts an encoded response exactly at the 4 MiB cap without truncation", async () => {
-    const body = JSON.stringify({ errors: [], results: [entry()] });
-    const atCap = body + " ".repeat(TCGPLAYER_SET_NAMES_BODY_CAP_BYTES - new TextEncoder().encode(body).length);
+    const body = { errors: [], results: [entry()] };
+    const text = JSON.stringify(body);
+    const atCap = text + " ".repeat(TCGPLAYER_SET_NAMES_BODY_CAP_BYTES - new TextEncoder().encode(text).length);
     const fetcher = vi.fn(async () => new Response(atCap, { headers: { "content-type": "application/json" } }));
-    const post = vi.fn(async () => counts);
-    expect(
-      await runTcgplayerSetNames({
-        productLineId: 3,
-        environment: "staging",
-        request: (id) => fetchTcgplayerSetNames(id, fetcher),
-        post,
-      }),
-    ).toEqual(counts);
-    expect(post).toHaveBeenCalledOnce();
+    expect(await fetchTcgplayerSetNames("3", fetcher)).toMatchObject({
+      ok: true,
+      bytes: TCGPLAYER_SET_NAMES_BODY_CAP_BYTES,
+      body,
+    });
+    expect(fetcher).toHaveBeenCalledOnce();
   });
-  it("cap plus one is unqualified and never posts", async () => {
+  it("refuses cap plus one and cancels the stream", async () => {
     const cancel = vi.fn();
     const stream = new ReadableStream<Uint8Array>({
       start(controller) {
@@ -84,20 +59,15 @@ describe("SetNames Run uses the unchanged endpoint", () => {
       cancel,
     });
     const fetcher = vi.fn(async () => new Response(stream, { headers: { "content-type": "application/json" } }));
-    const post = vi.fn();
-    expect(
-      await runTcgplayerSetNames({
-        productLineId: 3,
-        environment: "staging",
-        request: (id) => fetchTcgplayerSetNames(id, fetcher),
-        post,
-      }),
-    ).toMatchObject({ outcome: "unqualified" });
+    expect(await fetchTcgplayerSetNames("3", fetcher)).toMatchObject({
+      ok: false,
+      code: "body-cap-exceeded",
+      body: null,
+    });
     expect(fetcher).toHaveBeenCalledOnce();
-    expect(post).not.toHaveBeenCalled();
     expect(cancel).toHaveBeenCalledOnce();
   });
-  it("an endless response hits the unchanged deadline, is unqualified and never posts", async () => {
+  it("refuses an endless response at the unchanged deadline", async () => {
     vi.useFakeTimers();
     try {
       const stream = new ReadableStream<Uint8Array>({
@@ -106,17 +76,10 @@ describe("SetNames Run uses the unchanged endpoint", () => {
         },
       });
       const fetcher = vi.fn(async () => new Response(stream, { headers: { "content-type": "application/json" } }));
-      const post = vi.fn();
-      const result = runTcgplayerSetNames({
-        productLineId: 3,
-        environment: "staging",
-        request: (id) => fetchTcgplayerSetNames(id, fetcher),
-        post,
-      });
+      const result = fetchTcgplayerSetNames("3", fetcher);
       await vi.advanceTimersByTimeAsync(15_000);
-      expect(await result).toMatchObject({ outcome: "unqualified" });
+      expect(await result).toMatchObject({ ok: false, code: "timeout", body: null });
       expect(fetcher).toHaveBeenCalledOnce();
-      expect(post).not.toHaveBeenCalled();
     } finally {
       vi.useRealTimers();
     }

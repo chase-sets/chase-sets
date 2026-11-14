@@ -8,7 +8,6 @@ export {
   isProbeSetNamesMessage,
 } from "../../domain/extension/bridge";
 export { operatorExtensionId } from "../../domain/extension/protocol";
-export { runTcgplayerSetNames } from "../../domain/extension/set-names/run";
 export {
   probeTcgplayerSetNames,
   serializeSetNamesProbeReport,
