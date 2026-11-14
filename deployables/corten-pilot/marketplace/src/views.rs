@@ -360,8 +360,8 @@ pub const LISTING: &[Component] = &[ListingPage, CheckoutStartPage];
 pub const SIGN_IN: &[Component] = &[SignInPage, platform::auth::passkey::COMPONENT];
 
 /// Creating an account (`/register`) and accepting an invitation (`/invite`): the sign-in page's
-/// stylesheet, which they share, and the passkey step's script.
-pub const REGISTER: &[Component] = &[SignInPage, platform::auth::passkey::COMPONENT];
+/// stylesheet, which they share, the passkey step's script, and the registration's analytics.
+pub const REGISTER: &[Component] = &[SignInPage, platform::auth::passkey::COMPONENT, sign_in_page::analytics::COMPONENT];
 
 /// A form's values and what is wrong with them.
 #[derive(Clone, Debug)]
