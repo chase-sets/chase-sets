@@ -226,7 +226,9 @@
     overflow: hidden;
     clip-path: inset(50%);
   }
+  /* The caption too: left a table-caption inside a block table, it shrinks to its longest word. */
   .table,
+  .table caption,
   .table tbody,
   .table tr,
   .table th,
