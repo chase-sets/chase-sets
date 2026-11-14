@@ -1,5 +1,14 @@
+// @vitest-environment jsdom
+
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { renderToString } from "react-dom/server";
-import { createMemoryRouter, RouterProvider, type ActionFunctionArgs, type LoaderFunctionArgs } from "react-router";
+import {
+  createMemoryRouter,
+  data,
+  RouterProvider,
+  type ActionFunctionArgs,
+  type LoaderFunctionArgs,
+} from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CHECKOUT_ANONYMOUS_SELL_LIST_COOKIE_NAME } from "@chase-sets/auth-context";
 import { createFulfillmentApiClient, FulfillmentApiError } from "../client";
@@ -23,6 +32,7 @@ let signedIn = true;
 let browserCookie: string | null = cookie;
 let failRead = false;
 let failSave = false;
+let nextAuthLookup: (() => Promise<Response>) | null = null;
 let writes: { path: string; headers: Headers; body: unknown }[];
 let routers: ReturnType<typeof createMemoryRouter>[];
 
@@ -78,7 +88,7 @@ function withBrowserRequest<T extends LoaderFunctionArgs | ActionFunctionArgs>(a
   if (browserCookie !== null) headers.set("Cookie", browserCookie);
   return { ...args, request: new Request(args.request, { headers }) };
 }
-async function routerForSetup() {
+async function routerForSetup(routeAction = action) {
   const router = createMemoryRouter(
     [
       {
@@ -86,7 +96,7 @@ async function routerForSetup() {
         path,
         Component: ShippingSetupRoute,
         loader: (args) => loader(withBrowserRequest(args)),
-        action: (args) => action(withBrowserRequest(args)),
+        action: (args) => routeAction(withBrowserRequest(args)),
       },
     ],
     { initialEntries: [path] },
@@ -109,6 +119,7 @@ beforeEach(() => {
   browserCookie = cookie;
   failRead = false;
   failSave = false;
+  nextAuthLookup = null;
   writes = [];
   routers = [];
   vi.stubEnv("CHASE_SETS_INTERNAL_API_ORIGIN", "https://api.test");
@@ -117,8 +128,14 @@ beforeEach(() => {
     vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const incoming = new Request(input, init);
       const url = new URL(incoming.url);
-      if (url.pathname === "/api/auth/session")
+      if (url.pathname === "/api/auth/session") {
+        if (nextAuthLookup) {
+          const lookup = nextAuthLookup;
+          nextAuthLookup = null;
+          return lookup();
+        }
         return signedIn ? Response.json({ actor }) : new Response(null, { status: 401 });
+      }
       h.setActor(signedIn ? actor : null);
       if (incoming.method === "PUT") {
         writes.push({ path: url.pathname, headers: incoming.headers, body: await incoming.clone().json() });
@@ -129,6 +146,7 @@ beforeEach(() => {
   );
 });
 afterEach(() => {
+  cleanup();
   for (const router of routers) router.dispose();
   vi.unstubAllGlobals();
   vi.unstubAllEnvs();
@@ -281,6 +299,87 @@ describe("registered seller shipping setup route", () => {
     await settled(router);
     expect(markup(router)).toContain('value="Retain me"');
   });
+  it.each([null, "account:synthetic-other-owner"])(
+    "never displays action address data outside the loaded scope (%s)",
+    async (scope) => {
+      const router = await routerForSetup(async () =>
+        data({
+          scope,
+          values: { ...formValues, name: "Synthetic unverified owner" },
+          error: "Generic save failure",
+        }),
+      );
+      await submit(router);
+      expect(markup(router)).not.toContain("Synthetic unverified owner");
+      expect(markup(router).includes("Generic save failure")).toBe(scope === null);
+    },
+  );
+  it("retains the local draft through pending auth failure and retries for the same loaded owner", async () => {
+    const router = await routerForSetup();
+    const view = render(<RouterProvider router={router} />);
+    const draft = { ...formValues, name: "Synthetic retained seller", labelPreference: "seller-label-later" };
+    for (const [name, value] of Object.entries(draft)) {
+      fireEvent.change(view.container.querySelector(`[name="${name}"]`)!, { target: { value } });
+    }
+    let failAuth!: (response: Response) => void;
+    nextAuthLookup = () =>
+      new Promise<Response>((resolve) => {
+        failAuth = resolve;
+      });
+    fireEvent.click(screen.getByRole("button", { name: "Save shipping setup" }));
+    await waitFor(() => expect(router.state.navigation.state).toBe("submitting"));
+    await waitFor(() => expect(failAuth).toBeTypeOf("function"));
+    expect(view.container.querySelector("form")?.getAttribute("aria-busy")).toBe("true");
+    const expectDraft = () => {
+      for (const [name, value] of Object.entries(draft))
+        expect(view.container.querySelector<HTMLInputElement | HTMLSelectElement>(`[name="${name}"]`)?.value).toBe(
+          value,
+        );
+    };
+    expectDraft();
+    await act(async () => {
+      failAuth(new Response(null, { status: 503 }));
+      await settled(router);
+    });
+    expect(screen.getByText(/could not be saved/)).toBeTruthy();
+    expect(router.state.actionData?.setup).toMatchObject({ scope: null });
+    expect(router.state.loaderData.setup.scope).toBe(`account:${actor.accountId}`);
+    expectDraft();
+    expect(writes).toHaveLength(0);
+    expect(h.events).toHaveLength(0);
+    fireEvent.click(screen.getByRole("button", { name: "Save shipping setup" }));
+    await waitFor(() => expect(screen.getByText(/awaiting platform shipping support/)).toBeTruthy());
+    expect(writes).toHaveLength(1);
+    expect((await h.services.readSetup({ kind: "account", accountId: actor.accountId })).setup?.origin.name).toBe(
+      draft.name,
+    );
+    expectDraft();
+    await act(async () => {
+      await router.revalidate();
+      await settled(router);
+    });
+    expectDraft();
+    view.unmount();
+    render(<RouterProvider router={await routerForSetup()} />);
+    expect(screen.getByDisplayValue(draft.name)).toBeTruthy();
+  });
+  it.each([true, false])(
+    "discards an unsaved local draft when the loaded owner changes (signed in: %s)",
+    async (initialSignedIn) => {
+      signedIn = initialSignedIn;
+      const router = await routerForSetup();
+      const view = render(<RouterProvider router={router} />);
+      fireEvent.change(view.container.querySelector('[name="name"]')!, { target: { value: "Other owner's draft" } });
+      signedIn = !initialSignedIn;
+      await act(async () => {
+        await router.revalidate();
+        await settled(router);
+      });
+      expect(screen.queryByDisplayValue("Other owner's draft")).toBeNull();
+      expect(view.container.querySelector<HTMLInputElement>('[name="name"]')?.value).toBe("");
+      expect(writes).toHaveLength(0);
+    },
+  );
   it("rejects duplicate choices and cross-origin actions before writes", async () => {
     const duplicate = new URLSearchParams(formValues);
     duplicate.append("name", "Other seller");

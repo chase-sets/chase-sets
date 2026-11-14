@@ -54,4 +54,17 @@ describe("shipping setup presentation", () => {
       expect(recovery).not.toContain("Retained seller");
     }
   });
+  it("shows a generic save error even when identity is missing without rendering address values", () => {
+    const markup = renderToString(
+      <ShippingSetupPage
+        result={null}
+        values={{ ...emptyShippingSetupValues, name: "Unverified owner" }}
+        error="Generic save failure"
+        missingIdentity
+      />,
+    );
+    expect(markup).toContain("Generic save failure");
+    expect(markup).not.toContain("Unverified owner");
+    expect(markup).not.toContain("<form");
+  });
 });

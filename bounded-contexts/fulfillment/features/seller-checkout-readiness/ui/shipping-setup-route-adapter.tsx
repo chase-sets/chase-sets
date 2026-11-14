@@ -95,13 +95,14 @@ export default function SellerShippingSetupRoute() {
   const submitted = useActionData<typeof action>();
   const navigation = useNavigation();
   const submit = useSubmit();
-  const currentAction = submitted?.scope === loaded.scope ? submitted : undefined;
+  const currentAction = loaded.scope !== null && submitted?.scope === loaded.scope ? submitted : undefined;
+  const saveError = submitted?.scope === null ? submitted.error : currentAction?.error;
   return (
     <ShippingSetupPage
       key={loaded.scope}
       result={loaded.result}
       values={currentAction?.values ?? shippingSetupValues(loaded.result)}
-      error={currentAction?.error ?? loaded.error}
+      error={saveError ?? loaded.error}
       missingIdentity={loaded.missingIdentity}
       unavailable={Boolean(loaded.error) && !currentAction?.values}
       pending={navigation.state !== "idle"}

@@ -1,4 +1,4 @@
-import type { FormEventHandler } from "react";
+import { useState, type FormEventHandler } from "react";
 import {
   Banner,
   Button,
@@ -58,6 +58,8 @@ export function ShippingSetupPage({
   pending?: boolean;
   onSubmit?: FormEventHandler<HTMLFormElement>;
 }) {
+  const [draft, setDraft] = useState<ShippingSetupValues | null>(null);
+  const currentValues = draft ?? values;
   return (
     <Page>
       <Stack gap={5}>
@@ -68,11 +70,11 @@ export function ShippingSetupPage({
         <LinkButton href="/account/sell-list" tone="secondary">
           {t("fulfillment.shippingSetup.back")}
         </LinkButton>
+        {error ? <Banner tone="danger" title={error} /> : null}
         {missingIdentity ? (
           <Banner tone="warning" title={t("fulfillment.shippingSetup.missingIdentity")} />
         ) : (
           <>
-            {error ? <Banner tone="danger" title={error} /> : null}
             {unavailable ? (
               <LinkButton href="/sell/shipping-setup">{t("fulfillment.shippingSetup.retry")}</LinkButton>
             ) : (
@@ -97,7 +99,8 @@ export function ShippingSetupPage({
                         key={field}
                         name={field}
                         label={t(`fulfillment.shippingSetup.${field}`)}
-                        defaultValue={values[field]}
+                        value={currentValues[field]}
+                        onChange={(event) => setDraft({ ...currentValues, [field]: event.target.value })}
                         required={field !== "line2"}
                         maxLength={200}
                       />
@@ -105,7 +108,8 @@ export function ShippingSetupPage({
                   <NativeSelect
                     name="labelPreference"
                     label={t("fulfillment.shippingSetup.labelPreference")}
-                    defaultValue={values.labelPreference}
+                    value={currentValues.labelPreference}
+                    onChange={(event) => setDraft({ ...currentValues, labelPreference: event.target.value })}
                     required
                     items={[
                       {
