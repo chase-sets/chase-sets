@@ -3823,6 +3823,79 @@ pub struct PackingSlipBatch {
     pub items: Vec<ShipmentDetail>,
 }
 
+/// A seller's shipping origin (Fulfillment's `SellerShippingOrigin`).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct ShippingOrigin {
+    pub name: String,
+    pub line1: String,
+    pub line2: Option<String>,
+    pub city: String,
+    pub state: String,
+    pub postal_code: String,
+    pub country: String,
+}
+
+/// A seller's saved shipping setup: where they ship from and how they want labels.
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct ShippingSetup {
+    pub origin: ShippingOrigin,
+    /// `prepaid-label` or `seller-label-later`.
+    pub label_preference: String,
+    pub ship_from_location_id: String,
+}
+
+/// The seller's shipping setup as Fulfillment reads it (`SellerShippingSetupResult`): the setup, if
+/// any, and whether the platform supports its label preference.
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct ShippingSetupRead {
+    pub setup: Option<ShippingSetup>,
+    pub revision: Option<u64>,
+    pub recorded_at: Option<String>,
+    /// `enabled`, `missing`, `revoked` or `invalidated` (a guest setup merged into an account).
+    pub support_status: String,
+}
+
+/// What a save sends (`SellerShippingSetupInput`).
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ShippingSetupInput {
+    pub origin: ShippingOrigin,
+    pub label_preference: String,
+}
+
+/// The seller's shipping setup (Fulfillment's `/account/seller-shipping-setup`, or
+/// `/guest/seller-shipping-setup` for the guest sell list `guest`, named in its header). The API
+/// refuses any query.
+pub trait ShippingSetupCalls {
+    async fn shipping_setup(&self, guest: Option<&str>) -> Result<ShippingSetupRead, ApiError>;
+    /// Saves the setup (`PUT`): the setup as saved. A save of the setup already there changes
+    /// nothing.
+    async fn save_shipping_setup(&self, input: &ShippingSetupInput, guest: Option<&str>) -> Result<ShippingSetupRead, ApiError>;
+}
+
+fn shipping_setup_request(caller: &Caller<'_>, method: Method, guest: Option<&str>) -> reqwest::RequestBuilder {
+    let owner = if guest.is_some() { "guest" } else { "account" };
+    let req = caller.request(method, &format!("/api/marketplace/{owner}/seller-shipping-setup"), FULFILLMENT);
+    match guest {
+        Some(id) => req.header(ANONYMOUS_SELL_LIST_HEADER, id),
+        None => req,
+    }
+}
+
+impl ShippingSetupCalls for Caller<'_> {
+    async fn shipping_setup(&self, guest: Option<&str>) -> Result<ShippingSetupRead, ApiError> {
+        // A read, sent as `write` sends a request (its answer checked, then its JSON).
+        Ok(self.write(shipping_setup_request(self, Method::GET, guest)).await?.0)
+    }
+
+    async fn save_shipping_setup(&self, input: &ShippingSetupInput, guest: Option<&str>) -> Result<ShippingSetupRead, ApiError> {
+        Ok(self.write(shipping_setup_request(self, Method::PUT, guest).json(input)).await?.0)
+    }
+}
+
 /// The header that names a Fulfillment write's attempt (`Idempotency-Key`, a UUID v4): the API
 /// applies an attempt once, answers a repeat with its first result, and says later what came of it.
 const IDEMPOTENCY_KEY: &str = "idempotency-key";

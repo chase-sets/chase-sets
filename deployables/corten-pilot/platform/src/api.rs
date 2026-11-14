@@ -204,6 +204,10 @@ pub struct Actor {
     pub role_key: String,
     #[serde(default)]
     pub permissions: Vec<String>,
+    /// The session the actor acts through (`sessionId`): a guest checkout's starts with `guest:`
+    /// (`GUEST_CHECKOUT_SESSION_ID_PREFIX`), which Fulfillment's account routes refuse.
+    #[serde(default)]
+    pub session_id: String,
     /// Whether an agent acts through an OAuth grant (`agentGrant`): Auth's email-verification
     /// rule never asks an agent to verify.
     #[serde(default, rename = "agentGrant", deserialize_with = "present")]

@@ -75,6 +75,7 @@ mod seller_listings_page;
 mod sessions_page;
 mod set_page;
 mod shipment_page;
+mod shipping_setup_page;
 mod sign_in_page;
 mod submitted_offers_page;
 mod support_list_page;
@@ -141,6 +142,7 @@ pub use seller_listings_page::{SellerListingsPage, seller_listings_live_parts};
 pub use sessions_page::{SessionPage, SessionsPage};
 pub use set_page::SetPage;
 pub use shipment_page::{ShipmentList, ShipmentPage};
+pub use shipping_setup_page::ShippingSetupPage;
 pub use sign_in_page::{AccountSelectPage, InvitePage, MagicLinkFailed, RegisterPage, SignInPage};
 pub use submitted_offers_page::{SubmittedOfferPage, SubmittedOfferPreparing, SubmittedOffersPage, submitted_offers_live_parts};
 pub use support_list_page::SupportListPage;
@@ -290,6 +292,15 @@ pub const MONEY: &[Component] = &[MoneyPage];
 pub const PAYOUT: &[Component] = &[MoneyPage, platform::ui::steps::Steps];
 /// Payout setup (`/account/desk/settings`), with Stripe's Connect components and the Stripe.js
 /// module their script's URL comes from.
+/// Seller shipping setup's (`/sell/shipping-setup`): its page and the kit's form parts.
+pub const SHIPPING_SETUP: &[Component] = &[
+    ShippingSetupPage,
+    platform::ui::alert::Alert,
+    platform::ui::button::Button,
+    platform::ui::field::Field,
+    platform::ui::select::Select,
+];
+
 pub const PAYOUT_SETUP: &[Component] = &[PayoutSetupPage, payout_setup_page::ConnectSurface, payment_page::stripe::COMPONENT];
 /// A buyer's payment, with Stripe's step and the Stripe.js loader it imports, and starting a payment
 /// for the buyer's orders (`/account/payments/new`, no script).

@@ -76,7 +76,8 @@
 //   marketplace.features.listings.evidenceCoverage.* as coverage.*).
 // - marketplace/locales/sell_checkout.en.json: seller checkout's English catalog
 //   (checkout.features.sellList.ui.signedInSellCheckoutPage.* as signed.*, .guestSellCheckoutPage.* as guest.*,
-//   checkout.routes.sellCheckoutSession.* as route.*, and checkout.shared.policyLinks.* as policy.*).
+//   checkout.routes.sellCheckoutSession.* as route.*, checkout.shared.policyLinks.* as policy.*, and the link to
+//   shipping setup, fulfillment.shippingSetup.title as shipping_setup).
 // - marketplace/locales/checkout.en.json: the buy checkout page's English catalog
 //   (checkout.features.sessions.ui.checkoutPage.* as page.*, checkout.routes.checkoutSession.* as
 //   route.*, checkout.routes.checkoutRecovery.* as recovery.*, checkout.shared.policyLinks.* as policy.*, and checkout
@@ -107,6 +108,9 @@
 //   the packing page's .shipmentPackingPage.* as packing.* and .accountSaleShipmentPacking.* as
 //   pack_route.*, and the packing slips' .packingSlipPage.* as slip.* and
 //   .accountSaleShipmentPackingSlips.* as slips_route.*).
+// - marketplace/locales/shipping_setup.en.json: seller shipping setup's English catalog
+//   (fulfillment.shippingSetup.*, and its label choices, Checkout's
+//   checkout.features.sellList.ui.guestSellCheckoutPage.label.prepaid and .later as label_prepaid and label_later).
 // - marketplace/locales/addresses.en.json: the shipping addresses page's English catalog
 //   (identity.features.shippingAddresses.ui.shippingAddressPage.* and .errors.*, Identity's account-management
 //   states and address choice, identity.accountManagement.*, the route's words,
@@ -1251,6 +1255,7 @@ const outputs = [
         ["checkout.routes.sellCheckoutSession.", "route"],
         ["checkout.shared.policyLinks.", "policy"],
       ])),
+      ...(await catalog("fulfillment.ts", "fulfillmentEnglishTranslations", [["fulfillment.shippingSetup.title", "shipping_setup"]])),
     }),
   ],
   [
@@ -1409,6 +1414,16 @@ const outputs = [
         ["fulfillment.routes.marketplace.accountSaleShipments.", "sales_route"],
       ]),
     ),
+  ],
+  [
+    "marketplace/locales/shipping_setup.en.json",
+    json({
+      ...(await catalog("fulfillment.ts", "fulfillmentEnglishTranslations", [["fulfillment.shippingSetup.", ""]])),
+      ...(await catalog("checkout.ts", "checkoutEnglishTranslations", [
+        ["checkout.features.sellList.ui.guestSellCheckoutPage.label.prepaid", "label_prepaid"],
+        ["checkout.features.sellList.ui.guestSellCheckoutPage.label.later", "label_later"],
+      ])),
+    }),
   ],
   [
     "marketplace/locales/addresses.en.json",
