@@ -570,6 +570,10 @@ const boundedContextRouteSuiteOwnership = [
     pattern: /^bounded-contexts\/notifications\/routes\/account-notifications\./,
     suites: ["marketplace_account"],
   },
+  {
+    pattern: /^bounded-contexts\/fulfillment\/routes\/seller-shipping-setup\.tsx$/,
+    suites: ["marketplace_checkout"],
+  },
 ];
 
 function normalizeFilePath(filePath) {

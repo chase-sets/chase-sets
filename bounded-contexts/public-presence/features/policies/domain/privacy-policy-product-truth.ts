@@ -213,7 +213,7 @@ export const privacyProductTruthBindings: readonly PrivacyProductTruthBinding[] 
     "cookie-anonymous-sell-list",
     "chase_sets_anonymous_sell_list",
     [
-      "bounded-contexts/checkout/support/request-support/guest-checkout.ts:6",
+      "contracts/auth-context/index.ts:5",
       "bounded-contexts/checkout/support/request-support/guest-checkout.ts:60-66",
       "bounded-contexts/checkout/support/request-support/guest-checkout.ts:91-94",
     ],

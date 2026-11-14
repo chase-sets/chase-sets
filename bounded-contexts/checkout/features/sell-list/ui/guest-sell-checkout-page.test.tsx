@@ -76,6 +76,7 @@ describe("guest sell checkout page", () => {
     );
 
     expect(markup).toContain("Review sale checkout");
+    expect(markup).toContain('href="/sell/shipping-setup"');
     expect(markup).toContain("Sale summary");
     expect(markup).toContain("Contact");
     expect(markup).toContain("Ship from");
