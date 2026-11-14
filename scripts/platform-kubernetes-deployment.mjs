@@ -8,6 +8,7 @@ import { parse as parseYaml } from "yaml";
 import {
   buildDoksIngressValues,
   buildPlatformHelmValues,
+  buildPlatformHelmStagingValues,
   buildPreviewDoksIngressValues,
   chartPreviewValuesRelativePath,
   managedPostgresCaDigestAnnotation,
@@ -96,12 +97,16 @@ function isDisposableNamespace(namespace) {
 
 export function platformKubernetesWorkloads(options = {}) {
   const values = options.values ?? buildPlatformHelmValues({ repoRoot: options.repoRoot });
+  const stagingComponents =
+    !options.values && options.envOverrides?.DEPLOYMENT_ENVIRONMENT === "staging"
+      ? { "admin-corten": buildPlatformHelmStagingValues({ repoRoot: options.repoRoot }).components["admin-corten"] }
+      : {};
   const release = options.release ?? defaultRelease;
   const deployments = [];
   const rollouts = [];
   const jobs = [];
 
-  for (const [name, component] of Object.entries(values.components ?? {})) {
+  for (const [name, component] of Object.entries({ ...values.components, ...stagingComponents })) {
     if (!component.enabled) {
       continue;
     }
@@ -134,6 +139,18 @@ export function buildHelmUpgradeArgs(options = {}) {
   const imagePullSecret = managedRegistryPullSecret(options.imagePullSecret);
   const requestedEnvOverrides = normalizeEnvOverrides(options.envOverrides ?? {});
   const deploymentEnvironment = requestedEnvOverrides.DEPLOYMENT_ENVIRONMENT;
+  const cortenAdminSetArgs = [];
+  if (options.cortenAdminImage) {
+    if (deploymentEnvironment !== "staging") {
+      throw new Error("corten-admin-image is staging-only.");
+    }
+    const cortenImage = parsePlatformImageRef(options.cortenAdminImage);
+    requiredSha256Digest(cortenImage.digest, "corten-admin-image digest");
+    if (cortenImage.registryName !== image.registryName || cortenImage.repository !== "chase-sets-corten-admin") {
+      throw new Error("corten-admin-image must use the platform registry and chase-sets-corten-admin repository.");
+    }
+    cortenAdminSetArgs.push("--set-string", `components.admin-corten.image=${options.cortenAdminImage}`);
+  }
   const stagingRuntimeRevisionArgs =
     deploymentEnvironment === "staging"
       ? [
@@ -252,6 +269,7 @@ export function buildHelmUpgradeArgs(options = {}) {
     ...waveExposureSetArgs,
     ...previewSchedulingSetArgs,
     ...stagingRuntimeRevisionArgs,
+    ...cortenAdminSetArgs,
     ...(managedPostgresCaSha256 ? ["--set-string", `global.managedPostgresCaSha256=${managedPostgresCaSha256}`] : []),
     "--set-string",
     `global.image.registry=${image.registry}`,
@@ -4292,6 +4310,7 @@ export function parseArgs(argv, env = process.env) {
   return {
     command,
     image: readOption(rest, "--image", env.PLATFORM_IMAGE_REF),
+    cortenAdminImage: readOption(rest, "--corten-admin-image"),
     imagePullSecret: readOption(rest, "--image-pull-secret", managedRegistryPullSecretName),
     observabilityExporterEndpoint: readOption(
       rest,

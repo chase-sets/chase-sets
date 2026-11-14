@@ -351,6 +351,7 @@ export function buildPlatformHelmValues(options = {}) {
     schemaVersion: _schemaVersion,
     productionEnvOverrides: _productionEnvOverrides,
     stagingApiEnv,
+    stagingComponents: _stagingComponents,
     ...values
   } = runtimeValues;
   const components = Object.fromEntries(
@@ -442,6 +443,7 @@ export function buildPlatformHelmStagingValues(options = {}) {
     generatedBy,
     doksIngress: buildDoksIngressValues({ env: options.env }),
     components: {
+      ...readPlatformRuntimeValues(path.resolve(options.repoRoot ?? repoRoot)).stagingComponents,
       "public-web": {
         rollout: rolloutValues(true, true, "/health/ready"),
       },
@@ -598,6 +600,12 @@ export function buildDoksIngressValues(options = {}) {
       ? buildProductionDoksIngressHosts({ marketplaceServed })
       : buildDoksIngressHosts(stagingEnvironmentZone, "live", { apexService: "marketplace" })
     : [];
+  if (enabled && !production) {
+    hosts.push({
+      host: `admin-corten.${stagingEnvironmentZone}`,
+      paths: doksIngressPaths("admin-corten"),
+    });
+  }
   const certificateDnsNames = production ? hosts.map((host) => host.host) : [];
 
   return {

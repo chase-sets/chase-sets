@@ -395,6 +395,7 @@ locals {
     local.marketplace_uptime_check_targets,
   )
   app_serving_record_names = local.is_staging ? toset([
+    "admin-corten",
     "admin",
     "marketplace",
     "www",

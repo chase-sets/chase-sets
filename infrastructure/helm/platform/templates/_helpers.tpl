@@ -243,7 +243,11 @@ tolerations:
 {{- include "chase-sets-platform.topologySpreadConstraints" . }}
 containers:
   - name: {{ .name | quote }}
+    {{- if hasKey $component "image" }}
+    image: {{ required "component.image is required for separately built components" $component.image | quote }}
+    {{- else }}
     image: {{ include "chase-sets-platform.image" $root | quote }}
+    {{- end }}
     imagePullPolicy: {{ $root.Values.global.image.pullPolicy | quote }}
     command:
       - "sh"
