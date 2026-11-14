@@ -7018,6 +7018,44 @@ async fn an_alerts_write_reads_the_alerts_after_its_receipt_and_says_when_the_re
 }
 
 #[tokio::test]
+async fn marketplaces_product_alerts_action_changes_the_alert_it_names_then_shows_the_alerts() {
+    let pilot = Pilot::new().await;
+    // Discovery's `account-product-alerts` action: `intent` and `alertId`, then the settings at the
+    // alerts with the write's receipt.
+    for (intent, api) in [("pause", "pause"), ("resume", "resume"), ("delete", "delete")] {
+        let body = format!("intent={intent}&alertId=pal_1");
+        let (status, headers, html) = pilot.send(post("/account/product-alerts", "watcher", &body, false)).await;
+        assert_eq!(status, StatusCode::SEE_OTHER, "{intent}: {html}");
+        let to = headers["location"].to_str().unwrap();
+        assert!(to.starts_with("/account/notifications?view=settings&section=product-alerts&afterWrite="), "{intent}: {to}");
+        let sent = notice_calls(&pilot).into_iter().rev().find(|c| c.method == Method::POST).unwrap();
+        assert_eq!(sent.path, format!("/api/marketplace/account/product-alerts/pal_1/{api}"));
+    }
+    // An intent it does not have, or no alert: the settings, nothing sent (`onUnknownIntent`).
+    let before = notice_calls(&pilot).iter().filter(|c| c.method == Method::POST).count();
+    for body in ["intent=explode&alertId=pal_1", "intent=pause", "intent=pause&alertId=+"] {
+        let (status, headers, _) = pilot.send(post("/account/product-alerts", "watcher", body, false)).await;
+        assert_eq!(status, StatusCode::SEE_OTHER, "{body}");
+        assert_eq!(headers["location"], "/account/notifications?view=settings&section=product-alerts", "{body}");
+    }
+    assert_eq!(notice_calls(&pilot).iter().filter(|c| c.method == Method::POST).count(), before);
+    // A refusal is the settings saying so, as the notification center's own form's is.
+    let (status, _, html) = pilot.send(post("/account/product-alerts", "watcher", "intent=delete&alertId=pal_gone", false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    assert!(html.contains(r#"role="alert"><p>Product alert not found.</p>"#), "{html}");
+    // Anyone not signed in signs in first; nothing is sent.
+    let (status, headers, _) =
+        pilot.send(with_session_cookie_removed(post("/account/product-alerts", "", "intent=pause&alertId=pal_1", false))).await;
+    assert!(status.is_redirection(), "{status}");
+    assert!(headers["location"].to_str().unwrap().contains("sign-in"), "{headers:?}");
+}
+
+fn with_session_cookie_removed(mut req: Request<Body>) -> Request<Body> {
+    req.headers_mut().remove(header::COOKIE);
+    req
+}
+
+#[tokio::test]
 async fn an_alerts_write_whose_read_fails_says_in_place_it_was_saved() {
     let pilot = Pilot::new().await;
     let unconfirmed = r#"data-tone="warning" role="alert"><p>Saved, but your Product alerts could not be read. Reload the page to see the change.</p>"#;
