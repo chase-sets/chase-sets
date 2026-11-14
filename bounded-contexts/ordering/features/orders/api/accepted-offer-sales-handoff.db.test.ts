@@ -131,7 +131,12 @@ describeDb("accepted Offer to receipted Sales on independent stores", () => {
       { timeoutMs: 0 },
     );
     app.route("/api/marketplace", buildOrderingApi(services));
-    return { reaction, projection, app };
+    const supplyInputs = runtime.subscriptionRunners.filter((runner) =>
+      ["ordering-marketplace-supply-input-projection", "ordering-inventory-supply-input-projection"].includes(
+        runner.projectionName,
+      ),
+    );
+    return { reaction, projection, supplyInputs, app };
   }
 
   async function supply(suffix: string) {
@@ -381,10 +386,50 @@ describeDb("accepted Offer to receipted Sales on independent stores", () => {
     );
   }
 
+  it.each(["listing", "inventory"])(
+    "exposes the Sales 500 when acceptance bypasses readiness of the %s input",
+    async (missingInput) => {
+      const runtime = compose();
+      const offer = await supply(`missing_${missingInput}`);
+      if (missingInput === "listing") {
+        await pools.ordering.query("DELETE FROM ordering_market_listing_inputs WHERE listing_id = $1", [
+          offer.listingId,
+        ]);
+      } else {
+        await pools.ordering.query("DELETE FROM ordering_inventory_item_inputs WHERE item_id = $1", [
+          offer.inventoryItemId,
+        ]);
+      }
+      const receipt = await accept(offer, "above");
+
+      await runtime.reaction.runOnce();
+
+      expect(await runtime.reaction.refreshStatus()).toMatchObject({ state: "degraded", poisonEventCount: 1 });
+      const failure = await pools.ordering.query<{ error_message: string }>(
+        "SELECT error_message FROM event_subscription_applications WHERE projection_key = $1 AND status = 'poison'",
+        [runtime.reaction.checkpointKey],
+      );
+      expect(failure.rows).toEqual([
+        { error_message: `Committed Listing ${offer.listingId} is not available in Ordering.` },
+      ]);
+      const sales = await read(runtime.app, receipt);
+      expect(sales.status).toBe(500);
+      expect(await sales.json()).toMatchObject({
+        error: {
+          code: "internal_error",
+          pending: [expect.objectContaining({ projectionName: reactionName, state: "degraded", lastError: null })],
+        },
+      });
+      expect((await pools.ordering.query("SELECT order_id FROM ordering_order_pages")).rows).toHaveLength(0);
+    },
+  );
+
   it("fences buyer Purchases on acceptance and the durable Order's projection using the same receipt", async () => {
     const runtime = compose(false, String(context.audit.forAccountId));
     const offer = await supply("buyer_purchase");
     const receipt = await accept(offer, "above");
+    // This fixture seeds supply rows directly; settle their source cursors before isolating the acceptance fence.
+    for (const runner of runtime.supplyInputs) await runner.runOnce();
     const readPurchases = () => read(runtime.app, receipt, "/account/purchases");
 
     const pendingAcceptance = await readPurchases();
