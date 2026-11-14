@@ -7,11 +7,14 @@ import { module as checkoutModule } from "@chase-sets/checkout";
 import { toTransportEvent } from "@chase-sets/event-core/transport";
 import { readCompleteStream } from "@chase-sets/event-core/complete-stream";
 import { seedSyntheticOfferMarketPrice } from "@chase-sets/pricing/server";
+import { createPostgresPostWriteTokenStore } from "@chase-sets/platform-runtime/post-write-token-store";
 import {
   CHASE_SETS_READ_AFTER_WRITE_HEADER,
   CHASE_SETS_READ_TARGET_CONTEXT_HEADER,
   appendFreshWriteTokenFromSources,
   encodeFreshWriteReceipt,
+  materializePostWriteTokenPayload,
+  readCompactPostWriteToken,
   readFreshWriteToken,
   readResponseConsistencyMetadata,
 } from "@chase-sets/http/responses";
@@ -835,8 +838,37 @@ test("market-following consent, changed target, Checkout acceptance and permanen
         await expect(termsAccepted).toBeChecked();
         await seller.getByRole("button", { name: "Review sale details", exact: true }).first().click();
         await expect(seller).toHaveURL(/\/checkout\/sell\/.*confirmation/);
+        const confirmationToken = readCompactPostWriteToken(seller.url());
+        expect(confirmationToken, "Checkout confirmation carries the actual acceptance receipt").not.toBeNull();
+        const controlDatabaseUrl = new URL(sandbox.PLATFORM_CONTROL_DATABASE_URL ?? "");
+        if (
+          controlDatabaseUrl.host !== databaseUrl.host ||
+          controlDatabaseUrl.pathname !== databaseUrl.pathname.replace(/_pricing$/, "_control")
+        )
+          throw new Error("Confirmation receipt requires the same owned E2E sandbox.");
+        const controlPool = createPgPool(controlDatabaseUrl.toString(), { max: 1 });
+        companionPools.push(controlPool);
+        const confirmationPayload = await createPostgresPostWriteTokenStore(controlPool).resolvePostWriteToken(
+          confirmationToken!,
+        );
+        expect(confirmationPayload, "resolve only the actual Checkout confirmation token").not.toBeNull();
+        const acceptanceReceipt = readFreshWriteToken(
+          materializePostWriteTokenPayload(seller.url(), confirmationPayload!),
+        );
+        expect(
+          acceptanceReceipt?.sources.some(
+            (source) => source.sourceContextName === "marketplace" && source.eventIds.length > 0,
+          ),
+          "the resolved confirmation contains Marketplace's committed acceptance event",
+        ).toBe(true);
+        const acceptedReadHeaders = (target: "marketplace" | "ordering") => ({
+          [CHASE_SETS_READ_AFTER_WRITE_HEADER]: encodeFreshWriteReceipt(acceptanceReceipt!),
+          [CHASE_SETS_READ_TARGET_CONTEXT_HEADER]: target,
+        });
         const readAccepted = async () => {
-          const response = await page.request.get(`/api/marketplace/account/offers/submitted/${controlOfferId}`);
+          const response = await page.request.get(`/api/marketplace/account/offers/submitted/${controlOfferId}`, {
+            headers: acceptedReadHeaders("marketplace"),
+          });
           expect(response.ok()).toBe(true);
           return response.json();
         };
@@ -844,7 +876,9 @@ test("market-following consent, changed target, Checkout acceptance and permanen
         const accepted = await readAccepted();
         expect(accepted).toMatchObject({ status: "accepted", price_amount: "135.00" });
         const readOrders = async () => {
-          const response = await page.request.get("/api/marketplace/account/purchases?limit=100");
+          const response = await page.request.get("/api/marketplace/account/purchases?limit=100", {
+            headers: acceptedReadHeaders("ordering"),
+          });
           expect(response.ok()).toBe(true);
           const result = await response.json();
           expect(result.count).toBe(result.total);
@@ -854,7 +888,9 @@ test("market-following consent, changed target, Checkout acceptance and permanen
         };
         await expect.poll(async () => (await readOrders()).length).toBe(1);
         const orders = await readOrders();
-        const orderResponse = await page.request.get(`/api/marketplace/account/purchases/${orders[0].order_id}`);
+        const orderResponse = await page.request.get(`/api/marketplace/account/purchases/${orders[0].order_id}`, {
+          headers: acceptedReadHeaders("ordering"),
+        });
         expect(orderResponse.ok()).toBe(true);
         const order = await orderResponse.json();
         expect(accepted.quantity_requested).toBe(
