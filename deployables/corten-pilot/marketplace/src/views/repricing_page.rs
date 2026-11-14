@@ -634,6 +634,13 @@ pub fn PresetFields<'a>(
     };
     let chosen =
         |id: &str| matches!(&e.scope, RepricingScope::CatalogFilter { category_ids } if category_ids.iter().any(|c| c == id));
+    // A chosen category the list does not offer: drawn checked, so the next post keeps it.
+    let unlisted: Vec<&String> = match &e.scope {
+        RepricingScope::CatalogFilter { category_ids } => {
+            category_ids.iter().filter(|id| !categories.iter().any(|category| &category.id == *id)).collect()
+        }
+        _ => Vec::new(),
+    };
     let listings = match &e.scope {
         RepricingScope::ListingSet { listing_ids } => listing_ids.join(","),
         _ => String::new(),
@@ -714,6 +721,10 @@ pub fn PresetFields<'a>(
                     <span class={Label}>{t.editor_currency()}</span>
                     <select class={Input} name={names.currency}>
                         <option value="" selected={e.currency.is_empty()}>{t.editor_choose()}</option>
+                        // A currency no listing prices in stays chosen, so the next post keeps it.
+                        if !e.currency.is_empty() && !codes.contains(&e.currency) {
+                            <option value={&e.currency} selected>{&e.currency}</option>
+                        }
                         for code in codes {
                             <option value={code} selected={*code == e.currency}>{code}</option>
                         }
@@ -781,6 +792,12 @@ pub fn PresetFields<'a>(
                                 checked={chosen(&category.id)}
                             >
                             <span>{&category.name}</span>
+                        </label>
+                    }
+                    for id in &unlisted {
+                        <label class={Check}>
+                            <input type="checkbox" name={names.categories} value={*id} checked>
+                            <span>{*id}</span>
                         </label>
                     }
                 </fieldset>

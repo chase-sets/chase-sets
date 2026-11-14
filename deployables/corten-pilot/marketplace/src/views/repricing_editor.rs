@@ -254,6 +254,13 @@ fn ScopeFields<'a>(t: RepricingMsg, scope: &'a Value, categories: &'a [Repricing
                         <span>{&category.name}</span>
                     </label>
                 }
+                // A chosen category the list does not offer stays checked, so the next post keeps it.
+                for id in chosen.iter().filter(|id| !categories.iter().any(|category| &category.id == *id)) {
+                    <label class={Check}>
+                        <input type="checkbox" name={f.categories} value={id} checked>
+                        <span>{id}</span>
+                    </label>
+                }
             </fieldset>
         }
         if kind == "listing-set" {
@@ -435,6 +442,10 @@ fn ConditionFields<'a>(
                     <span class={Label}>{t.editor_condition_category()}</span>
                     <select class={Input} name={row.category}>
                         <option value="" selected={category.is_empty()}>{t.editor_choose()}</option>
+                        // A category the list does not offer stays chosen, so the next post keeps it.
+                        if !category.is_empty() && !categories.iter().any(|option| option.id == category) {
+                            <option value={category} selected>{category}</option>
+                        }
                         for option in categories {
                             <option value={&option.id} selected={option.id == category}>{&option.name}</option>
                         }
