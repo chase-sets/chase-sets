@@ -30,9 +30,11 @@ describe("issue-9909 failure details", () => {
       fetch: vi.fn().mockResolvedValue(new Response("synthetic", { status })),
     });
   }
-  it("keyed field envelope and old validation-failed remain failed-safe", () => {
+  it("keyed field envelope remains failed-safe", () => {
     expect(resolveClientState({ failure }, 400)).toBe("failed-safe");
-    expect(resolveClientState({ outcome: "not-recorded", code: "validation-failed" }, 400)).toBe("failed-safe");
+  });
+  it("retired validation-failed resolves ambiguous", () => {
+    expect(resolveClientState({ outcome: "not-recorded", code: "validation-failed" }, 400)).toBe("ambiguous");
   });
   it("failure details accept-mismatched-intent drops only details", async () => {
     const value = {
