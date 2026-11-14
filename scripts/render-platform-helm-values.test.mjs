@@ -1024,8 +1024,7 @@ spec:
       "admin-corten.staging.chasesets.com",
     ]);
 
-    // #11327: the staging pilot is additive; the established live hosts and
-    // hosts, none of them the legacy landing-/marketplace-/admin-staging
+    // The staging pilot adds a fifth host, none of them the legacy landing-/marketplace-/admin-staging
     // redirect hostnames (those were retired outright, not rewired to DOKS;
     // see #5568). The deploy-blocking ingress-wait gate in
     // .github/workflows/platform-production.yml probes exactly this host set
