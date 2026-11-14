@@ -8,7 +8,7 @@ export class OperatorSessionRequestError extends Error {
   }
 }
 
-async function readBody(request: Request, maximum: number): Promise<string> {
+export async function readBody(request: Request, maximum: number): Promise<string> {
   if (!request.body) return "";
   const reader = request.body.getReader();
   let timer: ReturnType<typeof setTimeout> | undefined;

@@ -36,6 +36,7 @@ import {
 } from "../../reference-data/domain/domain";
 import {
   catalogScopeProductDomainContracts,
+  catalogScopeUnqualifiedLanguageCode,
   type CatalogScopeProductDomain,
   type CatalogScopeRecordKind,
 } from "../../scope-registry/domain/contract";
@@ -406,8 +407,8 @@ async function acceptedProposal(
 
 /**
  * A bind target must be an active or draft Scope Record with the proposal's
- * product domain and scope kind whose language editions are empty or include
- * the proposal's.
+ * product domain and scope kind whose language editions include the proposal's.
+ * In edition-specific domains, an empty edition list means English.
  */
 function bindTargetRefusal(
   proposal: CanonicalScopeRecordProposalRecord,
@@ -422,7 +423,11 @@ function bindTargetRefusal(
         ? "product-domain"
         : target.scope_kind !== proposal.scopeKind
           ? "scope-kind"
-          : !languageEditionsInclude(stringList(target.language_editions), proposal.languageEditions)
+          : !languageEditionsInclude(
+                stringList(target.language_editions),
+                proposal.languageEditions,
+                proposal.productDomain,
+              )
             ? "language-editions"
             : null;
   return reason
@@ -846,8 +851,17 @@ function fill(proposalValue: string | null, requestValue: string | null): string
   return proposalValue === null || proposalValue === requestValue ? requestValue : undefined;
 }
 
-function languageEditionsInclude(target: readonly string[], proposal: readonly string[]): boolean {
-  return target.length === 0 || proposal.every((language) => target.includes(language));
+function languageEditionsInclude(
+  target: readonly string[],
+  proposal: readonly string[],
+  productDomain: CatalogScopeProductDomain,
+): boolean {
+  if (!catalogScopeProductDomainContracts[productDomain].selectLeavesByLanguageEdition) {
+    return target.length === 0 || proposal.every((language) => target.includes(language));
+  }
+  const targetEditions = target.length === 0 ? [catalogScopeUnqualifiedLanguageCode] : target;
+  const proposalEditions = proposal.length === 0 ? [catalogScopeUnqualifiedLanguageCode] : proposal;
+  return proposalEditions.every((language) => targetEditions.includes(language));
 }
 
 function languageEditionsOverlap(record: readonly string[], proposal: readonly string[]): boolean {

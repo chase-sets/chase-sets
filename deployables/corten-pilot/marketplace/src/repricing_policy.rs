@@ -41,7 +41,7 @@ use crate::{
     },
     app::{PRICING_MANAGE, Shared, read_failed, sign_in, url},
     auth::{PricingManager, Viewer},
-    repricing::{self, DryRunView, Editor, EditorInput, ended, messages},
+    repricing::{self, DryRunView, Editor, EditorInput, RunEditor, ended, messages},
     repricing_body::{self, AnchorFields, ConditionFields, Op, Posted, RuleFields, Source, Tier},
     text::RepricingMsg,
     views::{self, Layout},
@@ -107,13 +107,16 @@ impl Place {
     }
 }
 
-/// A write: Pause, Resume, Delete, the halt, and the editor's posts. The editor's carry its tier,
-/// the body it drew and its dry run, and its controls: the preset's, named as the create editor's
-/// (`repricing::WriteForm`), and each rule's, condition's and anchor's as rows.
+/// A write: Pause, Resume, Delete, the halt, and the editor's posts, here and on the list's page
+/// (`repricing::WriteForm`, whose list buttons name the policy). The editor's carry its tier, the
+/// body it drew and its dry run, and its controls: the preset's, named as the create editor's
+/// address, and each rule's, condition's and anchor's as rows.
 #[derive(Clone, Debug, Default, Fields)]
 #[serde(rename_all = "camelCase", default)]
 pub struct PolicyForm {
     pub intent: String,
+    /// The list's Pause or Resume: the policy it is for.
+    pub policy_id: String,
     /// A button that changes the rules' shape (`repricing_body::Op`).
     pub op: Option<String>,
     pub tier: Option<String>,
@@ -149,7 +152,7 @@ pub struct PolicyForm {
 }
 
 impl PolicyForm {
-    fn input(&self) -> EditorInput {
+    pub(crate) fn input(&self) -> EditorInput {
         EditorInput {
             name: self.name.clone(),
             preset: self.preset.clone(),
@@ -211,9 +214,18 @@ impl Revise {
         revise
     }
 
+    /// The create editor's preset, opened up (Open up this preset while creating a policy).
+    pub(crate) fn opened(editor: Editor, facts: &RepricingPrerequisites) -> Revise {
+        let body = editor.compile();
+        let mut revise =
+            Revise { tier: Tier::Preset, body, preset: Some(editor), dry_run: None, after: None, errors: Vec::new() };
+        revise.change("open-up", None, facts);
+        revise
+    }
+
     /// The editor a post drew, with its controls laid over its body. None when the post carries
     /// no body the editor can read.
-    fn posted(form: &PolicyForm, facts: &RepricingPrerequisites, t: RepricingMsg) -> Option<Revise> {
+    pub(crate) fn posted(form: &PolicyForm, facts: &RepricingPrerequisites, t: RepricingMsg) -> Option<Revise> {
         let tier = form.tier.as_deref().and_then(Tier::read)?;
         let mut body: Value = serde_json::from_str(form.body.as_deref()?).ok().filter(Value::is_object)?;
         let preset = if tier == Tier::Preset {
@@ -246,13 +258,13 @@ impl Revise {
 
     /// The editor has what a preview or a save needs (`promptComplete`): a preset's currency and
     /// floor's amount; a body's controls are always complete.
-    fn complete(&self) -> bool {
+    pub(crate) fn complete(&self) -> bool {
         self.preset.as_ref().is_none_or(Editor::complete)
     }
 
     /// Open up this preset, Open advanced editor, Return to simple controls (`openAdvanced`, and the
     /// intent's `setTier`), or a button that changes the rules' shape.
-    fn change(&mut self, intent: &str, op: Option<Op>, facts: &RepricingPrerequisites) {
+    pub(crate) fn change(&mut self, intent: &str, op: Option<Op>, facts: &RepricingPrerequisites) {
         match intent {
             "open-up" | "open-advanced" => {
                 let one = self.tier == Tier::Preset && repricing_body::rules_of(&self.candidate()).len() == 1;
@@ -313,11 +325,12 @@ pub enum ReviseEditor {
 }
 
 /// The editor for `revise` (a post's) or for the policy as Pricing has it, with its scope preview
-/// and dry run.
-async fn revise_part(
+/// and dry run. Without a policy (`id`), the create editor opened up: its scope matches with no
+/// policy replaced, and its run activates.
+pub(crate) async fn revise_part(
     config: &Shared,
     headers: &HeaderMap,
-    id: &str,
+    id: Option<&str>,
     raw: &Value,
     requested: Option<Tier>,
     revise: Option<Revise>,
@@ -340,11 +353,13 @@ async fn revise_part(
         !facts.selectable(anchor["goalId"].as_str().unwrap_or_default(), anchor["goalVersion"].as_f64().unwrap_or_default())
     });
     let intent = if unsupported_goal { None } else { repricing_body::recognize(&candidate) };
-    let scope = json!({
+    let mut scope = json!({
         "scope": candidate["scope"],
         "excludedListingIds": candidate.get("excludedListingIds").cloned().unwrap_or_else(|| json!([])),
-        "replacingPolicyId": id,
     });
+    if let Some(id) = id {
+        scope["replacingPolicyId"] = json!(id);
+    }
     let run = async {
         match revise.dry_run.as_deref() {
             Some(run) => Some(repricing::dry_run(config, headers, run, revise.after.as_deref()).await),
@@ -356,8 +371,11 @@ async fn revise_part(
     let run = match run {
         Some(Ok((run, traces))) => {
             let current = repricing_body::body_key(&candidate) == repricing_body::body_key(&run.body);
-            let place = repricing::Place { revise: Some(id.to_owned()), ..repricing::Place::default() };
-            Some(DryRunView { run, traces, current, place, revise: true })
+            let (place, editor) = match id {
+                Some(id) => (repricing::Place { revise: Some(id.to_owned()), ..repricing::Place::default() }, RunEditor::Policy),
+                None => (repricing::Place { opened: Some("1".into()), ..repricing::Place::default() }, RunEditor::Opened),
+            };
+            Some(DryRunView { run, traces, current, place, editor })
         }
         Some(Err(error)) if ended(&error) => return Err(error),
         Some(Err(error)) => {
@@ -459,7 +477,7 @@ async fn render(
     let manage = viewer.actor.can(PRICING_MANAGE);
     let opens = place.opens().filter(|_| manage && policy.status != "deleted");
     let editor = if revise.is_some() || opens.is_some() {
-        match revise_part(config, headers, id, &raw, opens.flatten(), revise).await {
+        match revise_part(config, headers, Some(id), &raw, opens.flatten(), revise).await {
             Ok(part) => Some(part),
             Err(_) => return sign_in(req),
         }
@@ -631,7 +649,7 @@ async fn answer(
     if req.mode != corten::Mode::Action {
         return render(req, viewer, config, headers, id, &Place::edit(), None, Some(revise), status).await;
     }
-    let part = match revise_part(config, headers, id, &Value::Null, None, Some(revise)).await {
+    let part = match revise_part(config, headers, Some(id), &Value::Null, None, Some(revise)).await {
         Ok(part) => part,
         Err(_) => return sign_in(req),
     };

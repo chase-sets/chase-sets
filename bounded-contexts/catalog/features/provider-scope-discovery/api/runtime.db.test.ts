@@ -22,6 +22,7 @@ import { providerScopeMappingStreamId } from "../../provider-scope-mapping/domai
 import { createReferenceDataRuntime } from "../../reference-data/api/runtime";
 import { ProviderAdapterRegistry } from "../../source-observations/api/provider-adapters/registry";
 import { queryProviderIntegrationOptions } from "../../source-observations/api/providers/provider-option-queries";
+import { createTcgdexProviderAdapter } from "../../source-observations/api/providers/tcgdex/adapter";
 import { createYgojsonProviderAdapter } from "../../source-observations/api/providers/ygojson/adapter";
 import { createYgoprodeckProviderAdapter } from "../../source-observations/api/providers/ygoprodeck/adapter";
 import {
@@ -118,6 +119,12 @@ describeDb("provider scope discovery runtime db", () => {
         readonly { value: string; label: string; parentValue?: string | null; metadata?: Record<string, unknown> }[]
       >
     >;
+    optionPagesByLanguageQueryKind?: Readonly<
+      Record<
+        string,
+        readonly { value: string; label: string; parentValue?: string | null; metadata?: Record<string, unknown> }[]
+      >
+    >;
     profileProviderKeys?: readonly string[];
     profileVersions?: readonly CatalogProviderIntegrationProfileVersionRecord[];
     cadenceConfig?: readonly ProviderRefreshCadenceConfig[];
@@ -148,10 +155,14 @@ describeDb("provider scope discovery runtime db", () => {
           if (input.queryIntegrationOptions) {
             return input.queryIntegrationOptions(query);
           }
+          // Unkeyed scripted pages are the provider's English options; another
+          // discovery language lists only what is scripted for it.
           const items =
-            input.optionPagesByProviderQueryKind?.[`${query.providerKey}:${query.queryKind}`] ??
-            input.optionPagesByQueryKind[query.queryKind] ??
-            [];
+            query.languageCode !== "en"
+              ? (input.optionPagesByLanguageQueryKind?.[`${query.languageCode}:${query.queryKind}`] ?? [])
+              : (input.optionPagesByProviderQueryKind?.[`${query.providerKey}:${query.queryKind}`] ??
+                input.optionPagesByQueryKind[query.queryKind] ??
+                []);
           return optionPage(
             items.map((item) => ({
               providerKey: query.providerKey,
@@ -231,15 +242,17 @@ INSERT INTO catalog_provider_scope_observations (
     scopeKind?: CatalogScopeRecordKind;
     referenceRecordKey?: string;
     releaseDate?: string | null;
+    languageEditions?: readonly string[];
   }) {
     const productDomain = input.productDomain ?? "pokemon";
     const scopeKind = input.scopeKind ?? "expansion";
     await pools.catalog.query(
       `INSERT INTO catalog_scope_records (
          scope_record_id, product_domain, scope_kind, reference_type_key,
-         reference_record_id, reference_record_key, name, lifecycle_status, official_set_code, release_date
+         reference_record_id, reference_record_key, name, lifecycle_status, official_set_code, release_date,
+         language_editions
        )
-       VALUES ($1, $2, $3, $3, $1, $7, $4, 'active', $5, $6::date)`,
+       VALUES ($1, $2, $3, $3, $1, $7, $4, 'active', $5, $6::date, $8::jsonb)`,
       [
         input.id,
         productDomain,
@@ -248,11 +261,12 @@ INSERT INTO catalog_provider_scope_observations (
         input.officialSetCode,
         input.releaseDate ?? null,
         input.referenceRecordKey ?? input.id,
+        JSON.stringify(input.languageEditions ?? []),
       ],
     );
   }
 
-  it("derives TCGdex expansion coordinates without localized set name or discovery language", async () => {
+  it("derives TCGdex expansion coordinates with the discovery language and without a localized set name", async () => {
     const version = catalogProviderIntegrationProfileVersions.find(
       (candidate) => candidate.providerKey === "tcgdex" && candidate.active,
     )!;
@@ -298,7 +312,7 @@ INSERT INTO catalog_provider_scope_observations (
       seriesId: "sv",
       setId: "sv01",
       setName: null,
-      language: null,
+      language: { languageCode: "en" },
     });
   });
 
@@ -414,6 +428,198 @@ INSERT INTO catalog_provider_scope_observations (
       "accepted-alias",
       "normalized-name",
     ]);
+  });
+
+  describe("Japanese TCGdex discovery", () => {
+    async function recordedJapaneseSets(ids: readonly string[]): Promise<readonly JsonObject[]> {
+      const sets = (await fixture("tcgdex/ja-sets.json")) as unknown as readonly JsonObject[];
+      return ids.map((id) => sets.find((set) => set.id === id)!);
+    }
+
+    // The real TCGdex profile and adapter, serving the recorded /v2/ja/sets
+    // entries; English lists nothing and localized options have no English mirror.
+    function tcgdexRuntime(japaneseSets: readonly JsonObject[]) {
+      const tcgdex = catalogProviderIntegrationProfileVersions.find(
+        (version) => version.providerKey === "tcgdex" && version.active && version.lifecycle === "active",
+      )!;
+      const fetch = (async (url: RequestInfo | URL) => {
+        const { pathname } = new URL(String(url));
+        if (pathname === "/v2/ja/sets") {
+          return new Response(JSON.stringify(japaneseSets));
+        }
+        if (/^\/v2\/(en|ja)\/(sets|series)$/.test(pathname)) {
+          return new Response("[]");
+        }
+        if (/^\/v2\/en\/(sets|series)\/[^/]+$/.test(pathname)) {
+          return new Response("Not Found", { status: 404 });
+        }
+        throw new Error(`Unexpected provider request in test: ${pathname}`);
+      }) as typeof globalThis.fetch;
+      const registry = new ProviderAdapterRegistry([
+        createTcgdexProviderAdapter({ loadActiveProfileVersion: async () => tcgdex, fetch }),
+      ]);
+      return buildRuntime({
+        optionPagesByQueryKind: {},
+        queryIntegrationOptions: (query) =>
+          queryProviderIntegrationOptions(query, pools.catalog, null, undefined, registry),
+      }).runtime;
+    }
+
+    async function mappingProposals() {
+      const result = await pools.catalog.query<{ payload: JsonObject }>(
+        `SELECT payload FROM event_store_events
+         WHERE event_type = 'catalog.provider-scope-mapping.proposed'
+         ORDER BY payload->>'scopeRecordId' ASC`,
+      );
+      return result.rows.map((row) => row.payload);
+    }
+
+    it("proposes a Japanese expansion as its own edition instead of matching the English record of its id", async () => {
+      await insertScopeRecord({
+        id: "scope-flashfire",
+        name: "Flashfire",
+        officialSetCode: "FLF",
+        referenceRecordKey: "xy2",
+        languageEditions: ["en"],
+      });
+      const runtime = tcgdexRuntime(await recordedJapaneseSets(["XY2"]));
+
+      expect((await runtime.runProviderRefreshNow({ providerKey: "tcgdex", context: TEST_CONTEXT })).status).toBe(
+        "succeeded",
+      );
+
+      expect(await runtime.listScopeObservations({ providerKey: "tcgdex", scopeKind: "expansion" })).toEqual([
+        expect.objectContaining({ languageCode: "ja", externalId: "XY2", label: "ワイルドブレイズ" }),
+      ]);
+      const proposals = await runtime.listCanonicalScopeRecordProposals({ productDomain: "pokemon" });
+      expect(proposals).toEqual([
+        expect.objectContaining({
+          name: "ワイルドブレイズ",
+          officialSetCode: "XY2",
+          languageEditions: ["ja"],
+          reviewStatus: "proposed",
+        }),
+      ]);
+      expect(await mappingProposals()).toEqual([
+        expect.objectContaining({
+          scopeRecordId: proposals[0]!.scopeRecordId,
+          reviewStatus: "proposed",
+          coordinates: expect.objectContaining({
+            setId: "XY2",
+            language: expect.objectContaining({ languageCode: "ja" }),
+          }),
+        }),
+      ]);
+    });
+
+    it("auto-accepts a Japanese expansion onto the Japanese record of its code and never by its name", async () => {
+      const [wildBlaze, supercharged] = await recordedJapaneseSets(["XY2", "SV8"]);
+      await insertScopeRecord({
+        id: "scope-sv8-ja",
+        name: String(supercharged!.name),
+        officialSetCode: "SV8",
+        referenceRecordKey: "sv8-ja",
+        languageEditions: ["ja"],
+      });
+      const runtime = tcgdexRuntime([wildBlaze!, supercharged!]);
+
+      expect((await runtime.runProviderRefreshNow({ providerKey: "tcgdex", context: TEST_CONTEXT })).status).toBe(
+        "succeeded",
+      );
+
+      const proposals = await runtime.listCanonicalScopeRecordProposals({ productDomain: "pokemon" });
+      expect(proposals).toEqual([
+        expect.objectContaining({ name: "ワイルドブレイズ", officialSetCode: "XY2", languageEditions: ["ja"] }),
+      ]);
+      const mappings = await mappingProposals();
+      expect(mappings).toEqual([
+        expect.objectContaining({ scopeRecordId: proposals[0]!.scopeRecordId, reviewStatus: "proposed" }),
+        expect.objectContaining({ scopeRecordId: "scope-sv8-ja", reviewStatus: "auto-accepted" }),
+      ]);
+      expect(mappings[1]).toMatchObject({
+        coordinates: {
+          productLineId: null,
+          seriesId: null,
+          setId: "SV8",
+          setName: null,
+          language: { languageCode: "ja" },
+        },
+        evidence: { externalId: "SV8", languageCode: "ja", matchedBy: "exact-id-or-code" },
+      });
+    });
+
+    it("keeps the English mapping ids, review statuses and match methods beside Japanese discovery", async () => {
+      await insertScopeRecord({ id: "scope-paldean-fates", name: "Paldean Fates", officialSetCode: "PAF" });
+      await insertScopeRecord({
+        id: "scope-name-match",
+        name: "Journey Together",
+        officialSetCode: null,
+        languageEditions: ["en"],
+      });
+      await insertScopeRecord({ id: "scope-alias-match", name: "Scarlet & Violet—151", officialSetCode: null });
+      await pools.catalog.query(
+        `INSERT INTO catalog_reference_record_aliases (
+           alias_hash, reference_record_id, type_key, alias_text, normalized_alias_text,
+           alias_language_code, source_language_code, alias_type, confidence, review_status,
+           provider_key, observation_id, source_category, source_profile_key, source_profile_version,
+           mapping_fingerprint, evidence, last_actor, last_reason, policy_version
+         ) VALUES (
+           'alias-pokemon-151', 'scope-alias-match', 'expansion', 'Pokemon 151', 'pokemon 151',
+           'en', NULL, 'set-equivalent', 'high', 'accepted',
+           'tcgdex', NULL, 'provider-observation', 'pokemon-tcg', 'test',
+           'fp-alias-151', '{}'::jsonb, 'user:test', 'verified', 'test-policy'
+         )`,
+      );
+      const [wildBlaze] = await recordedJapaneseSets(["XY2"]);
+      const { runtime } = buildRuntime({
+        optionPagesByQueryKind: {
+          expansions: [
+            { value: "sv04.5", label: "Paldean Fates", parentValue: "sv", metadata: { abbreviation: "PAF" } },
+            { value: "journey-together", label: "Journey Together" },
+            { value: "sv03.5", label: "Pokémon 151" },
+          ],
+        },
+        optionPagesByLanguageQueryKind: {
+          "ja:expansions": [{ value: String(wildBlaze!.id), label: String(wildBlaze!.name) }],
+        },
+      });
+
+      await runtime.runProviderRefreshNow({ providerKey: "tcgdex", context: TEST_CONTEXT });
+
+      const english = (await mappingProposals()).filter((payload) =>
+        String(payload.scopeRecordId).startsWith("scope-"),
+      );
+      expect(
+        english.map((payload) => [
+          payload.mappingId,
+          payload.scopeRecordId,
+          payload.reviewStatus,
+          (payload.evidence as JsonObject).matchedBy,
+        ]),
+      ).toEqual([
+        [
+          "ee971478a95ed88007ea4b8fea117743b6c12503ab8072a19decd8cc290068a3",
+          "scope-alias-match",
+          "auto-accepted",
+          "accepted-alias",
+        ],
+        [
+          "4aab3037210f88775be127fa05f605fcc9d0e174ab60ffc8035749a43b969f15",
+          "scope-name-match",
+          "auto-accepted",
+          "normalized-name",
+        ],
+        [
+          "12cfb43bf88a5673f7a4c7e7cdddb20be109e8dfc230f34fca1f93888b08bc72",
+          "scope-paldean-fates",
+          "auto-accepted",
+          "exact-id-or-code",
+        ],
+      ]);
+      expect(await runtime.listCanonicalScopeRecordProposals({ productDomain: "pokemon" })).toEqual([
+        expect.objectContaining({ officialSetCode: "XY2", languageEditions: ["ja"] }),
+      ]);
+    });
   });
 
   it("uses release-date proximity only to propose a tiebreaker for ambiguous exact names", async () => {
