@@ -2,6 +2,12 @@ import { describe, expect, it, vi } from "vitest";
 import { createOperatorBackground, type OperatorAdapters } from "../../../domain/extension/background";
 import { createOperatorPopupClient, installOperatorBridge } from "../../../domain/extension/bridge";
 import { operatorExtensionId, operatorOrigins } from "../../../domain/extension/protocol";
+import {
+  emptyOperatorRecord,
+  isOperatorRecord,
+  operatorRecordKey,
+  type OperatorRecord,
+} from "../../../domain/extension/record";
 import { createOperatorTransport } from "../../../domain/extension/transport";
 import { counts, post } from "./fixture";
 
@@ -9,22 +15,24 @@ const grant = "A".repeat(43);
 const origin = `chrome-extension://${operatorExtensionId}`;
 const sender = { id: operatorExtensionId, url: `${origin}/popup.html`, origin, hasTab: false };
 const message = () => ({ action: "post-set-names", environment: "staging", post: post() });
-function setup(status = 200, body: unknown = counts) {
+function setup(status = 200, body: unknown = counts, initial?: OperatorRecord) {
   const fetcher = vi.fn(async () => new Response(JSON.stringify(body), { status }));
   const writes: unknown[] = [];
   const badge = vi.fn(async () => undefined);
+  let stored = initial;
   const adapters: OperatorAdapters = {
     storage: {
       trust: async () => undefined,
-      read: async () => undefined,
+      read: async (key) => (stored && key === operatorRecordKey(stored.environment) ? stored : undefined),
       write: async (_key, value) => {
         writes.push(value);
+        stored = value;
       },
     },
     badge,
     fetch: fetcher,
   };
-  return { background: createOperatorBackground(adapters), fetcher, writes, badge };
+  return { background: createOperatorBackground(adapters), fetcher, writes, badge, adapters };
 }
 
 describe("SetNames grant transport", () => {
@@ -70,6 +78,26 @@ describe("SetNames grant transport", () => {
       expect(JSON.stringify(writes)).not.toMatch(/Synthetic|TCGAuthTicket|private|cleanSetName/);
     },
   );
+  it.each([401, 403])("persists an admissible re-pair state from a dirty saved record after %s", async (status) => {
+    const initial: OperatorRecord = { ...emptyOperatorRecord("staging"), grant, state: "idle", dirty: true };
+    expect(isOperatorRecord(initial, "staging")).toBe(true);
+    const { background, writes, adapters, fetcher } = setup(status, {}, initial);
+    expect(await background.receiveSetNamePost(message(), sender, operatorExtensionId)).toEqual({
+      outcome: "grant-invalid",
+    });
+    expect(isOperatorRecord(writes.at(-1), "staging")).toBe(true);
+    const restarted = createOperatorBackground(adapters);
+    expect(
+      await restarted.receive({ action: "status", environment: "staging" }, sender, operatorExtensionId),
+    ).toMatchObject({
+      paired: false,
+      state: "re-pair-required",
+    });
+    expect(await restarted.receiveSetNamePost(message(), sender, operatorExtensionId)).toEqual({
+      outcome: "grant-invalid",
+    });
+    expect(fetcher).toHaveBeenCalledOnce();
+  });
   it.each([{ id: "foreign" }, { url: `${origin}/sandbox.html` }, { origin: "null" }, { hasTab: true }])(
     "refuses an untrusted sender %j without fetching",
     async (override) => {

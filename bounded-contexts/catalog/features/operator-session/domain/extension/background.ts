@@ -136,6 +136,7 @@ export function createOperatorBackground(adapters: OperatorAdapters) {
               ...current.record,
               grant: null,
               state: "re-pair-required",
+              dirty: false,
               lastOutcome: "grant-invalid",
             });
             await badge();
