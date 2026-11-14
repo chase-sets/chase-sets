@@ -329,7 +329,8 @@
       "surfaces": [
         "api-client:bounded-contexts/fulfillment/client.ts:PUT H94acfba1dac0#1",
         "post-form:bounded-contexts/fulfillment/features/seller-checkout-readiness/ui/shipping-setup-page.tsx:H1abed2c1c746#1",
-        "route-action:bounded-contexts/fulfillment/features/seller-checkout-readiness/ui/shipping-setup-route-adapter.tsx"
+        "route-action:bounded-contexts/fulfillment/features/seller-checkout-readiness/ui/shipping-setup-route-adapter.tsx",
+        "route-action:bounded-contexts/fulfillment/routes/seller-shipping-setup.tsx"
       ],
       "visibleDestination": {
         "routeId": "seller-shipping-setup",
