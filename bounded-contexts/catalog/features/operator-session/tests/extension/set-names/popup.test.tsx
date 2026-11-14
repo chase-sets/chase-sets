@@ -10,7 +10,7 @@ import { counts, entry, response } from "./fixture";
 afterEach(cleanup);
 function mount(
   request: SetNamesRequest = vi.fn(async () => response()),
-  post: SetNamesPost = vi.fn(async () => ({ outcome: "recorded", ...counts })),
+  post: SetNamesPost = vi.fn<SetNamesPost>(async () => ({ outcome: "recorded", ...counts })),
   copyReceipt = vi.fn(async (_text: string) => undefined),
 ) {
   render(
@@ -42,7 +42,7 @@ describe("TCGplayer set names action states", () => {
     const select = screen.getByLabelText("Product line") as HTMLSelectElement;
     expect(Array.from(select.options).map((option) => option.value)).toEqual(["", "1", "2", "3", "68"]);
     expect(Array.from(select.options).map((option) => option.text)).not.toContain("Disney Lorcana");
-    expect((screen.getByRole("button", { name: "Run", exact: true }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole("button", { name: "Run" }) as HTMLButtonElement).disabled).toBe(true);
     expect(screen.queryByLabelText("Receipt")).toBeNull();
     await selectStatus();
   });
@@ -63,7 +63,7 @@ describe("TCGplayer set names action states", () => {
     );
     mount(request, post);
     await select();
-    const run = screen.getByRole("button", { name: "Run", exact: true });
+    const run = screen.getByRole("button", { name: "Run" });
     fireEvent.click(run);
     fireEvent.click(run);
     expect((screen.getByRole("button", { name: "Fetching set names" }) as HTMLButtonElement).disabled).toBe(true);
@@ -89,7 +89,7 @@ describe("TCGplayer set names action states", () => {
       }),
     );
     await select();
-    fireEvent.click(screen.getByRole("button", { name: "Run", exact: true }));
+    fireEvent.click(screen.getByRole("button", { name: "Run" }));
     await screen.findByText("Catalog set names recorded");
     fireEvent.click(screen.getByRole("button", { name: "Copy receipt text" }));
     expect(copyReceipt).toHaveBeenCalledOnce();
@@ -103,7 +103,7 @@ describe("TCGplayer set names action states", () => {
     const post = vi.fn<SetNamesPost>();
     mount(async () => response({ errors: ["Cookie TCGAuthTicket=private"], results: [entry()] }), post);
     await select();
-    fireEvent.click(screen.getByRole("button", { name: "Run", exact: true }));
+    fireEvent.click(screen.getByRole("button", { name: "Run" }));
     await screen.findByText("Set names stopped: unqualified (invalid-body)");
     expect(post).not.toHaveBeenCalled();
     expect(document.body.textContent).not.toMatch(/TCGAuthTicket|private|Synthetic Pokemon/);
@@ -113,7 +113,7 @@ describe("TCGplayer set names action states", () => {
     const request = vi.fn(async () => response());
     mount(request, post);
     await select();
-    fireEvent.click(screen.getByRole("button", { name: "Run", exact: true }));
+    fireEvent.click(screen.getByRole("button", { name: "Run" }));
     await screen.findByText("The grant is no longer valid. Pair again with a new grant.");
     expect(request).toHaveBeenCalledOnce();
     expect(post).toHaveBeenCalledOnce();
@@ -121,7 +121,7 @@ describe("TCGplayer set names action states", () => {
   it("clears receipt/results when product line or environment changes", async () => {
     mount();
     await select();
-    fireEvent.click(screen.getByRole("button", { name: "Run", exact: true }));
+    fireEvent.click(screen.getByRole("button", { name: "Run" }));
     await screen.findByText("Catalog set names recorded");
     fireEvent.change(screen.getByLabelText("Environment"), { target: { value: "production" } });
     expect(screen.queryByLabelText("Receipt")).toBeNull();
@@ -137,7 +137,7 @@ describe("TCGplayer set names action states", () => {
       }),
     );
     await select();
-    fireEvent.click(screen.getByRole("button", { name: "Run", exact: true }));
+    fireEvent.click(screen.getByRole("button", { name: "Run" }));
     await screen.findByText("Catalog set names recorded");
     fireEvent.click(screen.getByRole("button", { name: "Copy receipt text" }));
     await screen.findByText("Receipt copy failed.");
