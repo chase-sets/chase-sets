@@ -16,6 +16,10 @@ import { module as discoveryModule } from "../../../../discovery/index";
 import { module as notificationsModule } from "../../../../notifications/index";
 import { module as customerFeedbackModule } from "../../../index";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
+import { buildTransportEvent } from "@chase-sets/event-core/test-support";
+import { buildAuthOutcomeFactProjectionHandlers } from "../integrations/auth/outcome-fact-projection";
+import { buildIdentityOutcomeFactProjectionHandlers } from "../integrations/identity/outcome-fact-projection";
+import { buildDiscoveryOutcomeFactProjectionHandlers } from "../integrations/discovery/outcome-fact-projection";
 
 const databaseBaseUrl = process.env.TEST_DATABASE_URL;
 if (!databaseBaseUrl && process.env.CI)
@@ -103,6 +107,79 @@ describeDb("CSAT outcome projection against real rows and checkpoints", () => {
     }
   }
 
+  it("replay upserts one row per idempotency key", async () => {
+    const identityHandlers = buildIdentityOutcomeFactProjectionHandlers();
+    const fixtures = [
+      {
+        key: "auth:authentication:ses_1",
+        handler: buildAuthOutcomeFactProjectionHandlers()["auth.session.started"]!,
+        event: buildTransportEvent("auth.session.started", {
+          sessionId: "ses_1" as never,
+          userId: "usr_1" as never,
+          accountId: "acc_1" as never,
+          availableAccountIds: ["acc_1"],
+          authenticationMethod: "password",
+          expiresAt: "2026-01-02T00:00:00.000Z",
+        }),
+      },
+      {
+        key: "identity:registration:acc_1",
+        handler: identityHandlers["identity.registration.completed"]!,
+        event: buildTransportEvent("identity.registration.completed", {
+          accountId: "acc_1" as never,
+          userId: "usr_1" as never,
+        }),
+      },
+      {
+        key: "identity:onboarding:guest-account:acc_guest:usr_1",
+        handler: identityHandlers["identity.onboarding.completed"]!,
+        event: buildTransportEvent("identity.onboarding.completed", {
+          accountId: "acc_guest" as never,
+          userId: "usr_1" as never,
+          onboardingPath: "guest-account",
+        }),
+      },
+      {
+        key: "identity:onboarding:invitation:ivt_invited:usr_recipient",
+        handler: identityHandlers["identity.onboarding.completed"]!,
+        event: buildTransportEvent("identity.onboarding.completed", {
+          accountId: "acc_invited" as never,
+          userId: "usr_recipient" as never,
+          onboardingPath: "invitation",
+          invitationId: "ivt_invited",
+        }),
+      },
+      {
+        key: "discovery:search-session:ses_1",
+        handler: buildDiscoveryOutcomeFactProjectionHandlers()["discovery.search-session.started"]!,
+        event: buildTransportEvent("discovery.search-session.started", {
+          accountId: "acc_1" as never,
+          sessionId: "ses_1" as never,
+        }),
+      },
+    ];
+    const projectionContext = { db: pools["customer-feedback"] };
+    for (const { handler, event } of fixtures) await handler(event, projectionContext);
+    const firstDelivery = await pools["customer-feedback"].query<{ row: string }>(
+      "SELECT row_to_json(fact)::text AS row FROM customer_feedback_csat_outcome_facts AS fact ORDER BY idempotency_key",
+    );
+    expect(firstDelivery.rows).toHaveLength(5);
+
+    for (const { handler, event } of fixtures) await handler(event, projectionContext);
+    const secondDelivery = await pools["customer-feedback"].query<{ row: string }>(
+      "SELECT row_to_json(fact)::text AS row FROM customer_feedback_csat_outcome_facts AS fact ORDER BY idempotency_key",
+    );
+    expect(secondDelivery.rows).toEqual(firstDelivery.rows);
+    const counts = await pools["customer-feedback"].query<{ idempotency_key: string; count: number }>(
+      "SELECT idempotency_key, count(*)::integer AS count FROM customer_feedback_csat_outcome_facts GROUP BY idempotency_key ORDER BY idempotency_key",
+    );
+    expect(counts.rows).toEqual(
+      fixtures
+        .map(({ key }) => ({ idempotency_key: key, count: 1 }))
+        .sort((left, right) => left.idempotency_key.localeCompare(right.idempotency_key)),
+    );
+  });
+
   it("projects real Auth rows, replays idempotently, and resumes from the persisted first checkpoint", async () => {
     await appendAuthEvents(101);
     await createPostgresEventStore({ pool: pools.auth }).appendToStream({
@@ -136,6 +213,11 @@ describeDb("CSAT outcome projection against real rows and checkpoints", () => {
       [runner!.checkpointKey],
     );
     expect(firstCheckpoint.rows[0]?.checkpoint).toBe("100");
+    const deleted = await pools["customer-feedback"].query<{ source_event_id: string }>(
+      "DELETE FROM customer_feedback_csat_outcome_facts WHERE idempotency_key = $1 RETURNING source_event_id",
+      ["auth:authentication:ses_csat_0"],
+    );
+    expect(deleted.rows).toEqual([{ source_event_id: "evt_csat_0" }]);
 
     const restarted = runtime();
     await drainContextRuntime({
@@ -155,7 +237,8 @@ describeDb("CSAT outcome projection against real rows and checkpoints", () => {
     }>(
       "SELECT idempotency_key, source_event_id, authentication_method FROM customer_feedback_csat_outcome_facts ORDER BY idempotency_key",
     );
-    expect(rows.rows).toHaveLength(102);
+    expect(rows.rows).toHaveLength(101);
+    expect(rows.rows.find((row) => row.idempotency_key === "auth:authentication:ses_csat_0")).toBeUndefined();
     expect(rows.rows[0]).toMatchObject({ authentication_method: "password" });
     expect(rows.rows.find((row) => row.source_event_id === "evt_csat_legacy")).toMatchObject({
       authentication_method: null,
@@ -166,6 +249,6 @@ describeDb("CSAT outcome projection against real rows and checkpoints", () => {
     const replayRows = await pools["customer-feedback"].query<{ count: string }>(
       "SELECT count(*)::text AS count FROM customer_feedback_csat_outcome_facts",
     );
-    expect(replayRows.rows[0]?.count).toBe("102");
+    expect(replayRows.rows[0]?.count).toBe("101");
   });
 });

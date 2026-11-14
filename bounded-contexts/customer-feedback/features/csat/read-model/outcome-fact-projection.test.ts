@@ -87,6 +87,94 @@ describe("CSAT outcome fact projection", () => {
     });
   });
 
+  it("projects identity.onboarding.completed (guest-account) with helper-parity row", async () => {
+    const store = dbRows();
+    const event = buildTransportEvent(
+      "identity.onboarding.completed",
+      { accountId: "acc_guest" as never, userId: "usr_1" as never, onboardingPath: "guest-account" },
+      {
+        id: "evt_guest",
+        audit: { performedByUserId: "usr_1", forAccountId: "acc_1" },
+        timing: { occurredAt: "2026-06-15T11:59:59.000Z", recordedAt: "2026-06-15T12:00:00.000Z" },
+      },
+    );
+    await buildIdentityOutcomeFactProjectionHandlers()["identity.onboarding.completed"]!(event, store);
+    expect(store.rows.get("identity:onboarding:guest-account:acc_guest:usr_1")).toEqual({
+      idempotencyKey: "identity:onboarding:guest-account:acc_guest:usr_1",
+      outcomeCode: "onboarding.completed",
+      sourceContext: "identity",
+      subjectAccountId: "acc_guest",
+      subjectKind: "account",
+      subjectEntityType: "account",
+      subjectEntityId: "acc_guest",
+      outcomeOccurredAt: "2026-06-15T12:00:00.000Z",
+      sourceEventId: "evt_guest",
+      performedByUserId: "usr_1",
+      authenticationMethod: null,
+      reasonCode: null,
+    });
+  });
+
+  it("projects identity.onboarding.completed (invitation) with helper-parity row", async () => {
+    const store = dbRows();
+    const event = buildTransportEvent(
+      "identity.onboarding.completed",
+      {
+        accountId: "acc_invited" as never,
+        userId: "usr_recipient" as never,
+        onboardingPath: "invitation",
+        invitationId: "ivt_invited",
+      },
+      {
+        id: "evt_invitation",
+        timing: { occurredAt: "2026-06-15T11:59:59.000Z", recordedAt: "2026-06-15T12:00:00.000Z" },
+      },
+    );
+    await buildIdentityOutcomeFactProjectionHandlers()["identity.onboarding.completed"]!(event, store);
+    expect(store.rows.get("identity:onboarding:invitation:ivt_invited:usr_recipient")).toEqual({
+      idempotencyKey: "identity:onboarding:invitation:ivt_invited:usr_recipient",
+      outcomeCode: "onboarding.completed",
+      sourceContext: "identity",
+      subjectAccountId: "acc_invited",
+      subjectKind: "account",
+      subjectEntityType: "invitation",
+      subjectEntityId: "ivt_invited",
+      outcomeOccurredAt: "2026-06-15T12:00:00.000Z",
+      sourceEventId: "evt_invitation",
+      performedByUserId: "usr_fixture",
+      authenticationMethod: null,
+      reasonCode: null,
+    });
+  });
+
+  it("projects discovery.search-session.started with helper-parity row", async () => {
+    const store = dbRows();
+    const event = buildTransportEvent(
+      "discovery.search-session.started",
+      { accountId: "acc_1" as never, sessionId: "ses_1" as never },
+      {
+        id: "evt_discovery",
+        audit: { performedByUserId: "usr_system", forAccountId: "acc_system" },
+        timing: { occurredAt: "2026-06-15T11:59:59.000Z", recordedAt: "2026-06-15T12:00:00.000Z" },
+      },
+    );
+    await buildDiscoveryOutcomeFactProjectionHandlers()["discovery.search-session.started"]!(event, store);
+    expect(store.rows.get("discovery:search-session:ses_1")).toEqual({
+      idempotencyKey: "discovery:search-session:ses_1",
+      outcomeCode: "discovery.search-completed",
+      sourceContext: "discovery",
+      subjectAccountId: "acc_1",
+      subjectKind: "account",
+      subjectEntityType: "session",
+      subjectEntityId: "ses_1",
+      outcomeOccurredAt: "2026-06-15T12:00:00.000Z",
+      sourceEventId: "evt_discovery",
+      performedByUserId: "usr_system",
+      authenticationMethod: null,
+      reasonCode: null,
+    });
+  });
+
   it("replay upserts one row per idempotency key", async () => {
     const store = dbRows();
     const event = buildTransportEvent("discovery.search-session.started", {
