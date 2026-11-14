@@ -95,8 +95,9 @@ pub(crate) async fn page(
 /// The page's parts for `<corten-live>` (discovery's `useRealtimePatchedSnapshot` on the listing's
 /// topics): on each change to the listing (`listing:{id}`, which its patches name), the listing is
 /// read again and its header, purchase column and seller's card are drawn again. Report Listing is
-/// not: it holds what the user typed. A listing the read no longer finds says it is not found, as
-/// marketplace's page does once a patch removes it. Each fragment carries the realtime stream's
+/// not: it holds what the user typed. A listing the read no longer finds, or whose slug now names
+/// another listing than the one the page was drawn for, says it is not found, as marketplace's page
+/// does once a patch removes it, and the stream ends. Each fragment carries the realtime stream's
 /// cursor, so a reconnect goes on from there. Marketplace also listens to `public:market`, every
 /// change in the marketplace; the listing's own topic carries every change the page shows.
 pub(crate) async fn live(
@@ -107,8 +108,8 @@ pub(crate) async fn live(
     Params(route): Params<crate::app::url::listings::PublicListingLive<'_>>,
 ) -> LiveResponse {
     let (t, p): (ListingMsg, Pilot) = (req.t(), req.t());
-    let slug = route.slug.to_owned();
-    let topic = format!("listing:{}", route.id);
+    let (slug, id) = (route.slug.to_owned(), route.id.to_owned());
+    let topic = format!("listing:{id}");
     let changes = config.platform.caller(&headers, config.proto, None).changes(&[&topic], since.0);
     let fragments = changes
         .take_while(|tick| std::future::ready(!matches!(tick, Tick::Refused(_))))
@@ -120,23 +121,30 @@ pub(crate) async fn live(
             })
         })
         .then(move |cursor| {
-            let (config, headers, slug) = (config.clone(), headers.clone(), slug.clone());
+            let (config, headers, slug, id) = (config.clone(), headers.clone(), slug.clone(), id.clone());
             async move {
                 let caller = config.platform.caller(&headers, config.proto, None);
-                let html = match caller.public_listing(&slug).await {
-                    Ok(Some(listing)) => views::listing_live_parts(t, p, &listing).to_html(),
-                    Ok(None) => views::ListingGone { t }.to_html(),
+                let (html, ends) = match caller.public_listing(&slug).await {
+                    Ok(Some(listing)) if listing.listing.listing_id == id => {
+                        (views::listing_live_parts(t, p, &listing).to_html(), false)
+                    }
+                    Ok(_) => (views::ListingGone { t }.to_html(), true),
                     Err(error) => {
                         tracing::warn!("the listing's read for a change failed: {error}");
                         return None;
                     }
                 };
-                Some(match cursor {
+                let part = match cursor {
                     Some(cursor) => corten::Fragment::new(html).cursor(cursor),
                     None => corten::Fragment::new(html),
-                })
+                };
+                Some((part, ends))
             }
         })
+        .filter_map(std::future::ready)
+        // The part that says the listing is not found is the last: the stream ends after it.
+        .flat_map(|(part, ends)| futures_util::stream::iter(std::iter::once(Some(part)).chain(ends.then_some(None))))
+        .take_while(|part| std::future::ready(part.is_some()))
         .filter_map(std::future::ready);
     corten::live(fragments)
 }
