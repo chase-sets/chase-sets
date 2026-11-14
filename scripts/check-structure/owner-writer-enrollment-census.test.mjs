@@ -48,4 +48,12 @@ describe("owner writer enrollment census", () => {
       expect.stringContaining("unproven exclusion"),
     ]);
   });
+  it("does not classify a read-only event-store dependency as an event-store mutation", () => {
+    const code = `function upsertSecret() {
+      return db.query('WITH owner AS (SELECT current_version FROM event_store_streams FOR UPDATE) INSERT INTO identity_api_key_secrets SELECT * FROM owner');
+    }`;
+    expect(discoverOwnerWriters({ "bounded-contexts/identity/features/api-keys/api/secret-store.ts": code })).toEqual(
+      [],
+    );
+  });
 });

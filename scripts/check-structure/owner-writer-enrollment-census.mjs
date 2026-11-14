@@ -89,8 +89,9 @@ export function discoverOwnerWriters(sources) {
         const statement = /(?:^|[.\s])query$/u.test(query) ? flow(node.arguments[0]) : "";
         const sql =
           /(?:^|[.\s])query$/u.test(query) &&
-          /\b(?:INSERT\s+INTO|UPDATE|DELETE\s+FROM|MERGE\s+INTO|COPY|TRUNCATE)\b/iu.test(statement) &&
-          /\bevent_store_(?:events|streams)\b/iu.test(statement);
+          /\b(?:INSERT\s+INTO|UPDATE|DELETE\s+FROM|MERGE\s+INTO|COPY|TRUNCATE(?:\s+TABLE)?)\s+(?:[a-z_][a-z_0-9]*\.)?"?event_store_(?:events|streams)"?\b/iu.test(
+            statement,
+          );
         if (sink || sql) {
           const data = flow(node);
           const kinds = ["account", "user", "membership"].filter((kind) =>
