@@ -2398,8 +2398,9 @@ pub struct Offer {
 pub trait Discovery {
     /// The item by its slug or its id; `None` when the API has no such item.
     async fn item(&self, id: &str) -> Result<Option<Item>, ApiError>;
-    /// What the page shows a seller who may list (`SellerOverlay`).
-    async fn seller_overlay(&self, id: &str) -> Result<SellerOverlay, ApiError>;
+    /// What the page shows a seller who may list (`SellerOverlay`), with the seller's own listing
+    /// `selected` when the address names one (`selectedListingId`).
+    async fn seller_overlay(&self, id: &str, selected: Option<&str>) -> Result<SellerOverlay, ApiError>;
     /// Items like the item, by its slug or its id (`GET /api/marketplace/items/{id}/similar`).
     async fn similar(&self, id: &str) -> Result<Vec<SimilarItem>, ApiError>;
     /// A listing's public page by its slug (or an old one); `None` when there is none.
@@ -2594,8 +2595,9 @@ impl Discovery for Caller<'_> {
         }
     }
 
-    async fn seller_overlay(&self, id: &str) -> Result<SellerOverlay, ApiError> {
-        self.read(&format!("{ITEMS}/{}/seller-overlay", segment(id)), DISCOVERY).await
+    async fn seller_overlay(&self, id: &str, selected: Option<&str>) -> Result<SellerOverlay, ApiError> {
+        let query = selected.map(|listing| format!("?selectedListingId={}", segment(listing))).unwrap_or_default();
+        self.read(&format!("{ITEMS}/{}/seller-overlay{query}", segment(id)), DISCOVERY).await
     }
 
     async fn similar(&self, id: &str) -> Result<Vec<SimilarItem>, ApiError> {
@@ -2975,14 +2977,19 @@ pub struct SetPage {
 /// `DiscoveryItemDetailSellerOverlay`), the fields the pilot reads: whether the account has the
 /// Listing stock location quick listings ship from, and the item's offers it could fill. The API
 /// answers each part only to an actor allowed it (no matches without `offers.view` and
-/// `listings.view`, no stock location without `listings.manage`). Its inventory and selected
-/// listing are not ported.
+/// `listings.view`, no stock location or selected listing without `listings.manage`). Its
+/// `sellerInventoryItems` are not read: marketplace's loader passes them on, but no part of its
+/// page draws them.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SellerOverlay {
     pub has_listing_stock_location: bool,
     #[serde(default)]
     pub account_offer_matches: Vec<AccountOfferMatch>,
+    /// The account's own listing of the item the address names (`selectedSellerListing`): a
+    /// draft, active or paused one, which the item's own read lists only once buyers can see it.
+    #[serde(default)]
+    pub selected_seller_listing: Option<Listing>,
 }
 
 /// An offer of the item that one of the account's listings of its product could fill

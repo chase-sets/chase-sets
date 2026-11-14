@@ -77,7 +77,10 @@ fn committed(status: StatusCode, context: &str, position: &str, body: Value) -> 
 /// graded product and for `starter`; a create with `listingIdOverride` sent again is the same
 /// listing, and one priced `1.00` is refused; a listing priced `2.00` is created but its
 /// publication refused. A guest's draft needs its owner.
-fn listings(stand: &Stand, session: &str, method: &Method, path: &str, headers: &HeaderMap, body: &str) -> Option<Response> {
+/// `lister`'s draft `DRAFTED`, which the item's read leaves out, is the overlay's selected listing
+/// when the read names it.
+fn listings(stand: &Stand, session: &str, method: &Method, uri: &Uri, headers: &HeaderMap, body: &str) -> Option<Response> {
+    let path = uri.path();
     let sent: Value = serde_json::from_str(body).unwrap_or_default();
     // `filler`'s listing has 1 of the 2 `off_high` asks for, and enough for `off_mine`, which is
     // on its Sell List. The live redraw reads the overlay by the item's id.
@@ -108,8 +111,22 @@ fn listings(stand: &Stand, session: &str, method: &Method, path: &str, headers: 
             ("lister", _) | ("starter", Some("42")) => true,
             _ => false,
         };
+        let named = uri.query().is_some_and(|q| q.split('&').any(|p| p == format!("selectedListingId={DRAFTED}")));
+        let selected = if session == "lister" && named {
+            json!({
+                "listing_id": DRAFTED, "account_id": "acc_seller", "catalog_catalog_item_id": "cat_charizard",
+                "product_id": OFFERED, "selected_options": [{ "dimensionId": "dim_form", "optionId": "chc_raw" }, { "dimensionId": "dim_condition", "optionId": "chc_nm" }],
+                "product_summary": "Form: raw", "price_amount": "2.00", "price_currency_code": "USD",
+                "quantity_cap": 1, "visible_quantity": 1, "max_units_per_order": null, "max_units_per_day": null,
+                "max_units_per_customer_account": null, "seller_slug": "seller", "seller_display_name": "You",
+                "seller_average_rating": null, "seller_review_count": 0, "status": "draft", "listing_stream_version": 1,
+                "seller_at_capacity": false,
+            })
+        } else {
+            Value::Null
+        };
         let overlay = json!({
-            "accountOfferMatches": [], "sellerInventoryItems": [], "hasListingStockLocation": has, "selectedSellerListing": null,
+            "accountOfferMatches": [], "sellerInventoryItems": [], "hasListingStockLocation": has, "selectedSellerListing": selected,
         });
         return Some(Json(overlay).into_response());
     }
@@ -669,7 +686,7 @@ async fn platform(State(stand): State<Stand>, method: Method, uri: Uri, headers:
     if let Some(answer) = listing_create(&stand, session, &method, &uri, &headers, &body) {
         return answer;
     }
-    if let Some(answer) = listings(&stand, session, &method, uri.path(), &headers, &body) {
+    if let Some(answer) = listings(&stand, session, &method, &uri, &headers, &body) {
         return answer;
     }
     if let Some(answer) = seller_listings(&method, uri.path(), &headers, &body) {
@@ -5453,6 +5470,8 @@ const LIST: &str = "/items/charizard/list";
 const SHIP_FROM: &str = "/items/charizard/ship-from";
 const ATTEMPT: &str = "0b6f3c1e-4d2a-4b8e-9f00-1234567890ab";
 const LISTED: &str = "lst_0b6f3c1e4d2a4b8e9f001234567890ab";
+/// `lister`'s draft whose publication was refused.
+const DRAFTED: &str = "lst_1b6f3c1e4d2a4b8e9f001234567890ab";
 
 /// A List this product form's body: the Sell tab's address, the product it showed, the attempt,
 /// the price, currency and quantity.
@@ -5598,7 +5617,11 @@ async fn a_seller_lists_the_product_once_however_often_the_form_is_sent() {
         .unwrap()
         .iter()
         .rev()
-        .find(|c| c.path.starts_with("/api/marketplace/items/charizard") && c.path != OVERLAY && !c.path.ends_with("/similar"))
+        .find(|c| {
+            c.path.starts_with("/api/marketplace/items/charizard")
+                && !c.path.starts_with(OVERLAY)
+                && !c.path.ends_with("/similar")
+        })
         .cloned()
         .unwrap();
     assert_eq!(waits_for(&item_read.headers).as_deref(), Some("31"), "the item waits for the publication");
@@ -5885,6 +5908,27 @@ async fn a_listing_whose_read_has_not_caught_up_says_it_was_published_and_reads_
 }
 
 #[tokio::test]
+async fn a_sellers_own_draft_the_address_names_is_read_with_the_overlay_and_shown_as_theirs() {
+    let pilot = Pilot::new().await;
+    // The item's read lists only what buyers can see; the overlay adds the draft the address names.
+    let (status, _, html) = pilot.send(get(&format!("{SELL_PAGE}&listing={DRAFTED}"), Some("lister"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let overlay = pilot.stand.calls.lock().unwrap().iter().find(|c| c.path.starts_with(OVERLAY)).cloned().unwrap();
+    assert_eq!(overlay.path, format!("{OVERLAY}?selectedListingId={DRAFTED}"));
+    let page = text(&html);
+    assert!(page.contains("Your draft listing is $2.00. Manage listing"), "{page}");
+    assert_eq!(hrefs(&html, "Manage listing"), [format!("/account/listings/{DRAFTED}")]);
+    assert!(plain(&html).contains(&format!("{OPEN_PRODUCT_FOLD}<summary>")), "the fold is open on it: {html}");
+    assert!(!page.contains("Listing unavailable"), "the draft is not a stale listing: {html}");
+    assert!(!html.contains(r#"action="/items/charizard/list""#), "no second listing of the product: {html}");
+    // Without the listing in the address, or for another seller, the overlay names none.
+    let (_, _, html) = pilot.send(get(SELL_PAGE, Some("lister"))).await;
+    assert!(!text(&html).contains("Your draft listing"), "{html}");
+    let (_, _, html) = pilot.send(get(&format!("{SELL_PAGE}&listing={DRAFTED}"), Some("starter"))).await;
+    assert!(!text(&html).contains("Your draft listing"), "{html}");
+}
+
+#[tokio::test]
 async fn a_listing_the_input_or_the_api_refuses_says_why_in_its_form() {
     let pilot = Pilot::new().await;
     // A price past the field's step, or none: nothing is written.
@@ -5917,7 +5961,7 @@ async fn a_listing_the_input_or_the_api_refuses_says_why_in_its_form() {
     let (status, _, html) = pilot.send(post(LIST, "lister", &list_body(attempt, "2", "USD", "1"), false)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
     assert!(text(&html).contains("Listings require a resolved shipping measure before publication. Manage listing"), "{html}");
-    assert_eq!(hrefs(&html, "Manage listing"), ["/account/listings/lst_1b6f3c1e4d2a4b8e9f001234567890ab"]);
+    assert_eq!(hrefs(&html, "Manage listing"), [format!("/account/listings/{DRAFTED}")]);
     // A graded product's stock is refused, as on marketplace (chase-sets/chase-sets#10598).
     let address = "market=sell&dimension.dim_form=chc_graded&dimension.dim_grade=chc_grade_7";
     let (_, _, html) = pilot.send(get(&format!("/items/charizard?{address}"), Some("lister"))).await;
