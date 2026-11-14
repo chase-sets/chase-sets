@@ -312,6 +312,9 @@ describe("marketplace account lifecycle probe joins", () => {
     "deployables/marketplace/e2e/support/manual-sync-recovery.ts",
     "deployables/marketplace/app/manual-sync-recovery-support.test.ts",
     "scripts/release-qualification-scope.test.mjs",
+    "scripts/check-structure/channels-context-foundation.test.mjs",
+    "scripts/lib/browser-e2e-postgres-demand.mjs",
+    "scripts/sandbox.test.mjs",
   ])("admits only the decided retained-suite support path %s", (supportPath) => {
     expect(probeRepairSupportPaths.filter((path) => path === supportPath)).toHaveLength(1);
     const input = { head: "1".repeat(40), baselineIsAncestor: true, changedPaths: [probeRepairPaths[2], supportPath] };

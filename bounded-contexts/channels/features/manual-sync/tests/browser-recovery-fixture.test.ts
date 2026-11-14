@@ -3,6 +3,7 @@ import { Readable, Writable } from "node:stream";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { demoIdentitySeedIds } from "@chase-sets/identity-seed";
+import { createId } from "@chase-sets/primitives/typed-ids";
 import { assertBrowserRecoveryFixtureInput, createBrowserRecoveryFixture } from "./browser-recovery-fixture";
 import {
   createManualSyncBrowserRecovery,
@@ -41,7 +42,7 @@ const input = {
   ownershipId: "12345678-1234-4123-8123-123456789abc",
   connectionId: "chn_owned",
   listingId: "lst_owned",
-  inventoryItemId: "itm_owned",
+  inventoryItemId: "inv_owned",
   createdAfter: "2026-11-06T10:00:00.000Z",
 };
 const createdAt = "2026-11-06T10:01:00.000Z";
@@ -128,6 +129,19 @@ beforeEach(() => {
 });
 
 describe("finite recovery Node entry", () => {
+  it("accepts native generated identities and refuses the invented inventory prefix", () => {
+    expect(() =>
+      assertBrowserRecoveryFixtureInput({
+        ...input,
+        connectionId: createId("chn"),
+        listingId: createId("lst"),
+        inventoryItemId: createId("inv"),
+      }),
+    ).not.toThrow();
+    expect(() => assertBrowserRecoveryFixtureInput({ ...input, inventoryItemId: "itm_owned" })).toThrow(
+      "owned-recovery-input-required",
+    );
+  });
   it("loads the actual Node facade and refuses null stdin without opening a database", async () => {
     const root = fileURLToPath(new URL("../../../../../", import.meta.url));
     const facade = fileURLToPath(new URL("../../../support/seed-support/manual-sync-browser.ts", import.meta.url));
@@ -195,7 +209,7 @@ describe("finite recovery Node entry", () => {
     { ...request(), fixture: { ...input, createdAfter: "2026-11-06T10:00:00Z" } },
     { ...request(), fixture: { ...input, connectionId: "chn_" + "x".repeat(157) } },
     { ...request(), fixture: { ...input, listingId: "lst_" + "x".repeat(157) } },
-    { ...request(), fixture: { ...input, inventoryItemId: "itm_" + "x".repeat(157) } },
+    { ...request(), fixture: { ...input, inventoryItemId: "inv_" + "x".repeat(157) } },
     { ...request(), databases: null },
     { ...request(), databases: [] },
     { ...request(), databases: { ...databases, extra: true } },
@@ -211,7 +225,7 @@ describe("finite recovery Node entry", () => {
     const value = request();
     value.fixture.connectionId = "chn_" + "x".repeat(156);
     value.fixture.listingId = "lst_" + "x".repeat(156);
-    value.fixture.inventoryItemId = "itm_" + "x".repeat(156);
+    value.fixture.inventoryItemId = "inv_" + "x".repeat(156);
     const bytes = Buffer.from(JSON.stringify(value));
     expect(parseOwnedRecoveryRequest(Buffer.concat([bytes, Buffer.alloc(8192 - bytes.length, 32)]))).toEqual({
       fixture: value.fixture,
@@ -459,7 +473,7 @@ describe("owned browser recovery fixture", () => {
       const f = setup();
       if (kind === "foreign") f.listing.accountId = "acc_foreign" as typeof accountId;
       if (kind === "inactive") f.listing.status = "withdrawn";
-      if (kind === "inventory") f.listing.inventoryItemId = "itm_foreign";
+      if (kind === "inventory") f.listing.inventoryItemId = "inv_foreign";
       if (kind === "absent") h.streams.delete(`marketplace.listing-${input.listingId}`);
       const key = `marketplace.inventory-listing-capacity-${input.inventoryItemId}`;
       if (kind === "sibling")

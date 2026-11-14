@@ -59,7 +59,7 @@ export const probeRepairPaths = Object.freeze([
   "bounded-contexts/auth/support/route-support/auth-action-errors.ts",
   "deployables/marketplace/e2e/support/auth.ts",
 ]);
-// Their owner-local tests and the workflow's release-scope registration.
+// Their owner-local tests and authorized verification registrations.
 export const probeRepairSupportPaths = Object.freeze([
   "bounded-contexts/auth/support/api-support/register-routes.test.ts",
   "bounded-contexts/auth/support/route-support/auth-action-errors.test.ts",
@@ -79,6 +79,9 @@ export const probeRepairSupportPaths = Object.freeze([
   "infrastructure/playwright-evidence/responsive-evidence-manifest.json",
   "scripts/release-qualification-scope.mjs",
   "scripts/release-qualification-scope.test.mjs",
+  "scripts/check-structure/channels-context-foundation.test.mjs",
+  "scripts/lib/browser-e2e-postgres-demand.mjs",
+  "scripts/sandbox.test.mjs",
 ]);
 export const probeRuns = Object.freeze([
   Object.freeze({ index: 1, mode: "clean", directory: "run-1-clean" }),

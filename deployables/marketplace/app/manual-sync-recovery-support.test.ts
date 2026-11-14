@@ -16,7 +16,7 @@ const fixture = {
   ownershipId: "12345678-1234-4123-8123-123456789abc",
   connectionId: "chn_owned",
   listingId: "lst_owned",
-  inventoryItemId: "itm_owned",
+  inventoryItemId: "inv_owned",
   createdAfter: "2026-11-07T00:00:00.000Z",
 };
 const metadata = { channelsDatabaseUrl: "private-marker-channels", catalogDatabaseUrl: "private-marker-catalog" };
@@ -185,7 +185,7 @@ describe("owned recovery browser preparation", () => {
         observedAtMs: Date.now(),
         sources: [{ sourceContextName: "inventory", maxGlobalPosition: "1", eventIds: ["evt_owned"] }],
       };
-      const body = { listing_id: "lst_owned", inventory_item_id: "itm_owned" };
+      const body = { listing_id: "lst_owned", inventory_item_id: "inv_owned" };
       const pollExpect = Object.assign((value: unknown, message?: string) => expect(value, message), {
         poll: (probe: () => Promise<boolean>) => ({
           toBe: async (expected: boolean) => {
@@ -215,7 +215,7 @@ describe("owned recovery browser preparation", () => {
       const accepts = (value: typeof body) =>
         value.listing_id === body.listing_id && value.inventory_item_id === body.inventory_item_id;
       const input = {
-        id: "itm_owned",
+        id: "inv_owned",
         commandReceipt: { mode: "eventual", commitPositions: receipt.sources, commitEventIds: ["evt_owned"] },
       };
       const invoke = () =>
@@ -238,7 +238,7 @@ describe("owned recovery browser preparation", () => {
       }
       for (const refused of [
         response(403, { error: { code: "authorization_forbidden" } }),
-        response(200, { ...body, inventory_item_id: "itm_foreign" }),
+        response(200, { ...body, inventory_item_id: "inv_foreign" }),
       ]) {
         get.mockReset().mockResolvedValue(refused);
         await expect(invoke()).rejects.toThrow();

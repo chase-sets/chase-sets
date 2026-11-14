@@ -37,7 +37,7 @@ export function assertBrowserRecoveryFixtureInput(input: unknown): asserts input
       (key, index) =>
         typeof value[key] === "string" &&
         (value[key] as string).length <= 160 &&
-        new RegExp(`^${["chn", "lst", "itm"][index]}_[a-zA-Z0-9_-]+$`).test(value[key] as string),
+        new RegExp(`^${["chn", "lst", "inv"][index]}_[a-zA-Z0-9_-]+$`).test(value[key] as string),
     ) ||
     typeof value.createdAfter !== "string" ||
     !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(value.createdAfter) ||
