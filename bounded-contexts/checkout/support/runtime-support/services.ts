@@ -9,6 +9,7 @@ import { createEventStoreWakeNotificationConfigForSourceContext } from "@chase-s
 import type { ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import type { RateLimitRuleResolver } from "@chase-sets/http/rate-limit";
 import { createCheckoutCommercialTermsResolver } from "../../api";
+import type { CheckoutSellerCheckoutOwners } from "../../api";
 import { createCheckoutCartRuntime } from "../../features/cart/api/runtime";
 import { createCheckoutSellListRuntime } from "../../features/sell-list/api/runtime";
 import type {
@@ -20,6 +21,7 @@ import { createCheckoutSessionRuntime } from "../../features/sessions/api/runtim
 import { createCheckoutSupportLookupRuntime } from "../../features/support-lookup/api/runtime";
 
 export type CheckoutHostPorts = Readonly<{
+  sellerCheckoutOwners?: CheckoutSellerCheckoutOwners;
   checkoutObservabilityTelemetry?: CheckoutObservabilityTelemetry;
   commercialTermsResolver?: CheckoutCommercialTermsResolver;
   offerAcceptanceTermsSource?: CheckoutOfferAcceptanceTermsSource;
@@ -57,6 +59,7 @@ export function createCheckoutServices(pool: PgTransactionalPool, ports: Checkou
     db,
     commercialTermsResolver,
     offerAcceptanceTermsSource: ports.offerAcceptanceTermsSource,
+    sellerCheckoutOwners: ports.sellerCheckoutOwners,
   });
   const sessions = createCheckoutSessionRuntime({
     eventStore,

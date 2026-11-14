@@ -8,8 +8,8 @@
   },
   "scripts": {
     "test": "vitest run --config ./tests/vitest.config.mjs",
-    "test:unit": "vitest run --config ./tests/vitest.config.mjs --exclude features/cart/read-model/seller-options-readiness.db.test.ts --exclude features/sessions/read-model/checkout-preview-lifecycle.db.test.ts --exclude tests/account-status.db.test.ts --exclude features/command-attempts/api/cart-attempt.db.test.ts --exclude features/sessions/api/entry-attempt.db.test.ts",
-    "test:db": "vitest run --config ./tests/vitest.config.mjs features/cart/read-model/seller-options-readiness.db.test.ts features/sessions/read-model/checkout-preview-lifecycle.db.test.ts tests/account-status.db.test.ts features/command-attempts/api/cart-attempt.db.test.ts features/sessions/api/entry-attempt.db.test.ts",
+    "test:unit": "vitest run --config ./tests/vitest.config.mjs --exclude features/cart/read-model/seller-options-readiness.db.test.ts --exclude features/sessions/read-model/checkout-preview-lifecycle.db.test.ts --exclude tests/account-status.db.test.ts --exclude features/command-attempts/api/cart-attempt.db.test.ts --exclude features/sessions/api/entry-attempt.db.test.ts --exclude features/sell-list/api/owner-read-lifecycle.db.test.ts",
+    "test:db": "vitest run --config ./tests/vitest.config.mjs features/cart/read-model/seller-options-readiness.db.test.ts features/sessions/read-model/checkout-preview-lifecycle.db.test.ts tests/account-status.db.test.ts features/command-attempts/api/cart-attempt.db.test.ts features/sessions/api/entry-attempt.db.test.ts features/sell-list/api/owner-read-lifecycle.db.test.ts",
     "test:watch": "vitest --config ./tests/vitest.config.mjs"
   },
   "exports": {
@@ -32,6 +32,7 @@
     "@chase-sets/design-system": "workspace:*",
     "@chase-sets/event-core": "workspace:*",
     "@chase-sets/event-core-postgres": "workspace:*",
+    "@chase-sets/fulfillment": "workspace:*",
     "@chase-sets/http": "workspace:*",
     "@chase-sets/identity": "workspace:*",
     "@chase-sets/identity-seed": "workspace:*",
@@ -43,6 +44,7 @@
     "@chase-sets/platform-runtime": "workspace:*",
     "@chase-sets/postage-labels": "workspace:*",
     "@chase-sets/primitives": "workspace:*",
+    "@chase-sets/settlement": "workspace:*",
     "hono": "^4.13.13"
   },
   "devDependencies": {
