@@ -345,7 +345,7 @@ export function createAgentGrantRevocations(
       }),
     readProgress: async (accountId, grantId) => (await load(pool, { accountId, grantId }))?.phase ?? null,
     advance: (state, context) =>
-      ownerEpochs.delegationTransaction(async (db) => {
+      ownerEpochs.delegationTransaction(async (db: PgQueryable) => {
         const row = await grant(db, state);
         const current = await load(db, state);
         if (

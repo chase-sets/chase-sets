@@ -1,4 +1,4 @@
-import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import type { PgQueryable, PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { assertDormantAgentGrantWrite } from "../../features/agent-grants/api/revocation-release";
 import { createIdentityOwnerEpochs, type IdentityOwnerEpochs } from "../../features/accounts/api/owner-epochs";
 
@@ -108,7 +108,7 @@ export function createLinkedPlatformAuthorizationStore(
 ): LinkedPlatformAuthorizationStore {
   return {
     grant: (params) =>
-      ownerEpochs.delegationTransaction(async (db) => {
+      ownerEpochs.delegationTransaction(async (db: PgQueryable) => {
         await ownerEpochs.enrollDelegation(db, params.authorizationId);
         const result = await db.query<LinkedPlatformAuthorizationRow>(
           `INSERT INTO identity_linked_platform_authorizations (
@@ -196,7 +196,7 @@ export function createLinkedPlatformAuthorizationStore(
       return result.rows[0] ? mapLinkedPlatformAuthorizationRow(result.rows[0]) : null;
     },
     rotateRefreshToken: (params) =>
-      ownerEpochs.delegationTransaction(async (db) => {
+      ownerEpochs.delegationTransaction(async (db: PgQueryable) => {
         const candidates = await db.query<{ authorization_id: string }>(
           "SELECT authorization_id FROM identity_linked_platform_authorizations WHERE refresh_token_hash = $1 AND status = 'active' AND refresh_token_expires_at > now()",
           [params.refreshTokenHash],
@@ -230,7 +230,7 @@ export function createLinkedPlatformAuthorizationStore(
         return result.rows[0] ? mapLinkedPlatformAuthorizationRow(result.rows[0]) : null;
       }),
     revokeToken: (tokenHash, revokedAt) =>
-      ownerEpochs.delegationTransaction(async (db) => {
+      ownerEpochs.delegationTransaction(async (db: PgQueryable) => {
         await assertDormantAgentGrantWrite(db);
         const candidates = await db.query<{ authorization_id: string }>(
           "SELECT authorization_id FROM identity_linked_platform_authorizations WHERE status = 'active' AND (access_token_hash = $1 OR refresh_token_hash = $1) ORDER BY authorization_id",
@@ -248,7 +248,7 @@ export function createLinkedPlatformAuthorizationStore(
         return (result.rowCount ?? 0) > 0;
       }),
     revokeAuthorization: (params) =>
-      ownerEpochs.delegationTransaction(async (db) => {
+      ownerEpochs.delegationTransaction(async (db: PgQueryable) => {
         await assertDormantAgentGrantWrite(db);
         const candidates = await db.query<{ authorization_id: string }>(
           "SELECT authorization_id FROM identity_linked_platform_authorizations WHERE authorization_id = $1 AND account_id = $2 AND status = 'active'",
