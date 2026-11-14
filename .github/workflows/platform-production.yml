@@ -2142,7 +2142,7 @@ jobs:
             exit 1
           fi
 
-          # #11327: probe every host DOKS serves (landing, both admins,
+          # Probe every host DOKS serves (landing, both admins,
           # marketplace, staging-root — matching buildDoksIngressHosts() in
           # scripts/render-platform-helm-values.mjs). The legacy
           # landing-/marketplace-/admin-staging redirect hostnames were
