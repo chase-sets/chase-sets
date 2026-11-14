@@ -78,9 +78,8 @@ export class IdentityClosureRequired extends Error {
 }
 
 export function createIdentityOwnerEpochs(pool: PgTransactionalPool, consumers: IdentitySourceTopology = []) {
-  let store: Promise<ReturnType<typeof createPostgresConfigurationEpochStore>> | undefined;
-  async function source() {
-    store ??= withConfigurationEpochTransaction(pool, async (client) => {
+  async function source(db?: PgQueryable) {
+    async function readSource(client: PgQueryable) {
       await client.query(
         "INSERT INTO event_configuration_store_identity (singleton, store_id, incarnation) VALUES (true, 'identity', $1) ON CONFLICT DO NOTHING",
         [randomUUID()],
@@ -112,11 +111,8 @@ export function createIdentityOwnerEpochs(pool: PgTransactionalPool, consumers: 
           return { kind: "CREATED", sourceIncarnation, keyCreationEpoch: 0 };
         },
       });
-    }).catch((error: unknown) => {
-      store = undefined;
-      throw error;
-    });
-    return store;
+    }
+    return db ? readSource(db) : withConfigurationEpochTransaction(pool, readSource);
   }
 
   return {
@@ -128,7 +124,7 @@ export function createIdentityOwnerEpochs(pool: PgTransactionalPool, consumers: 
           input.events.some((event) => identityAuthorityEvents.has(event.eventType)),
       );
       if (!changed.length) return;
-      const epochs = await source();
+      const epochs = await source(db);
       const keys: string[] = [];
       for (const input of [...changed].sort((a, b) => a.streamId.localeCompare(b.streamId))) {
         const existing = await db.query<{ stream_version: number }>(

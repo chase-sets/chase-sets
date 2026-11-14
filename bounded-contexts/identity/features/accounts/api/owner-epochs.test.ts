@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { decideAccount, evolveAccount, initialAccountState, type AccountEvent } from "../domain/domain";
 import { decideUser, evolveUser, initialUserState, type UserEvent } from "../../users/domain/domain";
 import { createIdentityOwnerEpochs, identityAuthorityEventClassification, identityOwnerKey } from "./owner-epochs";
+import type { PgQueryable } from "@chase-sets/event-core-postgres";
 
 const accountEvents: readonly AccountEvent[] = [
   { type: "identity.account.profile-updated", data: { name: "New", displayName: "New" } },
@@ -38,6 +39,18 @@ const userEvents: readonly UserEvent[] = [
 ];
 
 describe("Identity owner event effect classification", () => {
+  it("initializes source identity on the caller's transaction without acquiring another connection", async () => {
+    const connect = vi.fn(async () => {
+      throw new Error("writer already owns the only connection");
+    });
+    const query = vi.fn<PgQueryable["query"]>().mockResolvedValue({
+      rows: [{ store_id: "identity", incarnation: "synthetic-incarnation" }],
+    });
+    const epochs = createIdentityOwnerEpochs({ query, connect });
+    await epochs.source({ query });
+    expect(query).toHaveBeenCalledTimes(2);
+    expect(connect).not.toHaveBeenCalled();
+  });
   it("folds zero-event owner version guards to unchanged consumed state without enrollment", async () => {
     const unexpected = vi.fn(async () => {
       throw new Error("zero-event guard attempted closure");

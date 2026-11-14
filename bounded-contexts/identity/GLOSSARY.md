@@ -14,15 +14,6 @@ Avoid introducing synonyms. Each concept has exactly one canonical term.
 
 ## Identity Concepts
 
-### Listing Activation Authority
-
-**Listing Activation Authority** is Identity's canonical capture of an active
-Account, an active User and their exact active owner or manager Membership.
-Each owner carries its stream-version seal and an installed class-C epoch grant
-for the registered consumer incarnation. Account Capability Assignments never
-grant `listings.manage`. A CLOSING key refuses capture until acknowledged closure
-and atomic installation complete; no per-Listing Identity promise is created.
-
 ### Account Management Mutation Attempt
 
 An **Account Management Mutation Attempt** binds one explicit account-management
@@ -636,6 +627,15 @@ A **Store Invitation** is the planned request for a User or email address to joi
 ### Agent Grant Revocation Operation
 
 An **Agent Grant Revocation Operation** is Identity's retained owner of one Account's withdrawal of an Agent Grant. It records the first revocation time, reason and provenance, then tracks Identity terminal authority, Payments cleanup, webhook exclusion and completion. Repeated token and Account requests resume that owner rather than creating another revocation. Adoption records system recovery of an already-revoked Grant; it does not invent historical user intent or cleanup completion.
+
+### Listing Activation Authority
+
+**Listing Activation Authority** is Identity's canonical capture of an active
+Account, an active User and their exact active owner or manager Membership.
+Each owner carries its stream-version seal and an installed class-C epoch grant
+for the registered consumer incarnation. Account Capability Assignments never
+grant `listings.manage`. A CLOSING key refuses capture until acknowledged closure
+and atomic installation complete; no per-Listing Identity promise is created.
 
 ## Language Rules
 

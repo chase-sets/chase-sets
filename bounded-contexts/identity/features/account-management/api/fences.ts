@@ -231,7 +231,7 @@ export function createIdentityMutationPersistence(
         // Discard all business effects, retaining only the writer's durable CLOSING intent.
         try {
           await client.query("ROLLBACK TO SAVEPOINT identity_owner_work");
-          const epochs = await ownerEpochs.source();
+          const epochs = await ownerEpochs.source(client);
           for (const key of error.keys) await epochs.beginClosureInTransaction(client, key);
           await client.query("COMMIT");
         } catch (failure) {
