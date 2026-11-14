@@ -7,7 +7,7 @@ import ts from "@chase-sets/typescript-compiler-api";
 import { describe, expect, it, vi } from "vitest";
 import { Hono } from "hono";
 import { module as authModule } from "@chase-sets/auth";
-import { contextManifest as catalogContextManifest } from "@chase-sets/catalog";
+import { contextManifest as catalogContextManifest, module as catalogContextModule } from "@chase-sets/catalog";
 import { module as checkoutModule } from "@chase-sets/checkout";
 import { module as identityModule } from "@chase-sets/identity";
 import { module as inventoryModule } from "@chase-sets/inventory";
@@ -276,7 +276,12 @@ function createCatalogRuntime() {
       catalog: {},
       identity: {},
     },
-    projectionGroups: [],
+    projectionGroups: catalogContextModule.buildProjectionGroups().map((group) => ({
+      targetContextName: catalogContextModule.contextName,
+      projectionName: group.projectionName,
+      ownedTables: group.ownedTables,
+      subscriptionRunners: [],
+    })),
     subscriptionRunners: [],
   } as never;
 }
