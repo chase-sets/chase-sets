@@ -69,6 +69,7 @@ mod tests {
             account_id: "acc_1".into(),
             role_key: role.into(),
             permissions: permissions.iter().map(|p| (*p).to_owned()).collect(),
+            session_id: "ses_1".into(),
             agent,
         }
     }

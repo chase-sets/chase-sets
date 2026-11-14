@@ -36,8 +36,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     api::{
-        ApiError, Caller, Dimension, DimensionOption, Discovery, Item, Listing, MarketHistory as _, MarketStats,
-        Marketplace as _, Money, Offer, RollupPoint, Schema, Selected, SellerOverlay, SeriesWindow, SimilarItem, StandardTerms,
+        AccountOfferMatch, ApiError, Caller, Dimension, DimensionOption, Discovery, Item, Listing, MarketHistory as _,
+        MarketStats, Marketplace as _, Money, Offer, RollupPoint, Schema, Selected, SellerOverlay, SeriesWindow, SimilarItem,
+        StandardTerms,
     },
     app::{Shared, marketplace_origin, url},
     auth::Session,
@@ -594,6 +595,9 @@ pub struct ItemScreen {
     pub offer_terms: Option<StandardTerms>,
     /// The viewer sees the item as a seller (`canUseSellerFeatures`).
     pub seller_features: bool,
+    /// The item's offers for the options chosen that one of the seller's listings could fill (the
+    /// seller overlay's `accountOfferMatches`, `visibleAccountOfferMatches`); none for anyone else.
+    pub seller_matches: Vec<AccountOfferMatch>,
     /// The viewer may list at a price (`canUseListingFeatures`: `listings.view` and
     /// `listings.manage`).
     pub listing_features: bool,
@@ -614,6 +618,18 @@ pub struct ItemScreen {
 
 impl ItemScreen {
     pub fn of(item: Item, address: &Address, viewer_account_id: Option<String>) -> Self {
+        Self::with_matches(item, address, viewer_account_id, &[])
+    }
+
+    /// The page for a seller whose overlay has `account_matches`: on the Sell tab, the offer shown
+    /// when the address names none is the first submitted one they can fill
+    /// (`bestAccountOfferMatch`), else the best offer.
+    pub fn with_matches(
+        item: Item,
+        address: &Address,
+        viewer_account_id: Option<String>,
+        account_matches: &[AccountOfferMatch],
+    ) -> Self {
         let schema = item.product_schema.as_ref();
         let picks = initial_picks(&item, address);
         let complete = schema.is_none_or(|s| is_complete(s, &picks));
@@ -638,9 +654,20 @@ impl ItemScreen {
             })
             .collect();
         let explicit_offer = address.offer.as_ref().and_then(|id| offers.iter().copied().find(|o| &o.offer_id == id));
-        // The seller overlay (an account's own offers it can fill) is not ported, so the default
-        // offer is the best one.
-        let selected_offer = explicit_offer.or(offers.first().copied());
+        let seller_matches: Vec<&AccountOfferMatch> = account_matches
+            .iter()
+            .filter(|m| m.catalog_catalog_item_id == item.catalog_item_id)
+            .filter(|m| match &explicit_product {
+                Some(id) => &m.product_id == id,
+                None => schema.is_none() || matches(&m.selected_options, &picks),
+            })
+            .collect();
+        let seller_default = seller_matches
+            .iter()
+            .find(|m| m.status == "submitted" && m.can_fulfill)
+            .filter(|_| address.market == Market::Sell)
+            .and_then(|m| offers.iter().copied().find(|o| o.offer_id == m.offer_id));
+        let selected_offer = explicit_offer.or(seller_default).or(offers.first().copied());
         let owned = explicit_listing.filter(|l| viewer_account_id.as_deref() == Some(l.account_id.as_str()));
         let product_id = explicit_product.clone().or_else(|| {
             if suppress {
@@ -727,6 +754,7 @@ impl ItemScreen {
             product_summary,
             offer_terms: None,
             seller_features: false,
+            seller_matches: seller_matches.into_iter().cloned().collect(),
             listing_features: false,
             guest_listing_draft: false,
             listing_pending: None,
@@ -745,6 +773,15 @@ impl ItemScreen {
 
     pub fn selected_offer(&self) -> Option<&Offer> {
         self.offer_id.as_ref().and_then(|id| self.offers.iter().find(|o| &o.offer_id == id))
+    }
+
+    /// The seller's match for the offer shown: whether their listing can fill it and whether it
+    /// is on their Sell List. None when no listing of theirs matches that offer; marketplace then
+    /// shows its best match in the rail instead, which can be another offer than the one chosen
+    /// (chase-sets/chase-sets#11315), and the pilot shows the offer chosen.
+    pub fn selected_match(&self) -> Option<&AccountOfferMatch> {
+        let id = self.offer_id.as_deref()?;
+        self.seller_matches.iter().find(|m| m.offer_id == id)
     }
 
     /// The rail analytics' workflow and selection for `market` with the page's choices
@@ -926,11 +963,11 @@ pub(crate) async fn page(
         .or_else(|| saving::saved(|key| first(key).cloned(), &save).map(BuyNotice::Saved));
     let (terms, history) =
         tokio::join!(offer_terms(session, &caller, &item, &address), market_history(&unwaited, &item, &address));
-    let setup = listing_setup(&req, overlay, receipt.is_some());
+    let (matches, setup) = overlay_parts(&req, session, overlay, receipt.is_some());
     // The listing the address names was just published and the item's read is behind it.
     let listing_pending = address.listing.clone().filter(|_| behind && receipt.is_some());
     let behind = behind || setup == ListingSetup::Recovering;
-    let reads = PageReads { terms, behind, setup, listing_pending, similar, history, save };
+    let reads = PageReads { terms, matches, behind, setup, listing_pending, similar, history, save };
     render(&req, session, item, &address, notice.as_ref(), StatusCode::OK, reads)
 }
 
@@ -991,13 +1028,16 @@ async fn similar_items(caller: &Caller<'_>, id: &str) -> Vec<SimilarItem> {
 }
 
 /// What the page reads beyond the item: the Sell tab's, a guest's offer terms (`offer_terms`)
-/// and for a seller who may list their ship-from setup (the seller overlay); and the similar
+/// and for a seller the offers they could fill and, if they may list, their ship-from setup (the
+/// seller overlay); and the similar
 /// items, which only the page's own read has (a refused form's page leaves them out).
 /// `after_write`: the read carries a write's receipt, so a read that is not caught up is the
 /// setup still updating.
 #[derive(Default)]
 pub struct PageReads {
     pub terms: Option<StandardTerms>,
+    /// The seller overlay's offer matches (`ItemScreen::with_matches`).
+    pub matches: Vec<AccountOfferMatch>,
     pub setup: ListingSetup,
     /// A read is behind the write the address carries: the page asks to be read again.
     pub behind: bool,
@@ -1039,9 +1079,10 @@ pub async fn sell_reads(
 ) -> PageReads {
     let id = item.slug.as_deref().unwrap_or(&item.catalog_item_id);
     let (terms, overlay) = tokio::join!(offer_terms(session, caller, item, address), read_overlay(session, caller, id, address));
-    let setup = listing_setup(req, overlay, after_write);
+    let (matches, setup) = overlay_parts(req, session, overlay, after_write);
     PageReads {
         terms,
+        matches,
         behind: setup == ListingSetup::Recovering,
         setup,
         listing_pending: None,
@@ -1052,17 +1093,71 @@ pub async fn sell_reads(
 }
 
 /// The seller overlay of item `id` (a slug or an id), when the page shows it: on the Sell tab,
-/// to a seller who may list.
+/// to a seller (`canReviewAccountOfferMatches || canSellOnItem`).
 async fn read_overlay(
     session: Option<&Session>,
     caller: &Caller<'_>,
     id: &str,
     address: &Address,
 ) -> Option<Result<SellerOverlay, ApiError>> {
-    if address.market != Market::Sell || !listing::listing_features(session) {
+    if address.market != Market::Sell || !selling::seller_features(session) {
         return None;
     }
     Some(caller.seller_overlay(id).await)
+}
+
+/// The overlay's offer matches and, for a seller who may list, their ship-from setup. A failed
+/// read has no matches, as marketplace's loader has none.
+fn overlay_parts(
+    req: &Req,
+    session: Option<&Session>,
+    overlay: Option<Result<SellerOverlay, ApiError>>,
+    after_write: bool,
+) -> (Vec<AccountOfferMatch>, ListingSetup) {
+    let (matches, overlay) = match overlay {
+        Some(Ok(mut read)) => (std::mem::take(&mut read.account_offer_matches), Some(Ok(read))),
+        other => (Vec::new(), other),
+    };
+    if listing::listing_features(session) {
+        return (matches, listing_setup(req, overlay, after_write));
+    }
+    if let Some(Err(error)) = overlay {
+        tracing::warn!("the seller overlay's read failed: {error}");
+    }
+    (matches, ListingSetup::NotApplicable)
+}
+
+/// The offers of item `id` the seller could fill, read again by a Sell rail form; none for
+/// anyone else or when the read fails.
+async fn seller_matches(session: Option<&Session>, caller: &Caller<'_>, id: &str, address: &Address) -> Vec<AccountOfferMatch> {
+    match read_overlay(session, caller, id, address).await {
+        Some(Ok(overlay)) => overlay.account_offer_matches,
+        Some(Err(error)) => {
+            tracing::warn!("the seller overlay's read failed: {error}");
+            Vec::new()
+        }
+        None => Vec::new(),
+    }
+}
+
+/// The page a Sell rail form was sent from at `address`, to check the product it names. The rail
+/// named its product with the seller's offer matches (`ItemScreen::with_matches`), so they are
+/// read again only when the page without them names another product.
+pub async fn sell_screen(
+    session: Option<&Session>,
+    caller: &Caller<'_>,
+    item: &Item,
+    address: &Address,
+    viewer: Option<String>,
+    product: &str,
+) -> ItemScreen {
+    let screen = ItemScreen::of(item.clone(), address, viewer.clone());
+    if screen.product_id.as_deref() == Some(product) || !selling::seller_features(session) {
+        return screen;
+    }
+    let id = item.slug.as_deref().unwrap_or(&item.catalog_item_id);
+    let matches = seller_matches(session, caller, id, address).await;
+    ItemScreen::with_matches(item.clone(), address, viewer, &matches)
 }
 
 /// The ship-from setup the overlay's read says (`after_write`: the read carries a write's
@@ -1124,8 +1219,8 @@ impl Viewing {
         }
     }
 
-    fn screen(&self, item: Item, address: &Address) -> ItemScreen {
-        let mut screen = ItemScreen::of(item, address, self.viewer.clone());
+    fn screen(&self, item: Item, address: &Address, matches: &[AccountOfferMatch]) -> ItemScreen {
+        let mut screen = ItemScreen::with_matches(item, address, self.viewer.clone(), matches);
         screen.seller_features = self.seller_features;
         screen.listing_features = self.listing_features;
         screen.guest_listing_draft = self.guest_listing_draft;
@@ -1177,9 +1272,20 @@ pub(crate) async fn live(
                         return None;
                     }
                 };
-                let history = market_history(&caller, &item, &address).await;
+                // A seller's book marks the offer their matches chose, as the page did.
+                let matches = async {
+                    if viewing.seller_features && address.market == Market::Sell {
+                        caller.seller_overlay(&id).await.map(|o| o.account_offer_matches).unwrap_or_else(|error| {
+                            tracing::warn!("the seller overlay's read for a change failed: {error}");
+                            Vec::new()
+                        })
+                    } else {
+                        Vec::new()
+                    }
+                };
+                let (history, matches) = tokio::join!(market_history(&caller, &item, &address), matches);
                 let slug = item.slug.clone().unwrap_or_else(|| item.catalog_item_id.clone());
-                let mut screen = viewing.screen(item, &address);
+                let mut screen = viewing.screen(item, &address, &matches);
                 screen.history = history;
                 let html = views::item_live_parts(t, &screen, &address, &slug).to_html();
                 Some(match cursor {
@@ -1204,7 +1310,7 @@ pub fn render(
     status: StatusCode,
     reads: PageReads,
 ) -> HtmlResult {
-    let mut screen = Viewing::of(session).screen(item, address);
+    let mut screen = Viewing::of(session).screen(item, address, &reads.matches);
     screen.offer_terms = reads.terms;
     screen.listing_setup = reads.setup;
     // A listing still catching up is not "unavailable": the rail says it is on its way.

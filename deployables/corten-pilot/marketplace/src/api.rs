@@ -2972,13 +2972,37 @@ pub struct SetPage {
 }
 
 /// What the item page reads for a seller (`GET /api/marketplace/items/{id}/seller-overlay`,
-/// `DiscoveryItemDetailSellerOverlay`), the field the pilot reads: whether the account has the
-/// Listing stock location quick listings ship from. Its offer matches and inventory are not
-/// ported.
+/// `DiscoveryItemDetailSellerOverlay`), the fields the pilot reads: whether the account has the
+/// Listing stock location quick listings ship from, and the item's offers it could fill. The API
+/// answers each part only to an actor allowed it (no matches without `offers.view` and
+/// `listings.view`, no stock location without `listings.manage`). Its inventory and selected
+/// listing are not ported.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SellerOverlay {
     pub has_listing_stock_location: bool,
+    #[serde(default)]
+    pub account_offer_matches: Vec<AccountOfferMatch>,
+}
+
+/// An offer of the item that one of the account's listings of its product could fill
+/// (`DiscoveryAccountOfferMatch`), the fields the Sell rail reads. The API sorts them for review:
+/// those it can fill first, then by price.
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(default)]
+pub struct AccountOfferMatch {
+    pub offer_id: String,
+    pub catalog_catalog_item_id: String,
+    pub product_id: String,
+    pub selected_options: Vec<Selected>,
+    /// `submitted`, or what it became.
+    pub status: String,
+    pub quantity_requested: u64,
+    /// What the account's listing has for it.
+    pub seller_available_quantity: u64,
+    pub can_fulfill: bool,
+    /// The offer is already a line of the account's Sell List.
+    pub in_sell_list: bool,
 }
 
 /// The stock an account's quick listing sells (`POST /api/inventory/items/listing-stock/ensure`,
@@ -3821,6 +3845,79 @@ impl Shipments for Caller<'_> {
 #[serde(default)]
 pub struct PackingSlipBatch {
     pub items: Vec<ShipmentDetail>,
+}
+
+/// A seller's shipping origin (Fulfillment's `SellerShippingOrigin`).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct ShippingOrigin {
+    pub name: String,
+    pub line1: String,
+    pub line2: Option<String>,
+    pub city: String,
+    pub state: String,
+    pub postal_code: String,
+    pub country: String,
+}
+
+/// A seller's saved shipping setup: where they ship from and how they want labels.
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct ShippingSetup {
+    pub origin: ShippingOrigin,
+    /// `prepaid-label` or `seller-label-later`.
+    pub label_preference: String,
+    pub ship_from_location_id: String,
+}
+
+/// The seller's shipping setup as Fulfillment reads it (`SellerShippingSetupResult`): the setup, if
+/// any, and whether the platform supports its label preference.
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct ShippingSetupRead {
+    pub setup: Option<ShippingSetup>,
+    pub revision: Option<u64>,
+    pub recorded_at: Option<String>,
+    /// `enabled`, `missing`, `revoked` or `invalidated` (a guest setup merged into an account).
+    pub support_status: String,
+}
+
+/// What a save sends (`SellerShippingSetupInput`).
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ShippingSetupInput {
+    pub origin: ShippingOrigin,
+    pub label_preference: String,
+}
+
+/// The seller's shipping setup (Fulfillment's `/account/seller-shipping-setup`, or
+/// `/guest/seller-shipping-setup` for the guest sell list `guest`, named in its header). The API
+/// refuses any query.
+pub trait ShippingSetupCalls {
+    async fn shipping_setup(&self, guest: Option<&str>) -> Result<ShippingSetupRead, ApiError>;
+    /// Saves the setup (`PUT`): the setup as saved. A save of the setup already there changes
+    /// nothing.
+    async fn save_shipping_setup(&self, input: &ShippingSetupInput, guest: Option<&str>) -> Result<ShippingSetupRead, ApiError>;
+}
+
+fn shipping_setup_request(caller: &Caller<'_>, method: Method, guest: Option<&str>) -> reqwest::RequestBuilder {
+    let owner = if guest.is_some() { "guest" } else { "account" };
+    let req = caller.request(method, &format!("/api/marketplace/{owner}/seller-shipping-setup"), FULFILLMENT);
+    match guest {
+        Some(id) => req.header(ANONYMOUS_SELL_LIST_HEADER, id),
+        None => req,
+    }
+}
+
+impl ShippingSetupCalls for Caller<'_> {
+    async fn shipping_setup(&self, guest: Option<&str>) -> Result<ShippingSetupRead, ApiError> {
+        // A read, sent as `write` sends a request (its answer checked, then its JSON).
+        Ok(self.write(shipping_setup_request(self, Method::GET, guest)).await?.0)
+    }
+
+    async fn save_shipping_setup(&self, input: &ShippingSetupInput, guest: Option<&str>) -> Result<ShippingSetupRead, ApiError> {
+        Ok(self.write(shipping_setup_request(self, Method::PUT, guest).json(input)).await?.0)
+    }
 }
 
 /// The header that names a Fulfillment write's attempt (`Idempotency-Key`, a UUID v4): the API

@@ -25,8 +25,12 @@
 //! (`after_write`, marketplace's scoped continuation). Marketplace adds `authPrompt=add-passkey`
 //! there, a prompt its layout draws; the pilot's layout has none.
 //!
-//! Not ported: the registration analytics events (`registration_method` on `dataLayer`), which
-//! are the page's script.
+//! The page's analytics are marketplace's `registration_method` events (`trackRegistrationAnalytics`),
+//! sent by its script (`views/register_analytics.js`) to window listeners and `dataLayer`: every
+//! method shown when the page opens, one chosen, a form sent, one refused (with marketplace's
+//! classification of the refusal, [`classification`]) and the page left unsent. A method is a link
+//! here, so choosing one draws the page again; that page counts the choice, not every method shown
+//! again. Without the script nothing is counted, and the page works the same.
 use corten::{
     ClientIp, Local,
     http::{HeaderMap, StatusCode},
@@ -41,6 +45,7 @@ use serde_json::{Value, json};
 
 use crate::{
     account_home::Place,
+    api::ApiError,
     app::{Shared, url},
     sign_in::{Authenticated, DEFAULT_SUCCESS, call, call_written, complete, context, refusal, safe_return_to, social_error},
     text::{Pilot, SignInMsg},
@@ -174,8 +179,11 @@ pub enum Notice {
 }
 
 /// The page's view model. `typed` is what the last form sent, drawn again (never its password or
-/// code).
+/// code). `opened` is the page as an address opens it, not a form's answer, and `failed` the
+/// refused form's analytics reason.
 pub struct RegisterScreen {
+    pub opened: bool,
+    pub failed: Option<&'static str>,
     pub join: Join,
     pub method: Method,
     pub return_to: String,
@@ -190,6 +198,8 @@ impl RegisterScreen {
     fn new(t: SignInMsg, join: Join) -> Self {
         let return_to = safe_return_to(join.return_to.as_deref(), DEFAULT_SUCCESS);
         RegisterScreen {
+            opened: false,
+            failed: None,
             method: Method::shown(join.registration_method.as_deref()),
             context: context(t, &return_to),
             social_error: join.social_login_error.as_deref().map(|code| social_error(t, code)),
@@ -243,8 +253,35 @@ pub fn landing(return_to: &str, receipt: Option<&Receipt>) -> String {
 
 /// The page, with the method its address asks for.
 pub(crate) async fn page(req: Req, Params(route): Params<url::Register>) -> HtmlResult {
-    let screen = RegisterScreen::new(req.t(), route.join);
+    let screen = RegisterScreen { opened: true, ..RegisterScreen::new(req.t(), route.join) };
     render(&req, StatusCode::OK, &screen)
+}
+
+/// Marketplace's classification of a refused form (`authApiActionError`), the reason its
+/// analytics give: `FIELD` for a phone the API refused, `FORM` for a refusal the page names, and
+/// `INDETERMINATE` for anything else. The pilot's client keeps no rejection details, so every
+/// `validation_failed` of a phone code's form counts as the missing phone marketplace checks for.
+fn classification(intent: &str, error: &ApiError) -> &'static str {
+    // No answer: marketplace says sign-in is unavailable, a form failure.
+    let Some(status) = error.status() else { return "FORM" };
+    let code = error.code();
+    let consent = matches!(
+        code,
+        Some(
+            "registration_consent_not_server_minted"
+                | "registration_consent_expired"
+                | "registration_consent_affirmation_required"
+        )
+    );
+    match status.as_u16() {
+        400 if code == Some("validation_failed") && intent.starts_with("phone-code-") => "FIELD",
+        400 if consent && matches!(intent, "password" | "phone-code-consume" | "passkey-register") => "FORM",
+        401 if code.is_none_or(|c| c == "authentication_required") => "FORM",
+        403 if matches!(code, Some("registration_admission_required" | "disposable_email_domain")) => "FORM",
+        409 if code.is_none_or(|c| c == "conflict") => "FORM",
+        429 if code.is_none_or(|c| c == "rate_limited") => "FORM",
+        _ => "INDETERMINATE",
+    }
 }
 
 /// The page's forms (marketplace's register action).
@@ -267,6 +304,7 @@ pub(crate) async fn write(
         let asked = if intent == "magic-link-register" { "magic-link-request" } else { intent.as_str() };
         let (status, message) = refusal(t, asked, &error);
         screen.error = Some(message);
+        screen.failed = Some(classification(asked, &error));
         render(&req, status, &screen)
     };
     let started: Result<(Authenticated, Option<Receipt>), _> = match intent.as_str() {
@@ -305,6 +343,7 @@ pub(crate) async fn write(
         // No credential: the step's script did not run, or the browser has no passkeys.
         "passkey-register" if form.credential().is_missing() => {
             screen.error = Some(t.register_passkey_registration_failed().to_owned());
+            screen.failed = Some("browser-passkey-failed");
             return render(&req, StatusCode::UNPROCESSABLE_ENTITY, &screen);
         }
         "passkey-register" => {
@@ -363,6 +402,26 @@ mod tests {
         assert_eq!(Method::of_intent("phone-code-consume"), Method::PhoneCode);
         assert_eq!(Method::of_intent("passkey-register"), Method::Passkey);
         assert_eq!(Method::of_intent(""), Method::Password);
+    }
+
+    #[test]
+    fn a_refusal_is_classified_as_marketplace_classifies_it() {
+        let refused = |status: u16, code: Option<&str>| ApiError::Status {
+            status: StatusCode::from_u16(status).unwrap(),
+            code: code.map(str::to_owned),
+            message: String::new(),
+        };
+        assert_eq!(classification("phone-code-request", &refused(400, Some("validation_failed"))), "FIELD");
+        assert_eq!(classification("password", &refused(400, Some("validation_failed"))), "INDETERMINATE");
+        assert_eq!(classification("password", &refused(400, Some("registration_consent_expired"))), "FORM");
+        assert_eq!(classification("magic-link-request", &refused(400, Some("registration_consent_expired"))), "INDETERMINATE");
+        assert_eq!(classification("password", &refused(401, None)), "FORM");
+        assert_eq!(classification("password", &refused(401, Some("forbidden"))), "INDETERMINATE");
+        assert_eq!(classification("magic-link-request", &refused(403, Some("disposable_email_domain"))), "FORM");
+        assert_eq!(classification("password", &refused(403, None)), "INDETERMINATE");
+        assert_eq!(classification("password", &refused(409, None)), "FORM");
+        assert_eq!(classification("password", &refused(429, Some("rate_limited"))), "FORM");
+        assert_eq!(classification("password", &refused(500, None)), "INDETERMINATE");
     }
 
     #[test]

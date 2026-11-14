@@ -70,6 +70,7 @@ mod selling;
 mod sessions;
 mod sets;
 mod shipments;
+mod shipping_setup;
 mod sign_in;
 mod site;
 mod submitted_offers;

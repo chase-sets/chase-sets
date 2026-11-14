@@ -75,6 +75,7 @@ mod seller_listings_page;
 mod sessions_page;
 mod set_page;
 mod shipment_page;
+mod shipping_setup_page;
 mod sign_in_page;
 mod submitted_offers_page;
 mod support_list_page;
@@ -141,6 +142,7 @@ pub use seller_listings_page::{SellerListingsPage, seller_listings_live_parts};
 pub use sessions_page::{SessionPage, SessionsPage};
 pub use set_page::SetPage;
 pub use shipment_page::{ShipmentList, ShipmentPage};
+pub use shipping_setup_page::ShippingSetupPage;
 pub use sign_in_page::{AccountSelectPage, InvitePage, MagicLinkFailed, RegisterPage, SignInPage};
 pub use submitted_offers_page::{SubmittedOfferPage, SubmittedOfferPreparing, SubmittedOffersPage, submitted_offers_live_parts};
 pub use support_list_page::SupportListPage;
@@ -193,14 +195,16 @@ pub const CHECKOUT: &[Component] = &[CheckoutPage, checkout_page::handlers::COMP
 pub const CHECKOUT_START: &[Component] = &[CheckoutStartPage];
 
 /// The item page's components (`/items`): its stylesheet, the Sales tab's chart, the kit's
-/// Stats for its figures and its Segmented for the rail's side and the chart's range, corten-ui's handler that makes Add to List's dialog modal when the server
-/// draws it open, the analytics, and checkout start's page, which a guest's Buy now draws when it
-/// cannot start (`checkout_start::buy_as_guest`).
+/// Stats for its figures, its Segmented for the rail's side and the chart's range and its Badge
+/// for a seller's Can fulfill, corten-ui's handler that makes Add to List's dialog modal when the
+/// server draws it open, the analytics, and checkout start's page, which a guest's Buy now draws
+/// when it cannot start (`checkout_start::buy_as_guest`).
 pub const ITEM: &[Component] = &[
     ItemDetail,
     platform::chart::TimeSeries,
     platform::ui::stats::Stats,
     platform::ui::segmented::Segmented,
+    platform::ui::badge::Badge,
     corten_ui::dialog::COMPONENT,
     item_detail::analytics::COMPONENT,
     CheckoutStartPage,
@@ -289,6 +293,15 @@ pub const MONEY: &[Component] = &[MoneyPage];
 pub const PAYOUT: &[Component] = &[MoneyPage, platform::ui::steps::Steps];
 /// Payout setup (`/account/desk/settings`), with Stripe's Connect components and the Stripe.js
 /// module their script's URL comes from.
+/// Seller shipping setup's (`/sell/shipping-setup`): its page and the kit's form parts.
+pub const SHIPPING_SETUP: &[Component] = &[
+    ShippingSetupPage,
+    platform::ui::alert::Alert,
+    platform::ui::button::Button,
+    platform::ui::field::Field,
+    platform::ui::select::Select,
+];
+
 pub const PAYOUT_SETUP: &[Component] = &[PayoutSetupPage, payout_setup_page::ConnectSurface, payment_page::stripe::COMPONENT];
 /// A buyer's payment, with Stripe's step and the Stripe.js loader it imports, and starting a payment
 /// for the buyer's orders (`/account/payments/new`, no script).
@@ -359,8 +372,8 @@ pub const LISTING: &[Component] = &[ListingPage, CheckoutStartPage];
 pub const SIGN_IN: &[Component] = &[SignInPage, platform::auth::passkey::COMPONENT];
 
 /// Creating an account (`/register`) and accepting an invitation (`/invite`): the sign-in page's
-/// stylesheet, which they share, and the passkey step's script.
-pub const REGISTER: &[Component] = &[SignInPage, platform::auth::passkey::COMPONENT];
+/// stylesheet, which they share, the passkey step's script, and the registration's analytics.
+pub const REGISTER: &[Component] = &[SignInPage, platform::auth::passkey::COMPONENT, sign_in_page::analytics::COMPONENT];
 
 /// A form's values and what is wrong with them.
 #[derive(Clone, Debug)]

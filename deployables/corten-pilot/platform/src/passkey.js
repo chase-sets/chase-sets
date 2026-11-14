@@ -3,8 +3,9 @@
 // Its form's press asks the page's challenge route for a challenge, the browser's WebAuthn signs
 // it (or creates a credential for it), and the form is sent again with the credential in its
 // hidden fields, which the page's action hands to Auth. Any failure, a browser without passkeys
-// included, shows the form's warning and leaves the press for another try. Without a script the
-// form is sent as it is, and the page says the passkey could not be used.
+// included, shows the form's warning, tells the page (`chase-sets:passkey-failed` on the window,
+// for its analytics) and leaves the press for another try. Without a script the form is sent as
+// it is, and the page says the passkey could not be used.
 
 /** WebAuthn's wait for the user, as Auth's browser helper waits. */
 const TIMEOUT_MS = 60_000;
@@ -127,6 +128,7 @@ function press(event, form, parts, ceremony) {
       done();
       parts.warning.hidden = false;
       parts.warning.focus();
+      window.dispatchEvent(new CustomEvent("chase-sets:passkey-failed"));
     },
   );
 }
