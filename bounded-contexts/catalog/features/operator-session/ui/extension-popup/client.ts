@@ -8,6 +8,7 @@ export {
   isProbeSetNamesMessage,
 } from "../../domain/extension/bridge";
 export { operatorExtensionId } from "../../domain/extension/protocol";
+export { runTcgplayerSetNames } from "../../domain/extension/set-names/run";
 export {
   probeTcgplayerSetNames,
   serializeSetNamesProbeReport,
@@ -21,12 +22,14 @@ export type {
 } from "../../domain/extension/set-names/probe";
 export { isSetNamesRequestResult } from "../../domain/extension/set-names/probe";
 import type { SetNamesRequest } from "../../domain/extension/set-names/probe";
+import type { SetNamesPost } from "../../domain/extension/set-names/transport";
 export type { OperatorCommand, OperatorStatus, OperatorEnvironment } from "../../domain/extension/protocol";
 export async function renderOperatorExtensionPopup(
   element: HTMLElement,
   bridgeOrigin: string,
   options: Readonly<{
     setNameRequest?: SetNamesRequest;
+    postSetNames?: SetNamesPost;
     copyProbeReport?: (text: string) => Promise<void>;
     extensionVersion?: string;
     buildCommit?: string;
