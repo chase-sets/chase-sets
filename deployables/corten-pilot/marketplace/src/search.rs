@@ -29,7 +29,8 @@
 //! Each filter group shows its first six choices and the chosen ones, with Show more for the rest,
 //! and a facet of more than eight values has a search of them (`views::FacetChoices`).
 //!
-//! Not ported: the automatic load on scroll.
+//! With JavaScript, Load more also sends itself as the reader comes within 900px of it
+//! (`search.near`, marketplace's `AUTO_LOAD_ROOT_MARGIN`), except after a failed load.
 use std::collections::BTreeMap;
 
 use corten::{
