@@ -11,7 +11,10 @@ import {
 import { t } from "@chase-sets/localization";
 import { resolvePublicRequestOrigin } from "@chase-sets/platform-runtime/http";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
-import { createSellerShippingSetupRequestClient, FulfillmentApiError } from "../../../support/request-support/api-client";
+import {
+  createSellerShippingSetupRequestClient,
+  FulfillmentApiError,
+} from "../../../support/request-support/api-client";
 import { parseShippingSetup, SellerShippingError } from "../domain/shipping-setup";
 import {
   emptyShippingSetupValues,
