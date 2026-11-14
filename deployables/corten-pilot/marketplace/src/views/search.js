@@ -89,6 +89,28 @@ export function find(event) {
 }
 
 /**
+ * Load more sends itself once the reader is within 900px of it (marketplace's
+ * `AUTO_LOAD_ROOT_MARGIN`), so the results keep coming as the page scrolls. The patch that adds
+ * the rows draws the form again for the page after, which connects and waits again; a form drawn
+ * after a failed load is not watched, so it waits for its button, as marketplace's does.
+ * @param {HTMLFormElement} form
+ * @param {AbortSignal} signal
+ */
+export function near(form, signal) {
+  if (form.hidden) return;
+  const watch = new IntersectionObserver(
+    (seen) => {
+      if (!seen.some((entry) => entry.isIntersecting)) return;
+      watch.disconnect();
+      form.requestSubmit();
+    },
+    { rootMargin: "900px" },
+  );
+  watch.observe(form);
+  signal.addEventListener("abort", () => watch.disconnect(), { once: true });
+}
+
+/**
  * Enter in a facet's option search finds, as typing does; it does not send the filters.
  * @param {KeyboardEvent} event
  */
