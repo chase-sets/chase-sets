@@ -696,7 +696,7 @@ export async function acquireC1Evidence(
     if (nodes.length !== 1) reasons.push("PREVIEW_NODE_COUNT");
     const candidate = nodes[0];
     if (candidate) {
-      if (candidate.instanceType !== "s-4vcpu-8gb") reasons.push("INSTANCE_TYPE");
+      if (candidate.instanceType !== "s-8vcpu-16gb") reasons.push("INSTANCE_TYPE");
       if (candidate.unschedulable || candidate.deletionTimestamp) reasons.push("NODE_LIFECYCLE");
       if (
         candidate.conditions.find((c) => c.type === "Ready").status !== "True" ||
