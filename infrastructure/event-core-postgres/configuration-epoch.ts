@@ -298,11 +298,6 @@ export function createPostgresConfigurationEpochStore(config: PostgresConfigurat
     beginClosureInTransaction,
     /** Atomically install the owner change in this same caller-owned transaction. */
     installClosureInTransaction,
-    async statusInTransaction(client: PgQueryable, key: string) {
-      await boundStep(client);
-      await client.query(CONFIGURATION_EPOCH_LOCK_SQL, [key]);
-      return configurationClosureStatus(key, (await load(client, key)).state);
-    },
     async captureGrantInTransaction(client: PgQueryable, key: string, consumer: ConfigurationConsumer) {
       await boundStep(client);
       await client.query(CONFIGURATION_EPOCH_LOCK_SQL, [key]);
