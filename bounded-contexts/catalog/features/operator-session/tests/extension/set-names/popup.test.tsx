@@ -108,6 +108,14 @@ describe("TCGplayer set names action states", () => {
     expect(post).not.toHaveBeenCalled();
     expect(document.body.textContent).not.toMatch(/TCGAuthTicket|private|Synthetic Pokemon/);
   });
+  it("shows a localized fixed transport error without retry", async () => {
+    const post = vi.fn<SetNamesPost>(async () => ({ outcome: "unavailable" }));
+    mount(undefined, post);
+    await select();
+    fireEvent.click(screen.getByRole("button", { name: "Run" }));
+    await screen.findByText("Set names stopped: unavailable");
+    expect(post).toHaveBeenCalledOnce();
+  });
   it("shows the re-pair prompt on an expired grant without retry", async () => {
     const post = vi.fn<SetNamesPost>(async () => ({ outcome: "grant-invalid" }));
     const request = vi.fn(async () => response());

@@ -147,7 +147,11 @@ export function SetNamesAction({
         <Text role="alert">
           {result.outcome === "grant-invalid"
             ? t("catalog.operatorExtension.re-pair-required")
-            : `${t("catalog.operatorExtension.setNames.stopped")}: ${result.outcome}${result.outcome === "unqualified" ? ` (${result.code})` : ""}`}
+            : result.outcome === "unqualified"
+              ? t("catalog.operatorExtension.setNames.stoppedWithCode")
+                  .replace("{outcome}", result.outcome)
+                  .replace("{code}", result.code)
+              : t("catalog.operatorExtension.setNames.stopped").replace("{outcome}", result.outcome)}
         </Text>
       ) : null}
     </Stack>
