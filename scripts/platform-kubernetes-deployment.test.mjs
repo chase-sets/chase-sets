@@ -1335,7 +1335,8 @@ describe("platform Kubernetes deployment", () => {
 
     // The env helper computes the origin from the platform-api component name
     // (which is release-fullname-derived), not from the baked base value.
-    expect(envHelper).toContain('{{- else if eq .name "CHASE_SETS_INTERNAL_API_ORIGIN" }}');
+    const computedOriginBranch = '{{- else if or (eq .name "CHASE_SETS_INTERNAL_API_ORIGIN") (eq .name "PLATFORM_API_ORIGIN") }}';
+    expect(envHelper).toContain(computedOriginBranch);
     expect(envHelper).toContain(
       'value: {{ printf "http://%s:8080" (include "chase-sets-platform.componentName" (dict "root" $root "name" "platform-api")) | quote }}',
     );
@@ -1344,7 +1345,7 @@ describe("platform Kubernetes deployment", () => {
     // the computed origin sits ahead of the plain base-value fallback so the
     // baked staging default can never leak into a preview release.
     const globalOverrideBranch = envHelper.indexOf("hasKey $envOverrides .name");
-    const originBranch = envHelper.indexOf('{{- else if eq .name "CHASE_SETS_INTERNAL_API_ORIGIN" }}');
+    const originBranch = envHelper.indexOf(computedOriginBranch);
     const baseValueBranch = envHelper.indexOf('value: {{ default "" .value | quote }}');
     expect(globalOverrideBranch).toBeGreaterThan(-1);
     expect(originBranch).toBeGreaterThan(globalOverrideBranch);
