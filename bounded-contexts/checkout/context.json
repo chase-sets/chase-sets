@@ -1409,7 +1409,7 @@
     "route-support": {
       "classification": "support",
       "purpose": "Provide checkout route loader/action modules for buy checkout and sell checkout route adapters.",
-      "expectedConsumers": ["sessions"]
+      "expectedConsumers": ["sell-list", "sessions"]
     },
     "runtime-support": {
       "classification": "support",
