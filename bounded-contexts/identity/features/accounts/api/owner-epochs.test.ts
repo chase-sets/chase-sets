@@ -38,6 +38,19 @@ const userEvents: readonly UserEvent[] = [
 ];
 
 describe("Identity owner event effect classification", () => {
+  it("folds zero-event owner version guards to unchanged consumed state without enrollment", async () => {
+    const unexpected = vi.fn(async () => {
+      throw new Error("zero-event guard attempted closure");
+    });
+    const epochs = createIdentityOwnerEpochs({ query: unexpected, connect: unexpected });
+    for (const streamId of [
+      "identity.account-acc_synthetic",
+      "identity.user-usr_synthetic",
+      "identity.membership-mbr_synthetic",
+    ])
+      await epochs.enroll({ query: unexpected }, [{ streamId, expectedVersion: 1, context: {} as never, events: [] }]);
+    expect(unexpected).not.toHaveBeenCalled();
+  });
   it("folds every excluded Account/User event to identical consumed fields", () => {
     let account = evolveAccount(
       initialAccountState,

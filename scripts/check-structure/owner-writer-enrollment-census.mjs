@@ -47,28 +47,50 @@ export function discoverOwnerWriters(sources) {
       ts.forEachChild(node, bind);
     };
     bind(source);
+    const constants = new WeakMap();
+    function constantText(node, seen = new Set()) {
+      if (!node || seen.has(node)) return "";
+      if (constants.has(node)) return constants.get(node);
+      const next = new Set(seen).add(node);
+      let value = "";
+      if (ts.isStringLiteralLike(node)) value = node.text;
+      else if (ts.isIdentifier(node)) value = constantText(bindings.get(node.text), next);
+      else if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.PlusToken)
+        value = constantText(node.left, next) + constantText(node.right, next);
+      else if (ts.isTemplateExpression(node))
+        value =
+          node.head.text +
+          node.templateSpans.map((span) => constantText(span.expression, next) + span.literal.text).join("");
+      constants.set(node, value);
+      return value;
+    }
+    const flows = new WeakMap();
     function flow(node, seen = new Set()) {
       if (!node || seen.has(node)) return "";
+      if (flows.has(node)) return flows.get(node);
       seen.add(node);
-      let result = node.getText(source);
+      let result = `${node.getText(source)} ${constantText(node)}`;
       if (ts.isIdentifier(node) && bindings.has(node.text)) result += ` ${flow(bindings.get(node.text), seen)}`;
       ts.forEachChild(node, (child) => {
         result += ` ${flow(child, seen)}`;
       });
+      result = result.trim();
+      flows.set(node, result);
       return result;
     }
     const visit = (node) => {
       if (ts.isCallExpression(node)) {
         const callee = node.expression.getText(source);
+        const query = flow(node.expression);
         const sink =
           /(?:^|[.\s])(?:appendToStreams?(?:InTransaction|Independently)?|append|commandHandler|createAggregateCommandHandler)!?$/u.test(
-            flow(node.expression),
+            query,
           );
+        const statement = /(?:^|[.\s])query$/u.test(query) ? flow(node.arguments[0]) : "";
         const sql =
-          /(?:^|\.)query$/u.test(callee) &&
-          /\b(?:INSERT\s+INTO|UPDATE|DELETE\s+FROM|MERGE\s+INTO|COPY)\s+["']?event_store_(?:events|streams)\b/iu.test(
-            flow(node.arguments[0]),
-          );
+          /(?:^|[.\s])query$/u.test(query) &&
+          /\b(?:INSERT\s+INTO|UPDATE|DELETE\s+FROM|MERGE\s+INTO|COPY|TRUNCATE)\b/iu.test(statement) &&
+          /\bevent_store_(?:events|streams)\b/iu.test(statement);
         if (sink || sql) {
           const data = flow(node);
           const kinds = ["account", "user", "membership"].filter((kind) =>

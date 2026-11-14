@@ -539,8 +539,10 @@
       "sink": "store.appendToStreams",
       "ordinal": 1,
       "keys": ["account", "user", "membership"],
-      "disposition": "enrolled",
-      "enrollment": "bounded-contexts/identity/features/account-management/api/fences.ts::createIdentityMutationPersistence > attempt > append"
+      "disposition": "excluded",
+      "sourceSymbol": "bounded-contexts/identity/features/invitations/api/acceptance-operation.ts::readInvitationAcceptanceAuthority",
+      "foldTest": "bounded-contexts/identity/features/accounts/api/owner-epochs.test.ts::folds zero-event owner version guards to unchanged consumed state without enrollment",
+      "reason": "Every participant is a zero-event expected-version guard; no state is installed."
     },
     {
       "file": "bounded-contexts/identity/features/invitations/api/mcp.ts",
@@ -1200,10 +1202,8 @@
       "sink": "services.users.commandHandler",
       "ordinal": 1,
       "keys": ["user"],
-      "disposition": "excluded",
-      "sourceSymbol": "bounded-contexts/identity/support/runtime-support/seed.ts::reconcileRepresentativeUser",
-      "foldTest": "bounded-contexts/identity/features/accounts/api/owner-epochs.test.ts::folds every excluded Account/User event to identical consumed fields",
-      "reason": "Events preserve every consumed field; exhaustive typed event classification and fold proof."
+      "disposition": "enrolled",
+      "enrollment": "bounded-contexts/identity/features/account-management/api/fences.ts::createIdentityMutationPersistence > attempt > append"
     },
     {
       "file": "bounded-contexts/identity/support/runtime-support/seed.ts",

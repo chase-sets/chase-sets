@@ -33,6 +33,8 @@ describe("owner writer enrollment census", () => {
     `const hidden = 'identity.account-' + id; function planted() { return store.appendToStream({ streamId: hidden, events }); }`,
     `const hidden = 'identity.user-' + id; function planted() { return renamed.appendToStreams([{ streamId: hidden, events }]); }`,
     `const save = store.appendToStream; const hidden = 'identity.account-' + id; function planted() { return save({streamId: hidden, events}); }`,
+    `const hidden = 'identity.' + 'account-' + id; function planted() { return store.appendToStream({streamId: hidden, events}); }`,
+    "const table = 'event_store_events'; const hidden = 'identity.user-' + id; function planted() { return db.query(`INSERT INTO ${table} (stream_id) VALUES ($1)`, [hidden]); }",
     `function planted() { return db.query('INSERT INTO event_store_events (stream_id) VALUES ($1)', ['identity.membership-' + id]); }`,
     `function planted() { return db.query('UPDATE event_store_events SET payload = $1 WHERE stream_id = $2', [payload, 'identity.account-' + id]); }`,
   ])("rejects a planted unenrolled physical writer regardless of path vocabulary", (code) => {
