@@ -260,8 +260,7 @@ pub mod url {
     /// old addresses, which share no prefix and move for good to the Seller Desk's (marketplace's
     /// `account-payouts`, `account-payout`, `account-desk-settings`, `account-settlement` and
     /// `account-wallet-adjustment` redirects, see `money`); the page each moves to asks who it is for.
-    /// And three more that share no prefix: Product alerts' old address, leaving a guest checkout and a
-    /// social sign-in's relay.
+    /// And two more that share no prefix: leaving a guest checkout and a social sign-in's relay.
     #[corten::routes(state = crate::app::Shared)]
     pub mod home {
         /// The search's landing, or the results for the address's terms.
@@ -290,10 +289,6 @@ pub mod url {
         pub struct LegacyAdjustment<'a> {
             pub reference: &'a str,
         }
-
-        /// Discovery's `account-product-alerts`: the notification center's Product alerts.
-        #[route("/account/product-alerts", get = crate::notifications::product_alerts)]
-        pub struct ProductAlerts;
 
         /// Auth's `guest-checkout-exit`: a guest leaves checkout as Sign out does (it ends the guest
         /// checkout and any session, then the search).
@@ -1099,6 +1094,15 @@ pub mod url {
             #[route(query)]
             pub place: crate::money::Place,
         }
+    }
+
+    /// Discovery's `account-product-alerts`: the notification center's Product alerts, and its action
+    /// (pause, resume or delete an alert) for a form that still posts here. An area of its own, with
+    /// the notification center's components, since a refused change draws the notification center.
+    #[corten::routes(state = crate::app::Shared, area = ProductAlerts)]
+    pub mod product_alerts {
+        #[route("/account/product-alerts", get = crate::notifications::product_alerts, post = crate::notifications::change_alert_legacy)]
+        pub struct ProductAlerts;
     }
 
     /// Payout setup (Settlement's `account-desk-settings`, see `payout_setup`): any account may
@@ -1926,6 +1930,7 @@ pub fn app(config: Config) -> App {
         .area(|area| url::shipments::area(area, shared.clone()).components(views::SHIPMENTS))
         .area(|area| url::sale_shipments::area(area, shared.clone()).components(views::SALE_SHIPMENTS))
         .area(|area| url::notifications::area(area, shared.clone()).components(views::NOTIFICATIONS))
+        .area(|area| url::product_alerts::area(area, shared.clone()).components(views::NOTIFICATIONS))
         .area(|area| url::addresses::area(area, shared.clone()).components(views::ADDRESSES))
         .area(|area| url::security::area(area, shared.clone()).components(views::SECURITY))
         .area(|area| url::team::area(area, shared.clone()).components(views::TEAM))

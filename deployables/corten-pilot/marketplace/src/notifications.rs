@@ -392,8 +392,8 @@ pub(crate) async fn change_alert(
     Form(input): Form<AlertInput>,
 ) -> HtmlResult {
     let id = route.id;
-    let caller = config.platform.caller(&headers, config.proto, None);
     let Some(change) = AlertChange::read(&input.action) else {
+        let caller = config.platform.caller(&headers, config.proto, None);
         let t: NotificationsMsg = req.t();
         let settings = settings(&caller, &caller, false).await.ok();
         let notice = Notice::Alerts(t.page_read_failure_description().to_owned());
@@ -405,16 +405,58 @@ pub(crate) async fn change_alert(
             StatusCode::UNPROCESSABLE_ENTITY,
         );
     };
-    let receipt = match caller.change_alert(&id, change).await {
+    apply(&req, &viewer, &config, &headers, &id, change, req.mode == corten::Mode::Action).await
+}
+
+/// What marketplace's `/account/product-alerts` action is sent: the intent and the alert.
+#[derive(Clone, Debug, Default, Fields)]
+#[serde(default, rename_all = "camelCase")]
+pub struct LegacyAlertInput {
+    pub intent: String,
+    pub alert_id: String,
+}
+
+/// Discovery's `account-product-alerts` action, for a form or a bookmark that still posts to
+/// marketplace's address: `pause`, `resume` or `delete` the `alertId`, as the notification center's
+/// own form does, then the settings at the alerts. Any other intent, or no alert, goes to the
+/// settings with nothing changed (marketplace's `onUnknownIntent`). No page posts here with the
+/// runtime, so the answer is always the redirect.
+pub(crate) async fn change_alert_legacy(
+    req: Req,
+    Caller(Member(viewer)): Caller<Member>,
+    State(config): State<Shared>,
+    headers: HeaderMap,
+    Form(input): Form<LegacyAlertInput>,
+) -> HtmlResult {
+    let id = input.alert_id.trim();
+    match AlertChange::read(&input.intent) {
+        Some(change) if !id.is_empty() => apply(&req, &viewer, &config, &headers, id, change, false).await,
+        _ => req.redirect(&url::Notifications { place: Place::settings(Section::ProductAlerts, None) }),
+    }
+}
+
+/// The change, then the alerts read after it: in place when `in_place`, else the settings at the
+/// alerts with the write's receipt.
+async fn apply(
+    req: &Req,
+    viewer: &Viewer,
+    config: &Shared,
+    headers: &HeaderMap,
+    id: &str,
+    change: AlertChange,
+    in_place: bool,
+) -> HtmlResult {
+    let caller = config.platform.caller(headers, config.proto, None);
+    let receipt = match caller.change_alert(id, change).await {
         Ok(receipt) => receipt,
-        Err(error) => return refused(&req, &viewer, &caller, Which::Alerts, error).await,
+        Err(error) => return refused(req, viewer, &caller, Which::Alerts, error).await,
     };
     let to = url::Notifications { place: Place::settings(Section::ProductAlerts, receipt.as_ref()) };
-    if req.mode == corten::Mode::Action {
-        let waiting = config.platform.caller(&headers, config.proto, receipt.as_ref());
+    if in_place {
+        let waiting = config.platform.caller(headers, config.proto, receipt.as_ref());
         return match alerts(&waiting, receipt.is_some()).await {
-            Ok(alerts) => alerts_patch(&req, &alerts, &to),
-            Err(error) => unconfirmed(&req, error),
+            Ok(alerts) => alerts_patch(req, &alerts, &to),
+            Err(error) => unconfirmed(req, error),
         };
     }
     req.redirect(&to.at(views::ProductAlertsId))
