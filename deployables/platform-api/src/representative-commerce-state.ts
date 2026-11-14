@@ -7,8 +7,15 @@ import { createStripeConnectMoneyMovementGateway } from "@chase-sets/stripe-conn
 import { createEasyPostPostageLabelProvider } from "@chase-sets/easypost-postage";
 import { createFilesystemObjectStorage, createS3ObjectStorage, type ObjectStorage } from "@chase-sets/object-storage";
 import { drainContextRuntime, getProjectionGroup, syncProjectionGroup } from "@chase-sets/bounded-context-runtime";
-import { bootstrapPlatformControlPlane } from "@chase-sets/platform-runtime/control-plane";
-import { representativeCommerceStateDataProfiles, seedApiHostIfEmpty } from "@chase-sets/platform-runtime/api";
+import {
+  bootstrapPlatformControlPlane,
+  createPostgresPlatformControlPlane,
+} from "@chase-sets/platform-runtime/control-plane";
+import {
+  createProjectionGroupLeasePort,
+  representativeCommerceStateDataProfiles,
+  seedApiHostIfEmpty,
+} from "@chase-sets/platform-runtime/api";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { settlementOperationLogFields } from "@chase-sets/settlement/server";
 import { reconcileRepresentativeProductContentsScenario } from "@chase-sets/catalog/server";
@@ -33,7 +40,7 @@ import {
   type MarketplaceRepresentativeListingResult,
   type RepresentativeInventoryServices,
 } from "@chase-sets/catalog-seed";
-import { apiContextRegistry } from "./generated/api-context-registry";
+import { apiContextRegistry } from "./context-registry";
 import { createPlatformApiHost } from "./app";
 import {
   loadConfig,
@@ -263,6 +270,7 @@ export type RepresentativeCommerceStateEvidence = Readonly<{
   representativeListingAccountCount: number;
   representativeOfferCount: number;
   representativeOfferBuyerAccountCount: number;
+  representativeOfferSkippedCount: number;
   representativeAcceptedOfferCount: number;
   representativeAcceptedOfferSkippedCount: number;
   representativeOrderingSupplyState: unknown;
@@ -366,6 +374,7 @@ export async function runRepresentativeCommerceState(
     runRepresentativeStep(stepName, run, stepOptions, progress);
   try {
     await bootstrapPlatformControlPlane(pools.control);
+    const controlPlane = createPostgresPlatformControlPlane(pools.control);
     const paymentProcessorGateway =
       config?.paymentProcessor.kind === "stripe"
         ? createStripePaymentProcessorGateway({
@@ -434,6 +443,8 @@ export async function runRepresentativeCommerceState(
           environmentName: execution.deploymentEnvironment,
           runtimeProfile: config?.runtimeProfile ?? "public",
           schemaBootstrapLockPool: seedPools?.schemaBootstrapLockPool,
+          projectionGroupLeasePort: createProjectionGroupLeasePort(controlPlane, "platform-api"),
+          substepTimeoutMs: MAX_STEP_TIMEOUT_MS,
           // Preserve pre-seed visibility and interrupted-state reconciliation
           // without spending the canary's budget on unrelated runtime drains.
           seedContextDrain: true,
@@ -537,6 +548,7 @@ export async function runRepresentativeCommerceState(
     const offers = await runStep("submit representative offers", () =>
       submitRepresentativeOffers(getMarketplaceServices(runtime.services), inventoryStock),
     );
+    const submittedOffers = offers.filter((offer) => offer.status !== "skipped");
     await syncProjection("marketplace", "marketplace-offer-projection");
     const acceptedOffers = await runStep("accept representative offers", () =>
       acceptRepresentativeOffers(getMarketplaceServices(runtime.services), inventoryStock),
@@ -581,7 +593,7 @@ export async function runRepresentativeCommerceState(
         { discoveryDb: getDiscoveryDb(runtime.services) },
         {
           listingIds: listings.map((listing) => listing.listingId),
-          offerIds: offers.map((offer) => offer.offerId),
+          offerIds: submittedOffers.map((offer) => offer.offerId),
         },
       ),
     );
@@ -617,8 +629,9 @@ export async function runRepresentativeCommerceState(
       representativeInventoryStockAccountCount: new Set(inventoryStock.map((stock) => stock.accountId)).size,
       representativeListingCount: listings.length,
       representativeListingAccountCount: new Set(listings.map((listing) => listing.accountId)).size,
-      representativeOfferCount: offers.length,
-      representativeOfferBuyerAccountCount: new Set(offers.map((offer) => offer.buyerAccountId)).size,
+      representativeOfferCount: submittedOffers.length,
+      representativeOfferBuyerAccountCount: new Set(submittedOffers.map((offer) => offer.buyerAccountId)).size,
+      representativeOfferSkippedCount: offers.length - submittedOffers.length,
       representativeAcceptedOfferCount: acceptedOffers.filter(
         (offer) => offer.status === "accepted" || offer.status === "already-accepted",
       ).length,

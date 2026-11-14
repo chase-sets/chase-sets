@@ -690,19 +690,18 @@ const expectedConsumers: Record<string, readonly [number, number, number, number
   "account-form-pending.spec.ts": [1, 0, 0, 1, "synthetic; account form pending state"],
   "account-payment.spec.ts": [1, 1, 0, 1, "synthetic/configured"],
   "buy-funnel-redesign.spec.ts": [1, 2, 0, 1, "synthetic/configured/seeded"],
-  "critical-flows.spec.ts": [1, 4, 0, 1, "synthetic/configured/later-session/seeded"],
+  "critical-flows.spec.ts": [1, 4, 0, 2, "synthetic/configured/later-session/seeded"],
   "support/auth-trace-artifact.probe.spec.ts": [1, 0, 0, 1, "synthetic operator probe; outside functional counts"],
   "sell-list-evidence.spec.ts": [0, 1, 0, 0, "configured evidence seller"],
   "seller-desk-journey.uat.spec.ts": [0, 1, 0, 0, "configured UAT seller"],
   "account-elevation-intent.spec.ts": [0, 1, 0, 0, "configured/seeded"],
-  "account-payment-stripe-embed.uat.spec.ts": [0, 3, 0, 0, "configured"],
+  "account-payment-stripe-embed.uat.spec.ts": [0, 1, 0, 0, "configured"],
   "listing-evidence-readiness.spec.ts": [0, 1, 0, 0, "configured/seeded"],
   "notifications.spec.ts": [0, 1, 0, 0, "seeded"],
   "rendered-copy-sweep.spec.ts": [0, 1, 0, 0, "seeded"],
   "marketplace-navigation.spec.ts": [0, 1, 0, 0, "seeded owner navigation"],
   "inventory-recovery.spec.ts": [0, 4, 0, 0, "configured/seeded seller recovery"],
   "market-following-offers.spec.ts": [0, 2, 0, 0, "seeded buyer/seller; receipted Identity-to-Auth session"],
-  "payout-connect-appearance.uat.spec.ts": [0, 1, 0, 0, "configured"],
   "support-case-detail.spec.ts": [0, 2, 0, 0, "seeded"],
   "buyer-purchase-journey.spec.ts": [0, 0, 2, 0, "seeded-form"],
   "saved-list-addition.spec.ts": [0, 0, 2, 0, "seeded-form"],
@@ -922,7 +921,7 @@ describe("auth-caller-census", () => {
   it("discovers the complete tracked graph, with runtime/helper/test/launcher and configured/seeded labels separate", () => {
     const census = discoverAuthCallers(sources);
     expect(census).toMatchObject({
-      totalRuntime: 32,
+      totalRuntime: 31,
       synthetic: 7,
       direct: 10,
       receiptedSessionReads: 1,
@@ -957,7 +956,7 @@ describe("auth-caller-census", () => {
         "deployables/marketplace/e2e/support/auth-alias.ts",
         'export { signInWithPassword as login } from "./auth";',
       );
-      expect(discoverAuthCallers(variant).totalRuntime).toBe(32);
+      expect(discoverAuthCallers(variant).totalRuntime).toBe(31);
     }
   });
   it("classifies only the exact receipt-bearing session read, not arbitrary auth in the same spec or a sibling", () => {

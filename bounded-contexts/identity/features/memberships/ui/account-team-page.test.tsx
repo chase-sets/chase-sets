@@ -1,11 +1,12 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render as renderTesting, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render as renderTesting, screen, waitFor, within } from "@testing-library/react";
 import { createMemoryRouter, RouterProvider, useLoaderData } from "react-router";
 import { AccountMutationBoundary } from "../../account-management/ui/controller";
 import {
   renderAccountManagementPage as render,
   renderHeldAccountManagementRoute,
+  settleAccountManagementRoute,
   stubHeldAccountManagementTransport,
 } from "../../account-management/ui/test-support";
 import { syntheticMutationResult } from "../../account-management/api/test-support";
@@ -58,11 +59,21 @@ function busy(button: HTMLElement) {
   return { disabled: button.matches(":disabled"), busy: button.getAttribute("aria-busy") };
 }
 
+/**
+ * Resolves once the canonical dialog's own deferred initial focus has landed on its unique header Close control,
+ * so it cannot overtake the explicit confirmation focus that follows. Observes focus only; never assigns it.
+ */
+function dialogInitialFocus(confirmation: HTMLElement) {
+  const close = within(confirmation.closest<HTMLElement>('[role="dialog"]')!).getByRole("button", { name: "Close" });
+  if (document.activeElement === close) return Promise.resolve();
+  return new Promise<void>((resolve) => close.addEventListener("focus", () => resolve(), { once: true }));
+}
+
 describe("TeamPage pending state", () => {
   it("per-row forms sharing one intent stay independent", async () => {
     const transport = stubHeldAccountManagementTransport();
     const rows = [membership("mem_1", "Alex"), membership("mem_2", "Blair"), membership("mem_3", "Casey")];
-    const { loads } = renderHeldAccountManagementRoute("/account/team", rows, (memberships) => (
+    const { loads, router } = renderHeldAccountManagementRoute("/account/team", rows, (memberships) => (
       <TeamPage invitations={[]} memberships={memberships} />
     ));
     const [first, second, third] = screen.getAllByRole("button", { name: "Change Role" });
@@ -84,7 +95,8 @@ describe("TeamPage pending state", () => {
     await waitFor(() => expect(loads).toHaveLength(1));
     expect(busy(second)).toEqual({ disabled: false, busy: "true" });
     loads[0](rows);
-    await waitFor(() => expect(busy(second)).toEqual({ disabled: false, busy: null }));
+    await settleAccountManagementRoute(router, () => busy(second).busy === null);
+    expect(busy(second)).toEqual({ disabled: false, busy: null });
     expect(roles()[1].value).toBe("manager");
 
     fireEvent.click(third);
@@ -106,6 +118,7 @@ describe("TeamPage pending state", () => {
     await waitFor(() => expect(screen.getAllByRole("button", { name: "Revoke" })[0].matches(":disabled")).toBe(false));
     fireEvent.click(screen.getAllByRole("button", { name: "Revoke" })[0]);
     const confirm = await screen.findByRole("button", { name: "Confirm revoke" });
+    await dialogInitialFocus(confirm);
     confirm.focus();
     fireEvent.click(confirm);
     await waitFor(() => expect(transport.posts()).toHaveLength(1));
@@ -139,7 +152,8 @@ describe("TeamPage pending state", () => {
     });
     observer.observe(document.body, { subtree: true, childList: true, attributes: true });
     loads[0]([membership("mem_1", "Alex", "revoked"), membership("mem_2", "Blair")]);
-    await waitFor(() => expect(screen.queryByRole("button", { name: "Confirm revoke" })).toBeNull());
+    await settleAccountManagementRoute(router, () => screen.queryByRole("button", { name: "Confirm revoke" }) === null);
+    expect(screen.queryByRole("button", { name: "Confirm revoke" })).toBeNull();
     observer.disconnect();
     expect(staleUnlocked).toBe(false);
     expect(transport.posts()).toHaveLength(1);
@@ -216,7 +230,8 @@ describe("TeamPage pending state", () => {
     });
     observer.observe(document.body, { subtree: true, childList: true, attributes: true });
     await waitFor(() => expect(loads).toBe(1));
-    await waitFor(() => expect(screen.queryByRole("button", { name: "Confirm revoke" })).toBeNull());
+    await settleAccountManagementRoute(router, () => screen.queryByRole("button", { name: "Confirm revoke" }) === null);
+    expect(screen.queryByRole("button", { name: "Confirm revoke" })).toBeNull();
     observer.disconnect();
 
     expect(staleUnlocked).toBe(false);
@@ -226,7 +241,7 @@ describe("TeamPage pending state", () => {
 
   it("dialog-hosted invitation forms stay busy until the redirect completes", async () => {
     const transport = stubHeldAccountManagementTransport();
-    const { loads } = renderHeldAccountManagementRoute(
+    const { loads, router } = renderHeldAccountManagementRoute(
       "/account/team",
       {
         memberships: [membership("mem_1", "Alex")],
@@ -237,6 +252,7 @@ describe("TeamPage pending state", () => {
     await waitFor(() => expect(screen.getByRole("button", { name: "Cancel" }).matches(":disabled")).toBe(false));
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
     const confirm = await screen.findByRole("button", { name: "Confirm cancellation" });
+    await dialogInitialFocus(confirm);
     confirm.focus();
     fireEvent.click(confirm);
     await waitFor(() => expect(transport.posts()).toHaveLength(1));
@@ -272,7 +288,11 @@ describe("TeamPage pending state", () => {
       memberships: [membership("mem_1", "Alex")],
       invitations: [invitation("ivt_1", "invitee@example.test", "cancelled")],
     });
-    await waitFor(() => expect(screen.queryByRole("button", { name: "Confirm cancellation" })).toBeNull());
+    await settleAccountManagementRoute(
+      router,
+      () => screen.queryByRole("button", { name: "Confirm cancellation" }) === null,
+    );
+    expect(screen.queryByRole("button", { name: "Confirm cancellation" })).toBeNull();
     observer.disconnect();
     expect(staleUnlocked).toBe(false);
     expect(transport.posts()).toHaveLength(1);

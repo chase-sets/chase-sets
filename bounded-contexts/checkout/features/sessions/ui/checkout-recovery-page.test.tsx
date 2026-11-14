@@ -1,5 +1,7 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
+import { hydrateRoot } from "react-dom/client";
+import { renderToString } from "react-dom/server";
 import {
   createMemoryRouter,
   isRouteErrorResponse,
@@ -8,13 +10,18 @@ import {
   useLocation,
   useRouteError,
 } from "react-router";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   appendCompactPostWriteToken,
   appendFreshWriteToken,
   readFreshWriteTokenState,
 } from "@chase-sets/http/responses";
-import { checkoutRecoveryForKind, createCheckoutRecoveryResponse, isCheckoutRecovery } from "../api/checkout-recovery";
+import {
+  checkoutRecoveryForKind,
+  createCheckoutRecoveryResponse,
+  isCheckoutRecovery,
+  type CheckoutRecoveryKind,
+} from "../api/checkout-recovery";
 import { ErrorBoundary as CheckoutSessionRouteErrorBoundary } from "../../../routes/checkout-session";
 import { CheckoutSessionRecoveryPage, type CheckoutSessionRecoveryPageProps } from "./checkout-recovery-page";
 
@@ -45,7 +52,10 @@ function ReadyCheckoutPage() {
   return <h1>{`pay-ready:${data.sessionId}`}</h1>;
 }
 
-function RecoveryBoundary(props: { revalidationOptions?: CheckoutSessionRecoveryPageProps["revalidationOptions"] }) {
+function RecoveryBoundary(props: {
+  revalidationOptions?: CheckoutSessionRecoveryPageProps["revalidationOptions"];
+  nullKind?: boolean;
+}) {
   const error = useRouteError();
   const location = useLocation();
 
@@ -56,9 +66,9 @@ function RecoveryBoundary(props: { revalidationOptions?: CheckoutSessionRecovery
   const recovery = error.data;
   return (
     <CheckoutSessionRecoveryPage
-      kind={recovery.kind}
-      title={recovery.title}
-      description={recovery.description}
+      kind={props.nullKind ? null : recovery.kind}
+      title={props.nullKind ? "Checkout recovery" : recovery.title}
+      description={props.nullKind ? "The checkout needs attention." : recovery.description}
       trustCue={recovery.trustCue}
       primaryAction={recovery.primaryAction}
       secondaryAction={recovery.secondaryAction ?? null}
@@ -89,7 +99,259 @@ function renderCheckoutSessionRoute(options: {
   return router;
 }
 
+async function withHydratedCheckoutRecovery(
+  options: {
+    initialPath: string;
+    loader: (args: { request: Request }) => unknown;
+    revalidationOptions?: CheckoutSessionRecoveryPageProps["revalidationOptions"];
+    nullKind?: boolean;
+  },
+  inspect: (dom: {
+    container: HTMLDivElement;
+    section: Element;
+    description: Element;
+    status: Element;
+    router: ReturnType<typeof createMemoryRouter>;
+  }) => Promise<void>,
+) {
+  const consoleError = vi.spyOn(console, "error");
+  const consoleWarn = vi.spyOn(console, "warn");
+  const recoverableErrors: unknown[] = [];
+  const routes = [
+    {
+      id: "checkout-session",
+      path: "/checkout/buy/session/:sessionId",
+      loader: options.loader,
+      Component: ReadyCheckoutPage,
+      ErrorBoundary: () => (
+        <RecoveryBoundary revalidationOptions={options.revalidationOptions} nullKind={options.nullKind} />
+      ),
+    },
+  ];
+  const serverRouter = createMemoryRouter(routes, { initialEntries: [options.initialPath] });
+  let clientRouter: ReturnType<typeof createMemoryRouter> | undefined;
+  let root: ReturnType<typeof hydrateRoot> | undefined;
+  const container = document.createElement("div");
+
+  try {
+    if (!serverRouter.state.initialized) {
+      await new Promise<void>((resolve) => {
+        const unsubscribe = serverRouter.subscribe((state) => {
+          if (state.initialized) {
+            unsubscribe();
+            resolve();
+          }
+        });
+      });
+    }
+    container.innerHTML = renderToString(<RouterProvider router={serverRouter} />);
+    const section = container.querySelector("section.grid.rounded-tokenLg")!;
+    const description = container.querySelector(".m-0.mx-auto.max-w-xl.text-sm.leading-6.text-secondary")!;
+    const status = container.querySelector('[role="status"]')!;
+    expect(section).not.toBeNull();
+    expect(description).not.toBeNull();
+    expect(section.querySelector("h2")?.textContent).not.toBe("");
+    expect(section.textContent).not.toBe("");
+    expect(section.querySelectorAll("a").length).toBeGreaterThan(0);
+    expect(status).not.toBeNull();
+    expect(status.textContent).toBe("");
+    document.body.append(container);
+
+    clientRouter = createMemoryRouter(routes, {
+      initialEntries: [options.initialPath],
+      hydrationData: {
+        loaderData: serverRouter.state.loaderData,
+        actionData: serverRouter.state.actionData,
+        errors: serverRouter.state.errors,
+      },
+    });
+    expect(clientRouter.state.initialized).toBe(true);
+    expect(clientRouter.state.location.pathname + clientRouter.state.location.search).toBe(options.initialPath);
+    await act(async () => {
+      root = hydrateRoot(container, <RouterProvider router={clientRouter!} />, {
+        onRecoverableError: (error) => recoverableErrors.push(error),
+      });
+    });
+    expect(recoverableErrors).toEqual([]);
+    expect(container.querySelector("section.grid.rounded-tokenLg")).toBe(section);
+    expect(container.querySelector(".m-0.mx-auto.max-w-xl.text-sm.leading-6.text-secondary")).toBe(description);
+    expect(container.querySelectorAll('[role="status"]')).toHaveLength(1);
+    expect(container.querySelector('[role="status"]')).toBe(status);
+    expect(status.getAttribute("aria-live")).toBe("polite");
+    expect(status.getAttribute("aria-atomic")).toBe("true");
+    expect(description.contains(status)).toBe(true);
+    expect(description.textContent).not.toBe("");
+
+    await inspect({ container, section, description, status, router: clientRouter });
+    expect(recoverableErrors).toEqual([]);
+    expect(consoleError).not.toHaveBeenCalled();
+    expect(
+      consoleWarn.mock.calls.filter((args) => /hydrat|nest|descendant|did not match/i.test(args.join(" "))),
+    ).toEqual([]);
+  } finally {
+    try {
+      await act(async () => root?.unmount());
+    } finally {
+      clientRouter?.dispose();
+      serverRouter.dispose();
+      container.remove();
+      consoleError.mockRestore();
+      consoleWarn.mockRestore();
+    }
+  }
+}
+
 describe("CheckoutSessionRecoveryPage", () => {
+  const recoveryKinds = {
+    "access-required": true,
+    "attempt-changed": true,
+    "cart-empty": true,
+    "checkout-closed": true,
+    "checkout-handoff-expired": true,
+    "checkout-preparing": true,
+    "guest-access-expired": true,
+    "request-validation": true,
+    "session-not-found": true,
+    "wrong-account": true,
+  } satisfies Record<CheckoutRecoveryKind, true>;
+  const hydrationCases = [
+    ...Object.keys(recoveryKinds).map((kind) => ({ kind: kind as CheckoutRecoveryKind | null, receipt: "none" })),
+    { kind: null, receipt: "none" },
+    { kind: "checkout-preparing" as const, receipt: "active" },
+    { kind: "checkout-preparing" as const, receipt: "expired" },
+    { kind: "checkout-preparing" as const, receipt: "exhausted" },
+  ];
+
+  it.each(hydrationCases)("hydrates parsed SSR for $kind with $receipt receipt", async ({ kind, receipt }) => {
+    const nowMs = Date.now();
+    const path = "/checkout/buy/session/chk_ssr";
+    const currentPath =
+      receipt === "none"
+        ? path
+        : appendFreshWriteToken(path, checkoutCommit(), nowMs - (receipt === "expired" ? 31_000 : 0));
+    const recovery = checkoutRecoveryForKind(kind ?? "session-not-found", currentPath);
+    await withHydratedCheckoutRecovery(
+      {
+        initialPath: currentPath,
+        loader: ({ request }) => {
+          expect(new URL(request.url).pathname + new URL(request.url).search).toBe(currentPath);
+          throw createCheckoutRecoveryResponse(recovery);
+        },
+        nullKind: kind === null,
+        revalidationOptions: {
+          intervalMs: 60_000,
+          maxRevalidations: receipt === "exhausted" ? 0 : 15,
+          nowMs: () => nowMs,
+        },
+      },
+      async ({ section, description, status }) => {
+        expect(section.querySelector("h2")?.textContent).toBe(kind === null ? "Checkout recovery" : recovery.title);
+        expect(description.textContent).toBe(
+          receipt === "active"
+            ? "We are getting your checkout ready. This page checks again automatically and opens checkout as soon as it is ready."
+            : kind === null
+              ? "The checkout needs attention."
+              : recovery.description,
+        );
+        expect(status.textContent).toBe(receipt === "active" ? description.textContent : "");
+        for (const action of [recovery.primaryAction, recovery.secondaryAction].filter(
+          (action) => action !== undefined,
+        )) {
+          expect(
+            Array.from(section.querySelectorAll("a")).some(
+              (link) => link.textContent?.trim() === action.label && link.getAttribute("href") === action.href,
+            ),
+          ).toBe(true);
+        }
+        expect(section.textContent).toContain(recovery.trustCue);
+      },
+    );
+  });
+
+  it.each(["budget", "expiry", "pay-ready"] as const)(
+    "retains the hydrated status through automatic start and %s settlement",
+    async (settlement) => {
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+      const startMs = Date.now();
+      let nowMs = startMs;
+      let loaderCalls = 0;
+      const currentPath = appendFreshWriteToken("/checkout/buy/session/chk_hydrated", checkoutCommit(), startMs);
+      const receiptStates: string[] = [];
+      try {
+        await withHydratedCheckoutRecovery(
+          {
+            initialPath: currentPath,
+            loader: ({ request }) => {
+              loaderCalls += 1;
+              expect(new URL(request.url).pathname + new URL(request.url).search).toBe(currentPath);
+              const receiptState = readFreshWriteTokenState(request.url, nowMs).kind;
+              receiptStates.push(receiptState);
+              if (settlement === "pay-ready" && loaderCalls > 1) return { sessionId: "chk_hydrated" };
+              throw createCheckoutRecoveryResponse(
+                checkoutRecoveryForKind(
+                  receiptState === "expired" ? "checkout-handoff-expired" : "checkout-preparing",
+                  currentPath,
+                ),
+              );
+            },
+            revalidationOptions: { intervalMs: 20, maxRevalidations: 2, nowMs: () => nowMs },
+          },
+          async ({ container, section, description, status, router }) => {
+            expect(loaderCalls).toBe(1);
+            expect(status.textContent).toContain("checks again automatically");
+            if (settlement === "expiry") nowMs = startMs + 31_000;
+            await act(async () => {
+              await vi.advanceTimersByTimeAsync(20);
+            });
+            expect(loaderCalls).toBe(2);
+            expect(router.state.navigation.state).toBe("idle");
+            if (settlement === "budget") {
+              expect(container.querySelector('[role="status"]')).toBe(status);
+              expect(status.textContent).toContain("checks again automatically");
+              await act(async () => {
+                await vi.advanceTimersByTimeAsync(40);
+              });
+              expect(loaderCalls).toBe(3);
+            }
+            if (settlement === "pay-ready") {
+              expect(container.textContent).toContain("pay-ready:chk_hydrated");
+              expect(container.querySelector('[role="status"]')).toBeNull();
+              expect(container.contains(section)).toBe(false);
+            } else {
+              expect(container.querySelector("section.grid.rounded-tokenLg")).toBe(section);
+              expect(container.querySelector(".m-0.mx-auto.max-w-xl.text-sm.leading-6.text-secondary")).toBe(
+                description,
+              );
+              expect(container.querySelectorAll('[role="status"]')).toHaveLength(1);
+              expect(container.querySelector('[role="status"]')).toBe(status);
+              expect(status.textContent).toBe("");
+              const recovery = checkoutRecoveryForKind(
+                settlement === "expiry" ? "checkout-handoff-expired" : "checkout-preparing",
+                currentPath,
+              );
+              expect(description.textContent).toBe(recovery.description);
+              expect(section.textContent).toContain(recovery.primaryAction.label);
+            }
+            expect(receiptStates).toEqual(
+              settlement === "expiry"
+                ? ["valid", "expired"]
+                : settlement === "budget"
+                  ? ["valid", "valid", "valid"]
+                  : ["valid", "valid"],
+            );
+            const settledLoaderCalls = loaderCalls;
+            await act(async () => {
+              await vi.advanceTimersByTimeAsync(120);
+            });
+            expect(loaderCalls).toBe(settledLoaderCalls);
+          },
+        );
+      } finally {
+        vi.useRealTimers();
+      }
+    },
+  );
+
   it("revalidates the preparing recovery automatically until checkout becomes pay-ready", async () => {
     const currentPath = appendFreshWriteToken("/checkout/buy/session/chk_happy", checkoutCommit());
     let loaderCalls = 0;

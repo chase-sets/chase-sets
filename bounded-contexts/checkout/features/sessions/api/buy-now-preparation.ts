@@ -1,7 +1,9 @@
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { AccountId, CheckoutSessionId } from "@chase-sets/primitives/typed-ids";
 import type { CheckoutFulfillmentPreview } from "../domain/fulfillment-preview";
+import type { CheckoutShippingAddress } from "../domain/domain";
 import type { CheckoutSessionServices } from "./runtime";
+import type { CheckoutEntryAttempt } from "../../command-attempts/api/entry-attempt";
 import { CheckoutDomainError } from "../../../support/runtime-support/common";
 import { previewBuyNowCheckoutSupplyThroughOrdering } from "../../../support/request-support/checkout-confirmation";
 
@@ -18,12 +20,13 @@ export type BuyNowPreparationListing = Readonly<{
 export async function prepareBuyNowCheckout(
   params: Readonly<{
     request: Request;
-    services: Pick<CheckoutSessionServices, "createBuyNow" | "recordFulfillmentPreview">;
+    services: Pick<CheckoutSessionServices, "createBuyNow">;
     accountId: AccountId;
     listing: BuyNowPreparationListing;
     quantity: number;
     context: EventStoreContext;
     sessionIdOverride?: CheckoutSessionId;
+    entryAttempt?: CheckoutEntryAttempt;
     handoffExpiresAt?: string | null;
     createdAt?: string;
     preflightSessionId?: string;
@@ -31,6 +34,8 @@ export async function prepareBuyNowCheckout(
     sellerPreferenceId?: string | null;
     shippingOption?: "standard" | "expedited" | "priority";
     optimizationGoal?: "fewest-shipments" | "lowest-total";
+    /** The address the session's first preview is computed for (`firstPreviewShippingAddress`). */
+    previewShippingAddress?: CheckoutShippingAddress | null;
   }>,
 ): Promise<
   Awaited<ReturnType<CheckoutSessionServices["createBuyNow"]>> & {
@@ -61,6 +66,7 @@ export async function prepareBuyNowCheckout(
     shippingOption: params.shippingOption ?? "standard",
     optimizationGoal: params.optimizationGoal ?? "lowest-total",
     line,
+    shippingAddress: params.previewShippingAddress ?? null,
   });
   if (fulfillmentPreview.readyLineKeys.length === 0) {
     throw unresolvedFulfillment(fulfillmentPreview);
@@ -86,30 +92,10 @@ export async function prepareBuyNowCheckout(
       handoffExpiresAt: params.handoffExpiresAt,
       createdAt: params.createdAt,
       sessionIdOverride: params.sessionIdOverride,
+      entryAttempt: params.entryAttempt,
     },
     params.context,
   );
-  if (params.sessionIdOverride && result.sessionId !== params.sessionIdOverride) {
-    const replacementPreview = await previewBuyNowCheckoutSupplyThroughOrdering(params.request, {
-      checkoutSessionId: result.sessionId,
-      shippingOption: params.shippingOption ?? "standard",
-      optimizationGoal: params.optimizationGoal ?? "lowest-total",
-      line,
-    });
-    if (replacementPreview.readyLineKeys.length === 0) {
-      throw unresolvedFulfillment(replacementPreview);
-    }
-    const previewResult = await params.services.recordFulfillmentPreview(
-      {
-        sessionId: result.sessionId,
-        accountId: params.accountId,
-        fulfillmentPreviewRevision: replacementPreview.revision,
-        fulfillmentPreviewSnapshot: replacementPreview,
-      },
-      params.context,
-    );
-    return { ...result, fulfillmentPreview: replacementPreview, writeSources: [result, previewResult] };
-  }
   return { ...result, fulfillmentPreview, writeSources: [result] };
 }
 

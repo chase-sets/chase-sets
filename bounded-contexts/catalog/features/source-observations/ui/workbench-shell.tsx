@@ -11,6 +11,8 @@ import { t } from "@chase-sets/localization";
 import type { CatalogPrimaryWorkbenchReadModel } from "../api/primary-workbench-admin-contracts";
 import type { CatalogControlPlaneRouteSurfaceKey } from "./admin-control-plane/information-architecture";
 import { CatalogImportContextBar } from "./admin-control-plane/import-to-promotion/import-context-bar";
+import { CatalogImportJobReceipt } from "./admin-control-plane/import-to-promotion/import-job-receipt";
+import type { SourceObservationImportJobReceipt } from "./contracts";
 import { WorkbenchReturnLink } from "./admin-control-plane/import-to-promotion/workbench-formatting";
 import type { CatalogPrimaryWorkbenchCommandFeedback } from "./primary-workbench-command-feedback";
 import {
@@ -22,6 +24,7 @@ import {
 export interface CatalogWorkbenchShellProps {
   readModel: CatalogPrimaryWorkbenchReadModel;
   commandFeedback?: CatalogPrimaryWorkbenchCommandFeedback | null;
+  importJobReceipt?: SourceObservationImportJobReceipt | null;
   // The audience surface this shell wraps. Drives the single per-surface return
   // affordance: the supporting surfaces (providers, governance, health) render
   // one "Back to import workbench" link; the daily surface is the primary job and
@@ -48,6 +51,7 @@ export interface CatalogWorkbenchShellProps {
 export function CatalogWorkbenchShell({
   readModel,
   commandFeedback = null,
+  importJobReceipt = null,
   surface,
   attentionQueue = null,
   deferredSourceOptions = null,
@@ -74,6 +78,7 @@ export function CatalogWorkbenchShell({
       />
 
       {commandFeedback ? <CatalogCommandFeedbackBanner feedback={commandFeedback} /> : null}
+      {surface === "daily" && importJobReceipt ? <CatalogImportJobReceipt receipt={importJobReceipt} /> : null}
 
       {/* Top-of-page slot: the unified attention queue — the needs-you
           inbox — renders above the import context bar and metric strip on the
@@ -134,6 +139,7 @@ export function CatalogWorkbenchShell({
   );
 }
 
+// Outcome banner for the workbench command the operator just submitted.
 export function CatalogCommandFeedbackBanner({
   feedback,
 }: Readonly<{ feedback: CatalogPrimaryWorkbenchCommandFeedback }>) {

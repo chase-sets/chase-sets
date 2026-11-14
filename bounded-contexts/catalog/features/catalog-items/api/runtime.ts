@@ -12,7 +12,7 @@ import {
   resolveLocalizedTextMap,
 } from "../../../support/runtime-support/common";
 import { withCatalogAdminRealtimeInvalidation } from "../../../support/projection-support/realtime-invalidation";
-import type { BlueprintId, CategoryId, FieldId } from "../../../ids";
+import type { BlueprintId, CategoryId } from "../../../ids";
 import {
   createBulkLifecycleOperations,
   type BulkLifecycleOperations,
@@ -38,6 +38,7 @@ import {
 import {
   getCatalogItemByGtin,
   getCatalogItemDetail,
+  getCatalogItemPublicationBlueprint,
   loadCatalogItemPublicationIdentityRows,
   listCatalogItemsForBulkEdit,
   listCatalogItemBulkRows,
@@ -133,6 +134,17 @@ export class CatalogItemPublicationError extends CatalogDomainError {
   }
 }
 
+export class CatalogItemPublicationPreconditionError extends CatalogDomainError {
+  public readonly code = "publication-precondition" as const;
+  public readonly missingFieldIds: readonly string[];
+
+  public constructor(message: string, missingFieldIds: readonly string[] = []) {
+    super(message);
+    this.name = "CatalogItemPublicationPreconditionError";
+    this.missingFieldIds = missingFieldIds;
+  }
+}
+
 export type BulkPublishPreview = Readonly<{
   mode: BulkPublishSelection["mode"];
   item_ids: readonly string[];
@@ -200,6 +212,31 @@ export type BulkEditCatalogItemResult = Readonly<{
   candidates: readonly BulkEditCatalogItemCandidate[];
 }>;
 
+export type BulkRemoveDraftCandidateOutcome = "ready" | "blocked" | "succeeded" | "skipped" | "failed";
+export type BulkRemoveDraftCandidate = Readonly<{
+  catalog_item_id: string;
+  title: string;
+  status: string;
+  outcome: BulkRemoveDraftCandidateOutcome;
+  reason: string | null;
+}>;
+export type BulkRemoveDraftPreview = Readonly<{
+  mode: BulkSelection<CatalogItemListParams>["mode"];
+  item_ids: readonly string[];
+  total: number;
+  ready_count: number;
+  blocked_count: number;
+  candidates: readonly BulkRemoveDraftCandidate[];
+}>;
+export type BulkRemoveDraftResult = Readonly<{
+  item_ids: readonly string[];
+  total: number;
+  succeeded_count: number;
+  skipped_count: number;
+  failed_count: number;
+  candidates: readonly BulkRemoveDraftCandidate[];
+}>;
+
 export type CatalogItemServices = Readonly<{
   commandHandler: CommandHandler<CatalogItemCommand, CatalogItemState, CatalogItemEvent>;
   listCatalogItems: (params?: Parameters<typeof listCatalogItems>[1]) => ReturnType<typeof listCatalogItems>;
@@ -221,6 +258,12 @@ export type CatalogItemServices = Readonly<{
     context: EventStoreContext,
     options?: BulkLifecycleExecutionOptions,
   ) => Promise<BulkEditCatalogItemResult>;
+  previewBulkRemoveDrafts: (selection: BulkSelection<CatalogItemListParams>) => Promise<BulkRemoveDraftPreview>;
+  removeDraftsBulk: (
+    itemIds: readonly string[],
+    context: EventStoreContext,
+    options?: BulkLifecycleExecutionOptions,
+  ) => Promise<BulkRemoveDraftResult>;
   processDisplayIdentityRecomputeBatch: (
     context: EventStoreContext,
     options?: Readonly<{ limit?: number }>,
@@ -289,6 +332,9 @@ export function createCatalogItemRuntime(deps: CatalogRuntimeDeps): CatalogItemS
     previewBulkEdit: async (selection, operation) => previewBulkEdit(deps, selection, operation),
     editBulk: async (selection, operation, context, options) =>
       editBulk(deps, commandHandler, selection, operation, context, options),
+    previewBulkRemoveDrafts: async (selection) => previewBulkRemoveDrafts(deps, selection),
+    removeDraftsBulk: async (itemIds, context, options) =>
+      removeDraftsBulk(deps, commandHandler, itemIds, context, options),
     processDisplayIdentityRecomputeBatch: async (context, options) =>
       processCatalogItemDisplayIdentityRecomputeBatch(deps.db, commandHandler, context, {
         ...options,
@@ -320,6 +366,24 @@ function createCatalogItemCommandHandler(
     const itemId = loaded.state.id;
     if (!itemId) {
       return aggregateCommandHandler(input);
+    }
+
+    const blueprintId = loaded.state.blueprintId;
+    const blueprint = blueprintId
+      ? await getCatalogItemPublicationBlueprint(deps.db, blueprintId).catch(() => undefined)
+      : null;
+    if (blueprint === undefined) {
+      throw new CatalogItemPublicationError("unavailable");
+    }
+    const precondition = publicationPreconditionForRow({
+      status: loaded.state.status,
+      blueprint_id: blueprintId,
+      blueprint_status: blueprint?.blueprint_status ?? null,
+      blueprint_field_rules: blueprint?.blueprint_field_rules ?? null,
+      field_values: loaded.state.fieldValues,
+    });
+    if (precondition) {
+      throw new CatalogItemPublicationPreconditionError(precondition.reason, precondition.missingFieldIds);
     }
 
     const firstRows = await loadCatalogItemPublicationIdentityRows(deps.db, [itemId]).catch(() => new Map());
@@ -616,8 +680,6 @@ async function publishBulk(
         streamId: `catalog.item-${candidate.catalog_item_id}`,
         command: {
           type: "PublishCatalogItem",
-          blueprintIsActive: true,
-          requiredFieldIds: candidate.required_field_ids as readonly FieldId[],
         },
         context,
       });
@@ -680,11 +742,14 @@ async function resolveBulkPublishItemIds(deps: CatalogRuntimeDeps, selection: Bu
   return listCatalogItemIdsForBulkPublishFilter(deps.db, selection.query);
 }
 
-function normalizeRequestedItemIds(itemIds: readonly string[]): string[] {
+function normalizeRequestedItemIds(
+  itemIds: readonly string[],
+  emptyMessage = "Choose at least one draft Catalog Item to publish.",
+): string[] {
   const normalized = Array.from(new Set(itemIds.map((itemId) => itemId.trim()).filter(Boolean)));
 
   if (normalized.length === 0) {
-    throw new CatalogDomainError("Choose at least one draft Catalog Item to publish.");
+    throw new CatalogDomainError(emptyMessage);
   }
 
   return normalized;
@@ -730,26 +795,12 @@ function classifyBulkPublishCandidate(
   readiness: EvaluatedPublicationReadiness,
 ): BulkPublishCandidate {
   const requiredFieldIds = requiredFieldIdsFromBlueprint(row.blueprint_field_rules);
-  const populatedFieldIds = new Set(
-    asArray<FieldValue>(row.field_values)
-      .map((fieldValue) => fieldValue.fieldId)
-      .filter(Boolean),
-  );
-  const missingRequiredFieldIds = requiredFieldIds.filter((fieldId) => !populatedFieldIds.has(fieldId));
   let reason: string | null = null;
   let reasonCode: CatalogItemPublicationReasonCode | null = null;
 
-  if (row.status !== "draft") {
-    reason = "Only draft Catalog Items can be bulk published.";
-    reasonCode = "publication-precondition";
-  } else if (!row.blueprint_id) {
-    reason = "Catalog Item requires a blueprint before publish.";
-    reasonCode = "publication-precondition";
-  } else if (row.blueprint_status !== "active") {
-    reason = "Catalog Item blueprint must be active before publish.";
-    reasonCode = "publication-precondition";
-  } else if (missingRequiredFieldIds.length > 0) {
-    reason = `Missing required field values: ${missingRequiredFieldIds.join(", ")}.`;
+  const precondition = publicationPreconditionForRow(row);
+  if (precondition) {
+    reason = precondition.reason;
     reasonCode = "publication-precondition";
   } else if (readiness.status !== "current-resolved") {
     reason = publicationReadinessMessage(readiness.status, readiness.missing_tokens);
@@ -772,6 +823,35 @@ function classifyBulkPublishCandidate(
     missing_tokens: readiness.missing_tokens,
     required_field_ids: requiredFieldIds,
   };
+}
+
+function publicationPreconditionForRow(
+  row: Pick<
+    BulkPublishCatalogItemRow,
+    "status" | "blueprint_id" | "blueprint_status" | "blueprint_field_rules" | "field_values"
+  >,
+): Readonly<{ reason: string; missingFieldIds: readonly string[] }> | null {
+  const requiredFieldIds = requiredFieldIdsFromBlueprint(row.blueprint_field_rules);
+  const populatedFieldIds = new Set(
+    asArray<FieldValue>(row.field_values)
+      .map((fieldValue) => fieldValue.fieldId)
+      .filter(Boolean),
+  );
+  const missingFieldIds = requiredFieldIds.filter((fieldId) => !populatedFieldIds.has(fieldId));
+
+  if (row.status !== "draft") {
+    return { reason: "Only draft Catalog Items can be bulk published.", missingFieldIds: [] };
+  }
+  if (!row.blueprint_id) {
+    return { reason: "Catalog Item requires a blueprint before publish.", missingFieldIds: [] };
+  }
+  if (row.blueprint_status !== "active") {
+    return { reason: "Catalog Item blueprint must be active before publish.", missingFieldIds: [] };
+  }
+  if (missingFieldIds.length > 0) {
+    return { reason: `Missing required field values: ${missingFieldIds.join(", ")}.`, missingFieldIds };
+  }
+  return null;
 }
 
 function requiredFieldIdsFromBlueprint(fieldRules: unknown): string[] {
@@ -797,6 +877,101 @@ async function previewBulkEdit(
     total: candidates.length,
     ready_count: readyCount,
     blocked_count: candidates.length - readyCount,
+    candidates,
+  };
+}
+
+async function previewBulkRemoveDrafts(
+  deps: CatalogRuntimeDeps,
+  selection: BulkSelection<CatalogItemListParams>,
+): Promise<BulkRemoveDraftPreview> {
+  const itemIds = normalizeRequestedItemIds(
+    selection.mode === "ids" ? selection.ids : await listCatalogItemIds(deps.db, selection.query),
+    "Choose at least one Catalog Item to remove.",
+  );
+  const rows = await listCatalogItemBulkRows(deps.db, itemIds);
+  const byId = new Map(rows.map((row) => [row.id, row]));
+  const candidates = itemIds.map((itemId): BulkRemoveDraftCandidate => {
+    const row = byId.get(itemId);
+    if (!row) {
+      return {
+        catalog_item_id: itemId,
+        title: itemId,
+        status: "missing",
+        outcome: "blocked",
+        reason: "Catalog Item was not found.",
+      };
+    }
+    if (row.status !== "draft") {
+      return {
+        catalog_item_id: row.id,
+        title: row.label,
+        status: row.status,
+        outcome: "blocked",
+        reason: "Only draft items can be removed.",
+      };
+    }
+    return { catalog_item_id: row.id, title: row.label, status: row.status, outcome: "ready", reason: null };
+  });
+  const readyCount = candidates.filter((candidate) => candidate.outcome === "ready").length;
+  return {
+    mode: selection.mode,
+    item_ids: itemIds,
+    total: candidates.length,
+    ready_count: readyCount,
+    blocked_count: candidates.length - readyCount,
+    candidates,
+  };
+}
+
+async function removeDraftsBulk(
+  deps: CatalogRuntimeDeps,
+  commandHandler: CatalogItemServices["commandHandler"],
+  itemIds: readonly string[],
+  context: EventStoreContext,
+  options: BulkLifecycleExecutionOptions = {},
+): Promise<BulkRemoveDraftResult> {
+  const preview = await previewBulkRemoveDrafts(deps, { mode: "ids", ids: itemIds });
+  const candidates: BulkRemoveDraftCandidate[] = [];
+  let completed = 0;
+  for (const candidate of preview.candidates) {
+    options.throwIfCancelled?.();
+    if (candidate.outcome !== "ready") {
+      candidates.push({ ...candidate, outcome: "skipped" });
+      completed += 1;
+      await options.onProgress?.({ completed, total: preview.total, currentName: candidate.title, status: "skipped" });
+      continue;
+    }
+    try {
+      await commandHandler({
+        streamId: `catalog.item-${candidate.catalog_item_id}`,
+        command: { type: "RemoveDraftCatalogItem" },
+        context,
+      });
+      candidates.push({ ...candidate, status: "removed", outcome: "succeeded", reason: null });
+      completed += 1;
+      await options.onProgress?.({
+        completed,
+        total: preview.total,
+        currentName: candidate.title,
+        status: "succeeded",
+      });
+    } catch (error) {
+      candidates.push({
+        ...candidate,
+        outcome: "failed",
+        reason: error instanceof CatalogDomainError ? error.message : "Catalog Item removal failed.",
+      });
+      completed += 1;
+      await options.onProgress?.({ completed, total: preview.total, currentName: candidate.title, status: "failed" });
+    }
+  }
+  return {
+    item_ids: preview.item_ids,
+    total: candidates.length,
+    succeeded_count: candidates.filter((candidate) => candidate.outcome === "succeeded").length,
+    skipped_count: candidates.filter((candidate) => candidate.outcome === "skipped").length,
+    failed_count: candidates.filter((candidate) => candidate.outcome === "failed").length,
     candidates,
   };
 }

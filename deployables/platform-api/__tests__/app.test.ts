@@ -7,6 +7,7 @@ import ts from "@chase-sets/typescript-compiler-api";
 import { describe, expect, it, vi } from "vitest";
 import { Hono } from "hono";
 import { module as authModule } from "@chase-sets/auth";
+import { contextManifest as catalogContextManifest } from "@chase-sets/catalog";
 import { module as checkoutModule } from "@chase-sets/checkout";
 import { module as identityModule } from "@chase-sets/identity";
 import { module as inventoryModule } from "@chase-sets/inventory";
@@ -40,9 +41,64 @@ import {
 } from "@chase-sets/platform-runtime/ucp";
 import { buildPlatformApiApp, createPlatformApiHost, createSavedListAnalyticsRecorder } from "../src/app";
 import { closePlatformApiPools, createPlatformApiPools } from "../src/database-pools";
-import { apiContextRegistry } from "../src/generated/api-context-registry";
+import { apiContextRegistry } from "../src/context-registry";
 
 const NO_API_ENTRIES: ReturnType<typeof authModule.buildApis> = [];
+
+type InventoryImportMcpService = Parameters<NonNullable<typeof inventoryModule.buildMcpHandlers>>[0]["importBatches"];
+
+function inventoryImportMcpServices() {
+  const detail: Awaited<ReturnType<InventoryImportMcpService["getBatch"]>> = {
+    batch_id: "imb_1",
+    account_id: "acc_1",
+    status: "ready-to-commit",
+    source_key: "native-csv",
+    adapter_version: 1,
+    quantity_mode: "add",
+    default_storage_location_id: null,
+    total_count: 1,
+    accepted_count: 1,
+    rejected_count: 0,
+    committed_count: 0,
+    can_commit: true,
+    commit_ready_count: 1,
+    rows: [],
+    created_at: "2026-10-29T00:00:00.000Z",
+    updated_at: "2026-10-29T00:00:00.000Z",
+  };
+  const job = (
+    context: Parameters<InventoryImportMcpService["enqueueCommitBatchJob"]>[1],
+    jobKind: "create" | "commit",
+  ): Awaited<ReturnType<InventoryImportMcpService["enqueueCommitBatchJob"]>> => ({
+    jobId: `job_${jobKind}_synthetic`,
+    jobKind,
+    status: "queued",
+    payload: { accountId: "acc_1", batchId: "imb_1" },
+    progress: { phase: "queued", completed: 0, total: 1, currentRowId: null, message: null },
+    result: null,
+    errorMessage: null,
+    eventContext: context,
+    claimOwnerId: null,
+    claimedUntil: null,
+    attemptCount: 0,
+    nextEligibleAt: "2026-10-29T00:00:00.000Z",
+    createdAt: "2026-10-29T00:00:00.000Z",
+    startedAt: null,
+    completedAt: null,
+    updatedAt: "2026-10-29T00:00:00.000Z",
+  });
+  return {
+    importBatches: {
+      getBatch: vi.fn<InventoryImportMcpService["getBatch"]>(async () => detail),
+      enqueueCreateBatchJob: vi.fn<InventoryImportMcpService["enqueueCreateBatchJob"]>(async (_params, context) =>
+        job(context, "create"),
+      ),
+      enqueueCommitBatchJob: vi.fn<InventoryImportMcpService["enqueueCommitBatchJob"]>(async (_params, context) =>
+        job(context, "commit"),
+      ),
+    },
+  };
+}
 
 function signedUcpHeaders(body: string) {
   return {
@@ -191,16 +247,15 @@ function createCatalogRuntime() {
   const catalogRouter = new Hono();
   catalogRouter.get("/source-observations/provider-profiles", (c) => c.json({ items: [] }));
   catalogRouter.post("/source-observations/provider-profiles", (c) => c.json({ created: true }, 201));
+  const publicRouter = new Hono();
+  publicRouter.delete("/grant", (c) => c.json({ publicRouteReached: true }));
   const catalogModule = {
     contextName: "catalog",
-    apiMounts: [
-      {
-        mountPath: "/api/catalog",
-        kind: "primary",
-        requiresAuth: true,
-      },
+    apiMounts: catalogContextManifest.apiMounts,
+    buildApis: () => [
+      { mountPath: "/api/catalog", contextMountOrdinal: 1, router: catalogRouter },
+      { mountPath: "/api/public/catalog/operator-session", contextMountOrdinal: 2, router: publicRouter },
     ],
-    buildApis: () => [{ mountPath: "/api/catalog", contextMountOrdinal: 1, router: catalogRouter }],
     projectionHandlerSets: () => [],
   };
 
@@ -260,7 +315,6 @@ function createIdentityRuntime(services: Record<string, unknown>) {
       listUsers: emptyList,
       getUser: vi.fn(async () => null),
       getUserState: vi.fn(async () => null),
-      getUserBySocialLogin: vi.fn(async () => null),
       projectors: [],
     },
     memberships: {
@@ -1057,6 +1111,50 @@ describe("platform api app wiring", () => {
     });
   });
 
+  it("platform api holds no catalog permission policy", () => {
+    const root = repositoryRootFromTests();
+    for (const file of collectRepositorySourceFiles(join(root, "deployables/platform-api/src"))) {
+      const source = readFileSync(file, "utf8");
+      const tree = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true);
+      function visit(node: ts.Node) {
+        if (ts.isStringLiteralLike(node)) {
+          expect(["catalog.view", "catalog.manage"], file).not.toContain(node.text);
+        }
+        if (ts.isFunctionDeclaration(node) || ts.isVariableDeclaration(node)) {
+          expect(node.name?.getText(tree), file).not.toBe("catalogApiPermissionMiddleware");
+        }
+        ts.forEachChild(node, visit);
+      }
+      visit(tree);
+    }
+    const appSource = readFileSync(join(root, "deployables/platform-api/src/app.ts"), "utf8");
+    const tree = ts.createSourceFile("app.ts", appSource, ts.ScriptTarget.Latest, true);
+    expect(
+      tree.statements.some(
+        (node) =>
+          ts.isImportDeclaration(node) &&
+          ts.isStringLiteral(node.moduleSpecifier) &&
+          node.moduleSpecifier.text === "@chase-sets/catalog/server" &&
+          node.importClause?.namedBindings &&
+          ts.isNamedImports(node.importClause.namedBindings) &&
+          node.importClause.namedBindings.elements.some(
+            (entry) => entry.name.text === "catalogApiPermissionMiddleware",
+          ),
+      ),
+    ).toBe(true);
+  });
+
+  it("catalog permission middleware is not attached to the public operator-session mount", async () => {
+    const resolveActor = vi.fn(async () => null);
+    const app = buildPlatformApiApp(createCatalogRuntime(), { resolveActor });
+
+    const response = await app.request("/api/public/catalog/operator-session/grant", { method: "DELETE" });
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ publicRouteReached: true });
+    expect(resolveActor).not.toHaveBeenCalled();
+  });
+
   it("rejects forged identity context headers on the mounted Identity consent API", async () => {
     const listConsents = vi.fn(async () => ({ items: [], total: 0 }));
     const app = buildPlatformApiApp(
@@ -1382,19 +1480,7 @@ describe("platform api app wiring", () => {
   });
 
   it("registers Inventory import MCP handlers from the context module contract", async () => {
-    const importBatchDetail = {
-      batchId: "batch_1",
-      accountId: "acc_1",
-      rows: [],
-    };
-    const inventoryServices = {
-      importBatches: {
-        createBatch: vi.fn(async () => importBatchDetail),
-        getBatch: vi.fn(async () => importBatchDetail),
-        listBatches: vi.fn(),
-        commitBatch: vi.fn(async () => ({ ...importBatchDetail, committed: true })),
-      },
-    };
+    const inventoryServices = inventoryImportMcpServices();
     const auditRecords: unknown[] = [];
     const app = buildPlatformApiApp(
       createEmptyRuntime({ inventory: inventoryServices }, [{ module: inventoryModule, services: inventoryServices }]),
@@ -1467,7 +1553,7 @@ describe("platform api app wiring", () => {
           sourceKey: "tcgplayer-csv",
           quantityMode: "add",
           csvText: "title,quantity\nCharizard,1",
-          idempotencyKey: "idem_create_batch",
+          idempotencyKey: "51a57702-b343-45a4-9134-8505ad6f3d0a",
           confirmationText: "Create Inventory Import Batch.",
         },
         confirmation: {
@@ -1479,16 +1565,16 @@ describe("platform api app wiring", () => {
         name: "inventory.get-import-batch",
         arguments: {
           accountId: "acc_1",
-          batchId: "batch_1",
+          batchId: "imb_1",
         },
       },
       {
         name: "inventory.commit-import-batch",
         arguments: {
           accountId: "acc_1",
-          batchId: "batch_1",
+          batchId: "imb_1",
           reason: "Commit reviewed rows.",
-          idempotencyKey: "idem_commit_batch",
+          idempotencyKey: "457de5b5-17db-4396-88c9-fde59639db79",
           confirmationText: "Commit Inventory Import Batch.",
         },
         confirmation: {
@@ -1508,10 +1594,11 @@ describe("platform api app wiring", () => {
           params: invocation,
         }),
       });
-      const body = (await invocationResponse.json()) as { error?: { code: number } };
+      const body = (await invocationResponse.json()) as { error?: { code: number }; result?: { isError?: boolean } };
 
       expect(invocationResponse.status).toBe(200);
       expect(body.error).toBeUndefined();
+      expect(body.result?.isError).not.toBe(true);
     }
 
     const resourcesResponse = await app.request("/mcp", {
@@ -1539,7 +1626,7 @@ describe("platform api app wiring", () => {
         id: "resource_read_1",
         method: "resources/read",
         params: {
-          uri: "chase-sets://inventory/acc_1/import-batches/batch_1",
+          uri: "chase-sets://inventory/acc_1/import-batches/imb_1",
         },
       }),
     });
@@ -1547,6 +1634,9 @@ describe("platform api app wiring", () => {
 
     expect(readResourceResponse.status).toBe(200);
     expect(readResourceBody.error).toBeUndefined();
+    expect(inventoryServices.importBatches.getBatch).toHaveBeenCalledWith("imb_1", "acc_1");
+    expect(inventoryServices.importBatches.enqueueCreateBatchJob).toHaveBeenCalledOnce();
+    expect(inventoryServices.importBatches.enqueueCommitBatchJob).toHaveBeenCalledOnce();
 
     const deniedResponse = await app.request("/mcp", {
       method: "POST",
@@ -1558,7 +1648,7 @@ describe("platform api app wiring", () => {
           name: "inventory.commit-import-batch",
           arguments: {
             accountId: "acc_1",
-            batchId: "batch_1",
+            batchId: "imb_1",
             reason: "Commit reviewed rows.",
             idempotencyKey: "commit_mismatched_confirmation",
             confirmationText: "Commit inventory import batch.",
@@ -1586,7 +1676,7 @@ describe("platform api app wiring", () => {
         expect.objectContaining({
           outcome: "allowed",
           method: "resources/read",
-          resourceUri: "chase-sets://inventory/acc_1/import-batches/batch_1",
+          resourceUri: "chase-sets://inventory/acc_1/import-batches/imb_1",
           actorId: "user_1",
           accountId: "acc_1",
           auditEventName: "mcp.inventory.resources.read",
@@ -1603,19 +1693,7 @@ describe("platform api app wiring", () => {
   });
 
   it("serves stateless native MCP requests across composed platform API instances without session affinity", async () => {
-    const importBatchDetail = {
-      batchId: "batch_1",
-      accountId: "acc_1",
-      rows: [],
-    };
-    const inventoryServices = {
-      importBatches: {
-        createBatch: vi.fn(async () => importBatchDetail),
-        getBatch: vi.fn(async () => importBatchDetail),
-        listBatches: vi.fn(),
-        commitBatch: vi.fn(async () => ({ ...importBatchDetail, committed: true })),
-      },
-    };
+    const inventoryServices = inventoryImportMcpServices();
     const createApp = () =>
       buildPlatformApiApp(
         createEmptyRuntime({ inventory: inventoryServices }, [
@@ -1655,12 +1733,12 @@ describe("platform api app wiring", () => {
         statelessMcpRequest(
           "resources/read",
           {
-            uri: "chase-sets://inventory/acc_1/import-batches/batch_1",
+            uri: "chase-sets://inventory/acc_1/import-batches/imb_1",
           },
           "resource_read_20260728",
         ),
       ),
-      headers: statelessMcpHeaders("resources/read", "chase-sets://inventory/acc_1/import-batches/batch_1"),
+      headers: statelessMcpHeaders("resources/read", "chase-sets://inventory/acc_1/import-batches/imb_1"),
     });
 
     expect(toolsResponse.status).toBe(200);
@@ -1685,7 +1763,7 @@ describe("platform api app wiring", () => {
       result: {
         contents: [
           expect.objectContaining({
-            uri: "chase-sets://inventory/acc_1/import-batches/batch_1",
+            uri: "chase-sets://inventory/acc_1/import-batches/imb_1",
           }),
         ],
       },
@@ -1956,6 +2034,8 @@ describe("platform api app wiring", () => {
             commandHandler: vi.fn(),
             createFromCart: vi.fn(),
             createBuyNow,
+            resolveEntryAttempt: vi.fn(async () => null),
+            firstPreviewShippingAddress: vi.fn(async () => null),
             createOfferIntent: vi.fn(),
             selectShippingOption: vi.fn(),
             selectOptimizationGoal: vi.fn(),
@@ -2530,7 +2610,10 @@ function createPaymentsHostRuntime(
         identity: {},
         payments: paymentsServices,
       },
-      projectionGroups: mountedProjectionGroups(mountedContexts),
+      projectionGroups: mountedProjectionGroups([
+        ...mountedContexts,
+        { contextName: "identity", module: identityModule },
+      ]),
       subscriptionRunners: [],
     } as never,
   };

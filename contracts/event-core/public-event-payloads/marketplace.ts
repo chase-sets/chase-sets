@@ -775,7 +775,17 @@ export type MarketplaceEventPayloads = Readonly<{
   "marketplace.listing.quantity-cap-updated": MarketplaceListingQuantityCapUpdatedPayload;
   "marketplace.listing.purchase-limits-updated": MarketplaceListingPurchaseLimitsUpdatedPayload;
   "marketplace.listing.published": EmptyEventPayload;
-  "marketplace.listing.paused": EmptyEventPayload;
+  "marketplace.listing.paused": Readonly<{
+    reason?: "seller" | "policy-input-missing" | "channel-inbound-dark" | "inventory-capacity";
+    inventoryCapacityRecoveryBlock?:
+      | "evidence-incomplete"
+      | "publication-unavailable"
+      | "seller-away"
+      | "native-visibility-disabled"
+      | "shipping-measure-missing"
+      | "price-incomplete"
+      | null;
+  }>;
   "marketplace.listing.auto-unlisted": MarketplaceListingAutoUnlistedPayload;
   "marketplace.listing.operator-unlisted": MarketplaceListingOperatorUnlistedPayload;
   "marketplace.listing.withdrawn": EmptyEventPayload;

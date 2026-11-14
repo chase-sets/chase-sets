@@ -326,6 +326,19 @@ const serviceableShippingAddress = {
 };
 
 describe("checkout session runtime", () => {
+  it("threads the buyer account into the payment summary query", async () => {
+    const { eventStore } = createInMemoryEventStore();
+    const query = vi.fn(async () => ({ rows: [] }));
+    const services = createCheckoutSessionRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: { query },
+      cart: createUnionCartServices([readyCartLine], []),
+    });
+    await expect(services.getPaymentSummary("pay_1", "acc_buyer")).resolves.toBeNull();
+    expect(query).toHaveBeenCalledExactlyOnceWith(expect.any(String), ["pay_1", "acc_buyer"]);
+  });
+
   it("turns a duplicate command with a stale expected version into a typed conflict", async () => {
     const { eventStore } = createInMemoryEventStore();
     const input = {
@@ -480,7 +493,7 @@ describe("checkout session runtime", () => {
     expect(allEvents.filter((event) => event.eventType === "checkout.session.started")).toHaveLength(1);
   });
 
-  it("replaces half-confirmed Buy Now entry sessions that never reached payment", async () => {
+  it("replays a half-confirmed Buy Now entry as its first Session without a second start (#9994)", async () => {
     const { allEvents, eventStore } = createInMemoryEventStore();
     const services = createCheckoutSessionRuntime({
       eventStore,
@@ -524,18 +537,15 @@ describe("checkout session runtime", () => {
       context,
     );
 
-    const replacement = await services.createBuyNow(buyNowInput, context);
+    const eventCount = allEvents.length;
 
-    expect(replacement.sessionId).toMatch(/^chk_/);
-    expect(replacement.sessionId).not.toBe(first.sessionId);
-    expect(allEvents.filter((event) => event.eventType === "checkout.session.started")).toHaveLength(2);
-    expect(
-      allEvents.filter(
-        (event) =>
-          event.streamId === `checkout.session-${replacement.sessionId}` &&
-          event.eventType === "checkout.session.started",
-      ),
-    ).toHaveLength(1);
+    // The same key derives the same Session: a retry returns what that entry
+    // committed; a new deliberate Buy Now carries a new key and a new id.
+    const replayed = await services.createBuyNow(buyNowInput, context);
+
+    expect(replayed.sessionId).toBe(first.sessionId);
+    expect(allEvents).toHaveLength(eventCount);
+    expect(allEvents.filter((event) => event.eventType === "checkout.session.started")).toHaveLength(1);
   });
 
   it("rejects unavailable shipping options before mutating the session", async () => {
@@ -2329,13 +2339,58 @@ describe("checkout session runtime", () => {
 });
 
 describe("Checkout session entry and read relocation parity", () => {
+  it("previews a session without an address for the buyer's first saved address, as the page preselects it (#10798)", async () => {
+    const row = {
+      shipping_address_id: "adr_home",
+      account_id: "acc_buyer",
+      label: "Home",
+      recipient_name: "Demo Collector",
+      company: null,
+      line1: "42 Binder Lane",
+      line2: null,
+      city: "Evanston",
+      state: "IL",
+      postal_code: "60201",
+      country: "US",
+      phone: null,
+      email: "collector@chasesets.test",
+      is_default: true,
+      updated_at: "2026-03-01 10:05:00+00",
+    };
+    const query = vi.fn(async () => ({ rows: [row, { ...row, shipping_address_id: "adr_work", is_default: false }] }));
+    const services = createCheckoutSessionRuntime({
+      eventStore: createInMemoryEventStore().eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: { query },
+      cart: createCartServices() as never,
+    });
+
+    await expect(services.firstPreviewShippingAddress("acc_buyer" as never)).resolves.toEqual({
+      shippingAddressId: "adr_home",
+      name: "Demo Collector",
+      company: null,
+      line1: "42 Binder Lane",
+      line2: null,
+      city: "Evanston",
+      state: "IL",
+      postalCode: "60201",
+      country: "US",
+      phone: null,
+      email: "collector@chasesets.test",
+    });
+    expect(query).toHaveBeenCalledWith(expect.stringContaining("ORDER BY is_default DESC"), ["acc_buyer"]);
+
+    query.mockResolvedValueOnce({ rows: [] });
+    await expect(services.firstPreviewShippingAddress("acc_guest" as never)).resolves.toBeNull();
+  });
+
   it("complete Checkout session behavior ownership", () => {
     const db = { query: vi.fn(async () => ({ rows: [] })) };
     const cart = createCartServices() as never;
     const eventStore = {} as never;
     const commandHandler = vi.fn() as never;
     const repository = { load: vi.fn() } as never;
-    const entry = createCheckoutSessionEntryServices({ eventStore, db, cart, commandHandler, repository });
+    const entry = createCheckoutSessionEntryServices({ eventStore, db, cart, commandHandler });
     const read = createCheckoutSessionReadServices({
       db,
       cart,
@@ -2360,7 +2415,7 @@ describe("Checkout session entry and read relocation parity", () => {
     const owners = [entry, read, cleanup].map((owner) => Object.keys(owner));
     const ownedKeys = owners.flat();
     expect(owners).toEqual([
-      ["createFromCart", "createBuyNow", "createOfferIntent"],
+      ["resolveEntryAttempt", "createFromCart", "createBuyNow", "createOfferIntent"],
       ["assertReadyForOrderCreation", "getSession", "getLastRecordedQuote"],
       ["resumeOrderCartCleanup", "recordOrdersCreated"],
     ]);
@@ -2370,10 +2425,14 @@ describe("Checkout session entry and read relocation parity", () => {
       [
         "cancelSession",
         "commandHandler",
+        "firstPreviewShippingAddress",
+        "getConfirmationBinding",
         "getPaymentConfirmation",
         "getPaymentSummary",
         "listSavedPaymentInstruments",
+        "lookupEntryAttempt",
         "projectors",
+        "readSessionForCancellation",
         "recordCheckoutReservations",
         "recordFulfillmentPreview",
         "recordOfferSubmitted",
@@ -2419,7 +2478,7 @@ describe("Checkout session entry and read relocation parity", () => {
     });
   });
 
-  it("rethrows a regenerated-id synthetic concurrency conflict instead of replaying the override", async () => {
+  it("refuses an entry whose atomic append loses to the same key with another payload, leaving nothing behind", async () => {
     const { allEvents, eventStore } = createInMemoryEventStore();
     const services = createCheckoutSessionRuntime({
       eventStore,
@@ -2441,30 +2500,35 @@ describe("Checkout session entry and read relocation parity", () => {
       lockedListingId: "lst_1",
       shippingOption: "standard",
       fulfillmentPreviewRevision: "buy_now_supply_ready",
-      sessionIdOverride: "chk_synthetic_override_conflict" as never,
     };
-    const first = await services.createBuyNow(buyNowInput, context);
-    await services.setShippingAddress(
-      { sessionId: first.sessionId, accountId: "acc_buyer" as never, shippingAddress: serviceableShippingAddress },
+    const attemptId = "chkentry_runtime_synthetic_0001";
+    const first = await services.createBuyNow(
+      {
+        ...buyNowInput,
+        sessionIdOverride: "chk_synthetic_entry_first" as never,
+        entryAttempt: { attemptId, requestHash: "a".repeat(64) },
+      },
       context,
     );
-    await services.recordOrdersCreated(
-      { sessionId: first.sessionId, accountId: "acc_buyer" as never, orderIds: ["ord_synthetic"] },
-      context,
-    );
+    const eventCount = allEvents.length;
 
-    const originalAppend = eventStore.appendToStream.bind(eventStore);
-    const fault = vi.spyOn(eventStore, "appendToStream").mockImplementation(async (input) => {
-      if (
-        input.streamId !== `checkout.session-${first.sessionId}` &&
-        input.events[0]?.eventType === "checkout.session.started"
-      )
-        throw Object.assign(new Error("synthetic regenerated-id conflict"), { code: "concurrency_conflict" });
-      return originalAppend(input);
-    });
-    await expect(services.createBuyNow(buyNowInput, context)).rejects.toMatchObject({ code: "concurrency_conflict" });
-    fault.mockRestore();
-    expect(allEvents.filter((event) => event.eventType === "checkout.session.started")).toHaveLength(1);
+    // A contender that read no attempt before the winner appended reaches the
+    // atomic append with a changed payload under its own derived Session id.
+    await expect(
+      services.createBuyNow(
+        {
+          ...buyNowInput,
+          quantity: 2,
+          sessionIdOverride: "chk_synthetic_entry_second" as never,
+          entryAttempt: { attemptId, requestHash: "b".repeat(64) },
+        },
+        context,
+      ),
+    ).rejects.toMatchObject({ code: "checkout_attempt_conflict" });
+
+    expect(first.sessionId).toBe("chk_synthetic_entry_first");
+    expect(allEvents).toHaveLength(eventCount);
+    expect(allEvents.some((event) => event.streamId === "checkout.session-chk_synthetic_entry_second")).toBe(false);
   });
 
   it("real CheckoutSessionServices consumers compile", () => {
@@ -3868,5 +3932,102 @@ describe("checkout session last recorded quote", () => {
       context,
     );
     await expect(services.getLastRecordedQuote(offer.sessionId, accountId)).resolves.toBeNull();
+  });
+
+  describe("a session whose orders wait for payment", () => {
+    const orderedSessionId = "chk_ordered_quote";
+    // Started with Q1 and address set, as recorded above, then confirm's orders bound to Q1's revision.
+    const ordersCreated = {
+      type: "checkout.session.orders-created",
+      data: {
+        sessionId: orderedSessionId as never,
+        orderIds: ["ord_1"] as never,
+        orderWriteCommitPositions: [],
+        fulfillmentPreviewRevision: "rev_q1",
+        acknowledgedMaterialChanges: true,
+        recordedAt: "2026-10-16T00:01:30.000Z",
+      },
+    } satisfies CheckoutSessionEvent;
+
+    async function runtimeWithProjectedOrders(
+      projected: Partial<CheckoutSessionRow>,
+      orderedStream: readonly CheckoutSessionEvent[] = [...recordedStream.slice(0, 2), ordersCreated],
+    ) {
+      const { eventStore } = createInMemoryEventStore();
+      await eventStore.appendToStream({
+        streamId: `checkout.session-${orderedSessionId}`,
+        expectedVersion: "no_stream",
+        context,
+        events: orderedStream.map((event) => ({
+          eventType: event.type,
+          payload: { ...event.data, sessionId: orderedSessionId } as never,
+        })),
+      });
+      const readStream = vi.spyOn(eventStore, "readStream");
+      const db = {
+        query: vi.fn(async (sql: string) => ({
+          rows: sql.includes("checkout_session_pages")
+            ? [
+                createSessionPageRow(null, {
+                  session_id: orderedSessionId,
+                  source_type: "buy-now",
+                  fulfillment_preview_revision: "rev_q1",
+                  shipping_address_id: serviceableShippingAddress.shippingAddressId,
+                  shipping_address: serviceableShippingAddress,
+                  order_ids: ["ord_1"],
+                  ...projected,
+                }),
+              ]
+            : [],
+        })),
+      };
+      const services = createCheckoutSessionRuntime({
+        eventStore,
+        checkpointStore: createCheckpointStore(),
+        db,
+        cart: createCartServices() as never,
+      });
+      const sessionStreamReads = () =>
+        readStream.mock.calls.filter(([input]) => input.streamId === `checkout.session-${orderedSessionId}`).length;
+      return { services, sessionStreamReads };
+    }
+
+    it("carries the quote its aggregate recorded, at the cost of one stream read", async () => {
+      const { services, sessionStreamReads } = await runtimeWithProjectedOrders({});
+
+      await expect(services.getSession(orderedSessionId, "acc_buyer")).resolves.toMatchObject({
+        order_ids: ["ord_1"],
+        payment_id: null,
+        fulfillment_preview_revision: "rev_q1",
+        last_recorded_quote: q1,
+        order_acknowledged_material_changes: true,
+      });
+      expect(sessionStreamReads()).toBe(1);
+    });
+
+    // chase-sets/chase-sets#11151: the read is one aggregate load; a long history spans more stream pages.
+    it("carries the acknowledgement and quote across a history longer than one stream page", async () => {
+      const { services, sessionStreamReads } = await runtimeWithProjectedOrders({}, [
+        ...recordedStream.slice(0, 2),
+        ...Array.from({ length: 500 }, () => recordedStream[1]!),
+        { ...ordersCreated, data: { ...ordersCreated.data, acknowledgedMaterialChanges: false } },
+      ]);
+
+      await expect(services.getSession(orderedSessionId, "acc_buyer")).resolves.toMatchObject({
+        last_recorded_quote: q1,
+        order_acknowledged_material_changes: false,
+      });
+      expect(sessionStreamReads()).toBe(2);
+    });
+
+    it("carries no quote and reads no stream once its payment has started", async () => {
+      const { services, sessionStreamReads } = await runtimeWithProjectedOrders({ payment_id: "pay_1" });
+
+      const session = await services.getSession(orderedSessionId, "acc_buyer");
+
+      expect(session).toMatchObject({ payment_id: "pay_1" });
+      expect(session).not.toHaveProperty("last_recorded_quote");
+      expect(sessionStreamReads()).toBe(0);
+    });
   });
 });

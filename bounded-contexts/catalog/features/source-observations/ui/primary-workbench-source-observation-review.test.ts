@@ -23,7 +23,12 @@ import {
 import {
   sourceObservationEvidenceDetailFor,
   sourceObservationReviewCompositionFor,
+  projectPromotionReceipt,
+  promotionReceiptMatchesContext,
 } from "./primary-workbench-source-observation-review";
+import { syntheticPromotionReceipt, loaderData } from "./primary-workbench-test-fixtures";
+import { parseCatalogPrimaryWorkbenchRouteContext } from "./primary-workbench-route-context";
+import { promotionCommandPreviewFor } from "./primary-workbench-scope-context";
 import type { CatalogPrimaryWorkbenchRouteContext } from "../api/primary-workbench-admin-contracts";
 
 const slimRowRouteContext: CatalogPrimaryWorkbenchRouteContext = {
@@ -42,6 +47,178 @@ const slimRowRouteContext: CatalogPrimaryWorkbenchRouteContext = {
 };
 
 describe("Catalog primary workbench read model - source observation review", () => {
+  it.each(["empty", "unavailable", "stale-offset"] as const)("preserves pager boundaries for %s", (state) => {
+    const model = buildCatalogPrimaryWorkbenchReadModel({
+      requestUrl:
+        "https://admin.example/catalog/integrations?section=promotion-preview&providerKey=tcgdex&promotionPreviewId=preview_1&reviewLimit=50&reviewOffset=50",
+      scopes: { items: [sourceObservationScope()], total: 1, count: 1 },
+      profileReviews: { items: [], total: 0, count: 0 },
+      controlPlaneOverview: null,
+      canManageCatalog: true,
+      reviewObservations:
+        state === "unavailable" ? null : { items: [], total: state === "stale-offset" ? 30 : 0, count: 0 },
+      readModelFailures: state === "unavailable" ? ["source-observation-review"] : [],
+      reviewPagination: { limit: 50, offset: 50 },
+    });
+    const { pagination } = model.sourceObservationReview;
+    expect(pagination.previousCursor).not.toBeNull();
+    expect(pagination.previousHref).not.toBeNull();
+    expect(pagination.nextCursor).toBeNull();
+    expect(pagination.nextHref).toBeNull();
+    const previous = new URL(pagination.previousHref!, "https://admin.example");
+    expect(previous.searchParams.get("section")).toBe("source-observation-review");
+    expect(previous.searchParams.has("reviewOffset")).toBe(false);
+    expect(previous.searchParams.get("promotionPreviewId")).toBe("preview_1");
+    expect(previous.searchParams.get("reviewLimit")).toBe("50");
+  });
+  it("deep-projects the whole original Preview without nested extras, aliases or diagnostic loss", () => {
+    const receipt = syntheticPromotionReceipt();
+    const diagnostic = {
+      observationId: "synthetic-returned-id",
+      code: "display-identity-unresolvable",
+      path: "displayIdentity",
+      diagnosticText: "<img src=x onerror=synthetic()> stays text",
+      blocking: false,
+      displayIdentity: {
+        missingTokens: ["synthetic-token"],
+        templateKey: "synthetic-template",
+        templateTargetKind: "blueprint",
+        templateTargetId: "synthetic-target",
+        templateReason: "missing-required-fields" as const,
+        extra: "synthetic-private-nested",
+      },
+      headers: { authorization: "synthetic-private-header" },
+    };
+    const raw = {
+      ...receipt,
+      extra: "synthetic-private-root",
+      selection: {
+        ...receipt.selection,
+        extra: "synthetic-private-selection",
+        scope: { ...receipt.selection.scope, extra: "synthetic-private-scope" },
+      },
+      preview: {
+        ...receipt.preview,
+        matched: 9,
+        eligible: 3,
+        terminal: 6,
+        payload: "synthetic-private-provider",
+        scope: { ...receipt.preview.scope, extra: "synthetic-private-returned-scope" },
+        validation: {
+          ...receipt.preview.validation,
+          pageLimit: 100,
+          coverage: "partial" as const,
+          continuation: "synthetic-next",
+          coveredObservationIds: ["synthetic-a", "synthetic-b", "synthetic-c"],
+          diagnostics: [
+            diagnostic,
+            {
+              observationId: "synthetic-b",
+              code: "other-nonblocking",
+              path: "facts",
+              diagnosticText: "synthetic-warning",
+              blocking: false,
+            },
+          ],
+          extra: "synthetic-private-validation",
+        },
+      },
+    };
+    const projected = projectPromotionReceipt(raw);
+    expect(projected.preview).toMatchObject({
+      matched: 9,
+      eligible: 3,
+      terminal: 6,
+      fingerprint: receipt.preview.fingerprint,
+    });
+    expect(projected.preview.validation).toMatchObject({
+      coverage: "partial",
+      continuation: "synthetic-next",
+      coveredObservationIds: ["synthetic-a", "synthetic-b", "synthetic-c"],
+    });
+    expect(projected.preview.validation.diagnostics).toHaveLength(2);
+    expect(projected.preview.validation.diagnostics[0]?.displayIdentity).toEqual({
+      missingTokens: ["synthetic-token"],
+      templateKey: "synthetic-template",
+      templateTargetKind: "blueprint",
+      templateTargetId: "synthetic-target",
+      templateReason: "missing-required-fields",
+    });
+    expect(JSON.stringify(projected)).not.toContain("synthetic-private");
+    expect(projected.preview.validation.diagnostics[0]?.diagnosticText).toBe(diagnostic.diagnosticText);
+    raw.preview.validation.coveredObservationIds.push("synthetic-later-mutation");
+    expect(projected.preview.validation.coveredObservationIds).toHaveLength(3);
+  });
+
+  // Issue #11142: matching the original receipt uses API scope, not browser reconstruction.
+  it("matches a distinctive API descriptor at fixed identities and refuses independent descriptor drift", () => {
+    const receipt = syntheticPromotionReceipt();
+    const context = parseCatalogPrimaryWorkbenchRouteContext(
+      "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&importScope=en:3:base:base1&profileVersion=2026.06.04",
+    );
+    const scope = { provider: "tcgdex", language: "synthetic-api-language", search: "synthetic-api-query" };
+    receipt.selection.scope = scope;
+    const commandPreview = {
+      scope,
+      confirmation: {
+        unitKey: context.unitKey,
+        importScope: context.importScope,
+        profileVersion: context.profileVersion,
+        scope,
+      },
+      allowScopeSelection: true,
+    };
+    expect(promotionReceiptMatchesContext(receipt, context, commandPreview)).toBe(true);
+    expect(
+      promotionReceiptMatchesContext(receipt, context, {
+        ...commandPreview,
+        scope: { ...scope, search: "synthetic-drift" },
+      }),
+    ).toBe(false);
+    expect(
+      promotionReceiptMatchesContext(receipt, context, {
+        ...commandPreview,
+        confirmation: { ...commandPreview.confirmation, profileVersion: "synthetic-drift" },
+      }),
+    ).toBe(false);
+    expect(promotionReceiptMatchesContext(receipt, context, undefined)).toBe(false);
+  });
+
+  it("keeps helper-built models receipt-free and matches every governing context coordinate", () => {
+    expect(loaderData().readModel.promotionPreview.receipt).toBeNull();
+    const receipt = syntheticPromotionReceipt();
+    const url =
+      "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&importScope=en:3:base:base1&profileVersion=2026.06.04";
+    const context = parseCatalogPrimaryWorkbenchRouteContext(url);
+    expect(promotionReceiptMatchesContext(receipt, context, promotionCommandPreviewFor(context))).toBe(true);
+    for (const [key, value] of [
+      ["providerKey", "synthetic-other-provider"],
+      ["unitKey", "synthetic-other-unit"],
+      ["profileVersion", "synthetic-other-profile"],
+      ["scopeRecordId", "synthetic-other-scope"],
+      ["importScope", "en:3:base:base2"],
+      ["filter.status", "changed"],
+      ["filter.search", "synthetic-query"],
+    ]) {
+      const changed = new URL(url);
+      changed.searchParams.set(key!, value!);
+      const changedContext = parseCatalogPrimaryWorkbenchRouteContext(changed.toString());
+      expect(promotionReceiptMatchesContext(receipt, changedContext, promotionCommandPreviewFor(changedContext))).toBe(
+        false,
+      );
+    }
+  });
+
+  it("keeps current loader fingerprints distinct and rejects mismatched receipt contracts", () => {
+    const model = loaderData().readModel;
+    const receipt = syntheticPromotionReceipt();
+    expect(model.promotionPreview.currentFingerprint).toBeNull();
+    const malformed = {
+      ...model,
+      promotionPreview: { ...model.promotionPreview, previewId: "synthetic-different-token", receipt },
+    };
+    expect(() => validateCatalogPrimaryWorkbenchReadModelContract(malformed)).toThrow("original promotion receipt");
+  });
   it("keeps other scope and provider selections out of the Jungle review query", () => {
     for (const [providerKey, expansionId] of [
       ["tcgdex", "base3"],

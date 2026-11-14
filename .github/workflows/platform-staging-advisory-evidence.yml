@@ -466,7 +466,7 @@ jobs:
       - name: Resolve Playwright Chromium version
         id: staging-playwright-chromium
         if: steps.advisory_preflight.outcome == 'success' && steps.scenario_seed.outcome == 'success' && steps.await_scenario_seed.outcome == 'success'
-        timeout-minutes: 3
+        timeout-minutes: 2
         run: |
           set -euo pipefail
           version="$(pnpm exec playwright --version | awk '{print $2}')"
@@ -482,17 +482,19 @@ jobs:
         timeout-minutes: 1
         uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
         with:
-          path: /home/runner/.cache/ms-playwright
+          path: ${{ runner.temp }}/playwright-chromium
           key: playwright-chromium-${{ runner.os }}-${{ steps.staging-playwright-chromium.outputs.version }}
           restore-keys: |
             playwright-chromium-${{ runner.os }}-
 
       - name: Install Playwright Chromium for staging critical flows
         if: steps.advisory_preflight.outcome == 'success' && steps.scenario_seed.outcome == 'success' && steps.await_scenario_seed.outcome == 'success'
-        timeout-minutes: 10
+        timeout-minutes: 11
         env:
-          PLAYWRIGHT_BROWSERS_PATH: /home/runner/.cache/ms-playwright
-        run: pnpm exec playwright install --with-deps chromium
+          PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/playwright-chromium
+          PLAYWRIGHT_INSTALL_SITE: platform-staging-advisory-evidence
+          PLAYWRIGHT_INSTALL_POLICY: single-attempt
+        run: node scripts/playwright-chromium-install.mjs
 
       - name: Staging marketplace critical flows
         id: marketplace_e2e
@@ -512,7 +514,7 @@ jobs:
           MARKETPLACE_E2E_SEARCH_QUERY: ${{ vars.MARKETPLACE_E2E_SEARCH_QUERY || 'charizard' }}
           CATALOG_ADMIN_E2E_EMAIL: ${{ vars.CATALOG_ADMIN_E2E_EMAIL || '' }}
           CATALOG_ADMIN_E2E_PASSWORD: ${{ secrets.CATALOG_ADMIN_E2E_PASSWORD || '' }}
-          PLAYWRIGHT_BROWSERS_PATH: /home/runner/.cache/ms-playwright
+          PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/playwright-chromium
         run: |
           set -euo pipefail
           missing_trust_inputs=()
@@ -568,6 +570,7 @@ jobs:
             appendFileSync(process.env.GITHUB_OUTPUT, `${name}=${String(value ?? "").replaceAll(/[\r\n]+/g, " ")}\n`);
           const activeRunStatuses = new Set(["requested", "pending", "queued", "in_progress", "waiting"]);
           const activeJobStatuses = new Set(["queued", "in_progress", "waiting", "requested", "pending"]);
+          const nonExecutingTerminalConclusions = new Set(["skipped"]);
           const productionStagingJobs = new Set(["Reconcile Managed Postgres CA (staging)", "Deploy Staging"]);
           const members = [
             "platform-preview-wildcard-tls.yml",
@@ -696,7 +699,8 @@ jobs:
                 for (const job of jobs) {
                   const started = parseTime(job.started_at);
                   const completed = parseTime(job.completed_at);
-                  if (started === null || (completed !== null && completed < started)) throw new Error(`GitHub authority job census returned unsafe timestamps for ${workflow} run ${run.id}`);
+                  const nonExecuting = job.status === "completed" && nonExecutingTerminalConclusions.has(job.conclusion);
+                  if (!nonExecuting && (started === null || (completed !== null && completed < started))) throw new Error(`GitHub authority job census returned unsafe timestamps for ${workflow} run ${run.id}`);
                   const active = activeJobStatuses.has(job.status) || (activeRunStatuses.has(run.status) && completed === null && !job.conclusion);
                   const overlap = started < to && (completed === null || completed > from);
                   if (active && overlap) staleReason ||= `${workflow} run ${run.id} remained active at publication`;
@@ -936,10 +940,15 @@ jobs:
           if [ -n "$existing_issue" ]; then
             gh issue comment "$existing_issue" --repo "${GITHUB_REPOSITORY}" --body "$body"
           else
-            gh issue create \
-              --repo "${GITHUB_REPOSITORY}" \
-              --title "$title" \
-              --body "$body" \
-              --label "kind:ops" \
-              --label "area:infrastructure"
+            created_type="$(gh api --method POST "repos/${GITHUB_REPOSITORY}/issues" \
+              -f type=Bug \
+              -f title="$title" \
+              -f body="$body" \
+              -f 'labels[]=kind:ops' \
+              -f 'labels[]=area:infrastructure' \
+              --jq '.type | select(.is_enabled == true) | .name')"
+            if [ "$created_type" != "Bug" ]; then
+              echo "ISSUE_CREATION_TYPE_MISMATCH: expected enabled native Bug in create response." >&2
+              exit 1
+            fi
           fi

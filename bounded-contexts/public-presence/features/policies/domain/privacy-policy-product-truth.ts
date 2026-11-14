@@ -172,8 +172,8 @@ export const privacyProductTruthBindings: readonly PrivacyProductTruthBinding[] 
     "cookie-session",
     "chase_sets_session",
     [
-      "bounded-contexts/auth/support/auth-support/http.ts:62-65",
-      "bounded-contexts/auth/support/auth-support/http.ts:69-72",
+      "bounded-contexts/auth/support/auth-support/http.ts:63-66",
+      "bounded-contexts/auth/support/auth-support/http.ts:70-73",
       "bounded-contexts/auth/support/request-support/cookies.ts:1",
       "contracts/auth-context/index.ts:3",
     ],
@@ -183,8 +183,8 @@ export const privacyProductTruthBindings: readonly PrivacyProductTruthBinding[] 
     "cookie-account-selection",
     "chase_sets_account_selection",
     [
-      "bounded-contexts/auth/support/auth-support/http.ts:81-84",
-      "bounded-contexts/auth/support/auth-support/http.ts:88-91",
+      "bounded-contexts/auth/support/auth-support/http.ts:82-85",
+      "bounded-contexts/auth/support/auth-support/http.ts:89-92",
       "bounded-contexts/auth/support/request-support/cookies.ts:2",
     ],
     "Auth sets and clears a first-party cookie named chase_sets_account_selection that carries the selected-account token.",
@@ -193,7 +193,7 @@ export const privacyProductTruthBindings: readonly PrivacyProductTruthBinding[] 
     "cookie-guest-checkout",
     "chase_sets_guest_checkout",
     [
-      "bounded-contexts/auth/support/auth-support/http.ts:95-98",
+      "bounded-contexts/auth/support/auth-support/http.ts:96-99",
       "bounded-contexts/checkout/support/request-support/guest-checkout.ts:80-83",
       "contracts/auth-context/index.ts:4",
     ],
@@ -320,9 +320,9 @@ export const privacyProductTruthBindings: readonly PrivacyProductTruthBinding[] 
     classification: { noticeBoundary: "consumer-notice", factFamily: "web-storage" },
     inventorySubject: "inventory-mutation/v1:*",
     evidenceRefs: [
-      "bounded-contexts/inventory/support/request-support/mutation-recovery.ts:83",
-      "bounded-contexts/inventory/support/request-support/mutation-recovery.ts:87",
-      "bounded-contexts/inventory/support/request-support/mutation-recovery.ts:92",
+      "bounded-contexts/inventory/support/request-support/mutation-recovery.ts:84",
+      "bounded-contexts/inventory/support/request-support/mutation-recovery.ts:88",
+      "bounded-contexts/inventory/support/request-support/mutation-recovery.ts:93",
     ],
     factualSummary:
       "Inventory recovery reads, writes, and removes sessionStorage entries in the inventory-mutation/v1: key family through an injected Storage seam. A record holds the opaque attempt, account, acting User, operation family, target and creation time, not the mutation payload or result.",
@@ -348,11 +348,11 @@ export const privacyProductTruthBindings: readonly PrivacyProductTruthBinding[] 
     classification: { noticeBoundary: "consumer-notice", factFamily: "web-storage" },
     inventorySubject: "discovery.search.loader-cache.v1",
     evidenceRefs: [
-      "bounded-contexts/discovery/features/search/ui/search-loader-cache.ts:103",
-      "bounded-contexts/discovery/features/search/ui/search-loader-cache.ts:141",
+      "bounded-contexts/discovery/features/search/ui/search-loader-cache.ts:109",
+      "bounded-contexts/discovery/features/search/ui/search-loader-cache.ts:147",
       "bounded-contexts/discovery/features/search/ui/search-loader-cache.ts:43",
       "bounded-contexts/discovery/features/search/ui/search-loader-cache.ts:50",
-      "bounded-contexts/discovery/features/search/ui/search-loader-cache.ts:95",
+      "bounded-contexts/discovery/features/search/ui/search-loader-cache.ts:97",
     ],
     factualSummary:
       "The search loader cache reads, writes, and removes a browser storage entry named discovery.search.loader-cache.v1 through an injected Pick<Storage, ...> seam. The stored value holds a bounded, time-limited set of loader payloads keyed by the search URL that produced them.",
@@ -378,8 +378,8 @@ export const privacyProductTruthBindings: readonly PrivacyProductTruthBinding[] 
     inventorySubject:
       "@stripe/stripe-js@bounded-contexts/payments/features/payments/ui/account-payment/stripe-confirmation-card.tsx",
     evidenceRefs: [
-      "bounded-contexts/payments/features/payments/ui/account-payment/stripe-confirmation-card.tsx:173",
-      "bounded-contexts/payments/package.json:46",
+      "bounded-contexts/payments/features/payments/ui/account-payment/stripe-confirmation-card.tsx:149",
+      "bounded-contexts/payments/package.json:44",
       "bounded-contexts/settlement/features/payout-readiness/ui/stripe-connect-csp.ts:7",
       "bounded-contexts/settlement/features/payout-readiness/ui/stripe-connect-csp.ts:9",
       "deployables/marketplace/package.json:35",
@@ -403,8 +403,8 @@ export const privacyProductTruthBindings: readonly PrivacyProductTruthBinding[] 
     inventorySubject:
       "@stripe/stripe-js@bounded-contexts/payments/features/payments/ui/account-payment/stripe-setup-card.tsx",
     evidenceRefs: [
-      "bounded-contexts/payments/features/payments/ui/account-payment/stripe-setup-card.tsx:68",
-      "bounded-contexts/payments/package.json:46",
+      "bounded-contexts/payments/features/payments/ui/account-payment/stripe-setup-card.tsx:38",
+      "bounded-contexts/payments/package.json:44",
       "bounded-contexts/settlement/features/payout-readiness/ui/stripe-connect-csp.ts:7",
       "bounded-contexts/settlement/features/payout-readiness/ui/stripe-connect-csp.ts:9",
       "deployables/marketplace/package.json:35",
@@ -419,10 +419,10 @@ export const privacyProductTruthBindings: readonly PrivacyProductTruthBinding[] 
     inventorySubject:
       "@stripe/connect-js@bounded-contexts/settlement/features/payout-readiness/ui/payout-setup-page.tsx",
     evidenceRefs: [
-      "bounded-contexts/settlement/features/payout-readiness/ui/payout-setup-page.tsx:63-68",
+      "bounded-contexts/settlement/features/payout-readiness/ui/payout-setup-page.tsx:57-61",
       "bounded-contexts/settlement/features/payout-readiness/ui/stripe-connect-csp.ts:7",
       "bounded-contexts/settlement/features/payout-readiness/ui/stripe-connect-csp.ts:9",
-      "bounded-contexts/settlement/package.json:48",
+      "bounded-contexts/settlement/package.json:47",
     ],
     factualSummary:
       "The payout setup page calls the Stripe Connect.js loader, so Stripe's own embedded-component browser script loads on /account/desk/settings. Settlement declares @stripe/connect-js@3.4.5, and the committed embedded-component CSP permits https://connect-js.stripe.com and https://js.stripe.com for scripts and frames. Source entails only that the provider script loads on that surface and may use provider-controlled client-side storage.",
@@ -436,8 +436,8 @@ export const privacyProductTruthBindings: readonly PrivacyProductTruthBinding[] 
     evidenceRefs: [
       "bounded-contexts/settlement/features/payout-readiness/ui/stripe-connect-csp.ts:7",
       "bounded-contexts/settlement/features/payout-readiness/ui/stripe-connect-csp.ts:9",
-      "bounded-contexts/settlement/features/payout-readiness/ui/stripe-connect-notification-banner.tsx:90-102",
-      "bounded-contexts/settlement/package.json:48",
+      "bounded-contexts/settlement/features/payout-readiness/ui/stripe-connect-notification-banner.tsx:69-80",
+      "bounded-contexts/settlement/package.json:47",
     ],
     factualSummary:
       "The Stripe Connect notification banner calls the Stripe Connect.js loader, so Stripe's own embedded-component browser script loads on /account/desk/settings. Settlement declares @stripe/connect-js@3.4.5, and the committed embedded-component CSP permits https://connect-js.stripe.com and https://js.stripe.com for scripts and frames. Source entails only that the provider script loads on that surface and may use provider-controlled client-side storage.",
@@ -451,7 +451,7 @@ export const privacyProductTruthBindings: readonly PrivacyProductTruthBinding[] 
     evidenceRefs: [
       "deployables/marketplace/app/pwa/service-worker-source.ts:34",
       "deployables/marketplace/app/pwa/service-worker-source.ts:8-24",
-      "deployables/marketplace/app/root.tsx:220",
+      "deployables/marketplace/app/root.tsx:111",
       "deployables/marketplace/app/routes/service-worker.ts:4",
     ],
     factualSummary:
@@ -481,7 +481,7 @@ export const privacyProductTruthBindings: readonly PrivacyProductTruthBinding[] 
     inventorySubject: "google",
     evidenceRefs: [
       "bounded-contexts/auth/support/social-login-support/providers.ts:165-174",
-      "deployables/platform-api/src/main.ts:228-231",
+      "deployables/platform-api/src/main.ts:229-232",
     ],
     factualSummary:
       "A registered social-login provider named google maps a provider profile containing providerName, providerSubject, email, emailVerified, hostedDomain, displayName, givenName, and familyName. The platform API registers the provider executably.",
@@ -496,7 +496,7 @@ export const privacyProductTruthBindings: readonly PrivacyProductTruthBinding[] 
     inventorySubject: "facebook",
     evidenceRefs: [
       "bounded-contexts/auth/support/social-login-support/providers.ts:197-205",
-      "deployables/platform-api/src/main.ts:236-239",
+      "deployables/platform-api/src/main.ts:237-240",
     ],
     factualSummary:
       "A registered social-login provider named facebook maps a provider profile containing providerName, providerSubject, email, emailVerified, displayName, givenName, and familyName. The platform API registers the provider executably.",

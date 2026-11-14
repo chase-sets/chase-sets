@@ -6,6 +6,8 @@
   "exports": {
     ".": "./index.ts",
     "./api": "./api.ts",
+    "./analytics-bridge": "./analytics-bridge.ts",
+    "./analytics-recorder": "./analytics-recorder.ts",
     "./agent-guardrails": "./agent-guardrails.ts",
     "./auth": "./auth.ts",
     "./bulk-append-lane": "./bulk-append-lane.ts",
@@ -73,7 +75,7 @@
     "test:watch": "vitest --config ./vitest.config.ts",
     "test:unit": "vitest run --config ./vitest.config.ts --exclude durable-job-store.db.test.ts --exclude realtime.db.test.ts --exclude retention-sweep.db.test.ts --exclude concurrency.db.test.ts --exclude agent-guardrails.db.test.ts --exclude bulk-append-lane.db.test.ts --exclude mcp-audit-log.db.test.ts --exclude evidence-window-journal-principal.db.test.ts",
     "test:fast": "vitest run --config ./vitest.config.ts --exclude durable-job-store.db.test.ts --exclude realtime.db.test.ts --exclude retention-sweep.db.test.ts --exclude concurrency.db.test.ts --exclude agent-guardrails.db.test.ts --exclude bulk-append-lane.db.test.ts --exclude mcp-audit-log.db.test.ts --exclude evidence-window-journal-principal.db.test.ts",
-    "test:db": "vitest run --config ./vitest.config.ts durable-job-store.db.test.ts realtime.db.test.ts retention-sweep.db.test.ts concurrency.db.test.ts agent-guardrails.db.test.ts bulk-append-lane.db.test.ts mcp-audit-log.db.test.ts evidence-window-journal-principal.db.test.ts"
+    "test:db": "vitest run --config ./vitest.config.ts durable-job-store.db.test.ts realtime.db.test.ts retention-sweep.db.test.ts concurrency.db.test.ts agent-guardrails.db.test.ts bulk-append-lane.db.test.ts mcp-audit-log.db.test.ts evidence-window-journal-principal.db.test.ts inline-seed-group-lease.db.test.ts inline-seed-lease-loss.db.test.ts"
   },
   "dependencies": {
     "@chase-sets/evidence-window-provider-write": "workspace:*",

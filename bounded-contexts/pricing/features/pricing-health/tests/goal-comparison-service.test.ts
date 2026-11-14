@@ -79,6 +79,11 @@ function setup(rules = dryRunBody.rules, hasPolicy = true) {
     repricingPolicies: { loadOwnedRepricingPolicy, getHalt, executeOwnedRepricingPolicy },
     repricingEngine: { enqueueDryRun, getDryRun },
     forecastLedger: { listGoalAdoptions: async () => [adoption] },
+    economics: {
+      resolve: async () => {
+        throw new Error("Synthetic service fixture must not resolve Economics.");
+      },
+    },
   });
   return {
     state,
@@ -170,5 +175,15 @@ describe("Pricing Health candidate orchestration", () => {
       "candidate_enqueue_refused",
     );
     expect(enqueueDryRun).toHaveBeenCalledTimes(1);
+  });
+
+  it("validates the complete compare payload before the first enqueue", async () => {
+    const { services, enqueueDryRun } = setup();
+    await expect(
+      services.compare("acc_owned", "rpp_owned", dryRunContext, [
+        { goalId: "fixed-percentile", goalVersion: 1, parameters: { percentile: 101 } },
+      ]),
+    ).rejects.toThrow("goal-parameter-out-of-bounds");
+    expect(enqueueDryRun).not.toHaveBeenCalled();
   });
 });

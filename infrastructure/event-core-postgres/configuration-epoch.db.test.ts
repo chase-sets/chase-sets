@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import {
+  CONFIGURATION_EPOCH_STEP_TIMEOUT_MS,
   createPostgresConfigurationEpochStore,
   initializeConfigurationConsumer,
   validateConfigurationGrantVectorInTransaction,
@@ -27,9 +28,53 @@ function input(streamId: string): AppendToStreamInput {
 async function end(pool: PgTransactionalPool) {
   if ("end" in pool && typeof pool.end === "function") await pool.end();
 }
+const EXCLUSIVE_LOCK_SQL = "SELECT pg_advisory_xact_lock(hashtextextended('configuration_epoch:' || $1::text, 0))";
+// Ungranted EXCLUSIVE requests on one configuration key in the caller's own database,
+// matched with the lock-key expressions of the held-lock check in configuration-epoch.ts.
+const EXCLUSIVE_WAITERS_SQL = `SELECT count(*)::text AS waiting FROM pg_locks
+  WHERE locktype = 'advisory' AND NOT granted AND mode = 'ExclusiveLock'
+    AND database = (SELECT oid FROM pg_database WHERE datname = current_database())
+    AND classid::bigint = ((hashtextextended('configuration_epoch:' || $1::text, 0) >> 32) & 4294967295)
+    AND objid::bigint = (hashtextextended('configuration_epoch:' || $1::text, 0) & 4294967295)
+    AND objsubid = 1`;
+/** Polls until a waiter appears or the closure's own lock bound has passed; returns the last scoped count. */
+async function exclusiveWaiters(client: PgPoolClient, lockKey: string): Promise<string | undefined> {
+  const deadline = Date.now() + CONFIGURATION_EPOCH_STEP_TIMEOUT_MS;
+  for (;;) {
+    const waiting = (await client.query<{ waiting: string }>(EXCLUSIVE_WAITERS_SQL, [lockKey])).rows[0]?.waiting;
+    if (waiting !== "0" || Date.now() >= deadline) return waiting;
+    await new Promise<void>((resolve) => setTimeout(resolve, 10));
+  }
+}
+/** Parks a second session behind an EXCLUSIVE hold on `lockKey`; returns the release. */
+async function parkExclusiveWaiter(pool: PgTransactionalPool, lockKey: string): Promise<() => Promise<void>> {
+  const holder = await pool.connect();
+  const waiter = await pool.connect();
+  let parked: Promise<unknown> = Promise.resolve();
+  const release = async () => {
+    try {
+      await holder.query("ROLLBACK");
+      await parked;
+    } finally {
+      holder.release();
+      waiter.release();
+    }
+  };
+  try {
+    await holder.query("BEGIN");
+    await holder.query(EXCLUSIVE_LOCK_SQL, [lockKey]);
+    parked = waiter.query(EXCLUSIVE_LOCK_SQL, [lockKey]);
+    expect(await exclusiveWaiters(holder, lockKey), `parked waiter on ${lockKey}`).toBe("1");
+    return release;
+  } catch (error) {
+    await release();
+    throw error;
+  }
+}
 describeDb("A-S separate owner and consumer database protocol", () => {
   let ownerPool: PgTransactionalPool;
   let consumerPool: PgTransactionalPool;
+  let foreignPool: PgTransactionalPool;
   let ownerUrl: string;
   let consumerUrl: string;
   const names: string[] = [];
@@ -43,7 +88,7 @@ describeDb("A-S separate owner and consumer database protocol", () => {
   beforeAll(async () => {
     const admin = createPgPool(adminUrl!, { connectionTimeoutMillis: 1000 });
     try {
-      for (const role of ["owner", "consumer"]) {
+      for (const role of ["owner", "consumer", "foreign"]) {
         const name = `epoch_${role}_${randomUUID().replaceAll("-", "")}`;
         await admin.query(`CREATE DATABASE ${name}`);
         names.push(name);
@@ -57,8 +102,11 @@ describeDb("A-S separate owner and consumer database protocol", () => {
     const consumer = new URL(adminUrl!);
     consumer.pathname = `/${names[1]}`;
     consumerUrl = consumer.href;
+    const foreign = new URL(adminUrl!);
+    foreign.pathname = `/${names[2]}`;
     ownerPool = createPgPool(ownerUrl, { max: 6, connectionTimeoutMillis: 1000 });
     consumerPool = createPgPool(consumerUrl, { max: 6, connectionTimeoutMillis: 1000 });
+    foreignPool = createPgPool(foreign.href, { max: 2, connectionTimeoutMillis: 1000 });
     await ownerPool.query(eventCorePostgresSchemaSql);
     await consumerPool.query(eventCorePostgresSchemaSql);
   });
@@ -74,6 +122,7 @@ describeDb("A-S separate owner and consumer database protocol", () => {
   afterAll(async () => {
     if (ownerPool) await end(ownerPool);
     if (consumerPool) await end(consumerPool);
+    if (foreignPool) await end(foreignPool);
     if (names.length) {
       const admin = createPgPool(adminUrl!, { connectionTimeoutMillis: 1000 });
       try {
@@ -89,9 +138,13 @@ describeDb("A-S separate owner and consumer database protocol", () => {
     const grant = await source.captureGrant(key, identity);
     const terminal = await consumerPool.connect();
     const observer = await consumerPool.connect();
+    const foreignWaiters: (() => Promise<void>)[] = [];
     let committed = false;
     let closure: ReturnType<typeof source.driveClosure> | undefined;
     try {
+      // Fixed waiters the probe must ignore: this key in a foreign database, and a foreign key here.
+      foreignWaiters.push(await parkExclusiveWaiter(foreignPool, key));
+      foreignWaiters.push(await parkExclusiveWaiter(consumerPool, "foreign/configuration/key"));
       await terminal.query("BEGIN");
       // The named lock mutant bypasses the production grant path, so closure
       // must not observe a waiter on the consumer key.
@@ -107,20 +160,8 @@ describeDb("A-S separate owner and consumer database protocol", () => {
         // A production install attempt must remain receipt-gated before COMMIT.
         await source.installClosure(key);
       }
-      let observedWait =
-        (
-          await observer.query<{ waiting: string }>(
-            "SELECT count(*)::text AS waiting FROM pg_locks WHERE locktype = 'advisory' AND NOT granted",
-          )
-        ).rows[0]?.waiting !== "0";
-      // Observe a real PostgreSQL wait, not wall-clock timing.
-      for (let n = 0; n < 100 && !observedWait; n++) {
-        const next = await observer.query<{ waiting: string }>(
-          "SELECT count(*)::text AS waiting FROM pg_locks WHERE locktype = 'advisory' AND NOT granted",
-        );
-        observedWait = next.rows[0]?.waiting !== "0";
-      }
-      expect(observedWait, "closure must wait on the terminal's held SHARED lock").toBe(true);
+      // Observe a real PostgreSQL wait on this database's key; the deadline only bounds the poll.
+      expect(await exclusiveWaiters(observer, key), "closure must wait on the terminal's held SHARED lock").toBe("1");
       const consumerHistoryBeforeCommit = await observer.query<{ count: string }>(
         "SELECT count(*)::text AS count FROM event_configuration_guard_history WHERE role = 'consumer' AND key = $1",
         [key],
@@ -147,6 +188,7 @@ describeDb("A-S separate owner and consumer database protocol", () => {
       await store.appendToStreams!([{ ...input("new"), configurationGrants: [next] }]);
       expect(await store.readStream({ streamId: "terminal" })).toHaveLength(1);
     } finally {
+      for (const release of foreignWaiters) await release();
       if (!committed) await terminal.query("ROLLBACK");
       terminal.release();
       observer.release();
@@ -155,10 +197,12 @@ describeDb("A-S separate owner and consumer database protocol", () => {
   }
   it("AC1 terminal COMMIT precedes CLOSED-THROUGH and installation; next epoch commits", () =>
     orderingScenario("none"));
-  it("AC1 named REMOVE_SHARED_LOCK mutant fails the ordering oracle", async () => {
-    await expect(orderingScenario("REMOVE_SHARED_LOCK")).rejects.toThrow();
+  it("AC1 REMOVE_SHARED_LOCK oracle control fails the closure-wait oracle", async () => {
+    await expect(orderingScenario("REMOVE_SHARED_LOCK")).rejects.toThrow(
+      "closure must wait on the terminal's held SHARED lock",
+    );
   });
-  it("AC1 named REMOVE_CLOSED_THROUGH_WAIT mutant fails the ordering oracle", async () => {
+  it("AC1 REMOVE_CLOSED_THROUGH_WAIT oracle control fails the receipt-gated install oracle", async () => {
     await expect(orderingScenario("REMOVE_CLOSED_THROUGH_WAIT")).rejects.toThrow("every CLOSED-THROUGH");
   });
   it("AC2(a,e) pending refuses new grants, registration and retirement", async () => {

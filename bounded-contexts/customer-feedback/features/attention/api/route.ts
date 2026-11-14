@@ -9,7 +9,12 @@ import { FeedbackCaseDecisionError } from "../../cases/domain";
 import type { CsatAdminReadPort } from "../../csat/api/runtime";
 import { normalizePrivacyReason, privacyPermission } from "../../privacy/domain/policy";
 import { canAccessFeedbackAttention } from "./access";
-import { listFeedbackAttention } from "../read-model/queries";
+import {
+  feedbackOverdueSql,
+  feedbackTriageDeadlineSql,
+  listFeedbackAttention,
+  type FeedbackSlaColumns,
+} from "../read-model/queries";
 
 export type CustomerFeedbackApiEnv = AuthenticatedApiEnv;
 
@@ -27,12 +32,14 @@ export function buildCustomerFeedbackAttentionApi(services: FeedbackAttentionApi
     const actor = c.get("actor");
     if (!canAccessFeedbackAttention(actor, "view")) return accessResponse(c, actor ? 403 : 401);
     const url = new URL(c.req.url);
+    const readNow = new Date().toISOString();
     const items = await listFeedbackAttention(db, {
       limit: Number(url.searchParams.get("limit") ?? 100),
       ownerId: url.searchParams.get("ownerId") ?? undefined,
       overdueOnly: url.searchParams.get("overdueOnly") === "true",
+      now: readNow,
     });
-    return c.json({ items, metrics: await readMetrics(db) });
+    return c.json({ items, metrics: await readMetrics(db, readNow) });
   });
 
   app.get("/attention/export", async (c) => {
@@ -45,38 +52,59 @@ export function buildCustomerFeedbackAttentionApi(services: FeedbackAttentionApi
     } catch {
       return c.json({ error: { code: "export_reason_code_required" } }, 400);
     }
-    const items = await listFeedbackAttention(db, { limit: 500 });
     const startedAt = new Date().toISOString();
     const exportId = createId("cse");
     const retention = await exportPort.resolveRetentionPolicy(startedAt);
     const artifactExpiresAt = new Date(
       Date.parse(startedAt) + retention.exportArtifactHours * 60 * 60 * 1_000,
     ).toISOString();
-    const rows = [
-      "case_id,state,reason,priority,owner_id,due_at,triage_due_at",
-      ...items.map((item) =>
-        [item.caseId, item.state, item.reason, item.priority, item.ownerId, item.dueAt, item.triageDueAt]
-          .map(csvCell)
-          .join(","),
-      ),
-    ];
-    await exportPort.recordAdminExport({
-      exportId,
-      actorId: actor.userId,
-      capability: privacyPermission("export-sensitive-feedback"),
-      filters: {},
-      reason,
-      startedAt,
-      completedAt: new Date().toISOString(),
-      artifactExpiresAt,
-      rowCount: items.length,
-      result: "completed",
-      failureCode: null,
-      artifactContent: `${rows.join("\n")}\n`,
-    });
-    return c.json({ exportId, rowCount: items.length, artifactExpiresAt, downloadHref: `/export/${exportId}` }, 201, {
-      "Cache-Control": "no-store",
-    });
+    const filters = {};
+    let rowCount = 0;
+    try {
+      const items = await listFeedbackAttention(db, { limit: null, now: startedAt });
+      rowCount = items.length;
+      const rows = [
+        "case_id,state,reason,priority,owner_id,due_at,triage_due_at",
+        ...items.map((item) =>
+          [item.caseId, item.state, item.reason, item.priority, item.ownerId, item.dueAt, item.triageDueAt]
+            .map(csvCell)
+            .join(","),
+        ),
+      ];
+      await exportPort.recordAdminExport({
+        exportId,
+        actorId: actor.userId,
+        capability: privacyPermission("export-sensitive-feedback"),
+        filters,
+        reason,
+        startedAt,
+        completedAt: new Date().toISOString(),
+        artifactExpiresAt,
+        rowCount: items.length,
+        result: "completed",
+        failureCode: null,
+        artifactContent: `${rows.join("\n")}\n`,
+      });
+      return c.json({ exportId, rowCount: items.length, artifactExpiresAt, downloadHref: `/export/${exportId}` }, 201, {
+        "Cache-Control": "no-store",
+      });
+    } catch (error) {
+      await exportPort.recordAdminExport({
+        exportId,
+        actorId: actor.userId,
+        capability: privacyPermission("export-sensitive-feedback"),
+        filters,
+        reason,
+        startedAt,
+        completedAt: new Date().toISOString(),
+        artifactExpiresAt,
+        rowCount,
+        result: "failed",
+        failureCode: "export-generation-failed",
+        artifactContent: null,
+      });
+      throw error;
+    }
   });
   app.post("/cases/:caseId/follow-up", async (c) => {
     const actor = c.get("actor");
@@ -169,7 +197,16 @@ function csvCell(value: unknown): string {
   return `"${safe.replace(/"/g, '""')}"`;
 }
 
-async function readMetrics(db: PgQueryable) {
+const attentionSlaColumns: FeedbackSlaColumns = {
+  openedAt: "opened_at",
+  priority: "priority",
+  triagedAt: "triaged_at",
+  dueAt: "due_at",
+};
+
+async function readMetrics(db: PgQueryable, now: string) {
+  const overdue = feedbackOverdueSql(attentionSlaColumns, "$1::timestamptz");
+  const triageDeadline = feedbackTriageDeadlineSql(attentionSlaColumns);
   const result = await db.query<
     Readonly<{
       active_count: string;
@@ -186,12 +223,12 @@ async function readMetrics(db: PgQueryable) {
   >(
     `WITH attention_metrics AS (
        SELECT COUNT(*) FILTER (WHERE state = 'active')::text AS active_count,
-              COUNT(*) FILTER (WHERE state = 'active' AND (due_at < now() OR (triaged_at IS NULL AND triage_due_at < now())))::text AS overdue_count,
-              MAX(EXTRACT(EPOCH FROM (now() - CASE
-                WHEN due_at < now() THEN due_at
-                WHEN triaged_at IS NULL AND triage_due_at < now() THEN triage_due_at
+              COUNT(*) FILTER (WHERE state = 'active' AND ${overdue})::text AS overdue_count,
+              MAX(EXTRACT(EPOCH FROM ($1::timestamptz - CASE
+                WHEN due_at < $1::timestamptz THEN due_at
+                WHEN triaged_at IS NULL AND ${triageDeadline} < $1::timestamptz THEN ${triageDeadline}
               END)) * 1000)
-                FILTER (WHERE state = 'active' AND (due_at < now() OR (triaged_at IS NULL AND triage_due_at < now()))) AS oldest_overdue_ms,
+                FILTER (WHERE state = 'active' AND ${overdue}) AS oldest_overdue_ms,
               COUNT(*) FILTER (WHERE delivery_status = 'sent')::text AS attention_delivery_successes,
               COUNT(*) FILTER (WHERE delivery_status IN ('failed', 'suppressed', 'retry-exhausted', 'no-recipient'))::text AS attention_delivery_failures
        FROM customer_feedback_case_attention
@@ -215,6 +252,7 @@ async function readMetrics(db: PgQueryable) {
             (attention_metrics.attention_delivery_failures::bigint + case_metrics.follow_up_delivery_failures::bigint)::text AS delivery_failures,
             digest_metrics.digest_pending, digest_metrics.digest_failures, digest_metrics.latest_digest_at
      FROM attention_metrics CROSS JOIN case_metrics CROSS JOIN digest_metrics`,
+    [now],
   );
   const row = result.rows[0];
   return {

@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import type { NavigateFunction } from "react-router";
 import { Banner, LinkButton, Page, PageHeader, PageSection, Skeleton, Stack } from "@chase-sets/design-system";
 import type { ApplyGoalResult, PricingHealthData } from "../api/services";
 import { HealthSummary } from "./health-summary";
@@ -16,6 +17,8 @@ export function PricingHealthPage({
   compareAction,
   applyAction,
   applyResult,
+  goalNavigate,
+  errorRecoveryHref,
 }: Readonly<{
   data: PricingHealthData | null;
   loading?: boolean;
@@ -25,6 +28,8 @@ export function PricingHealthPage({
   compareAction?: ReactNode;
   applyAction?: (candidate: NonNullable<PricingHealthData["comparison"]>[number]) => ReactNode;
   applyResult?: ApplyGoalResult | null;
+  goalNavigate?: NavigateFunction;
+  errorRecoveryHref?: string;
 }>) {
   return (
     <Page>
@@ -45,7 +50,7 @@ export function PricingHealthPage({
             title={copy("error")}
             description={error}
             actions={
-              <LinkButton href="" tone="secondary">
+              <LinkButton href={errorRecoveryHref ?? ""} tone="secondary">
                 {copy("retry")}
               </LinkButton>
             }
@@ -93,7 +98,7 @@ export function PricingHealthPage({
                         <Banner tone="info" title={copy("noVerdict")} description={copy("noVerdict.description")} />
                       )}
                     </PageSection>
-                    <GoalPicker goals={data.goals ?? []} />
+                    <GoalPicker goals={data.goals ?? []} navigate={goalNavigate} />
                     <PageSection title={copy("goals.comparison")} actions={compareAction}>
                       <GoalComparison
                         branch={(data.branch ?? "comparison") as "comparison" | "advanced-editor" | "create-editor"}

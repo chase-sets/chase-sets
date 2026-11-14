@@ -1,4 +1,10 @@
 export * from "./support/route-support/auth-host";
+export {
+  parseReceiptLookupCredential,
+  resolveReceiptLookupServiceActor,
+  type ReceiptLookupActorOptions,
+  type ReceiptLookupCredential,
+} from "./features/service-actors/api/receipt-lookup";
 export { resumeAgentGrantRevocation } from "./features/agent-grants/api/revocation";
 export { fenceAgentGrantActor, fenceAgentGrantSpendPolicy } from "./features/agent-grants/api/authority";
 export {
@@ -17,6 +23,11 @@ export {
   type PlatformAdminPasswordBootstrapConfig,
 } from "./support/runtime-support/production-bootstrap";
 export { resolveActorFromSessionId } from "./support/runtime-support/services";
+export {
+  SESSION_GENERATION_CAPABILITY_VERSION,
+  sessionGenerationCapabilityReport,
+  type SessionGenerationCapabilityReport,
+} from "./features/sessions/domain/session-generation";
 export {
   AUTH_GUEST_CHECKOUT_PERMISSIONS,
   AUTH_GUEST_CHECKOUT_ROLE_KEY,

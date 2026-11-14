@@ -6,6 +6,7 @@ import {
   type ApplyGoalRequest,
   type PricingHealthServices,
 } from "./services";
+import { GoalComparisonValidationError, type GoalParameterRequest } from "./goal-comparison";
 
 export function createPricingHealthRoutes(services: PricingHealthServices) {
   const app = new Hono<PricingApiEnv>();
@@ -19,14 +20,41 @@ export function createPricingHealthRoutes(services: PricingHealthServices) {
   app.get("/", async (c) => {
     const query = c.req.query();
     if (
-      Object.keys(query).some((key) => key !== "policyId") ||
+      Object.keys(query).some((key) => !["policyId", "goals"].includes(key)) ||
       (query.policyId !== undefined && (!query.policyId || query.policyId.length > 256))
     )
       return c.json({ error: { code: "validation_failed" } }, 400);
-    const data = await services.getHealth(c.get("actor")!.accountId, query.policyId, new Date().toISOString());
-    return data
-      ? c.json({ ...data, canCompute: c.get("actor")!.permissions.includes("pricing.manage") })
-      : c.json({ error: { code: "not_found" } }, 404);
+    let parameterRequests: readonly GoalParameterRequest[] | undefined;
+    if (query.goals !== undefined) {
+      try {
+        const parsed: unknown = JSON.parse(query.goals);
+        if (!Array.isArray(parsed)) throw new Error("goals must be an array");
+        parameterRequests = parsed as GoalParameterRequest[];
+      } catch {
+        return c.json({ error: { code: "validation_failed" } }, 400);
+      }
+    }
+    try {
+      const data =
+        parameterRequests === undefined
+          ? await services.getHealth(c.get("actor")!.accountId, query.policyId, new Date().toISOString())
+          : await services.getHealth(
+              c.get("actor")!.accountId,
+              query.policyId,
+              new Date().toISOString(),
+              parameterRequests,
+            );
+      return data
+        ? c.json({ ...data, canCompute: c.get("actor")!.permissions.includes("pricing.manage") })
+        : c.json({ error: { code: "not_found" } }, 404);
+    } catch (error) {
+      if (error instanceof GoalComparisonValidationError)
+        return c.json(
+          { error: { code: "validation_failed", details: error.details.map((message) => ({ message })) } },
+          400,
+        );
+      throw error;
+    }
   });
   app.post("/:policyId/compute", async (c) => {
     const context = c.get("context");
@@ -37,12 +65,38 @@ export function createPricingHealthRoutes(services: PricingHealthServices) {
   app.post("/:policyId/compare", async (c) => {
     const context = c.get("context");
     if (!context) return c.json({ error: { code: "authentication_required" } }, 401);
-    const body = await c.req.text();
-    if (body.trim().length > 0) return c.json({ error: { code: "validation_failed" } }, 400);
     try {
-      const runs = await services.compare(c.get("actor")!.accountId, c.req.param("policyId"), context);
+      const raw = await c.req.text();
+      let parameterRequests: readonly GoalParameterRequest[] | undefined;
+      if (raw.trim().length > 0) {
+        let parsed: unknown;
+        try {
+          parsed = JSON.parse(raw);
+        } catch {
+          throw new GoalComparisonValidationError(["compare body must be JSON"]);
+        }
+        if (
+          !parsed ||
+          typeof parsed !== "object" ||
+          Array.isArray(parsed) ||
+          Object.keys(parsed).length !== 1 ||
+          !("goals" in parsed) ||
+          !Array.isArray(parsed.goals)
+        )
+          throw new GoalComparisonValidationError(["compare body must contain only a goals array"]);
+        parameterRequests = parsed.goals as GoalParameterRequest[];
+      }
+      const runs =
+        parameterRequests === undefined
+          ? await services.compare(c.get("actor")!.accountId, c.req.param("policyId"), context)
+          : await services.compare(c.get("actor")!.accountId, c.req.param("policyId"), context, parameterRequests);
       return runs ? c.json({ runs }, 202) : c.json({ error: { code: "not_found" } }, 404);
     } catch (error) {
+      if (error instanceof GoalComparisonValidationError)
+        return c.json(
+          { error: { code: "validation_failed", details: error.details.map((message) => ({ message })) } },
+          400,
+        );
       if (error instanceof PricingHealthCandidateRefusedError)
         return c.json({ error: { code: "candidate_enqueue_refused" } }, 409);
       throw error;

@@ -1,4 +1,6 @@
 export { createMarketplaceRequestApiClient, MarketplaceApiError } from "./support/request-support/api-client";
+export { hashMarketplaceRequest } from "./features/mutation-recovery/api/attempt";
+export { marketplaceOfferCanonicalRequest } from "./features/mutation-recovery/domain/contracts";
 export { createMarketplaceChannelInboundClampCapability } from "./features/channel-inbound-clamp/api/capability";
 export type { MarketplaceListingServices } from "./features/listings/api/runtime";
 export {

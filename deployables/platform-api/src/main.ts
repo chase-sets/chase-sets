@@ -68,6 +68,7 @@ import {
   recordCatalogIntegrationOptionQuery,
   recordDiscoverySearchQuerySignal,
   recordDiscoveryQueryEmbeddingLoad,
+  recordDiscoverySearchRetrievalFailure,
   recordCheckoutObservabilityEvent,
   recordMcpAuditRecord,
   recordPublicPresenceWaitlistAnalytics,
@@ -365,6 +366,7 @@ const runtime = createPlatformApiHost({
     socialLoginProviders,
     adminGoogleWorkspaceSso: config.adminGoogleWorkspaceSso,
     registrationAdmission: config.registrationAdmission,
+    stagingPersonaMagicLinkVerifierSha256: config.stagingPersonaMagicLinkVerifierSha256,
     evidenceWindowCorrelation,
     evidenceWindowProviderWrite,
     securityLifetimes: config.authSecurityLifetimes,
@@ -372,6 +374,7 @@ const runtime = createPlatformApiHost({
     searchTelemetry: {
       recordSearchQuery: recordDiscoverySearchQuerySignal,
       recordQueryEmbeddingLoad: recordDiscoveryQueryEmbeddingLoad,
+      recordSearchRetrievalFailure: recordDiscoverySearchRetrievalFailure,
     },
     emailWebhookGateway,
     ...(mobileMessageWebhookGateway ? { mobileMessageWebhookGateway } : {}),
@@ -633,6 +636,7 @@ const ucpProfileResolver = createUcpProfileResolver({
 });
 const app = buildPlatformApiApp(runtime, {
   runtimeProfile: config.runtimeProfile,
+  receiptLookupActor: config.receiptLookupActor,
   internalAuthSecret: config.internalAuthSecret,
   adminRegistrationEnabled: config.adminRegistrationEnabled,
   checkoutClosed: config.checkoutClosed,

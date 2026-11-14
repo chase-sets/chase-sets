@@ -460,6 +460,41 @@ describe("6110 accessible compositions", () => {
         view.dispose();
       }
     });
+
+    it(`6110 panel labels disambiguate same-titled disclosures without changing defaults ${phase}`, () => {
+      const view = renderPhase(
+        <>
+          <ProgressiveDisclosure title="Advanced controls" panelLabel="Goal alpha advanced controls" defaultOpen>
+            Alpha content
+          </ProgressiveDisclosure>
+          <ProgressiveDisclosure title="Advanced controls" panelLabel="Goal beta advanced controls" defaultOpen>
+            Beta content
+          </ProgressiveDisclosure>
+          <ProgressiveDisclosure title="Default naming" defaultOpen>
+            Default content
+          </ProgressiveDisclosure>
+        </>,
+        phase,
+      );
+      try {
+        const { container } = view;
+        expect(within(container).getByRole("region", { name: "Goal alpha advanced controls" })).toBeTruthy();
+        expect(within(container).getByRole("region", { name: "Goal beta advanced controls" })).toBeTruthy();
+        const labeledPanels = [
+          within(container).getByRole("region", { name: "Goal alpha advanced controls" }),
+          within(container).getByRole("region", { name: "Goal beta advanced controls" }),
+        ];
+        for (const panel of labeledPanels) {
+          expect(panel.getAttribute("aria-label")).toBeTruthy();
+          expect(panel.hasAttribute("aria-labelledby")).toBe(false);
+        }
+        const defaultTrigger = within(container).getByRole("button", { name: "Default naming" });
+        const defaultPanel = within(container).getByRole("region", { name: "Default naming" });
+        expect(defaultPanel.getAttribute("aria-labelledby")).toBe(defaultTrigger.id);
+      } finally {
+        view.dispose();
+      }
+    });
   }
 });
 

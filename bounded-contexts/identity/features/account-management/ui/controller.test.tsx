@@ -10,6 +10,7 @@ import * as routerApi from "react-router";
 import {
   renderAccountManagementPage,
   renderHeldAccountManagementRoute,
+  settleAccountManagementRoute,
   stubHeldAccountManagementTransport,
 } from "./test-support";
 import { syntheticMutationResult } from "../api/test-support";
@@ -549,7 +550,7 @@ describe("issue-7125 boundary lock", () => {
   });
   it("releases the boundary lock only after the revalidated route commit", async () => {
     const transport = stubHeldAccountManagementTransport();
-    const { loads } = renderHeldAccountManagementRoute(
+    const { loads, router } = renderHeldAccountManagementRoute(
       "/account/shipping-addresses",
       { phase: "before" },
       ({ phase }) => <Rows phase={phase} />,
@@ -573,7 +574,8 @@ describe("issue-7125 boundary lock", () => {
     });
     observer.observe(document.body, { subtree: true, childList: true, attributes: true });
     loads[0]({ phase: "after" });
-    await waitFor(() => expect(button("A").getAttribute("aria-busy")).toBeNull());
+    await settleAccountManagementRoute(router, () => button("A").getAttribute("aria-busy") === null);
+    expect(button("A").getAttribute("aria-busy")).toBeNull();
     observer.disconnect();
     expect(screen.getByTestId("route-phase").textContent).toBe("after");
     expect(staleUnlocked).toBe(false);
@@ -624,7 +626,8 @@ describe("issue-7125 boundary lock", () => {
     });
     observer.observe(document.body, { subtree: true, childList: true, attributes: true });
     await waitFor(() => expect(loads).toBe(1));
-    await waitFor(() => expect(button("A").getAttribute("aria-busy")).toBeNull());
+    await settleAccountManagementRoute(router, () => button("A").getAttribute("aria-busy") === null);
+    expect(button("A").getAttribute("aria-busy")).toBeNull();
     observer.disconnect();
 
     expect(screen.getByTestId("route-phase").textContent).toBe("after");

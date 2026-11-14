@@ -56,21 +56,21 @@ This glossary focuses on catalog truth and identity. Browsing, filtering, and li
 
 ## Operator Session
 
-A TCGplayer Operator Session is encrypted custody of Todd's operator cookie, not a username/password or another user's credential. `stored` custody supplies automation requests; `cleared` custody retains only its monotonic revision and last key id. Clearing custody restores the environment fallback but does not prove that a browser or provider session ended. Reaccepting advances the retained revision, never restarts it.
+A TCGplayer Operator Session is the pairing status Admin shows for the TCGplayer Operator Extension: whether an Operator Session Push Grant is active, with its created, last-used and idle-expiry times. It holds no cookie, browser session, username/password or other TCGplayer credential; Catalog never stores or uses one, never contacts TCGplayer servers, and reports server credential custody as unavailable.
 
 ### Operator Session Push Grant
 
-An Operator Session Push Grant is a narrow bearer credential minted directly by a recently authenticated platform administrator for Todd's operator session. Catalog stores only its hash. It permits session pushes and unpairing, not Admin access or other users' credentials. A completed push renews its 30-day idle expiry using database time; expired or revoked grants cannot revive. Unpair revokes only the grant. Disconnect commits revocation before clearing custody and does not log out the browser or provider.
+An Operator Session Push Grant is an opaque bearer pairing grant that a platform administrator with `catalog.manage`, authenticated within the last ten minutes, mints in Admin for the TCGplayer Operator Extension. It carries no provider credential. Catalog shows it once and stores only its hash. Mint requires the live Identity Membership aggregate, not the projected actor role, and replaces the previous active grant. The grant authorizes only the extension's observation posts and unpairing; it grants no Admin access. Every observation post rechecks the grant creator's live Identity Membership aggregate before reading the observation body; a missing, demoted, inactive, or unavailable authority commits `authority-lost` revocation and fails closed. Each successful authorization renews the grant's 30-day idle expiry using database time; expired or revoked grants cannot revive. Unpairing is checked against the stored hash alone and revokes only that grant. Disconnect in Admin revokes every active grant. Neither proves that TCGplayer accepted anything, and neither logs out the browser or provider.
 
 ## Core Model
 
 ### TCGplayer Operator Extension
 
-The TCGplayer Operator Extension forwards Todd's current applicable browser
-session to Catalog using a narrow Operator Session Push Grant. It is separate
-from the seller connector. Pairing is per environment; unpairing revokes the
-grant, not custody or the browser/provider session. The popup cannot read
-stored grants or cookies.
+The TCGplayer Operator Extension holds one Operator Session Push Grant per
+environment in Todd's operator browser. It never reads, stores or forwards a
+TCGplayer session, cookie or credential. It is separate from the seller
+connector. Pairing is per environment; unpairing revokes the grant, not the
+browser/provider session. The popup cannot read stored grants or cookies.
 
 - `Admin pair handoff` is the primary pairing path: after a successful mint,
   the Admin TCGplayer provider page sends the grant once to the extension
@@ -92,6 +92,16 @@ The catalog is composed of four primary concepts:
 
 ## Authoring Model
 
+**Blueprint MCP actions.** Operators inspect Blueprints through `catalog.list-blueprints` and `catalog.get-blueprint`.
+`catalog.create-blueprint`, `catalog.revise-blueprint`, `catalog.attach-component`,
+`catalog.detach-component`, `catalog.set-blueprint-fields`, `catalog.set-blueprint-dimensions`,
+and `catalog.set-blueprint-product-resolution-rules` author the same Blueprint aggregate as Admin.
+`catalog.publish-blueprint`, `catalog.deprecate-blueprint`, and `catalog.archive-blueprint`
+retain its lifecycle rules. `catalog.preview-bulk-blueprint-lifecycle` inspects an explicit or
+filtered selection; `catalog.confirm-bulk-blueprint-lifecycle` queues the existing authoring job.
+`catalog.get-authoring-job` returns its current snapshot, not an event stream.
+All require live operator authority; writes require title-bound confirmation and platform idempotency.
+
 The current implementation also uses four supporting authoring concepts:
 
 - `Blueprint` — the structural definition that determines applicable Fields, applicable Dimensions, and canonical Dimension order for Product resolution
@@ -111,6 +121,8 @@ The current implementation also uses four supporting authoring concepts:
 - `Count spend` — append-only credits debited before a possible count request, with its retained result or uncertainty. Separate from account usage and batch reservations; uncertainty never refunds or re-arms a query.
 - `Whole-quote admission` — the opt-in, staging-only acquisition of a Count quote that buys all of its approved credits or none: under the account headroom lock, current net headroom must cover the whole quote before any debit or send, and each quote admits one execution.
 - `Quote allocation` — the capacity a whole-quote admission holds for its quote. It is not Count spend or a batch reservation: each claim converts one credit of it into a debit, ordinary claims and new batch reservations cannot take it, and terminal end or quote expiry releases only credits never converted.
+- `periodReserve` — the host dispatch-log reserve a staging non-capture count acquisition carries: its `runId` (the caller's host dispatch id), the Scrydex billing period it was observed for and the cross-path credits not yet in retained usage. Staging admits the acquisition's whole-quote P, or its up-front P and then each ordinary claim at P = 1, under the account headroom lock only while `consumed + U + P <= 50,000`; an absent, invalid, stale or mismatched reserve is unknown U and refuses `usage-period-cap` with zero sends. Outside staging a reserve refuses.
+- `periodAuthority` — the closed in-process input that tells staging `acquireCounts` who governs the billing-period cap: `reserve` (a `periodReserve`) or `capture-run`, which only count capture builds from its active run and which is honored only inside that run's bound acquisition request. HTTP and MCP bodies cannot express it; a staging acquisition with neither refuses.
 - `page-1-count` — validated total, observed page size and page-1 length retained on count spend without option items or any claim of all-page completion.
 - `Possible-send debit` — a staging count-capture slot durably committed under one lock before a bound Scrydex transport call, within fixed per-phase caps. A failed, redirected or uncertain send keeps its debit and stops the run. Capture-only: it is neither count spend nor a send-window debit.
 - `Capture run` — the one staging count capture a real platform-admin session owns, admitted from a validated host authority envelope that one host dispatch can admit only once. At most one is active across replicas; its identity is derived from the session, never supplied by a client, and its phases advance strictly in order and never re-arm. Capture-only.

@@ -61,6 +61,68 @@ describe("issue-7169-c1-boundary-recovery: AC9/10/13 full router", () => {
     });
     expect(query).not.toHaveBeenCalled();
   });
+  describe("refuses client card and malformed cert", () => {
+    const attempt = { "Inventory-Mutation-Attempt": "053210b9-1a0d-41b7-b95f-f13a4f2053bc" };
+    const graded = [
+      { dimensionId: "form", optionId: "graded" },
+      { dimensionId: "company", optionId: "psa" },
+      { dimensionId: "grade", optionId: "ten" },
+    ];
+    const card = {
+      gradingCompany: "PSA",
+      grade: "10",
+      certificationNumber: "cert-123",
+      population: null,
+      conditionDescriptors: [],
+    };
+    function post(input: Record<string, unknown>) {
+      const { app, query } = router();
+      return {
+        query,
+        response: app.request("/api/inventory/items", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", ...attempt },
+          body: JSON.stringify(input),
+        }),
+      };
+    }
+
+    it.each([
+      ["matching card", { ...body, selectedOptions: graded, gradedCard: card }],
+      ["mismatching card", { ...body, selectedOptions: graded, gradedCard: { ...card, grade: "9" } }],
+      ["card on a raw item", { ...body, gradedCard: card }],
+      [
+        "card beside a certification number",
+        { ...body, selectedOptions: graded, certificationNumber: "cert-123", gradedCard: card },
+      ],
+      ["stale form card string", { ...body, selectedOptions: graded, gradedCard: JSON.stringify(card) }],
+      ["null card", { ...body, gradedCard: null }],
+      ["numeric certification number", { ...body, selectedOptions: graded, certificationNumber: 123 }],
+      ["object certification number", { ...body, selectedOptions: graded, certificationNumber: { value: "cert-123" } }],
+      ["array certification number", { ...body, selectedOptions: graded, certificationNumber: ["cert-123"] }],
+      ["boolean certification number", { ...body, selectedOptions: graded, certificationNumber: false }],
+    ])("refuses a %s before persistence", async (_name, input) => {
+      const { query, response } = post(input);
+      const refused = await response;
+      expect(refused.status).toBe(400);
+      expect(await refused.json()).toEqual({
+        error: { code: "inventory_mutation_refused", message: "Inventory request was not accepted." },
+      });
+      expect(query).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ["string", { ...body, selectedOptions: graded, certificationNumber: "cert-123" }],
+      ["null", { ...body, selectedOptions: graded, certificationNumber: null }],
+      ["absent", body],
+    ])("lets a %s certification number through to the create command", async (_name, input) => {
+      const { query, response } = post(input);
+      const accepted = await response;
+      expect(accepted.status).not.toBe(400);
+      expect(query).toHaveBeenCalled();
+    });
+  });
+
   it("refuses an actor/context mismatch without disclosure or mutation", async () => {
     const { app, query } = router(undefined, true);
     const response = await app.request("/api/inventory/items", {

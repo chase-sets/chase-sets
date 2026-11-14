@@ -12,6 +12,6 @@ export const publicSellerAgreementPublicationRecord = {
   counselApprovalReference: null,
   rolloutJurisdictionsOrProductLimits: [],
   launchRequired: true,
-  contentFingerprint: "sha256:32833241097c935a886365451fea7ebd00444cc30e8ce5d03c72b9627ee82967",
+  contentFingerprint: "sha256:477600d7745908297190292cf4cc89ab5ed64308b9c88a5c03dbfd07a48cfe92",
   consentActivatable: false,
 } as const satisfies PublicPolicyPublicationRecord<"seller-agreement">;

@@ -135,6 +135,118 @@ function partitionCartWriteCallers(files: readonly SourceFile[]) {
   return { rows, unclassified };
 }
 
+/**
+ * Every code shape that opens a Checkout Session (#9994). Like the cart shapes,
+ * a shape is an entry whatever file it appears in.
+ */
+const ENTRY_WRITE_SHAPES: readonly Readonly<{ name: string; pattern: RegExp }>[] = [
+  { name: "client entry", pattern: /\.createCheckoutSession\(/g },
+  { name: "session entry service", pattern: /\.(?:createFromCart|createBuyNow|createOfferIntent)\(/g },
+  { name: "buy-now preparation", pattern: /(?<!function )\bprepareBuyNowCheckout\(/g },
+  { name: "direct session start", pattern: /commandHandler\(\{[\s\S]{0,300}?type:\s*"StartCheckoutSession"/g },
+];
+
+/**
+ * The entry census: each tracked caller and why it is safe. Attempt-producing
+ * callers send one caller-created key per deliberate submission; the seed is
+ * exempt because it starts one fixed Session id only when none exists.
+ */
+const EXPECTED_ENTRY_PARTITION: readonly CallerRow[] = [
+  {
+    path: "bounded-contexts/checkout/features/sessions/api/buy-now-preparation.ts",
+    classification: "attempt-producing",
+    shapes: ["session entry service"],
+  },
+  {
+    path: "bounded-contexts/checkout/features/sessions/api/route.ts",
+    classification: "attempt-producing",
+    shapes: ["session entry service", "buy-now preparation"],
+  },
+  {
+    path: "bounded-contexts/checkout/support/route-support/buy-checkout-readiness/checkout-start-entry.ts",
+    classification: "attempt-producing",
+    shapes: ["client entry"],
+  },
+  // Seed starts checkoutSeedIds.sessions.startedCart only when loadSeedSessionState reads it absent.
+  {
+    path: "bounded-contexts/checkout/support/runtime-support/seed.ts",
+    classification: "exempt",
+    shapes: ["direct session start"],
+  },
+  {
+    path: "bounded-contexts/checkout/support/ucp-support/checkout.ts",
+    classification: "attempt-producing",
+    shapes: ["buy-now preparation"],
+  },
+  {
+    path: "bounded-contexts/discovery/support/route-support/item-detail/action.ts",
+    classification: "attempt-producing",
+    shapes: ["client entry"],
+  },
+];
+
+/** A key computed from what is being bought, rather than created once per deliberate submission. */
+const CONTENT_DERIVED_ENTRY_KEY =
+  /\b(?:entryAttemptKey|attemptId)\s*[:=]\s*(?:`|JSON\.stringify|[\w.]+\s*\+|createHash\("sha256"\)\.update\((?!meta\.retryKey\)))/;
+
+/** The text of one call's balanced argument list, starting at the shape's opening parenthesis. */
+function callArguments(content: string, openIndex: number) {
+  let depth = 0;
+  for (let index = openIndex; index < content.length; index += 1) {
+    const character = content[index];
+    if (character === "(") depth += 1;
+    if (character === ")" && --depth === 0) return content.slice(openIndex, index + 1);
+  }
+  return content.slice(openIndex);
+}
+
+/**
+ * Classifies every file that opens a Session. A server-side entry call must
+ * carry the `entryAttempt` in its own arguments; a client entry file must send
+ * `entryAttemptKey` and validate it (`checkoutEntryAttemptKey` or
+ * `isCheckoutCommandAttemptId`); a content-derived key fails anywhere.
+ */
+function partitionEntryCallers(files: readonly SourceFile[]) {
+  const rows: CallerRow[] = [];
+  const unclassified: string[] = [];
+  for (const file of files) {
+    if (file.path.endsWith("features/sessions/api/session-entry.ts")) continue;
+    const calls = ENTRY_WRITE_SHAPES.flatMap((shape) =>
+      [...file.content.matchAll(shape.pattern)].map((match) => ({
+        shape: shape.name,
+        args: callArguments(file.content, (match.index ?? 0) + match[0].lastIndexOf("(")),
+      })),
+    );
+    if (calls.length === 0) continue;
+    const shapes = ENTRY_WRITE_SHAPES.map((shape) => shape.name).filter((name) =>
+      calls.some((call) => call.shape === name),
+    );
+    const expected = EXPECTED_ENTRY_PARTITION.find((row) => row.path === file.path);
+    const sendsValidatedClientKey =
+      /\b(?:checkoutEntryAttemptKey|isCheckoutCommandAttemptId)\(/.test(file.content) &&
+      /\bentryAttemptKey\b/.test(file.content);
+    const keyless = calls.some((call) => {
+      if (call.shape === "client entry") return !sendsValidatedClientKey;
+      return call.shape !== "direct session start" && !/\bentryAttempt\b/.test(call.args);
+    });
+    const contentDerived = CONTENT_DERIVED_ENTRY_KEY.test(file.content);
+    const exemptMismatch =
+      expected?.classification === "exempt" && shapes.some((shape) => shape !== "direct session start");
+    if (
+      !expected ||
+      (expected.classification === "attempt-producing" && keyless) ||
+      contentDerived ||
+      exemptMismatch ||
+      expected.shapes.join() !== shapes.join()
+    ) {
+      unclassified.push(`${file.path}: ${shapes.join(", ")}`);
+      continue;
+    }
+    rows.push({ path: file.path, classification: expected.classification, shapes });
+  }
+  return { rows, unclassified };
+}
+
 let trackedSourcesCache: readonly SourceFile[] | null = null;
 
 /** The tracked production sources, read once per test file. */
@@ -180,6 +292,60 @@ describe("checkout attempt caller partition", () => {
       expect.stringContaining("bounded-contexts/planted/features/synthetic/api/caller.ts"),
     ]);
   });
+
+  it(
+    "classifies every tracked Session entry caller as keyed or a proved exemption",
+    { timeout: TREE_SCAN_TIMEOUT_MS },
+    () => {
+      const { rows, unclassified } = partitionEntryCallers(trackedSources());
+
+      expect(unclassified).toEqual([]);
+      expect(rows.map((row) => `${row.path} ${row.classification}`).sort()).toEqual(
+        EXPECTED_ENTRY_PARTITION.map((row) => `${row.path} ${row.classification}`).sort(),
+      );
+    },
+  );
+
+  it.each([
+    [
+      "a content-derived client key",
+      'import { isCheckoutCommandAttemptId } from "x";\nawait checkoutApi.createCheckoutSession({ entryAttemptKey: `${listingId}:${quantity}`, source });',
+    ],
+    [
+      "a content-hashed server key",
+      'await prepareBuyNowCheckout({ listing, entryAttempt: { attemptId: createHash("sha256").update(listing.listingId).digest("base64url"), requestHash } });',
+    ],
+    ["a keyless client form", "await checkoutApi.createCheckoutSession({ source });"],
+    ["a keyless server entry", "await services.createBuyNow({ accountId, listingId, quantity }, context);"],
+  ])("fails a planted tracked entry caller: %s", { timeout: TREE_SCAN_TIMEOUT_MS }, (_label, line) => {
+    const planted = [
+      ...trackedSources(),
+      { path: "bounded-contexts/planted/features/synthetic/api/entry.ts", content: line },
+    ];
+
+    expect(partitionEntryCallers(planted).unclassified).toEqual([
+      expect.stringContaining("bounded-contexts/planted/features/synthetic/api/entry.ts"),
+    ]);
+  });
+
+  it(
+    "fails a listed entry caller once its key is dropped or derived from content",
+    { timeout: TREE_SCAN_TIMEOUT_MS },
+    () => {
+      const ucpPath = "bounded-contexts/checkout/support/ucp-support/checkout.ts";
+      const routePath = "bounded-contexts/checkout/features/sessions/api/route.ts";
+      const mutate = (target: string, edit: (content: string) => string) =>
+        trackedSources().map((file) => (file.path === target ? { ...file, content: edit(file.content) } : file));
+
+      const listingOnlyKey = mutate(ucpPath, (content) =>
+        content.replace("update(meta.retryKey)", "update(line.listingId)"),
+      );
+      const keylessRoute = mutate(routePath, (content) => content.replace(/\n\s*entryAttempt,\n/g, "\n"));
+
+      expect(partitionEntryCallers(listingOnlyKey).unclassified).toEqual([expect.stringContaining(ucpPath)]);
+      expect(partitionEntryCallers(keylessRoute).unclassified).toEqual([expect.stringContaining(routePath)]);
+    },
+  );
 
   it(
     "never lets ignored generated output with identical bytes join the partition",
@@ -255,4 +421,36 @@ describe("checkout attempt caller partition", () => {
       );
     },
   );
+
+  it("names every Session entry write and its keyless-cart exemption in the Checkout manifest", () => {
+    const manifest = JSON.parse(
+      readFileSync(path.join(repoRoot, "bounded-contexts/checkout/context.json"), "utf8"),
+    ) as {
+      mutationConsistencyInventory?: readonly { entryAttempt?: Record<string, unknown> }[];
+    };
+    const entryRows = (manifest.mutationConsistencyInventory ?? []).flatMap((entry) =>
+      entry.entryAttempt ? [entry.entryAttempt] : [],
+    );
+
+    expect(entryRows).toHaveLength(1);
+    const row = entryRows[0]!;
+    for (const field of ["key", "stream", "lookup", "replay", "confirmation"]) {
+      expect(typeof row[field] === "string" && (row[field] as string).length > 0, field).toBe(true);
+    }
+    expect(
+      (row.writes as readonly { surface: string; kind: string; target: string }[])
+        .map((write) => `${write.surface} ${write.kind} ${write.target}`)
+        .sort(),
+    ).toEqual(
+      [
+        "POST /checkout-sessions checkout-entry session",
+        "route-action:checkout-start checkout-entry session",
+        "route-action:checkout-start guest checkout-entry session",
+        "ucp:create_checkout checkout-entry session",
+      ].sort(),
+    );
+    expect((row.exempt as readonly { surface: string }[]).map((exemption) => exemption.surface)).toEqual([
+      "post-form:cart-page Checkout to /checkout/buy/readiness",
+    ]);
+  });
 });

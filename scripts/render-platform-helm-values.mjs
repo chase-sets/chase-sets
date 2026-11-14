@@ -347,7 +347,12 @@ export function buildPlatformHelmValues(options = {}) {
   const rootDir = path.resolve(options.repoRoot ?? repoRoot);
   const runtimeValues = readPlatformRuntimeValues(rootDir);
 
-  const { schemaVersion: _schemaVersion, productionEnvOverrides: _productionEnvOverrides, ...values } = runtimeValues;
+  const {
+    schemaVersion: _schemaVersion,
+    productionEnvOverrides: _productionEnvOverrides,
+    stagingApiEnv,
+    ...values
+  } = runtimeValues;
   const components = Object.fromEntries(
     Object.entries(values.components ?? {}).map(([name, component]) => [
       name,
@@ -358,6 +363,12 @@ export function buildPlatformHelmValues(options = {}) {
       },
     ]),
   );
+  if (options.deploymentEnvironment === "staging") {
+    components["platform-api"] = {
+      ...components["platform-api"],
+      env: [...(components["platform-api"].env ?? []), ...stagingApiEnv],
+    };
+  }
   const digest = options.managedPostgresCaSha256 ?? "";
   if (digest && !/^[0-9a-f]{64}$/.test(digest)) {
     throw new Error("managedPostgresCaSha256 must be a lowercase SHA-256 digest.");
@@ -423,6 +434,10 @@ export function renderPlatformHelmValues(options = {}) {
 }
 
 export function buildPlatformHelmStagingValues(options = {}) {
+  const stagingApiValues = buildPlatformHelmValues({
+    repoRoot: options.repoRoot,
+    deploymentEnvironment: "staging",
+  });
   return {
     generatedBy,
     doksIngress: buildDoksIngressValues({ env: options.env }),
@@ -453,7 +468,10 @@ export function buildPlatformHelmStagingValues(options = {}) {
           },
         },
       },
-      "platform-api": doksStagingApiOverrides,
+      "platform-api": {
+        ...doksStagingApiOverrides,
+        env: stagingApiValues.components["platform-api"].env,
+      },
       "platform-worker": {
         autoscaling: {
           ...doksStagingWorkerAutoscaling,

@@ -8,6 +8,79 @@ import {
 const ohioPolicy = defaultTaxNexusThresholdPolicies.find((policy) => policy.jurisdictionCode === "OH")!;
 
 describe("tax nexus tracking", () => {
+  it("normalizer output preservation", () => {
+    const report = evaluateTaxNexusReadiness([
+      {
+        jurisdictionCode: "OH",
+        currentYearGrossSalesAmount: "  1.5  ",
+        previousYearGrossSalesAmount: "0001.5",
+        currentYearTransactionCount: 0,
+        previousYearTransactionCount: 0,
+        registrationStatus: "not-registered",
+        collectionStatus: "not-collecting",
+      },
+    ]);
+
+    expect(report.jurisdictions.find((row) => row.jurisdictionCode === "OH")).toMatchObject({
+      currentYearGrossSalesAmount: "1.50",
+      previousYearGrossSalesAmount: "1.50",
+    });
+
+    const maxReport = evaluateTaxNexusReadiness([
+      {
+        jurisdictionCode: "OH",
+        currentYearGrossSalesAmount: "9999999999.99",
+        previousYearGrossSalesAmount: "9999999999.99",
+        currentYearTransactionCount: 0,
+        previousYearTransactionCount: 0,
+        registrationStatus: "not-registered",
+        collectionStatus: "not-collecting",
+      },
+    ]);
+
+    expect(maxReport.jurisdictions.find((row) => row.jurisdictionCode === "OH")).toMatchObject({
+      currentYearGrossSalesAmount: "9999999999.99",
+      previousYearGrossSalesAmount: "9999999999.99",
+    });
+  });
+
+  it("normalizer range rejection", () => {
+    for (const value of ["10000000000.00", "-1.00", "1e2", "1.005"]) {
+      expect(() =>
+        evaluateTaxNexusReadiness([
+          {
+            jurisdictionCode: "OH",
+            currentYearGrossSalesAmount: value,
+            previousYearGrossSalesAmount: "0.00",
+            currentYearTransactionCount: 0,
+            previousYearTransactionCount: 0,
+            registrationStatus: "not-registered",
+            collectionStatus: "not-collecting",
+          },
+        ]),
+      ).toThrow("Current year gross sales must be a non-negative money amount.");
+    }
+  });
+
+  it("normalizer zero matrix", () => {
+    const report = evaluateTaxNexusReadiness([
+      {
+        jurisdictionCode: "OH",
+        currentYearGrossSalesAmount: "0.00",
+        previousYearGrossSalesAmount: "0",
+        currentYearTransactionCount: 0,
+        previousYearTransactionCount: 0,
+        registrationStatus: "not-registered",
+        collectionStatus: "not-collecting",
+      },
+    ]);
+
+    expect(report.jurisdictions.find((row) => row.jurisdictionCode === "OH")).toMatchObject({
+      currentYearGrossSalesAmount: "0.00",
+      previousYearGrossSalesAmount: "0.00",
+    });
+  });
+
   it("does not require provider-backed quotes when no collecting jurisdiction exists", () => {
     const report = evaluateTaxNexusReadiness(
       [

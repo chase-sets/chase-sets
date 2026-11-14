@@ -22,6 +22,8 @@ export type CanonicalScopeRecordProposalRecord = CanonicalScopeRecordProposalInp
     scopeRecordId: string;
     normalizedName: string;
     reviewStatus: CanonicalScopeRecordProposalReviewStatus;
+    /** The Scope Record an accepted proposal resolved to; null until acceptance. */
+    acceptedScopeRecordId: string | null;
     firstProposedAt: string;
     updatedAt: string;
   }>;
@@ -38,6 +40,7 @@ type ProposalRow = Readonly<{
   language_editions: readonly string[];
   parent_external_ids: readonly string[];
   review_status: CanonicalScopeRecordProposalReviewStatus;
+  accepted_scope_record_id: string | null;
   evidence: JsonObject;
   first_proposed_at: string | Date;
   updated_at: string | Date;
@@ -115,6 +118,38 @@ export async function listCanonicalScopeRecordProposals(
   return result.rows.map(toProposalRecord);
 }
 
+export async function getCanonicalScopeRecordProposal(
+  db: PgQueryable,
+  proposalId: string,
+): Promise<CanonicalScopeRecordProposalRecord | null> {
+  const result = await db.query<ProposalRow>("SELECT * FROM catalog_scope_record_proposals WHERE proposal_id = $1", [
+    proposalId,
+  ]);
+  return result.rows[0] ? toProposalRecord(result.rows[0]) : null;
+}
+
+/**
+ * Moves a still-proposed proposal to accepted onto one Scope Record. The
+ * transition is conditional on the proposed status, so a concurrent accept or a
+ * retry that lost the race changes nothing and returns null; the caller rereads.
+ */
+export async function markCanonicalScopeRecordProposalAccepted(
+  db: PgQueryable,
+  input: Readonly<{ proposalId: string; acceptedScopeRecordId: string }>,
+): Promise<CanonicalScopeRecordProposalRecord | null> {
+  const result = await db.query<ProposalRow>(
+    `UPDATE catalog_scope_record_proposals
+     SET review_status = 'accepted',
+         accepted_scope_record_id = $2,
+         updated_at = now()
+     WHERE proposal_id = $1
+       AND review_status = 'proposed'
+     RETURNING *`,
+    [input.proposalId, input.acceptedScopeRecordId],
+  );
+  return result.rows[0] ? toProposalRecord(result.rows[0]) : null;
+}
+
 export function computeCanonicalScopeRecordProposalId(
   input: Pick<CanonicalScopeRecordProposalInput, "productDomain" | "scopeKind" | "name" | "officialSetCode">,
 ): string {
@@ -176,6 +211,7 @@ function toProposalRecord(row: ProposalRow): CanonicalScopeRecordProposalRecord 
     languageEditions: row.language_editions,
     parentExternalIds: row.parent_external_ids,
     reviewStatus: row.review_status,
+    acceptedScopeRecordId: row.accepted_scope_record_id ?? null,
     evidence: row.evidence,
     firstProposedAt: toIsoDate(row.first_proposed_at),
     updatedAt: toIsoDate(row.updated_at),

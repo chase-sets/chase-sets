@@ -56,6 +56,7 @@ const listingInventoryItem = {
   total_quantity: 7,
   available_quantity: 7,
   acquisition_cost_amount: "1.00",
+  acquisition_cost_currency_code: "USD",
 };
 
 let restorePostWriteTokenStore: (() => void) | null = null;
@@ -519,6 +520,7 @@ describe("marketplace listing create route", () => {
         storageLocationId: "loc_1",
         totalQuantity: 7,
         availableQuantity: 7,
+        acquisitionCostCurrencyCode: "USD",
       },
     });
     expect(requestedUrls.some((url) => url.includes("/api/inventory/items/inv_1"))).toBe(false);

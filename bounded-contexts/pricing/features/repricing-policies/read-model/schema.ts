@@ -99,6 +99,8 @@ CREATE TABLE IF NOT EXISTS pricing_repricing_halts (
 );
 `;
 
+export const pricingRepricingPolicyAuthoringIntentSchemaSql = `ALTER TABLE pricing_repricing_policies ADD COLUMN IF NOT EXISTS authoring_intent jsonb NULL;`;
+
 export const pricingRepricingPolicySchemaSql = `
 ${pricingRepricingHaltSchemaSql}
 CREATE TABLE IF NOT EXISTS pricing_repricing_policies (
@@ -115,6 +117,8 @@ CREATE TABLE IF NOT EXISTS pricing_repricing_policies (
   created_at timestamptz NOT NULL,
   updated_at timestamptz NOT NULL
 );
+
+${pricingRepricingPolicyAuthoringIntentSchemaSql}
 
 CREATE INDEX IF NOT EXISTS pricing_repricing_policies_account_idx
   ON pricing_repricing_policies (seller_account_id, status, updated_at DESC);

@@ -75,6 +75,9 @@
       "@chase-sets/catalog-seed": [
         "./contracts/catalog-seed/index.ts"
       ],
+      "@chase-sets/catalog-seed/ids": [
+        "./contracts/catalog-seed/ids.ts"
+      ],
       "@chase-sets/catalog/client": [
         "./bounded-contexts/catalog/client.ts"
       ],
@@ -717,6 +720,9 @@
       "@chase-sets/platform-policy/domain": [
         "./infrastructure/platform-policy/domain.ts"
       ],
+      "@chase-sets/platform-policy/policy-history-reader": [
+        "./infrastructure/platform-policy/policy-history-reader.ts"
+      ],
       "@chase-sets/platform-policy/projection": [
         "./infrastructure/platform-policy/projection.ts"
       ],
@@ -737,6 +743,12 @@
       ],
       "@chase-sets/platform-runtime/agent-guardrails": [
         "./infrastructure/platform-runtime/agent-guardrails.ts"
+      ],
+      "@chase-sets/platform-runtime/analytics-bridge": [
+        "./infrastructure/platform-runtime/analytics-bridge.ts"
+      ],
+      "@chase-sets/platform-runtime/analytics-recorder": [
+        "./infrastructure/platform-runtime/analytics-recorder.ts"
       ],
       "@chase-sets/platform-runtime/api": [
         "./infrastructure/platform-runtime/api.ts"
@@ -1013,9 +1025,6 @@
       ],
       "@chase-sets/settlement/server": [
         "./bounded-contexts/settlement/server.ts"
-      ],
-      "@chase-sets/stripe-appearance": [
-        "./infrastructure/stripe-appearance/stripe-appearance.ts"
       ],
       "@chase-sets/stripe-config": [
         "./infrastructure/stripe-config/index.ts"

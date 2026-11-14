@@ -2,6 +2,14 @@ import type { EventStoreContext } from "@chase-sets/event-core/storage";
 
 export const AUTH_SESSION_COOKIE_NAME = "chase_sets_session";
 export const AUTH_GUEST_CHECKOUT_COOKIE_NAME = "chase_sets_guest_checkout";
+export const STAGING_EBAY_RECEIPT_LOOKUP_SERVICE_ID = "staging-ebay-receipt-lookup";
+export const EBAY_RECEIPT_LOOKUP_PERMISSION = "channels.receipt.lookup";
+export type ReceiptLookupCredential = Readonly<{ version: 1; token: string; expiresAt: string }>;
+export type ReceiptLookupServiceActor = Readonly<{
+  kind: "service";
+  serviceId: typeof STAGING_EBAY_RECEIPT_LOOKUP_SERVICE_ID;
+  permissions: readonly string[];
+}>;
 export const CHANNEL_CONNECTOR_OPERATIONS = ["claim", "report", "ingest"] as const;
 export const CHANNEL_CONNECTOR_SCOPE_FAMILY = {
   key: "channel-connector",
@@ -50,6 +58,14 @@ export type ResolvedActor = Readonly<{
    * carry grants (guest checkout, UCP/agent bearer tokens).
    */
   capabilityAssignments?: readonly ResolvedActorCapabilityAssignment[];
+  /**
+   * What backs `sessionId`, set by the Auth resolver that built this actor:
+   * a real Auth Session stream, a guest-checkout token (`guest:<token>`), or a
+   * linked-platform/UCP grant (`ucp:<authorization>`). Only a real Auth
+   * Session can be the current Session; read it through
+   * `currentAuthSessionIdOf`, never from the ID's shape.
+   */
+  sessionProvenance?: AuthSessionProvenance;
 }>;
 
 export type ResolvedActorCapabilityAssignment = Readonly<{
@@ -57,6 +73,38 @@ export type ResolvedActorCapabilityAssignment = Readonly<{
   assignmentId: string;
   version: number;
 }>;
+
+export const AUTH_SESSION_PROVENANCES = ["auth-session", "guest-checkout", "linked-platform"] as const;
+export type AuthSessionProvenance = (typeof AUTH_SESSION_PROVENANCES)[number];
+
+export const GUEST_CHECKOUT_SESSION_ID_PREFIX = "guest:";
+export const LINKED_PLATFORM_SESSION_ID_PREFIX = "ucp:";
+
+/** True for the synthetic actor handles guest-checkout and linked-platform actors carry as `sessionId`. */
+export function isSyntheticAuthSessionId(sessionId: string): boolean {
+  return (
+    sessionId.startsWith(GUEST_CHECKOUT_SESSION_ID_PREFIX) || sessionId.startsWith(LINKED_PLATFORM_SESSION_ID_PREFIX)
+  );
+}
+
+/**
+ * The actor's current real Auth Session, or `null`. Only an actor
+ * Auth resolved from a real Session stream has one; guest-checkout and
+ * linked-platform actors, an actor without provenance, and a real-provenance
+ * actor carrying a synthetic or empty ID never do, so none of them can be
+ * listed, preserved, or acted on as the current Session.
+ */
+export function currentAuthSessionIdOf(
+  actor: Pick<ResolvedActor, "sessionId" | "sessionProvenance"> | null | undefined,
+): string | null {
+  if (actor?.sessionProvenance !== "auth-session") {
+    return null;
+  }
+  const { sessionId } = actor;
+  return typeof sessionId === "string" && sessionId.length > 0 && !isSyntheticAuthSessionId(sessionId)
+    ? sessionId
+    : null;
+}
 
 /**
  * The recent-authentication ("step-up") outcome for a sensitive action, per
@@ -108,11 +156,12 @@ export const PERMISSION_KEYS = [
   "catalog.manage",
   "catalog.view",
   "channels.manage",
+  "channels.receipt.lookup",
   "channels.view",
   "commercial-terms.agreements.manage",
   "commercial-terms.manage",
   "commercial-terms.view",
-  // Customer Feedback attention checks this; no role grants it.
+  // Sensitive Customer Feedback exports require this distinct staff capability.
   "customer-feedback.privacy.export-sensitive-feedback",
   "fulfillment.manage",
   "fulfillment.view",
@@ -222,6 +271,7 @@ export const ROLE_PERMISSIONS = {
     "commercial-terms.agreements.manage",
     "commercial-terms.manage",
     "commercial-terms.view",
+    "customer-feedback.privacy.export-sensitive-feedback",
     "google-shopping.manage",
     "google-shopping.view",
     "listing-evidence-policy.activate",
@@ -390,6 +440,58 @@ export const ROLE_PERMISSIONS = {
     "support.view",
   ],
 } satisfies Readonly<Record<string, readonly PermissionKey[]>>;
+
+/**
+ * Commerce permissions Auth withholds from a session whose primary email is not
+ * verified. Verifying that email (consuming a magic link does) lifts the
+ * restriction on the next actor resolution; nothing else grants them.
+ */
+export const EMAIL_VERIFICATION_RESTRICTED_PERMISSIONS = [
+  "listings.manage",
+  "offers.manage",
+  "orders.manage",
+  "pricing.manage",
+] as const satisfies readonly PermissionKey[];
+
+/**
+ * True only when the actor's role grants `permission` and Auth withheld it
+ * pending email verification, so a surface can truthfully ask the member to
+ * verify their email rather than hide the action unexplained. Reads Auth's own
+ * role table and grants nothing; agent-scoped actors are never told to verify.
+ */
+export function permissionAwaitsEmailVerification(
+  actor: Pick<ResolvedActor, "roleKey" | "permissions" | "agentGrant"> | null | undefined,
+  permission: PermissionKey,
+): boolean {
+  if (!actor || actor.agentGrant || actor.permissions.includes(permission)) {
+    return false;
+  }
+
+  const rolePermissions: readonly string[] = ROLE_PERMISSIONS[actor.roleKey as keyof typeof ROLE_PERMISSIONS] ?? [];
+  return (
+    (EMAIL_VERIFICATION_RESTRICTED_PERMISSIONS as readonly string[]).includes(permission) &&
+    rolePermissions.includes(permission)
+  );
+}
+
+/** Sign-in return marker naming the withheld action a member verifies their email to finish. */
+export const EMAIL_VERIFICATION_RETURN_PARAMETER = "verifyEmail";
+export type EmailVerificationPurpose = "cancel-purchase" | "pay-checkout";
+
+/**
+ * The marketplace sign-in path that emails a magic link and, once the link is
+ * consumed (which verifies the email), returns to `returnPath` marked with
+ * `purpose`. `returnPath` must be a same-site path; Auth re-validates it.
+ */
+export function emailVerificationSignInHref(returnPath: string, purpose: EmailVerificationPurpose): string {
+  const returnTo = new URL(returnPath, "https://chase-sets.local");
+  returnTo.searchParams.set(EMAIL_VERIFICATION_RETURN_PARAMETER, purpose);
+  const signIn = new URLSearchParams({
+    returnTo: `${returnTo.pathname}${returnTo.search}`,
+    signInMethod: "magic-link",
+  });
+  return `/sign-in?${signIn.toString()}`;
+}
 
 export type AgentOAuthScope = AgentOAuthCommerceScope | AgentOAuthOperatorScope;
 

@@ -1,5 +1,7 @@
 import { Hono } from "hono";
 import type { InventoryCatalogItemServices } from "../../features/inventory-items/integrations/catalog/runtime";
+import type { InventoryCatalogItemSnapshot } from "../../features/inventory-items/integrations/catalog/queries";
+import { inventoryGradedSelections } from "../../features/inventory-items/integrations/catalog/graded-selection";
 
 export function inventoryCatalogItemRoutes(services: InventoryCatalogItemServices) {
   const app = new Hono();
@@ -11,7 +13,11 @@ export function inventoryCatalogItemRoutes(services: InventoryCatalogItemService
       return c.json({ error: { code: "not_found", message: "Catalog item not found." } }, 404);
     }
 
-    return c.json(item);
+    const snapshot: InventoryCatalogItemSnapshot = {
+      ...item,
+      graded_selections: inventoryGradedSelections(item.product_schema),
+    };
+    return c.json(snapshot);
   });
 
   return app;

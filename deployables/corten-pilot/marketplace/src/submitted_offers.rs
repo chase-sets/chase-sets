@@ -1,0 +1,574 @@
+//! The buyer's submitted offers (marketplace's `account-offers-submitted` route,
+//! `/account/offers/submitted`): the account's offers in a status, with every status's count,
+//! and Pause, Resume and Withdraw, one offer or the checked ones.
+//!
+//! Reads: the first 100 offers in the address's status (`?status=submitted|paused|withdrawn|accepted`,
+//! else all), after the write whose receipt a change left (a read still catching up is read again
+//! without it).
+//!
+//! Writes post to the list: a row's button sends `row` as `{action}:{offer id}`, and Pause
+//! selected, Resume selected and Withdraw selected send `lifecycleAction` with the checked
+//! `offerIds`. One offer is its own command, several the bulk command, as marketplace's action
+//! does; the answer is each offer's outcome, drawn above the list, and an outcome newer than the
+//! read is the offer's status until the read catches up (`latestSubmittedOfferStatus`). An offer
+//! the API cannot find or that changed under the request is that offer's refusal, and so is every
+//! offer when the lifecycle is closed (503 `offer_lifecycle_closed`). Withdraw asks first, in a
+//! dialog its button opens with no script.
+//!
+//! The counts and the rows are drawn again on each change to the account's offers
+//! (`<corten-live>` on `account:{id}:offers`).
+//!
+//! An offer's own page (`account-offer-submitted`, `/account/offers/submitted/{id}`): its overview
+//! (price and status, options, quantity, the accepting seller's reputation, the price lines and
+//! where it is), and Pause, Resume and Withdraw for it, which post to the page and answer it with
+//! the outcome, read after the write. An offer that is not the account's is a 404; one whose read
+//! has not caught up with the write the address follows is marketplace's "Preparing submitted
+//! offer" with Refresh, read again in 2 s.
+//!
+//! Market following (`market_following`) is a section on the list and on an offer's page, above
+//! the offers: the policies naming the page's offers, the one the address opens (`?policy={id}`),
+//! and its steps, which post to `following` beside the page. A step the API applies redirects
+//! (303) to the page's own address with its policy opened; a refused or unconfirmed one answers
+//! with the page again, its inputs kept. A failed read of the policies is the page's read failure.
+use corten::{
+    LiveResponse,
+    extract::State,
+    http::{HeaderMap, StatusCode},
+    prelude::*,
+};
+use futures_util::StreamExt;
+use platform::{realtime::Tick, receipt::Receipt};
+use serde::Deserialize;
+
+use crate::{
+    api::{ApiError, LifecycleOutcome, SubmittedOffer, SubmittedOfferCalls as _, SubmittedOffers},
+    app::{OFFERS_MANAGE, Shared, read_failed, sign_in},
+    auth::{OfferBuyer, Viewer},
+    items::Raw,
+    market_following::{self, Following, Problem},
+    text::{Pilot, SubmittedOffersMsg},
+    views::{self, Layout},
+};
+
+/// The statuses the list can show, in marketplace's order (`submittedOfferStatusFilters` after `all`).
+pub const STATUSES: [&str; 4] = ["submitted", "paused", "withdrawn", "accepted"];
+/// The changes a buyer can make (`submittedOfferLifecycleActionValues`).
+pub const ACTIONS: [&str; 3] = ["pause", "resume", "withdraw"];
+
+/// The list's address: the status it shows, and the market-following policy it opens.
+#[derive(Clone, Debug, Default, Fields, Route)]
+#[route(query)]
+pub struct Place {
+    pub status: Option<String>,
+    pub policy: Option<String>,
+}
+
+impl Place {
+    /// The status the list shows, or none for all (`parseSubmittedOfferStatusFilter`).
+    pub fn status(&self) -> Option<&'static str> {
+        self.status.as_deref().and_then(|s| STATUSES.into_iter().find(|known| *known == s))
+    }
+
+    pub fn of(status: Option<&str>) -> Place {
+        Place { status: status.map(str::to_owned), policy: None }
+    }
+}
+
+/// An offer page's address: the receipt of the write it follows, and the market-following policy
+/// it opens.
+#[derive(Clone, Debug, Default, Deserialize, Route)]
+#[route(query)]
+pub struct OfferPlace {
+    pub after_write: Option<String>,
+    pub policy: Option<String>,
+}
+
+/// What an offer's page shows.
+pub struct OfferScreen {
+    pub offer: SubmittedOffer,
+    pub manage: bool,
+    pub outcomes: Option<Vec<LifecycleOutcome>>,
+    pub refusal: Option<String>,
+    /// Market following; none in the live parts, which do not draw it.
+    pub following: Option<Following>,
+}
+
+/// A lifecycle change: one row's (`row`), or the checked offers' (`lifecycleAction`, `offerIds`).
+#[derive(Clone, Debug, Default, Fields)]
+#[serde(rename_all = "camelCase", default)]
+pub struct LifecycleForm {
+    pub lifecycle_action: String,
+    pub offer_ids: Vec<String>,
+    /// `{action}:{offer id}`.
+    pub row: String,
+}
+
+/// What the page shows.
+pub struct OffersScreen {
+    pub offers: SubmittedOffers,
+    pub place: Place,
+    /// The reader may Pause, Resume and Withdraw (`offers.manage`).
+    pub manage: bool,
+    /// What the change before did to each offer.
+    pub outcomes: Option<Vec<LifecycleOutcome>>,
+    /// Why a change was refused as a whole.
+    pub refusal: Option<String>,
+    /// Market following; none in the live parts, which do not draw it.
+    pub following: Option<Following>,
+}
+
+/// The buyer actions a status admits (`submittedOfferLifecycleActions`): withdrawn and accepted
+/// offers are final.
+pub fn actions(status: &str) -> &'static [&'static str] {
+    match status {
+        "submitted" => &["pause", "withdraw"],
+        "paused" => &["resume", "withdraw"],
+        _ => &[],
+    }
+}
+
+/// The offers in `status`, read after `receipt`'s write.
+async fn read(
+    config: &Shared,
+    headers: &HeaderMap,
+    status: Option<&str>,
+    receipt: Option<&Receipt>,
+) -> Result<SubmittedOffers, ApiError> {
+    match config.platform.caller(headers, config.proto, receipt).submitted_offers(status).await {
+        Err(error) if receipt.is_some() && error.catching_up() => {
+            config.platform.caller(headers, config.proto, None).submitted_offers(status).await
+        }
+        other => other,
+    }
+}
+
+/// What market following came to for a page.
+enum Followed {
+    /// The section, with what a refused or unconfirmed step came to.
+    Section(Box<Following>),
+    /// The step's command answered with this policy: the page opens it at its own address.
+    Opened(String),
+    /// The API asked for a sign-in.
+    SignIn,
+    /// A read failed: the page's read failure.
+    ReadFailed(ApiError),
+}
+
+/// Market following for `offers`: the policy the address opens, after the step the form sent, if
+/// any.
+async fn following(
+    config: &Shared,
+    headers: &HeaderMap,
+    offers: &[SubmittedOffer],
+    opened: Option<&str>,
+    step: Option<&Raw>,
+) -> Followed {
+    let caller = config.platform.caller(headers, config.proto, None);
+    let ran = match step {
+        Some(raw) => {
+            let mut ran = market_following::run(&caller, offers, raw).await;
+            if ran.unauthorized {
+                return Followed::SignIn;
+            }
+            if let Some(error) = ran.read_error.take() {
+                return Followed::ReadFailed(error);
+            }
+            if let Some(policy) = ran.answered() {
+                return Followed::Opened(policy.to_owned());
+            }
+            Some(ran)
+        }
+        None => None,
+    };
+    match market_following::following(&caller, offers, opened, ran).await {
+        Ok(following) => Followed::Section(Box::new(following)),
+        Err(error) => Followed::ReadFailed(error),
+    }
+}
+
+/// A refused step answers 422, as a refused lifecycle change does; one whose result could not be
+/// confirmed answers as the page.
+fn step_status(status: StatusCode, step: Option<&Raw>, following: Option<&Following>) -> StatusCode {
+    match following.and_then(|f| f.problem) {
+        Some(Problem::Invalid | Problem::Stale) if step.is_some() => StatusCode::UNPROCESSABLE_ENTITY,
+        _ => status,
+    }
+}
+
+/// Each outcome newer than the read is its offer's status until the read catches up.
+fn overlay(offers: &mut SubmittedOffers, outcomes: &[LifecycleOutcome]) {
+    for offer in &mut offers.items {
+        let newer = outcomes.iter().find(|o| {
+            o.offer_id == offer.offer_id && o.outcome != "rejected" && o.version.is_some_and(|v| v > offer.last_stream_version)
+        });
+        if let Some(status) = newer.and_then(|o| o.status.clone()) {
+            offer.status = status;
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn render(
+    req: &Req,
+    viewer: &Viewer,
+    config: &Shared,
+    headers: &HeaderMap,
+    place: Place,
+    receipt: Option<Receipt>,
+    outcomes: Option<Vec<LifecycleOutcome>>,
+    refusal: Option<String>,
+    step: Option<&Raw>,
+    status: StatusCode,
+) -> HtmlResult {
+    let mut offers = match read(config, headers, place.status(), receipt.as_ref()).await {
+        Ok(offers) => offers,
+        Err(error) => return read_failed(req, Some(viewer), error, None),
+    };
+    if let Some(outcomes) = &outcomes {
+        overlay(&mut offers, outcomes);
+    }
+    let following = match following(config, headers, &offers.items, place.policy.as_deref(), step).await {
+        Followed::Section(following) => Some(*following),
+        Followed::Opened(policy) => {
+            return req.redirect(&crate::app::url::SubmittedOffers { place: Place { policy: Some(policy), ..place } });
+        }
+        Followed::SignIn => return sign_in(req),
+        Followed::ReadFailed(error) => return read_failed(req, Some(viewer), error, None),
+    };
+    let status = step_status(status, step, following.as_ref());
+    let manage = viewer.actor.can(OFFERS_MANAGE);
+    let screen = OffersScreen { offers, place, manage, outcomes, refusal, following };
+    let t: SubmittedOffersMsg = req.t();
+    let page = html! {
+        <Layout req={req} viewer={Some(viewer)} title={t.route_submitted_offers_marketplace()} head={()}>
+            <views::SubmittedOffersPage t={t} p={req.t()} screen={&screen} />
+        </Layout>
+    };
+    if status == StatusCode::OK { req.page(page) } else { req.page_with_status(status, page) }
+}
+
+pub(crate) async fn list(
+    req: Req,
+    Caller(OfferBuyer(viewer)): Caller<OfferBuyer>,
+    State(config): State<Shared>,
+    headers: HeaderMap,
+    Params(route): Params<crate::app::url::submitted_offers::SubmittedOffers>,
+) -> HtmlResult {
+    let place = route.place;
+    render(&req, &viewer, &config, &headers, place, None, None, None, None, StatusCode::OK).await
+}
+
+/// A market-following step for the list's offers: the list with its policy opened when the API
+/// applied it, else the list again with what it came to.
+pub(crate) async fn follow(
+    req: Req,
+    Caller(OfferBuyer(viewer)): Caller<OfferBuyer>,
+    State(config): State<Shared>,
+    headers: HeaderMap,
+    Params(route): Params<crate::app::url::submitted_offers::SubmittedOffersFollowing>,
+    Form(raw): Form<Raw>,
+) -> HtmlResult {
+    render(&req, &viewer, &config, &headers, route.place, None, None, None, Some(&raw), StatusCode::OK).await
+}
+
+/// Each offer once, in the order checked.
+fn distinct(ids: Vec<String>) -> Vec<String> {
+    let mut out: Vec<String> = Vec::with_capacity(ids.len());
+    for id in ids.into_iter().map(|id| id.trim().to_owned()).filter(|id| !id.is_empty()) {
+        if !out.contains(&id) {
+            out.push(id);
+        }
+    }
+    out
+}
+
+/// Every offer refused with `code`.
+fn rejected(ids: &[String], code: &str) -> Vec<LifecycleOutcome> {
+    ids.iter()
+        .map(|id| LifecycleOutcome {
+            offer_id: id.clone(),
+            outcome: "rejected".into(),
+            status: None,
+            version: None,
+            code: Some(code.to_owned()),
+        })
+        .collect()
+}
+
+/// Pause, Resume or Withdraw, for one row or the checked offers; the list again with each
+/// offer's outcome.
+pub(crate) async fn change(
+    req: Req,
+    Caller(OfferBuyer(viewer)): Caller<OfferBuyer>,
+    State(config): State<Shared>,
+    headers: HeaderMap,
+    Params(route): Params<crate::app::url::submitted_offers::SubmittedOffers>,
+    Form(form): Form<LifecycleForm>,
+) -> HtmlResult {
+    let place = route.place;
+    let p: Pilot = req.t();
+    let (action, ids) = match form.row.split_once(':') {
+        Some((action, id)) => (action.to_owned(), distinct(vec![id.to_owned()])),
+        None => (form.lifecycle_action, distinct(form.offer_ids)),
+    };
+    let refuse = |message: String| {
+        render(&req, &viewer, &config, &headers, place.clone(), None, None, Some(message), None, StatusCode::UNPROCESSABLE_ENTITY)
+    };
+    if !ACTIONS.contains(&action.as_str()) {
+        return refuse(p.submitted_offers_unknown_action().to_owned()).await;
+    }
+    if ids.is_empty() {
+        return refuse(p.submitted_offers_choose().to_owned()).await;
+    }
+    let caller = config.platform.caller(&headers, config.proto, None);
+    let answer = match ids.as_slice() {
+        [id] => caller.change_offer(id, &action).await.map(|(outcome, receipt)| (vec![outcome], receipt)),
+        _ => caller.change_offers(&ids, &action).await,
+    };
+    let (outcomes, receipt) = match answer {
+        Ok(answer) => answer,
+        Err(error) => match error.status() {
+            Some(StatusCode::UNAUTHORIZED) => return sign_in(&req),
+            // Closed admission refuses the whole request before any write, so every offer says so.
+            Some(StatusCode::SERVICE_UNAVAILABLE) if error.code() == Some("offer_lifecycle_closed") => {
+                (rejected(&ids, "offer_lifecycle_closed"), None)
+            }
+            Some(StatusCode::NOT_FOUND | StatusCode::CONFLICT) if ids.len() == 1 => {
+                (rejected(&ids, error.code().unwrap_or("request_failed")), None)
+            }
+            Some(status) if status.is_client_error() => {
+                let t: SubmittedOffersMsg = req.t();
+                let message = error.refusal().map(str::to_owned);
+                return refuse(message.unwrap_or_else(|| t.lifecycle_outcome_request_failed(&ids.join(", ")).to_string())).await;
+            }
+            _ => return Err(corten::Error::new(error).with_status(StatusCode::BAD_GATEWAY)),
+        },
+    };
+    render(&req, &viewer, &config, &headers, place, receipt, Some(outcomes), None, None, StatusCode::OK).await
+}
+
+/// The counts and the rows again on each change to the account's offers (marketplace's
+/// `useRealtimePatchedSnapshot` on `account:{id}:offers`, which patches the rows and reloads
+/// for the counts; the pilot reads the list again, so each redraw is complete).
+pub(crate) async fn live(
+    req: Req,
+    Caller(OfferBuyer(viewer)): Caller<OfferBuyer>,
+    State(config): State<Shared>,
+    headers: HeaderMap,
+    since: corten::LiveSince,
+    Params(route): Params<crate::app::url::submitted_offers::SubmittedOffersLive>,
+) -> LiveResponse {
+    let place = route.place;
+    let (t, p): (SubmittedOffersMsg, Pilot) = (req.t(), req.t());
+    let manage = viewer.actor.can(OFFERS_MANAGE);
+    let topic = format!("account:{}:offers", viewer.actor.account_id);
+    let changes = config.platform.caller(&headers, config.proto, None).changes(&[&topic], since.0);
+    let fragments = changes
+        .take_while(|tick| std::future::ready(!matches!(tick, Tick::Refused(_))))
+        .filter_map(|tick| {
+            std::future::ready(match tick {
+                Tick::Changed(cursor, _) => Some(cursor),
+                Tick::Opened(_) | Tick::Refused(_) => None,
+            })
+        })
+        .then(move |cursor| {
+            let (config, headers, place) = (config.clone(), headers.clone(), place.clone());
+            async move {
+                let offers = match read(&config, &headers, place.status(), None).await {
+                    Ok(offers) => offers,
+                    Err(error) => {
+                        tracing::warn!("the submitted offers' read for a change failed: {error}");
+                        return None;
+                    }
+                };
+                let screen = OffersScreen { offers, place, manage, outcomes: None, refusal: None, following: None };
+                let html = views::submitted_offers_live_parts(t, p, &screen).to_html();
+                Some(match cursor {
+                    Some(cursor) => corten::Fragment::new(html).cursor(cursor),
+                    None => corten::Fragment::new(html),
+                })
+            }
+        })
+        .filter_map(std::future::ready);
+    corten::live(fragments)
+}
+
+/// What an offer's read came to: the offer, not the account's, or still catching up with the
+/// write the address follows (`classifyPostWriteDestinationResult`'s `recover`).
+enum OfferRead {
+    Found(Box<SubmittedOffer>),
+    NotFound,
+    Preparing,
+}
+
+async fn read_offer(config: &Shared, headers: &HeaderMap, id: &str, receipt: Option<&Receipt>) -> Result<OfferRead, ApiError> {
+    match config.platform.caller(headers, config.proto, receipt).submitted_offer(id).await {
+        Ok(Some(offer)) => Ok(OfferRead::Found(Box::new(offer))),
+        // Not found after a write: the read has not caught up with it yet (`loadAfterWrite`'s isNotFound).
+        Ok(None) if receipt.is_some() => Ok(OfferRead::Preparing),
+        Ok(None) => Ok(OfferRead::NotFound),
+        Err(error) if receipt.is_some() && error.catching_up() => Ok(OfferRead::Preparing),
+        Err(error) => Err(error),
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn render_offer(
+    req: &Req,
+    viewer: &Viewer,
+    config: &Shared,
+    headers: &HeaderMap,
+    id: &str,
+    receipt: Option<Receipt>,
+    outcomes: Option<Vec<LifecycleOutcome>>,
+    refusal: Option<String>,
+    opened: Option<&str>,
+    step: Option<&Raw>,
+    status: StatusCode,
+) -> HtmlResult {
+    let t: SubmittedOffersMsg = req.t();
+    let mut offer = match read_offer(config, headers, id, receipt.as_ref()).await {
+        Ok(OfferRead::Found(offer)) => *offer,
+        Ok(OfferRead::NotFound) => return Err(corten::Error::status(StatusCode::NOT_FOUND)),
+        Ok(OfferRead::Preparing) => {
+            let place = OfferPlace { after_write: receipt.map(|r| r.param()), policy: None };
+            let here = crate::app::url::SubmittedOffer { id, place };
+            // After a change, go to the address that carries the receipt, so reading again (and
+            // Refresh) waits for the write rather than reading the post's address.
+            if outcomes.is_some() {
+                return req.redirect(&here);
+            }
+            let head = html! { <ReadAgain after={std::time::Duration::from_secs(2)} /> };
+            let page = html! {
+                <Layout
+                    req={req}
+                    viewer={Some(viewer)}
+                    title={t.detail_route_submitted_offer_marketplace()}
+                    head={head}
+                >
+                    <views::SubmittedOfferPreparing t={t} refresh={here.href()} />
+                </Layout>
+            };
+            return req.page(page);
+        }
+        Err(error) => return read_failed(req, Some(viewer), error, None),
+    };
+    if let Some(outcomes) = &outcomes {
+        let mut list = SubmittedOffers { items: vec![offer], ..SubmittedOffers::default() };
+        overlay(&mut list, outcomes);
+        offer = list.items.remove(0);
+    }
+    let following = match following(config, headers, std::slice::from_ref(&offer), opened, step).await {
+        Followed::Section(following) => Some(*following),
+        Followed::Opened(policy) => {
+            let place = OfferPlace { after_write: None, policy: Some(policy) };
+            return req.redirect(&crate::app::url::SubmittedOffer { id, place });
+        }
+        Followed::SignIn => return sign_in(req),
+        Followed::ReadFailed(error) => return read_failed(req, Some(viewer), error, None),
+    };
+    let status = step_status(status, step, following.as_ref());
+    let manage = viewer.actor.can(OFFERS_MANAGE);
+    let screen = OfferScreen { offer, manage, outcomes, refusal, following };
+    let page = html! {
+        <Layout req={req} viewer={Some(viewer)} title={t.detail_route_submitted_offer_marketplace()} head={()}>
+            <views::SubmittedOfferPage t={t} p={req.t()} screen={&screen} />
+        </Layout>
+    };
+    if status == StatusCode::OK { req.page(page) } else { req.page_with_status(status, page) }
+}
+
+/// An offer's page, read after the write its address names.
+pub(crate) async fn detail(
+    req: Req,
+    Caller(OfferBuyer(viewer)): Caller<OfferBuyer>,
+    State(config): State<Shared>,
+    headers: HeaderMap,
+    Params(route): Params<crate::app::url::submitted_offers::SubmittedOffer<'_>>,
+) -> HtmlResult {
+    let receipt = Receipt::from_param(route.place.after_write.as_deref());
+    let opened = route.place.policy.as_deref();
+    render_offer(&req, &viewer, &config, &headers, &route.id, receipt, None, None, opened, None, StatusCode::OK).await
+}
+
+/// A market-following step for this offer: its page with its policy opened when the API applied
+/// it, else its page again with what it came to.
+pub(crate) async fn follow_one(
+    req: Req,
+    Caller(OfferBuyer(viewer)): Caller<OfferBuyer>,
+    State(config): State<Shared>,
+    headers: HeaderMap,
+    Params(route): Params<crate::app::url::submitted_offers::SubmittedOfferFollowing<'_>>,
+    Form(raw): Form<Raw>,
+) -> HtmlResult {
+    render_offer(&req, &viewer, &config, &headers, &route.id, None, None, None, None, Some(&raw), StatusCode::OK).await
+}
+
+/// Pause, Resume or Withdraw this offer (`row` is `{action}:{offer id}`, as the list's): the page
+/// again with the outcome, read after the write.
+pub(crate) async fn change_one(
+    req: Req,
+    Caller(OfferBuyer(viewer)): Caller<OfferBuyer>,
+    State(config): State<Shared>,
+    headers: HeaderMap,
+    Params(route): Params<crate::app::url::submitted_offers::SubmittedOffer<'_>>,
+    Form(form): Form<LifecycleForm>,
+) -> HtmlResult {
+    let id = route.id.to_string();
+    let p: Pilot = req.t();
+    let action = match form.row.split_once(':') {
+        Some((action, offer)) if offer == id && ACTIONS.contains(&action) => action.to_owned(),
+        _ => {
+            let message = p.submitted_offers_unknown_action().to_owned();
+            return render_offer(
+                &req,
+                &viewer,
+                &config,
+                &headers,
+                &id,
+                None,
+                None,
+                Some(message),
+                None,
+                None,
+                StatusCode::UNPROCESSABLE_ENTITY,
+            )
+            .await;
+        }
+    };
+    let ids = [id.clone()];
+    let caller = config.platform.caller(&headers, config.proto, None);
+    let (outcomes, receipt) = match caller.change_offer(&id, &action).await {
+        Ok((outcome, receipt)) => (vec![outcome], receipt),
+        Err(error) => match error.status() {
+            Some(StatusCode::UNAUTHORIZED) => return sign_in(&req),
+            Some(StatusCode::SERVICE_UNAVAILABLE) if error.code() == Some("offer_lifecycle_closed") => {
+                (rejected(&ids, "offer_lifecycle_closed"), None)
+            }
+            Some(StatusCode::NOT_FOUND | StatusCode::CONFLICT) => {
+                (rejected(&ids, error.code().unwrap_or("request_failed")), None)
+            }
+            Some(status) if status.is_client_error() => {
+                let t: SubmittedOffersMsg = req.t();
+                let message =
+                    error.refusal().map(str::to_owned).unwrap_or_else(|| t.lifecycle_outcome_request_failed(&id).to_string());
+                return render_offer(
+                    &req,
+                    &viewer,
+                    &config,
+                    &headers,
+                    &id,
+                    None,
+                    None,
+                    Some(message),
+                    None,
+                    None,
+                    StatusCode::UNPROCESSABLE_ENTITY,
+                )
+                .await;
+            }
+            _ => return Err(corten::Error::new(error).with_status(StatusCode::BAD_GATEWAY)),
+        },
+    };
+    render_offer(&req, &viewer, &config, &headers, &id, receipt, Some(outcomes), None, None, None, StatusCode::OK).await
+}

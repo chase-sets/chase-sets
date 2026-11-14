@@ -4,6 +4,7 @@ import { createHash } from "node:crypto";
 import { appendFile, readFile, writeFile, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import {
@@ -25,6 +26,9 @@ const digestPattern = /^sha256:[0-9a-f]{64}$/;
 const productionJobName = "Deploy Production";
 const markerStepName = "Mark production release";
 const transitionStepName = "Verify production Kubernetes deployment transition";
+// The workflow mints this short-lived App token for publication only; the default token keeps every read.
+export const publisherTokenVariable = "PRODUCTION_MARKER_PUSH_TOKEN";
+const publisherAuthorityMissing = "production-marker-publisher-authority-missing";
 const uploadStepName = "Upload production Kubernetes deployment transition";
 const requiredSteps = [
   "Verify promoted platform runtime image",
@@ -204,10 +208,68 @@ export function registryManifestBytes(output, digest) {
   throw new Error("registry manifest bytes do not hash to the authoritative digest");
 }
 
+// Diagnostics read only a failed child's exit shape: fixed codes and signals pick an enum, never their own value.
+const spawnErrorCodes = new Set(["ENOENT", "EACCES", "EPERM"]);
+const exitSignals = new Set(["SIGTERM", "SIGKILL", "SIGINT", "SIGHUP", "SIGPIPE", "SIGABRT"]);
+function subprocessOutcome(error) {
+  if (error?.killed === true && error.signal === "SIGTERM" && error.code == null) return "timeout";
+  if (exitSignals.has(error?.signal)) return "signal";
+  if (Number.isSafeInteger(error?.code) && error.code > 0 && error.code < 256) return "exit-nonzero";
+  if (spawnErrorCodes.has(error?.code)) return "spawn-error";
+  return "unknown";
+}
+
+// git and GitHub push refusal formats, each matched within one stderr line. The workflow phrase is the server detail
+// GitHub recorded for the November 2 refusal; the push stderr around it was not captured, so it is not anchored.
+const pushRefusalSignatures = [
+  [
+    "workflow-update-permission",
+    /refusing to allow a GitHub App to create or update workflow `[^`]+` without `workflows` permission/,
+  ],
+  ["ruleset-refusal", /^remote: error: GH013: Repository rule violations found for refs\/\S+$/],
+  ["authentication-refusal", /^fatal: Authentication failed for '[^']*'$/],
+  ["lease-conflict", /^ ! \[rejected\] +\S+ -> \S+ \(stale info\)$/],
+  [
+    "transport-timeout",
+    /^(?:fatal: unable to access '[^']*': (?:Operation|Connection) timed out after \d+ milliseconds|error: RPC failed; curl 28 )/,
+  ],
+];
+
+// Only the push's stderr is read, in memory; an unmatched or ambiguous refusal stays unknown and no text is kept.
+function pushRefusalCause(error) {
+  const stderr = typeof error?.stderr === "string" || Buffer.isBuffer(error?.stderr) ? error.stderr.toString() : "";
+  const lines = stderr.split(/\r\n|[\r\n]/);
+  const causes = pushRefusalSignatures
+    .filter(([, signature]) => lines.some((line) => signature.test(line)))
+    .map(([cause]) => cause);
+  return causes.length === 1 ? causes[0] : "unknown";
+}
+
+// Module-private, so injected I/O cannot forge a suboperation; errors without an entry count as an atomic push.
+const gitStepFailures = new WeakMap();
+
+function attemptRecord() {
+  return {
+    registry: { state: "unknown", outcome: "not-run" },
+    git: { origin: "not-run", cause: "none", outcome: "not-run", readback: "not-run" },
+  };
+}
+
+// marker_attempts: one enum-only record per publication iteration, written only on failure.
+function formatAttempts(attempts) {
+  return attempts
+    .map(
+      ({ registry, git }, index) =>
+        `${index + 1}:registry=${registry.state}/${registry.outcome},git=${git.origin}/${git.cause}/${git.outcome}/${git.readback}`,
+    )
+    .join(";");
+}
+
 // All effects are supplied at this boundary; tests never inherit provider credentials or execute provider tools.
 export async function publishReleaseMarker(identity, io) {
   let production = "unknown";
   let operation = "read-refs";
+  const attempts = [];
   try {
     const initial = await io.readRefs();
     production = initial.production;
@@ -223,6 +285,8 @@ export async function publishReleaseMarker(identity, io) {
     let registry = await io.readRegistry();
     if (registry !== null) assertRegistryIdentity(registry, identity.digest);
     for (let attempt = 0; attempt < 3; attempt += 1) {
+      const record = attemptRecord();
+      attempts.push(record);
       operation = "fresh-state";
       await io.assertFresh();
       const refs = await io.readRefs();
@@ -235,7 +299,9 @@ export async function publishReleaseMarker(identity, io) {
         if (io.assertRegistryWritable) await io.assertRegistryWritable();
         try {
           await io.publishRegistry();
+          record.registry.outcome = "returned";
         } catch (error) {
+          record.registry.outcome = subprocessOutcome(error);
           if (
             error?.code === "registry-gc-read-only" ||
             error?.registryGcGate?.rootCauseCode === "registry-gc-read-only"
@@ -245,9 +311,13 @@ export async function publishReleaseMarker(identity, io) {
           /* The authoritative read, not the response, decides. */
         }
         registry = await io.readRegistry();
-        if (registry === null) continue;
+        if (registry === null) {
+          record.registry.state = "written-absent";
+          continue;
+        }
       }
       assertRegistryIdentity(registry, identity.digest);
+      record.registry.state = record.registry.outcome === "not-run" ? "present" : "written-present";
       operation = "fresh-state";
       await io.assertFresh();
       const beforePush = await io.readRefs();
@@ -266,15 +336,37 @@ export async function publishReleaseMarker(identity, io) {
       operation = "atomic-git-publication";
       try {
         await io.publishGit(beforePush);
-      } catch {
+        Object.assign(record.git, { origin: "atomic-push", cause: "none", outcome: "returned" });
+      } catch (error) {
+        Object.assign(
+          record.git,
+          gitStepFailures.get(error) ?? { origin: "atomic-push", cause: "unknown", outcome: subprocessOutcome(error) },
+        );
+        // Missing publisher authority is a fixed refusal before the push, never an unknown result to retry.
+        if (error?.code === publisherAuthorityMissing) throw error;
         /* A lost response may have committed both refs. */
       }
       operation = "read-after-publication";
-      const after = await io.readRefs();
-      await checkRefs(after);
+      let after;
+      try {
+        after = await io.readRefs();
+        await checkRefs(after);
+      } catch (error) {
+        // A failed read-back decides nothing about the push, so it names itself rather than the push.
+        Object.assign(record.git, {
+          origin: "authoritative-readback",
+          cause: "unknown",
+          outcome: subprocessOutcome(error),
+          readback: "unknown",
+        });
+        throw error;
+      }
       production = after.production;
       if (after.tag && production === identity.commit) {
+        record.git.readback = "complete";
         operation = "registry-identity";
+        // Reached in a record only when this final identity read refuses.
+        record.registry.state = "unknown";
         assertRegistryIdentity(await io.readRegistry(), identity.digest);
         return {
           marker_updated: "true",
@@ -285,6 +377,7 @@ export async function publishReleaseMarker(identity, io) {
           release_tag: identity.tag,
         };
       }
+      record.git.readback = "not-converged";
       operation = "atomic-git-publication";
     }
     throw new Error("publication result remains unknown after three attempts");
@@ -298,6 +391,7 @@ export async function publishReleaseMarker(identity, io) {
       marker_operation: operation,
       release_commit: identity.commit,
       release_tag: identity.tag,
+      marker_attempts: formatAttempts(attempts),
     };
     throw error;
   }
@@ -326,22 +420,78 @@ export async function readCompletePages(api, path, field) {
   throw new Error(`${field} authority exceeded ten-page bound`);
 }
 
-function githubApi(env) {
+// The delays sit between the three reads; no read follows the last failure.
+const authorityReadBackoffMs = [1_000, 2_000];
+
+// Only a failure class reaches diagnostics: upstream messages can quote header values or response bodies.
+function transientAuthorityFailure(error) {
+  if (error?.name === "TimeoutError") return "timeout";
+  if (error?.name === "AbortError") return "aborted";
+  if (error instanceof TypeError && ["fetch failed", "terminated"].includes(error.message)) {
+    const code = error.cause?.code;
+    return typeof code === "string" && /^[A-Z][A-Z0-9_]{0,39}$/.test(code)
+      ? `transport error (${code})`
+      : "transport error";
+  }
+  return null;
+}
+
+async function discardBody(response) {
+  try {
+    await response.body?.cancel();
+  } catch {
+    // The status already decides; an unreadable body changes nothing.
+  }
+}
+
+export function githubApi(
+  env,
+  { fetch: fetchImpl = globalThis.fetch, sleep = delay, log = (line) => console.error(line) } = {},
+) {
   requireThat(
     env.GITHUB_TOKEN && /^[\w.-]+\/[\w.-]+$/.test(env.GITHUB_REPOSITORY),
     "missing GitHub authority credentials",
   );
   return async (path) => {
-    const response = await fetch(`https://api.github.com/repos/${env.GITHUB_REPOSITORY}/${path}`, {
-      headers: {
-        Accept: "application/vnd.github+json",
-        Authorization: `Bearer ${env.GITHUB_TOKEN}`,
-        "X-GitHub-Api-Version": "2022-11-28",
-      },
-      signal: AbortSignal.timeout(30_000),
-    });
-    requireThat(response.ok, `GitHub authority read failed: HTTP ${response.status}`);
-    return response.json();
+    const reads = authorityReadBackoffMs.length + 1;
+    let failure;
+    for (let read = 1; read <= reads; read += 1) {
+      if (read > 1) {
+        log(`GitHub authority read retry ${read}/${reads} after ${path} ${failure}`);
+        await sleep(authorityReadBackoffMs[read - 2]);
+      }
+      let response;
+      try {
+        response = await fetchImpl(`https://api.github.com/repos/${env.GITHUB_REPOSITORY}/${path}`, {
+          headers: {
+            Accept: "application/vnd.github+json",
+            Authorization: `Bearer ${env.GITHUB_TOKEN}`,
+            "X-GitHub-Api-Version": "2022-11-28",
+          },
+          signal: AbortSignal.timeout(30_000),
+        });
+      } catch (error) {
+        failure = transientAuthorityFailure(error);
+        requireThat(failure, `GitHub authority read failed: ${path} request error`);
+        continue;
+      }
+      if (response.status === 429 || response.status >= 500) {
+        failure = `HTTP ${response.status}`;
+        await discardBody(response);
+        continue;
+      }
+      if (!response.ok) {
+        await discardBody(response);
+        throw new Error(`GitHub authority read failed: ${path} HTTP ${response.status}`);
+      }
+      try {
+        return await response.json();
+      } catch (error) {
+        failure = transientAuthorityFailure(error);
+        requireThat(failure, `GitHub authority read failed: ${path} malformed JSON`);
+      }
+    }
+    throw new Error(`GitHub authority read failed after ${reads} reads: ${path} ${failure}`);
   };
 }
 
@@ -708,7 +858,39 @@ async function gitRefs(identity, runCommand = command) {
   };
 }
 
-export function markerIo(identity, env, assertFresh, runCommand = command) {
+// Read once and removed before any read or child process can inherit it.
+export function takePublisherToken(env) {
+  const token = env[publisherTokenVariable];
+  delete env[publisherTokenVariable];
+  return token;
+}
+
+/**
+ * Builds the push child's environment. The empty value under checkout's URL-scoped key resets git's extra-header
+ * list, so the App header is the only Authorization header; it travels in this environment, never argv, a URL or
+ * persisted config. Later command-line config could append a second header, so it is not inherited.
+ */
+export function publisherPushEnv(env, token) {
+  if (typeof token !== "string" || !/^\S+$/.test(token)) {
+    const error = new Error("production marker publisher authority unavailable");
+    error.code = publisherAuthorityMissing;
+    throw error;
+  }
+  const key = `http.${new URL(env.GITHUB_SERVER_URL || "https://github.com").origin}/.extraheader`;
+  const inherited = { ...env };
+  delete inherited.GIT_CONFIG_PARAMETERS;
+  return {
+    ...inherited,
+    GIT_TERMINAL_PROMPT: "0",
+    GIT_CONFIG_COUNT: "2",
+    GIT_CONFIG_KEY_0: key,
+    GIT_CONFIG_VALUE_0: "",
+    GIT_CONFIG_KEY_1: key,
+    GIT_CONFIG_VALUE_1: `AUTHORIZATION: basic ${Buffer.from(`x-access-token:${token}`).toString("base64")}`,
+  };
+}
+
+export function markerIo(identity, env, assertFresh, runCommand = command, publisherToken) {
   const image = `${identity.image}:${identity.tag}`;
   const registryUnavailable = (error) => {
     const stderr = typeof error.stderr === "string" || Buffer.isBuffer(error.stderr) ? error.stderr.toString() : "";
@@ -759,52 +941,83 @@ export function markerIo(identity, env, assertFresh, runCommand = command) {
       runCommand("docker", ["buildx", "imagetools", "create", "--tag", image, `${identity.image}@${identity.digest}`]),
     assertFresh,
     publishGit: async (refs) => {
-      let tagSource = refs.tag?.object;
-      if (!tagSource) {
-        const localRef = `refs/tags/${identity.tag}`;
-        let local;
+      // The last suboperation started names a failure; only the push's own stderr may pick a cause.
+      let current = { origin: "atomic-push", outcome: "not-run" };
+      const suboperation = async (origin, ...gitCommand) => {
+        current = { origin, outcome: "not-run" };
         try {
-          local = (await runCommand("git", ["rev-parse", "--verify", localRef])).stdout.trim();
+          const result = await runCommand("git", ...gitCommand);
+          current.outcome = "returned";
+          return result;
         } catch (error) {
-          requireThat(error.code === 128, "local release tag read failed");
+          current.outcome = subprocessOutcome(error);
+          throw error;
         }
-        if (local) {
-          requireThat(
-            (await runCommand("git", ["cat-file", "-t", local])).stdout.trim() === "tag" &&
-              (await runCommand("git", ["rev-parse", `${localRef}^{commit}`])).stdout.trim() === identity.commit,
-            "conflicting local release tag",
-          );
-        } else {
-          await runCommand(
-            "git",
-            [
-              "-c",
-              "user.name=github-actions[bot]",
-              "-c",
-              "user.email=41898282+github-actions[bot]@users.noreply.github.com",
-              "tag",
-              "-a",
-              identity.tag,
-              identity.commit,
-              "-m",
-              `Production release ${identity.tag}`,
-            ],
-            { env: { ...env, GIT_COMMITTER_DATE: identity.createdAt } },
+      };
+      try {
+        const pushEnv = publisherPushEnv(env, publisherToken);
+        let tagSource = refs.tag?.object;
+        if (!tagSource) {
+          const localRef = `refs/tags/${identity.tag}`;
+          let local;
+          try {
+            local = (await suboperation("local-tag-read", ["rev-parse", "--verify", localRef])).stdout.trim();
+          } catch (error) {
+            requireThat(error.code === 128, "local release tag read failed");
+          }
+          if (local) {
+            requireThat(
+              (await suboperation("local-tag-verify", ["cat-file", "-t", local])).stdout.trim() === "tag" &&
+                (await suboperation("local-tag-verify", ["rev-parse", `${localRef}^{commit}`])).stdout.trim() ===
+                  identity.commit,
+              "conflicting local release tag",
+            );
+          } else {
+            await suboperation(
+              "local-tag-create",
+              [
+                "-c",
+                "user.name=github-actions[bot]",
+                "-c",
+                "user.email=41898282+github-actions[bot]@users.noreply.github.com",
+                "tag",
+                "-a",
+                identity.tag,
+                identity.commit,
+                "-m",
+                `Production release ${identity.tag}`,
+              ],
+              { env: { ...env, GIT_COMMITTER_DATE: identity.createdAt } },
+            );
+          }
+          tagSource = (await suboperation("local-tag-read", ["rev-parse", localRef])).stdout.trim();
+        }
+        // The explicit lease is a compare-and-swap guard, never permission for a non-fast-forward update.
+        await suboperation("ancestry", ["merge-base", "--is-ancestor", refs.production, identity.commit]);
+        await suboperation(
+          "atomic-push",
+          [
+            "push",
+            "--atomic",
+            `--force-with-lease=refs/heads/production:${refs.production}`,
+            `--force-with-lease=refs/tags/${identity.tag}:${refs.tag?.object ?? ""}`,
+            "origin",
+            `${tagSource}:refs/tags/${identity.tag}`,
+            `${identity.commit}:refs/heads/production`,
+          ],
+          { env: pushEnv },
+        );
+      } catch (error) {
+        if (Object(error) === error) {
+          gitStepFailures.set(
+            error,
+            error.code === publisherAuthorityMissing
+              ? { origin: "atomic-push", cause: "authentication-refusal", outcome: "not-run" }
+              : { ...current, cause: current.origin === "atomic-push" ? pushRefusalCause(error) : "unknown" },
           );
         }
-        tagSource = (await runCommand("git", ["rev-parse", localRef])).stdout.trim();
+        throw error;
       }
-      // The explicit lease is a compare-and-swap guard, never permission for a non-fast-forward update.
-      await runCommand("git", ["merge-base", "--is-ancestor", refs.production, identity.commit]);
-      await runCommand("git", [
-        "push",
-        "--atomic",
-        `--force-with-lease=refs/heads/production:${refs.production}`,
-        `--force-with-lease=refs/tags/${identity.tag}:${refs.tag?.object ?? ""}`,
-        "origin",
-        `${tagSource}:refs/tags/${identity.tag}`,
-        `${identity.commit}:refs/heads/production`,
-      ]);
     },
   };
   io.assertRegistryWritable = async () => {
@@ -848,11 +1061,13 @@ export function markerIo(identity, env, assertFresh, runCommand = command) {
   return io;
 }
 
-async function main(action, env) {
+// The authority reader is the only injected boundary; every other effect stays the production adapter.
+export async function main(action, env, authorityRead = {}) {
+  const publisherToken = takePublisherToken(env);
   let identity;
   let knownProduction = "unknown";
   try {
-    const api = githubApi(env);
+    const api = githubApi(env, authorityRead);
     const runId = Number(env.GITHUB_RUN_ID);
     const attempt = Number(env.GITHUB_RUN_ATTEMPT);
     requireThat(
@@ -950,7 +1165,7 @@ async function main(action, env) {
       await admitMarkerOnlyPolicy(sourceIdentity, env);
       const assertFresh = () => assertWriters(env, options);
       const result = await reconcileMarkerOnly(sourceIdentity, {
-        ...markerIo(sourceIdentity, env, assertFresh),
+        ...markerIo(sourceIdentity, env, assertFresh, command, publisherToken),
         readHistory: () => readHistory(options),
         readValues: async (revision) =>
           JSON.parse((await command("helm", buildHelmValuesArgs({ ...options, revision }))).stdout),
@@ -1000,7 +1215,7 @@ async function main(action, env) {
     const assertFresh = () => assertWriters(env, options);
     if (action === "reconcile") {
       await reconcileReleaseMarker(identity, {
-        ...markerIo(identity, env, assertFresh),
+        ...markerIo(identity, env, assertFresh, command, publisherToken),
         readHistory: () => readHistory(options),
         readValues: async (revision) =>
           JSON.parse((await command("helm", buildHelmValuesArgs({ ...options, revision }))).stdout),
@@ -1031,7 +1246,7 @@ async function main(action, env) {
       );
       identity.productionCommit = transition.markerIdentity.productionCommit;
     }
-    const result = await publishReleaseMarker(identity, markerIo(identity, env, assertFresh));
+    const result = await publishReleaseMarker(identity, markerIo(identity, env, assertFresh, command, publisherToken));
     // Recovery repairs refs only. Only the normal, freshly verified producer can claim promotion.
     if (action === "publish") await output(result, env);
   } catch (error) {
@@ -1056,7 +1271,8 @@ async function main(action, env) {
   }
 }
 
-async function output(fields, env) {
+// The CLI's only serializer for marker fields, exported so its exact bytes are testable without running the CLI.
+export async function output(fields, env) {
   const lines = Object.entries(fields)
     .map(([key, value]) => `${key}=${String(value).replace(/[\r\n]/g, " ")}`)
     .join("\n");

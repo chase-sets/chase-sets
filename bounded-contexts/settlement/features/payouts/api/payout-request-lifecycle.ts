@@ -37,11 +37,13 @@ import {
   getAccountPayoutRiskSummary,
   listSettlementProviderIdempotencyKeys,
   listPayouts,
+  listPayoutSummaryRows,
   recordSettlementProviderIdempotencyKey,
   recordSettlementProviderOperationFailed,
   recordSettlementProviderOperationPending,
   recordSettlementProviderOperationSucceeded,
 } from "../read-model/queries";
+import { buildPayoutAvailability, buildPayoutSummary } from "../read-model/payout-summary";
 import { getAccountActiveSpendHoldAmount, getAccountActiveSupportHoldAmount } from "../../wallets/read-model/queries";
 import type { PayoutReadinessServices } from "../../payout-readiness/api/runtime";
 import { decidePayout, evolvePayout, payoutMonthStreamId, planPayoutMonthRequest } from "../domain/domain";
@@ -242,6 +244,7 @@ export function createPayoutRequestLifecycle(
 ): Pick<
   PayoutServices,
   | "listPayouts"
+  | "getPayoutSummary"
   | "getPayout"
   | "getPayoutQuickAmounts"
   | "getPayoutMoneyTimeline"
@@ -423,6 +426,20 @@ export function createPayoutRequestLifecycle(
 
   return {
     listPayouts: (params) => listPayouts(deps.db, params),
+    async getPayoutSummary({ accountId, canRequestPayouts, evaluatedAt = new Date().toISOString() }) {
+      const [rows, wallet, readiness] = await Promise.all([
+        listPayoutSummaryRows(deps.db, accountId),
+        deps.wallets.getWallet(accountId),
+        deps.payoutReadiness.getPayoutReadiness(accountId),
+      ]);
+      return buildPayoutSummary({
+        items: rows.items,
+        total: rows.total,
+        completeness: rows.completeness,
+        evaluatedAt,
+        availability: buildPayoutAvailability({ wallet, readiness, canRequestPayouts }),
+      });
+    },
     getPayout: (payoutId, accountId) => getPayout(deps.db, payoutId, accountId),
     async getPayoutQuickAmounts({ accountId }) {
       const { currencyCode, payoutAvailableBalanceAmount, payoutBoundsPolicy } = await loadPayoutQuickAmountContext(

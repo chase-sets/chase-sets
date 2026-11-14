@@ -119,6 +119,46 @@ export type BulkEditCatalogItemRow = Readonly<{
   tags: unknown;
 }>;
 
+// Response columns are named so internal page columns such as source_stream_version stay out of API JSON.
+const catalogItemListPageResponseColumns = `item.catalog_item_id,
+       item.language_code,
+       item.title_i18n,
+       item.title,
+       item.subtitle_i18n,
+       item.subtitle,
+       item.display_template_key,
+       item.display_identity_hash,
+       ${catalogIsoUtcTimestamp("item.display_identity_resolved_at", "display_identity_resolved_at")},
+       item.blueprint_id,
+       item.blueprint,
+       item.status,
+       item.tags,
+       ${catalogIsoUtcTimestamp("item.updated_at", "updated_at")}`;
+
+const catalogItemDetailPageResponseColumns = `catalog_item_id,
+       language_code,
+       title_i18n,
+       title,
+       subtitle_i18n,
+       subtitle,
+       display_template_key,
+       display_identity_hash,
+       ${catalogIsoUtcTimestamp("display_identity_resolved_at")},
+       description_i18n,
+       description,
+       blueprint_id,
+       blueprint,
+       status,
+       field_values,
+       categories,
+       external_catalog_item_references,
+       external_product_references,
+       tags,
+       image_urls,
+       product_asset_sets,
+       image_fallback,
+       ${catalogIsoUtcTimestamp("updated_at")}`;
+
 export type CatalogItemListParams = ListParams & {
   blueprintId?: string;
   tag?: string;
@@ -145,9 +185,7 @@ export async function listCatalogItems(
   );
 
   const listResult = await db.query<CatalogItemListRow>(
-    `SELECT item.*,
-       ${catalogIsoUtcTimestamp("item.display_identity_resolved_at", "display_identity_resolved_at")},
-       ${catalogIsoUtcTimestamp("item.updated_at", "updated_at")},
+    `SELECT ${catalogItemListPageResponseColumns},
        COALESCE(source_refs.source_providers, '[]'::jsonb) AS source_providers
      FROM catalog_admin_catalog_item_list_pages AS item
      LEFT JOIN LATERAL (
@@ -172,7 +210,9 @@ export async function listCatalogItems(
 
 export async function getCatalogItemDetail(db: PgQueryable, itemId: string) {
   const result = await db.query<CatalogItemDetailRow>(
-    `SELECT *, ${catalogIsoUtcTimestamp("display_identity_resolved_at")}, ${catalogIsoUtcTimestamp("updated_at")} FROM catalog_admin_catalog_item_detail_pages WHERE catalog_item_id = $1`,
+    `SELECT ${catalogItemDetailPageResponseColumns}
+     FROM catalog_admin_catalog_item_detail_pages
+     WHERE catalog_item_id = $1`,
     [itemId],
   );
 
@@ -253,9 +293,7 @@ export async function listCatalogItemBulkRows(
   }
 
   const result = await db.query<CatalogItemListRow>(
-    `SELECT item.*,
-       ${catalogIsoUtcTimestamp("item.display_identity_resolved_at", "display_identity_resolved_at")},
-       ${catalogIsoUtcTimestamp("item.updated_at", "updated_at")},
+    `SELECT ${catalogItemListPageResponseColumns},
        COALESCE(source_refs.source_providers, '[]'::jsonb) AS source_providers
      FROM catalog_admin_catalog_item_list_pages AS item
      LEFT JOIN LATERAL (
@@ -318,6 +356,18 @@ export async function listCatalogItemsForBulkPublish(
   );
 
   return result.rows;
+}
+
+export async function getCatalogItemPublicationBlueprint(db: PgQueryable, blueprintId: string) {
+  const result = await db.query<Pick<BulkPublishCatalogItemRow, "blueprint_status" | "blueprint_field_rules">>(
+    `SELECT blueprint.status AS blueprint_status,
+       blueprint.field_rules AS blueprint_field_rules
+     FROM catalog_blueprints AS blueprint
+     WHERE blueprint.blueprint_id = $1`,
+    [blueprintId],
+  );
+
+  return result.rows[0] ?? null;
 }
 
 export async function loadCatalogItemPublicationIdentityRows(

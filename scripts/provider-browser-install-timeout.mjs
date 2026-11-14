@@ -54,7 +54,10 @@ export async function resolveInstallerIdentity(
     !env.GH_TOKEN ||
     typeof env.RUNNER_NAME !== "string" ||
     !env.RUNNER_NAME ||
-    !["Static Checks", "Synthetic browser installer timeout"].includes(jobName)
+    !(
+      ["Static Checks", "Synthetic browser installer timeout"].includes(jobName) ||
+      /^E2E Tests \([a-z0-9_,-]+\)$/.test(jobName)
+    )
   ) {
     throw refuse("invalid-environment");
   }
@@ -211,6 +214,7 @@ export async function runHostedInstaller({
 export function runInstaller({
   identity,
   env = process.env,
+  timeoutSeconds = INSTALLER_TIMEOUT_SECONDS,
   cacheHit = false,
   installerCommand = "bash",
   installerArgs = ["scripts/provider-object-disposition/browser-boundary/ci-setup.sh"],
@@ -235,7 +239,13 @@ export function runInstaller({
     retryCount: 0,
     terminalOutcome: "refused",
   };
-  if (!isValidTimingRecord(base) || env.INSTALLER_TIMEOUT_SECONDS !== "600") {
+  if (
+    !isValidTimingRecord(base) ||
+    env.INSTALLER_TIMEOUT_SECONDS !== "600" ||
+    !Number.isSafeInteger(timeoutSeconds) ||
+    timeoutSeconds < 1 ||
+    timeoutSeconds > INSTALLER_TIMEOUT_SECONDS
+  ) {
     throw new Error("provider-browser-install authority or 600-second bound refused");
   }
   const childEnv = buildMinimalProcessEnvironment(env, {
@@ -259,6 +269,8 @@ export function runInstaller({
   let installerStatus;
   let released = false;
   let abortListener;
+  let spawned = false;
+  let startRefused = false;
 
   return new Promise((resolve) => {
     const finish = (status) => {
@@ -277,7 +289,7 @@ export function runInstaller({
         terminalOutcome: failure ?? "success",
       };
       write(timingRecordLine(record));
-      resolve({ status: failure ? 1 : status, record });
+      resolve({ status: failure ? 1 : status, record, ...(startRefused ? { startRefused } : {}) });
     };
     const stop = (outcome) => {
       if (stopping || settled) return;
@@ -312,11 +324,13 @@ export function runInstaller({
         windowsHide: true,
       });
     } catch {
+      startRefused = true;
       failure = "refused";
       finish(1);
       return;
     }
     if (!Number.isSafeInteger(child.pid) || child.pid < 1) {
+      startRefused = true;
       failure = "refused";
       child.once("error", () => {});
       finish(1);
@@ -326,7 +340,6 @@ export function runInstaller({
     const releaseIfComplete = () => {
       if (!released && !stopping && !settled && installerStatus === 0 && (!requireComplete || complete) && !failure) {
         released = true;
-        clearTimeout(deadline);
         child.send("release");
       }
     };
@@ -366,7 +379,7 @@ export function runInstaller({
     };
     consume(child.stdout);
     consume(child.stderr);
-    deadline = setTimeout(() => stop("timeout"), INSTALLER_TIMEOUT_MS);
+    deadline = setTimeout(() => stop("timeout"), timeoutSeconds * 1000);
     if (cancelSignal) {
       abortListener = () => stop("cancelled");
       if (cancelSignal.aborted) abortListener();
@@ -381,7 +394,16 @@ export function runInstaller({
       }
       releaseIfComplete();
     });
-    child.once("error", () => {
+    child.once("spawn", () => {
+      spawned = true;
+    });
+    child.on("error", () => {
+      if (stopping || settled) return;
+      if (spawned) {
+        stop("refused");
+        return;
+      }
+      startRefused = true;
       failure = "refused";
       finish(1);
     });

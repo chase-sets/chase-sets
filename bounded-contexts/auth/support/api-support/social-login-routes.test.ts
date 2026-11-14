@@ -6,7 +6,13 @@ import {
   createTestEventStoreContext,
   useMockReset,
 } from "@chase-sets/bounded-context-runtime/test-support";
-import { CHASE_SETS_TRUST_FORWARDED_HEADERS_ENV } from "@chase-sets/platform-runtime/http";
+import {
+  CHASE_SETS_TRUST_FORWARDED_HEADERS_ENV,
+  PLATFORM_INTERNAL_AUTH_HEADER,
+  resolvePlatformInternalAuthSecret,
+  resolveRequestApiBaseUrl,
+} from "@chase-sets/platform-runtime/http";
+import { Hono } from "hono";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { errorHandler } from "@chase-sets/platform-runtime/error-handler";
 import {
@@ -18,12 +24,31 @@ import type { AuthServices } from "../runtime-support/services";
 import { registerSocialLoginRoutes } from "./social-login-routes";
 import { socialLoginErrorMessage } from "../route-support/social-login-errors";
 import type { AuthApiEnv } from "./support";
+import type {
+  IdentityServices,
+  SignedRegistrationConsentResolution,
+  SocialLoginSubjectResolution,
+} from "@chase-sets/identity/server";
+import { buildIdentityApi } from "../../../identity/api";
+import { identityConsentPolicyHref } from "../../../identity/features/consents/domain/consent-bundle";
+import {
+  SOCIAL_LOGIN_OWNERSHIP_CATCH_UP_STREAM,
+  socialLoginLinkKey,
+} from "../../../identity/features/users/api/social-login-ownership";
+import { activeRegistrationConsentFixture } from "../../../identity/tests/consent-activation-authority-fixtures";
+import { createInMemoryEventStore } from "../../../identity/tests/in-memory-event-store";
+import {
+  SAME_SITE_TEST_ORIGIN,
+  UNSAFE_AUTH_PATHS,
+  VALID_AUTH_PATHS,
+} from "../auth-support/same-site-path.test-support";
 
 const { mockCreateIdentityAuthRequestClient, mockIdentityMutations } = vi.hoisted(() => ({
   mockCreateIdentityAuthRequestClient: vi.fn(),
   mockIdentityMutations: {
     createPersonalIdentity: vi.fn(),
     linkSocialLogin: vi.fn(),
+    resolveSocialLoginSubject: vi.fn(),
     verifyEmailContactMethod: vi.fn(),
   },
 }));
@@ -75,7 +100,7 @@ function createServices(
     providerName?: "google" | "facebook";
     providerFails?: boolean;
     existingUser?: { user_id: string; status: string } | null;
-    socialLoginUser?: { user_id: string; status: string } | null;
+    ownership?: SocialLoginSubjectResolution;
     memberships?: readonly {
       membershipId: string;
       accountId: string;
@@ -134,6 +159,7 @@ function createServices(
     }),
   };
 
+  mockIdentityMutations.resolveSocialLoginSubject.mockResolvedValue(options.ownership ?? { status: "unclaimed" });
   return createAuthServicesFake({
     db,
     session: {
@@ -145,7 +171,6 @@ function createServices(
     },
     identity: {
       normalizeEmail: vi.fn((value: string) => value.trim().toLowerCase()),
-      getUserBySocialLogin: vi.fn(async () => options.socialLoginUser ?? null),
       getUserByEmail: vi.fn(async () => options.existingUser ?? null),
       findPendingInvitationByEmail: vi.fn(async () => null),
       getUser: vi.fn(async (userId: string) => ({
@@ -195,14 +220,35 @@ useMockReset(
   mockCreateIdentityAuthRequestClient,
   mockIdentityMutations.createPersonalIdentity,
   mockIdentityMutations.linkSocialLogin,
+  mockIdentityMutations.resolveSocialLoginSubject,
   mockIdentityMutations.verifyEmailContactMethod,
 );
 
 afterEach(() => {
   vi.unstubAllEnvs();
+  vi.unstubAllGlobals();
 });
 
 describe("social login routes", () => {
+  it.each([...UNSAFE_AUTH_PATHS, ...VALID_AUTH_PATHS])(
+    "Auth same-site path caller matrix: Social Login %j",
+    async (path) => {
+      const services = createServices({ existingUser: { user_id: "usr_existing", status: "active" } });
+      mockCreateIdentityAuthRequestClient.mockReturnValue(mockIdentityMutations);
+      const app = buildApp(services);
+      const start = await app.request(
+        `${SAME_SITE_TEST_ORIGIN}/social/google/start?returnTo=${encodeURIComponent(path)}`,
+      );
+      expect(start.status).toBe(302);
+      const response = await app.request(
+        `${SAME_SITE_TEST_ORIGIN}/social/google/callback?state=social_token&code=synthetic-code`,
+      );
+      expect(response.status).toBe(302);
+      expect(response.headers.get("Location")).toBe(VALID_AUTH_PATHS.includes(path) ? path : "/account");
+      expect(new URL(response.headers.get("Location")!, SAME_SITE_TEST_ORIGIN).origin).toBe(SAME_SITE_TEST_ORIGIN);
+    },
+  );
+
   const consentRejections = [
     {
       code: "registration_consent_not_server_minted",
@@ -450,7 +496,7 @@ describe("social login routes", () => {
     const services = createServices({
       existingUser: null,
       providerName: "facebook",
-      socialLoginUser: { user_id: "usr_existing", status: "active" },
+      ownership: { status: "owned", userId: "usr_existing" },
       profile: {
         email: "buyer@example.com",
         emailVerified: false,
@@ -502,7 +548,7 @@ describe("social login routes", () => {
     const services = createServices({
       existingUser: null,
       providerName: "facebook",
-      socialLoginUser: { user_id: "usr_link_owner", status: "active" },
+      ownership: { status: "owned", userId: "usr_link_owner" },
       profile: {
         email: "buyer@example.com",
         emailVerified: false,
@@ -517,6 +563,116 @@ describe("social login routes", () => {
 
     expect(response.status).toBe(302);
     expect(response.headers.get("Location")).toContain("/sign-in?socialLoginError=");
+    expect(mockIdentityMutations.linkSocialLogin).not.toHaveBeenCalled();
+    expect(services.sessions.commandHandler).not.toHaveBeenCalled();
+  });
+
+  it.each(["sign-in", "registration"] as const)(
+    "signs a claimed subject into its owner on %s from Identity Resolve alone, with no Auth link projection",
+    async (journey) => {
+      const services = createServices({
+        existingUser: { user_id: "usr_email_candidate", status: "active" },
+        ownership: { status: "owned", userId: "usr_claim_owner" },
+      });
+      mockCreateIdentityAuthRequestClient.mockReturnValue(mockIdentityMutations);
+      const app = buildApp(services);
+
+      await app.request(`/social/google/start?journey=${journey}&returnTo=/account`);
+      const response = await app.request("/social/google/callback?state=social_token&code=provider-code");
+
+      expect(response.status).toBe(302);
+      expect(response.headers.get("Location")).toBe("/account");
+      expect(mockIdentityMutations.resolveSocialLoginSubject).toHaveBeenCalledWith({
+        providerName: "google",
+        providerSubject: "google-subject",
+      });
+      expect(services.identity.getUser).toHaveBeenCalledWith("usr_claim_owner");
+      expect(services.identity.getUserByEmail).not.toHaveBeenCalled();
+      expect(services.sessions.commandHandler).toHaveBeenCalledWith(
+        expect.objectContaining({ command: expect.objectContaining({ userId: "usr_claim_owner" }) }),
+      );
+      expect(mockIdentityMutations.linkSocialLogin).not.toHaveBeenCalled();
+      expect(mockIdentityMutations.createPersonalIdentity).not.toHaveBeenCalled();
+      expect(vi.mocked(services.db.query).mock.calls.map(([sql]) => String(sql))).not.toEqual(
+        expect.arrayContaining([expect.stringContaining("social_login_links")]),
+      );
+    },
+  );
+
+  it("refuses another owner's claimed subject on the link journey with provider_already_linked", async () => {
+    const services = createServices({ existingUser: null, ownership: { status: "owned", userId: "usr_claim_owner" } });
+    mockCreateIdentityAuthRequestClient.mockReturnValue(mockIdentityMutations);
+    const app = buildApp(services, createAccountUserTestActor({ userId: "usr_authenticated" }));
+
+    await app.request("/social/google/start?journey=link&returnTo=/account");
+    const response = await app.request("/social/google/callback?state=social_token&code=provider-code");
+
+    expect(response.headers.get("Location")).toBe("/sign-in?socialLoginError=provider_already_linked");
+    expect(mockIdentityMutations.linkSocialLogin).not.toHaveBeenCalled();
+    expect(services.sessions.commandHandler).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["sign-in", "/sign-in", null],
+    ["registration", "/register", null],
+    ["link", "/sign-in", "usr_authenticated"],
+    ["admin", "/access/sign-in", null],
+  ] as const)(
+    "refuses a repair-required subject on %s without creating, linking or signing in",
+    async (journey, fallback, actorUserId) => {
+      const services = createServices({
+        existingUser: { user_id: "usr_email_candidate", status: "active" },
+        ownership: { status: "repair-required" },
+        profile: { email: "buyer@chasesets.com", emailVerified: true, hostedDomain: "chasesets.com" },
+      });
+      mockCreateIdentityAuthRequestClient.mockReturnValue(mockIdentityMutations);
+      const app = buildApp(services, actorUserId ? createAccountUserTestActor({ userId: actorUserId }) : null);
+
+      await app.request(`/social/google/start?journey=${journey}&returnTo=/account`);
+      const response = await app.request("/social/google/callback?state=social_token&code=provider-code");
+
+      expect(response.headers.get("Location")).toBe(`${fallback}?socialLoginError=provider_link_repair_required`);
+      expect(socialLoginErrorMessage("provider_link_repair_required")).toBe(
+        "This social login needs review before it can be used. Use another sign-in method or contact support.",
+      );
+      expect(services.identity.getUserByEmail).not.toHaveBeenCalled();
+      expect(mockIdentityMutations.createPersonalIdentity).not.toHaveBeenCalled();
+      expect(mockIdentityMutations.linkSocialLogin).not.toHaveBeenCalled();
+      expect(services.sessions.commandHandler).not.toHaveBeenCalled();
+    },
+  );
+
+  it("maps Identity's link-time repair-required refusal to provider_link_repair_required", async () => {
+    const services = createServices({ existingUser: { user_id: "usr_existing", status: "active" } });
+    mockIdentityMutations.linkSocialLogin.mockRejectedValue(
+      Object.assign(new Error("synthetic refusal"), {
+        status: 409,
+        body: { error: { code: "social_login_repair_required" } },
+      }),
+    );
+    mockCreateIdentityAuthRequestClient.mockReturnValue(mockIdentityMutations);
+    const app = buildApp(services);
+
+    await app.request("/social/google/start");
+    const response = await app.request("/social/google/callback?state=social_token&code=provider-code");
+
+    expect(response.headers.get("Location")).toBe("/sign-in?socialLoginError=provider_link_repair_required");
+    expect(services.sessions.commandHandler).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when Identity Resolve is unavailable", async () => {
+    const services = createServices({ existingUser: { user_id: "usr_existing", status: "active" } });
+    mockIdentityMutations.resolveSocialLoginSubject.mockRejectedValue(
+      Object.assign(new Error("synthetic outage"), { status: 503 }),
+    );
+    mockCreateIdentityAuthRequestClient.mockReturnValue(mockIdentityMutations);
+    const app = buildApp(services);
+
+    await app.request("/social/google/start");
+    const response = await app.request("/social/google/callback?state=social_token&code=provider-code");
+
+    expect(response.headers.get("Location")).toBe("/sign-in?socialLoginError=provider_failed");
+    expect(services.identity.getUserByEmail).not.toHaveBeenCalled();
     expect(mockIdentityMutations.linkSocialLogin).not.toHaveBeenCalled();
     expect(services.sessions.commandHandler).not.toHaveBeenCalled();
   });
@@ -1031,5 +1187,284 @@ describe("social login routes", () => {
     expect(replay.status).toBe(302);
     expect(replay.headers.get("Location")).toContain("/sign-in?socialLoginError=");
     expect(services.sessions.commandHandler).toHaveBeenCalledTimes(1);
+  });
+});
+
+/**
+ * #10295 AC3 against the real boundary. Identity's own API runs in-process over
+ * an in-memory event store holding an activated Terms of Service bundle, and the
+ * callback reaches it only through the real `createIdentityAuthRequestClient`
+ * over in-process fetch. The activated authority, the signed declaration, the
+ * constructor, the claim fold and Auth's rejection mapping are the shipped code.
+ * Only the provider exchange and the SQL ports are synthetic: the pool answers
+ * Resolve's one lock-free horizon probe from the store itself, and any other
+ * pool query or Identity transaction fails the case. PostgreSQL race and
+ * transaction semantics stay with the hosted ownership DB suite.
+ */
+describe("social login routes against real Identity consent and ownership authority", () => {
+  const IDENTITY_API_PATH = "/api/identity";
+  const INTERNAL_AUTH_PATH = `${IDENTITY_API_PATH}/internal/auth/`;
+  // The only Identity requests the callback may make; anything else is refused and never reaches a network.
+  const DECLARED_INTERNAL_AUTH_ROUTES = [
+    /^GET registration-consent$/,
+    /^POST social-login-subjects\/resolve$/,
+    /^POST personal-identities$/,
+    /^POST users\/[^/]+\/social-login-link$/,
+    /^POST users\/[^/]+\/email-verification$/,
+  ];
+  const ACTIVE_TERMS_V1 = [
+    { policyKey: "terms-of-service", version: "v1", href: identityConsentPolicyHref("terms-of-service") },
+  ];
+  // The synthetic provider profile `createServices` returns.
+  const SUBJECT = "google-subject";
+  const EMAIL = "buyer@example.com";
+  const CLAIM_OWNER = "usr_claim_owner";
+
+  type IdentityExchange = Readonly<{
+    route: string;
+    internalAuth: boolean;
+    requestBody: unknown;
+    status: number;
+    responseBody: unknown;
+  }>;
+
+  async function createActivatedIdentity() {
+    const eventStore = createInMemoryEventStore();
+    // Policy reads and display-name reservations land here; nothing is ever found.
+    const identityDb = { query: vi.fn(async (_sql: string, _params?: readonly unknown[]) => ({ rows: [] })) };
+    const services = {
+      eventStore,
+      mutationPersistence: {
+        eventStore,
+        transaction: async () => {
+          throw new Error("No Identity transaction is expected: no link history lies past the horizon.");
+        },
+      },
+      pool: {
+        query: vi.fn(async (sql: string, params: readonly unknown[] = []) => {
+          if (!sql.includes("SELECT EXISTS") || params[0] !== SOCIAL_LOGIN_OWNERSHIP_CATCH_UP_STREAM) {
+            throw new Error(`Unexpected Identity pool query: ${sql}`);
+          }
+          const caughtUp = eventStore.streams.get(SOCIAL_LOGIN_OWNERSHIP_CATCH_UP_STREAM) ?? [];
+          const horizon = Number(caughtUp[caughtUp.length - 1]?.payload.horizon ?? 0);
+          const pending = [...eventStore.streams.values()]
+            .flat()
+            .some((event) => event.eventType === params[1] && Number(event.globalPosition) > horizon);
+          return { rows: [{ pending }] };
+        }),
+      },
+      db: identityDb,
+      users: {},
+      policies: {},
+      projectors: [],
+    } as unknown as IdentityServices;
+    Object.assign(
+      services,
+      await activeRegistrationConsentFixture(eventStore, services.db, { "terms-of-service": "v1" }),
+    );
+
+    const identityApp = new Hono();
+    identityApp.onError(errorHandler);
+    identityApp.route("/", buildIdentityApi(services));
+
+    const identityOrigin = new URL(resolveRequestApiBaseUrl(new Request("http://localhost/"), IDENTITY_API_PATH))
+      .origin;
+    const exchanges: IdentityExchange[] = [];
+    const refused: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (...args: Parameters<typeof globalThis.fetch>) => {
+        const request = new Request(...args);
+        const url = new URL(request.url);
+        const route = `${request.method} ${url.pathname.slice(INTERNAL_AUTH_PATH.length)}`;
+        if (
+          url.origin !== identityOrigin ||
+          !url.pathname.startsWith(INTERNAL_AUTH_PATH) ||
+          !DECLARED_INTERNAL_AUTH_ROUTES.some((declared) => declared.test(route))
+        ) {
+          refused.push(`${request.method} ${request.url}`);
+          throw new Error(`Undeclared fetch refused: ${request.method} ${request.url}`);
+        }
+        const requestBody = request.method === "GET" ? undefined : await request.text();
+        const response = await identityApp.request(`${url.pathname.slice(IDENTITY_API_PATH.length)}${url.search}`, {
+          method: request.method,
+          headers: request.headers,
+          body: requestBody,
+        });
+        exchanges.push({
+          route,
+          internalAuth: request.headers.get(PLATFORM_INTERNAL_AUTH_HEADER) === resolvePlatformInternalAuthSecret(),
+          requestBody: requestBody === undefined ? undefined : JSON.parse(requestBody),
+          status: response.status,
+          responseBody: await response.clone().json(),
+        });
+        return response;
+      }),
+    );
+
+    // The hoisted mock layers its stand-in consent read beneath whatever this returns; the real client's own
+    // `resolveRegistrationConsent` overrides it, so every Identity call below is the real request client's.
+    const actual = await vi.importActual<typeof import("@chase-sets/identity/server")>("@chase-sets/identity/server");
+    mockCreateIdentityAuthRequestClient.mockImplementation((request: Request) =>
+      actual.createIdentityAuthRequestClient(request),
+    );
+
+    const mintResponse = await identityApp.request("/internal/auth/registration-consent");
+    return {
+      eventStore,
+      exchanges,
+      refused,
+      mintStatus: mintResponse.status,
+      minted: (await mintResponse.json()) as SignedRegistrationConsentResolution,
+      context: createTestEventStoreContext(createInternalSystemTestActor(), { tenantId: "ten_test", trace: {} }),
+      reservationWrites: () =>
+        identityDb.query.mock.calls.filter(([sql]) => sql.includes("identity_account_display_name_reservations")),
+      // Every stream and event id, so a comparison against a baseline catches any append at all.
+      snapshot: () =>
+        Object.fromEntries(
+          [...eventStore.streams].map(([streamId, events]) => [
+            streamId,
+            events.map((event) => `${event.eventType}:${event.eventId}`),
+          ]),
+        ),
+    };
+  }
+
+  it("issue-10295-ac3-active-owned: activated consent preserves claimed-owner sign-in without identity or claim writes", async () => {
+    const identity = await createActivatedIdentity();
+    expect(identity.mintStatus).toBe(200);
+    expect(identity.minted.requirements, "Identity mints the activated, nonempty Terms requirement").toEqual(
+      ACTIVE_TERMS_V1,
+    );
+
+    // The owner's existing link fact, its immutable claim, and a catch-up horizon that already covers the link.
+    const linkKey = socialLoginLinkKey("google", SUBJECT);
+    const [link] = await identity.eventStore.appendToStream({
+      streamId: `identity.user-${CLAIM_OWNER}`,
+      expectedVersion: "no_stream",
+      context: identity.context,
+      events: [
+        {
+          eventType: "identity.user.social-login-linked",
+          payload: {
+            providerName: "google",
+            providerSubject: SUBJECT,
+            email: EMAIL,
+            linkedAt: "2026-07-01T00:00:00.000Z",
+          },
+        },
+      ],
+    });
+    await identity.eventStore.appendToStream({
+      streamId: `identity.social-login-ownership-${linkKey}`,
+      expectedVersion: "no_stream",
+      context: identity.context,
+      events: [
+        {
+          eventType: "identity.social-login-ownership.claimed",
+          payload: { userId: CLAIM_OWNER, providerName: "google", linkKey },
+        },
+      ],
+    });
+    await identity.eventStore.appendToStream({
+      streamId: SOCIAL_LOGIN_OWNERSHIP_CATCH_UP_STREAM,
+      expectedVersion: "no_stream",
+      context: identity.context,
+      events: [
+        {
+          eventType: "identity.social-login-ownership.caught-up",
+          payload: { horizon: link!.globalPosition, claimed: 1, repairRequired: 0 },
+        },
+      ],
+    });
+    const baseline = identity.snapshot();
+
+    const services = createServices({ existingUser: null });
+    const app = buildApp(services);
+    await app.request("/social/google/start?returnTo=/account");
+    const response = await app.request("/social/google/callback?state=social_token&code=provider-code");
+
+    expect(response.status).toBe(302);
+    expect(response.headers.get("Location")).toBe("/account");
+    expect(response.headers.getSetCookie().join(";")).toContain("chase_sets_session=session_token");
+    expect(services.sessions.commandHandler).toHaveBeenCalledTimes(1);
+    expect(services.sessions.commandHandler).toHaveBeenCalledWith(
+      expect.objectContaining({ command: expect.objectContaining({ userId: CLAIM_OWNER }) }),
+    );
+    // Registration is correctly bypassed: the real Resolve request is the only Identity call.
+    expect(identity.refused).toEqual([]);
+    expect(identity.exchanges).toEqual([
+      {
+        route: "POST social-login-subjects/resolve",
+        internalAuth: true,
+        requestBody: { providerName: "google", providerSubject: SUBJECT },
+        status: 200,
+        responseBody: { status: "owned", userId: CLAIM_OWNER },
+      },
+    ]);
+    expect(services.identity.getUser).toHaveBeenCalledWith(CLAIM_OWNER);
+    expect(services.identity.getUserByEmail).not.toHaveBeenCalled();
+    expect(vi.mocked(services.db.query).mock.calls.map(([sql]) => String(sql))).not.toEqual(
+      expect.arrayContaining([expect.stringContaining("social_login_links")]),
+    );
+    expect(identity.snapshot(), "no identity, claim, link or auth-method event is appended").toEqual(baseline);
+    expect(identity.reservationWrites()).toEqual([]);
+  });
+
+  it("issue-10295-ac3-active-unaffirmed: activated consent rejects new social registration before identity link or session writes", async () => {
+    const identity = await createActivatedIdentity();
+    expect(identity.mintStatus).toBe(200);
+    expect(identity.minted.requirements, "Identity mints the activated, nonempty Terms requirement").toEqual(
+      ACTIVE_TERMS_V1,
+    );
+    const baseline = identity.snapshot();
+    expect(
+      Object.keys(baseline).filter((streamId) => streamId.startsWith("identity.")),
+      "the fixture writes only policy authority",
+    ).toEqual([]);
+
+    const services = createServices({ existingUser: null });
+    const app = buildApp(services);
+    await app.request("/social/google/start?journey=registration&returnTo=/account");
+    const response = await app.request("/social/google/callback?state=social_token&code=provider-code");
+
+    expect(response.status).toBe(302);
+    expect(response.headers.get("Location")).toBe("/register?socialLoginError=registration_consent_unavailable");
+    expect(services.identity.getUserByEmail).toHaveBeenCalledWith(EMAIL);
+    expect(identity.refused).toEqual([]);
+    const mintedForCallback = identity.exchanges[1]?.responseBody;
+    expect(identity.exchanges).toEqual([
+      {
+        route: "POST social-login-subjects/resolve",
+        internalAuth: true,
+        requestBody: { providerName: "google", providerSubject: SUBJECT },
+        status: 200,
+        responseBody: { status: "unclaimed" },
+      },
+      {
+        route: "GET registration-consent",
+        internalAuth: true,
+        requestBody: undefined,
+        status: 200,
+        responseBody: expect.objectContaining({ requirements: ACTIVE_TERMS_V1 }),
+      },
+      {
+        // The caller forwards Identity's own nonempty resolution with its actual `affirmed: false`.
+        route: "POST personal-identities",
+        internalAuth: true,
+        requestBody: expect.objectContaining({
+          email: EMAIL,
+          registrationConsent: { resolution: mintedForCallback, affirmed: false },
+        }),
+        status: 400,
+        responseBody: { error: expect.objectContaining({ code: "registration_consent_affirmation_required" }) },
+      },
+    ]);
+    // Nothing past the post-activation baseline: no User, Account, Membership, Consent, registration-operation,
+    // ownership, link or auth-method event, and no display-name reservation, link, verification or Session.
+    expect(identity.snapshot()).toEqual(baseline);
+    expect(identity.reservationWrites()).toEqual([]);
+    expect(services.sessions.commandHandler).not.toHaveBeenCalled();
+    expect(response.headers.getSetCookie().join(";")).not.toContain("chase_sets_session=");
   });
 });

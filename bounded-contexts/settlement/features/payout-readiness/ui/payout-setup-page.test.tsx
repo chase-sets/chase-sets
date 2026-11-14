@@ -4,7 +4,9 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { SettlementPayoutReadinessRow } from "../read-model/queries";
+import type { SettlementPayoutReadinessRow } from "../../../client";
+import { withPayoutSetupDecision } from "../domain/setup-progress";
+import { payoutSetupMatrix } from "../tests/setup-decision.test-data";
 
 const { mockLoadConnectAndInitialize } = vi.hoisted(() => ({
   mockLoadConnectAndInitialize: vi.fn(),
@@ -23,7 +25,7 @@ import {
 import { StripeConnectNotificationBanner } from "./stripe-connect-notification-banner";
 
 function readiness(overrides: Partial<SettlementPayoutReadinessRow> = {}): SettlementPayoutReadinessRow {
-  return {
+  return withPayoutSetupDecision({
     account_id: "acc_test" as never,
     status: "not-started",
     missing_requirements: [],
@@ -44,7 +46,7 @@ function readiness(overrides: Partial<SettlementPayoutReadinessRow> = {}): Settl
     requirements_collector: "unknown",
     updated_at: null,
     ...overrides,
-  };
+  });
 }
 
 function renderPage(row: SettlementPayoutReadinessRow, options: { providerErrorMessage?: string | null } = {}) {
@@ -99,6 +101,44 @@ async function flushMutationObserver() {
 }
 
 describe("payout setup page", () => {
+  it.each(payoutSetupMatrix)(
+    "matrix-row-tests: preserves setup, support and locale copy for $name",
+    ({ projection, expected, title }) => {
+      const html = renderPage({ ...projection, ...expected });
+      if (title) {
+        expect(html).toContain(title);
+      } else {
+        for (const { title: recoveryTitle } of payoutSetupMatrix) {
+          if (recoveryTitle) expect(html).not.toContain(recoveryTitle);
+        }
+      }
+      expect(html.includes("Loading secure payout setup")).toBe(expected.provider_setup_available);
+      expect(html.includes('href="/account/support"')).toBe(expected.support_recommended && title !== null);
+      expect(html.includes("Manage details")).toBe(expected.provider_management_available);
+      expect(html).toContain("Refresh setup status");
+    },
+  );
+
+  it("mounts components and recommends support only from API fields or a local provider error", () => {
+    const row = {
+      ...readiness({ status: "restricted", missing_requirements: ["external_account"] }),
+      next_step: "provider_review" as const,
+      support_recommended: false,
+      provider_setup_available: false,
+      provider_management_available: false,
+    };
+    const html = renderPage(row);
+    expect(html).not.toContain("Loading secure payout setup");
+    expect(html).not.toContain('href="/account/support"');
+    expect(html).not.toContain("Manage details");
+    const rendered = document.createElement("div");
+    rendered.innerHTML = renderPage(row, { providerErrorMessage: "Provider session expired." });
+    expect(rendered.querySelectorAll('a[href="/account/support"]')).toHaveLength(2);
+    expect(renderPage({ ...row, status: "ready", provider_setup_available: true })).toContain(
+      "Loading secure payout setup",
+    );
+  });
+
   let root: Root | null = null;
   let container: HTMLDivElement | null = null;
 
@@ -303,24 +343,9 @@ describe("payout setup page", () => {
         publishableKey: "pk_test_123",
         locale: "en-US",
         fetchClientSecret: expect.any(Function),
-        appearance: expect.objectContaining({
-          overlays: "dialog",
-          variables: expect.objectContaining({
-            buttonPaddingX: "20px",
-            buttonPaddingY: "12px",
-            buttonPrimaryColorBackground: setupLightTokens["--primary"],
-            buttonPrimaryColorText: setupLightTokens["--primary-foreground"],
-            colorBackground: setupLightTokens["--card"],
-            colorBorder: setupLightTokens["--border"],
-            colorSecondaryText: setupLightTokens["--text-secondary"],
-            colorText: setupLightTokens["--foreground"],
-            fontFamily: setupLightTokens["--body-font"],
-            formBackgroundColor: setupLightTokens["--surface-2"],
-            overlayBackdropColor: "rgba(33, 29, 51, 0.35)",
-          }),
-        }),
       }),
     );
+    expect(mockLoadConnectAndInitialize.mock.calls[0][0]).not.toHaveProperty("appearance");
     expect(create).toHaveBeenCalledWith("account-onboarding");
     const providerSurface = container!.querySelector(
       "[data-testid='stripe-connect-embedded-component']",
@@ -347,7 +372,7 @@ describe("payout setup page", () => {
     expect(container!.textContent).not.toContain("acs_test_secret");
   });
 
-  it("initializes the management component with scoped dark Connect appearance", async () => {
+  it("initializes management with default Connect appearance in a dark host", async () => {
     setThemeScope(container!, "dark", managementDarkTokens);
     const fetch = vi.fn(async () =>
       Response.json({
@@ -366,21 +391,12 @@ describe("payout setup page", () => {
 
     expect(mockLoadConnectAndInitialize).toHaveBeenCalledWith(
       expect.objectContaining({
-        appearance: expect.objectContaining({
-          overlays: "dialog",
-          variables: expect.objectContaining({
-            buttonPrimaryColorBackground: managementDarkTokens["--primary"],
-            buttonPrimaryColorText: managementDarkTokens["--primary-foreground"],
-            colorBackground: managementDarkTokens["--card"],
-            colorBorder: managementDarkTokens["--border"],
-            colorSecondaryText: managementDarkTokens["--text-secondary"],
-            colorText: managementDarkTokens["--foreground"],
-            fontFamily: managementDarkTokens["--body-font"],
-            formBackgroundColor: managementDarkTokens["--surface-2"],
-          }),
-        }),
+        publishableKey: "pk_test_123",
+        locale: "en-US",
+        fetchClientSecret: expect.any(Function),
       }),
     );
+    expect(mockLoadConnectAndInitialize.mock.calls[0][0]).not.toHaveProperty("appearance");
     expect(create).toHaveBeenCalledWith("account-management");
     expect(fetch).toHaveBeenCalledWith(
       "/api/settlement/payout-setup/account-management-embedded-session",
@@ -393,7 +409,7 @@ describe("payout setup page", () => {
     expect(container!.querySelector("stripe-connect-account-management")).toBe(connectElement);
   });
 
-  it("remounts Connect with updated scoped appearance when the theme changes", async () => {
+  it("keeps Connect mounted without theme-only SDK or session calls", async () => {
     setThemeScope(container!, "light", setupLightTokens);
     const fetch = vi.fn(async () =>
       Response.json({
@@ -421,31 +437,26 @@ describe("payout setup page", () => {
     });
     await flushMutationObserver();
 
-    expect(mockLoadConnectAndInitialize).toHaveBeenCalledTimes(2);
-    expect(mockLoadConnectAndInitialize.mock.calls[1][0].appearance.variables).toEqual(
-      expect.objectContaining({
-        buttonPrimaryColorBackground: managementDarkTokens["--primary"],
-        colorBackground: managementDarkTokens["--card"],
-        colorText: managementDarkTokens["--foreground"],
-      }),
-    );
+    expect(mockLoadConnectAndInitialize).toHaveBeenCalledTimes(1);
+    expect(mockLoadConnectAndInitialize.mock.calls[0][0]).not.toHaveProperty("appearance");
+    expect(fetch).toHaveBeenCalledTimes(1);
     expect(container!.querySelectorAll("stripe-connect-account-onboarding")).toHaveLength(1);
-    expect(container!.querySelector("stripe-connect-account-onboarding")).toBe(secondConnectElement);
+    expect(container!.querySelector("stripe-connect-account-onboarding")).toBe(firstConnectElement);
     await act(async () => {
       container!.style.setProperty("--card", "var(--missing)");
     });
     await flushMutationObserver();
-    expect(mockLoadConnectAndInitialize).toHaveBeenCalledTimes(3);
-    expect(mockLoadConnectAndInitialize.mock.calls[2][0].appearance.variables.colorBackground).toBe("#ffffff");
+    expect(mockLoadConnectAndInitialize).toHaveBeenCalledTimes(1);
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(create).toHaveBeenCalledTimes(1);
+    expect(container!.querySelector("stripe-connect-account-onboarding")).toBe(firstConnectElement);
   });
 
-  it("mounts and remounts the notification banner with invalid theme slots safely substituted", async () => {
+  it("uses default notification appearance without theme-only SDK or session calls", async () => {
     setThemeScope(container!, "light", setupLightTokens);
     container!.style.setProperty("--primary", "url(https://invalid.test/color)");
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () => Response.json({ clientSecret: "acs_test_secret" })),
-    );
+    const fetch = vi.fn(async () => Response.json({ clientSecret: "acs_test_secret" }));
+    vi.stubGlobal("fetch", fetch);
     const create = vi.fn(() =>
       Object.assign(document.createElement("div"), {
         setOnLoaderStart: vi.fn(),
@@ -458,14 +469,15 @@ describe("payout setup page", () => {
       root!.render(<StripeConnectNotificationBanner publishableKey="pk_test_123" />);
     });
     await flushMutationObserver();
-    expect(mockLoadConnectAndInitialize.mock.calls[0][0].appearance.variables.colorPrimary).toBe("#4845c6");
+    expect(mockLoadConnectAndInitialize.mock.calls[0][0]).not.toHaveProperty("appearance");
     expect(create).toHaveBeenCalledWith("notification-banner");
     await act(async () => {
       container!.style.setProperty("--card", "var(--missing)");
     });
     await flushMutationObserver();
-    expect(mockLoadConnectAndInitialize).toHaveBeenCalledTimes(2);
-    expect(mockLoadConnectAndInitialize.mock.calls[1][0].appearance.variables.colorBackground).toBe("#ffffff");
+    expect(mockLoadConnectAndInitialize).toHaveBeenCalledTimes(1);
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(create).toHaveBeenCalledTimes(1);
     expect(
       container!.querySelector("[data-testid='stripe-connect-notification-banner']")?.firstElementChild,
     ).not.toBeNull();

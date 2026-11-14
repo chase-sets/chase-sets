@@ -112,6 +112,39 @@ const cardChromeExcluded = [
 ] as const;
 
 describe("MarketplaceListingDetailPage", () => {
+  it("distinguishes a system capacity pause and its actionable publication condition, clearing it when active", () => {
+    const blocked = {
+      ...listing,
+      status: "paused",
+      pause_reason: "inventory-capacity" as const,
+      inventory_capacity_recovery_block: "evidence-incomplete" as const,
+    };
+    const { rerender } = render(<MarketplaceListingDetailPage listing={blocked} feeHistory={[]} />);
+    expect(screen.getByText("Paused for inventory capacity")).toBeTruthy();
+    expect(screen.getByText(/Review the Listing evidence checklist/)).toBeTruthy();
+    rerender(
+      <MarketplaceListingDetailPage
+        listing={{ ...listing, status: "active", pause_reason: null, inventory_capacity_recovery_block: null }}
+        feeHistory={[]}
+      />,
+    );
+    expect(screen.queryByText("Paused for inventory capacity")).toBeNull();
+  });
+
+  it("explains a routine capacity shortage without attributing it to the seller", () => {
+    render(
+      <MarketplaceListingDetailPage
+        listing={{
+          ...listing,
+          status: "paused",
+          pause_reason: "inventory-capacity",
+          inventory_capacity_recovery_block: null,
+        }}
+        feeHistory={[]}
+      />,
+    );
+    expect(screen.getByText(/This system pause protects held stock/)).toBeTruthy();
+  });
   it.each([
     [null, null],
     [null, "9.50"],

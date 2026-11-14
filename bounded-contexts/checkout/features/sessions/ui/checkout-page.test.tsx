@@ -9,9 +9,26 @@ import type { CheckoutFulfillmentPreview } from "../../../support/request-suppor
 import type { CheckoutSessionRow } from "../../../support/request-support/api-client";
 
 import { CheckoutSessionPage } from "./checkout-page";
+import { CheckoutEmptyCartState } from "./checkout-commit-actions";
 
 afterEach(() => {
   cleanup();
+});
+
+describe("CheckoutEmptyCartState", () => {
+  it("keeps the canonical empty-cart title, action, and description presentation", () => {
+    const markup = renderToString(<CheckoutEmptyCartState />);
+    const container = document.createElement("div");
+    container.innerHTML = markup;
+    const description = container.querySelector("section div.m-0.mx-auto.max-w-xl");
+    expect(container.querySelector("h2")?.textContent).toBe(
+      t("checkout.features.sessions.ui.checkoutPage.your.cart.is.empty"),
+    );
+    expect(container.querySelector("a")?.getAttribute("href")).toBe("/search");
+    expect(description).not.toBeNull();
+    expect(description?.className).toContain("m-0 mx-auto max-w-xl text-sm leading-6 text-secondary");
+    expect(description?.textContent).toContain("Add a product");
+  });
 });
 
 const session: CheckoutSessionRow = {
@@ -284,6 +301,37 @@ describe("checkout session page", () => {
     expect(container.querySelector("form")).toBeNull();
     expect(container.querySelector('[name="intent"]')).toBeNull();
     expect(screen.queryByText("payment-entry-marker")).toBeNull();
+  });
+  it("replaces Pay now with the email verification link while Auth withholds payment (#10785)", () => {
+    const href =
+      "/sign-in?returnTo=%2Fcheckout%2Fbuy%2Fsession%2Fchk_1%3FverifyEmail%3Dpay-checkout&signInMethod=magic-link";
+    const props = {
+      session: readySession,
+      fulfillmentPreview: readyFulfillmentPreview,
+      paymentPreview,
+      isSignedInBuyer: true,
+      savedShippingAddresses: [signedInSavedAddress],
+    };
+    expect(renderToString(<CheckoutSessionPage {...props} />)).toContain("Pay now");
+
+    const markup = renderToString(<CheckoutSessionPage {...props} paymentVerifyEmailHref={href} />);
+
+    expect(markup).toContain("Verify your email to pay");
+    expect(markup).toContain(`href="${href.replaceAll("&", "&amp;")}"`);
+    expect(markup).not.toContain("Pay now");
+  });
+
+  it("keeps cart review ahead of email verification when nothing can be confirmed", () => {
+    const markup = renderToString(
+      <CheckoutSessionPage
+        session={session}
+        fulfillmentPreview={fulfillmentPreview}
+        paymentVerifyEmailHref="/sign-in"
+      />,
+    );
+
+    expect(markup).toContain("Review buy cart");
+    expect(markup).not.toContain("Verify your email to pay");
   });
   it("renders all four checkout form sections as tinted furniture", () => {
     const { container } = render(<CheckoutSessionPage session={session} fulfillmentPreview={fulfillmentPreview} />);
@@ -1125,7 +1173,7 @@ describe("checkout session page", () => {
     expect(inFormPrimary?.closest(".hidden.md\\:block")).not.toBeNull();
   });
 
-  it("prepares payment automatically once checkout reaches a complete quoted payment step", async () => {
+  it("quote and forged flag are not authority", async () => {
     const submitListener = vi.fn((event: SubmitEvent) => event.preventDefault());
     document.addEventListener("submit", submitListener);
 
@@ -1152,18 +1200,11 @@ describe("checkout session page", () => {
           }}
           fulfillmentPreview={readyFulfillmentPreview}
           paymentPreview={paymentPreview}
-          autoResumePaymentStart
         />,
       );
 
-      await waitFor(() => expect(submitListener).toHaveBeenCalledTimes(1));
-      const submitEvent = submitListener.mock.calls[0]?.[0];
-      expect((submitEvent?.submitter as HTMLButtonElement | null)?.value).toBe("confirm-checkout");
-      const form = document.getElementById("checkout-confirmation-form") as HTMLFormElement | null;
-      expect(form).not.toBeNull();
-      const formData = new FormData(form!);
-      expect(formData.get("marketplaceCheckoutFeeQuoteFingerprint")).toBe("quote_1");
-      expect(formData.get("paymentMethodCategory")).toBe("card");
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(submitListener).not.toHaveBeenCalled();
     } finally {
       document.removeEventListener("submit", submitListener);
     }
@@ -1180,7 +1221,6 @@ describe("checkout session page", () => {
           paymentPreview={paymentPreview}
           walletUnavailable
           isSignedInBuyer
-          autoResumePaymentStart
         />,
       );
       expect(screen.getByText("Wallet balance is temporarily unavailable")).toBeTruthy();
@@ -1202,6 +1242,70 @@ describe("checkout session page", () => {
     }
   });
 
+  // chase-sets/chase-sets#10785: once the orders exist the preview is gone, and Pay now resumes their payment.
+  it.each([
+    ["the revision its orders kept", "rev_orders", "rev_orders"],
+    ["no revision for a Session whose orders kept none", null, ""],
+  ])("posts %s once the orders exist without a payment", (_case, kept, posted) => {
+    const { container } = render(
+      <CheckoutSessionPage
+        session={{ ...readySession, order_ids: ["ord_1"], payment_id: null, fulfillment_preview_revision: kept }}
+        fulfillmentPreview={null}
+        paymentPreview={paymentPreview}
+        wallet={null}
+        walletUnavailable={false}
+        isSignedInBuyer
+      />,
+    );
+
+    expect(container.querySelector('input[name="fulfillmentPreviewRevision"]')?.getAttribute("value")).toBe(posted);
+  });
+
+  // chase-sets/chase-sets#11151: the order hash binds the acknowledgement the first form posted. Once the orders
+  // exist the preview that produced it is gone, so the resumed form posts the one the Session kept.
+  it.each([
+    ["a material change it acknowledged", ["Shipping changed for one seller."], "true"],
+    ["no material change", [], ""],
+  ])("posts the acknowledgement its orders were bound to after %s", (_case, materialChangeReasons, posted) => {
+    const field = (container: HTMLElement, name: string) =>
+      container.querySelector<HTMLInputElement>(`input[name='${name}']`)?.value;
+    const quoted = { ...readyFulfillmentPreview, materialChangeReasons };
+    const first = render(
+      <CheckoutSessionPage
+        session={readySession}
+        fulfillmentPreview={quoted}
+        paymentPreview={paymentPreview}
+        isSignedInBuyer
+      />,
+    );
+    const sent = {
+      revision: field(first.container, "fulfillmentPreviewRevision") ?? null,
+      acknowledged: field(first.container, "acknowledgedMaterialChanges") === "true",
+    };
+    expect(field(first.container, "acknowledgedMaterialChanges")).toBe(posted);
+    first.unmount();
+
+    // The Session as that confirm recorded it: orders bound to what the form sent, the live preview cleared.
+    const resumed = render(
+      <CheckoutSessionPage
+        session={{
+          ...readySession,
+          order_ids: ["ord_1"],
+          payment_id: null,
+          fulfillment_preview_revision: sent.revision,
+          last_recorded_quote: quoted,
+          order_acknowledged_material_changes: sent.acknowledged,
+        }}
+        fulfillmentPreview={null}
+        paymentPreview={paymentPreview}
+        isSignedInBuyer
+      />,
+    );
+
+    expect(field(resumed.container, "fulfillmentPreviewRevision")).toBe(sent.revision);
+    expect(field(resumed.container, "acknowledgedMaterialChanges")).toBe(posted);
+  });
+
   it("omits wallet credit from both summaries for a signed-in no-wallet quote", () => {
     const markup = renderToString(
       <CheckoutSessionPage
@@ -1211,7 +1315,6 @@ describe("checkout session page", () => {
         wallet={null}
         walletUnavailable={false}
         isSignedInBuyer
-        autoResumePaymentStart
       />,
     );
 
@@ -1230,7 +1333,6 @@ describe("checkout session page", () => {
           fulfillmentPreview={readyFulfillmentPreview}
           walletUnavailable
           isSignedInBuyer
-          autoResumePaymentStart
           savedShippingAddresses={[savedAddress]}
           savedCheckoutInstruments={[savedCard]}
         />,

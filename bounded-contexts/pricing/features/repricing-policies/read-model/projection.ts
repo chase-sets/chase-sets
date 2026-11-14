@@ -2,6 +2,7 @@ import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import { extractIdFromStreamId } from "@chase-sets/event-core";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { RepricingPolicyScope, RepricingRule } from "../domain/domain";
+import type { RepricingAuthoringIntent } from "../domain/authoring-intent";
 
 const repricingPolicyStreamIdPrefix = "pricing.repricing-policy-";
 
@@ -38,6 +39,7 @@ export function buildRepricingPolicyProjectionHandlers(db: PgQueryable): Project
         rules: readonly RepricingRule[];
         maxChangesPerDay: number;
         createdAt: string;
+        authoringIntent?: RepricingAuthoringIntent | null;
       };
       const { scopeKind, scopeCategoryIds, scopeListingIds } = scopeColumns(data.scope);
 
@@ -54,8 +56,9 @@ export function buildRepricingPolicyProjectionHandlers(db: PgQueryable): Project
            rules,
            max_changes_per_day,
            created_at,
-           updated_at
-         ) VALUES ($1, $2, $3, 'active', $4, $5, $6, $7, $8, $9, $10, $10)
+           updated_at,
+           authoring_intent
+         ) VALUES ($1, $2, $3, 'active', $4, $5, $6, $7, $8, $9, $10, $10, $11)
          ON CONFLICT (policy_id) DO NOTHING`,
         [
           data.policyId,
@@ -68,6 +71,7 @@ export function buildRepricingPolicyProjectionHandlers(db: PgQueryable): Project
           JSON.stringify(data.rules),
           data.maxChangesPerDay,
           data.createdAt,
+          data.authoringIntent ? JSON.stringify(data.authoringIntent) : null,
         ],
       );
     },
@@ -79,6 +83,7 @@ export function buildRepricingPolicyProjectionHandlers(db: PgQueryable): Project
         rules: readonly RepricingRule[];
         maxChangesPerDay: number;
         revisedAt: string;
+        authoringIntent?: RepricingAuthoringIntent | null;
       };
       const { scopeKind, scopeCategoryIds, scopeListingIds } = scopeColumns(data.scope);
 
@@ -91,7 +96,8 @@ export function buildRepricingPolicyProjectionHandlers(db: PgQueryable): Project
              excluded_listing_ids = $6,
              rules = $7,
              max_changes_per_day = $8,
-             updated_at = $9
+             updated_at = $9,
+             authoring_intent = $10
          WHERE policy_id = $1`,
         [
           policyIdFromStreamId(event.streamId),
@@ -103,6 +109,7 @@ export function buildRepricingPolicyProjectionHandlers(db: PgQueryable): Project
           JSON.stringify(data.rules),
           data.maxChangesPerDay,
           data.revisedAt,
+          data.authoringIntent ? JSON.stringify(data.authoringIntent) : null,
         ],
       );
     },

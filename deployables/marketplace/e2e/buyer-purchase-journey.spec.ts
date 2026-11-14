@@ -1,7 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { signInThroughMarketplaceForm } from "./support/auth";
 import { marketplaceBrowserE2eBuyerCredentials, marketplaceBrowserE2eSeedContract } from "./support/seed-contract";
-import { logMarketplaceSeedContractGap } from "./support/seed-contract-gap";
 
 test.describe("marketplace buyer purchase journey", () => {
   test("seeded buyer submits the marketplace sign-in form @marketplace-account @browser-e2e-seed", async ({ page }) => {
@@ -42,37 +41,20 @@ test.describe("marketplace buyer purchase journey", () => {
     await checkoutButton.click();
 
     await expect(page).toHaveURL(/\/checkout\/buy\/session\/[^/?]+/);
-    // The checkout session surface always renders under the "Secure checkout" banner —
-    // the reachable checkout-session boundary. Assert it hard.
-    await expect(page.getByRole("heading", { name: /^Secure checkout$/i }).first()).toBeVisible();
 
-    // The payment-ready buyer stepper only renders once checkout deciders start payment.
-    // browser-e2e wires no payment provider, so a freshly created checkout session stays
-    // on the "Secure checkout" readiness surface ("Preparing checkout" / "Checkout needs
-    // attention") and never advances to the stepper (verified by direct inspection of the
-    // rendered checkout page in browser-e2e). Assert the full payment boundary only when a
-    // payment-ready stepper actually rendered (real/staging env); otherwise log the gap
-    // loudly and assert the reachable readiness surface.
-    const checkoutSteps = page.locator("[aria-label='Checkout steps']");
-    if (await checkoutSteps.isVisible({ timeout: 15_000 }).catch(() => false)) {
-      for (const step of ["Contact", "Delivery", "Shipping", "Payment", "Review"]) {
-        await expect(checkoutSteps.getByText(new RegExp(`^${step}$`, "i"))).toBeVisible();
-      }
-      const updateTotals = page.getByRole("button", { name: /Update totals|Pay now/i }).first();
-      await expect(updateTotals, "checkout must reach the payment boundary action").toBeVisible();
-      await updateTotals.click();
-      await expect(
-        page.getByText(/Payment review comes next|Final totals before payment|Pay now/i).first(),
-      ).toBeVisible();
-    } else {
-      logMarketplaceSeedContractGap(
-        "Checkout session did not reach the payment-ready buyer stepper: browser-e2e wires no payment provider, " +
-          "so a checkout session created from the seeded cart stays on the 'Secure checkout' readiness surface " +
-          "(payment never starts). The reachable checkout-session boundary is asserted instead.",
-      );
-      await expect(
-        page.getByRole("heading", { name: /Preparing checkout|Checkout needs attention/i }).first(),
-      ).toBeVisible();
-    }
+    // The seeded collector's email is unverified (the identity seed gives it no verifiedAt), so
+    // Auth withholds orders.manage and Payments would refuse to start the payment. Checkout
+    // offers email verification where Pay now would be and reserves and orders nothing until
+    // the buyer verifies; the link signs in by magic link and returns to this session.
+    const verifyEmail = page.getByRole("link", { name: /^Verify your email to pay$/i }).first();
+    await expect(
+      verifyEmail,
+      "an unverified buyer must be offered email verification in place of Pay now",
+    ).toBeVisible();
+    await expect(verifyEmail).toHaveAttribute(
+      "href",
+      /^\/sign-in\?returnTo=%2Fcheckout%2Fbuy%2Fsession%2F[^&]+%3FverifyEmail%3Dpay-checkout&signInMethod=magic-link$/,
+    );
+    await expect(page.getByRole("button", { name: /^Pay now$/i })).toHaveCount(0);
   });
 });

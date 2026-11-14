@@ -42,11 +42,12 @@ import { scrydexOnePieceCredentialsFromEnv } from "../../features/source-observa
 import type { CatalogAssetStorage } from "../../features/source-observations/api/asset-storage";
 import type { SourceObservationTelemetry } from "../../features/source-observations/api/catalog-integration-observability";
 import { createCatalogAuthoringBulkJobServices } from "./bulk-authoring-jobs";
-import { createOperatorSessionGrants } from "../../features/operator-session/api/grants";
+import { createOperatorSessionGrants, type CatalogOperatorAuthority } from "../../features/operator-session/api/grants";
 
 export type CatalogHostPorts = Readonly<{
   catalogAssetStorage?: CatalogAssetStorage;
   sourceObservationTelemetry?: SourceObservationTelemetry;
+  catalogOperatorAuthority?: CatalogOperatorAuthority;
 }>;
 
 export type CatalogServices = Readonly<{
@@ -163,17 +164,24 @@ export function createCatalogServices(
   };
   const attentionQueue = createCatalogAttentionQueueRuntime(deps, {
     getReadiness: sourceObservations.getCatalogIntegrationControlPlaneReadiness,
-    listActiveJobs: sourceObservations.listActiveIntegrationJobs,
+    // A runtime without the snapshot read only offers the flag-free active list,
+    // which can never prove it holds every active job.
+    listActiveJobSnapshot: async (input) =>
+      (await sourceObservations.listActiveIntegrationJobSnapshot?.(input)) ?? {
+        items: await sourceObservations.listActiveIntegrationJobs(input),
+        completeness: "incomplete",
+      },
   });
   const authoringBulkJobs = createCatalogAuthoringBulkJobServices(db);
   const providerScopeDiscovery = createProviderScopeDiscoveryRuntime(deps, {
     listProfileVersions: () => providerIntegrationProfiles.listProfileVersions(),
     queryIntegrationOptions: (input) => sourceObservations.queryIntegrationOptions(input),
     providerScopeMappingCommandHandler: providerScopeMappings.commandHandler,
+    referenceRecordCommandHandler: referenceData.referenceRecordCommandHandler,
   });
 
   return {
-    operatorSession: createOperatorSessionGrants(pool),
+    operatorSession: createOperatorSessionGrants(pool, ports.catalogOperatorAuthority),
     dimensions,
     displayTemplates,
     fields,
@@ -199,6 +207,7 @@ export function createCatalogServices(
             readRoster: (scopeRecordId) => readCountCaptureRoster(db, providerIntegrationProfiles, scopeRecordId),
             readEffects: (at) => readCountCaptureEffects(db, at),
             countAuthority: () => countStore.authority(),
+            periodLedger: countStore.periodLedger,
             observeUsage: observeDeployedScrydexUsage(
               sourceObservations.providerAdapterRegistry,
               deps.providerSendRuntime,

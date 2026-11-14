@@ -96,13 +96,16 @@ export type CheckoutSessionPageProps = {
   reviewRefreshed?: boolean;
   paymentQuoteRequired?: boolean;
   isSubmitting?: boolean;
+  /** Confirm may have reached Checkout but one Session read showed neither payment nor Offer; Place order stays off. */
+  confirmationAmbiguous?: boolean;
   savedShippingAddresses?: readonly CheckoutSavedShippingAddress[];
   savedCheckoutInstruments?: readonly CheckoutSavedPaymentInstrument[];
   guestCheckoutContact?: GuestCheckoutContact | null;
   canManageShippingAddresses?: boolean;
   canSavePaymentMethods?: boolean;
   isSignedInBuyer?: boolean;
+  /** Set while Auth withholds payment pending email verification: Pay now becomes this link. */
+  paymentVerifyEmailHref?: string | null;
   initialEditSection?: CheckoutEditSection | null;
-  autoResumePaymentStart?: boolean;
   preparedPaymentEntry?: ReactNode;
 };

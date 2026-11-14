@@ -24,7 +24,7 @@ import { createPostgresWorkSignalStore } from "@chase-sets/platform-runtime/work
 import { createWorkerHost, type WorkerHostRuntime, type WorkerRunner } from "@chase-sets/platform-runtime/worker";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { getPlatformWorkerContextsForRuntimeProfile } from "../src/config";
-import { workerContextRegistry } from "../src/generated/worker-context-registry";
+import { workerContextRegistry } from "../src/context-registry";
 import { createPlatformChannelSaleRecorder } from "../src/channels-reconciliation-runners";
 import {
   createInventoryProductResolutionMaintenanceRunners,
@@ -52,8 +52,8 @@ if (!adminDatabaseUrl && process.env.CI) {
 }
 
 const describeDatabase = adminDatabaseUrl ? describe : describe.skip;
-// 34 factory sites, minus the legacy postage-purchase fallback, plus cleanup and retention.
-const EXPECTED_REGISTERED_RUNNER_COUNT = 34;
+// Includes the context-owned seller compliance replay runner.
+const EXPECTED_REGISTERED_RUNNER_COUNT = 35;
 const NEGATIVE_CONTROL_RUNNER_NAME = "negative-control.ambiguous-joined-sql";
 const runtimeProfile = "public" as const;
 const contextNames = getPlatformWorkerContextsForRuntimeProfile(runtimeProfile);
@@ -221,6 +221,483 @@ describeDatabase("registered platform-worker scheduled runners", () => {
     expect(new Set(names).size).toBe(names.length);
   });
 
+  it("seller compliance causal envelopes: mounted commands, lag silence, retry immutability and completion recovery", async () => {
+    const services = runtime.services["platform-operations"] as PlatformOperationsServices;
+    const entry = services.policyConsoleEntries.find(
+      (entry) => entry.policyKey === "platform-operations.seller-compliance-cohort",
+    )!;
+    const db = pools["platform-operations"];
+    const context = {
+      tenantId: "synthetic-cohort-tenant" as never,
+      audit: {
+        performedByUserId: "synthetic-cohort-operator" as never,
+        forAccountId: "synthetic-cohort-account" as never,
+      },
+    };
+    const value = {
+      activated: true,
+      currencyCode: "USD",
+      qualifyingTransactionCount: 1,
+      qualifyingGrossCents: "100",
+      disclosureGrossCents: "300",
+      windowMonths: 1,
+      lookbackMonths: 1,
+      comparisonIsInclusive: true,
+      saleUnit: "captured-order",
+      qualifyingGrossBasis: "item-gross",
+      refundTreatment: "exclude-refunded",
+      postCaptureCancellationTreatment: "exclude-cancelled",
+      mixedLineTreatment: "exclude-mixed",
+      unclassifiableTreatment: "exclude-unclassifiable",
+      classificationRules: [{ source: "productId", value: "synthetic-cohort-card" }],
+    };
+    const selected = registeredRunners.filter(
+      (runner) => runner.name === "platform-operations.seller-compliance-cohort-sweep",
+    );
+    expect(selected).toHaveLength(1);
+    const seller = "synthetic-cohort-causal-seller";
+    await db.query(
+      `INSERT INTO platform_operations_seller_compliance_sales
+      (payment_id,order_id,seller_account_id,sale_state,occurred_at,currency_code,item_gross_cents,
+       marketplace_sales_fee_cents,seller_item_net_cents,classification_inputs,change_sequence,recorded_at,changed_at)
+      VALUES ('synthetic-cohort-entry','synthetic-cohort-entry',$1,'captured','2025-05-10','USD',100,0,100,$2,800001,'2025-05-10','2025-05-10'),
+       ('synthetic-cohort-band','synthetic-cohort-band',$1,'captured','2025-05-12','USD',200,0,200,$2,800002,'2025-05-12','2025-05-12')`,
+      [seller, JSON.stringify([{ productId: "synthetic-cohort-card" }])],
+    );
+    const ledger = async () =>
+      (
+        await db.query(
+          `SELECT transition_version::text,kind,effective_at,observed_at,policy_version,target_state,target_band,recorded_at,published_at
+      FROM platform_operations_seller_compliance_cohort_transitions WHERE seller_account_id=$1 ORDER BY transition_version`,
+          [seller],
+        )
+      ).rows;
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      vi.setSystemTime(new Date("2025-05-13T00:00:00.000Z"));
+      await selected[0]!.runOnce();
+      expect(await ledger()).toEqual([]);
+      vi.setSystemTime(new Date("2025-04-01T00:00:00.000Z"));
+      await services.policies.createPolicyDocumentWithId(
+        entry.definition,
+        "synthetic-cohort-causal-policy",
+        {
+          value,
+          status: "active",
+          effectiveFrom: "2025-01-01T00:00:00.000Z",
+          effectiveUntil: null,
+          actorUserId: "synthetic-cohort-operator",
+        },
+        context,
+      );
+      vi.setSystemTime(new Date("2025-05-13T00:00:00.000Z"));
+      await services.sellerComplianceCohorts.runTick({ tick: "2025-05-13T00:00:00.000Z" });
+      const first = await ledger();
+      expect(first).toHaveLength(2);
+      expect(
+        first.map((row) => ({
+          kind: row.kind,
+          effectiveAt: (row.effective_at as Date).toISOString(),
+          observedAt: (row.observed_at as Date).toISOString(),
+          state: row.target_state,
+          band: row.target_band,
+        })),
+      ).toEqual([
+        {
+          kind: "entered",
+          effectiveAt: "2025-05-10T00:00:00.000Z",
+          observedAt: "2025-05-13T00:00:00.000Z",
+          state: "member",
+          band: "none",
+        },
+        {
+          kind: "disclosure-band-changed",
+          effectiveAt: "2025-05-12T00:00:00.000Z",
+          observedAt: "2025-05-13T00:00:00.000Z",
+          state: "member",
+          band: "disclosure",
+        },
+      ]);
+      await services.sellerComplianceCohorts.evaluateSeller({
+        sellerAccountId: seller,
+        tick: "2025-05-13T00:00:00.000Z",
+      });
+      expect(await ledger()).toEqual(first);
+      // Simulate a lost rebuildable row, retaining the authoritative immutable ledger.
+      await db.query(
+        "DELETE FROM platform_operations_seller_compliance_cohorts WHERE seller_account_id=$1 AND version=2",
+        [seller],
+      );
+      await services.sellerComplianceCohorts.evaluateSeller({
+        sellerAccountId: seller,
+        tick: "2025-05-13T00:00:00.000Z",
+      });
+      expect(await ledger()).toEqual(first);
+      expect(
+        (
+          await db.query(
+            "SELECT state,disclosure_band FROM platform_operations_seller_compliance_cohorts WHERE seller_account_id=$1",
+            [seller],
+          )
+        ).rows,
+      ).toEqual([{ state: "member", disclosure_band: "disclosure" }]);
+      const missing =
+        '{"eventId":"synthetic-absent-event","streamVersion":1,"documentId":"synthetic-absent-document","policyKey":"platform-operations.seller-compliance-cohort"}';
+      await db.query(
+        "UPDATE platform_operations_seller_compliance_cohorts SET policy_version=$2 WHERE seller_account_id=$1 AND version=2",
+        [seller, missing],
+      );
+      const frozen = (
+        await db.query("SELECT * FROM platform_operations_seller_compliance_cohorts WHERE seller_account_id=$1", [
+          seller,
+        ])
+      ).rows;
+      for (let i = 0; i < 2; i++)
+        await services.sellerComplianceCohorts.evaluateSeller({
+          sellerAccountId: seller,
+          tick: "2025-05-13T00:00:00.000Z",
+        });
+      expect(
+        (
+          await db.query("SELECT * FROM platform_operations_seller_compliance_cohorts WHERE seller_account_id=$1", [
+            seller,
+          ])
+        ).rows,
+      ).toEqual(frozen);
+      expect(
+        (
+          await db.query(
+            "SELECT failure_kind,policy_version FROM platform_operations_seller_compliance_evaluation_failures WHERE seller_account_id=$1",
+            [seller],
+          )
+        ).rows,
+      ).toEqual([{ failure_kind: "missing-prior-policy", policy_version: missing }]);
+      expect(await ledger()).toEqual(first);
+      await db.query(
+        "UPDATE platform_operations_seller_compliance_cohorts SET next_reevaluation_at=NULL WHERE seller_account_id=$1 AND version=2",
+        [seller],
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+    expect(externalFetch).not.toHaveBeenCalled();
+  });
+
+  it("seller compliance prospective timeline: unswept same-document revisions preserve the first causal exit", async () => {
+    const services = runtime.services["platform-operations"] as PlatformOperationsServices;
+    const entry = services.policyConsoleEntries.find(
+      (entry) => entry.policyKey === "platform-operations.seller-compliance-cohort",
+    )!;
+    const db = pools["platform-operations"];
+    const context = {
+      tenantId: "synthetic-cohort-tenant" as never,
+      audit: {
+        performedByUserId: "synthetic-cohort-operator" as never,
+        forAccountId: "synthetic-cohort-account" as never,
+      },
+    };
+    const value = {
+      activated: true,
+      currencyCode: "USD",
+      qualifyingTransactionCount: 1,
+      qualifyingGrossCents: "100",
+      disclosureGrossCents: "1000",
+      windowMonths: 12,
+      lookbackMonths: 12,
+      comparisonIsInclusive: true,
+      saleUnit: "captured-order",
+      qualifyingGrossBasis: "item-gross",
+      refundTreatment: "exclude-refunded",
+      postCaptureCancellationTreatment: "exclude-cancelled",
+      mixedLineTreatment: "exclude-mixed",
+      unclassifiableTreatment: "exclude-unclassifiable",
+      classificationRules: [{ source: "productId", value: "synthetic-cohort-card" }],
+    };
+    const seller = "synthetic-cohort-prospective-seller";
+    await db.query(
+      `INSERT INTO platform_operations_seller_compliance_sales
+      (payment_id,order_id,seller_account_id,sale_state,occurred_at,currency_code,item_gross_cents,marketplace_sales_fee_cents,seller_item_net_cents,classification_inputs,change_sequence,recorded_at,changed_at)
+      VALUES ('synthetic-prospective-payment','synthetic-prospective-order',$1,'captured','2026-04-02','USD',100,0,100,$2,800003,'2026-04-02','2026-04-02')`,
+      [seller, JSON.stringify([{ productId: "synthetic-cohort-card" }])],
+    );
+    const params = {
+      status: "active" as const,
+      effectiveFrom: "2026-01-01T00:00:00.000Z",
+      effectiveUntil: null,
+      actorUserId: "synthetic-cohort-operator",
+    };
+    const rows = async () =>
+      (
+        await db.query(
+          "SELECT kind,effective_at,observed_at,recorded_at,policy_version FROM platform_operations_seller_compliance_cohort_transitions WHERE seller_account_id=$1 ORDER BY transition_version",
+          [seller],
+        )
+      ).rows;
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      vi.setSystemTime(new Date("2026-04-01T00:00:00.000Z"));
+      await services.policies.createPolicyDocumentWithId(
+        entry.definition,
+        "synthetic-prospective-policy",
+        { ...params, value },
+        context,
+      );
+      await services.sellerComplianceCohorts.evaluateSeller({
+        sellerAccountId: seller,
+        tick: "2026-04-03T00:00:00.000Z",
+      });
+      const admitted = await rows();
+      expect(admitted.map((row) => row.kind)).toEqual(["entered"]);
+      for (const recordedAt of ["2026-05-10T00:00:00.000Z", "2026-05-15T00:00:00.000Z"]) {
+        vi.setSystemTime(new Date(recordedAt));
+        await services.policies.revisePolicyDocument(
+          entry.definition,
+          "synthetic-prospective-policy",
+          { ...params, value: { ...value, qualifyingGrossCents: "500" } },
+          context,
+        );
+      }
+      await services.sellerComplianceCohorts.evaluateSeller({
+        sellerAccountId: seller,
+        tick: "2026-05-20T00:00:00.000Z",
+      });
+      const exited = await rows();
+      expect(exited).toHaveLength(2);
+      expect(exited[0]).toEqual(admitted[0]);
+      expect(exited[1]).toMatchObject({
+        kind: "exited",
+        effective_at: new Date("2026-05-10T00:00:00.000Z"),
+        observed_at: new Date("2026-05-20T00:00:00.000Z"),
+      });
+      await services.sellerComplianceCohorts.evaluateSeller({
+        sellerAccountId: seller,
+        tick: "2026-05-20T00:00:00.000Z",
+      });
+      expect(await rows()).toEqual(exited);
+      vi.setSystemTime(new Date("2026-05-25T00:00:00.000Z"));
+      await services.policies.revisePolicyDocument(
+        entry.definition,
+        "synthetic-prospective-policy",
+        { ...params, effectiveFrom: "2026-06-01T00:00:00.000Z", value },
+        context,
+      );
+      await services.sellerComplianceCohorts.evaluateSeller({
+        sellerAccountId: seller,
+        tick: "2026-05-26T00:00:00.000Z",
+      });
+      expect(await rows()).toEqual(exited);
+      await services.sellerComplianceCohorts.evaluateSeller({
+        sellerAccountId: seller,
+        tick: "2026-06-01T00:00:00.000Z",
+      });
+      expect((await rows()).at(-1)).toMatchObject({
+        kind: "entered",
+        effective_at: new Date("2026-06-01T00:00:00.000Z"),
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("seller compliance sale-trigger resume processes 100 then 2 without a wall-clock cutoff", async () => {
+    const services = runtime.services["platform-operations"] as PlatformOperationsServices;
+    const db = pools["platform-operations"];
+    await db.query(`INSERT INTO platform_operations_seller_compliance_sales
+      (payment_id,order_id,seller_account_id,sale_state,occurred_at,change_sequence,recorded_at,changed_at)
+      SELECT 'synthetic-resume-payment-'||n,'synthetic-resume-order-'||n,'synthetic-resume-'||lpad(n::text,3,'0'),
+       'captured','2025-01-01',900000+n,'2025-01-01','2025-01-01' FROM generate_series(1,102) n`);
+    // Freeze the prior completed range, keeping policy authority unchanged for this sale-driven pass.
+    await services.sellerComplianceCohorts.runTick({ tick: "2026-06-01T00:00:00.000Z" });
+    let checkpoint = (
+      await db.query("SELECT * FROM platform_operations_seller_compliance_sweep_checkpoints WHERE trigger='cohort'")
+    ).rows[0]!;
+    while (checkpoint.current_snapshot !== null) {
+      await services.sellerComplianceCohorts.runTick({ tick: "2026-06-01T00:00:00.000Z" });
+      checkpoint = (
+        await db.query("SELECT * FROM platform_operations_seller_compliance_sweep_checkpoints WHERE trigger='cohort'")
+      ).rows[0]!;
+    }
+    await db.query(
+      `UPDATE platform_operations_seller_compliance_sales SET change_sequence=change_sequence+1000,revision=revision+1 WHERE payment_id LIKE 'synthetic-resume-payment-%' AND revision=1`,
+    );
+    expect(await services.sellerComplianceCohorts.runTick({ tick: "2026-06-02T00:00:00.000Z" })).toMatchObject({
+      processed: 100,
+    });
+    expect(await services.sellerComplianceCohorts.runTick({ tick: "2026-06-05T00:00:00.000Z" })).toMatchObject({
+      processed: 2,
+    });
+    const retained = (
+      await db.query(
+        "SELECT current_snapshot,last_completed_snapshot::text,seller_cursor,raw_page_cursor FROM platform_operations_seller_compliance_sweep_checkpoints WHERE trigger='cohort'",
+      )
+    ).rows[0]!;
+    expect(retained).toMatchObject({
+      current_snapshot: null,
+      last_completed_snapshot: "901102",
+      seller_cursor: "synthetic-resume-102",
+      raw_page_cursor: "synthetic-resume-102",
+    });
+  });
+
+  it.each(["combined inert history", "isolated raise history"])(
+    "seller compliance mounted command controls: %s",
+    async (scenario) => {
+      const databaseUrls = createMultiContextTestDatabaseUrls(
+        adminDatabaseUrl!,
+        ["platform-operations"],
+        "cohort_command_controls",
+      );
+      await ensureMultiContextTestDatabases(adminDatabaseUrl!, databaseUrls);
+      const scenarioPools = createMultiContextTestPools(databaseUrls);
+      const scenarioRuntime = createWorkerHost(workerContextRegistry, "platform-worker", {
+        pools: { ...pools, ...scenarioPools },
+        runtimeProfile,
+        hostPorts: workerHostPorts(),
+      });
+      const mounted = scenarioRuntime.mountedContexts.find((context) => context.contextName === "platform-operations")!;
+      await bootstrapContextDatabase(mounted.module, mounted.pool);
+      const services = scenarioRuntime.services["platform-operations"] as PlatformOperationsServices;
+      const entry = services.policyConsoleEntries.find(
+        (entry) => entry.policyKey === "platform-operations.seller-compliance-cohort",
+      )!;
+      const db = scenarioPools["platform-operations"];
+      const context = {
+        tenantId: "synthetic-cohort-tenant" as never,
+        audit: {
+          performedByUserId: "synthetic-cohort-operator" as never,
+          forAccountId: "synthetic-cohort-account" as never,
+        },
+      };
+      const value = {
+        activated: true,
+        currencyCode: "USD",
+        qualifyingTransactionCount: 1,
+        qualifyingGrossCents: "100",
+        disclosureGrossCents: "1000",
+        windowMonths: 1,
+        lookbackMonths: 12,
+        comparisonIsInclusive: true,
+        saleUnit: "captured-order",
+        qualifyingGrossBasis: "item-gross",
+        refundTreatment: "exclude-refunded",
+        postCaptureCancellationTreatment: "exclude-cancelled",
+        mixedLineTreatment: "exclude-mixed",
+        unclassifiableTreatment: "exclude-unclassifiable",
+        classificationRules: [{ source: "productId", value: "synthetic-cohort-card" }],
+      };
+      const params = {
+        value,
+        status: "active" as "active" | "inactive",
+        effectiveFrom: "2027-01-01T00:00:00.000Z",
+        effectiveUntil: null as string | null,
+        actorUserId: "synthetic-cohort-operator",
+      };
+      const seller = "synthetic-mounted-controls";
+      const document = "synthetic-mounted-controls-policy";
+      const evaluateAt = async (tick: string) => {
+        vi.setSystemTime(new Date(tick));
+        expect(await services.sellerComplianceCohorts.evaluateSeller({ sellerAccountId: seller, tick })).toBe(true);
+      };
+      const stored = async () =>
+        (
+          await db.query("SELECT * FROM platform_operations_seller_compliance_cohorts WHERE seller_account_id=$1", [
+            seller,
+          ])
+        ).rows;
+      const transitions = async () =>
+        (
+          await db.query(
+            "SELECT * FROM platform_operations_seller_compliance_cohort_transitions WHERE seller_account_id=$1 ORDER BY transition_version",
+            [seller],
+          )
+        ).rows;
+      const revise = async (at: string, overrides: Partial<typeof params> = {}) => {
+        vi.setSystemTime(new Date(at));
+        await services.policies.revisePolicyDocument(entry.definition, document, { ...params, ...overrides }, context);
+      };
+      vi.useFakeTimers({ toFake: ["Date"] });
+      try {
+        vi.setSystemTime(new Date("2027-01-01T00:00:00.000Z"));
+        // Each mounted scenario has its own complete policy history, with no fallback documents.
+        await services.policies.createPolicyDocumentWithId(entry.definition, document, params, context);
+        await db.query(
+          `INSERT INTO platform_operations_seller_compliance_sales
+        (payment_id,order_id,seller_account_id,sale_state,occurred_at,currency_code,item_gross_cents,marketplace_sales_fee_cents,seller_item_net_cents,classification_inputs,change_sequence,recorded_at,changed_at)
+        VALUES ('synthetic-controls-old','synthetic-controls-old',$1,'captured','2023-01-01','USD',100,0,100,$2,910001,'2023-01-01','2023-01-01')`,
+          [seller, JSON.stringify([{ productId: "synthetic-cohort-card" }])],
+        );
+        await evaluateAt("2027-01-02T00:00:00.000Z");
+        expect((await stored())[0]).toMatchObject({ state: "outside" });
+        expect(await transitions()).toEqual([]);
+        await db.query(
+          `INSERT INTO platform_operations_seller_compliance_sales
+        (payment_id,order_id,seller_account_id,sale_state,occurred_at,currency_code,item_gross_cents,marketplace_sales_fee_cents,seller_item_net_cents,classification_inputs,change_sequence,recorded_at,changed_at)
+        VALUES ('synthetic-controls-current','synthetic-controls-current',$1,'captured','2027-03-20','USD',100,0,100,$2,910002,'2027-03-20','2027-03-20')`,
+          [seller, JSON.stringify([{ productId: "synthetic-cohort-card" }])],
+        );
+        await evaluateAt("2027-03-21T00:00:00.000Z");
+        const member = await stored();
+        const entered = await transitions();
+        expect(entered).toHaveLength(1);
+        for (const [index, overrides] of (scenario === "combined inert history"
+          ? [
+              { status: "inactive" as const },
+              { value: { ...value, activated: false } },
+              { effectiveUntil: "2027-03-21T00:00:00.000Z" },
+            ]
+          : []
+        ).entries()) {
+          const day = `2027-03-${22 + index}`;
+          await revise(`${day}T00:00:00.000Z`, overrides);
+          await evaluateAt(`${day}T01:00:00.000Z`);
+          expect(await stored()).toEqual(member);
+          expect(await transitions()).toEqual(entered);
+          await revise(`${day}T12:00:00.000Z`);
+        }
+        // Same recorded time and value, varying only requested start: future is not authority yet.
+        await revise("2027-03-25T00:00:00.000Z", {
+          effectiveFrom: "2027-04-01T00:00:00.000Z",
+          value: { ...value, qualifyingGrossCents: "500" },
+        });
+        await evaluateAt("2027-03-26T00:00:00.000Z");
+        expect(await transitions()).toEqual(entered);
+        await revise("2027-03-25T00:00:00.000Z", { value: { ...value, qualifyingGrossCents: "500" } });
+        await evaluateAt("2027-03-26T00:00:00.000Z");
+        const exited = await transitions();
+        expect(exited).toHaveLength(2);
+        expect(exited[0]).toEqual(entered[0]);
+        expect(exited[1]).toMatchObject({
+          kind: "exited",
+          effective_at: new Date(
+            scenario === "combined inert history" ? "2027-03-22T00:00:00.000Z" : "2027-03-25T00:00:00.000Z",
+          ),
+          observed_at: new Date("2027-03-26T00:00:00.000Z"),
+        });
+        const outside = await stored();
+        await revise("2027-03-27T00:00:00.000Z", { value: { ...value, activated: false } });
+        await evaluateAt("2027-03-28T00:00:00.000Z");
+        expect(await stored()).toEqual(outside);
+        expect(await transitions()).toEqual(exited);
+        await revise("2027-04-01T00:00:00.000Z");
+        await evaluateAt("2027-04-02T00:00:00.000Z");
+        const reentered = await transitions();
+        expect(reentered).toHaveLength(3);
+        expect(reentered.slice(0, 2)).toEqual(exited);
+        expect(reentered[2]).toMatchObject({
+          kind: "entered",
+          effective_at: new Date(
+            scenario === "combined inert history" ? "2027-03-22T12:00:00.000Z" : "2027-04-01T00:00:00.000Z",
+          ),
+          observed_at: new Date("2027-04-02T00:00:00.000Z"),
+        });
+      } finally {
+        vi.useRealTimers();
+        await closeMultiContextTestPools(scenarioPools);
+      }
+      expect(externalFetch).not.toHaveBeenCalled();
+    },
+  );
+
   it("drains 1001 expired eBay receipts through the actual registered runner; omission leaves all expired rows", async () => {
     await pools.channels.query(`INSERT INTO channels_ebay_account_deletion_receipts
       (notification_id,topic,event_date,publish_date,publish_attempt_count,subject_key_id,subject_fingerprint,
@@ -357,13 +834,19 @@ describeDatabase("registered platform-worker scheduled runners", () => {
     });
     await services.buyerOfferPolicies.execute(
       "bop_worker",
-      { type: "CreateBuyerOfferPolicy", expectedVersion: 0, operationId: "create" },
+      {
+        type: "CreateBuyerOfferPolicy",
+        expectedVersion: 0,
+        operationId: "create",
+        attemptId: "worker_policy_create_attempt",
+      },
       context,
     );
     const preview = await services.buyerOfferPolicies.execute(
       "bop_worker",
       {
         type: "PreviewBuyerOfferPolicy",
+        attemptId: "worker_policy_preview_attempt",
         expectedVersion: 1,
         operationId: "preview",
         terms: {
@@ -388,6 +871,7 @@ describeDatabase("registered platform-worker scheduled runners", () => {
       "bop_worker",
       {
         type: "AuthorizeBuyerOfferPolicy",
+        attemptId: "worker_policy_authorize_attempt",
         expectedVersion: 2,
         operationId: "authorize",
         previewId: preview.preview!.previewId,

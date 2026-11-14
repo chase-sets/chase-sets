@@ -4,6 +4,7 @@ import type {
   InventoryHoldPurpose,
   InventoryHoldSourceRef,
   InventoryOfflineSaleChannel,
+  InventoryProducerAdjustmentReason,
 } from "@chase-sets/event-core/public-event-payloads";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 
@@ -66,7 +67,7 @@ export function buildInventoryItemLedgerProjectionHandlers(db: PgQueryable): Pro
         itemId: string;
         quantityDelta: number;
         reason: string;
-        reasonCode?: InventoryAdjustmentReason;
+        reasonCode?: InventoryAdjustmentReason | InventoryProducerAdjustmentReason;
         note?: string | null;
         sourceRef?: InventoryHoldSourceRef;
       };
@@ -100,7 +101,7 @@ export function buildInventoryItemLedgerProjectionHandlers(db: PgQueryable): Pro
         itemId: data.itemId,
         accountId: accountIdFromAudit(event.audit),
         kind: "offline-sale",
-        quantityDelta: -data.quantity,
+        quantityDelta: null,
         holdQuantity: null,
         purpose: null,
         reason: "Offline sale",
@@ -152,10 +153,13 @@ export function buildInventoryItemLedgerProjectionHandlers(db: PgQueryable): Pro
         itemId: hold.item_id,
         accountId: hold.account_id,
         kind: "hold-consumed",
-        quantityDelta: -hold.quantity,
+        // Consumption is an audit row. The stock movement is the paired
+        // inventory.item.adjusted event, so counting this row would reduce
+        // on-hand twice.
+        quantityDelta: null,
         holdQuantity: hold.quantity,
         purpose: hold.purpose,
-        reason: reasonFromData(event.data, "Sale recorded"),
+        reason: "Stock consumed",
         reasonCode: null,
         note: null,
         sourceRef: sourceRefFromData(event.data) ?? hold.source_ref,
@@ -306,7 +310,7 @@ async function insertLedgerEntry(
     holdQuantity: number | null;
     purpose: InventoryHoldPurpose | null;
     reason: string;
-    reasonCode: InventoryAdjustmentReason | null;
+    reasonCode: InventoryAdjustmentReason | InventoryProducerAdjustmentReason | null;
     note: string | null;
     salePriceAmount?: string | null;
     channel?: InventoryOfflineSaleChannel | null;

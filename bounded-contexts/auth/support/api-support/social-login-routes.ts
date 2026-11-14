@@ -13,6 +13,7 @@ import {
   createRedirectResponse,
 } from "../auth-support/http";
 import { consumeSocialLoginState, insertSocialLoginState } from "../auth-support/store";
+import { getSafeSameSitePath } from "../auth-support/same-site-path";
 import { startInteractiveAuth, type AuthServices } from "../runtime-support/services";
 import type { SocialLoginProviderName } from "../social-login-support/providers";
 import {
@@ -24,6 +25,7 @@ import {
   resolveUnaffirmedRegistrationConsent,
   type AuthApiApp,
 } from "./support";
+import type { SocialLoginSubjectResolution } from "@chase-sets/identity/server";
 import { requireRegistrationAdmission } from "./registration-gates";
 import type { SocialLoginErrorCode } from "../route-support/social-login-errors";
 
@@ -103,7 +105,7 @@ function getDefaultSuccessPath(journey: SocialLoginJourney) {
 
 function getSafeReturnToFromUrl(url: URL, journey: SocialLoginJourney) {
   const returnTo = url.searchParams.get("returnTo");
-  return returnTo && returnTo.startsWith("/") && !returnTo.startsWith("//") ? returnTo : getDefaultSuccessPath(journey);
+  return returnTo !== null && getSafeSameSitePath(returnTo) === returnTo ? returnTo : getDefaultSuccessPath(journey);
 }
 
 function buildPublicOrigin(request: Request) {
@@ -168,6 +170,13 @@ function completeSocialLoginAuthentication(
 
 function getErrorStatus(error: unknown) {
   return error && typeof error === "object" && "status" in error ? Number((error as { status: unknown }).status) : null;
+}
+
+function socialLoginLinkFailureCode(error: unknown): SocialLoginErrorCode {
+  if (getErrorStatus(error) !== 409) return "provider_failed";
+  const body = error && typeof error === "object" && "body" in error ? (error as { body: unknown }).body : null;
+  const code = (body as { error?: { code?: unknown } } | null)?.error?.code;
+  return code === "social_login_repair_required" ? "provider_link_repair_required" : "provider_already_linked";
 }
 
 function normalizeHostedDomain(value: string) {
@@ -330,10 +339,6 @@ export function registerSocialLoginRoutes(app: AuthApiApp, services: AuthService
       return redirectToFallback("workspace_domain_required", journey);
     }
 
-    const linkedUser = await services.identity.getUserBySocialLogin({
-      providerName,
-      providerSubject: profile.providerSubject,
-    });
     const linkActor = journey === "link" ? c.var.actor : null;
     if (journey === "link" && !linkActor) {
       return redirectToFallback(
@@ -342,16 +347,31 @@ export function registerSocialLoginRoutes(app: AuthApiApp, services: AuthService
         buildSocialLoginLinkStartPath(providerName, stateRecord.return_to),
       );
     }
-    if (linkActor && linkedUser && linkedUser.user_id !== linkActor.userId) {
+
+    // Identity's ownership claim is the only owner decision; Auth's link projection never authorizes.
+    const identityMutations = createIdentityMutations(c);
+    let ownership: SocialLoginSubjectResolution;
+    try {
+      ownership = await identityMutations.resolveSocialLoginSubject({
+        providerName,
+        providerSubject: profile.providerSubject,
+      });
+    } catch {
+      return redirectToFallback("provider_failed", journey);
+    }
+    if (ownership.status === "repair-required") {
+      return redirectToFallback("provider_link_repair_required", journey);
+    }
+    const ownerUserId = ownership.status === "owned" ? ownership.userId : null;
+    if (linkActor && ownerUserId && ownerUserId !== linkActor.userId) {
       return redirectToFallback("provider_already_linked");
     }
 
-    const identityMutations = createIdentityMutations(c);
-    let user = linkedUser;
+    let user = ownerUserId ? await services.identity.getUser(ownerUserId) : null;
     let accountId: string | undefined;
     let emailForNewLink: string | undefined;
 
-    if (!user) {
+    if (!ownerUserId) {
       if (linkActor) {
         if (!profile.email) {
           return redirectToFallback("verified_email_required");
@@ -432,8 +452,7 @@ export function registerSocialLoginRoutes(app: AuthApiApp, services: AuthService
           });
         }
       } catch (error) {
-        const code = getErrorStatus(error) === 409 ? "provider_already_linked" : "provider_failed";
-        return redirectToFallback(code, journey);
+        return redirectToFallback(socialLoginLinkFailureCode(error), journey);
       }
     }
 

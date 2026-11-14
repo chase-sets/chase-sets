@@ -1,0 +1,191 @@
+.part {
+  display: grid;
+  gap: var(--space-3);
+  min-width: 0;
+}
+.part-title {
+  margin: 0;
+  font: 600 1.25rem/1.4 var(--font-display);
+}
+.parts {
+  display: grid;
+  gap: var(--space-6);
+}
+.sub-title {
+  margin: var(--space-4) 0 var(--space-2);
+  font: 600 1rem/1.4 var(--font-display);
+}
+.muted {
+  margin: 0;
+  color: var(--color-text-secondary);
+}
+.text {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.alert {
+  margin: 0;
+  color: var(--color-danger);
+  font-weight: 600;
+}
+.buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+}
+.opener {
+  display: contents;
+}
+.opener button {
+  justify-self: start;
+}
+.link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 2rem;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background: var(--color-secondary);
+  color: var(--color-secondary-foreground);
+  font-size: 0.875rem;
+  font-weight: 600;
+  text-decoration: none;
+}
+.link:hover {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+}
+.cue {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--color-primary);
+  font: inherit;
+  text-decoration: underline dotted;
+  text-underline-offset: 0.2em;
+  cursor: pointer;
+}
+.fold {
+  border: 1px solid var(--color-border);
+  border-inline-start-width: 4px;
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+}
+.fold[data-tone="info"] {
+  border-inline-start-color: var(--color-info);
+}
+.fold[data-tone="warning"] {
+  border-inline-start-color: var(--color-warning);
+}
+.fold summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-3);
+  align-items: baseline;
+  padding: var(--space-3) var(--space-4);
+  cursor: pointer;
+}
+.fold-title {
+  font-weight: 600;
+}
+.fold-body {
+  display: grid;
+  gap: var(--space-3);
+  padding: 0 var(--space-4) var(--space-4);
+  min-width: 0;
+}
+.urls {
+  margin: 0;
+  padding-inline-start: var(--space-5);
+  overflow-wrap: anywhere;
+}
+.pairs {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: var(--space-1) var(--space-3);
+  margin: 0;
+}
+.pairs dt {
+  font-weight: 600;
+  color: var(--color-text-secondary);
+}
+.pairs dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.row-form {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+}
+.form {
+  display: grid;
+  gap: var(--space-3);
+}
+.field {
+  display: grid;
+  gap: var(--space-1);
+  align-content: start;
+}
+.field select,
+.field textarea {
+  width: 100%;
+}
+.label {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--color-text-secondary);
+}
+.footer {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  margin-block-start: var(--space-2);
+}
+.default {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+.small {
+  min-height: 2rem;
+  padding: 0 var(--space-3);
+  font-size: 0.875rem;
+}
+.secondary {
+  background: var(--color-secondary);
+  color: var(--color-secondary-foreground);
+  border-color: var(--color-border-strong);
+}
+.danger {
+  background: var(--color-danger);
+  border-color: var(--color-danger);
+  color: var(--color-danger-contrast);
+}
+.danger:hover:not(:disabled) {
+  background: var(--color-danger-hover);
+}
+/* A reference field takes a record, any other field text (admin-web switches the input). */
+.reference {
+  display: none;
+}
+.field-value:has(option[data-reference]:checked) .reference {
+  display: block;
+}
+.field-value:has(option[data-reference]:checked) .text-value {
+  display: none;
+}
+@supports not selector(:has(*)) {
+  .reference {
+    display: block;
+  }
+}

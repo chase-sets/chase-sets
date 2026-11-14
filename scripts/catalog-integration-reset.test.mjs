@@ -33,6 +33,7 @@ function assertImmutableProviderUatAdmission(document) {
     CONFIRMATION: "${{ inputs.confirm }}",
     JOURNEY_SCOPE: "${{ inputs.journey_scope }}",
     ADMIN_WEB_URL: "${{ inputs.admin_web_url }}",
+    SCRATCH_PARENT: "${{ inputs.scratch_parent }}",
   });
   expect(resolver.needs).toBe("admit-reviewed-sha");
   expect(resolver.if).toBe(
@@ -53,7 +54,9 @@ function assertImmutableProviderUatAdmission(document) {
   ]) {
     const failures = [];
     runInNewContext(gate.steps[0].with.script, {
-      process: { env: { EXPECTED_SHA: expected, RUN_SHA: sha, CONFIRMATION: confirmation } },
+      process: {
+        env: { EXPECTED_SHA: expected, RUN_SHA: sha, CONFIRMATION: confirmation, SCRATCH_PARENT: "" },
+      },
       core: { setFailed: (message) => failures.push(message) },
     });
     expect(failures.length > 0).toBe(refused);

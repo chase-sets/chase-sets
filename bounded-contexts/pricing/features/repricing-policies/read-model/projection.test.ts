@@ -65,6 +65,7 @@ describe("pricing repricing-policy projection", () => {
       JSON.stringify([rule]),
       25,
       "2026-07-11T00:00:00.000Z",
+      null,
     ]);
   });
 
@@ -98,6 +99,7 @@ describe("pricing repricing-policy projection", () => {
       JSON.stringify([rule]),
       5,
       "2026-07-11T00:00:00.000Z",
+      null,
     ]);
   });
 
@@ -129,6 +131,7 @@ describe("pricing repricing-policy projection", () => {
       JSON.stringify([rule]),
       10,
       "2026-07-12T00:00:00.000Z",
+      null,
     ]);
   });
 

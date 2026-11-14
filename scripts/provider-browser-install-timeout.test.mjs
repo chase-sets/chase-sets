@@ -68,6 +68,89 @@ function fixture(options = {}) {
 afterEach(() => vi.useRealTimers());
 
 describe("Static Checks provider installer", () => {
+  it.each([0, -1, 601, 180.5, "180", NaN, Infinity, Number.MAX_SAFE_INTEGER + 1])(
+    "refuses unsafe native caller bound %s before spawn",
+    (timeoutSeconds) => {
+      const spawnImpl = vi.fn();
+      expect(() => runInstaller({ identity, env, timeoutSeconds, spawnImpl })).toThrow(/600/);
+      expect(spawnImpl).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([1, 180, 540, 600])(
+    "honors native bound %s through child close, with the same five-second barrier",
+    async (timeoutSeconds) => {
+      const f = fixture({ timeoutSeconds, requireComplete: false });
+      f.child.emit("spawn");
+      f.child.emit("message", { installerStatus: 0 });
+      expect(f.child.send).toHaveBeenCalledWith("release");
+      await vi.advanceTimersByTimeAsync(timeoutSeconds * 1000 - 1);
+      expect(f.signalGroupImpl).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(1);
+      expect(f.signalGroupImpl.mock.calls).toEqual([[4567, "TERM"]]);
+      f.child.emit("close", 0);
+      await vi.advanceTimersByTimeAsync(4999);
+      expect(f.lines).toEqual([]);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(f.signalGroupImpl.mock.calls).toEqual([
+        [4567, "TERM"],
+        [4567, "KILL"],
+      ]);
+      expect(await f.result).toMatchObject({
+        status: 1,
+        record: { terminalOutcome: "timeout", elapsedMs: timeoutSeconds * 1000 + 5000 },
+      });
+    },
+  );
+
+  it("marks only pre-start refusal and keeps started errors behind the cleanup barrier", async () => {
+    const refused = fixture({
+      spawnImpl: () => {
+        throw new Error("synthetic start refusal");
+      },
+    });
+    expect(await refused.result).toMatchObject({ startRefused: true, status: 1 });
+    const invalidPid = fixture({ spawnImpl: () => Object.assign(new EventEmitter(), { pid: undefined }) });
+    expect(await invalidPid.result).toMatchObject({ startRefused: true, status: 1 });
+    const spawnError = fixture();
+    spawnError.child.emit("error", new Error("synthetic pre-spawn error"));
+    expect(await spawnError.result).toMatchObject({ startRefused: true, status: 1 });
+    expect(spawnError.signalGroupImpl).not.toHaveBeenCalled();
+    const started = fixture();
+    started.child.emit("spawn");
+    started.child.emit("error", new Error("synthetic started error"));
+    started.child.emit("error", new Error("synthetic late error"));
+    started.child.emit("close", 1);
+    await vi.advanceTimersByTimeAsync(4999);
+    expect(started.lines).toEqual([]);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(started.signalGroupImpl.mock.calls).toEqual([
+      [4567, "TERM"],
+      [4567, "KILL"],
+    ]);
+    expect(await started.result).toMatchObject({ status: 1, record: { terminalOutcome: "refused" } });
+    expect(await started.result).not.toHaveProperty("startRefused");
+  });
+
+  it.each(["cancelled", "cleanup-failure"])("late errors never overwrite %s or bypass its barrier", async (outcome) => {
+    const cancel = new AbortController();
+    const signalGroupImpl = vi.fn((_pid, signal) => {
+      if (outcome === "cleanup-failure" && signal === "TERM") throw new Error("synthetic TERM refusal");
+    });
+    const f = fixture({ cancelSignal: cancel.signal, signalGroupImpl });
+    f.child.emit("spawn");
+    if (outcome === "cancelled") cancel.abort();
+    else f.child.emit("message", { installerStatus: 1 });
+    f.child.emit("error", new Error("synthetic late error"));
+    await vi.advanceTimersByTimeAsync(4999);
+    expect(f.lines).toEqual([]);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(await f.result).toMatchObject({ status: 1, record: { terminalOutcome: outcome } });
+    expect(signalGroupImpl.mock.calls).toEqual([
+      [4567, "TERM"],
+      [4567, "KILL"],
+    ]);
+  });
   it("Static Checks setup omits optional browser dependencies before the explicit native block", () => {
     const setup = readFileSync("scripts/provider-object-disposition/browser-boundary/ci-setup.sh", "utf8");
     expect(setup).toContain("pnpm exec playwright install chromium");
@@ -337,6 +420,20 @@ describe("owning hosted job identity", () => {
     expect(await resolveInstallerIdentity(authority, fetchImpl)).toEqual(identity);
     expect(fetchImpl).toHaveBeenCalledOnce();
     expect(fetchImpl.mock.calls[0][0]).toContain("/runs/123/attempts/1/jobs?per_page=100");
+  });
+  it("resolves the exact E2E matrix owner without borrowing a sibling or Static job", async () => {
+    const jobName = "E2E Tests (marketplace_browse,marketplace_seller)";
+    const fetchImpl = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({ total_count: 2, jobs: [job, { ...job, id: 789, name: jobName }] }),
+    }));
+    expect(await resolveInstallerIdentity(authority, fetchImpl, { jobName, write: () => {} })).toEqual({
+      ...identity,
+      jobId: "789",
+    });
+    await expect(
+      resolveInstallerIdentity(authority, fetchImpl, { jobName: "E2E Tests (PRIVATE INPUT)", write: () => {} }),
+    ).rejects.toThrow("invalid-environment");
   });
   it.each([
     { ...job, runner_name: "sibling" },

@@ -19,6 +19,7 @@ import {
   comparisonPolicyId,
   comparisonTestServices,
   createComparisonPolicy,
+  syntheticUnavailableEconomics,
 } from "./goal-comparison-db-fixture";
 
 const registryCapture = vi.hoisted(() => ({
@@ -70,7 +71,7 @@ describeDb("Pricing Health real-composition registry surface", () => {
        VALUES ('lst_7910_00000001', 'acc_7910', 'cat_00000000', 'prod_00000000', 1,
           1.00, 'USD', '2026-10-19T00:00:00Z', 1);`,
     );
-    services = comparisonTestServices(pools.pricing);
+    services = comparisonTestServices(pools.pricing, { resolve: syntheticUnavailableEconomics });
     await createComparisonPolicy(pools.pricing, services);
   });
   afterAll(async () => closeMultiContextTestPools(pools));

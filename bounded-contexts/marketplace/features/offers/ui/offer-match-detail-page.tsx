@@ -1,7 +1,6 @@
 import { formatBpsPercent, formatDateTime, formatMoney, t } from "@chase-sets/localization";
 import {
   HiddenInput,
-  Form,
   AccountReputationSummary,
   Badge,
   Button,
@@ -22,7 +21,9 @@ import {
   Text,
   productOptionsFromSummary,
 } from "@chase-sets/design-system";
+import { RouterForm as Form } from "@chase-sets/design-system/react-router";
 import type { OfferMatchDetail } from "./contracts";
+import { useOfferMatchDeclineAttemptIds } from "./offer-match-decline-attempt-provider";
 import { OfferMatchSellListSnapshotFields } from "./offer-match-sell-list-snapshot-fields";
 import { formatPriceGap } from "./price-gap";
 import type { MarketplaceListingTermsPreview } from "../../listings/ui/contracts";
@@ -44,13 +45,17 @@ export function MarketplaceOfferMatchDetailPage({
   offer,
   acceptanceTerms,
   canAccept = false,
+  actionDisabled = false,
   errorMessage,
 }: {
   offer: OfferMatchDetail;
   acceptanceTerms?: MarketplaceListingTermsPreview | null;
   canAccept?: boolean;
+  actionDisabled?: boolean;
   errorMessage?: string | null;
 }) {
+  const declineAttemptIdFor = useOfferMatchDeclineAttemptIds();
+  const declineAttemptId = declineAttemptIdFor(offer);
   const canAcceptSubmitted = canAccept && offer.status === "submitted";
   const fulfillmentLabel = offer.can_fulfill
     ? t("marketplace.features.offers.ui.offerMatchDetailPage.can.fulfill")
@@ -61,7 +66,7 @@ export function MarketplaceOfferMatchDetailPage({
     <Form spacing="none" method="post" action="/account/sell-list">
       <HiddenInput type="hidden" name="intent" value="add-selected-offer" />
       <OfferMatchSellListSnapshotFields offer={offer} />
-      <Button type="submit" disabled={!offer.can_fulfill}>
+      <Button type="submit" disabled={actionDisabled || !offer.can_fulfill}>
         {t("marketplace.features.offers.ui.offerMatchDetailPage.accept.offer.match")}
       </Button>
     </Form>
@@ -70,7 +75,7 @@ export function MarketplaceOfferMatchDetailPage({
     <Form spacing="none" method="post" action="/account/sell-list">
       <HiddenInput type="hidden" name="intent" value="add-selected-offer" />
       <OfferMatchSellListSnapshotFields offer={offer} />
-      <Button type="submit" tone="secondary">
+      <Button type="submit" tone="secondary" disabled={actionDisabled}>
         {t("marketplace.features.offers.ui.offerMatchDetailPage.add.to.sell.list")}
       </Button>
     </Form>
@@ -78,7 +83,8 @@ export function MarketplaceOfferMatchDetailPage({
   const declineAction = canAcceptSubmitted ? (
     <Form spacing="none" method="post">
       <HiddenInput type="hidden" name="intent" value="decline-offer" />
-      <Button type="submit" tone="secondary" disabled={!offer.can_fulfill}>
+      <HiddenInput type="hidden" name="attemptId" value={declineAttemptId} />
+      <Button type="submit" tone="secondary" disabled={actionDisabled || !offer.can_fulfill}>
         {t("marketplace.features.offers.ui.offerMatchDetailPage.decline")}
       </Button>
     </Form>

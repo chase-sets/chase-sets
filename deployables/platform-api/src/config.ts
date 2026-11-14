@@ -5,6 +5,7 @@ import {
   type ApiHostContextName,
   type EnvironmentDataProfile,
 } from "@chase-sets/platform-runtime/api";
+import type { ReceiptLookupActorOptions } from "@chase-sets/auth/server";
 import {
   parseCapabilityAdministrationAuthority,
   type CapabilityAdministrationAuthority,
@@ -64,7 +65,7 @@ import type {
   ReadConsistencyExactDependencyMode,
   ReadConsistencyRouteTuning,
 } from "@chase-sets/bounded-context-runtime";
-import { apiContextRegistry } from "./generated/api-context-registry";
+import { apiContextRegistry } from "./context-registry";
 import {
   parseChannelCredentialKeyring,
   type ChannelCredentialKeyring,
@@ -336,6 +337,7 @@ export type PlatformApiConfig = Omit<PlatformApiBaseConfig, "realtime"> &
     offerLifecycleOpen: boolean;
     channelCredentialKeyring: ChannelCredentialKeyring | null;
     ebayAccountDeletionConfiguration: EbayAccountDeletionConfiguration | null;
+    receiptLookupActor: Omit<ReceiptLookupActorOptions, "canonicalAdminOrigin">;
     realtime: PlatformApiRealtimeConfig;
     paymentProcessor: PlatformApiPaymentProcessorConfig;
     moneyMovement: PlatformApiMoneyMovementConfig;
@@ -351,6 +353,7 @@ export type PlatformApiConfig = Omit<PlatformApiBaseConfig, "realtime"> &
     providerModeObservation: PlatformApiProviderModeObservation;
     ucpBusinessSigningKeys?: UcpBusinessSigningKeySet;
     ucpSignatureCreatedFreshnessWindowMs: number;
+    stagingPersonaMagicLinkVerifierSha256?: string;
   }>;
 
 export type PlatformApiMobileMessagingConfig =
@@ -461,6 +464,20 @@ function loadRegistrationAdmissionMode(environmentName: string): PlatformApiRegi
   }
 
   return isLongLivedEnvironment(environmentName) ? "invitation" : "open";
+}
+
+const STAGING_PERSONA_MAGIC_LINK_VERIFIER_ENV = "CONNECTOR_STAGING_PERSONA_MAGIC_LINK_VERIFIER_SHA256";
+
+function loadStagingPersonaMagicLinkVerifierSha256(environmentName: string | undefined): string | undefined {
+  const configured = getOptionalEnv(STAGING_PERSONA_MAGIC_LINK_VERIFIER_ENV);
+  if (!configured) return undefined;
+  if (environmentName !== "staging") {
+    throw new Error(`${STAGING_PERSONA_MAGIC_LINK_VERIFIER_ENV} may only be configured for staging deployments.`);
+  }
+  if (!/^[a-f0-9]{64}$/.test(configured)) {
+    throw new Error(`${STAGING_PERSONA_MAGIC_LINK_VERIFIER_ENV} must be a lowercase SHA-256 digest.`);
+  }
+  return configured;
 }
 
 // Mirrors bounded-contexts/auth/features/sessions/domain/auth-flow.ts's
@@ -690,7 +707,7 @@ function loadBaseConfig(): PlatformApiBaseConfig {
       pollIntervalMs: getRequiredPositiveNumberEnv("READ_CONSISTENCY_POLL_INTERVAL_MS", 75),
       exactDependencyMode: getReadConsistencyExactDependencyModeEnv("READ_CONSISTENCY_EXACT_DEPENDENCY_MODE"),
       routeTuning: loadReadConsistencyRouteTuning(),
-      wakeBeforeWaitEnabled: getBooleanEnv("READ_CONSISTENCY_WAKE_BEFORE_WAIT_ENABLED", false),
+      wakeBeforeWaitEnabled: getBooleanEnv("READ_CONSISTENCY_WAKE_BEFORE_WAIT_ENABLED", true),
       readinessNotificationsEnabled: getBooleanEnv("READ_CONSISTENCY_READINESS_NOTIFICATIONS_ENABLED", false),
     },
     projectionInlineApplyEnabled: getBooleanEnv("PROJECTION_INLINE_APPLY_ENABLED", false),
@@ -869,6 +886,10 @@ export function loadConfig(): PlatformApiConfig {
     checkoutClosed: getBooleanEnv("CHASE_SETS_CHECKOUT_CLOSED", false),
     offerLifecycleOpen: getBooleanEnv("CHASE_SETS_OFFER_LIFECYCLE_OPEN", false),
     channelCredentialKeyring: parseChannelCredentialKeyring(process.env.CHANNELS_CREDENTIAL_KEYRING_JSON),
+    receiptLookupActor: {
+      deploymentEnvironment: baseConfig.deploymentEnvironment,
+      readCredential: () => process.env.EBAY_RECEIPT_LOOKUP_STAGING_ACTOR_JSON,
+    },
     ebayAccountDeletionConfiguration: parseEbayAccountDeletionConfiguration(
       process.env.EBAY_ACCOUNT_DELETION_ENDPOINT,
       process.env.EBAY_ACCOUNT_DELETION_VERIFICATION_TOKEN,
@@ -918,6 +939,7 @@ export function loadConfig(): PlatformApiConfig {
     adminGoogleWorkspaceSso,
     ucpBusinessSigningKeys,
     ucpSignatureCreatedFreshnessWindowMs,
+    stagingPersonaMagicLinkVerifierSha256: loadStagingPersonaMagicLinkVerifierSha256(baseConfig.deploymentEnvironment),
     paymentProcessor: stripeProvider.paymentProcessor,
     stripeEffectiveMode: stripeProvider.effectiveMode,
   };
