@@ -195,6 +195,8 @@ pub enum BuyNotice {
     Saved(crate::saving::Saved),
     /// Add to List did not, for this reason (`saving`); `input` is what was chosen and typed.
     SaveRefused { message: String, input: crate::saving::SaveInput },
+    /// Add to List's dialog, open, as a search result asked for it (`saving`).
+    SaveOpen { input: crate::saving::SaveInput },
     /// A Watch form's alert was not saved, for this reason (`watching`); `input` is what was typed.
     WatchRefused { message: String, input: crate::watching::WatchInput },
     /// List this product did not list, for this reason (`listing`); `draft` is the listing it
@@ -358,7 +360,7 @@ pub fn cart_line(t: ItemMsg, item: &Item, screen: &ItemScreen, input: &BuyInput)
 
 /// Whose cart a request writes: the account's (`None`), or a guest's, by the id the browser keeps
 /// or a new one (`ensureAnonymousCartId`). A guest checkout's session writes a guest cart too.
-fn guest_cart(session: Option<&Session>, headers: &HeaderMap) -> Result<Option<String>, corten::Error> {
+pub(crate) fn guest_cart(session: Option<&Session>, headers: &HeaderMap) -> Result<Option<String>, corten::Error> {
     match session {
         Some(Session::Account(viewer)) if !viewer.actor.can(GUEST_CHECKOUT) => Ok(None),
         Some(Session::Unavailable) => Err(corten::Error::status(StatusCode::BAD_GATEWAY)),
@@ -369,6 +371,12 @@ fn guest_cart(session: Option<&Session>, headers: &HeaderMap) -> Result<Option<S
                 .unwrap_or_else(|| format!("anon_cmd_{}", uuid::Uuid::new_v4().simple())),
         )),
     }
+}
+
+/// The cookie that keeps the guest cart `id` (`appendAnonymousCartCookie`), `Secure` over https.
+pub(crate) fn guest_cart_cookie(id: &str, proto: &str) -> cookie::SetCookie {
+    let keep = cookie::SetCookie::new(ANONYMOUS_CART_COOKIE, id).max_age(GUEST_CART_SECONDS);
+    if proto == "https" { keep } else { keep.insecure() }
 }
 
 /// Is the request a guest's (no account cart)?

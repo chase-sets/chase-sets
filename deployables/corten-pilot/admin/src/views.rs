@@ -64,8 +64,9 @@ pub const COMPONENTS: &[Component] = &[
     Toaster,
 ];
 
-/// Signing in (`/access/sign-in`, its magic link and account selection): the page's stylesheet.
-pub const SIGN_IN: &[Component] = &[SignInPage];
+/// Signing in (`/access/sign-in`, its magic link and account selection): the page's stylesheet and the
+/// passkey step's script.
+pub const SIGN_IN: &[Component] = &[SignInPage, platform::auth::passkey::COMPONENT];
 
 /// The offline page (`/offline`), which the service worker keeps for a navigation it cannot make.
 pub const OFFLINE: &[Component] = &[OfflinePage];
@@ -240,6 +241,7 @@ pub async fn error_page(failure: Failure, req: Req, viewer: Option<Caller<Viewer
         // The platform API could not say whose the session is (`Refused::unavailable`).
         Failure::Unidentified { .. } => (p.error_unidentified_title(), p.error_unidentified()),
         Failure::WrongMethod
+        | Failure::UnknownMethod
         | Failure::Rejected { .. }
         | Failure::Failed { .. }
         | Failure::Panicked { .. }

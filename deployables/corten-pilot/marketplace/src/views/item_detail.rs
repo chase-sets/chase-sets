@@ -13,7 +13,10 @@ use platform::{
 };
 use serde_json::{Value, json};
 
-use super::on_marketplace;
+use super::{
+    on_marketplace,
+    save_dialog::{SaveDialog, SaveToListId},
+};
 use crate::{
     api::{FieldValue, Item, Listing, MarketAggregate, MarketState, Offer, Reference, RollupPoint, SimilarItem},
     app::url,
@@ -23,7 +26,7 @@ use crate::{
         normalize, option_label, ordered_options,
     },
     listing::{self, ListFields},
-    saving::{self, SaveInput, SaveState},
+    saving::{self, SaveState},
     selling::{self, SellForm, SellIntent},
     text::{ItemMsg, Pilot},
     watching::{self, Side},
@@ -146,7 +149,8 @@ pub fn item_image(item: &Item) -> Option<Image> {
     })
 }
 
-fn production(canonical: &str) -> bool {
+/// The canonical address is on the production marketplace (`isProductionMarketplaceUrl`).
+pub(super) fn production(canonical: &str) -> bool {
     canonical.strip_prefix("https://").and_then(|rest| rest.split('/').next()) == Some(PRODUCTION_HOST)
 }
 
@@ -1976,9 +1980,6 @@ fn Quantity<'a>(t: ItemMsg, id: &'a str, value: &'a str) -> impl Render {
     }
 }
 
-/// Add to List's dialog's id.
-const SAVE_DIALOG: &str = "save-to-list";
-
 /// Add to List (marketplace's `AddToSavedListControl`), above the market's side, for the product
 /// chosen. An account's button opens the dialog the page drew (`command="show-modal"`, no
 /// script); a guest's posts the product, which goes to registration. After Add Product the page
@@ -1998,7 +1999,8 @@ fn SaveToList<'a>(
     let action = url::ItemSave { slug }.href();
     let page = address.pairs();
     let refused = match notice {
-        Some(BuyNotice::SaveRefused { message, input }) => Some((message.as_str(), input)),
+        Some(BuyNotice::SaveRefused { message, input }) => Some((Some(message.as_str()), input)),
+        Some(BuyNotice::SaveOpen { input }) => Some((None, input)),
         _ => None,
     };
     let saved = match notice {
@@ -2012,24 +2014,25 @@ fn SaveToList<'a>(
             <form class={Save} method="post" action={&action}>
                 <Hidden pairs={&page} />
                 <input type="hidden" name={saving::field::PRODUCT} value={product}>
-                if let Some((message, _)) = refused {
+                if let Some((Some(message), _)) = refused {
                     <p class={Error} role="alert">{message}</p>
                 }
                 <button type="submit" class={Button} aria-label={&accessible}>{t.saved_button()}</button>
             </form>
         } else if opens {
             <div class={Save}>
-                <button type="button" class={Button} command="show-modal" commandfor={SAVE_DIALOG} aria-label={&accessible}>
+                <button type="button" class={Button} command="show-modal" commandfor={SaveToListId} aria-label={&accessible}>
                     {t.saved_button()}
                 </button>
                 <SaveDialog
                     t={t}
-                    save={&screen.save}
+                    save={Some(&screen.save)}
                     label={&label}
                     product={product}
                     page={&page}
                     action={&action}
-                    refused={refused}
+                    input={refused.map(|(_, input)| input)}
+                    message={refused.and_then(|(message, _)| message)}
                 />
             </div>
         }
@@ -2049,149 +2052,6 @@ fn SaveToList<'a>(
                 <p><a class={Button} href={&saved.collection}>{t.saved_view_collection()}</a></p>
             </div>
         }
-    }
-}
-
-/// Add to List's dialog (marketplace's sheet): the product, a recent list or a new one (its title
-/// shown only while it is chosen, by CSS), and the tracked quantity, with the ids the addition is
-/// made with. Drawn `open` when its form came back refused, so it is in front of the buyer
-/// without JavaScript; `corten_ui::dialog::modal` makes it modal when it joins the page.
-#[component(css = ItemDetail)]
-pub fn SaveDialog<'a>(
-    t: ItemMsg,
-    save: &'a SaveState,
-    label: &'a str,
-    product: &'a str,
-    page: &'a [(String, String)],
-    action: &'a str,
-    refused: Option<(&'a str, &'a SaveInput)>,
-) -> impl Render {
-    let title_id = format!("{SAVE_DIALOG}-title");
-    let lists = match save {
-        SaveState::Ready { lists } => Some(lists.as_slice()),
-        _ => None,
-    };
-    let tokens = refused.map_or_else(saving::Tokens::new, |(_, i)| i.tokens.clone());
-    let chosen = refused
-        .map(|(_, i)| i.list.clone())
-        .unwrap_or_else(|| lists.and_then(|l| l.first()).map_or_else(|| saving::NEW_LIST.to_owned(), |l| l.list_id.clone()));
-    let typed_title = refused.map_or("", |(_, i)| i.title.as_str());
-    let typed_quantity = refused.map_or("1", |(_, i)| i.quantity.as_str());
-    html! {
-        <dialog
-            class={(RefDialog, SaveSheet)}
-            id={SAVE_DIALOG}
-            aria-labelledby={&title_id}
-            open={refused.is_some()}
-            on:connect={corten_ui::dialog::modal(target)}
-        >
-            <div class={RefHead}>
-                <div>
-                    <h2 class={CardTitle} id={&title_id}>{t.saved_sheet_title()}</h2>
-                    <p class={Muted}>{t.saved_sheet_description()}</p>
-                </div>
-            </div>
-            match save {
-                SaveState::Forbidden => {
-                    <p class={Error} role="alert">{t.saved_api_account_forbidden()}</p>
-                }
-                SaveState::Ready { .. } => {
-                    <form class={(Buy, SaveForm)} method="post" action={action}>
-                        <Hidden pairs={page} />
-                        <input type="hidden" name={saving::field::PRODUCT} value={product}>
-                        <input type="hidden" name={saving::field::ADD_COMMAND} value={&tokens.add_command}>
-                        <input type="hidden" name={saving::field::LINE} value={&tokens.line}>
-                        <input type="hidden" name={saving::field::NEW_LIST} value={&tokens.new_list}>
-                        <input type="hidden" name={saving::field::NEW_LIST_COMMAND} value={&tokens.new_list_command}>
-                        if let Some((message, _)) = refused {
-                            <div class={Banner} role="alert">
-                                <p class={(Strong, Error)}>{t.saved_error_title()}</p>
-                                <p>{message}</p>
-                            </div>
-                        }
-                        <p class={Strong}>{label}</p>
-                        if lists.is_some_and(<[_]>::is_empty) {
-                            <p class={Muted}>{t.saved_no_lists()}</p>
-                        }
-                        <fieldset class={SaveLists}>
-                            <legend class={Label}>{t.saved_destination_label()}</legend>
-                            for list in lists.unwrap_or_default() {
-                                <label class={SaveChoice}>
-                                    <input
-                                        type="radio"
-                                        name={saving::field::LIST}
-                                        value={&list.list_id}
-                                        checked={chosen == list.list_id}
-                                    >
-                                    <span>
-                                        <span class={Strong}>{&list.title}</span>
-                                        <span class={Muted}>
-                                            {t.saved_list_summary(crate::text::item_msg::SavedListSummary { lines: list.line_count, quantity: list.tracked_unit_count })}
-                                        </span>
-                                    </span>
-                                </label>
-                            }
-                            <label class={SaveChoice}>
-                                <input
-                                    type="radio"
-                                    name={saving::field::LIST}
-                                    value={saving::NEW_LIST}
-                                    checked={chosen == saving::NEW_LIST}
-                                >
-                                <span>
-                                    <span class={Strong}>{t.saved_create_new()}</span>
-                                    <span class={Muted}>{t.saved_create_new_description()}</span>
-                                </span>
-                            </label>
-                        </fieldset>
-                        <div class={(QuantityField, SaveTitle)}>
-                            <label class={Label} for="save-title">{t.saved_title_label()}</label>
-                            <input
-                                id="save-title"
-                                type="text"
-                                name={saving::field::TITLE}
-                                maxlength="120"
-                                placeholder={t.saved_title_placeholder()}
-                                value={typed_title}
-                            >
-                        </div>
-                        <div class={QuantityField}>
-                            <label class={Label} for="save-quantity">{t.saved_quantity_label()}</label>
-                            <input
-                                id="save-quantity"
-                                type="number"
-                                name={saving::field::QUANTITY}
-                                min="1"
-                                max="1000000"
-                                step="1"
-                                inputmode="numeric"
-                                required
-                                aria-describedby="save-quantity-help"
-                                value={typed_quantity}
-                            >
-                            <p class={Muted} id="save-quantity-help">{t.saved_quantity_description()}</p>
-                        </div>
-                        <div class={SaveActions}>
-                            <button type="button" class={Button} command="close" commandfor={SAVE_DIALOG}>
-                                {t.saved_cancel()}
-                            </button>
-                            <button type="submit" class={(Button, Primary)}>{t.saved_submit()}</button>
-                        </div>
-                    </form>
-                }
-                _ => {
-                    <div class={Banner} role="alert">
-                        <p class={(Strong, Error)}>{t.saved_error_title()}</p>
-                        <p>{t.saved_error_description()}</p>
-                    </div>
-                }
-            }
-            if !matches!(save, SaveState::Ready { .. }) {
-                <div class={SaveActions}>
-                    <button type="button" class={Button} command="close" commandfor={SAVE_DIALOG}>{t.saved_cancel()}</button>
-                </div>
-            }
-        </dialog>
     }
 }
 
@@ -2228,8 +2088,8 @@ fn Reputation<'a>(t: ItemMsg, name: &'a str, slug: Option<&'a str>, rating: Opti
     }
 }
 
-/// The market book (`ItemDetailMarketBook`): the listings, the offers and the details, a tab
-/// each, as links. The Sales tab (the market's history) is not ported.
+/// The market book (`ItemDetailMarketBook`): the listings, the offers, the sales (the market's
+/// history, `Sales`) and the details, a tab each, as links.
 #[component(css = ItemDetail)]
 fn MarketBook<'a>(t: ItemMsg, screen: &'a ItemScreen, address: &'a Address, slug: &'a str) -> impl Render {
     let book = address.book();

@@ -36,6 +36,24 @@ function assertRouteCoverage(files) {
 }
 
 describe("browser usability route coverage", () => {
+  it("claims shipping setup for both authenticated and existing anonymous sellers", () => {
+    const route = "bounded-contexts/fulfillment/routes/seller-shipping-setup.tsx";
+    const seller = browserUsabilityGoalModules.find(({ id }) => id === "seller");
+    expect(
+      seller.goals
+        .filter((goal) => Object.hasOwn(goal.routes, route))
+        .map(({ id, startSignedIn }) => ({ id, startSignedIn })),
+    ).toEqual([
+      { id: "seller-shipping-setup", startSignedIn: true },
+      { id: "guest-seller-shipping-setup", startSignedIn: false },
+    ]);
+    expect(auditBrowserUsabilityRoutes([route]).coverage).toMatchObject({
+      unscoped: [],
+      invalid: [],
+      surfaces: { seller: { inScope: 1, claimed: 1, excluded: 0, unclaimed: [] } },
+    });
+  });
+
   it("accounts for Discovery analytics with an exact scope and a reasoned fixture gap", () => {
     const guest = browserUsabilityGoalModules.find(({ id }) => id === "guest");
     expect(trackedFiles).toContain(analyticsRoute);

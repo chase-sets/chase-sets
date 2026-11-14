@@ -999,9 +999,9 @@ describe("shared E2E setup selection", () => {
       changedFiles.includes("deployables/marketplace/e2e/unmapped.spec.ts"),
     );
     expect(captured.cases).toHaveLength(150);
-    expect(candidate.cases).toHaveLength(151);
-    expect(candidate.families).toEqual(
-      captured.families
+    expect(candidate.cases).toHaveLength(152);
+    expect(candidate.families).toEqual([
+      ...captured.families
         .filter((family) => family.path !== retired)
         .map((family) =>
           family.family === "boundedContextRouteSuiteOwnership:45"
@@ -1014,8 +1014,25 @@ describe("shared E2E setup selection", () => {
               ? { ...family, family: "e2eNoSuiteExclusions:3" }
               : family,
         ),
-    );
-    expect(candidate.families).toHaveLength(142);
+      {
+        family: "boundedContextRouteSuiteOwnership:52",
+        pattern: "/^bounded-contexts\\/fulfillment\\/routes\\/seller-shipping-setup\\.tsx$/",
+        suites: ["marketplace_checkout"],
+        path: "bounded-contexts/fulfillment/routes/seller-shipping-setup.tsx",
+        trackedCandidates: 1,
+        synthetic: false,
+      },
+    ]);
+    expect(candidate.families).toHaveLength(143);
+    expect(
+      candidate.cases.find(({ changedFiles }) =>
+        changedFiles.includes("bounded-contexts/fulfillment/routes/seller-shipping-setup.tsx"),
+      ),
+    ).toEqual({
+      changedFiles: ["bounded-contexts/fulfillment/routes/seller-shipping-setup.tsx"],
+      suiteIds: ["marketplace_checkout"],
+      batches: ["marketplace_checkout"],
+    });
     for (const entry of captured.cases) {
       const old = baseline.classifyChanges({ changedFiles: entry.changedFiles });
       const next = classifyChanges({ changedFiles: entry.changedFiles, workspaces });
@@ -1296,8 +1313,8 @@ const priorProductionIntegrationRules = [
     reason: "Cross-context subscription or runtime composition changed",
     patterns: [
       /^infrastructure\/(?:bounded-context-runtime|platform-runtime)\//,
-      /^deployables\/(?:platform-api|platform-worker)\/src\/generated\/.*context-registry\.ts$/,
-      /^deployables\/(?:admin-web|marketplace|public-web)\/app\/generated\/web-context-registry\.ts$/,
+      /^deployables\/(?:platform-api|platform-worker)\/src\/context-registry\.ts$/,
+      /^deployables\/(?:admin-web|marketplace|public-web)\/app\/context-registry\.ts$/,
     ],
   },
   {
@@ -1334,8 +1351,8 @@ const lockedIntegrationParityCorpus = [
   ["removed", "infrastructure/bounded-context-runtime/compose.test.ts"],
   ["modified", "infrastructure/bounded-context-runtime/docs/composition.md"],
   ["added", "bounded-contexts/pricing/context.json"],
-  ["modified", "deployables/platform-worker/src/generated/worker-context-registry.ts"],
-  ["modified", "deployables/marketplace/app/generated/web-context-registry.ts"],
+  ["modified", "deployables/platform-worker/src/context-registry.ts"],
+  ["modified", "deployables/marketplace/app/context-registry.ts"],
   ["modified", "deployables/admin-web/app/admin-root-shell.tsx"],
   ["modified", "packages/design-system/src/components/actions/navigation-menu.tsx"],
   ["modified", "docs/runbooks/integration-risk.md"],

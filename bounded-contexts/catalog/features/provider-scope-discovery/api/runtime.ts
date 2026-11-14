@@ -1,5 +1,7 @@
 import type { CommandHandler } from "@chase-sets/event-core/command-handler";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
+import { withPgTransaction, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import type { TcgplayerSetNameObservationRecorder } from "../../operator-session/api/set-name-observations";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import type { CatalogRuntimeDeps } from "../../../support/authoring-support/runtime-support";
 import {
@@ -8,9 +10,24 @@ import {
   type ProviderScopeMappingEvent,
   type ProviderScopeMappingState,
 } from "../../provider-scope-mapping/domain/domain";
-import type { CatalogProviderIntegrationProfileVersionRecord } from "../../source-observations/api/provider-integration-profiles";
+import type {
+  ReferenceRecordCommand,
+  ReferenceRecordEvent,
+  ReferenceRecordState,
+} from "../../reference-data/domain/domain";
+import { parseCatalogIntegrationUnitKey } from "../../source-observations/api/integration-unit";
+import {
+  catalogProviderIntegrationProfileVersions,
+  catalogProviderProfileVersionIngestionUnitKey,
+  type CatalogProviderIntegrationProfileVersionRecord,
+} from "../../source-observations/api/provider-integration-profiles";
 import type { CatalogProviderOptionQueryPage } from "../../source-observations/api/provider-option-query-cache";
 import { listProviderScopeDiscoveryTargets, type ProviderScopeDiscoveryTarget } from "./discovery-targets";
+import {
+  acceptCanonicalScopeRecordProposal,
+  type CanonicalScopeRecordProposalAcceptRequest,
+  type CanonicalScopeRecordProposalAcceptResult,
+} from "./proposal-acceptance";
 import {
   getProviderRefreshCadence,
   PROVIDER_REFRESH_CADENCE_CONFIG,
@@ -77,9 +94,19 @@ export type ProviderScopeDiscoveryPorts = Readonly<{
     ProviderScopeMappingState,
     ProviderScopeMappingEvent
   >;
+  /** Proposal acceptance authors Scope Records only through Reference Record commands. */
+  referenceRecordCommandHandler: CommandHandler<ReferenceRecordCommand, ReferenceRecordState, ReferenceRecordEvent>;
 }>;
 
+export class ExtensionScopeObservationError extends Error {
+  constructor(public readonly code: "scope-observation-target-unavailable" | "scope-observations-unavailable") {
+    super(code);
+    this.name = "ExtensionScopeObservationError";
+  }
+}
+
 export type ProviderScopeDiscoveryServices = Readonly<{
+  recordExtensionScopeObservations: TcgplayerSetNameObservationRecorder;
   processScheduledRefresh: (input: {
     context: EventStoreContext;
     now?: Date;
@@ -112,13 +139,19 @@ export type ProviderScopeDiscoveryServices = Readonly<{
       limit?: number;
     }>,
   ) => Promise<readonly CanonicalScopeRecordProposalRecord[]>;
+  acceptCanonicalScopeRecordProposal: (input: {
+    proposalId: string;
+    request: CanonicalScopeRecordProposalAcceptRequest;
+    actor: string;
+    context: EventStoreContext;
+  }) => Promise<CanonicalScopeRecordProposalAcceptResult>;
 }>;
 
 const SCHEDULED_ACTOR = "system:scheduled-provider-scope-refresh";
 const MAX_OPTION_PAGES_PER_TARGET = 25;
 
 export function createProviderScopeDiscoveryRuntime(
-  deps: CatalogRuntimeDeps,
+  deps: CatalogRuntimeDeps & Readonly<{ extensionObservationPool?: PgTransactionalPool }>,
   ports: ProviderScopeDiscoveryPorts,
   cadenceConfig: readonly ProviderRefreshCadenceConfig[] = PROVIDER_REFRESH_CADENCE_CONFIG,
 ): ProviderScopeDiscoveryServices {
@@ -238,6 +271,92 @@ export function createProviderScopeDiscoveryRuntime(
   }
 
   return {
+    // Operator-extension posts replace server discovery for TCGplayer set names: one complete
+    // product-line list is one scan through the existing writer and proposal seam. Absent sets
+    // are not deleted; inactive sets are not recorded.
+    async recordExtensionScopeObservations(input, backend = deps.extensionObservationPool) {
+      const target = extensionSetNameTarget(input.unitKey);
+      if (!target) {
+        throw new ExtensionScopeObservationError("scope-observation-target-unavailable");
+      }
+      const scanId = createId("job");
+      const now = new Date();
+      const triggeredBy = `operator-extension-grant:${input.provenance.grantId}`;
+      const parent = String(input.productLineId);
+      const observations = input.sets
+        .filter((set) => set.active)
+        .map(
+          (set): ProviderScopeObservationInput => ({
+            providerKey: target.providerKey,
+            unitKey: target.ingestionUnitKey,
+            scopeKind: target.scopeKind,
+            sourceQueryKind: target.queryKind,
+            languageCode: target.languageCode,
+            externalId: set.cleanSetName,
+            label: set.name,
+            parents: [parent],
+            imageUrl: null,
+            metadata: {
+              productLineId: parent,
+              setNameId: String(set.setNameId),
+              categoryId: String(set.categoryId),
+              cleanSetName: set.cleanSetName,
+              urlName: set.urlName,
+              abbreviation: set.abbreviation,
+              releaseDate: set.releaseDate,
+              isSupplemental: String(set.isSupplemental),
+              active: String(set.active),
+              grantId: input.provenance.grantId,
+              creatorUserId: input.provenance.creatorUserId,
+              creatorMembershipId: input.provenance.creatorMembershipId,
+            },
+          }),
+        );
+
+      try {
+        if (!backend) throw new ExtensionScopeObservationError("scope-observations-unavailable");
+        await reconcileProviderRefreshSchedules(db, cadenceConfig);
+        return await withPgTransaction(backend, async (transaction) => {
+          const written = await upsertProviderScopeObservations(transaction, {
+            scanId,
+            scannedAt: now,
+            observations,
+            preserveRawIdentity: true,
+          });
+          const mappingsProposed = await proposeMappingsForTarget({
+            db: transaction,
+            ports,
+            target,
+            written,
+            scanId,
+            context: input.context,
+            actor: triggeredBy,
+          });
+          await recordProviderRefreshRun(transaction, {
+            providerKey: target.providerKey,
+            status: "succeeded",
+            observationCount: written.length,
+            triggeredBy,
+          });
+          return {
+            observationCount: written.length,
+            newObservationCount: written.filter((record) => record.newlyObserved).length,
+            mappingsProposed,
+          };
+        });
+      } catch {
+        // The run record carries a fixed code, never a raw exception or provider text.
+        await recordProviderRefreshRun(db, {
+          providerKey: target.providerKey,
+          status: "failed",
+          observationCount: 0,
+          errorMessage: "scope-observations-unavailable",
+          triggeredBy,
+        }).catch(() => undefined);
+        throw new ExtensionScopeObservationError("scope-observations-unavailable");
+      }
+    },
+
     async processScheduledRefresh(input) {
       const now = input.now ?? new Date();
       const triggeredBy = input.triggeredBy ?? "schedule";
@@ -328,6 +447,15 @@ export function createProviderScopeDiscoveryRuntime(
 
     listScopeObservations: (input = {}) => listProviderScopeObservations(db, input),
     listCanonicalScopeRecordProposals: (input = {}) => listCanonicalScopeRecordProposals(db, input),
+    acceptCanonicalScopeRecordProposal: (input) =>
+      acceptCanonicalScopeRecordProposal(
+        deps,
+        {
+          referenceRecordCommandHandler: ports.referenceRecordCommandHandler,
+          providerScopeMappingCommandHandler: ports.providerScopeMappingCommandHandler,
+        },
+        input,
+      ),
   };
 }
 
@@ -355,6 +483,7 @@ async function collectTargetOptions(
   let cursor: string | null = null;
 
   for (let pageIndex = 0; pageIndex < MAX_OPTION_PAGES_PER_TARGET; pageIndex += 1) {
+    const forceRefresh = pageIndex === 0;
     const page = await ports.queryIntegrationOptions({
       providerKey: target.providerKey,
       profileKey: target.profileKey,
@@ -363,8 +492,16 @@ async function collectTargetOptions(
       languageCode: target.languageCode,
       parentValue,
       cursor,
-      forceRefresh: pageIndex === 0,
+      forceRefresh,
     });
+
+    // A forced live query that fell back to cached options did not refresh the
+    // provider, so the run must record the live failure rather than succeed.
+    if (forceRefresh && page.cache.degraded && !page.cache.cacheOnly) {
+      throw new Error(
+        page.cache.diagnostics[0]?.message ?? "Provider option query fell back to cached options during refresh.",
+      );
+    }
 
     for (const item of page.items) {
       if (target.parentRequired && item.parentValue && item.parentValue !== parentValue) {
@@ -452,6 +589,40 @@ function currentScanKey(
   return `${target.providerKey}:${target.ingestionUnitKey}:${providerScope}`;
 }
 
+function extensionSetNameTarget(unitKey: string): ProviderScopeDiscoveryTarget | null {
+  const providerKey = "tcgplayer";
+  const providerScope = "set-name";
+  let productDomain: string;
+  try {
+    productDomain = parseCatalogIntegrationUnitKey(unitKey).productDomain;
+  } catch {
+    return null;
+  }
+  const classification = classifyProviderScopeDiscoveryTarget({ productDomain, providerScope });
+  const profile = catalogProviderIntegrationProfileVersions.find(
+    (version) =>
+      version.providerKey === providerKey &&
+      version.active &&
+      version.lifecycle === "active" &&
+      catalogProviderProfileVersionIngestionUnitKey(version) === unitKey,
+  );
+  if (!classification || !profile) {
+    return null;
+  }
+  return {
+    providerKey,
+    profileKey: profile.profileKey,
+    ingestionUnitKey: unitKey,
+    productDomain: classification.productDomain,
+    queryKind: "set-names",
+    providerScope,
+    parentScope: "product-line/category",
+    parentRequired: true,
+    scopeKind: classification.scopeKind,
+    languageCode: "en",
+  };
+}
+
 async function proposeMappingsForTarget(input: {
   db: CatalogRuntimeDeps["db"];
   ports: ProviderScopeDiscoveryPorts;
@@ -459,6 +630,7 @@ async function proposeMappingsForTarget(input: {
   written: readonly ProviderScopeObservationRecord[];
   scanId: string;
   context: EventStoreContext;
+  actor?: string;
 }): Promise<number> {
   const candidates = await matchScopeObservationsToScopeRecords(input.db, {
     target: input.target,
@@ -470,7 +642,7 @@ async function proposeMappingsForTarget(input: {
   for (const { candidate } of candidates) {
     const result = await input.ports.providerScopeMappingCommandHandler({
       streamId: providerScopeMappingStreamId(candidate),
-      command: { type: "ProposeProviderScopeMapping", candidate, actor: SCHEDULED_ACTOR },
+      command: { type: "ProposeProviderScopeMapping", candidate, actor: input.actor ?? SCHEDULED_ACTOR },
       context: input.context,
     });
     proposed += result.newEvents.length;

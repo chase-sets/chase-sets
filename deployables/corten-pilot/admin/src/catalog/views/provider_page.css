@@ -1,5 +1,5 @@
 /* Provider detail, around the integrations shell and the UI kit's cards, tables, checkboxes,
-   inputs and accordion (platform::ui): the header's actions and badges wrap, the overview and
+   inputs and accordion (platform::ui): the badges wrap, the overview and
    the draft are two columns from a tablet up, a unit the page is filtered to is outlined, and
    each table stacks on a phone. */
 .page {
@@ -28,12 +28,6 @@
   margin: 0;
   font-size: 0.875rem;
   color: var(--color-text-secondary);
-}
-.actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-2);
-  align-items: center;
 }
 .notice:empty {
   display: none;

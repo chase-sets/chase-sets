@@ -13,7 +13,13 @@
   "guest": {
     "saved_payment_unavailable": "Saved payment methods are available after sign-in. Continue with card payment.",
     "payment_link_expired_title": "Guest checkout link expired",
-    "payment_link_expired": "This guest checkout payment link is invalid or expired."
+    "payment_link_expired": "This guest checkout payment link is invalid or expired.",
+    "claim_link_sent": "We sent a claim link to {email}. Open it to save this order to an account.",
+    "claim_link_expired_title": "Claim link expired",
+    "claim_link_expired": "This claim link is invalid or expired.",
+    "claim_link_sent_unread": "We sent a claim link to this order's contact email. Open it to save this order to an account.",
+    "claim_link_rate_limited_title": "Too many attempts",
+    "claim_link_rate_limited": "There were too many attempts. Try the link again later."
   },
   "check": {
     "required": "Enter a value.",
@@ -189,6 +195,9 @@
     "next": "Next page",
     "page_of": "Page {page} of {pages}",
     "choose_listings": "Check the listings to pause or withdraw first.",
+    "unconfirmed": "Not confirmed: this may have applied. Send the same batch again to finish it; a listing it already changed is not changed twice.",
+    "send_again": "Send the same batch again",
+    "results_unconfirmed": "{succeeded} succeeded, {unconfirmed} unconfirmed, {failed} failed",
     "date": "Enter a date as YYYY-MM-DD."
   },
   "offer_matches": {
@@ -265,7 +274,8 @@
   "auth": {
     "sign_in_title": "Sign In | Marketplace",
     "register_title": "Register | Marketplace",
-    "account_selection_title": "Select Account | Marketplace"
+    "account_selection_title": "Select Account | Marketplace",
+    "passkey_added_sign_in": "The passkey was added. Sign in with it to continue."
   },
   "team": {
     "pending": "Your team is still updating. This page reads it again in a moment."

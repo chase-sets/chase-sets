@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { createAggregateCommandHandler } from "@chase-sets/event-core/aggregate-command-handler";
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
 import type { CommandHandler } from "@chase-sets/event-core/command-handler";
@@ -51,9 +52,10 @@ type PricingRecommendationRuntimeDeps = Readonly<{
   db: PgQueryable;
 }>;
 
+/** `unknown` means the target's commit could not be established; only those targets are re-sent. */
 export type PricingMarketplaceListingOutcome = Readonly<{
   listingId: string;
-  outcome: "applied" | "no_op" | "conflict" | "error";
+  outcome: "applied" | "no_op" | "conflict" | "error" | "unknown";
   version: number;
   message?: string;
 }>;
@@ -70,7 +72,13 @@ export type PricingMarketplaceListingOutcome = Readonly<{
 export type PricingMarketplaceListingGateway = Readonly<{
   applyBulkListingPriceUpdates: (
     body: Readonly<{
-      updates: readonly Readonly<{ listingId: string; priceAmount: string; priceCurrencyCode: string }>[];
+      batchId?: string;
+      updates: readonly Readonly<{
+        listingId: string;
+        priceAmount: string;
+        priceCurrencyCode: string;
+        idempotencyKey?: string;
+      }>[];
     }>,
     options?: Readonly<{ signal?: AbortSignal }>,
   ) => Promise<Readonly<{ items: readonly PricingMarketplaceListingOutcome[] }>>;
@@ -684,7 +692,9 @@ export function createPricingRecommendationRuntime(
     // internally).
     const priceUpdateOutcomeByRecommendationId = new Map<
       string,
-      Readonly<{ status: "applied"; appliedListingId: string }> | Readonly<{ status: "failed"; errorMessage: string }>
+      | Readonly<{ status: "applied"; appliedListingId: string }>
+      | Readonly<{ status: "failed"; errorMessage: string }>
+      | Readonly<{ status: "unknown" }>
     >();
     const bulkUpdates: Readonly<{
       recommendationId: string;
@@ -728,13 +738,20 @@ export function createPricingRecommendationRuntime(
 
     if (bulkUpdates.length > 0) {
       jobContext?.throwIfCancelled();
+      // One batch identity plus one target attempt per recommendation: a target whose commit cannot be
+      // established stays proposed, so a retry re-sends only it and its attempt replays any first receipt.
       const bulkResult = await runPricingJobSideEffect(jobContext, (signal) =>
         params.marketplaceListings.applyBulkListingPriceUpdates(
           {
-            updates: bulkUpdates.map(({ listingId, priceAmount, priceCurrencyCode }) => ({
+            batchId: pricingRecommendationBatchId(
+              params.accountId,
+              bulkUpdates.map((update) => update.recommendationId),
+            ),
+            updates: bulkUpdates.map(({ recommendationId, listingId, priceAmount, priceCurrencyCode }) => ({
               listingId,
               priceAmount,
               priceCurrencyCode,
+              idempotencyKey: pricingRecommendationAttemptKey(params.accountId, recommendationId),
             })),
           },
           { signal },
@@ -749,10 +766,12 @@ export function createPricingRecommendationRuntime(
             status: "applied",
             appliedListingId: update.listingId,
           });
+        } else if (!outcome || outcome.outcome === "unknown") {
+          priceUpdateOutcomeByRecommendationId.set(update.recommendationId, { status: "unknown" });
         } else {
           priceUpdateOutcomeByRecommendationId.set(update.recommendationId, {
             status: "failed",
-            errorMessage: outcome?.message ?? "Bulk listing price update did not run.",
+            errorMessage: outcome.message ?? "Bulk listing price update did not apply.",
           });
         }
       }
@@ -770,6 +789,14 @@ export function createPricingRecommendationRuntime(
 
         if (row.action_type === "active-listing-price-update" || row.action_type === "draft-listing-price-update") {
           const outcome = priceUpdateOutcomeByRecommendationId.get(row.recommendation_id);
+          if (outcome?.status === "unknown") {
+            completed += 1;
+            await progressCheckpoint?.checkpoint(
+              pricingJobProgress("processing", completed, selectedRows.length, "Recommendation outcome unknown."),
+              { appliedCount, failedCount },
+            );
+            continue;
+          }
           if (!outcome || outcome.status === "failed") {
             throw new Error(outcome?.status === "failed" ? outcome.errorMessage : "Recommendation apply failed.");
           }
@@ -1249,6 +1276,20 @@ function pricingRecommendationCommandSnapshot(
 
 function listingIdForPricingRecommendation(recommendationId: string): string {
   return `lst_pricing_${recommendationId.replace(/[^A-Za-z0-9_]+/g, "_")}`;
+}
+
+function pricingAttemptDigest(parts: readonly string[]): string {
+  return createHash("sha256").update(JSON.stringify(parts)).digest("hex").slice(0, 48);
+}
+
+/** One target attempt per recommendation: a resend of the same recommendation replays its first Listing receipt. */
+export function pricingRecommendationAttemptKey(accountId: string, recommendationId: string): string {
+  return `pricing_rec_${pricingAttemptDigest(["pricing-recommendation", accountId, recommendationId])}`;
+}
+
+/** One batch per account and recommendation set; a retry of only the unknown targets is its own batch. */
+export function pricingRecommendationBatchId(accountId: string, recommendationIds: readonly string[]): string {
+  return `pricing_batch_${pricingAttemptDigest(["pricing-recommendation-batch", accountId, ...[...recommendationIds].sort()])}`;
 }
 
 function createPricingRecommendationJobId(): string {

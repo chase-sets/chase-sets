@@ -145,7 +145,7 @@ import {
 } from "./channels-reconciliation-runners";
 import { closePlatformWorkerPools, createPlatformWorkerPools, createSettlementBootstrapPool } from "./database-pools";
 import { platformEmailTemplateRenderer } from "./email-template-renderer";
-import { workerContextRegistry } from "./generated/worker-context-registry";
+import { workerContextRegistry } from "./context-registry";
 import { createRegisteredScheduledRunners, createSupportEvidenceCleanupHostPort } from "./scheduled-runners";
 import { createInventoryJobRunners } from "./inventory-job-runners";
 import { runStartupRetry } from "./startup-retry";
@@ -254,6 +254,9 @@ const commercialTermsResolver = pools["commercial-terms"]
       ),
     })
   : undefined;
+if (pools.checkout && !commercialTermsResolver) {
+  throw new Error("Checkout requires a Commercial Terms resolver backed by the Commercial Terms database.");
+}
 const pricingHostPorts: PricingHostPorts | undefined = pools.pricing
   ? {
       commercialTermsResolver: requirePricingCommercialTermsResolver(commercialTermsResolver),
@@ -1617,8 +1620,8 @@ function createPricingJobRunners(
               marketplaceListingGatewayForAccount: (accountId) => ({
                 applyBulkListingPriceUpdates: async (body) => ({
                   items: await marketplace.listings!.applyBulkListingPriceUpdates!(
-                    { accountId: accountId as never, updates: body.updates },
-                    SYSTEM_CONTEXT,
+                    { accountId: accountId as never, ...body },
+                    sellerSystemContext(accountId),
                   ),
                 }),
                 createListing: async (body) => {
@@ -1628,7 +1631,7 @@ function createPricingJobRunners(
                       ...body,
                       listingIdOverride: body.listingIdOverride as never,
                     },
-                    SYSTEM_CONTEXT,
+                    sellerSystemContext(accountId),
                   );
                   return {
                     id: result.listingId,
@@ -1656,16 +1659,19 @@ function createPricingJobRunners(
                 marketplaceGatewayForAccount: (accountId) => ({
                   applyBulkListingPriceUpdates: async (body) => ({
                     items: await marketplace.listings!.applyBulkListingPriceUpdates!(
-                      { accountId, updates: body.updates },
-                      SYSTEM_CONTEXT,
+                      { accountId, ...body },
+                      sellerSystemContext(accountId),
                     ),
                   }),
                   pauseListing: (listingId, body) =>
-                    marketplace.listings!.pauseListing!({ accountId, listingId, reason: body.reason }, SYSTEM_CONTEXT),
+                    marketplace.listings!.pauseListing!(
+                      { accountId, listingId, reason: body.reason },
+                      sellerSystemContext(accountId),
+                    ),
                   publishListing: (listingId, body) =>
                     marketplace.listings!.publishListing!(
                       { accountId, listingId, idempotencyKey: body.idempotencyKey },
-                      SYSTEM_CONTEXT,
+                      sellerSystemContext(accountId),
                     ),
                 }),
                 signal: lane.runnerContext?.signal,
@@ -1727,7 +1733,10 @@ function createBulkRepriceIngestionJobRunners(
         laneName: lane.laneName,
         marketplaceListingGatewayForAccount: (accountId) => ({
           applyBulkListingPriceUpdates: async (body) => ({
-            items: await marketplace.listings!.applyBulkListingPriceUpdates!({ accountId, ...body }, SYSTEM_CONTEXT),
+            items: await marketplace.listings!.applyBulkListingPriceUpdates!(
+              { accountId, ...body },
+              sellerSystemContext(accountId),
+            ),
           }),
         }),
         inventorySkuGatewayForAccount: (accountId) => ({
@@ -1996,3 +2005,7 @@ const SYSTEM_CONTEXT = {
     forAccountId: "acc_identity_system" as never,
   },
 };
+
+function sellerSystemContext(accountId: string) {
+  return { ...SYSTEM_CONTEXT, audit: { ...SYSTEM_CONTEXT.audit, forAccountId: accountId as never } };
+}

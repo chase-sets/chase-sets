@@ -11,6 +11,15 @@ import {
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { createPostgresEventStore } from "@chase-sets/event-core-postgres";
 import { module as fulfillmentModule } from "../index";
+import {
+  actor,
+  accountOwner,
+  anonymousOwner,
+  context,
+  grantedAuthority,
+  initialize,
+  setup,
+} from "../features/seller-checkout-readiness/api/test-support";
 
 const adminDatabaseUrl = process.env.TEST_DATABASE_URL;
 if (!adminDatabaseUrl && process.env.CI) {
@@ -51,6 +60,65 @@ describeDb("fulfillment schema upgrades", () => {
 
   beforeEach(async () => resetMultiContextTestSchemas(pools));
   afterAll(async () => closeMultiContextTestPools(pools));
+
+  it("uses the existing ledgered event schema for fresh and retained seller shipping state without boot defaults", async () => {
+    const pool = pools.fulfillment;
+    await bootstrapContextDatabase(fulfillmentModule, pool);
+    const ledgerBefore = await pool.query(
+      "SELECT migration_id FROM bounded_context_schema_migrations ORDER BY migration_id",
+    );
+    const source = fulfillmentModule.createServices(pool, { operatorAuthority: grantedAuthority }).sellerShippingSetup;
+    expect(await source.readSetup(accountOwner)).toMatchObject({
+      setup: null,
+      supportStatus: "missing",
+      revision: null,
+    });
+    await source.saveSetup(accountOwner, setup, context);
+    await source.changeSupport(actor, initialize, context);
+    await source.changeSupport(
+      actor,
+      { ...initialize, action: "revoke", labelPreference: setup.labelPreference, operationId: "schema_revoke" },
+      context,
+    );
+    await source.invalidateAnonymousOwner({ owner: anonymousOwner, targetAccountId: accountOwner.accountId }, context);
+    const setupOnlyOwner = { kind: "account", accountId: "acc_setup_only" } as const;
+    const supportOnlyOwner = { kind: "anonymous", anonymousSellListId: "anon_support_only" } as const;
+    const setupOnly = await source.saveSetup(setupOnlyOwner, setup, context);
+    await source.changeSupport(
+      actor,
+      { ...initialize, owner: supportOnlyOwner, operationId: "schema_support_only" },
+      context,
+    );
+    const supportOnly = await source.readSetup(supportOnlyOwner);
+    const revoked = await source.readSetup(accountOwner);
+    const invalidated = await source.readSetup(anonymousOwner);
+    await bootstrapContextDatabase(fulfillmentModule, pool);
+    await bootstrapContextDatabase(fulfillmentModule, pool);
+    const restarted = fulfillmentModule.createServices(pool, {
+      operatorAuthority: grantedAuthority,
+    }).sellerShippingSetup;
+    expect(await restarted.readSetup(accountOwner)).toEqual(revoked);
+    expect(revoked.supportStatus).toBe("revoked");
+    expect(await restarted.readSetup(anonymousOwner)).toEqual(invalidated);
+    expect(invalidated.supportStatus).toBe("invalidated");
+    expect(await restarted.readSetup(setupOnlyOwner)).toEqual(setupOnly);
+    expect(setupOnly.supportStatus).toBe("missing");
+    expect(await restarted.readSetup(supportOnlyOwner)).toEqual(supportOnly);
+    expect(supportOnly.setup).toBeNull();
+    expect(await restarted.readSetup({ kind: "account", accountId: "acc_still_missing" })).toMatchObject({
+      setup: null,
+      revision: null,
+      supportStatus: "missing",
+    });
+    const ledgerAfter = await pool.query(
+      "SELECT migration_id FROM bounded_context_schema_migrations ORDER BY migration_id",
+    );
+    expect(ledgerAfter.rows).toEqual(ledgerBefore.rows);
+    expect(
+      (await pool.query("SELECT event_id FROM event_store_events WHERE stream_id LIKE 'fulfillment.seller-shipping-%'"))
+        .rows,
+    ).toHaveLength(6);
+  });
 
   it("converges deployed return-shipment pages to the complete fresh schema", async () => {
     const pool = pools.fulfillment;

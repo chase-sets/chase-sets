@@ -22,6 +22,10 @@ export type {
   MarketplaceBulkListingPriceUpdateInput,
   MarketplaceBulkListingPriceUpdateOutcome,
   MarketplaceItemListing,
+  MarketplaceListingBatchFamily,
+  MarketplaceListingBatchItem,
+  MarketplaceListingBatchOutcome,
+  MarketplaceListingBatchResult,
   MarketplaceListingDetail,
   MarketplaceListingEvidenceReadiness,
   MarketplaceListingFeeLockReportEntry,
@@ -64,6 +68,7 @@ import type {
   MarketplaceBulkListingPriceUpdateInput,
   MarketplaceBulkListingPriceUpdateOutcome,
   MarketplaceItemListing,
+  MarketplaceListingBatchResult,
   MarketplaceListingDetail,
   MarketplaceListingEvidenceReadiness,
   MarketplaceListingFeeLockReportEntry,
@@ -622,20 +627,34 @@ export function createMarketplaceApiClient({
         }),
       );
     },
+    /** A caller that retries (e.g. a Pricing job) passes its stable `batchId` so the retry reads the same vector. */
     async applyBulkListingPriceUpdates(
-      body: Readonly<{ updates: readonly MarketplaceBulkListingPriceUpdateInput[] }>,
+      body: Readonly<{ batchId?: string; updates: readonly MarketplaceBulkListingPriceUpdateInput[] }>,
       options: Readonly<{ signal?: AbortSignal }> = {},
     ): Promise<ListResponse<MarketplaceBulkListingPriceUpdateOutcome>> {
+      const { batchId, ...rest } = body;
       return parseJsonResponse(
         await configuredFetch(joinApiPath(baseUrl, "/account/listings/prices/bulk"), {
           method: "POST",
           headers: {
             "content-type": "application/json",
             ...headersToRecord(headers),
-            "Idempotency-Key": derivedListingAttemptKey(),
+            "Idempotency-Key": batchId ?? derivedListingAttemptKey(),
           },
-          body: JSON.stringify(body),
+          body: JSON.stringify(rest),
           signal: options.signal,
+        }),
+      );
+    },
+    /** One bulk pause or withdraw: one batch id, one target attempt per Listing, and the terminal vector back. */
+    async applyListingBatch(
+      body: Readonly<{ batchId: string; family: "listing.pause" | "listing.withdraw"; listingIds: readonly string[] }>,
+    ): Promise<MarketplaceListingBatchResult> {
+      return parseJsonResponse(
+        await configuredFetch(joinApiPath(baseUrl, "/account/listings/batch"), {
+          method: "POST",
+          headers: { "content-type": "application/json", ...headersToRecord(headers) },
+          body: JSON.stringify(body),
         }),
       );
     },

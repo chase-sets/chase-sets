@@ -1,9 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { CHECKOUT_ANONYMOUS_SELL_LIST_COOKIE_NAME as canonicalCookie } from "@chase-sets/auth-context";
 import {
-  appendAnonymousCartCookie,
+  CHECKOUT_ANONYMOUS_SELL_LIST_COOKIE_NAME,
+  readAnonymousSellListId,
   appendAnonymousSellListCookie,
-  appendClearedAnonymousCartCookie,
   appendClearedAnonymousSellListCookie,
+  appendAnonymousCartCookie,
+  appendClearedAnonymousCartCookie,
   appendGuestCheckoutCookie,
 } from "./guest-checkout";
 
@@ -70,5 +73,22 @@ describe("checkout cookie headers", () => {
       ["chase_sets_guest_checkout=gst%20a%3Bb; Path=/; HttpOnly; SameSite=Lax; Max-Age=86400"],
       ["chase_sets_guest_checkout=gst%20a%3Bb; Path=/; HttpOnly; SameSite=Lax; Max-Age=86400"],
     ]);
+  });
+});
+
+describe("anonymous Sell List cookie compatibility", () => {
+  it("re-exports the canonical name and preserves reads and identity", () => {
+    expect(CHECKOUT_ANONYMOUS_SELL_LIST_COOKIE_NAME).toBe(canonicalCookie);
+    expect(canonicalCookie).toBe("chase_sets_anonymous_sell_list");
+    const request = new Request("https://marketplace.test", {
+      headers: { cookie: `${canonicalCookie}=anon_cmd%5Fexisting; unrelated=other` },
+    });
+    expect(readAnonymousSellListId(request)).toBe("anon_cmd_existing");
+    expect(readAnonymousSellListId(new Request("https://marketplace.test"))).toBeNull();
+    expect(
+      readAnonymousSellListId(
+        new Request("https://marketplace.test", { headers: { cookie: `${canonicalCookie}=acc_foreign` } }),
+      ),
+    ).toBeNull();
   });
 });

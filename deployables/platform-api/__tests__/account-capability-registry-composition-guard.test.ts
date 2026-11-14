@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { buildAccountCapabilityRegistry } from "@chase-sets/platform-runtime/api";
-import { apiContextRegistry } from "../src/generated/api-context-registry";
+import { apiContextRegistry } from "../src/context-registry";
 
 const repositoryRoot = path.join(import.meta.dirname, "..", "..", "..");
 

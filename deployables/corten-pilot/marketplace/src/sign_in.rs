@@ -14,10 +14,16 @@
 //! | `magic-link-request` | `POST /api/auth/magic-link/request` | the page, saying the link is sent |
 //! | `phone-code-request` | `POST /api/auth/phone-code/request` | the page, with the code's form |
 //! | `phone-code-consume` | `POST /api/auth/phone-code/consume` | the session, or account selection |
+//! | `passkey-sign-in` | `POST /api/auth/passkeys/sign-in` | the session, or account selection |
 //!
-//! A passkey needs the browser's WebAuthn, and a social sign-in the provider's round trip through
-//! the API, which comes back to marketplace's sign-in: both are links to marketplace. The magic
-//! link's email points at `/sign-in/magic` on the host that asked for it, which the pilot serves.
+//! A passkey is the browser's WebAuthn, through the shared passkey step (`platform::auth`'s
+//! `passkey.js`): its press asks `POST /sign-in/passkey` for a challenge (registration and an
+//! invitation ask the same route), the browser signs it, and the form is sent with the
+//! credential. Without a script the form comes without one and the page says the passkey sign-in
+//! failed. A social sign-in is a link to Auth's start (`/api/auth/social/{provider}/start`), which
+//! the pilot relays where nothing else serves `/api` (`platform::auth::social`): the provider comes
+//! back to the page's origin, and Auth's answer to the pilot's page when it serves it. The magic link's email points at
+//! `/sign-in/magic` on the host that asked for it, which the pilot serves.
 //!
 //! A session started here is marketplace's cookie (`chase_sets_session`, HttpOnly, SameSite=Lax,
 //! Secure on https, Max-Age to the session's expiry); the browser then goes back to `returnTo`, on
@@ -28,19 +34,19 @@
 //! would share the web host's
 //! ([chase-sets/chase-sets#10686](https://github.com/chase-sets/chase-sets/issues/10686)).
 use corten::{
-    ClientIp, Local,
+    ClientIp, Local, Relay,
     http::{HeaderMap, StatusCode, Uri},
     prelude::*,
     security::cookie::SetCookie,
 };
 pub(crate) use platform::auth::{Authenticated, call, call_written, safe_return_to};
+use platform::auth::{ChallengeForm, Credential, PasskeyChallenge, PhoneCodeSent, Refusal, selection_token};
 pub use platform::auth::{GUEST_CHECKOUT_COOKIE, Kind, Membership, Method, SELECTION_COOKIE};
-use platform::auth::{PhoneCodeSent, Refusal, selection_token};
 use serde_json::{Value, json};
 
 use crate::email_verification::{Purpose, RETURN_PARAMETER};
 use crate::{
-    api::{ApiError, Caller, segment},
+    api::{ApiError, Caller},
     app::{Config, Shared, url},
     text::{Pilot, SignInMsg},
     views::{self, Layout},
@@ -124,16 +130,6 @@ pub fn destination(req: &Req, path: &str) -> Option<Uri> {
     }
 }
 
-/// Marketplace's sign-in, for what the pilot does not do (a passkey): back to the same place with
-/// the same identifier and method.
-pub fn on_marketplace(ask: &Ask) -> String {
-    let mut path = format!("/sign-in?returnTo={}", segment(&safe_return_to(ask.return_to.as_deref(), DEFAULT_SUCCESS)));
-    if let Some(identifier) = ask.identifier() {
-        path.push_str(&format!("&signInIdentifier={}&signInMethod=passkey", segment(identifier)));
-    }
-    views::on_marketplace(&path)
-}
-
 /// The account gate's message for where the sign-in returns to (`marketplaceAccountGateContextMessage`).
 pub fn context(t: SignInMsg, return_to: &str) -> Option<(&'static str, &'static str)> {
     let (path, query) = return_to.split_once('?').unwrap_or((return_to, ""));
@@ -178,7 +174,8 @@ pub fn social_error(t: SignInMsg, code: &str) -> &'static str {
     }
 }
 
-/// The form's fields, named as marketplace's forms name them.
+/// The form's fields, named as marketplace's forms name them; a passkey's are the credential the
+/// passkey step fills in.
 #[derive(Clone, Debug, Default, Fields)]
 #[serde(rename_all = "camelCase", default)]
 pub struct SignInForm {
@@ -188,6 +185,22 @@ pub struct SignInForm {
     pub phone: String,
     pub code: String,
     pub token_id: String,
+    pub challenge_id: String,
+    pub challenge: String,
+    pub external_credential_id: String,
+    pub webauthn_response: String,
+}
+
+impl SignInForm {
+    /// The passkey's credential, as the passkey step filled it in.
+    pub fn credential(&self) -> Credential<'_> {
+        Credential {
+            challenge_id: &self.challenge_id,
+            challenge: &self.challenge,
+            external_credential_id: &self.external_credential_id,
+            webauthn_response: &self.webauthn_response,
+        }
+    }
 }
 
 /// Account selection's form.
@@ -275,6 +288,13 @@ pub(crate) fn complete(req: &Req, config: &Config, return_to: &str, result: Auth
     Ok(res.with_cookie(secure(config, SetCookie::remove(SELECTION_COOKIE))).with_cookie(secure(config, keep)))
 }
 
+/// A guest who saved its checkout to an account signed in: the same, with the guest checkout's
+/// cookie cleared (`clearGuestCheckoutCookie`), since Auth ended the guest's access.
+pub(crate) fn complete_claim(req: &Req, config: &Config, return_to: &str, result: Authenticated) -> HtmlResult {
+    let res = complete(req, config, return_to, result)?;
+    Ok(res.with_cookie(secure(config, SetCookie::remove(GUEST_CHECKOUT_COOKIE))))
+}
+
 fn render(req: &Req, status: StatusCode, screen: &SignInScreen) -> HtmlResult {
     let (t, p): (SignInMsg, Pilot) = (req.t(), req.t());
     let page = html! {
@@ -290,11 +310,35 @@ fn render(req: &Req, status: StatusCode, screen: &SignInScreen) -> HtmlResult {
     if status == StatusCode::OK { req.page(page) } else { req.page_with_status(status, page) }
 }
 
+/// A social sign-in's start or the provider's return, relayed to Auth (`platform::auth::social`).
+pub(crate) async fn social(
+    req: Req,
+    State(config): State<Shared>,
+    headers: HeaderMap,
+    uri: Uri,
+    Params(route): Params<url::SocialSignIn<'_>>,
+) -> corten::Result<Relay> {
+    let caller = config.platform.caller(&headers, config.proto, None);
+    let place = |path: &str| destination(&req, path).map(|to| to.to_string());
+    platform::auth::social(&caller, &headers, route.provider.as_str(), route.step.as_str(), uri.query(), place).await
+}
+
 /// The page, at the step its address is on.
 pub(crate) async fn page(req: Req, Params(route): Params<crate::app::url::sign_in::SignIn>) -> HtmlResult {
     let ask = route.ask;
     let screen = SignInScreen::new(req.t(), ask);
     render(&req, StatusCode::OK, &screen)
+}
+
+/// A passkey's challenge for the passkey step.
+pub(crate) async fn challenge(
+    State(config): State<Shared>,
+    headers: HeaderMap,
+    client: Option<ClientIp>,
+    Form(form): Form<ChallengeForm>,
+) -> JsonResult<PasskeyChallenge> {
+    let caller = config.platform.caller(&headers, config.proto, None);
+    platform::auth::passkey_challenge(&caller, client, &form).await
 }
 
 /// The page's forms (marketplace's sign-in action).
@@ -316,6 +360,7 @@ pub(crate) async fn write(
     let (identifier, method) = match intent {
         "phone-code-request" | "phone-code-consume" => (form.phone.trim(), Method::PhoneCode),
         "magic-link-request" => (form.email.trim(), Method::MagicLink),
+        "passkey-sign-in" => (form.email.trim(), Method::Passkey),
         _ => (form.email.trim(), Method::Password),
     };
     if !identifier.is_empty() {
@@ -358,6 +403,12 @@ pub(crate) async fn write(
             }
             started
         }
+        // No credential: the step's script did not run, or the browser has no passkeys.
+        "passkey-sign-in" if form.credential().is_missing() => {
+            screen.error = Some(t.page_passkey_sign_in_failed().to_owned());
+            return render(&req, StatusCode::UNPROCESSABLE_ENTITY, &screen);
+        }
+        "passkey-sign-in" => platform::auth::passkey(&caller, client, &form.credential()).await,
         // Marketplace's default intent is a password.
         _ => platform::auth::password(&caller, client, &form.email, &form.password).await,
     };

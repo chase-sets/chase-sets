@@ -31,27 +31,27 @@ export const bootstrapDbEnrollmentManifest = Object.freeze({
       {
         name: "payout-fee-console-and-resolve bootstraps every whitelisted value in the production landing profile",
         referenceDurationMs: 8538,
-        identity: "fcf65b142a0bbe05",
+        identity: "eb26893b2802a2d8",
       },
       {
         name: "reconciles a queued active public bootstrap after its predecessor fails with partial Commercial Terms history",
         referenceDurationMs: 16609,
-        identity: "f749da3c0ba3e000",
+        identity: "94ce72ab08826c62",
       },
       {
         name: "serializes two concurrent full production-like API host bootstraps with a database advisory lock",
         referenceDurationMs: 21456,
-        identity: "1e91d11294f92825",
+        identity: "19168dc535e66536",
       },
       {
         name: "limits and reconciles every production-like seed context against current-code state",
         referenceDurationMs: 23031,
-        identity: "91ce1f9bea42efa9",
+        identity: "727db2f4716f86e3",
       },
       {
         name: "upgrades legacy published Display Templates through the not-empty Catalog reconciliation path",
         referenceDurationMs: 29837,
-        identity: "5d22ae06208e8106",
+        identity: "b7f1f122ca7b219f",
       },
       {
         name: "proves the reviewed projection guard fails at User, then resumes a full retained Identity seed",
@@ -81,7 +81,7 @@ export const bootstrapDbEnrollmentManifest = Object.freeze({
       {
         name: "publishes the existing 85-Product bootstrap profile atomically through context and replaces all six consumer tables",
         referenceDurationMs: 95904,
-        identity: "534d5752dbc527b6",
+        identity: "fc9c67744e82c259",
       },
       {
         name: "resumes the real representative commerce command after offer acceptance without duplicate creation events",
@@ -222,7 +222,7 @@ export const bootstrapDbEnrollmentManifest = Object.freeze({
       {
         name: "standalone seeds acquire L, while caller-held seeds never acquire or release it twice",
         referenceDurationMs: 1001,
-        identity: "84b492128c26ed18",
+        identity: "b48e834f7351386f",
       },
       {
         name: "real bootstrap holds L through every admin phase and a killed bootstrap frees L",
@@ -271,7 +271,7 @@ export const bootstrapDbEnrollmentManifest = Object.freeze({
       {
         name: "boots with context-owned pools and replays cross-context projections",
         referenceDurationMs: 93883,
-        identity: "d5d72806700dfd1c",
+        identity: "543c346f4daf119b",
       },
       {
         name: "revokes agent-owned saved instruments through the composed OAuth route with a valid audit context",
@@ -281,7 +281,7 @@ export const bootstrapDbEnrollmentManifest = Object.freeze({
       {
         name: "records context schema migrations once during concurrent bootstrap",
         referenceDurationMs: 1788,
-        identity: "41eda869b48e6c66",
+        identity: "ae585f1b25efe00a",
       },
     ],
   },
@@ -350,7 +350,7 @@ export const bootstrapDbEnrollmentManifest = Object.freeze({
       {
         name: "boots every non-production profile on one shared max-one seed command pool",
         referenceDurationMs: 88939,
-        identity: "4d891cb822a0a334",
+        identity: "f92a3b265dc5393c",
       },
     ],
   },

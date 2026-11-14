@@ -3,9 +3,7 @@ import { createHash } from "node:crypto";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
-import ts from "@chase-sets/typescript-compiler-api";
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 import { GIT_LISTING_MAX_BUFFER } from "../lib/git-listing.mjs";
 import {
   inspectJsonImportAttributes,
@@ -13,7 +11,41 @@ import {
   validateJsonImportAttributes,
 } from "./json-import-attributes.mjs";
 import { findContextRootExportViolation, isApprovedCrossContextTypeContractImport } from "./run.mjs";
-import { workspaceRoots } from "../lib/repo.mjs";
+import { CONTEXT_REGISTRY_HOST_ARMS, workspaceRoots } from "../lib/repo.mjs";
+
+// Counts full-repository censuses at the module boundary across both entry
+// points. Fixture and path-scoped calls are not full censuses.
+const fullCensus = vi.hoisted(() => ({ invocations: 0 }));
+vi.mock("./json-import-attributes.mjs", async (importOriginal) => {
+  const actual = await importOriginal();
+  const { repoRoot } = await import("../lib/repo.mjs");
+  const { resolve } = await import("node:path");
+  const counted =
+    (census) =>
+    (options = {}) => {
+      if (
+        options.paths === undefined &&
+        (options.rootDir === undefined || resolve(options.rootDir) === resolve(repoRoot))
+      ) {
+        fullCensus.invocations += 1;
+      }
+      return census(options);
+    };
+  return {
+    ...actual,
+    inspectJsonImportAttributes: counted(actual.inspectJsonImportAttributes),
+    validateJsonImportAttributes: counted(actual.validateJsonImportAttributes),
+  };
+});
+
+// Freezes the census data. Compiler nodes stay mutable because the compiler
+// may cache data on them.
+function deepFreeze(value) {
+  const prototype = value !== null && typeof value === "object" ? Object.getPrototypeOf(value) : undefined;
+  if (prototype !== Object.prototype && prototype !== Array.prototype) return value;
+  for (const child of Object.values(value)) deepFreeze(child);
+  return Object.freeze(value);
+}
 
 function withFixture(files, callback) {
   const rootDir = mkdtempSync(path.join(os.tmpdir(), "json-import-attributes-"));
@@ -40,7 +72,7 @@ function contextFiles(indexSource, extraFiles = {}) {
       deployableContributions: [],
     }),
     "bounded-contexts/example/index.ts": indexSource,
-    "deployables/platform-api/src/generated/api-context-registry.ts": 'import "@chase-sets/example";\n',
+    "deployables/platform-api/src/context-registry.ts": 'import "@chase-sets/example";\n',
     ...extraFiles,
   };
 }
@@ -55,188 +87,6 @@ function zeroHostContextFiles(entrySource, manifest = { contextName: "atlas" }, 
     "bounded-contexts/atlas/entry.ts": entrySource,
     ...extraFiles,
   };
-}
-
-const registryBuilderNames = ["buildApiRegistry", "buildWorkerRegistry", "contributesToWebHost"];
-
-function isContextManifestFieldAccess(node) {
-  return (
-    ts.isPropertyAccessExpression(node) &&
-    ts.isPropertyAccessExpression(node.expression) &&
-    ts.isIdentifier(node.expression.expression) &&
-    node.expression.expression.text === "context" &&
-    node.expression.name.text === "manifest"
-  );
-}
-
-function isContextManifestExpression(node) {
-  return (
-    ts.isPropertyAccessExpression(node) &&
-    ts.isIdentifier(node.expression) &&
-    node.expression.text === "context" &&
-    node.name.text === "manifest"
-  );
-}
-
-function collectParamFieldReads(bodyNode, paramName) {
-  const fields = new Set();
-  const visit = (node) => {
-    if (ts.isPropertyAccessExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === paramName) {
-      fields.add(node.name.text);
-    }
-    ts.forEachChild(node, visit);
-  };
-  visit(bodyNode);
-  return fields;
-}
-
-function collectBindingNames(nameNode, names) {
-  if (ts.isIdentifier(nameNode)) {
-    names.add(nameNode.text);
-    return;
-  }
-  if (ts.isObjectBindingPattern(nameNode) || ts.isArrayBindingPattern(nameNode)) {
-    for (const element of nameNode.elements) {
-      if (ts.isBindingElement(element)) {
-        collectBindingNames(element.name, names);
-      }
-    }
-  }
-}
-
-// A call's identifier can be spelled the same as an imported binding while
-// actually resolving to a local function/parameter/variable declared
-// in the source file (a shadow). Following the import in that case
-// would certify fields from code that never runs for that call. Collect
-// every locally declared name conservatively: ambiguous scope is rejected
-// instead of silently attributing a call to the unrelated import.
-function collectLocallyDeclaredNames(rootNode) {
-  const names = new Set();
-  const visit = (node) => {
-    if (ts.isFunctionLike(node)) {
-      if (node.name && ts.isIdentifier(node.name)) {
-        names.add(node.name.text);
-      }
-      for (const param of node.parameters) {
-        collectBindingNames(param.name, names);
-      }
-    } else if (ts.isVariableDeclaration(node)) {
-      collectBindingNames(node.name, names);
-    } else if ((ts.isClassDeclaration(node) || ts.isClassExpression(node)) && node.name) {
-      names.add(node.name.text);
-    } else if (ts.isCatchClause(node) && node.variableDeclaration) {
-      collectBindingNames(node.variableDeclaration.name, names);
-    }
-    ts.forEachChild(node, visit);
-  };
-  visit(rootNode);
-  return names;
-}
-
-function resolveExternalManifestFields(moduleSpecifier, functionName, argIndex, sourceDir) {
-  if (!sourceDir || !/^\.\.?\//.test(moduleSpecifier)) {
-    throw new Error(`Expected a direct relative module for ${functionName}`);
-  }
-  const resolvedPath = path.resolve(sourceDir, moduleSpecifier);
-  const externalSource = readFileSync(resolvedPath, "utf8");
-  const externalFile = ts.createSourceFile(
-    resolvedPath,
-    externalSource,
-    ts.ScriptTarget.Latest,
-    false,
-    ts.ScriptKind.JS,
-  );
-  const declarations = externalFile.statements.filter(
-    (statement) => ts.isFunctionDeclaration(statement) && statement.name?.text === functionName,
-  );
-  const declaration = declarations[0];
-  if (
-    externalFile.parseDiagnostics.length > 0 ||
-    declarations.length !== 1 ||
-    !declaration.body ||
-    !declaration.modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword) ||
-    declaration.modifiers.some((modifier) => modifier.kind === ts.SyntaxKind.DefaultKeyword) ||
-    externalFile.statements.some(
-      (statement) => statement !== declaration && collectLocallyDeclaredNames(statement).has(functionName),
-    )
-  ) {
-    throw new Error(`Expected exactly one direct exported function declaration for ${functionName}`);
-  }
-  const param = declaration.parameters[argIndex];
-  if (!param || !ts.isIdentifier(param.name)) {
-    throw new Error(`Expected an identifier manifest parameter for ${functionName}`);
-  }
-  if (collectLocallyDeclaredNames(declaration.body).has(param.name.text)) {
-    throw new Error(`Shadowed manifest parameter in ${functionName}`);
-  }
-  return [...collectParamFieldReads(declaration.body, param.name.text)];
-}
-
-function extractRegistryBuilderManifestFields(content, sourceDir) {
-  const source = ts.createSourceFile("registry-builders.mjs", content, ts.ScriptTarget.Latest, false, ts.ScriptKind.JS);
-  if (source.parseDiagnostics.length > 0) throw new Error("Malformed registry builder source");
-  const fields = new Set();
-  const visitedBuilders = new Set();
-  const localNames = collectLocallyDeclaredNames(source);
-
-  const importedFrom = new Map();
-  for (const statement of source.statements) {
-    if (!ts.isImportDeclaration(statement) || !ts.isStringLiteral(statement.moduleSpecifier)) continue;
-    const recordBinding = (name, aliased) => {
-      const bindings = importedFrom.get(name) ?? [];
-      bindings.push({ moduleSpecifier: statement.moduleSpecifier.text, aliased });
-      importedFrom.set(name, bindings);
-    };
-    if (statement.importClause?.name) recordBinding(statement.importClause.name.text, true);
-    const named = statement.importClause?.namedBindings;
-    if (named && ts.isNamespaceImport(named)) recordBinding(named.name.text, true);
-    if (named && ts.isNamedImports(named)) {
-      for (const element of named.elements) recordBinding(element.name.text, Boolean(element.propertyName));
-    }
-  }
-
-  for (const statement of source.statements) {
-    if (
-      !ts.isFunctionDeclaration(statement) ||
-      !statement.name ||
-      !registryBuilderNames.includes(statement.name.text)
-    ) {
-      continue;
-    }
-    visitedBuilders.add(statement.name.text);
-    const visit = (node) => {
-      if (isContextManifestFieldAccess(node)) {
-        fields.add(node.name.text);
-      }
-      if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && importedFrom.has(node.expression.text)) {
-        const manifestArgIndex = node.arguments.findIndex((argument) => isContextManifestExpression(argument));
-        if (manifestArgIndex === -1) {
-          ts.forEachChild(node, visit);
-          return;
-        }
-        if (localNames.has(node.expression.text)) {
-          throw new Error(
-            `${statement.name.text}: call to "${node.expression.text}" is shadowed by a local declaration; refusing to follow the import.`,
-          );
-        }
-        const bindings = importedFrom.get(node.expression.text);
-        if (bindings.length !== 1 || bindings[0].aliased) {
-          throw new Error(`Ambiguous or aliased import binding for ${node.expression.text}`);
-        }
-        for (const field of resolveExternalManifestFields(
-          bindings[0].moduleSpecifier,
-          node.expression.text,
-          manifestArgIndex,
-          sourceDir,
-        )) {
-          fields.add(field);
-        }
-      }
-      ts.forEachChild(node, visit);
-    };
-    visit(statement);
-  }
-  return { builders: [...visitedBuilders].sort(), fields: [...fields].sort() };
 }
 
 function inspectFixture(files) {
@@ -340,8 +190,8 @@ describe("JSON import-attribute production guard", () => {
   it("gives the derived Node closure precedence over every exclusion set", () => {
     const inventory = inspectFixture(
       contextFiles("export const marker = true;\n", {
-        "deployables/platform-api/src/generated/api-context-registry.ts":
-          'import "../../../../bounded-contexts/example/renderer.tsx";\n',
+        "deployables/platform-api/src/context-registry.ts":
+          'import "../../../bounded-contexts/example/renderer.tsx";\n',
         "bounded-contexts/example/renderer.tsx":
           'import contextManifest from "./context.json" with { type: "json" };\n',
       }),
@@ -358,7 +208,7 @@ describe("JSON import-attribute production guard", () => {
   it("fails arbitrary Vite, registry, and test lookalikes closed as indeterminate", async () => {
     const attributed = 'import contextManifest from "../../../example/context.json" with { type: "json" };\n';
     const files = contextFiles("export const marker = true;\n", {
-      "deployables/platform-api/src/generated/api-context-registry.ts": "export const registry = [];\n",
+      "deployables/platform-api/src/context-registry.ts": "export const registry = [];\n",
       "bounded-contexts/synthetic/support/runtime-support/renderer.tsx": attributed,
       "bounded-contexts/synthetic/support/runtime-support/renderer.test.ts": attributed,
       "bounded-contexts/synthetic/generated/web-context-registry.ts":
@@ -488,309 +338,27 @@ describe("manifest-only execution disposition", () => {
 });
 
 describe("manifest host-registration predicate parity", () => {
-  it("matches all three live registry builders", () => {
-    const sourceUrl = new URL("../sync-workspace-metadata.mjs", import.meta.url);
-    const source = readFileSync(sourceUrl, "utf8");
-    const extracted = extractRegistryBuilderManifestFields(source, path.dirname(fileURLToPath(sourceUrl)));
-
-    expect(extracted.builders).toEqual([...registryBuilderNames].sort());
-    expect(extracted.fields).toEqual([...manifestHostRegistrationFields].sort());
-  });
-
-  it("detects a seventh field read by a registry builder", () => {
-    const extracted = extractRegistryBuilderManifestFields(`
-      function buildApiRegistry(_outputPath, _hostName, contexts) {
-        return contexts.filter((context) => context.manifest.apiDeployables || context.manifest.seventhField);
-      }
-      function buildWorkerRegistry() {}
-      function contributesToWebHost() {}
-    `);
-
-    expect(extracted.fields).toEqual(["apiDeployables", "seventhField"]);
-  });
-
-  const importedHelperSource = `
-    export function contextManifestContributesToApiHost(manifest, hostName) {
-      return manifest.apiDeployables?.includes(hostName) || manifest.deployableContributions ||
-        manifest.runtimeDeployables || manifest.shellContributions ||
-        manifest.sourceRuntimeDeployables || manifest.sourceRuntimeProfiles;
-    }
-  `;
-
-  it("fails closed when a local function declaration shadows the imported helper", () => {
-    withFixture({ "helper.mjs": importedHelperSource }, ({ rootDir }) => {
-      const source = `
-        import { contextManifestContributesToApiHost } from "./helper.mjs";
-        function buildApiRegistry(_outputPath, hostName, contexts) {
-          function contextManifestContributesToApiHost() {
-            return false;
-          }
-          return contexts.filter((context) => contextManifestContributesToApiHost(context.manifest, hostName));
-        }
-        function buildWorkerRegistry() {}
-        function contributesToWebHost() {}
-      `;
-
-      expect(() => extractRegistryBuilderManifestFields(source, rootDir)).toThrow(/shadow/i);
-    });
-  });
-
-  it("fails closed when a nested parameter ambiguously shadows the imported helper", () => {
-    withFixture({ "helper.mjs": importedHelperSource }, ({ rootDir }) => {
-      const source = `
-        import { contextManifestContributesToApiHost } from "./helper.mjs";
-        function buildApiRegistry(_outputPath, hostName, contexts) {
-          return contexts
-            .map((context) => context)
-            .filter((context, contextManifestContributesToApiHost) =>
-              contextManifestContributesToApiHost(context.manifest, hostName),
-            );
-        }
-        function buildWorkerRegistry() {}
-        function contributesToWebHost() {}
-      `;
-
-      expect(() => extractRegistryBuilderManifestFields(source, rootDir)).toThrow(/shadow/i);
-    });
-  });
-
-  it("fails closed when a named class expression shadows the imported helper", () => {
-    const helper = `
-      export function owner(manifest) {
-        return manifest.apiDeployables || manifest.deployableContributions || manifest.runtimeDeployables ||
-          manifest.shellContributions || manifest.sourceRuntimeDeployables || manifest.sourceRuntimeProfiles;
-      }
-    `;
-    const builderBody = `
-      function buildApiRegistry(_outputPath, hostName, contexts) {
-        const predicate = class owner {
-          static select(context) {
-            return owner(context.manifest, hostName);
-          }
-        };
-        return contexts.filter((context) => predicate.select(context));
-      }
-      function buildWorkerRegistry() {}
-      function contributesToWebHost() {}
-    `;
-    const source = `import { owner } from "./helper.mjs";\n${builderBody}`;
-
-    const build = new Function("owner", `${builderBody}; return buildApiRegistry;`)(() => true);
-    expect(() => build(null, "platform-api", [{ manifest: {} }])).toThrow(/Class constructor owner/);
-
-    withFixture({ "helper.mjs": helper }, ({ rootDir }) => {
-      expect(() => extractRegistryBuilderManifestFields(source, rootDir)).toThrow(/shadow/i);
-    });
-  });
-
-  it("rejects an import alias even when a matching decoy declaration exists", () => {
-    withFixture(
-      {
-        "helper.mjs": `${importedHelperSource}\nexport function ownerCheck(manifest) { return manifest.apiDeployables; }`,
-      },
-      ({ rootDir }) => {
-        const source = `
-        import { contextManifestContributesToApiHost as ownerCheck } from "./helper.mjs";
-        function buildApiRegistry(_outputPath, hostName, contexts) {
-          return contexts.filter((context) => ownerCheck(context.manifest, hostName));
-        }
-        function buildWorkerRegistry() {}
-        function contributesToWebHost() {}
-      `;
-
-        expect(() => extractRegistryBuilderManifestFields(source, rootDir)).toThrow(/alias/i);
-      },
+  it("names exactly the fields of the context-registry host admission arms", () => {
+    expect([...manifestHostRegistrationFields].sort()).toEqual([
+      "apiDeployables",
+      "deployableContributions",
+      "runtimeDeployables",
+      "shellContributions",
+      "sourceRuntimeDeployables",
+      "sourceRuntimeProfiles",
+    ]);
+    expect([...manifestHostRegistrationFields].sort()).toEqual(
+      [...new Set(CONTEXT_REGISTRY_HOST_ARMS.map((arm) => arm.field))].sort(),
     );
-  });
-
-  it("rejects a re-export instead of a direct declaration", () => {
-    withFixture(
-      {
-        "real-helper.mjs": importedHelperSource,
-        "reexport-helper.mjs": 'export { contextManifestContributesToApiHost } from "./real-helper.mjs";\n',
-      },
-      ({ rootDir }) => {
-        const source = `
-          import { contextManifestContributesToApiHost } from "./reexport-helper.mjs";
-          function buildApiRegistry(_outputPath, hostName, contexts) {
-            return contexts.filter((context) => contextManifestContributesToApiHost(context.manifest, hostName));
-          }
-          function buildWorkerRegistry() {}
-          function contributesToWebHost() {}
-        `;
-
-        expect(() => extractRegistryBuilderManifestFields(source, rootDir)).toThrow(/direct exported/);
-      },
-    );
-  });
-
-  it("throws when the imported module does not exist", () => {
-    withFixture({}, ({ rootDir }) => {
-      const source = `
-        import { contextManifestContributesToApiHost } from "./missing-helper.mjs";
-        function buildApiRegistry(_outputPath, hostName, contexts) {
-          return contexts.filter((context) => contextManifestContributesToApiHost(context.manifest, hostName));
-        }
-        function buildWorkerRegistry() {}
-        function contributesToWebHost() {}
-      `;
-
-      expect(() => extractRegistryBuilderManifestFields(source, rootDir)).toThrow(/ENOENT/);
-    });
-  });
-
-  const directHelperBuilder = `
-    import { contextManifestContributesToApiHost } from "./helper.mjs";
-    function buildApiRegistry(_outputPath, hostName, contexts) {
-      return contexts.filter((context) => contextManifestContributesToApiHost(context.manifest, hostName));
-    }
-    function buildWorkerRegistry() {}
-    function contributesToWebHost() {}
-  `;
-
-  it("follows the direct exported helper and detects a seventh field in that real imported source", () => {
-    for (const seventhField of [false, true]) {
-      const helper = seventhField
-        ? importedHelperSource.replace(
-            "manifest.runtimeDeployables",
-            "manifest.seventhField || manifest.runtimeDeployables",
-          )
-        : importedHelperSource;
-      withFixture({ "helper.mjs": helper }, ({ rootDir }) => {
-        expect(extractRegistryBuilderManifestFields(directHelperBuilder, rootDir).fields).toEqual(
-          [...manifestHostRegistrationFields, ...(seventhField ? ["seventhField"] : [])].sort(),
-        );
-      });
-    }
-  });
-
-  it.each([
-    ["duplicate import", 'import { contextManifestContributesToApiHost } from "./second-helper.mjs";'],
-    [
-      "duplicate specifier",
-      'import { contextManifestContributesToApiHost, contextManifestContributesToApiHost } from "./second-helper.mjs";',
-    ],
-    ["top-level shadow", "const contextManifestContributesToApiHost = () => false;"],
-  ])("rejects %s instead of certifying the unrelated six-field helper", (_name, declaration) => {
-    withFixture({ "helper.mjs": importedHelperSource, "second-helper.mjs": importedHelperSource }, ({ rootDir }) => {
-      expect(() => extractRegistryBuilderManifestFields(`${declaration}\n${directHelperBuilder}`, rootDir)).toThrow(
-        /ambiguous|shadow/i,
-      );
-    });
-  });
-
-  it.each([
-    ["duplicate declaration", `${importedHelperSource}\n${importedHelperSource}`],
-    ["unexported declaration", importedHelperSource.replace("export function", "function")],
-    [
-      "destructured parameter",
-      "export function contextManifestContributesToApiHost({ apiDeployables }) { return apiDeployables; }",
-    ],
-    [
-      "shadowed manifest parameter",
-      "export function contextManifestContributesToApiHost(manifest) { return ((manifest) => manifest.apiDeployables)({}); }",
-    ],
-  ])("rejects an imported helper with a %s", (_name, helper) => {
-    withFixture({ "helper.mjs": helper }, ({ rootDir }) => {
-      expect(() => extractRegistryBuilderManifestFields(directHelperBuilder, rootDir)).toThrow(/exported|parameter/i);
-    });
   });
 });
 
 describe("real repository execution membership", () => {
-  it("census work stays source-bounded", async () => {
-    const { inventory } = await validateJsonImportAttributes();
-    const { work } = inventory;
-    const parseSources = new Set([
-      ...work.manifestCandidates,
-      ...work.configParses,
-      ...work.closures.flatMap(({ relevant }) => relevant),
-    ]);
-    console.info(
-      JSON.stringify({
-        censusWork: {
-          gitSubprocesses: work.gitSubprocesses,
-          wholeTreeScans: work.wholeTreeScans,
-          indexCandidates: work.indexCandidates.length,
-          discoveredWorkspaces: work.discoveredWorkspaces.length,
-          enrolledWorkspaces: work.enrolledWorkspaces.length,
-          sourceIndex: {
-            kind: work.sourceIndex.kind,
-            pathCount: work.sourceIndex.pathCount,
-            sourceCount: work.sourceIndex.sourceCount,
-            prefilterCount: work.sourceIndex.prefilterCount,
-            candidateCount: work.sourceIndex.candidateCount,
-          },
-          distinctReads: new Set(work.fileReads).size,
-          repeatedReads: work.fileReads.length - new Set(work.fileReads).size,
-          fullParses: work.fullParses.length,
-          repeatedParses: work.fullParses.length - new Set(work.fullParses).size,
-          sourceDerivedParseCeiling: parseSources.size,
-          closures: work.closures.map(({ seeds, indexed, relevant, size }) => ({
-            seeds,
-            indexed,
-            relevant: relevant.length,
-            size,
-          })),
-        },
-      }),
-    );
-    expect(
-      work.fullParses.length,
-      "full parses exceed source-derived manifest ancestor/config ceiling",
-    ).toBeLessThanOrEqual(parseSources.size);
-    expect(work.fullParses.every((file) => parseSources.has(file))).toBe(true);
-    expect(work.fileReads.length).toBe(new Set(work.fileReads).size);
-    expect(work.fullParses.length).toBe(new Set(work.fullParses).size);
-    expect(work.wholeTreeScans).toBeLessThanOrEqual(1);
-    expect(work.gitSubprocesses).toBe(2);
-    const indexedSources = execFileSync("git", ["ls-files", "--", "*.ts", "*.tsx", "*.mts", "*.cts"], {
-      encoding: "utf8",
-      timeout: 10_000,
-      maxBuffer: GIT_LISTING_MAX_BUFFER,
-    })
-      .trim()
-      .split(/\r?\n/)
-      .sort();
-    expect(work.indexCandidates).toEqual(indexedSources);
-    expect(work.sourceIndex).toMatchObject({
-      kind: "git-index-source/v1",
-      pathCount: new Set(
-        execFileSync("git", ["ls-files"], {
-          encoding: "utf8",
-          maxBuffer: GIT_LISTING_MAX_BUFFER,
-        })
-          .trim()
-          .split(/\r?\n/)
-          .filter(Boolean),
-      ).size,
-      sourceCount: indexedSources.length,
-      candidateCount: work.manifestCandidates.length,
-    });
-    expect(work.sourceIndex.candidates).toEqual(work.manifestCandidates);
-    expect(work.sourceIndex.prefilterCount).toBeGreaterThanOrEqual(work.sourceIndex.candidateCount);
-    const indexedSourceSet = new Set(indexedSources);
-    expect(
-      work.fileReads.filter((file) => /\.(?:ts|tsx|mts|cts)$/.test(file)).every((file) => indexedSourceSet.has(file)),
-    ).toBe(true);
-    const workspacePackageJson = new RegExp(`^(?:${workspaceRoots.join("|")})/[^/]+/package\\.json$`);
-    const indexedWorkspaces = execFileSync("git", ["ls-files", "--", "*/package.json"], {
-      encoding: "utf8",
-      timeout: 10_000,
-      maxBuffer: GIT_LISTING_MAX_BUFFER,
-    })
-      .trim()
-      .split(/\r?\n/)
-      .filter((file) => workspacePackageJson.test(file))
-      .sort();
-    expect([...work.enrolledWorkspaces].sort()).toEqual(indexedWorkspaces);
-  });
-
   it("retains cyclic value paths without promoting type-only edges or parsing irrelevant branches", () => {
     withFixture(
       contextFiles('export { default as contextManifest } from "./context.json" with { type: "json" };', {
-        "deployables/platform-api/src/generated/api-context-registry.ts":
-          'import "../../../../bounded-contexts/example/bridge"; import "../../../../bounded-contexts/example/unused";',
+        "deployables/platform-api/src/context-registry.ts":
+          'import "../../../bounded-contexts/example/bridge"; import "../../../bounded-contexts/example/unused";',
         "bounded-contexts/example/bridge.ts": 'export * from "./loop"; import type { Shape } from "./types";',
         "bounded-contexts/example/loop.ts": 'export * from "./bridge"; export * from "./index";',
         "bounded-contexts/example/types.ts": 'import contextManifest from "./context.json"; export type Shape = {};',
@@ -868,7 +436,7 @@ describe("real repository execution membership", () => {
         'export { default as contextManifest } from "./context.json" with { type: "json" };\n' +
           'import draft from "@chase-sets/draft/context" with { type: "json" };',
         {
-          "deployables/platform-api/src/generated/api-context-registry.ts":
+          "deployables/platform-api/src/context-registry.ts":
             'import "@chase-sets/example";\nimport "@chase-sets/rogue";\n',
           "bounded-contexts/example/extra.ts": 'import manifest from "./context.json" with { type: "json" };',
           "bounded-contexts/draft/package.json": JSON.stringify({
@@ -903,111 +471,215 @@ describe("real repository execution membership", () => {
     );
   });
 
-  it("derives the exact real census and execution partition within the default timeout", async () => {
-    const result = await validateJsonImportAttributes();
+  // Only the two real-repository tests share this hook, so a hook failure
+  // cannot skip the fixture controls in the enclosing describe.
+  describe("shared real-repository census", () => {
+    let census;
 
-    expect(result.violations, result.violations.join("\n")).toEqual([]);
-    expect(result.inventory.parserVersion).toBe("6.0.3");
-    expect(result.inventory.declarations).toHaveLength(137);
-    expect(result.inventory.partition).toEqual({
-      "node-enforced": 57,
-      "vite-excluded": 54,
-      "vitest-excluded": 26,
-      "manifest-only": 0,
-      indeterminate: 0,
+    beforeAll(async () => {
+      census = deepFreeze(await validateJsonImportAttributes());
     });
-    const normalized = result.inventory.declarations.map(
-      ({ relativeFile, form, specifier, attributeText, resolved, disposition }) => ({
-        relativeFile,
-        form,
-        specifier,
-        attributeText,
-        resolved,
-        disposition,
-      }),
-    );
-    expect(createHash("sha256").update(JSON.stringify(normalized)).digest("hex")).toBe(
-      "336e5f138367db71d10fd760aab18416c26bdf9ea350455a0ab38ff84a5d1e9d",
-    );
-    expect(
-      normalized.filter(
-        (entry) =>
-          entry.relativeFile === "bounded-contexts/pricing/features/pricing-health/tests/pricing-health-route.test.tsx",
-      ),
-    ).toEqual([
-      {
-        relativeFile: "bounded-contexts/pricing/features/pricing-health/tests/pricing-health-route.test.tsx",
-        form: "import",
-        specifier: "../../../context.json",
-        attributeText: null,
-        resolved: "bounded-contexts/pricing/context.json",
+
+    it("census work stays source-bounded", () => {
+      expect(fullCensus.invocations).toBe(1);
+      expect(Object.isFrozen(census.inventory.work.fileReads)).toBe(true);
+      const { inventory } = census;
+      const { work } = inventory;
+      const parseSources = new Set([
+        ...work.manifestCandidates,
+        ...work.configParses,
+        ...work.closures.flatMap(({ relevant }) => relevant),
+      ]);
+      console.info(
+        JSON.stringify({
+          censusWork: {
+            fullCensusInvocations: fullCensus.invocations,
+            gitSubprocesses: work.gitSubprocesses,
+            wholeTreeScans: work.wholeTreeScans,
+            indexCandidates: work.indexCandidates.length,
+            discoveredWorkspaces: work.discoveredWorkspaces.length,
+            enrolledWorkspaces: work.enrolledWorkspaces.length,
+            sourceIndex: {
+              kind: work.sourceIndex.kind,
+              pathCount: work.sourceIndex.pathCount,
+              sourceCount: work.sourceIndex.sourceCount,
+              prefilterCount: work.sourceIndex.prefilterCount,
+              candidateCount: work.sourceIndex.candidateCount,
+            },
+            distinctReads: new Set(work.fileReads).size,
+            repeatedReads: work.fileReads.length - new Set(work.fileReads).size,
+            fullParses: work.fullParses.length,
+            repeatedParses: work.fullParses.length - new Set(work.fullParses).size,
+            sourceDerivedParseCeiling: parseSources.size,
+            closures: work.closures.map(({ seeds, indexed, relevant, size }) => ({
+              seeds,
+              indexed,
+              relevant: relevant.length,
+              size,
+            })),
+          },
+        }),
+      );
+      expect(
+        work.fullParses.length,
+        "full parses exceed source-derived manifest ancestor/config ceiling",
+      ).toBeLessThanOrEqual(parseSources.size);
+      expect(work.fullParses.every((file) => parseSources.has(file))).toBe(true);
+      expect(work.fileReads.length).toBe(new Set(work.fileReads).size);
+      expect(work.fullParses.length).toBe(new Set(work.fullParses).size);
+      expect(work.wholeTreeScans).toBeLessThanOrEqual(1);
+      expect(work.gitSubprocesses).toBe(2);
+      // One independent Git listing is the oracle for every index assertion.
+      const trackedFiles = execFileSync("git", ["ls-files"], {
+        encoding: "utf8",
+        timeout: 10_000,
+        maxBuffer: GIT_LISTING_MAX_BUFFER,
+      })
+        .trim()
+        .split(/\r?\n/)
+        .filter(Boolean);
+      const indexedSources = trackedFiles.filter((file) => /\.(?:ts|tsx|mts|cts)$/.test(file)).sort();
+      expect(work.indexCandidates).toEqual(indexedSources);
+      expect(work.sourceIndex).toMatchObject({
+        kind: "git-index-source/v1",
+        pathCount: new Set(trackedFiles).size,
+        sourceCount: indexedSources.length,
+        candidateCount: work.manifestCandidates.length,
+      });
+      expect(work.sourceIndex.candidates).toEqual(work.manifestCandidates);
+      expect(work.sourceIndex.prefilterCount).toBeGreaterThanOrEqual(work.sourceIndex.candidateCount);
+      const indexedSourceSet = new Set(indexedSources);
+      expect(
+        work.fileReads.filter((file) => /\.(?:ts|tsx|mts|cts)$/.test(file)).every((file) => indexedSourceSet.has(file)),
+      ).toBe(true);
+      const workspacePackageJson = new RegExp(`^(?:${workspaceRoots.join("|")})/[^/]+/package\\.json$`);
+      const indexedWorkspaces = trackedFiles.filter((file) => workspacePackageJson.test(file)).sort();
+      expect([...work.enrolledWorkspaces].sort()).toEqual(indexedWorkspaces);
+    });
+
+    it("derives the exact real census and execution partition within the default timeout", () => {
+      expect(fullCensus.invocations).toBe(1);
+      const result = census;
+
+      expect(result.violations, result.violations.join("\n")).toEqual([]);
+      expect(result.inventory.parserVersion).toBe("6.0.3");
+      expect(result.inventory.declarations).toHaveLength(139);
+      expect(result.inventory.partition).toEqual({
+        "node-enforced": 57,
+        "vite-excluded": 54,
+        "vitest-excluded": 28,
+        "manifest-only": 0,
+        indeterminate: 0,
+      });
+      const normalized = result.inventory.declarations.map(
+        ({ relativeFile, form, specifier, attributeText, resolved, disposition }) => ({
+          relativeFile,
+          form,
+          specifier,
+          attributeText,
+          resolved,
+          disposition,
+        }),
+      );
+      expect(
+        normalized.filter(
+          ({ relativeFile }) => relativeFile === "bounded-contexts/fulfillment/routes/seller-shipping-setup.test.tsx",
+        ),
+      ).toEqual([
+        {
+          relativeFile: "bounded-contexts/fulfillment/routes/seller-shipping-setup.test.tsx",
+          form: "import",
+          specifier: "../context.json",
+          attributeText: null,
+          resolved: "bounded-contexts/fulfillment/context.json",
+          disposition: "vitest-excluded",
+        },
+      ]);
+      expect(createHash("sha256").update(JSON.stringify(normalized)).digest("hex")).toBe(
+        "4fbb60eedeaed4bea1bc20f5f915f4359c9e79651abb5d1207273e57e8816dfb",
+      );
+      expect(
+        normalized.filter(
+          (entry) =>
+            entry.relativeFile ===
+            "bounded-contexts/pricing/features/pricing-health/tests/pricing-health-route.test.tsx",
+        ),
+      ).toEqual([
+        {
+          relativeFile: "bounded-contexts/pricing/features/pricing-health/tests/pricing-health-route.test.tsx",
+          form: "import",
+          specifier: "../../../context.json",
+          attributeText: null,
+          resolved: "bounded-contexts/pricing/context.json",
+          disposition: "vitest-excluded",
+        },
+      ]);
+      expect(
+        normalized.filter((entry) => entry.relativeFile.startsWith("bounded-contexts/pricing/routes/marketplace/")),
+      ).toEqual([
+        {
+          relativeFile: "bounded-contexts/pricing/routes/marketplace/account-desk-repricing-policy.tsx",
+          form: "import",
+          specifier: "../../context.json",
+          attributeText: null,
+          resolved: "bounded-contexts/pricing/context.json",
+          disposition: "vite-excluded",
+        },
+        {
+          relativeFile: "bounded-contexts/pricing/routes/marketplace/account-desk-repricing.tsx",
+          form: "import",
+          specifier: "../../context.json",
+          attributeText: null,
+          resolved: "bounded-contexts/pricing/context.json",
+          disposition: "vite-excluded",
+        },
+      ]);
+      expect(
+        normalized.filter(
+          (entry) => entry.relativeFile === "bounded-contexts/pricing/tests/account-repricing-route.test.ts",
+        ),
+      ).toEqual([
+        {
+          relativeFile: "bounded-contexts/pricing/tests/account-repricing-route.test.ts",
+          form: "import",
+          specifier: "../context.json",
+          attributeText: null,
+          resolved: "bounded-contexts/pricing/context.json",
+          disposition: "vitest-excluded",
+        },
+      ]);
+      expect(
+        result.inventory.declarations.find(
+          (entry) => entry.relativeFile === "bounded-contexts/catalog/support/authoring-support/index.ts",
+        ),
+      ).toMatchObject({ disposition: "node-enforced", attributeText: 'with { type: "json" }' });
+      expect(
+        result.inventory.declarations.find(
+          (entry) => entry.relativeFile === "bounded-contexts/settlement/routes/marketplace/account-desk-payout.tsx",
+        ),
+      ).toMatchObject({ disposition: "vite-excluded" });
+      expect(
+        result.inventory.declarations.find(
+          (entry) => entry.relativeFile === "deployables/admin-web/app/context-registry.ts",
+        ),
+      ).toMatchObject({ disposition: "vite-excluded" });
+      expect(
+        result.inventory.declarations.find(
+          (entry) =>
+            entry.relativeFile === "bounded-contexts/ordering/tests/inventory-reservation-subscription.test.ts",
+        ),
+      ).toMatchObject({ disposition: "vitest-excluded" });
+      expect(
+        result.inventory.declarations.find(
+          (entry) =>
+            entry.relativeFile ===
+            "bounded-contexts/platform-operations/features/seller-compliance-sales/read-model/projection.test.ts",
+        ),
+      ).toMatchObject({
         disposition: "vitest-excluded",
-      },
-    ]);
-    expect(
-      normalized.filter((entry) => entry.relativeFile.startsWith("bounded-contexts/pricing/routes/marketplace/")),
-    ).toEqual([
-      {
-        relativeFile: "bounded-contexts/pricing/routes/marketplace/account-desk-repricing-policy.tsx",
-        form: "import",
-        specifier: "../../context.json",
-        attributeText: null,
-        resolved: "bounded-contexts/pricing/context.json",
-        disposition: "vite-excluded",
-      },
-      {
-        relativeFile: "bounded-contexts/pricing/routes/marketplace/account-desk-repricing.tsx",
-        form: "import",
-        specifier: "../../context.json",
-        attributeText: null,
-        resolved: "bounded-contexts/pricing/context.json",
-        disposition: "vite-excluded",
-      },
-    ]);
-    expect(
-      normalized.filter(
-        (entry) => entry.relativeFile === "bounded-contexts/pricing/tests/account-repricing-route.test.ts",
-      ),
-    ).toEqual([
-      {
-        relativeFile: "bounded-contexts/pricing/tests/account-repricing-route.test.ts",
-        form: "import",
-        specifier: "../context.json",
-        attributeText: null,
-        resolved: "bounded-contexts/pricing/context.json",
-        disposition: "vitest-excluded",
-      },
-    ]);
-    expect(
-      result.inventory.declarations.find(
-        (entry) => entry.relativeFile === "bounded-contexts/catalog/support/authoring-support/index.ts",
-      ),
-    ).toMatchObject({ disposition: "node-enforced", attributeText: 'with { type: "json" }' });
-    expect(
-      result.inventory.declarations.find(
-        (entry) => entry.relativeFile === "bounded-contexts/settlement/routes/marketplace/account-desk-payout.tsx",
-      ),
-    ).toMatchObject({ disposition: "vite-excluded" });
-    expect(
-      result.inventory.declarations.find(
-        (entry) => entry.relativeFile === "deployables/admin-web/app/generated/web-context-registry.ts",
-      ),
-    ).toMatchObject({ disposition: "vite-excluded" });
-    expect(
-      result.inventory.declarations.find(
-        (entry) => entry.relativeFile === "bounded-contexts/ordering/tests/inventory-reservation-subscription.test.ts",
-      ),
-    ).toMatchObject({ disposition: "vitest-excluded" });
-    expect(
-      result.inventory.declarations.find(
-        (entry) =>
-          entry.relativeFile ===
-          "bounded-contexts/platform-operations/features/seller-compliance-sales/read-model/projection.test.ts",
-      ),
-    ).toMatchObject({
-      disposition: "vitest-excluded",
-      resolved: "bounded-contexts/platform-operations/context.json",
-      attributeText: 'with { type: "json" }',
+        resolved: "bounded-contexts/platform-operations/context.json",
+        attributeText: 'with { type: "json" }',
+      });
     });
   });
 

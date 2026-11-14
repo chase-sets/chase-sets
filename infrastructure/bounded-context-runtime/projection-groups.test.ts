@@ -30,14 +30,116 @@ import {
   rebuildProjectionGroup,
   refreshProjectionGroupStatuses,
   resetProjectionGroup,
+  drainProjectionGroups,
   summarizeProjectionReplayStatuses,
   syncContextProjectionGroups,
+  type ProjectionGroupLeaseRunner,
 } from "./index";
 
 describe("bounded context projection groups", () => {
   beforeEach(() => {
     resetMockPoolState();
   });
+
+  it("repeats ordered group passes until a later group leaves no earlier work", async () => {
+    const calls: string[] = [];
+    const makeRunner = (checkpointKey: string, order: number, processed: readonly number[]) => {
+      let index = 0;
+      return {
+        checkpointKey,
+        order,
+        targetContextName: "synthetic",
+        projectionName: checkpointKey,
+        runOnce: vi.fn(async () => {
+          calls.push(`${checkpointKey}:${index}`);
+          return { processed: processed[index++] ?? 0, lastGlobalPosition: "0" as never };
+        }),
+      };
+    };
+    const consumer = makeRunner("aa-synthetic-consumer", 20, [0, 1, 0]);
+    const producer = makeRunner("zz-synthetic-producer", 40, [1, 0, 0]);
+    const groups = [
+      { targetContextName: "synthetic", projectionName: "consumer", subscriptionRunners: [consumer] },
+      { targetContextName: "synthetic", projectionName: "producer", subscriptionRunners: [producer] },
+    ] as never;
+
+    await drainProjectionGroups({ projectionGroups: groups });
+
+    expect(calls.indexOf("aa-synthetic-consumer:1")).toBeGreaterThan(calls.indexOf("zz-synthetic-producer:0"));
+    expect(calls.filter((call) => call.startsWith("aa-synthetic-consumer")).length).toBeGreaterThan(1);
+    expect(calls.filter((call) => call.startsWith("zz-synthetic-producer")).length).toBeGreaterThan(1);
+  });
+
+  it.each(["leased global drain", "leased no-groups context sync"] as const)(
+    "repeats %s passes until a later group leaves no earlier work, running each group under its lease",
+    async (path) => {
+      const calls: string[] = [];
+      let held: string | null = null;
+      const makeRunner = (
+        checkpointKey: string,
+        projectionName: string,
+        order: number,
+        processed: readonly number[],
+      ) => {
+        let index = 0;
+        return {
+          checkpointKey,
+          order,
+          sourceContextName: "synthetic",
+          targetContextName: "synthetic",
+          projectionName,
+          runOnce: vi.fn(async () => {
+            calls.push(`${checkpointKey}:${index}:${held === `synthetic.${projectionName}` ? "held" : "unheld"}`);
+            return { processed: processed[index++] ?? 0, lastGlobalPosition: "0" as never };
+          }),
+        };
+      };
+      const consumer = makeRunner("aa-synthetic-consumer", "consumer", 20, [0, 1, 0]);
+      const producer = makeRunner("zz-synthetic-producer", "producer", 40, [1, 0, 0]);
+      const groups = [
+        {
+          targetContextName: "synthetic",
+          projectionName: "consumer",
+          requiredDuringBootstrap: false,
+          subscriptionRunners: [consumer],
+        },
+        {
+          targetContextName: "synthetic",
+          projectionName: "producer",
+          requiredDuringBootstrap: false,
+          subscriptionRunners: [producer],
+        },
+      ] as never;
+      let leaseCalls = 0;
+      const runWithLease: ProjectionGroupLeaseRunner = async (group, _signal, work) => {
+        leaseCalls += 1;
+        held = `${group.targetContextName}.${group.projectionName}`;
+        try {
+          return await work({});
+        } finally {
+          held = null;
+        }
+      };
+
+      if (path === "leased global drain") {
+        await drainProjectionGroups({ projectionGroups: groups }, undefined, runWithLease);
+      } else {
+        await syncContextProjectionGroups(
+          { mountedContexts: [{ contextName: "synthetic" }] as never, projectionGroups: groups },
+          "synthetic",
+          { requiredOnly: true, runWithLease },
+        );
+      }
+
+      expect(calls.indexOf("aa-synthetic-consumer:1:held")).toBeGreaterThan(
+        calls.indexOf("zz-synthetic-producer:0:held"),
+      );
+      expect(calls.filter((call) => call.startsWith("aa-synthetic-consumer")).length).toBeGreaterThan(1);
+      expect(calls.filter((call) => call.startsWith("zz-synthetic-producer")).length).toBeGreaterThan(1);
+      expect(calls.filter((call) => call.endsWith(":unheld"))).toEqual([]);
+      expect(leaseCalls).toBeGreaterThan(2);
+    },
+  );
 
   it("resetting a projection group clears every contributing checkpoint", async () => {
     const identitySourcePool = createMockPool();

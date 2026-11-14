@@ -933,6 +933,9 @@ describe("Catalog primary workbench surface routes", () => {
       countCapture: null,
       providerScopeDiscovery: {
         listRefreshSchedules,
+        recordExtensionScopeObservations: async () => {
+          throw new Error("Unexpected observation post");
+        },
         processScheduledRefresh: async () => {
           throw new Error("Unexpected refresh");
         },
@@ -944,6 +947,9 @@ describe("Catalog primary workbench surface routes", () => {
         },
         listScopeObservations: async () => [],
         listCanonicalScopeRecordProposals: async () => [],
+        acceptCanonicalScopeRecordProposal: async () => {
+          throw new Error("Unexpected command");
+        },
       },
       providerIntegrationProfiles: mutableProfileStore(),
       sourceObservations: {

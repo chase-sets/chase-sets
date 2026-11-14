@@ -1,4 +1,4 @@
-import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -39,21 +39,6 @@ async function createMetadataFixture() {
   tempRoots.push(rootDir);
 
   await mkdir(path.join(rootDir, "bounded-contexts", "catalog"), { recursive: true });
-  await mkdir(path.join(rootDir, "deployables", "platform-api", "src", "generated"), {
-    recursive: true,
-  });
-  await mkdir(path.join(rootDir, "deployables", "platform-worker", "src", "generated"), {
-    recursive: true,
-  });
-  await mkdir(path.join(rootDir, "deployables", "admin-web", "app", "generated"), {
-    recursive: true,
-  });
-  await mkdir(path.join(rootDir, "deployables", "marketplace", "app", "generated"), {
-    recursive: true,
-  });
-  await mkdir(path.join(rootDir, "deployables", "public-web", "app", "generated"), {
-    recursive: true,
-  });
   await mkdir(path.join(rootDir, "infrastructure", "event-core-postgres"), { recursive: true });
   await mkdir(path.join(rootDir, "contracts", "localization", "locales", "en"), { recursive: true });
 
@@ -192,15 +177,11 @@ describe("sync-workspace-metadata --check", () => {
         "bounded-contexts/catalog/context.json",
         "bounded-contexts/catalog-two/context.json",
         "contracts/localization/locales/en.ts",
-        "deployables/platform-api/src/generated/api-context-registry.ts",
-        "deployables/platform-worker/src/generated/worker-context-registry.ts",
       ].map((file) => readFileSync(path.join(fixture.rootDir, file), "utf8"));
     const first = readOutputs();
     syncWorkspaceMetadata({ ...fixture, workspaces: [...fixture.workspaces].reverse() });
     const second = readOutputs();
     expect(second).toEqual(first);
-    expect(second[3]).toMatch(/contextName: "catalog"[\s\S]*contextName: "catalog-two"/);
-    expect(second[4]).toMatch(/contextName: "catalog"[\s\S]*contextName: "catalog-two"/);
   });
 
   it("fails closed when a source cannot compose instead of reading canonical context.json", async () => {
@@ -299,37 +280,36 @@ describe("sync-workspace-metadata --check", () => {
   it("fails without writing when generated metadata is stale", async () => {
     const fixture = await createMetadataFixture();
     syncWorkspaceMetadata(fixture);
-    const generatedPath = path.join(
-      fixture.rootDir,
-      "deployables",
-      "platform-api",
-      "src",
-      "generated",
-      "api-context-registry.ts",
-    );
+    const generatedPath = path.join(fixture.rootDir, "contracts", "localization", "locales", "en.ts");
     const staleContent = "// stale\n";
     writeFileSync(generatedPath, staleContent, "utf8");
 
-    expect(() => syncWorkspaceMetadata({ ...fixture, check: true })).toThrow(/Workspace metadata is out of date:/);
+    expect(() => syncWorkspaceMetadata({ ...fixture, check: true })).toThrow(
+      /contracts\/localization\/locales\/en\.ts is stale/,
+    );
     expect(readFileSync(generatedPath, "utf8")).toBe(staleContent);
   });
 
-  it("reports legacy generated files as drift without deleting them", async () => {
+  it("neither generates, reports, nor deletes context registries", async () => {
     const fixture = await createMetadataFixture();
+    const registryPaths = [
+      "deployables/platform-api/src/context-registry.ts",
+      "deployables/platform-api/src/generated/api-context-registry.ts",
+      "infrastructure/platform-runtime/api-context-registry.generated.ts",
+      "infrastructure/platform-runtime/web-context-registry.generated.ts",
+    ];
     syncWorkspaceMetadata(fixture);
-    const legacyPath = path.join(
-      fixture.rootDir,
-      "infrastructure",
-      "platform-runtime",
-      "api-context-registry.generated.ts",
-    );
-    await mkdir(path.dirname(legacyPath), { recursive: true });
-    writeFileSync(legacyPath, "// legacy\n", "utf8");
+    expect(registryPaths.filter((file) => existsSync(path.join(fixture.rootDir, file)))).toEqual([]);
+    expect(existsSync(path.join(fixture.rootDir, "deployables"))).toBe(false);
 
-    expect(() => syncWorkspaceMetadata({ ...fixture, check: true })).toThrow(
-      /api-context-registry\.generated\.ts should be deleted/,
-    );
-    expect(readFileSync(legacyPath, "utf8")).toBe("// legacy\n");
+    for (const file of registryPaths) {
+      await mkdir(path.dirname(path.join(fixture.rootDir, file)), { recursive: true });
+      writeFileSync(path.join(fixture.rootDir, file), "// hand-authored or retired\n", "utf8");
+    }
+    const planted = snapshotFiles(fixture.rootDir);
+    expect(() => syncWorkspaceMetadata({ ...fixture, check: true })).not.toThrow();
+    syncWorkspaceMetadata(fixture);
+    expect(snapshotFiles(fixture.rootDir)).toEqual(planted);
   });
 
   it("fails when the generated event-core Postgres schema is stale", async () => {

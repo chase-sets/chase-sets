@@ -81,8 +81,8 @@
     "alias_revoked": "The alias was revoked.",
     "alias_deferred": "The candidate stays pending for a later review.",
     "workspace_title": "Import to promotion",
-    "workspace_unread": "The import-to-promotion workspace could not be read. It also opens on admin-web.",
-    "workspace_open": "Open the workspace on admin-web",
+    "workspace_unread": "The import-to-promotion workspace could not be read. Try again in a moment.",
+    "workspace_open": "Read the workspace again",
     "stages": "Journey stages",
     "stage_complete": "Complete",
     "stage_current": "Current",
@@ -91,10 +91,6 @@
   },
   "payout": {
     "check_again": "Check again"
-  },
-  "support": {
-    "remedy_elsewhere": "Platform-funded remedies are not in the pilot yet. Review and act on this request's remedy on admin-web.",
-    "remedy_open": "Open the remedy on admin-web"
   },
   "chart": {
     "empty_title": "No data yet",
@@ -161,7 +157,7 @@
     "sync_run_targets": "Provider targets",
     "sync_run_no_child": "No child job",
     "sync_run_caption": "Catalog sync child jobs",
-    "candidates_elsewhere": "Candidate evidence and conflict resolution run on admin-web.",
+    "conflicts_elsewhere": "Resolving a candidate's blocking conflicts runs on admin-web.",
     "candidates_open": "Open the candidates on admin-web",
     "workset_caption": "Provider units in the selected source scope",
     "preflight_read": "Read the import preflight",
@@ -182,7 +178,6 @@
     "resumed_description": "The provider's source options refresh on their schedule again.",
     "ran_title": "Refresh ran",
     "ran_description": "The provider's source options were refreshed now, and the next scheduled run moved on.",
-    "elsewhere_open": "Open this provider on admin-web",
     "os_copy": "Copy grant",
     "os_copied": "Copied",
     "os_disconnect_confirm": "Revoke the extension grant",

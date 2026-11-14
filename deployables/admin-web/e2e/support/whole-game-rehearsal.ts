@@ -227,6 +227,7 @@ export function planWholeGameSettle(batch: WholeGameBatchView, input: WholeGameS
 // AC3 — promotion and publication progress is read back from the server, never remembered.
 export type WholeGamePromoteJob = Pick<CatalogMergeCandidateBulkJob, "jobId" | "kind" | "scopeRecordId" | "status"> &
   Readonly<{
+    createdAt?: CatalogMergeCandidateBulkJob["createdAt"];
     // The landed API serializes an absent stored discriminator as null.
     promotionApplicationVersion?: CatalogMergeCandidateBulkJob["promotionApplicationVersion"];
     result:
@@ -237,7 +238,12 @@ export type WholeGamePromoteJob = Pick<CatalogMergeCandidateBulkJob, "jobId" | "
               Partial<
                 Pick<
                   CatalogMergeCandidateBulkUnitResult,
-                  "candidateId" | "appliedCatalogItemId" | "appliedMode" | "approvalVersion" | "planFingerprint"
+                  | "candidateId"
+                  | "disposition"
+                  | "appliedCatalogItemId"
+                  | "appliedMode"
+                  | "approvalVersion"
+                  | "planFingerprint"
                 >
               >)[];
           }>)

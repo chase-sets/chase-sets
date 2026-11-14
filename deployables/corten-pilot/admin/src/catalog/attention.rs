@@ -160,6 +160,7 @@ async fn review(
         return req.patch(views::AttentionSheet {
             t,
             p,
+            req: &req,
             query: &query,
             item: found,
             parked: None,

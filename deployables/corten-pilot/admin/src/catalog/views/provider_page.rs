@@ -36,7 +36,7 @@ use crate::{
         },
     },
     text::{Cat, Pilot},
-    views::{admin_web, link_to},
+    views::link_to,
 };
 
 /// The form whose refusal the page draws (a refused command's message at the top of the page).
@@ -153,7 +153,6 @@ pub fn ProviderPage<'a>(
 ) -> impl Render {
     let model = &screen.read.read_model;
     let key = screen.key.as_str();
-    let admin = admin_web(&at(&provider::url::Provider { key }.href().to_string(), context)).map(|uri| uri.to_string());
     let sections = model.profile_authoring.section_workspaces.len();
     let version = model.profile_authoring.selected_profile.as_ref().map_or("", |s| s.profile_version.as_str());
     // Signing in again comes back to this provider's page, as admin-web's literal return does.
@@ -169,13 +168,6 @@ pub fn ProviderPage<'a>(
                     <h1 class={Words}>{key}</h1>
                     <p class={Muted}>{t.pd_description()}</p>
                 </div>
-                if let Some(admin) = &admin {
-                    <div class={Actions}>
-                        <a class={Button { variant: ButtonVariant::Outline, size: ButtonSize::Sm }} href={admin}>
-                            {p.provider_elsewhere_open()}
-                        </a>
-                    </div>
-                }
             </header>
             match said {
                 Some(Said::Done(done)) => {

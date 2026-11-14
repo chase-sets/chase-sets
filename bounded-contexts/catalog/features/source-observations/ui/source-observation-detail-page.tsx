@@ -16,6 +16,7 @@ export function SourceObservationDetailPage({
   const { data, loading, error, refresh } = useSourceObservation(id, initialData);
   const { addToast } = useToasts();
   const [rejectReason, setRejectReason] = useState("");
+  const imageUrl = data ? firstImageUrl(data) : undefined;
 
   async function handlePromote() {
     await promoteSourceObservation(id);
@@ -62,10 +63,10 @@ export function SourceObservationDetailPage({
     >
       {data && (
         <Stack gap={4}>
-          {data.normalized.imageUrls[0] && (
+          {imageUrl && (
             <Image
               alt={t("catalog.features.sourceObservations.ui.detail.card.image")}
-              src={data.normalized.imageUrls[0]}
+              src={imageUrl}
               width={180}
               fit="contain"
               rounded
@@ -117,6 +118,13 @@ export function SourceObservationDetailPage({
       )}
     </EntityDetailPage>
   );
+}
+
+// Reference-data observations such as a YGOJSON set are stored without imageUrls.
+function firstImageUrl(data: SourceObservationDetail): string | undefined {
+  const imageUrls: unknown = data.normalized.imageUrls;
+  const first: unknown = Array.isArray(imageUrls) ? imageUrls[0] : undefined;
+  return typeof first === "string" ? first : undefined;
 }
 
 function pokemonCardDetailItems(data: SourceObservationDetail) {

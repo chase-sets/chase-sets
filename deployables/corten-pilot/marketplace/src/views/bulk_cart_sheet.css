@@ -1,0 +1,152 @@
+/* Add matching products to Buy Cart's sheet: a card in the middle of the screen from --md, a sheet
+   at the bottom of a phone's, as marketplace's CommerceSheet is. */
+.dialog {
+  width: min(100% - 2rem, 34rem);
+  max-height: min(100dvh - 2rem, 44rem);
+  padding: var(--space-5);
+  overflow-y: auto;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+.dialog::backdrop {
+  background: var(--color-overlay);
+}
+.dialog[open] {
+  display: grid;
+  gap: var(--space-4);
+}
+@media not (--md) {
+  .dialog {
+    width: 100%;
+    max-width: 100%;
+    margin-block-end: 0;
+    border-end-start-radius: 0;
+    border-end-end-radius: 0;
+  }
+}
+.head,
+.result {
+  display: grid;
+  gap: var(--space-1);
+}
+.title {
+  margin: 0;
+  font-size: 1.125rem;
+  font-weight: 600;
+}
+.subtitle {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+}
+.strong {
+  margin: 0;
+  font-weight: 600;
+}
+.muted {
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: 0.875rem;
+  overflow-wrap: anywhere;
+}
+.banner {
+  display: grid;
+  gap: var(--space-1);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  overflow-wrap: anywhere;
+}
+.banner p {
+  margin: 0;
+}
+.banner[data-tone="danger"] {
+  border-color: var(--color-danger);
+  background: var(--color-danger-soft);
+}
+.banner[data-tone="warning"] {
+  border-color: var(--color-warning);
+  background: var(--color-warning-soft);
+}
+.banner[data-tone="success"] {
+  border-color: var(--color-success);
+  background: var(--color-success-soft);
+}
+.banner[data-tone="info"] {
+  border-color: var(--color-info);
+  background: var(--color-info-soft);
+}
+.lines {
+  display: grid;
+  gap: var(--space-1);
+  margin: 0;
+  padding-inline-start: var(--space-4);
+  font-size: 0.875rem;
+  overflow-wrap: anywhere;
+}
+/* The counts: three across from --sm, one above the other on a phone. */
+.stats {
+  display: grid;
+  gap: var(--space-3);
+  margin: 0;
+}
+@media (--sm) {
+  .stats {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+.stats div {
+  display: grid;
+  gap: var(--space-1);
+}
+.stats dt {
+  order: 2;
+  color: var(--color-text-secondary);
+  font-size: 0.875rem;
+}
+.stats dd {
+  order: 1;
+  margin: 0;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  justify-content: flex-end;
+  margin: 0;
+}
+.add {
+  display: contents;
+}
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 2.75rem;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: inherit;
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+}
+.button:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+.primary {
+  border-color: var(--color-primary);
+  background: var(--color-primary);
+  color: var(--color-primary-foreground);
+}
+.primary:hover:not(:disabled) {
+  background: var(--color-primary-hover);
+}

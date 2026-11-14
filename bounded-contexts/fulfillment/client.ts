@@ -2,6 +2,10 @@ import { hc } from "hono/client";
 import { honoClientResource } from "@chase-sets/http/hono-client";
 import { attachResponseMetadata, readApiErrorMessage, type ListResponse } from "@chase-sets/http/responses";
 import type { buildFulfillmentApi } from "./api";
+import type { SellerShippingSetupInput } from "./features/seller-checkout-readiness/domain/shipping-setup";
+import type { SellerShippingSetupResult } from "./features/seller-checkout-readiness/api/runtime";
+export type { SellerShippingSetupInput, SellerShippingSetupResult };
+export type SellerShippingSetupMode = "account" | "guest";
 
 export type {
   FulfillmentShipmentDetail,
@@ -102,6 +106,24 @@ export function createFulfillmentApiClient({
   const directUrl = (path: string) => `${baseUrl.replace(/\/$/, "")}${path}`;
 
   return {
+    async getSellerShippingSetup(mode: SellerShippingSetupMode): Promise<SellerShippingSetupResult> {
+      return parseJsonResponse(await fetch(directUrl(`/${mode}/seller-shipping-setup`), { headers, credentials }));
+    },
+    async saveSellerShippingSetup(
+      mode: SellerShippingSetupMode,
+      input: SellerShippingSetupInput,
+    ): Promise<SellerShippingSetupResult> {
+      const requestHeaders = new Headers(headers);
+      requestHeaders.set("Content-Type", "application/json");
+      return parseJsonResponse(
+        await fetch(directUrl(`/${mode}/seller-shipping-setup`), {
+          method: "PUT",
+          headers: requestHeaders,
+          credentials,
+          body: JSON.stringify(input),
+        }),
+      );
+    },
     async listBuyerShipments(query = ""): Promise<ListResponse<FulfillmentShipmentListItem>> {
       return parseJsonResponse(
         await client.account.shipments.$get({

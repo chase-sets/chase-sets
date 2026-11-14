@@ -11,7 +11,10 @@ import type { RateLimitRuleResolver } from "@chase-sets/http/rate-limit";
 import { createCheckoutCommercialTermsResolver } from "../../api";
 import { createCheckoutCartRuntime } from "../../features/cart/api/runtime";
 import { createCheckoutSellListRuntime } from "../../features/sell-list/api/runtime";
-import type { CheckoutCommercialTermsResolver } from "../../features/sell-list/read-model/queries";
+import type {
+  CheckoutCommercialTermsResolver,
+  CheckoutOfferAcceptanceTermsSource,
+} from "../../features/sell-list/read-model/queries";
 import type { CheckoutObservabilityTelemetry } from "../../features/sessions/api/checkout-observability-telemetry";
 import { createCheckoutSessionRuntime } from "../../features/sessions/api/runtime";
 import { createCheckoutSupportLookupRuntime } from "../../features/support-lookup/api/runtime";
@@ -19,6 +22,7 @@ import { createCheckoutSupportLookupRuntime } from "../../features/support-looku
 export type CheckoutHostPorts = Readonly<{
   checkoutObservabilityTelemetry?: CheckoutObservabilityTelemetry;
   commercialTermsResolver?: CheckoutCommercialTermsResolver;
+  offerAcceptanceTermsSource?: CheckoutOfferAcceptanceTermsSource;
   addressVerificationProvider?: PostageLabelProvider | null;
   rateLimitPolicyResolver?: RateLimitRuleResolver;
   paymentProcessorPublicConfiguration?: Readonly<{ publishableKey: string | null }>;
@@ -43,9 +47,17 @@ export function createCheckoutServices(pool: PgTransactionalPool, ports: Checkou
   });
   const checkpointStore = createPostgresProjectionStore({ db: pool });
   const db = pool as PgQueryable;
+  // Standalone seed and seed-inspection paths construct services without host ports.
+  // API and worker hosts must supply the resolver backed by the Commercial Terms pool.
   const commercialTermsResolver = ports.commercialTermsResolver ?? createCheckoutCommercialTermsResolver(db);
   const cart = createCheckoutCartRuntime({ eventStore, checkpointStore, db });
-  const sellList = createCheckoutSellListRuntime({ eventStore, checkpointStore, db, commercialTermsResolver });
+  const sellList = createCheckoutSellListRuntime({
+    eventStore,
+    checkpointStore,
+    db,
+    commercialTermsResolver,
+    offerAcceptanceTermsSource: ports.offerAcceptanceTermsSource,
+  });
   const sessions = createCheckoutSessionRuntime({
     eventStore,
     checkpointStore,

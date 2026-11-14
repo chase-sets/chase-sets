@@ -42,11 +42,12 @@ import { scrydexOnePieceCredentialsFromEnv } from "../../features/source-observa
 import type { CatalogAssetStorage } from "../../features/source-observations/api/asset-storage";
 import type { SourceObservationTelemetry } from "../../features/source-observations/api/catalog-integration-observability";
 import { createCatalogAuthoringBulkJobServices } from "./bulk-authoring-jobs";
-import { createOperatorSessionGrants } from "../../features/operator-session/api/grants";
+import { createOperatorSessionGrants, type CatalogOperatorAuthority } from "../../features/operator-session/api/grants";
 
 export type CatalogHostPorts = Readonly<{
   catalogAssetStorage?: CatalogAssetStorage;
   sourceObservationTelemetry?: SourceObservationTelemetry;
+  catalogOperatorAuthority?: CatalogOperatorAuthority;
 }>;
 
 export type CatalogServices = Readonly<{
@@ -98,6 +99,7 @@ export function createCatalogServices(
     promotionTargetExclusion: createPostgresPromotionTargetExclusion({ pool, eventStore }),
     checkpointStore,
     db,
+    extensionObservationPool: pool,
     notificationWaiterPool: options.notificationWaiterPool,
     assetStorage: ports.catalogAssetStorage,
     sourceObservationTelemetry: ports.sourceObservationTelemetry,
@@ -176,10 +178,13 @@ export function createCatalogServices(
     listProfileVersions: () => providerIntegrationProfiles.listProfileVersions(),
     queryIntegrationOptions: (input) => sourceObservations.queryIntegrationOptions(input),
     providerScopeMappingCommandHandler: providerScopeMappings.commandHandler,
+    referenceRecordCommandHandler: referenceData.referenceRecordCommandHandler,
   });
 
   return {
-    operatorSession: createOperatorSessionGrants(pool),
+    operatorSession: createOperatorSessionGrants(pool, ports.catalogOperatorAuthority, {
+      tcgplayerSetNames: providerScopeDiscovery.recordExtensionScopeObservations,
+    }),
     dimensions,
     displayTemplates,
     fields,

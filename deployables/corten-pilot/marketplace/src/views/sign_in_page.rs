@@ -2,9 +2,12 @@
 //! selection (`AccountSelectionPage`) and a magic link that could not sign in
 //! (`MagicLinkLandingPage`).
 //!
-//! No script: each step is an address, each method a link and each action a form. One narrow
-//! column on every screen, every control at least --control-height (44 px) tall.
+//! Each step is an address, each method a link and each action a form. A passkey's form is the
+//! shared passkey step's (`platform::auth::passkey`): its script runs the browser's WebAuthn
+//! before the form is sent. One narrow column on every screen, every control at least
+//! --control-height (44 px) tall.
 use corten::prelude::*;
+use platform::auth::passkey;
 
 use crate::{
     api::segment,
@@ -13,14 +16,20 @@ use crate::{
     register::{self, Join, RegisterForm, RegisterScreen},
     sign_in::{
         Ask, Back, DEFAULT_SUCCESS, Kind, Label as _, Membership, Method, Notice, SelectForm, SignInForm, SignInScreen,
-        on_marketplace, safe_return_to,
+        safe_return_to,
     },
     text::SignInMsg,
 };
 
-/// A social sign-in's start, on marketplace's origin, where the provider comes back to.
+/// A social sign-in's start (`SocialLoginLink`'s `href`): Auth's, through the pilot's relay where
+/// nothing else serves `/api`, so the provider comes back to this origin.
+fn social_start(provider: &str, journey: &str, return_to: &str) -> String {
+    format!("{}?journey={journey}&returnTo={}", url::SocialSignIn { provider, step: "start" }.href(), segment(return_to))
+}
+
+/// A social sign-in's start.
 fn social(provider: &str, return_to: &str) -> String {
-    super::on_marketplace(&format!("/api/auth/social/{provider}/start?journey=sign-in&returnTo={}", segment(return_to)))
+    social_start(provider, "sign-in", return_to)
 }
 
 /// The page.
@@ -196,10 +205,39 @@ fn Challenge<'a>(
                 }
             }
             if method == Method::Passkey {
-                // WebAuthn is marketplace's page's script: the same identifier there.
-                <a class={Button} href={&on_marketplace(ask)}>{t.page_use_passkey()}</a>
+                <PasskeyForm t={t} ask={ask} identifier={identifier} />
             }
         </section>
+    }
+}
+
+/// Use Passkey: the passkey step signs a challenge for the identifier and sends the form with
+/// the credential; its warning says when the browser could not.
+#[component(css = SignInPage)]
+fn PasskeyForm<'a>(t: SignInMsg, ask: &'a Ask, identifier: &'a str) -> impl Render {
+    let f = SignInForm::FIELDS;
+    let (challenge_id, challenge, credential_id, response, button, warning) = refs();
+    let parts = passkey::Parts { challenge_id, challenge, credential_id, response, button, warning };
+    let challenges = url::PasskeyChallenge.href();
+    html! {
+        <form
+            class={Form}
+            method="post"
+            action={url::SignIn { ask: ask.clone() }}
+            on:submit={passkey::signIn(event, target, parts, &challenges, identifier)}
+        >
+            <input type="hidden" name={f.intent} value="passkey-sign-in">
+            <input type="hidden" name={f.email} value={identifier}>
+            <input type="hidden" ref={challenge_id} name={f.challenge_id} value="">
+            <input type="hidden" ref={challenge} name={f.challenge} value="">
+            <input type="hidden" ref={credential_id} name={f.external_credential_id} value="">
+            <input type="hidden" ref={response} name={f.webauthn_response} value="">
+            <div ref={warning} class={Banner} data-tone="warning" role="alert" tabindex="-1" hidden>
+                <p class={Strong}>{t.page_passkey_unavailable()}</p>
+                <p>{t.page_passkey_sign_in_failed()}</p>
+            </div>
+            <button ref={button} type="submit">{t.page_use_passkey()}</button>
+        </form>
     }
 }
 
@@ -244,9 +282,9 @@ pub fn MagicLinkFailed<'a>(t: SignInMsg, title: &'a str, description: &'a str, a
     }
 }
 
-/// A social registration's start, on marketplace's origin, where the provider comes back to.
+/// A social registration's start.
 fn social_registration(provider: &str, return_to: &str) -> String {
-    super::on_marketplace(&format!("/api/auth/social/{provider}/start?journey=registration&returnTo={}", segment(return_to)))
+    social_start(provider, "registration", return_to)
 }
 
 /// Creating an account: a social account, or a method's form. Marketplace's segmented control is a
@@ -281,12 +319,19 @@ pub fn RegisterPage<'a>(t: SignInMsg, screen: &'a RegisterScreen) -> impl Render
             }
             if let Some(notice) = &screen.notice {
                 <div class={Banner} data-tone="success" role="status">
-                    if *notice == register::Notice::MagicLinkSent {
-                        <p class={Strong}>{t.page_magic_link_sent()}</p>
-                        <p>{t.page_magic_link_ready_check_your_email()}</p>
-                    } else {
-                        <p class={Strong}>{t.register_phone_code_sent()}</p>
-                        <p>{t.register_phone_code_ready_check_your_phone()}</p>
+                    match notice {
+                        register::Notice::MagicLinkSent => {
+                            <p class={Strong}>{t.page_magic_link_sent()}</p>
+                            <p>{t.page_magic_link_ready_check_your_email()}</p>
+                        }
+                        register::Notice::PhoneCodeSent { .. } => {
+                            <p class={Strong}>{t.register_phone_code_sent()}</p>
+                            <p>{t.register_phone_code_ready_check_your_phone()}</p>
+                        }
+                        register::Notice::PasskeyAdded { message } => {
+                            <p class={Strong}>{t.register_passkey_added()}</p>
+                            <p>{*message}</p>
+                        }
                     }
                 </div>
             }
@@ -333,7 +378,7 @@ fn Identity<'a>(t: SignInMsg, typed: &'a RegisterForm) -> impl Render {
     }
 }
 
-/// The shown method's form (or, for a passkey, marketplace's page).
+/// The shown method's form.
 #[component(css = SignInPage)]
 fn MethodForm<'a>(t: SignInMsg, screen: &'a RegisterScreen) -> impl Render {
     let f = RegisterForm::FIELDS;
@@ -345,14 +390,7 @@ fn MethodForm<'a>(t: SignInMsg, screen: &'a RegisterScreen) -> impl Render {
     };
     html! {
         if screen.method == register::Method::Passkey {
-            <section class={Card}>
-                <div class={Row}>
-                    <span class={Badge}>{t.register_recommended()}</span>
-                    <p class={Muted}>{t.register_passkey_recommended_copy()}</p>
-                </div>
-                // WebAuthn is marketplace's page's script.
-                <a class={Button} href={&register::on_marketplace(&screen.join)}>{t.register_create_with_passkey()}</a>
-            </section>
+            <RegisterPasskey t={t} action={&action} typed={typed} />
         }
         if screen.method == register::Method::MagicLink {
             <form class={(Card, Form)} method="post" action={&action}>
@@ -417,8 +455,58 @@ fn MethodForm<'a>(t: SignInMsg, screen: &'a RegisterScreen) -> impl Render {
     }
 }
 
-/// Accepting an invitation: who sent it and as what, then a passkey (marketplace's page) or a
-/// password; once an attempt has a state of its own, that state, Sign in and Check status.
+/// Create With Passkey: the passkey step creates a passkey for the email and name typed and sends
+/// the form with its credential; its warning says when the browser could not.
+#[component(css = SignInPage)]
+fn RegisterPasskey<'a>(t: SignInMsg, action: &'a url::Register, typed: &'a RegisterForm) -> impl Render {
+    let f = RegisterForm::FIELDS;
+    let (challenge_id, challenge, credential_id, response, button, warning) = refs();
+    let parts = passkey::Parts { challenge_id, challenge, credential_id, response, button, warning };
+    let (email, name) = refs();
+    let challenges = url::PasskeyChallenge.href();
+    html! {
+        <form
+            class={(Card, Form)}
+            method="post"
+            action={action}
+            on:submit={passkey::register(event, target, parts, &challenges, email, name)}
+        >
+            <input type="hidden" name={f.intent} value="passkey-register">
+            <input type="hidden" ref={challenge_id} name={f.challenge_id} value="">
+            <input type="hidden" ref={challenge} name={f.challenge} value="">
+            <input type="hidden" ref={credential_id} name={f.external_credential_id} value="">
+            <input type="hidden" ref={response} name={f.webauthn_response} value="">
+            <div class={Row}>
+                <span class={Badge}>{t.register_recommended()}</span>
+                <p class={Muted}>{t.register_passkey_recommended_copy()}</p>
+            </div>
+            <label class={Field}>
+                <span class={Label}>{t.register_display_name()}</span>
+                <input
+                    ref={name}
+                    class={Input}
+                    type="text"
+                    name={f.display_name}
+                    autocomplete="name"
+                    required
+                    value={&typed.display_name}
+                >
+            </label>
+            <label class={Field}>
+                <span class={Label}>{t.register_email()}</span>
+                <input ref={email} class={Input} type="email" name={f.email} autocomplete="email" required value={&typed.email}>
+            </label>
+            <div ref={warning} class={Banner} data-tone="warning" role="alert" tabindex="-1" hidden>
+                <p class={Strong}>{t.register_passkey_unavailable()}</p>
+                <p>{t.register_passkey_registration_failed()}</p>
+            </div>
+            <button ref={button} type="submit">{t.register_create_with_passkey()}</button>
+        </form>
+    }
+}
+
+/// Accepting an invitation: who sent it and as what, then a passkey or a password; once an
+/// attempt has a state of its own, that state, Sign in and Check status.
 #[component(css = SignInPage)]
 pub fn InvitePage<'a>(t: SignInMsg, screen: &'a InviteScreen) -> impl Render {
     let f = AcceptForm::FIELDS;
@@ -438,7 +526,7 @@ pub fn InvitePage<'a>(t: SignInMsg, screen: &'a InviteScreen) -> impl Render {
                 </form>
             } else {
                 match &screen.invitation {
-                    Invitation::Pending { invited_by_name, account_name, role_label, .. } => {
+                    Invitation::Pending { invited_by_name, account_name, role_label, email, .. } => {
                         <header class={Header}>
                             <h1 class={Title}>{t.invite_accept_invitation()}</h1>
                             <p>
@@ -463,13 +551,7 @@ pub fn InvitePage<'a>(t: SignInMsg, screen: &'a InviteScreen) -> impl Render {
                             }
                         </nav>
                         if screen.method == invite::Method::Passkey {
-                            <section class={Card}>
-                                <p class={Muted}>{t.invite_passkey_copy()}</p>
-                                // WebAuthn is marketplace's page's script.
-                                <a class={Button} href={&invite::on_marketplace(&screen.id, &screen.invited)}>
-                                    {t.invite_accept_passkey()}
-                                </a>
-                            </section>
+                            <InvitePasskey t={t} action={&action} email={email} />
                         } else {
                             <form class={(Card, Form)} method="post" action={&action}>
                                 {SubmitKey::field(f.attempt)}
@@ -497,5 +579,36 @@ pub fn InvitePage<'a>(t: SignInMsg, screen: &'a InviteScreen) -> impl Render {
                 }
             }
         </div>
+    }
+}
+
+/// Accept with passkey: the passkey step creates a passkey for the invited email and sends the
+/// acceptance with its credential, as one attempt; its warning says when the browser could not.
+#[component(css = SignInPage)]
+fn InvitePasskey<'a>(t: SignInMsg, action: &'a url::Invite<'a>, email: &'a str) -> impl Render {
+    let f = AcceptForm::FIELDS;
+    let (challenge_id, challenge, credential_id, response, button, warning) = refs();
+    let parts = passkey::Parts { challenge_id, challenge, credential_id, response, button, warning };
+    let challenges = url::PasskeyChallenge.href();
+    html! {
+        <form
+            class={(Card, Form)}
+            method="post"
+            action={action}
+            on:submit={passkey::accept(event, target, parts, &challenges, email)}
+        >
+            {SubmitKey::field(f.attempt)}
+            <input type="hidden" name={f.intent} value="passkey">
+            <input type="hidden" ref={challenge_id} name={f.challenge_id} value="">
+            <input type="hidden" ref={challenge} name={f.challenge} value="">
+            <input type="hidden" ref={credential_id} name={f.external_credential_id} value="">
+            <input type="hidden" ref={response} name={f.webauthn_response} value="">
+            <p class={Muted}>{t.invite_passkey_copy()}</p>
+            <div ref={warning} class={Banner} data-tone="warning" role="alert" tabindex="-1" hidden>
+                <p class={Strong}>{t.invite_passkey_unavailable()}</p>
+                <p>{t.invite_passkey_failed()}</p>
+            </div>
+            <button ref={button} type="submit">{t.invite_accept_passkey()}</button>
+        </form>
     }
 }

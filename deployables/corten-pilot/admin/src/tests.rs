@@ -68,9 +68,38 @@ fn written(status: StatusCode, id: &str) -> Response {
     (status, headers, Json(json!({ "id": id, "version": 2 }))).into_response()
 }
 
+/// Auth's Google Workspace sign-in: the start redirects to the provider, back to the origin the
+/// request's `Host` names; the return with code `good` starts a session and goes to `/catalog`, and
+/// any other code goes back to the sign-in with `admin_permission_required`. A return with no code (a
+/// cancelled sign-in) or the state `spent` is Auth's `invalid_state`, which it answers before it reads the
+/// state's journey, so at its journey-less `/sign-in` (social-login-routes.ts's `redirectToFallback`).
+fn workspace_sso(method: &Method, uri: &Uri, headers: &HeaderMap) -> Option<Response> {
+    let step = uri.path().strip_prefix("/api/auth/social/google/")?;
+    if *method != Method::GET {
+        return None;
+    }
+    let host = headers.get(header::HOST).and_then(|v| v.to_str().ok()).unwrap_or_default();
+    let found = |to: String| (StatusCode::FOUND, [(header::LOCATION, to)]).into_response();
+    Some(match step {
+        "start" => {
+            found(format!("https://provider.test/authorize?hd=chasesets.test&back=http://{host}/api/auth/social/google/callback"))
+        }
+        "callback" if uri.query().is_none_or(|q| !q.contains("code=") || q.contains("state=spent")) => {
+            found("/sign-in?socialLoginError=invalid_state".to_owned())
+        }
+        "callback" if uri.query().is_some_and(|q| q.contains("code=good")) => {
+            let mut res = found("/catalog".to_owned());
+            let cookie = format!("{}={}; Path=/; SameSite=Lax", "chase_sets_session", "tok_workspace");
+            res.headers_mut().append(header::SET_COOKIE, cookie.parse().unwrap());
+            res
+        }
+        _ => found("/access/sign-in?socialLoginError=admin_permission_required".to_owned()),
+    })
+}
 /// Auth's sign-in routes, as far as the sign-in page uses them: `staff@example.test` with `right`
 /// starts a session, `member@example.test` must choose an account first (`sel_1`), and
-/// `limited@example.test` is rate limited.
+/// `limited@example.test` is rate limited. A passkey challenge is `cmd_1`, and a passkey sign-in
+/// with the credential `signed` starts a session.
 fn auth(method: &Method, path: &str, body: &str) -> Option<Response> {
     if *method != Method::POST || !path.starts_with("/api/auth/") {
         return None;
@@ -100,6 +129,11 @@ fn auth(method: &Method, path: &str, body: &str) -> Option<Response> {
         "/api/auth/magic-link/request" => Json(json!({ "tokenId": "ml_1", "expiresAt": later })).into_response(),
         "/api/auth/magic-link/consume" => match text("token").as_str() {
             "good" => started("tok_magic"),
+            _ => unknown(),
+        },
+        "/api/auth/passkeys/challenge" => Json(json!({ "challengeId": "cmd_1", "challenge": "Y2hhbGxlbmdl" })).into_response(),
+        "/api/auth/passkeys/sign-in" => match (text("challengeId").as_str(), text("webauthnResponse").as_str()) {
+            ("cmd_1", "signed") => started("tok_passkey"),
             _ => unknown(),
         },
         "/api/auth/phone-code/request" => {
@@ -135,6 +169,9 @@ async fn platform(State(calls): State<Calls>, method: Method, uri: Uri, headers:
         body: body.clone(),
     });
     let cookie = headers.get(header::COOKIE).and_then(|v| v.to_str().ok()).unwrap_or_default();
+    if let Some(answer) = workspace_sso(&method, &uri, &headers) {
+        return answer;
+    }
     if let Some(answer) = auth(&method, uri.path(), &body) {
         return answer;
     }
@@ -182,6 +219,16 @@ async fn platform(State(calls): State<Calls>, method: Method, uri: Uri, headers:
             actor(&["platform-feedback.view"])
         } else if cookie.contains("chase_sets_session=support-viewer") || cookie.contains("chase_sets_session=attention-down") {
             actor(&["support.view"])
+        } else if cookie.contains("chase_sets_session=support-remedies") {
+            actor(&[
+                "support.manage",
+                "support.remedies.propose",
+                "support.remedies.approve",
+                "support.remedies.override-return",
+                "support.remedies.retry",
+                "support.remedies.waive",
+                "support.remedies.correct",
+            ])
         } else if cookie.contains("chase_sets_session=support-agent") || cookie.contains("chase_sets_session=support-lag") {
             actor(&["support.manage"])
         } else if cookie.contains("chase_sets_session=intake-manager") {
@@ -743,8 +790,10 @@ const SUPPORT_REQUESTS: &str = "/api/marketplace/support-requests";
 /// Support requests' ops API: `req_1`, urgent, contested and ready for support with a photo, a
 /// note, a seller's challenge, a declined offer and the API's operator policy (its prefill and
 /// ceiling are not what the offer and lines would give, so the page shows the API's); `req_done`, resolved with a refund and not yet
-/// closable; the flows' titles; Escalate overdue's counts; a resolve without its summary refused;
-/// and `req_1`'s one photo.
+/// closable; `req_remedy`, whose remedy awaits a second approval and has a retryable, a waivable,
+/// an unwaivable and a releasable effect; a remedy preview (refused without a rationale) and the
+/// remedy writes; the flows' titles; Escalate overdue's counts; a resolve without its summary
+/// refused; and `req_1`'s one photo.
 fn support_requests(method: &Method, rest: &str, body: &str) -> Response {
     let row = |id: &str, reference: &str, status: &str, priority: &str, due: Option<&str>| {
         json!({
@@ -812,6 +861,67 @@ fn support_requests(method: &Method, rest: &str, body: &str) -> Response {
             detail.as_object_mut().unwrap().extend(more.as_object().unwrap().clone());
             Json(detail).into_response()
         }
+        (Method::GET, "/ops/req_remedy") => {
+            let mut detail = row("req_remedy", "SUP-1077", "resolved", "normal", None);
+            let more = json!({
+                "buyer_account_id": "acc_buyer", "seller_account_id": "acc_seller",
+                "resolution": { "summary": "Refunded twelve.", "refundAmount": "12.00", "resolvedAt": "2026-05-08T09:00:00.000Z" },
+                "flow": { "allowedResolutions": ["partial-refund"] },
+            });
+            detail.as_object_mut().unwrap().extend(more.as_object().unwrap().clone());
+            let terms = json!({
+                "remedyId": "rmd_1", "remedy": { "kind": "partial-refund", "amount": "12.00", "currencyCode": "usd" },
+                "allocation": { "sellerFundedAmount": "4.00", "platformFundedAmount": "8.00", "currencyCode": "usd", "fundingKind": "split" },
+                "returnDirective": "no-return", "refundTrigger": "operator-release", "reasonCode": "customer-protection",
+                "policyVersion": "platform-operations.platform-remedies:compiled-v1",
+            });
+            let audit = json!([
+                { "action": "proposal", "actorType": "human", "actorAccountId": "acc_ops", "reasonCode": "customer-protection",
+                  "occurredAt": "2026-05-08T10:00:00.000Z", "correlationId": "cor_1" },
+                { "action": "reservation-reserved", "actorType": "system", "actorAccountId": null, "reasonCode": "reserved",
+                  "occurredAt": "2026-05-08T10:01:00.000Z", "correlationId": "cor_2" },
+            ]);
+            detail["remedy_approval"] = json!({
+                "terms": terms, "status": "approval-pending", "reservationStatus": "reserved", "reservationReasonCode": null,
+                "requiredApprovalCount": 2, "approvals": [{ "approvedByAccountId": "acc_ops", "reasonCode": "policy-approved" }],
+                "auditTrail": audit,
+            });
+            let effect = |effect: &str, status: &str, key: Option<&str>| {
+                let facts: Vec<Value> = key
+                    .map(|key| json!({ "effect": effect, "idempotencyKey": key, "reasonCode": "processor-timeout",
+                        "occurredAt": "2026-05-08T11:00:00.000Z" }))
+                    .into_iter()
+                    .collect();
+                json!({ "effect": effect, "required": true, "status": status, "facts": facts, "waiver": null })
+            };
+            let effects = vec![
+                effect("refund-execution", "failed-retryable", Some("idem_3")),
+                effect("buyer-notification", "failed-terminal", Some("idem_4")),
+                effect("coverage-reservation", "failed-terminal", Some("idem_5")),
+                effect("operator-release", "pending", None),
+            ];
+            detail["remedy"] = json!({ "remedyId": "rmd_1", "status": "action-required", "effects": effects });
+            Json(detail).into_response()
+        }
+        (Method::POST, "/ops/req_done/remedy-proposals/preview") if body.contains(r#""rationale":"""#) => {
+            refusal(StatusCode::BAD_REQUEST, "validation_failed", "A remedy rationale is required.")
+        }
+        (Method::POST, "/ops/req_done/remedy-proposals/preview") => Json(json!({
+            "customerOutcome": "Refund 5.00 usd now", "sellerImpact": "No seller debit", "protectionReserveImpact": "Reserve 5.00",
+            "returnLabelCostPayer": "none", "refundTrigger": "immediate", "reservationExpiresAt": "2026-05-09T09:00:00.000Z",
+            "requiredApprovalCount": 1, "requiresElevatedApproval": false, "returnOverrideRequired": true,
+            "policyVersion": "platform-operations.platform-remedies:compiled-v1",
+        }))
+        .into_response(),
+        (
+            Method::POST,
+            "/ops/req_done/remedy-proposals"
+            | "/ops/req_remedy/remedy-proposals/approve"
+            | "/ops/req_remedy/remedies/rmd_1/effects/refund-execution/retry"
+            | "/ops/req_remedy/remedies/rmd_1/effects/buyer-notification/override"
+            | "/ops/req_remedy/remedies/rmd_1/effects"
+            | "/ops/req_remedy/remedy-corrections",
+        ) => written(StatusCode::OK, "req_remedy"),
         (Method::POST, "/ops/escalate-overdue") => {
             let receipt = percent_encoding::utf8_percent_encode(RECEIPT, percent_encoding::NON_ALPHANUMERIC).to_string();
             let headers = [("chase-sets-commit-position", "42".to_owned()), ("chase-sets-commit-receipt", receipt)];
@@ -1035,8 +1145,8 @@ async fn the_sign_in_asks_for_an_email_or_phone_then_offers_its_methods() {
     let (status, _, html) = pilot.send(get("/access/sign-in?returnTo=%2Fcatalog", None)).await;
     assert_eq!(status, StatusCode::OK, "{html}");
     assert!(
-        html.contains(r#"href="http://localhost:7752/api/auth/social/google/start?journey=admin&amp;returnTo=%2Fcatalog""#),
-        "Google Workspace through admin-web, back to the page: {html}"
+        html.contains(r#"href="/api/auth/social/google/start?journey=admin&amp;returnTo=%2Fcatalog""#),
+        "Google Workspace through the pilot's relay, back to the page: {html}"
     );
     assert!(html.contains(r#"<form class="sign-in-page__form" method="get" action="/access/sign-in">"#), "{html}");
     assert!(html.contains(r#"name="noindex""#) || html.contains(r#"content="noindex""#), "not indexed: {html}");
@@ -1096,6 +1206,81 @@ async fn a_password_starts_the_session_and_goes_back_to_the_page() {
     assert!(set_cookies(&headers).is_empty(), "no session");
     let (status, _, _) = pilot.send(visitor_post(at, None, "intent=password&email=limited%40example.test&password=x")).await;
     assert_eq!(status, StatusCode::TOO_MANY_REQUESTS);
+}
+
+#[tokio::test]
+async fn google_workspace_goes_through_auth_and_comes_back_to_the_pages_origin() {
+    let pilot = Pilot::new().await;
+    let start = "/api/auth/social/google/start?journey=admin&returnTo=%2Fcatalog";
+    let (status, headers, _) = pilot.send(get(start, None)).await;
+    assert_eq!(status, StatusCode::FOUND, "not followed here: {headers:?}");
+    let to = headers[header::LOCATION].to_str().unwrap();
+    assert!(to.ends_with("back=http://localhost:7790/api/auth/social/google/callback"), "back to the page's origin: {to}");
+    let sent = pilot.calls.lock().unwrap().iter().find(|c| c.path.starts_with("/api/auth/social/")).cloned().unwrap();
+    assert_eq!(sent.path, start, "the query as sent");
+    assert_eq!(sent.headers[header::HOST.as_str()], "localhost:7790");
+
+    let (status, headers, _) = pilot.send(get("/api/auth/social/google/callback?state=st_1&code=good", None)).await;
+    assert_eq!((status, headers[header::LOCATION].to_str().unwrap()), (StatusCode::FOUND, "/catalog"));
+    assert!(set_cookies(&headers).iter().any(|c| c.starts_with("chase_sets_session=tok_workspace;")), "{headers:?}");
+    assert!(headers[header::CACHE_CONTROL].to_str().unwrap().contains("no-store"), "a session's answer: {headers:?}");
+
+    let (_, headers, _) = pilot.send(get("/api/auth/social/google/callback?state=st_1&code=outsider", None)).await;
+    let back = headers[header::LOCATION].to_str().unwrap().to_owned();
+    assert_eq!(back, "/access/sign-in?socialLoginError=admin_permission_required");
+    let (status, _, html) = pilot.send(get(&back, None)).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(html.contains("This Workspace user does not have access to this admin area."), "{html}");
+}
+
+#[tokio::test]
+async fn a_cancelled_or_spent_workspace_sign_in_lands_on_the_pilots_sign_in_with_auths_error() {
+    let pilot = Pilot::new().await;
+    for callback in [
+        "/api/auth/social/google/callback?state=st_1&error=access_denied",
+        "/api/auth/social/google/callback?state=spent&code=good",
+    ] {
+        let (status, headers, _) = pilot.send(get(callback, None)).await;
+        assert_eq!(status, StatusCode::FOUND, "{callback}: {headers:?}");
+        let back = headers[header::LOCATION].to_str().unwrap().to_owned();
+        assert_eq!(back, "/access/sign-in?socialLoginError=invalid_state", "the pilot's sign-in, not admin-web's: {callback}");
+        assert!(set_cookies(&headers).is_empty(), "no session or selection: {headers:?}");
+        let (status, headers, html) = pilot.send(get(&back, None)).await;
+        assert_eq!(status, StatusCode::OK, "{html}");
+        assert!(html.contains("Social login could not be completed. Try again or use another sign-in method."), "{html}");
+        assert!(set_cookies(&headers).is_empty(), "{headers:?}");
+    }
+}
+
+#[tokio::test]
+async fn a_passkey_is_the_pilots_step_and_signs_in_with_its_credential() {
+    let pilot = Pilot::new().await;
+    let at = "/access/sign-in?returnTo=%2Fcatalog&signInIdentifier=staff%40example.test&signInMethod=passkey";
+    let (status, _, html) = pilot.send(get(at, None)).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains(r#"value="passkey-sign-in""#) && html.contains(r#"name="webauthnResponse""#), "{html}");
+    assert!(!html.contains("http://localhost:7752/access/sign-in"), "no longer admin-web's: {html}");
+
+    let (status, headers, json) =
+        pilot.send(visitor_post("/access/sign-in/passkey", None, "purpose=passkey-sign-in&email=staff%40example.test")).await;
+    assert_eq!(status, StatusCode::OK, "{json}");
+    assert!(headers[header::CACHE_CONTROL].to_str().unwrap().contains("no-store"), "{headers:?}");
+    assert_eq!(serde_json::from_str::<Value>(&json).unwrap(), json!({ "challengeId": "cmd_1", "challenge": "Y2hhbGxlbmdl" }));
+    let challenge = pilot.calls.lock().unwrap().iter().find(|c| c.path == "/api/auth/passkeys/challenge").cloned().unwrap();
+    assert_eq!(challenge.headers["x-forwarded-host"], "localhost:7790", "the page's origin, which Auth checks");
+
+    let credential = "challengeId=cmd_1&challenge=Y2hhbGxlbmdl&externalCredentialId=cred_1&webauthnResponse=signed";
+    let body = format!("intent=passkey-sign-in&email=staff%40example.test&{credential}");
+    let (status, headers, _) = pilot.send(visitor_post(at, None, &body)).await;
+    assert_eq!((status, &headers[header::LOCATION]), (StatusCode::SEE_OTHER, &header::HeaderValue::from_static("/catalog")));
+    assert!(set_cookies(&headers).iter().any(|c| c.starts_with("chase_sets_session=tok_passkey;")));
+
+    // No credential: the step's script did not run. Nothing is sent.
+    let (status, _, html) = pilot.send(visitor_post(at, None, "intent=passkey-sign-in&email=staff%40example.test")).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(html.contains("Passkey sign-in failed."), "{html}");
+    let sent = pilot.calls.lock().unwrap().iter().filter(|c| c.path == "/api/auth/passkeys/sign-in").count();
+    assert_eq!(sent, 1);
 }
 
 #[tokio::test]
@@ -3054,7 +3239,7 @@ async fn staff_who_may_change_the_records_get_the_bulk_bar_and_a_box_on_each_row
     );
     assert!(
         html.contains(
-            r#"connect:bulk_rows.drawn({form:@form,count:@count,preview:@preview,clear:@clear},{matching:&quot;120 matching Dimensions&quot;,entity:&quot;Dimensions&quot;,selected:%[&quot;&quot;,&quot;count&quot;,&quot; &quot;,&quot;entityName&quot;,&quot; selected&quot;]})"#
+            r#"connect:bulk_rows.drawn({form:@form,count:@count,preview:@preview,clear:@clear},{matching:"120 matching Dimensions",entity:"Dimensions",selected:%["","count"," ","entityName"," selected"]})"#
         ),
         "the count's text is the catalog's message, sent unfilled: {html}"
     );
@@ -3273,7 +3458,7 @@ async fn the_items_list_asks_the_api_with_admin_webs_filters_and_draws_its_colum
     assert!(html.contains(r#"formaction="/catalog/catalog-items/drafts?status=draft&amp;language=ja&amp;blueprint_state=missing&amp;has_images=false&amp;page=2" data-checked"#), "{html}");
     assert!(html.contains(r#"<option value="mergeTags">Merge Tags</option>"#) && html.contains(r#"name="tags""#), "{html}");
     assert!(
-        html.contains(r#"<corten-live data-scope="live-status" id="catalog-live" src="/catalog/catalog-items/live?status=draft&amp;language=ja&amp;blueprint_state=missing&amp;has_images=false&amp;page=2" data-on="#),
+        html.contains(r#"<corten-live data-scope="live-status" id="catalog-live" src="/catalog/catalog-items/live?status=draft&amp;language=ja&amp;blueprint_state=missing&amp;has_images=false&amp;page=2" data-on='"#),
         "{html}"
     );
     assert!(html.contains(r#"href="/catalog/catalog-items""#), "the nav serves the list: {html}");
@@ -3491,14 +3676,14 @@ async fn the_items_page_counts_changes_and_a_reload_draws_the_rows_and_a_new_str
     assert!(html.starts_with(r#"<div data-scope="bulk-rows" id="catalog-rows""#), "{html}");
     assert!(
         html.contains(
-            r#"<corten-live data-scope="live-status" id="catalog-live" src="/catalog/catalog-items/live?status=draft" data-on="connect:live_status.stale($c,@since,%[&quot;Stale since &quot;,&quot;value&quot;,&quot;&quot;],%{"#
+            r#"<corten-live data-scope="live-status" id="catalog-live" src="/catalog/catalog-items/live?status=draft" data-on='connect:live_status.stale($c,@since,%["Stale since ","value",""],%{"#
         ),
         "the stream's connection status, in the element that streams: {html}"
     );
     // The stale time is written by the server's date format (`t.js().date_time`), in UTC.
     let live = &html[html.find("<corten-live").unwrap()..];
     let live = &live[..live.find('>').unwrap()];
-    assert_eq!(live.matches(r#"&quot;u&quot;:&quot;UTC&quot;"#).count(), 2, "on connect and on each status: {live}");
+    assert_eq!(live.matches(r#""u":"UTC""#).count(), 2, "on connect and on each status: {live}");
     assert!(
         html.contains(r#"<input type="hidden" name="status" value="draft"><button type="submit" class="live-status__reload">Reload</button>"#),
         "a stale stream's Reload keeps the filters: {html}"
@@ -3727,8 +3912,8 @@ async fn an_items_review_draws_its_sheet_with_its_evidence_and_park_forms() {
     );
     assert!(html.contains("<dt>Unit</dt><dd>tcgplayer:mtg:single-card:source-observation-import</dd>"), "{html}");
     assert!(
-        html.contains(r#"href="http://localhost:7752/catalog/providers/tcgplayer?unitKey=tcgplayer%3Amtg%3Asingle-card%3Asource-observation-import""#),
-        "the destination is admin-web's: {html}"
+        html.contains(r#"href="/catalog/providers/tcgplayer?unitKey=tcgplayer%3Amtg%3Asingle-card%3Asource-observation-import""#),
+        "the destination is the pilot's provider page: {html}"
     );
     assert!(
         html.contains(r#"id="attention-dismiss" method="post" action="/catalog/scopes/attention/dismiss?status=active""#),
@@ -4085,8 +4270,10 @@ async fn the_attention_queue_draws_its_counts_its_missing_sources_and_its_items_
         "an ISO and a Postgres time: {html}"
     );
     assert!(html.contains("Oct 26, 2026, 12:00 PM UTC") && html.contains("No deadline"), "{html}");
-    let origin = crate::app::admin_web_origin();
-    assert!(html.contains(&format!(r#"href="{origin}/platform/projections?tab=blocked">Open</a>"#)), "{html}");
+    assert!(
+        html.contains(r#"href="/platform/projections?tab=blocked">Open</a>"#),
+        "the pilot serves the projections console: {html}"
+    );
     assert!(html.contains(r#"href="/support/requests?requestId=req_1">Open</a>"#), "the pilot serves a request's sheet: {html}");
     assert!(html.contains(r#"href="/support/platform-feedback/pfb_1">Open</a>"#), "the pilot serves a feedback's page: {html}");
     assert!(html.contains(r#"id="attention-live" src="/platform/operations-attention/live""#), "{html}");
@@ -4321,9 +4508,9 @@ async fn a_scope_with_one_edition_reads_no_alias_review_and_a_failed_read_is_its
     assert!(!html.contains("Accept all"), "no commands over a coverage that could not be read: {html}");
     assert!(
         html.contains("The import-to-promotion workspace could not be read.")
-            && html.contains(r#"href="http://localhost:7752/catalog/scopes/scp_down""#)
+            && html.contains(r#"href="/catalog/scopes/scp_down">Read the workspace again</a>"#)
             && !html.contains(r#"name="wb-stage""#),
-        "a workspace that cannot be read is its section's banner and admin-web's link: {html}"
+        "a workspace that cannot be read is its section's banner and a link to read it again: {html}"
     );
 
     let (status, _, _) = pilot.send(get("/catalog/scopes/scp_gone", Some("staff"))).await;
@@ -5736,7 +5923,8 @@ async fn a_requests_sheet_shows_the_case_and_recommends_what_admin_web_would() {
     assert!(html.contains("Refunded five.") && html.contains("Refund still settling"), "{html}");
     assert!(html.contains(r#"value="close""#) && !html.contains(r#"value="cancel""#), "a resolved request: {html}");
     let origin = crate::app::admin_web_origin();
-    assert!(html.contains(&format!(r#"href="{origin}/support/requests?requestId=req_done""#)), "the remedy on admin-web: {html}");
+    assert!(html.contains(r#"value="preview-remedy""#), "a refund decision offers a remedy: {html}");
+    assert!(!html.contains(&format!("{origin}/support/requests")), "the remedy is the pilot's, not admin-web's: {html}");
 
     let (status, _, html) = pilot.send(get("/support/requests?requestId=req_none", Some("support-agent"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");
@@ -5796,6 +5984,142 @@ async fn a_case_action_is_sent_and_the_sheet_is_read_after_it() {
     let (status, _, html) = pilot.send(get(&lagging, Some("support-lag"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");
     assert!(html.contains("Called the carrier.") && html.contains("Refresh in a moment"), "read without the receipt: {html}");
+}
+
+#[tokio::test]
+async fn a_refund_decision_offers_a_remedy_proposal_previewed_before_it_is_requested() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/support/requests?requestId=req_done", Some("support-remedies"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains(r#"name="remedyAmount" inputmode="decimal" value="5.00""#), "the decided refund: {html}");
+    assert!(html.contains(r#"name="currencyCode" value="usd""#), "no affected lines, admin-web's usd: {html}");
+    assert!(html.contains(r#"value="req_done:platform-remedy-proposal""#), "{html}");
+    assert!(html.contains(r#"value="preview-remedy">"#), "{html}");
+    assert!(html.contains(r#"value="propose-remedy" disabled>"#), "no reservation before a preview: {html}");
+    let (_, _, html) = pilot.send(get("/support/requests?requestId=req_done", Some("support-agent"))).await;
+    assert!(html.contains(r#"value="preview-remedy" disabled>"#), "without support.remedies.propose: {html}");
+
+    let at = "/support/requests/req_done?status=resolved";
+    let form = "intent=preview-remedy&remedyKind=partial-refund&remedyAmount=5.00&currencyCode=usd&fundingKind=platform-funded\
+        &sellerFundedAmount=0.00&platformFundedAmount=5.00&returnDirective=no-return&refundTrigger=immediate\
+        &reasonCode=customer-protection&returnExceptionReasonCode=&rationale=Lost+in+transit&evidenceReferences=ev_1%0Aev_2\
+        &idempotencyKey=req_done%3Aplatform-remedy-proposal";
+    let (status, headers, html) = pilot.send(post_as("support-remedies", at, form, false)).await;
+    assert_eq!(status, StatusCode::OK, "a preview is the sheet with it: {html}");
+    assert!(headers.get(header::LOCATION).is_none());
+    // The sheet is read again after the preview, so the preview is the last POST.
+    let call = pilot.calls_to(SUPPORT_REQUESTS).into_iter().rfind(|c| c.method == Method::POST).unwrap();
+    assert_eq!(call.path, format!("{SUPPORT_REQUESTS}/ops/req_done/remedy-proposals/preview"));
+    let allocation = json!({ "sellerFundedAmount": "0.00", "platformFundedAmount": "5.00", "currencyCode": "usd", "fundingKind": "platform-funded" });
+    assert_eq!(
+        serde_json::from_str::<Value>(&call.body).unwrap(),
+        json!({
+            "remedy": { "kind": "partial-refund", "amount": "5.00", "currencyCode": "usd" }, "allocation": allocation,
+            "returnDirective": "no-return", "refundTrigger": "immediate", "reasonCode": "customer-protection",
+            "returnExceptionReasonCode": null, "rationale": "Lost in transit", "evidenceReferences": "ev_1\nev_2",
+            "idempotencyKey": "req_done:platform-remedy-proposal",
+        })
+    );
+    for text in ["Refund 5.00 usd now", "Reserve 5.00", "A documented return exception is required.", "Lost in transit"] {
+        assert!(html.contains(text), "{text}: {html}");
+    }
+    assert!(html.contains(r#"<option value="partial-refund" selected>"#), "the proposal as it was filled in: {html}");
+    assert!(html.contains(r#"value="propose-remedy">"#), "previewed, it can be requested: {html}");
+
+    let propose = form.replace("intent=preview-remedy", "intent=propose-remedy");
+    let (status, headers, _) = pilot.send(post_as("support-remedies", at, &propose, false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let to = headers[header::LOCATION].to_str().unwrap().to_owned();
+    assert!(to.starts_with("/support/requests?status=resolved&requestId=req_done&action=remedy-proposed&after_write="), "{to}");
+    let call = pilot.calls_to(SUPPORT_REQUESTS).into_iter().last().unwrap();
+    assert_eq!(call.path, format!("{SUPPORT_REQUESTS}/ops/req_done/remedy-proposals"));
+
+    let unexplained = form.replace("rationale=Lost+in+transit", "rationale=");
+    let (status, _, html) = pilot.send(post_as("support-remedies", at, &unexplained, false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    assert!(html.contains("A remedy rationale is required."), "the sheet says why: {html}");
+    assert!(html.contains(r#"<option value="partial-refund" selected>"#), "and keeps what was filled in: {html}");
+    assert!(html.contains(r#"value="propose-remedy" disabled>"#), "{html}");
+}
+
+#[tokio::test]
+async fn a_remedy_shows_its_workflow_and_the_recovery_admin_web_offers() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/support/requests?requestId=req_remedy", Some("support-remedies"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    for text in [
+        "approval-pending",
+        "12.00 usd · split",
+        "no-return · operator-release",
+        "1/2",
+        "System/service",
+        "acc_ops",
+        "processor-timeout",
+        r#"value="rmd_1:approval""#,
+        r#"value="rmd_1:refund-execution:idem_3:retry""#,
+        r#"value="rmd_1:buyer-notification:idem_4:waive""#,
+        r#"value="rmd_1:operator-release""#,
+        r#"value="rmd_1:correction""#,
+        r#"value="approve-remedy">"#,
+    ] {
+        assert!(html.contains(text), "{text}: {html}");
+    }
+    assert_eq!(html.matches(r#"value="waive-remedy-effect""#).count(), 1, "a coverage reservation is never waived: {html}");
+    assert!(!html.contains(r#"value="preview-remedy""#), "a workflow, not a proposal: {html}");
+    let (_, _, html) = pilot.send(get("/support/requests?requestId=req_remedy", Some("support-agent"))).await;
+    for intent in
+        ["approve-remedy", "retry-remedy-effect", "waive-remedy-effect", "release-remedy-refund", "request-remedy-correction"]
+    {
+        assert!(html.contains(&format!(r#"value="{intent}" disabled>"#)), "{intent} needs its capability: {html}");
+    }
+
+    let reasoned =
+        |key: &str| json!({ "reasonCode": "r", "rationale": "Why", "evidenceReferences": "ev_1", "idempotencyKey": key });
+    let writes = [
+        (
+            "intent=retry-remedy-effect&remedyId=rmd_1&effect=refund-execution&idempotencyKey=k1&reasonCode=r&rationale=Why",
+            "/remedies/rmd_1/effects/refund-execution/retry",
+            json!({ "reasonCode": "r", "rationale": "Why", "idempotencyKey": "k1" }),
+            "remedy-retry-requested",
+        ),
+        (
+            "intent=waive-remedy-effect&remedyId=rmd_1&effect=buyer-notification&idempotencyKey=k2&reasonCode=r&rationale=Why\
+                &evidenceReferences=ev_1",
+            "/remedies/rmd_1/effects/buyer-notification/override",
+            reasoned("k2"),
+            "remedy-effect-waived",
+        ),
+        (
+            "intent=release-remedy-refund&remedyId=rmd_1&idempotencyKey=k3&reasonCode=r",
+            "/remedies/rmd_1/effects",
+            json!({ "reasonCode": "r", "idempotencyKey": "k3", "effect": "operator-release" }),
+            "remedy-refund-released",
+        ),
+        (
+            "intent=approve-remedy&idempotencyKey=k4&reasonCode=r&rationale=Why&evidenceReferences=ev_1",
+            "/remedy-proposals/approve",
+            reasoned("k4"),
+            "remedy-approved",
+        ),
+        (
+            "intent=request-remedy-correction&idempotencyKey=k5&reasonCode=r&rationale=Why&evidenceReferences=ev_1",
+            "/remedy-corrections",
+            reasoned("k5"),
+            "remedy-correction-requested",
+        ),
+    ];
+    for (form, path, body, action) in writes {
+        let (status, headers, _) = pilot.send(post_as("support-remedies", "/support/requests/req_remedy", form, false)).await;
+        assert_eq!(status, StatusCode::SEE_OTHER, "{form}");
+        let to = headers[header::LOCATION].to_str().unwrap().to_owned();
+        assert!(to.starts_with(&format!("/support/requests?requestId=req_remedy&action={action}&after_write=")), "{to}");
+        let call = pilot.calls_to(SUPPORT_REQUESTS).into_iter().last().unwrap();
+        assert_eq!(call.path, format!("{SUPPORT_REQUESTS}/ops/req_remedy{path}"));
+        assert_eq!(serde_json::from_str::<Value>(&call.body).unwrap(), body, "{form}");
+    }
+    let (_, _, html) =
+        pilot.send(get("/support/requests?requestId=req_remedy&action=remedy-refund-released", Some("support-remedies"))).await;
+    assert!(html.contains("Operator refund trigger released."), "{html}");
 }
 
 #[tokio::test]
@@ -7824,6 +8148,22 @@ fn daily_surface(location: &str, scope: Option<&str>) -> Response {
                 { "key": "observation.reject", "state": "available", "blockers": [] }]
         }
     });
+    // The candidate's detail sheet's lines (set apart, as one `json!` holding them passes its recursion limit).
+    let candidate = &mut surface["readModel"]["mergeCandidateReview"]["rows"][0];
+    candidate["conflicts"]["messages"] = json!(["Rarity differs between sources."]);
+    candidate["proposedMapping"] = json!({ "promotionIntent": "create-catalog-item", "catalogItemId": null, "productIds": ["prd_1"],
+        "externalCatalogItemReferences": ["tcgplayer:111"], "externalProductReferences": [] });
+    candidate["sourceComparison"] = json!([{ "fieldPath": "catalogItem.name", "value": "Sprigatito", "providerKey": "tcgplayer",
+        "observationId": "obs_1", "confidence": "exact" }]);
+    candidate["fieldProvenance"] = json!([{ "fieldPath": "catalogItem.name", "providerKey": "tcgplayer",
+        "sourceProfileVersion": "sv-2026", "confidence": "exact", "evidenceSummary": "name" }]);
+    candidate["proposedFacts"] = json!([{ "key": "name", "value": "Sprigatito" }]);
+    // `candidateConflicts=blocking` is a read whose candidate has a blocking conflict to resolve.
+    if location.contains("candidateConflicts=blocking") {
+        candidate["conflicts"]["blocking"] = json!(1);
+    }
+    candidate["actions"][3]["commandPreview"]["provenance"] =
+        json!({ "membership": [{ "observationId": "obs_1" }, { "observationId": "obs_2" }], "externalProductReferences": [] });
     // A scope page's journey is its Scope Record's: its Catalog sync names the scope.
     if let Some(id) = scope {
         surface["readModel"]["catalogSync"]["scope"]["reference"] = json!({ "kind": "expansion", "scopeRecordId": id });
@@ -8458,7 +8798,7 @@ async fn provider_detail_draws_the_apis_health_surface_for_the_provider_with_its
     assert!(html.contains(r#"action="/catalog/providers/tcgplayer/jobs/job_9?profileVersion=2026.07.13""#), "{html}");
     assert!(html.contains(r#"value="retry""#) && !html.contains(r#"value="cancel""#), "{html}");
     // This viewer is not offered the Operator session.
-    assert!(html.contains(r#"href="http://localhost:7752/catalog/providers/tcgplayer?profileVersion=2026.07.13""#), "{html}");
+    assert!(!html.contains("http://localhost:7752/catalog/providers"), "the provider page is the pilot's: {html}");
     assert!(!html.contains("Operator session"), "{html}");
 
     let section = pilot.stylesheet(&html, "sections/catalog").await.unwrap();
@@ -9255,10 +9595,7 @@ async fn the_daily_workbench_draws_the_apis_read_with_its_stages_and_commands() 
     assert!(html.contains(r#"name="action" value="defer""#) && html.contains(r#"name="action" value="reject""#), "{html}");
     assert!(html.contains(r#"name="reason""#), "{html}");
     assert!(!html.contains(r#"value="promote""#), "the read offers no candidate promote here: {html}");
-    assert!(
-        html.contains(r#"href="http://localhost:7752/catalog/integrations?providerKey=tcgplayer&amp;unitKey=pokemon""#),
-        "candidate evidence and conflicts open on admin-web: {html}"
-    );
+    assert!(!html.contains("blocking conflicts runs on admin-web"), "no candidate has a blocking conflict: {html}");
     assert!(html.contains("Sprigatito 001"), "the merge candidate: {html}");
 
     let section = pilot.stylesheet(&html, "sections/catalog").await.unwrap();
@@ -9446,10 +9783,11 @@ async fn the_jobs_stage_draws_a_loading_line_and_its_import_preflight_comes_once
         "{part}"
     );
     assert!(part.contains("Loading import preflight"), "{part}");
-    // Without JavaScript the element opens no stream; its link reads the preflight with the page.
+    // Where no stream will bring it, the link to the page's own address with the preflight read in.
     assert!(
-        part.contains(r#"<noscript><p class="#)
-            && part.contains(r#"<a href="/catalog/integrations/import-preflight?providerKey=tcgplayer&amp;unitKey=pokemon">Read the import preflight</a>"#),
+        part.contains(
+            r#"href="/catalog/integrations?providerKey=tcgplayer&amp;unitKey=pokemon&amp;preflight=true" rel="nofollow">Read the import preflight</a>"#
+        ) && !part.contains("<noscript>"),
         "{part}"
     );
     assert!(pilot.calls_to(preflight).is_empty(), "the page does not wait for the provider's plan");
@@ -9492,11 +9830,11 @@ async fn the_jobs_stage_draws_a_loading_line_and_its_import_preflight_comes_once
 }
 
 #[tokio::test]
-async fn without_javascript_the_import_preflights_link_is_its_page_with_the_preflight_read() {
+async fn without_javascript_the_import_preflights_link_is_the_page_with_the_preflight_read_in() {
     let pilot = Pilot::new().await;
     let preflight = "/api/catalog/source-observations/workbench-surfaces/daily/import-preview";
     let at = "providerKey=tcgplayer&unitKey=pokemon";
-    let (status, _, html) = pilot.send(get(&format!("/catalog/integrations/import-preflight?{at}"), Some("staff"))).await;
+    let (status, _, html) = pilot.send(get(&format!("/catalog/integrations?{at}&preflight=true"), Some("staff"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");
     assert!(html.contains("<title>Catalog Integrations") && html.contains(r#"name="wb-stage""#), "the daily page: {html}");
     assert!(
@@ -9510,21 +9848,28 @@ async fn without_javascript_the_import_preflights_link_is_its_page_with_the_pref
     );
 
     // A provider past the API's deadline says so; no preflight, or a read that fails, leaves nothing.
-    let (status, _, html) = pilot.send(get("/catalog/integrations/import-preflight?providerKey=slow", Some("staff"))).await;
+    let (status, _, html) = pilot.send(get("/catalog/integrations?providerKey=slow&preflight=true", Some("staff"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");
     assert!(html.contains(r#"data-catalog-deferred-panel="unavailable""#) && html.contains("Import preflight"), "{html}");
-    let (status, _, html) = pilot.send(get("/catalog/integrations/import-preflight?providerKey=nopreview", Some("staff"))).await;
+    let (status, _, html) = pilot.send(get("/catalog/integrations?providerKey=nopreview&preflight=true", Some("staff"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");
     assert!(!html.contains("data-catalog-import-preview=") && !html.contains("Loading import preflight"), "{html}");
 
-    // From a scope's workspace the page is the scope's, with the preflight read for its own address.
-    let (status, _, html) =
-        pilot.send(get(&format!("/catalog/integrations/import-preflight?{at}&home=scp_paf"), Some("staff"))).await;
+    // A command's forms do not carry the key: the working set is the page's, without it.
+    const PREFLIGHT_KEY: &str = "preflight=";
+    let (_, _, html) = pilot.send(get("/catalog/integrations?providerKey=tcgplayer&preflight=true", Some("staff"))).await;
+    let actions: Vec<&str> = html.split("action=\"").skip(1).filter_map(|rest| rest.split('"').next()).collect();
+    assert!(!actions.is_empty() && actions.iter().all(|action| !action.contains(PREFLIGHT_KEY)), "{actions:?}");
+
+    // A scope's page reads it in for its own address, its link the scope's page.
+    let (_, _, html) = pilot.send(get("/catalog/scopes/scp_paf?languageCode=ja", Some("staff"))).await;
+    assert!(html.contains(r#"href="/catalog/scopes/scp_paf?languageCode=ja&amp;preflight=true" rel="nofollow""#), "{html}");
+    let (status, _, html) = pilot.send(get("/catalog/scopes/scp_paf?preflight=true", Some("staff"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");
     assert!(html.contains("data-scope-workspace") && html.contains("Paldean Fates"), "the scope's page: {html}");
     assert!(html.contains(r#"data-catalog-import-preview="ready""#), "{html}");
     assert!(
-        pilot.calls_to(preflight).last().is_some_and(|c| c.path.contains("location=%2Fcatalog%2Fscopes%2Fscp_paf")),
+        pilot.calls_to(preflight).last().is_some_and(|c| c.path.ends_with("location=%2Fcatalog%2Fscopes%2Fscp_paf")),
         "the scope's location: {:?}",
         pilot.calls_to(preflight).last()
     );
@@ -9771,6 +10116,49 @@ async fn a_merge_candidate_is_ignored_or_deferred_with_admin_webs_reason() {
 }
 
 #[tokio::test]
+async fn a_candidates_evidence_is_its_detail_sheet_from_the_row_the_read_gave() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/catalog/integrations?providerKey=tcgplayer&unitKey=pokemon", Some("staff"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let sheet = &html[html.find(r#"data-catalog-merge-candidate-detail="cand_1""#).expect(&html)..];
+    let sheet = &sheet[..sheet.find("</dialog>").unwrap()];
+    for text in [
+        "Candidate detail: Sprigatito 001",
+        "<dd>cand_1</dd>",
+        "<dd>Create catalog item</dd>",
+        "<dd>not selected</dd>",
+        "<dd>prd_1</dd>",
+        "tcgplayer obs_1 catalogItem.name: Sprigatito",
+        "catalogItem.name: tcgplayer sv-2026 Exact",
+        "tcgplayer:111",
+        "name: Sprigatito",
+        "Rarity differs between sources.",
+        "Split: catalog-merge-candidate-split from 2 source(s), 0 Product reference(s)",
+    ] {
+        assert!(sheet.contains(text), "{text}: {sheet}");
+    }
+    assert!(!sheet.contains("blocking conflicts runs on admin-web"), "no blocking conflict to resolve: {sheet}");
+    // Its trigger opens it without a read of its own, for a viewer who cannot manage too.
+    assert!(
+        html.contains(r#"command="show-modal" commandfor="#) && html.contains(r#"aria-label="Evidence: Sprigatito 001""#),
+        "{html}"
+    );
+    // A candidate with a blocking conflict: its resolution runs on admin-web, said in its sheet and below the list.
+    let at = "providerKey=tcgplayer&unitKey=pokemon&candidateConflicts=blocking";
+    let (_, _, html) = pilot.send(get(&format!("/catalog/integrations?{at}"), Some("staff"))).await;
+    let admin_web = r#"href="http://localhost:7752/catalog/integrations?providerKey=tcgplayer&amp;unitKey=pokemon&amp;candidateConflicts=blocking""#;
+    let sheet = &html[html.find(r#"data-catalog-merge-candidate-detail="cand_1""#).expect(&html)..];
+    let sheet = &sheet[..sheet.find("</dialog>").unwrap()];
+    assert!(sheet.contains("blocking conflicts runs on admin-web") && sheet.contains(admin_web), "{sheet}");
+    assert_eq!(html.matches(admin_web).count(), 2, "the sheet's and the list's: {html}");
+    assert!(!html.contains("candidate-promote"), "no promote while a blocking conflict waits: {html}");
+
+    let (_, _, viewer) =
+        pilot.send(get("/catalog/integrations?providerKey=tcgplayer&unitKey=pokemon", Some("catalog-reader"))).await;
+    assert!(viewer.contains(r#"data-catalog-merge-candidate-detail="cand_1""#), "{viewer}");
+}
+
+#[tokio::test]
 async fn a_candidate_splits_and_is_edited_with_the_version_the_page_read_and_a_moved_one_says_so() {
     let pilot = Pilot::new().await;
     let at = "providerKey=tcgplayer&unitKey=pokemon";
@@ -9795,7 +10183,10 @@ async fn a_candidate_splits_and_is_edited_with_the_version_the_page_read_and_a_m
 
     let (status, _, html) = pilot.send(get(&format!("/catalog/integrations?{at}"), Some("catalog-reader"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");
-    assert!(!html.contains("candidate-split") && !html.contains("candidate-edit-form"), "not the reader's: {html}");
+    assert!(
+        !html.contains(r#"data-catalog-primary-workbench-command="candidate-split""#) && !html.contains("candidate-edit-form"),
+        "not the reader's: {html}"
+    );
 
     let (status, headers, _) = pilot
         .send(post(
@@ -10565,7 +10956,10 @@ async fn a_preview_offers_confirm_and_submit_with_its_balance_revision_and_a_req
     let (status, _, html) = pilot.send(post_as("wallet-stepup", WALLET_PAGE, request, false)).await;
     assert_eq!(status, StatusCode::UNAUTHORIZED, "{html}");
     assert!(html.contains("Reauthentication required") && html.contains("Sign in again in a new tab"), "{html}");
-    assert!(html.contains(r#"target="_blank""#) && html.contains("returnTo=%2Fcommerce%2Fwallet-workbench%2Facc_1"), "{html}");
+    assert!(
+        html.contains(r#"href="/access/sign-in?returnTo=%2Fcommerce%2Fwallet-workbench%2Facc_1" target="_blank""#),
+        "the pilot's own sign-in, whose session the command needs: {html}"
+    );
 }
 
 #[tokio::test]

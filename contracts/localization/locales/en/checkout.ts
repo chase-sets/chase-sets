@@ -495,6 +495,11 @@ export const checkoutEnglishTranslations = {
   "checkout.features.sellList.ui.sellListPage.seller.desk": "Seller Desk",
   "checkout.features.sellList.ui.sellListPage.offers.and.sell.list": "Offers & sell list",
   "checkout.features.sellList.ui.sellListPage.estimated.net": "Estimated net {amount}",
+  "checkout.features.sellList.ui.sellListPage.best.offer.net": "Best offer net {amount}",
+  "checkout.features.sellList.ui.sellListPage.not.quoted.yet": "Not quoted yet",
+  "checkout.features.sellList.ui.sellListPage.expected.seller.payout.all.offers": "Expected seller payout (all offers)",
+  "checkout.features.sellList.ui.sellListPage.expected.payout.all.offers.before.checkout":
+    "Expected payout from all offers before seller checkout",
   "checkout.features.sellList.ui.sellListPage.card.summary": "Quantity {quantity} · Best offer {offer}",
   "checkout.features.sellList.ui.sellListPage.review.offers.and.terms": "Review offers and terms",
   "checkout.features.sellList.ui.sellListPage.review.item.offers.and.terms": "Review {item} offers and terms",
@@ -524,7 +529,21 @@ export const checkoutEnglishTranslations = {
   "checkout.features.sellList.ui.sellListPage.set.up.payouts": "Set up payouts",
   "checkout.features.sellList.ui.sellListPage.setup.required": "Setup required",
   "checkout.features.sellList.ui.sellListPage.payout.setup.required.description":
-    "Resolve payout requirements before accepting offers or creating fallback listings: {requirements}.",
+    "Complete payout setup before accepting offers or creating fallback listings.",
+  "checkout.features.sellList.ui.sellListPage.offer.acceptance.unavailable": "Offer acceptance unavailable",
+  "checkout.features.sellList.ui.sellListPage.payout.blocks.acceptance":
+    "Offer acceptance is unavailable until payout setup is ready.",
+  "checkout.features.sellList.ui.sellListPage.payout.verification.pending": "Verification pending",
+  "checkout.features.sellList.ui.sellListPage.payout.restricted": "Restricted",
+  "checkout.features.sellList.ui.sellListPage.payout.pending.description": "Payout verification is pending.",
+  "checkout.features.sellList.ui.sellListPage.payout.restricted.description":
+    "Payouts are restricted. Review payout setup to resolve the restrictions.",
+  "checkout.features.sellList.ui.sellListPage.payout.requirement.onboarding": "Complete payout provider onboarding",
+  "checkout.features.sellList.ui.sellListPage.payout.requirement.agreement": "Accept the seller agreement",
+  "checkout.features.sellList.ui.sellListPage.payout.requirement.bank.account": "Add a bank account for payouts",
+  "checkout.features.sellList.ui.sellListPage.payout.requirement.identity.documents":
+    "Provide identity verification documents",
+  "checkout.features.sellList.ui.sellListPage.payout.requirement.other": "Review additional payout setup requirements",
   "checkout.features.sellList.ui.sellListPage.payout.readiness.unavailable.description":
     "Payout readiness could not be loaded. Refresh payout setup before accepting offers or creating fallback listings.",
   "checkout.features.sellList.ui.sellListPage.public.standard.offer.preview.ready.detail":
@@ -547,7 +566,7 @@ export const checkoutEnglishTranslations = {
   "checkout.features.sellList.ui.sellListPage.ready": "Ready",
   "checkout.features.sellList.ui.sellListPage.ready.for.seller.checkout": "Ready for seller checkout",
   "checkout.features.sellList.ui.sellListPage.ready.for.seller.checkout.description":
-    "Every line has a pre-checkout sale action and payout setup is ready.",
+    "Every item has a pre-checkout sale action and payout setup is ready. Offer acceptance is available.",
   "checkout.features.sellList.ui.sellListPage.review.sell.list": "Review Sell List",
   "checkout.features.sellList.ui.sellListPage.readiness.needs.action": "{count} need action",
   "checkout.features.sellList.ui.sellListPage.readiness.ready": "{count} ready",
@@ -561,7 +580,9 @@ export const checkoutEnglishTranslations = {
     "Your account is ready. Review final seller terms, payout setup, and ship-from details before continuing.",
   "checkout.features.sellList.ui.sellListPage.registration.return.review.title": "Review final seller details",
   "checkout.features.sellList.ui.sellListPage.resolve.before.seller.checkout":
-    "Resolve {count} line(s) before seller checkout starts.",
+    "Resolve {count} items before seller checkout starts. Offer acceptance is unavailable.",
+  "checkout.features.sellList.ui.sellListPage.resolve.one.before.seller.checkout":
+    "Resolve {count} item before seller checkout starts. Offer acceptance is unavailable.",
   "checkout.features.sellList.ui.sellListPage.resolve.items": "Resolve items",
   "checkout.features.sellList.ui.sellListPage.review.items": "Review items",
   "checkout.features.sellList.ui.sellListPage.expected.seller.payout": "Expected seller payout",

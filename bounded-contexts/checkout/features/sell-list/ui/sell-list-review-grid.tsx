@@ -38,7 +38,7 @@ type ReviewTerms = Readonly<{
 
 function shippingAllowance(terms: ReviewTerms | null) {
   if (!terms) {
-    return "-";
+    return t("checkout.features.sellList.ui.sellListPage.not.quoted.yet");
   }
   const allowanceBps = terms.shipping_allowance_percentage_bps ?? 0;
   const percentage = allowanceBps / 100;
@@ -50,11 +50,15 @@ function termsItems(terms: ReviewTerms | null) {
   return [
     {
       key: t("checkout.features.sellList.ui.sellListPage.marketplace.fee"),
-      value: terms ? formatMoney(terms.marketplace_sales_fee_unit_amount) : "-",
+      value: terms
+        ? formatMoney(terms.marketplace_sales_fee_unit_amount)
+        : t("checkout.features.sellList.ui.sellListPage.not.quoted.yet"),
     },
     {
       key: t("checkout.features.sellList.ui.sellListPage.seller.net"),
-      value: terms ? formatMoney(terms.seller_net_unit_amount) : "-",
+      value: terms
+        ? formatMoney(terms.seller_net_unit_amount)
+        : t("checkout.features.sellList.ui.sellListPage.not.quoted.yet"),
     },
     {
       key: t("checkout.features.sellList.ui.sellListPage.shipping.allowance"),
@@ -242,9 +246,9 @@ export function SellListReviewGrid({
             line.line_type === "selected-offer"
               ? offerReviewsByLineId.get(line.line_id)
               : productOfferReviewsByLineId.get(line.line_id);
-          const estimatedNet = bestOffer
-            ? moneyNumber(bestOffer.terms?.seller_net_unit_amount) * Math.min(line.quantity, bestOffer.quantity)
-            : 0;
+          const estimatedNet = bestOffer?.terms
+            ? moneyNumber(bestOffer.terms.seller_net_unit_amount) * bestOffer.quantity
+            : null;
           return (
             <ProductCard
               key={line.line_id}
@@ -265,9 +269,17 @@ export function SellListReviewGrid({
                     : t("checkout.features.sellList.ui.sellListPage.no.ready.matching.offers")}
                 </Badge>
               }
-              price={t("checkout.features.sellList.ui.sellListPage.estimated.net", {
-                amount: formatMoney(estimatedNet),
-              })}
+              price={t(
+                offers.length > 1
+                  ? "checkout.features.sellList.ui.sellListPage.best.offer.net"
+                  : "checkout.features.sellList.ui.sellListPage.estimated.net",
+                {
+                  amount:
+                    estimatedNet === null
+                      ? t("checkout.features.sellList.ui.sellListPage.not.quoted.yet")
+                      : formatMoney(estimatedNet),
+                },
+              )}
               meta={t("checkout.features.sellList.ui.sellListPage.card.summary", {
                 quantity: line.quantity,
                 offer: bestOffer ? formatMoney(bestOffer.gross) : "-",

@@ -75,6 +75,9 @@
       "@chase-sets/catalog-seed": [
         "./contracts/catalog-seed/index.ts"
       ],
+      "@chase-sets/catalog-seed/ids": [
+        "./contracts/catalog-seed/ids.ts"
+      ],
       "@chase-sets/catalog/client": [
         "./bounded-contexts/catalog/client.ts"
       ],
@@ -437,6 +440,9 @@
       ],
       "@chase-sets/event-core/event-store": [
         "./contracts/event-core/event-store.ts"
+      ],
+      "@chase-sets/event-core/owner-stream-reservation": [
+        "./contracts/event-core/owner-stream-reservation.ts"
       ],
       "@chase-sets/event-core/platform-coverage-facts": [
         "./contracts/event-core/platform-coverage-facts.ts"

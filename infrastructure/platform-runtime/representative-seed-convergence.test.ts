@@ -1,5 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { drainContextRuntime, syncContextProjectionGroups } from "../bounded-context-runtime/index";
+import {
+  drainContextRuntime,
+  drainProjectionGroups,
+  syncContextProjectionGroups,
+} from "../bounded-context-runtime/index";
 import {
   seedApiHostIfEmpty,
   representativeCommerceStateDataProfiles,
@@ -17,7 +21,16 @@ vi.mock("../bounded-context-runtime/index", async (original) => ({
   ) => run({ waited: false }),
   syncContextProjectionGroups: vi.fn(),
   drainContextRuntime: vi.fn(),
+  drainProjectionGroups: vi.fn(),
 }));
+
+const testProjectionGroupLeasePort = {
+  runWithLease: async <T>(
+    _group: unknown,
+    _signal: AbortSignal | undefined,
+    work: (context: never) => Promise<T>,
+  ): Promise<T> => work(undefined as never),
+};
 
 function fixture(retained = false) {
   const operations: string[] = [];
@@ -73,6 +86,7 @@ describe("representative seed-owner convergence", () => {
     vi.clearAllMocks();
     vi.useFakeTimers();
     vi.mocked(drainContextRuntime).mockResolvedValue(undefined);
+    vi.mocked(drainProjectionGroups).mockResolvedValue(undefined);
   });
   afterEach(() => {
     vi.useRealTimers();
@@ -81,8 +95,15 @@ describe("representative seed-owner convergence", () => {
 
   it("reaches the canary within the same budget while the ordinary full drain stalls on unrelated runners", async () => {
     const state = fixture(true);
-    const unrelated = vi.fn(async () => new Promise<void>(() => undefined));
-    vi.mocked(drainContextRuntime).mockImplementation(unrelated);
+    const unrelated = vi.fn(
+      async (_runtime: unknown, context: { signal?: AbortSignal } | undefined) =>
+        new Promise<void>((_resolve, reject) => {
+          context?.signal?.addEventListener("abort", () => reject(new Error("synthetic drain aborted")), {
+            once: true,
+          });
+        }),
+    );
+    vi.mocked(drainProjectionGroups).mockImplementation(unrelated);
     const options = {
       enabledDataProfiles: representativeCommerceStateDataProfiles,
       environmentName: "staging",
@@ -91,6 +112,7 @@ describe("representative seed-owner convergence", () => {
     const full = seedApiHostIfEmpty(state.registry, "platform-api", state.runtime, {
       ...options,
       fullBootstrapDrain: true,
+      projectionGroupLeasePort: testProjectionGroupLeasePort,
     });
     const rejected = expect(full).rejects.toThrow("projection-drain:synthetic-seed-owner");
     await vi.advanceTimersByTimeAsync(21);
@@ -101,6 +123,7 @@ describe("representative seed-owner convergence", () => {
     await seedApiHostIfEmpty(state.registry, "platform-api", state.runtime, {
       ...options,
       seedContextDrain: true,
+      projectionGroupLeasePort: testProjectionGroupLeasePort,
     }).then(canary);
     expect(canary).toHaveBeenCalledTimes(1);
     expect(unrelated).not.toHaveBeenCalled();
@@ -111,7 +134,11 @@ describe("representative seed-owner convergence", () => {
     "projects before/after seed and reconciles fresh=%s without duplicate creation",
     async (retained) => {
       const state = fixture(retained);
-      const options = { enabledDataProfiles: representativeCommerceStateDataProfiles, seedContextDrain: true };
+      const options = {
+        enabledDataProfiles: representativeCommerceStateDataProfiles,
+        seedContextDrain: true,
+        projectionGroupLeasePort: testProjectionGroupLeasePort,
+      };
       await seedApiHostIfEmpty(state.registry, "platform-api", state.runtime, options);
       expect(state.operations).toEqual(["sync", "seed", "sync", "seed", "sync", "seed", "sync"]);
       await seedApiHostIfEmpty(state.registry, "platform-api", state.runtime, options);
@@ -119,6 +146,8 @@ describe("representative seed-owner convergence", () => {
       expect(drainContextRuntime).not.toHaveBeenCalled();
       expect(syncContextProjectionGroups).toHaveBeenCalledWith(state.runtime, "synthetic-seed-owner", {
         requiredOnly: false,
+        context: expect.objectContaining({ signal: expect.any(AbortSignal) }),
+        runWithLease: expect.any(Function),
       });
     },
   );
@@ -126,7 +155,11 @@ describe("representative seed-owner convergence", () => {
   it("resumes a prerequisite committed before an interrupted seed's projection", async () => {
     const state = fixture();
     state.interrupt();
-    const options = { enabledDataProfiles: representativeCommerceStateDataProfiles, seedContextDrain: true };
+    const options = {
+      enabledDataProfiles: representativeCommerceStateDataProfiles,
+      seedContextDrain: true,
+      projectionGroupLeasePort: testProjectionGroupLeasePort,
+    };
     await expect(seedApiHostIfEmpty(state.registry, "platform-api", state.runtime, options)).rejects.toThrow(
       "after prerequisite commit",
     );
@@ -139,8 +172,13 @@ describe("representative seed-owner convergence", () => {
     const state = fixture();
     await seedApiHostIfEmpty(state.registry, "platform-api", state.runtime, {
       enabledDataProfiles: [...representativeCommerceStateDataProfiles, "scenario-seed"],
+      projectionGroupLeasePort: testProjectionGroupLeasePort,
     });
-    expect(drainContextRuntime).toHaveBeenCalledTimes(5);
-    expect(drainContextRuntime).toHaveBeenLastCalledWith(state.runtime, { settleIdleCheckpoints: true });
+    expect(drainProjectionGroups).toHaveBeenCalledTimes(5);
+    expect(drainProjectionGroups).toHaveBeenLastCalledWith(
+      state.runtime,
+      { signal: expect.any(AbortSignal), settleIdleCheckpoints: true },
+      expect.any(Function),
+    );
   });
 });

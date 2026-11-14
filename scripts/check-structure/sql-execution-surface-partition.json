@@ -48,6 +48,7 @@
     "bounded-contexts/catalog/features/product-contents/read-model/queries.ts",
     "bounded-contexts/catalog/features/product-measures/api/runtime.ts",
     "bounded-contexts/catalog/features/product-measures/read-model/queries.ts",
+    "bounded-contexts/catalog/features/provider-scope-discovery/api/proposal-acceptance.ts",
     "bounded-contexts/catalog/features/provider-scope-discovery/api/refresh-schedule-store.ts",
     "bounded-contexts/catalog/features/provider-scope-discovery/api/runtime.ts",
     "bounded-contexts/catalog/features/provider-scope-discovery/api/scope-observation-matcher.ts",
@@ -226,6 +227,7 @@
     "bounded-contexts/fulfillment/features/return-shipments/read-model/linkage.ts",
     "bounded-contexts/fulfillment/features/return-shipments/read-model/projection.ts",
     "bounded-contexts/fulfillment/features/return-shipments/read-model/queries.ts",
+    "bounded-contexts/fulfillment/features/seller-checkout-readiness/api/runtime.ts",
     "bounded-contexts/fulfillment/features/shipments/api/runtime.ts",
     "bounded-contexts/fulfillment/features/shipments/integrations/source/source-projection.ts",
     "bounded-contexts/fulfillment/features/shipments/read-model/postage-operation-authority.ts",
@@ -497,6 +499,7 @@
     "infrastructure/event-core-postgres/list-query.ts",
     "infrastructure/event-core-postgres/measure-publication-staging.ts",
     "infrastructure/event-core-postgres/measure-publication-test-support.ts",
+    "infrastructure/event-core-postgres/owner-stream-reservation.ts",
     "infrastructure/event-core-postgres/postgres-db-test-support.ts",
     "infrastructure/event-core-postgres/projection-helpers.ts",
     "infrastructure/event-core-postgres/projection-store.ts",
@@ -529,7 +532,7 @@
     "infrastructure/platform-runtime/realtime-stream-limiter.ts"
   ],
   "unresolvedMemberRoots": {
-    "count": 277,
+    "count": 278,
     "fileCounts": {
       "bounded-contexts/auth/features/sessions/api/route.ts": 1,
       "bounded-contexts/auth/support/ucp-support/connector-oauth.ts": 1,
@@ -625,6 +628,7 @@
       "deployables/platform-api/src/main.ts": 1,
       "deployables/platform-worker/src/main.ts": 1,
       "infrastructure/bounded-context-runtime/projection-groups.ts": 1,
+      "infrastructure/platform-runtime/inline-seed-db-test-support.ts": 1,
       "infrastructure/platform-runtime/projection-operations-routes.ts": 10,
       "infrastructure/platform-runtime/realtime-outbox-store.ts": 1
     }

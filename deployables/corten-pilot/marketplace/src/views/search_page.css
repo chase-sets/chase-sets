@@ -311,6 +311,42 @@
   color: var(--color-primary);
   font-weight: 600;
 }
+/* A group's choices past the first six wait behind its Show more (`ShowMore`), unless a search of
+   the facet's values is under way (`data-finding`, set by `handlers::find`), which shows every
+   match and no Show more. */
+.choices:not([data-finding]):has(.more:not([open])) [data-waits] {
+  display: none;
+}
+.choices[data-finding] .more,
+.choices [hidden] {
+  display: none;
+}
+.more summary {
+  min-height: 2.5rem;
+  align-content: center;
+  color: var(--color-primary);
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.more[open] .more-label,
+.more:not([open]) .less-label {
+  display: none;
+}
+.find {
+  width: 100%;
+  min-height: 2.5rem;
+  padding: 0 var(--space-2);
+  border: 1px solid var(--color-input);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: inherit;
+}
+.find:focus-visible {
+  outline: 2px solid var(--color-ring);
+  outline-offset: 2px;
+}
 .check {
   display: flex;
   gap: var(--space-2);
@@ -446,6 +482,10 @@
 .card-title a:hover {
   text-decoration: underline;
 }
+/* A result's market, its own element for the live stream: its price and intents are the card's. */
+.market-part {
+  display: contents;
+}
 .price {
   margin: var(--space-1) 0 0;
 }
@@ -460,6 +500,14 @@
   min-height: 2.5rem;
   padding: var(--space-1) var(--space-3);
   font-size: 0.875rem;
+}
+/* Add to List's form, whose button sits among the intents. */
+.save {
+  display: contents;
+}
+/* Add matching products to Buy Cart's form, whose button sits among the controls. */
+.bulk {
+  display: contents;
 }
 
 /* The home page's shelf: featured categories (1, 2 from md, 4 from xl) and new arrivals (1, 2

@@ -1,7 +1,12 @@
 import { createHash } from "node:crypto";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { JsonObject } from "@chase-sets/primitives/json";
-import type { CatalogScopeProductDomain, CatalogScopeRecordKind } from "../../scope-registry/domain/contract";
+import {
+  catalogScopeUnqualifiedLanguageCode,
+  type CatalogScopeLanguageEditionFilter,
+  type CatalogScopeProductDomain,
+  type CatalogScopeRecordKind,
+} from "../../scope-registry/domain/contract";
 
 export type CanonicalScopeRecordProposalReviewStatus = "proposed" | "accepted" | "rejected";
 
@@ -22,6 +27,8 @@ export type CanonicalScopeRecordProposalRecord = CanonicalScopeRecordProposalInp
     scopeRecordId: string;
     normalizedName: string;
     reviewStatus: CanonicalScopeRecordProposalReviewStatus;
+    /** The Scope Record an accepted proposal resolved to; null until acceptance. */
+    acceptedScopeRecordId: string | null;
     firstProposedAt: string;
     updatedAt: string;
   }>;
@@ -38,6 +45,7 @@ type ProposalRow = Readonly<{
   language_editions: readonly string[];
   parent_external_ids: readonly string[];
   review_status: CanonicalScopeRecordProposalReviewStatus;
+  accepted_scope_record_id: string | null;
   evidence: JsonObject;
   first_proposed_at: string | Date;
   updated_at: string | Date;
@@ -89,6 +97,7 @@ export async function listCanonicalScopeRecordProposals(
   input: Readonly<{
     reviewStatus?: CanonicalScopeRecordProposalReviewStatus | null;
     productDomain?: CatalogScopeProductDomain | null;
+    languageEdition?: CatalogScopeLanguageEditionFilter | null;
     limit?: number;
   }> = {},
 ): Promise<readonly CanonicalScopeRecordProposalRecord[]> {
@@ -101,6 +110,9 @@ export async function listCanonicalScopeRecordProposals(
   if (input.productDomain) {
     params.push(input.productDomain);
     conditions.push(`product_domain = $${params.length}`);
+  }
+  if (input.languageEdition) {
+    conditions.push(languageEditionCondition("language_editions", input.languageEdition, params));
   }
   params.push(Math.min(Math.max(input.limit ?? 500, 1), 2_000));
 
@@ -115,17 +127,73 @@ export async function listCanonicalScopeRecordProposals(
   return result.rows.map(toProposalRecord);
 }
 
+export async function getCanonicalScopeRecordProposal(
+  db: PgQueryable,
+  proposalId: string,
+): Promise<CanonicalScopeRecordProposalRecord | null> {
+  const result = await db.query<ProposalRow>("SELECT * FROM catalog_scope_record_proposals WHERE proposal_id = $1", [
+    proposalId,
+  ]);
+  return result.rows[0] ? toProposalRecord(result.rows[0]) : null;
+}
+
+/**
+ * Moves a still-proposed proposal to accepted onto one Scope Record. The
+ * transition is conditional on the proposed status, so a concurrent accept or a
+ * retry that lost the race changes nothing and returns null; the caller rereads.
+ */
+export async function markCanonicalScopeRecordProposalAccepted(
+  db: PgQueryable,
+  input: Readonly<{ proposalId: string; acceptedScopeRecordId: string }>,
+): Promise<CanonicalScopeRecordProposalRecord | null> {
+  const result = await db.query<ProposalRow>(
+    `UPDATE catalog_scope_record_proposals
+     SET review_status = 'accepted',
+         accepted_scope_record_id = $2,
+         updated_at = now()
+     WHERE proposal_id = $1
+       AND review_status = 'proposed'
+     RETURNING *`,
+    [input.proposalId, input.acceptedScopeRecordId],
+  );
+  return result.rows[0] ? toProposalRecord(result.rows[0]) : null;
+}
+
+/**
+ * A proposal in a language edition other than the unqualified one is its own
+ * proposal, so it never merges into the unqualified proposal of the same code
+ * or name. Unqualified proposals keep the identity they always had.
+ */
 export function computeCanonicalScopeRecordProposalId(
-  input: Pick<CanonicalScopeRecordProposalInput, "productDomain" | "scopeKind" | "name" | "officialSetCode">,
+  input: Pick<
+    CanonicalScopeRecordProposalInput,
+    "productDomain" | "scopeKind" | "name" | "officialSetCode" | "languageEditions"
+  >,
 ): string {
+  const languageEditions = normalizedLanguageEditions(input.languageEditions);
+  const unqualified =
+    languageEditions.length === 0 ||
+    (languageEditions.length === 1 && languageEditions[0] === catalogScopeUnqualifiedLanguageCode);
   const identity = {
     productDomain: input.productDomain,
     scopeKind: input.scopeKind,
     identityKey: input.officialSetCode
       ? `code:${normalizeScopeIdentifierKey(input.officialSetCode)}`
       : `name:${normalizeScopeMatchKey(input.name)}`,
+    ...(unqualified ? {} : { languageEditions }),
   };
   return createHash("sha256").update(JSON.stringify(identity)).digest("hex");
+}
+
+/** SQL for "the `column` language editions hold the filter's edition"; appends its parameter. */
+export function languageEditionCondition(
+  column: string,
+  filter: CatalogScopeLanguageEditionFilter,
+  params: unknown[],
+): string {
+  params.push(filter.languageCode);
+  const held = `${column} ? $${params.length}`;
+  return filter.includesUnrecorded ? `(${held} OR ${column} = '[]'::jsonb)` : held;
 }
 
 export function normalizeScopeIdentifierKey(value: string): string {
@@ -147,9 +215,13 @@ function normalizeProposal(input: CanonicalScopeRecordProposalInput): CanonicalS
     name: input.name.trim(),
     officialSetCode: input.officialSetCode?.trim() || null,
     releaseDate: validIsoDate(input.releaseDate),
-    languageEditions: normalizedList(input.languageEditions.map((language) => language.toLowerCase())),
+    languageEditions: normalizedLanguageEditions(input.languageEditions),
     parentExternalIds: normalizedList(input.parentExternalIds),
   };
+}
+
+function normalizedLanguageEditions(values: readonly string[]): readonly string[] {
+  return normalizedList(values.map((language) => language.toLowerCase()));
 }
 
 function normalizedList(values: readonly string[]): readonly string[] {
@@ -176,6 +248,7 @@ function toProposalRecord(row: ProposalRow): CanonicalScopeRecordProposalRecord 
     languageEditions: row.language_editions,
     parentExternalIds: row.parent_external_ids,
     reviewStatus: row.review_status,
+    acceptedScopeRecordId: row.accepted_scope_record_id ?? null,
     evidence: row.evidence,
     firstProposedAt: toIsoDate(row.first_proposed_at),
     updatedAt: toIsoDate(row.updated_at),

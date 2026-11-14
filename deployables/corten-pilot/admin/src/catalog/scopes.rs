@@ -9,8 +9,8 @@
 //!
 //! Each row's View opens the scope's page ([`scope`](super::scope)). Above the list, after the
 //! queue, is the all-scopes alias review (`alias-review?limit=200`, folded as admin-web's is), whose
-//! commands post to the attention routes ([`attention`](super::attention)). Not ported: its bulk
-//! selection, which admin-web keeps in the browser; each candidate has its own commands.
+//! commands post to the attention routes ([`attention`](super::attention)): each candidate's own,
+//! and the bulk bar's for the checked candidates (`views::AliasReviewPart`).
 use corten::{
     http::{HeaderMap, StatusCode},
     prelude::*,
@@ -31,7 +31,7 @@ use crate::{
     api::{ApiError, Caller},
     app::{Shared, read_failed},
     auth::{CatalogAccess, Staff, Viewer},
-    text::{Cat, Pilot},
+    text::Cat,
 };
 
 /// The screen's routes in the catalog area, with their handlers (the area's caller: `CatalogAccess`).
@@ -271,9 +271,9 @@ pub async fn render(
             view.alias_review_failed = true;
         }
     }
-    let (t, p): (Cat, Pilot) = (req.t(), req.t());
+    let t: Cat = req.t();
     let manage = super::manages(viewer);
-    let page_view = views::scope_list(t, p, query, &view, notice, back, manage);
+    let page_view = views::scope_list(req, query, &view, notice, back, manage);
     req.screen(
         &view,
         html! {
