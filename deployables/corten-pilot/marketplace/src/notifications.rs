@@ -10,7 +10,8 @@
 //! | Pause, Resume, Delete | `/account/notifications/product-alerts/{id}` | the settings at the alerts, read after the write (`afterWrite`); with a script, the alerts read after it, drawn in place |
 //!
 //! `/account/product-alerts` (Discovery's `account-product-alerts`) sends a `GET` to the settings at
-//! the alerts. Its form action is not ported: only marketplace's notification center posts to it.
+//! the alerts. A post there (`intent` and `alertId`, marketplace's form) pauses, resumes or deletes
+//! the alert it names and goes to the settings at the alerts (`change_alert_legacy`).
 //!
 //! Each form works without JavaScript (post, then redirect). With it, each is a `data-patch`
 //! form: the answer is only the part that changed. The API's answer to a feed or channel write
