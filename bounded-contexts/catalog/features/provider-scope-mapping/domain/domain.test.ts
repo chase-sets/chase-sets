@@ -67,6 +67,27 @@ function apply(
 }
 
 describe("Provider Scope Mapping identity", () => {
+  it.each(["\uFEFFSynthetic Set", "  Synthetic Set  ", "", null, undefined])(
+    "preserves the exact TCGplayer set-name coordinate %j while normalizing owned keys",
+    (setName) => {
+      const candidate = mappingCandidate({
+        providerKey: " TCGplayer ",
+        unitKey: " TCGplayer:MTG:single-card:source-observation-import ",
+        coordinates: { setName, language: { languageCode: " EN " } },
+      });
+      expect(candidate.coordinates.setName).toBe(setName ?? null);
+      expect(candidate.providerKey).toBe("tcgplayer");
+      expect(candidate.unitKey).toBe("tcgplayer:mtg:single-card:source-observation-import");
+      expect(candidate.coordinates.language.languageCode).toBe("en");
+    },
+  );
+
+  it("retains non-TCGplayer coordinate normalization", () => {
+    expect(mappingCandidate({ coordinates: { setName: "  Synthetic Set  " } }).coordinates.setName).toBe(
+      "Synthetic Set",
+    );
+  });
+
   it("derives a stable stream id from scope record, provider, and unit", () => {
     const candidate = mappingCandidate();
     expect(providerScopeMappingStreamId(candidate)).toBe(`catalog.provider-scope-mapping-${candidate.mappingId}`);

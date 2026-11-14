@@ -96,8 +96,9 @@ values, screenshots containing values, or raw provider request captures.
   TCGplayer cookie, session, or credential. Any TCGplayer request must happen
   in the operator's own browser, never from a Chase Sets server.
 - The Catalog operator-session routes are only Admin grant metadata, mint and
-  Disconnect, plus the extension's grant-authenticated unpair. None accepts or
-  returns a provider credential.
+  Disconnect, plus the extension's grant-authenticated unpair and set-name
+  observation post. None accepts or returns a provider credential; the set-name
+  post accepts only the closed SetNames contract and refuses any other key.
 - Catalog credential readiness reports TCGplayer as `not-required`, with source
   kind `none`, state `unknown`, diagnostic `provider-retired`, and evidence
   `transport: browser-extension-only`; transport diagnostics report
