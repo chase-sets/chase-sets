@@ -1756,10 +1756,18 @@ fn search(uri: &Uri) -> Option<Response> {
             })
         })
         .collect();
-    let facets = json!([{ "id": "dim_grade", "kind": "dimension", "label": "Grade", "values": [
+    let mut facets = json!([{ "id": "dim_grade", "kind": "dimension", "label": "Grade", "values": [
         { "id": "chc_10", "label": "Gem Mint 10", "count": 9, "selected": sent.get("dimension.dim_grade").map(String::as_str) == Some("chc_10") },
         { "id": "chc_9", "label": "Mint 9", "count": 4, "selected": false },
     ] }]);
+    // `sets` adds a facet of ten values, `set_9` chosen when the address names it.
+    if words == "sets" {
+        let chosen = sent.get("dimension.dim_set").map(String::as_str);
+        let values: Vec<Value> = (1..=10)
+            .map(|n| json!({ "id": format!("set_{n}"), "label": format!("Set {n}"), "count": n, "selected": chosen == Some(&format!("set_{n}")) }))
+            .collect();
+        facets.as_array_mut().unwrap().push(json!({ "id": "dim_set", "kind": "dimension", "label": "Set", "values": values }));
+    }
     let mut page = json!({
         "items": items, "facets": facets, "category_counts": [{ "slug": "singles-x1", "count": 7 }],
         "total": cursor.is_none().then_some(30),
@@ -5837,6 +5845,34 @@ async fn an_account_that_may_not_list_is_sent_to_registration_and_cannot_post() 
     let (status, _, _) = pilot.send(post(LIST, "watcher", &list_body(ATTEMPT, "10", "USD", "1"), false)).await;
     assert_eq!(status, StatusCode::FORBIDDEN);
     assert!(listing_calls(&pilot).is_empty());
+}
+
+#[tokio::test]
+async fn a_facets_choices_past_six_wait_behind_show_more_and_a_long_facet_has_a_search() {
+    let pilot = Pilot::new().await;
+    let (status, _, html) = pilot.send(get("/search?q=sets&dimension.dim_set=set_9", None)).await;
+    assert_eq!(status, StatusCode::OK);
+    let set = html.split(r#"<span class="search-page__facet-title">Set</span>"#).nth(1).unwrap();
+    let set = &set[..set.find("</details></fieldset>").map_or(set.len(), |end| end + "</details></fieldset>".len())];
+    // The first six, and Set 9 (chosen), are in view; Set 7, 8 and 10 wait behind Show more.
+    for n in 1..=10 {
+        let at = set.find(&format!(r#"value="set_{n}""#)).unwrap();
+        let label = &set[..at];
+        let label = &label[label.rfind("<label").unwrap()..];
+        assert_eq!(label.contains("data-waits"), [7, 8, 10].contains(&n), "Set {n}: {label}");
+    }
+    assert!(set.contains("<summary><span class=\"search-page__more-label\">Show more</span><span class=\"search-page__less-label\">Show less</span></summary>"), "{set}");
+    // Its search, drawn hidden until the script shows it, and what it says when nothing matches.
+    assert!(set.contains(r#"aria-label="Search Set options""#) && set.contains(r#"placeholder="Find Set option""#), "{set}");
+    let find = &set[set.find(r#"<input type="search""#).unwrap()..];
+    let find = &find[..find.find('>').unwrap()];
+    assert!(find.contains(" hidden") && find.contains("search.reveal") && find.contains("search.find"), "{find}");
+    assert!(!find.contains(" name="), "the search is not a filter: {find}");
+    assert!(set.contains("No matching Set options"), "{set}");
+    // Grade's two values have neither.
+    let grade = html.split(r#"<span class="search-page__facet-title">Grade</span>"#).nth(1).unwrap();
+    let grade = &grade[..grade.find("</fieldset>").unwrap()];
+    assert!(!grade.contains("data-waits") && !grade.contains("Show more") && !grade.contains(r#"type="search""#), "{grade}");
 }
 
 /// The search reads the pilot sent, as their parameters.

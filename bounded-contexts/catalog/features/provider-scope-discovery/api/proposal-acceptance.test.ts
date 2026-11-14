@@ -128,6 +128,51 @@ describe("parseScopeRecordProposalAcceptRequest", () => {
 });
 
 describe("acceptCanonicalScopeRecordProposal", () => {
+  it.each([{ editions: [] }, { editions: ["en"] }])(
+    "refuses a Japanese bind target with editions $editions",
+    async ({ editions }) => {
+      const harness = buildHarness();
+      const proposal = harness.addProposal({
+        ...sdyProposal(),
+        product_domain: "pokemon",
+        scope_kind: "expansion",
+        language_editions: ["ja"],
+      });
+      harness.scopeRecords.push({
+        ...setRow("ref_english", "pokemon", "sdy", "English target", "SDY", editions),
+        scope_kind: "expansion",
+      });
+
+      expect(await harness.accept(proposal.proposal_id, { mode: "bind", scopeRecordId: "ref_english" })).toMatchObject({
+        ok: false,
+        refusal: {
+          status: 422,
+          code: "scope_record_proposal_bind_target_ineligible",
+          details: { reason: "language-editions" },
+        },
+      });
+      expect(proposal.review_status).toBe("proposed");
+      expect(harness.referenceEventCount()).toBe(0);
+    },
+  );
+
+  it.each([{ editions: [] }, { editions: ["en"] }])(
+    "keeps English binding to editions $editions",
+    async ({ editions }) => {
+      const harness = buildHarness();
+      const proposal = harness.addProposal({ ...sdyProposal(), product_domain: "pokemon", scope_kind: "expansion" });
+      harness.scopeRecords.push({
+        ...setRow("ref_english", "pokemon", "sdy", "English target", "SDY", editions),
+        scope_kind: "expansion",
+      });
+
+      expect(await harness.accept(proposal.proposal_id, { mode: "bind", scopeRecordId: "ref_english" })).toMatchObject({
+        ok: true,
+        acceptance: { scopeRecordId: "ref_english" },
+      });
+    },
+  );
+
   it.each(["normalized-name", "exact-id-or-code"])(
     "moves both discovery units with an empty mapping projection after a later %s match",
     async (matchedBy) => {

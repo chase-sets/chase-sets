@@ -53,6 +53,50 @@ export function fresh(id) {
 }
 
 /**
+ * Shows a control only this script makes work (a facet's option search), drawn hidden so a page
+ * without scripts has no control that does nothing.
+ * @param {HTMLElement} element
+ */
+export function reveal(element) {
+  element.hidden = false;
+}
+
+/**
+ * A facet's option search changed (`MarketplaceFacetRail`'s): shows the values whose label or id
+ * holds the words, with the chosen ones always in view, says so when none does, and while there
+ * are words shows every match and no Show more (`data-finding`). Empty words bring the group back
+ * as it was, Show more open or closed as the user left it.
+ * @param {Event} event
+ */
+export function find(event) {
+  const field = event.target;
+  if (!(field instanceof HTMLInputElement)) return;
+  const group = field.closest("fieldset");
+  if (!group) return;
+  const words = field.value.trim().toLowerCase();
+  let shown = 0;
+  for (const choice of group.querySelectorAll("label")) {
+    const box = choice.querySelector('input[type="checkbox"]');
+    if (!(box instanceof HTMLInputElement)) continue;
+    const label = box.nextElementSibling?.textContent?.toLowerCase() ?? "";
+    const matches = !words || label.includes(words) || box.value.toLowerCase().includes(words);
+    choice.hidden = !matches && !box.checked;
+    if (matches) shown += 1;
+  }
+  group.toggleAttribute("data-finding", words !== "");
+  const none = group.querySelector("[data-none]");
+  if (none instanceof HTMLElement) none.hidden = !words || shown > 0;
+}
+
+/**
+ * Enter in a facet's option search finds, as typing does; it does not send the filters.
+ * @param {KeyboardEvent} event
+ */
+export function stay(event) {
+  if (event.key === "Enter") event.preventDefault();
+}
+
+/**
  * Hides the notice the button is in; the filters it names stay applied.
  * @param {HTMLButtonElement} button
  */

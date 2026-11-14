@@ -99,6 +99,7 @@ export function createCatalogServices(
     promotionTargetExclusion: createPostgresPromotionTargetExclusion({ pool, eventStore }),
     checkpointStore,
     db,
+    extensionObservationPool: pool,
     notificationWaiterPool: options.notificationWaiterPool,
     assetStorage: ports.catalogAssetStorage,
     sourceObservationTelemetry: ports.sourceObservationTelemetry,
@@ -181,7 +182,9 @@ export function createCatalogServices(
   });
 
   return {
-    operatorSession: createOperatorSessionGrants(pool, ports.catalogOperatorAuthority),
+    operatorSession: createOperatorSessionGrants(pool, ports.catalogOperatorAuthority, {
+      tcgplayerSetNames: providerScopeDiscovery.recordExtensionScopeObservations,
+    }),
     dimensions,
     displayTemplates,
     fields,
