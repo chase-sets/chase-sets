@@ -407,7 +407,7 @@ describe("Catalog Merge Candidate promotion planner", () => {
     expect(result.status).toBe("planned");
     expect(
       result.plan?.commands.filter(
-        (command) => command.type === "SetCatalogItemFieldValue" && command.fieldId === "field_expansion",
+        (command) => command.type === "SetCatalogItemFieldValue" && command.fieldId === ("field_expansion" as FieldId),
       ),
     ).toEqual(
       chosenValue === "Previous expansion"
