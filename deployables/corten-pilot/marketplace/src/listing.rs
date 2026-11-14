@@ -32,7 +32,7 @@ use crate::{
     app::{GUEST_CHECKOUT, Shared, sign_in_at, url},
     auth::Session,
     buying::{self, BuyNotice},
-    items::{self, Address, ItemScreen, Market, Raw},
+    items::{self, Address, Market, Raw},
     selling,
     text::ItemMsg,
 };
@@ -212,9 +212,9 @@ pub(crate) async fn list(
         Some(Session::Account(viewer)) => Some(viewer.actor.account_id.clone()),
         _ => None,
     };
-    let screen = ItemScreen::of(item.clone(), &address, viewer);
-    let refuse = |message: String, input: ListInput, draft: Option<String>| BuyNotice::ListRefused { message, input, draft };
     let product = first(&raw, field::PRODUCT);
+    let screen = items::sell_screen(session, &caller, &item, &address, viewer, &product).await;
+    let refuse = |message: String, input: ListInput, draft: Option<String>| BuyNotice::ListRefused { message, input, draft };
     if product.is_empty() || screen.product_id.as_deref() != Some(product.as_str()) {
         let notice = refuse(t.route_choose_options_to_list_matching_inventory().to_owned(), input, None);
         return refused(&req, session, &caller, item, &address, notice).await;

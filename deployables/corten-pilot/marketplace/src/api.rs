@@ -2972,13 +2972,37 @@ pub struct SetPage {
 }
 
 /// What the item page reads for a seller (`GET /api/marketplace/items/{id}/seller-overlay`,
-/// `DiscoveryItemDetailSellerOverlay`), the field the pilot reads: whether the account has the
-/// Listing stock location quick listings ship from. Its offer matches and inventory are not
-/// ported.
+/// `DiscoveryItemDetailSellerOverlay`), the fields the pilot reads: whether the account has the
+/// Listing stock location quick listings ship from, and the item's offers it could fill. The API
+/// answers each part only to an actor allowed it (no matches without `offers.view` and
+/// `listings.view`, no stock location without `listings.manage`). Its inventory and selected
+/// listing are not ported.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SellerOverlay {
     pub has_listing_stock_location: bool,
+    #[serde(default)]
+    pub account_offer_matches: Vec<AccountOfferMatch>,
+}
+
+/// An offer of the item that one of the account's listings of its product could fill
+/// (`DiscoveryAccountOfferMatch`), the fields the Sell rail reads. The API sorts them for review:
+/// those it can fill first, then by price.
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(default)]
+pub struct AccountOfferMatch {
+    pub offer_id: String,
+    pub catalog_catalog_item_id: String,
+    pub product_id: String,
+    pub selected_options: Vec<Selected>,
+    /// `submitted`, or what it became.
+    pub status: String,
+    pub quantity_requested: u64,
+    /// What the account's listing has for it.
+    pub seller_available_quantity: u64,
+    pub can_fulfill: bool,
+    /// The offer is already a line of the account's Sell List.
+    pub in_sell_list: bool,
 }
 
 /// The stock an account's quick listing sells (`POST /api/inventory/items/listing-stock/ensure`,

@@ -362,8 +362,8 @@ pub(crate) async fn add(
                 Some(Session::Account(viewer)) => Some(viewer.actor.account_id.clone()),
                 _ => None,
             };
-            let screen = ItemScreen::of(item.clone(), &address, viewer);
             let product = first(field::PRODUCT);
+            let screen = items::sell_screen(session, &caller, &item, &address, viewer, &product).await;
             if product.is_empty() || screen.product_id.as_deref() != Some(product.as_str()) {
                 let message = t.route_choose_options_to_sell_this_item().to_owned();
                 return refused(&req, session, &caller, item, &address, SellForm::Product, typed, message).await;
