@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { handleCandidateCommand } from "../support/route-support/admin-integrations/candidate-command-handler";
-import type { CatalogMergeCandidateConflictResolution } from "../features/source-observations/domain/catalog-merge-candidate";
-import type { SourceObservationListRow } from "../features/source-observations/read-model/queries";
-import type { CatalogItemId, FieldId, BlueprintId, CategoryId } from "../ids";
-import { buildCatalogMergeCandidatesFromObservations } from "../features/source-observations/api/promotion/catalog-merge-candidate-matcher";
-import { planCatalogMergeCandidatePromotionCommands } from "../features/source-observations/api/promotion/catalog-merge-candidate-promotion-planner";
-import { createSyntheticDisplayIdentityQueryable } from "../features/source-observations/api/seeding/synthetic-display-identity-queryable";
+import { handleCandidateCommand } from "./candidate-command-handler";
+import type { CatalogMergeCandidateConflictResolution } from "../../../features/source-observations/domain/catalog-merge-candidate";
+import type { SourceObservationListRow } from "../../../features/source-observations/read-model/queries";
+import type { CatalogItemId, FieldId, BlueprintId, CategoryId } from "../../../ids";
+import { buildCatalogMergeCandidatesFromObservations } from "../../../features/source-observations/api/promotion/catalog-merge-candidate-matcher";
+import { planCatalogMergeCandidatePromotionCommands } from "../../../features/source-observations/api/promotion/catalog-merge-candidate-promotion-planner";
+import { createSyntheticDisplayIdentityQueryable } from "../../../features/source-observations/api/seeding/synthetic-display-identity-queryable";
 
 describe("Catalog Merge Candidate conflict resolution form to plan", () => {
   it.each([
