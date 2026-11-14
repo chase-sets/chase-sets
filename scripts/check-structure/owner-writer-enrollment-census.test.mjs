@@ -37,6 +37,10 @@ describe("owner writer enrollment census", () => {
     "const table = 'event_store_events'; const hidden = 'identity.user-' + id; function planted() { return db.query(`INSERT INTO ${table} (stream_id) VALUES ($1)`, [hidden]); }",
     `function planted() { return db.query('INSERT INTO event_store_events (stream_id) VALUES ($1)', ['identity.membership-' + id]); }`,
     `function planted() { return db.query('UPDATE event_store_events SET payload = $1 WHERE stream_id = $2', [payload, 'identity.account-' + id]); }`,
+    `const query = 'unrelated'; function planted() { return db.query('INSERT INTO event_store_events (stream_id) VALUES ($1)', ['identity.user-' + id]); }`,
+    `const append = 'unrelated'; function planted() { return store.append({streamId: 'identity.membership-' + id, events}); }`,
+    `const a = 'qu'; const b = 'ery'; const method = a + b; function planted() { return db[method]('INSERT INTO event_store_events (stream_id) VALUES ($1)', ['identity.account-' + id]); }`,
+    `const method = 'qu' + 'ery'; const save = db[method]; function planted() { return save('INSERT INTO event_store_events (stream_id) VALUES ($1)', ['identity.user-' + id]); }`,
   ])("rejects a planted unenrolled physical writer regardless of path vocabulary", (code) => {
     const sites = discoverOwnerWriters({ "packages/innocent/adapter.ts": code });
     expect(sites).toHaveLength(1);

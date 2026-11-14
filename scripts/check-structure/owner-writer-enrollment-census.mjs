@@ -5,6 +5,20 @@ import ts from "@chase-sets/typescript-compiler-api";
 import { repoRoot } from "../lib/repo.mjs";
 
 const roots = ["bounded-contexts/", "contracts/", "infrastructure/", "deployables/", "packages/"];
+const sinkNames = new Set([
+  "appendToStream",
+  "appendToStreams",
+  "appendToStreamInTransaction",
+  "appendToStreamsInTransaction",
+  "appendToStreamIndependently",
+  "appendToStreamsIndependently",
+  "append",
+  "commandHandler",
+  "createAggregateCommandHandler",
+  "query",
+]);
+const possibleSink =
+  /\b(?:appendToStreams?(?:InTransaction|Independently)?|append|commandHandler|createAggregateCommandHandler|query)\b|\[\s*[^\s\]]/u;
 export function ownerWriterSources() {
   return Object.fromEntries(
     execFileSync("git", ["ls-files", "--cached", "--others", "--exclude-standard"], {
@@ -39,6 +53,7 @@ function owner(node) {
 export function discoverOwnerWriters(sources) {
   const sites = [];
   for (const [file, text] of Object.entries(sources)) {
+    if (!possibleSink.test(text)) continue;
     const source = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
     const bindings = new Map();
     const bind = (node) => {
@@ -69,8 +84,12 @@ export function discoverOwnerWriters(sources) {
       if (!node || seen.has(node)) return "";
       if (flows.has(node)) return flows.get(node);
       seen.add(node);
-      let result = `${node.getText(source)} ${constantText(node)}`;
-      if (ts.isIdentifier(node) && bindings.has(node.text)) result += ` ${flow(bindings.get(node.text), seen)}`;
+      let result = constantText(node);
+      if (ts.isIdentifier(node)) {
+        result += ` ${node.text}`;
+        if (bindings.has(node.text) && !(ts.isPropertyAccessExpression(node.parent) && node.parent.name === node))
+          result += ` ${flow(bindings.get(node.text), seen)}`;
+      } else if (ts.isPropertyAccessExpression(node)) result += ` ${node.getText(source)}`;
       ts.forEachChild(node, (child) => {
         result += ` ${flow(child, seen)}`;
       });
@@ -78,22 +97,36 @@ export function discoverOwnerWriters(sources) {
       flows.set(node, result);
       return result;
     }
+    function resolveSink(node, seen = new Set()) {
+      if (!node || seen.has(node)) return undefined;
+      seen.add(node);
+      if (ts.isPropertyAccessExpression(node))
+        return sinkNames.has(node.name.text) ? { name: node.name.text, target: node.getText(source) } : undefined;
+      if (ts.isIdentifier(node))
+        return sinkNames.has(node.text)
+          ? { name: node.text, target: node.text }
+          : resolveSink(bindings.get(node.text), seen);
+      if (ts.isElementAccessExpression(node)) {
+        const name = constantText(node.argumentExpression);
+        return sinkNames.has(name) ? { name, target: node.getText(source) } : undefined;
+      }
+      if (ts.isNonNullExpression(node) || ts.isParenthesizedExpression(node) || ts.isAsExpression(node))
+        return resolveSink(node.expression, seen);
+      return undefined;
+    }
     const visit = (node) => {
       if (ts.isCallExpression(node)) {
         const callee = node.expression.getText(source);
-        const query = flow(node.expression);
-        const sink =
-          /(?:^|[.\s])(?:appendToStreams?(?:InTransaction|Independently)?|append|commandHandler|createAggregateCommandHandler)!?$/u.test(
-            query,
-          );
-        const statement = /(?:^|[.\s])query$/u.test(query) ? flow(node.arguments[0]) : "";
+        const resolved = resolveSink(node.expression);
+        const sink = resolved && resolved.name !== "query";
+        const statement = resolved?.name === "query" ? flow(node.arguments[0]) : "";
         const sql =
-          /(?:^|[.\s])query$/u.test(query) &&
+          resolved?.name === "query" &&
           /\b(?:INSERT\s+INTO|UPDATE|DELETE\s+FROM|MERGE\s+INTO|COPY|TRUNCATE(?:\s+TABLE)?)\s+(?:[a-z_][a-z_0-9]*\.)?"?event_store_(?:events|streams)"?\b/iu.test(
             statement,
           );
         if (sink || sql) {
-          const data = flow(node);
+          const data = `${callee} ${resolved.target} ${node.arguments.map((arg) => flow(arg)).join(" ")}`;
           const kinds = ["account", "user", "membership"].filter((kind) =>
             new RegExp(
               `identity\\.${kind}[-.]|\\b${kind}s\\.commandHandler|\\b${kind[0].toUpperCase()}${kind.slice(1)}(?:Event|Command|State)\\b`,
