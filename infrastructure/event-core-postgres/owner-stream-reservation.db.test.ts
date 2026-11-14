@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { RequestTerminalBinding, ReserveOwnerStreamInput } from "@chase-sets/event-core/owner-stream-reservation";
 import type { AppendToStreamInput } from "@chase-sets/event-core/storage";
@@ -481,5 +481,165 @@ describeDb("owner-stream reservations across separate real owner and consumer da
     expect((await ownerPool.query("SELECT evidence_id, payload FROM reservation_applied_evidence")).rows).toEqual([
       { evidence_id: evidence.evidenceId, payload: evidence.payload },
     ]);
+  });
+  it.each(["writer-failure", "crash"])(
+    "recovers released grants and the same generation after %s before owner effects",
+    async (fault) => {
+      await prepare();
+      const evidence = { evidenceId: "sale-recovery", resourceKey: "stock-1", payload: { quantity: 2 } };
+      await store().recordInboundEvidence(evidence);
+      if (fault === "writer-failure") {
+        await expect(
+          store(consumerPool, {
+            applyInvalidation: async () => {
+              throw new Error("writer failed before effects");
+            },
+          }).settleInboundEvidence(evidence.evidenceId),
+        ).rejects.toThrow("writer failed before effects");
+      } else {
+        const child = spawnSync(
+          process.execPath,
+          [
+            "--import",
+            "tsx",
+            "--input-type=module",
+            "--eval",
+            `
+        import { createPgPool } from './pool.ts';
+        import { createPostgresOwnerStreamReservationStore } from './owner-stream-reservation.ts';
+        const ownerPool = createPgPool(process.env.RESERVATION_OWNER_URL, {connectionTimeoutMillis:1000});
+        const consumerPool = createPgPool(process.env.RESERVATION_CONSUMER_URL, {connectionTimeoutMillis:1000});
+        const s = createPostgresOwnerStreamReservationStore({ownerPool, consumerPool,
+          applyInvalidation: async () => process.exit(42),
+          applyInboundEvidence: async () => { throw new Error('evidence applied before crash'); }});
+        await s.settleInboundEvidence('sale-recovery');
+        process.exit(43);
+      `,
+          ],
+          {
+            cwd: import.meta.dirname,
+            env: { ...process.env, RESERVATION_OWNER_URL: ownerUrl, RESERVATION_CONSUMER_URL: consumerUrl },
+            timeout: 15000,
+            stdio: "pipe",
+          },
+        );
+        expect(child.error).toBeUndefined();
+        expect(child.status).toBe(42);
+      }
+      expect(await terminalStatus()).toBe("ABORTED");
+      expect(await store().getReservation("reservation-1")).toMatchObject({
+        status: "RELEASED",
+        releaseStatus: "ABORTED",
+      });
+      expect(await version()).toBe("7");
+      expect(
+        (await ownerPool.query("SELECT generation::text, status FROM event_owner_stream_invalidations")).rows,
+      ).toEqual([{ generation: "1", status: "ABORT-REQUESTED" }]);
+      expect((await ownerPool.query("SELECT * FROM reservation_applied_evidence")).rows).toHaveLength(0);
+      const restarted = store();
+      expect((await restarted.settleInboundEvidence(evidence.evidenceId)).status).toBe("APPLIED");
+      expect((await restarted.settleInboundEvidence(evidence.evidenceId)).status).toBe("APPLIED");
+      expect(await version()).toBe("8");
+      expect(
+        (await ownerPool.query("SELECT generation::text, status FROM event_owner_stream_invalidations")).rows,
+      ).toEqual([{ generation: "1", status: "APPLIED" }]);
+      expect((await ownerPool.query("SELECT evidence_id, payload FROM reservation_applied_evidence")).rows).toEqual([
+        { evidence_id: evidence.evidenceId, payload: evidence.payload },
+      ]);
+      expect((await ownerPool.query("SELECT status FROM event_owner_stream_inbound_evidence")).rows).toEqual([
+        { status: "APPLIED" },
+      ]);
+    },
+  );
+  it.each(["applied-evidence", "settled-conflict"])(
+    "revalidates a delayed owner scan after %s without another generation",
+    async (schedule) => {
+      await prepare();
+      await store().recordInboundEvidence({ evidenceId: "sale-race", resourceKey: "stock-1", payload: {} });
+      let captured!: () => void;
+      const scanned = new Promise<void>((resolve) => {
+        captured = resolve;
+      });
+      let resume!: () => void;
+      const barrier = new Promise<void>((resolve) => {
+        resume = resolve;
+      });
+      const delayedPool = wrap(ownerPool, (client) => ({
+        release: client.release.bind(client),
+        query: async <Row = Record<string, unknown>>(sql: string, values?: readonly unknown[]) => {
+          const result = await client.query<Row>(sql, values);
+          if (sql.startsWith("SELECT DISTINCT owner_stream_id")) {
+            captured();
+            await barrier;
+          }
+          return result;
+        },
+      }));
+      const delayed = store(consumerPool, { ownerPool: delayedPool }).settleInboundEvidence("sale-race");
+      await scanned;
+      try {
+        if (schedule === "applied-evidence") {
+          expect((await store().settleInboundEvidence("sale-race")).status).toBe("APPLIED");
+          const next = reservation("next", {
+            seal: { version: 8, storeIncarnation: "owner-incarnation" },
+            consumer: { ...consumer, requestId: "next-request" },
+          });
+          await store().reserve(next);
+          await store().openRequestTerminal(binding(next));
+        } else {
+          await store().beginInvalidation("owner-1");
+          expect((await store().driveInvalidation("owner-1")).status).toBe("APPLIED");
+        }
+      } finally {
+        resume();
+      }
+      expect((await delayed).status).toBe("APPLIED");
+      expect(await version()).toBe("8");
+      expect(
+        (await ownerPool.query("SELECT generation::text, status FROM event_owner_stream_invalidations")).rows,
+      ).toEqual([{ generation: "1", status: "APPLIED" }]);
+      expect((await ownerPool.query("SELECT * FROM reservation_applied_evidence")).rows).toHaveLength(1);
+      if (schedule === "applied-evidence") {
+        expect(await store().getReservation("next")).toMatchObject({ status: "OPEN" });
+        expect(
+          (await consumerPool.query("SELECT status FROM event_request_terminals WHERE request_id = 'next-request'"))
+            .rows,
+        ).toEqual([{ status: "OPEN" }]);
+      }
+    },
+  );
+  it("bounds a held original-terminal lock without releasing the grant and succeeds after lock release", async () => {
+    const b = await prepare();
+    await store().beginInvalidation("owner-1");
+    const blocker = await consumerPool.connect();
+    await blocker.query("BEGIN");
+    await blocker.query(
+      "SELECT pg_advisory_xact_lock(hashtextextended('request_terminal:' || $1::text || ':' || $2::text, 0))",
+      [b.consumerStoreId, b.requestId],
+    );
+    try {
+      const appendAttempt = expect(
+        createPostgresEventStore({ pool: consumerPool }).appendToStreams!([append(b)]),
+      ).rejects.toThrow();
+      const settlement = store().driveInvalidation("owner-1");
+      await appendAttempt;
+      expect((await settlement).status).toBe("ABORT-REQUESTED");
+      expect(await terminalStatus()).toBe("OPEN");
+      expect(await store().getReservation("reservation-1")).toMatchObject({ status: "OPEN" });
+      expect(await version()).toBe("7");
+      expect(await events()).toBe("0");
+    } finally {
+      await blocker.query("ROLLBACK");
+      blocker.release();
+    }
+    await createPostgresEventStore({ pool: consumerPool }).appendToStreams!([append(b)]);
+    expect((await store().driveInvalidation("owner-1")).status).toBe("APPLIED");
+    expect(await terminalStatus()).toBe("COMMITTED");
+    expect(await store().getReservation("reservation-1")).toMatchObject({
+      status: "RELEASED",
+      releaseStatus: "COMMITTED",
+    });
+    expect(await version()).toBe("8");
+    expect(await events()).toBe("1");
   });
 });

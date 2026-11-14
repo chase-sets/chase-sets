@@ -259,4 +259,44 @@ describe("owner-stream reservations", () => {
     expect(f.applied()).toBe(2);
     await expect(f.store.recordInboundEvidence({ ...e, payload: { quantity: 3 } })).rejects.toThrow("reused");
   });
+  it.each(["retry", "restart"])("resumes released grants after owner application failure on %s", async (mode) => {
+    let version = 7;
+    let attempts = 0;
+    let inboundEffects = 0;
+    const create = () =>
+      createInMemoryOwnerStreamReservationStore({
+        consumer: { storeId: "consumer", incarnation: "consumer-incarnation" },
+        readOwnerSeal: () => ({ version, storeIncarnation: "owner-incarnation" }),
+        applyInvalidation: () => {
+          if (++attempts === 1) throw new Error("writer failed before effects");
+          version++;
+        },
+        applyInboundEvidence: () => {
+          inboundEffects++;
+        },
+      });
+    let store = create();
+    const r = reservation();
+    await store.reserve(r);
+    await store.openRequestTerminal(binding(r));
+    await store.recordInboundEvidence({ evidenceId: "sale", resourceKey: r.resourceKey, payload: {} });
+    await expect(store.settleInboundEvidence("sale")).rejects.toThrow("writer failed");
+    expect(await store.getReservation(r.reservationId)).toMatchObject({ status: "RELEASED", releaseStatus: "ABORTED" });
+    expect(store.snapshot().invalidations.get(r.ownerStreamId)).toMatchObject({
+      generation: 1,
+      status: "ABORT-REQUESTED",
+    });
+    expect(inboundEffects).toBe(0);
+    if (mode === "restart") {
+      const snapshot = store.snapshot();
+      store = create();
+      store.restore(snapshot);
+    }
+    expect((await store.settleInboundEvidence("sale")).status).toBe("APPLIED");
+    expect((await store.settleInboundEvidence("sale")).status).toBe("APPLIED");
+    expect(store.snapshot().invalidations.get(r.ownerStreamId)).toMatchObject({ generation: 1, status: "APPLIED" });
+    expect(version).toBe(8);
+    expect(attempts).toBe(2);
+    expect(inboundEffects).toBe(1);
+  });
 });

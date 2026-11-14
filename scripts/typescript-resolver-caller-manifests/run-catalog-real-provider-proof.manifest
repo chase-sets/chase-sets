@@ -1434,6 +1434,7 @@
 ["candidate","edges",{"from":"infrastructure/event-core-postgres/measure-publication-staging.ts","specifier":"./types","resolved":"repo:/infrastructure/event-core-postgres/types.ts"}]
 ["candidate","edges",{"from":"infrastructure/event-core-postgres/measure-publication-staging.ts","specifier":"@chase-sets/event-core/projector","resolved":"repo:/contracts/event-core/projector.ts"}]
 ["candidate","edges",{"from":"infrastructure/event-core-postgres/measure-publication-staging.ts","specifier":"@chase-sets/product-measures","resolved":"repo:/contracts/product-measures/index.ts"}]
+["candidate","edges",{"from":"infrastructure/event-core-postgres/owner-stream-reservation.ts","specifier":"./configuration-epoch","resolved":"repo:/infrastructure/event-core-postgres/configuration-epoch.ts"}]
 ["candidate","edges",{"from":"infrastructure/event-core-postgres/owner-stream-reservation.ts","specifier":"./types","resolved":"repo:/infrastructure/event-core-postgres/types.ts"}]
 ["candidate","edges",{"from":"infrastructure/event-core-postgres/owner-stream-reservation.ts","specifier":"@chase-sets/event-core/event-store","resolved":"repo:/contracts/event-core/event-store.ts"}]
 ["candidate","edges",{"from":"infrastructure/event-core-postgres/owner-stream-reservation.ts","specifier":"@chase-sets/event-core/owner-stream-reservation","resolved":"repo:/contracts/event-core/owner-stream-reservation.ts"}]

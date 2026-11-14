@@ -20,7 +20,18 @@ import {
 } from "@chase-sets/event-core/owner-stream-reservation";
 import { nowIsoUtcTimestamp } from "@chase-sets/primitives/iso-utc-timestamp";
 import type { IsoUtcTimestamp } from "@chase-sets/primitives/iso-utc-timestamp";
-import { withPgTransaction, type PgQueryable, type PgTransactionalPool } from "./types";
+import { boundStep, withConfigurationEpochTransaction } from "./configuration-epoch";
+import type { PgQueryable, PgTransactionalPool, PgPoolClient } from "./types";
+
+function withPgTransaction<T>(pool: PgTransactionalPool, work: (client: PgPoolClient) => Promise<T>): Promise<T> {
+  return withConfigurationEpochTransaction(pool, async (client) => {
+    await boundStep(client);
+    return work(client);
+  });
+}
+function participationQuery<Row>(pool: PgTransactionalPool, sql: string, values?: readonly unknown[]) {
+  return withPgTransaction(pool, (client) => client.query<Row>(sql, values));
+}
 
 type DbReservation = Readonly<{
   reservation_id: string;
@@ -77,7 +88,8 @@ export function createPostgresOwnerStreamReservationStore(
   return {
     reserve: (input) => withPgTransaction(ownerPool, (client) => reserveOwnerStreamInTransaction(client, input, now)),
     getReservation: async (id) => {
-      const result = await ownerPool.query<DbReservation>(
+      const result = await participationQuery<DbReservation>(
+        ownerPool,
         `SELECT ${RESERVATION_COLUMNS} FROM event_owner_stream_reservations WHERE reservation_id = $1`,
         [id],
       );
@@ -89,7 +101,8 @@ export function createPostgresOwnerStreamReservationStore(
     openRequestTerminal: async (binding) => {
       assertRequestTerminalBinding(binding);
       for (const r of binding.reservations) {
-        const result = await ownerPool.query<DbReservation>(
+        const result = await participationQuery<DbReservation>(
+          ownerPool,
           `SELECT ${RESERVATION_COLUMNS} FROM event_owner_stream_reservations WHERE reservation_id = $1`,
           [r.reservationId],
         );
@@ -149,6 +162,7 @@ export async function reserveOwnerStreamInTransaction(
   now = nowIsoUtcTimestamp,
 ): Promise<OwnerStreamReservation> {
   assertOwnerStreamReservationInput(input);
+  await boundStep(client);
   // Owner -> operation -> resource: serialize every distinct bound, including cross-stream attempts.
   await client.query(OWNER_LOCK_SQL, [input.ownerStreamId]);
   await client.query(OPERATION_LOCK_SQL, [input.operationId]);
@@ -223,6 +237,7 @@ export async function beginOwnerStreamInvalidationInTransaction(
   ownerStreamId: string,
   now = nowIsoUtcTimestamp,
 ): Promise<InvalidationIntent> {
+  await boundStep(client);
   await client.query(OWNER_LOCK_SQL, [ownerStreamId]);
   const prior = await readIntent(client, ownerStreamId);
   if (prior && prior.status !== "APPLIED") return prior;
@@ -264,7 +279,8 @@ async function driveInvalidation(
   });
   if (intent.status === "APPLIED") return intent;
   // All consumer I/O, including the abort CAS, happens outside owner transactions/locks.
-  const rows = await ownerPool.query<DbReservation>(
+  const rows = await participationQuery<DbReservation>(
+    ownerPool,
     `SELECT ${RESERVATION_COLUMNS} FROM event_owner_stream_reservations WHERE reservation_id = ANY($1::text[])`,
     [intent.affectedReservationIds],
   );
@@ -273,7 +289,8 @@ async function driveInvalidation(
     if (reservation.status === "RELEASED") continue;
     let terminal: RequestTerminal | undefined;
     try {
-      const result = await consumerPool.query<DbTerminal>(
+      const result = await participationQuery<DbTerminal>(
+        consumerPool,
         `SELECT binding, status FROM event_request_terminals WHERE consumer_store_id = $1 AND request_id = $2
         AND EXISTS (SELECT 1 FROM event_configuration_store_identity WHERE singleton = true AND store_id = $1 AND incarnation = $3)`,
         [reservation.consumer.storeId, reservation.consumer.requestId, reservation.consumer.incarnation],
@@ -288,7 +305,8 @@ async function driveInvalidation(
       continue;
     }
     if (terminal.status !== "OPEN" && terminalOwnsReservation(terminal, reservation))
-      await ownerPool.query(
+      await participationQuery(
+        ownerPool,
         "UPDATE event_owner_stream_reservations SET status = 'RELEASED', release_status = $2, released_at = now() WHERE reservation_id = $1 AND status = 'OPEN'",
         [reservation.reservationId, terminal.status],
       );
@@ -304,6 +322,7 @@ export async function applyOwnerStreamInvalidationInTransaction(
   expected: InvalidationIntent,
   apply: PostgresOwnerStreamReservationStoreConfig["applyInvalidation"],
 ): Promise<InvalidationIntent> {
+  await boundStep(client);
   await client.query(OWNER_LOCK_SQL, [expected.ownerStreamId]);
   const current = await readIntent(client, expected.ownerStreamId);
   if (
@@ -350,6 +369,7 @@ async function openTerminal(client: PgQueryable, binding: RequestTerminalBinding
   return terminal;
 }
 async function readLockedTerminal(client: PgQueryable, binding: RequestTerminalBinding): Promise<RequestTerminal> {
+  await boundStep(client);
   await assertConsumerIdentity(client, binding);
   await client.query(TERMINAL_LOCK_SQL, [binding.consumerStoreId, binding.requestId]);
   const result = await client.query<DbTerminal>(
@@ -389,21 +409,41 @@ async function settleInboundEvidence(
   config: PostgresOwnerStreamReservationStoreConfig,
   id: string,
 ): Promise<InboundEvidenceResult> {
-  const before = await config.ownerPool.query<DbEvidence>(
+  const before = await participationQuery<DbEvidence>(
+    config.ownerPool,
     "SELECT evidence_id, resource_key, payload, status FROM event_owner_stream_inbound_evidence WHERE evidence_id = $1",
     [id],
   );
   if (!before.rows[0]) return conflict("Inbound evidence is missing.");
   if (before.rows[0].status === "APPLIED") return mapEvidence(before.rows[0]);
-  const owners = await config.ownerPool.query<{ owner_stream_id: string }>(
-    "SELECT DISTINCT owner_stream_id FROM event_owner_stream_reservations WHERE resource_key = $1 AND status = 'OPEN' ORDER BY owner_stream_id",
+  const owners = await participationQuery<{ owner_stream_id: string }>(
+    config.ownerPool,
+    `SELECT DISTINCT owner_stream_id FROM event_owner_stream_reservations WHERE resource_key = $1 AND status = 'OPEN'
+     UNION SELECT i.owner_stream_id FROM event_owner_stream_invalidations i JOIN event_owner_stream_reservations r
+     ON r.reservation_id = ANY(i.affected_reservation_ids) WHERE r.resource_key = $1 AND i.status <> 'APPLIED' ORDER BY owner_stream_id`,
     [before.rows[0].resource_key],
   );
   for (const owner of owners.rows) {
-    await withPgTransaction(config.ownerPool, (client) =>
-      beginOwnerStreamInvalidationInTransaction(client, owner.owner_stream_id),
-    );
-    await driveInvalidation(config, owner.owner_stream_id);
+    const needed = await withPgTransaction(config.ownerPool, async (client) => {
+      // Revalidate the discovery hint in the same owner -> resource order as reservation admission.
+      await client.query(OWNER_LOCK_SQL, [owner.owner_stream_id]);
+      await client.query(RESOURCE_LOCK_SQL, [before.rows[0]!.resource_key]);
+      const evidence = await client.query<DbEvidence>(
+        "SELECT evidence_id, resource_key, payload, status FROM event_owner_stream_inbound_evidence WHERE evidence_id = $1 FOR UPDATE",
+        [id],
+      );
+      if (evidence.rows[0]!.status === "APPLIED") return false;
+      const pending = await client.query(
+        `SELECT 1 FROM event_owner_stream_reservations WHERE resource_key = $1 AND owner_stream_id = $2 AND status = 'OPEN'
+         UNION ALL SELECT 1 FROM event_owner_stream_invalidations i JOIN event_owner_stream_reservations r
+         ON r.reservation_id = ANY(i.affected_reservation_ids) WHERE r.resource_key = $1 AND i.owner_stream_id = $2 AND i.status <> 'APPLIED' LIMIT 1`,
+        [before.rows[0]!.resource_key, owner.owner_stream_id],
+      );
+      if (!pending.rows.length) return false;
+      await beginOwnerStreamInvalidationInTransaction(client, owner.owner_stream_id);
+      return true;
+    });
+    if (needed) await driveInvalidation(config, owner.owner_stream_id);
   }
   return withPgTransaction(config.ownerPool, async (client) => {
     await client.query(RESOURCE_LOCK_SQL, [before.rows[0]!.resource_key]);

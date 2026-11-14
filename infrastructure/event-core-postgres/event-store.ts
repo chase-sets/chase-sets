@@ -413,7 +413,7 @@ export function createPostgresEventStore(config: PostgresEventStoreConfig): Post
       );
     },
     appendToStreams: async (inputs) => {
-      const appendTransaction = inputs.some((input) => input.configurationGrants?.length)
+      const appendTransaction = inputs.some((input) => input.configurationGrants?.length || input.requestTerminal)
         ? withConfigurationEpochTransaction
         : withPgTransaction;
       const appendInputs = inputs.filter((input) => input.events.length > 0);

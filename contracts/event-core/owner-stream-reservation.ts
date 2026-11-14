@@ -318,16 +318,20 @@ export function createInMemoryOwnerStreamReservationStore(
       const prior = evidence.get(id);
       if (!prior) return conflict("Inbound evidence is missing.");
       if (prior.status === "APPLIED") return structuredClone(prior);
-      const owners = new Set(
-        [...reservations.values()]
-          .filter((r) => r.resourceKey === prior.resourceKey && r.status === "OPEN")
-          .map((r) => r.ownerStreamId),
-      );
+      const conflicts = (r: OwnerStreamReservation) => {
+        const intent = invalidations.get(r.ownerStreamId);
+        return (
+          r.resourceKey === prior.resourceKey &&
+          (r.status === "OPEN" ||
+            (intent?.status !== "APPLIED" && intent?.affectedReservationIds.includes(r.reservationId)))
+        );
+      };
+      const owners = new Set([...reservations.values()].filter(conflicts).map((r) => r.ownerStreamId));
       for (const owner of owners) {
         begin(owner);
         drive(owner);
       }
-      if ([...reservations.values()].some((r) => r.resourceKey === prior.resourceKey && r.status === "OPEN")) {
+      if ([...reservations.values()].some(conflicts)) {
         const blocked: InboundEvidenceResult = { ...prior, status: "BLOCKED" };
         evidence.set(id, blocked);
         return structuredClone(blocked);
