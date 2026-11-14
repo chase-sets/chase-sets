@@ -5971,7 +5971,10 @@ async fn search_sends_its_terms_and_draws_results_filters_and_load_more() {
     // Load more: a GET form with every choice, a page more and the API's cursor. Without
     // JavaScript it is the address with a page more, at the first result it adds.
     let form = r#"<form id="load-more" class="#;
-    assert!(html.contains(form) && html.contains(r#"action="/search#result-25" data-patch data-on='connect:search.near($t,$s)'>"#), "{html}");
+    assert!(
+        html.contains(form) && html.contains(r#"action="/search#result-25" data-patch data-on='connect:search.near($t,$s)'>"#),
+        "{html}"
+    );
     for field in [
         r#"<input type="hidden" name="q" value="pika">"#,
         r#"<input type="hidden" name="marketActivity" value="offers">"#,
