@@ -25,7 +25,9 @@ use crate::{
         RepricingRule, RepricingScope, RepricingScopePreview, RepricingTerminal, RepricingTolerance, RepricingTrace,
     },
     app::url,
-    repricing::{DryRunView, EditorPart, EditorScreen, Floor, Place, Policies, Preset, RepricingScreen, Traces, WriteForm},
+    repricing::{
+        DryRunView, EditorPart, EditorScreen, Floor, Place, Policies, Preset, RepricingScreen, RunEditor, Traces, WriteForm,
+    },
     repricing_policy::{ALWAYS_COUNTED, FILTERS, Place as PolicyPlace, PolicyForm, PolicyScreen},
     text::{Pilot, RepricingMsg},
 };
@@ -35,7 +37,8 @@ corten::script::script!(pub mod handlers = "repricing_page.js");
 /// The editor's form, which Activate in the dry run's part also posts.
 #[derive(Id, Clone, Copy)]
 pub struct EditorFormId;
-/// A policy's editor's form, which the dry run's part also posts (its next samples, read again).
+/// A policy's editor's form, or the create editor's opened up, which the dry run's part also posts
+/// (its next samples, read again, and the opened editor's Activate).
 #[derive(Id, Clone, Copy)]
 pub struct ReviseFormId;
 /// The dry run's part, which its live relay draws again.
@@ -219,7 +222,7 @@ pub fn RepricingPage<'a>(t: RepricingMsg, p: Pilot, screen: &'a RepricingScreen)
             intent={WriteForm::FIELDS.intent}
         />
         if let Some(editor) = &screen.editor {
-            <EditorSection t={t} p={p} part={editor} />
+            <RepricingEditorSection t={t} p={p} part={editor} />
         }
         <PoliciesPart t={t} screen={screen} />
         <DryRunsPart t={t} runs={&screen.dry_runs} />
@@ -439,17 +442,25 @@ fn DryRunsPart<'a>(t: RepricingMsg, runs: &'a [RepricingDryRun]) -> impl Render 
     }
 }
 
-/// The editor (`PolicyEditorDrawer`'s preset tier), or that it could not read what it starts from.
+/// The editor (`PolicyEditorDrawer` without a policy): its preset tier at its address, or opened up
+/// as a policy's editor over the body it posts; or that it could not read what it starts from.
 #[component(css = RepricingPage)]
-fn EditorSection<'a>(t: RepricingMsg, p: Pilot, part: &'a EditorPart) -> impl Render {
+pub fn RepricingEditorSection<'a>(t: RepricingMsg, p: Pilot, part: &'a EditorPart) -> impl Patch {
     html! {
-        <section class={(Section, Editor)} aria-labelledby="repricing-editor-title" data-repricing-editor="true">
+        <section
+            id={super::repricing_editor::ReviseEditorId}
+            class={(Section, Editor)}
+            aria-labelledby="repricing-editor-title"
+            data-repricing-editor="true"
+        >
             <div class={EditorHead}>
                 <h2 id="repricing-editor-title" class={PartTitle}>{t.editor_create()}</h2>
                 <a class={(Button, Secondary)} href={url::Repricing::default()}>{p.repricing_close()}</a>
             </div>
             if let EditorPart::Ready(screen) = part {
                 <EditorBody t={t} p={p} screen={screen} />
+            } else if let EditorPart::Opened(screen) = part {
+                <super::repricing_editor::ReviseBody t={t} p={p} id={None} screen={screen} />
             } else {
                 <div class={Banner} data-tone="danger" role="alert">
                     <p class={Strong}>{t.editor_prerequisites_error()}</p>
@@ -498,6 +509,11 @@ fn EditorBody<'a>(t: RepricingMsg, p: Pilot, screen: &'a EditorScreen) -> impl R
                     categories={&screen.categories}
                     names={PresetNames::create()}
                 />
+                <p class={Row}>
+                    <button type="submit" class={(Button, Secondary)} formmethod="post" name={w.intent} value="open-up">
+                        {t.editor_open_up()}
+                    </button>
+                </p>
                 <div class={Actions}>
                     <button type="submit" class={(Button, Secondary)} data-repricing-apply="true">
                         {p.repricing_apply()}
@@ -864,9 +880,10 @@ fn DryRunPart<'a>(t: RepricingMsg, p: Pilot, view: &'a DryRunView) -> impl Rende
     let outcome = move |key: &str| summary.and_then(|s| s.outcomes.get(key)).copied().unwrap_or_default();
     let skipped = move |key: &str| summary.and_then(|s| s.skip_reasons.get(key)).copied().unwrap_or_default();
     let bucket = move |i: usize| summary.and_then(|s| s.delta_buckets.get(&i.to_string())).copied().unwrap_or_default();
-    // A policy's editor reads its next samples and the run again by posting its form; the create
-    // editor's address holds them.
+    // A posted editor (a policy's, or the create editor opened up) reads its next samples and the run
+    // again by posting its form; the create editor's address holds them.
     let pf = PolicyForm::FIELDS;
+    let posted = view.editor != RunEditor::Address;
     let last = match &view.traces {
         Traces::Read(traces) if traces.len() == 100 => traces.last().map(|last| last.listing_id.as_str()),
         _ => None,
@@ -965,7 +982,7 @@ fn DryRunPart<'a>(t: RepricingMsg, p: Pilot, view: &'a DryRunView) -> impl Rende
                     <div class={Banner} data-tone="danger" role="alert">
                         <p>{t.editor_preview_samples_failed()}</p>
                         <p>
-                            if view.revise {
+                            if posted {
                                 <button
                                     type="submit"
                                     class={(Button, Secondary)}
@@ -1009,7 +1026,7 @@ fn DryRunPart<'a>(t: RepricingMsg, p: Pilot, view: &'a DryRunView) -> impl Rende
                     </table>
                     if let Some(last) = last {
                         <p>
-                            if view.revise {
+                            if posted {
                                 <button
                                     type="submit"
                                     class={(Button, Secondary)}
@@ -1026,7 +1043,21 @@ fn DryRunPart<'a>(t: RepricingMsg, p: Pilot, view: &'a DryRunView) -> impl Rende
                     }
                 }
                 // A revise saves without a preview (the editor's Save policy).
-                if !view.revise {
+                if view.editor == RunEditor::Opened {
+                    <div class={Actions}>
+                        <button
+                            type="submit"
+                            class={Button}
+                            form={ReviseFormId}
+                            name={pf.intent}
+                            value="create-policy"
+                            disabled={!view.activates()}
+                            data-repricing-activate="true"
+                        >
+                            {t.editor_activate()}
+                        </button>
+                    </div>
+                } else if view.editor == RunEditor::Address {
                     <div class={Actions}>
                         <button
                             type="submit"
@@ -1048,7 +1079,7 @@ fn DryRunPart<'a>(t: RepricingMsg, p: Pilot, view: &'a DryRunView) -> impl Rende
                     <p class={Reconnecting}>{t.editor_preview_reconnecting()}</p>
                     <noscript>
                         <p>
-                            if view.revise {
+                            if posted {
                                 <button
                                     type="submit"
                                     class={(Button, Secondary)}
