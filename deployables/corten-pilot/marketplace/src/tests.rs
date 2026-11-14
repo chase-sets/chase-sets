@@ -10960,10 +10960,23 @@ async fn pause_selected_sends_the_checked_listings_as_one_batch_and_shows_each_o
     let (status, _, html) = pilot.send(post("/account/listings?status=active", "lister", &body, false)).await;
     assert_eq!(status, StatusCode::OK, "{html}");
     let page = text(&html);
-    assert!(page.contains("1 succeeded, 2 failed"), "{page}");
+    assert!(page.contains("1 succeeded, 1 unconfirmed, 1 failed"), "{page}");
     assert!(page.contains("Succeeded Listing lst_active"), "{page}");
     assert!(page.contains("Failed Listing lst_locked Bulk listing action failed."), "{page}");
-    assert!(page.contains("Failed Listing lst_unsure Bulk listing action failed."), "{page}");
+    // An unknown outcome is not called a failure: it may have applied, and the page offers the
+    // same batch again.
+    assert!(page.contains("Unconfirmed Listing lst_unsure Not confirmed: this may have applied."), "{page}");
+    let again = html.find(">Send the same batch again</button>").expect("Send the same batch again");
+    let form = &html[html[..again].rfind("<form").unwrap()..again];
+    assert!(form.contains(&format!(r#"name="attempt" value="{key}""#)), "the same batch id: {form}");
+    assert!(!form.contains("data-submit"), "not a fresh attempt: {form}");
+    for id in ["lst_active", "lst_locked", "lst_unsure"] {
+        assert!(form.contains(&format!(r#"name="listingIds" value="{id}""#)), "{id}: {form}");
+    }
+    assert!(
+        form.contains(r#"value="bulk-pause-listings""#) && form.contains(r#"action="/account/listings?status=active""#),
+        "{form}"
+    );
     // One batch, its id the form's, each listing once; no listing's own command.
     let batch = format!(
         r#"POST /api/marketplace/account/listings/batch {{"batchId":"{key}","family":"listing.pause","listingIds":["lst_active","lst_locked","lst_unsure"]}}"#
