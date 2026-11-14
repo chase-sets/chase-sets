@@ -205,7 +205,7 @@ function collectChannelsSurfaceViolations(candidate, relativeFiles) {
     relativeFiles.some(
       (file) =>
         file.startsWith("features/manual-sync/") &&
-        !/^features\/manual-sync\/(?:api|domain|read-model|ui)\//.test(file),
+        !/^features\/manual-sync\/(?:api|domain|read-model|tests|ui)\//.test(file),
     )
   ) {
     violations.push("manual-sync-buckets");
@@ -902,6 +902,27 @@ describe("channels-foundation-surface-fence", () => {
           ...files.map((file) => `features/connector-client/integrations/${probe}/${file}`),
         ]),
       ).toEqual([]);
+    },
+  );
+
+  it("admits the manual-sync test bucket", () => {
+    expect(
+      collectChannelsSurfaceViolations(readJson(manifestPath), [
+        ...listFiles(channelsRoot),
+        "features/manual-sync/tests/synthetic-fixture.ts",
+      ]),
+    ).toEqual([]);
+  });
+
+  it.each(["integrations/fixture.ts", "support/fixture.ts", "tests-sibling/fixture.ts", "tests.ts", "fixture.ts"])(
+    "rejects the forbidden manual-sync sibling %s",
+    (file) => {
+      expect(
+        collectChannelsSurfaceViolations(readJson(manifestPath), [
+          ...listFiles(channelsRoot),
+          `features/manual-sync/${file}`,
+        ]),
+      ).toEqual(["manual-sync-buckets"]);
     },
   );
 

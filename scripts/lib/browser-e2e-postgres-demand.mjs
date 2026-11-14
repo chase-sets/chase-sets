@@ -12,6 +12,7 @@ import { isDatabaseSecretKey, runtimeValuesRelativePath } from "../render-platfo
 const apiPoolsPath = "deployables/platform-api/src/database-pools.ts";
 const workerPoolsPath = "deployables/platform-worker/src/database-pools.ts";
 const contextPoolsPath = "infrastructure/platform-runtime/context-pools.ts";
+const recoveryPoolsPath = "bounded-contexts/channels/support/seed-support/manual-sync-browser.ts";
 const constructorRoots = [
   "deployables/platform-api/src",
   "deployables/platform-worker/src",
@@ -34,6 +35,7 @@ const dbTestOnlyClientSources = new Set([
   "infrastructure/event-core-postgres/postgres-db-test-support.ts",
 ]);
 const playwrightClientSources = [
+  recoveryPoolsPath,
   "bounded-contexts/channels/support/seed-support/channel-publication-browser.ts",
   "bounded-contexts/identity/support/seed-support/market-following-verification.ts",
 ];
@@ -210,6 +212,7 @@ export function browserE2ePostgresDemand({ readSource = defaultReadSource } = {}
       { process: "api/marketplace/admin token stores", copies: 3 },
     ],
     ...playwrightClientSources.map((file) => [file, { process: "playwright" }]),
+    [recoveryPoolsPath, { process: "playwright", copies: 3 }],
   ]);
   const inventoriedSources = new Set();
   for (const { file, found } of clientConstructorSources(readSource)) {
@@ -217,6 +220,19 @@ export function browserE2ePostgresDemand({ readSource = defaultReadSource } = {}
     const holder = supplemental.get(file) ?? (file.includes("/e2e/") ? { process: "playwright" } : null);
     if (!holder) throw new Error(`Unaccounted browser E2E client constructor: ${file}:${found[0].line}`);
     inventoriedSources.add(file);
+    if (file === recoveryPoolsPath) {
+      const acquisitions = [];
+      function visit(node) {
+        if (ts.isCallExpression(node) && node.expression.getText(found[0].tree) === "acquire") {
+          acquisitions.push(node.arguments.map((argument) => argument.getText(found[0].tree)).join(","));
+        }
+        ts.forEachChild(node, visit);
+      }
+      visit(found[0].tree);
+      if (found.length !== 1 || acquisitions.sort().join(",") !== "urls.channels,urls.inventory,urls.marketplace") {
+        throw new Error(`Re-inventory browser recovery pool holdings: ${file}`);
+      }
+    }
     for (const constructor of found) {
       if (file === "infrastructure/platform-runtime/post-write-token-store.ts") {
         const tokenModule = module(file, {
