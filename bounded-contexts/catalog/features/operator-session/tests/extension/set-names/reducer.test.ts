@@ -10,6 +10,18 @@ import type { SetNamesPost } from "../../../domain/extension/set-names/transport
 import { counts, entry, largestPostSets, observedAt, response } from "./fixture";
 
 describe("lossless SetNames reducer", () => {
+  it("publishes a value-free receipt before rejecting a synthetic JSON category object", () => {
+    const body: unknown = JSON.parse(
+      JSON.stringify({ errors: [], results: [{ ...entry(), categoryId: { toString: null } }] }),
+    );
+    const onReceipt = vi.fn();
+    const reduced = reduceTcgplayerSetNames(response(body), 3, observedAt, onReceipt);
+    expect(reduced).toMatchObject({ outcome: "unqualified", code: "invalid-body" });
+    expect(onReceipt).toHaveBeenCalledExactlyOnceWith(reduced.receipt);
+    expect(reduced.receipt).toMatchObject({ resultCount: 1, activeCount: 1, errorsCount: 0 });
+    expect(JSON.stringify(reduced.receipt)).not.toMatch(/toString|Synthetic|synthetic-pokemon/);
+    expect(reduceTcgplayerSetNames(response(), 3, observedAt)).toMatchObject({ outcome: "qualified" });
+  });
   it("pins the accepted report hash without inventing supplemental authority", () => {
     expect(tcgplayerSetNameObservationAuthority.reportSha256).toBe(
       "973c4a89869c9f14b3ea67acae9210123a235d7ff6c1f5040d0aa9b229cd989b",

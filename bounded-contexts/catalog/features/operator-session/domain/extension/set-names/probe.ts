@@ -267,7 +267,11 @@ function summarize(body: unknown, requestedProductLineId: string): SetNamesSumma
     }
     for (const key of Object.keys(entry))
       if (!setNameDocumentedFields.includes(key as SetNameDocumentedField)) otherFieldCount++;
-    if (entry.categoryId !== undefined && String(entry.categoryId) !== requestedProductLineId) categoryIdMismatches++;
+    if (
+      entry.categoryId !== undefined &&
+      (typeof entry.categoryId !== "number" || String(entry.categoryId) !== requestedProductLineId)
+    )
+      categoryIdMismatches++;
     if (seenSetNameIds.has(entry.setNameId)) duplicateSetNameIdCount++;
     else if (entry.setNameId !== undefined && entry.setNameId !== null) seenSetNameIds.add(entry.setNameId);
     if (seenCleanSetNames.has(entry.cleanSetName)) duplicateCleanSetNameCount++;

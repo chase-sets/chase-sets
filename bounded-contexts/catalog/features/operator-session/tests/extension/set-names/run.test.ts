@@ -4,6 +4,26 @@ import type { SetNamesPost } from "../../../domain/extension/set-names/transport
 import { counts, entry, observedAt, response } from "./fixture";
 
 describe("SetNames Run", () => {
+  it("publishes one value-free receipt for a synthetic JSON category object and refuses without posting", async () => {
+    const body: unknown = JSON.parse(
+      JSON.stringify({ errors: [], results: [{ ...entry(), categoryId: { toString: null } }] }),
+    );
+    const onReceipt = vi.fn();
+    const post = vi.fn<SetNamesPost>(async () => ({ outcome: "recorded", ...counts }));
+    const input = { productLineId: 3, environment: "staging" as const, now: () => observedAt, onReceipt, post };
+    await expect(runTcgplayerSetNames({ ...input, request: async () => response(body) })).resolves.toMatchObject({
+      outcome: "unqualified",
+      code: "invalid-body",
+    });
+    expect(onReceipt).toHaveBeenCalledOnce();
+    expect(onReceipt).toHaveBeenCalledWith(expect.objectContaining({ resultCount: 1, activeCount: 1, errorsCount: 0 }));
+    expect(JSON.stringify(onReceipt.mock.calls)).not.toMatch(/toString|Synthetic|synthetic-pokemon/);
+    expect(post).not.toHaveBeenCalled();
+    await expect(runTcgplayerSetNames({ ...input, request: async () => response() })).resolves.toMatchObject({
+      outcome: "recorded",
+    });
+    expect(post).toHaveBeenCalledOnce();
+  });
   it.each([1, 2, 3, 68])(
     "fetches bound product line %s once and grant-posts the entire response once",
     async (productLineId) => {
