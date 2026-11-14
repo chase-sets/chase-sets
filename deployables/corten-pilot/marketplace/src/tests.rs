@@ -471,8 +471,9 @@ async fn platform(State(stand): State<Stand>, method: Method, uri: Uri, headers:
             // An account that may save Watch alerts.
             "watcher" | "notices_down" => actor(&["accounts.view"]),
             // Sellers who may list at a price: `lister` has a Listing stock location, `starter` has
-            // none until its ship-from setup is saved.
-            "lister" | "starter" => actor(&["listings.view", "listings.manage", "offers.view"]),
+            // none until its ship-from setup is saved. `lister_ended`'s session ends before its bulk
+            // change is sent.
+            "lister" | "starter" | "lister_ended" => actor(&["listings.view", "listings.manage", "offers.view"]),
             // A seller who may read its listings but not change them.
             "lookout" => actor(&["listings.view"]),
             // The account's orders: `shopper` buys and may cancel, `merchant` sells too, `looker`
@@ -10240,8 +10241,9 @@ fn attention_queue() -> Value {
 /// The seller's list of listings' calls, as the stand-in answers them. The page holds `lst_active`
 /// and `lst_draft` of 250 (two active, one draft, one paused); `lookout`'s metrics and open
 /// order count fail; a read that waits for 43 is still catching up. Turning listings off with
-/// the reason `bogus` is refused, as is an order capacity of 1000; pausing `lst_locked` is
-/// refused and `lst_broken` fails. Every other write applies at 51.
+/// the reason `bogus` is refused, as is an order capacity of 1000. In a batch, `lst_locked` is an
+/// error and `lst_unsure` unknown; a batch naming `lst_foreign` is refused, one naming
+/// `lst_broken` fails, and `lister_ended`'s ended. A batch applies at 50; every other write at 51.
 fn listing_list(session: &str, method: &Method, uri: &Uri, headers: &HeaderMap, body: &str) -> Option<Response> {
     const ACCOUNT: &str = "/api/marketplace/account";
     let path = uri.path().strip_prefix(ACCOUNT)?;
@@ -10326,10 +10328,31 @@ fn listing_list(session: &str, method: &Method, uri: &Uri, headers: &HeaderMap, 
             | "/order-capacity",
         )
         | ("DELETE", "/listing-availability/away-window" | "/order-capacity") => applied(),
-        ("POST", "/listings/lst_locked/pause") => {
-            refusal(StatusCode::BAD_REQUEST, "listing_command_rejected", "Listing cannot be paused from its current status.")
+        ("POST", "/listings/batch") => {
+            let ids: Vec<&str> =
+                sent["listingIds"].as_array().map(|ids| ids.iter().filter_map(Value::as_str).collect()).unwrap_or_default();
+            if session == "lister_ended" {
+                refusal(StatusCode::UNAUTHORIZED, "authentication_required", "Authentication required.")
+            } else if ids.contains(&"lst_broken") {
+                StatusCode::INTERNAL_SERVER_ERROR.into_response()
+            } else if ids.contains(&"lst_foreign") {
+                refusal(StatusCode::BAD_REQUEST, "id-invalid", "Listing batch targets are invalid.")
+            } else {
+                let items: Vec<Value> = ids
+                    .iter()
+                    .map(|id| {
+                        let outcome = match *id {
+                            "lst_locked" => "error",
+                            "lst_unsure" => "unknown",
+                            _ => "succeeded",
+                        };
+                        json!({ "targetId": id, "outcome": outcome, "version": 2 })
+                    })
+                    .collect();
+                let body = json!({ "batchId": sent["batchId"], "family": sent["family"], "items": items, "total": ids.len() });
+                committed(StatusCode::OK, "marketplace", "50", body)
+            }
         }
-        ("POST", "/listings/lst_broken/pause") => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
         _ => return None,
     })
 }
@@ -10919,34 +10942,63 @@ async fn while_a_setting_catches_up_the_list_shows_what_was_set() {
 }
 
 #[tokio::test]
-async fn pause_selected_writes_each_listing_once_and_shows_each_outcome() {
+async fn pause_selected_sends_the_checked_listings_as_one_batch_and_shows_each_outcome() {
     let pilot = Pilot::new().await;
-    let body = "intent=bulk-pause-listings&listingIds=lst_active&listingIds=lst_locked&listingIds=lst_active";
-    let (status, _, html) = pilot.send(post("/account/listings?status=active", "lister", body, false)).await;
+    // The bulk form is drawn with its batch id.
+    let (_, _, html) = pilot.send(get(LISTINGS, Some("lister"))).await;
+    let pause = html.find(r#"value="bulk-pause-listings""#).expect("Pause selected");
+    let form = &html[html[..pause].rfind("<form").unwrap()..pause];
+    assert!(form.contains(r#"name="attempt""#), "{form}");
+    let key = crate::recovery::new_attempt();
+    let body = format!(
+        "intent=bulk-pause-listings&attempt={key}&listingIds=lst_active&listingIds=lst_locked&listingIds=lst_unsure&listingIds=lst_active"
+    );
+    let (status, _, html) = pilot.send(post("/account/listings?status=active", "lister", &body, false)).await;
     assert_eq!(status, StatusCode::OK, "{html}");
     let page = text(&html);
-    assert!(page.contains("1 succeeded, 1 failed"), "{page}");
+    assert!(page.contains("1 succeeded, 2 failed"), "{page}");
     assert!(page.contains("Succeeded Listing lst_active"), "{page}");
-    assert!(page.contains("Failed Listing lst_locked This listing change is not available."), "{page}");
-    let writes = list_calls(&pilot, "/api/marketplace/account/listings/lst_");
-    assert_eq!(
-        writes,
-        [
-            "POST /api/marketplace/account/listings/lst_active/pause {}",
-            "POST /api/marketplace/account/listings/lst_locked/pause {}"
-        ]
+    assert!(page.contains("Failed Listing lst_locked Bulk listing action failed."), "{page}");
+    assert!(page.contains("Failed Listing lst_unsure Bulk listing action failed."), "{page}");
+    // One batch, its id the form's, each listing once; no listing's own command.
+    let batch = format!(
+        r#"POST /api/marketplace/account/listings/batch {{"batchId":"{key}","family":"listing.pause","listingIds":["lst_active","lst_locked","lst_unsure"]}}"#
     );
-    // The page is read after the write that applied, with the filters it was posted with.
+    assert_eq!(list_calls(&pilot, "/api/marketplace/account/listings/batch"), [batch]);
+    assert!(list_calls(&pilot, "/api/marketplace/account/listings/lst_").is_empty());
+    // The page is read after the batch, with the filters it was posted with.
     let calls = pilot.stand.calls.lock().unwrap().clone();
     let read = calls.iter().rev().find(|c| c.path.starts_with("/api/marketplace/account/listings?")).unwrap();
     assert_eq!(read.path, "/api/marketplace/account/listings?limit=100&offset=0&status=active");
     assert_eq!(waits_for(&read.headers).as_deref(), Some("50"));
-    // Nothing checked, and a listing whose write fails.
+}
+
+#[tokio::test]
+async fn a_bulk_change_that_is_refused_fails_or_needs_a_sign_in_says_so() {
+    let pilot = Pilot::new().await;
+    // Nothing checked.
     let (status, _, html) = pilot.send(post(LISTINGS, "lister", "intent=bulk-withdraw-listings", false)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
     assert!(text(&html).contains("Check the listings to pause or withdraw first."), "{html}");
-    let (status, _, _) = pilot.send(post(LISTINGS, "lister", "intent=bulk-pause-listings&listingIds=lst_broken", false)).await;
+    assert!(list_calls(&pilot, "/api/marketplace/account/listings/batch").is_empty());
+    // A refused batch fails every listing it named, and a form without a batch id gets one.
+    let body = "intent=bulk-withdraw-listings&listingIds=lst_active&listingIds=lst_foreign";
+    let (status, _, html) = pilot.send(post(LISTINGS, "lister", body, false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    let page = text(&html);
+    assert!(page.contains("0 succeeded, 2 failed") && page.contains("Failed Listing lst_foreign"), "{page}");
+    let sent = list_calls(&pilot, "/api/marketplace/account/listings/batch");
+    let sent: Value = serde_json::from_str(sent[0].split_once(" {").map(|(_, b)| format!("{{{b}")).unwrap().as_str()).unwrap();
+    assert_eq!(sent["family"], "listing.withdraw");
+    assert!(crate::recovery::valid_attempt(sent["batchId"].as_str().unwrap()), "{sent}");
+    // A failure is the error page; an ended session signs in.
+    let body = "intent=bulk-pause-listings&listingIds=lst_broken";
+    let (status, _, _) = pilot.send(post(LISTINGS, "lister", body, false)).await;
     assert_eq!(status, StatusCode::BAD_GATEWAY);
+    let (status, headers, _) =
+        pilot.send(post(LISTINGS, "lister_ended", "intent=bulk-pause-listings&listingIds=lst_active", false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert!(headers["location"].to_str().unwrap().starts_with("/sign-in"), "{headers:?}");
 }
 
 #[tokio::test]
