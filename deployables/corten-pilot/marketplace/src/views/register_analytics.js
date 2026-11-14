@@ -9,6 +9,9 @@ const METHODS = ["passkey", "phone-code", "magic-link", "password"];
 /** The method a link chose, for the page it opens to count. */
 const CHOSEN = "chase-sets:registration-chosen";
 
+/** The passkey step's failure in the browser (platform's `passkey.js`). */
+const PASSKEY_FAILED = "chase-sets:passkey-failed";
+
 /** A form of the page was sent, so leaving is not abandoning. */
 let sent = false;
 /** A method's link was followed, so leaving is choosing. */
@@ -39,15 +42,19 @@ function chosen() {
 
 /**
  * The methods joined the page. The page as an address opens it counts every method shown, or only
- * the one a link chose; a form's answer counts neither, as marketplace's page stays open. Leaving
- * the page with nothing sent counts as abandoned.
+ * the one a link chose; a form's answer counts neither, as marketplace's page stays open, and
+ * leaving it is not abandoning, as a form was sent. Leaving the page with nothing sent counts as
+ * abandoned, and the passkey step failing in the browser counts as failed.
  * @param {AbortSignal} signal
  * @param {string} method the method shown
  * @param {boolean} opened
  */
 export function watch(signal, method, opened) {
-  sent = false;
+  sent = !opened;
   choosing = false;
+  addEventListener(PASSKEY_FAILED, () => track({ method: "passkey", stage: "failed", reason: "browser-passkey-failed" }), {
+    signal,
+  });
   if (opened) {
     if (chosen() === method) track({ method, stage: "selected" });
     else for (const shown of METHODS) track({ method: shown, stage: "shown" });
