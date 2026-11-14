@@ -1255,7 +1255,9 @@ const outputs = [
         ["checkout.routes.sellCheckoutSession.", "route"],
         ["checkout.shared.policyLinks.", "policy"],
       ])),
-      ...(await catalog("fulfillment.ts", "fulfillmentEnglishTranslations", [["fulfillment.shippingSetup.title", "shipping_setup"]])),
+      ...(await catalog("fulfillment.ts", "fulfillmentEnglishTranslations", [
+        ["fulfillment.shippingSetup.title", "shipping_setup"],
+      ])),
     }),
   ],
   [
