@@ -18155,7 +18155,15 @@ async fn confirming_hands_off_each_line_once_saves_the_confirmation_and_shows_it
         evidence["sellerEvidence"]["shipFrom"],
         json!({ "status": "ready", "addressId": null, "country": "US", "region": "IL", "postalCode": "60201" })
     );
+    // The choices Checkout reads seller readiness from (chase-sets/chase-sets#10764), at readiness
+    // and again with the confirm.
+    let typed = json!({ "name": "Demo Collector", "line1": "42 Binder Lane", "line2": null, "city": "Evanston",
+        "state": "IL", "postalCode": "60201", "country": "US" });
+    assert_eq!(evidence["shipFrom"], typed);
+    assert_eq!(evidence["label"], json!({ "preference": "prepaid-label" }));
     let confirm = last_body(&pilot, "/api/marketplace/account/sell-list/confirm");
+    assert_eq!(confirm["shipFrom"], typed);
+    assert_eq!(confirm["label"], json!({ "preference": "prepaid-label" }));
     assert_eq!(confirm["confirmationId"], "slc_chk_one");
     assert_eq!(confirm["completedLineIds"], json!(["sll_offer", "sll_product"]));
     assert_eq!(confirm["remainingLineQuantities"], json!([]));
