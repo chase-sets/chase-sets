@@ -344,6 +344,7 @@ describe("finite manual-sync recovery transport", () => {
     else finish(value, kind === "signal" ? null : kind === "nonzero" ? 1 : 0);
     const error = await result.catch((error: Error) => error);
     expect(error).toBeInstanceOf(Error);
+    if (!(error instanceof Error)) throw new Error("Expected owned recovery transport refusal");
     expect(error.message).toBe("owned-recovery-child-failed");
     expect(JSON.stringify({ message: error.message, stack: error.stack, ...error })).not.toContain("private-marker");
     expect(value.stdin.destroyed).toBe(true);
