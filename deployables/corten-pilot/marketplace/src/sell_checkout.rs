@@ -7,10 +7,13 @@
 //! same decisions (a pure computation, `POST /sell-list/readiness`): a changed list, or one that is not
 //! ready, is a recovery that sends the seller back to the Sell List. Confirming (one form) checks
 //! the fields, then does what marketplace's route does: the review plan in the address checked
-//! against the snapshot, the seller confirmation evidence sent for readiness, the Marketplace
+//! against the snapshot, the seller's ship-from and label choices with the seller confirmation
+//! evidence sent for readiness (Checkout reads risk, fulfillment and the payout estimate from
+//! their owners with the choices, and checks them again before it confirms), the Marketplace
 //! handoff (each selected offer and Smart Match target accepted, each fallback listing created and
 //! published, with keys derived from the confirmation, so a resent form replays), and
-//! `POST /sell-list/confirm` with what it did. The confirmation page is read after that write.
+//! `POST /sell-list/confirm` with what it did and the same choices. The confirmation page is read
+//! after that write.
 //!
 //! A guest's page is the same review of the guest sell list; confirming checks the fields and goes
 //! to marketplace's registration, back to the Sell List.
@@ -32,9 +35,9 @@ use serde_json::{Value, json};
 
 use crate::{
     api::{
-        ApiError, CheckoutSessions as _, EvidenceLabel, EvidencePayout, EvidenceShipFrom, EvidenceStatus, LineAction, LineKept,
-        Listings as _, OfferMatchCalls as _, ReadinessDecisions, SavedAddress, SellList as _, SellListConfirmation, SellListRow,
-        SellListSnapshot, SellPayoutReadiness, SellerEvidence,
+        ApiError, CheckoutSessions as _, EvidenceLabel, EvidencePayout, EvidenceShipFrom, EvidenceStatus, LabelChoice,
+        LineAction, LineKept, Listings as _, OfferMatchCalls as _, ReadinessDecisions, SavedAddress, SellList as _,
+        SellListConfirmation, SellListRow, SellListSnapshot, SellPayoutReadiness, SellerChoices, SellerEvidence, ShipFromChoice,
     },
     app::{Shared, read_failed, sign_in_back_to, url},
     auth::Session,
@@ -532,6 +535,26 @@ pub fn reviewed(lines: &[SellListRow], readiness: &SellListSnapshot, plan: Optio
     Some(out)
 }
 
+/// What the seller chose, as marketplace's action sends it for readiness and confirm: a saved
+/// address by its id, else the address typed (an empty line 2 as none), and the label preference.
+pub fn choices(values: &Values) -> SellerChoices {
+    let ship_from = if values.ship_from_address_id == MANUAL {
+        ShipFromChoice::Typed {
+            name: values.ship_from_name.clone(),
+            line1: values.line1.clone(),
+            line2: Some(values.line2.clone()).filter(|l| !l.is_empty()),
+            city: values.city.clone(),
+            state: values.state.clone(),
+            postal_code: values.postal_code.clone(),
+            country: values.country.clone(),
+        }
+    } else {
+        ShipFromChoice::Saved { address_id: values.ship_from_address_id.clone() }
+    };
+    let preference = if values.label_preference == "seller-label-later" { "seller-label-later" } else { "prepaid-label" };
+    SellerChoices { ship_from, label: LabelChoice { preference } }
+}
+
 /// The seller confirmation evidence marketplace's route builds (`buildSellerEvidence`): every
 /// dimension ready, the ship-from's place and the payout readiness read.
 pub fn evidence(values: &Values, payout: &Payout) -> SellerEvidence {
@@ -926,7 +949,8 @@ async fn confirm(
     };
     let payout = screen.payout.clone().unwrap_or(Payout::Unavailable);
     let evidence = evidence(&screen.values, &payout);
-    match caller.seller_readiness(&started.decisions, &evidence).await {
+    let choices = choices(&screen.values);
+    match caller.seller_readiness(&started.decisions, &choices, &evidence).await {
         Ok(now) if now.status == "ready" && now.unresolved_line_ids.is_empty() && now.seller_readiness.status == "ready" => {
             let handed = match handoff(caller, list, t, &confirmation, &lines).await {
                 Ok(handed) => handed,
@@ -943,6 +967,7 @@ async fn confirm(
                 "readinessSourceRevision": now.source_revision, "readinessDecisions": started.decisions,
                 "completedLineIds": handed.completed, "remainingLineQuantities": remaining,
                 "sellerEvidence": evidence, "handoffSummary": handed.summary,
+                "shipFrom": choices.ship_from, "label": choices.label,
             });
             let receipt = match caller.confirm_sell_list(&body).await {
                 Ok(receipt) => receipt,
@@ -1143,5 +1168,30 @@ mod tests {
         assert_eq!(sent.ship_from.address_id.as_deref(), Some("adr_home"));
         assert_eq!(sent.label.preference, "prepaid-label");
         assert_eq!(sent.payout.readiness_status, "unavailable");
+    }
+
+    #[test]
+    fn the_choices_are_a_saved_address_by_its_id_or_the_one_typed_and_the_label() {
+        let mut values = Values {
+            ship_from_name: "Demo".into(),
+            line1: "1 Main".into(),
+            city: "Evanston".into(),
+            state: "IL".into(),
+            postal_code: "60201".into(),
+            label_preference: "seller-label-later".into(),
+            ..Values::default()
+        };
+        assert_eq!(
+            serde_json::to_value(choices(&values)).unwrap(),
+            json!({ "shipFrom": { "name": "Demo", "line1": "1 Main", "line2": null, "city": "Evanston", "state": "IL",
+                "postalCode": "60201", "country": "US" }, "label": { "preference": "seller-label-later" } })
+        );
+        values.ship_from_address_id = "adr_home".into();
+        values.line2 = "Unit 2".into();
+        values.label_preference = "anything".into();
+        assert_eq!(
+            serde_json::to_value(choices(&values)).unwrap(),
+            json!({ "shipFrom": { "addressId": "adr_home" }, "label": { "preference": "prepaid-label" } })
+        );
     }
 }

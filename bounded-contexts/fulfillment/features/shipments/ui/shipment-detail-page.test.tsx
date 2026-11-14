@@ -9,6 +9,20 @@ import type {
   FulfillmentShipmentDetail,
 } from "./contracts";
 import { FulfillmentShipmentDetailPage } from "./shipment-detail-page";
+import type { PostageLabelStatus, ShipmentStatus } from "../domain/common";
+import { resolveShipmentActionPlan } from "../domain/shipment-action";
+
+/** The seller's detail read as the Fulfillment API returns it, with the shipment's action plan. */
+function withPlan(detail: FulfillmentShipmentDetail): FulfillmentShipmentDetail {
+  return {
+    ...detail,
+    action_plan: resolveShipmentActionPlan({
+      status: detail.status as ShipmentStatus,
+      labelStatus: detail.label_status as PostageLabelStatus,
+      conflicts: detail.conflicts,
+    }),
+  };
+}
 
 const elevationRoleAttribute = ["data", "elevation", "role"].join("-");
 
@@ -185,7 +199,7 @@ describe("FulfillmentShipmentDetailPage", () => {
           <FulfillmentShipmentDetailPage
             role="seller"
             backHref="/account/sales/shipments"
-            shipment={{ ...shipment, shipment_id: shipmentId, label_status }}
+            shipment={withPlan({ ...shipment, shipment_id: shipmentId, label_status })}
           />,
         );
         const links = container.querySelectorAll<HTMLAnchorElement>('a[href*="packing-slips"]');
@@ -243,7 +257,7 @@ describe("FulfillmentShipmentDetailPage", () => {
         <FulfillmentShipmentDetailPage
           role="seller"
           backHref="/account/sales/shipments"
-          shipment={{ ...deliveredShipment, delivered_at }}
+          shipment={withPlan({ ...deliveredShipment, delivered_at })}
         />,
       );
     expect(renderSeller(deliveredAt)).toBe(renderSeller(null));
@@ -251,7 +265,7 @@ describe("FulfillmentShipmentDetailPage", () => {
 
   it("renders populated shipment sections with zero marked entity roots", () => {
     const html = renderToString(
-      <FulfillmentShipmentDetailPage role="seller" backHref="/account/sales/shipments" shipment={shipment} />,
+      <FulfillmentShipmentDetailPage role="seller" backHref="/account/sales/shipments" shipment={withPlan(shipment)} />,
     );
 
     expect(markedRoleCount(html, "entity")).toBe(0);
@@ -284,7 +298,7 @@ describe("FulfillmentShipmentDetailPage", () => {
       <FulfillmentShipmentDetailPage
         role="seller"
         backHref="/account/sales/shipments"
-        shipment={{ ...shipment, status: "packing", conflicts: [conflict] }}
+        shipment={withPlan({ ...shipment, status: "packing", conflicts: [conflict] })}
       />,
     );
     expect(sellerHtml).toContain('value="cancel-shipment"');
@@ -293,7 +307,7 @@ describe("FulfillmentShipmentDetailPage", () => {
       <FulfillmentShipmentDetailPage
         role="buyer"
         backHref="/account/shipments"
-        shipment={{ ...shipment, status: "packing", conflicts: [conflict] }}
+        shipment={withPlan({ ...shipment, status: "packing", conflicts: [conflict] })}
       />,
     );
     expect(buyerHtml).not.toContain('value="cancel-shipment"');
@@ -301,7 +315,11 @@ describe("FulfillmentShipmentDetailPage", () => {
       <FulfillmentShipmentDetailPage
         role="seller"
         backHref="/account/sales/shipments"
-        shipment={{ ...shipment, status: "packing", conflicts: [{ ...conflict, origin: "payment-fraud-warning" }] }}
+        shipment={withPlan({
+          ...shipment,
+          status: "packing",
+          conflicts: [{ ...conflict, origin: "payment-fraud-warning" }],
+        })}
       />,
     );
     expect(fraudHtml).not.toContain('value="cancel-shipment"');
@@ -309,13 +327,54 @@ describe("FulfillmentShipmentDetailPage", () => {
       <FulfillmentShipmentDetailPage
         role="seller"
         backHref="/account/sales/shipments"
-        shipment={{
+        shipment={withPlan({
           ...shipment,
           status: "packing",
           conflicts: [{ ...conflict, conflict_kind: "destination-correction", origin: "seller-requested" }],
-        }}
+        })}
       />,
     );
     expect(destinationOnlyHtml).not.toContain('value="cancel-shipment"');
+  });
+
+  it("draws the seller's actions from the API's action plan, not from the status", () => {
+    const render = (detail: FulfillmentShipmentDetail) =>
+      renderToString(
+        <FulfillmentShipmentDetailPage role="seller" backHref="/account/sales/shipments" shipment={detail} />,
+      );
+
+    // A cancelled shipment offers no exception, which the API would refuse.
+    expect(render(withPlan({ ...shipment, status: "cancelled" }))).not.toContain('value="raise-exception"');
+
+    // A label-attached shipment without a purchased label offers dispatch but no void.
+    const unpurchased = render(withPlan({ ...shipment, status: "label-attached", label_status: "not-purchased" }));
+    expect(unpurchased).toContain('value="dispatch-shipment"');
+    expect(unpurchased).not.toContain('value="void-label"');
+
+    // Under an order cancellation, voiding the label is the next action and dispatch is gone.
+    const cancelled = render(
+      withPlan({
+        ...shipment,
+        status: "label-attached",
+        label_status: "purchased",
+        conflicts: [
+          {
+            order_id: "ord_populated",
+            conflict_kind: "cancellation",
+            origin: "order-cancelled",
+            reason: "buyer-cancelled",
+            shipment_status: "label-attached",
+            detected_at: "2026-04-02T00:16:00.000Z",
+          },
+        ],
+      }),
+    );
+    expect(cancelled).toContain('value="void-label"');
+    expect(cancelled).not.toContain('value="dispatch-shipment"');
+
+    // Without a plan (a read that carries none) the page offers no seller action.
+    const planless = render({ ...shipment, status: "label-attached" });
+    expect(planless).not.toContain('value="dispatch-shipment"');
+    expect(planless).not.toContain('value="raise-exception"');
   });
 });

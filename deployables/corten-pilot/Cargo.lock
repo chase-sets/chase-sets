@@ -44,7 +44,7 @@ dependencies = [
  "hyper",
  "hyper-util",
  "itoa",
- "matchit",
+ "matchit 0.8.4",
  "memchr",
  "mime",
  "percent-encoding",
@@ -164,7 +164,7 @@ checksum = "4e7648175b45a9a48536d676f68d918270699102aa8dab5496df06904c914600"
 [[package]]
 name = "corten-macros"
 version = "0.2.0"
-source = "git+https://github.com/corten-run/corten?rev=de46e974bdbf2da5ea5fe9d6d6eff76c7c9b84e3#de46e974bdbf2da5ea5fe9d6d6eff76c7c9b84e3"
+source = "git+https://github.com/corten-run/corten?rev=ff78cf143d5b9b696794165c815e44232199d8ea#ff78cf143d5b9b696794165c815e44232199d8ea"
 
 [[package]]
 name = "corten-pilot-admin"
@@ -251,7 +251,7 @@ dependencies = [
 [[package]]
 name = "corten-run"
 version = "0.2.0"
-source = "git+https://github.com/corten-run/corten?rev=de46e974bdbf2da5ea5fe9d6d6eff76c7c9b84e3#de46e974bdbf2da5ea5fe9d6d6eff76c7c9b84e3"
+source = "git+https://github.com/corten-run/corten?rev=ff78cf143d5b9b696794165c815e44232199d8ea#ff78cf143d5b9b696794165c815e44232199d8ea"
 dependencies = [
  "brotli",
  "bytes",
@@ -264,7 +264,7 @@ dependencies = [
  "http-body",
  "hyper",
  "hyper-util",
- "matchit",
+ "matchit 0.9.2",
  "memchr",
  "percent-encoding",
  "pin-project-lite",
@@ -282,7 +282,7 @@ dependencies = [
 [[package]]
 name = "corten-ui"
 version = "0.2.0"
-source = "git+https://github.com/corten-run/corten?rev=de46e974bdbf2da5ea5fe9d6d6eff76c7c9b84e3#de46e974bdbf2da5ea5fe9d6d6eff76c7c9b84e3"
+source = "git+https://github.com/corten-run/corten?rev=ff78cf143d5b9b696794165c815e44232199d8ea#ff78cf143d5b9b696794165c815e44232199d8ea"
 dependencies = [
  "corten-run",
 ]
@@ -805,6 +805,12 @@ name = "matchit"
 version = "0.8.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "47e1ffaa40ddd1f3ed91f717a33c8c0ee23fff369e3aa8772b9605cc1d22f4c3"
+
+[[package]]
+name = "matchit"
+version = "0.9.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8863b587001c1b9a8a4e36008cebc6b3612cb1226fe2de94858e06092687b608"
 
 [[package]]
 name = "memchr"
