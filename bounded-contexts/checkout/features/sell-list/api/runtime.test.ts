@@ -16,6 +16,12 @@ import { createSellListReadinessSnapshot } from "../domain/readiness";
 import type { SellListConfirmationSummary, SellListSellerConfirmationEvidence } from "../domain/domain";
 import { listSellListReadinessLines, type CheckoutSellListLineRow } from "../read-model/queries";
 import { createCheckoutSellListRuntime } from "./runtime";
+import * as checkoutRequest from "../../../support/request-support/api-client";
+import * as marketplaceRequest from "@chase-sets/marketplace/server";
+import * as auth from "@chase-sets/platform-runtime/auth";
+import * as postWrite from "@chase-sets/platform-runtime/post-write-tokens";
+import { action as sellCheckoutAction } from "../../../support/route-support/sell-checkout-session/sell-checkout-action";
+import { parseSellerCheckoutChoices } from "../read-model/seller-checkout-owner-reads";
 import {
   checkoutOwnerRuntimeFixture,
   choices,
@@ -808,6 +814,127 @@ describe("sell list checkout runtime readiness boundary", () => {
 });
 
 describe("AC4 composed readiness, pre-confirm and merge timing", () => {
+  it.each(["manual", "saved", "missing-fulfillment", "evidence-drift"])(
+    "runs the fully-ready selected offer through the real seller review action and owner reread: %s",
+    async (scenario) => {
+      const f = checkoutOwnerRuntimeFixture();
+      if (scenario === "missing-fulfillment")
+        f.ports.resolveOrigin.mockResolvedValue({ status: "blocked", fact: "missing" });
+      await seedSellListAggregate(f.services, [fixtureLine], f.memory.allEvents);
+      const decisions = { lineActions: [{ lineId: fixtureLine.line_id, action: "selected-offer" as const }] };
+      const initial = await f.services.createReadinessSnapshot({ sellerAccountId: "acc_seller", decisions });
+      const assess = vi.fn(async (body: Record<string, unknown>) => ({
+        readiness: await f.services.createReadinessSnapshot({
+          sellerAccountId: "acc_seller",
+          decisions: body,
+          ...parseSellerCheckoutChoices(body),
+        }),
+      }));
+      const confirm = vi.fn(async (body: Parameters<typeof f.services.confirmSellListCheckout>[0]) =>
+        f.services.confirmSellListCheckout({ ...body, sellerAccountId: "acc_seller" as never }, context),
+      );
+      const spies = [
+        vi.spyOn(auth, "resolveActorFromAuthApi").mockResolvedValue({
+          accountId: "acc_seller",
+          permissions: ["accounts.view"],
+        } as never),
+        vi.spyOn(checkoutRequest, "createCheckoutRequestApiClient").mockReturnValue({
+          getSellList: async () => ({ items: [fixtureLine] }),
+          listSellListShipFromAddresses: async () => (scenario === "saved" ? [f.address] : []),
+          getSellListPayoutReadiness: async () => ({ status: "ready" }),
+          getSellListConfirmation: async () => null,
+          createSellListReadiness: assess,
+          confirmSellListCheckout: confirm,
+        } as never),
+        vi.spyOn(marketplaceRequest, "createMarketplaceRequestApiClient").mockReturnValue({
+          acceptOfferMatch: vi.fn(async () => {
+            if (scenario === "evidence-drift")
+              f.getListingEvidence()!.evidence_requirements.policyHash = "synthetic_policy_changed";
+            return { status: "accepted" };
+          }),
+        } as never),
+        vi
+          .spyOn(postWrite, "navigateAfterWriteFromSourcesWithPlatformPostWriteToken")
+          .mockResolvedValue("/checkout/sell/session/chk_selected/confirmation"),
+      ];
+      try {
+        const form = new URLSearchParams({
+          readinessSnapshotId: initial.snapshotId,
+          readinessSourceRevision: initial.sourceRevision,
+          readinessDecisions: JSON.stringify(decisions),
+          sellListReviewPlan: JSON.stringify({
+            version: 1,
+            lines: [
+              {
+                lineId: fixtureLine.line_id,
+                lineType: "selected-offer",
+                itemTitle: fixtureLine.item_title,
+                productId: fixtureLine.product_id,
+                quantity: fixtureLine.quantity,
+                selectedOffer: {
+                  offerId: fixtureLine.offer_id,
+                  listingId: fixtureLine.listing_id,
+                  feeQuoteFingerprint: "synthetic_quote",
+                },
+                productOfferTargets: [],
+                fallbackListing: null,
+                skippedReasons: [],
+              },
+            ],
+          }),
+          sellerName: choices.shipFrom.name,
+          email: "synthetic@example.com",
+          shipFromAddressId: scenario === "saved" ? f.address.shipping_address_id : "__manual",
+          shipFromName: choices.shipFrom.name,
+          shipFromLine1: choices.shipFrom.line1,
+          shipFromCity: choices.shipFrom.city,
+          shipFromState: choices.shipFrom.state,
+          shipFromPostalCode: choices.shipFrom.postalCode,
+          shipFromCountry: choices.shipFrom.country,
+          payoutMethod: "saved-payout",
+          labelPreference: "prepaid-label",
+          termsAccepted: "accepted",
+          payoutState: "ready",
+          payoutEstimateState: "current",
+          riskState: "clear",
+          labelState: "ready",
+          sellerReadinessState: "ready",
+        });
+        const result = await sellCheckoutAction({
+          request: new Request("http://localhost/checkout/sell/session/chk_selected", {
+            method: "POST",
+            body: form,
+          }),
+          params: { sessionId: "chk_selected" },
+          context: undefined,
+        } as never);
+        const expectedChoices =
+          scenario === "saved" ? { ...choices, shipFrom: { addressId: f.address.shipping_address_id } } : choices;
+        expect(assess).toHaveBeenLastCalledWith(expect.objectContaining(expectedChoices));
+        if (scenario === "missing-fulfillment" || scenario === "evidence-drift") {
+          expect(result).toMatchObject({
+            status: "error",
+            fieldErrors: {
+              form:
+                scenario === "missing-fulfillment"
+                  ? "Seller checkout readiness is no longer current."
+                  : "Sell List readiness snapshot is stale.",
+            },
+          });
+          expect(f.memory.allEvents).toEqual([]);
+          if (scenario === "missing-fulfillment") expect(confirm).not.toHaveBeenCalled();
+          return;
+        }
+        expect(result, JSON.stringify("fieldErrors" in result ? result.fieldErrors : null)).toBeInstanceOf(Response);
+        expect((result as Response).headers.get("Location")).toContain("/confirmation");
+        expect(confirm).toHaveBeenCalledWith(expect.objectContaining(expectedChoices));
+        expect(f.memory.allEvents.map((event) => event.eventType)).toContain("checkout.sell-list.checkout-confirmed");
+      } finally {
+        for (const spy of spies) spy.mockRestore();
+      }
+    },
+  );
+
   it.each(["unchanged", "missing", "incomplete", "invalid-timestamp", "policy-hash", "policy-version", "timestamp"])(
     "revalidates Smart Match %s evidence before confirmation events with unchanged payout",
     async (change) => {
