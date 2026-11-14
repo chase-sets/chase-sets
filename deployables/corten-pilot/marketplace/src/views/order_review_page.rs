@@ -8,8 +8,9 @@
 //! focused; Continue with feedback only needs its acknowledgement (`required`) and Go back does
 //! not (`formnovalidate`). The page's one script (`draft`) keeps the form in the tab's session
 //! storage when Open an order issue is followed and fills it again the next time the form opens,
-//! and counts marketplace's resolution funnel events; without it the page works the same. Marketplace's order protection module, which repeats the
-//! verified order's three facts, is left out. One column; from 48rem the facts sit in a row.
+//! and counts marketplace's resolution funnel events; without it the page works the same.
+//! Marketplace's order protection module, which repeats the verified order's three facts, is left
+//! out. One column; from 48rem the facts sit in a row.
 use corten::prelude::*;
 use platform::{
     theme::gap_2,
@@ -17,12 +18,12 @@ use platform::{
 };
 
 use super::on_marketplace;
-
-corten::script::script!(pub mod draft = "order_review_draft.js");
 use crate::{
     order_review::{OrderReviewScreen, PROBLEMS, ReviewInput},
     text::{Pilot, ReviewsMsg},
 };
+
+corten::script::script!(pub mod draft = "order_review_draft.js");
 
 /// The words' field, which a refusal links to (marketplace's `review-feedback`).
 #[derive(Id)]
