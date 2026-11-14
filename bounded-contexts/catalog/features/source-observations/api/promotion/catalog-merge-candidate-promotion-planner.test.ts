@@ -225,6 +225,243 @@ describe("Catalog Merge Candidate promotion planner", () => {
     });
   });
 
+  it.each([
+    ["Ultra Rare", true],
+    ["Double Rare", true],
+    ["Ultra Rare", false],
+  ] as const)(
+    "writes the chosen conflict value %s, not the proposal (retained conflict: %s)",
+    async (chosenValue, retainedConflict) => {
+      const resolution = {
+        conflictCode: "rarity-mismatch",
+        fieldPath: "catalogItem.rarity",
+        chosenValue,
+        reason: "Use the reviewed rarity.",
+        observationIds: ["obs_tcgdex_054"],
+      };
+      const result = await planPromotion({
+        candidate: {
+          candidateId: "cand_charizard",
+          status: "promoted",
+          snapshot: candidateSnapshot({
+            matches: { catalogItemId: "cat_existing", productIds: [] },
+            promotionIntent: "update-catalog-item",
+            conflicts: retainedConflict
+              ? [
+                  {
+                    code: resolution.conflictCode,
+                    fieldPath: resolution.fieldPath,
+                    severity: "blocking",
+                    message: "Rarity differs.",
+                    observationIds: resolution.observationIds,
+                    existingValue: "Ultra Rare",
+                    proposedValue: "Double Rare",
+                  },
+                ]
+              : [],
+            fieldProvenance: [
+              {
+                fieldPath: resolution.fieldPath,
+                value: "Double Rare",
+                observationId: "obs_tcgdex_054",
+                providerKey: "tcgdex",
+                sourceProfileKey: "tcgdex-pokemon",
+                sourceProfileVersion: "2026.06.24",
+                confidence: "exact",
+                evidence: {},
+              },
+            ],
+          }),
+        },
+        catalog: catalogMapping(),
+        resolvedConflicts: [resolution],
+      });
+
+      expect(result.status).toBe("planned");
+      if (result.status !== "planned") throw new Error("Expected a resolved promotion plan.");
+      expect(result.plan.commands).toContainEqual({
+        type: "SetCatalogItemFieldValue",
+        fieldId: "field_rarity",
+        value: chosenValue,
+      });
+      expect(result.plan.promotableChange.catalogItemFacts.rarity).toBe(chosenValue);
+      expect(result.plan.promotableChange.sourceProvenance.resolvedConflicts).toEqual([resolution]);
+      expect(result.plan.promotableChange.fieldChanges).toContainEqual(
+        expect.objectContaining({
+          fieldPath: resolution.fieldPath,
+          value: chosenValue,
+          provenance: [expect.objectContaining({ value: chosenValue, confidence: "manual" })],
+        }),
+      );
+    },
+  );
+
+  it.each([null, 0, false])("preserves an explicit raw resolution of %s", async (chosenValue) => {
+    const result = await planPromotion({
+      candidate: {
+        candidateId: "cand_charizard",
+        status: "promoted",
+        snapshot: candidateSnapshot({
+          matches: { catalogItemId: "cat_existing", productIds: [] },
+          promotionIntent: "update-catalog-item",
+        }),
+      },
+      catalog: catalogMapping(),
+      resolvedConflicts: [
+        {
+          conflictCode: "rarity-mismatch",
+          fieldPath: "catalogItem.rarity",
+          chosenValue,
+          reason: "Reviewed value.",
+          observationIds: [],
+        },
+      ],
+    });
+    expect(result.status).toBe("planned");
+    expect(result.plan?.commands).toContainEqual({
+      type: "SetCatalogItemFieldValue",
+      fieldId: "field_rarity",
+      value: chosenValue,
+    });
+  });
+
+  it("applies multiple choices to localized metadata and mapped fields without mutating source evidence", async () => {
+    const snapshot = candidateSnapshot();
+    const original = structuredClone(snapshot);
+    const result = await planPromotion({
+      candidate: { candidateId: "cand_charizard", status: "ready", snapshot },
+      createCatalogItemId: "cat_charizard" as CatalogItemId,
+      catalog: catalogMapping(),
+      resolvedConflicts: [
+        {
+          conflictCode: "name-mismatch",
+          fieldPath: "catalogItem.name",
+          chosenValue: "Kept name",
+          reason: "Reviewed name.",
+          observationIds: [],
+        },
+        {
+          conflictCode: "rarity-mismatch",
+          fieldPath: "catalogItem.rarity",
+          chosenValue: "Ultra Rare",
+          reason: "Reviewed rarity.",
+          observationIds: [],
+        },
+      ],
+    });
+    expect(result.status).toBe("planned");
+    expect(result.plan?.commands).toContainEqual(
+      expect.objectContaining({
+        type: "CreateCatalogItem",
+        title: { defaultLocale: "en", values: { en: "Kept name" } },
+      }),
+    );
+    expect(result.plan?.commands).toContainEqual({
+      type: "SetCatalogItemFieldValue",
+      fieldId: "field_card_name",
+      value: { defaultLocale: "en", values: { en: "Kept name" } },
+    });
+    expect(result.plan?.commands).toContainEqual({
+      type: "SetCatalogItemFieldValue",
+      fieldId: "field_rarity",
+      value: "Ultra Rare",
+    });
+    expect(result.plan?.promotableChange.sourceProvenance.fieldProvenance).toContainEqual(
+      expect.objectContaining({ fieldPath: "catalogItem.rarity", value: "Ultra Rare", confidence: "manual" }),
+    );
+    expect(snapshot).toEqual(original);
+  });
+
+  it.each(["Paldea Evolved", "Previous expansion"])("honors the reference field choice %s", async (chosenValue) => {
+    const result = await planPromotion({
+      candidate: {
+        candidateId: "cand_charizard",
+        status: "promoted",
+        snapshot: candidateSnapshot({
+          matches: { catalogItemId: "cat_existing", productIds: [] },
+          promotionIntent: "update-catalog-item",
+          conflicts: [
+            {
+              code: "expansionName-mismatch",
+              fieldPath: "catalogItem.expansionName",
+              severity: "blocking",
+              message: "Expansion differs.",
+              observationIds: [],
+              existingValue: "Previous expansion",
+              proposedValue: "Paldea Evolved",
+            },
+          ],
+        }),
+      },
+      catalog: catalogMapping(),
+      resolvedConflicts: [
+        {
+          conflictCode: "expansionName-mismatch",
+          fieldPath: "catalogItem.expansionName",
+          chosenValue,
+          reason: "Reviewed expansion.",
+          observationIds: [],
+        },
+      ],
+    });
+    expect(result.status).toBe("planned");
+    expect(
+      result.plan?.commands.filter(
+        (command) => command.type === "SetCatalogItemFieldValue" && command.fieldId === "field_expansion",
+      ),
+    ).toEqual(
+      chosenValue === "Previous expansion"
+        ? []
+        : [
+            {
+              type: "SetCatalogItemFieldValue",
+              fieldId: "field_expansion",
+              value: { referenceId: "ref_expansion_pal" },
+            },
+          ],
+    );
+    expect(result.plan?.promotableChange.referenceRecordLinks).toHaveLength(
+      chosenValue === "Previous expansion" ? 0 : 1,
+    );
+  });
+
+  it("does not resolve a blocking conflict using a choice for another field", async () => {
+    const result = await planPromotion({
+      candidate: {
+        candidateId: "cand_charizard",
+        status: "promoted",
+        snapshot: candidateSnapshot({
+          conflicts: [
+            {
+              code: "rarity-mismatch",
+              fieldPath: "catalogItem.rarity",
+              severity: "blocking",
+              message: "Rarity differs.",
+              observationIds: [],
+              existingValue: "Ultra Rare",
+              proposedValue: "Double Rare",
+            },
+          ],
+        }),
+      },
+      createCatalogItemId: "cat_charizard" as CatalogItemId,
+      catalog: catalogMapping(),
+      resolvedConflicts: [
+        {
+          conflictCode: "rarity-mismatch",
+          fieldPath: "catalogItem.name",
+          chosenValue: "Wrong field",
+          reason: "Mismatched choice.",
+          observationIds: [],
+        },
+      ],
+    });
+    expect(result.status).toBe("blocked");
+    expect(result.diagnostics).toContainEqual(
+      expect.objectContaining({ code: "candidate-has-blocking-conflicts", path: "catalogItem.rarity" }),
+    );
+  });
+
   it("blocks when the same provider key is proposed at Catalog Item and Product reference levels", async () => {
     const result = await planPromotion({
       candidate: {

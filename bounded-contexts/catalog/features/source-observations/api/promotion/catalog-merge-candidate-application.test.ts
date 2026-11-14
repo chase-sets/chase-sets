@@ -301,6 +301,30 @@ describe("retained application checkpoint replay", () => {
     expect(loaded.state).toMatchObject({ status: "promoted", promotionPlan: null, promotionApplication: null });
   });
 
+  it("loads the choices from the recorded approval for application planning", async () => {
+    const { created } = lifecycle();
+    const resolution = {
+      conflictCode: "name-mismatch",
+      fieldPath: "catalogItem.name",
+      chosenValue: "Kept catalog name",
+      reason: "Keep the reviewed Catalog value.",
+      observationIds: ["obs_synthetic"],
+    };
+    const approved = decideCatalogMergeCandidate(
+      evolveCatalogMergeCandidate(initialCatalogMergeCandidateState, created),
+      {
+        type: "PromoteCatalogMergeCandidate",
+        reason: "Resolved the name.",
+        actor: { userId: "usr_synthetic", accountId: "acc_synthetic" },
+        promotedAt: at,
+        conflictResolutions: [resolution],
+      },
+    )[0]!;
+    const loaded = await loadCandidateApplication(retained([created, approved]), candidateId);
+    expect(loaded.resolvedConflicts).toEqual([resolution]);
+    expect(loaded.state.snapshot?.proposedCatalogItemFacts.name).toBe("Synthetic review card");
+  });
+
   it("recovers one valid plan and completion for its initiating unit only, with no writes", async () => {
     const { created, approved, planned, applied } = lifecycle();
     const eventStore = retained([created, approved, planned, applied]);
@@ -943,6 +967,83 @@ describeDb("Catalog Merge Candidate application with registered Magic profiles (
     });
     expect(await itemCreations()).toBe(0);
   });
+
+  it.each(["uncommon", "rare"])(
+    "applies a retained approval's chosen rarity %s to the existing Item",
+    async (chosenValue) => {
+      const original = await candidateFrom([magicObservation("scryfall-card-print")]);
+      const first = await apply(original.candidateId);
+      const target = first.appliedCatalogItemId!;
+      const candidateId = `${original.candidateId}_resolved`;
+      const resolution = {
+        conflictCode: "rarity-mismatch",
+        fieldPath: "catalogItem.rarity",
+        chosenValue,
+        reason: "Use the operator's choice.",
+        observationIds: original.snapshot.membership.map((member) => member.observationId),
+      };
+      const commandHandler = candidateCommands();
+      await commandHandler({
+        streamId: catalogMergeCandidateStreamId(candidateId),
+        command: {
+          type: "CreateCatalogMergeCandidate",
+          candidateId,
+          createdAt: new Date().toISOString(),
+          snapshot: {
+            ...original.snapshot,
+            matches: { catalogItemId: target, productIds: [] },
+            promotionIntent: "update-catalog-item",
+            proposedCatalogItemFacts: { ...original.snapshot.proposedCatalogItemFacts, rarity: "rare" },
+            conflicts: [
+              {
+                code: resolution.conflictCode,
+                fieldPath: resolution.fieldPath,
+                severity: "blocking",
+                message: "Rarity differs.",
+                observationIds: resolution.observationIds,
+                existingValue: "uncommon",
+                proposedValue: "rare",
+              },
+            ],
+          },
+        },
+        context,
+      });
+      await commandHandler({
+        streamId: catalogMergeCandidateStreamId(candidateId),
+        command: {
+          type: "PromoteCatalogMergeCandidate",
+          reason: resolution.reason,
+          actor: { userId: null, accountId: null },
+          promotedAt: new Date().toISOString(),
+          conflictResolutions: [resolution],
+        },
+        context,
+      });
+
+      const result = await apply(candidateId);
+
+      expect(result).toMatchObject({ status: "promoted", appliedCatalogItemId: target, appliedMode: "refresh" });
+      const itemHistory = await readCompleteStream(store, { streamId: `catalog.item-${target}` });
+      const item = itemHistory
+        .map(createPassthroughDomainEventCodec<CatalogItemEvent>().decode)
+        .reduce(evolveCatalogItem, initialCatalogItemState);
+      const mapping = await loadCatalogItemPromotionProfile(
+        ports().deps,
+        registeredMagicProfile("scryfall-card-print").profile,
+      );
+      expect(item.fieldValues).toContainEqual(
+        expect.objectContaining({ fieldId: mapping.fieldIds.rarity, value: chosenValue }),
+      );
+      const { state } = await loadCandidateApplication(store, candidateId);
+      expect(state.promotionPlan?.commands).toContainEqual({
+        type: "SetCatalogItemFieldValue",
+        fieldId: mapping.fieldIds.rarity,
+        value: chosenValue,
+      });
+      await expect(apply(candidateId)).resolves.toEqual(result);
+    },
+  );
 
   it("AC2: an MTGJSON-only candidate with a Scryfall reference is reference-only with zero Item, Reference Record or candidate writes", async () => {
     const { candidateId, snapshot } = await candidateFrom([magicObservation("mtgjson-card")]);
