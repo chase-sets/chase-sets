@@ -4,6 +4,37 @@ import type { PgQueryable, PgTransactionalPool, PostgresEventStore } from "@chas
 import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
 import { parseTypedId } from "@chase-sets/primitives/typed-ids";
 import { createEventStoreError } from "@chase-sets/event-core/event-store";
+import { createPostgresConfigurationEpochStore } from "@chase-sets/event-core-postgres";
+import { createIdentityOwnerEpochs, IdentityClosureRequired } from "../../accounts/api/owner-epochs";
+
+it("rolls back and releases when persisting the writer's CLOSING intent fails", async () => {
+  const query = vi.fn<PgQueryable["query"]>().mockResolvedValue({ rows: [] });
+  const release = vi.fn();
+  const pool = { query, connect: async () => ({ query, release }) };
+  const epochs = createIdentityOwnerEpochs(pool);
+  const source = createPostgresConfigurationEpochStore({ pool, sourceIncarnation: "synthetic", consumers: [] });
+  vi.spyOn(epochs, "source").mockResolvedValue(source);
+  vi.spyOn(epochs, "enroll").mockRejectedValue(new IdentityClosureRequired(["user/usr_synthetic"]));
+  vi.spyOn(source, "beginClosureInTransaction").mockRejectedValue(new Error("synthetic CLOSING persistence failure"));
+  const { eventStore } = createInMemoryEventStore();
+  const append = vi.fn();
+  const store: PostgresEventStore = {
+    ...eventStore,
+    readStreamInTransaction: vi.fn(),
+    appendToStreamInTransaction: vi.fn(),
+    appendToStreamsInTransaction: append,
+  };
+  const persistence = createIdentityMutationPersistence(pool, store, () => [], epochs);
+  await expect(persistence.transaction([], (tx) => tx.append!([]))).rejects.toThrow(
+    "synthetic CLOSING persistence failure",
+  );
+  expect(query.mock.calls.map(([sql]) => sql).slice(-2)).toEqual([
+    "ROLLBACK TO SAVEPOINT identity_owner_work",
+    "ROLLBACK",
+  ]);
+  expect(release).toHaveBeenCalledOnce();
+  expect(append).not.toHaveBeenCalled();
+});
 
 describe("issue-7168-ac11-caller-compatibility", () => {
   it("preserves a preference receipt batch, metadata and the original concurrency conflict", async () => {

@@ -280,4 +280,53 @@ describeDb("Identity physical writer epoch closure against a separate consumer s
     expect(history.rows.every((row) => row.record.kind === "REGISTERED")).toBe(true);
     expect((await f.authority.capture(authorityInput)).kind).toBe("granted");
   });
+
+  it("reports a blocked writer with zero owner/audit events and resumes after route recovery", async () => {
+    const f = await fixture();
+    const unavailable = createIdentityOwnerEpochs(ownerPool);
+    const persistence = createIdentityMutationPersistence(ownerPool, f.raw, () => [], unavailable);
+    const write = () =>
+      persistence.transaction([], (tx) =>
+        tx.append!([
+          {
+            streamId: "identity.user-usr_synthetic",
+            expectedVersion: 1,
+            context,
+            events: [{ eventType: "identity.user.suspended", payload: {} }],
+          },
+          {
+            streamId: "synthetic.blocked-audit",
+            expectedVersion: "no_stream",
+            context,
+            events: [{ eventType: "synthetic.audit", payload: {} }],
+          },
+        ]),
+      );
+    await expect(write()).rejects.toMatchObject({ code: "concurrency_conflict" });
+    expect((await (await unavailable.source()).status("user/usr_synthetic")).status).toBe("BLOCKED");
+    expect(await f.raw.readStream({ streamId: "identity.user-usr_synthetic" })).toHaveLength(1);
+    expect(await f.raw.readStream({ streamId: "synthetic.blocked-audit" })).toHaveLength(0);
+    expect((await f.authority.capture(authorityInput)).kind).toBe("denied");
+    await f.write(writers[1]);
+    expect(await (await f.epochs.source()).status("user/usr_synthetic")).toMatchObject({ status: "OPEN", epoch: 1 });
+  });
+
+  it("rolls APPLIED back with a failed business append, preserving acknowledged CLOSING for retry", async () => {
+    const f = await fixture();
+    const fault = vi
+      .spyOn(f.raw, "appendToStreamsInTransaction")
+      .mockRejectedValueOnce(new Error("synthetic append failure"));
+    await expect(f.write(writers[4])).rejects.toThrow("synthetic append failure");
+    fault.mockRestore();
+    expect(await f.raw.readStream({ streamId: "identity.account-acc_synthetic" })).toHaveLength(1);
+    expect(await f.raw.readStream({ streamId: "synthetic.audit" })).toHaveLength(0);
+    expect(await (await f.epochs.source()).status("account/acc_synthetic")).toMatchObject({
+      status: "PENDING",
+      epoch: 0,
+      pendingConsumers: [],
+    });
+    await f.write(writers[4]);
+    expect(await f.raw.readStream({ streamId: "synthetic.audit" })).toHaveLength(1);
+    expect(await (await f.epochs.source()).status("account/acc_synthetic")).toMatchObject({ status: "OPEN", epoch: 1 });
+  });
 });

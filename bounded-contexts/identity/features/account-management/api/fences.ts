@@ -114,7 +114,13 @@ export function createIdentityMutationPersistence(
           throw new ConfigurationEpochError(`Identity writer ${status.status}: ${key}; retry after closure`);
         }
       }
-      return attempt(scopes, work);
+      try {
+        return await attempt(scopes, work);
+      } catch (failure) {
+        if (failure instanceof IdentityClosureRequired)
+          throw new ConfigurationEpochError("Identity writer PENDING: closure changed during retry");
+        throw failure;
+      }
     }
   }
   async function attempt<T>(
@@ -223,10 +229,15 @@ export function createIdentityMutationPersistence(
     } catch (error) {
       if (error instanceof IdentityClosureRequired) {
         // Discard all business effects, retaining only the writer's durable CLOSING intent.
-        await client.query("ROLLBACK TO SAVEPOINT identity_owner_work");
-        const epochs = await ownerEpochs.source();
-        for (const key of error.keys) await epochs.beginClosureInTransaction(client, key);
-        await client.query("COMMIT");
+        try {
+          await client.query("ROLLBACK TO SAVEPOINT identity_owner_work");
+          const epochs = await ownerEpochs.source();
+          for (const key of error.keys) await epochs.beginClosureInTransaction(client, key);
+          await client.query("COMMIT");
+        } catch (failure) {
+          await client.query("ROLLBACK");
+          throw failure;
+        }
         throw error;
       }
       await client.query("ROLLBACK");
