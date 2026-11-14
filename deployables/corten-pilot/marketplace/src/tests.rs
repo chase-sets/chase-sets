@@ -16003,6 +16003,8 @@ async fn an_orders_review_form_needs_reputation_manage_and_asks_a_buyer_to_resol
     assert!(html.contains(r#"value="5" checked"#), "five stars to start: {html}");
     assert!(words.contains("Item not received") && words.contains("Problem with this order?"), "{words}");
     assert!(html.contains(r#"href="/account/purchases/ord_rev""#), "Back: {html}");
+    // With JavaScript the form takes back a draft kept for the order, and its sends are counted.
+    assert!(html.contains(r#".resume($t,"ord_rev")"#) && html.contains(".submitted($e)"), "{html}");
     let (status, _, _) = pilot.send(get(FORM, Some("shopper"))).await;
     assert_eq!(status, StatusCode::FORBIDDEN, "orders.view is not reputation.manage");
     let (status, headers, _) = pilot.send(get(FORM, None)).await;
@@ -16014,6 +16016,8 @@ async fn an_orders_review_form_needs_reputation_manage_and_asks_a_buyer_to_resol
     assert_eq!(status, StatusCode::OK, "{html}");
     assert!(text(&html).contains("Resolve this order first?"), "{html}");
     assert!(html.contains(r#"href="/account/support?orderId=ord_rev""#), "Open an order issue: {html}");
+    // Shown is counted for a buyer who can open an issue, and Open an order issue keeps the draft.
+    assert!(html.contains(".shown($t,true,true)") && html.contains(r#".resolveFirst($t,"ord_rev")"#), "{html}");
     assert!(html.contains(r#"value="2" checked"#) && html.contains(">meh</textarea>"), "kept: {html}");
     // A problem ticked asks too, and opens its flow.
     let (_, _, html) = pilot.send(post(FORM, "reviewer", "rating=5&feedback=&problemCategories=damaged", false)).await;
