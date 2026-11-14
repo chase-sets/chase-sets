@@ -92,6 +92,117 @@ const journeySource = ts.createSourceFile(
 const journeyFunction = (name) =>
   journeySource.statements.find((node) => ts.isFunctionDeclaration(node) && node.name?.text === name);
 
+describe("restart-safe scope convergence", () => {
+  const checkpoint = (overrides = {}) =>
+    promoteJob("completed-between-dispatches", [], {
+      createdAt: "2026-11-14T10:00:00Z",
+      promotionApplicationVersion: 1,
+      result: { promoted: 0, failed: 0, outcomes: [] },
+      ...overrides,
+    });
+
+  it("reuses completed zero work instead of restarting the scope walk", () => {
+    expect(planScopePromotion("scope-1", [], [checkpoint()], 0)).toEqual({
+      kind: "reuse-completed-job",
+      jobIds: ["completed-between-dispatches"],
+    });
+  });
+
+  it.each([
+    { promotionApplicationVersion: null },
+    { createdAt: undefined },
+    { createdAt: "invalid" },
+    { result: { promoted: 1, failed: 0, outcomes: [] } },
+    { result: { promoted: 0, failed: 1, outcomes: [] } },
+    { result: { promoted: 0, failed: 0, outcomes: [{ status: "failed" }] } },
+  ])("never reuses an unproven convergence checkpoint: %j", (override) => {
+    expect(planScopePromotion("scope-1", [], [checkpoint(override)], 0).kind).toBe("submit-promote-all-ready");
+  });
+
+  it("new candidate changes invalidate history and active jobs take precedence", () => {
+    expect(planScopePromotion("scope-1", [], [checkpoint()], 1).kind).toBe("submit-promote-all-ready");
+    expect(planScopePromotion("scope-1", [], [checkpoint({ scopeRecordId: "other" })], 0).kind).toBe(
+      "submit-promote-all-ready",
+    );
+    expect(
+      planScopePromotion("scope-1", [checkpoint({ jobId: "active", status: "running" })], [checkpoint()], 0),
+    ).toEqual({ kind: "adopt-active-job", jobIds: ["active"] });
+  });
+
+  it("a newer nonzero pass invalidates an older checkpoint", () => {
+    const newer = checkpoint({ createdAt: "2026-11-14T11:00:00Z", result: { promoted: 1, outcomes: [] } });
+    expect(planScopePromotion("scope-1", [], [checkpoint(), newer], 0).kind).toBe("submit-promote-all-ready");
+  });
+
+  it("seven jobs finishing between dispatches advance once per scope and then rerun without submission", async () => {
+    const history = new Map();
+    const submitted = [];
+    let pending;
+    const scopes = Array.from({ length: 7 }, (_, index) => `scope-${index + 1}`);
+    const context = vm.createContext({
+      ...rehearsal,
+      Date,
+      URLSearchParams,
+      gotoWholeGamePage: async () => {},
+      readWholeGameBatch: async () =>
+        batch(
+          "completed",
+          scopes.map((scope) => unit(scope, "completed")),
+        ),
+      readActivePromoteJobs: async () => [],
+      readWholeGameJson: async (_page, path) => {
+        const url = new URL(path, rehearsal.wholeGameStagingOrigin);
+        if (url.pathname.endsWith("bulk-jobs/active"))
+          return { items: history.get(url.searchParams.get("scopeRecordId")) ?? [] };
+        if (url.pathname.endsWith("merge-candidates")) return { total: 0, items: [] };
+        throw new Error(`unexpected read ${path}`);
+      },
+      submitPromoteAllReady: async (_page, scopeRecordId) => {
+        submitted.push(scopeRecordId);
+        pending = checkpoint({ scopeRecordId, jobId: `job-${scopeRecordId}` });
+        return pending.jobId;
+      },
+      waitForPromoteJob: async () => null,
+    });
+    const declarations = ["wholeGameSettle", "wholeGameQuery", "promoteJobsPath", "readReadyCandidateCount"]
+      .map((name) => journeyFunction(name).getText(journeySource))
+      .join("\n");
+    vm.runInContext(ts.transpile(declarations, { target: ts.ScriptTarget.ES2022 }), context);
+    const run = () =>
+      context.wholeGameSettle(
+        {},
+        settleInput(),
+        { sha: "a".repeat(40), runId: "123", runAttempt: "1" },
+        { deadlineAt: Date.now() + 1000, pollMs: 1 },
+      );
+    for (const [index, scope] of scopes.entries()) {
+      const result = await run();
+      expect(result).toMatchObject({ state: "running", settle: { scopesPromoted: index, promoteJobsSubmitted: 1 } });
+      expect(result.settle.scopeProgress.at(-1)).toMatchObject({
+        scopeRecordId: scope,
+        state: "promotion-running",
+        jobIds: [`job-${scope}`],
+      });
+      expect(validateWholeGameReceipt(result)).toEqual([]);
+      history.set(scope, [pending]);
+    }
+    for (let rerun = 0; rerun < 2; rerun += 1) {
+      const result = await run();
+      expect(result).toMatchObject({
+        state: "settled",
+        settle: { scopesPromoted: 7, promoteJobsSubmitted: 0, promotedThisDispatch: 0, published: 0 },
+      });
+      expect(
+        result.settle.scopeProgress.every(
+          (progress) => progress.completedJobsObserved === 1 && progress.state === "converged",
+        ),
+      ).toBe(true);
+      expect(validateWholeGameReceipt(result)).toEqual([]);
+    }
+    expect(submitted).toEqual(scopes);
+  });
+});
+
 describe("reference-only settle completeness", () => {
   const referenceOnly = (candidateId) => ({
     candidateId,
@@ -107,7 +218,7 @@ describe("reference-only settle completeness", () => {
       ...overrides,
     });
 
-  async function count(pages, jobs) {
+  async function count(pages, jobs, status = "ready") {
     const reads = [];
     const context = vm.createContext({
       ...rehearsal,
@@ -124,8 +235,26 @@ describe("reference-only settle completeness", () => {
       .map((name) => journeyFunction(name).getText(journeySource))
       .join("\n");
     vm.runInContext(ts.transpile(declarations, { target: ts.ScriptTarget.ES2022 }), context);
-    return { remaining: await context.readReadyCandidateCount({}, "scope-1", jobs), reads };
+    return { remaining: await context.readReadyCandidateCount({}, "scope-1", jobs, undefined, status), reads };
   }
+
+  it.each([
+    ["2026-11-11T12:00:00Z", 0],
+    ["2026-11-12T12:00:01Z", 1],
+    ["invalid", 1],
+    [undefined, 1],
+  ])(
+    "invalidates a checkpoint for newer/unknown approved-but-unapplied candidates (%s)",
+    async (updated_at, remaining) => {
+      const result = await count(
+        { 0: { total: 1, items: [{ candidate_id: "approved", updated_at }] } },
+        [convergedJob([])],
+        "promoted",
+      );
+      expect(result.remaining).toBe(remaining);
+      expect(new URL(result.reads[0], rehearsal.wholeGameStagingOrigin).searchParams.get("status")).toBe("promoted");
+    },
+  );
 
   it("does not leave the Time Spiral reference-only set candidate blocking settle", async () => {
     const candidateId = "cand_400f635bd596d757ecda7a4f";
