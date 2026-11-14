@@ -402,8 +402,8 @@ test.describe.serial("catalog admin integrations", () => {
         .getByRole("button", { name: "Evidence" });
       if (await sourceObservationEvidenceTrigger.count()) {
         await sourceObservationEvidenceTrigger.first().click();
-        await expect(page.getByText("Source URL").first()).toBeVisible({ timeout: 30_000 });
-        await expect(page.getByText("Normalized facts").first()).toBeVisible({ timeout: 30_000 });
+        await expect(page.getByText("Source URL", { exact: true }).first()).toBeVisible({ timeout: 30_000 });
+        await expect(page.getByText("Normalized facts", { exact: true }).first()).toBeVisible({ timeout: 30_000 });
         await expect(page.getByText(/raw JSON/i)).toHaveCount(0);
         await page.keyboard.press("Escape");
       }
