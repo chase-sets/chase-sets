@@ -1,6 +1,7 @@
 import { expect, test, type Locator, type Page, type TestInfo } from "@playwright/test";
 import { captureResponsiveEvidence } from "@chase-sets/playwright-evidence";
 import { readFile, readdir } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { encodeFreshWriteReceipt } from "@chase-sets/http/responses";
 import { seedBrowserConsent } from "@chase-sets/identity/seed-support/account-management-browser";
@@ -15,7 +16,7 @@ function syntheticActor(testInfo: TestInfo) {
   return syntheticAccountFor({
     file: testInfo.file,
     project: { name: testInfo.project.name },
-    titlePath: [...testInfo.titlePath, `retry:${testInfo.retry}`],
+    titlePath: testInfo.titlePath,
   });
 }
 
@@ -24,6 +25,25 @@ async function profileForm(page: Page) {
   await expect(form.getByRole("button", { name: /^Update profile$/i })).toBeEnabled();
   await form.getByLabel("Legal Name", { exact: true }).fill("Synthetic legal name");
   return form;
+}
+
+function ownedShippingLabels(size: string, ownershipId: string) {
+  return { first: `Synthetic ${size} first ${ownershipId}`, second: `Synthetic ${size} second ${ownershipId}` };
+}
+
+async function cancelOwnedInvitation(page: Page, email: string) {
+  const row = page
+    .getByText(email, { exact: true })
+    .locator('xpath=ancestor::*[.//button[normalize-space()="Cancel"]][1]');
+  await row.getByRole("button", { name: "Cancel", exact: true }).click();
+  const form = page.locator('form:has(input[name="intent"][value="cancel-invitation"])');
+  const invitationId = await form.locator('input[name="invitationId"]').inputValue();
+  expect(invitationId).toBeTruthy();
+  await form.getByRole("button", { name: "Confirm cancellation", exact: true }).click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await page.reload();
+  await expect(page.getByText(email, { exact: true })).toBeVisible();
+  await expect(page.locator(`input[name="invitationId"][value="${invitationId}"]`)).toHaveCount(0);
 }
 
 test.describe("issue-7168-ac10-real-router @marketplace-account", () => {
@@ -46,6 +66,21 @@ test.describe("issue-7168-ac10-real-router @marketplace-account", () => {
         console.log(`issue7168-router-response route=${route} status=${response.status()}`);
     });
     await page.goto("/account");
+  });
+
+  test.afterEach(async ({ page }, testInfo) => {
+    if (testInfo.title !== "security profile and team invitation use the same real keyed router boundary") return;
+    await page.goto("/account/security");
+    const profile = page.locator('form:has(input[name="intent"][value="update-user"])');
+    const original = syntheticActor(testInfo).displayName;
+    if ((await profile.getByLabel(/^Display name$/i).inputValue()) !== original) {
+      await profile.getByLabel(/^Display name$/i).fill(original);
+      await profile.getByRole("button", { name: /^Update profile$/i }).click();
+      await expect(page.getByText("Your change was saved", { exact: true })).toBeVisible();
+      await expect(page).toHaveURL(/\/account\/security\?afterWrite=/);
+      await page.reload();
+    }
+    await expect(profile.getByLabel(/^Display name$/i)).toHaveValue(original);
   });
 
   test("five actual routes reject native/no-JS writes; enhanced profile uses keyed .data and one token GET", async ({
@@ -192,13 +227,15 @@ test.describe("issue-7168-ac10-real-router @marketplace-account", () => {
     await expect(page.getByLabel(/^Display name$/i)).toHaveValue("Synthetic interruption user");
     await page.goto("/account/team");
     const invitation = page.locator('form:has(input[name="intent"][value="create-invitation"])');
-    await invitation.getByLabel("Email", { exact: true }).fill("synthetic-invite7168@example.test");
+    const invitationEmail = `synthetic-invite7168-${randomUUID()}@example.test`;
+    await invitation.getByLabel("Email", { exact: true }).fill(invitationEmail);
     await invitation.getByRole("button", { name: /^Invite$/i }).click();
     await expect(page.getByText("Your change was saved", { exact: true })).toBeVisible();
     expect(writes).toEqual(["/account/security.data", "/account/team.data"]);
     await expect(page).toHaveURL(/\/account\/team\?afterWrite=/);
     await page.reload();
-    await expect(page.getByText("synthetic-invite7168@example.test", { exact: true })).toBeVisible();
+    await expect(page.getByText(invitationEmail, { exact: true })).toBeVisible();
+    await cancelOwnedInvitation(page, invitationEmail);
   });
 
   for (const [outcome, status, message] of [
@@ -446,6 +483,14 @@ test.describe("issue-7168-ac10-real-router @marketplace-account", () => {
     page,
   }) => {
     await page.goto("/account/shipping-addresses");
+    const ownership = randomUUID();
+    const defaultLabel = `Synthetic default ${ownership}`;
+    const homeLabel = `Synthetic home ${ownership}`;
+    const updatedLabel = `Updated synthetic home ${ownership}`;
+    const addressCard = (label: string) =>
+      page
+        .getByText(label, { exact: true })
+        .locator('xpath=ancestor::*[.//button[normalize-space()="Update address"]][1]');
     const writes: string[] = [];
     let tokens = 0;
     page.on("request", async (request) => {
@@ -477,21 +522,23 @@ test.describe("issue-7168-ac10-real-router @marketplace-account", () => {
         await create.locator(`input[name="${name}"]`).fill(value);
       await create.locator('input[name="label"]').fill(label);
     }
-    await fillCreate("Synthetic default");
+    await fillCreate(defaultLabel);
+    await create.locator('select[name="makeDefault"]').selectOption("true");
     await create.getByRole("button", { name: "Save address", exact: true }).click();
     await expect(page).toHaveURL(/\/account\/shipping-addresses\?afterWrite=/);
-    await expect(page.getByText("Synthetic default", { exact: true })).toBeVisible();
+    await expect(page.getByText(defaultLabel, { exact: true })).toBeVisible();
     expect(tokens).toBe(1);
-    await fillCreate("Synthetic home");
+    await fillCreate(homeLabel);
+    await create.locator('select[name="makeDefault"]').selectOption("false");
     await create.getByRole("button", { name: "Save address", exact: true }).click();
-    await expect(page.getByText("Synthetic home", { exact: true })).toBeVisible();
+    await expect(page.getByText(homeLabel, { exact: true })).toBeVisible();
     expect(tokens).toBe(2);
-    await page.getByRole("button", { name: "Update address", exact: true }).last().click();
+    await addressCard(homeLabel).getByRole("button", { name: "Update address", exact: true }).click();
     const update = page.locator('form:has(input[name="intent"][value="update"])');
-    await update.locator('input[name="label"]').fill("Updated synthetic home");
+    await update.locator('input[name="label"]').fill(updatedLabel);
     const target = await update.locator('input[name="shippingAddressId"]').inputValue();
     await update.getByRole("button", { name: "Update address", exact: true }).click();
-    await expect(page.getByText("Updated synthetic home", { exact: true })).toBeVisible();
+    await expect(page.getByText(updatedLabel, { exact: true })).toBeVisible();
     await page.getByRole("dialog").getByRole("button", { name: "Close", exact: true }).click();
     expect(tokens).toBe(3);
     await page
@@ -500,14 +547,14 @@ test.describe("issue-7168-ac10-real-router @marketplace-account", () => {
       )
       .getByRole("button", { name: "Set default", exact: true })
       .click();
-    await expect(page.getByText("Default", { exact: true }).last()).toBeVisible();
+    await expect(addressCard(updatedLabel).getByText("Default", { exact: true })).toBeVisible();
     await expect(
       page.locator(
         `form:has(input[name="intent"][value="default"]):has(input[name="shippingAddressId"][value="${target}"])`,
       ),
     ).toHaveCount(0);
     expect(tokens).toBe(4);
-    await page.getByRole("button", { name: "Archive", exact: true }).first().click();
+    await addressCard(updatedLabel).getByRole("button", { name: "Archive", exact: true }).click();
     await expect(
       page.locator('form:has(input[name="intent"][value="archive"]) input[name="shippingAddressId"]'),
     ).toHaveValue(target);
@@ -515,13 +562,18 @@ test.describe("issue-7168-ac10-real-router @marketplace-account", () => {
       .locator('form:has(input[name="intent"][value="archive"])')
       .getByRole("button", { name: "Archive", exact: true })
       .click();
-    await expect(page.getByText("Updated synthetic home", { exact: true })).toHaveCount(0);
-    await expect(page.getByText("Synthetic default", { exact: true })).toBeVisible();
+    await expect(page.getByText(updatedLabel, { exact: true })).toHaveCount(0);
+    await expect(page.getByText(defaultLabel, { exact: true })).toBeVisible();
     expect(tokens).toBe(5);
     expect(writes).toEqual(["create", "create", "update", "default", "archive"]);
+    await addressCard(defaultLabel).getByRole("button", { name: "Archive", exact: true }).click();
+    const cleanup = page.locator('form:has(input[name="intent"][value="archive"])');
+    expect(await cleanup.locator('input[name="shippingAddressId"]').inputValue()).not.toBe(target);
+    await cleanup.getByRole("button", { name: "Archive", exact: true }).click();
+    await expect(page.getByText(defaultLabel, { exact: true })).toHaveCount(0);
   });
 
-  test("shipping field errors focus the submitted form @marketplace-account", async ({ page }, testInfo) => {
+  test("shipping field errors focus the submitted form @marketplace-account 360x800", async ({ page }, testInfo) => {
     await page.addInitScript(() => {
       const events: { id: string; summary: boolean; popup: boolean }[] = [];
       (window as unknown as { __shippingFocusins: typeof events }).__shippingFocusins = events;
@@ -580,18 +632,6 @@ test.describe("issue-7168-ac10-real-router @marketplace-account", () => {
     async function dropSummaryLinkFragment() {
       // Summary links are in-page anchors; drop their fragment so the claim's exact route holds.
       await page.evaluate(() => history.replaceState(history.state, "", location.pathname));
-    }
-    async function captureCreate360() {
-      await dropSummaryLinkFragment();
-      await captureResponsiveEvidence({ page, testInfo, claimId: "shipping-field-errors-create-360" });
-    }
-    async function captureUpdate390() {
-      await dropSummaryLinkFragment();
-      await captureResponsiveEvidence({ page, testInfo, claimId: "shipping-field-errors-update-390" });
-    }
-    async function captureRemovedRow1024() {
-      await dropSummaryLinkFragment();
-      await captureResponsiveEvidence({ page, testInfo, claimId: "shipping-field-errors-removed-row-1024" });
     }
     async function visibleBox(locator: Locator) {
       await expect(locator).toBeVisible();
@@ -665,95 +705,515 @@ test.describe("issue-7168-ac10-real-router @marketplace-account", () => {
       expect(posts - before).toBe(1);
       await expect(page.getByRole("dialog")).toHaveCount(dialog ? 1 : 0);
     }
-    for (const viewport of [
-      { width: 360, height: 800 },
-      { width: 390, height: 844 },
-      { width: 1024, height: 768 },
-    ]) {
-      await page.setViewportSize(viewport);
-      await page.reload();
-      const size = `${viewport.width}x${viewport.height}`;
-      await fillCreate(`Synthetic ${size} first`, " ");
-      await checkSummary(await submitOnce(create), size, "create");
-      if (size === "360x800") {
-        await captureCreate360();
-      }
-      for (const suffix of ["first", "second"]) {
-        const label = `Synthetic ${size} ${suffix}`;
-        await fillCreate(label);
-        const before = await submitOnce(create);
-        await expect(page.getByText(label, { exact: true })).toBeVisible();
-        expect(posts - before).toBe(1);
-      }
-      const label = `Synthetic ${size} second`;
-      const row = page.getByText(label, { exact: true }).locator("..").locator("..");
-      await row.getByRole("button", { name: "Update address", exact: true }).click();
-      const dialog = page.getByRole("dialog");
-      const update = dialog.locator('form:has(input[name="intent"][value="update"])');
-      const target = await update.locator('input[name="shippingAddressId"]').inputValue();
-      await update.locator('input[name="city"]').fill(" ");
-      await checkSummary(await submitOnce(update), size, "update", dialog);
-      if (size === "390x844") {
-        await captureUpdate390();
-      }
-      await dialog.getByRole("button", { name: "Close", exact: true }).click();
+    const viewport = { width: 360, height: 800 };
+    await page.setViewportSize(viewport);
+    await page.reload();
+    const size = `${viewport.width}x${viewport.height}`;
+    const ownedLabels = ownedShippingLabels(size, randomUUID());
+    await fillCreate(ownedLabels.first, " ");
+    await checkSummary(await submitOnce(create), size, "create");
+    await dropSummaryLinkFragment();
+    await captureResponsiveEvidence({ page, testInfo, claimId: "shipping-field-errors-create-360" });
+    for (const suffix of ["first", "second"] as const) {
+      const label = ownedLabels[suffix];
+      await fillCreate(label);
+      const before = await submitOnce(create);
+      await expect(page.getByText(label, { exact: true })).toBeVisible();
+      expect(posts - before).toBe(1);
+    }
+    const label = ownedLabels.second;
+    const row = page.getByText(label, { exact: true }).locator("..").locator("..");
+    await row.getByRole("button", { name: "Update address", exact: true }).click();
+    const dialog = page.getByRole("dialog");
+    const update = dialog.locator('form:has(input[name="intent"][value="update"])');
+    const target = await update.locator('input[name="shippingAddressId"]').inputValue();
+    await update.locator('input[name="city"]').fill(" ");
+    await checkSummary(await submitOnce(update), size, "update", dialog);
+    await dialog.getByRole("button", { name: "Close", exact: true }).click();
+    await expect(summaries).toHaveCount(0);
+    // Required race: keep the actual rejection response, remove its row through
+    // another authenticated page, revalidate the submitting router, then release.
+    await row.getByRole("button", { name: "Update address", exact: true }).click();
+    let release!: () => void;
+    let observed!: () => void;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const received = new Promise<void>((resolve) => {
+      observed = resolve;
+    });
+    const hold = async (route: import("@playwright/test").Route) => {
+      if (route.request().method() !== "POST") return route.continue();
+      const response = await route.fetch();
+      observed();
+      await held;
+      await route.fulfill({ response });
+    };
+    await page.route("**/account/shipping-addresses.data", hold);
+    await update.locator('input[name="city"]').fill(" ");
+    const before = await submitOnce(update);
+    await received;
+    const other = await page.context().newPage();
+    try {
+      await other.goto("/account/shipping-addresses");
+      const otherRow = other.getByText(label, { exact: true }).locator("..").locator("..");
+      await otherRow.getByRole("button", { name: "Archive", exact: true }).click();
+      await other.getByRole("dialog").getByRole("button", { name: "Archive", exact: true }).click();
+      await expect(other.getByText(label, { exact: true })).toHaveCount(0);
+      await revalidate();
+      await expect(page.locator(`form:has(input[name="shippingAddressId"][value="${target}"])`)).toHaveCount(0);
+      release();
+      await expect(page.locator('[role="status"][tabindex="-1"] [role="alert"]')).toHaveCount(1);
       await expect(summaries).toHaveCount(0);
+      await expect(page.locator('a[href*="shipping-address-"]')).toHaveCount(0);
+      await expect(page.getByRole("dialog")).toHaveCount(0);
+      expect(posts - before).toBe(1);
+      expect((await focusEvents()).filter((event) => event.summary)).toHaveLength(0);
+      await revalidate();
+      expect(posts - before).toBe(1);
+      transcript.push({ viewport: size, phase: "removed-row", posts: posts - before, focusins: 0 });
+      const firstLabel = ownedLabels.first;
+      const firstRow = other.getByText(firstLabel, { exact: true }).locator("..").locator("..");
+      await firstRow.getByRole("button", { name: "Archive", exact: true }).click();
+      await other.getByRole("dialog").getByRole("button", { name: "Archive", exact: true }).click();
+      await expect(other.getByText(firstLabel, { exact: true })).toHaveCount(0);
+      await revalidate();
+    } finally {
+      release();
+      await other.close();
+      await page.unroute("**/account/shipping-addresses.data", hold);
+    }
+    await testInfo.attach("shipping-field-errors-focus-request-transcript", {
+      body: JSON.stringify(transcript),
+      contentType: "application/json",
+    });
+  });
 
-      // Required race: keep the actual rejection response, remove its row through
-      // another authenticated page, revalidate the submitting router, then release.
-      await row.getByRole("button", { name: "Update address", exact: true }).click();
-      let release!: () => void;
-      let observed!: () => void;
-      const held = new Promise<void>((resolve) => {
-        release = resolve;
+  test("shipping field errors focus the submitted form @marketplace-account 390x844", async ({ page }, testInfo) => {
+    await page.addInitScript(() => {
+      const events: { id: string; summary: boolean; popup: boolean }[] = [];
+      (window as unknown as { __shippingFocusins: typeof events }).__shippingFocusins = events;
+      document.addEventListener("focusin", (event) => {
+        const target = event.target;
+        if (target instanceof HTMLElement)
+          events.push({
+            id: target.id || target.tagName.toLowerCase(),
+            summary: target.matches('section[role="alert"]'),
+            popup: target.getAttribute("role") === "dialog",
+          });
       });
-      const received = new Promise<void>((resolve) => {
-        observed = resolve;
+    });
+    await page.goto("/account/shipping-addresses");
+    let posts = 0;
+    page.on("request", (request) => {
+      if (request.method() === "POST" && new URL(request.url()).pathname === "/account/shipping-addresses.data")
+        posts++;
+    });
+    const transcript: { viewport: string; phase: string; posts: number; focusins: number }[] = [];
+    const summaries = page.locator('section[role="alert"]');
+    const create = page.locator('form:has(input[name="intent"][value="create"])');
+    async function fillCreate(label: string, city = "Chicago") {
+      for (const [name, value] of Object.entries({
+        label,
+        name: "Synthetic recipient",
+        line1: "1 Test St",
+        city,
+        state: "IL",
+        postalCode: "60601",
+        country: "US",
+      }))
+        await create.locator(`input[name="${name}"]`).fill(value);
+    }
+    async function resetFocus() {
+      await page.evaluate(() => {
+        (window as unknown as { __shippingFocusins: unknown[] }).__shippingFocusins.length = 0;
       });
-      const hold = async (route: import("@playwright/test").Route) => {
-        if (route.request().method() !== "POST") return route.continue();
-        const response = await route.fetch();
-        observed();
-        await held;
-        await route.fulfill({ response });
-      };
-      await page.route("**/account/shipping-addresses.data", hold);
-      await update.locator('input[name="city"]').fill(" ");
-      const before = await submitOnce(update);
-      await received;
-      const other = await page.context().newPage();
-      try {
-        await other.goto("/account/shipping-addresses");
-        const otherRow = other.getByText(label, { exact: true }).locator("..").locator("..");
-        await otherRow.getByRole("button", { name: "Archive", exact: true }).click();
-        await other.getByRole("dialog").getByRole("button", { name: "Archive", exact: true }).click();
-        await expect(other.getByText(label, { exact: true })).toHaveCount(0);
-        await revalidate();
-        await expect(page.locator(`form:has(input[name="shippingAddressId"][value="${target}"])`)).toHaveCount(0);
-        release();
-        await expect(page.locator('[role="status"][tabindex="-1"] [role="alert"]')).toHaveCount(1);
-        await expect(summaries).toHaveCount(0);
-        await expect(page.locator('a[href*="shipping-address-"]')).toHaveCount(0);
-        await expect(page.getByRole("dialog")).toHaveCount(0);
-        expect(posts - before).toBe(1);
-        expect((await focusEvents()).filter((event) => event.summary)).toHaveLength(0);
-        await revalidate();
-        expect(posts - before).toBe(1);
-        transcript.push({ viewport: size, phase: "removed-row", posts: posts - before, focusins: 0 });
-        if (size === "1024x768") {
-          await captureRemovedRow1024();
-        }
-        const firstLabel = `Synthetic ${size} first`;
-        const firstRow = other.getByText(firstLabel, { exact: true }).locator("..").locator("..");
-        await firstRow.getByRole("button", { name: "Archive", exact: true }).click();
-        await other.getByRole("dialog").getByRole("button", { name: "Archive", exact: true }).click();
-        await expect(other.getByText(firstLabel, { exact: true })).toHaveCount(0);
-        await revalidate();
-      } finally {
-        release();
-        await other.close();
-        await page.unroute("**/account/shipping-addresses.data", hold);
+    }
+    async function focusEvents() {
+      return page.evaluate(
+        () =>
+          (window as unknown as { __shippingFocusins: { id: string; summary: boolean; popup: boolean }[] })
+            .__shippingFocusins,
+      );
+    }
+    async function revalidate() {
+      await resetFocus();
+      await page.evaluate(async () => {
+        const router = (window as unknown as { __reactRouterDataRouter: { revalidate: () => Promise<void> } })
+          .__reactRouterDataRouter;
+        await router.revalidate();
+      });
+      expect((await focusEvents()).filter((event) => event.summary)).toHaveLength(0);
+    }
+    async function dropSummaryLinkFragment() {
+      // Summary links are in-page anchors; drop their fragment so the claim's exact route holds.
+      await page.evaluate(() => history.replaceState(history.state, "", location.pathname));
+    }
+    async function visibleBox(locator: Locator) {
+      await expect(locator).toBeVisible();
+      expect(
+        await locator.evaluate((node) => {
+          const box = node.getBoundingClientRect();
+          return (
+            box.width > 0 &&
+            box.height > 0 &&
+            box.left < innerWidth &&
+            box.right > 0 &&
+            box.top < innerHeight &&
+            box.bottom > 0
+          );
+        }),
+      ).toBe(true);
+    }
+    async function submitOnce(form: Locator) {
+      const button = form.getByRole("button", { name: /^(Save|Update) address$/ });
+      await expect(button).toBeEnabled();
+      await button.focus();
+      await resetFocus();
+      const before = posts;
+      await button.click();
+      return before;
+    }
+    async function checkSummary(before: number, viewport: string, phase: string, dialog?: Locator) {
+      await expect(summaries).toHaveCount(1);
+      await expect(summaries).toBeFocused();
+      // Two frames cross Base UI's focus/positioning work, not an arbitrary delay.
+      await page.evaluate(
+        () => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))),
+      );
+      await expect(summaries).toBeFocused();
+      await visibleBox(summaries);
+      const events = await focusEvents();
+      // While the submitting form's controls remount, Base UI restores focus to the open dialog's popup;
+      // the page itself focuses only the summary, once, last. Outside a dialog nothing else may take focus.
+      expect(events.filter((event) => !event.summary && !(dialog && event.popup))).toHaveLength(0);
+      expect(events.filter((event) => event.summary)).toHaveLength(1);
+      expect(events[events.length - 1].summary).toBe(true);
+      expect(posts - before).toBe(1);
+      await expect(page.locator('[role="status"][tabindex="-1"] [role="alert"]')).toHaveCount(0);
+      if (dialog) {
+        await expect(page.getByRole("dialog")).toHaveCount(1);
+        await expect(dialog.locator('section[role="alert"]')).toHaveCount(1);
+        const outer = await dialog.boundingBox();
+        const inner = await summaries.boundingBox();
+        expect(outer).not.toBeNull();
+        expect(inner).not.toBeNull();
+        expect(inner!.x).toBeGreaterThanOrEqual(outer!.x);
+        expect(inner!.y).toBeGreaterThanOrEqual(outer!.y);
+        expect(inner!.x + inner!.width).toBeLessThanOrEqual(outer!.x + outer!.width);
+        expect(inner!.y + inner!.height).toBeLessThanOrEqual(outer!.y + outer!.height);
       }
+      transcript.push({ viewport, phase, posts: posts - before, focusins: events.length });
+      for (const link of await summaries.getByRole("link").all()) {
+        const id = (await link.getAttribute("href"))!.slice(1);
+        const input = page.locator(`[id="${id}"]`);
+        await expect(input).toHaveCount(1);
+        expect(await input.evaluate((node) => node instanceof HTMLInputElement)).toBe(true);
+        if (dialog) expect(await dialog.locator(`[id="${id}"]`).count()).toBe(1);
+        await link.click();
+        await expect(input).toBeFocused();
+        await visibleBox(input);
+        await link.press("Enter");
+        await expect(input).toBeFocused();
+        await visibleBox(input);
+      }
+      await revalidate();
+      expect(posts - before).toBe(1);
+      await expect(page.getByRole("dialog")).toHaveCount(dialog ? 1 : 0);
+    }
+    const viewport = { width: 390, height: 844 };
+    await page.setViewportSize(viewport);
+    await page.reload();
+    const size = `${viewport.width}x${viewport.height}`;
+    const ownedLabels = ownedShippingLabels(size, randomUUID());
+    await fillCreate(ownedLabels.first, " ");
+    await checkSummary(await submitOnce(create), size, "create");
+    for (const suffix of ["first", "second"] as const) {
+      const label = ownedLabels[suffix];
+      await fillCreate(label);
+      const before = await submitOnce(create);
+      await expect(page.getByText(label, { exact: true })).toBeVisible();
+      expect(posts - before).toBe(1);
+    }
+    const label = ownedLabels.second;
+    const row = page.getByText(label, { exact: true }).locator("..").locator("..");
+    await row.getByRole("button", { name: "Update address", exact: true }).click();
+    const dialog = page.getByRole("dialog");
+    const update = dialog.locator('form:has(input[name="intent"][value="update"])');
+    const target = await update.locator('input[name="shippingAddressId"]').inputValue();
+    await update.locator('input[name="city"]').fill(" ");
+    await checkSummary(await submitOnce(update), size, "update", dialog);
+    await dropSummaryLinkFragment();
+    await captureResponsiveEvidence({ page, testInfo, claimId: "shipping-field-errors-update-390" });
+    await dialog.getByRole("button", { name: "Close", exact: true }).click();
+    await expect(summaries).toHaveCount(0);
+    // Required race: keep the actual rejection response, remove its row through
+    // another authenticated page, revalidate the submitting router, then release.
+    await row.getByRole("button", { name: "Update address", exact: true }).click();
+    let release!: () => void;
+    let observed!: () => void;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const received = new Promise<void>((resolve) => {
+      observed = resolve;
+    });
+    const hold = async (route: import("@playwright/test").Route) => {
+      if (route.request().method() !== "POST") return route.continue();
+      const response = await route.fetch();
+      observed();
+      await held;
+      await route.fulfill({ response });
+    };
+    await page.route("**/account/shipping-addresses.data", hold);
+    await update.locator('input[name="city"]').fill(" ");
+    const before = await submitOnce(update);
+    await received;
+    const other = await page.context().newPage();
+    try {
+      await other.goto("/account/shipping-addresses");
+      const otherRow = other.getByText(label, { exact: true }).locator("..").locator("..");
+      await otherRow.getByRole("button", { name: "Archive", exact: true }).click();
+      await other.getByRole("dialog").getByRole("button", { name: "Archive", exact: true }).click();
+      await expect(other.getByText(label, { exact: true })).toHaveCount(0);
+      await revalidate();
+      await expect(page.locator(`form:has(input[name="shippingAddressId"][value="${target}"])`)).toHaveCount(0);
+      release();
+      await expect(page.locator('[role="status"][tabindex="-1"] [role="alert"]')).toHaveCount(1);
+      await expect(summaries).toHaveCount(0);
+      await expect(page.locator('a[href*="shipping-address-"]')).toHaveCount(0);
+      await expect(page.getByRole("dialog")).toHaveCount(0);
+      expect(posts - before).toBe(1);
+      expect((await focusEvents()).filter((event) => event.summary)).toHaveLength(0);
+      await revalidate();
+      expect(posts - before).toBe(1);
+      transcript.push({ viewport: size, phase: "removed-row", posts: posts - before, focusins: 0 });
+      const firstLabel = ownedLabels.first;
+      const firstRow = other.getByText(firstLabel, { exact: true }).locator("..").locator("..");
+      await firstRow.getByRole("button", { name: "Archive", exact: true }).click();
+      await other.getByRole("dialog").getByRole("button", { name: "Archive", exact: true }).click();
+      await expect(other.getByText(firstLabel, { exact: true })).toHaveCount(0);
+      await revalidate();
+    } finally {
+      release();
+      await other.close();
+      await page.unroute("**/account/shipping-addresses.data", hold);
+    }
+    await testInfo.attach("shipping-field-errors-focus-request-transcript", {
+      body: JSON.stringify(transcript),
+      contentType: "application/json",
+    });
+  });
+
+  test("shipping field errors focus the submitted form @marketplace-account 1024x768", async ({ page }, testInfo) => {
+    await page.addInitScript(() => {
+      const events: { id: string; summary: boolean; popup: boolean }[] = [];
+      (window as unknown as { __shippingFocusins: typeof events }).__shippingFocusins = events;
+      document.addEventListener("focusin", (event) => {
+        const target = event.target;
+        if (target instanceof HTMLElement)
+          events.push({
+            id: target.id || target.tagName.toLowerCase(),
+            summary: target.matches('section[role="alert"]'),
+            popup: target.getAttribute("role") === "dialog",
+          });
+      });
+    });
+    await page.goto("/account/shipping-addresses");
+    let posts = 0;
+    page.on("request", (request) => {
+      if (request.method() === "POST" && new URL(request.url()).pathname === "/account/shipping-addresses.data")
+        posts++;
+    });
+    const transcript: { viewport: string; phase: string; posts: number; focusins: number }[] = [];
+    const summaries = page.locator('section[role="alert"]');
+    const create = page.locator('form:has(input[name="intent"][value="create"])');
+    async function fillCreate(label: string, city = "Chicago") {
+      for (const [name, value] of Object.entries({
+        label,
+        name: "Synthetic recipient",
+        line1: "1 Test St",
+        city,
+        state: "IL",
+        postalCode: "60601",
+        country: "US",
+      }))
+        await create.locator(`input[name="${name}"]`).fill(value);
+    }
+    async function resetFocus() {
+      await page.evaluate(() => {
+        (window as unknown as { __shippingFocusins: unknown[] }).__shippingFocusins.length = 0;
+      });
+    }
+    async function focusEvents() {
+      return page.evaluate(
+        () =>
+          (window as unknown as { __shippingFocusins: { id: string; summary: boolean; popup: boolean }[] })
+            .__shippingFocusins,
+      );
+    }
+    async function revalidate() {
+      await resetFocus();
+      await page.evaluate(async () => {
+        const router = (window as unknown as { __reactRouterDataRouter: { revalidate: () => Promise<void> } })
+          .__reactRouterDataRouter;
+        await router.revalidate();
+      });
+      expect((await focusEvents()).filter((event) => event.summary)).toHaveLength(0);
+    }
+    async function dropSummaryLinkFragment() {
+      // Summary links are in-page anchors; drop their fragment so the claim's exact route holds.
+      await page.evaluate(() => history.replaceState(history.state, "", location.pathname));
+    }
+    async function visibleBox(locator: Locator) {
+      await expect(locator).toBeVisible();
+      expect(
+        await locator.evaluate((node) => {
+          const box = node.getBoundingClientRect();
+          return (
+            box.width > 0 &&
+            box.height > 0 &&
+            box.left < innerWidth &&
+            box.right > 0 &&
+            box.top < innerHeight &&
+            box.bottom > 0
+          );
+        }),
+      ).toBe(true);
+    }
+    async function submitOnce(form: Locator) {
+      const button = form.getByRole("button", { name: /^(Save|Update) address$/ });
+      await expect(button).toBeEnabled();
+      await button.focus();
+      await resetFocus();
+      const before = posts;
+      await button.click();
+      return before;
+    }
+    async function checkSummary(before: number, viewport: string, phase: string, dialog?: Locator) {
+      await expect(summaries).toHaveCount(1);
+      await expect(summaries).toBeFocused();
+      // Two frames cross Base UI's focus/positioning work, not an arbitrary delay.
+      await page.evaluate(
+        () => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))),
+      );
+      await expect(summaries).toBeFocused();
+      await visibleBox(summaries);
+      const events = await focusEvents();
+      // While the submitting form's controls remount, Base UI restores focus to the open dialog's popup;
+      // the page itself focuses only the summary, once, last. Outside a dialog nothing else may take focus.
+      expect(events.filter((event) => !event.summary && !(dialog && event.popup))).toHaveLength(0);
+      expect(events.filter((event) => event.summary)).toHaveLength(1);
+      expect(events[events.length - 1].summary).toBe(true);
+      expect(posts - before).toBe(1);
+      await expect(page.locator('[role="status"][tabindex="-1"] [role="alert"]')).toHaveCount(0);
+      if (dialog) {
+        await expect(page.getByRole("dialog")).toHaveCount(1);
+        await expect(dialog.locator('section[role="alert"]')).toHaveCount(1);
+        const outer = await dialog.boundingBox();
+        const inner = await summaries.boundingBox();
+        expect(outer).not.toBeNull();
+        expect(inner).not.toBeNull();
+        expect(inner!.x).toBeGreaterThanOrEqual(outer!.x);
+        expect(inner!.y).toBeGreaterThanOrEqual(outer!.y);
+        expect(inner!.x + inner!.width).toBeLessThanOrEqual(outer!.x + outer!.width);
+        expect(inner!.y + inner!.height).toBeLessThanOrEqual(outer!.y + outer!.height);
+      }
+      transcript.push({ viewport, phase, posts: posts - before, focusins: events.length });
+      for (const link of await summaries.getByRole("link").all()) {
+        const id = (await link.getAttribute("href"))!.slice(1);
+        const input = page.locator(`[id="${id}"]`);
+        await expect(input).toHaveCount(1);
+        expect(await input.evaluate((node) => node instanceof HTMLInputElement)).toBe(true);
+        if (dialog) expect(await dialog.locator(`[id="${id}"]`).count()).toBe(1);
+        await link.click();
+        await expect(input).toBeFocused();
+        await visibleBox(input);
+        await link.press("Enter");
+        await expect(input).toBeFocused();
+        await visibleBox(input);
+      }
+      await revalidate();
+      expect(posts - before).toBe(1);
+      await expect(page.getByRole("dialog")).toHaveCount(dialog ? 1 : 0);
+    }
+    const viewport = { width: 1024, height: 768 };
+    await page.setViewportSize(viewport);
+    await page.reload();
+    const size = `${viewport.width}x${viewport.height}`;
+    const ownedLabels = ownedShippingLabels(size, randomUUID());
+    await fillCreate(ownedLabels.first, " ");
+    await checkSummary(await submitOnce(create), size, "create");
+    for (const suffix of ["first", "second"] as const) {
+      const label = ownedLabels[suffix];
+      await fillCreate(label);
+      const before = await submitOnce(create);
+      await expect(page.getByText(label, { exact: true })).toBeVisible();
+      expect(posts - before).toBe(1);
+    }
+    const label = ownedLabels.second;
+    const row = page.getByText(label, { exact: true }).locator("..").locator("..");
+    await row.getByRole("button", { name: "Update address", exact: true }).click();
+    const dialog = page.getByRole("dialog");
+    const update = dialog.locator('form:has(input[name="intent"][value="update"])');
+    const target = await update.locator('input[name="shippingAddressId"]').inputValue();
+    await update.locator('input[name="city"]').fill(" ");
+    await checkSummary(await submitOnce(update), size, "update", dialog);
+    await dialog.getByRole("button", { name: "Close", exact: true }).click();
+    await expect(summaries).toHaveCount(0);
+    // Required race: keep the actual rejection response, remove its row through
+    // another authenticated page, revalidate the submitting router, then release.
+    await row.getByRole("button", { name: "Update address", exact: true }).click();
+    let release!: () => void;
+    let observed!: () => void;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const received = new Promise<void>((resolve) => {
+      observed = resolve;
+    });
+    const hold = async (route: import("@playwright/test").Route) => {
+      if (route.request().method() !== "POST") return route.continue();
+      const response = await route.fetch();
+      observed();
+      await held;
+      await route.fulfill({ response });
+    };
+    await page.route("**/account/shipping-addresses.data", hold);
+    await update.locator('input[name="city"]').fill(" ");
+    const before = await submitOnce(update);
+    await received;
+    const other = await page.context().newPage();
+    try {
+      await other.goto("/account/shipping-addresses");
+      const otherRow = other.getByText(label, { exact: true }).locator("..").locator("..");
+      await otherRow.getByRole("button", { name: "Archive", exact: true }).click();
+      await other.getByRole("dialog").getByRole("button", { name: "Archive", exact: true }).click();
+      await expect(other.getByText(label, { exact: true })).toHaveCount(0);
+      await revalidate();
+      await expect(page.locator(`form:has(input[name="shippingAddressId"][value="${target}"])`)).toHaveCount(0);
+      release();
+      await expect(page.locator('[role="status"][tabindex="-1"] [role="alert"]')).toHaveCount(1);
+      await expect(summaries).toHaveCount(0);
+      await expect(page.locator('a[href*="shipping-address-"]')).toHaveCount(0);
+      await expect(page.getByRole("dialog")).toHaveCount(0);
+      expect(posts - before).toBe(1);
+      expect((await focusEvents()).filter((event) => event.summary)).toHaveLength(0);
+      await revalidate();
+      expect(posts - before).toBe(1);
+      transcript.push({ viewport: size, phase: "removed-row", posts: posts - before, focusins: 0 });
+      await dropSummaryLinkFragment();
+      await captureResponsiveEvidence({ page, testInfo, claimId: "shipping-field-errors-removed-row-1024" });
+      const firstLabel = ownedLabels.first;
+      const firstRow = other.getByText(firstLabel, { exact: true }).locator("..").locator("..");
+      await firstRow.getByRole("button", { name: "Archive", exact: true }).click();
+      await other.getByRole("dialog").getByRole("button", { name: "Archive", exact: true }).click();
+      await expect(other.getByText(firstLabel, { exact: true })).toHaveCount(0);
+      await revalidate();
+    } finally {
+      release();
+      await other.close();
+      await page.unroute("**/account/shipping-addresses.data", hold);
     }
     await testInfo.attach("shipping-field-errors-focus-request-transcript", {
       body: JSON.stringify(transcript),
@@ -808,9 +1268,13 @@ test.describe("issue-7168-ac10-real-router @marketplace-account", () => {
     await page.getByRole("dialog").getByRole("button", { name: /close/i }).click();
     const invite = page.locator('form:has(input[name="intent"][value="create-invitation"])');
     await expect(invite.getByRole("button", { name: "Invite", exact: true })).toBeEnabled();
-    await invite.getByLabel("Email", { exact: true }).fill("synthetic-held-invite@example.test");
+    const invitationEmail = `synthetic-held-invite-${randomUUID()}@example.test`;
+    await invite.getByLabel("Email", { exact: true }).fill(invitationEmail);
     await invite.getByRole("button", { name: "Invite", exact: true }).click();
     await expect(page.getByText("Your change was saved", { exact: true })).toBeVisible();
     expect(methods).toEqual(["POST", "GET", "POST"]);
+    await page.unroute("**/account/team.data");
+    await page.unroute("**/api/identity/account-management/attempts?*");
+    await cancelOwnedInvitation(page, invitationEmail);
   });
 });

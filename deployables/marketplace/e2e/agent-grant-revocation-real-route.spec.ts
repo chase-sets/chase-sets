@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { randomUUID, createHash } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { readFile, readdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { createPgPool, createPostgresEventStore } from "@chase-sets/event-core-postgres";
@@ -10,7 +10,7 @@ import {
   ownedBrowserIdentityDatabase,
 } from "@chase-sets/identity/seed-support/account-management-browser";
 import type { Pool } from "pg";
-import { registerSyntheticAccount } from "./support/auth";
+import { registerSyntheticAccount, syntheticAccountFor } from "./support/auth";
 
 test.use({ trace: "off", video: "off", screenshot: "off" });
 test("revocation-real-route synthetic Account, completion, retained forms, reload and foreign Account denial @marketplace-account", async ({
@@ -22,12 +22,7 @@ test("revocation-real-route synthetic Account, completion, retained forms, reloa
   const platformApiUrl: unknown = info.config.metadata.platformApiUrl;
   if (typeof platformApiUrl !== "string" || !["localhost", "127.0.0.1"].includes(new URL(platformApiUrl).hostname))
     throw new Error("local browser API sandbox required");
-  const identity = createHash("sha256").update(randomUUID()).digest("hex");
-  const actor = {
-    email: `${identity}@chasesets.test`,
-    password: `E2e!${identity}`,
-    displayName: `E2E ${identity}`,
-  };
+  const actor = syntheticAccountFor(info);
   await registerSyntheticAccount(page, baseURL, actor, { freshReadRoute: "/account/security" });
   const response = await page.request.get("/api/identity/current-actor-display");
   expect(response.status()).toBe(200);
@@ -134,14 +129,13 @@ test("revocation-real-route synthetic Account, completion, retained forms, reloa
     expect(safeDom).not.toContain(tokenMarker);
     expect(JSON.stringify(stored)).not.toContain(tokenMarker);
     await writeFile(info.outputPath("completed.txt"), safeDom);
-    const otherId = createHash("sha256").update(randomUUID()).digest("hex");
     await registerSyntheticAccount(
       page,
       baseURL,
       {
-        email: `${otherId}@chasesets.test`,
-        password: `E2e!${otherId}`,
-        displayName: `E2E ${otherId}`,
+        email: `foreign-${actor.email}`,
+        password: actor.password,
+        displayName: `Foreign ${actor.displayName}`,
       },
       { freshReadRoute: "/account/security" },
     );

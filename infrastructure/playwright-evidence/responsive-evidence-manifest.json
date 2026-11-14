@@ -6751,7 +6751,7 @@
       "kind": "claim",
       "id": "shipping-field-errors-create-360",
       "file": "deployables/marketplace/e2e/account-management-interruption.spec.ts",
-      "testTitle": "shipping field errors focus the submitted form @marketplace-account",
+      "testTitle": "shipping field errors focus the submitted form @marketplace-account 360x800",
       "route": {
         "name": "shipping addresses",
         "path": "/account/shipping-addresses"
@@ -6794,7 +6794,7 @@
       "kind": "claim",
       "id": "shipping-field-errors-update-390",
       "file": "deployables/marketplace/e2e/account-management-interruption.spec.ts",
-      "testTitle": "shipping field errors focus the submitted form @marketplace-account",
+      "testTitle": "shipping field errors focus the submitted form @marketplace-account 390x844",
       "route": {
         "name": "shipping addresses",
         "path": "/account/shipping-addresses"
@@ -6837,7 +6837,7 @@
       "kind": "claim",
       "id": "shipping-field-errors-removed-row-1024",
       "file": "deployables/marketplace/e2e/account-management-interruption.spec.ts",
-      "testTitle": "shipping field errors focus the submitted form @marketplace-account",
+      "testTitle": "shipping field errors focus the submitted form @marketplace-account 1024x768",
       "route": {
         "name": "shipping addresses",
         "path": "/account/shipping-addresses"
