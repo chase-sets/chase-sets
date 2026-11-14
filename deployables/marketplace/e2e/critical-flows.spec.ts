@@ -765,6 +765,74 @@ test.describe("marketplace critical flows", () => {
         const productLines = await readLines();
         expect(productLines).toHaveLength(1);
         lineId = productLines[0].line_id;
+        if (destination === "/account/sell-list") {
+          const requiredOfferId = "off_seed_charizard_base_set_high_roller";
+          const [compositeResponse, matchResponse, payoutResponse] = await Promise.all([
+            page.request.get("/api/marketplace/account/sell-list/composite-review"),
+            page.request.get(`/api/marketplace/account/sell-list/offer-matches/${requiredOfferId}`),
+            page.request.get("/api/marketplace/account/sell-list/payout-readiness"),
+          ]);
+          expect(compositeResponse.status()).toBe(200);
+          expect([200, 404]).toContain(matchResponse.status());
+          expect(payoutResponse.status()).toBe(200);
+          const composite: {
+            productOfferReviews: Array<{
+              lineId: string;
+              status: string;
+              offers: Array<{
+                offer: { offer_id: string; listing_id: string };
+                terms: {
+                  basis_amount: string;
+                  marketplace_sales_fee_unit_amount: string;
+                  seller_net_unit_amount: string;
+                };
+              }>;
+            }>;
+          } = await compositeResponse.json();
+          const match: {
+            offer_id: string;
+            listing_id: string;
+            listing_visible_quantity: number;
+            quantity_requested: number;
+            listing_stream_version: number;
+            offer_stream_version: number;
+          } | null = matchResponse.ok() ? await matchResponse.json() : null;
+          const payout: { status: string; missing_requirements: string[] } = await payoutResponse.json();
+          const review = composite.productOfferReviews.find((entry) => entry.lineId === lineId);
+          const quotedOffer = review?.offers.find((entry) => entry.offer.offer_id === requiredOfferId);
+          await testInfo.attach("desk-review-composite-diagnostic.json", {
+            contentType: "application/json",
+            body: JSON.stringify(
+              {
+                accountFixture: configuredMarketplaceAccount.email
+                  ? "configured-marketplace-account"
+                  : "synthetic-account",
+                addedLineId: lineId,
+                productId,
+                addedQuantity: 1,
+                requiredOfferId,
+                productReviewStatus: review?.status ?? null,
+                matchedOfferId: match?.offer_id ?? null,
+                matchedListingId: match?.listing_id ?? null,
+                listingVisibleQuantity: match?.listing_visible_quantity ?? null,
+                quantityRequested: match?.quantity_requested ?? null,
+                listingStreamVersion: match?.listing_stream_version ?? null,
+                offerStreamVersion: match?.offer_stream_version ?? null,
+                quotedOfferIds: review?.offers.map((entry) => entry.offer.offer_id) ?? [],
+                quote: quotedOffer
+                  ? {
+                      basis: quotedOffer.terms.basis_amount,
+                      fee: quotedOffer.terms.marketplace_sales_fee_unit_amount,
+                      net: quotedOffer.terms.seller_net_unit_amount,
+                    }
+                  : null,
+                payoutReadiness: { status: payout.status, reasons: payout.missing_requirements },
+              },
+              null,
+              2,
+            ),
+          });
+        }
         await expect(page.getByText("Your Sell List is empty", { exact: true })).toHaveCount(0);
         await expect(page.getByRole("heading", { name: "Review items", exact: true })).toBeVisible();
         if (destination === "/account/desk/offers") {
