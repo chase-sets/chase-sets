@@ -9,6 +9,8 @@
 use corten::prelude::*;
 use platform::auth::passkey;
 
+corten::script::script!(pub mod analytics = "register_analytics.js");
+
 use crate::{
     api::segment,
     app::url,
@@ -305,7 +307,12 @@ pub fn RegisterPage<'a>(t: SignInMsg, screen: &'a RegisterScreen) -> impl Render
                 </div>
             }
             if let Some(error) = &screen.error {
-                <div class={Banner} data-tone="danger" role="alert">
+                <div
+                    class={Banner}
+                    data-tone="danger"
+                    role="alert"
+                    on:connect={screen.failed.map(|reason| analytics::failed(method.key(), reason))}
+                >
                     <p class={Strong}>{t.register_registration_failed()}</p>
                     <p>{error}</p>
                 </div>
@@ -346,18 +353,26 @@ pub fn RegisterPage<'a>(t: SignInMsg, screen: &'a RegisterScreen) -> impl Render
                     </a>
                 </div>
             </section>
-            <nav class={Methods} aria-label={t.register_method()}>
+            <nav
+                class={Methods}
+                aria-label={t.register_method()}
+                on:connect={analytics::watch(signal, method.key(), screen.opened)}
+            >
                 for choice in register::Method::ALL {
                     <a
                         class={Choice}
                         href={url::Register { join: screen.join.with_method(choice) }}
                         aria-current={(choice == method).then_some("true")}
+                        on:click={(choice != method).then(|| analytics::choose(event, choice.key()))}
                     >
                         {choice.label(t)}
                     </a>
                 }
             </nav>
-            <MethodForm t={t} screen={screen} />
+            // Each form's submit, after its own handler: what the analytics count as sent.
+            <div class={Forms} on:submit={analytics::completed(event, method.key())}>
+                <MethodForm t={t} screen={screen} />
+            </div>
         </div>
     }
 }
