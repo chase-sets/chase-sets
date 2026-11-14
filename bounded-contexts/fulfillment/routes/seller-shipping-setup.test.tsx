@@ -45,9 +45,21 @@ function request(
   });
 }
 const load = (query = "", extraHeaders: HeadersInit = {}) =>
-  loader({ request: request("GET", formValues, query, extraHeaders), params: {}, context: undefined });
+  loader({
+    request: request("GET", formValues, query, extraHeaders),
+    params: {},
+    context: undefined,
+    url: new URL(`https://marketplace.test${path}${query}`),
+    pattern: path,
+  });
 const save = (fields: Record<string, string> = formValues, query = "", extraHeaders: HeadersInit = {}) =>
-  action({ request: request("POST", fields, query, extraHeaders), params: {}, context: undefined });
+  action({
+    request: request("POST", fields, query, extraHeaders),
+    params: {},
+    context: undefined,
+    url: new URL(`https://marketplace.test${path}${query}`),
+    pattern: path,
+  });
 
 async function settled(router: ReturnType<typeof createMemoryRouter>) {
   if (router.state.initialized && router.state.navigation.state === "idle" && router.state.revalidation === "idle")
@@ -275,10 +287,15 @@ describe("registered seller shipping setup route", () => {
       request: new Request(`https://marketplace.test${path}`, { method: "POST", headers: { cookie }, body: duplicate }),
       params: {},
       context: undefined,
+      url: new URL(`https://marketplace.test${path}`),
+      pattern: path,
     });
     const forged = request("POST");
     forged.headers.set("origin", "https://foreign.test");
-    expect((await action({ request: forged, params: {}, context: undefined })).init?.status).toBe(403);
+    expect(
+      (await action({ request: forged, params: {}, context: undefined, url: new URL(forged.url), pattern: path })).init
+        ?.status,
+    ).toBe(403);
     expect((await save(formValues, "", { "sec-fetch-site": "cross-site" })).init?.status).toBe(403);
     expect(writes).toHaveLength(0);
   });
