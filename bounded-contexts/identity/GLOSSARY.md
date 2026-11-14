@@ -14,6 +14,15 @@ Avoid introducing synonyms. Each concept has exactly one canonical term.
 
 ## Identity Concepts
 
+### Listing Activation Authority
+
+**Listing Activation Authority** is Identity's canonical capture of an active
+Account, an active User and their exact active owner or manager Membership.
+Each owner carries its stream-version seal and an installed class-C epoch grant
+for the registered consumer incarnation. Account Capability Assignments never
+grant `listings.manage`. A CLOSING key refuses capture until acknowledged closure
+and atomic installation complete; no per-Listing Identity promise is created.
+
 ### Account Management Mutation Attempt
 
 An **Account Management Mutation Attempt** binds one explicit account-management

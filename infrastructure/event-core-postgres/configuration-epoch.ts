@@ -246,6 +246,11 @@ export type PostgresConfigurationEpochStoreConfig = Readonly<{
   sourceIncarnation: string;
   /** Transport routing only. Required membership always comes from the journal. */
   consumers: readonly ConsumerTarget[];
+  /** Canonical creation fact for owners predating guard enrollment. Never persisted as invented history. */
+  readCanonicalCreation?: (
+    client: PgQueryable,
+    key: string,
+  ) => Promise<Extract<ConfigurationEpochRecord, { kind: "CREATED" }> | undefined>;
 }>;
 
 export function createPostgresConfigurationEpochStore(config: PostgresConfigurationEpochStoreConfig) {
@@ -254,14 +259,22 @@ export function createPostgresConfigurationEpochStore(config: PostgresConfigurat
   if (new Set(identities).size !== identities.length) throw new ConfigurationEpochError("duplicate consumer routes");
   async function load(client: PgQueryable, key: string) {
     const journal = await readJournal(client, "source", key);
-    const state = sourceState(journal);
+    const creation =
+      journal?.records[0]?.kind === "CREATED" ? undefined : await config.readCanonicalCreation?.(client, key);
+    const state = sourceState(
+      creation
+        ? { records: [creation, ...(journal?.records ?? [])], digest: journal?.digest ?? EMPTY_DIGEST }
+        : journal,
+    );
     if (state.sourceIncarnation !== config.sourceIncarnation)
       throw new ConfigurationEpochError("old source incarnation");
     return { journal, state };
   }
   async function append(client: PgQueryable, key: string, record: ConfigurationEpochRecord) {
     const { journal } = await load(client, key);
-    sourceState({ records: [...(journal?.records ?? []), record], digest: "" });
+    const creation =
+      journal?.records[0]?.kind === "CREATED" ? undefined : await config.readCanonicalCreation?.(client, key);
+    sourceState({ records: [...(creation ? [creation] : []), ...(journal?.records ?? []), record], digest: "" });
     await appendJournal(client, "source", key, journal, record);
   }
   async function beginClosureInTransaction(client: PgQueryable, key: string) {
@@ -285,6 +298,16 @@ export function createPostgresConfigurationEpochStore(config: PostgresConfigurat
     beginClosureInTransaction,
     /** Atomically install the owner change in this same caller-owned transaction. */
     installClosureInTransaction,
+    async statusInTransaction(client: PgQueryable, key: string) {
+      await boundStep(client);
+      await client.query(CONFIGURATION_EPOCH_LOCK_SQL, [key]);
+      return configurationClosureStatus(key, (await load(client, key)).state);
+    },
+    async captureGrantInTransaction(client: PgQueryable, key: string, consumer: ConfigurationConsumer) {
+      await boundStep(client);
+      await client.query(CONFIGURATION_EPOCH_LOCK_SQL, [key]);
+      return captureConfigurationGrant(key, (await load(client, key)).state, consumer);
+    },
     async open(key: string, keyCreationEpoch = 0): Promise<void> {
       assertConfigurationText(key);
       assertConfigurationEpoch(keyCreationEpoch);

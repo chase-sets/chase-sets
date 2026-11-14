@@ -154,6 +154,11 @@
   ],
   "hostPorts": [
     {
+      "portName": "identitySourceTopology",
+      "providedBy": "platform-api",
+      "purpose": "Routes acknowledged class-C closure to registered consumer store incarnations. Required membership is retained in canonical source history; unavailable routes leave writers blocked."
+    },
+    {
       "portName": "capabilityAdministrationAuthority",
       "providedBy": "platform-api",
       "purpose": "Admits support.evidence.any-case grant and revoke from a release-scoped deployment allow-list; worker and bootstrap explicitly deny all."

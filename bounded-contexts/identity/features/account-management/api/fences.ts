@@ -12,6 +12,14 @@ import {
 } from "@chase-sets/event-core-postgres";
 import manifest from "../../../context.json" with { type: "json" };
 import { validateOwnerHistory } from "./owners";
+import { ConfigurationEpochError } from "@chase-sets/event-core/configuration-epoch";
+import {
+  createIdentityOwnerEpochs,
+  IdentityClosureRequired,
+  identityOwnerKey,
+  identityAuthorityEvents,
+  type IdentityOwnerEpochs,
+} from "../../accounts/api/owner-epochs";
 
 type ScopeEvent = Readonly<{ eventType: string; payload: Readonly<Record<string, unknown>> }>;
 export type IdentityMutationTransaction = Readonly<{
@@ -89,8 +97,27 @@ export function createIdentityMutationPersistence(
   pool: PgTransactionalPool,
   store: PostgresEventStore,
   getProjectors: () => readonly ProjectionHandlerSet[],
+  ownerEpochs: IdentityOwnerEpochs = createIdentityOwnerEpochs(pool),
 ): IdentityMutationPersistence {
   async function transaction<T>(
+    scopes: readonly string[],
+    work: (transaction: IdentityMutationTransaction) => Promise<T>,
+  ): Promise<T> {
+    try {
+      return await attempt(scopes, work);
+    } catch (error) {
+      if (!(error instanceof IdentityClosureRequired)) throw error;
+      const epochs = await ownerEpochs.source();
+      for (const key of error.keys) {
+        const status = await epochs.driveClosure(key);
+        if (status.pendingConsumers.length) {
+          throw new ConfigurationEpochError(`Identity writer ${status.status}: ${key}; retry after closure`);
+        }
+      }
+      return attempt(scopes, work);
+    }
+  }
+  async function attempt<T>(
     scopes: readonly string[],
     work: (transaction: IdentityMutationTransaction) => Promise<T>,
   ): Promise<T> {
@@ -100,6 +127,7 @@ export function createIdentityMutationPersistence(
       await client.query("SET LOCAL lock_timeout = '2s'");
       await client.query("SET LOCAL statement_timeout = '5s'");
       await lockEligibilityScopes(client, scopes);
+      await client.query("SAVEPOINT identity_owner_work");
       const result = await work({
         db: client,
         read: async (streamId) => {
@@ -114,7 +142,10 @@ export function createIdentityMutationPersistence(
           if (Number(head.rows[0]?.current_version ?? 0) !== history.length) throw new Error("INDETERMINATE");
           return history;
         },
-        append: (inputs) => store.appendToStreamsInTransaction(client, inputs),
+        append: async (inputs) => {
+          await ownerEpochs.enroll(client, inputs);
+          return store.appendToStreamsInTransaction(client, inputs);
+        },
         projectionPredicate: async (projectionName, parameters) => {
           // Autocommit horizon observation, never the command transaction's global lock.
           const horizonClient = await connectBounded(pool);
@@ -190,6 +221,14 @@ export function createIdentityMutationPersistence(
       await client.query("COMMIT");
       return result;
     } catch (error) {
+      if (error instanceof IdentityClosureRequired) {
+        // Discard all business effects, retaining only the writer's durable CLOSING intent.
+        await client.query("ROLLBACK TO SAVEPOINT identity_owner_work");
+        const epochs = await ownerEpochs.source();
+        for (const key of error.keys) await epochs.beginClosureInTransaction(client, key);
+        await client.query("COMMIT");
+        throw error;
+      }
       await client.query("ROLLBACK");
       throw error;
     } finally {
@@ -210,7 +249,11 @@ export function createIdentityMutationPersistence(
           return { input, scopes: eligibilityScopeKeys(input.context.tenantId, input.streamId, events) };
         }),
     );
-    if (contributors.length === 0) {
+    const hasAuthorityChanges = inputs.some(
+      (input) =>
+        identityOwnerKey(input.streamId) && input.events.some((event) => identityAuthorityEvents.has(event.eventType)),
+    );
+    if (contributors.length === 0 && !hasAuthorityChanges) {
       if (!store.appendToStreams) throw new Error("INDETERMINATE");
       return store.appendToStreams(inputs);
     }
