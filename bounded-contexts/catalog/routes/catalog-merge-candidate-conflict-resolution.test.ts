@@ -123,7 +123,7 @@ function matchedCandidate(rarities: readonly string[]) {
     sync_run_id: null,
     provider_key: "tcgdex",
     external_key: `synthetic_${index}`,
-    source_url: null,
+    source_url: "https://provider.example/synthetic",
     language_code: "en",
     source_record_hash: `synthetic_${index}`,
     source_updated_at: null,
