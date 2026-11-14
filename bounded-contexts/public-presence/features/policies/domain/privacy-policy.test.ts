@@ -555,7 +555,6 @@ function rolloutScopeErrors(artifact: PublicPolicyArtifact): readonly string[] {
   return errors;
 }
 
-/** Every Privacy manifest statement about [NOTICE-EMAIL] must carry the Terms' #5677 status and provenance. */
 /** The scope subject's draft text, byte-identical to its text before the Connector Pairing question was added. */
 const privacyScopeDraftFixture =
   "This privacy notice describes how Chase Sets Limited (“Chase Sets”) collects, uses, shares, and retains personal information when you visit the Chase Sets website, join the waitlist, create an Account, buy or sell trading cards and related collectibles, set up payouts, or contact support. It applies to the Chase Sets marketplace and its account, developer, and support surfaces. It does not replace the Terms of Service or the other policies that govern your use of the marketplace, and it does not cover the independent practices of other users or of providers acting under their own notices, such as the payment processing described in the Stripe-managed processing section below.";
