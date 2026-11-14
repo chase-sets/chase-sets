@@ -144,8 +144,8 @@ export async function createBrowserRecoveryFixture(
       draft: {
         channelListingId,
         listingRevision: 1,
-        title: "Synthetic owned recovery Listing",
-        description: "Local browser recovery fixture",
+        title: "synthetic-owned-recovery-listing",
+        description: "",
         categoryKey: "synthetic-browser-recovery",
         conditionKey: "Near Mint",
         price: { amountMinor: 500, currency: "USD" },

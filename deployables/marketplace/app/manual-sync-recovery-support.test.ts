@@ -5,6 +5,8 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import ts from "@chase-sets/typescript-compiler-api";
+import { runInNewContext } from "node:vm";
+import * as responses from "@chase-sets/http/responses";
 import { createManualSyncBrowserRecovery } from "../e2e/support/manual-sync-recovery";
 
 const h = vi.hoisted(() => ({ spawn: vi.fn() }));
@@ -24,6 +26,185 @@ const receipt = () => ({
   listingId: fixture.listingId,
   runId: `run-browser-recovery-${fixture.ownershipId}`,
   runRevision: 0,
+});
+
+function recoveryFunctions(file: string, names: string[], globals: Record<string, unknown> = {}) {
+  const filename = path.resolve(path.dirname(fileURLToPath(import.meta.url)), `../e2e/${file}`);
+  const source = ts.createSourceFile(filename, readFileSync(filename, "utf8"), ts.ScriptTarget.Latest, true);
+  const declarations = names.map((name) => {
+    const declaration = source.statements.find((node) => ts.isFunctionDeclaration(node) && node.name?.text === name);
+    if (!declaration) throw new Error(`Missing recovery function: ${name}`);
+    return declaration.getText(source);
+  });
+  const javascript = ts.transpileModule(declarations.join("\n"), {
+    compilerOptions: { target: ts.ScriptTarget.ES2022 },
+  }).outputText;
+  return runInNewContext(`${javascript}; ({ ${names.join(",")} })`, {
+    ...responses,
+    expect,
+    URL,
+    Headers,
+    AggregateError,
+    ...globals,
+  });
+}
+
+describe("owned recovery browser preparation", () => {
+  it("keeps recovery client navigation before provider selection and drains held connection routes", () => {
+    const source = (name: string) =>
+      readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), `../e2e/${name}`), "utf8");
+    const recovery = source("manual-sync-recovery.spec.ts");
+    expect(recovery).toContain("await hydratedChannelForm(page)");
+    expect(recovery).toContain("await expect(activate).toBeEnabled()");
+    expect(recovery.indexOf("await hydratedChannelForm(page)")).toBeLessThan(
+      recovery.indexOf('.selectOption("tcgplayer")'),
+    );
+    expect(recovery).toContain("await expect(location).toBeChecked()");
+    expect(recovery.indexOf("await expect(activate).toBeEnabled()")).toBeLessThan(
+      recovery.indexOf("await activate.click()"),
+    );
+    const connection = source("channel-connection-connect.spec.ts");
+    expect(connection).toContain("releaseScript();");
+    expect(connection).toContain('await page.unrouteAll({ behavior: "wait" })');
+    expect(connection.indexOf("releaseScript();")).toBeLessThan(
+      connection.indexOf('await page.unrouteAll({ behavior: "wait" })'),
+    );
+    const interruption = source("account-management-interruption.spec.ts");
+    const afterEach = interruption.slice(
+      interruption.indexOf("test.afterEach"),
+      interruption.indexOf('test("five actual routes'),
+    );
+    expect(afterEach).toContain("await expect(page).toHaveURL");
+    expect(afterEach.indexOf("await expect(page).toHaveURL")).toBeLessThan(afterEach.indexOf("await page.reload()"));
+    expect(
+      recoveryFunctions("manual-sync-recovery.spec.ts", ["hydratedChannelForm"]).hydratedChannelForm.toString(),
+    ).toContain("/account/channels.data");
+  });
+  it("preserves the exact primary failure after all cleanup, including reporting failure", async () => {
+    const { withOwnedRecoveryCleanup } = recoveryFunctions("manual-sync-recovery.spec.ts", [
+      "withOwnedRecoveryCleanup",
+    ]);
+    const primary = new Error("primary");
+    const calls: string[] = [];
+    await expect(
+      withOwnedRecoveryCleanup(
+        async () => {
+          throw primary;
+        },
+        [
+          async () => {
+            calls.push("run");
+            throw new Error("secondary");
+          },
+          async () => {
+            calls.push("listing");
+            throw new Error("secondary");
+          },
+          async () => {
+            calls.push("connection");
+          },
+        ],
+        (count: number) => {
+          calls.push(`record:${count}`);
+          throw new Error("reporting");
+        },
+      ),
+    ).rejects.toBe(primary);
+    expect(calls).toEqual(["run", "listing", "connection", "record:2"]);
+  });
+  it("fails cleanup-only errors, runs later cleanup and accepts complete success", async () => {
+    const { withOwnedRecoveryCleanup } = recoveryFunctions("manual-sync-recovery.spec.ts", [
+      "withOwnedRecoveryCleanup",
+    ]);
+    const later = vi.fn(async () => {});
+    const record = vi.fn();
+    await expect(
+      withOwnedRecoveryCleanup(
+        async () => {},
+        [
+          async () => {
+            throw new Error("cleanup");
+          },
+          later,
+        ],
+        record,
+      ),
+    ).rejects.toThrow("owned-recovery-cleanup-failed");
+    expect(later).toHaveBeenCalledOnce();
+    expect(record).toHaveBeenCalledWith(1);
+    await expect(withOwnedRecoveryCleanup(async () => {}, [later], record)).resolves.toBeUndefined();
+  });
+  it.each(["manual-sync-recovery.spec.ts", "channel-connection-connect.spec.ts"])(
+    "%s sends receipt headers and retries only transient projection failures",
+    async (file) => {
+      const receipt = {
+        observedAtMs: Date.now(),
+        sources: [{ sourceContextName: "inventory", maxGlobalPosition: "1", eventIds: ["evt_owned"] }],
+      };
+      const body = { listing_id: "lst_owned", inventory_item_id: "itm_owned" };
+      const pollExpect = Object.assign((value: unknown, message?: string) => expect(value, message), {
+        poll: (probe: () => Promise<boolean>) => ({
+          toBe: async (expected: boolean) => {
+            for (let attempt = 0; attempt < 3; attempt++) {
+              if ((await probe()) === expected) return;
+            }
+            throw new Error("projection poll exhausted");
+          },
+        }),
+      });
+      const names =
+        file === "manual-sync-recovery.spec.ts"
+          ? ["readFreshListing", "responseJson"]
+          : ["readFreshListing", "successfulJson", "marketplaceFreshReadHeaders", "capturePendingProjections"];
+      const { readFreshListing } = recoveryFunctions(file, names, { expect: pollExpect });
+      const response = (status: number, value: unknown) => ({
+        ok: () => status === 200,
+        status: () => status,
+        json: async () => value,
+        headers: () => ({ "content-type": "application/json" }),
+        url: () => "http://localhost/listing",
+        text: async () => JSON.stringify(value),
+      });
+      const get = vi.fn();
+      const page = { url: () => "http://localhost/account", request: { get } };
+      const capture = { data: { freshnessReads: [] } };
+      const accepts = (value: typeof body) =>
+        value.listing_id === body.listing_id && value.inventory_item_id === body.inventory_item_id;
+      const input = {
+        id: "itm_owned",
+        commandReceipt: { mode: "eventual", commitPositions: receipt.sources, commitEventIds: ["evt_owned"] },
+      };
+      const invoke = () =>
+        file === "manual-sync-recovery.spec.ts"
+          ? readFreshListing(page, "/api/marketplace/account/listings/lst_owned", input, accepts)
+          : readFreshListing(page, "/api/marketplace/account/listings/lst_owned", input, capture, accepts);
+      get
+        .mockResolvedValueOnce(response(503, { error: { code: "projection_freshness_timeout" } }))
+        .mockResolvedValueOnce(response(200, body));
+      await expect(invoke()).resolves.toMatchObject(body);
+      expect(get).toHaveBeenCalledTimes(2);
+      for (const [url, options] of get.mock.calls) {
+        expect(responses.readFreshWriteToken(url)).toMatchObject({ sources: receipt.sources });
+        expect(
+          responses.readFreshWriteToken(
+            `http://localhost/?afterWrite=${options.headers[responses.CHASE_SETS_READ_AFTER_WRITE_HEADER]}`,
+          ),
+        ).toMatchObject({ sources: receipt.sources });
+        expect(options.headers[responses.CHASE_SETS_READ_TARGET_CONTEXT_HEADER]).toBe("marketplace");
+      }
+      for (const refused of [
+        response(403, { error: { code: "authorization_forbidden" } }),
+        response(200, { ...body, inventory_item_id: "itm_foreign" }),
+      ]) {
+        get.mockReset().mockResolvedValue(refused);
+        await expect(invoke()).rejects.toThrow();
+        expect(get).toHaveBeenCalledOnce();
+      }
+      get.mockReset().mockRejectedValue(new Error("network"));
+      await expect(invoke()).rejects.toThrow("network");
+      expect(get).toHaveBeenCalledOnce();
+    },
+  );
 });
 function child() {
   const value = Object.assign(new EventEmitter(), {

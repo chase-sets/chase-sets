@@ -7,6 +7,7 @@ import type { Pool } from "pg";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { drainLocalProjectionHandlerSets } from "@chase-sets/bounded-context-runtime";
+import { createEventStoreWakeNotificationConfigForSourceContext } from "@chase-sets/platform-runtime/source-context-wake-registry";
 import { module as channelsModule } from "../../index";
 import {
   browserRecoveryContext,
@@ -98,10 +99,16 @@ export async function createManualSyncBrowserRecovery(
       },
       input,
     );
-    const events = await readCompleteStream(createPostgresEventStore({ pool: pools.channels }), {
-      streamId: `channels.tcgplayer-sync-run-${fixture.runId}`,
-      maxEvents: 2,
-    });
+    const events = await readCompleteStream(
+      createPostgresEventStore({
+        pool: pools.channels,
+        wakeNotifications: createEventStoreWakeNotificationConfigForSourceContext({ sourceContextName: "channels" }),
+      }),
+      {
+        streamId: `channels.tcgplayer-sync-run-${fixture.runId}`,
+        maxEvents: 2,
+      },
+    );
     const initial = events[0]?.payload.run as Record<string, unknown> | undefined;
     if (
       events.length !== 1 ||
@@ -120,7 +127,9 @@ export async function createManualSyncBrowserRecovery(
       connectionId: input.connectionId,
     });
     if (
-      panel.run?.runId !== fixture.runId ||
+      !panel ||
+      !panel.run ||
+      panel.run.runId !== fixture.runId ||
       panel.run.revision !== 0 ||
       panel.run.state !== "composed" ||
       panel.attentionReason !== "recovery"

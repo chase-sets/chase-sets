@@ -21,7 +21,8 @@ const h = vi.hoisted(() => ({
 vi.mock("@chase-sets/event-core/complete-stream", () => ({
   readCompleteStream: async (_store: unknown, input: { streamId: string }) => h.streams.get(input.streamId) ?? [],
 }));
-vi.mock("@chase-sets/event-core-postgres", () => ({
+vi.mock("@chase-sets/event-core-postgres", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@chase-sets/event-core-postgres")>()),
   createPostgresEventStore: () => ({ appendToStreamInTransaction: h.append }),
   withPgTransaction: async (_pool: unknown, run: (db: unknown) => unknown) => run({ query: h.query }),
   createPgPool: h.pool,
@@ -212,6 +213,48 @@ describe("finite recovery Node entry", () => {
     });
     for (const end of ends) expect(end).toHaveBeenCalledOnce();
     expect(h.drain).toHaveBeenCalledTimes(2);
+  });
+  it.each([
+    null,
+    { run: null, attentionReason: "recovery" },
+    { run: { runId: "run_foreign", revision: 0, state: "composed" }, attentionReason: "recovery" },
+    { run: { runId, revision: 1, state: "composed" }, attentionReason: "recovery" },
+    { run: { runId, revision: 0, state: "claimed" }, attentionReason: "recovery" },
+    { run: { runId, revision: 0, state: "composed" }, attentionReason: null },
+  ])("refuses nullable or noninitial panel state before dereference %# and closes every pool", async (panel) => {
+    const ends = composition();
+    h.channels.mockReturnValueOnce({
+      ...setup().services,
+      projectors: [],
+      manualSync: { readPanel: vi.fn(async () => panel) },
+    });
+    await expect(createManualSyncBrowserRecovery(input, databases)).rejects.toThrow(
+      "owned-recovery-initial-state-required",
+    );
+    for (const end of ends) expect(end).toHaveBeenCalledOnce();
+  });
+  it("returns only the fixed failure marker for null panel stdin and closes every pool", async () => {
+    const ends = composition();
+    h.channels.mockReturnValueOnce({
+      ...setup().services,
+      projectors: [],
+      manualSync: { readPanel: vi.fn(async () => null) },
+    });
+    const out: string[] = [];
+    const err: string[] = [];
+    const sink = (target: string[]) =>
+      new Writable({
+        write(chunk, _encoding, done) {
+          target.push(chunk.toString());
+          done();
+        },
+      });
+    await expect(
+      runOwnedRecoveryStdin(Readable.from([Buffer.from(JSON.stringify(request()))]), sink(out), sink(err)),
+    ).resolves.toBe(1);
+    expect(out).toEqual([]);
+    expect(err.join("")).toBe("OWNED_RECOVERY_FAILED\n");
+    for (const end of ends) expect(end).toHaveBeenCalledOnce();
   });
   it("requires matching local origins and each context's own role, including both query/hash refusals", () => {
     for (const host of ["localhost", "127.0.0.1", "[::1]"]) {

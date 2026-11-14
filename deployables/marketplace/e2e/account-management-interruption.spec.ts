@@ -77,6 +77,7 @@ test.describe("issue-7168-ac10-real-router @marketplace-account", () => {
       await profile.getByLabel(/^Display name$/i).fill(original);
       await profile.getByRole("button", { name: /^Update profile$/i }).click();
       await expect(page.getByText("Your change was saved", { exact: true })).toBeVisible();
+      await expect(page).toHaveURL(/\/account\/security\?afterWrite=/);
       await page.reload();
     }
     await expect(profile.getByLabel(/^Display name$/i)).toHaveValue(original);

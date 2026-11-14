@@ -71,7 +71,7 @@ test("manual-sync-panel-round-trip: connects and activates an independent real c
       await expect(page.locator('option[value="unregistered"]')).toHaveCount(0);
     } finally {
       releaseScript();
-      await page.unroute("**/*", delayScript);
+      await page.unrouteAll({ behavior: "wait" });
     }
     await page.waitForLoadState("domcontentloaded");
     await hydratedChannelForm(page);
@@ -438,43 +438,54 @@ async function readFreshListing<Result>(
   };
   capture.data.freshnessReads.push(read);
   let result: Result | undefined;
+  let failed = false;
+  let failure: unknown;
   try {
     await expect
       .poll(
         async () => {
-          read.pending = true;
-          const response = await page.request.get(request, { headers });
-          read.pending = false;
-          read.lastResponseAt = new Date().toISOString();
-          if (!response.ok()) {
-            const body: unknown = await response.json().catch(() => null);
-            read.pendingProjections = capturePendingProjections(body);
-            const { kind, status, errorCode } = classifyFreshWriteReadError({
-              request,
-              error: response,
-              getStatus: () => response.status(),
-              getBody: () => body,
-            });
-            read.classification = { kind, status, errorCode };
-            if (kind === "transient-projection-timeout") {
-              read.outcome = "transient";
-              return false;
+          try {
+            read.pending = true;
+            const response = await page.request.get(request, { headers });
+            read.pending = false;
+            read.lastResponseAt = new Date().toISOString();
+            if (!response.ok()) {
+              const body: unknown = await response.json().catch(() => null);
+              read.pendingProjections = capturePendingProjections(body);
+              const { kind, status, errorCode } = classifyFreshWriteReadError({
+                request,
+                error: response,
+                getStatus: () => response.status(),
+                getBody: () => body,
+              });
+              read.classification = { kind, status, errorCode };
+              if (kind === "transient-projection-timeout") {
+                read.outcome = "transient";
+                return false;
+              }
+              read.outcome = "rejected";
+              throw new Error(`Exact listing read rejected: ${kind}/${status}/${errorCode}`);
             }
+            const value = await successfulJson<Result>(response);
+            if (!accepts(value)) {
+              read.outcome = "rejected";
+              throw new Error(`Exact listing read served a mismatched fixture: ${path}`);
+            }
+            result = value;
+            read.outcome = "ready";
+            return true;
+          } catch (error) {
+            read.pending = false;
             read.outcome = "rejected";
-            throw new Error(`Exact listing read rejected: ${kind}/${status}/${errorCode}`);
+            failed = true;
+            failure = error;
+            return true;
           }
-          const value = await successfulJson<Result>(response);
-          if (!accepts(value)) {
-            read.outcome = "rejected";
-            throw new Error(`Exact listing read served a mismatched fixture: ${path}`);
-          }
-          result = value;
-          read.outcome = "ready";
-          return true;
         },
         { timeout: 5_000 },
       )
       .toBe(true);
+    if (failed) throw failure;
   } catch (error) {
     if (!read.pending && read.outcome === "transient") read.outcome = "exhausted";
     throw error;
@@ -572,7 +583,9 @@ async function publishTwoSellerListings(
     );
     const path = `/api/marketplace/account/listings/${listing.id}`;
     selection.listingId = listing.id;
-    const detail = await readFreshListing<MarketplaceListingDetail>(page, path, listing, capture);
+    const ownedListing = (value: MarketplaceListingDetail) =>
+      value.listing_id === listing.id && value.inventory_item_id === item.id;
+    const detail = await readFreshListing<MarketplaceListingDetail>(page, path, listing, capture, ownedListing);
     const requirements = detail.evidence_readiness.requirements;
     const count = Math.max(requirements.minimumPhotoCount, requirements.requiredSlots.length);
     for (let index = 0; index < count; index += 1) {
@@ -595,7 +608,7 @@ async function publishTwoSellerListings(
           },
         }),
       );
-      const withPhoto = await readFreshListing<MarketplaceListingDetail>(page, path, uploaded, capture);
+      const withPhoto = await readFreshListing<MarketplaceListingDetail>(page, path, uploaded, capture, ownedListing);
       const photo = withPhoto.evidence.find(
         (candidate) => candidate.originalFilename === `seller-evidence-${index}.png`,
       );
