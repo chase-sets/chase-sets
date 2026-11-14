@@ -446,6 +446,10 @@
 .card-title a:hover {
   text-decoration: underline;
 }
+/* A result's market, its own element for the live stream: its price and intents are the card's. */
+.market-part {
+  display: contents;
+}
 .price {
   margin: var(--space-1) 0 0;
 }
