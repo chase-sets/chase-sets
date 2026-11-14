@@ -13,7 +13,7 @@ export const e2eSuites = Object.freeze([
     id: "marketplace_account",
     label: "Marketplace Account",
     deployable: "marketplace",
-    journeys: ["account access", "authentication"],
+    journeys: ["account access", "authentication", "market-following Offer consent and Checkout acceptance"],
     grep: "@marketplace-account",
     estimatedDurationSeconds: 300,
   },
