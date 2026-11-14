@@ -225,14 +225,16 @@ node scripts/measure.mjs screen=<screen> marketplace=http://localhost:7753 pilot
 `corten check` needs TypeScript on the `PATH` to type-check the apps' scripts (CI puts the repo's
 `node_modules/.bin` there). The pilot has no image and nothing deploys it: the root `.dockerignore`
 keeps it out of the platform image, and a `deployables/*/Dockerfile` would make every pilot PR build
-and preview the platform.
+and preview the platform ([#11327 [infrastructure] Deploy the Corten admin app to staging next to admin-web](https://github.com/chase-sets/chase-sets/issues/11327)
+is the first deploy). Each app writes one line per request on standard output in admin-web's shape,
+`GET /path 200 5123 - 4.210 ms`, without the query ([platform/src/access_log.rs](platform/src/access_log.rs)).
 
 | Variable | Default | |
 |---|---|---|
-| `PLATFORM_API_ORIGIN` | `http://localhost:7762` | the platform API the apps call |
+| `CHASE_SETS_INTERNAL_API_ORIGIN`, else `PLATFORM_API_ORIGIN` | `http://localhost:7762` | the platform API the apps call. The first is the name the React hosts and the deploy give it |
 | `ADMIN_WEB_ORIGIN` | `http://localhost:7752` | admin: sign-in and the admin pages the nav links to |
 | `MARKETPLACE_WEB_ORIGIN` | `http://localhost:7753` | marketplace: sign-in and the pages the nav links to |
-| `PUBLIC_PROTO` | `http` | the scheme forwarded to the API as `x-forwarded-proto` |
+| `PUBLIC_PROTO` | `http` | admin and marketplace: the scheme forwarded to the API as `x-forwarded-proto`; `https` also has Corten send `Strict-Transport-Security` and refuse a write from a plain-http page (`Policy::hsts`). public takes both from `CHASE_SETS_PUBLIC_ORIGIN`'s scheme |
 | `CHASE_SETS_PUBLIC_ORIGIN` | `https://chasesets.com` | public: the canonical origin (canonical links, the sitemap, the host the API is told) |
 | `CHASE_SETS_MARKETPLACE_ORIGIN` | `https://marketplace.chasesets.com` | public: where Buy or sell links go |
 | `CHASE_SETS_PUBLIC_INDEXING` | on | public: `0`, `false`, `no` or `off` adds `noindex`, closes `robots.txt` and empties the sitemap |
@@ -307,6 +309,7 @@ but keep their own bordered choice rows, which are the design system's `Checkbox
 | [corten-run/corten#1370 A write that answers its own result with JavaScript (a patch, or its page) cannot bring a layout read up to date: only a redirect redraws the shell, so a partial result must choose between its detail and the shell's count](https://github.com/corten-run/corten/issues/1370) | open. A bulk add from a search that adds only some lines patches its sheet with JavaScript, and the shell's cart count stays as it was until the next page; without JavaScript the page gives the count it read after the write ([marketplace/src/bulk_cart.rs](marketplace/src/bulk_cart.rs), `commit`) |
 | [corten-run/corten#1371 A data-patch answer to a trigger outside a dialog cannot open it again once the user closed it: the patch keeps the user's closed state over the answer's open](https://github.com/corten-run/corten/issues/1371) | open. The search page's two sheet triggers (Add to List, Add matching products to Buy Cart) run `search.js`'s `fresh(id)` as they submit, which swaps a closed sheet for an empty hidden element of its id, so the answer opens it ([marketplace/src/views/search.js](marketplace/src/views/search.js)) |
 | [corten-run/corten#1372 A data-keep-place navigation gives focus to a hidden input with the focused control's name and value: placeOf matches any input in main by index](https://github.com/corten-run/corten/issues/1372) | open. Add matching products to Buy Cart's form, whose hidden fields repeat the filters, is drawn after the rail with its button in the control bar (`form="bulk-trigger"`), so a filter's focus comes back to the filter ([marketplace/src/views/search_page.rs](marketplace/src/views/search_page.rs), `BulkTriggerId`) |
+| [corten-run/corten#1449 A Corten app writes no line per request, and an app's middleware cannot write a faithful one: it never sees a 421 or a cross-site refusal and logs a 200 where the client got a 304](https://github.com/corten-run/corten/issues/1449) | open. Each app's requests are logged by a tower layer around it, `AccessLog` ([platform/src/access_log.rs](platform/src/access_log.rs)) |
 | [corten-run/corten#1388 Kit Checkbox, Radio and Switch ignore --control-height: their label, the whole target, stays 20 px when a theme makes every other control 44 px](https://github.com/corten-run/corten/issues/1388) | open. Market following's checkboxes sit in a `Choice` row of the control height whose label fills it ([marketplace/src/views/market_following.css](marketplace/src/views/market_following.css)); the kit's copied files are unchanged, and the pilot's other kit checkboxes, radios and switches stay 20 px until it lands |
 
 Every Corten gap the pilot found and how it closed is in the [README before it was cut](https://github.com/chase-sets/chase-sets/blob/5a683c4eb5/deployables/corten-pilot/README.md) ("Corten gaps").

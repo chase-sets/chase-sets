@@ -144,7 +144,7 @@ impl Config {
     pub fn from_env() -> Self {
         let var = |name: &str, default: &str| std::env::var(name).unwrap_or_else(|_| default.into());
         Config {
-            platform: Platform::new(&var("PLATFORM_API_ORIGIN", "http://localhost:7762"))
+            platform: Platform::new(&Platform::origin_from_env())
                 .with_internal_auth(platform::api::InternalAuth::from_env()),
             proto: if var("PUBLIC_PROTO", "http") == "https" { "https" } else { "http" },
             stripe_publishable_key: std::env::var("STRIPE_PUBLISHABLE_KEY")
@@ -1888,18 +1888,18 @@ fn pwa() -> corten::pwa::Pwa {
 /// sellers on the inventory screens, buyers on the cart, anyone on an item or a search.
 pub fn app(config: Config) -> App {
     let shared: Shared = Arc::new(config);
+    // The cart's fallback picture is on marketplace's origin and a listing's photos on the API's,
+    // which are plain http locally (the default policy takes any https image), and Check out
+    // redirects to marketplace's checkout.
+    let policy = corten::security::Policy::new()
+        .img_src(marketplace_origin())
+        .img_src(shared.platform.origin())
+        .form_action(marketplace_origin());
     App::new(url::home::router(shared.clone()))
         .assets(Static)
         .pwa(pwa())
-        // The cart's fallback picture is on marketplace's origin and a listing's photos on the API's,
-        // which are plain http locally (the default policy takes any https image), and Check out
-        // redirects to marketplace's checkout.
-        .policy(
-            corten::security::Policy::new()
-                .img_src(marketplace_origin())
-                .img_src(shared.platform.origin())
-                .form_action(marketplace_origin()),
-        )
+        .policy(if shared.proto == "https" { policy.hsts() } else { policy })
+        .layer(platform::access_log::AccessLog::new())
         .messages::<crate::text::Msg>()
         // The seller's listings turn a picked day into its start where the seller is.
         .client_zone()
