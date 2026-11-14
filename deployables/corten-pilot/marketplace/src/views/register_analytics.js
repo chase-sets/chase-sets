@@ -52,9 +52,13 @@ function chosen() {
 export function watch(signal, method, opened) {
   sent = !opened;
   choosing = false;
-  addEventListener(PASSKEY_FAILED, () => track({ method: "passkey", stage: "failed", reason: "browser-passkey-failed" }), {
-    signal,
-  });
+  addEventListener(
+    PASSKEY_FAILED,
+    () => track({ method: "passkey", stage: "failed", reason: "browser-passkey-failed" }),
+    {
+      signal,
+    },
+  );
   if (opened) {
     if (chosen() === method) track({ method, stage: "selected" });
     else for (const shown of METHODS) track({ method: shown, stage: "shown" });
