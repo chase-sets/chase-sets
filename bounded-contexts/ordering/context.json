@@ -485,6 +485,33 @@
   },
   "readAfterWriteRouteInventory": [
     {
+      "id": "ordering.accepted-offer-to-purchases-list",
+      "owner": "ordering",
+      "risk": "critical",
+      "freshnessSlo": {
+        "flowClass": "critical-customer-handoff",
+        "p95Ms": 1000,
+        "p99Ms": 2250
+      },
+      "source": {
+        "routeId": "sell-checkout-confirmation",
+        "actions": ["Read buyer purchases with the committed Offer acceptance receipt"],
+        "command": "AcceptOfferMatch"
+      },
+      "destination": {
+        "routeId": "account-purchases",
+        "apiContextName": "ordering",
+        "apiRoutePath": "/account/purchases",
+        "readModelTables": ["ordering_order_pages", "ordering_order_line_pages"],
+        "projectionDependencies": ["ordering-marketplace-offer-acceptance"],
+        "freshnessDependencyReason": "Receipt-bearing purchase reads wait for the accepted-Offer reaction and its Ordering output positions before returning Order and line pages. Display-only joins do not gate this handoff.",
+        "transientRecovery": {
+          "kinds": "refreshable-catching-up",
+          "behavior": "An incomplete receipt-bearing purchase-list read returns projection_freshness_timeout until the acceptance reaction and Order projection have applied; the same receipt then exposes the committed purchase instead of an empty success."
+        }
+      }
+    },
+    {
       "id": "ordering.accepted-offer-to-sales-list",
       "owner": "ordering",
       "risk": "critical",

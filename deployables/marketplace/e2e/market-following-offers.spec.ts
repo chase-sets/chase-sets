@@ -758,26 +758,29 @@ test("market-following consent, changed target, Checkout acceptance and permanen
           price_amount: "135.00",
           status: "submitted",
         });
+        let sellCheckoutActionUrl: string | null = null;
         seller.on("response", (response) => {
           const request = response.request();
           if (request.method() === "POST") {
             const fields = new URLSearchParams(request.postData() ?? "");
-            const intent = fields.get("intent");
+            const requestUrl = new URL(request.url());
+            const actionUrl = `${requestUrl.origin}${requestUrl.pathname.replace(/\.data$/, "")}`;
+            const command = actionUrl === sellCheckoutActionUrl ? "confirm-checkout" : fields.get("intent");
             if (
-              intent &&
+              command &&
               [
                 "add-selected-offer",
                 "review-sell-list-checkout",
                 "select-optimization-goal",
                 "refresh-checkout-preview",
                 "confirm-checkout",
-              ].includes(intent)
+              ].includes(command)
             )
               timeline.push({
                 kind: "command",
                 at: new Date().toISOString(),
                 actor: "seller",
-                command: intent,
+                command,
                 httpStatus: response.status(),
                 offerIds: [controlOfferId],
               });
@@ -836,6 +839,8 @@ test("market-following consent, changed target, Checkout acceptance and permanen
         await termsAccepted.focus();
         await seller.keyboard.press("Space");
         await expect(termsAccepted).toBeChecked();
+        const checkoutActionUrl = new URL(seller.url());
+        sellCheckoutActionUrl = `${checkoutActionUrl.origin}${checkoutActionUrl.pathname}`;
         await seller.getByRole("button", { name: "Review sale details", exact: true }).first().click();
         await expect(seller).toHaveURL(/\/checkout\/sell\/.*confirmation/);
         const confirmationToken = readCompactPostWriteToken(seller.url());
