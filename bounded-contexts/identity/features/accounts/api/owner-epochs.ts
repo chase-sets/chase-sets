@@ -4,6 +4,7 @@ import type { AppendToStreamInput } from "@chase-sets/event-core/storage";
 import {
   createPostgresConfigurationEpochStore,
   withConfigurationEpochTransaction,
+  withPgTransaction,
   type PgQueryable,
   type PgTransactionalPool,
 } from "@chase-sets/event-core-postgres";
@@ -96,6 +97,14 @@ export function createIdentityOwnerEpochs(pool: PgTransactionalPool, consumers: 
         sourceIncarnation,
         consumers,
         async readCanonicalCreation(db, key) {
+          if (key.startsWith("delegation/")) {
+            const row = await db.query(
+              "SELECT authorization_id FROM identity_linked_platform_authorizations WHERE authorization_id = $1",
+              [key.slice("delegation/".length)],
+            );
+            if (row.rows.length !== 1) throw new ConfigurationEpochError("Identity canonical delegation unavailable");
+            return { kind: "CREATED", sourceIncarnation, keyCreationEpoch: 0 };
+          }
           const rows = await db.query<{ event_type: string; stream_version: number }>(
             "SELECT event_type, stream_version FROM event_store_events WHERE stream_id = $1 ORDER BY stream_version LIMIT 1",
             [identityOwnerStream(key)],
@@ -115,8 +124,55 @@ export function createIdentityOwnerEpochs(pool: PgTransactionalPool, consumers: 
     return db ? readSource(db) : withConfigurationEpochTransaction(pool, readSource);
   }
 
+  async function enrollDelegation(db: PgQueryable, authorizationId: string) {
+    const key = `delegation/${authorizationId}`;
+    await db.query("SELECT pg_advisory_xact_lock(hashtextextended('configuration_epoch:' || $1::text, 0))", [key]);
+    const existing = await db.query(
+      "SELECT authorization_id FROM identity_linked_platform_authorizations WHERE authorization_id = $1",
+      [authorizationId],
+    );
+    if (!existing.rows.length) return;
+    const epochs = await source(db);
+    const status = await epochs.beginClosureInTransaction(db, key);
+    if (status.pendingConsumers.length) throw new IdentityClosureRequired([key]);
+    await epochs.installClosureInTransaction(db, key);
+  }
+
+  async function delegationTransaction<T>(work: (db: PgQueryable) => Promise<T>): Promise<T> {
+    async function attempt() {
+      return withPgTransaction(pool, async (db) => {
+        await db.query("SET LOCAL lock_timeout = '2s'");
+        await db.query("SET LOCAL statement_timeout = '5s'");
+        await db.query("SAVEPOINT identity_delegation_work");
+        try {
+          return { kind: "applied" as const, value: await work(db) };
+        } catch (error) {
+          if (!(error instanceof IdentityClosureRequired)) throw error;
+          await db.query("ROLLBACK TO SAVEPOINT identity_delegation_work");
+          const epochs = await source(db);
+          for (const key of error.keys) await epochs.beginClosureInTransaction(db, key);
+          return { kind: "closing" as const, keys: error.keys };
+        }
+      });
+    }
+    const first = await attempt();
+    if (first.kind === "applied") return first.value;
+    const epochs = await source();
+    for (const key of first.keys) {
+      const status = await epochs.driveClosure(key);
+      if (status.pendingConsumers.length)
+        throw new ConfigurationEpochError(`Identity delegation writer ${status.status}: ${key}; retry after closure`);
+    }
+    const retry = await attempt();
+    if (retry.kind === "closing")
+      throw new ConfigurationEpochError("Identity delegation writer PENDING: closure changed during retry");
+    return retry.value;
+  }
+
   return {
     source,
+    enrollDelegation,
+    delegationTransaction,
     async enroll(db: PgQueryable, inputs: readonly AppendToStreamInput[]) {
       const changed = inputs.filter(
         (input) =>

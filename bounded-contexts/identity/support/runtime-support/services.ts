@@ -138,7 +138,7 @@ export function createIdentityServices(pool: PgTransactionalPool, ports: Identit
   const apiKeys = createApiKeyRuntime(deps);
   const consents = createConsentRuntime(deps);
   const preferences = createUserPreferencesRuntime(deps);
-  const linkedPlatformAuthorizations = createLinkedPlatformAuthorizationStore(pool);
+  const linkedPlatformAuthorizations = createLinkedPlatformAuthorizationStore(pool, ownerEpochs);
   const shippingAddresses = createShippingAddressRuntime(deps);
   const accountManagement = createAccountManagementRuntime(mutationPersistence, { auth, shippingAddresses });
 
@@ -159,7 +159,7 @@ export function createIdentityServices(pool: PgTransactionalPool, ports: Identit
     eventStore,
     mutationPersistence,
     ownerEpochs,
-    agentGrantRevocations: createAgentGrantRevocations(pool, postgresEventStore),
+    agentGrantRevocations: createAgentGrantRevocations(pool, postgresEventStore, undefined, ownerEpochs),
     accountManagement,
     accessHub,
     accounts,

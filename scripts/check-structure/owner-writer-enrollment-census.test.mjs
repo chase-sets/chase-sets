@@ -11,6 +11,18 @@ describe("owner writer enrollment census", () => {
   it("closes every append, handler and SQL writer discovered by owner dataflow", () => {
     expect(enrollmentErrors(discoverOwnerWriters(ownerWriterSources()), manifest)).toEqual([]);
   });
+  it("enrolls the linked-platform principal admitted with listings.manage and every physical delegation SQL writer", () => {
+    expect(manifest.keys).toContain("delegation/<delegationId>");
+    const writers = manifest.writers.filter((row) => row.sink === "delegation SQL");
+    expect(writers.map((row) => row.symbol.split(" > ").at(-1)).sort()).toEqual([
+      "advance",
+      "grant",
+      "revokeAuthorization",
+      "revokeToken",
+      "rotateRefreshToken",
+    ]);
+    expect(writers.every((row) => row.disposition === "enrolled" && row.keys.includes("delegation"))).toBe(true);
+  });
   it("binds every enrollment and exclusion to an existing source symbol and executable proof", () => {
     for (const row of manifest.writers) {
       const [sourcePath, sourceSymbol] = (row.enrollment ?? row.sourceSymbol).split("::");
@@ -41,6 +53,9 @@ describe("owner writer enrollment census", () => {
     `const append = 'unrelated'; function planted() { return store.append({streamId: 'identity.membership-' + id, events}); }`,
     `const a = 'qu'; const b = 'ery'; const method = a + b; function planted() { return db[method]('INSERT INTO event_store_events (stream_id) VALUES ($1)', ['identity.account-' + id]); }`,
     `const method = 'qu' + 'ery'; const save = db[method]; function planted() { return save('INSERT INTO event_store_events (stream_id) VALUES ($1)', ['identity.user-' + id]); }`,
+    `function planted() { return db.query('UPDATE identity_linked_platform_authorizations SET status = $1 WHERE authorization_id = $2', ['revoked', id]); }`,
+    `const table = 'identity_linked_platform_authorizations'; function planted() { return db.query('INSERT INTO ' + table + ' (authorization_id) VALUES ($1)', [id]); }`,
+    `function planted() { return db.query('DELETE FROM identity_linked_platform_authorizations WHERE authorization_id = $1', [id]); }`,
   ])("rejects a planted unenrolled physical writer regardless of path vocabulary", (code) => {
     const sites = discoverOwnerWriters({ "packages/innocent/adapter.ts": code });
     expect(sites).toHaveLength(1);
@@ -59,5 +74,11 @@ describe("owner writer enrollment census", () => {
     expect(discoverOwnerWriters({ "bounded-contexts/identity/features/api-keys/api/secret-store.ts": code })).toEqual(
       [],
     );
+  });
+  it("does not classify a read-only delegation dependency as a delegation mutation", () => {
+    const code = `function remember() {
+      return db.query('INSERT INTO identity_audit SELECT * FROM identity_linked_platform_authorizations');
+    }`;
+    expect(discoverOwnerWriters({ "bounded-contexts/identity/support/audit.ts": code })).toEqual([]);
   });
 });

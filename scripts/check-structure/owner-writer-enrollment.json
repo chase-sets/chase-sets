@@ -1,14 +1,26 @@
 {
   "owner": "identity",
-  "keys": ["account/<accountId>", "user/<userId>", "membership/<membershipId>"],
+  "keys": ["account/<accountId>", "user/<userId>", "membership/<membershipId>", "delegation/<delegationId>"],
   "consumedFields": {
     "account": ["id", "status"],
     "user": ["id", "status"],
-    "membership": ["id", "userId", "accountId", "roleKey", "status"]
+    "membership": ["id", "userId", "accountId", "roleKey", "status"],
+    "delegation": [
+      "id",
+      "userId",
+      "accountId",
+      "clientId",
+      "platformProfileUrl",
+      "scopes",
+      "status",
+      "accessTokenExpiresAt",
+      "refreshTokenExpiresAt",
+      "absoluteExpiresAt"
+    ]
   },
   "principalScope": {
     "apiKey": "Excluded: resolveActorFromRequest in bounded-contexts/auth/support/runtime-support/runtime.ts admits sessions, guest checkout and linked-platform tokens, not Identity API keys.",
-    "delegation": "Remainder: resolveLinkedPlatformActor admits linked-platform OAuth with listings:write; linked authorization/token/grant writers need their own class-C closure slice. This core does not certify delegation authority."
+    "delegation": "Included: resolveLinkedPlatformActor admits linked-platform OAuth with listings:write; canonical delegation capture and all authorization SQL writers use acknowledged class-C closure."
   },
   "writers": [
     {
@@ -380,6 +392,15 @@
       "sourceSymbol": "bounded-contexts/identity/features/agent-grants/api/revocation.ts::createAgentGrantRevocations > admit",
       "foldTest": "bounded-contexts/identity/features/accounts/api/owner-epochs.test.ts::excludes non-owner streams including AccountCapabilityAssignment without consuming them",
       "reason": "Writes another stream family, not an Account/User/Membership consumed field. AccountCapabilityAssignment grants no listing permission."
+    },
+    {
+      "file": "bounded-contexts/identity/features/agent-grants/api/revocation.ts",
+      "symbol": "createAgentGrantRevocations > advance",
+      "sink": "delegation SQL",
+      "ordinal": 1,
+      "keys": ["delegation"],
+      "disposition": "enrolled",
+      "enrollment": "bounded-contexts/identity/features/accounts/api/owner-epochs.ts::createIdentityOwnerEpochs > enrollDelegation"
     },
     {
       "file": "bounded-contexts/identity/features/agent-grants/api/revocation.ts",
@@ -1226,6 +1247,42 @@
       "sourceSymbol": "bounded-contexts/identity/support/seed-support/market-following-verification.ts::verifyMarketFollowingBuyerContact",
       "foldTest": "bounded-contexts/identity/features/accounts/api/owner-epochs.test.ts::folds every excluded Account/User event to identical consumed fields",
       "reason": "Events preserve every consumed field; exhaustive typed event classification and fold proof."
+    },
+    {
+      "file": "bounded-contexts/identity/support/ucp-support/linked-platform-authorizations.ts",
+      "symbol": "createLinkedPlatformAuthorizationStore > grant",
+      "sink": "delegation SQL",
+      "ordinal": 1,
+      "keys": ["delegation"],
+      "disposition": "enrolled",
+      "enrollment": "bounded-contexts/identity/features/accounts/api/owner-epochs.ts::createIdentityOwnerEpochs > enrollDelegation"
+    },
+    {
+      "file": "bounded-contexts/identity/support/ucp-support/linked-platform-authorizations.ts",
+      "symbol": "createLinkedPlatformAuthorizationStore > revokeAuthorization",
+      "sink": "delegation SQL",
+      "ordinal": 1,
+      "keys": ["delegation"],
+      "disposition": "enrolled",
+      "enrollment": "bounded-contexts/identity/features/accounts/api/owner-epochs.ts::createIdentityOwnerEpochs > enrollDelegation"
+    },
+    {
+      "file": "bounded-contexts/identity/support/ucp-support/linked-platform-authorizations.ts",
+      "symbol": "createLinkedPlatformAuthorizationStore > revokeToken",
+      "sink": "delegation SQL",
+      "ordinal": 1,
+      "keys": ["delegation"],
+      "disposition": "enrolled",
+      "enrollment": "bounded-contexts/identity/features/accounts/api/owner-epochs.ts::createIdentityOwnerEpochs > enrollDelegation"
+    },
+    {
+      "file": "bounded-contexts/identity/support/ucp-support/linked-platform-authorizations.ts",
+      "symbol": "createLinkedPlatformAuthorizationStore > rotateRefreshToken",
+      "sink": "delegation SQL",
+      "ordinal": 1,
+      "keys": ["delegation"],
+      "disposition": "enrolled",
+      "enrollment": "bounded-contexts/identity/features/accounts/api/owner-epochs.ts::createIdentityOwnerEpochs > enrollDelegation"
     }
   ]
 }

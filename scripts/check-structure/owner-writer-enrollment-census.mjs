@@ -120,11 +120,17 @@ export function discoverOwnerWriters(sources) {
         const resolved = resolveSink(node.expression);
         const sink = resolved && resolved.name !== "query";
         const statement = resolved?.name === "query" ? flow(node.arguments[0]) : "";
-        const sql =
+        const delegationSql =
           resolved?.name === "query" &&
-          /\b(?:INSERT\s+INTO|UPDATE|DELETE\s+FROM|MERGE\s+INTO|COPY|TRUNCATE(?:\s+TABLE)?)\s+(?:[a-z_][a-z_0-9]*\.)?"?event_store_(?:events|streams)"?\b/iu.test(
+          /\b(?:INSERT\s+INTO|UPDATE|DELETE\s+FROM|MERGE\s+INTO|COPY|TRUNCATE(?:\s+TABLE)?)\s+(?:[a-z_][a-z_0-9]*\.)?"?identity_linked_platform_authorizations"?\b/iu.test(
             statement,
           );
+        const sql =
+          delegationSql ||
+          (resolved?.name === "query" &&
+            /\b(?:INSERT\s+INTO|UPDATE|DELETE\s+FROM|MERGE\s+INTO|COPY|TRUNCATE(?:\s+TABLE)?)\s+(?:[a-z_][a-z_0-9]*\.)?"?event_store_(?:events|streams)"?\b/iu.test(
+              statement,
+            ));
         if (sink || sql) {
           const data = `${callee} ${resolved.target} ${node.arguments.map((arg) => flow(arg)).join(" ")}`;
           const kinds = ["account", "user", "membership"].filter((kind) =>
@@ -133,10 +139,11 @@ export function discoverOwnerWriters(sources) {
               "u",
             ).test(data),
           );
+          if (delegationSql) kinds.push("delegation");
           // Dynamic Identity sinks are deliberately UNKNOWN until explicitly classified.
           if (kinds.length || file.startsWith("bounded-contexts/identity/")) {
             const symbol = owner(node);
-            const sinkName = sql ? "event-store SQL" : callee;
+            const sinkName = delegationSql ? "delegation SQL" : sql ? "event-store SQL" : callee;
             const ordinal =
               sites.filter((site) => site.file === file && site.symbol === symbol && site.sink === sinkName).length + 1;
             sites.push({ file, symbol, sink: sinkName, ordinal, keys: kinds });

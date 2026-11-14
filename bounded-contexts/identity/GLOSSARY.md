@@ -636,6 +636,10 @@ Each owner carries its stream-version seal and an installed class-C epoch grant
 for the registered consumer incarnation. Account Capability Assignments never
 grant `listings.manage`. A CLOSING key refuses capture until acknowledged closure
 and atomic installation complete; no per-Listing Identity promise is created.
+Linked-platform principals also require their canonical active Delegation,
+bound to the same User and Account with `listings:write`. Its epoch grant is
+bounded by token expiry. Grant creation, token rotation and both dormant and
+activated revocation writers participate in the same acknowledged closure.
 
 ## Language Rules
 

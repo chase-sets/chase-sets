@@ -298,10 +298,15 @@ export function createPostgresConfigurationEpochStore(config: PostgresConfigurat
     beginClosureInTransaction,
     /** Atomically install the owner change in this same caller-owned transaction. */
     installClosureInTransaction,
-    async captureGrantInTransaction(client: PgQueryable, key: string, consumer: ConfigurationConsumer) {
+    async captureGrantInTransaction(
+      client: PgQueryable,
+      key: string,
+      consumer: ConfigurationConsumer,
+      validUntil?: string,
+    ) {
       await boundStep(client);
       await client.query(CONFIGURATION_EPOCH_LOCK_SQL, [key]);
-      return captureConfigurationGrant(key, (await load(client, key)).state, consumer);
+      return captureConfigurationGrant(key, (await load(client, key)).state, consumer, validUntil);
     },
     async open(key: string, keyCreationEpoch = 0): Promise<void> {
       assertConfigurationText(key);
@@ -324,6 +329,12 @@ export function createPostgresConfigurationEpochStore(config: PostgresConfigurat
         await client.query(EXCLUSIVE_LOCK_SQL, [key]);
         const { state } = await load(client, key);
         if (state.state !== "OPEN") throw new ConfigurationEpochError("registration waits while CLOSING");
+        const registered = state.consumers.find((c) => c.storeId === consumer.storeId);
+        if (registered) {
+          if (!sameConfigurationConsumer(registered, consumer))
+            throw new ConfigurationEpochError("conflicting consumer incarnation");
+          return;
+        }
         const target = config.consumers.find((c) => sameConfigurationConsumer(c.identity, consumer));
         if (!target) throw new ConfigurationEpochError("consumer route unavailable");
         if (state.epoch > state.keyCreationEpoch)

@@ -25,16 +25,16 @@
     {
       "path": "bounded-contexts/identity/tests/listing-activation-epoch-closure.db.test.ts",
       "command": "CreateUser",
-      "occurrences": 1,
+      "occurrences": 2,
       "disposition": "test-fixture",
-      "reason": "The separate-store epoch-closure fixture creates its synthetic User through the real command handler."
+      "reason": "The separate-store epoch-closure fixture creates its initial and second synthetic Users through the real command handler."
     },
     {
       "path": "bounded-contexts/identity/tests/listing-activation-epoch-closure.db.test.ts",
       "command": "GrantMembership",
-      "occurrences": 1,
+      "occurrences": 2,
       "disposition": "test-fixture",
-      "reason": "The separate-store epoch-closure fixture grants its synthetic manager Membership through the real command handler."
+      "reason": "The separate-store epoch-closure fixture grants both synthetic manager Memberships through the real command handler."
     },
     {
       "path": "bounded-contexts/identity/features/invitations/api/acceptance-operation.ts",
