@@ -160,6 +160,7 @@ describe("registered seller shipping setup route", () => {
         signedIn ? { kind: "account", accountId: actor.accountId } : anonymousOwner,
       );
       expect(persisted.setup?.origin).toEqual(setup.origin);
+      expect(router.state.actionData?.setup.result).toEqual(persisted);
       expect(writes).toHaveLength(1);
       expect(writes[0]?.body).toEqual(setup);
       expect(writes[0]?.path).toBe(`/api/marketplace/${mode}/seller-shipping-setup`);
