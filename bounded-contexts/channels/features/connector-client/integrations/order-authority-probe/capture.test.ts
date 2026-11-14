@@ -1,5 +1,7 @@
 import { createHash, webcrypto } from "node:crypto";
+import { execFileSync, spawn } from "node:child_process";
 import {
+  existsSync,
   lstatSync,
   mkdirSync,
   mkdtempSync,
@@ -12,7 +14,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { createContext, Script } from "node:vm";
 import { beforeAll, describe, expect, it } from "vitest";
 
@@ -1097,7 +1099,7 @@ describe("selector-only-protocol", () => {
     const expiredHelper = harness();
     const page = helper(expiredHelper, {
       onDialog: (kind, text) => {
-        if (kind === "confirm" && text.includes("HUMAN ONLY")) expiredHelper.advance(900001);
+        if (kind === "confirm" && text.includes("AGENT:")) expiredHelper.advance(900001);
       },
     });
     await page.run();
@@ -1277,7 +1279,7 @@ describe("selector-custody-and-export", () => {
 });
 
 describe("selector-lifecycle-removal", () => {
-  it("one native selector-only helper, unchanged permissions and HUMAN-only runbook; no prospective detail/bucket/v3 path", () => {
+  it("one native selector-only helper, unchanged permissions and agent-only admission; no prospective detail/bucket/v3 path", () => {
     expect(packaging.verifyPackage(out).qualification).toBe("PENDING_HOST_VERIFIER");
     const worker = readFileSync(path.join(preparation.packageDirectory, "worker.js"), "utf8");
     const page = readFileSync(path.join(preparation.packageDirectory, "helper.js"), "utf8");
@@ -1302,10 +1304,10 @@ describe("selector-lifecycle-removal", () => {
     const runbook = readFileSync(path.join(out, "RUNBOOK.md"), "utf8");
     for (const phrase of [
       "Preparation grants NO execution",
-      "No agent/model may access a provider page",
-      "HUMAN-only",
+      "closed code-owned operations only",
+      "selector-agent-operation-capability-policy/v1",
       "Pre-begin expiry consumes",
-      "no agent auto-delete or offline substitution",
+      "reject every linked ancestor/race",
       "zero exact-profile Chrome processes",
       "Late extension absence never satisfies",
     ])
@@ -1412,49 +1414,159 @@ describe("selector-lifecycle-removal", () => {
 });
 
 // A separate host-attributed opt-in registration, not a skipped unit test or a
-// substitute for HUMAN-route rehearsal. Host must use exclusive heavy admission.
+// substitute for post-landing agent-route acceptance. Host uses heavy admission.
 if (process.env.CHASE_SETS_HERMETIC_CHROMIUM === "1") {
+  const { acquireHeavySlot } = await import("../../../../../../scripts/lib/heavy-slot.mjs");
+  acquireHeavySlot("playwright");
+  async function startNativeBus(config: string) {
+    if (process.platform !== "linux") throw new Error("native_removal_capability_unavailable");
+    // No service directories: this owned bus cannot activate detached daemons.
+    const child = spawn("dbus-daemon", ["--nofork", "--nopidfile", "--print-address=1", `--config-file=${config}`], {
+      stdio: ["ignore", "pipe", "ignore"],
+    });
+    const ended = new Promise<void>((resolve) => {
+      child.once("close", () => resolve());
+    });
+    const close = async () => {
+      if (child.exitCode === null && child.signalCode === null) child.kill("SIGTERM");
+      await ended;
+    };
+    try {
+      const address = await new Promise<string>((resolve, reject) => {
+        let output = "";
+        const timer = setTimeout(() => reject(new Error("native_bus_refused")), 10000);
+        const finish = (value?: string) => {
+          clearTimeout(timer);
+          if (value) resolve(value);
+          else reject(new Error("native_bus_refused"));
+        };
+        child.once("error", () => finish());
+        child.once("exit", () => finish());
+        child.stdout.on("data", (bytes: Buffer) => {
+          output += bytes.toString("utf8");
+          if (output.length > 512) finish();
+          else if (output.includes("\n")) {
+            const value = output.trim();
+            finish(/^unix:(path|abstract)=[A-Za-z0-9/_-]+,guid=[a-f0-9]{32}$/.test(value) ? value : undefined);
+          }
+        });
+      });
+      return { address, close };
+    } catch (error) {
+      await close();
+      throw error;
+    }
+  }
   describe("selector-lifecycle-removal host-attributed hermetic Chromium", () => {
     it.each(["qualified", "canceled", "expired"])(
       "native dialogs and terminal %s with synthetic install/removal; provider reachability refused",
       async (scenario) => {
         const { chromium } = await import("@playwright/test");
-        const runOut = path.join(mkdtempSync(path.join(scratch, "synthetic-chromium-")), "run");
+        const control = await import(new URL("../../tests/selector-agent-control.mjs", import.meta.url).href);
+        const runOut = mkdtempSync(path.join(scratch, "selector-capability-chromium-"));
+        // prepare requires a new destination; the parent alone is test-created.
+        rmdirSync(runOut);
         const hostPackage = packaging.prepare({
           out: runOut,
           cadenceMs: 1,
           cadenceSource: packaging.AUTHORITY,
-          t0: T0,
+          t0: new Date().toISOString(),
           synthetic: true,
         });
-        const clockOffset = Date.parse(T0) - Date.now();
-        const profile = hostPackage.profileDirectory;
-        const context = await chromium.launchPersistentContext(profile, {
-          headless: false,
-          ignoreDefaultArgs: ["--disable-extensions"],
-          args: [
-            "--disable-background-networking",
-            "--host-resolver-rules=MAP * ~NOTFOUND",
-            "--enable-unsafe-extension-debugging",
-          ],
+        const clockOffset = 0;
+        const executable = chromium.executablePath();
+        const version = (
+          process.platform === "win32"
+            ? execFileSync(
+                "pwsh",
+                [
+                  "-NoProfile",
+                  "-Command",
+                  `[Diagnostics.FileVersionInfo]::GetVersionInfo('${executable.replaceAll("'", "''")}').ProductVersion`,
+                ],
+                { encoding: "utf8" },
+              )
+            : execFileSync(executable, ["--version"], { encoding: "utf8" })
+        ).match(/\d+\.\d+\.\d+\.\d+/)![0];
+        const binding = control.createSyntheticBinding({
+          preparation: hostPackage,
+          executable,
+          version,
+          session: "hosted-hermetic-chromium",
+          model: "hosted-synthetic-driver",
         });
+        const ordersFile = path.join(scratch, `${binding.runId}-orders.html`);
+        writeFileSync(
+          ordersFile,
+          `<!doctype html><title>SYNTHETIC Orders</title>
+          <main data-selector-orders aria-busy="true"><select name="dateRange">
+          <option value="LastTwoYears">Last 2 years</option><option value="LastThreeMonths" selected>Last 90 days</option></select>
+          <div data-quick-filter="ReadyToShip"><span data-filter-label>Ready to Ship</span><span data-filter-count>1</span></div>
+          <span data-orders-completion data-load="initial" data-range="LastThreeMonths"></span></main>
+          <script>const root=document.querySelector('main'), range=document.querySelector('select'), completion=document.querySelector('[data-orders-completion]');
+          function update(){root.setAttribute('aria-busy','true');setTimeout(()=>{completion.setAttribute('data-load',String(Date.now()));completion.setAttribute('data-range',range.value);root.setAttribute('aria-busy','false');},25);}
+          range.addEventListener('change',update);update();</script>`,
+          { flag: "wx" },
+        );
+        const profile = hostPackage.profileDirectory;
+        const nativeBus = await startNativeBus(control.writeNativeBusConfiguration(hostPackage));
+        let context: Awaited<ReturnType<typeof chromium.launchPersistentContext>> | undefined;
+        let endpoint: Awaited<ReturnType<typeof control.createRunEndpoint>> | undefined;
+        let browser: ReturnType<typeof control.createPlaywrightSelectorBrowser> | undefined;
         try {
+          context = await chromium.launchPersistentContext(profile, {
+            headless: false,
+            executablePath: executable,
+            ignoreDefaultArgs: ["--disable-extensions"],
+            env: {
+              ...process.env,
+              DBUS_SESSION_BUS_ADDRESS: nativeBus.address,
+              AT_SPI_BUS_ADDRESS: nativeBus.address,
+              ACCESSIBILITY_ENABLED: "1",
+              NO_AT_BRIDGE: "0",
+            },
+            args: [...control.hermeticChromiumArguments],
+          });
+          browser = control.createPlaywrightSelectorBrowser({
+            context,
+            preparation: hostPackage,
+            binding,
+            ordersUrl: pathToFileURL(ordersFile).href,
+            deadline: Date.parse(hostPackage.t0) + 900000,
+            nativeSessionBus: nativeBus.address,
+          });
+          const session = control.attachSelectorSession({ binding, browser });
+          endpoint = await control.createRunEndpoint(session, binding);
+          const admittedEndpoint = endpoint;
+          const operate = async (operation: string) => {
+            const reply = await fetch(admittedEndpoint.url, {
+              method: "POST",
+              headers: { Authorization: `Bearer ${admittedEndpoint.token}` },
+              body: JSON.stringify({ runId: binding.runId, policyHash: control.POLICY.hash, operation }),
+            });
+            expect(reply.status, JSON.stringify(session.hostTerminal())).toBe(
+              operation === "cancel-before-begin" ||
+                (scenario === "expired" && operation === "capture") ||
+                (scenario !== "qualified" && ["remove", "close"].includes(operation))
+                ? 204
+                : 200,
+            );
+            return reply.status === 204 ? null : reply.json();
+          };
           let blocked = 0;
           await context.route("**/*", async (route) => {
-            if (new URL(route.request().url()).protocol === "chrome-extension:") await route.continue();
+            if (
+              new URL(route.request().url()).protocol === "chrome-extension:" ||
+              route.request().url() === pathToFileURL(ordersFile).href
+            )
+              await route.continue();
             else {
               blocked += 1;
               await route.abort("blockedbyclient");
             }
           });
-          const install = await context.browser()!.newBrowserCDPSession();
-          try {
-            expect(await install.send("Extensions.loadUnpacked", { path: hostPackage.packageDirectory })).toEqual({
-              id: hostPackage.extensionId,
-            });
-          } finally {
-            await install.detach();
-          }
+          expect(await operate("attach")).toEqual({ ok: true });
+          expect(await operate("install")).toEqual({ ok: true });
           const worker = context.serviceWorkers()[0] ?? (await context.waitForEvent("serviceworker"));
           // Provider fetch is replaced inside the installed worker before begin.
           // Unmatched HTTPS requests throw; no live provider route is reachable.
@@ -1486,81 +1598,62 @@ if (process.env.CHASE_SETS_HERMETIC_CHROMIUM === "1") {
               }
             }),
           ).toBe(true);
-          const page = await context.newPage();
-          await page.goto(`chrome-extension://${hostPackage.extensionId}/capture.html`);
-          await page.evaluate((offset) => {
-            const original = Date.now;
-            Date.now = () => original() + offset;
-          }, clockOffset);
-          const input = [
-            "LastTwoYears",
-            "  READY   TO SHIP ",
-            "1",
-            "LastThreeMonths",
-            "LastTwoYears",
-            "Ready to Ship",
-            "1",
-          ];
-          const dialogs: string[] = [];
-          page.on("dialog", async (dialog) => {
-            dialogs.push(dialog.message());
-            if (scenario === "canceled" && dialog.type() === "prompt") await dialog.dismiss();
-            else if (dialog.type() === "prompt") await dialog.accept(input.shift());
-            else await dialog.accept();
-          });
-          const downloads: Promise<string>[] = [];
-          page.on("download", (download) => {
-            downloads.push(
-              download
-                .saveAs(path.join(runOut, "receipt", download.suggestedFilename()))
-                .then(() => download.suggestedFilename()),
-            );
-          });
-          expect(
-            await page.evaluate(async () => {
-              const capture = Reflect.get(globalThis, "orderAuthorityCapture");
-              return capture.run();
-            }),
-          ).toEqual({ ok: true, code: "scrubbed_export_created" });
-          await expect.poll(() => downloads.length).toBe(2);
-          await Promise.all(downloads);
-          expect(downloads).toHaveLength(2);
-          expect(dialogs.some((text) => text.includes("load a fresh Orders view"))).toBe(scenario === "qualified");
-          expect(packaging.verifyExport(runOut).evidence).toBe("synthetic");
-          const output = JSON.parse(readFileSync(path.join(runOut, "receipt", "selector-receipt.json"), "utf8"));
-          expect(output.failures).toEqual(
-            scenario === "qualified" ? [] : [scenario === "canceled" ? "canceled" : "deadline"],
+          expect(await operate(scenario === "canceled" ? "cancel-before-begin" : "capture")).toEqual(
+            scenario === "qualified" ? { ok: true } : null,
           );
-          expect(output.counts.detail).toBe(0);
-          scan(runOut);
-          expect(blocked).toBe(0);
-          expect(await page.evaluate(async () => Reflect.get(globalThis, "orderAuthorityCapture").run())).toEqual({
-            ok: false,
-            code: "repeat_invocation",
-          });
-          const cdp = await context.browser()!.newBrowserCDPSession();
-          try {
-            await cdp.send("Extensions.uninstall", { id: hostPackage.extensionId });
-          } finally {
-            await cdp.detach();
+          if (scenario === "canceled") {
+            expect(readdirSync(hostPackage.receiptDirectory)).toEqual([]);
+            expect(session.hostTerminal().cause).toBe("CANCELLED");
+          } else {
+            expect(packaging.verifyExport(runOut).evidence).toBe("synthetic");
+            const output = JSON.parse(readFileSync(path.join(runOut, "receipt", "selector-receipt.json"), "utf8"));
+            expect(output.failures).toEqual(scenario === "qualified" ? [] : ["deadline"]);
+            expect(output.counts.detail).toBe(0);
+            scan(runOut);
           }
+          expect(blocked).toBe(0);
+          await operate("remove");
+          // remove is an actual exact-ID chrome://extensions UI action, not CDP uninstall.
           const extensions = await context.newPage();
           await extensions.goto("chrome://extensions/");
           await expect
-            .poll(async () =>
-              extensions.evaluate((id) => {
-                const list = document
-                  .querySelector("extensions-manager")
-                  ?.shadowRoot?.querySelector("extensions-item-list")?.shadowRoot;
-                return list ? list.querySelector(`extensions-item[id="${id}"]`) !== null : null;
-              }, hostPackage.extensionId),
+            .poll(
+              async () =>
+                extensions.evaluate((id) => {
+                  const list = document
+                    .querySelector("extensions-manager")
+                    ?.shadowRoot?.querySelector("extensions-item-list")?.shadowRoot;
+                  return list ? list.querySelector(`extensions-item[id="${id}"]`) !== null : null;
+                }, hostPackage.extensionId),
+              { message: `native removal host stage=${browser.hostNativeRemovalStage()}` },
             )
             .toBe(false);
+          await operate("close");
         } finally {
-          await context.close();
+          const observation = JSON.stringify({
+            scenario,
+            stage: browser?.hostNativeRemovalStage() ?? null,
+            witness: browser?.hostNativeRemovalWitness() ?? null,
+          });
+          // One closed record, not a per-RPC stream or an acceptance artifact.
+          console.log(
+            "selector-native-removal-witness/v2",
+            Buffer.byteLength(observation) <= 4000
+              ? observation
+              : JSON.stringify({ scenario, stage: null, witness: { transport: "OVERFLOW", record: null } }),
+          );
+          try {
+            await endpoint?.close();
+          } finally {
+            try {
+              await context?.close();
+            } finally {
+              await nativeBus.close();
+            }
+          }
           // Only this synthetic test profile; never a user or provider profile.
           expect(path.dirname(profile)).toBe(runOut);
-          rmSync(profile, { recursive: true });
+          if (existsSync(profile)) rmSync(profile, { recursive: true });
         }
       },
     );

@@ -46,7 +46,7 @@
     if (
       after &&
       !confirm(
-        "The worker response has ended. HUMAN: load a fresh Orders view now. Continue only after that fresh load; no agents, screenshots or page output.",
+        "The worker response has ended. AGENT: load a fresh Orders view now. Continue only after that fresh load; no screenshots or page output.",
       )
     )
       throw new Error("canceled");
@@ -146,7 +146,7 @@
     try {
       if (
         !confirm(
-          "HUMAN ONLY: one selector lifecycle with pre-launch T0, including sign-in and removal within T0+15 minutes? Preparation grants no execution; no raw recording or retries.",
+          "AGENT: one selector lifecycle with pre-launch T0, including sign-in and removal within T0+15 minutes? Preparation grants no execution; no raw recording or retries.",
         )
       )
         return { ok: false, code: "canceled" };

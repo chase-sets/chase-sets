@@ -3,6 +3,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { POLICY } from "../../tests/selector-agent-control.mjs";
 
 const source = path.dirname(fileURLToPath(import.meta.url));
 const repo = path.resolve(source, "../../../../../..");
@@ -14,7 +15,7 @@ const packageFiles = ["capture-config.json", ...coreFiles];
 const exportFiles = ["selector-inventory.json", "selector-receipt.json"];
 const chromeExecutable = "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe";
 const launchCommand = (profileDirectory) =>
-  `& '${chromeExecutable}' '--user-data-dir=${profileDirectory}' '--no-first-run' '--no-default-browser-check'`;
+  `HOLD: bind the reviewed Channels selector agent route for '${profileDirectory}'; no direct browser launch`;
 const hash = (bytes) => createHash("sha256").update(bytes).digest("hex");
 const json = (value) => JSON.stringify(value, null, 2) + "\n";
 const fail = (code = "export_schema_refused") => {
@@ -150,6 +151,15 @@ export function prepare({ out, cadenceMs, cadenceSource, t0, synthetic = false }
     profileDirectory,
     captureUrl: `chrome-extension://${id}/capture.html`,
     launchCommand: launchCommand(profileDirectory),
+    agentAdmission: {
+      policyIdentity: POLICY.identity,
+      policyHash: POLICY.hash,
+      adapterHash: hash(readFileSync(path.join(source, "../../tests/selector-agent-control.mjs"))),
+      tool: POLICY.tool,
+      performer: "selector-agent-operator",
+      verifier: "selector-agent-host-verifier",
+      qualification: "PENDING_HOST_REVIEW",
+    },
     packageDigests: inventory(packageDirectory),
     retainedFiles: [
       "RUNBOOK.md",
@@ -162,28 +172,34 @@ export function prepare({ out, cadenceMs, cadenceSource, t0, synthetic = false }
     qualification: "PENDING_HOST_VERIFIER",
   };
   const cli = path.join(source, "package.mjs");
-  const runbook = `# One isolated HUMAN-operated selector capture for ${PROBE}
+  const runbook = `# One isolated agent-operated selector capture for ${PROBE}
 
 Evidence: ${config.evidence}. Head: ${head}. Extension: ${id}.
 Cadence: ${cadenceMs} ms, probe-only authority ${AUTHORITY}, not production cadence.
 Successor authority: ${SUCCESSOR}. #8608 FINAL r4 and #8838's terminal disposition remain unchanged.
 Preparation grants NO execution. Synthetic identities are synthetic, never live qualification.
 PENDING_HOST_VERIFIER: exact-head independent build review, old-profile disposal observation,
-passed human-route removal/disposal rehearsal and ordinary admission are prerequisites.
-No agent/model may access a provider page, DOM, screenshot, accessibility output, private console
-or raw network data. The visible Chrome window and native dialogs are HUMAN-only.
+accepted agent-route capability and rehearsal, accepted S, and ordinary admission are prerequisites.
+Bind ONE selector-agent-operation-capability-policy/v1 identity/hash shared by C and S,
+named selector-agent-operator session/model/tool and independent selector-agent-host-verifier,
+absolute Chrome executable/version/hash, fresh signed-out profile, package ID/digests and authenticated run endpoint.
+The model gets closed code-owned operations only: no CDP/evaluate, caller URL/JS/selector,
+DOM/accessibility/screenshot, raw console/network/errors/events, secrets or pre-seal worker totals.
+Unknown origin/run/phase/selector/prompt refuses BEFORE output; disclosure is terminal, no redact/retry.
+Private sign-in pauses ALL observation/input/errors/events. Todd enters production secrets
+and supervises only a separately authorized C; synthetic offline runs have no Todd role.
 
 1. Host verifies the complete hash-bound package and its exact Probe/head:
    node "${cli}" --verify --out "${out}"
    T0 is fixed at ${t0} BEFORE the first profile launch; never rewrite it.
    T0+900000 covers sign-in through extension removal/absence attestation.
    Pre-begin expiry consumes the ONE lifecycle. Worker caps begin+900000 by T0+900000.
-2. Only after all prerequisites and admission, HUMAN opens this new profile:
+2. Only after all prerequisites and admission, the bound agent route opens this new profile:
    ${preparation.launchCommand}
    Never use Todd's work or Pokebash TCG profiles, copy credentials/cookies, or borrow a session.
-   HUMAN signs in; no HAR, trace, raw recording or private output to agents/models.
+   No automated provider sign-in. No HAR, trace, raw recording or private output to agents/models.
    Set Downloads to ${receiptDirectory}; allow exactly the two selector exports.
-3. HUMAN uses chrome://extensions, Developer mode, Load unpacked ${packageDirectory}.
+3. The closed agent route installs the exact reviewed unpacked package ${packageDirectory}.
    Confirm ID ${id}, then open ${preparation.captureUrl}.
    In ONLY the helper console invoke await orderAuthorityCapture.run(), no arguments.
    The helper contains no provider page reader. Native prompts only, no identifiers anywhere.
@@ -193,10 +209,10 @@ or raw network data. The visible Chrome window and native dialogs are HUMAN-only
    Only trim/collapsed-whitespace/case variants of Ready to Ship are accepted.
    Attest settled and unchanged, then read that adjacent quick-filter count ONCE.
    Exclude all-orders, pagination and search totals. Worker total stays hidden until both brackets seal.
-   After response, HUMAN loads a FRESH Orders view, restores the worker range once if reload reset it,
+   After response, the agent route loads a FRESH Orders view, restores the worker range once if reload reset it,
    confirms range, transcribes adjacent label, attests settled/unchanged, then reads the count ONCE.
    Settled means this post-response fresh load settled; unchanged permits only explicit range restoration.
-   Tags/times are human-attested helper metadata, NOT machine portal observations.
+   Helper tags/times retain the v4 law; live Orders fidelity remains NOT_CAPTURED until accepted S.
    before<=request start<=response end<=after; before gap<=30 s and after gap<=120 s.
    Stale/timeout observations are unknown and terminal; never take a second observation.
    Only eligible non-200/validation failure offers Last 90 days (LastThreeMonths) once, with fresh brackets.
@@ -210,14 +226,18 @@ or raw network data. The visible Chrome window and native dialogs are HUMAN-only
    Request8192/lookup65536/list1048576/session8388608 bytes. Unknown is not qualification.
    Host verifies the closed pair before any posting:
    node "${cli}" --verify-export --out "${out}"
-5. HUMAN removes extension ${id} in this exact profile's chrome://extensions, confirms absence
+5. The agent removes extension ${id} in this exact profile's chrome://extensions, confirms exact-ID UI absence
    and records its actual UTC observation time within T0+900000. Close this exact profile.
-   HUMAN manually disposes ONLY ${profileDirectory} outside agent tools; no agent auto-delete or offline substitution.
+   Use selector-profile-cleanup.ps1 ONLY for this admitted new profile, never r2/r3/#8838.
+   Close normally; reject every linked ancestor/race and retain interrupted ownership.
    Host observes exact-profile directory absence, zero exact-profile Chrome processes and no unknown command lines.
    Directory disposal/host absence may finish later, but Probe AC2 remains pending until observed.
-   Host records HUMAN-observed extension absence and disposal, never CDP uninstall as human-route proof:
+   Host records actual agent UI absence and independent census/disposal, never CDP uninstall as UI proof:
    node "${cli}" --record-removal --extension-absent --extension-absent-at "<actual UTC time>" --out "${out}"
-   This checks directory absence, not browser absence/processes. Late extension absence never satisfies the window.
+   This legacy v4 recorder checks directory absence, not browser absence/processes; the new cleanup evidence is separate.
+   S requires disposal+census+absence by S0+15 min; C's later disposal acceptance remains pending.
+   Preserve a fixed host terminal cause separately from cleanup PENDING/REFUSED/FAILED/LATE/TIMELY_VERIFIED.
+   Late extension absence never satisfies the window.
    Host keeps the package and two scrubbed exports, no raw values. No historical artifact rewrite.
 `;
   writeFileSync(path.join(out, "RUNBOOK.md"), runbook, { flag: "wx" });
@@ -259,6 +279,7 @@ export function verifyPackage(out) {
       "profileDirectory",
       "captureUrl",
       "launchCommand",
+      "agentAdmission",
       "packageDigests",
       "retainedFiles",
       "qualification",
@@ -310,6 +331,19 @@ export function verifyPackage(out) {
     "package_mismatch",
   );
   const core = Object.fromEntries(Object.entries(actual).filter(([name]) => name !== "capture-config.json"));
+  same(
+    preparation.agentAdmission,
+    {
+      policyIdentity: POLICY.identity,
+      policyHash: POLICY.hash,
+      adapterHash: hash(readFileSync(path.join(source, "../../tests/selector-agent-control.mjs"))),
+      tool: POLICY.tool,
+      performer: "selector-agent-operator",
+      verifier: "selector-agent-host-verifier",
+      qualification: "PENDING_HOST_REVIEW",
+    },
+    "agent_admission_mismatch",
+  );
   same(core, config.files, "digest_mismatch");
   for (const file of coreFiles) {
     const relative = path.posix.join(
