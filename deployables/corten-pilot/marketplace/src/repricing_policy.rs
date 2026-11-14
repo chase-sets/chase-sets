@@ -570,8 +570,14 @@ async fn editor(req: &Req, viewer: &Viewer, config: &Shared, headers: &HeaderMap
         let refusal = Some(vec![t.editor_validation_failed().to_owned()]);
         return render(req, viewer, config, headers, id, &Place::edit(), refusal, None, StatusCode::UNPROCESSABLE_ENTITY).await;
     };
-    revise.change(&form.intent, form.op.as_deref().and_then(Op::read), &facts);
     let again = |revise: Revise, status: StatusCode| answer(req, viewer, config, headers, id, revise, status);
+    // Open up a preset only once it has what a preview needs, as marketplace's button is off until
+    // then (`promptComplete`); without the script the post is how the pilot finds out.
+    if matches!(form.intent.as_str(), "open-up" | "open-advanced") && !revise.complete() {
+        revise.errors = vec![t.editor_validation_failed().to_owned()];
+        return again(revise, StatusCode::UNPROCESSABLE_ENTITY).await;
+    }
+    revise.change(&form.intent, form.op.as_deref().and_then(Op::read), &facts);
     match form.intent.as_str() {
         "preview" | "revise-policy" if !revise.complete() => {
             revise.errors = vec![t.editor_validation_failed().to_owned()];
