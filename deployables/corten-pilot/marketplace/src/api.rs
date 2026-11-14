@@ -5785,12 +5785,6 @@ pub struct BatchItem {
     pub outcome: String,
 }
 
-impl BatchItem {
-    pub fn succeeded(&self) -> bool {
-        self.outcome == "succeeded"
-    }
-}
-
 /// Why a listing command was not applied.
 #[derive(Debug)]
 pub enum CommandError {
