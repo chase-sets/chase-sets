@@ -408,7 +408,17 @@ export function classifyRun({
       () => perTest.counts.total === listedCount && perTest.counts.expected + perTest.counts.flaky > 0,
     ],
     ["fail", "sign-in", () => perTest.signInFailures.length === 0],
-    ["fail", "suite", () => suiteExitCode === 0 && perTest.counts.unexpected === 0],
+    [
+      "fail",
+      "suite",
+      () =>
+        suiteExitCode === 0 &&
+        perTest.counts.unexpected === 0 &&
+        perTest.counts.skipped === 0 &&
+        perTest.tests.every(
+          (test) => (test.outcome === "expected" || test.outcome === "flaky") && test.results.length > 0,
+        ),
+    ],
   ];
 
   const evaluated = [];

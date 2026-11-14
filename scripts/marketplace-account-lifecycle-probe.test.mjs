@@ -521,6 +521,37 @@ describe("marketplace account lifecycle probe classification", () => {
   });
 
   it.each([
+    ["all passed", "expected", "passed", "pass", "REPAIRED_PASS", "BOTH_PASS"],
+    ["one skipped", "skipped", "skipped", "fail", "REPAIRED_FAIL", "CONTROL_FAILED"],
+    ["one without results", "expected", null, "fail", "REPAIRED_FAIL", "CONTROL_FAILED"],
+  ])(
+    "requires every synthetic suite member to complete: %s",
+    (_, outcome, resultStatus, verdict, repairedDecision, baselineDecision) => {
+      const syntheticReport = report(
+        Array.from({ length: 73 }, (_, index) => ({
+          title: `synthetic completeness member ${index}`,
+          status: index === 72 ? outcome : "expected",
+          results:
+            index === 72 && resultStatus === null
+              ? []
+              : [result(index === 72 ? resultStatus : "passed", "2026-11-02T10:01:00.000Z", 1)],
+        })),
+      );
+      const classification = classifyRun(passingInput({ perTest: summarizePerTest(syntheticReport), listedCount: 73 }));
+      expect(classification).toMatchObject({ verdict, firstCausalEdge: verdict === "pass" ? null : "suite" });
+      const completeClassification = classifyRun(passingInput());
+      for (const incompleteRun of [1, 2]) {
+        const runs = probeRuns.map((run) => ({
+          ...run,
+          classification: run.index === incompleteRun ? classification : completeClassification,
+        }));
+        expect(decideProbe({ mode: "repaired", invalidReasons: [], runs }).decision).toBe(repairedDecision);
+        expect(decideProbe({ mode: "baseline", invalidReasons: [], runs }).decision).toBe(baselineDecision);
+      }
+    },
+  );
+
+  it.each([
     ["product-tree", "invalid", { productTreeUnchanged: false }],
     ["lifecycle-evidence", "invalid", { lifecycle: lifecycle({ target: "browser-e2e-production" }) }],
     ["readiness-evidence", "invalid", { readiness: null }],
