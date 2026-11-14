@@ -1,5 +1,5 @@
-import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { createId } from "@chase-sets/primitives/typed-ids";
 import {
   createPostgresEventStore,
   createPostgresProjectionStore,
@@ -153,7 +153,7 @@ describeDb("Identity physical writer epoch closure against a separate consumer s
             type: "SuspendAccount",
             enforcement: {
               version: 1,
-              enforcementActionId: `enf_${randomUUID()}` as never,
+              enforcementActionId: createId("enf"),
               reason: "operator-other",
               reference: null,
             },
