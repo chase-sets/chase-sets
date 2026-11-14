@@ -15,6 +15,7 @@ import {
   readFreshWriteToken,
 } from "@chase-sets/http/responses";
 import { signInThroughMarketplaceForm } from "./support/auth";
+import { hasIdentifierSubmitHandler } from "./support/sign-in-readiness";
 import { marketplaceBrowserE2eSellerCredentials } from "./support/seed-contract";
 
 let pageErrors: string[] = [];
@@ -251,6 +252,8 @@ test("manual-sync-panel-round-trip: connects and activates an independent real c
 
 async function hydratedChannelForm(page: Page) {
   // A real client navigation replaces the server-rendered form only after hydration.
+  const form = page.locator("form").filter({ has: page.getByRole("combobox", { name: "Sales Channel", exact: true }) });
+  await expect.poll(() => form.evaluate(hasIdentifierSubmitHandler)).toBe(true);
   const loaded = page.waitForResponse(
     (response) =>
       response.request().method() === "GET" && new URL(response.url()).pathname === "/account/channels.data",

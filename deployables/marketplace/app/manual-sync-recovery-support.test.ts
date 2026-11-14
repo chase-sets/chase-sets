@@ -8,6 +8,7 @@ import ts from "@chase-sets/typescript-compiler-api";
 import { runInNewContext } from "node:vm";
 import * as responses from "@chase-sets/http/responses";
 import { createManualSyncBrowserRecovery } from "../e2e/support/manual-sync-recovery";
+import { hasIdentifierSubmitHandler } from "../e2e/support/sign-in-readiness";
 
 const h = vi.hoisted(() => ({ spawn: vi.fn() }));
 vi.mock("node:child_process", () => ({ spawn: h.spawn, default: { spawn: h.spawn } }));
@@ -50,6 +51,49 @@ function recoveryFunctions(file: string, names: string[], globals: Record<string
 }
 
 describe("owned recovery browser preparation", () => {
+  it.each(["manual-sync-recovery.spec.ts", "channel-connection-connect.spec.ts"])(
+    "%s waits for the form handler before requesting client navigation",
+    async (file) => {
+      const calls: string[] = [];
+      let hydrated = false;
+      const form = {
+        evaluate: vi.fn(async (probe: typeof hasIdentifierSubmitHandler) => {
+          calls.push("hydration");
+          return probe(hydrated ? { __reactProps$test: { onSubmit() {} } } : {});
+        }),
+      };
+      const page = {
+        getByRole: vi.fn(() => ({})),
+        locator: vi.fn((selector: string) => ({
+          filter: () => form,
+          click: async () => calls.push(selector),
+        })),
+        waitForResponse: vi.fn(async () => calls.push("response")),
+      };
+      const assertions = Object.assign(() => ({ toHaveURL: async () => {}, toBeVisible: async () => {} }), {
+        poll: (probe: () => Promise<boolean>) => ({
+          toBe: async (value: boolean) => expect(await probe()).toBe(value),
+        }),
+      });
+      const { hydratedChannelForm } = recoveryFunctions(file, ["hydratedChannelForm"], {
+        expect: assertions,
+        hasIdentifierSubmitHandler,
+      });
+      await expect(hydratedChannelForm(page)).rejects.toThrow();
+      expect(calls).toEqual(["hydration"]);
+      expect(page.waitForResponse).not.toHaveBeenCalled();
+      hydrated = true;
+      calls.length = 0;
+      await hydratedChannelForm(page);
+      expect(calls).toEqual([
+        "hydration",
+        "response",
+        'main a[href="/account/channels?status=active"]',
+        "response",
+        'main a[href="/account/channels"]',
+      ]);
+    },
+  );
   it("keeps recovery client navigation before provider selection and drains held connection routes", () => {
     const source = (name: string) =>
       readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), `../e2e/${name}`), "utf8");

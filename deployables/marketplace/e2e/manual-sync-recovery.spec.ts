@@ -14,6 +14,7 @@ import {
   readFreshWriteToken,
 } from "@chase-sets/http/responses";
 import { signInThroughMarketplaceForm } from "./support/auth";
+import { hasIdentifierSubmitHandler } from "./support/sign-in-readiness";
 import { marketplaceBrowserE2eSellerCredentials } from "./support/seed-contract";
 
 test.describe("manual TCGplayer clamp recovery", () => {
@@ -177,6 +178,8 @@ async function withOwnedRecoveryCleanup(
 }
 
 async function hydratedChannelForm(page: Page) {
+  const form = page.locator("form").filter({ has: page.getByRole("combobox", { name: "Sales Channel", exact: true }) });
+  await expect.poll(() => form.evaluate(hasIdentifierSubmitHandler)).toBe(true);
   const loaded = page.waitForResponse(
     (response) =>
       response.request().method() === "GET" && new URL(response.url()).pathname === "/account/channels.data",
