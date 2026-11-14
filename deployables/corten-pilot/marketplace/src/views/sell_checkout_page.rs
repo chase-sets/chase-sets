@@ -286,6 +286,7 @@ pub fn SellCheckoutPage<'a>(t: SellCheckoutMsg, screen: &'a Screen) -> impl Rend
             </div>
             <a class={(Button, Secondary)} href={back}>{w.back_to_sell_list}</a>
         </header>
+        <p><a class={(Button, Secondary)} href={url::ShippingSetup::PATH}>{t.shipping_setup()}</a></p>
         if let Some(recovery) = &screen.recovery {
             <div class={Banner} data-tone="warning" role="status">
                 <p class={Strong}>{recovery_title(t, screen.account, recovery)}</p>

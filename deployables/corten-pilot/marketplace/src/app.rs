@@ -247,6 +247,7 @@ pub mod url {
     pub use sessions::{SessionPage, SessionRevoke, SessionSwitch, Sessions};
     pub use sets::Set;
     pub use shipments::{Shipment, Shipments};
+    pub use shipping_setup::ShippingSetup;
     pub use sign_in::{MagicLink, PasskeyChallenge, SignIn};
     pub use submitted_offers::{
         SubmittedOffer, SubmittedOfferFollowing, SubmittedOffers, SubmittedOffersFollowing, SubmittedOffersLive,
@@ -1055,6 +1056,16 @@ pub mod url {
             #[route(query)]
             pub place: crate::sell_checkout::ConfirmationPlace,
         }
+    }
+
+    /// Fulfillment's seller shipping setup (`seller-shipping-setup`, see `shipping_setup`): anyone,
+    /// a guest's being the guest sell list's. Its handlers take who is asking, if anyone. Neither
+    /// answer is kept by a cache, as marketplace's are not.
+    #[corten::routes(state = crate::app::Shared, area = ShippingSetup)]
+    pub mod shipping_setup {
+        /// The page; Save shipping setup posts to it.
+        #[route("/sell/shipping-setup", get = crate::shipping_setup::page, post = crate::shipping_setup::write, no_store)]
+        pub struct ShippingSetup;
     }
 
     /// Checkout's Sell List (`account-sell-list`): anyone, a guest's being the browser's guest sell
@@ -1955,6 +1966,7 @@ pub fn app(config: Config) -> App {
         .area(|area| url::desk::area(area, shared.clone()).components(views::DESK))
         .area(|area| url::desk_offers::area(area, shared.clone()).components(views::SELL_LIST))
         .area(|area| url::sell_checkout::area(area, shared.clone()).components(views::SELL_CHECKOUT))
+        .area(|area| url::shipping_setup::area(area, shared.clone()).components(views::SHIPPING_SETUP))
         // A photo is up to 10 MB, as Create listing's are.
         .area(|area| {
             url::sell_list::area(area, shared.clone()).components(views::SELL_LIST).deadline(crate::listing_new::DEADLINE)

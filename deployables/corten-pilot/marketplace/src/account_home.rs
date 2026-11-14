@@ -268,6 +268,7 @@ mod tests {
             account_id: "acc_1".into(),
             role_key: "owner".into(),
             permissions: vec![],
+            session_id: "ses_1".into(),
             agent: false,
         };
         Viewer { actor, color_mode: Default::default() }
