@@ -198,5 +198,6 @@
   "policy.label": "Checkout policies",
   "policy.privacy": "Privacy policy",
   "policy.refunds": "Refunds and returns",
-  "policy.terms": "Terms of service"
+  "policy.terms": "Terms of service",
+  "shipping_setup": "Shipping setup"
 }

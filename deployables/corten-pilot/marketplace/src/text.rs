@@ -1,6 +1,6 @@
 //! The screens' text. `Msg` (storage locations) and `Restock` (restock decisions) are the
 //! Inventory context's own catalogs for each screen, `ItemMsg` the Discovery context's item page's,
-//! `SearchMsg` the Discovery context's search page's, `ListingMsg` its public listing page's, `AccountMsg` its public account page's (with Reputation's review words), `AddressesMsg` the Identity context's shipping addresses page's, `AccountHomeMsg` its account page's, `SecurityMsg` its security page's, `TeamMsg` its team page's, `ConsentsMsg` its consent history's, `ReviewsMsg` the Reputation context's account review pages', `SessionsMsg` the Auth context's session pages', `AgentsMsg` its connected agents pages', `ListingNewMsg` the Marketplace context's Create listing page's, `SellerListingMsg` its seller's listing page's, `SellerListingsMsg` its seller's list of listings', `OfferMatchesMsg` its seller's offer matches', `SubmittedOffersMsg` its buyer's submitted offers', `InventoryMsg` the Inventory context's inventory list's, `NotificationsMsg` the Notifications context's notification center's, `OrdersMsg` the Ordering context's order pages', `ImportsMsg` the Inventory context's import page's, `ShipmentsMsg` the Fulfillment context's shipment pages', `CartMsg` the Checkout context's cart page's, `SellListMsg` its Sell List's (with Marketplace's evidence coverage words), `CheckoutMsg` its buy checkout page's, `DeskMsg` the Marketplace context's Seller Desk home's, `MoneyMsg` the Settlement context's Seller Desk money page's, `PaymentMethodsMsg` the Payments context's saved payment methods page's (with its payment page's secure step words), `PaymentStartMsg` its page for starting a payment for a buyer's orders, `SupportMsg` the Platform Operations context's Support Request participant page's, `SignInMsg` the Auth context's sign-in, magic link and account selection pages' (exported from contracts/localization by
+//! `SearchMsg` the Discovery context's search page's, `ListingMsg` its public listing page's, `AccountMsg` its public account page's (with Reputation's review words), `AddressesMsg` the Identity context's shipping addresses page's, `AccountHomeMsg` its account page's, `SecurityMsg` its security page's, `TeamMsg` its team page's, `ConsentsMsg` its consent history's, `ReviewsMsg` the Reputation context's account review pages', `SessionsMsg` the Auth context's session pages', `AgentsMsg` its connected agents pages', `ListingNewMsg` the Marketplace context's Create listing page's, `SellerListingMsg` its seller's listing page's, `SellerListingsMsg` its seller's list of listings', `OfferMatchesMsg` its seller's offer matches', `SubmittedOffersMsg` its buyer's submitted offers', `InventoryMsg` the Inventory context's inventory list's, `NotificationsMsg` the Notifications context's notification center's, `OrdersMsg` the Ordering context's order pages', `ImportsMsg` the Inventory context's import page's, `ShipmentsMsg` the Fulfillment context's shipment pages', `ShippingSetupMsg` its seller shipping setup's, `CartMsg` the Checkout context's cart page's, `SellListMsg` its Sell List's (with Marketplace's evidence coverage words), `CheckoutMsg` its buy checkout page's, `DeskMsg` the Marketplace context's Seller Desk home's, `MoneyMsg` the Settlement context's Seller Desk money page's, `PaymentMethodsMsg` the Payments context's saved payment methods page's (with its payment page's secure step words), `PaymentStartMsg` its page for starting a payment for a buyer's orders, `SupportMsg` the Platform Operations context's Support Request participant page's, `SignInMsg` the Auth context's sign-in, magic link and account selection pages' (exported from contracts/localization by
 //! scripts/export.mjs, so the copy cannot drift); `Pilot` is the pilot's shell, input checks and
 //! the routes' own messages. `messages!` checks every call against the catalogs when the crate
 //! compiles.
@@ -38,6 +38,7 @@ pub use seller_listing::{SellerListingMsg, seller_listing_msg};
 pub use seller_listings::{SellerListingsMsg, seller_listings_msg};
 pub use sessions::{SessionsMsg, sessions_msg};
 pub use shipments::{ShipmentsMsg, shipments_msg};
+pub use shipping_setup::ShippingSetupMsg;
 pub use sign_in::{SignInMsg, sign_in_msg};
 pub use site::SiteMsg;
 pub use submitted_offers::{SubmittedOffersMsg, submitted_offers_msg};
@@ -173,6 +174,12 @@ mod imports {
 mod shipments {
     corten::i18n::messages! {
         pub struct ShipmentsMsg { "en" => "locales/shipments.en.json" }
+    }
+}
+
+mod shipping_setup {
+    corten::i18n::messages! {
+        pub struct ShippingSetupMsg { "en" => "locales/shipping_setup.en.json" }
     }
 }
 
