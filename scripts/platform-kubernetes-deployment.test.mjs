@@ -7223,6 +7223,9 @@ describe("preview Postgres connection ceiling and diagnostics (#10022)", () => {
       namespace,
       timeout: "15m",
       image: "registry.digitalocean.com/chase-sets/chase-sets-platform:release-sha",
+      ...(environment === "staging"
+        ? { cortenAdminImage: `registry.digitalocean.com/chase-sets/chase-sets-corten-admin@sha256:${"a".repeat(64)}` }
+        : {}),
       envOverrides: {
         DEPLOYMENT_ENVIRONMENT: environment,
         ...(environment === "preview" ? { PREVIEW_IDENTIFIER: "pr-123" } : {}),

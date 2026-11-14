@@ -176,10 +176,21 @@ describe("Corten admin staging deployment", () => {
       ingress.spec.rules.find(({ host }) => host === "admin-corten.staging.chasesets.com").http.paths.at(-1).backend
         .service.name,
     ).toBe(name);
+    const productionArgs = buildHelmUpgradeArgs({
+      ...options,
+      cortenAdminImage: undefined,
+      envOverrides: { DEPLOYMENT_ENVIRONMENT: "production", OBSERVABILITY_ENABLED: "false" },
+      env: { ...options.env, PRODUCTION_DOKS_INGRESS_TARGET: "192.0.2.1" },
+    });
     expect(
-      render("infrastructure/helm/platform/values.production.yaml").some((item) => item.metadata.name === name),
+      render(
+        "infrastructure/helm/platform/values.production.yaml",
+        productionArgs.slice(productionArgs.indexOf("--values") + 2),
+      ).some((item) => item.metadata.name === name),
     ).toBe(false);
-    expect(() => render("infrastructure/helm/platform/values.staging.yaml")).toThrow("component.image is required");
+    expect(() =>
+      render("infrastructure/helm/platform/values.staging.yaml", ["--set", "doksIngress.enabled=true"]),
+    ).toThrow("component.image is required");
   });
 
   it("pins the pilot image only on staging and refuses mutable or wrong-repository references", () => {
