@@ -553,6 +553,19 @@
       "deployable": "marketplace-web",
       "routes": [
         {
+          "routeId": "seller-shipping-setup",
+          "routePath": "sell/shipping-setup",
+          "fileExport": "./routes/seller-shipping-setup",
+          "routeType": "route",
+          "sourceContext": "fulfillment",
+          "delivery": "server-only",
+          "authorization": { "kind": "public" },
+          "canonicalLink": { "kind": "not-applicable", "reason": "Owner-scoped shipping setup is not a public canonical page." },
+          "availability": { "web": true, "mobile": false },
+          "pageComponentExport": "default",
+          "unsupportedMobile": { "owner": "fulfillment", "followUp": "#11113", "reason": "Shipping setup is delivered on the marketplace web route." }
+        },
+        {
           "routeId": "account-sale-shipment-packing-slips",
           "routePath": "account/sales/shipments/packing-slips",
           "fileExport": "./routes/marketplace/account-sale-shipment-packing-slips",
