@@ -79,6 +79,23 @@ fn committed(status: StatusCode, context: &str, position: &str, body: Value) -> 
 /// publication refused. A guest's draft needs its owner.
 fn listings(stand: &Stand, session: &str, method: &Method, path: &str, headers: &HeaderMap, body: &str) -> Option<Response> {
     let sent: Value = serde_json::from_str(body).unwrap_or_default();
+    // `filler`'s listing has 1 of the 2 `off_high` asks for, and enough for `off_mine`, which is
+    // on its Sell List. The live redraw reads the overlay by the item's id.
+    if session == "filler" && (path == OVERLAY || path == "/api/marketplace/items/cat_charizard/seller-overlay") {
+        let matched = |id: &str, available: u64, listed: bool| {
+            json!({
+                "offer_id": id, "catalog_catalog_item_id": "cat_charizard", "product_id": OFFERED,
+                "selected_options": [{ "dimensionId": "dim_form", "optionId": "chc_raw" }, { "dimensionId": "dim_condition", "optionId": "chc_nm" }],
+                "status": "submitted", "quantity_requested": 2, "seller_available_quantity": available,
+                "can_fulfill": available >= 2, "in_sell_list": listed, "acceptance_terms": null,
+            })
+        };
+        let overlay = json!({
+            "accountOfferMatches": [matched("off_mine", 3, true), matched("off_high", 1, false)],
+            "sellerInventoryItems": [], "hasListingStockLocation": false, "selectedSellerListing": null,
+        });
+        return Some(Json(overlay).into_response());
+    }
     if path == OVERLAY {
         let has = match (session, waits_for(headers).as_deref()) {
             (_, Some("43")) => {
@@ -466,6 +483,13 @@ async fn platform(State(stand): State<Stand>, method: Method, uri: Uri, headers:
             "guest" => actor(&["guest-checkout.manage"]),
             // An account that sees items as a seller and may take offers.
             "trader" => actor(&["offers.view", "listings.view", "offers.manage"]),
+            // A trader of another account, whose listings could fill the item's offers (the
+            // seller overlay's matches).
+            "filler" => Json(json!({ "actor": {
+                "userId": "usr_filler", "accountId": "acc_filler", "roleKey": "seller",
+                "permissions": ["offers.view", "listings.view", "offers.manage"],
+            } }))
+            .into_response(),
             // A trader whose market-following policies cannot be listed (503).
             "offers_dark" => actor(&["offers.view", "listings.view", "offers.manage"]),
             // An account that may save Watch alerts.
@@ -4588,6 +4612,94 @@ async fn a_guest_sees_what_an_offer_pays_and_saves_it_or_its_product_to_a_sell_l
         assert!(html.contains(OPEN_PRODUCT_FOLD), "the product's fold stays open: {html}");
     }
     assert_eq!(sell_calls(&pilot).len() - before, 2, "only the terms again, for each page");
+}
+
+#[tokio::test]
+async fn a_sellers_rail_shows_the_offer_they_can_fill_and_what_their_match_allows() {
+    let pilot = Pilot::new().await;
+    // No offer in the address: the first submitted offer their listing can fill, not the best one.
+    let (status, _, html) = pilot.send(get(SELL_PAGE, Some("filler"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(pilot.stand.calls.lock().unwrap().iter().any(|c| c.path == OVERLAY), "a trader's page reads the overlay");
+    let page = text(&html);
+    assert!(page.contains("Best offer $350.00 You \u{b7} 2 requested Can fulfill $700.00 offer"), "{page}");
+    let forms = forms_to(&html, SELL_LIST);
+    assert!(forms[0].contains(r#"name="offer" value="off_mine""#), "{}", forms[0]);
+    assert!(forms[0].contains(r#"value="sell-now">Accept offer<"#), "{}", forms[0]);
+    assert!(forms[0].contains(r#"value="add-to-sell-list" disabled>In Sell List<"#), "already on the list: {}", forms[0]);
+    assert!(!page.contains("Needs supply"), "{page}");
+
+    // The offer the address chose, which their listing cannot fill: neither action.
+    let (_, _, html) = pilot.send(get(&format!("{SELL_PAGE}&offer=off_high"), Some("filler"))).await;
+    let page = text(&html);
+    assert!(page.contains("Selected offer $380.00 Top Loader \u{b7} 2 requested Needs supply $760.00 offer"), "{page}");
+    let forms = forms_to(&html, SELL_LIST);
+    assert!(forms[0].contains(r#"name="offer" value="off_high""#), "{}", forms[0]);
+    assert!(forms[0].contains(r#"value="sell-now" disabled>Accept offer<"#), "{}", forms[0]);
+    assert!(forms[0].contains(r#"value="add-to-sell-list" disabled>Add offer to Sell List<"#), "{}", forms[0]);
+
+    // An account without matches keeps the best offer and both actions.
+    let (_, _, html) = pilot.send(get(SELL_PAGE, Some("trader"))).await;
+    let forms = forms_to(&html, SELL_LIST);
+    assert!(forms[0].contains(r#"name="offer" value="off_high""#), "{}", forms[0]);
+    assert!(forms[0].contains(r#"value="add-to-sell-list">Add offer to Sell List<"#), "{}", forms[0]);
+    assert!(!text(&html).contains("Can fulfill") && !text(&html).contains("Needs supply"), "{html}");
+
+    // The live book marks the offer the page chose, reading the overlay again.
+    let live = "/items/cat_charizard/live?market=sell&book=offers";
+    let events = pilot.events(get(live, Some("filler")), 1).await;
+    let (_, _, data) = &events[0];
+    let mine = r#"href="/items/charizard?market=sell&amp;offer=off_mine" aria-current="true""#;
+    assert!(data.contains(mine), "{data}");
+}
+
+#[test]
+fn a_sellers_default_offer_is_the_first_submitted_one_they_can_fill_and_names_its_product() {
+    let mut raw = item();
+    // `off_mine` asks for Lightly Played, so the product the Sell tab names follows the offer.
+    let lp =
+        json!([{ "dimensionId": "dim_form", "optionId": "chc_raw" }, { "dimensionId": "dim_condition", "optionId": "chc_lp" }]);
+    let lp_product = "cat_charizard::dim_form:chc_raw|dim_condition:chc_lp|dim_grade:-";
+    raw["offer_demand_matches"][1]["selected_options"] = lp.clone();
+    raw["offer_demand_matches"][1]["product_id"] = json!(lp_product);
+    let item: crate::api::Item = serde_json::from_value(raw).unwrap();
+    let matched = |id: &str, product: &str, options: &Value, status: &str, can_fulfill: bool| crate::api::AccountOfferMatch {
+        offer_id: id.to_owned(),
+        catalog_catalog_item_id: "cat_charizard".to_owned(),
+        product_id: product.to_owned(),
+        selected_options: serde_json::from_value(options.clone()).unwrap(),
+        status: status.to_owned(),
+        can_fulfill,
+        ..Default::default()
+    };
+    let nm =
+        json!([{ "dimensionId": "dim_form", "optionId": "chc_raw" }, { "dimensionId": "dim_condition", "optionId": "chc_nm" }]);
+    let sell = crate::items::Address { market: crate::items::Market::Sell, ..Default::default() };
+    let viewer = Some("acc_filler".to_owned());
+
+    let plain = crate::items::ItemScreen::of(item.clone(), &sell, viewer.clone());
+    assert_eq!((plain.offer_id.as_deref(), plain.product_id.as_deref()), (Some("off_high"), Some(OFFERED)));
+
+    // The first submitted match it can fill, skipping one it cannot and one no longer submitted.
+    let matches = [
+        matched("off_high", OFFERED, &nm, "submitted", false),
+        matched("off_gone", OFFERED, &nm, "accepted", true),
+        matched("off_mine", lp_product, &lp, "submitted", true),
+    ];
+    let screen = crate::items::ItemScreen::with_matches(item.clone(), &sell, viewer.clone(), &matches);
+    assert_eq!((screen.offer_id.as_deref(), screen.product_id.as_deref()), (Some("off_mine"), Some(lp_product)));
+    assert!(!screen.offer_explicit && screen.selected_match().is_some_and(|m| m.can_fulfill));
+
+    // An offer in the address stays chosen; with no match of its own the rail has none.
+    let chosen = crate::items::Address { offer: Some("off_high".to_owned()), ..sell.clone() };
+    let screen = crate::items::ItemScreen::with_matches(item.clone(), &chosen, viewer.clone(), &matches[2..]);
+    assert_eq!(screen.offer_id.as_deref(), Some("off_high"));
+    assert!(screen.selected_match().is_none());
+
+    // Off the Sell tab the matches choose nothing.
+    let buy = crate::items::Address::default();
+    let screen = crate::items::ItemScreen::with_matches(item, &buy, viewer, &matches);
+    assert_eq!(screen.offer_id.as_deref(), Some("off_high"));
 }
 
 #[tokio::test]
