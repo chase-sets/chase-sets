@@ -14595,6 +14595,13 @@ async fn the_register_page_offers_marketplaces_methods_in_its_order_each_at_its_
     assert!(html.contains(r#"value="magic-link-register""#) && !html.contains(r#"type="password""#), "{html}");
     let (_, _, html) = pilot.send(get("/register?registrationMethod=phone-code", None)).await;
     assert!(html.contains(r#"value="phone-code-request""#) && !html.contains(r#"name="code""#), "{html}");
+
+    // Its analytics: the page as an address opens it counts what is shown, every other method's
+    // link counts a choice, and the forms' wrapper counts a form sent.
+    assert!(html.contains(r#"data-on='connect:register_analytics.watch($s,"phone-code",true)'"#), "{html}");
+    assert!(html.contains(r#"data-on='click:register_analytics.choose($e,"password")'"#), "{html}");
+    assert!(!html.contains(r#"choose($e,"phone-code")"#), "the method shown is no choice: {html}");
+    assert!(html.contains(r#"data-on='submit:register_analytics.completed($e,"phone-code")'"#), "{html}");
 }
 
 #[tokio::test]
@@ -14643,6 +14650,9 @@ async fn a_refused_registration_says_why_keeps_what_was_typed_and_names_no_accou
             "the name stays, the password does not: {html}"
         );
         assert!(html.contains(r#"aria-current="true">Password"#), "{html}");
+        // A form's answer counts no method shown again, and the refusal as marketplace classifies it.
+        assert!(html.contains(r#"connect:register_analytics.watch($s,"password",false)"#), "{email}: {html}");
+        assert!(html.contains(r#"data-on='connect:register_analytics.failed("password","FORM")'"#), "{email}: {html}");
     }
 }
 

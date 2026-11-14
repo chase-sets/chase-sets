@@ -174,6 +174,10 @@
   color: var(--color-primary);
   box-shadow: var(--shadow-sm, none);
 }
+/* The shown method's forms, in the page's column: a wrapper for their submit's analytics only. */
+.forms {
+  display: contents;
+}
 /* "Recommended", beside the passkey's copy. */
 .badge {
   display: inline-flex;
