@@ -13570,6 +13570,76 @@ async fn the_editor_previews_the_compiled_preset_and_activates_only_its_own_prev
 }
 
 #[tokio::test]
+async fn the_create_editor_opens_up_a_complete_preset_previews_its_body_and_activates_only_that() {
+    let pilot = Pilot::new().await;
+    let (_, _, html) = pilot.send(get("/account/desk/repricing?create=1", Some("pricer"))).await;
+    assert!(html.contains(r#"formmethod="post" name="intent" value="open-up""#), "{html}");
+
+    // Before its floor has an amount: the preset at its address again, saying why.
+    let incomplete =
+        "intent=open-up&create=1&preset=track-market&from=track-market&currency=USD&floor=absolute&amount=&scope=all-listings";
+    let (status, _, html) = pilot.send(post(REPRICING_SCREEN, "pricer", incomplete, false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(text(&html).contains("The policy could not be accepted.") && !html.contains("data-repricing-tier"), "{html}");
+
+    // A one-rule preset opens in the structured controls: a form posted to this page, which can go
+    // back to the preset, and no Save policy (its run activates).
+    let (status, _, html) = pilot.send(post(REPRICING_SCREEN, "pricer", &format!("intent=open-up&{BEAT}"), false)).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let tier = html.find(r#"data-repricing-tier="structured""#).expect("the structured controls");
+    let form = &html[html[..tier].rfind("<form").unwrap()..tier];
+    assert!(form.contains(r#"method="post" action="/account/desk/repricing""#) && form.contains("data-patch"), "{form}");
+    assert!(html.contains("data-repricing-simple") && !html.contains("data-repricing-save"), "{html}");
+    let opened = drawn_body(&html);
+    assert_eq!(opened["rules"][0]["directive"]["offset"], json!({ "mode": "percent", "percent": -2 }));
+    assert_eq!(opened["name"], json!("Beat"));
+    let opened = opened.to_string();
+
+    // Preview with a changed offset: the dry run of that body, replacing no policy, and Activate on.
+    let fields = [
+        ("intent", "preview"),
+        ("tier", "structured"),
+        ("body", opened.as_str()),
+        ("rules[0].offset", "percent"),
+        ("rules[0].offsetValue", "-5"),
+    ];
+    let (status, _, html) = pilot.send(post(REPRICING_SCREEN, "pricer", &encoded(&fields), false)).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    let calls = pricing_calls(&pilot);
+    let (_, _, sent) = calls.iter().rfind(|(m, p, _)| *m == Method::POST && p.ends_with("/dry-runs")).expect("the dry run");
+    let sent: Value = serde_json::from_str(sent).unwrap();
+    assert_eq!(sent["rules"][0]["directive"]["offset"]["percent"], json!(-5));
+    assert!(sent.get("replacingPolicyId").is_none(), "{sent}");
+    assert!(html.contains(r#"name="dryRun" value="repricing-dry-run:new""#), "{html}");
+    let activate = html.split("data-repricing-activate").next().unwrap();
+    assert!(!activate.ends_with("disabled ") && activate.contains(r#"value="create-policy""#), "Activate is on");
+    let previewed = drawn_body(&html).to_string();
+
+    // A change after the preview: Activate is refused and nothing is created.
+    let mut fields = vec![
+        ("intent", "create-policy"),
+        ("tier", "structured"),
+        ("body", previewed.as_str()),
+        ("dryRun", "repricing-dry-run:new"),
+        ("rules[0].offset", "percent"),
+        ("rules[0].offsetValue", "-6"),
+    ];
+    let (status, _, html) = pilot.send(post(REPRICING_SCREEN, "pricer", &encoded(&fields), false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(html.contains("Your settings changed since this preview"), "{html}");
+    assert!(!pricing_calls(&pilot).iter().any(|(m, p, _)| *m == Method::POST && p == REPRICING_API), "nothing activated");
+
+    // Activate the body as previewed: the run and the name, then the list read after it.
+    fields[5] = ("rules[0].offsetValue", "-5");
+    let (status, headers, html) = pilot.send(post(REPRICING_SCREEN, "pricer", &encoded(&fields), false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
+    assert!(headers[header::LOCATION].to_str().unwrap().starts_with("/account/desk/repricing?afterWrite="));
+    let calls = pricing_calls(&pilot);
+    let (_, _, sent) = calls.iter().find(|(m, p, _)| *m == Method::POST && p == REPRICING_API).expect("the activation");
+    assert_eq!(serde_json::from_str::<Value>(sent).unwrap(), json!({ "dryRunId": "repricing-dry-run:new", "name": "Beat" }));
+}
+
+#[tokio::test]
 async fn a_refused_preview_is_the_editor_again_with_pricings_details() {
     let pilot = Pilot::new().await;
     let body = "intent=preview&create=1&name=Zero&preset=track-market&from=track-market&knob=0&currency=USD&floor=absolute&amount=0&scope=all-listings";

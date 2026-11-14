@@ -126,7 +126,9 @@ pub use pricing_health_page::PricingHealthPage;
 pub use recommendations_page::{RecommendationsPage, recommendations_notice, recommendations_part};
 pub use recovery::{Notice, Recovery, WriteForm, handlers};
 pub use repricing_editor::ReviseSection;
-pub use repricing_page::{RepricingPage, RepricingPolicyCatchingUp, RepricingPolicyPage, repricing_dry_run_part};
+pub use repricing_page::{
+    RepricingEditorSection, RepricingPage, RepricingPolicyCatchingUp, RepricingPolicyPage, repricing_dry_run_part,
+};
 pub use reviews_page::{ReviewAnchorId, ReviewPage, ReviewPreparing, ReviewsPage};
 pub use save_dialog::SaveDialog;
 pub use search_page::{LoadMore, ResultCard, ResultRows, ResultsId, SearchPage};

@@ -1,11 +1,13 @@
 //! The policy page's editor (marketplace's `PolicyEditorDrawer` with a policy's body): the preset's,
 //! the Pricing Goal's, the structured or the advanced controls (`repricing_body::Tier`), what the
-//! scope matches and the dry run that previews it.
+//! scope matches and the dry run that previews it. The create editor opened up is the same editor
+//! without a policy, posted to the repricing page.
 //!
 //! The editor is one `data-patch` form posted to the policy's page, with the body it drew in a
 //! hidden field: Apply, each button that adds, removes or moves a rule, condition or anchor, a
 //! tier's button, and Preview answer with the editor drawn again (a patch, or the page without a
-//! script), and Save policy goes to the policy's page after its revise. The page's script applies
+//! script), and Save policy goes to the policy's page after its revise. Opened up from the create
+//! editor it has no Save policy: its dry run's Activate creates the policy. The page's script applies
 //! a choice as it changes. A rule's conditions and anchors are rows keyed by the rule and their
 //! place (`repricing_body::slot`). One column on a phone; the controls beside the preview from
 //! 64rem, as the create editor's.
@@ -89,7 +91,7 @@ pub fn ReviseSection<'a>(t: RepricingMsg, p: Pilot, id: &'a str, editor: &'a Rev
                 <a class={(Button, Secondary)} href={&close}>{p.repricing_close()}</a>
             </div>
             if let ReviseEditor::Ready(screen) = editor {
-                <ReviseBody t={t} p={p} id={id} screen={screen} />
+                <ReviseBody t={t} p={p} id={Some(id)} screen={screen} />
             } else {
                 <div class={Banner} data-tone="danger" role="alert">
                     <p class={Strong}>{t.editor_prerequisites_error()}</p>
@@ -100,10 +102,15 @@ pub fn ReviseSection<'a>(t: RepricingMsg, p: Pilot, id: &'a str, editor: &'a Rev
     }
 }
 
+/// The editor's controls, posted to the policy's page, or without a policy (`id`) to the
+/// repricing page.
 #[component(css = super::repricing_page::RepricingPage)]
-fn ReviseBody<'a>(t: RepricingMsg, p: Pilot, id: &'a str, screen: &'a ReviseScreen) -> impl Render {
+pub(super) fn ReviseBody<'a>(t: RepricingMsg, p: Pilot, id: Option<&'a str>, screen: &'a ReviseScreen) -> impl Render {
     let f = PolicyForm::FIELDS;
-    let here = url::RepricingPolicy { id, place: PolicyPlace::edit() };
+    let here = match id {
+        Some(id) => url::RepricingPolicy { id, place: PolicyPlace::edit() }.href(),
+        None => url::Repricing::default().href(),
+    };
     let tier = screen.tier;
     let legend = match tier {
         Tier::Preset => t.editor_presets(),
@@ -204,9 +211,11 @@ fn ReviseBody<'a>(t: RepricingMsg, p: Pilot, id: &'a str, screen: &'a ReviseScre
                     >
                         {t.editor_preview_start()}
                     </button>
-                    <button type="submit" class={Button} name={f.intent} value="revise-policy" data-repricing-save="true">
-                        {t.editor_save()}
-                    </button>
+                    if id.is_some() {
+                        <button type="submit" class={Button} name={f.intent} value="revise-policy" data-repricing-save="true">
+                            {t.editor_save()}
+                        </button>
+                    }
                 </div>
             </form>
             <div class={Tight}>
