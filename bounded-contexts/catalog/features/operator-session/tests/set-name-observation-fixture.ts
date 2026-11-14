@@ -1,5 +1,5 @@
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
-import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { createProviderScopeDiscoveryRuntime } from "../../provider-scope-discovery/api/runtime";
 import type { ProviderScopeObservationInput } from "../../provider-scope-discovery/api/refresh-schedule-store";
 import type { TcgplayerSetNameEntry, TcgplayerSetNameObservationPost } from "../domain/extension/set-names/contract";
@@ -138,10 +138,25 @@ export function createInMemoryObservationStore() {
   const runs: Array<{ status: unknown; observationCount: unknown; error: unknown; triggeredBy: unknown }> = [];
   const statements: Array<{ sql: string; params: readonly unknown[] }> = [];
   const commands: unknown[] = [];
+  let snapshot: { observations: typeof observations; proposals: typeof proposals; runs: typeof runs } | undefined;
 
   const db = {
+    async connect() {
+      return { query: (sql: string, params?: readonly unknown[]) => db.query(sql, params), release() {} };
+    },
     async query(sql: string, params: readonly unknown[] = []) {
       statements.push({ sql, params });
+      if (sql === "BEGIN") {
+        snapshot = { observations: new Map(observations), proposals: new Map(proposals), runs: [...runs] };
+      }
+      if (sql === "ROLLBACK" && snapshot) {
+        observations.clear();
+        for (const [key, value] of snapshot.observations) observations.set(key, value);
+        proposals.clear();
+        for (const [key, value] of snapshot.proposals) proposals.set(key, value);
+        runs.splice(0, runs.length, ...snapshot.runs);
+      }
+      if (sql === "COMMIT" || sql === "ROLLBACK") snapshot = undefined;
       if (sql.includes("INSERT INTO catalog_provider_scope_observations")) {
         const key = [params[0], params[1], params[2], params[4], params[5]].join("\u0000");
         const prior = observations.get(key);
@@ -196,22 +211,29 @@ export function createInMemoryObservationStore() {
       }
       return { rows: [] };
     },
-  } as unknown as PgQueryable;
+  } as unknown as PgTransactionalPool;
 
-  const runtimeDeps = { db } as unknown as Parameters<typeof createProviderScopeDiscoveryRuntime>[0];
-  const runtime = createProviderScopeDiscoveryRuntime(runtimeDeps, {
+  const runtimeDeps = { db, extensionObservationPool: db } as unknown as Parameters<
+    typeof createProviderScopeDiscoveryRuntime
+  >[0];
+  const completedStreams = new Set<string>();
+  const ports: Parameters<typeof createProviderScopeDiscoveryRuntime>[1] = {
     listProfileVersions: async () => [],
     queryIntegrationOptions: async () => {
       throw new Error("operator-extension posts never query a provider");
     },
     providerScopeMappingCommandHandler: async (input) => {
+      if (completedStreams.has(input.streamId))
+        return { state: {} as never, version: 1, newEvents: [], storedEvents: [] };
+      completedStreams.add(input.streamId);
       commands.push(input);
       return { state: {} as never, version: 1, newEvents: [{} as never], storedEvents: [] };
     },
     referenceRecordCommandHandler: async () => {
       throw new Error("operator-extension posts never accept a Reference Record proposal");
     },
-  });
+  };
+  const runtime = createProviderScopeDiscoveryRuntime(runtimeDeps, ports);
 
   return {
     runtime,
@@ -221,5 +243,6 @@ export function createInMemoryObservationStore() {
     runs,
     statements,
     commands,
+    ports,
   };
 }

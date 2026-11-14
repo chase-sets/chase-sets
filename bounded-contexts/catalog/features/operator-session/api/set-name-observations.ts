@@ -1,4 +1,5 @@
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
+import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import type { AccountId, TenantId, UserId } from "@chase-sets/primitives/typed-ids";
 import {
   parseTcgplayerSetNameObservationPost,
@@ -23,12 +24,13 @@ export type TcgplayerSetNameObservationRecorder = (
     provenance: ObservationGrant;
     context: EventStoreContext;
   }>,
+  backend?: PgTransactionalPool,
 ) => Promise<TcgplayerSetNameObservationResult>;
 
 export type TcgplayerSetNameObservationPostDeps = Readonly<{
   authorizeObservationGrant: (request: Request) => Promise<ObservationGrant>;
   record: TcgplayerSetNameObservationRecorder | undefined;
-  serializeWrites: <T>(work: () => Promise<T>) => Promise<T>;
+  serializeWrites: <T>(work: (backend?: PgTransactionalPool) => Promise<T>) => Promise<T>;
 }>;
 
 const headers = { "Cache-Control": "no-store" } as const;
@@ -83,14 +85,17 @@ export function createTcgplayerSetNameObservationPost(deps: TcgplayerSetNameObse
     if (!parsed.ok) return refusal(parsed.code, parsed.code === "product-line-unsupported" ? 422 : 400);
 
     try {
-      const result = await deps.serializeWrites(() =>
-        record({
-          unitKey: parsed.unitKey,
-          productLineId: parsed.post.productLineId,
-          sets: parsed.post.sets,
-          provenance: grant,
-          context: operatorExtensionContext(grant),
-        }),
+      const result = await deps.serializeWrites((backend) =>
+        record(
+          {
+            unitKey: parsed.unitKey,
+            productLineId: parsed.post.productLineId,
+            sets: parsed.post.sets,
+            provenance: grant,
+            context: operatorExtensionContext(grant),
+          },
+          backend,
+        ),
       );
       return Response.json(
         {

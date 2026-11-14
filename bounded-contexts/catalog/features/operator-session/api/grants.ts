@@ -123,7 +123,7 @@ export function createOperatorSessionGrants(
     recordTcgplayerSetNameObservations: createTcgplayerSetNameObservationPost({
       authorizeObservationGrant,
       record: observationRecorders.tcgplayerSetNames,
-      serializeWrites: (work) => withOperatorSessionBackend(pool, () => work(), observationWriteLockId),
+      serializeWrites: (work) => withOperatorSessionBackend(pool, work, observationWriteLockId),
     }),
     async execute(action: Action, request: Request, actor?: ResolvedActor | null): Promise<Response> {
       let admitted = false;

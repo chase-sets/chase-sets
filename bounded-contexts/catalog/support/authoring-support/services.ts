@@ -99,6 +99,7 @@ export function createCatalogServices(
     promotionTargetExclusion: createPostgresPromotionTargetExclusion({ pool, eventStore }),
     checkpointStore,
     db,
+    extensionObservationPool: pool,
     notificationWaiterPool: options.notificationWaiterPool,
     assetStorage: ports.catalogAssetStorage,
     sourceObservationTelemetry: ports.sourceObservationTelemetry,

@@ -25,19 +25,23 @@ const hostileHeaders = {
   "x-forwarded-authorization": forwardedBearer,
 };
 
-function grantPool() {
+function grantPool(store: ReturnType<typeof createInMemoryObservationStore>) {
   const params: unknown[] = [];
+  let observationWrite = false;
   const client: PgPoolClient = {
     async query<Row>(sql: string, values: readonly unknown[] = []): Promise<{ rows: Row[] }> {
       params.push(...values);
-      if (sql.startsWith("SELECT pg_try_advisory_lock")) return { rows: [{ locked: true } as Row] };
+      if (sql.startsWith("SELECT pg_try_advisory_lock")) {
+        observationWrite = values[0] === "84518451";
+        return { rows: [{ locked: true } as Row] };
+      }
       if (sql.startsWith("SELECT pg_advisory_unlock")) return { rows: [{ unlocked: true } as Row] };
       if (sql.includes("SELECT id, creator_user_id, creator_membership_id"))
         return {
           rows: [{ id: "grant_privacy", creator_user_id: "usr_creator", creator_membership_id: "mbr_creator" } as Row],
         };
       if (sql.includes("SET last_used_at")) return { rows: [{ id: "grant_privacy" } as Row] };
-      return { rows: [] };
+      return observationWrite ? store.db.query<Row>(sql, values) : { rows: [] };
     },
     release() {},
   };
@@ -46,8 +50,8 @@ function grantPool() {
 }
 
 function compose() {
-  const pool = grantPool();
   const store = createInMemoryObservationStore();
+  const pool = grantPool(store);
   const services = createOperatorSessionGrants(
     pool.value,
     {

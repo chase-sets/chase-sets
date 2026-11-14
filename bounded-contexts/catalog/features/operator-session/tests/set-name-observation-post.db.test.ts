@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { expect, it } from "vitest";
 import type { OperatorAuthorityDecision } from "@chase-sets/auth-context";
-import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import type { PgQueryable, PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { module as catalogModule } from "../../../index";
 import { upsertProviderScopeObservations } from "../../provider-scope-discovery/api/refresh-schedule-store";
 import { operatorSessionPublicRoutes } from "../api/route";
@@ -41,8 +41,22 @@ type ObservationRow = Readonly<{
 describeDb("operator-extension set-name observation posts against the catalog store", () => {
   const db = useOperatorSessionDatabase("set_name_observation_post");
 
-  async function compose() {
-    const pool = db();
+  async function compose(beforeQuery: (sql: string) => void = () => {}) {
+    const base = db();
+    const pool: PgTransactionalPool = {
+      query: base.query.bind(base),
+      idleInTransactionSessionTimeoutMillis: base.idleInTransactionSessionTimeoutMillis,
+      async connect() {
+        const client = await base.connect();
+        return {
+          async query<Row>(sql: string, params?: readonly unknown[]) {
+            beforeQuery(sql);
+            return client.query<Row>(sql, params);
+          },
+          release: client.release.bind(client),
+        };
+      },
+    };
     await pool.query(
       `INSERT INTO catalog_operator_session_grants
          (id, token_hash, creator_user_id, creator_membership_id, created_at, last_used_at, idle_expires_at)
@@ -211,6 +225,53 @@ describeDb("operator-extension set-name observation posts against the catalog st
     expect(await observationRows(pool, magicUnit.unitKey)).toHaveLength(count);
     expect(await observationRows(pool, pokemonUnitKey)).toHaveLength(unicodeControlSets.length);
   });
+
+  it.each(["matching", "second proposal"])(
+    "rolls back failed %s writes and completes identical retries",
+    async (failure) => {
+      let fail = true;
+      let appends = 0;
+      const statements: string[] = [];
+      const { pool, post } = await compose((sql) => {
+        statements.push(sql);
+        if (fail && failure === "matching" && sql.includes("FROM catalog_scope_records"))
+          throw new Error("synthetic transient matcher failure");
+        if (fail && failure === "second proposal" && /INSERT INTO .*event_store_events/.test(sql) && ++appends === 2)
+          throw new Error("synthetic transient command failure");
+      });
+      const body = setNamePost(3, [setNameEntry(3, 940001), setNameEntry(3, 940002)]);
+      const first = await post(body);
+      expect(first.status).toBe(503);
+      expect(await first.json()).toEqual({
+        code: "scope-observations-unavailable",
+      });
+      expect(await observationRows(pool, pokemonUnitKey)).toEqual([]);
+      expect((await pool.query("SELECT proposal_id FROM catalog_scope_record_proposals")).rows).toEqual([]);
+      expect(await mappingEventCount(pool)).toBe(failure === "matching" ? 0 : 1);
+      expect(statements).toContain("ROLLBACK");
+      expect(
+        (
+          await pool.query(
+            "SELECT last_run_status, last_run_error FROM catalog_provider_refresh_schedule WHERE provider_key = 'tcgplayer'",
+          )
+        ).rows,
+      ).toEqual([{ last_run_status: "failed", last_run_error: "scope-observations-unavailable" }]);
+      fail = false;
+      const retry = await post(body);
+      expect(retry.status).toBe(200);
+      expect(await observationRows(pool, pokemonUnitKey)).toHaveLength(2);
+      expect((await pool.query("SELECT proposal_id FROM catalog_scope_record_proposals")).rows).toHaveLength(2);
+      const streams = await pool.query<{ count: string }>(
+        "SELECT count(DISTINCT stream_id)::text AS count FROM event_store_events WHERE stream_id LIKE 'catalog.provider-scope-mapping-%'",
+      );
+      expect(streams.rows).toEqual([{ count: "2" }]);
+      const events = await mappingEventCount(pool);
+      const third = await post(body);
+      expect(third.status).toBe(200);
+      expect(await third.json()).toEqual({ observationCount: 2, newObservationCount: 0, mappingsProposed: 0 });
+      expect(await mappingEventCount(pool)).toBe(events);
+    },
+  );
 
   it("writes extension provider text raw while existing producers keep default normalization", async () => {
     const { pool, post } = await compose();

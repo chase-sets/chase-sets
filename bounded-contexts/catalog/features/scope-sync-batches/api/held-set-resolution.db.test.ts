@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { bootstrapContextDatabase, drainLocalProjectionHandlerSets } from "@chase-sets/bounded-context-runtime";
 import {
   closeMultiContextTestPools,
   createMultiContextTestDatabaseUrls,
@@ -31,7 +32,7 @@ describeDb("scope-sync-held-set-resolution real DB matrix", () => {
 
   beforeEach(async () => {
     await resetMultiContextTestSchemas(pools);
-    await pools.catalog.query(catalogModule.schemaSql);
+    await bootstrapContextDatabase(catalogModule, pools.catalog);
   });
 
   afterAll(async () => {
@@ -157,6 +158,7 @@ describeDb("scope-sync-held-set-resolution real DB matrix", () => {
       ["Magic", "Synthetic Magic Core Set"],
       ["Magic", "Synthetic Unicode Edition"],
       ["  MAGIC ", " synthetic unicode   EDITION "],
+      ["Magic", "Synthetic Padded Edition"],
     ]);
     const reasons = async () =>
       Object.fromEntries(
@@ -165,15 +167,20 @@ describeDb("scope-sync-held-set-resolution real DB matrix", () => {
     expect(await reasons()).toEqual({
       "Synthetic Magic Core Set": "set-unresolved",
       "Synthetic Unicode Edition": "set-unresolved",
+      "Synthetic Padded Edition": "set-unresolved",
     });
 
+    await seedScope("scope-synthetic-magic-core", "magic", "set", "Synthetic Magic Core Set");
+    await seedScope("scope-synthetic-unicode", "magic", "set", "Synthetic Unicode Edition");
+    await seedScope("scope-synthetic-padded", "magic", "set", "Synthetic Padded Edition");
     const services = catalogModule.createServices(pools.catalog, {});
-    await services.providerScopeDiscovery.recordExtensionScopeObservations({
+    const posted = await services.providerScopeDiscovery.recordExtensionScopeObservations({
       unitKey: TCGPLAYER_MTG_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
       productLineId: 1,
       sets: [
         extensionSet(900001, "Synthetic Magic Core Set", "Synthetic Magic Core Set"),
         extensionSet(900101, "Synthetic Unicode Edition", "﻿Synthetic Unicode Edition"),
+        extensionSet(900102, "Synthetic Padded Edition", "  Synthetic Padded Edition  "),
       ],
       provenance: {
         grantId: "00000000-0000-0000-0000-0000000000a1",
@@ -185,32 +192,31 @@ describeDb("scope-sync-held-set-resolution real DB matrix", () => {
         audit: { performedByUserId: "usr_set_name_creator", forAccountId: "acc_identity_system" },
       } as never,
     });
+    expect(posted.mappingsProposed).toBe(3);
     expect(await reasons()).toEqual({
       "Synthetic Magic Core Set": "mapping-missing",
       "Synthetic Unicode Edition": "mapping-missing",
+      "Synthetic Padded Edition": "mapping-missing",
     });
 
-    await seedScope("scope-synthetic-magic-core", "magic", "set", "Synthetic Magic Core");
-    await seedScope("scope-synthetic-unicode", "magic", "set", "Synthetic Unicode");
-    await seedMapping(
-      "mapping-synthetic-magic-core",
-      "scope-synthetic-magic-core",
-      TCGPLAYER_MTG_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
-      "Synthetic Magic Core Set",
-      "accepted",
+    await drainLocalProjectionHandlerSets("catalog", pools.catalog, services.projectors);
+    const mappings = await pools.catalog.query<{ set_id: string | null; set_name: string; review_status: string }>(
+      `SELECT set_id, set_name, review_status FROM catalog_provider_scope_mappings ORDER BY set_name`,
     );
-    await seedMapping(
-      "mapping-synthetic-unicode",
-      "scope-synthetic-unicode",
-      TCGPLAYER_MTG_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
-      "﻿Synthetic Unicode Edition",
-      "accepted",
+    expect(mappings.rows).toEqual(
+      expect.arrayContaining([
+        { set_id: null, set_name: "Synthetic Magic Core Set", review_status: "auto-accepted" },
+        { set_id: null, set_name: "\uFEFFSynthetic Unicode Edition", review_status: "auto-accepted" },
+        { set_id: null, set_name: "  Synthetic Padded Edition  ", review_status: "auto-accepted" },
+      ]),
     );
+    expect(mappings.rows).toHaveLength(3);
 
     const result = await resolveHeldSetExport(pools.catalog, held);
     expect(result.unresolved).toEqual([]);
     expect(result.resolved).toEqual([
       expect.objectContaining({ scopeRecordId: "scope-synthetic-magic-core", productDomain: "magic", rowCount: 1 }),
+      expect.objectContaining({ scopeRecordId: "scope-synthetic-padded", productDomain: "magic", rowCount: 1 }),
       expect.objectContaining({ scopeRecordId: "scope-synthetic-unicode", productDomain: "magic", rowCount: 2 }),
     ]);
   });
@@ -265,7 +271,7 @@ describeDb("scope-sync-held-set-resolution real DB matrix", () => {
       `INSERT INTO catalog_provider_scope_mappings (
          mapping_id, scope_record_id, provider_key, unit_key, set_id, set_name,
          confidence, review_status, policy_version
-       ) VALUES ($1, $2, 'tcgplayer', $3, $4, $4, 'exact', $5, 'test')`,
+       ) VALUES ($1, $2, 'tcgplayer', $3, $4, NULL, 'exact', $5, 'test')`,
       [mappingId, scopeRecordId, unitKey, setId, reviewStatus],
     );
   }

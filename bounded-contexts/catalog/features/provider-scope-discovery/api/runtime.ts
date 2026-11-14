@@ -1,5 +1,7 @@
 import type { CommandHandler } from "@chase-sets/event-core/command-handler";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
+import { withPgTransaction, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import type { TcgplayerSetNameObservationRecorder } from "../../operator-session/api/set-name-observations";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import type { CatalogRuntimeDeps } from "../../../support/authoring-support/runtime-support";
 import {
@@ -96,32 +98,6 @@ export type ProviderScopeDiscoveryPorts = Readonly<{
   referenceRecordCommandHandler: CommandHandler<ReferenceRecordCommand, ReferenceRecordState, ReferenceRecordEvent>;
 }>;
 
-// One TCGplayer SetNames entry as posted by the operator extension and admitted by the
-// set-name contract parser; values are provider text and are recorded unchanged.
-export type ExtensionSetNameObservation = Readonly<{
-  setNameId: number;
-  categoryId: number;
-  name: string;
-  cleanSetName: string;
-  urlName: string;
-  abbreviation: string | null;
-  releaseDate: string | null;
-  isSupplemental: boolean;
-  active: boolean;
-}>;
-
-export type ExtensionScopeObservationProvenance = Readonly<{
-  grantId: string;
-  creatorUserId: string;
-  creatorMembershipId: string;
-}>;
-
-export type ExtensionScopeObservationResult = Readonly<{
-  observationCount: number;
-  newObservationCount: number;
-  mappingsProposed: number;
-}>;
-
 export class ExtensionScopeObservationError extends Error {
   constructor(public readonly code: "scope-observation-target-unavailable" | "scope-observations-unavailable") {
     super(code);
@@ -130,13 +106,7 @@ export class ExtensionScopeObservationError extends Error {
 }
 
 export type ProviderScopeDiscoveryServices = Readonly<{
-  recordExtensionScopeObservations: (input: {
-    unitKey: string;
-    productLineId: number;
-    sets: readonly ExtensionSetNameObservation[];
-    provenance: ExtensionScopeObservationProvenance;
-    context: EventStoreContext;
-  }) => Promise<ExtensionScopeObservationResult>;
+  recordExtensionScopeObservations: TcgplayerSetNameObservationRecorder;
   processScheduledRefresh: (input: {
     context: EventStoreContext;
     now?: Date;
@@ -181,7 +151,7 @@ const SCHEDULED_ACTOR = "system:scheduled-provider-scope-refresh";
 const MAX_OPTION_PAGES_PER_TARGET = 25;
 
 export function createProviderScopeDiscoveryRuntime(
-  deps: CatalogRuntimeDeps,
+  deps: CatalogRuntimeDeps & Readonly<{ extensionObservationPool?: PgTransactionalPool }>,
   ports: ProviderScopeDiscoveryPorts,
   cadenceConfig: readonly ProviderRefreshCadenceConfig[] = PROVIDER_REFRESH_CADENCE_CONFIG,
 ): ProviderScopeDiscoveryServices {
@@ -304,7 +274,7 @@ export function createProviderScopeDiscoveryRuntime(
     // Operator-extension posts replace server discovery for TCGplayer set names: one complete
     // product-line list is one scan through the existing writer and proposal seam. Absent sets
     // are not deleted; inactive sets are not recorded.
-    async recordExtensionScopeObservations(input) {
+    async recordExtensionScopeObservations(input, backend = deps.extensionObservationPool) {
       const target = extensionSetNameTarget(input.unitKey);
       if (!target) {
         throw new ExtensionScopeObservationError("scope-observation-target-unavailable");
@@ -343,34 +313,37 @@ export function createProviderScopeDiscoveryRuntime(
           }),
         );
 
-      await reconcileProviderRefreshSchedules(db, cadenceConfig);
       try {
-        const written = await upsertProviderScopeObservations(db, {
-          scanId,
-          scannedAt: now,
-          observations,
-          preserveRawIdentity: true,
+        if (!backend) throw new ExtensionScopeObservationError("scope-observations-unavailable");
+        await reconcileProviderRefreshSchedules(db, cadenceConfig);
+        return await withPgTransaction(backend, async (transaction) => {
+          const written = await upsertProviderScopeObservations(transaction, {
+            scanId,
+            scannedAt: now,
+            observations,
+            preserveRawIdentity: true,
+          });
+          const mappingsProposed = await proposeMappingsForTarget({
+            db: transaction,
+            ports,
+            target,
+            written,
+            scanId,
+            context: input.context,
+            actor: triggeredBy,
+          });
+          await recordProviderRefreshRun(transaction, {
+            providerKey: target.providerKey,
+            status: "succeeded",
+            observationCount: written.length,
+            triggeredBy,
+          });
+          return {
+            observationCount: written.length,
+            newObservationCount: written.filter((record) => record.newlyObserved).length,
+            mappingsProposed,
+          };
         });
-        const mappingsProposed = await proposeMappingsForTarget({
-          db,
-          ports,
-          target,
-          written,
-          scanId,
-          context: input.context,
-          actor: triggeredBy,
-        });
-        await recordProviderRefreshRun(db, {
-          providerKey: target.providerKey,
-          status: "succeeded",
-          observationCount: written.length,
-          triggeredBy,
-        });
-        return {
-          observationCount: written.length,
-          newObservationCount: written.filter((record) => record.newlyObserved).length,
-          mappingsProposed,
-        };
       } catch {
         // The run record carries a fixed code, never a raw exception or provider text.
         await recordProviderRefreshRun(db, {

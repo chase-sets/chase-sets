@@ -407,6 +407,81 @@ describe("tcgplayer set-name post guard", () => {
 });
 
 describe("recordExtensionScopeObservations against an in-memory observation store", () => {
+  it("emits exact FEFF and padded provider identities in real mapping commands", async () => {
+    const store = createInMemoryObservationStore();
+    const sets = [
+      setNameEntry(1, 1, { name: "Synthetic FEFF", cleanSetName: "\uFEFFSynthetic FEFF" }),
+      setNameEntry(1, 2, { name: "Synthetic Padded", cleanSetName: "  Synthetic Padded  " }),
+    ];
+    await store.runtime.recordExtensionScopeObservations({
+      unitKey: "tcgplayer:mtg:single-card:source-observation-import",
+      productLineId: 1,
+      sets,
+      provenance,
+      context: testContext,
+    });
+    expect(store.commands).toEqual(
+      sets.map((set) =>
+        expect.objectContaining({
+          command: expect.objectContaining({
+            candidate: expect.objectContaining({
+              coordinates: expect.objectContaining({ setName: set.cleanSetName }),
+              evidence: expect.objectContaining({ externalId: set.cleanSetName }),
+            }),
+          }),
+        }),
+      ),
+    );
+  });
+
+  it.each(["matching", "second proposal"])(
+    "rolls back a failed %s and completes an identical retry once",
+    async (failure) => {
+      const store = createInMemoryObservationStore();
+      const query = store.db.query.bind(store.db);
+      const command = store.ports.providerScopeMappingCommandHandler;
+      let fail = true;
+      let calls = 0;
+      (store.db as { query: unknown }).query = async (sql: string, params?: readonly unknown[]) => {
+        if (fail && failure === "matching" && sql.includes("FROM catalog_scope_records"))
+          throw new Error("synthetic transient failure");
+        return query(sql, params);
+      };
+      (store.ports as { providerScopeMappingCommandHandler: typeof command }).providerScopeMappingCommandHandler =
+        async (input) => {
+          if (fail && failure === "second proposal" && ++calls === 2) throw new Error("synthetic transient failure");
+          return command(input);
+        };
+      const handler = createTcgplayerSetNameObservationPost({
+        authorizeObservationGrant: async () => provenance,
+        record: store.runtime.recordExtensionScopeObservations,
+        serializeWrites: async (work) => work(),
+      });
+      const post = setNamePost(3, [setNameEntry(3, 1), setNameEntry(3, 2)]);
+      await expectRefusal(await handler(postRequest(post)), 503, "scope-observations-unavailable");
+      expect(store.observations()).toHaveLength(0);
+      expect(store.proposals()).toHaveLength(0);
+      expect(store.runs).toEqual([
+        expect.objectContaining({ status: "failed", error: "scope-observations-unavailable" }),
+      ]);
+      expect(store.commands).toHaveLength(failure === "matching" ? 0 : 1);
+      fail = false;
+      const retry = await handler(postRequest(post));
+      expect(retry.status).toBe(200);
+      expect(store.observations()).toHaveLength(2);
+      expect(store.proposals()).toHaveLength(2);
+      expect(store.commands).toHaveLength(2);
+      const third = await handler(postRequest(post));
+      expect(third.status).toBe(200);
+      await expect(third.json()).resolves.toEqual({ observationCount: 2, newObservationCount: 0, mappingsProposed: 0 });
+      expect(store.commands).toHaveLength(2);
+      const rollback = store.statements.findIndex(({ sql }) => sql === "ROLLBACK");
+      const failedRun = store.statements.findIndex(({ sql }) => sql.includes("SET last_run_completed_at"));
+      expect(rollback).toBeGreaterThan(-1);
+      expect(failedRun).toBeGreaterThan(rollback);
+    },
+  );
+
   it("records Magic and One Piece exactly as the removed collectTargetOptions path plus three provenance keys", async () => {
     const store = createInMemoryObservationStore();
     for (const unit of salvage.units) {
