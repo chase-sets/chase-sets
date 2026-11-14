@@ -336,7 +336,7 @@ describe("SQL execution fixture matrix through the real guard entrypoint", () =>
       ["bounded-contexts/catalog/features/product-measures/api/runtime.ts", 157, "deps.db"],
       ["bounded-contexts/auth/support/ucp-support/oauth.ts", 354, "options.auth.db"],
       ["bounded-contexts/commercial-terms/support/runtime-support/seed.ts", 235, "db"],
-      ["bounded-contexts/identity/support/runtime-support/admin-qa-actor-fixtures.ts", 255, "db"],
+      ["bounded-contexts/identity/features/accounts/api/listing-activation-authority.ts", 32, "db"],
       ["infrastructure/event-core-postgres/postgres-db-test-support.ts", 24, "adminPool"],
       ["bounded-contexts/catalog/features/catalog-items/read-model/projection.ts", 28, "projectionDb"],
       [
@@ -383,7 +383,7 @@ describe("SQL execution fixture matrix through the real guard entrypoint", () =>
       ["bounded-contexts/ordering/features/orders/read-model/support-lookup.ts", 37],
       ["infrastructure/event-core-postgres/catalog-mirror.ts", 236],
       ["bounded-contexts/commercial-terms/support/runtime-support/seed.ts", 235],
-      ["bounded-contexts/identity/support/runtime-support/admin-qa-actor-fixtures.ts", 255],
+      ["bounded-contexts/identity/features/accounts/api/listing-activation-authority.ts", 32],
       [fixtureFile, 29],
       [fixtureFile, 37],
     ];
@@ -394,7 +394,12 @@ describe("SQL execution fixture matrix through the real guard entrypoint", () =>
       path.join(repoRoot, "bounded-contexts/identity/support/runtime-support/services.ts"),
       "utf8",
     ).split(/\r?\n/);
-    expect(identityServicesLines[87]).toContain("pool as PgQueryable");
+    expect(identityServicesLines[100]).toContain("pool as PgQueryable");
+  });
+
+  it("classifies canonical-only QA actor orchestration as non-SQL", () => {
+    const result = classify(["bounded-contexts/identity/support/runtime-support/admin-qa-actor-fixtures.ts"]);
+    expect(result.modules[0].outcome).toBe("not-sql");
   });
 
   it("classifies every P14 bind-then-call sibling module as SQL-executing", () => {

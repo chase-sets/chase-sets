@@ -1,5 +1,5 @@
 import { ConfigurationEpochError, type ConfigurationConsumer } from "@chase-sets/event-core/configuration-epoch";
-import { CONFIGURATION_EPOCH_LOCK_SQL } from "@chase-sets/event-core-postgres";
+import { CONFIGURATION_EPOCH_LOCK_SQL, type PgQueryable } from "@chase-sets/event-core-postgres";
 import type { IdentityMutationPersistence } from "../../account-management/api/fences";
 import { validateOwnerHistory } from "../../account-management/api/owners";
 import { identityOwnerStream, type IdentityOwnerEpochs } from "./owner-epochs";
@@ -28,7 +28,8 @@ export function createIdentityListingActivationAuthority(
       try {
         const source = await ownerEpochs.source();
         return await persistence.transaction([], async (tx) => {
-          for (const key of [...keys].sort()) await tx.db.query(CONFIGURATION_EPOCH_LOCK_SQL, [key]);
+          const db: PgQueryable = tx.db;
+          for (const key of [...keys].sort()) await db.query(CONFIGURATION_EPOCH_LOCK_SQL, [key]);
           const histories = await Promise.all(keys.map((key) => tx.read(identityOwnerStream(key))));
           const [account, user, membership] = keys.map((key, index) =>
             validateOwnerHistory(
@@ -53,7 +54,7 @@ export function createIdentityListingActivationAuthority(
           )
             return { kind: "denied", reason: "identity-authority-unavailable" } as const;
           const grants = await Promise.all(
-            keys.map((key) => source.captureGrantInTransaction(tx.db, key, input.consumer)),
+            keys.map((key) => source.captureGrantInTransaction(db, key, input.consumer)),
           );
           const seal = (index: number, version: number) => ({
             version,
