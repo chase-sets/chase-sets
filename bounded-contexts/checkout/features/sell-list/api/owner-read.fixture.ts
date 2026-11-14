@@ -88,6 +88,27 @@ export function checkoutOwnerRuntimeFixture(ownerId = "acc_seller") {
   let payoutStatus = "ready";
   let payoutTimestamp: unknown = stamp;
   let offerAvailable = true;
+  let listingEvidence: {
+    listing_id: string;
+    status: string;
+    evidence_requirements: {
+      policyHash: string;
+      policyVersion: number;
+      requirements: { requiredSlots: []; minimumPhotoCount: number; sellerTrustRequirements: [] };
+    };
+    evidence: [];
+    updated_at: string;
+  } | null = {
+    listing_id: "lst_fixture",
+    status: "active",
+    evidence_requirements: {
+      policyHash: "synthetic_policy",
+      policyVersion: 1,
+      requirements: { requiredSlots: [], minimumPhotoCount: 0, sellerTrustRequirements: [] },
+    },
+    evidence: [],
+    updated_at: stamp,
+  };
   const address = {
     shipping_address_id: "adr_fixture",
     account_id: ownerId,
@@ -111,21 +132,7 @@ export function checkoutOwnerRuntimeFixture(ownerId = "acc_seller") {
       if (sql.includes("checkout_sell_list_line_pages"))
         return { rows: lines.filter((row) => row.seller_account_id === args?.[0]) };
       if (sql.includes("checkout_marketplace_seller_options") && !sql.includes("checkout_sell_offer_pages"))
-        return {
-          rows: [
-            {
-              listing_id: "lst_fixture",
-              status: "active",
-              evidence_requirements: {
-                policyHash: "synthetic_policy",
-                policyVersion: 1,
-                requirements: { requiredSlots: [], minimumPhotoCount: 0, sellerTrustRequirements: [] },
-              },
-              evidence: [],
-              updated_at: stamp,
-            },
-          ],
-        };
+        return { rows: listingEvidence ? [listingEvidence] : [] };
       if (sql.includes("checkout_sell_offer_pages") && offerAvailable)
         return {
           rows: [
@@ -200,6 +207,10 @@ export function checkoutOwnerRuntimeFixture(ownerId = "acc_seller") {
     },
     setOfferAvailable: (value: boolean) => {
       offerAvailable = value;
+    },
+    getListingEvidence: () => listingEvidence,
+    setListingEvidence: (value: typeof listingEvidence) => {
+      listingEvidence = value;
     },
   };
 }

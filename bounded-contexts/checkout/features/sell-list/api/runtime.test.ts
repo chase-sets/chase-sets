@@ -808,6 +808,54 @@ describe("sell list checkout runtime readiness boundary", () => {
 });
 
 describe("AC4 composed readiness, pre-confirm and merge timing", () => {
+  it.each(["unchanged", "missing", "incomplete", "invalid-timestamp", "policy-hash", "policy-version", "timestamp"])(
+    "revalidates Smart Match %s evidence before confirmation events with unchanged payout",
+    async (change) => {
+      const f = checkoutOwnerRuntimeFixture();
+      const line = { ...fixtureLine, line_type: "product" as const, offer_id: null, listing_id: null };
+      f.setLines([line]);
+      await seedSellListAggregate(f.services, [line], f.memory.allEvents);
+      const decisions = { lineActions: [{ lineId: line.line_id, action: "smart-match" as const }] };
+      const request = { sellerAccountId: "acc_seller", ...choices, decisions };
+      const before = await f.services.createReadinessSnapshot(request);
+      expect(before.sellerReadiness.status).toBe("ready");
+      const evidence = f.getListingEvidence()!;
+      if (change === "missing") f.setListingEvidence(null);
+      if (change === "incomplete") evidence.evidence_requirements.requirements.minimumPhotoCount = 1;
+      if (change === "invalid-timestamp") evidence.updated_at = "not-a-timestamp";
+      if (change === "policy-hash") evidence.evidence_requirements.policyHash = "synthetic_policy_changed";
+      if (change === "policy-version") evidence.evidence_requirements.policyVersion = 2;
+      if (change === "timestamp") evidence.updated_at = "2026-11-06T01:02:04.000Z";
+      const after = await f.services.createReadinessSnapshot(request);
+      expect(after.ownerReads?.estimate).toEqual(before.ownerReads?.estimate);
+      expect(after.sellerReadiness.status).toBe(
+        ["missing", "incomplete", "invalid-timestamp"].includes(change) ? "blocked" : "ready",
+      );
+      const confirm = f.services.confirmSellListCheckout(
+        {
+          ...request,
+          sellerAccountId: "acc_seller" as never,
+          confirmationId: "slc_smart_match_evidence",
+          readinessSnapshotId: before.snapshotId,
+          readinessSourceRevision: before.sourceRevision,
+          readinessDecisions: decisions,
+          sellerEvidence,
+          handoffSummary,
+        },
+        context,
+      );
+      if (change === "unchanged") {
+        expect(after.snapshotId).toBe(before.snapshotId);
+        await expect(confirm).resolves.toMatchObject({ status: "confirmed" });
+        expect(f.memory.allEvents.map((event) => event.eventType)).toContain("checkout.sell-list.checkout-confirmed");
+      } else {
+        expect(after.snapshotId).not.toBe(before.snapshotId);
+        await expect(confirm).rejects.toThrow("Sell List readiness snapshot is stale.");
+        expect(f.memory.allEvents).toEqual([]);
+      }
+    },
+  );
+
   it("reads the same owner/key twice, records risk-only drift and emits an executed timing capture", async () => {
     const f = checkoutOwnerRuntimeFixture();
     await seedSellListAggregate(f.services, [fixtureLine], f.memory.allEvents);

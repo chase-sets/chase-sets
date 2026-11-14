@@ -9,7 +9,111 @@ import {
   stamp,
 } from "../api/owner-read.fixture";
 import matrix from "./authority-matrix.fixture.json";
-import { parseSellerCheckoutChoices, sellerCheckoutOwner } from "./seller-checkout-owner-reads";
+import { createSellListReadinessSnapshot } from "../domain/readiness";
+import { loadCheckoutSellListCompositeReview } from "./queries";
+import {
+  parseSellerCheckoutChoices,
+  readSellerCheckoutOwners,
+  sellerCheckoutEstimate,
+  sellerCheckoutEvidence,
+  sellerCheckoutOwner,
+} from "./seller-checkout-owner-reads";
+
+describe("Smart Match per-listing evidence authority", () => {
+  it.each(["missing", "incomplete", "invalid-timestamp", "complete"])(
+    "%s evidence uses real composite coverage with all other dimensions ready",
+    async (state) => {
+      const f = checkoutOwnerRuntimeFixture();
+      f.setLines([{ ...fixtureLine, line_type: "product", offer_id: null, listing_id: null }]);
+      const evidence = f.getListingEvidence()!;
+      if (state === "missing") f.setListingEvidence(null);
+      if (state === "incomplete") evidence.evidence_requirements.requirements.minimumPhotoCount = 1;
+      if (state === "invalid-timestamp") evidence.updated_at = "2026-02-30T01:02:03.000Z";
+      const snapshot = await f.services.createReadinessSnapshot({
+        sellerAccountId: "acc_seller",
+        ...choices,
+        decisions: { lineActions: [{ lineId: fixtureLine.line_id, action: "smart-match" }] },
+      });
+      const ready = state === "complete" ? "ready" : "blocked";
+      expect(snapshot.sellerReadiness).toMatchObject({
+        status: ready,
+        freshness: ready,
+        shipFrom: "ready",
+        payout: "ready",
+        label: "ready",
+        risk: "ready",
+        provider: "ready",
+      });
+      expect(snapshot.ownerReads?.estimate).toMatchObject({ status: "complete", amount: "10.00" });
+      expect(snapshot.sellerReadiness.outcomes.find((row) => row.dimension === "freshness")?.reason).toBe(
+        state === "complete" ? "ready" : "seller-evidence-stale",
+      );
+    },
+  );
+
+  it("binds a sorted set of exact matched offer/listing keys and ignores excluded reviews", async () => {
+    const f = checkoutOwnerRuntimeFixture();
+    const lines = [{ ...fixtureLine, line_type: "product" as const, quantity: 2, offer_id: null, listing_id: null }];
+    const lineSnapshot = createSellListReadinessSnapshot(lines, {
+      lineActions: [{ lineId: fixtureLine.line_id, action: "smart-match" }],
+    });
+    const review = await loadCheckoutSellListCompositeReview(f.deps.db, f.deps.commercialTermsResolver, {
+      sellerAccountId: "acc_seller",
+      lines,
+    });
+    const first = review.productOfferReviews[0]!.offers[0]!;
+    const second = {
+      ...first,
+      offer: { ...first.offer, offer_id: "off_second", listing_id: "lst_second" },
+      evidence: { ...first.evidence!, listingId: "lst_second" },
+    };
+    const reads = await readSellerCheckoutOwners({
+      ownerId: "acc_seller",
+      choices,
+      ports: f.ports,
+      addresses: async () => [],
+    });
+    const assess = (offers: (typeof first)[]) => {
+      const value = { ...review, productOfferReviews: [{ ...review.productOfferReviews[0]!, offers }] };
+      return sellerCheckoutEvidence({
+        reads,
+        payout: { account_id: "acc_seller", status: "ready", missing_requirements: [], updated_at: stamp },
+        estimate: sellerCheckoutEstimate(lines, value, lineSnapshot),
+        lines,
+        review: value,
+        lineSnapshot,
+      });
+    };
+    expect(assess([first, second]).authorityRevision).toBe(assess([second, first]).authorityRevision);
+    expect(assess([first, second]).authorityRevision).not.toBe(
+      assess([
+        first,
+        {
+          ...second,
+          offer: { ...second.offer, offer_id: "off_replacement" },
+        },
+      ]).authorityRevision,
+    );
+    const baseline = assess([first, second]);
+    const value = {
+      ...review,
+      productOfferReviews: [
+        { ...review.productOfferReviews[0]!, offers: [first, second] },
+        { lineId: "sll_excluded", status: "ready" as const, offers: [{ ...first, evidence: null }], message: null },
+      ],
+    };
+    const excluded = sellerCheckoutEvidence({
+      reads,
+      payout: { account_id: "acc_seller", status: "ready", missing_requirements: [], updated_at: stamp },
+      estimate: sellerCheckoutEstimate(lines, value, lineSnapshot),
+      lines,
+      review: value,
+      lineSnapshot,
+    });
+    expect(excluded.authorityRevision).toBe(baseline.authorityRevision);
+    expect(excluded.freshness.status).toBe("current");
+  });
+});
 
 describe("AC1 complete owner authority matrix", () => {
   it("covers each dimension at both composed moments without a browser authority cell", async () => {

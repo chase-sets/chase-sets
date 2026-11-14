@@ -330,9 +330,45 @@ export function sellerCheckoutEvidence(
     payout: CheckoutSellPayoutReadinessRow | null;
     estimate: SellerCheckoutOwnerReadCapture["estimate"];
     lines: readonly SellListReadinessLine[];
+    review: CheckoutSellListCompositeReview | null;
+    lineSnapshot: SellListReadinessSnapshot;
   }>,
 ): SellListSellerConfirmationEvidence {
   const { reads, payout } = params;
+  const matchedListings = params.lineSnapshot.includedLineIds.flatMap((lineId) => {
+    if (params.lineSnapshot.lineOutcomes.find((row) => row.lineId === lineId)?.action !== "smart-match") return [];
+    const review = params.review?.productOfferReviews.find((row) => row.lineId === lineId);
+    if (review?.status !== "ready" || review.offers.length === 0) return [null];
+    return review.offers.map(({ offer, evidence }) => ({
+      lineId,
+      offerId: offer.offer_id,
+      listingId: offer.listing_id,
+      evidence,
+    }));
+  });
+  const matchedEvidenceReady = matchedListings.every(
+    (item) =>
+      item &&
+      item.evidence?.listingId === item.listingId &&
+      item.evidence.coverage.complete &&
+      realTimestamp(item.evidence.updatedAt) !== null,
+  );
+  const matchedEvidenceRevisions = [
+    ...new Set(
+      matchedListings.map((item) =>
+        JSON.stringify(
+          item && {
+            lineId: item.lineId,
+            offerId: item.offerId,
+            listingId: item.listingId,
+            policyHash: item.evidence?.policyHash ?? null,
+            policyVersion: item.evidence?.policyVersion ?? null,
+            updatedAt: realTimestamp(item.evidence?.updatedAt),
+          },
+        ),
+      ),
+    ),
+  ].sort();
   const shipReady = reads.bound && !!reads.selected;
   const payoutReady =
     payout?.account_id ===
@@ -341,6 +377,7 @@ export function sellerCheckoutEvidence(
     realTimestamp(payout.updated_at) !== null;
   const freshness =
     reads.bound &&
+    matchedEvidenceReady &&
     params.lines.length > 0 &&
     params.lines.every(
       (line) =>
@@ -374,6 +411,7 @@ export function sellerCheckoutEvidence(
       fulfillment: reads.fulfillment,
       riskPolicy: reads.risk?.policyRevision ?? null,
       estimate: params.estimate,
+      matchedEvidenceRevisions,
     }),
   };
 }

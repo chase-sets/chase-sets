@@ -307,7 +307,10 @@ export function createCheckoutSellListRuntime(deps: CheckoutSellListRuntimeDeps)
       lineRevision: lineSnapshot.sourceRevision,
       lineTimestamps: lines.map((line) => line.updated_at),
     };
-    const sellerEvidence = { ...sellerCheckoutEvidence({ reads, payout, estimate, lines }), ownerReads };
+    const sellerEvidence = {
+      ...sellerCheckoutEvidence({ reads, payout, estimate, lines, review, lineSnapshot }),
+      ownerReads,
+    };
     const snapshot = { ...createSellListReadinessSnapshot(lines, params.decisions, sellerEvidence), ownerReads };
     return { lines, sellerEvidence, snapshot };
   }
