@@ -3974,7 +3974,13 @@ async fn an_items_review_draws_its_sheet_with_its_evidence_and_park_forms() {
     );
 
     let (_, _, html) = pilot.send(action_get("/catalog/scopes/attention/review?item=gone")).await;
-    assert_eq!(html, r#"<dialog id="attention-sheet"></dialog>"#, "an item no longer in the queue");
+    // An item no longer in the queue: the empty sheet, then the area's stylesheets every patch
+    // from it carries (corten-run/corten#1366).
+    let links = html.strip_prefix(r#"<dialog id="attention-sheet"></dialog>"#).expect(&html);
+    assert!(
+        links.split_inclusive("data-corten-style>").all(|link| link.starts_with(r#"<link rel="stylesheet" href="/assets/"#)),
+        "an item no longer in the queue: {html}"
+    );
 
     // A command resolves in its row: its sheet opens no page and says nothing is missing, unless the
     // API says its target is.
