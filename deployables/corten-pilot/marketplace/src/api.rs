@@ -734,11 +734,13 @@ pub trait SellList {
         decisions: &ReadinessDecisions,
         guest: Option<&str>,
     ) -> Result<(SellListSnapshot, Option<Receipt>), ApiError>;
-    /// The account's readiness with the seller's `decisions` and the seller confirmation evidence
-    /// seller checkout sends before its handoff.
+    /// The account's readiness with the seller's `decisions`, the ship-from and label `choices`
+    /// Checkout works seller readiness out from, and the seller confirmation evidence seller
+    /// checkout sends before its handoff.
     async fn seller_readiness(
         &self,
         decisions: &ReadinessDecisions,
+        choices: &SellerChoices,
         evidence: &SellerEvidence,
     ) -> Result<SellListSnapshot, ApiError>;
     /// A seller confirmation (`GET /sell-list/confirmations/{id}`); 404 while it is not saved.
@@ -812,6 +814,7 @@ impl SellList for Caller<'_> {
     async fn seller_readiness(
         &self,
         decisions: &ReadinessDecisions,
+        choices: &SellerChoices,
         evidence: &SellerEvidence,
     ) -> Result<SellListSnapshot, ApiError> {
         #[derive(Serialize)]
@@ -819,13 +822,19 @@ impl SellList for Caller<'_> {
         struct Sent<'a> {
             #[serde(flatten)]
             decisions: &'a ReadinessDecisions,
+            #[serde(flatten)]
+            choices: &'a SellerChoices,
             seller_evidence: &'a SellerEvidence,
         }
         #[derive(Deserialize)]
         struct Body {
             readiness: SellListSnapshot,
         }
-        let req = sell_list_request(self, Method::POST, None, "/readiness").json(&Sent { decisions, seller_evidence: evidence });
+        let req = sell_list_request(self, Method::POST, None, "/readiness").json(&Sent {
+            decisions,
+            choices,
+            seller_evidence: evidence,
+        });
         Ok(self.write::<Body>(req).await?.0.readiness)
     }
 
@@ -1156,6 +1165,42 @@ pub struct SnapshotLine {
 #[serde(default)]
 pub struct SnapshotSeller {
     pub status: String,
+}
+
+/// What the seller chose that Checkout reads seller readiness from (`SellerCheckoutChoices`): the
+/// ship-from, a saved address by its id or the address typed, and the label preference. Checkout
+/// resolves the origin and reads risk, fulfillment and the payout estimate from their owners with
+/// it, at readiness and again before it confirms
+/// ([chase-sets/chase-sets#10764 Give seller checkout typed owner reads for risk, label, payout
+/// estimate and freshness](https://github.com/chase-sets/chase-sets/issues/10764)).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SellerChoices {
+    pub ship_from: ShipFromChoice,
+    pub label: LabelChoice,
+}
+
+/// The ship-from chosen: a saved address (`addressId`) or the one typed.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(untagged)]
+pub enum ShipFromChoice {
+    #[serde(rename_all = "camelCase")]
+    Saved { address_id: String },
+    #[serde(rename_all = "camelCase")]
+    Typed {
+        name: String,
+        line1: String,
+        line2: Option<String>,
+        city: String,
+        state: String,
+        postal_code: String,
+        country: String,
+    },
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct LabelChoice {
+    pub preference: &'static str,
 }
 
 /// The seller confirmation evidence seller checkout sends (`SellListSellerConfirmationEvidence`), as
