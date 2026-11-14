@@ -1,12 +1,17 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import {
-  createPgPool,
   createPostgresEventStore,
   createPostgresProjectionStore,
   initializeConfigurationConsumer,
   type PgTransactionalPool,
 } from "@chase-sets/event-core-postgres";
+import {
+  closeMultiContextTestPools,
+  createMultiContextTestDatabaseUrls,
+  createMultiContextTestPools,
+  ensureMultiContextTestDatabases,
+} from "@chase-sets/bounded-context-runtime/test-support";
 import { eventCorePostgresSchemaSql } from "@chase-sets/event-core-postgres/schema";
 import type { AppendToStreamInput, EventStoreContext } from "@chase-sets/event-core/storage";
 import { createIdentityMutationPersistence } from "../features/account-management/api/fences";
@@ -64,32 +69,17 @@ const writers = [
   },
 ] as const;
 type Writer = (typeof writers)[number];
-async function end(pool: PgTransactionalPool | undefined) {
-  if (pool && "end" in pool && typeof pool.end === "function") await pool.end();
-}
 
 describeDb("Identity physical writer epoch closure against a separate consumer store", () => {
+  let pools: Readonly<Record<"identity" | "marketplace", PgTransactionalPool>>;
   let ownerPool: PgTransactionalPool;
   let consumerPool: PgTransactionalPool;
-  const databases: string[] = [];
   beforeAll(async () => {
-    const admin = createPgPool(adminUrl!);
-    try {
-      for (const role of ["owner", "consumer"]) {
-        const name = `identity_epoch_${role}_${randomUUID().replaceAll("-", "")}`;
-        await admin.query(`CREATE DATABASE ${name}`);
-        databases.push(name);
-      }
-    } finally {
-      await end(admin);
-    }
-    const urls = databases.map((name) => {
-      const url = new URL(adminUrl!);
-      url.pathname = `/${name}`;
-      return url.href;
-    });
-    ownerPool = createPgPool(urls[0], { max: 6 });
-    consumerPool = createPgPool(urls[1], { max: 6 });
+    const urls = createMultiContextTestDatabaseUrls(adminUrl!, ["identity", "marketplace"], "identity_epoch_10406");
+    await ensureMultiContextTestDatabases(adminUrl!, urls);
+    pools = createMultiContextTestPools(urls);
+    ownerPool = pools.identity;
+    consumerPool = pools.marketplace;
     await ownerPool.query(eventCorePostgresSchemaSql);
     await consumerPool.query(eventCorePostgresSchemaSql);
   });
@@ -101,14 +91,7 @@ describeDb("Identity physical writer epoch closure against a separate consumer s
     await initializeConfigurationConsumer(consumerPool, consumer);
   });
   afterAll(async () => {
-    await end(ownerPool);
-    await end(consumerPool);
-    const admin = createPgPool(adminUrl!);
-    try {
-      for (const name of databases) await admin.query(`DROP DATABASE ${name} WITH (FORCE)`);
-    } finally {
-      await end(admin);
-    }
+    if (pools) await closeMultiContextTestPools(pools);
   });
 
   async function fixture() {
