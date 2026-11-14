@@ -7,6 +7,7 @@ import {
 } from "../../../support/request-support/marketplace-listing-evidence.server";
 import type { VersionSelectedOptionEntry } from "../../../support/runtime-support/common";
 import type { SellListLineEvidenceReadiness, SellListReadinessLine } from "../domain/readiness";
+import { realTimestamp } from "./seller-checkout-owner-reads";
 
 type CheckoutCommercialAccountType = "personal" | "business" | "enterprise";
 
@@ -325,7 +326,7 @@ async function getCheckoutListingEvidenceCoverage(
        status,
        evidence_requirements,
        evidence,
-       updated_at::text AS updated_at
+       updated_at
      FROM checkout_marketplace_seller_options
      WHERE listing_id = $1
      LIMIT 1`,
@@ -350,13 +351,15 @@ async function getCheckoutListingEvidenceCoverage(
     policyVersion: snapshot.policyVersion,
     requirements: snapshot.requirements,
     coverage: evaluateEvidenceCoverage(snapshot.requirements, evidence, { now: new Date().toISOString() }),
-    updatedAt: row.updated_at,
+    updatedAt: realTimestamp(row.updated_at) ?? "",
   };
 }
 
 function mapSellListLine(row: SellListPageRow): CheckoutSellListLineRow {
   return {
     ...row,
+    created_at: realTimestamp(row.created_at) ?? "",
+    updated_at: realTimestamp(row.updated_at) ?? "",
     line_type: row.line_type === "selected-offer" ? "selected-offer" : "product",
     fallback_mode: row.fallback_mode === "create-listing" ? "create-listing" : "none",
     selected_options: Array.isArray(row.selected_options) ? (row.selected_options as VersionSelectedOptionEntry[]) : [],
@@ -620,6 +623,7 @@ function normalizePayoutReadinessStatus(status: string): CheckoutSellPayoutReadi
 function mapPayoutReadiness(row: SellPayoutReadinessPageRow): CheckoutSellPayoutReadinessRow {
   return {
     ...row,
+    updated_at: realTimestamp(row.updated_at),
     status: normalizePayoutReadinessStatus(row.status),
     missing_requirements: Array.isArray(row.missing_requirements)
       ? row.missing_requirements.filter((value): value is string => typeof value === "string")
@@ -661,10 +665,10 @@ function toSellListLineEvidenceReadiness(coverage: MarketplaceListingEvidenceCov
 export async function listSellListReadinessLines(
   db: PgQueryable,
   sellerAccountId: string,
-): Promise<SellListReadinessLine[]> {
+): Promise<Array<CheckoutSellListLineRow & SellListReadinessLine>> {
   const lines = await listSellListLines(db, sellerAccountId);
   return Promise.all(
-    lines.map(async (line): Promise<SellListReadinessLine> => {
+    lines.map(async (line): Promise<CheckoutSellListLineRow & SellListReadinessLine> => {
       if (line.line_type !== "selected-offer" || !line.listing_id) {
         return { ...line, listing_evidence: null };
       }

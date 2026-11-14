@@ -350,6 +350,9 @@ importers:
       '@chase-sets/event-core-postgres':
         specifier: workspace:*
         version: link:../../infrastructure/event-core-postgres
+      '@chase-sets/fulfillment':
+        specifier: workspace:*
+        version: link:../fulfillment
       '@chase-sets/http':
         specifier: workspace:*
         version: link:../../contracts/http
@@ -386,6 +389,9 @@ importers:
       '@chase-sets/product-measures':
         specifier: workspace:*
         version: link:../../contracts/product-measures
+      '@chase-sets/settlement':
+        specifier: workspace:*
+        version: link:../settlement
       hono:
         specifier: ^4.13.13
         version: 4.13.13

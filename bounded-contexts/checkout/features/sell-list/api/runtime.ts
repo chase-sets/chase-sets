@@ -9,6 +9,15 @@ import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { CommandReceiptMetadata } from "@chase-sets/http/responses";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
+import type { CheckoutSellerCheckoutOwners } from "../../../api";
+import type { SellerCheckoutChoices } from "../domain/owner-reads";
+import {
+  readSellerCheckoutOwners,
+  sellerCheckoutEstimate,
+  sellerCheckoutEvidence,
+  sellerCheckoutOwner,
+  realTimestamp,
+} from "../read-model/seller-checkout-owner-reads";
 import {
   listCheckoutShipFromAddresses,
   type CheckoutShipFromAddressRow,
@@ -157,6 +166,7 @@ export type CheckoutSellListRuntimeDeps = Readonly<{
   db: PgQueryable;
   commercialTermsResolver?: CheckoutCommercialTermsResolver;
   offerAcceptanceTermsSource?: CheckoutOfferAcceptanceTermsSource;
+  sellerCheckoutOwners?: CheckoutSellerCheckoutOwners;
 }>;
 
 export type CheckoutSellListServices = Readonly<{
@@ -184,6 +194,8 @@ export type CheckoutSellListServices = Readonly<{
       readinessSourceRevision: string;
       readinessDecisions?: SellListReadinessDecisionInput | null;
       sellerEvidence: SellListSellerConfirmationEvidence;
+      shipFrom?: SellerCheckoutChoices["shipFrom"];
+      label?: SellerCheckoutChoices["label"];
       handoffSummary: Readonly<{
         acceptedOfferCount: number;
         publishedListingCount: number;
@@ -225,6 +237,8 @@ export type CheckoutSellListServices = Readonly<{
       sellerAccountId: string;
       decisions?: SellListReadinessDecisionInput | null;
       sellerEvidence?: SellListSellerConfirmationEvidence | null;
+      shipFrom?: SellerCheckoutChoices["shipFrom"];
+      label?: SellerCheckoutChoices["label"];
     }>,
   ) => Promise<SellListReadinessSnapshot>;
   listLines: (sellerAccountId: string) => ReturnType<typeof listSellListLines>;
@@ -256,6 +270,50 @@ export function createCheckoutSellListRuntime(deps: CheckoutSellListRuntimeDeps)
     projectionName: "checkout.sell-list-projection",
     handlers: buildCheckoutSellListProjectionHandlers(deps.db),
   });
+
+  async function assessSeller(
+    params: Readonly<{ sellerAccountId: string; decisions?: SellListReadinessDecisionInput | null }> &
+      SellerCheckoutChoices,
+    moment: "readiness" | "pre-confirm",
+    confirmationId: string | null = null,
+  ) {
+    const lines = await listSellListReadinessLines(deps.db, params.sellerAccountId);
+    const lineSnapshot = createSellListReadinessSnapshot(lines, params.decisions);
+    const reads = await readSellerCheckoutOwners({
+      ownerId: params.sellerAccountId,
+      choices: params,
+      ports: deps.sellerCheckoutOwners,
+      addresses: () => listCheckoutShipFromAddresses(deps.db, params.sellerAccountId),
+    });
+    const [payout, review] = await Promise.all([
+      getSellPayoutReadiness(deps.db, params.sellerAccountId).catch(() => null),
+      deps.commercialTermsResolver
+        ? loadCheckoutSellListCompositeReview(deps.db, deps.commercialTermsResolver, {
+            sellerAccountId: params.sellerAccountId,
+            lines,
+            offerAcceptanceTermsSource: deps.offerAcceptanceTermsSource,
+          }).catch(() => null)
+        : Promise.resolve(null),
+    ]);
+    const estimate = sellerCheckoutEstimate(lines, review, lineSnapshot);
+    const ownerReads = {
+      moment,
+      confirmationId,
+      owner: reads.owner,
+      risk: reads.risk,
+      origin: reads.origin,
+      fulfillment: reads.fulfillment,
+      estimate,
+      lineRevision: lineSnapshot.sourceRevision,
+      lineTimestamps: lines.map((line) => line.updated_at),
+    };
+    const sellerEvidence = {
+      ...sellerCheckoutEvidence({ reads, payout, estimate, lines, review, lineSnapshot }),
+      ownerReads,
+    };
+    const snapshot = { ...createSellListReadinessSnapshot(lines, params.decisions, sellerEvidence), ownerReads };
+    return { lines, sellerEvidence, snapshot };
+  }
 
   async function getCatalogItemSnapshot(catalogItemId: string) {
     const result = await deps.db.query<{
@@ -434,8 +492,18 @@ export function createCheckoutSellListRuntime(deps: CheckoutSellListRuntimeDeps)
         };
       }
 
-      assertSellerEvidenceReady(params.sellerEvidence);
-      const currentLines = await listSellListReadinessLines(deps.db, params.sellerAccountId);
+      const assessed = await assessSeller(
+        {
+          sellerAccountId: params.sellerAccountId,
+          decisions: params.readinessDecisions,
+          shipFrom: params.shipFrom,
+          label: params.label,
+        },
+        "pre-confirm",
+        params.confirmationId,
+      );
+      params = { ...params, sellerEvidence: assessed.sellerEvidence };
+      const currentLines = assessed.lines;
       const readiness = validateSellListReadinessSnapshot(currentLines, {
         snapshotId: params.readinessSnapshotId,
         sourceRevision: params.readinessSourceRevision,
@@ -445,17 +513,13 @@ export function createCheckoutSellListRuntime(deps: CheckoutSellListRuntimeDeps)
       if (!readiness.valid) {
         throw new CheckoutDomainError("Sell List readiness snapshot is stale.");
       }
-      if (readiness.current.sellerReadiness.status !== "ready") {
-        throw new CheckoutDomainError(
-          "Seller confirmation evidence must be ready before Sell List checkout can confirm.",
-        );
-      }
       if (readiness.current.status !== "ready" || readiness.current.unresolvedLineIds.length > 0) {
         throw new CheckoutDomainError("Sell List readiness must be resolved before seller checkout starts.");
       }
       if (readiness.current.includedLineIds.length === 0) {
         throw new CheckoutDomainError("Sell List readiness must include at least one checkout line.");
       }
+      assertSellerEvidenceReady(params.sellerEvidence);
       const readinessLineIds = new Set(readiness.current.includedLineIds);
       const requestedCompletedLineIds =
         params.completedLineIds && params.completedLineIds.length > 0
@@ -522,6 +586,22 @@ export function createCheckoutSellListRuntime(deps: CheckoutSellListRuntimeDeps)
       return loadCheckoutGuestSellListOfferReviews(commercialTermsResolver, lines);
     },
     mergeSellListIntoAccount: async (params, context) => {
+      const owner = sellerCheckoutOwner(params.sourceOwnerId);
+      if (owner?.kind !== "anonymous" || !deps.sellerCheckoutOwners) {
+        throw new CheckoutDomainError("Anonymous seller checkout authority cannot be invalidated.");
+      }
+      const invalidated = await deps.sellerCheckoutOwners.invalidateAnonymousOwner(
+        { owner, targetAccountId: params.targetAccountId },
+        context,
+      );
+      if (
+        !invalidated ||
+        !Number.isSafeInteger(invalidated.revision) ||
+        invalidated.revision < 1 ||
+        !realTimestamp(invalidated.recordedAt)
+      ) {
+        throw new CheckoutDomainError("Anonymous seller checkout authority cannot be invalidated.");
+      }
       const sourceLines = await listAggregateSellListLines(params.sourceOwnerId);
       let targetAggregate = await repository.load(sellListStreamId(params.targetAccountId));
       const existingTargetLineIds = new Set(targetAggregate.state.lines.map((line) => line.lineId));
@@ -607,8 +687,7 @@ export function createCheckoutSellListRuntime(deps: CheckoutSellListRuntimeDeps)
       };
     },
     createReadinessSnapshot: async (params) => {
-      const lines = await listSellListReadinessLines(deps.db, params.sellerAccountId);
-      return createSellListReadinessSnapshot(lines, params.decisions, params.sellerEvidence);
+      return (await assessSeller(params, "readiness")).snapshot;
     },
     listLines: (sellerAccountId) => listSellListLines(deps.db, sellerAccountId),
     projectors: [sellListProjector],
