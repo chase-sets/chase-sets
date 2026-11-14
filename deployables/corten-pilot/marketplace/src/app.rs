@@ -144,8 +144,7 @@ impl Config {
     pub fn from_env() -> Self {
         let var = |name: &str, default: &str| std::env::var(name).unwrap_or_else(|_| default.into());
         Config {
-            platform: Platform::new(&Platform::origin_from_env())
-                .with_internal_auth(platform::api::InternalAuth::from_env()),
+            platform: Platform::new(&Platform::origin_from_env()).with_internal_auth(platform::api::InternalAuth::from_env()),
             proto: if var("PUBLIC_PROTO", "http") == "https" { "https" } else { "http" },
             stripe_publishable_key: std::env::var("STRIPE_PUBLISHABLE_KEY")
                 .ok()
