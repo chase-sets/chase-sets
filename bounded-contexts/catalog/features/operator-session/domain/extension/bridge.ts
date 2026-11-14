@@ -1,8 +1,17 @@
 import { closed, isCommand, isStatus, safeInteger, type OperatorCommand, type OperatorStatus } from "./protocol";
 import { isSetNamesRequestResult, type SetNamesRequest, type SetNamesRequestResult } from "./set-names/probe";
+import {
+  isSetNamesPostMessage,
+  isSetNamesPostResult,
+  type SetNamesPostMessage,
+  type SetNamesPostResult,
+} from "./set-names/transport";
+import type { TcgplayerSetNameObservationPost } from "./set-names/contract";
+import type { OperatorEnvironment } from "./protocol";
 
 export type OperatorBridgeMessage =
   | OperatorCommand
+  | SetNamesPostMessage
   | { action: "probe-set-names"; productLineId: string }
   | { action: "copy-probe-report"; text: string };
 
@@ -37,7 +46,9 @@ export function installOperatorBridge(
   const relay = async (id: number, message: OperatorBridgeMessage) => {
     try {
       const result = await send(message);
-      if (isCommand(message)) {
+      if (isSetNamesPostMessage(message)) {
+        if (isSetNamesPostResult(result)) frame.contentWindow?.postMessage({ id, postResult: result }, "*");
+      } else if (isCommand(message)) {
         if (isStatus(result)) frame.contentWindow?.postMessage({ id, status: result }, "*");
       } else if (isProbeSetNamesMessage(message)) {
         if (isSetNamesRequestResult(result)) frame.contentWindow?.postMessage({ id, result }, "*");
@@ -51,6 +62,14 @@ export function installOperatorBridge(
   };
   const receive = (event: MessageEvent<unknown>) => {
     if (event.source !== frame.contentWindow || event.origin !== "null") return;
+    if (
+      closed(event.data, ["id", "message"]) &&
+      safeInteger(event.data.id) &&
+      isSetNamesPostMessage(event.data.message)
+    ) {
+      void relay(event.data.id, event.data.message);
+      return;
+    }
     if (closed(event.data, ["id", "command"]) && safeInteger(event.data.id) && isCommand(event.data.command)) {
       void relay(event.data.id, event.data.command);
       return;
@@ -177,6 +196,10 @@ export function createOperatorPopupClient(host: Window, bridgeOrigin: string) {
     number,
     { resolve: () => void; reject: () => void; timer: ReturnType<typeof setTimeout> }
   >();
+  const pendingPost = new Map<
+    number,
+    { resolve: (result: SetNamesPostResult) => void; reject: () => void; timer: ReturnType<typeof setTimeout> }
+  >();
   const receiveProbe = (event: MessageEvent<unknown>) => {
     if (
       event.source !== host.parent ||
@@ -184,8 +207,14 @@ export function createOperatorPopupClient(host: Window, bridgeOrigin: string) {
       !safeInteger((event.data as { id?: unknown })?.id)
     )
       return;
-    const data = event.data as { id: number; result?: unknown; copied?: unknown };
-    if ("result" in data && isSetNamesRequestResult(data.result)) {
+    const data = event.data as { id: number; result?: unknown; copied?: unknown; postResult?: unknown };
+    if (closed(data, ["id", "postResult"]) && isSetNamesPostResult(data.postResult)) {
+      const call = pendingPost.get(data.id);
+      if (!call) return;
+      pendingPost.delete(data.id);
+      clearTimeout(call.timer);
+      call.resolve(data.postResult);
+    } else if ("result" in data && isSetNamesRequestResult(data.result)) {
       const call = pendingProbe.get(data.id);
       if (!call) return;
       pendingProbe.delete(data.id);
@@ -202,6 +231,22 @@ export function createOperatorPopupClient(host: Window, bridgeOrigin: string) {
   host.addEventListener("message", receive);
   host.addEventListener("message", receiveProbe);
   return {
+    postSetNames(environment: OperatorEnvironment, post: TcgplayerSetNameObservationPost): Promise<SetNamesPostResult> {
+      return new Promise((resolve, reject) => {
+        const message: SetNamesPostMessage = { action: "post-set-names", environment, post };
+        if (!isSetNamesPostMessage(message) || nextProbeId === Number.MAX_SAFE_INTEGER) {
+          reject(new Error("unavailable"));
+          return;
+        }
+        const id = ++nextProbeId;
+        const timer = setTimeout(() => {
+          pendingPost.delete(id);
+          reject(new Error("unavailable"));
+        }, 15_000);
+        pendingPost.set(id, { resolve, reject: () => reject(new Error("unavailable")), timer });
+        host.parent.postMessage({ id, message }, bridgeOrigin);
+      });
+    },
     request(command: OperatorCommand): Promise<OperatorStatus> {
       return new Promise((resolve, reject) => {
         if (!isCommand(command) || nextId === Number.MAX_SAFE_INTEGER) {
@@ -266,6 +311,11 @@ export function createOperatorPopupClient(host: Window, bridgeOrigin: string) {
         call.reject();
       }
       pendingCopy.clear();
+      for (const call of pendingPost.values()) {
+        clearTimeout(call.timer);
+        call.reject();
+      }
+      pendingPost.clear();
     },
   };
 }
