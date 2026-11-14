@@ -1286,6 +1286,16 @@ function executeStep(step, env = {}) {
     pnpm() { trace pnpm "$@"; }
     git() { trace git "$@"; [[ "$1" != rev-parse ]] || printf '%s\\n' "$LATEST_MAIN"; }
     terraform() { printf 'synthetic\\n'; }
+    kubectl() {
+      trace kubectl "$@"
+      case "$*" in
+        '-n ingress-nginx get pods -l app.kubernetes.io/component=controller -o json')
+          printf '%s\\n' '{"items":[{"status":{"phase":"Running"},"spec":{"nodeName":"synthetic-ingress-node"}}]}' ;;
+        'get nodes -o json')
+          printf '%s\\n' '{"items":[{"metadata":{"name":"synthetic-ingress-node"},"spec":{"podCIDRs":["192.0.2.0/24"]}}]}' ;;
+        *) echo 'unexpected synthetic kubectl command' >&2; return 1 ;;
+      esac
+    }
     ${drainingJqStub}
   `;
   try {
@@ -1300,6 +1310,7 @@ function executeStep(step, env = {}) {
         CHASE_SETS_KUBERNETES_ROLLOUT_TIMEOUT: "1m",
         ARGO_ROLLOUTS_ENABLED: "false",
         PLATFORM_IMAGE_REF: "registry.example/synthetic@sha256:synthetic",
+        CORTEN_ADMIN_IMAGE: `registry.example/synthetic-corten@sha256:${"c".repeat(64)}`,
         ADMISSION_RETRY_READINESS_RESULT: "success",
         ADMISSION_RETRY_ROLLBACK_COMMIT: "a".repeat(40),
         RELEASE_COMMIT: "a".repeat(40),
