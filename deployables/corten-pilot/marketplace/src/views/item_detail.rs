@@ -7,6 +7,7 @@ use corten::prelude::*;
 use platform::{
     chart::{self, Chart, TimeSeries},
     ui::{
+        badge::{Badge, BadgeEmphasis, BadgeTone},
         segmented::{SegmentedLinks, SegmentedWidth},
         stats::{Stat, StatTone, Stats as KitStats, StatsSurface},
     },
@@ -1249,6 +1250,19 @@ fn Rail<'a>(
                     {o.buyer_display_name.as_deref().unwrap_or(&o.buyer_account_id)} " \u{b7} "
                     {t.page_offer_requested_count(o.quantity_requested)}
                 </p>
+                // A seller whose listing matches the offer sees whether it can fill it.
+                if let Some(m) = screen.selected_match() {
+                    <p>
+                        <span
+                            class={Badge {
+                                tone: if m.can_fulfill { BadgeTone::Success } else { BadgeTone::Warning },
+                                emphasis: BadgeEmphasis::Soft,
+                            }}
+                        >
+                            {if m.can_fulfill { t.route_can_fulfill() } else { t.route_needs_supply() }}
+                        </span>
+                    </p>
+                }
             }
             if let Some(BuyNotice::Added(to)) = notice {
                 // The add is a form the browser posts, so this page is a full load and its nav has the count.
@@ -1503,6 +1517,12 @@ fn SellForms<'a>(
     let typed = refused.filter(|(_, f, _)| *f == SellForm::Product).map_or("1", |(_, _, q)| q);
     let action = url::ItemSellList { slug }.href();
     let accept = if screen.seller_features { SellIntent::SellNow } else { SellIntent::AddOffer };
+    // A seller's match says whether their listing can fill the offer and whether it is already on
+    // their Sell List (`selectedOfferCanFulfill`, `selectedOfferInSellList`); without one, both
+    // buttons are offered.
+    let matched = screen.selected_match();
+    let can_fill = matched.is_none_or(|m| m.can_fulfill);
+    let listed = matched.is_some_and(|m| m.in_sell_list);
     let total = offer.and_then(|o| {
         let cents = platform::money::cents(&o.price_amount)? as i128 * i128::from(o.quantity_requested);
         Some(money(t, Some(&cents_text(cents)), o.price_currency_code.as_deref()))
@@ -1547,11 +1567,23 @@ fn SellForms<'a>(
                     </p>
                 }
                 <fieldset class={BuyActions}>
-                    <button type="submit" class={(Button, Primary)} name={selling::field::INTENT} value={accept.as_str()}>
+                    <button
+                        type="submit"
+                        class={(Button, Primary)}
+                        name={selling::field::INTENT}
+                        value={accept.as_str()}
+                        disabled={!can_fill}
+                    >
                         {t.route_sell_now()}
                     </button>
-                    <button type="submit" class={Button} name={selling::field::INTENT} value={SellIntent::AddOffer.as_str()}>
-                        {t.route_add_to_sell_list()}
+                    <button
+                        type="submit"
+                        class={Button}
+                        name={selling::field::INTENT}
+                        value={SellIntent::AddOffer.as_str()}
+                        disabled={!can_fill || listed}
+                    >
+                        {if listed { t.route_in_sell_list() } else { t.route_add_to_sell_list() }}
                     </button>
                 </fieldset>
             </form>
