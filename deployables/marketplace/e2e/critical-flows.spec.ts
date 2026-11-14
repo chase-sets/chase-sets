@@ -797,41 +797,45 @@ test.describe("marketplace critical flows", () => {
             listing_stream_version: number;
             offer_stream_version: number;
           } | null = matchResponse.ok() ? await matchResponse.json() : null;
-          const payout: { status: string; missing_requirements: string[] } = await payoutResponse.json();
+          const payout: { account_id: string; status: string; missing_requirements: string[] } =
+            await payoutResponse.json();
           const review = composite.productOfferReviews.find((entry) => entry.lineId === lineId);
           const quotedOffer = review?.offers.find((entry) => entry.offer.offer_id === requiredOfferId);
+          const diagnosticBody = JSON.stringify(
+            {
+              accountFixture: configuredMarketplaceAccount.email
+                ? "configured-marketplace-account"
+                : "synthetic-account",
+              accountId: payout.account_id,
+              addedLineId: lineId,
+              productId,
+              addedQuantity: 1,
+              requiredOfferId,
+              productReviewStatus: review?.status ?? null,
+              matchedOfferId: match?.offer_id ?? null,
+              matchedListingId: match?.listing_id ?? null,
+              listingVisibleQuantity: match?.listing_visible_quantity ?? null,
+              quantityRequested: match?.quantity_requested ?? null,
+              listingStreamVersion: match?.listing_stream_version ?? null,
+              offerStreamVersion: match?.offer_stream_version ?? null,
+              quotedOfferIds: review?.offers.map((entry) => entry.offer.offer_id) ?? [],
+              quote: quotedOffer
+                ? {
+                    basis: quotedOffer.terms.basis_amount,
+                    fee: quotedOffer.terms.marketplace_sales_fee_unit_amount,
+                    net: quotedOffer.terms.seller_net_unit_amount,
+                  }
+                : null,
+              payoutReadiness: { status: payout.status, reasons: payout.missing_requirements },
+            },
+            null,
+            2,
+          );
           await testInfo.attach("desk-review-composite-diagnostic.json", {
             contentType: "application/json",
-            body: JSON.stringify(
-              {
-                accountFixture: configuredMarketplaceAccount.email
-                  ? "configured-marketplace-account"
-                  : "synthetic-account",
-                addedLineId: lineId,
-                productId,
-                addedQuantity: 1,
-                requiredOfferId,
-                productReviewStatus: review?.status ?? null,
-                matchedOfferId: match?.offer_id ?? null,
-                matchedListingId: match?.listing_id ?? null,
-                listingVisibleQuantity: match?.listing_visible_quantity ?? null,
-                quantityRequested: match?.quantity_requested ?? null,
-                listingStreamVersion: match?.listing_stream_version ?? null,
-                offerStreamVersion: match?.offer_stream_version ?? null,
-                quotedOfferIds: review?.offers.map((entry) => entry.offer.offer_id) ?? [],
-                quote: quotedOffer
-                  ? {
-                      basis: quotedOffer.terms.basis_amount,
-                      fee: quotedOffer.terms.marketplace_sales_fee_unit_amount,
-                      net: quotedOffer.terms.seller_net_unit_amount,
-                    }
-                  : null,
-                payoutReadiness: { status: payout.status, reasons: payout.missing_requirements },
-              },
-              null,
-              2,
-            ),
+            body: diagnosticBody,
           });
+          console.info(`desk-review-composite-diagnostic.json ${diagnosticBody}`);
         }
         await expect(page.getByText("Your Sell List is empty", { exact: true })).toHaveCount(0);
         await expect(page.getByRole("heading", { name: "Review items", exact: true })).toBeVisible();
