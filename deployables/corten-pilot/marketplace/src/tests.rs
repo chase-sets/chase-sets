@@ -5979,7 +5979,10 @@ async fn search_sends_its_terms_and_draws_results_filters_and_load_more() {
     // Load more: a GET form with every choice, a page more and the API's cursor. Without
     // JavaScript it is the address with a page more, at the first result it adds.
     let form = r#"<form id="load-more" class="#;
-    assert!(html.contains(form) && html.contains(r#"action="/search#result-25" data-patch>"#), "{html}");
+    assert!(
+        html.contains(form) && html.contains(r#"action="/search#result-25" data-patch data-on='connect:search.near($t,$s)'>"#),
+        "{html}"
+    );
     for field in [
         r#"<input type="hidden" name="q" value="pika">"#,
         r#"<input type="hidden" name="marketActivity" value="offers">"#,
@@ -6055,11 +6058,20 @@ async fn load_more_with_javascript_adds_only_the_next_page_and_says_when_it_fail
     assert!(html.contains("Could not load more results") && html.contains(">Retry loading results</button>"), "{html}");
     assert!(html.contains(r#"<input type="hidden" name="cursor" value="broken">"#), "{html}");
 
+    assert!(!html.contains("search.near"), "a failed load waits for its button: {html}");
+
     // Without JavaScript the same form is the page with a page more.
     let (status, headers, html) = pilot.send(get(more, None)).await;
     assert_eq!(status, StatusCode::OK);
     assert!(!headers.contains_key("corten-patch"), "{headers:?}");
     assert_eq!(html.matches(r#"<li id="result-"#).count(), 30);
+
+    // A page with more sends Load more itself as the reader comes near (the hidden one above, with
+    // no page after, is drawn without it).
+    let (_, _, html) = pilot.send(get("/search?q=pika", None)).await;
+    let form = &html[html.find(r#"<form id="load-more""#).expect("Load more")..];
+    let form = &form[..form.find('>').unwrap()];
+    assert!(!form.contains(" hidden") && form.contains("connect:search.near("), "{form}");
 }
 
 #[test]
@@ -6217,7 +6229,7 @@ async fn the_home_page_shows_the_featured_categories_and_the_newest_items_until_
     assert_eq!(search_reads(&pilot).len(), 3);
     assert!(!html.contains("Featured categories"), "{html}");
     assert_eq!(html.matches(r#"<li id="result-"#).count(), 24);
-    assert!(html.contains(r#"action="/#result-25" data-patch>"#), "Load more stays at the home page: {html}");
+    assert!(html.contains(r#"action="/#result-25" data-patch data-on="#), "Load more stays at the home page: {html}");
     // Search's rules are in components.css, which every page links once, the home page too
     // (todd-skelton/corten#95): no section stylesheet of its own, none in the page's body.
     for uri in ["/?q=pika", "/search?q=pika", "/items/charizard"] {

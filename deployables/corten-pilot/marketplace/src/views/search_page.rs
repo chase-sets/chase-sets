@@ -931,8 +931,9 @@ pub fn ResultRows<'a>(
 /// Load more, a GET form with every choice and the API's cursor. With JavaScript it is a patch
 /// that adds the next page's rows and draws this form again for the page after (`search::more`);
 /// without it, the address with a page more (`more=`), at the first result it adds. Hidden when
-/// there is no more, so a patch can still replace it. After a failed load it says so, and its
-/// button tries again.
+/// there is no more, so a patch can still replace it. With JavaScript it also sends itself as the
+/// reader comes near (`search.near`), unless a load just failed. After a failed load it says so,
+/// and its button tries again.
 #[component(css = SearchPage)]
 pub fn LoadMore<'a>(
     t: SearchMsg,
@@ -946,7 +947,15 @@ pub fn LoadMore<'a>(
     let action = format!("{}#result-{}", place.href(&Terms::default()), shown + 1);
     let pairs = next.pairs();
     html! {
-        <form id={LoadMoreId} class={More} method="get" action={&action} data-patch hidden={cursor.is_none()}>
+        <form
+            id={LoadMoreId}
+            class={More}
+            method="get"
+            action={&action}
+            data-patch
+            hidden={cursor.is_none()}
+            on:connect={(cursor.is_some() && !failed).then(|| handlers::near(target, signal))}
+        >
             for (key, value) in &pairs {
                 <input type="hidden" name={key} value={value}>
             }
