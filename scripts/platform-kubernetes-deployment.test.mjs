@@ -1335,7 +1335,8 @@ describe("platform Kubernetes deployment", () => {
 
     // The env helper computes the origin from the platform-api component name
     // (which is release-fullname-derived), not from the baked base value.
-    const computedOriginBranch = '{{- else if or (eq .name "CHASE_SETS_INTERNAL_API_ORIGIN") (eq .name "PLATFORM_API_ORIGIN") }}';
+    const computedOriginBranch =
+      '{{- else if or (eq .name "CHASE_SETS_INTERNAL_API_ORIGIN") (eq .name "PLATFORM_API_ORIGIN") }}';
     expect(envHelper).toContain(computedOriginBranch);
     expect(envHelper).toContain(
       'value: {{ printf "http://%s:8080" (include "chase-sets-platform.componentName" (dict "root" $root "name" "platform-api")) | quote }}',
