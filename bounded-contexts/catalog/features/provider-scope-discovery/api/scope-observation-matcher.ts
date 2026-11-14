@@ -147,9 +147,10 @@ export async function matchScopeObservationsToScopeRecords(
   // records and proposals of that edition.
   const languageEdition = catalogScopeLanguageEditionFilter(productDomain, input.target.languageCode);
   const canonicalRecords = await loadCanonicalScopeRecords(db, productDomain, languageEdition);
-  const eligibleAcceptedTargetIds = languageEdition
-    ? new Set(canonicalRecords.map((record) => record.scope_record_id))
-    : null;
+  const eligibleAcceptedTargetIds =
+    languageEdition && !isUnqualifiedLanguage(input.target.languageCode)
+      ? new Set(canonicalRecords.map((record) => record.scope_record_id))
+      : null;
   const proposals = await listCanonicalScopeRecordProposals(db, { productDomain, languageEdition, limit: 2_000 });
   const matchable = matchableScopeRecordSet([
     ...canonicalRecords.map(toMatchableCanonicalRecord),

@@ -69,6 +69,45 @@ describe("matching observations against accepted canonical proposals", () => {
     expect(db.inserts).toBe(0);
   });
 
+  it.each(["load", "upsert"] as const)(
+    "targets the accepted English Pokemon id, for review only, during projection lag on %s",
+    async (path) => {
+      const englishExpansions = listProviderScopeDiscoveryTargets(
+        catalogProviderIntegrationProfileVersions,
+        classifyProviderScopeDiscoveryTarget,
+      ).find(
+        (candidate) =>
+          candidate.providerKey === "tcgdex" && candidate.queryKind === "expansions" && candidate.languageCode === "en",
+      )!;
+      const accepted = {
+        ...proposalRow({ reviewStatus: "accepted", acceptedScopeRecordId: "ref_sv09", code: "sv09" }),
+        product_domain: "pokemon",
+        scope_kind: "expansion",
+        name: "Journey Together",
+        normalized_name: normalizeScopeMatchKey("Journey Together"),
+      };
+      const db = languageDb([], {
+        proposals: path === "load" ? [accepted] : [],
+        upsertedProposal: accepted,
+      });
+
+      const candidates = await matchScopeObservationsToScopeRecords(db, {
+        target: englishExpansions,
+        observations: [tcgdexObservation(englishExpansions, { id: "sv09", name: "Journey Together" })],
+        scanId: "scan-en",
+      });
+
+      expect(candidates.map((entry) => entry.candidate)).toEqual([
+        expect.objectContaining({
+          scopeRecordId: "ref_sv09",
+          reviewStatus: "proposed",
+          evidence: expect.objectContaining({ proposedCanonicalScopeRecord: false }),
+        }),
+      ]);
+      expect(db.insertedProposals).toHaveLength(path === "load" ? 0 : 1);
+    },
+  );
+
   it("matches a bound proposal's own name onto the record it was bound to", async () => {
     const db = matcherDb({
       canonical: [canonicalSet("ref_promoted", "Starter Deck Yugi Muto", "SDY-EN")],
