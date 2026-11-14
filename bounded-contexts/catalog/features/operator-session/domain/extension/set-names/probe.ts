@@ -185,6 +185,10 @@ export async function sha256SetNamesProbeReport(report: SetNamesProbeReport): Pr
   return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
+export function createSetNamesReceipt(result: SetNamesRequestResult, productLineId: string): SetNamesReceipt {
+  return receiptFor(result, summarize(result.body, productLineId));
+}
+
 function receiptFor(result: SetNamesRequestResult, summary: SetNamesSummary): SetNamesReceipt {
   const body = asEnvelope(result.body);
   return {
