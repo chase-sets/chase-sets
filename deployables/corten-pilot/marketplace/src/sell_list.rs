@@ -284,14 +284,14 @@ pub struct Line {
 }
 
 impl Line {
-    /// The pick that pays the seller the most a unit, and what it would pay for the line
-    /// (`estimatedNet`).
-    pub fn best(&self) -> Option<(&Pick, i64)> {
+    /// The pick that pays the seller the most a unit, and what it would pay for its own quantity
+    /// (`estimatedNet`): none when it has no terms yet.
+    pub fn best(&self) -> Option<(&Pick, Option<i64>)> {
         let best = self.picks.iter().fold(None::<&Pick>, |best, p| match best {
             Some(b) if cents(p.net.as_deref()) <= cents(b.net.as_deref()) => Some(b),
             _ => Some(p),
         })?;
-        Some((best, times(best.net.as_deref(), self.row.quantity.min(best.quantity))))
+        Some((best, best.net.as_deref().map(|net| times(Some(net), best.quantity))))
     }
 
     /// The Smart Match offers' quantity.
@@ -377,14 +377,17 @@ pub struct SellListScreen {
     pub notice: Option<String>,
 }
 
-/// The list's totals in cents (`useSellListPageModel`).
+/// The list's totals in cents (`useSellListPageModel`). The fees and the payout are none while a
+/// line is not quoted: a selected offer without terms, or a product line without an offer.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Totals {
     pub quantity: u64,
     pub offer_gross: i64,
     pub future_listing_gross: i64,
-    pub fees: i64,
-    pub payout: i64,
+    pub fees: Option<i64>,
+    pub payout: Option<i64>,
+    /// A product line has more than one offer, so the payout is all of them (`hasMultipleOffers`).
+    pub all_offers: bool,
 }
 
 impl SellListScreen {
@@ -470,25 +473,30 @@ impl SellListScreen {
 
     pub fn totals(&self) -> Totals {
         let mut t = Totals::default();
+        let (mut fees, mut payout, mut quoted) = (0, 0, true);
         for line in &self.lines {
             let row = &line.row;
             t.quantity += row.quantity;
             if row.is_offer() {
                 let terms = line.offer_review.as_ref().and_then(|r| r.terms.as_ref());
+                quoted &= terms.is_some();
                 t.offer_gross += times(row.offer_price_amount.as_deref(), row.quantity);
-                let net = terms.map(|t| t.seller_net_unit_amount.as_str()).or(row.offer_price_amount.as_deref());
-                t.payout += times(net, row.quantity);
-                t.fees += times(terms.map(|t| t.marketplace_sales_fee_unit_amount.as_str()), row.quantity);
+                payout += times(terms.map(|t| t.seller_net_unit_amount.as_str()), row.quantity);
+                fees += times(terms.map(|t| t.marketplace_sales_fee_unit_amount.as_str()), row.quantity);
             } else {
-                for o in line.product_review.iter().flat_map(|r| &r.offers) {
-                    t.payout += times(Some(&o.terms.seller_net_unit_amount), o.offer.quantity_requested);
-                    t.fees += times(Some(&o.terms.marketplace_sales_fee_unit_amount), o.offer.quantity_requested);
+                let offers = line.product_review.as_ref().map_or(&[][..], |r| &r.offers[..]);
+                quoted &= !offers.is_empty();
+                t.all_offers |= offers.len() > 1;
+                for o in offers {
+                    payout += times(Some(&o.terms.seller_net_unit_amount), o.offer.quantity_requested);
+                    fees += times(Some(&o.terms.marketplace_sales_fee_unit_amount), o.offer.quantity_requested);
                 }
                 let fallback =
                     if row.fallback_mode == "create-listing" { row.quantity.saturating_sub(line.matched()) } else { 0 };
                 t.future_listing_gross += times(row.minimum_listing_price_amount.as_deref(), fallback);
             }
         }
+        (t.fees, t.payout) = if quoted { (Some(fees), Some(payout)) } else { (None, None) };
         t
     }
 
@@ -1250,6 +1258,61 @@ mod tests {
             ReadinessDetail::FallbackForm
         );
         assert!(product_can_submit(None, Some(&stock)));
+    }
+
+    /// The offer line `a` (2 at 10.00) and the product line `b` (3), reviewed with or without the
+    /// offer's terms (9.00 net, 1.00 fee a unit) and with `offers` Smart Match offers of 2 each
+    /// (the first 7.00 net, the rest 7.50; 0.50 fee).
+    fn quoted_screen(offer_terms: bool, offers: usize) -> SellListScreen {
+        let terms = |net: &str, fee: &str| serde_json::json!({ "basis_amount": "10.00", "marketplace_sales_fee_unit_amount": fee, "seller_net_unit_amount": net });
+        let smart: Vec<_> = (0..offers)
+            .map(|i| {
+                serde_json::json!({
+                    "offer": { "offer_id": format!("off_{i}"), "quantity_requested": 2, "price_amount": "8.00" },
+                    "terms": terms(if i == 0 { "7.00" } else { "7.50" }, "0.50"),
+                })
+            })
+            .collect();
+        let review: CompositeReview = serde_json::from_value(serde_json::json!({
+            "offerReviews": [{ "lineId": "a", "status": "ready", "terms": if offer_terms { terms("9.00", "1.00") } else { serde_json::Value::Null } }],
+            "productOfferReviews": [{ "lineId": "b", "status": "ready", "offers": smart }],
+        }))
+        .unwrap();
+        let rows = vec![
+            SellListRow {
+                line_id: "a".into(),
+                line_type: "selected-offer".into(),
+                offer_id: Some("off_a".into()),
+                offer_price_amount: Some("10.00".into()),
+                quantity: 2,
+                ..SellListRow::default()
+            },
+            SellListRow { line_id: "b".into(), line_type: "product".into(), quantity: 3, ..SellListRow::default() },
+        ];
+        SellListScreen::of(Surface::SellList, true, rows, review, None)
+    }
+
+    #[test]
+    fn the_payout_and_fees_wait_for_every_line_to_be_quoted_and_say_when_they_are_all_offers() {
+        let all = quoted_screen(true, 2).totals();
+        // 2 x 9.00 + 2 x 7.00 + 2 x 7.50, and 2 x 1.00 + 4 x 0.50.
+        assert_eq!((all.payout, all.fees, all.all_offers), (Some(4_700), Some(400), true));
+        let one = quoted_screen(true, 1).totals();
+        assert_eq!((one.payout, one.fees, one.all_offers), (Some(3_200), Some(300), false));
+        // The offer without terms no longer counts at its price: nothing is quoted.
+        assert_eq!(quoted_screen(false, 1).totals().payout, None);
+        // A product line with no offer is not quoted either.
+        let none = quoted_screen(true, 0).totals();
+        assert_eq!((none.payout, none.fees), (None, None));
+    }
+
+    #[test]
+    fn a_lines_best_net_is_its_offers_own_quantity_or_none_without_terms() {
+        let screen = quoted_screen(false, 2);
+        let (pick, net) = screen.lines[1].best().unwrap();
+        // The 7.50 offer, for the 2 it asks for.
+        assert_eq!((pick.offer_id.as_str(), net), ("off_1", Some(1_500)));
+        assert_eq!(screen.lines[0].best().map(|(_, net)| net), Some(None));
     }
 
     #[test]
