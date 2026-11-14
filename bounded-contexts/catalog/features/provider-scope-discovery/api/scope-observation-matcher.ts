@@ -147,10 +147,15 @@ export async function matchScopeObservationsToScopeRecords(
   // records and proposals of that edition.
   const languageEdition = catalogScopeLanguageEditionFilter(productDomain, input.target.languageCode);
   const canonicalRecords = await loadCanonicalScopeRecords(db, productDomain, languageEdition);
+  const eligibleAcceptedTargetIds = languageEdition
+    ? new Set(canonicalRecords.map((record) => record.scope_record_id))
+    : null;
   const proposals = await listCanonicalScopeRecordProposals(db, { productDomain, languageEdition, limit: 2_000 });
   const matchable = matchableScopeRecordSet([
     ...canonicalRecords.map(toMatchableCanonicalRecord),
-    ...proposals.map(toMatchableProposal),
+    ...proposals
+      .filter((proposal) => acceptedProposalTargetIsEligible(proposal, eligibleAcceptedTargetIds))
+      .map(toMatchableProposal),
   ]);
   // The name match key keeps only Latin letters and digits, so it cannot
   // compare names outside the unqualified language: most Japanese names
@@ -197,15 +202,18 @@ export async function matchScopeObservationsToScopeRecords(
       parentExternalIds: observation.parents,
       evidence: proposalEvidence(observation, input.target, input.scanId),
     });
-    matchable.add(toMatchableProposal(proposal));
-
+    if (!acceptedProposalTargetIsEligible(proposal, eligibleAcceptedTargetIds)) {
+      continue;
+    }
+    const record = toMatchableProposal(proposal);
+    matchable.add(record);
     if (proposal.reviewStatus === "rejected") {
       continue;
     }
     const candidate = mappingCandidate({
       observation,
       target: input.target,
-      record: toMatchableProposal(proposal),
+      record,
       matchedBy: "new-canonical-scope",
       reviewStatus: "proposed",
     });
@@ -483,8 +491,8 @@ function toMatchableCanonicalRecord(row: ScopeRecordRow): MatchableScopeRecord {
 
 /**
  * An accepted proposal stands for its accepted Scope Record, never for its
- * `proposed-scope-*` id. Until that Scope Record is projected it still matches,
- * as a reviewable (never auto-accepted) target on the accepted id.
+ * `proposed-scope-*` id. Without edition filtering, it can match before that
+ * Scope Record is projected, as a reviewable (never auto-accepted) target.
  */
 function toMatchableProposal(proposal: CanonicalScopeRecordProposalRecord): MatchableScopeRecord {
   const scopeRecordId =
@@ -502,6 +510,18 @@ function toMatchableProposal(proposal: CanonicalScopeRecordProposalRecord): Matc
     aliases: [],
     proposalStatus: proposal.reviewStatus,
   };
+}
+
+/** Proposal editions cannot authorize the editions of the record it was accepted onto. */
+function acceptedProposalTargetIsEligible(
+  proposal: CanonicalScopeRecordProposalRecord,
+  eligibleAcceptedTargetIds: ReadonlySet<string> | null,
+): boolean {
+  return (
+    eligibleAcceptedTargetIds === null ||
+    proposal.reviewStatus !== "accepted" ||
+    (proposal.acceptedScopeRecordId !== null && eligibleAcceptedTargetIds.has(proposal.acceptedScopeRecordId))
+  );
 }
 
 /**

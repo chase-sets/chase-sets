@@ -114,6 +114,59 @@ describe("matching observations by language edition", () => {
   const japaneseExpansions: ProviderScopeDiscoveryTarget = { ...englishExpansions, languageCode: "ja" };
   const recorded = (id: string) => japaneseSets.find((set) => set.id === id)!;
 
+  it.each([{ editions: [] }, { editions: ["en"] }, { editions: ["ja"] }])(
+    "checks an accepted Japanese proposal's target editions $editions before matching",
+    async ({ editions }) => {
+      const accepted = japaneseAcceptedProposal();
+      const db = languageDb(
+        editions.includes("ja")
+          ? [{ ...canonicalSet("ref_xy2", "Different canonical name", "XY2"), scope_kind: "expansion" }]
+          : [],
+        { proposals: [accepted], upsertedProposal: accepted },
+      );
+
+      const candidates = await matchScopeObservationsToScopeRecords(db, {
+        target: japaneseExpansions,
+        observations: [tcgdexObservation(japaneseExpansions, recorded("XY2"))],
+        scanId: "scan-ja",
+      });
+
+      expect(candidates).toEqual(
+        editions.includes("ja")
+          ? [
+              expect.objectContaining({
+                matchedBy: "exact-id-or-code",
+                candidate: expect.objectContaining({ scopeRecordId: "ref_xy2", reviewStatus: "auto-accepted" }),
+              }),
+            ]
+          : [],
+      );
+    },
+  );
+
+  it.each([{ editions: [] }, { editions: ["en"] }, { editions: ["ja"] }])(
+    "checks an upserted accepted Japanese proposal's target editions $editions before emitting a candidate",
+    async ({ editions }) => {
+      const db = languageDb(
+        editions.includes("ja")
+          ? [{ ...canonicalSet("ref_xy2", "Different canonical name", "OTHER"), scope_kind: "expansion" }]
+          : [],
+        { upsertedProposal: japaneseAcceptedProposal() },
+      );
+
+      const candidates = await matchScopeObservationsToScopeRecords(db, {
+        target: japaneseExpansions,
+        observations: [tcgdexObservation(japaneseExpansions, recorded("XY2"))],
+        scanId: "scan-ja",
+      });
+
+      expect(db.insertedProposals).toHaveLength(1);
+      expect(candidates.map((entry) => entry.candidate.scopeRecordId)).toEqual(
+        editions.includes("ja") ? ["ref_xy2"] : [],
+      );
+    },
+  );
+
   it("loads only Scope Records and proposals of the observation's language edition", async () => {
     const japanese = languageDb([]);
     await matchScopeObservationsToScopeRecords(japanese, {
@@ -213,8 +266,11 @@ function tcgdexObservation(
 
 type RecordedQuery = Readonly<{ sql: string; params: readonly unknown[] }>;
 
-/** Serves `canonical` Scope Records and no proposals; a proposal insert returns the proposal row it wrote. */
-function languageDb(canonical: readonly object[]) {
+/** Serves edition-filtered records; an upsert can return an existing accepted proposal. */
+function languageDb(
+  canonical: readonly object[],
+  input: { proposals?: readonly object[]; upsertedProposal?: object } = {},
+) {
   const db = {
     queries: {} as { records?: RecordedQuery; proposals?: RecordedQuery },
     insertedProposals: [] as Array<{
@@ -237,6 +293,7 @@ function languageDb(canonical: readonly object[]) {
           officialSetCode: officialSetCode as string | null,
           languageEditions,
         });
+        if (input.upsertedProposal) return { rows: [input.upsertedProposal] };
         return {
           rows: [
             {
@@ -261,12 +318,24 @@ function languageDb(canonical: readonly object[]) {
       }
       if (sql.includes("FROM catalog_scope_record_proposals")) {
         db.queries.proposals = { sql, params };
-        return { rows: [] };
+        return { rows: input.proposals ?? [] };
       }
       throw new Error(`Unexpected SQL in test: ${sql}`);
     },
   };
   return db as unknown as PgQueryable & Omit<typeof db, "query">;
+}
+
+function japaneseAcceptedProposal() {
+  return {
+    ...proposalRow({ reviewStatus: "accepted", acceptedScopeRecordId: "ref_xy2", code: "XY2" }),
+    proposal_id: "synthetic-ja-xy2",
+    scope_record_id: "proposed-scope-synthetic-ja-xy2",
+    product_domain: "pokemon",
+    scope_kind: "expansion",
+    name: "Synthetic Japanese XY2",
+    language_editions: ["ja"],
+  };
 }
 
 function matcherDb(input: { canonical: readonly object[]; proposals: readonly object[] }) {
