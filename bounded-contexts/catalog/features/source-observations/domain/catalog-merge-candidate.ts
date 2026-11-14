@@ -959,7 +959,28 @@ function requireSnapshot(state: CatalogMergeCandidateState): CatalogMergeCandida
   return state.snapshot;
 }
 
-/** Apply reviewed fact choices without changing the source evidence or merge identity. */
+/** Matcher-backed Catalog facts are scalar; the review form carries existing alternatives as a list. */
+export function normalizeConflictResolutionValues(
+  resolutions: readonly CatalogMergeCandidateConflictResolution[],
+):
+  | { status: "resolved"; resolutions: readonly CatalogMergeCandidateConflictResolution[] }
+  | { status: "ambiguous"; fieldPath: string } {
+  const normalized: CatalogMergeCandidateConflictResolution[] = [];
+  for (const resolution of resolutions) {
+    if (!resolution.fieldPath?.match(/^catalogItem\.[^.]+$/) || !Array.isArray(resolution.chosenValue)) {
+      normalized.push(resolution);
+      continue;
+    }
+    const [value] = resolution.chosenValue;
+    if (resolution.chosenValue.length !== 1 || value === undefined || (value !== null && typeof value === "object")) {
+      return { status: "ambiguous", fieldPath: resolution.fieldPath };
+    }
+    normalized.push({ ...resolution, chosenValue: value });
+  }
+  return { status: "resolved", resolutions: normalized };
+}
+
+/** Apply normalized fact choices without changing the source evidence or merge identity. */
 export function snapshotWithConflictResolutions(
   snapshot: CatalogMergeCandidateReviewSnapshot,
   resolutions: readonly CatalogMergeCandidateConflictResolution[],

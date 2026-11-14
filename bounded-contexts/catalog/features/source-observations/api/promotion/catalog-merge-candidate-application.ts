@@ -22,6 +22,7 @@ import {
   decideCatalogMergeCandidate,
   evolveCatalogMergeCandidate,
   initialCatalogMergeCandidateState,
+  normalizeConflictResolutionValues,
   snapshotWithConflictResolutions,
   type CatalogMergeCandidateCommand,
   type CatalogMergeCandidateConflictResolution,
@@ -482,6 +483,10 @@ async function prepareApplicationPlan(
   resolvedConflicts: readonly CatalogMergeCandidateConflictResolution[],
 ): Promise<Readonly<{ plan: CatalogMergeCandidatePromotionPlan; session: PromotionTargetSession }>> {
   const { deps } = ports;
+  const resolutionValues = normalizeConflictResolutionValues(resolvedConflicts);
+  if (resolutionValues.status === "ambiguous")
+    throw blocked("ambiguous-conflict-resolution", `${resolutionValues.fieldPath}: choose an explicit scalar value`);
+  resolvedConflicts = resolutionValues.resolutions;
   const effectiveSnapshot = snapshotWithAuthoredFacts(
     snapshotWithConflictResolutions(snapshot, resolvedConflicts),
     authors,

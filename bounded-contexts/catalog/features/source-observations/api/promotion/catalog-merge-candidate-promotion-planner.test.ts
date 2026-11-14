@@ -296,34 +296,37 @@ describe("Catalog Merge Candidate promotion planner", () => {
     },
   );
 
-  it.each([null, 0, false])("preserves an explicit raw resolution of %s", async (chosenValue) => {
-    const result = await planPromotion({
-      candidate: {
-        candidateId: "cand_charizard",
-        status: "promoted",
-        snapshot: candidateSnapshot({
-          matches: { catalogItemId: "cat_existing", productIds: [] },
-          promotionIntent: "update-catalog-item",
-        }),
-      },
-      catalog: catalogMapping(),
-      resolvedConflicts: [
-        {
-          conflictCode: "rarity-mismatch",
-          fieldPath: "catalogItem.rarity",
-          chosenValue,
-          reason: "Reviewed value.",
-          observationIds: [],
+  it.each([null, 0, false, [null], [0], [false]].map((chosenValue) => ({ chosenValue })))(
+    "preserves an explicit raw resolution of $chosenValue",
+    async ({ chosenValue }) => {
+      const result = await planPromotion({
+        candidate: {
+          candidateId: "cand_charizard",
+          status: "promoted",
+          snapshot: candidateSnapshot({
+            matches: { catalogItemId: "cat_existing", productIds: [] },
+            promotionIntent: "update-catalog-item",
+          }),
         },
-      ],
-    });
-    expect(result.status).toBe("planned");
-    expect(result.plan?.commands).toContainEqual({
-      type: "SetCatalogItemFieldValue",
-      fieldId: "field_rarity",
-      value: chosenValue,
-    });
-  });
+        catalog: catalogMapping(),
+        resolvedConflicts: [
+          {
+            conflictCode: "rarity-mismatch",
+            fieldPath: "catalogItem.rarity",
+            chosenValue,
+            reason: "Reviewed value.",
+            observationIds: [],
+          },
+        ],
+      });
+      expect(result.status).toBe("planned");
+      expect(result.plan?.commands).toContainEqual({
+        type: "SetCatalogItemFieldValue",
+        fieldId: "field_rarity",
+        value: Array.isArray(chosenValue) ? chosenValue[0] : chosenValue,
+      });
+    },
+  );
 
   it("applies multiple choices to localized metadata and mapped fields without mutating source evidence", async () => {
     const snapshot = candidateSnapshot();
@@ -372,58 +375,60 @@ describe("Catalog Merge Candidate promotion planner", () => {
     expect(snapshot).toEqual(original);
   });
 
-  it.each(["Paldea Evolved", "Previous expansion"])("honors the reference field choice %s", async (chosenValue) => {
-    const result = await planPromotion({
-      candidate: {
-        candidateId: "cand_charizard",
-        status: "promoted",
-        snapshot: candidateSnapshot({
-          matches: { catalogItemId: "cat_existing", productIds: [] },
-          promotionIntent: "update-catalog-item",
-          conflicts: [
-            {
-              code: "expansionName-mismatch",
-              fieldPath: "catalogItem.expansionName",
-              severity: "blocking",
-              message: "Expansion differs.",
-              observationIds: [],
-              existingValue: "Previous expansion",
-              proposedValue: "Paldea Evolved",
-            },
-          ],
-        }),
-      },
-      catalog: catalogMapping(),
-      resolvedConflicts: [
-        {
-          conflictCode: "expansionName-mismatch",
-          fieldPath: "catalogItem.expansionName",
-          chosenValue,
-          reason: "Reviewed expansion.",
-          observationIds: [],
+  it.each(["Paldea Evolved", "Previous expansion", ["Previous expansion"]].map((chosenValue) => ({ chosenValue })))(
+    "honors the reference field choice $chosenValue",
+    async ({ chosenValue }) => {
+      const result = await planPromotion({
+        candidate: {
+          candidateId: "cand_charizard",
+          status: "promoted",
+          snapshot: candidateSnapshot({
+            matches: { catalogItemId: "cat_existing", productIds: [] },
+            promotionIntent: "update-catalog-item",
+            conflicts: [
+              {
+                code: "expansionName-mismatch",
+                fieldPath: "catalogItem.expansionName",
+                severity: "blocking",
+                message: "Expansion differs.",
+                observationIds: [],
+                existingValue: ["Previous expansion", "Another expansion"],
+                proposedValue: "Paldea Evolved",
+              },
+            ],
+          }),
         },
-      ],
-    });
-    expect(result.status).toBe("planned");
-    expect(
-      result.plan?.commands.filter(
-        (command) => command.type === "SetCatalogItemFieldValue" && command.fieldId === ("field_expansion" as FieldId),
-      ),
-    ).toEqual(
-      chosenValue === "Previous expansion"
-        ? []
-        : [
-            {
-              type: "SetCatalogItemFieldValue",
-              fieldId: "field_expansion",
-              value: { referenceId: "ref_expansion_pal" },
-            },
-          ],
-    );
-    expect(result.plan?.promotableChange.referenceRecordLinks).toHaveLength(
-      chosenValue === "Previous expansion" ? 0 : 1,
-    );
-  });
+        catalog: catalogMapping(),
+        resolvedConflicts: [
+          {
+            conflictCode: "expansionName-mismatch",
+            fieldPath: "catalogItem.expansionName",
+            chosenValue,
+            reason: "Reviewed expansion.",
+            observationIds: [],
+          },
+        ],
+      });
+      expect(result.status).toBe("planned");
+      expect(
+        result.plan?.commands.filter(
+          (command) =>
+            command.type === "SetCatalogItemFieldValue" && command.fieldId === ("field_expansion" as FieldId),
+        ),
+      ).toEqual(
+        chosenValue !== "Paldea Evolved"
+          ? []
+          : [
+              {
+                type: "SetCatalogItemFieldValue",
+                fieldId: "field_expansion",
+                value: { referenceId: "ref_expansion_pal" },
+              },
+            ],
+      );
+      expect(result.plan?.promotableChange.referenceRecordLinks).toHaveLength(chosenValue !== "Paldea Evolved" ? 0 : 1);
+    },
+  );
 
   it("does not resolve a blocking conflict using a choice for another field", async () => {
     const result = await planPromotion({

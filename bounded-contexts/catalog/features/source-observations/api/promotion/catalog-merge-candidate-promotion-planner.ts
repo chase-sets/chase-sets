@@ -17,7 +17,10 @@ import type {
   CatalogMergeCandidateWarning,
 } from "../../domain/catalog-merge-candidate";
 import type { CatalogMergeCandidateListRow } from "../../read-model/queries";
-import { snapshotWithConflictResolutions } from "../../domain/catalog-merge-candidate";
+import {
+  normalizeConflictResolutionValues,
+  snapshotWithConflictResolutions,
+} from "../../domain/catalog-merge-candidate";
 import type { LocalizedTextMap } from "../../../../support/runtime-support/common";
 import type { ProductAssetSet } from "../../../../support/runtime-support/product-assets";
 import {
@@ -85,6 +88,7 @@ export type CatalogMergeCandidatePromotionPlanDiagnostic = Readonly<{
   code:
     | "candidate-not-ready"
     | "candidate-has-blocking-conflicts"
+    | "ambiguous-conflict-resolution"
     | "conflicting-external-reference-level"
     | "duplicate-external-catalog-item-reference"
     | "duplicate-external-product-reference"
@@ -282,7 +286,21 @@ function constructCatalogMergeCandidatePromotionCommands(
   input: CatalogMergeCandidatePromotionPlanInput,
 ): ConstructedCatalogMergeCandidatePromotionCommands {
   const normalized = normalizeCandidate(input.candidate);
-  const resolvedConflicts = input.resolvedConflicts ?? [];
+  const resolutionValues = normalizeConflictResolutionValues(input.resolvedConflicts ?? []);
+  if (resolutionValues.status === "ambiguous") {
+    return {
+      status: "blocked",
+      plan: null,
+      diagnostics: [
+        {
+          code: "ambiguous-conflict-resolution",
+          path: resolutionValues.fieldPath,
+          diagnosticText: "Choose an explicit scalar value instead of multiple existing alternatives.",
+        },
+      ],
+    };
+  }
+  const resolvedConflicts = resolutionValues.resolutions;
   const candidate = {
     ...normalized,
     snapshot: snapshotWithConflictResolutions(normalized.snapshot, resolvedConflicts),
@@ -335,7 +353,7 @@ function constructCatalogMergeCandidatePromotionCommands(
     productMappings,
     externalCatalogItemReferences: candidate.snapshot.proposedExternalCatalogItemReferences,
     externalProductReferences: candidate.snapshot.proposedExternalProductReferences,
-    sourceProvenance: sourceProvenanceForCandidate(candidate.snapshot, input.resolvedConflicts ?? []),
+    sourceProvenance: sourceProvenanceForCandidate(candidate.snapshot, resolvedConflicts),
     assetPlan,
   };
   const commands = catalogItemCommandsForCandidatePromotion({
@@ -378,7 +396,9 @@ function keepsExistingReference(
         (resolution) =>
           resolution.conflictCode === conflict.code &&
           resolution.fieldPath === mapping.fieldPath &&
-          isDeepStrictEqual(resolution.chosenValue, conflict.existingValue) &&
+          (Array.isArray(conflict.existingValue)
+            ? conflict.existingValue.some((value) => isDeepStrictEqual(resolution.chosenValue, value))
+            : isDeepStrictEqual(resolution.chosenValue, conflict.existingValue)) &&
           !isDeepStrictEqual(resolution.chosenValue, conflict.proposedValue),
       ),
   );

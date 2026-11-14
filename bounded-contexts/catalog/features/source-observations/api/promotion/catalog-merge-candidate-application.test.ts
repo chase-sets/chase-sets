@@ -968,9 +968,9 @@ describeDb("Catalog Merge Candidate application with registered Magic profiles (
     expect(await itemCreations()).toBe(0);
   });
 
-  it.each(["uncommon", "rare"])(
-    "applies a retained approval's chosen rarity %s to the existing Item",
-    async (chosenValue) => {
+  it.each(["uncommon", "rare", ["uncommon"], ["uncommon", "mythic"]].map((chosenValue) => ({ chosenValue })))(
+    "applies or refuses a retained approval's chosen rarity $chosenValue before writing the existing Item",
+    async ({ chosenValue }) => {
       const original = await candidateFrom([magicObservation("scryfall-card-print")]);
       const first = await apply(original.candidateId);
       const target = first.appliedCatalogItemId!;
@@ -1001,7 +1001,7 @@ describeDb("Catalog Merge Candidate application with registered Magic profiles (
                 severity: "blocking",
                 message: "Rarity differs.",
                 observationIds: resolution.observationIds,
-                existingValue: "uncommon",
+                existingValue: Array.isArray(chosenValue) ? chosenValue : ["uncommon"],
                 proposedValue: "rare",
               },
             ],
@@ -1021,6 +1021,16 @@ describeDb("Catalog Merge Candidate application with registered Magic profiles (
         context,
       });
 
+      if (Array.isArray(chosenValue) && chosenValue.length > 1) {
+        const events = await eventCount();
+        await expect(apply(candidateId)).rejects.toMatchObject({
+          code: "promotion-plan-blocked:ambiguous-conflict-resolution",
+        });
+        expect(await eventCount()).toBe(events);
+        expect((await loadCandidateApplication(store, candidateId)).state.promotionPlan).toBeNull();
+        return;
+      }
+      const expectedValue = Array.isArray(chosenValue) ? chosenValue[0] : chosenValue;
       const result = await apply(candidateId);
 
       expect(result).toMatchObject({ status: "promoted", appliedCatalogItemId: target, appliedMode: "refresh" });
@@ -1033,13 +1043,13 @@ describeDb("Catalog Merge Candidate application with registered Magic profiles (
         registeredMagicProfile("scryfall-card-print").profile,
       );
       expect(item.fieldValues).toContainEqual(
-        expect.objectContaining({ fieldId: mapping.fieldIds.rarity, value: chosenValue }),
+        expect.objectContaining({ fieldId: mapping.fieldIds.rarity, value: expectedValue }),
       );
       const { state } = await loadCandidateApplication(store, candidateId);
       expect(state.promotionPlan?.commands).toContainEqual({
         type: "SetCatalogItemFieldValue",
         fieldId: mapping.fieldIds.rarity,
-        value: chosenValue,
+        value: expectedValue,
       });
       await expect(apply(candidateId)).resolves.toEqual(result);
     },
