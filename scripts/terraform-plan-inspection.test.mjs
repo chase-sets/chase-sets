@@ -136,6 +136,54 @@ describe("Terraform plan inspection", () => {
     ]);
   });
 
+  it.each([
+    ["delete", "create"],
+    ["create", "delete"],
+  ])("allows only the staging preview pool replacement with actions %j", (...actions) => {
+    const plan = planFor([
+      resourceChange("digitalocean_kubernetes_node_pool.preview[0]", actions),
+      resourceChange("digitalocean_kubernetes_cluster.platform", ["update"]),
+    ]);
+
+    expect(assertNoDestructiveChanges(plan, { environment: "staging" })).toEqual(destructiveResourceChanges(plan));
+  });
+
+  it.each([
+    "digitalocean_kubernetes_cluster.platform",
+    'digitalocean_kubernetes_node_pool.runtime["web"]',
+    "digitalocean_container_registry.platform",
+    "digitalocean_database_cluster.postgres",
+    'digitalocean_database_db.contexts["checkout"]',
+    "digitalocean_kubernetes_node_pool.preview[1]",
+    "module.other.digitalocean_kubernetes_node_pool.preview[0]",
+  ])("refuses a staging preview replacement mixed with destructive changes to %s", (address) => {
+    const plan = planFor([
+      resourceChange("digitalocean_kubernetes_node_pool.preview[0]", ["delete", "create"]),
+      resourceChange(address, ["delete", "create"]),
+    ]);
+
+    expect(() => assertNoDestructiveChanges(plan, { environment: "staging" })).toThrow(address);
+  });
+
+  it("refuses a staging preview pool deletion without replacement", () => {
+    const plan = planFor([resourceChange("digitalocean_kubernetes_node_pool.preview[0]", ["delete"])]);
+
+    expect(() => assertNoDestructiveChanges(plan, { environment: "staging" })).toThrow(
+      "no reviewed override marker was found",
+    );
+  });
+
+  it.each(["production", "preview", undefined])(
+    "requires the reviewed marker for preview pool replacement outside staging (%s)",
+    (environment) => {
+      const plan = planFor([resourceChange("digitalocean_kubernetes_node_pool.preview[0]", ["delete", "create"])]);
+
+      expect(() => assertNoDestructiveChanges(plan, { environment })).toThrow(
+        "Production Terraform plan contains destructive changes and no reviewed override marker was found",
+      );
+    },
+  );
+
   it("parses resource-scoped production destructive-change approval markers", () => {
     expect(
       approvedDestructiveChangeAddressesFromText(`

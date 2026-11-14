@@ -4620,7 +4620,8 @@ describe("DigitalOcean platform configuration", () => {
     expect(preflightStep).toContain("DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}");
     expect(inspectStep).toContain('terraform show -json tfplan > "$plan_json"');
     expect(inspectStep).toContain('summarize-plan "$plan_json"');
-    expect(inspectStep).toContain("assert-no-destructive-changes tfplan");
+    expect(platformDoksFoundationWorkflow).toContain("TF_VAR_environment: ${{ inputs.environment }}");
+    expect(inspectStep).toContain('assert-no-destructive-changes tfplan --environment="${TF_VAR_environment}"');
     expect(inspectStep).not.toContain("artifacts/doks-foundation/tfplan");
     expect(preflightIndex).toBeLessThan(planIndex);
     expect(planIndex).toBeLessThan(inspectIndex);
