@@ -73,9 +73,15 @@ vi.mock("react-router", async () => {
   };
 });
 
-vi.mock("../support/request-support/api-client", () => ({
-  createCatalogRequestApiClient: mockCreateCatalogRequestApiClient,
-}));
+vi.mock("../support/request-support/api-client", async () => {
+  const { withCatalogSurfaceReads } = await vi.importActual<
+    typeof import("../features/source-observations/tests/integrations-surface-read-test-client")
+  >("../features/source-observations/tests/integrations-surface-read-test-client");
+  return {
+    createCatalogRequestApiClient: (request: Request) =>
+      withCatalogSurfaceReads(mockCreateCatalogRequestApiClient(request), request),
+  };
+});
 
 vi.mock("@chase-sets/platform-runtime/auth", () => ({
   isTransientAuthResolutionError: mockIsTransientAuthResolutionError,
@@ -320,6 +326,16 @@ describe("Catalog integrations route", () => {
         productLineId: "3",
         productLineName: "Pokemon",
         expansionName: "Base Set",
+      },
+      // The bodies the row's import and reapply post, as admin-web's handlers build them.
+      commandScopes: {
+        import: {
+          provider: "tcgplayer",
+          ingestionUnitKey: pokemonUnit,
+          productLineId: "3",
+          setName: "Base Set",
+        },
+        reapply: { provider: "tcgplayer", ingestionUnitKey: pokemonUnit, productLineId: "3" },
       },
     });
     expect(routeData.readModel.catalogSync.preview.units).toEqual([

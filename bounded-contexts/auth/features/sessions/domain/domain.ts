@@ -1,6 +1,8 @@
+import { isSyntheticAuthSessionId } from "@chase-sets/auth-context";
 import type { AggregateDecider, AggregateEvolver, DomainEvent } from "@chase-sets/event-core";
 import type { AccountId, SessionId, UserId } from "@chase-sets/primitives/typed-ids";
 import type { AuthMethod } from "./auth-flow";
+import { isSessionGeneration, sessionGenerationOf } from "./session-generation";
 
 type SessionStatus = "active" | "revoked" | "expired";
 type EmptyEventData = Readonly<Record<string, never>>;
@@ -29,6 +31,8 @@ export type SessionState = Readonly<{
   authenticationMethod: AuthMethod | null;
   status: SessionStatus;
   expiresAt: string | null;
+  /** The User Session Authority generation this Session started in; `null` when its start event is malformed. */
+  sessionGeneration: number | null;
 }>;
 
 export const initialSessionState: SessionState = {
@@ -39,9 +43,11 @@ export const initialSessionState: SessionState = {
   authenticationMethod: null,
   status: "active",
   expiresAt: null,
+  sessionGeneration: 0,
 };
 
-export type StartSessionCommand = Readonly<{
+/** What a caller asks for. The generation is never caller-chosen: the start guard reads it from authority. */
+export type StartSessionRequest = Readonly<{
   type: "StartSession";
   sessionId: SessionId;
   userId: UserId;
@@ -51,6 +57,11 @@ export type StartSessionCommand = Readonly<{
   expiresAt: string;
 }>;
 
+export type StartSessionCommand = StartSessionRequest &
+  Readonly<{
+    sessionGeneration: number;
+  }>;
+
 export type SwitchSessionAccountCommand = Readonly<{
   type: "SwitchSessionAccount";
   accountId: AccountId;
@@ -59,11 +70,12 @@ export type SwitchSessionAccountCommand = Readonly<{
 export type RevokeSessionCommand = Readonly<{ type: "RevokeSession" }>;
 export type ExpireSessionCommand = Readonly<{ type: "ExpireSession" }>;
 
-export type SessionCommand =
-  | StartSessionCommand
-  | SwitchSessionAccountCommand
-  | RevokeSessionCommand
-  | ExpireSessionCommand;
+export type SessionLifecycleCommand = SwitchSessionAccountCommand | RevokeSessionCommand | ExpireSessionCommand;
+
+export type SessionCommand = StartSessionCommand | SessionLifecycleCommand;
+
+/** The commands `SessionServices.commandHandler` accepts; a start is completed by its generation guard. */
+export type SessionCommandRequest = StartSessionRequest | SessionLifecycleCommand;
 
 export type SessionStartedEvent = DomainEvent<
   "auth.session.started",
@@ -74,6 +86,8 @@ export type SessionStartedEvent = DomainEvent<
     availableAccountIds: string[];
     authenticationMethod: AuthMethod;
     expiresAt: string;
+    /** Absent on every start recorded before the Session Generation floor; read as 0. */
+    sessionGeneration?: number;
   }>
 >;
 
@@ -94,6 +108,8 @@ export const decideSession: AggregateDecider<SessionState, SessionCommand, Sessi
   switch (command.type) {
     case "StartSession":
       assert(state.id === null, "Session has already been started.");
+      assert(!isSyntheticAuthSessionId(command.sessionId), "A synthetic actor handle cannot start a Session.");
+      assert(isSessionGeneration(command.sessionGeneration), "Session start requires its authority generation.");
       return [
         {
           type: "auth.session.started",
@@ -104,6 +120,7 @@ export const decideSession: AggregateDecider<SessionState, SessionCommand, Sessi
             availableAccountIds: [...toSortedUniqueList(command.availableAccountIds)],
             authenticationMethod: command.authenticationMethod,
             expiresAt: command.expiresAt,
+            sessionGeneration: command.sessionGeneration,
           },
         },
       ];
@@ -139,6 +156,7 @@ export const evolveSession: AggregateEvolver<SessionState, SessionEvent> = (stat
         authenticationMethod: event.data.authenticationMethod,
         status: "active",
         expiresAt: event.data.expiresAt,
+        sessionGeneration: sessionGenerationOf(event.data),
       };
     case "auth.session.account-switched":
       return { ...state, accountId: event.data.accountId };

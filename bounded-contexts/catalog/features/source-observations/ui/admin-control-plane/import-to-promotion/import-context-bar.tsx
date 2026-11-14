@@ -25,7 +25,10 @@ import {
   WorkbenchText,
 } from "@chase-sets/design-system";
 import { t } from "@chase-sets/localization";
-import type { CatalogPrimaryWorkbenchReadModel } from "../../../api/primary-workbench-admin-contracts";
+import type {
+  CatalogPrimaryWorkbenchReadModel,
+  CatalogPrimaryWorkbenchGuidedScopeField,
+} from "../../../api/primary-workbench-admin-contracts";
 import { DeferredSupplementaryPanel } from "../../deferred-supplementary-panel";
 import {
   CATALOG_SOURCE_OPTION_ACTION_PARAM,
@@ -34,12 +37,7 @@ import {
   parseCatalogPrimaryWorkbenchSourceOptionIntent,
 } from "../../primary-workbench-source-option-refresh";
 import { catalogPrimaryWorkbenchScopeQueryKeys } from "../../primary-workbench-scope-context";
-import {
-  guidedSourceScopeFields,
-  sourceOptionPageStateTone,
-  sourceOptionsStatusTone,
-  type CatalogPrimaryWorkbenchGuidedScopeField,
-} from "../../primary-workbench-source-scope-fields";
+import { sourceOptionPageStateTone, sourceOptionsStatusTone } from "../../primary-workbench-source-scope-fields";
 
 // The import-context bar: "Step 0 / Choose import scope". The act of *choosing
 // what to import* (provider / unit / guided scope / profile selection + the
@@ -67,7 +65,7 @@ export function CatalogImportContextBar({
   deferredSourceOptions?: Promise<CatalogPrimaryWorkbenchReadModel["sourceOptions"]> | null;
 }>) {
   useSingleUseCardForceRefreshIntent(deferredSourceOptions);
-  const summary = importContextSummary(readModel);
+  const summary = readModel.sourceOptions.contextSummary ?? null;
   // Open by default until a scope is chosen; once one is, the operator lands on the
   // collapsed summary and expands deliberately to edit. State, not navigation, so
   // toggling never reloads.
@@ -128,54 +126,6 @@ function useSingleUseCardForceRefreshIntent(
   }, [deferredSourceOptions, submit]);
 }
 
-// Build the collapsed one-line import-context summary from the route context:
-// "provider · unit · scope · profile" (e.g. "tcgdex · pokemon:card:import ·
-// en/base/base1 · profile 2026.06.04"). Returns null when no scope is chosen yet —
-// the signal the bar uses to stay open. "Chosen" means at least one structured
-// scope level (or the transitional importScope string) is set, so picking only a
-// provider/unit does not prematurely collapse the bar before a scope exists.
-export function importContextSummary(readModel: CatalogPrimaryWorkbenchReadModel): string | null {
-  const { providerKey, unitKey, profileVersion, importScope, scope } = readModel.routeContext;
-  const scopeLabel = importContextScopeLabel(scope, importScope);
-  if (!scopeLabel) {
-    return null;
-  }
-
-  const parts = [
-    providerKey,
-    unitKey,
-    scopeLabel,
-    profileVersion
-      ? t("catalog.features.sourceObservations.ui.primaryWorkbench.importContext.step.profile", { profileVersion })
-      : null,
-  ].filter((part): part is string => Boolean(part));
-
-  return parts.join(" · ");
-}
-
-// Join the structured scope levels (language / product line / series / expansion)
-// the route context carries into a compact "en/base/base1" string, falling back to
-// a name-based set scope when a provider exposes set names instead of set ids, and
-// finally to the transitional free-text importScope for providers that declare no
-// guided scope. Returns null when no scope level is set at all.
-function importContextScopeLabel(
-  scope: CatalogPrimaryWorkbenchReadModel["routeContext"]["scope"],
-  importScope: string | null,
-): string | null {
-  const levels = [
-    scope?.languageCode,
-    scope?.productLineId,
-    scope?.seriesId,
-    scope?.expansionId ?? scope?.expansionName,
-    scope?.productId,
-  ].filter((level): level is string => Boolean(level));
-  if (levels.length > 0) {
-    return levels.join("/");
-  }
-
-  return importScope && importScope.length > 0 ? importScope : null;
-}
-
 // A context change submits the URL-backed import context as a CLIENT navigation
 // (`useSubmit`, method="get") rather than a full-document GET. The page stays
 // mounted, so the operator's open stage / scroll / selection survive, and the
@@ -222,13 +172,7 @@ function ProviderImportContextForm({
   }));
   const selectedUnit = units.find(({ unit }) => unit.unitKey === readModel.routeContext.unitKey)?.unit;
   const profileVersion = readModel.routeContext.profileVersion ?? selectedUnit?.activeProfile?.profileVersion ?? "";
-  // Build the guided scope fields from the synchronous (skeleton) slice: the
-  // declared option kinds and the operator's current scope selection are present
-  // immediately (they derive from the active profile + route context, not the
-  // fan-out), so the raw-importScope-vs-guided gate is decided at first paint and
-  // each guided select renders preselected. The full per-group option lists stream
-  // in behind the same deferred slice the status panel awaits.
-  const skeletonScopeFields = guidedSourceScopeFields(readModel);
+  const skeletonScopeFields = readModel.sourceOptions.guidedFields ?? [];
 
   return (
     <WorkbenchForm method="get" action="/catalog/integrations" onSubmit={(event) => submitImportContext(event, submit)}>
@@ -254,7 +198,7 @@ function ProviderImportContextForm({
             with option kinds get the structured selector below instead. As a
             free-text field it stays on the single confirming "Apply" path — the
             form's submit — rather than submitting per keystroke. */}
-        {skeletonScopeFields.length === 0 ? (
+        {readModel.sourceOptions.freeTextApplicable === true ? (
           <TextInput
             name="importScope"
             label={t("catalog.features.sourceObservations.ui.primaryWorkbench.importContext.scope")}
@@ -264,7 +208,6 @@ function ProviderImportContextForm({
       </WorkbenchFormGrid>
       {skeletonScopeFields.length > 0 ? (
         <DeferredGuidedSourceScopeFields
-          readModel={readModel}
           skeletonScopeFields={skeletonScopeFields}
           deferredSourceOptions={deferredSourceOptions}
           submit={submit}
@@ -380,12 +323,10 @@ function clearStaleImportContextHiddenState(form: HTMLFormElement): void {
 // is supplied (the other surfaces, or a test with a fully-populated read model),
 // the fields render synchronously from the read model's own slice.
 function DeferredGuidedSourceScopeFields({
-  readModel,
   skeletonScopeFields,
   deferredSourceOptions,
   submit,
 }: {
-  readModel: CatalogPrimaryWorkbenchReadModel;
   skeletonScopeFields: readonly CatalogPrimaryWorkbenchGuidedScopeField[];
   deferredSourceOptions: Promise<CatalogPrimaryWorkbenchReadModel["sourceOptions"]> | null;
   submit: SubmitFunction;
@@ -401,7 +342,7 @@ function DeferredGuidedSourceScopeFields({
         errorElement={<GuidedSourceScopeFields fields={skeletonScopeFields} submit={submit} />}
       >
         {(sourceOptions) => (
-          <GuidedSourceScopeFields fields={guidedSourceScopeFields({ ...readModel, sourceOptions })} submit={submit} />
+          <GuidedSourceScopeFields fields={sourceOptions.guidedFields ?? skeletonScopeFields} submit={submit} />
         )}
       </Await>
     </Suspense>

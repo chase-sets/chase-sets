@@ -147,6 +147,28 @@ it("derives the legacy producer partition from source with an unknown fail-close
   }
 });
 
+it("keeps the registration form's FORM copy for the coded existing-email 409 without echoing its message", () => {
+  const legacy = authApiActionError(new AuthApiError(409, { error: marker }), "password");
+  const coded = authApiActionError(
+    new AuthApiError(409, { error: { code: "email_already_taken", message: marker } }),
+    "password",
+  );
+  expect(coded).toEqual(legacy);
+  expect(coded).toMatchObject({
+    classification: "FORM",
+    error: t("auth.support.routeSupport.authHost.request.failed"),
+    errors: { fieldErrors: {} },
+  });
+  expect(JSON.stringify(coded)).not.toContain(marker);
+  for (const [status, body] of [
+    [403, { error: { code: "email_already_taken", message: marker } }],
+    [409, { error: { code: "email_already_taken", message: marker, accountId: "acc_marker" } }],
+    [409, { error: { code: "email_already_taken", message: marker }, sessionToken: marker }],
+  ] as const) {
+    expect(authApiActionError(new AuthApiError(status, body), "password").classification).toBe("INDETERMINATE");
+  }
+});
+
 it("rejects raw message and token markers at social destinations", () => {
   const file = source("../api-support/social-login-routes.ts");
   const routed = new Set<string>();

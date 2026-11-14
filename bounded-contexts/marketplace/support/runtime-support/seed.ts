@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type { PgQueryable, PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { catalogScenarioItems, catalogSeedIds } from "@chase-sets/catalog-seed";
@@ -21,7 +22,10 @@ import {
 } from "../../features/offers/domain/versioning";
 import { addReviewWindowDays, REVIEW_WINDOW_DAYS, type ReviewRole } from "../../features/reviews/domain/common";
 import { buildListingEvidenceSnapshot } from "../../features/listings/domain/evidence-snapshot";
-import type { MarketplaceListingPhotoUpload } from "../../features/listings/api/runtime";
+import type {
+  MarketplaceAuthoritativeListing,
+  MarketplaceListingPhotoUpload,
+} from "../../features/listings/api/runtime";
 import { quoteMarketplaceTerms } from "./fee-quotes";
 import { createMarketplaceServices, type MarketplaceServices } from "./services";
 import type { BcSeedAggregateStateReport } from "@chase-sets/bounded-context-module";
@@ -783,6 +787,42 @@ async function loadSeedListingState(db: PgQueryable, listingId: string) {
   return { committed, state: committed.reduce(evolveMarketplaceListing, initialMarketplaceListingState) };
 }
 
+/**
+ * Seed Listing writes decide from the complete owner stream (a partial, foreign or promoted-only history throws)
+ * and carry one attempt per command and decided version, so a repeat, restart or resume replays the first
+ * receipt instead of writing again, and a stream that moved after the decision conflicts.
+ */
+function readSeedListing(services: MarketplaceServices, accountId: string, listingId: string) {
+  return services.listings.readAuthoritativeListing({ accountId, listingId });
+}
+
+async function requireSeedListing(
+  services: MarketplaceServices,
+  accountId: string,
+  listingId: string,
+): Promise<Extract<MarketplaceAuthoritativeListing, { kind: "present" }>> {
+  const listing = await readSeedListing(services, accountId, listingId);
+  if (listing.kind === "absent")
+    throw new Error(
+      `${MARKETPLACE_BOOTSTRAP_LABEL} Listing '${listingId}' has no authoritative stream ` +
+        `'${marketplaceListingStreamId(listingId)}'; refusing to write.`,
+    );
+  return listing;
+}
+
+function seedListingAttemptKey(
+  command: "create" | "publish" | "pause" | "withdraw",
+  accountId: string,
+  listingId: string,
+  decidedVersion: number,
+) {
+  const digest = createHash("sha256")
+    .update(JSON.stringify(["marketplace-seed-listing", command, accountId, listingId, decidedVersion]))
+    .digest("hex")
+    .slice(0, 48);
+  return `seed_listing_${command}_${digest}`;
+}
+
 async function loadSeedOfferState(db: PgQueryable, offerId: string) {
   const committed = await loadSeedStreamEvents<MarketplaceOfferEvent>(db, marketplaceOfferStreamId(offerId));
   return { committed, state: committed.reduce(evolveMarketplaceOffer, initialMarketplaceOfferState) };
@@ -875,29 +915,25 @@ export async function seedMarketplaceDatabase(
     const accountId = listing.accountId ?? identitySeedIds.demo.accountId;
     const listingContext = createSeedContextFor(accountId, listing.userId ?? identitySeedIds.demo.userId);
     const seededListingId = listing.listingId;
-    const persisted = await loadSeedListingState(services.db, seededListingId);
-    if (persisted.state.listingId !== null && persisted.state.status === listing.finalStatus) {
+    let current = await readSeedListing(services, accountId, seededListingId);
+    if (current.kind === "present" && current.state.status === listing.finalStatus) {
       continue;
     }
-    if (
-      persisted.state.listingId !== null &&
-      String(persisted.state.inventoryItemId) !== String(listing.inventoryItemId)
-    ) {
+    if (current.kind === "present" && String(current.state.inventoryItemId) !== String(listing.inventoryItemId)) {
       throw new Error(
         `${MARKETPLACE_BOOTSTRAP_LABEL} Listing '${seededListingId}' expected inventory item ` +
-          `'${listing.inventoryItemId}', but found '${persisted.state.inventoryItemId ?? "null"}'. ` +
+          `'${listing.inventoryItemId}', but found '${current.state.inventoryItemId ?? "null"}'. ` +
           `Stream '${marketplaceListingStreamId(seededListingId)}'.`,
       );
     }
 
-    let feeQuoteFingerprint: string | null = null;
-    if (persisted.state.listingId === null) {
+    if (current.kind === "absent") {
       const supply = await services.listings.getInventoryItemSupply(listing.inventoryItemId, accountId);
       if (!supply) {
         continue;
       }
 
-      const createdListing = await services.listings.createListing(
+      await services.listings.createListing(
         {
           accountId,
           inventoryItemId: supply.item_id,
@@ -906,63 +942,62 @@ export async function seedMarketplaceDatabase(
           quantityCap: listing.quantityCap,
           listingIdOverride: seededListingId,
           listingPhotoUploads: [],
+          idempotencyKey: seedListingAttemptKey("create", accountId, seededListingId, 0),
         },
         listingContext,
       );
-      feeQuoteFingerprint = createdListing.feeQuoteFingerprint;
+      current = await requireSeedListing(services, accountId, seededListingId);
     }
 
-    if (listing.finalStatus !== "draft") {
-      const beforePublish = await services.listings.loadListingState(seededListingId);
-      if (beforePublish.status === "draft") {
-        if (
-          beforePublish.evidenceRequirements &&
-          beforePublish.evidenceRequirements.requirements.minimumPhotoCount > 0 &&
-          activeListingPhotos(beforePublish.evidence).length <
-            beforePublish.evidenceRequirements.requirements.minimumPhotoCount
-        ) {
-          await services.listings.addListingPhotos(
-            {
-              accountId,
-              listingId: seededListingId,
-              listingPhotoUploads: await buildSeedListingEvidenceUploads(listing, beforePublish.evidenceRequirements),
-            },
-            listingContext,
-          );
-        }
-        await services.listings.publishListing(
+    if (listing.finalStatus !== "draft" && current.state.status === "draft") {
+      const evidenceRequirements = current.state.evidenceRequirements;
+      if (
+        evidenceRequirements &&
+        evidenceRequirements.requirements.minimumPhotoCount > 0 &&
+        activeListingPhotos(current.state.evidence).length < evidenceRequirements.requirements.minimumPhotoCount
+      ) {
+        await services.listings.addListingPhotos(
           {
             accountId,
             listingId: seededListingId,
-            feeQuoteFingerprint:
-              feeQuoteFingerprint ?? (await services.listings.loadListingState(seededListingId)).feeQuoteFingerprint,
+            listingPhotoUploads: await buildSeedListingEvidenceUploads(listing, evidenceRequirements),
           },
           listingContext,
         );
+        current = await requireSeedListing(services, accountId, seededListingId);
       }
+      await services.listings.publishListing(
+        {
+          accountId,
+          listingId: seededListingId,
+          feeQuoteFingerprint: current.state.feeQuoteFingerprint,
+          expectedVersion: current.version,
+          idempotencyKey: seedListingAttemptKey("publish", accountId, seededListingId, current.version),
+        },
+        listingContext,
+      );
+      current = await requireSeedListing(services, accountId, seededListingId);
     }
 
-    if (
-      listing.finalStatus === "paused" &&
-      (await loadSeedListingState(services.db, seededListingId)).state.status !== "paused"
-    ) {
+    if (listing.finalStatus === "paused" && current.state.status !== "paused") {
       await services.listings.pauseListing(
         {
           accountId,
           listingId: seededListingId,
+          expectedVersion: current.version,
+          idempotencyKey: seedListingAttemptKey("pause", accountId, seededListingId, current.version),
         },
         listingContext,
       );
     }
 
-    if (
-      listing.finalStatus === "withdrawn" &&
-      (await loadSeedListingState(services.db, seededListingId)).state.status !== "withdrawn"
-    ) {
+    if (listing.finalStatus === "withdrawn" && current.state.status !== "withdrawn") {
       await services.listings.withdrawListing(
         {
           accountId,
           listingId: seededListingId,
+          expectedVersion: current.version,
+          idempotencyKey: seedListingAttemptKey("withdraw", accountId, seededListingId, current.version),
         },
         listingContext,
       );
@@ -1063,8 +1098,19 @@ async function withdrawStrayRepresentativeListings(
     [identityAnchorCatalogItemIds],
   );
 
+  // The projection only nominates candidates; each withdrawal decides from the complete owner stream.
   for (const row of result.rows) {
-    await services.listings.withdrawListing({ accountId: row.account_id, listingId: row.listing_id }, context);
+    const current = await requireSeedListing(services, row.account_id, row.listing_id);
+    if (current.state.status === "withdrawn") continue;
+    await services.listings.withdrawListing(
+      {
+        accountId: row.account_id,
+        listingId: row.listing_id,
+        expectedVersion: current.version,
+        idempotencyKey: seedListingAttemptKey("withdraw", row.account_id, row.listing_id, current.version),
+      },
+      context,
+    );
   }
 }
 

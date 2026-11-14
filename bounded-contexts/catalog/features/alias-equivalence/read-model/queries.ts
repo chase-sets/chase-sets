@@ -1,6 +1,14 @@
 import type { JsonValue } from "@chase-sets/primitives/json";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
-import { catalogIsoUtcTimestampColumns } from "../../../support/runtime-support/iso-utc-timestamp";
+import {
+  catalogIsoUtcTimestamp,
+  catalogIsoUtcTimestampColumns,
+} from "../../../support/runtime-support/iso-utc-timestamp";
+import type {
+  CatalogAttentionSourcePage,
+  CatalogAttentionSourceWindow,
+} from "../../attention-queue/read-model/attention-item";
+import { catalogAttentionItemParkedSql } from "../../attention-queue/read-model/dismissal-queries";
 import type { CatalogAliasReviewStateKey, CatalogAliasTargetKind, CatalogAliasTypeKey } from "../domain/alias";
 import { CATALOG_ALIAS_PUBLISHABLE_REVIEW_STATES } from "../domain/alias";
 
@@ -164,6 +172,51 @@ export async function listSourceObservationAliasCandidates(
   );
 
   return result.rows;
+}
+
+// The columns an attention-queue alias-candidate item needs, and no evidence payload.
+export type CatalogAliasCandidateAttentionRow = Pick<
+  CatalogAliasCandidateRow,
+  | "alias_hash"
+  | "target_kind"
+  | "target_id"
+  | "target_key"
+  | "alias_text"
+  | "alias_type"
+  | "confidence"
+  | "review_status"
+  | "provider_key"
+  | "first_observed_at"
+>;
+
+/**
+ * Attention queue: pending alias candidates. Counts the whole unparked pending
+ * cohort and reads one window in queue order (oldest first, then alias hash).
+ */
+export async function readPendingAliasCandidateAttentionWindow(
+  db: PgQueryable,
+  window: CatalogAttentionSourceWindow,
+): Promise<CatalogAttentionSourcePage<CatalogAliasCandidateAttentionRow>> {
+  const cohort = `FROM catalog_source_observation_alias_candidates candidate
+     WHERE candidate.review_status = 'pending'
+       AND NOT ${catalogAttentionItemParkedSql("'alias-candidate:' || candidate.alias_hash", "$1")}`;
+  const [count, page] = await Promise.all([
+    db.query<{ total: number }>(`SELECT COUNT(*)::integer AS total ${cohort}`, [window.now]),
+    window.limit > 0
+      ? db.query<CatalogAliasCandidateAttentionRow>(
+          `SELECT candidate.alias_hash, candidate.target_kind, candidate.target_id, candidate.target_key,
+                  candidate.alias_text, candidate.alias_type, candidate.confidence, candidate.review_status,
+                  candidate.provider_key,
+                  ${catalogIsoUtcTimestamp("candidate.first_observed_at", "first_observed_at")}
+           ${cohort}
+           ORDER BY candidate.first_observed_at ASC, candidate.alias_hash ASC
+           LIMIT $2 OFFSET $3`,
+          [window.now, window.limit, window.offset],
+        )
+      : Promise.resolve({ rows: [] }),
+  ]);
+
+  return { total: count.rows[0]?.total ?? 0, rows: page.rows };
 }
 
 /** Reapply / backfill: count candidates produced by a provider profile version. */

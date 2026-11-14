@@ -65,6 +65,7 @@ fn reason(t: InventoryMsg, code: &str) -> String {
         "correction" => t.item_adjustment_reason_correction().to_owned(),
         "intake" => t.item_adjustment_reason_intake().to_owned(),
         "return-restocked" => t.item_adjustment_reason_return_restocked().to_owned(),
+        "sale-consumed" => t.item_adjustment_reason_sale_consumed().to_owned(),
         other => other.to_owned(),
     }
 }
@@ -267,7 +268,7 @@ pub fn AdjustForm<'a>(t: InventoryMsg, m: Msg, viewer: &'a Viewer, screen: &'a I
         <WriteForm
             t={m}
             id={AdjustFormId}
-            action={url::StockAdjust { id }}
+            action={url::StockItem { id, place: Default::default(), check: Default::default() }}
             viewer={viewer}
             family={Family::ItemAdjust}
             target={id}

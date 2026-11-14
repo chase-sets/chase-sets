@@ -731,6 +731,10 @@ export type BcSchemaMigrationClient = Readonly<{
     text: string,
     values?: readonly unknown[],
   ): Promise<Readonly<{ rows: Row[]; rowCount?: number | null }>>;
+  /** Optional event-store append bound to the migration transaction. */
+  readonly appendToStreamsInTransaction?: (
+    inputs: readonly import("@chase-sets/event-core/storage").AppendToStreamInput[],
+  ) => Promise<readonly import("@chase-sets/event-core/event-store").AppendToStreamsResult[]>;
 }>;
 
 export type BcSchemaMigration = Readonly<{

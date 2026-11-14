@@ -130,7 +130,8 @@ describe("channels-connection-detail-operation-log", () => {
     expect(Object.keys(connection).sort()).toEqual(Object.keys(schema.properties).sort());
     expect(schema.properties.createdAt).toEqual({ type: "string", format: "date-time" });
     for (const [key, property] of Object.entries(schema.properties)) {
-      expect({ key, type: typeof connection[key] }).toEqual({ key, type: property.type });
+      const actualType = Array.isArray(connection[key]) ? "array" : typeof connection[key];
+      expect({ key, type: actualType }).toEqual({ key, type: property.type });
       if (property.enum) expect(property.enum).toContain(connection[key]);
       if (property.format === "date-time")
         expect(new Date(String(connection[key])).toISOString()).toBe(connection[key]);
@@ -189,6 +190,7 @@ function connections(): ChannelConnectionServices {
             environment: "sandbox",
             status: "active",
             createdAt: "2026-09-07T18:00:00.000Z",
+            allowedActions: ["pause", "disconnect"],
           }
         : null,
     listConnections: unavailable,

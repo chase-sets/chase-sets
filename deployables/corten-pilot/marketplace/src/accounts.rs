@@ -14,14 +14,17 @@
 //! unavailable, and asks not to be indexed. The seller's chips are best-effort: a failed read
 //! shows none.
 //!
-//! Not ported: the realtime patches to the account's listings and counts.
+//! The account's standing and its listings are drawn again on each change to the account
+//! (`live`), as marketplace's page follows the account's realtime topic; once the account is
+//! suspended, closed or gone, the page says so until it is loaded again.
 use corten::{
-    axum::http::{HeaderMap, StatusCode, Uri},
+    LiveResponse,
+    http::{HeaderMap, StatusCode, Uri},
     prelude::*,
 };
-use serde::Deserialize;
+use futures_util::StreamExt;
+use platform::realtime::Tick;
 
-use crate::chrome::Chrome;
 use crate::{
     api::{Caller, Discovery as _, ListingReport, Marketplace as _, MetricsChips, PublicAccount},
     app::{Shared, marketplace_origin, sign_in_at, url},
@@ -41,7 +44,7 @@ pub const MOST_DETAILS: usize = 1000;
 
 /// The address's parameters: the reviews' role and page, and the review a report was just
 /// received for.
-#[derive(Clone, Debug, Default, Deserialize, Fields, Route)]
+#[derive(Clone, Debug, Default, Fields, Route)]
 #[route(query)]
 pub struct AccountQuery {
     pub role: Option<String>,
@@ -144,7 +147,6 @@ fn page_number(text: Option<&str>) -> u64 {
 
 pub(crate) async fn page(
     req: Req,
-    chrome: Chrome,
     session: Option<corten::Caller<Session>>,
     State(config): State<Shared>,
     headers: HeaderMap,
@@ -169,7 +171,63 @@ pub(crate) async fn page(
     let notice = query.reported.filter(|id| !id.is_empty()).map(|id| (id, ReviewNotice::Submitted));
     let chips = chips(&caller, &account).await;
     let screen = AccountScreen { account, chips, role, page, notice };
-    render(&req, session, &screen, StatusCode::OK, chrome.cart().await)
+    render(&req, session, &screen, StatusCode::OK)
+}
+
+/// The page's parts for `<corten-live>` (discovery's `useRealtimePatchedSnapshot` on the account's
+/// topics): on each change to the account (`public-account:{id}`, which its listings' patches and
+/// its own name), the account is read again and its standing and listings are drawn again. The
+/// feedback is not: its Report review dialogs hold what the user typed, and no patch changes it.
+/// An account no longer active, or no longer found, replaces the page with that, and the stream
+/// ends, as marketplace's page keeps the account it removed until it is loaded again. Each fragment
+/// carries the realtime stream's cursor, so a reconnect goes on from there. Marketplace also
+/// listens to `public:market`; the account's own topic carries every change the page shows.
+pub(crate) async fn live(
+    req: Req,
+    State(config): State<Shared>,
+    headers: HeaderMap,
+    since: corten::LiveSince,
+    Params(route): Params<crate::app::url::accounts::AccountLive<'_>>,
+) -> LiveResponse {
+    let t: AccountMsg = req.t();
+    let id = route.id.to_owned();
+    let topic = format!("public-account:{id}");
+    let changes = config.platform.caller(&headers, config.proto, None).changes(&[&topic], since.0);
+    let fragments = changes
+        .take_while(|tick| std::future::ready(!matches!(tick, Tick::Refused(_))))
+        .filter_map(|tick| {
+            std::future::ready(match tick {
+                Tick::Changed(cursor, _) => Some(cursor),
+                // The page was drawn just now; a reconnect resumes from its last cursor.
+                Tick::Opened(_) | Tick::Refused(_) => None,
+            })
+        })
+        .then(move |cursor| {
+            let (config, headers, id) = (config.clone(), headers.clone(), id.clone());
+            async move {
+                let caller = config.platform.caller(&headers, config.proto, None);
+                let account = match caller.public_account(&id, &format!("limit={REVIEWS_PER_PAGE}&offset=0")).await {
+                    Ok(account) => account,
+                    Err(error) => {
+                        tracing::warn!("the account's read for a change failed: {error}");
+                        return None;
+                    }
+                };
+                let ends = account.as_ref().is_none_or(|a| a.status != "active");
+                let html = views::account_live_parts(t, account.as_ref()).to_html();
+                let part = match cursor {
+                    Some(cursor) => corten::Fragment::new(html).cursor(cursor),
+                    None => corten::Fragment::new(html),
+                };
+                Some((part, ends))
+            }
+        })
+        .filter_map(std::future::ready)
+        // The part that says the account is unavailable is the last: the stream ends after it.
+        .flat_map(|(part, ends)| futures_util::stream::iter(std::iter::once(Some(part)).chain(ends.then_some(None))))
+        .take_while(|part| std::future::ready(part.is_some()))
+        .filter_map(std::future::ready);
+    corten::live(fragments)
 }
 
 /// The account with the page of reviews asked for; a 404 when there is none, a 502 when the read
@@ -202,7 +260,7 @@ async fn chips(caller: &Caller<'_>, account: &PublicAccount) -> Option<MetricsCh
 }
 
 /// The page, with what happened to a form it was sent from.
-fn render(req: &Req, session: Option<&Session>, screen: &AccountScreen, status: StatusCode, cart: Option<u64>) -> HtmlResult {
+fn render(req: &Req, session: Option<&Session>, screen: &AccountScreen, status: StatusCode) -> HtmlResult {
     let t: AccountMsg = req.t();
     let p: Pilot = req.t();
     let account = &screen.account;
@@ -230,7 +288,7 @@ fn render(req: &Req, session: Option<&Session>, screen: &AccountScreen, status: 
     req.page_with_status(
         status,
         html! {
-            <views::Layout req={req} viewer={viewer} cart={cart} title={&title} head={head}>
+            <views::Layout req={req} viewer={viewer} title={&title} head={head}>
                 <views::AccountPage t={t} p={p} screen={screen} />
             </views::Layout>
         },
@@ -247,7 +305,6 @@ fn field<'a>(raw: &'a Raw, name: &str) -> &'a str {
 /// a refusal draws the review's dialog open again with what was sent.
 pub(crate) async fn report_review(
     req: Req,
-    chrome: Chrome,
     session: Option<corten::Caller<Session>>,
     State(config): State<Shared>,
     headers: HeaderMap,
@@ -269,22 +326,17 @@ pub(crate) async fn report_review(
         details: details.to_owned(),
     };
     let mut screen = AccountScreen { account, chips: None, role, page, notice: None };
-    let again = |cart: Option<u64>, mut screen: AccountScreen, notice: ReviewNotice, status: StatusCode| {
+    let again = |mut screen: AccountScreen, notice: ReviewNotice, status: StatusCode| {
         screen.notice = Some((review.clone(), notice));
-        render(&req, session, &screen, status, cart)
+        render(&req, session, &screen, status)
     };
     if !REASONS.contains(&reason) {
         screen.chips = chips(&caller, &screen.account).await;
-        return again(chrome.cart().await, screen, refused(p.account_report_reason_required()), StatusCode::UNPROCESSABLE_ENTITY);
+        return again(screen, refused(p.account_report_reason_required()), StatusCode::UNPROCESSABLE_ENTITY);
     }
     if details.encode_utf16().count() > MOST_DETAILS {
         screen.chips = chips(&caller, &screen.account).await;
-        return again(
-            chrome.cart().await,
-            screen,
-            refused(p.account_report_details_too_long()),
-            StatusCode::UNPROCESSABLE_ENTITY,
-        );
+        return again(screen, refused(p.account_report_details_too_long()), StatusCode::UNPROCESSABLE_ENTITY);
     }
     let path = format!("/accounts/{}", screen.account.account_slug);
     let body = ListingReport { reason, details: (!details.is_empty()).then_some(details), source_route_path: &path };
@@ -297,16 +349,14 @@ pub(crate) async fn report_review(
         Err(error) => {
             screen.chips = chips(&caller, &screen.account).await;
             match (error.status(), error.code()) {
-                (_, Some("report_already_submitted")) => {
-                    again(chrome.cart().await, screen, ReviewNotice::Already, StatusCode::CONFLICT)
-                }
+                (_, Some("report_already_submitted")) => again(screen, ReviewNotice::Already, StatusCode::CONFLICT),
                 (Some(StatusCode::UNAUTHORIZED), _) => sign_in(&req, &screen.account.account_slug),
                 (Some(StatusCode::TOO_MANY_REQUESTS), _) => {
-                    again(chrome.cart().await, screen, refused(p.account_report_limited()), StatusCode::TOO_MANY_REQUESTS)
+                    again(screen, refused(p.account_report_limited()), StatusCode::TOO_MANY_REQUESTS)
                 }
                 (Some(status), _) if status.is_client_error() => {
                     let message = error.refusal().map_or_else(|| p.account_report_refused().to_owned(), str::to_owned);
-                    again(chrome.cart().await, screen, refused(&message), StatusCode::UNPROCESSABLE_ENTITY)
+                    again(screen, refused(&message), StatusCode::UNPROCESSABLE_ENTITY)
                 }
                 _ => Err(corten::Error::new(error).with_status(StatusCode::BAD_GATEWAY)),
             }

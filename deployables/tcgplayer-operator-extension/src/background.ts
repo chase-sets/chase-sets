@@ -20,7 +20,7 @@ const adapters: OperatorAdapters = {
 const background = createOperatorBackground(adapters);
 chrome.runtime.onMessage.addListener((message: unknown, sender, respond) => {
   void background
-    .receiveSetNames(
+    .receiveSetNamePost(
       message,
       { id: sender.id, url: sender.url, origin: sender.origin, hasTab: sender.tab !== undefined },
       chrome.runtime.id,
@@ -31,12 +31,24 @@ chrome.runtime.onMessage.addListener((message: unknown, sender, respond) => {
         return;
       }
       return background
-        .receive(
+        .receiveSetNames(
           message,
           { id: sender.id, url: sender.url, origin: sender.origin, hasTab: sender.tab !== undefined },
           chrome.runtime.id,
         )
-        .then(respond);
+        .then((probeResult) => {
+          if (probeResult !== null) {
+            respond(probeResult);
+            return;
+          }
+          return background
+            .receive(
+              message,
+              { id: sender.id, url: sender.url, origin: sender.origin, hasTab: sender.tab !== undefined },
+              chrome.runtime.id,
+            )
+            .then(respond);
+        });
     });
   return true;
 });

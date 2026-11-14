@@ -9,8 +9,8 @@ import { createNoopCommercialTermsResolver } from "@chase-sets/commercial-terms/
 import { isChannelsServices } from "@chase-sets/channels/server";
 import { module as channelsModule } from "@chase-sets/channels";
 import { createPlatformApiHost } from "../src/app";
-import { apiContextRegistry } from "../src/generated/api-context-registry";
-import { workerContextRegistry } from "../../platform-worker/src/generated/worker-context-registry";
+import { apiContextRegistry } from "../src/context-registry";
+import { workerContextRegistry } from "../../platform-worker/src/context-registry";
 import { createPlatformChannelSaleRecorder } from "../../platform-worker/src/channels-reconciliation-runners";
 import {
   createFakePaymentProcessorGateway,

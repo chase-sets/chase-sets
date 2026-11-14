@@ -449,8 +449,16 @@ export function createProjectionWakeSchedulerRunners(options: ProjectionWakeSche
             blockedStreamCount = status.blockedStreamCount;
             poisonEventCount = status.poisonEventCount;
             if (position >= requiredPosition || !progressed) {
-              return;
+              break;
             }
+          }
+
+          if (checkpointPosition < requiredPosition) {
+            // A concurrent refresh may have overwritten the run's cached progress.
+            const statusAfter = await subscription.refreshStatus();
+            checkpointPosition = BigInt(statusAfter.lastGlobalPosition);
+            blockedStreamCount = statusAfter.blockedStreamCount;
+            poisonEventCount = statusAfter.poisonEventCount;
           }
         },
       );

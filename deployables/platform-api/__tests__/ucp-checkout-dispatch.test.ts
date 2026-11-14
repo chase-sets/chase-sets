@@ -183,6 +183,7 @@ function fixture(
           readSessionForCancellation,
           createBuyNow,
           resolveEntryAttempt: vi.fn(async () => null),
+          firstPreviewShippingAddress: vi.fn(async () => null),
           recordFulfillmentPreview,
           recordOrdersCreated,
           recordPaymentStarted,

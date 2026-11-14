@@ -43,6 +43,8 @@ function scope(overrides: Partial<CatalogScopeRecordDetail> = {}): CatalogScopeR
     languageEditions: ["en", "ja"],
     lifecycleStatus: "active",
     updatedAt: GENERATED_AT,
+    promotionReadiness: "live",
+    syncFreshness: "fresh",
     ...overrides,
   };
 }
@@ -243,7 +245,7 @@ describe("CatalogScopeLandingPage", () => {
 
   it("shows a stale-sync signal for a scope whose projection has not advanced recently", () => {
     renderLanding({
-      scopes: { items: [scope({ updatedAt: "2026-01-01T00:00:00.000Z" })], total: 1, count: 1 },
+      scopes: { items: [scope({ updatedAt: "2026-01-01T00:00:00.000Z", syncFreshness: "stale" })], total: 1, count: 1 },
     });
 
     expect(screen.getAllByText("Stale sync").length).toBeGreaterThan(0);
@@ -353,5 +355,25 @@ describe("CatalogScopeLandingPage", () => {
       attentionQueue: { status: "unavailable" },
     });
     expect(screen.getByText(/attention queue/i)).toBeTruthy();
+  });
+
+  it("links the queue's next page while keeping the Scope Record filters and pager", () => {
+    renderLanding({
+      scopes: { items: [scope()], total: 1, count: 1 },
+      url: "https://admin.example/catalog/scopes?status=active&page=2",
+      attentionQueue: {
+        status: "ready",
+        readModel: catalogAttentionQueueReadModelFixture(undefined, undefined, {
+          cohorts: { "alias-candidate": { total: 5027 } },
+        }),
+        navigation: { pathname: "/catalog/scopes", search: "status=active&page=2" },
+      },
+    });
+    const coverage = document.querySelector<HTMLElement>('[data-attention-coverage-kind="alias-candidate"]');
+    expect(coverage?.textContent).toContain("Showing 1 of 5,027");
+    const next = document.querySelector<HTMLAnchorElement>('[data-attention-page="next"]');
+    expect(next?.getAttribute("href")).toBe(
+      "/catalog/scopes?status=active&page=2&attentionKind=alias-candidate&attentionOffset=1",
+    );
   });
 });

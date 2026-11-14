@@ -60,6 +60,7 @@ export async function coordinatorFixture(unit: "operation" | "reservation" = "op
   const settlement: NonNullable<ExecutorResult["runSettlement"]> = {
     runId: "synthetic-run",
     expectedRunRevision: 1,
+    stagedReadback: null,
     fromState: "claimed",
     toState: "applied",
     verificationSnapshotId: null,

@@ -6,7 +6,7 @@ import {
   type HostRouteConfigRecord,
 } from "@chase-sets/platform-runtime/web-route-config";
 import { describe, expect, it } from "vitest";
-import { webContextRegistry } from "./generated/web-context-registry";
+import { webContextRegistry } from "./context-registry";
 import { resolveAdminWebRouteConfigRecords } from "./host";
 
 // Exhaustive over the contract's closed union: adding or removing a code there is a typecheck error here.

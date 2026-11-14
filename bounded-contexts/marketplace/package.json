@@ -50,7 +50,7 @@
     "@chase-sets/seller-desk": "workspace:*",
     "hono": "^4.13.13",
     "sharp": "^0.35.5",
-    "zod": "^4.4.3"
+    "zod": "^4.6.6"
   },
   "devDependencies": {
     "vitest": "^4.1.4"

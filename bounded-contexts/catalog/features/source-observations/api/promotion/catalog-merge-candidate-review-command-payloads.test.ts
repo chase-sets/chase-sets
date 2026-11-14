@@ -1,9 +1,41 @@
 import { describe, expect, it } from "vitest";
 import type { CatalogMergeCandidateListRow } from "../../read-model/queries";
-import { previewCatalogMergeCandidateReviewCommand } from "./catalog-merge-candidate-review-command-payloads";
+import {
+  planCatalogMergeCandidateSplit,
+  previewCatalogMergeCandidateReviewCommand,
+  snapshotFromReviewRow,
+} from "./catalog-merge-candidate-review-command-payloads";
 
 describe("Catalog Merge Candidate review command payloads", () => {
-  it("builds an update Product mapping body from the review row snapshot and provenance", () => {
+  it.each(["ready", "has-conflicts"] as const)(
+    "builds promote for %s without split or mapping prerequisites",
+    (status) => {
+      const row = { ...candidateRow(), status, membership_json: [], proposed_external_product_references_json: [] };
+      const result = previewCatalogMergeCandidateReviewCommand(row, "candidate.promote");
+      expect(result).toMatchObject({
+        status: "available",
+        blockers: [],
+        preview: {
+          commandKey: "candidate.promote",
+          commandKind: "promote-catalog-merge-candidate",
+          route: {
+            method: "POST",
+            path: "/api/catalog/source-observations/admin/merge-candidates/:candidateId/promote",
+            candidateId: row.candidate_id,
+          },
+          body: { expectedVersion: 7, reason: "Promote from the scope-first Catalog sync workbench." },
+        },
+      });
+    },
+  );
+
+  it.each(["stale", "promoted", "rejected", "deferred"] as const)("omits promote preview for %s", (status) => {
+    expect(previewCatalogMergeCandidateReviewCommand({ ...candidateRow(), status }, "candidate.promote")).toMatchObject(
+      { status: "blocked", preview: null },
+    );
+  });
+
+  it("builds an update Product mapping body that names the candidate version, not a snapshot", () => {
     const result = previewCatalogMergeCandidateReviewCommand(candidateRow(), "candidate.edit");
 
     expect(result.status).toBe("available");
@@ -20,20 +52,11 @@ describe("Catalog Merge Candidate review command payloads", () => {
       path: "/api/catalog/source-observations/admin/merge-candidates/:candidateId/update",
       candidateId: "cand_pokemon_base1_004_standard",
     });
-    expect(result.preview.body.snapshot).toMatchObject({
-      identityFingerprint: "sha256:candidate-identity",
-      membership: [
-        expect.objectContaining({ observationId: "obs_tcgdex_004" }),
-        expect.objectContaining({ observationId: "obs_tcgplayer_004" }),
-      ],
-      proposedExternalProductReferences: [
-        {
-          providerKey: "tcgplayer",
-          externalKey: "sku:123",
-          selectedOptions: [{ dimensionId: "condition", optionId: "near-mint" }],
-          reviewEvidence: { source: "tcgplayer-sku" },
-        },
-      ],
+    // The page names the version it read; the Catalog API applies the (empty) edit to its own snapshot.
+    expect(result.preview.body).toEqual({
+      reason: expect.any(String),
+      expectedVersion: 7,
+      edit: {},
     });
     expect(result.preview.preview).toEqual({
       productReferenceCount: 1,
@@ -59,17 +82,40 @@ describe("Catalog Merge Candidate review command payloads", () => {
     }
 
     expect(result.preview.commandKind).toBe("split-catalog-merge-candidate-by-source-membership");
-    expect(result.preview.body.splitCandidateId).toBe("cand_pokemon_base1_004_standard__split__obs_tcgplayer_004");
-    expect(result.preview.body.remainingSnapshot.membership).toEqual([
+    expect(result.preview.body).toEqual({
+      reason: expect.any(String),
+      expectedVersion: 7,
+      splitObservationIds: ["obs_tcgplayer_004"],
+    });
+    expect(result.preview.preview).toEqual({
+      remainingObservationIds: ["obs_tcgdex_004"],
+      splitObservationIds: ["obs_tcgplayer_004"],
+      remainingProductReferenceCount: 0,
+      splitProductReferenceCount: 1,
+    });
+  });
+
+  it("plans a split's two snapshots and the split candidate's id from the stored snapshot", () => {
+    const snapshot = snapshotFromReviewRow(candidateRow());
+    if (!snapshot) {
+      throw new Error("Expected a review snapshot.");
+    }
+    const planned = planCatalogMergeCandidateSplit("cand_pokemon_base1_004_standard", snapshot, ["obs_tcgplayer_004"]);
+    if (!planned.ok) {
+      throw new Error(`Expected a split plan, got ${planned.blocker}.`);
+    }
+
+    expect(planned.plan.splitCandidateId).toBe("cand_pokemon_base1_004_standard__split__obs_tcgplayer_004");
+    expect(planned.plan.remainingSnapshot.membership).toEqual([
       expect.objectContaining({ observationId: "obs_tcgdex_004" }),
     ]);
-    expect(result.preview.body.splitSnapshot.membership).toEqual([
+    expect(planned.plan.splitSnapshot.membership).toEqual([
       expect.objectContaining({ observationId: "obs_tcgplayer_004" }),
     ]);
-    expect(result.preview.body.remainingSnapshot.proposedExternalCatalogItemReferences).toEqual([
+    expect(planned.plan.remainingSnapshot.proposedExternalCatalogItemReferences).toEqual([
       { providerKey: "tcgdex", externalKey: "base1-4" },
     ]);
-    expect(result.preview.body.splitSnapshot.proposedExternalProductReferences).toEqual([
+    expect(planned.plan.splitSnapshot.proposedExternalProductReferences).toEqual([
       {
         providerKey: "tcgplayer",
         externalKey: "sku:123",
@@ -77,11 +123,28 @@ describe("Catalog Merge Candidate review command payloads", () => {
         reviewEvidence: { source: "tcgplayer-sku" },
       },
     ]);
-    expect(result.preview.preview).toEqual({
-      remainingObservationIds: ["obs_tcgdex_004"],
-      splitObservationIds: ["obs_tcgplayer_004"],
-      remainingProductReferenceCount: 0,
-      splitProductReferenceCount: 1,
+  });
+
+  it("refuses a split that names a non-member, takes every member, or leaves a side without a reference", () => {
+    const snapshot = snapshotFromReviewRow(candidateRow());
+    if (!snapshot) {
+      throw new Error("Expected a review snapshot.");
+    }
+    const id = "cand_pokemon_base1_004_standard";
+
+    expect(planCatalogMergeCandidateSplit(id, snapshot, ["obs_elsewhere"])).toEqual({
+      ok: false,
+      blocker: "split-selection-invalid",
+    });
+    expect(planCatalogMergeCandidateSplit(id, snapshot, [])).toEqual({ ok: false, blocker: "split-selection-invalid" });
+    expect(planCatalogMergeCandidateSplit(id, snapshot, ["obs_tcgdex_004", "obs_tcgplayer_004"])).toEqual({
+      ok: false,
+      blocker: "split-requires-two-members",
+    });
+    const unseparable = { ...snapshot, proposedExternalCatalogItemReferences: [] };
+    expect(planCatalogMergeCandidateSplit(id, unseparable, ["obs_tcgplayer_004"])).toEqual({
+      ok: false,
+      blocker: "split-requires-separable-reference-provenance",
     });
   });
 
@@ -186,6 +249,7 @@ function candidateRow(overrides: Partial<CatalogMergeCandidateListRow> = {}): Ca
     created_at: "2026-06-09T01:02:00.000Z",
     updated_at: "2026-06-09T01:03:00.000Z",
     stale_at: null,
+    last_stream_version: 7,
     observation_count: 2,
     ...overrides,
   };

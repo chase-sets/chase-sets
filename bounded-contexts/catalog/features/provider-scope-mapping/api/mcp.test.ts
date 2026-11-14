@@ -187,6 +187,7 @@ describe("Provider Scope Mapping MCP handlers", () => {
     const registry = { listScopeRecords: vi.fn().mockResolvedValue({ items: [], total: 0 }), getScopeRecord: vi.fn() };
     const rh = createScopeRegistryMcpHandlers(registry as never).toolHandlers;
     await expect(rh["catalog.list-scope-records"]!({ actor: operator, arguments: {} } as never)).resolves.toEqual({
+      generatedAt: expect.any(String),
       items: [],
       total: 0,
       count: 0,

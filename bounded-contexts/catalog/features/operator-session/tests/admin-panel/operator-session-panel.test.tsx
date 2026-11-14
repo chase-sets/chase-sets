@@ -69,6 +69,12 @@ beforeEach(() => {
     readModel: providerReadModel(request.url),
     requestUrl: request.url,
     commandFeedback: null,
+    providerRefreshSchedules: [],
+    operatorSession: new URL(request.url).pathname === "/catalog/providers/tcgplayer",
+    operatorSessionActorKey:
+      new URL(request.url).pathname === "/catalog/providers/tcgplayer"
+        ? "user-synthetic-1:membership-user-synthetic-1"
+        : null,
   }));
 });
 
@@ -299,21 +305,27 @@ describe("AC2 gating through the provider-detail route", () => {
     await waitFor(() => expect(http.requests).toEqual([`GET ${metadataPath}`]));
   });
 
-  it.each([
-    ["a non-platform-admin actor", () => mocks.resolveActor.mockResolvedValue(actor("catalog-admin"))],
-    ["an anonymous request", () => mocks.resolveActor.mockResolvedValue(null)],
-    ["a failed actor resolution", () => mocks.resolveActor.mockRejectedValue(new Error(hostileMarker))],
-  ])("hides the section from %s on TCGplayer", async (_label, arrange) => {
-    arrange();
-    await renderProviderRoute();
+  it.each([["a non-platform-admin actor"], ["an anonymous request"], ["a failed actor resolution"]])(
+    "hides the section from %s on TCGplayer",
+    async () => {
+      mocks.loadHealthSurface.mockImplementation(async ({ request }: { request: Request }) => ({
+        readModel: providerReadModel(request.url),
+        requestUrl: request.url,
+        commandFeedback: null,
+        providerRefreshSchedules: [],
+        operatorSession: false,
+        operatorSessionActorKey: null,
+      }));
+      await renderProviderRoute();
 
-    const page = await findProviderPage();
-    expect(page.textContent).toContain("tcgplayer");
-    expect(page.querySelector("[data-catalog-operator-session-panel]")).toBeNull();
-    expect(page.textContent).not.toContain("Operator session");
-    expect(mocks.resolveActor).toHaveBeenCalledTimes(1);
-    expect(http.requests).toEqual([]);
-  });
+      const page = await findProviderPage();
+      expect(page.textContent).toContain("tcgplayer");
+      expect(page.querySelector("[data-catalog-operator-session-panel]")).toBeNull();
+      expect(page.textContent).not.toContain("Operator session");
+      expect(mocks.resolveActor).not.toHaveBeenCalled();
+      expect(http.requests).toEqual([]);
+    },
+  );
 
   it("hides the section from a platform-admin actor on another provider", async () => {
     await renderProviderRoute("/catalog/providers/tcgdex");
@@ -500,10 +512,17 @@ describe("AC3 pair and Disconnect through the mounted provider-detail route", ()
     const mint = http.defer("POST", grantPath);
     fireEvent.click(await within(panel).findByRole("button", { name: "Pair extension" }));
 
-    mocks.resolveActor.mockResolvedValue(actor("platform-admin", "user-synthetic-2"));
+    mocks.loadHealthSurface.mockImplementation(async ({ request }: { request: Request }) => ({
+      readModel: providerReadModel(request.url),
+      requestUrl: request.url,
+      commandFeedback: null,
+      providerRefreshSchedules: [],
+      operatorSession: true,
+      operatorSessionActorKey: "user-synthetic-2:membership-user-synthetic-2",
+    }));
     http.reply("GET", metadataPath, 200, absentMetadata());
     await act(() => router.revalidate());
-    expect(mocks.resolveActor).toHaveBeenCalledTimes(2);
+    expect(mocks.resolveActor).not.toHaveBeenCalled();
     expect(router.state.loaderData["0"]?.operatorSessionActorKey).toBe("user-synthetic-2:membership-user-synthetic-2");
     await waitFor(() => expect(http.requests).toHaveLength(3));
     await act(async () => mint.reply(200, { grant: syntheticGrant, idleExpiresAt: activeGrant.idleExpiresAt }));

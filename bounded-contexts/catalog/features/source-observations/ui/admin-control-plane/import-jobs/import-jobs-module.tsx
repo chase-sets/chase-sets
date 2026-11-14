@@ -1,3 +1,7 @@
+import type {
+  CatalogDailyImportPreview,
+  CatalogImportPreviewUsageSummary,
+} from "../../../api/admin/daily-import-preview";
 import { Suspense, useMemo, useState } from "react";
 import { Await } from "react-router";
 import {
@@ -72,7 +76,7 @@ export function CatalogIntegrationImportJobsModule({
 }: Readonly<{
   readModel: CatalogPrimaryWorkbenchReadModel;
   commandFeedback?: CatalogPrimaryWorkbenchCommandFeedback | null;
-  deferredImportPreview?: Promise<SourceObservationIntegrationImportPreview | null> | null;
+  deferredImportPreview?: Promise<CatalogDailyImportPreview> | null;
 }>) {
   // Live progress: while a durable import is active and the tab is visible, the
   // loader revalidates on a bounded interval and `jobProgress` carries the
@@ -387,7 +391,6 @@ export function CatalogIntegrationImportJobsModule({
             <DeferredImportPreviewEvidence
               deferredImportPreview={deferredImportPreview}
               previewKey={importPreviewRouteKey(readModel.routeContext)}
-              routeContext={readModel.routeContext}
             />
           </WorkbenchGridSpan>
         </WorkbenchGrid>
@@ -550,11 +553,9 @@ function pendingImportJobDiscoveryKey(
 function DeferredImportPreviewEvidence({
   deferredImportPreview,
   previewKey,
-  routeContext,
 }: Readonly<{
-  deferredImportPreview: Promise<SourceObservationIntegrationImportPreview | null> | null;
+  deferredImportPreview: Promise<CatalogDailyImportPreview> | null;
   previewKey: string;
-  routeContext: CatalogPrimaryWorkbenchReadModel["routeContext"];
 }>) {
   if (!deferredImportPreview) {
     return null;
@@ -583,9 +584,17 @@ function DeferredImportPreviewEvidence({
           />
         }
       >
-        {(preview) =>
-          preview && importPreviewMatchesRouteContext(preview, routeContext) ? (
-            <ImportPreviewEvidence preview={preview} />
+        {(answer: CatalogDailyImportPreview) =>
+          answer?.status === "ready" ? (
+            <ImportPreviewEvidence preview={answer.preview} usage={answer.usageSummary} />
+          ) : answer?.status === "unavailable" ? (
+            <OperationalStatusBanner
+              tone="warning"
+              role="status"
+              data-catalog-deferred-panel="unavailable"
+              title={t("catalog.features.sourceObservations.ui.primaryWorkbench.import.preview.title")}
+              description={t("catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.unavailable")}
+            />
           ) : null
         }
       </Await>
@@ -595,10 +604,11 @@ function DeferredImportPreviewEvidence({
 
 function ImportPreviewEvidence({
   preview,
+  usage,
 }: Readonly<{
   preview: SourceObservationIntegrationImportPreview;
+  usage: CatalogImportPreviewUsageSummary;
 }>) {
-  const usage = previewUsageSummary(preview.targets);
   const transportSteps = uniqueStrings(preview.targets.flatMap((target) => target.transportSteps));
 
   return (
@@ -740,123 +750,6 @@ function importPreviewScopeKey(scope: SourceObservationIntegrationImportPreview[
     .join(":");
 }
 
-export function importPreviewMatchesRouteContext(
-  preview: SourceObservationIntegrationImportPreview,
-  routeContext: CatalogPrimaryWorkbenchReadModel["routeContext"],
-): boolean {
-  return (
-    scopeFieldMatches(preview.providerKey, routeContext.providerKey) &&
-    scopeFieldMatches(preview.scope.provider, routeContext.providerKey) &&
-    scopeFieldMatches(preview.scope.ingestionUnitKey, routeContext.unitKey) &&
-    (preview.scope.productId ?? null) === (routeContext.scope?.productId ?? null) &&
-    scopeFieldMatches(preview.scope.language, routeContext.scope?.languageCode) &&
-    scopeFieldMatches(preview.scope.productLineId, routeContext.scope?.productLineId) &&
-    scopeFieldMatches(preview.scope.seriesId, routeContext.scope?.seriesId) &&
-    scopeAnyFieldMatches(
-      [preview.scope.setId, preview.scope.setName],
-      [routeContext.scope?.expansionId, routeContext.scope?.expansionName],
-    )
-  );
-}
-
-function scopeFieldMatches(actual: string | null | undefined, expected: string | null | undefined): boolean {
-  const expectedValue = normalizedScopeValue(expected);
-  if (!expectedValue) {
-    return true;
-  }
-
-  return normalizedScopeValue(actual) === expectedValue;
-}
-
-function scopeAnyFieldMatches(
-  actuals: readonly (string | null | undefined)[],
-  expecteds: readonly (string | null | undefined)[],
-): boolean {
-  const expectedValues = expecteds.map(normalizedScopeValue).filter((value): value is string => Boolean(value));
-  if (expectedValues.length === 0) {
-    return true;
-  }
-  const actualValues = new Set(actuals.map(normalizedScopeValue).filter((value): value is string => Boolean(value)));
-
-  return expectedValues.some((expected) => actualValues.has(expected));
-}
-
-function normalizedScopeValue(value: string | null | undefined): string | null {
-  const normalized = value?.trim().toLowerCase();
-  return normalized || null;
-}
-
-type ImportPreviewUsageSummary = Readonly<{
-  requestStrategy: SourceObservationProviderUsageEstimate["requestStrategy"] | null;
-  estimateState: SourceObservationProviderUsageEstimate["estimateState"] | null;
-  estimatedRequestCount: number | null;
-  estimateReason: string | null;
-  usageCheckState: SourceObservationProviderUsageEstimate["usageCheckState"] | null;
-  pageSize: number | null;
-  selectedFields: readonly string[];
-  perRecordFallbackReason: string | null;
-  creditDiagnostic: string | null;
-  degradedDiagnostic: string | null;
-}>;
-
-function previewUsageSummary(
-  targets: readonly SourceObservationIntegrationImportPreviewTarget[],
-): ImportPreviewUsageSummary {
-  const estimates = targets.map((target) => target.usageEstimate).filter(isUsageEstimate);
-  if (estimates.length === 0) {
-    return {
-      requestStrategy: null,
-      estimateState: null,
-      estimatedRequestCount: null,
-      estimateReason: null,
-      usageCheckState: null,
-      pageSize: null,
-      selectedFields: [],
-      perRecordFallbackReason: null,
-      creditDiagnostic: null,
-      degradedDiagnostic: null,
-    };
-  }
-
-  const estimatedRequestCount = estimates.every((estimate) => estimate.estimatedRequestCount !== null)
-    ? sum(estimates, (estimate) => estimate.estimatedRequestCount ?? 0)
-    : null;
-
-  return {
-    requestStrategy: commonValue(estimates.map((estimate) => estimate.requestStrategy)),
-    estimateState: estimates.some((estimate) => estimate.estimateState === "estimate-unavailable")
-      ? "estimate-unavailable"
-      : "estimated",
-    estimatedRequestCount,
-    estimateReason:
-      (
-        estimates.find((estimate) => estimate.estimateState === "estimate-unavailable" && estimate.estimateReason) ??
-        estimates.find((estimate) => estimate.estimateReason)
-      )?.estimateReason ?? null,
-    usageCheckState: commonValue(estimates.map((estimate) => estimate.usageCheckState)),
-    pageSize: commonValue(estimates.map((estimate) => estimate.pageSize)),
-    selectedFields: uniqueStrings(estimates.flatMap((estimate) => estimate.selectedFields)),
-    perRecordFallbackReason:
-      estimates.find((estimate) => estimate.perRecordFallbackReason)?.perRecordFallbackReason ?? null,
-    creditDiagnostic: estimates.find((estimate) => estimate.creditDiagnostic)?.creditDiagnostic ?? null,
-    degradedDiagnostic: estimates.find((estimate) => estimate.degradedDiagnostic)?.degradedDiagnostic ?? null,
-  };
-}
-
-function isUsageEstimate(
-  value: SourceObservationProviderUsageEstimate | null,
-): value is SourceObservationProviderUsageEstimate {
-  return value !== null;
-}
-
-function commonValue<T>(values: readonly T[]): T | null {
-  const [first, ...rest] = values;
-  if (first === undefined) {
-    return null;
-  }
-  return rest.every((value) => value === first) ? first : null;
-}
-
 function uniqueStrings(values: readonly string[]): readonly string[] {
   return [...new Set(values.filter(Boolean))];
 }
@@ -865,7 +758,7 @@ function sum<T>(items: readonly T[], value: (item: T) => number): number {
   return items.reduce((total, item) => total + value(item), 0);
 }
 
-function formatEstimatedRequests(usage: ImportPreviewUsageSummary): string {
+function formatEstimatedRequests(usage: CatalogImportPreviewUsageSummary): string {
   if (usage.estimatedRequestCount !== null) {
     return String(usage.estimatedRequestCount);
   }

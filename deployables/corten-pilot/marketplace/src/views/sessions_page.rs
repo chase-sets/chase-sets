@@ -47,7 +47,10 @@ pub fn status(t: SessionsMsg, value: &str) -> String {
         known,
         t.value_family_session_status(),
         value,
-        |f, v| t.value_unrecognized_with_value(f, v).to_string(),
+        |f, v| {
+            t.value_unrecognized_with_value(crate::text::sessions_msg::ValueUnrecognizedWithValue { family: f, value: v })
+                .to_string()
+        },
         |f| t.value_unrecognized(f).to_string(),
     )
 }
@@ -68,7 +71,10 @@ pub fn method(t: SessionsMsg, value: &str) -> String {
         known,
         t.method_family(),
         value,
-        |f, v| t.method_unrecognized_with_value(f, v).to_string(),
+        |f, v| {
+            t.method_unrecognized_with_value(crate::text::sessions_msg::MethodUnrecognizedWithValue { family: f, value: v })
+                .to_string()
+        },
         |f| t.method_unrecognized(f).to_string(),
     )
 }
@@ -234,7 +240,9 @@ pub fn SessionPage<'a>(t: SessionsMsg, p: Pilot, screen: &'a SessionScreen) -> i
                 </button>
                 <dialog id={RevokeSessionDialogId} class={Dialog} aria-labelledby="revoke-title" aria-describedby="revoke-text">
                     <h2 id="revoke-title" class={PartTitle}>{t.detail_revoke_confirm_title(user)}</h2>
-                    <p id="revoke-text" class={Muted}>{t.detail_revoke_confirm_description(user, account)}</p>
+                    <p id="revoke-text" class={Muted}>
+                        {t.detail_revoke_confirm_description(crate::text::sessions_msg::DetailRevokeConfirmDescription { user, account })}
+                    </p>
                     <form class={Buttons} method="post" action={url::SessionRevoke { id }}>
                         <button type="button" class={Secondary} command="close" commandfor={RevokeSessionDialogId}>
                             {p.addresses_cancel()}

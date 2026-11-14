@@ -279,29 +279,34 @@ const shipmentAddressSnapshots = {
   },
 } as const;
 
+const createShipmentCommand: FulfillmentShipmentCommand = {
+  type: "CreateShipment",
+  shipmentId: "shp_1" as never,
+  orderId: "ord_1" as never,
+  buyerAccountId: "acc_buyer" as never,
+  sellerAccountId: "acc_seller" as never,
+  shippingOption: "standard",
+  ...shipmentAddressSnapshots,
+  lines: [
+    {
+      lineId: "spl_1" as never,
+      orderLineId: "oli_1",
+      catalogItemId: "cat_1",
+      productId: "cat_1::",
+      itemTitle: "Charizard",
+      itemSubtitle: null,
+      productSummary: null,
+      quantity: 1,
+    },
+  ],
+  createdAt: "2026-04-02T00:00:00.000Z",
+};
+
 function createPackedShipmentState() {
-  const createdState = decideFulfillmentShipment(initialFulfillmentShipmentState, {
-    type: "CreateShipment",
-    shipmentId: "shp_1" as never,
-    orderId: "ord_1" as never,
-    buyerAccountId: "acc_buyer" as never,
-    sellerAccountId: "acc_seller" as never,
-    shippingOption: "standard",
-    ...shipmentAddressSnapshots,
-    lines: [
-      {
-        lineId: "spl_1" as never,
-        orderLineId: "oli_1",
-        catalogItemId: "cat_1",
-        productId: "cat_1::",
-        itemTitle: "Charizard",
-        itemSubtitle: null,
-        productSummary: null,
-        quantity: 1,
-      },
-    ],
-    createdAt: "2026-04-02T00:00:00.000Z",
-  }).reduce(evolveFulfillmentShipment, initialFulfillmentShipmentState);
+  const createdState = decideFulfillmentShipment(initialFulfillmentShipmentState, createShipmentCommand).reduce(
+    evolveFulfillmentShipment,
+    initialFulfillmentShipmentState,
+  );
   const packingState = decideFulfillmentShipment(createdState, {
     type: "StartShipmentPacking",
     startedAt: "2026-04-02T00:03:00.000Z",
@@ -339,6 +344,45 @@ function attachPurchasedLabel(state: ReturnType<typeof createPackedShipmentState
 }
 
 describe("fulfillment shipment domain", () => {
+  it.each(["delivered", "returned", "cancelled"] as const)("refuses an exception for a %s shipment", (status) => {
+    const created = decideFulfillmentShipment(initialFulfillmentShipmentState, createShipmentCommand).reduce(
+      evolveFulfillmentShipment,
+      initialFulfillmentShipmentState,
+    );
+    const dispatched = (() => {
+      const labeled = attachPurchasedLabel(createPackedShipmentState());
+      return decideFulfillmentShipment(labeled, {
+        type: "DispatchShipment",
+        dispatchedAt: "2026-04-02T00:20:00.000Z",
+      }).reduce(evolveFulfillmentShipment, labeled);
+    })();
+    const ended =
+      status === "cancelled"
+        ? decideFulfillmentShipment(created, {
+            type: "CancelShipment",
+            cancelledAt: "2026-04-02T00:01:00.000Z",
+          }).reduce(evolveFulfillmentShipment, created)
+        : decideFulfillmentShipment(
+            dispatched,
+            status === "delivered"
+              ? { type: "RecordShipmentDelivery", deliveredAt: "2026-04-02T00:30:00.000Z" }
+              : { type: "ReturnShipment", reason: null, returnedAt: "2026-04-02T00:30:00.000Z" },
+          ).reduce(evolveFulfillmentShipment, dispatched);
+    expect(ended.status).toBe(status);
+    expect(() =>
+      decideFulfillmentShipment(ended, {
+        type: "RaiseShipmentException",
+        exceptionType: "other",
+        notes: null,
+        raisedAt: "2026-04-02T00:40:00.000Z",
+      }),
+    ).toThrow(
+      status === "cancelled"
+        ? "Cancelled shipments cannot enter exception state."
+        : "Delivered or returned shipments cannot enter exception state.",
+    );
+  });
+
   it("publishes the privacy-minimal shipment routing facts from aggregate state at dispatch", () => {
     const labeledState = attachPurchasedLabel(createPackedShipmentState());
 

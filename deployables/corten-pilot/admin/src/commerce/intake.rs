@@ -24,7 +24,7 @@
 use bytes::Bytes;
 use corten::{
     ClientZone, Upload, UploadError,
-    axum::http::{HeaderMap, StatusCode},
+    http::{HeaderMap, StatusCode},
     prelude::*,
 };
 use platform::receipt::Receipt;
@@ -314,7 +314,7 @@ async fn draw(
 }
 
 /// An intake action's fields (admin-web's form names); `evidence` is the photo input.
-#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[derive(Clone, Debug, Default, Fields)]
 #[serde(default, rename_all = "camelCase")]
 pub struct IntakeForm {
     pub intent: String,

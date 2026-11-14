@@ -56,9 +56,9 @@ const queue = (page) => page.locator("[data-attention-queue] tbody tr");
 /** Each item's title, in order. */
 const titles = (page) =>
   queue(page).evaluateAll((trs) => trs.map((tr) => tr.querySelector("strong")?.textContent?.trim() ?? ""));
-/** The queue's count pill ("214 need you"), as a number. */
+/** The queue's count pill ("5,059 need you", the API's total, of which a page shows some), as a number. */
 const count = async (page) =>
-  Number((await page.locator("[data-attention-queue] header span").first().textContent())?.split(" ")[0]);
+  Number((await page.locator("[data-attention-queue] header span").first().textContent())?.replace(/[^\d]/g, ""));
 /** Whether the item keyed `key` is in the queue. */
 const has = (page, key) => page.locator(`[data-attention-queue] button[name="item"][value="${key}"]`).count();
 
@@ -70,6 +70,15 @@ let key = "";
   const theirs = await page
     .locator('[data-catalog-attention-queue="true"] table tbody tr')
     .evaluateAll((trs) => trs.map((tr) => (tr.querySelector("td")?.textContent ?? "").replace(/\s+/g, " ").trim()));
+  const theirCount = Number(
+    (
+      await page
+        .locator('[data-catalog-attention-queue="true"]')
+        .getByText(/need you$/)
+        .first()
+        .textContent()
+    )?.replace(/[^\d]/g, ""),
+  );
   await page.goto(`${base}/catalog/scopes`);
   const ours = await titles(page);
   check(ours.length > 0, `the queue has items (${ours.length})`);
@@ -78,7 +87,10 @@ let key = "";
   if (!same)
     console.log(`  pilot ${JSON.stringify(ours.slice(0, 3))}\n  admin-web ${JSON.stringify(theirs.slice(0, 3))}`);
   const before = await count(page);
-  check(before === ours.length, `the count is the API's (${before})`);
+  check(
+    before === theirCount && before >= ours.length,
+    `the count is the API's total, as admin-web's (${before}, ${theirCount})`,
+  );
 
   // The first item's sheet.
   const first = queue(page).first();

@@ -29,16 +29,15 @@ use crate::recovery::attempt_text;
 use std::time::SystemTime;
 
 use corten::{
-    axum::http::{HeaderMap, StatusCode},
+    http::{HeaderMap, StatusCode},
     i18n::{Currency, parse_timestamp},
     prelude::*,
 };
 use platform::receipt::Receipt;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use serde_json::json;
 use sha2::{Digest, Sha256};
 
-use crate::chrome::Chrome;
 use crate::{
     api::{ParticipantWrite, SupportCalls as _, SupportChecklistItem, SupportRequest, segment},
     app::{Shared, read_failed, sign_in, url},
@@ -50,7 +49,7 @@ use crate::{
 
 /// What the page's address carries: what the last write did (marketplace's `?action=`:
 /// `evidence`, `response`, `offerAccepted`, `offerDeclined`, `escalated`, `cancelled`) and its receipt.
-#[derive(Clone, Debug, Default, Deserialize, Fields, Route)]
+#[derive(Clone, Debug, Default, Fields, Route)]
 #[route(query)]
 pub struct Place {
     pub action: Option<String>,
@@ -59,7 +58,7 @@ pub struct Place {
 
 /// The page's forms: the write (`intent`), its attempt and the account it was drawn for, what
 /// each write takes, and Check status's attempt.
-#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[derive(Clone, Debug, Default, Fields)]
 #[serde(default)]
 pub struct SupportInput {
     pub intent: String,
@@ -484,7 +483,6 @@ fn participant_write(
 
 pub(crate) async fn page(
     req: Req,
-    chrome: Chrome,
     Caller(SupportMember(viewer)): Caller<SupportMember>,
     State(config): State<Shared>,
     headers: HeaderMap,
@@ -500,16 +498,10 @@ pub(crate) async fn page(
         }
         Err(error) => {
             let p: Pilot = req.t();
-            return read_failed(
-                &req,
-                Some(&viewer),
-                error,
-                receipt.is_some().then_some(p.load_unverified()),
-                chrome.cart().await,
-            );
+            return read_failed(&req, Some(&viewer), error, receipt.is_some().then_some(p.load_unverified()));
         }
     };
-    draw(&req, &viewer, request, place.action, Said::default(), StatusCode::OK, chrome.cart().await)
+    draw(&req, &viewer, request, place.action, Said::default(), StatusCode::OK)
 }
 
 fn draw(
@@ -519,7 +511,6 @@ fn draw(
     action: Option<String>,
     said: Said,
     status: StatusCode,
-    cart: Option<u64>,
 ) -> HtmlResult {
     let account = viewer.actor.account_id.as_str();
     let Some(role) = viewer_role(&request, account) else {
@@ -531,14 +522,13 @@ fn draw(
     let title =
         if reference.is_empty() { t.route_meta_fallback_title().to_string() } else { t.route_meta_title(reference).to_string() };
     let view = html! { <views::SupportPage t={t} p={req.t()} screen={&screen} /> };
-    let page = html! { <Layout req={req} viewer={Some(viewer)} cart={cart} title={title.as_str()} head={()}>{view}</Layout> };
+    let page = html! { <Layout req={req} viewer={Some(viewer)} title={title.as_str()} head={()}>{view}</Layout> };
     if status == StatusCode::OK { req.screen(&screen, page) } else { req.page_with_status(status, page) }
 }
 
 /// Every write (marketplace's action intents), and Check status.
 pub(crate) async fn write(
     req: Req,
-    chrome: Chrome,
     Caller(SupportMember(viewer)): Caller<SupportMember>,
     State(config): State<Shared>,
     headers: HeaderMap,
@@ -554,7 +544,7 @@ pub(crate) async fn write(
         Err(error) if error.status() == Some(StatusCode::NOT_FOUND) => {
             return Err(corten::Error::new(error).with_status(StatusCode::NOT_FOUND));
         }
-        Err(error) => return read_failed(&req, Some(&viewer), error, None, chrome.cart().await),
+        Err(error) => return read_failed(&req, Some(&viewer), error, None),
     };
     let account = viewer.actor.account_id.as_str();
     let Some(role) = viewer_role(&request, account) else {
@@ -567,15 +557,7 @@ pub(crate) async fn write(
     };
     // A form drawn for another account (`participantActorMatches`): nothing is sent.
     if !input.account.is_empty() && input.account != account {
-        return draw(
-            &req,
-            &viewer,
-            request,
-            None,
-            said(Some(t.attempt_account_changed()), None, None),
-            StatusCode::CONFLICT,
-            chrome.cart().await,
-        );
+        return draw(&req, &viewer, request, None, said(Some(t.attempt_account_changed()), None, None), StatusCode::CONFLICT);
     }
     let done = |result: &str, receipt: Option<Receipt>| {
         let place = Place { action: Some(result.to_owned()), after_write: receipt.as_ref().map(Receipt::param) };
@@ -599,21 +581,18 @@ pub(crate) async fn write(
                 None,
                 said(Some(t.attempt_status_unavailable()), None, None),
                 StatusCode::BAD_REQUEST,
-                chrome.cart().await,
             );
         }
         return match caller.participant_attempt(&id, &recovery.action_kind, &recovery.attempt, &recovery.hash).await {
             Ok((lookup, receipt)) if settled(&lookup, &recovery.action_kind, &id) => {
                 done(result_of(&recovery.action_kind).unwrap_or_default(), receipt)
             }
-            Ok(_) => {
-                draw(&req, &viewer, request, None, said(None, None, Some(recovery)), StatusCode::CONFLICT, chrome.cart().await)
-            }
+            Ok(_) => draw(&req, &viewer, request, None, said(None, None, Some(recovery)), StatusCode::CONFLICT),
             Err(error) if error.status() == Some(StatusCode::UNAUTHORIZED) => sign_in(&req),
             Err(error) => {
                 tracing::warn!("support attempt check failed: {error}");
                 let said = said(Some(t.attempt_status_unavailable()), None, Some(recovery));
-                draw(&req, &viewer, request, None, said, StatusCode::CONFLICT, chrome.cart().await)
+                draw(&req, &viewer, request, None, said, StatusCode::CONFLICT)
             }
         };
     }
@@ -622,7 +601,7 @@ pub(crate) async fn write(
         Err(NotSent(message, keep)) => {
             let (draft, status) =
                 if keep { (redraft(&input), StatusCode::UNPROCESSABLE_ENTITY) } else { (None, StatusCode::BAD_REQUEST) };
-            return draw(&req, &viewer, request, None, said(Some(message), draft, None), status, chrome.cart().await);
+            return draw(&req, &viewer, request, None, said(Some(message), draft, None), status);
         }
     };
     // A post without a valid attempt (no script, a lost field) is still one attempt.
@@ -640,7 +619,7 @@ pub(crate) async fn write(
             let draft = redraft(&input);
             let message = error.refusal().unwrap_or(p.support_not_sent());
             let status = StatusCode::from_u16(status).unwrap_or(StatusCode::BAD_REQUEST);
-            draw(&req, &viewer, request, None, said(Some(message), draft, None), status, chrome.cart().await)
+            draw(&req, &viewer, request, None, said(Some(message), draft, None), status)
         }
         // No answer that says what happened: one lookup; a read can prove the commit, and absence
         // is never permission for a second write.
@@ -650,15 +629,7 @@ pub(crate) async fn write(
                 Ok((lookup, receipt)) if settled(&lookup, write.action_kind, &id) => done(result, receipt),
                 _ => {
                     let recovery = Recovery { action_kind: write.action_kind.to_owned(), attempt, hash: request_hash };
-                    draw(
-                        &req,
-                        &viewer,
-                        request,
-                        None,
-                        said(None, None, Some(recovery)),
-                        StatusCode::CONFLICT,
-                        chrome.cart().await,
-                    )
+                    draw(&req, &viewer, request, None, said(None, None, Some(recovery)), StatusCode::CONFLICT)
                 }
             }
         }

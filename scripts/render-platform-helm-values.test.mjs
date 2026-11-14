@@ -682,6 +682,11 @@ describe("render platform Helm values", () => {
           secret: true,
           secretKey: "EBAY_RECEIPT_LOOKUP_STAGING_ACTOR_JSON",
         },
+        {
+          name: "CONNECTOR_STAGING_PERSONA_MAGIC_LINK_VERIFIER_SHA256",
+          secret: true,
+          secretKey: "CONNECTOR_STAGING_PERSONA_MAGIC_LINK_VERIFIER_SHA256",
+        },
       ],
     });
     expect(stagingValues.components["platform-api"]).toMatchObject({

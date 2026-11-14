@@ -19,6 +19,7 @@
     "./consistency": "./consistency.ts",
     "./domain": "./domain.ts",
     "./event-store": "./event-store.ts",
+    "./owner-stream-reservation": "./owner-stream-reservation.ts",
     "./configuration-epoch": "./configuration-epoch.ts",
     "./platform-coverage-facts": "./platform-coverage-facts.ts",
     "./projector": "./projector.ts",

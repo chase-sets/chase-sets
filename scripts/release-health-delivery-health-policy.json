@@ -14,7 +14,8 @@
       "platformPr": "platform-pr.yml",
       "releaseDispatch": "platform-release-candidate.yml",
       "platformDeploy": "platform-production.yml",
-      "ephemeralVerification": "platform-ephemeral-verification.yml"
+      "ephemeralVerification": "platform-ephemeral-verification.yml",
+      "stagingAdvisoryEvidence": "platform-staging-advisory-evidence.yml"
     }
   },
   "baseline": {

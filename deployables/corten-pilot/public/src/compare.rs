@@ -14,11 +14,10 @@
 use std::time::Duration;
 
 use corten::{
-    axum::http::StatusCode,
+    http::StatusCode,
     i18n::{Currency, Minor},
     prelude::*,
 };
-use serde::Deserialize;
 use serde_json::{Value, json};
 
 use crate::{
@@ -254,7 +253,7 @@ pub fn ebay(price: i64, cards: i64) -> Outcome {
 
 /// The calculator's two fields as the address has them (a share link's), each as typed, and a
 /// share link's campaign tags, which the page's analytics read from the address.
-#[derive(Clone, Debug, Default, Deserialize, Fields, Route, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, Fields, Route, PartialEq, Eq)]
 #[route(query)]
 pub struct Inputs {
     pub price: Option<String>,

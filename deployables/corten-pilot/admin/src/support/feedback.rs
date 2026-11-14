@@ -19,10 +19,7 @@
 //! link is the API's path on admin-web's host; the pilot relays the API's file from its own route.
 use corten::{
     Relay,
-    axum::{
-        body::Body,
-        http::{HeaderMap, HeaderName, HeaderValue, StatusCode, header},
-    },
+    http::{Body, HeaderMap, HeaderName, HeaderValue, StatusCode, header},
     prelude::*,
 };
 use platform::receipt::Receipt;
@@ -47,10 +44,9 @@ pub const EXPORT: &str = "platform-feedback.export";
 #[corten::routes(state = crate::app::Shared, area = crate::support::feedback::url::Feedback, caller = crate::auth::Staff<crate::auth::FeedbackAccess>)]
 pub mod url {
     use corten::{Fields, Route};
-    use serde::Deserialize;
 
     /// The queue's filters, as admin-web names them.
-    #[derive(Clone, Debug, Default, Deserialize, Fields, Route)]
+    #[derive(Clone, Debug, Default, Fields, Route)]
     #[route(query)]
     pub struct Filters {
         pub status: Option<String>,
@@ -312,7 +308,7 @@ fn refused(req: &Req, error: ApiError) -> Refused {
 }
 
 /// A bulk change: which (`bulk-review`, `bulk-archive`) and the boxes ticked.
-#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[derive(Clone, Debug, Default, Fields)]
 #[serde(default, rename_all = "camelCase")]
 pub struct BulkForm {
     pub intent: String,
@@ -483,7 +479,7 @@ async fn draw_item(
 }
 
 /// A feedback's write: which (`review`, `archive`, `record-note`) and a note's text.
-#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[derive(Clone, Debug, Default, Fields)]
 #[serde(default)]
 pub struct ItemForm {
     pub intent: String,

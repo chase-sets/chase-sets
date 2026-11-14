@@ -1262,6 +1262,7 @@ describe("marketplace listing routes", () => {
     expect(services.applyBulkListingPriceUpdates).toHaveBeenCalledWith(
       {
         accountId: "acc_seller",
+        batchId: expect.stringMatching(/^test_attempt_/),
         updates: [
           {
             listingId: "lst_1",

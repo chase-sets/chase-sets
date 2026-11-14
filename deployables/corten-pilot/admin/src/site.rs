@@ -6,6 +6,7 @@
 //!
 //! | Route | Answers |
 //! |---|---|
+//! | `GET /` | the admin home, for signed-in staff (`crate::sections::index`) |
 //! | `GET /favicon.svg`, `/favicon.ico` | the design system's logo (`Public`, a day) |
 //! | `GET /manifest.webmanifest`, `/service-worker.js` | the web app manifest and the service worker (Corten's) |
 //! | `GET /offline` | the page the service worker shows for a navigation it cannot make |
@@ -35,14 +36,27 @@ const NETWORK_ONLY: [&str; 8] = [
     "/health/",
 ];
 
-/// The site's own files.
+/// The site's own files, the home, which takes a signed-in `Viewer` itself, and Google Workspace's relay: `/` is in no area
+/// (no area's prefix can be `/`), and `App::new` takes one module, whose favicon is for everyone.
 #[corten::routes(state = crate::app::Shared)]
 pub mod files {
+    #[route("/", get = crate::sections::index)]
+    pub struct Home;
+
     #[route("/favicon.svg", get = crate::site::favicon)]
     pub struct FaviconSvg;
 
     #[route("/favicon.ico", get = crate::site::favicon)]
     pub struct FaviconIco;
+
+    /// Google Workspace's start and Google's return, relayed to Auth (`platform::auth::social`).
+    /// The ingress sends `/api` to the API before the pilot sees it; locally nothing else serves it.
+    /// Auth decides who may sign in to admin.
+    #[route("/api/auth/social/{provider}/{step}", get = crate::sign_in::social, no_store)]
+    pub struct SocialSignIn<'a> {
+        pub provider: &'a str,
+        pub step: &'a str,
+    }
 }
 
 /// The offline page, an area for its stylesheet, which no other page loads. Public.
@@ -54,17 +68,17 @@ pub mod offline_page {
 
 /// admin-web's web app manifest (`routes/manifest.ts`), and its service worker as Corten's
 /// (`corten::pwa`): pages from the network, the offline page when there is none, and the static
-/// files from the cache. admin-web's `orientation` (`any`, the default) and `categories`
-/// (`business`, `productivity`) are not written: Corten's manifest has neither
-/// (todd-skelton/corten#515). The description is in English, as admin-web's is.
+/// files from the cache. The description is in English, as admin-web's is.
 pub fn pwa() -> corten::pwa::Pwa {
     use corten::{
         i18n::Messages as _,
-        pwa::{Manifest, Pwa},
+        pwa::{Manifest, Orientation, Pwa},
     };
     let t = SiteMsg::for_locale("en");
     let manifest = Manifest::new("Chase Sets Admin", "CS Admin")
         .description(t.manifest_description())
+        .orientation(Orientation::Any)
+        .categories(&["business", "productivity"])
         .theme_color("#0f766e")
         .background_color("#f7f5f1")
         .icon(Static::ICONS_CHASE_SETS_ADMIN_192_PNG, "192x192")

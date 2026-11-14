@@ -430,6 +430,98 @@ describe("item detail commerce panel purchase workflows and offers", () => {
     expect(selectedOfferAction.getAttribute("aria-disabled")).not.toBe("true");
   });
 
+  describe("seller offer selection", () => {
+    const offerX = {
+      ...baseOffer,
+      product_id: "cat_charizard::form=raw",
+      selected_options: [{ dimensionId: "form", optionId: "raw" }],
+    };
+    const offerY = {
+      ...alternateOffer,
+      product_id: "cat_charizard::form=graded",
+      selected_options: [{ dimensionId: "form", optionId: "graded" }],
+    };
+    const matchX = { ...baseAccountOfferMatch, ...offerX };
+    const matchY = { ...alternateAccountOfferMatch, ...offerY };
+
+    it.each([
+      {
+        name: "keeps selected X when only Y has a seller match",
+        selectedOfferId: offerX.offer_id,
+        accountOfferMatches: [matchY],
+        expectedOffer: offerX,
+        canFulfill: false,
+      },
+      {
+        name: "uses selected X's own match instead of the best match Y",
+        selectedOfferId: offerX.offer_id,
+        accountOfferMatches: [matchY, matchX],
+        expectedOffer: offerX,
+        canFulfill: true,
+      },
+      {
+        name: "defaults to best seller match Y when no offer is selected",
+        selectedOfferId: null,
+        accountOfferMatches: [matchY],
+        expectedOffer: offerY,
+        canFulfill: true,
+      },
+      {
+        name: "keeps selected X when the seller has no matches",
+        selectedOfferId: offerX.offer_id,
+        accountOfferMatches: [],
+        expectedOffer: offerX,
+        canFulfill: false,
+      },
+    ])("$name", async ({ selectedOfferId, accountOfferMatches, expectedOffer, canFulfill }) => {
+      renderItemDetailRoute({
+        item: createItem({
+          product_schema: variantSchema,
+          market_listings: [
+            { ...baseListing, product_id: offerY.product_id, selected_options: offerY.selected_options },
+          ],
+          offer_demand_matches: [offerX, offerY],
+        }),
+        accountOfferMatches,
+        sellerInventoryItems: [],
+        sellerAccountId: "seller_1",
+        hasListingStockLocation: true,
+        listingSetupLoadState: "ready",
+        viewerAccountId: "seller_1",
+        initialMarketIntent: "sell",
+        initialSelectedOfferId: selectedOfferId,
+        initialSelectedOptions: [],
+        hasInitialSelectedOptionFilters: true,
+        showSellerTab: true,
+        canUseSellerFeatures: true,
+        canUseListingFeatures: true,
+        canSubmitOffers: true,
+        registerToSellHref: "/register",
+        notFound: false,
+        error: null,
+        canonicalUrl: null,
+      });
+
+      const rail = await screen.findByRole("complementary", { name: "Commerce options" });
+      const acceptOffer = within(rail).getByRole("button", { name: "Accept offer" });
+      const form = acceptOffer.closest("form");
+
+      expect(form).not.toBeNull();
+      expect(new FormData(form!).get("offerId")).toBe(expectedOffer.offer_id);
+      expect(within(form!).getByText(selectedOfferId ? "Selected offer" : "Best offer")).toBeTruthy();
+      expect(within(form!).getByText(expectedOffer.buyer_display_name!)).toBeTruthy();
+      expect(within(form!).getByText(`$${expectedOffer.price_amount} offer`)).toBeTruthy();
+      expect(Boolean(within(form!).queryByText("Can fulfill"))).toBe(canFulfill);
+      expect(within(form!).queryByText("Needs supply")).toBeNull();
+      expect(acceptOffer.getAttribute("value")).toBe("sell-now");
+      expect(
+        screen.getByRole("button", {
+          name: `Selected ${expectedOffer.buyer_display_name} offer at $${expectedOffer.price_amount}`,
+        }),
+      ).toBeTruthy();
+    });
+  });
+
   it("routes signed-out sell rail Accept offer through the Sell List handoff intent", async () => {
     renderItemDetailRoute({
       item: createItem({

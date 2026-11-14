@@ -22,6 +22,14 @@ The secret value that identifies the active session when sent back to Chase Sets
 
 Session-token persistence belongs to Auth.
 
+## User Session Authority
+
+Auth's per-User event stream (`auth.user-session-authority-<userId>`) whose complete, monotonic history folds to that User's current Session Generation. A User with no history is at generation 0. Every Session start guards its append on this stream's version, so a start cannot commit across a concurrent advance, and actor resolution reads it on every request. Foreign, unknown, malformed, non-monotonic, or capped history fails closed. Only the successor bulk sign-out slice may advance it; nothing in Auth does yet.
+
+## Session Generation
+
+The User Session Authority generation a Session was started in, recorded on `auth.session.started` (a start recorded before the floor carries none and reads as 0). A Session authenticates only while its generation equals its User's current generation: an older one is superseded and a newer or malformed one is ambiguous, and both resolve to no actor on projection-hit and projection-miss paths alike. `identity_sessions.session_generation` is display-only and never grants. Only a real Auth Session (`sessionProvenance: "auth-session"`) has a current Session; guest-checkout (`guest:`) and linked-platform (`ucp:`) handles never name a Session stream.
+
 ## Account Selection
 
 The continuation step used when one authenticated user can act for more than one account and must choose which account to use for the current session.

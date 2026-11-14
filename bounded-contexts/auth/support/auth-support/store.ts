@@ -159,7 +159,7 @@ export async function insertMagicLinkToken(
     userId: string | null;
     email: string;
     tokenHash: string;
-    deliveryToken: string;
+    deliveryToken: string | null;
     expiresAt: string;
   }>,
 ) {

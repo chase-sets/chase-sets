@@ -12,6 +12,7 @@ import {
 } from "../../../support/request-support/checkout-route-guard";
 import type { SellListConfirmationSummary, SellListSellerConfirmationEvidence } from "../domain/domain";
 import { parseSellListReadinessDecisionInput } from "../domain/readiness";
+import { parseSellerCheckoutChoices } from "../read-model/seller-checkout-owner-reads";
 import type { CheckoutObservabilityTelemetry } from "../../sessions/api/checkout-observability-telemetry";
 import type { CheckoutSellListServices } from "./runtime";
 import { recordSellListConfirmationActivity } from "./sell-list-confirmation-observability";
@@ -413,6 +414,7 @@ export function createAccountSellListRoutes(
       sellerAccountId: access.actor.accountId,
       decisions: parseSellListReadinessDecisionInput(body),
       sellerEvidence: parseSellerEvidence((body as Record<string, unknown>).sellerEvidence),
+      ...parseSellerCheckoutChoices(body),
     });
 
     return c.json({ readiness: snapshot });
@@ -586,6 +588,7 @@ export function createAccountSellListRoutes(
           }[],
           sellerEvidence,
           handoffSummary,
+          ...parseSellerCheckoutChoices(body),
         },
         context,
       );
@@ -657,6 +660,7 @@ export function createGuestSellListRoutes(
       sellerAccountId: ownerId,
       decisions: parseSellListReadinessDecisionInput(body),
       sellerEvidence: parseSellerEvidence((body as Record<string, unknown>).sellerEvidence),
+      ...parseSellerCheckoutChoices(body),
     });
 
     return c.json({ readiness: snapshot });

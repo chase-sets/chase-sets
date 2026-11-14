@@ -4,7 +4,6 @@ import type { createCatalogRequestApiClient } from "../../../support/request-sup
 import type { CatalogIntegrationsCommandResult } from "./integrations-command-result";
 import { stringValue } from "./integrations-form-values";
 import {
-  lifecycleConfirmationAccepted,
   lifecycleFailureResult,
   lifecycleSuccessResult,
   runProviderProfileLifecycleCommand,
@@ -216,18 +215,15 @@ async function transitionProviderProfile(
       selectedObservationIds,
     });
   }
-  if (!lifecycleConfirmationAccepted(formData, intent, providerKey, profileVersion)) {
-    return profileResult(intent, "error", "confirmation-required", "lifecycle-recovery", {
-      ...context,
+  try {
+    const confirmation = formData.get("lifecycleConfirmation");
+    const profile = await runProviderProfileLifecycleCommand(
+      api,
+      intent,
       providerKey,
       profileVersion,
-      selectedObservationIds,
-      promotionPreviewId: null,
-    });
-  }
-
-  try {
-    const profile = await runProviderProfileLifecycleCommand(api, intent, providerKey, profileVersion);
+      typeof confirmation === "string" ? confirmation : null,
+    );
     return profileResult(intent, "success", lifecycleSuccessResult(intent), "lifecycle-recovery", {
       ...context,
       providerKey: profile.providerKey,

@@ -13,6 +13,10 @@ import {
   type CatalogPrimaryWorkbenchCore,
   type CatalogPrimaryWorkbenchDerived,
 } from "./primary-workbench-core-read-model";
+import {
+  catalogPrimaryWorkbenchDailyFlowFor,
+  catalogPrimaryWorkbenchDailyStatusFor,
+} from "./primary-workbench-daily-flow";
 import type { CatalogPrimaryWorkbenchInput } from "./primary-workbench-read-model-input";
 import { buildSurfaceActions } from "./primary-workbench-surface-actions";
 import {
@@ -185,6 +189,8 @@ function assembleReadModel(
     promotionPreview: core.promotionPreview,
     promotionResult: core.promotionResult,
     actions: parts.actions,
+    flow: catalogPrimaryWorkbenchDailyFlowFor(core),
+    dailyStatus: catalogPrimaryWorkbenchDailyStatusFor({ ...core, actions: parts.actions }),
     sourceOptions: core.sourceOptions,
     deploySkew: catalogPrimaryWorkbenchDeploySkewPolicies[0],
     securityPrivacy: core.securityPrivacy,

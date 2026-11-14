@@ -34,15 +34,15 @@ describe("capture acquisition through the ordinary writer on PostgreSQL", () => 
       { credits: 1, outcome: "complete" },
       { credits: 1, outcome: "complete" },
     ]);
-    expect(f.fetch).toHaveBeenCalledTimes(2);
+    expect(f.fetch).toHaveBeenCalledTimes(3);
     const runs = await pools.catalog.query<{ payload: { sends: unknown[] } }>(
       "SELECT payload FROM catalog_scope_sync_count_capture_history ORDER BY position DESC LIMIT 1",
     );
-    expect(runs.rows[0]!.payload.sends).toHaveLength(2);
+    expect(runs.rows[0]!.payload.sends).toHaveLength(3);
     await expect(
       f.lifecycle.acquire(captureSession(), { quoteId: quote.quoteId, fingerprint: quote.fingerprint }),
     ).rejects.toThrow(CountCaptureStopped);
-    expect(f.fetch).toHaveBeenCalledTimes(2);
+    expect(f.fetch).toHaveBeenCalledTimes(3);
   });
   it.each(["failure", "uncertainty", "result-commit"])(
     "stops %s with its debit retained and no retry",
@@ -68,11 +68,11 @@ describe("capture acquisition through the ordinary writer on PostgreSQL", () => 
         fault?.mockRestore();
       }
       expect(await f.countStore.history()).toHaveLength(1);
-      expect(f.fetch).toHaveBeenCalledTimes(1);
+      expect(f.fetch).toHaveBeenCalledTimes(2);
       await expect(
         f.lifecycle.acquire(captureSession(), { quoteId: quote.quoteId, fingerprint: quote.fingerprint }),
       ).rejects.toThrow(CountCaptureStopped);
-      expect(f.fetch).toHaveBeenCalledTimes(1);
+      expect(f.fetch).toHaveBeenCalledTimes(2);
     },
   );
 });

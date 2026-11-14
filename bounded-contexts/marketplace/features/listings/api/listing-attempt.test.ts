@@ -149,6 +149,7 @@ describe("Listing attempt carrier", () => {
     });
     await expect(readListingAttemptReceipt(store.eventStore, priceAttempt())).rejects.toMatchObject({
       code: "history_incomplete",
+      historyDisposition: "unsafe",
     });
   });
 

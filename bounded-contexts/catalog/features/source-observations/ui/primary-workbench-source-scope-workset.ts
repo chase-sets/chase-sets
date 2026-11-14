@@ -17,6 +17,9 @@ import {
   canSelectStandaloneProductCoordinate,
   emptyCatalogPrimaryWorkbenchScopeContext,
   importScopeFromScopeContext,
+  integrationJobScopeForUnit,
+  reapplyScopeForUnit,
+  promotionCommandPreviewFor,
   scopeContextFromProviderScope,
   scopeContextFromRouteContext,
   scopeDisplayLabel,
@@ -426,6 +429,21 @@ function sourceScopeUnitRow(
       "import-to-promotion",
     ),
     commandContext,
+    // The row form posts currentWorkbenchHref plus commandContext: no review filters and no status.
+    commandScopes: importScope
+      ? {
+          import: integrationJobScopeForUnit(routeScope, candidate.unitKey),
+          reapply: reapplyScopeForUnit(
+            scopeContextFromRouteContext({
+              providerKey: candidate.providerKey,
+              importScope,
+              scope: { ...routeScope, status: null },
+              sourceObservationFilters: {},
+            }),
+            candidate.unitKey,
+          ),
+        }
+      : null,
     actions: {
       import: action(
         "scope.import",
@@ -439,18 +457,30 @@ function sourceScopeUnitRow(
           blockers,
         ),
       ),
-      previewPromotion: action(
-        "observation.promote",
-        promotionPreviewBlockers(
-          input.canManage,
-          selectedScope,
-          candidate.profile,
-          candidate.unitKey,
-          importScope,
-          counts.eligible,
-          blockers,
+      previewPromotion: {
+        ...action(
+          "observation.promote",
+          promotionPreviewBlockers(
+            input.canManage,
+            selectedScope,
+            candidate.profile,
+            candidate.unitKey,
+            importScope,
+            counts.eligible,
+            blockers,
+          ),
         ),
-      ),
+        // The row form posts currentWorkbenchHref plus commandContext: no review filters and no status.
+        commandPreview: promotionCommandPreviewFor({
+          ...input.routeContext,
+          sourceObservationFilters: {},
+          providerKey: candidate.providerKey,
+          unitKey: candidate.unitKey,
+          scope: { ...routeScope, status: null },
+          importScope,
+          profileVersion: candidate.profile?.profileVersion ?? null,
+        }),
+      },
       reapply: action(
         "observation.reapply",
         reapplyBlockers(

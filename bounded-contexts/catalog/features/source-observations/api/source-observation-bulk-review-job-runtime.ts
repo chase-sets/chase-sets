@@ -2,15 +2,20 @@ import { retainProviderSendJobBinding, runProviderSendJob } from "./providers/pr
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { isDurableJobHandoffError } from "@chase-sets/platform-runtime/durable-job-store";
 import { type DurableJobWorkUnitRecord } from "@chase-sets/platform-runtime/durable-job-work-units";
-import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import { withPgTransaction, type PgQueryable, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import type { CatalogRuntimeDeps } from "../../../support/authoring-support/runtime-support";
 import {
   getSourceObservationDetail,
   listSourceObservationIdsForReapply,
   listSourceObservationIdsForPromotion,
+  lockSourceObservationsForPromotion,
   type SourceObservationFilterScope,
 } from "../read-model/queries";
+import {
+  sourceObservationPromotionPreviewToken,
+  type SourceObservationPromotionConfirmation,
+} from "./promotion/promotion-preview-token";
 import {
   assertCatalogIntegrationProfileUnitAllowed,
   type CatalogIntegrationRolloutControlPolicy,
@@ -79,15 +84,52 @@ function isSourceObservationBulkJobKind(jobKind: string): boolean {
   return (sourceObservationBulkJobKinds as readonly string[]).includes(jobKind);
 }
 
+type BulkReviewStores = Readonly<{
+  jobStore: SourceObservationBulkReviewJobStore;
+  workUnitStore: SourceObservationBulkReviewWorkUnitStore;
+}>;
+
+/** Where an enqueue reads its selection and writes its job: the pool, or one transaction's client. */
+type BulkReviewWriter = BulkReviewStores & Readonly<{ db: PgQueryable }>;
+
+type BulkReviewJobInput = Readonly<{
+  action: SourceObservationBulkJobAction;
+  observationIds?: readonly string[];
+  scope?: SourceObservationFilterScope;
+  reason?: string | null;
+  reapplyProfileMode?: SourceObservationReapplyProfileMode | null;
+  promoteAsDraft?: boolean;
+  context: EventStoreContext;
+}>;
+
+function isTransactionalPool(db: PgQueryable): db is PgTransactionalPool {
+  return typeof (db as { connect?: unknown }).connect === "function";
+}
+
+/** A serialization failure or deadlock: another transaction changed a row this one held or read. */
+function isConcurrentChange(error: unknown): boolean {
+  const code = (error as { code?: unknown } | null)?.code;
+  return code === "40001" || code === "40P01";
+}
+
 export type SourceObservationBulkReviewJobRuntimeDeps = Readonly<{
   deps: CatalogRuntimeDeps;
   profileVersions: CatalogProviderIntegrationProfileVersionReader;
   rolloutControlPolicy: CatalogIntegrationRolloutControlPolicy;
   bulkReviewJobStore: SourceObservationBulkReviewJobStore;
   bulkReviewWorkUnitStore: SourceObservationBulkReviewWorkUnitStore;
+  /**
+   * The same two stores writing through `db`, one transaction's client: a
+   * promotion admission enqueues in the transaction whose reads it checked.
+   */
+  bulkReviewStoresIn: (db: PgQueryable) => BulkReviewStores;
   promotionReapply: Pick<
     SourceObservationPromotionReapplyRuntime,
-    "promoteObservationIds" | "reapplyObservationIds" | "rejectObservationIds" | "deferObservationIds"
+    | "previewPromotionSelection"
+    | "promoteObservationIds"
+    | "reapplyObservationIds"
+    | "rejectObservationIds"
+    | "deferObservationIds"
   >;
   /** Additive Catalog Merge Candidate scope jobs, claimed when no observation unit is claimable. */
   processNextMergeCandidateBulkJob?: BulkReviewJobServices["processNextBulkReviewJob"];
@@ -104,20 +146,90 @@ export function createSourceObservationBulkReviewJobRuntime({
   rolloutControlPolicy,
   bulkReviewJobStore,
   bulkReviewWorkUnitStore,
+  bulkReviewStoresIn,
   promotionReapply,
   processNextMergeCandidateBulkJob,
 }: SourceObservationBulkReviewJobRuntimeDeps) {
   const { promoteObservationIds, reapplyObservationIds, rejectObservationIds, deferObservationIds } = promotionReapply;
+  const pooled: BulkReviewWriter = {
+    db: deps.db,
+    jobStore: bulkReviewJobStore,
+    workUnitStore: bulkReviewWorkUnitStore,
+  };
 
-  async function enqueueBulkReviewJob(input: {
-    action: SourceObservationBulkJobAction;
-    observationIds?: readonly string[];
+  function enqueueBulkReviewJob(input: BulkReviewJobInput): Promise<SourceObservationBulkJob> {
+    return enqueueBulkReviewJobIn(pooled, input);
+  }
+
+  /**
+   * Admits a bulk promotion only while the preview the operator confirmed
+   * still describes it, and atomically: one repeatable-read transaction locks
+   * the selected rows, previews them, compares that preview's token with
+   * `previewToken`, and enqueues the job and its units from the same rows. A
+   * missing or stale token, or a selected row changed while the admission
+   * held its snapshot, admits nothing and answers null.
+   */
+  async function admitBulkPromotionJob(input: {
+    observationIds: readonly string[];
     scope?: SourceObservationFilterScope;
-    reason?: string | null;
-    reapplyProfileMode?: SourceObservationReapplyProfileMode | null;
-    promoteAsDraft?: boolean;
+    promoteAsDraft: boolean;
+    previewToken: string;
+    confirmation: SourceObservationPromotionConfirmation;
     context: EventStoreContext;
-  }): Promise<SourceObservationBulkJob> {
+  }): Promise<SourceObservationBulkJob | null> {
+    rolloutControlPolicy.assertAllowed({ capability: "promotion", providerKey: input.scope?.provider });
+    if (!input.previewToken) {
+      return null;
+    }
+    if (!isTransactionalPool(deps.db)) {
+      throw new Error("A bulk promotion admission needs a transactional database pool.");
+    }
+    const observationIds = uniqueObservationIds(input.observationIds);
+    const selection = observationIds.length > 0 ? { observationIds } : { scope: input.scope ?? {} };
+    try {
+      return await withPgTransaction(
+        deps.db,
+        async (client) => {
+          await lockSourceObservationsForPromotion(client, selection);
+          const preview = await promotionReapply.previewPromotionSelection(
+            selection,
+            { promoteAsDraft: input.promoteAsDraft, validationAfter: null },
+            client,
+          );
+          const expected = sourceObservationPromotionPreviewToken(
+            observationIds.length > 0 ? { observationIds } : { scope: preview.scope },
+            preview,
+            input.confirmation,
+          );
+          if (expected !== input.previewToken) {
+            return null;
+          }
+          return enqueueBulkReviewJobIn(
+            { db: client, ...bulkReviewStoresIn(client) },
+            {
+              action: "promote",
+              observationIds,
+              scope: input.scope,
+              promoteAsDraft: input.promoteAsDraft,
+              context: input.context,
+            },
+          );
+        },
+        { isolationLevel: "repeatable read" },
+      );
+    } catch (error) {
+      // A selected row another transaction changed while this one held it.
+      if (isConcurrentChange(error)) {
+        return null;
+      }
+      throw error;
+    }
+  }
+
+  async function enqueueBulkReviewJobIn(
+    writer: BulkReviewWriter,
+    input: BulkReviewJobInput,
+  ): Promise<SourceObservationBulkJob> {
     if (input.action === "promote") {
       rolloutControlPolicy.assertAllowed({ capability: "promotion", providerKey: input.scope?.provider });
     }
@@ -133,7 +245,9 @@ export function createSourceObservationBulkReviewJobRuntime({
         : null;
     const jobId = createId("job");
     const unitObservationIds =
-      selectionMode === "ids" ? observationIds : await listSourceObservationIdsForBulkAction(input.action, scope);
+      selectionMode === "ids"
+        ? observationIds
+        : await listSourceObservationIdsForBulkAction(writer.db, input.action, scope);
     const unitProfileSnapshots =
       input.action === "reapply" && reapplyProfileMode === "current-active-profile" && selectionMode === "ids"
         ? await snapshotSelectedReapplyProfiles(unitObservationIds)
@@ -156,8 +270,8 @@ export function createSourceObservationBulkReviewJobRuntime({
     // The explicit draft choice binds only to promote jobs; it is never inferred.
     const promoteAsDraft = input.action === "promote" && input.promoteAsDraft === true;
     const progress = bulkProgress(0, unitObservationIds.length, null, null, "queued");
-    await retainProviderSendJobBinding(deps, jobId);
-    const job = await bulkReviewJobStore.enqueue({
+    await retainProviderSendJobBinding(writer.db === deps.db ? deps : { ...deps, db: writer.db }, jobId);
+    const job = await writer.jobStore.enqueue({
       jobId,
       jobKind: input.action,
       payload: {
@@ -173,7 +287,7 @@ export function createSourceObservationBulkReviewJobRuntime({
       progress,
       eventContext: input.context,
     });
-    await bulkReviewWorkUnitStore.enqueue({
+    await writer.workUnitStore.enqueue({
       jobId,
       units: unitObservationIds.map((observationId) => ({
         unitId: observationId,
@@ -387,12 +501,13 @@ export function createSourceObservationBulkReviewJobRuntime({
   }
 
   async function listSourceObservationIdsForBulkAction(
+    db: PgQueryable,
     action: SourceObservationBulkJobAction,
     scope: SourceObservationFilterScope,
   ): Promise<readonly string[]> {
     return action === "reapply"
-      ? listSourceObservationIdsForReapply(deps.db, scope)
-      : listSourceObservationIdsForPromotion(deps.db, scope);
+      ? listSourceObservationIdsForReapply(db, scope)
+      : listSourceObservationIdsForPromotion(db, scope);
   }
 
   async function bulkReviewParentUpdateFromWorkUnits(
@@ -494,6 +609,7 @@ export function createSourceObservationBulkReviewJobRuntime({
 
   const services: BulkReviewJobServices = {
     enqueueBulkReviewJob,
+    admitBulkPromotionJob,
     getBulkReviewJob: async (jobId, context) => {
       const job = await bulkReviewJobStore.get(jobId);
       // The tables also hold Catalog Merge Candidate scope jobs, whose payload is

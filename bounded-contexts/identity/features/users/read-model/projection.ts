@@ -2,6 +2,7 @@ import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { normalizeEmail, normalizePhoneNumber } from "../../../support/runtime-support/common";
 import { extractIdFromStreamId } from "@chase-sets/event-core";
+import { reportSocialLoginLinkConflict } from "../api/social-login-ownership";
 
 const STREAM_PREFIX = "identity.user-";
 
@@ -325,7 +326,8 @@ export function buildUserProjectionHandlers(db: PgQueryable): ProjectorHandlerMa
          WHERE user_id = $1`,
         [userId, JSON.stringify(links), event.timing.recordedAt],
       );
-      await db.query(
+      // A view, never an authority: a link naming a second User keeps the first row and signals.
+      const kept = await db.query<{ user_id: string }>(
         `INSERT INTO identity_user_social_login_links (
            provider_name,
            provider_subject,
@@ -336,10 +338,11 @@ export function buildUserProjectionHandlers(db: PgQueryable): ProjectorHandlerMa
          )
          VALUES ($1, $2, $3, $4, $5, $6)
          ON CONFLICT (provider_name, provider_subject) DO UPDATE
-         SET user_id = $3,
-             email = $4,
-             linked_at = $5,
-             updated_at = $6`,
+         SET email = EXCLUDED.email,
+             linked_at = EXCLUDED.linked_at,
+             updated_at = EXCLUDED.updated_at
+         WHERE identity_user_social_login_links.user_id = EXCLUDED.user_id
+         RETURNING user_id`,
         [
           link.providerName,
           link.providerSubject,
@@ -349,6 +352,17 @@ export function buildUserProjectionHandlers(db: PgQueryable): ProjectorHandlerMa
           event.timing.recordedAt,
         ],
       );
+      if (kept.rows.length === 0) {
+        const owner = await db.query<{ user_id: string }>(
+          `SELECT user_id FROM identity_user_social_login_links WHERE provider_name = $1 AND provider_subject = $2`,
+          [link.providerName, link.providerSubject],
+        );
+        reportSocialLoginLinkConflict({
+          providerName: link.providerName,
+          providerSubject: link.providerSubject,
+          userIds: [...owner.rows.map((row) => row.user_id), userId],
+        });
+      }
     },
     "identity.user.suspended": async (event) => {
       const userId = extractIdFromStreamId(event.streamId, STREAM_PREFIX);

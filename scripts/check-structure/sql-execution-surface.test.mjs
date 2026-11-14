@@ -394,7 +394,7 @@ describe("SQL execution fixture matrix through the real guard entrypoint", () =>
       path.join(repoRoot, "bounded-contexts/identity/support/runtime-support/services.ts"),
       "utf8",
     ).split(/\r?\n/);
-    expect(identityServicesLines[82]).toContain("pool as PgQueryable");
+    expect(identityServicesLines[87]).toContain("pool as PgQueryable");
   });
 
   it("classifies every P14 bind-then-call sibling module as SQL-executing", () => {
@@ -708,7 +708,7 @@ describe("SQL execution diff scope fail-closed controls", () => {
     const root = createContractRepo();
     const surviving = [
       "contracts/embedded-surface-theme/index.ts",
-      "infrastructure/stripe-appearance/stripe-appearance.ts",
+      "infrastructure/stripe-config/index.ts",
       "packages/design-system/src/index.ts",
     ];
     for (const file of surviving) {
@@ -717,9 +717,9 @@ describe("SQL execution diff scope fail-closed controls", () => {
     }
     const changedFiles = [
       ".github/workflows/platform-pr.yml",
-      "bounded-contexts/payments/tests/stripe-appearance.test.ts",
+      "bounded-contexts/payments/tests/account-payment-route.test.tsx",
       ...surviving,
-      "packages/design-system/src/theme/stripe-appearance.ts",
+      "packages/design-system/src/theme/retired-adapter.ts",
       "scripts/check-structure/sql-execution-surface-partition.json",
     ];
     const result = runSqlExecutionSurfaceGuard({ repoRoot: root, changedFilesJson: JSON.stringify(changedFiles) });

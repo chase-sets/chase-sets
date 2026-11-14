@@ -1,8 +1,8 @@
 import { defineConfig } from "@playwright/test";
 import sharedConfig from "./playwright.config";
 
-// The dedicated retention-governance surface for the Stripe appearance
-// acceptance probe. It imports the shared config -- heavy-slot admission,
+// The dedicated retention-governance surface for the functional Stripe embed
+// UAT. It imports the shared config -- heavy-slot admission,
 // projects, and webServer inherited unchanged -- and overrides exactly the
 // retention-bearing settings: the list reporter alone (no HTML report, no
 // retry telemetry), the governed outputDir every durable byte lands under
@@ -10,13 +10,11 @@ import sharedConfig from "./playwright.config";
 // trace/screenshot/video off for passing and intentionally failing
 // invocations alike, and zero retries.
 //
-// Consumed only through `--config` by the evidence, control, refusal, and
+// Consumed only through `--config` by the functional UAT, refusal, and
 // provider-free battery invocations of
 // deployables/marketplace/e2e/account-payment-stripe-embed.uat.spec.ts; no
 // package script consumes it and the shared playwright.config.ts does not
-// move. The probe spec digest-binds this file's bytes into every acceptance
-// receipt, so any later edit here mechanically stales the receipt, and its
-// in-spec guard refuses any configured or control-mode invocation whose
+// move. The in-spec guard refuses any configured invocation whose
 // resolved settings do not match this surface.
 export default defineConfig(sharedConfig, {
   reporter: [["list"]],

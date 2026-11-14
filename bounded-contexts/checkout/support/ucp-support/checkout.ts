@@ -111,7 +111,9 @@ export function createCheckoutUcpHandlers(
     const currentTime = now();
     const hasOrders = session.order_ids.length > 0;
     const facts = hasOrders ? await options.getOrderFacts(session.order_ids, session.buyer_account_id) : [];
-    const payment = session.payment_id ? await checkout.sessions.getPaymentSummary(session.payment_id) : null;
+    const payment = session.payment_id
+      ? await checkout.sessions.getPaymentSummary(session.payment_id, input.actor!.accountId)
+      : null;
     const preview =
       hasOrders || session.cancelled_at || isExpiredHandoff(session, currentTime)
         ? null
@@ -216,6 +218,8 @@ export function createCheckoutUcpHandlers(
         entryAttempt,
         createdAt,
         handoffExpiresAt: new Date(Date.parse(createdAt) + handoffTtlMs).toISOString(),
+        // The buyer confirms on the web checkout (continue_url), which preselects this address.
+        previewShippingAddress: await checkout.sessions.firstPreviewShippingAddress(accountId),
       });
       const session = await checkout.sessions.getSession(prepared.sessionId, accountId);
       if (!session) throw new CheckoutDomainError("Checkout was not found after creation.", "not_found");

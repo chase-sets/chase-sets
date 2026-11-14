@@ -22,6 +22,31 @@ function row(invitationId: string, eligibleAt: string) {
 }
 
 describe("CSAT admin queue query", () => {
+  it.each([1, 5] as const)("binds rating %i as smallint while keeping text filter arrays", async (rating) => {
+    const calls: Array<{ sql: string; params: readonly unknown[] }> = [];
+    const db = {
+      query: vi.fn(async (sql: string, params: readonly unknown[]) => {
+        calls.push({ sql, params });
+        return { rows: [] };
+      }),
+    };
+
+    await listCsatAdminQueue(db as never, {
+      outcomeCodes: ["checkout.completed"],
+      customerRoles: ["buyer"],
+      states: ["submitted"],
+      ratings: [rating, rating],
+      limit: 100,
+    });
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.sql).toContain("i.outcome_code = ANY($1::text[])");
+    expect(calls[0]?.sql).toContain("i.subject_kind = ANY($2::text[])");
+    expect(calls[0]?.sql).toContain("i.state = ANY($3::text[])");
+    expect(calls[0]?.sql).toContain("f.rating = ANY($4::smallint[])");
+    expect(calls[0]?.params).toEqual([["checkout.completed"], ["buyer"], ["submitted"], [rating], 101]);
+  });
+
   it("uses bounded keyset pages and stable eligible-time/id ordering", async () => {
     const calls: Array<{ sql: string; params: readonly unknown[] }> = [];
     const db = {

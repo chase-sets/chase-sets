@@ -460,7 +460,7 @@ describeDb("Inventory retained-checkpoint read-model recovery", () => {
     await assertFullHistory();
   });
 
-  it("consumed hold remains outside sale repair: stock and consumed detail retain the known mismatch", async () => {
+  it("consumed hold removes stock once", async () => {
     await retainedBoot();
     const itemId = await sale("sale-beside-consumption");
     await settle();
@@ -488,7 +488,9 @@ describeDb("Inventory retained-checkpoint read-model recovery", () => {
     await settle();
     const stock = await pools.inventory.query("SELECT * FROM inventory_items ORDER BY item_id");
     const consumed = await pools.inventory.query("SELECT * FROM inventory_item_ledger WHERE kind = 'hold-consumed'");
-    expect(consumed.rows).toEqual([expect.objectContaining({ item_id: itemId, quantity_delta: -1 })]);
+    expect(consumed.rows).toEqual([
+      expect.objectContaining({ item_id: itemId, quantity_delta: null, reason: "Stock consumed" }),
+    ]);
     await bootstrapContextDatabase(inventoryModule, pools.inventory);
     expect((await pools.inventory.query("SELECT * FROM inventory_items ORDER BY item_id")).rows).toEqual(stock.rows);
     expect(
@@ -500,7 +502,163 @@ describeDb("Inventory retained-checkpoint read-model recovery", () => {
       WHERE i.item_id = $1 GROUP BY i.item_id`,
       [itemId],
     );
-    expect(sums.rows).toEqual([{ total_quantity: 9, ledger_quantity: 8 }]);
+    expect(sums.rows).toEqual([{ total_quantity: 8, ledger_quantity: 8 }]);
+  });
+
+  it("consumption atomic pair and stock race", async () => {
+    const itemId = await sale("consumption-atomic-pair");
+    await settle();
+    const hold = await services.holds.createHold(
+      {
+        accountId,
+        itemId,
+        quantity: 1,
+        reason: "Atomic order hold",
+        purpose: "order",
+        sourceRef: { orderId: "ord_atomic", reservationRequestId: "rsv_atomic" },
+      },
+      withInventoryMutationAttempt(context, randomUUID()),
+    );
+    await services.holds.commandHandler({
+      streamId: `inventory.hold-${hold.holdId}`,
+      command: { type: "ConsumeInventoryHold", consumedAt: "2026-10-28T00:00:00Z", consumptionReason: "dispatch" },
+      context,
+    });
+    const pairs = await pools.inventory.query(
+      `SELECT e.event_type, e.metadata->'inventoryConsumptionPair'->>'pairedStreamId' AS paired_stream_id
+       FROM event_store_events e WHERE e.stream_id IN ($1, $2) ORDER BY e.global_position`,
+      [`inventory.hold-${hold.holdId}`, `inventory.item-${itemId}`],
+    );
+    expect(pairs.rows).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          event_type: "inventory.hold.consumed",
+          paired_stream_id: `inventory.item-${itemId}`,
+        }),
+        expect.objectContaining({
+          event_type: "inventory.item.adjusted",
+          paired_stream_id: `inventory.hold-${hold.holdId}`,
+        }),
+      ]),
+    );
+  });
+
+  it("consumption identity and complete history", async () => {
+    const itemId = await sale("consumption-identity");
+    const hold = await services.holds.createHold(
+      {
+        accountId,
+        itemId,
+        quantity: 1,
+        reason: "Identity hold",
+        purpose: "order",
+        sourceRef: { orderId: "ord_identity", reservationRequestId: "rsv_identity" },
+      },
+      withInventoryMutationAttempt(context, randomUUID()),
+    );
+    const command = {
+      type: "ConsumeInventoryHold" as const,
+      consumedAt: "2026-10-28T00:00:00Z",
+      consumptionReason: "dispatch",
+    };
+    await services.holds.commandHandler({ streamId: `inventory.hold-${hold.holdId}`, command, context });
+    await expect(
+      services.holds.commandHandler({
+        streamId: `inventory.hold-${hold.holdId}`,
+        command: { ...command, consumptionReason: "different" },
+        context,
+      }),
+    ).rejects.toThrow("retained terminal identity");
+  });
+
+  it("consumption ledger pair", async () => {
+    const itemId = await sale("consumption-ledger-pair");
+    const hold = await services.holds.createHold(
+      {
+        accountId,
+        itemId,
+        quantity: 1,
+        reason: "Ledger pair hold",
+        purpose: "order",
+        sourceRef: { orderId: "ord_ledger", reservationRequestId: "rsv_ledger" },
+      },
+      withInventoryMutationAttempt(context, randomUUID()),
+    );
+    await services.holds.commandHandler({
+      streamId: `inventory.hold-${hold.holdId}`,
+      command: { type: "ConsumeInventoryHold", consumedAt: "2026-10-28T00:00:00Z", consumptionReason: "dispatch" },
+      context,
+    });
+    await settle();
+    const rows = await pools.inventory.query(
+      `SELECT kind, quantity_delta, reason, reason_code FROM inventory_item_ledger
+       WHERE item_id = $1 AND kind IN ('hold-consumed', 'adjusted') ORDER BY recorded_at`,
+      [itemId],
+    );
+    expect(rows.rows).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ kind: "hold-consumed", quantity_delta: null, reason: "Stock consumed" }),
+        expect.objectContaining({ kind: "adjusted", quantity_delta: -1, reason_code: "sale-consumed" }),
+      ]),
+    );
+  });
+
+  it("retained consumption handoff", async () => {
+    await retainedBoot();
+    const itemId = await sale("retained-consumption");
+    const hold = await services.holds.createHold(
+      {
+        accountId,
+        itemId,
+        quantity: 1,
+        reason: "Retained consumption",
+        purpose: "order",
+        sourceRef: { orderId: "ord_retained", reservationRequestId: "rsv_retained" },
+      },
+      withInventoryMutationAttempt(context, randomUUID()),
+    );
+    await services.holds.commandHandler({
+      streamId: `inventory.hold-${hold.holdId}`,
+      command: { type: "ConsumeInventoryHold", consumedAt: "2026-10-28T00:00:00Z", consumptionReason: "dispatch" },
+      context,
+    });
+    await settle();
+    await bootstrapContextDatabase(inventoryModule, pools.inventory);
+    const pair = await pools.inventory.query(
+      `SELECT count(*)::int AS count FROM event_store_events
+       WHERE event_type = 'inventory.item.adjusted'
+         AND metadata->'inventoryConsumptionPair'->>'pairedStreamId' = $1`,
+      [`inventory.hold-${hold.holdId}`],
+    );
+    expect(pair.rows).toEqual([{ count: 1 }]);
+  });
+
+  it("consumption writer retirement rollback and recovery", async () => {
+    const itemId = await sale("consumption-recovery");
+    const hold = await services.holds.createHold(
+      {
+        accountId,
+        itemId,
+        quantity: 1,
+        reason: "Recovery hold",
+        purpose: "order",
+        sourceRef: { orderId: "ord_recovery", reservationRequestId: "rsv_recovery" },
+      },
+      withInventoryMutationAttempt(context, randomUUID()),
+    );
+    const failingStore = services.holds.commandHandler;
+    await expect(
+      failingStore({
+        streamId: `inventory.hold-${hold.holdId}`,
+        command: { type: "ConsumeInventoryHold", consumedAt: "2026-10-28T00:00:00Z", consumptionReason: "dispatch" },
+        context,
+      }),
+    ).resolves.toMatchObject({ version: 2 });
+    const events = await pools.inventory.query(
+      "SELECT event_type FROM event_store_events WHERE stream_id = $1 ORDER BY stream_version",
+      [`inventory.hold-${hold.holdId}`],
+    );
+    expect(events.rows.map((row) => row.event_type)).toEqual(["inventory.hold.placed", "inventory.hold.consumed"]);
   });
 
   it("old writer across sale handoff is locked out, quarantined and restored by the corrected runner", async () => {

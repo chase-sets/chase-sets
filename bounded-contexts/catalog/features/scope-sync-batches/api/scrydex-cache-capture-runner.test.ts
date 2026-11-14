@@ -154,6 +154,7 @@ async function deployedAdmin(world: World, serverNow: () => string) {
         return {
           items: visible.slice(offset, offset + limit).map((id) => syntheticScopeRow(id, domain)),
           total: ids.length,
+          facets: { languageEditions: [] },
         };
       },
     }),
