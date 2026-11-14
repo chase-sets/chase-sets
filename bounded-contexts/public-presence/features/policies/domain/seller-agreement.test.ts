@@ -179,21 +179,31 @@ function sellerAgreementIdentityCitations() {
 }
 
 describe("Seller Agreement policy artifact", () => {
-  it("matches Terms entity, state, courts and mailing address, retaining only the notice-email placeholder", () => {
+  it("matches Terms entity, state, courts and mailing address, using the ratified legal-notice email", () => {
     const seller = sellerAgreementPolicyArtifact.sections.find(({ id }) => id === "governing-law")!;
     const terms = termsOfServicePolicyArtifact.sections.find(({ id }) => id === "governing-law-and-forum")!;
     for (const pattern of [
       /Chase Sets Limited, registered in Wichita, Kansas/,
       /laws of the State of Kansas/,
       /state and federal courts located in Kansas/,
-      /Chase Sets Limited, PO Box 164, Maize, KS 67101-0164, US, or to \[NOTICE-EMAIL\]/,
+      /Chase Sets Limited, PO Box 164, Maize, KS 67101-0164, US, or to legal@chasesets\.com/,
     ]) {
       expect(seller.draftText.match(pattern)?.[0]).toBe(terms.draftText.match(pattern)?.[0]);
       expect(seller.draftText).toMatch(pattern);
     }
     expect(seller.draftText.match(/\[[A-Z-]+\]/g)).toEqual(terms.draftText.match(/\[[A-Z-]+\]/g));
     expect(seller.reviewManifest.decisionRefs).toContain(5677);
-    expect(seller.reviewManifest.openQuestions.join(" ")).toContain("[NOTICE-EMAIL]");
+    expect(seller.reviewManifest.decisionRefs).toContain(8668);
+    expect(seller.reviewManifest.productTruthRefs).toContain(
+      "https://github.com/chase-sets/chase-sets/issues/8668#issuecomment-6043970242",
+    );
+    expect(seller.reviewManifest.productTruthRefs).toContain(
+      "https://github.com/chase-sets/chase-sets/issues/10299#issuecomment-6883088071",
+    );
+    expect(seller.reviewManifest.openQuestions.join(" ")).toContain(
+      "Counsel must confirm the final governing-law and forum language",
+    );
+    expect(JSON.stringify(seller.reviewManifest)).not.toMatch(/\[NOTICE-EMAIL\]|pending|missing|counsel-owned/);
   });
   it.each(sellerAgreementIdentityCitations())("resolves the $name citation to its claimed Identity symbols", (row) => {
     const source = resolveIdentityCitation(row.reference);
