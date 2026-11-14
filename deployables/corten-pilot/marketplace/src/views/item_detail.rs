@@ -1996,7 +1996,7 @@ fn SaveToList<'a>(
     let product = screen.product_id.as_deref().unwrap_or_default();
     let label = saving::product_label(screen);
     let accessible = t.saved_accessible(&label).to_string();
-    let action = url::ItemSave { slug }.href();
+    let action = url::Item { slug, state: Default::default(), after: Default::default() }.href();
     let page = address.pairs();
     let refused = match notice {
         Some(BuyNotice::SaveRefused { message, input }) => Some((Some(message.as_str()), input)),

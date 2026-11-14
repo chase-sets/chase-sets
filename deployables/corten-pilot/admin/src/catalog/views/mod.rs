@@ -438,6 +438,8 @@ pub struct DimensionForms {
     pub option: Option<(String, Draft<OptionInput>)>,
     pub option_lifecycle: Option<(String, Errors)>,
     pub reorder: Option<Draft<ReorderInput>>,
+    /// An option whose edit dialog is drawn open with its stored values (its address opened).
+    pub open_option: Option<String>,
 }
 
 #[derive(Default)]
@@ -649,7 +651,7 @@ pub fn dimension_rows<'a>(
     let (previous, next) = pages_around(screen, |page| {
         url::Dimensions::of(&url::DimensionQuery { page: (page > 1).then_some(page), ..query.clone() }).href()
     });
-    let preview = url::DimensionsBulk { query: query.clone() }.href();
+    let preview = url::DimensionsBulk { query: query.clone() };
     let actions = bulk_actions(t.dimension_activate(), t.dimension_deprecate(), t.dimension_archive());
     let select = manage.then_some(p);
     html! {
@@ -706,7 +708,7 @@ pub fn field_rows<'a>(
     let (previous, next) = pages_around(screen, |page| {
         url::Fields::of(&url::FieldQuery { page: (page > 1).then_some(page), ..query.clone() }).href()
     });
-    let preview = url::FieldsBulk { query: query.clone() }.href();
+    let preview = url::FieldsBulk { query: query.clone() };
     let actions = bulk_actions(t.field_activate(), t.field_deprecate(), t.field_archive());
     let select = manage.then_some(p);
     html! {
@@ -746,7 +748,7 @@ pub fn dimension_page<'a>(
     notice: Option<String>,
     forms: DimensionForms,
 ) -> impl Render + 'a {
-    let DimensionForms { edit, lifecycle, add, option, option_lifecycle, reorder } = forms;
+    let DimensionForms { edit, lifecycle, add, option, option_lifecycle, reorder, open_option } = forms;
     let dimension = &d.dimension;
     let id = dimension.dimension_id.as_str();
     let editable = dimension.status != "archived";
@@ -769,7 +771,8 @@ pub fn dimension_page<'a>(
     let count = t.dimension_option_count(d.options.len()).to_string();
     let list = url::Dimensions::default().href();
     let (edit_action, lifecycle_action) = (url::DimensionEdit { id }.href(), url::DimensionLifecycle { id }.href());
-    let (add_action, reorder_action) = (url::Options { id }.href(), url::OptionOrder { id }.href());
+    let (add_action, reorder_action) =
+        (url::Dimension { id, after_write: None, done: None }.href(), url::OptionOrder { id }.href());
     html! {
         <DetailPage p={p} list={&list} list_label={t.dimension_dimensions()} name={&dimension.name}>
             <ActionBar>
@@ -795,7 +798,14 @@ pub fn dimension_page<'a>(
                         }
                     </ActionBar>
                 }
-                <OptionTable t={t} p={p} dimension={d} editing={option.as_ref()} refused={option_lifecycle.as_ref()} />
+                <OptionTable
+                    t={t}
+                    p={p}
+                    dimension={d}
+                    editing={option.as_ref()}
+                    refused={option_lifecycle.as_ref()}
+                    open={open_option.as_deref()}
+                />
             </Part>
         </DetailPage>
         if editable {

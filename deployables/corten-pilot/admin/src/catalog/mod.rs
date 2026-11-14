@@ -11,14 +11,14 @@
 //! | `GET /catalog` | a redirect to the dimensions |
 //! | `GET /catalog/dimensions?search&status&value_kind&page` | the list; `POST` creates |
 //! | `GET /catalog/dimensions/live?search&status&value_kind&page` | the list's rows, again on each change (`<corten-live>`) |
-//! | `GET /catalog/dimensions/{id}` | the dimension and its options |
+//! | `GET /catalog/dimensions/{id}` | the dimension and its options; `POST` adds an option |
 //! | `POST /catalog/dimensions/{id}/edit`, `/lifecycle` | revise; activate, deprecate, archive |
-//! | `POST /catalog/dimensions/{id}/options`, `/options/order` | add an option; reorder them |
+//! | `POST /catalog/dimensions/{id}/options/order` | reorder the options |
 //! | `POST /catalog/dimensions/{id}/options/{option_id}`, `.../lifecycle` | revise; deprecate, reactivate |
 //! | `GET /catalog/fields?search&status&value_type&filterable&searchable&sortable&page` | the list; `POST` creates |
 //! | `GET /catalog/fields/live?...` | the list's rows, again on each change |
 //! | `GET /catalog/fields/{id}`, `POST .../edit`, `.../lifecycle` | the field; configure; its status |
-//! | `POST /catalog/dimensions/bulk?search&status&value_kind&page` | a bulk change's preview (`/catalog/fields/bulk` for fields) |
+//! | `GET /catalog/dimensions/bulk?search&status&value_kind&page&action&mode&ids` | a bulk change's preview (`/catalog/fields/bulk` for fields) |
 //! | `POST /catalog/dimensions/bulk/confirm?...` | starts it: a redirect to the list, following its job (`?job=`) |
 //! | `GET /catalog/jobs/{id}/live` | the job's status, again on each change until it is done (`<corten-live>`) |
 //! | `GET /catalog/scopes?search&status&product_domain&language&page` | the scopes list (`scopes`) |
@@ -59,6 +59,7 @@ pub mod item;
 pub mod items;
 pub mod observation;
 pub mod operator_session;
+pub mod previews;
 pub mod provider;
 pub mod reference_records;
 pub mod reference_types;
@@ -72,7 +73,7 @@ pub mod views;
 use crate::{
     api::{Caller, Method, segment},
     app::{Denied, Shared, live_rows, read_failed, refused},
-    auth::{CatalogAccess, Staff, Viewer},
+    auth::{CatalogAccess, CatalogManage, Staff, Viewer},
     text::{Cat, Pilot},
 };
 use api::{Catalog as _, Dimension, DimensionDetail, Field, Job, Kind, List, Preview, Written, under};
@@ -144,13 +145,7 @@ pub mod url {
         pub query: DimensionQuery,
     }
 
-    /// A bulk change of the dimensions: its preview (without JavaScript the answer is the list,
-    /// with the preview open).
-    #[route("/catalog/dimensions/bulk", post = preview_dimensions)]
-    pub struct DimensionsBulk {
-        #[route(query)]
-        pub query: DimensionQuery,
-    }
+    pub use crate::catalog::previews::url::DimensionsBulk;
 
     /// The preview's confirm: it starts the change.
     #[route("/catalog/dimensions/bulk/confirm", post = confirm_dimensions)]
@@ -159,7 +154,10 @@ pub mod url {
         pub query: DimensionQuery,
     }
 
-    #[route("/catalog/dimensions/{id}", get = dimension)]
+    /// A dimension and its options. Add Option posts here: its Add Label and Remove steps draw the
+    /// page again with the form open and write nothing, so the page they draw is at its own
+    /// address.
+    #[route("/catalog/dimensions/{id}", get = dimension, post = add_option)]
     pub struct Dimension<'a> {
         pub id: &'a str,
         pub after_write: Option<String>,
@@ -176,17 +174,15 @@ pub mod url {
         pub id: &'a str,
     }
 
-    #[route("/catalog/dimensions/{id}/options", post = add_option)]
-    pub struct Options<'a> {
-        pub id: &'a str,
-    }
-
     #[route("/catalog/dimensions/{id}/options/order", post = reorder_options)]
     pub struct OptionOrder<'a> {
         pub id: &'a str,
     }
 
-    #[route("/catalog/dimensions/{id}/options/{option_id}", post = revise_option)]
+    /// An option's edit: `POST` revises it, or draws its form again with a label row added or
+    /// removed; `GET` is the dimension's page with the option's edit dialog open, so that redraw
+    /// has a page at its address.
+    #[route("/catalog/dimensions/{id}/options/{option_id}", get = option_dialog, post = revise_option)]
     pub struct OptionEdit<'a> {
         pub id: &'a str,
         pub option_id: &'a str,
@@ -234,12 +230,7 @@ pub mod url {
         pub query: FieldQuery,
     }
 
-    /// A bulk change of the fields: its preview.
-    #[route("/catalog/fields/bulk", post = preview_fields)]
-    pub struct FieldsBulk {
-        #[route(query)]
-        pub query: FieldQuery,
-    }
+    pub use crate::catalog::previews::url::FieldsBulk;
 
     #[route("/catalog/fields/bulk/confirm", post = confirm_fields)]
     pub struct FieldsBulkConfirm {
@@ -457,6 +448,7 @@ pub fn area(area: Area<url::Catalog>, shared: Shared) -> Area<url::Catalog> {
     let area = reference_types::url::area(area, shared.clone());
     let area = reference_records::url::area(area, shared.clone());
     let area = items::url::area(area, shared.clone());
+    let area = previews::area(area, shared.clone());
     item::url::area(area, shared).components(views::COMPONENTS).components(crate::views::LIVE)
 }
 
@@ -785,11 +777,11 @@ async fn add_option(
     corten::Caller(staff): corten::Caller<Staff<CatalogAccess>>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Params(route): Params<crate::catalog::url::Options<'_>>,
+    Params(route): Params<crate::catalog::url::Dimension<'_>>,
     Form(input): Form<OptionInput>,
 ) -> HtmlResult {
     let id = route.id;
-    let action = url::Options { id: &id }.href();
+    let action = url::Dimension { id: &id, after_write: None, done: None }.href();
     if let Some(next) = input.relabeled() {
         let draft = Draft::new(next);
         let form = views::OptionForm { t: req.t(), id: ids::ADD_OPTION, action: &action, add: true, form: &draft };
@@ -811,6 +803,20 @@ async fn add_option(
     let form = views::OptionForm { t: req.t(), id: ids::ADD_OPTION, action: &action, add: true, form: &draft };
     let forms = DimensionForms { add: Some(draft.clone()), ..Default::default() };
     dimension_invalid(&req, &staff.viewer, &config, &headers, &id, &draft.errors, form, forms).await
+}
+
+/// An option's edit dialog, open on the dimension's page with the option's stored values (one
+/// the dimension does not have is the page with no dialog open).
+async fn option_dialog(
+    req: Req,
+    corten::Caller(staff): corten::Caller<Staff<CatalogAccess>>,
+    State(config): State<Shared>,
+    headers: HeaderMap,
+    Params(route): Params<crate::catalog::url::OptionEdit<'_>>,
+) -> HtmlResult {
+    let (id, option_id) = (route.id, route.option_id);
+    let forms = DimensionForms { open_option: Some(option_id), ..Default::default() };
+    dimension_page(&req, &staff.viewer, &config, &headers, &id, &url::After::default(), forms).await
 }
 
 async fn revise_option(
@@ -1292,9 +1298,9 @@ where
     page(shown).await
 }
 
-async fn preview_dimensions(
+pub(crate) async fn preview_dimensions(
     req: Req,
-    corten::Caller(staff): corten::Caller<Staff<CatalogAccess>>,
+    corten::Caller(staff): corten::Caller<Staff<CatalogManage>>,
     State(config): State<Shared>,
     headers: HeaderMap,
     Params(route): Params<crate::catalog::url::DimensionsBulk>,
@@ -1315,9 +1321,9 @@ async fn preview_dimensions(
         .await
 }
 
-async fn preview_fields(
+pub(crate) async fn preview_fields(
     req: Req,
-    corten::Caller(staff): corten::Caller<Staff<CatalogAccess>>,
+    corten::Caller(staff): corten::Caller<Staff<CatalogManage>>,
     State(config): State<Shared>,
     headers: HeaderMap,
     Params(route): Params<crate::catalog::url::FieldsBulk>,

@@ -13,7 +13,7 @@ use platform::ui::{
 use super::integrations_page::{Banner, Empty, Pairs, Pill, when};
 use crate::{
     catalog::{
-        operator_session::{Answer, DisconnectInput, Disconnected, Failure, Metadata, Minted, Operator},
+        operator_session::{Answer, Disconnected, Failure, Metadata, Minted, Operator, OperatorInput},
         provider::url,
     },
     text::{Cat, Pilot},
@@ -48,13 +48,12 @@ pub fn OperatorSession<'a>(
     sign_in: &'a str,
 ) -> impl Render {
     let at = |href: String| crate::catalog::daily::at(&href, context);
-    let pair = at(url::Pair { key }.href().to_string());
-    let disconnect = at(url::Disconnect { key }.href().to_string());
+    // Both forms post to the provider's own page, naming their write.
     let page = at(url::Provider { key }.href().to_string());
     // As on admin-web, a Disconnect the API answered takes the form away until the next read.
     let answered = matches!(answer, Some(Answer::Disconnected(outcome, _)) if *outcome != Disconnected::StaleRevision);
     let disconnectable = !answered && operator.metadata.as_ref().is_some_and(|m| m.grant.is_some());
-    let f = DisconnectInput::FIELDS;
+    let f = OperatorInput::FIELDS;
     html! {
         <section class={Panel} aria-labelledby="pd-operator-session" data-catalog-operator-session-panel="true">
             <h2 id="pd-operator-session" class={Title}>{t.os_title()}</h2>
@@ -65,17 +64,19 @@ pub fn OperatorSession<'a>(
             }
             <p class={Muted}>{t.os_pair_description()}</p>
             <div class={Actions}>
-                <form method="post" action={&pair}>
+                <form method="post" action={&page}>
+                    <input type="hidden" name={f.intent} value={OperatorInput::PAIR}>
                     <button type="submit" class={Button { variant: ButtonVariant::Primary, size: ButtonSize::Md }}>
                         {t.os_pair_submit()}
                     </button>
                 </form>
             </div>
             if disconnectable {
-                <form method="post" action={&disconnect} class={Disconnect} data-catalog-operator-session-disconnect="true">
+                <form method="post" action={&page} class={Disconnect} data-catalog-operator-session-disconnect="true">
+                    <input type="hidden" name={f.intent} value={OperatorInput::DISCONNECT}>
                     <p class={Muted}>{t.os_disconnect_dialog_description()}</p>
                     <Checkbox label={p.provider_os_disconnect_confirm()}>
-                        <input type="checkbox" name={f.confirmed} value={DisconnectInput::CONFIRMED} required>
+                        <input type="checkbox" name={f.confirmed} value={OperatorInput::CONFIRMED} required>
                     </Checkbox>
                     <div>
                         <button type="submit" class={Button { variant: ButtonVariant::Destructive, size: ButtonSize::Md }}>

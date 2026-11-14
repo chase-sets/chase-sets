@@ -2456,10 +2456,15 @@ fn get_json(uri: &str) -> Request<Body> {
     req
 }
 
+/// What a browser's navigation asks for: Corten's debug checks of a browser's plain post (a page
+/// answered at a path with no `GET`) see these posts as a browser's.
+const BROWSER_ACCEPT: &str = "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8";
+
 /// A form post as the runtime sends it (`corten: action`), or as a browser without JavaScript.
 fn post(uri: &str, session: &str, body: &str, script: bool) -> Request<Body> {
     let mut req = Request::post(uri)
         .header(header::HOST, "localhost:7791")
+        .header(header::ACCEPT, BROWSER_ACCEPT)
         .header(header::COOKIE, format!("chase_sets_session={session}"))
         .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded");
     if script {
@@ -4351,6 +4356,7 @@ async fn a_guest_adds_to_the_guest_cart_marketplace_reads() {
     let req = || {
         Request::post(ITEM_CART)
             .header(header::HOST, "localhost:7791")
+            .header(header::ACCEPT, BROWSER_ACCEPT)
             .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
     };
     let body = buy_body("buy-best-match", "1", VAULT, "", "");
@@ -4496,6 +4502,7 @@ fn sell_calls(pilot: &Pilot) -> Vec<Call> {
 fn post_signed_out(uri: &str, body: &str) -> Request<Body> {
     Request::post(uri)
         .header(header::HOST, "localhost:7791")
+        .header(header::ACCEPT, BROWSER_ACCEPT)
         .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
         .body(Body::from(body.to_owned()))
         .unwrap()
@@ -4776,7 +4783,8 @@ async fn a_guest_saves_a_watch_alert_as_an_intent_and_registers_to_claim_it() {
 }
 
 const SAVE_PAGE: &str = "/items/charizard?dimension.dim_form=chc_raw&dimension.dim_condition=chc_nm";
-const SAVE: &str = "/items/charizard/save";
+/// Add to List posts to the item's own page.
+const SAVE: &str = "/items/charizard";
 
 /// The value of the hidden input `name` in the first form that has one.
 fn hidden(html: &str, name: &str) -> String {
@@ -4818,7 +4826,7 @@ async fn add_to_list_opens_a_dialog_the_page_drew_with_the_accounts_recent_lists
     );
     let dialog = html.split(r#"id="save-to-list""#).nth(1).expect("the dialog").split("</dialog>").next().unwrap();
     assert!(!html.contains(r#"id="save-to-list" aria-labelledby="save-to-list-title" open"#), "drawn closed: {html}");
-    assert!(dialog.contains(r#"action="/items/charizard/save""#), "{dialog}");
+    assert!(dialog.contains(r#"action="/items/charizard""#), "{dialog}");
     // The most recent list is chosen, then a new list; the title field is there for a new one.
     assert!(dialog.contains(r#"name="list" value="svl_binder" checked>"#), "{dialog}");
     assert!(dialog.contains(r#"name="list" value="new">"#), "{dialog}");
@@ -4840,7 +4848,7 @@ async fn add_to_list_opens_a_dialog_the_page_drew_with_the_accounts_recent_lists
     let (_, _, html) = pilot.send(get(SAVE_PAGE, None)).await;
     assert!(!html.contains(r#"id="save-to-list""#), "{html}");
     let form = html
-        .split(r#"<form class="item-detail__save" method="post" action="/items/charizard/save">"#)
+        .split(r#"<form class="item-detail__save" method="post" action="/items/charizard">"#)
         .nth(1)
         .expect("the guest's form");
     assert!(form.split("</form>").next().unwrap().contains(r#"<button type="submit" class="item-detail__button""#), "{form}");
@@ -5000,7 +5008,7 @@ async fn a_search_results_add_to_list_opens_the_dialog_for_the_product_its_filte
     let (status, _, html) = pilot.send(get("/search?q=pika&dimension.dim_grade=chc_10", Some("watcher"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");
     // Its submit opens a closed dialog again (corten-run/corten#1371's workaround).
-    let save = r#"<form class="search-page__save" method="post" action="/items/card-1/save" data-patch data-on='submit:search.fresh("save-to-list")'>"#;
+    let save = r#"<form class="search-page__save" method="post" action="/items/card-1" data-patch data-on='submit:search.fresh("save-to-list")'>"#;
     let form = html.split(save).nth(1);
     let form = form.expect("card 1's Add to List").split("</form>").next().unwrap();
     for field in [
@@ -5065,12 +5073,12 @@ async fn a_search_results_add_to_list_without_its_options_goes_to_the_item_page_
     // `single` has one listing, whose product the item page would pick; a result's filters that
     // name no options still name no product.
     let body = "prepare=1&from=%2Fsearch%3Fq%3Dchar";
-    let (status, headers, html) = pilot.send(post("/items/single/save", "watcher", body, true)).await;
+    let (status, headers, html) = pilot.send(post("/items/single", "watcher", body, true)).await;
     assert_eq!(status, StatusCode::NO_CONTENT, "{html}");
     assert_eq!(headers["corten-location"], "/items/single");
     assert!(!html.contains(r#"aria-labelledby="save-to-list-title" open"#), "{html}");
     // Signed out: the item page too, and no intent.
-    let (status, headers, html) = pilot.send(post_signed_out("/items/single/save", body)).await;
+    let (status, headers, html) = pilot.send(post_signed_out("/items/single", body)).await;
     assert_eq!(status, StatusCode::SEE_OTHER, "{html}");
     assert_eq!(headers[header::LOCATION], "/items/single");
     let intents = saved_list_calls(&pilot).into_iter().filter(|c| c.path == GUEST_SAVED_LIST_INTENTS).count();
@@ -9456,7 +9464,8 @@ async fn the_mandate_is_sent_as_cents_and_an_amount_that_is_not_one_is_refused()
 #[tokio::test]
 async fn a_saved_webhook_shows_its_secret_once_and_nothing_keeps_it() {
     let pilot = Pilot::new().await;
-    let webhook = format!("{AGENTS}/lpa_one/webhook");
+    // The webhook form posts to the grant's own page, which shows the secret once.
+    let webhook = format!("{AGENTS}/lpa_one");
     let (status, headers, html) =
         pilot.send(post(&webhook, "buyer", "callback_url=https%3A%2F%2Fagent.example%2Fnew", false)).await;
     assert_eq!(status, StatusCode::OK, "{html}");
@@ -9469,7 +9478,7 @@ async fn a_saved_webhook_shows_its_secret_once_and_nothing_keeps_it() {
     let (_, _, html) = pilot.send(get(&format!("{AGENTS}/lpa_one"), Some("buyer"))).await;
     assert!(!html.contains("whsec_synthetic_new_secret"), "the page read again never has the secret");
     assert!(
-        html.contains(r#"action="/account/agents/lpa_one/webhook" data-patch"#),
+        html.contains(r#"action="/account/agents/lpa_one" data-patch"#),
         "the runtime sends it: a reload does not post it again"
     );
     let (status, headers, html) =
@@ -9487,12 +9496,12 @@ async fn a_saved_webhook_shows_its_secret_once_and_nothing_keeps_it() {
     let (_, headers, _) = pilot.send(post(&webhook, "buyer", "callback_url=+", false)).await;
     assert_eq!(query(headers["location"].to_str().unwrap())["said"], "webhook-disabled", "an empty address disables it");
     let (_, headers, _) =
-        pilot.send(post(&format!("{webhook}/disable"), "buyer", "callback_url=https%3A%2F%2Fx.example", false)).await;
+        pilot.send(post(&format!("{webhook}/webhook/disable"), "buyer", "callback_url=https%3A%2F%2Fx.example", false)).await;
     assert_eq!(query(headers["location"].to_str().unwrap())["said"], "webhook-disabled");
     let writes = ucp_writes(&pilot);
     assert_eq!((writes[3].2.clone(), writes[4].2.clone()), (json!({ "callback_url": null }), json!({ "callback_url": null })));
     let (_, headers, _) =
-        pilot.send(post(&format!("{AGENTS}/lpa_old/webhook"), "buyer", "callback_url=https%3A%2F%2Fx.example", false)).await;
+        pilot.send(post(&format!("{AGENTS}/lpa_old"), "buyer", "callback_url=https%3A%2F%2Fx.example", false)).await;
     assert_eq!(query(headers["location"].to_str().unwrap())["said"], "grant-revoked");
 }
 
@@ -9967,6 +9976,7 @@ fn post_multipart(uri: &str, session: &str, fields: &[(&str, &str)], files: &[(&
     body.extend_from_slice(format!("--{BOUNDARY}--\r\n").as_bytes());
     Request::post(uri)
         .header(header::HOST, "localhost:7791")
+        .header(header::ACCEPT, BROWSER_ACCEPT)
         .header(header::COOKIE, format!("chase_sets_session={session}"))
         .header(header::CONTENT_TYPE, format!("multipart/form-data; boundary={BOUNDARY}"))
         .body(Body::from(body))
@@ -11669,9 +11679,9 @@ async fn a_step_with_no_answer_is_looked_up_once_and_an_unconfirmed_one_turns_th
         "{lookups:?}"
     );
 
-    // Nothing to find: the result could not be confirmed, and every step is off.
+    // Nothing to find: the result could not be confirmed (an upstream failure), and every step is off.
     let (status, _, html) = pilot.send(post(here, "trader", &stop("bop_dark"), false)).await;
-    assert_eq!(status, StatusCode::OK, "{html}");
+    assert_eq!(status, StatusCode::BAD_GATEWAY, "{html}");
     assert!(text(&html).contains("We could not confirm the result."), "{html}");
     assert!(html.contains(r#"type="submit" disabled"#), "{html}");
     assert_eq!(list_calls(&pilot, "/api/marketplace/mutation-attempts/").len(), 2);
@@ -12287,10 +12297,7 @@ async fn an_item_not_readable_yet_after_a_write_says_so_and_reads_again() {
         page.contains("Inventory item is still updating Your change was saved. This page reads the item again in a moment."),
         "{page}"
     );
-    assert!(
-        !page.contains("could not be verified") && !html.contains(r#"action="/account/inventory/items/inv_1/adjustments""#),
-        "{html}"
-    );
+    assert!(!page.contains("could not be verified") && !html.contains(r#"name="quantityDelta""#), "{html}");
     let (status, _, html) = pilot.send(get(&format!("{STOCK_ITEM}?after_write={}", receipt_at("44")), Some("seller"))).await;
     assert_eq!(status, StatusCode::CONFLICT, "{html}");
     assert!(text(&html).contains("Inventory item update could not be verified."), "{html}");
@@ -12323,7 +12330,8 @@ async fn the_item_page_shows_its_holds_and_ledger_and_data_clients_get_the_scree
     assert!(!page.contains("offline-sale"), "no raw kind (chase-sets/chase-sets#10673): {page}");
     assert!(html.contains(r#"action="/account/inventory/items/inv_1/holds/hld_manual/release""#), "{html}");
     assert!(!html.contains("hld_order/release") && !html.contains("hld_old/release"), "only an active manual hold is released");
-    for action in ["/adjustments", "/holds", "/sale"] {
+    // Adjust Quantity posts to the page itself.
+    for action in ["", "/holds", "/sale"] {
         assert!(html.contains(&format!(r#"action="{STOCK_ITEM}{action}""#)), "{action}: {html}");
     }
     assert!(html.contains(r#"href="/account/listings/new?inventoryItemId=inv_1""#), "Create listing with stock available");
@@ -12354,7 +12362,10 @@ async fn the_item_page_needs_inventory_view_and_its_writes_inventory_manage() {
     let (status, _, html) = pilot.send(get(STOCK_ITEM, Some("reader"))).await;
     assert_eq!(status, StatusCode::OK);
     assert!(text(&html).contains("Show stock (1)"), "{html}");
-    assert!(!html.contains("/adjustments") && !html.contains("/release") && !html.contains("inventoryItemId="), "{html}");
+    assert!(
+        !html.contains(r#"name="quantityDelta""#) && !html.contains("/release") && !html.contains("inventoryItemId="),
+        "{html}"
+    );
     let (status, _, _) = pilot.send(get(STOCK_ITEM, Some("other"))).await;
     assert_eq!(status, StatusCode::FORBIDDEN);
     let (status, headers, _) = pilot.send(get(STOCK_ITEM, None)).await;
@@ -12367,7 +12378,7 @@ async fn the_item_page_needs_inventory_view_and_its_writes_inventory_manage() {
     let (status, _, _) = pilot.send(get("/account/inventory/items/inv_gone", Some("seller"))).await;
     assert_eq!(status, StatusCode::NOT_FOUND);
     let body = format!("inventoryMutationAttemptId={}&quantityDelta=1&reasonCode=found&reason=x", new_attempt());
-    let (status, _, _) = pilot.send(post("/account/inventory/items/inv_1/adjustments", "reader", &body, false)).await;
+    let (status, _, _) = pilot.send(post("/account/inventory/items/inv_1", "reader", &body, false)).await;
     assert_eq!(status, StatusCode::FORBIDDEN, "a reader adjusts nothing");
     assert!(pilot.writes().is_empty());
 }
@@ -12377,7 +12388,7 @@ async fn an_applied_adjustment_goes_back_to_the_page_which_confirms_it() {
     let pilot = Pilot::new().await;
     let attempt = new_attempt();
     let body = format!("inventoryMutationAttemptId={attempt}&quantityDelta=-1&reasonCode=damaged&reason=+Water+&note=+");
-    let (status, headers, _) = pilot.send(post("/account/inventory/items/inv_1/adjustments", "seller", &body, false)).await;
+    let (status, headers, _) = pilot.send(post("/account/inventory/items/inv_1", "seller", &body, false)).await;
     assert_eq!(status, StatusCode::SEE_OTHER);
     let to = headers[header::LOCATION].to_str().unwrap().to_owned();
     assert!(to.starts_with("/account/inventory/items/inv_1?"), "{to}");
@@ -12400,7 +12411,7 @@ async fn an_applied_adjustment_goes_back_to_the_page_which_confirms_it() {
 #[tokio::test]
 async fn a_refused_adjustment_is_its_form_again_with_why() {
     let pilot = Pilot::new().await;
-    let url = "/account/inventory/items/inv_1/adjustments";
+    let url = "/account/inventory/items/inv_1";
     let body = format!("inventoryMutationAttemptId={}&quantityDelta=0&reasonCode=sold-offline&reason=+", new_attempt());
     let (status, _, html) = pilot.send(post(url, "seller", &body, false)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
@@ -12424,7 +12435,7 @@ async fn a_refused_adjustment_is_its_form_again_with_why() {
 async fn an_adjustment_recorded_as_a_collision_says_what_the_api_recorded() {
     let pilot = Pilot::new().await;
     let body = format!("inventoryMutationAttemptId={}&quantityDelta=-1&reasonCode=lost&reason=Collide", new_attempt());
-    let (status, _, html) = pilot.send(post("/account/inventory/items/inv_1/adjustments", "seller", &body, false)).await;
+    let (status, _, html) = pilot.send(post("/account/inventory/items/inv_1", "seller", &body, false)).await;
     assert_eq!(status, StatusCode::OK);
     assert!(text(&html).contains("Recorded a collision with an order hold. On-hand stock did not change."), "{html}");
 }
@@ -14480,6 +14491,7 @@ async fn starting_a_payment_needs_orders_and_orders_manage() {
 fn sign_in_post(uri: &str, cookie: Option<&str>, body: &str) -> Request<Body> {
     let mut req = Request::post(uri)
         .header(header::HOST, "localhost:7791")
+        .header(header::ACCEPT, BROWSER_ACCEPT)
         .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded");
     if let Some(cookie) = cookie {
         req = req.header(header::COOKIE, cookie);
@@ -15283,7 +15295,7 @@ async fn a_refused_withdrawal_says_why_and_a_lost_answer_is_asked_about() {
     // An attempt that is not a submit key is refused by the form's reader, before the handler.
     let (status, _, html) = pilot.send(refused("intent=withdraw&attempt=nope&consent_id=cns_terms".into())).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
-    assert!(html.contains("submit key"), "{html}");
+    assert!(html.contains("This form is out of date. Reload the page and try again."), "{html}");
     let (status, _, html) = pilot.send(refused(format!("intent=withdraw&attempt={ATTEMPT}&consent_id=+"))).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
     assert!(html.contains("Choose a consent to withdraw."), "{html}");
@@ -16675,7 +16687,7 @@ async fn a_refused_team_write_says_so_and_a_lost_answer_is_asked_about() {
     let before = team_writes(&pilot).len();
     let (status, _, html) = pilot.send(post(TEAM, "teamer", "intent=revoke&attempt=nope&membership_id=mbr_owner", false)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
-    assert!(html.contains("submit key"), "the form's reader refuses it: {html}");
+    assert!(html.contains("This form is out of date. Reload the page and try again."), "the form's reader refuses it: {html}");
     let (status, _, _) = pilot.send(post(TEAM, "teamer", &format!("intent=revoke-api-key&attempt={ATTEMPT}"), false)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
     assert_eq!(team_writes(&pilot).len(), before, "nothing sent");
@@ -19793,6 +19805,7 @@ const START_LISTING: &str = "/checkout/buy/readiness?source=buy-now&listingId=ls
 fn visitor_post(uri: &str, cookie: Option<&str>, body: &str) -> Request<Body> {
     let mut req = Request::post(uri)
         .header(header::HOST, "localhost:7791")
+        .header(header::ACCEPT, BROWSER_ACCEPT)
         .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded");
     if let Some(cookie) = cookie {
         req = req.header(header::COOKIE, cookie);

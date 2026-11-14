@@ -111,7 +111,7 @@ pub fn ref_type_rows<'a>(
     let (previous, next) = pages_around(screen, |page| {
         url::RefTypes::of(&url::RefTypeQuery { page: (page > 1).then_some(page), ..query.clone() }).href()
     });
-    let preview = url::RefTypesBulk { query: query.clone() }.href();
+    let preview = url::RefTypesBulk { query: query.clone() };
     let actions = ref_type_actions(t);
     let select = manage.then_some(p);
     html! {

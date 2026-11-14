@@ -8,7 +8,7 @@
 //! | `GET /catalog/reference-records?search&status&type_key&relationship_type&attribute_key&attribute_value&page` | the list; `POST` creates |
 //! | `GET /catalog/reference-records/new?...` | the create dialog, with the types and records it picks from |
 //! | `GET /catalog/reference-records/live?...` | the list's rows, again on each change (`<corten-live>`) |
-//! | `POST /catalog/reference-records/bulk?...`, `.../bulk/confirm?...` | a bulk change's preview; starts it |
+//! | `GET /catalog/reference-records/bulk?...`, `POST .../bulk/confirm?...` | a bulk change's preview; starts it |
 //! | `GET /catalog/reference-records/{id}`, `GET` and `POST .../edit`, `POST .../lifecycle` | the record; its edit dialog and revise; its status |
 //!
 //! The create and edit dialogs read the active types and up to 500 records (admin-web's loaders
@@ -29,7 +29,7 @@ use super::{
 use crate::{
     api::{Caller, Method},
     app::{Shared, live_rows, read_failed},
-    auth::{CatalogAccess, Staff, Viewer},
+    auth::{CatalogAccess, CatalogManage, Staff, Viewer},
     text::{Cat, Pilot},
 };
 
@@ -110,12 +110,7 @@ pub mod url {
         pub query: RefRecordQuery,
     }
 
-    /// A bulk change's preview.
-    #[route("/catalog/reference-records/bulk", post = preview_bulk)]
-    pub struct RefRecordsBulk {
-        #[route(query)]
-        pub query: RefRecordQuery,
-    }
+    pub use crate::catalog::previews::url::RefRecordsBulk;
 
     /// The preview's confirm: it starts the change.
     #[route("/catalog/reference-records/bulk/confirm", post = confirm_bulk)]
@@ -467,9 +462,9 @@ fn selection_filter(query: &url::RefRecordQuery) -> Value {
     filter_query(&filters(query))
 }
 
-async fn preview_bulk(
+pub(crate) async fn preview_bulk(
     req: Req,
-    corten::Caller(staff): corten::Caller<Staff<CatalogAccess>>,
+    corten::Caller(staff): corten::Caller<Staff<CatalogManage>>,
     State(config): State<Shared>,
     headers: HeaderMap,
     Params(route): Params<crate::catalog::reference_records::url::RefRecordsBulk>,

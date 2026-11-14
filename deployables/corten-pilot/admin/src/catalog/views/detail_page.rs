@@ -178,6 +178,7 @@ pub fn OptionTable<'a>(
     dimension: &'a DimensionDetail,
     editing: Option<&'a (String, Draft<OptionInput>)>,
     refused: Option<&'a (String, Errors)>,
+    open: Option<&'a str>,
 ) -> impl Render {
     let head = [
         t.dimension_code(),
@@ -194,9 +195,47 @@ pub fn OptionTable<'a>(
         } else {
             <Table label={&label} head={&head} all={None} layout={TableLayout::Scroll}>
                 for option in &dimension.options {
-                    <OptionRow t={t} p={p} dimension={dimension} option={option} editing={editing} refused={refused} />
+                    <OptionRow t={t} dimension={dimension} option={option} refused={refused} />
                 }
             </Table>
+            for option in &dimension.options {
+                <OptionDialog p={p} t={t} dimension={dimension} option={option} editing={editing} open={open} />
+            }
+        }
+    }
+}
+
+/// One option's edit dialog, opened by its row's Edit (none for an archived dimension). It is drawn after the table rather than in
+/// the row: one the server draws open (a redraw or a refusal without JavaScript, or its address
+/// opened) is not modal there, and in the table's scroll box it would be clipped and drawn under
+/// the rows.
+#[component(css = DetailPage)]
+pub fn OptionDialog<'a>(
+    t: Cat,
+    p: Pilot,
+    dimension: &'a DimensionDetail,
+    option: &'a DimensionOption,
+    editing: Option<&'a (String, Draft<OptionInput>)>,
+    open: Option<&'a str>,
+) -> impl Render {
+    let id = dimension.dimension.dimension_id.as_str();
+    let option_id = option.option_id.as_str();
+    let came_back = editing.filter(|(of, _)| of == option_id).map(|(_, draft)| draft);
+    let draft = came_back.cloned().unwrap_or_else(|| Draft::new(OptionInput::of(option)));
+    let edit = url::OptionEdit { id, option_id }.href();
+    let title = p.catalog_edit_option(&option.code).to_string();
+    html! {
+        if dimension.dimension.status != "archived" {
+            <CatalogDialog
+                p={p}
+                id={ids::option_dialog(option_id)}
+                title={&title}
+                description={None}
+                open={came_back.is_some() || open == Some(option_id)}
+                close={p.catalog_close()}
+            >
+                <OptionForm t={t} id={&ids::option_form(option_id)} action={&edit} add={false} form={&draft} />
+            </CatalogDialog>
         }
     }
 }
@@ -205,21 +244,15 @@ pub fn OptionTable<'a>(
 #[component(css = DetailPage)]
 pub fn OptionRow<'a>(
     t: Cat,
-    p: Pilot,
     dimension: &'a DimensionDetail,
     option: &'a DimensionOption,
-    editing: Option<&'a (String, Draft<OptionInput>)>,
     refused: Option<&'a (String, Errors)>,
 ) -> impl Render {
     let id = dimension.dimension.dimension_id.as_str();
     let option_id = option.option_id.as_str();
-    let came_back = editing.filter(|(of, _)| of == option_id).map(|(_, draft)| draft);
-    let draft = came_back.cloned().unwrap_or_else(|| Draft::new(OptionInput::of(option)));
     let errors = refused.filter(|(of, _)| of == option_id).map(|(_, e)| e.clone()).unwrap_or_default();
-    let edit = url::OptionEdit { id, option_id }.href();
     let lifecycle = url::OptionLifecycle { id, option_id }.href();
     let dialog = ids::option_dialog(option_id);
-    let title = p.catalog_edit_option(&option.code).to_string();
     let dash = "\u{2014}";
     html! {
         <tr>
@@ -232,16 +265,6 @@ pub fn OptionRow<'a>(
                 <div class={RowActions}>
                     if dimension.dimension.status != "archived" {
                         <Trigger dialog={&dialog} label={t.dimension_edit_2()} secondary />
-                        <CatalogDialog
-                            p={p}
-                            id={&dialog}
-                            title={&title}
-                            description={None}
-                            open={came_back.is_some()}
-                            close={p.catalog_close()}
-                        >
-                            <OptionForm t={t} id={&ids::option_form(option_id)} action={&edit} add={false} form={&draft} />
-                        </CatalogDialog>
                     }
                     <OptionLifecycleForm
                         t={t}

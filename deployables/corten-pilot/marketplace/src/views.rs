@@ -211,10 +211,9 @@ pub const ITEM: &[Component] = &[
 /// sends, the kit's `VisuallyHidden` (search's hidden heading and legends, and the item page's
 /// chart summary), Add to List's dialog and Add matching products to Buy Cart's sheet with
 /// corten-ui's handler that makes each modal. In
-/// `App::components`, since the home page is outside every area. The dialog is here rather than
-/// with the item page because a result's Add to List patches it into the search page from the
-/// item's handler (`/items/{slug}/save`), and a patch brings no stylesheet of its own
-/// (corten-run/corten#1366).
+/// `App::components`, since the home page is outside every area. The search page draws Add to
+/// List's dialog empty, and a result's Add to List fills it with a patch from the item's handler
+/// (`POST /items/{slug}`).
 pub const SEARCH: &[Component] = &[
     SearchPage,
     search_page::handlers::COMPONENT,

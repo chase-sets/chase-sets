@@ -1,7 +1,7 @@
 //! Add to List's dialog (marketplace's `AddToSavedListControl` sheet), shared by the item page and
 //! search's results: the product, a recent Saved List or a new one, and the tracked quantity, with
 //! the ids the addition is made with. Its own stylesheet, so a page that patches it in from another
-//! area's handler (search, from `/items/{slug}/save`) has its rules.
+//! area's handler (search, from `POST /items/{slug}`) has its rules.
 use corten::prelude::*;
 
 use crate::{

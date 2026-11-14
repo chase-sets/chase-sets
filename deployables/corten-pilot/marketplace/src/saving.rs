@@ -349,7 +349,7 @@ pub(crate) async fn save(
     session: Option<corten::Caller<Session>>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Params(route): Params<crate::app::url::items::ItemSave<'_>>,
+    Params(route): Params<crate::app::url::items::Item<'_>>,
     Form(raw): Form<Raw>,
 ) -> HtmlResult {
     let slug = route.slug;
@@ -548,7 +548,8 @@ async fn opened(
     if req.mode == corten::Mode::Action {
         let t: ItemMsg = req.t();
         let (label, page) = (product_label(screen), address.pairs());
-        let action = url::ItemSave { slug: item.slug.as_deref().unwrap_or(&item.catalog_item_id) }.href();
+        let slug = item.slug.as_deref().unwrap_or(&item.catalog_item_id);
+        let action = url::Item { slug, state: Default::default(), after: Default::default() }.href();
         let dialog = views::SaveDialog {
             t,
             save: Some(&save),

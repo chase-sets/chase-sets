@@ -27,7 +27,7 @@
 //! | `GET /account/agents/{id}?<place>` | a grant, its spend, mandate, webhook and activity |
 //! | `POST /account/agents/{id}/revoke` | revoke the grant, as an attempt |
 //! | `POST /account/agents/{id}/mandate` | save its spending mandate |
-//! | `POST /account/agents/{id}/webhook` | save its webhook's address, answered with the new secret |
+//! | `POST /account/agents/{id}` | save its webhook's address, answered with the new secret at the grant's own address |
 //! | `POST /account/agents/{id}/webhook/disable` | disable its webhook |
 //! | `GET /account/agents/consent?consent_token=..` | an agent's consent request |
 //! | `POST /account/agents/consent` | answer it as another of the user's accounts |
@@ -471,7 +471,7 @@ pub(crate) async fn webhook(
     Caller(AgentHolder(viewer)): Caller<AgentHolder>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Params(route): Params<crate::app::url::agents::AgentWebhook<'_>>,
+    Params(route): Params<crate::app::url::agents::AgentPage<'_>>,
     Form(input): Form<WebhookInput>,
 ) -> HtmlResult {
     let id = route.id.as_str();
