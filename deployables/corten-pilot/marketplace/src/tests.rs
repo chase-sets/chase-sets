@@ -13338,6 +13338,72 @@ async fn a_policys_editor_posts_draw_it_again_and_save_revises_the_policy() {
 }
 
 #[tokio::test]
+async fn a_policys_editor_opens_up_only_a_complete_preset_and_keeps_choices_its_lists_do_not_offer() {
+    let pilot = Pilot::new().await;
+    let page = "/account/desk/repricing/pol_4";
+    let (_, _, html) = pilot.send(get(&format!("{page}?edit=open"), Some("pricer"))).await;
+    let body = drawn_body(&html).to_string();
+    let preset = |intent: &'static str, currency: &'static str, amount: &'static str| {
+        vec![
+            ("intent", intent),
+            ("tier", "preset"),
+            ("name", "Beat"),
+            ("preset", "beat-lowest"),
+            ("from", "beat-lowest"),
+            ("knob", "2"),
+            ("currency", currency),
+            ("floor", "absolute"),
+            ("amount", amount),
+        ]
+    };
+
+    // Open up this preset before its floor has an amount: the preset again, saying why.
+    let mut fields = preset("open-up", "USD", "");
+    fields.extend([("scope", "all-listings"), ("body", body.as_str())]);
+    let (status, _, html) = pilot.send(post(page, "pricer", &encoded(&fields), false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    assert!(html.contains(r#"data-repricing-tier="preset""#), "{html}");
+    assert!(text(&html).contains("The policy could not be accepted."), "{html}");
+
+    // A currency no listing prices in and a category the list does not offer stay chosen.
+    let mut fields = preset("apply", "EUR", "5.00");
+    fields.extend([("scope", "catalog-filter"), ("categories", "cat-9"), ("categories", "cat-1"), ("body", body.as_str())]);
+    let (status, _, html) = pilot.send(post(page, "pricer", &encoded(&fields), false)).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains(r#"<option value="EUR" selected>EUR</option>"#), "{html}");
+    assert!(html.contains(r#"value="cat-9" checked>"#) && html.contains(r#"value="cat-1" checked>"#), "{html}");
+
+    // In the advanced editor too: a condition's category and the scope's, drawn and posted back.
+    let mut fields = preset("open-up", "USD", "5.00");
+    fields.extend([("scope", "all-listings"), ("body", body.as_str())]);
+    let (_, _, html) = pilot.send(post(page, "pricer", &encoded(&fields), false)).await;
+    let mut opened = drawn_body(&html);
+    opened["scope"] = json!({ "kind": "catalog-filter", "categoryIds": ["cat-9"] });
+    let mut first = opened["rules"][0].clone();
+    first["conditions"] = json!([{ "type": "category", "categoryId": "cat-9" }]);
+    opened["rules"] = json!([first, opened["rules"][0].clone()]);
+    let opened = opened.to_string();
+    let fields = [("intent", "apply"), ("tier", "advanced"), ("body", opened.as_str())];
+    let (_, _, html) = pilot.send(post(page, "pricer", &encoded(&fields), false)).await;
+    assert!(html.contains(r#"<option value="cat-9" selected>cat-9</option>"#), "{html}");
+    assert!(html.contains(r#"value="cat-9" checked>"#), "{html}");
+    let drawn = drawn_body(&html).to_string();
+    let fields = [
+        ("intent", "apply"),
+        ("tier", "advanced"),
+        ("body", drawn.as_str()),
+        ("scope", "catalog-filter"),
+        ("categories", "cat-9"),
+        ("conditions[0-0].kind", "category"),
+        ("conditions[0-0].category", "cat-9"),
+    ];
+    let (_, _, html) = pilot.send(post(page, "pricer", &encoded(&fields), false)).await;
+    let kept = drawn_body(&html);
+    assert_eq!(kept["scope"]["categoryIds"], json!(["cat-9"]), "{html}");
+    assert_eq!(kept["rules"][0]["conditions"][0]["categoryId"], json!("cat-9"), "{html}");
+}
+
+#[tokio::test]
 async fn a_policys_advanced_editor_changes_its_rules_and_previews_them_in_place() {
     let pilot = Pilot::new().await;
     let page = "/account/desk/repricing/pol_1";
