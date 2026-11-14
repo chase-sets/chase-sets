@@ -61,6 +61,10 @@ const PRIORITY_IMAGES: usize = 3;
 const FEATURED: usize = 5;
 /// The one word the landing's headline treats in gold (`HERO_FOIL_WORD`).
 const FOIL_WORD: &str = "chasing";
+/// The choices a filter group shows before its Show more (`DEFAULT_MARKETPLACE_FACET_VISIBLE_OPTIONS`).
+const SHOWN_CHOICES: usize = 6;
+/// A facet with more values than this offers a search of them (`FACET_OPTION_SEARCH_THRESHOLD`).
+const SEARCHED_CHOICES: usize = 8;
 /// A price filter's value (`readPriceFilter`), which the browser checks before sending it.
 const PRICE_PATTERN: &str = r"(0|[1-9][0-9]*)(\.[0-9]{1,2})?";
 /// Marketplace's saved-search settings (`productAlertSettingsHref`).
@@ -470,14 +474,18 @@ fn Filters<'a>(t: SearchMsg, screen: &'a SearchScreen, facets: &'a [Facet], summ
                                 {t.page_all_categories()}
                             </a>
                         </li>
-                        for category in &screen.categories {
+                        for (n, category) in screen.categories.iter().enumerate() {
                             <CategoryChoice
                                 t={t}
                                 category={category}
                                 terms={terms}
                                 current={category.slug == screen.category}
                                 count={counts(&category.slug)}
+                                waits={waits(n, category.slug == screen.category)}
                             />
+                        }
+                        if more(screen.categories.iter().enumerate().map(|(n, c)| waits(n, c.slug == screen.category))) {
+                            <li><ShowMore t={t} /></li>
                         }
                     </ul>
                 </details>
@@ -582,10 +590,43 @@ fn Filters<'a>(t: SearchMsg, screen: &'a SearchScreen, facets: &'a [Facet], summ
     }
 }
 
+/// Whether the choice at `index` waits behind its group's Show more (`MarketplaceFacetRail`):
+/// past the first six, unless it is chosen, which stays in view.
+fn waits(index: usize, chosen: bool) -> bool {
+    index >= SHOWN_CHOICES && !chosen
+}
+
+/// Whether a group has a choice waiting behind Show more, so it draws one.
+fn more(waiting: impl IntoIterator<Item = bool>) -> bool {
+    waiting.into_iter().any(|w| w)
+}
+
+/// A group's Show more: a disclosure with nothing in it, whose state the stylesheet reads to show
+/// the choices that wait (`data-waits`), in the group's order. It needs no script, and its
+/// summary says Show less once open, as marketplace's toggle does.
 #[component(css = SearchPage)]
-fn CategoryChoice<'a>(t: SearchMsg, category: &'a SearchCategory, terms: &'a Terms, current: bool, count: u64) -> impl Render {
+fn ShowMore(t: SearchMsg) -> impl Render {
     html! {
-        <li>
+        <details class={More}>
+            <summary>
+                <span class={MoreLabel}>{t.page_facet_option_show_more()}</span>
+                <span class={LessLabel}>{t.page_facet_option_show_less()}</span>
+            </summary>
+        </details>
+    }
+}
+
+#[component(css = SearchPage)]
+fn CategoryChoice<'a>(
+    t: SearchMsg,
+    category: &'a SearchCategory,
+    terms: &'a Terms,
+    current: bool,
+    count: u64,
+    waits: bool,
+) -> impl Render {
+    html! {
+        <li data-waits={waits}>
             <a href={&category_href(&category.slug, terms)} aria-current={current.then_some("page")}>
                 {t.page_category_count_label(crate::text::search_msg::PageCategoryCountLabel { category: &category.name, count })}
             </a>
@@ -594,7 +635,9 @@ fn CategoryChoice<'a>(t: SearchMsg, category: &'a SearchCategory, terms: &'a Ter
 }
 
 /// A facet of the results (a field, a reference or a product dimension): a checkbox a value,
-/// any number chosen.
+/// any number chosen, the first six and the chosen ones in view and the rest behind Show more.
+/// A facet with more than eight values has a search of them (`facetOptionSearchProps`), which
+/// only a script makes work, so it is drawn hidden and shown once the script connects.
 #[component(css = SearchPage)]
 fn FacetChoices<'a>(t: SearchMsg, facet: &'a Facet) -> impl Render {
     // A kind the page does not know is not offered.
@@ -607,6 +650,8 @@ fn FacetChoices<'a>(t: SearchMsg, facet: &'a Facet) -> impl Render {
         Kind::Reference => t.page_reference_facet_description(),
         Kind::Field => t.page_field_facet_description(),
     };
+    let searched = facet.values.len() > SEARCHED_CHOICES;
+    let waiting = more(facet.values.iter().enumerate().map(|(n, v)| waits(n, v.selected)));
     html! {
         <details class={Facet} open={!chosen.is_empty()} hidden={!known}>
             <summary>
@@ -618,12 +663,32 @@ fn FacetChoices<'a>(t: SearchMsg, facet: &'a Facet) -> impl Render {
             <fieldset class={Choices}>
                 <legend class={VisuallyHidden {}}>{&t.page_facet_choices(&facet.label).to_string()}</legend>
                 <p class={Muted}>{description}</p>
-                for value in &facet.values {
-                    <label class={Check}>
+                if searched {
+                    <input
+                        type="search"
+                        class={Find}
+                        aria-label={&t.page_facet_option_search_label(&facet.label).to_string()}
+                        placeholder={&t.page_facet_option_search_placeholder(&facet.label).to_string()}
+                        hidden
+                        on:connect={handlers::reveal(target)}
+                        on:input={handlers::find(event)}
+                        on:keydown={handlers::stay(event)}
+                    >
+                }
+                for (n, value) in facet.values.iter().enumerate() {
+                    <label class={Check} data-waits={waits(n, value.selected)}>
                         <input type="checkbox" name={&name} value={&value.id} checked={value.selected}>
                         <span>{&value.label}</span>
                         <span class={Muted}>{value.count}</span>
                     </label>
+                }
+                if searched {
+                    <p class={Muted} data-none role="status" hidden>
+                        {&t.page_facet_option_search_empty(&facet.label).to_string()}
+                    </p>
+                }
+                if waiting {
+                    <ShowMore t={t} />
                 }
             </fieldset>
         </details>

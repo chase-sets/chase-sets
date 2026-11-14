@@ -23,8 +23,10 @@
 //!
 //! Add matching products to Buy Cart previews and adds every match of the search (`bulk_cart`).
 //!
-//! Not ported: the realtime market patches, the facet option search and the automatic load on
-//! scroll.
+//! Each filter group shows its first six choices and the chosen ones, with Show more for the rest,
+//! and a facet of more than eight values has a search of them (`views::FacetChoices`).
+//!
+//! Not ported: the realtime market patches and the automatic load on scroll.
 use std::collections::BTreeMap;
 
 use corten::{
