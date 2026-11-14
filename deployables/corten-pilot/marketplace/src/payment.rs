@@ -53,7 +53,8 @@
 //!
 //! Starting a payment again (`/account/payments/new`, where Retry payment goes) is `payment_start`.
 //!
-//! Not ported: restyling Stripe's fields when the color mode changes while the page is open.
+//! Stripe's fields keep Stripe's own appearance, as marketplace's do since chase-sets/chase-sets#11187
+//! removed its custom appearance (and with it the restyle when the color mode changes).
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use corten::{
