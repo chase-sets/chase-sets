@@ -68,26 +68,38 @@ function fold<State, Event extends DomainEvent>(
   );
 }
 
-export function ownerState(kind: OwnerKind, history: readonly StoredEvent[]) {
+type FixedOwnerKind = Exclude<OwnerKind, "api-key" | "user" | "shipping-address-book">;
+
+export function ownerState(kind: FixedOwnerKind, history: readonly StoredEvent[]) {
   switch (kind) {
     case "account":
       return { kind, state: fold<AccountState, AccountEvent>(history, initialAccountState, evolveAccount) } as const;
-    case "shipping-address-book":
-      return { kind, state: fold(history, initialShippingAddressBookState, evolveShippingAddressBook) } as const;
     case "consent":
       return { kind, state: fold(history, initialConsentState, evolveConsent) } as const;
-    case "user":
-      return { kind, state: fold(history, initialUserState, evolveUser) } as const;
-    case "api-key":
-      return { kind, state: fold(history, initialApiKeyState, evolveApiKey) } as const;
     case "membership":
       return { kind, state: fold(history, initialMembershipState, evolveMembership) } as const;
     case "invitation":
       return { kind, state: fold(history, initialInvitationState, evolveInvitation) } as const;
+    default:
+      throw new Error("INDETERMINATE");
   }
 }
 type AccountState = typeof initialAccountState;
-export type Owner = ReturnType<typeof ownerState>;
+type FixedOwner = ReturnType<typeof ownerState>;
+export type Owner = FixedOwner | ReturnType<typeof userState> | ReturnType<typeof shippingAddressBookState>;
+
+export function userState(history: readonly StoredEvent[]) {
+  let state = initialUserState;
+  for (const event of history) state = evolveUser(state, { type: event.eventType, data: event.payload } as UserEvent);
+  return { kind: "user", state } as const;
+}
+
+export function shippingAddressBookState(history: readonly StoredEvent[]) {
+  let state = initialShippingAddressBookState;
+  for (const event of history)
+    state = evolveShippingAddressBook(state, { type: event.eventType, data: event.payload } as ShippingAddressEvent);
+  return { kind: "shipping-address-book", state } as const;
+}
 
 export function ownerForRequest(
   request: CanonicalRequest,
@@ -125,7 +137,7 @@ export function ownerForRequest(
   }
 }
 
-export function assertOwnerAuthorization(owner: Owner, request: CanonicalRequest, actor: ResolvedActor): void {
+export function assertRequestActor(request: CanonicalRequest, actor: ResolvedActor): void {
   if (request.action === "update-profile" && request.target !== actor.accountId)
     throw new Error("authorization_forbidden");
   if (request.action === "update-user" && request.target !== actor.userId) throw new Error("authorization_forbidden");
@@ -133,13 +145,14 @@ export function assertOwnerAuthorization(owner: Owner, request: CanonicalRequest
     throw new Error("authorization_forbidden");
   if (request.fields.accountId !== undefined && request.fields.accountId !== actor.accountId)
     throw new Error("authorization_forbidden");
+}
+
+export function assertOwnerAuthorization(owner: Owner, request: CanonicalRequest, actor: ResolvedActor): void {
+  assertRequestActor(request, actor);
   switch (owner.kind) {
     case "membership":
     case "invitation":
       if (owner.state.id && owner.state.accountId !== actor.accountId) throw new Error("authorization_forbidden");
-      break;
-    case "api-key":
-      if (owner.state.id && owner.state.userId !== actor.userId) throw new Error("authorization_forbidden");
       break;
     case "consent":
       if (
@@ -171,7 +184,7 @@ export async function planOwnerMutation(
     actor: ResolvedActor;
     context: EventStoreContext;
     id: string;
-    services: Pick<IdentityServices, "auth" | "shippingAddresses">;
+    services: Pick<IdentityServices, "shippingAddresses">;
   }>,
 ) {
   const { owner, history, request, actor, context, id, services } = args;
@@ -182,7 +195,6 @@ export async function planOwnerMutation(
   const actorRole = parseRoleKey(actor.roleKey);
   const assignmentAuthority = actorRole ? { type: "actor" as const, roleKey: actorRole } : null;
   let events: readonly DomainEvent[];
-  let secret: string | undefined;
   switch (owner.kind) {
     case "account": {
       events = decideAccount(owner.state, {
@@ -259,34 +271,6 @@ export async function planOwnerMutation(
         }
       }
       break;
-    case "api-key":
-      if (request.action === "revoke-api-key")
-        events =
-          owner.state.id && owner.state.status === "revoked" ? [] : decideApiKey(owner.state, { type: "RevokeApiKey" });
-      else {
-        if (request.action === "rotate-api-key" && (!owner.state.id || owner.state.status !== "active"))
-          throw new Error("conflict");
-        secret = services.auth.issueOpaqueToken("key");
-        const keyPrefix = secret.slice(0, 12);
-        const business =
-          request.action === "create-api-key"
-            ? decideApiKey(owner.state, {
-                type: "CreateApiKey",
-                apiKeyId: parseTypedId(id, "key"),
-                userId: parseTypedId(actor.userId, "usr"),
-                name: text("name"),
-                keyPrefix,
-              })
-            : decideApiKey(owner.state, { type: "RotateApiKey", keyPrefix });
-        events = [
-          ...business,
-          {
-            type: "identity.api-key.verifier-recorded",
-            data: { keyPrefix, secretHash: services.auth.hashSecret(secret) },
-          },
-        ];
-      }
-      break;
     case "shipping-address-book": {
       const shippingAddressId = parseTypedId(request.target ?? id, "adr");
       if (request.action === "default")
@@ -361,14 +345,20 @@ export async function planOwnerMutation(
       break;
     }
   }
-  return { events, secret };
+  return { events };
 }
 
-export function validateOwnerHistory(kind: OwnerKind, history: readonly StoredEvent[], tenantId: string): Owner {
+// Metadata validation shares no replay callback or state return.
+export function assertOwnerHistoryFamily(kind: OwnerKind, history: readonly StoredEvent[]): void {
+  const prefix = kind === "shipping-address-book" ? "identity.shipping-address." : `identity.${kind}.`;
+  for (const event of history) if (!event.eventType.startsWith(prefix)) throw new Error("INDETERMINATE");
+}
+
+function validateHistoryEnvelope(kind: OwnerKind, history: readonly StoredEvent[], tenantId: string): void {
   if (history.length > 10000) throw new Error("INDETERMINATE");
+  assertOwnerHistoryFamily(kind, history);
   const ids = new Set<string>();
   let created = false;
-  let current = ownerState(kind, []);
   for (let index = 0; index < history.length; index++) {
     const event = history[index];
     if (
@@ -379,8 +369,6 @@ export function validateOwnerHistory(kind: OwnerKind, history: readonly StoredEv
     )
       throw new Error("INDETERMINATE");
     ids.add(event.eventId);
-    const prefix = kind === "shipping-address-book" ? "identity.shipping-address." : `identity.${kind}.`;
-    if (!event.eventType.startsWith(prefix)) throw new Error("INDETERMINATE");
     const isCreation =
       event.eventType.endsWith(".created") ||
       event.eventType.endsWith(".granted") ||
@@ -404,6 +392,22 @@ export function validateOwnerHistory(kind: OwnerKind, history: readonly StoredEv
     }[kind];
     if ((isCreation || kind === "shipping-address-book") && event.payload[identityField] !== ownerId)
       throw new Error("INDETERMINATE");
+  }
+}
+
+export function validateOwnerHistory(
+  kind: FixedOwnerKind,
+  history: readonly StoredEvent[],
+  tenantId: string,
+): FixedOwner {
+  validateHistoryEnvelope(kind, history, tenantId);
+  let current = ownerState(kind, []);
+  for (const event of history) {
+    const isCreation =
+      event.eventType.endsWith(".created") ||
+      event.eventType.endsWith(".granted") ||
+      event.eventType.endsWith(".recorded") ||
+      event.eventType.endsWith(".added");
     if (current.kind === "account") {
       if (
         (event.eventType === "identity.account.suspended" && current.state.status !== "active") ||
@@ -435,54 +439,109 @@ export function validateOwnerHistory(kind: OwnerKind, history: readonly StoredEv
         if (event.payload[field] !== expected) throw new Error("INDETERMINATE");
       }
     }
-    if (current.kind === "api-key" && !isCreation && current.state.status !== "active")
-      throw new Error("INDETERMINATE");
-    if (
-      current.kind === "api-key" &&
-      event.eventType === "identity.api-key.verifier-recorded" &&
-      (!["identity.api-key.created", "identity.api-key.rotated"].includes(history[index - 1]?.eventType) ||
-        current.state.keyPrefix !== event.payload.keyPrefix)
-    )
-      throw new Error("INDETERMINATE");
     if (current.kind === "invitation" && !isCreation && current.state.status !== "pending")
       throw new Error("INDETERMINATE");
-    if (current.kind === "shipping-address-book") {
-      const existing = current.state.addresses.find(
-        (address) => address.shippingAddressId === event.payload.shippingAddressId,
-      );
-      if (isCreation ? existing !== undefined : !existing || existing.isArchived) throw new Error("INDETERMINATE");
-      if (event.eventType === "identity.shipping-address.default-set" && existing?.isDefault)
-        throw new Error("INDETERMINATE");
-      if (event.eventType === "identity.shipping-address.archived") {
-        const proposed = decideShippingAddressBook(current.state, {
-          type: "ArchiveShippingAddress",
-          shippingAddressId: parseTypedId(String(event.payload.shippingAddressId), "adr"),
-          archivedAt: String(event.payload.archivedAt),
-        });
-        if (digest(proposed[0].data) !== digest(event.payload)) throw new Error("INDETERMINATE");
-      }
-    }
     current = evolveOwner(current, event);
   }
   return current;
 }
 
-function evolveOwner(owner: Owner, event: StoredEvent): Owner {
+export function validateUserHistory(history: readonly StoredEvent[], tenantId: string) {
+  validateHistoryEnvelope("user", history, tenantId);
+  return userState(history);
+}
+
+export function validateShippingAddressBookHistory(history: readonly StoredEvent[], tenantId: string) {
+  validateHistoryEnvelope("shipping-address-book", history, tenantId);
+  let state = initialShippingAddressBookState;
+  for (const event of history) {
+    const isCreation = event.eventType === "identity.shipping-address.added";
+    const existing = state.addresses.find((address) => address.shippingAddressId === event.payload.shippingAddressId);
+    if (isCreation ? existing !== undefined : !existing || existing.isArchived) throw new Error("INDETERMINATE");
+    if (event.eventType === "identity.shipping-address.default-set" && existing?.isDefault)
+      throw new Error("INDETERMINATE");
+    if (event.eventType === "identity.shipping-address.archived") {
+      const proposed = decideShippingAddressBook(state, {
+        type: "ArchiveShippingAddress",
+        shippingAddressId: parseTypedId(String(event.payload.shippingAddressId), "adr"),
+        archivedAt: String(event.payload.archivedAt),
+      });
+      if (digest(proposed[0].data) !== digest(event.payload)) throw new Error("INDETERMINATE");
+    }
+    state = evolveShippingAddressBook(state, { type: event.eventType, data: event.payload } as ShippingAddressEvent);
+  }
+  return { kind: "shipping-address-book", state } as const;
+}
+
+function evolveOwner(owner: FixedOwner, event: StoredEvent): FixedOwner {
   const domainEvent = { type: event.eventType, data: event.payload };
   switch (owner.kind) {
     case "account":
       return { kind: owner.kind, state: evolveAccount(owner.state, domainEvent as AccountEvent) };
-    case "shipping-address-book":
-      return { kind: owner.kind, state: evolveShippingAddressBook(owner.state, domainEvent as ShippingAddressEvent) };
     case "consent":
       return { kind: owner.kind, state: evolveConsent(owner.state, domainEvent as ConsentEvent) };
-    case "user":
-      return { kind: owner.kind, state: evolveUser(owner.state, domainEvent as UserEvent) };
-    case "api-key":
-      return { kind: owner.kind, state: evolveApiKey(owner.state, domainEvent as ApiKeyEvent) };
     case "membership":
       return { kind: owner.kind, state: evolveMembership(owner.state, domainEvent as MembershipEvent) };
     case "invitation":
       return { kind: owner.kind, state: evolveInvitation(owner.state, domainEvent as InvitationEvent) };
   }
+}
+
+function replayApiKeyHistory(history: readonly StoredEvent[], tenantId: string) {
+  validateHistoryEnvelope("api-key", history, tenantId);
+  let state = initialApiKeyState;
+  for (const [index, event] of history.entries()) {
+    if (event.eventType !== "identity.api-key.created" && state.status !== "active") throw new Error("INDETERMINATE");
+    if (
+      event.eventType === "identity.api-key.verifier-recorded" &&
+      (!["identity.api-key.created", "identity.api-key.rotated"].includes(history[index - 1]?.eventType) ||
+        state.keyPrefix !== event.payload.keyPrefix)
+    )
+      throw new Error("INDETERMINATE");
+    state = evolveApiKey(state, { type: event.eventType, data: event.payload } as ApiKeyEvent);
+  }
+  return state;
+}
+
+export function validateApiKeyHistory(history: readonly StoredEvent[], tenantId: string, actor: ResolvedActor): void {
+  const state = replayApiKeyHistory(history, tenantId);
+  if (state.id && state.userId !== actor.userId) throw new Error("authorization_forbidden");
+}
+
+export async function planApiKeyMutation(
+  history: readonly StoredEvent[],
+  request: CanonicalRequest,
+  actor: ResolvedActor,
+  id: string,
+  auth: IdentityServices["auth"],
+) {
+  assertRequestActor(request, actor);
+  const state = replayApiKeyHistory(history, actor.tenantId);
+  if (state.id && state.userId !== actor.userId) throw new Error("authorization_forbidden");
+  if (request.action === "revoke-api-key")
+    return {
+      events: state.id && state.status === "revoked" ? [] : decideApiKey(state, { type: "RevokeApiKey" }),
+      secret: undefined,
+    };
+  if (request.action !== "create-api-key" && request.action !== "rotate-api-key") throw new Error("INDETERMINATE");
+  if (request.action === "rotate-api-key" && (!state.id || state.status !== "active")) throw new Error("conflict");
+  const secret = auth.issueOpaqueToken("key");
+  const keyPrefix = secret.slice(0, 12);
+  const business =
+    request.action === "create-api-key"
+      ? decideApiKey(state, {
+          type: "CreateApiKey",
+          apiKeyId: parseTypedId(id, "key"),
+          userId: parseTypedId(actor.userId, "usr"),
+          name: String(request.fields.name ?? ""),
+          keyPrefix,
+        })
+      : decideApiKey(state, { type: "RotateApiKey", keyPrefix });
+  return {
+    events: [
+      ...business,
+      { type: "identity.api-key.verifier-recorded", data: { keyPrefix, secretHash: auth.hashSecret(secret) } },
+    ],
+    secret,
+  };
 }

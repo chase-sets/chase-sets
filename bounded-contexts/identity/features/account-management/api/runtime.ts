@@ -21,9 +21,14 @@ import { eligibilityScopeKeys, type IdentityMutationPersistence, type IdentityMu
 import {
   AddressChoiceRequired,
   assertOwnerAuthorization,
+  assertRequestActor,
   ownerForRequest,
+  planApiKeyMutation,
   planOwnerMutation,
+  validateApiKeyHistory,
   validateOwnerHistory,
+  validateUserHistory,
+  validateShippingAddressBookHistory,
   type Owner,
   type OwnerKind,
 } from "./owners";
@@ -112,8 +117,78 @@ function generatedId(action: MutationAction, selector: string): string {
   return `${prefix}_${suffix}`;
 }
 
-function safeOwner(owner: Owner, id: string, version: number): SafeOwner {
+type PublicApiKeyOwner = Readonly<{ kind: "api-key"; status: "active" | "revoked" }>;
+
+// Public lifecycle facts never come from credential replay or delivery.
+function apiKeyPublicOwner(history: readonly StoredEvent[]): PublicApiKeyOwner {
+  let status: "active" | "revoked" = "active";
+  for (const event of history) {
+    switch (event.eventType) {
+      case "identity.api-key.created":
+      case "identity.api-key.rotated":
+        status = "active";
+        break;
+      case "identity.api-key.revoked":
+        status = "revoked";
+        break;
+      case "identity.api-key.used":
+      case "identity.api-key.verifier-recorded":
+        break;
+      default:
+        throw new Error("INDETERMINATE");
+    }
+  }
+  return { kind: "api-key", status };
+}
+
+function safeOwner(owner: Owner | PublicApiKeyOwner, id: string, version: number): SafeOwner {
+  if (owner.kind === "api-key") return { id, version, status: owner.status };
   return { id, version, status: "status" in owner.state ? owner.state.status : "active" };
+}
+
+async function loadOwner(
+  tx: IdentityMutationTransaction,
+  category: OwnerKind,
+  streamId: string,
+  tenantId: string,
+  request: CanonicalRequest,
+  actor: ResolvedActor,
+) {
+  if (category === "api-key") {
+    const apiKeyHistory = await tx.read(streamId);
+    validateApiKeyHistory(apiKeyHistory, tenantId, actor);
+    assertRequestActor(request, actor);
+    return { kind: category, apiKeyHistory, owner: apiKeyPublicOwner(apiKeyHistory) } as const;
+  }
+  if (category === "user") {
+    const userHistory = await tx.read(streamId);
+    const owner = validateUserHistory(userHistory, tenantId);
+    assertOwnerAuthorization(owner, request, actor);
+    return { kind: category, userHistory, owner } as const;
+  }
+  if (category === "shipping-address-book") {
+    const shippingHistory = await tx.read(streamId);
+    const owner = validateShippingAddressBookHistory(shippingHistory, tenantId);
+    assertOwnerAuthorization(owner, request, actor);
+    return { kind: category, shippingHistory, owner } as const;
+  }
+  const history = await tx.read(streamId);
+  const owner = validateOwnerHistory(category, history, tenantId);
+  assertOwnerAuthorization(owner, request, actor);
+  return { kind: "fixed", category, history, owner } as const;
+}
+
+function storedOwnerHistory(loaded: Awaited<ReturnType<typeof loadOwner>>) {
+  switch (loaded.kind) {
+    case "api-key":
+      return loaded.apiKeyHistory;
+    case "user":
+      return loaded.userHistory;
+    case "shipping-address-book":
+      return loaded.shippingHistory;
+    case "fixed":
+      return loaded.history;
+  }
 }
 
 function ownerReadDestination(action: MutationAction, category: OwnerKind, history: readonly StoredEvent[]) {
@@ -161,9 +236,15 @@ export function createAccountManagementRuntime(
     const target = ownerForRequest({ ...request, fields: {}, hash: receipt.hash }, input.actor, id);
     if (receipt.owner !== target.streamId || receipt.category !== target.kind || receipt.result.id !== id)
       throw new Error("INDETERMINATE");
-    const ownerHistory = await tx.read(receipt.owner);
-    const owner = validateOwnerHistory(receipt.category, ownerHistory, binding.tenantId);
-    assertOwnerAuthorization(owner, { ...request, fields: {}, hash: receipt.hash }, input.actor);
+    const loaded = await loadOwner(
+      tx,
+      receipt.category,
+      receipt.owner,
+      binding.tenantId,
+      { ...request, fields: {}, hash: receipt.hash },
+      input.actor,
+    );
+    const ownerHistory = storedOwnerHistory(loaded);
     if (
       receipt.committedVersion > ownerHistory.length ||
       receipt.events.length !== receipt.committedVersion - receipt.priorVersion
@@ -176,11 +257,25 @@ export function createAccountManagementRuntime(
       if (event.eventId !== proof.id || event.eventType !== proof.type || digest(event.payload) !== proof.digest)
         throw new Error("INDETERMINATE");
     }
-    const historicalOwner = validateOwnerHistory(
-      receipt.category,
-      ownerHistory.slice(0, receipt.committedVersion),
-      binding.tenantId,
-    );
+    let historicalOwner: Owner | PublicApiKeyOwner;
+    if (loaded.kind === "api-key") {
+      const apiKeyHistory = loaded.apiKeyHistory.slice(0, receipt.committedVersion);
+      validateApiKeyHistory(apiKeyHistory, binding.tenantId, input.actor);
+      historicalOwner = apiKeyPublicOwner(apiKeyHistory);
+    } else if (loaded.kind === "user") {
+      historicalOwner = validateUserHistory(loaded.userHistory.slice(0, receipt.committedVersion), binding.tenantId);
+    } else if (loaded.kind === "shipping-address-book") {
+      historicalOwner = validateShippingAddressBookHistory(
+        loaded.shippingHistory.slice(0, receipt.committedVersion),
+        binding.tenantId,
+      );
+    } else {
+      historicalOwner = validateOwnerHistory(
+        loaded.category,
+        loaded.history.slice(0, receipt.committedVersion),
+        binding.tenantId,
+      );
+    }
     const expected = safeOwner(historicalOwner, receipt.result.id, receipt.committedVersion);
     if (
       digest(expected) !==
@@ -188,7 +283,7 @@ export function createAccountManagementRuntime(
       receipt.result.changed !== receipt.events.length > 0
     )
       throw new Error("INDETERMINATE");
-    const current = safeOwner(owner, receipt.result.id, ownerHistory.length);
+    const current = safeOwner(loaded.owner, receipt.result.id, ownerHistory.length);
     if (hash !== undefined && receipt.hash !== hash)
       return { outcome: "conflict", code: "attempt-hash-conflict", current };
     return {
@@ -241,10 +336,9 @@ export function createAccountManagementRuntime(
     async function conflictResult(code: string): Promise<MutationResult> {
       try {
         return await persistence.transaction([], async (tx) => {
-          const history = await tx.read(target.streamId);
-          const owner = validateOwnerHistory(target.kind, history, binding.tenantId);
-          assertOwnerAuthorization(owner, request, input.actor);
-          return { outcome: "conflict", code, current: safeOwner(owner, id, history.length) };
+          const loaded = await loadOwner(tx, target.kind, target.streamId, binding.tenantId, request, input.actor);
+          const version = storedOwnerHistory(loaded).length;
+          return { outcome: "conflict", code, current: safeOwner(loaded.owner, id, version) };
         });
       } catch {
         return { outcome: "indeterminate", code: "INDETERMINATE" };
@@ -270,43 +364,63 @@ export function createAccountManagementRuntime(
         .transaction(scopes, async (tx) => {
           const attempts = await tx.read(selector);
           if (attempts.length) return historicalResult(tx, input, request, attempts, request.hash);
-          const history = await tx.read(target.streamId);
-          const owner = validateOwnerHistory(target.kind, history, binding.tenantId);
-          assertOwnerAuthorization(owner, request, input.actor);
+          const loaded = await loadOwner(tx, target.kind, target.streamId, binding.tenantId, request, input.actor);
+          const history = storedOwnerHistory(loaded);
+          const owner = loaded.owner;
           if (history.length !== prefixHistory.length)
             return {
               outcome: "conflict" as const,
               code: "owner-version-conflict",
               current: safeOwner(owner, id, history.length),
             };
-          const accountGuard = await assertNewEligibility(tx, owner, request, input.actor, input.context);
-          const plan = await planOwnerMutation({
-            owner,
-            history,
-            request,
-            actor: input.actor,
-            context: input.context,
-            id,
-            services,
-          });
+          const accountGuard =
+            loaded.kind === "api-key"
+              ? null
+              : await assertNewEligibility(tx, loaded.owner, request, input.actor, input.context);
+          const plan =
+            loaded.kind === "api-key"
+              ? await planApiKeyMutation(loaded.apiKeyHistory, request, input.actor, id, services.auth)
+              : await planOwnerMutation({
+                  owner: loaded.owner,
+                  history,
+                  request,
+                  actor: input.actor,
+                  context: input.context,
+                  id,
+                  services,
+                });
           const events: readonly EventRecordToStore[] = plan.events.map((event: DomainEvent) => ({
             eventId: createId("evt"),
             eventType: event.type,
             payload: event.data,
           }));
-          const proposedHistory = [
-            ...history,
-            ...events.map((event, index) => ({
-              ...history[0],
-              eventId: event.eventId!,
-              streamId: target.streamId,
-              streamVersion: history.length + index + 1,
-              tenantId: input.context.tenantId,
-              eventType: event.eventType,
-              payload: event.payload,
-            })),
-          ] as readonly StoredEvent[];
-          const nextOwner = validateOwnerHistory(target.kind, proposedHistory, binding.tenantId);
+          const proposedEvents = events.map((event, index) => ({
+            ...history[0],
+            eventId: event.eventId!,
+            streamId: target.streamId,
+            streamVersion: history.length + index + 1,
+            tenantId: input.context.tenantId,
+            eventType: event.eventType,
+            payload: event.payload,
+          })) as readonly StoredEvent[];
+          let nextOwner: Owner | PublicApiKeyOwner;
+          if (loaded.kind === "api-key") {
+            const apiKeyHistory = [...loaded.apiKeyHistory, ...proposedEvents];
+            validateApiKeyHistory(apiKeyHistory, binding.tenantId, input.actor);
+            nextOwner =
+              request.action === "revoke-api-key" && events.length > 0
+                ? { kind: "api-key", status: "revoked" }
+                : apiKeyPublicOwner(loaded.apiKeyHistory);
+          } else if (loaded.kind === "user") {
+            nextOwner = validateUserHistory([...loaded.userHistory, ...proposedEvents], binding.tenantId);
+          } else if (loaded.kind === "shipping-address-book") {
+            nextOwner = validateShippingAddressBookHistory(
+              [...loaded.shippingHistory, ...proposedEvents],
+              binding.tenantId,
+            );
+          } else {
+            nextOwner = validateOwnerHistory(loaded.category, [...loaded.history, ...proposedEvents], binding.tenantId);
+          }
           const result = { ...safeOwner(nextOwner, id, history.length + events.length), changed: events.length > 0 };
           const receipt: Receipt = {
             schemaVersion: 1,
@@ -341,7 +455,7 @@ export function createAccountManagementRuntime(
             ...(accountGuard && accountGuard.streamId !== target.streamId ? [accountGuard] : []),
           ]);
           if (target.kind === "api-key") {
-            if (plan.secret)
+            if ("secret" in plan && plan.secret)
               await upsertApiKeySecret(tx.db, {
                 apiKeyId: id,
                 userId: input.actor.userId,
@@ -360,7 +474,7 @@ export function createAccountManagementRuntime(
               ...history,
               ...appended.find((entry) => entry.streamId === target.streamId)!.storedEvents,
             ]),
-            ...(plan.secret ? { secret: plan.secret } : {}),
+            ...("secret" in plan && plan.secret ? { secret: plan.secret } : {}),
             committedEvents: appended.flatMap((entry) => entry.storedEvents),
           };
         })
