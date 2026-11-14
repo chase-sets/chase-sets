@@ -180,9 +180,7 @@ export function useItemDetailPageModel({
   const selectedOfferSource: MarketSelectionSource = explicitSelectedOffer ? "explicit" : "implicit";
   const staleSelectedOfferId = selectedOfferId && !explicitSelectedOffer ? selectedOfferId : null;
   const selectedAccountOfferMatch = selectedOffer
-    ? (matchingAccountOfferMatches.find((offer) => offer.offer_id === selectedOffer.offer_id) ??
-      bestAccountOfferMatch ??
-      null)
+    ? (matchingAccountOfferMatches.find((offer) => offer.offer_id === selectedOffer.offer_id) ?? null)
     : (bestAccountOfferMatch ?? null);
   const selectedProductId =
     explicitSelectedProductId ??
