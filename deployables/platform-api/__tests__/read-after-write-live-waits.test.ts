@@ -515,54 +515,59 @@ describe("critical exact read-after-write waits", () => {
     ]);
   });
 
-  it("backs accepted-offer sales list freshness with the offer process and sale list read models", () => {
-    const salesLiveRoutes = findLiveFreshnessRoutes("ordering", "/account/sales");
-    expect(salesLiveRoutes).toEqual([
-      {
-        mountPath: "/api/marketplace",
-        route: {
-          routePath: "/account/sales",
-          methods: ["GET", "HEAD"],
-          dependencies: [
-            { projectionName: "ordering-marketplace-offer-acceptance" },
-            { readModelTable: "ordering_order_pages" },
-            { readModelTable: "ordering_order_line_pages" },
-          ],
+  it.each(["/account/purchases", "/account/sales"])(
+    "backs accepted-offer %s freshness with the offer process and Order list read models",
+    (routePath) => {
+      const listLiveRoutes = findLiveFreshnessRoutes("ordering", routePath);
+      expect(listLiveRoutes).toEqual([
+        {
+          mountPath: "/api/marketplace",
+          route: {
+            routePath,
+            methods: ["GET", "HEAD"],
+            dependencies: [
+              { projectionName: "ordering-marketplace-offer-acceptance" },
+              { readModelTable: "ordering_order_pages" },
+              { readModelTable: "ordering_order_line_pages" },
+            ],
+          },
         },
-      },
-    ]);
+      ]);
 
-    const resolvedDependencies = [
-      ...new Map(
-        salesLiveRoutes
-          .flatMap(({ route }) =>
-            route.dependencies.flatMap((dependency) =>
-              resolveReadConsistencyDependency("ordering", dependency, mountedProjectionGroups),
-            ),
-          )
-          .map((dependency) => [`${dependency.targetContextName}:${dependency.projectionName}`, dependency]),
-      ).values(),
-    ];
+      const resolvedDependencies = [
+        ...new Map(
+          listLiveRoutes
+            .flatMap(({ route }) =>
+              route.dependencies.flatMap((dependency) =>
+                resolveReadConsistencyDependency("ordering", dependency, mountedProjectionGroups),
+              ),
+            )
+            .map((dependency) => [`${dependency.targetContextName}:${dependency.projectionName}`, dependency]),
+        ).values(),
+      ];
 
-    expect(resolvedDependencies).toEqual([
-      { targetContextName: "ordering", projectionName: "ordering-marketplace-offer-acceptance" },
-      { targetContextName: "ordering", projectionName: "ordering-order-projection" },
-    ]);
-  });
+      expect(resolvedDependencies).toEqual([
+        { targetContextName: "ordering", projectionName: "ordering-marketplace-offer-acceptance" },
+        { targetContextName: "ordering", projectionName: "ordering-order-projection" },
+      ]);
+    },
+  );
 
   it.each([
-    {
-      routePath: "/account/sales",
-      sourceContextName: "marketplace",
-      dependencies: ["ordering-marketplace-offer-acceptance", "ordering-order-projection"],
-      polled: ["ordering-marketplace-offer-acceptance"],
-    },
-    {
-      routePath: "/account/sales",
-      sourceContextName: "ordering",
-      dependencies: ["ordering-marketplace-offer-acceptance", "ordering-order-projection"],
-      polled: ["ordering-order-projection"],
-    },
+    ...["/account/purchases", "/account/sales"].flatMap((routePath) => [
+      {
+        routePath,
+        sourceContextName: "marketplace",
+        dependencies: ["ordering-marketplace-offer-acceptance", "ordering-order-projection"],
+        polled: ["ordering-marketplace-offer-acceptance"],
+      },
+      {
+        routePath,
+        sourceContextName: "ordering",
+        dependencies: ["ordering-marketplace-offer-acceptance", "ordering-order-projection"],
+        polled: ["ordering-order-projection"],
+      },
+    ]),
     ...["/account/sales/:id", "/account/purchases/:id"].map((routePath) => ({
       routePath,
       sourceContextName: "ordering",
@@ -626,7 +631,7 @@ describe("critical exact read-after-write waits", () => {
     expect([...new Set(polled)].sort()).toEqual([...testCase.polled].sort());
   });
 
-  it("keeps Ordering account sales as the only freshness route depending on a reaction group", () => {
+  it("keeps Ordering account lists as the only freshness routes depending on a reaction group", () => {
     const reactionGroups = new Set(
       apiContextRegistry.flatMap((entry) =>
         (entry.module.projectionGroups ?? [])
@@ -651,6 +656,12 @@ describe("critical exact read-after-write waits", () => {
 
     expect(reactionGroups.size).toBeGreaterThan(0);
     expect(reactionRoutes).toEqual([
+      {
+        contextName: "ordering",
+        mountPath: "/api/marketplace",
+        routePath: "/account/purchases",
+        reactions: [{ targetContextName: "ordering", projectionName: "ordering-marketplace-offer-acceptance" }],
+      },
       {
         contextName: "ordering",
         mountPath: "/api/marketplace",

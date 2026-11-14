@@ -373,6 +373,21 @@
       "requiresAuth": true,
       "readFreshnessRoutes": [
         {
+          "routePath": "/account/purchases",
+          "methods": ["GET", "HEAD"],
+          "dependencies": [
+            {
+              "projectionName": "ordering-marketplace-offer-acceptance"
+            },
+            {
+              "readModelTable": "ordering_order_pages"
+            },
+            {
+              "readModelTable": "ordering_order_line_pages"
+            }
+          ]
+        },
+        {
           "routePath": "/account/purchases/:id",
           "methods": ["GET", "HEAD"],
           "dependencies": [

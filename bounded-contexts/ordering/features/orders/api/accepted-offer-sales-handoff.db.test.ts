@@ -56,7 +56,7 @@ describeDb("accepted Offer to receipted Sales on independent stores", () => {
     await closeMultiContextTestPools(pools);
   });
 
-  function compose(poisonProjection = false) {
+  function compose(poisonProjection = false, accountId = seller) {
     const module = {
       ...orderingModule,
       createServices: (...args: Parameters<typeof orderingModule.createServices>) => {
@@ -111,7 +111,7 @@ describeDb("accepted Offer to receipted Sales on independent stores", () => {
       .services as OrderingServices;
     const app = new Hono<OrderingApiEnv>();
     const actorContext = createAccountUserTestRequestContext({
-      actor: { accountId: seller, permissions: ["orders.view"] },
+      actor: { accountId, permissions: ["orders.view"] },
     });
     app.use("*", async (c, next) => {
       c.set("actor", actorContext.actor);
@@ -270,8 +270,8 @@ describeDb("accepted Offer to receipted Sales on independent stores", () => {
     });
   }
 
-  function read(app: Hono<OrderingApiEnv>, sources: readonly SourceCommitPosition[]) {
-    return app.request("/api/marketplace/account/sales", {
+  function read(app: Hono<OrderingApiEnv>, sources: readonly SourceCommitPosition[], routePath = "/account/sales") {
+    return app.request(`/api/marketplace${routePath}`, {
       headers: {
         [CHASE_SETS_READ_AFTER_WRITE_HEADER]: encodeFreshWriteReceipt({ observedAtMs: Date.now(), sources }),
         [CHASE_SETS_READ_TARGET_CONTEXT_HEADER]: "ordering",
@@ -380,6 +380,31 @@ describeDb("accepted Offer to receipted Sales on independent stores", () => {
       },
     );
   }
+
+  it("fences buyer Purchases on acceptance and the durable Order's projection using the same receipt", async () => {
+    const runtime = compose(false, String(context.audit.forAccountId));
+    const offer = await supply("buyer_purchase");
+    const receipt = await accept(offer, "above");
+    const readPurchases = () => read(runtime.app, receipt, "/account/purchases");
+
+    const pendingAcceptance = await readPurchases();
+    expect(pendingAcceptance.status).toBe(503);
+    expect(await pendingAcceptance.json()).toMatchObject({ error: { code: "projection_freshness_timeout" } });
+
+    await runtime.reaction.runOnce();
+    await assertRelation(receipt, "above", offer.offerId);
+    expect((await pools.ordering.query("SELECT order_id FROM ordering_order_pages")).rows).toHaveLength(0);
+    const pendingProjection = await readPurchases();
+    expect(pendingProjection.status).toBe(503);
+    expect(await pendingProjection.json()).toMatchObject({ error: { code: "projection_freshness_timeout" } });
+
+    await runtime.projection.runOnce();
+    await assertOrder(await readPurchases(), offer.offerId);
+    await runtime.reaction.reset();
+    await runtime.reaction.runOnce();
+    await assertOrder(await readPurchases(), offer.offerId);
+    await assertRelation(receipt, "above", offer.offerId);
+  });
 
   it("records no output for the first batch member; merged receipt waits, then replay preserves one two-line Order", async () => {
     const runtime = compose();
