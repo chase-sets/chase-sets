@@ -2296,7 +2296,7 @@
     "ucp-support": {
       "classification": "support",
       "purpose": "Provide Identity-owned durable Linked Platform Authorization storage while Auth owns the UCP OAuth journey.",
-      "expectedConsumers": ["Auth UCP OAuth routes", "Platform actor resolution"]
+      "expectedConsumers": ["accounts"]
     },
     "ui-support": {
       "classification": "support",
