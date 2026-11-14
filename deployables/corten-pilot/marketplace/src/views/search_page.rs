@@ -43,6 +43,11 @@ pub struct FiltersTitleId;
 #[derive(Id)]
 pub struct ResultId<'a>(pub &'a str);
 
+/// A result's price and market intents, which the results' live stream draws again (its catalog
+/// item).
+#[derive(Id)]
+pub struct ResultMarketId<'a>(pub &'a str);
+
 /// Add matching products to Buy Cart's form, which its button in the control bar sends.
 #[derive(Id)]
 pub struct BulkTriggerId;
@@ -888,6 +893,9 @@ fn Found<'a>(t: SearchMsg, i: ItemMsg, screen: &'a SearchScreen, results: &'a Se
             <h2 id="search-results-heading" class={ResultsTitle}>{t.page_results()}</h2>
         }
         <ResultRows t={t} i={i} items={&results.items} terms={terms} first={0} keys={results.keys()} from={&from} />
+        if !results.items.is_empty() {
+            <corten-live src={&url::SearchLive { shown: crate::search::Shown::of(screen, &results.items) }.href()}></corten-live>
+        }
         if terms.focused(&screen.category) {
             <div class={Promo}>
                 <p class={BannerTitle}>{t.page_save_this_search()}</p>
@@ -959,10 +967,7 @@ pub fn LoadMore<'a>(
 }
 
 /// A result's card (`ListingCard`, `search-result`): its picture and title link to the item, its
-/// subtitle, badges and language, its lowest price when it has listings, the market intents (Buy
-/// first when it has listings, else Sell), and Add to List (`prepare-saved-list`). Add to List
-/// posts the item's address as the search's option filters make it, and `from`, the search page
-/// it is on; with a script its answer is the dialog (`saving::save`).
+/// subtitle, badges and language, and its market (`ResultMarket`).
 #[component(css = SearchPage)]
 pub fn ResultCard<'a>(
     t: SearchMsg,
@@ -974,38 +979,14 @@ pub fn ResultCard<'a>(
     from: &'a str,
 ) -> impl Render {
     let card = &item.card;
-    let slug = if card.slug.is_empty() { card.catalog_item_id.as_str() } else { card.slug.as_str() };
-    let options = terms.dimensions();
-    let at = |market: Market| {
-        url::Item {
-            slug,
-            state: Address { market, options: options.clone(), filtered: !options.is_empty(), ..Address::default() },
-            after: Default::default(),
-        }
-        .href()
-    };
-    let href = at(Market::Buy);
-    let save = url::ItemSave { slug }.href();
-    let address = Address { options: options.clone(), filtered: !options.is_empty(), ..Address::default() }.pairs();
-    let identity = match card.subtitle.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
-        Some(subtitle) => t
-            .identity_title_and_subtitle(crate::text::search_msg::IdentityTitleAndSubtitle { title: &card.title, subtitle })
-            .to_string(),
-        None => t.identity_title(&card.title).to_string(),
-    };
+    let href = market_href(item, terms, Market::Buy);
+    let identity = identity(t, card);
     let image = similar_image(card);
-    let listings = item.market_summary.as_ref().map_or(0, |m| m.active_listing_count);
-    let price = item
-        .market_summary
-        .as_ref()
-        .filter(|_| listings > 0)
-        .and_then(|m| Some(money(t, m.lowest_price_amount.as_deref()?, m.lowest_price_currency_code.as_deref()?)));
     let cue = item.language_code.as_deref().filter(|c| !c.is_empty() && *c != "en").map(|c| language(t, c));
     let badges: Vec<&str> =
         item.display_badges.iter().filter(|b| b.kind == "variant" || b.kind == "rarity").map(|b| b.label.as_str()).collect();
     let priority = index < PRIORITY_IMAGES;
     let number = (index + 1).to_string();
-    let (buy, sell, watch) = (at(Market::Buy), at(Market::Sell), at(Market::Watch));
     // Opening the item from its picture or its title (marketplace's card link), not its Buy, Sell
     // or Watch, which marketplace's card leaves uncounted.
     let (query_hash, result_set_key) = keys;
@@ -1049,36 +1030,84 @@ pub fn ResultCard<'a>(
                         }
                     </p>
                 }
-                if let Some(price) = &price {
-                    <p class={Price}><span class={Muted}>{t.page_from()}" "</span><span class={Strong}>{price}</span></p>
-                }
-                <div class={Intents}>
-                    if listings > 0 {
-                        <a class={Primary} href={&buy} aria-label={t.page_buy()}>{t.page_buy_intent()}</a>
-                        <a class={Ghost} href={&sell} aria-label={t.page_sell()}>{t.page_sell_intent()}</a>
-                    } else {
-                        <a class={Primary} href={&sell} aria-label={t.page_sell()}>{t.page_sell_intent()}</a>
-                        <a class={Ghost} href={&buy} aria-label={t.page_buy()}>{t.page_buy_intent()}</a>
-                    }
-                    <a class={Ghost} href={&watch} aria-label={t.page_watch()}>{t.page_watch_intent()}</a>
-                    <form
-                        class={Save}
-                        method="post"
-                        action={&save}
-                        data-patch
-                        on:submit={handlers::fresh(ElementId::of(&SaveToListId))}
-                    >
-                        for (key, value) in &address {
-                            <input type="hidden" name={key} value={value}>
-                        }
-                        <input type="hidden" name={saving::field::PREPARE} value="1">
-                        <input type="hidden" name={saving::field::FROM} value={from}>
-                        <button type="submit" class={Ghost} aria-label={&i.saved_accessible(&identity).to_string()}>
-                            {i.saved_button()}
-                        </button>
-                    </form>
-                </div>
+                <ResultMarket t={t} i={i} item={item} terms={terms} from={from} />
             </div>
         </li>
+    }
+}
+
+/// A result's market (`applyDiscoverySearchPatch`'s part of the card): its lowest price when it
+/// has listings, the market intents (Buy first when it has listings, else Sell), and Add to List
+/// (`prepare-saved-list`). Add to List posts the item's address as the search's option filters
+/// make it, and `from`, the search page it is on; with a script its answer is the dialog
+/// (`saving::save`). Its own element, by the item, so the results' live stream can draw it again;
+/// the element adds no box, its parts are the card's.
+#[component(css = SearchPage)]
+pub fn ResultMarket<'a>(t: SearchMsg, i: ItemMsg, item: &'a SearchItem, terms: &'a Terms, from: &'a str) -> impl Patch {
+    let card = &item.card;
+    let slug = if card.slug.is_empty() { card.catalog_item_id.as_str() } else { card.slug.as_str() };
+    let options = terms.dimensions();
+    let save = url::ItemSave { slug }.href();
+    let address = Address { options: options.clone(), filtered: !options.is_empty(), ..Address::default() }.pairs();
+    let identity = identity(t, card);
+    let listings = item.market_summary.as_ref().map_or(0, |m| m.active_listing_count);
+    let price = item
+        .market_summary
+        .as_ref()
+        .filter(|_| listings > 0)
+        .and_then(|m| Some(money(t, m.lowest_price_amount.as_deref()?, m.lowest_price_currency_code.as_deref()?)));
+    let (buy, sell, watch) =
+        (market_href(item, terms, Market::Buy), market_href(item, terms, Market::Sell), market_href(item, terms, Market::Watch));
+    html! {
+        <div id={ResultMarketId(&card.catalog_item_id)} class={MarketPart}>
+            if let Some(price) = &price {
+                <p class={Price}><span class={Muted}>{t.page_from()}" "</span><span class={Strong}>{price}</span></p>
+            }
+            <div class={Intents}>
+                if listings > 0 {
+                    <a class={Primary} href={&buy} aria-label={t.page_buy()}>{t.page_buy_intent()}</a>
+                    <a class={Ghost} href={&sell} aria-label={t.page_sell()}>{t.page_sell_intent()}</a>
+                } else {
+                    <a class={Primary} href={&sell} aria-label={t.page_sell()}>{t.page_sell_intent()}</a>
+                    <a class={Ghost} href={&buy} aria-label={t.page_buy()}>{t.page_buy_intent()}</a>
+                }
+                <a class={Ghost} href={&watch} aria-label={t.page_watch()}>{t.page_watch_intent()}</a>
+                <form
+                    class={Save}
+                    method="post"
+                    action={&save}
+                    data-patch
+                    on:submit={handlers::fresh(ElementId::of(&SaveToListId))}
+                >
+                    for (key, value) in &address {
+                        <input type="hidden" name={key} value={value}>
+                    }
+                    <input type="hidden" name={saving::field::PREPARE} value="1">
+                    <input type="hidden" name={saving::field::FROM} value={from}>
+                    <button type="submit" class={Ghost} aria-label={&i.saved_accessible(&identity).to_string()}>
+                        {i.saved_button()}
+                    </button>
+                </form>
+            </div>
+        </div>
+    }
+}
+
+/// The item's page in `market`, with the search's option filters (the card's links).
+fn market_href(item: &SearchItem, terms: &Terms, market: Market) -> String {
+    let card = &item.card;
+    let slug = if card.slug.is_empty() { card.catalog_item_id.as_str() } else { card.slug.as_str() };
+    let options = terms.dimensions();
+    let state = Address { market, filtered: !options.is_empty(), options, ..Address::default() };
+    url::Item { slug, state, after: Default::default() }.href()
+}
+
+/// How a card names its item to a screen reader: its title, with its subtitle when it has one.
+fn identity(t: SearchMsg, card: &crate::api::SimilarItem) -> String {
+    match card.subtitle.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+        Some(subtitle) => t
+            .identity_title_and_subtitle(crate::text::search_msg::IdentityTitleAndSubtitle { title: &card.title, subtitle })
+            .to_string(),
+        None => t.identity_title(&card.title).to_string(),
     }
 }
