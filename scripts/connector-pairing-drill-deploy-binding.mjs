@@ -49,6 +49,59 @@ export function ghApiTransport(gh = ghApi) {
 }
 
 const json = (bytes) => JSON.parse(Buffer.from(bytes).toString("utf8"));
+const isInstant = (value) =>
+  typeof value === "string" &&
+  /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/.test(value) &&
+  Number.isFinite(Date.parse(value));
+
+/** Derives the sign-in floor from selected deploy authority, never from the requested run or a local receipt. */
+export async function readStagingSignInReceiptFloor({ generation, requiredMerges }, { gh = ghApi } = {}) {
+  const signInMerges = requiredMerges.filter((merge) => merge.issue === 10640);
+  if (signInMerges.length !== 1 || !signInMerges[0].contained) return null;
+  const job = json(await gh([`repos/${repository}/actions/jobs/${generation.jobId}`]));
+  if (
+    String(job.id) !== generation.jobId ||
+    String(job.run_id) !== generation.runId ||
+    job.run_attempt !== generation.runAttempt ||
+    job.name !== "Deploy Staging" ||
+    job.status !== "completed" ||
+    job.conclusion !== "success" ||
+    job.completed_at !== generation.jobCompletedAt ||
+    !isInstant(job.started_at) ||
+    !isInstant(job.completed_at) ||
+    !Array.isArray(job.steps) ||
+    !job.steps.every((step) => step && typeof step.name === "string")
+  )
+    return null;
+  const names = [
+    "Activate immutable release before staging mutation",
+    "Apply staging Kubernetes runtime secrets",
+    "Deploy staging Kubernetes release",
+    "Mark staging applied",
+  ];
+  let previousEnd = Date.parse(job.started_at);
+  let previousNumber = 0;
+  for (const name of names) {
+    const found = job.steps.filter((step) => step.name === name);
+    if (found.length !== 1) return null;
+    const [step] = found;
+    if (
+      step.status !== "completed" ||
+      step.conclusion !== "success" ||
+      !Number.isSafeInteger(step.number) ||
+      step.number <= previousNumber ||
+      !isInstant(step.started_at) ||
+      !isInstant(step.completed_at) ||
+      Date.parse(step.started_at) < previousEnd ||
+      Date.parse(step.completed_at) < Date.parse(step.started_at) ||
+      Date.parse(step.completed_at) > Date.parse(job.completed_at)
+    )
+      return null;
+    previousEnd = Date.parse(step.completed_at);
+    previousNumber = step.number;
+  }
+  return generation.runId;
+}
 
 /** The closing-PR merge of one issue, compared with the deployed head; ambiguity or absence is not contained. */
 async function requiredMerge(gh, issue, deployedHead) {
@@ -81,7 +134,7 @@ async function requiredMerge(gh, issue, deployedHead) {
 
 /**
  * Binds the drill to `run` and `commit`, read immediately before launch. Returns `{binding}` or `{stop}`; the
- * pairing run's floor comes from staging sign-in's deployed receipt (`readReceiptFloor`), and without one it stops.
+ * pairing run's floor comes from staging sign-in's deployed authority (`readReceiptFloor`), and without one it stops.
  */
 export async function readConnectorDrillDeployBinding(
   { run, commit, requiredIssues, requireReceiptFloor },
@@ -126,9 +179,10 @@ export async function readConnectorDrillDeployBinding(
   }
   let receiptFloorRunId = null;
   if (requireReceiptFloor) {
-    receiptFloorRunId = await readReceiptFloor().catch(() => null);
+    receiptFloorRunId = await readReceiptFloor({ generation, requiredMerges }).catch(() => null);
     if (typeof receiptFloorRunId !== "string" || !decimalId.test(receiptFloorRunId))
       return { stop: "receipt-floor-unavailable" };
+    if (BigInt(receiptFloorRunId) > BigInt(generation.runId)) return { stop: "receipt-floor-newer-than-deploy" };
   }
   return {
     binding: {
