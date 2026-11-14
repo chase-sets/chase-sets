@@ -5,8 +5,9 @@
 //! Adjust Quantity, Create Hold and Release hold are Inventory writes confirmed as the list's are
 //! (`item-adjust`, `hold-create` and `hold-release`, see `recovery`): each form carries its attempt,
 //! the browser remembers it, and an applied write comes back to the page with its receipt and the
-//! attempt to confirm. An adjustment the API recorded as a collision with orders' holds is not a
-//! change: the page says the API's words for it, as marketplace does. Record sale is the list's form
+//! attempt to confirm. Adjust Quantity posts to the page's own address: an adjustment the API
+//! recorded as a collision with orders' holds is not a change, and the page says the API's words
+//! for it there, as marketplace does. Record sale is the list's form
 //! (`inventory_list::SaleInput`), drawn on the page; a recorded sale comes back with what it did in
 //! the address, read after its receipt.
 use crate::recovery::attempt_text;
@@ -372,7 +373,7 @@ pub(crate) async fn adjust(
     Caller(Seller(viewer)): Caller<Seller>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Params(route): Params<crate::app::url::inventory::StockAdjust<'_>>,
+    Params(route): Params<crate::app::url::inventory::StockItem<'_>>,
     Form(input): Form<AdjustInput>,
 ) -> HtmlResult {
     let id = route.id;

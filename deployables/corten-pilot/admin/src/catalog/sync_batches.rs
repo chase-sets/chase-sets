@@ -7,7 +7,7 @@
 //! |---|---|
 //! | `GET /catalog/scopes/sync-batches?batch_id&quote_id` | the page, with the batch and the count quote the address names |
 //! | `POST /catalog/scopes/sync-batches` | the form's `intent`: Preview batch, Quote count acquisition and Approve count acquisition answer with the page; Confirm and enqueue, Cancel batch, Resume batch and Retry unit go to the batch |
-//! | `POST /catalog/scopes/sync-batches/held-sets` | Resolve held sets (`multipart/form-data`): the page with what resolved |
+//! | `POST /catalog/scopes/sync-batches/held-sets` | Resolve held sets (`multipart/form-data`): the page with what resolved; its `GET` redirects to the page |
 //!
 //! Like admin-web's action, a refused or failed command is the page's banner, the form as it was
 //! sent. A queued or running batch's page is read again every two seconds (admin-web revalidates
@@ -61,7 +61,11 @@ pub mod url {
         pub query: BatchQuery,
     }
 
-    #[route("/catalog/scopes/sync-batches/held-sets", post = crate::catalog::sync_batches::held_sets)]
+    /// Resolve held sets (`multipart/form-data`): the page with what the export resolved to, drawn
+    /// here. Its `GET` is the page, so the address works when opened again. A workaround: the
+    /// page's route takes the batch form's commands as its one `POST`, urlencoded
+    /// (corten-run/corten#1403).
+    #[route("/catalog/scopes/sync-batches/held-sets", get = crate::catalog::sync_batches::to_page, post = crate::catalog::sync_batches::held_sets)]
     pub struct HeldSets;
 }
 
@@ -692,6 +696,11 @@ pub(crate) async fn act(
             }
         }
     }
+}
+
+/// The held-set address opened again (a reload from history, a bookmark): the page.
+pub(crate) async fn to_page(req: Req, _: corten::Caller<Staff<CatalogAccess>>) -> HtmlResult {
+    req.redirect(&url::SyncBatches::default())
 }
 
 /// Resolve held sets: the export's file, sent on to the API as its one part (admin-web's

@@ -1085,9 +1085,29 @@ fn post(uri: &str, body: &str, script: bool) -> Request<Body> {
     post_as("staff", uri, body, script)
 }
 
+/// What a browser's navigation asks for: Corten's debug checks of a browser's plain post (a page
+/// answered at a path with no `GET`) see these posts as a browser's.
+const BROWSER_ACCEPT: &str = "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8";
+
+/// A GET form's submit as staff: `body` is the form's fields, joined to `uri`'s query as a
+/// browser joins them (a bulk preview), sent by the runtime (`corten: action`) or as a browser
+/// without JavaScript.
+fn form_get(uri: &str, body: &str, script: bool) -> Request<Body> {
+    let join = if uri.contains('?') { '&' } else { '?' };
+    let mut req = Request::get(format!("{uri}{join}{body}"))
+        .header(header::HOST, "localhost:7790")
+        .header(header::ACCEPT, BROWSER_ACCEPT)
+        .header(header::COOKIE, "chase_sets_session=staff");
+    if script {
+        req = req.header("corten", "action");
+    }
+    req.body(Body::empty()).unwrap()
+}
+
 fn post_as(session: &str, uri: &str, body: &str, script: bool) -> Request<Body> {
     let mut req = Request::post(uri)
         .header(header::HOST, "localhost:7790")
+        .header(header::ACCEPT, BROWSER_ACCEPT)
         .header(header::COOKIE, format!("chase_sets_session={session}"))
         .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded");
     if script {
@@ -1127,6 +1147,7 @@ async fn a_signed_out_visitor_signs_in_through_the_pilot() {
 fn visitor_post(uri: &str, cookie: Option<&str>, body: &str) -> Request<Body> {
     let mut req = Request::post(uri)
         .header(header::HOST, "localhost:7790")
+        .header(header::ACCEPT, BROWSER_ACCEPT)
         .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded");
     if let Some(cookie) = cookie {
         req = req.header(header::COOKIE, cookie);
@@ -2553,26 +2574,40 @@ async fn options_are_added_revised_retired_and_reordered() {
     // Add Label draws the form again with a row more, and writes nothing.
     let rows = "code=nm&numeric_value=&label_locale=en&label_value=Near+mint";
     let (status, headers, html) =
-        pilot.send(post("/catalog/dimensions/dim_seed/options", &format!("option_id=chc_x&{rows}&relabel=add"), true)).await;
+        pilot.send(post("/catalog/dimensions/dim_seed", &format!("option_id=chc_x&{rows}&relabel=add"), true)).await;
     assert_eq!((status, headers.contains_key("corten-patch")), (StatusCode::OK, true));
     assert_eq!(html.matches(r#"name="label_locale""#).count(), 2, "{html}");
     assert!(html.contains(r#"value="Near mint""#), "{html}");
     assert!(pilot.catalog_writes().is_empty());
     let (status, _, html) =
-        pilot.send(post("/catalog/dimensions/dim_seed/options", &format!("option_id=chc_x&{rows}&relabel=add"), false)).await;
+        pilot.send(post("/catalog/dimensions/dim_seed", &format!("option_id=chc_x&{rows}&relabel=add"), false)).await;
     assert_eq!(status, StatusCode::OK);
     assert!(html.contains(r#"id="catalog-add-option-dialog" aria-labelledby="catalog-add-option-dialog-title" open"#), "{html}");
+    // An option's edit draws its form again the same way, at an address whose GET is the page with
+    // that option's dialog open (a reload of the redraw lands there).
+    let edit = format!("{rows}&relabel=add");
+    let (status, headers, html) = pilot.send(post("/catalog/dimensions/dim_seed/options/chc_a", &edit, true)).await;
+    assert_eq!((status, headers.contains_key("corten-patch")), (StatusCode::OK, true));
+    assert_eq!(html.matches(r#"name="label_locale""#).count(), 2, "{html}");
+    let (status, _, html) = pilot.send(post("/catalog/dimensions/dim_seed/options/chc_a", &edit, false)).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(html.contains(r#"aria-labelledby="option-dialog-chc_a-title" open"#), "{html}");
+    let (status, _, html) = pilot.send(get("/catalog/dimensions/dim_seed/options/chc_a", Some("staff"))).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(html.contains(r#"aria-labelledby="option-dialog-chc_a-title" open"#), "{html}");
+    assert!(!html.contains(r#"aria-labelledby="option-dialog-chc_b-title" open"#), "{html}");
+    assert!(pilot.catalog_writes().is_empty());
 
     // A number that does not parse is the pilot's own check.
     let (status, _, html) =
-        pilot.send(post("/catalog/dimensions/dim_seed/options", "option_id=chc_x&code=nm&numeric_value=two", true)).await;
+        pilot.send(post("/catalog/dimensions/dim_seed", "option_id=chc_x&code=nm&numeric_value=two", true)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
     assert!(html.contains(r#"id="catalog-add-option-numeric_value-error""#), "{html}");
     assert!(pilot.catalog_writes().is_empty());
 
     let posts = [
         (
-            "/catalog/dimensions/dim_seed/options",
+            "/catalog/dimensions/dim_seed",
             format!("option_id=chc_x&{}", rows.replace("numeric_value=", "numeric_value=3")),
             "option_added",
         ),
@@ -2784,7 +2819,7 @@ async fn a_refused_rule_removal_is_its_rows_message_and_a_component_bulk_change_
 
     let pilot = Pilot::new().await;
     let (status, _, html) =
-        pilot.send(post("/catalog/components/bulk?has_dimension_rules=false", "action=activate&mode=filter", true)).await;
+        pilot.send(form_get("/catalog/components/bulk?has_dimension_rules=false", "action=activate&mode=filter", true)).await;
     assert_eq!(status, StatusCode::OK);
     assert!(html.contains("Bulk Activate Preview"), "{html}");
     let sent = pilot.catalog_writes().remove(0);
@@ -2922,7 +2957,7 @@ async fn a_set_dialog_the_list_cannot_fill_has_no_form_and_blueprint_refusals_st
 
     let pilot = Pilot::new().await;
     let (status, _, html) =
-        pilot.send(post("/catalog/blueprints/bulk?has_components=false", "action=publish&mode=filter", true)).await;
+        pilot.send(form_get("/catalog/blueprints/bulk?has_components=false", "action=publish&mode=filter", true)).await;
     assert_eq!(status, StatusCode::OK);
     assert!(html.contains("Bulk Publish Preview"), "{html}");
     let sent = pilot.catalog_writes().remove(0);
@@ -3036,7 +3071,8 @@ async fn reference_types_are_listed_created_revised_and_bulk_published_and_a_ref
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
     assert!(html.contains("Only a deprecated reference type can be archived."), "{html}");
 
-    let (status, _, _) = pilot.send(post("/catalog/reference-types/bulk?status=draft", "action=publish&mode=filter", true)).await;
+    let (status, _, _) =
+        pilot.send(form_get("/catalog/reference-types/bulk?status=draft", "action=publish&mode=filter", true)).await;
     assert_eq!(status, StatusCode::OK);
     let sent = pilot.catalog_writes().remove(3);
     assert_eq!(sent.path, "/api/catalog/reference-types/bulk-lifecycle/preview");
@@ -3127,7 +3163,7 @@ async fn reference_records_are_created_and_revised_with_attributes_and_relations
     assert!(html.contains("&quot;sets&quot;: 12"), "{html}");
 
     let (status, _, _) =
-        pilot.send(post("/catalog/reference-records/bulk?status=draft", "action=publish&mode=filter", true)).await;
+        pilot.send(form_get("/catalog/reference-records/bulk?status=draft", "action=publish&mode=filter", true)).await;
     assert_eq!(status, StatusCode::OK);
     let sent = pilot.catalog_writes().remove(2);
     assert_eq!(sent.path, "/api/catalog/reference-records/bulk-lifecycle/preview");
@@ -3136,7 +3172,7 @@ async fn reference_records_are_created_and_revised_with_attributes_and_relations
 async fn a_category_bulk_change_publishes_by_the_lists_filters_and_refuses_activate() {
     let pilot = Pilot::new().await;
     let (status, _, html) =
-        pilot.send(post("/catalog/categories/bulk?hierarchy=root&search=gen", "action=publish&mode=filter", true)).await;
+        pilot.send(form_get("/catalog/categories/bulk?hierarchy=root&search=gen", "action=publish&mode=filter", true)).await;
     assert_eq!(status, StatusCode::OK);
     assert!(html.contains("Bulk Publish Preview"), "{html}");
     assert!(html.contains(r#"action="/catalog/categories/bulk/confirm?search=gen&amp;hierarchy=root""#), "{html}");
@@ -3148,7 +3184,7 @@ async fn a_category_bulk_change_publishes_by_the_lists_filters_and_refuses_activ
     );
 
     let pilot = Pilot::new().await;
-    let (status, _, html) = pilot.send(post("/catalog/categories/bulk", "action=activate&mode=filter", true)).await;
+    let (status, _, html) = pilot.send(form_get("/catalog/categories/bulk", "action=activate&mode=filter", true)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
     assert!(html.contains("This action is not available here."), "{html}");
     assert!(pilot.catalog_writes().is_empty());
@@ -3231,7 +3267,11 @@ async fn staff_who_may_change_the_records_get_the_bulk_bar_and_a_box_on_each_row
     let pilot = Pilot::new().await;
     let (status, _, html) = pilot.send(get("/catalog/dimensions?status=active", Some("staff"))).await;
     assert_eq!(status, StatusCode::OK);
-    assert!(html.contains(r#"<form data-ref="form" id="catalog-bulk" class="bulk-rows__bar" method="post" action="/catalog/dimensions/bulk?status=active" data-patch"#), "{html}");
+    assert!(html.contains(r#"<form data-ref="form" id="catalog-bulk" class="bulk-rows__bar" method="get" action="/catalog/dimensions/bulk?status=active" data-patch"#), "{html}");
+    assert!(
+        html.contains(r#"</div><input type="hidden" name="status" value="active"></form>"#),
+        "the GET keeps the list's filters: {html}"
+    );
     assert!(html.contains(r#"name="ids" value="dim_seed" form="catalog-bulk" aria-label="Select row dim_seed""#), "{html}");
     assert!(
         html.contains(r#"name="all" form="catalog-bulk" aria-label="Select all rows" hidden"#),
@@ -3251,9 +3291,8 @@ async fn staff_who_may_change_the_records_get_the_bulk_bar_and_a_box_on_each_row
     assert_eq!(status, StatusCode::OK);
     assert!(html.contains(r#"<div id="catalog-rows">"#) && !html.contains("catalog-bulk\""), "{html}");
     assert!(!html.contains(r#"name="ids""#), "{html}");
-    let (status, _, _) =
-        pilot.send(post_as("catalog-reader", "/catalog/dimensions/bulk", "action=deprecate&mode=filter", true)).await;
-    assert_eq!(status, StatusCode::FORBIDDEN);
+    let (status, _, _) = pilot.send(get("/catalog/dimensions/bulk?action=deprecate&mode=filter", Some("catalog-reader"))).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "a preview needs catalog.manage");
     let (_, rows) = pilot.events("/catalog/fields/live", "catalog-viewer", 1).await.remove(0);
     assert!(rows.starts_with(r#"<div id="catalog-rows">"#) && !rows.contains("catalog-bulk"), "{rows}");
 }
@@ -3262,7 +3301,7 @@ async fn staff_who_may_change_the_records_get_the_bulk_bar_and_a_box_on_each_row
 async fn a_preview_asks_the_api_for_the_checked_rows_or_the_filter_and_answers_with_its_dialog() {
     let pilot = Pilot::new().await;
     let (status, headers, html) = pilot
-        .send(post("/catalog/dimensions/bulk?status=active", "action=deprecate&mode=ids&ids=dim_seed&ids=dim_b", true))
+        .send(form_get("/catalog/dimensions/bulk?status=active", "action=deprecate&mode=ids&ids=dim_seed&ids=dim_b", true))
         .await;
     assert_eq!(status, StatusCode::OK);
     assert!(headers.contains_key("corten-patch"), "{headers:?}");
@@ -3285,7 +3324,7 @@ async fn a_preview_asks_the_api_for_the_checked_rows_or_the_filter_and_answers_w
     // Every field the filters match: the list's filters are the selection's query.
     let pilot = Pilot::new().await;
     let (status, _, html) = pilot
-        .send(post("/catalog/fields/bulk?search=lang&value_type=string&sortable=true", "action=archive&mode=filter", true))
+        .send(form_get("/catalog/fields/bulk?search=lang&value_type=string&sortable=true", "action=archive&mode=filter", true))
         .await;
     assert_eq!(status, StatusCode::OK);
     assert!(!html.contains(r#"name="ids""#), "a filter is confirmed as a filter: {html}");
@@ -3298,7 +3337,8 @@ async fn a_preview_asks_the_api_for_the_checked_rows_or_the_filter_and_answers_w
     );
 
     // Without JavaScript: the list, with the preview open.
-    let (status, _, html) = pilot.send(post("/catalog/dimensions/bulk", "action=deprecate&mode=ids&ids=dim_seed", false)).await;
+    let (status, _, html) =
+        pilot.send(form_get("/catalog/dimensions/bulk", "action=deprecate&mode=ids&ids=dim_seed", false)).await;
     assert_eq!(status, StatusCode::OK);
     assert!(
         html.starts_with("<!DOCTYPE html>")
@@ -3311,11 +3351,11 @@ async fn a_preview_asks_the_api_for_the_checked_rows_or_the_filter_and_answers_w
 #[tokio::test]
 async fn a_preview_of_nothing_or_of_an_action_not_offered_is_refused_without_asking_the_api() {
     let pilot = Pilot::new().await;
-    let (status, _, html) = pilot.send(post("/catalog/dimensions/bulk", "action=deprecate&mode=ids", true)).await;
+    let (status, _, html) = pilot.send(form_get("/catalog/dimensions/bulk", "action=deprecate&mode=ids", true)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
     assert!(html.contains(r#"<p class="form-error" role="alert">Select at least one row to preview.</p>"#), "{html}");
     assert!(html.contains("disabled") && !html.contains("ready,"), "nothing to confirm: {html}");
-    let (status, _, html) = pilot.send(post("/catalog/dimensions/bulk", "action=delete&mode=filter", true)).await;
+    let (status, _, html) = pilot.send(form_get("/catalog/dimensions/bulk", "action=delete&mode=filter", true)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
     assert!(html.contains("This action is not available here."), "{html}");
     assert!(pilot.catalog_writes().is_empty());
@@ -3509,7 +3549,7 @@ async fn each_bulk_operation_previews_through_its_own_api_route() {
     let pilot = Pilot::new().await;
     // A publish of the matching items: the filters are the selection.
     let (status, _, html) =
-        pilot.send(post("/catalog/catalog-items/bulk?status=draft&tag=foil", "action=publish&mode=filter", true)).await;
+        pilot.send(form_get("/catalog/catalog-items/bulk?status=draft&tag=foil", "action=publish&mode=filter", true)).await;
     assert_eq!(status, StatusCode::OK, "{html}");
     assert!(html.contains("Bulk Publish Preview") && html.contains("Matching drafts: 1 ready, 1 need attention."), "{html}");
     assert!(html.contains("Display identity is not resolved yet."), "{html}");
@@ -3529,7 +3569,11 @@ async fn each_bulk_operation_previews_through_its_own_api_route() {
     // An edit of the checked rows, its tags as admin-web reads them.
     let pilot = Pilot::new().await;
     let (status, _, html) = pilot
-        .send(post("/catalog/catalog-items/bulk", "action=mergeTags&mode=ids&ids=cat_a&tags=foil%2C%20featured%2C%20foil", true))
+        .send(form_get(
+            "/catalog/catalog-items/bulk",
+            "action=mergeTags&mode=ids&ids=cat_a&tags=foil%2C%20featured%2C%20foil",
+            true,
+        ))
         .await;
     assert_eq!(status, StatusCode::OK, "{html}");
     assert!(html.contains("Bulk Merge Tags Preview") && html.contains("1 ready, 0 need attention."), "{html}");
@@ -3547,14 +3591,14 @@ async fn each_bulk_operation_previews_through_its_own_api_route() {
 
     // An archive: the lifecycle change, labelled as the item page labels it.
     let pilot = Pilot::new().await;
-    let (_, _, html) = pilot.send(post("/catalog/catalog-items/bulk", "action=archive&mode=ids&ids=cat_a", true)).await;
+    let (_, _, html) = pilot.send(form_get("/catalog/catalog-items/bulk", "action=archive&mode=ids&ids=cat_a", true)).await;
     assert!(html.contains("Bulk Archive Preview") && html.contains("1 ready, 1 blocked."), "{html}");
     assert_eq!(pilot.catalog_writes().remove(0).path, "/api/catalog/items/bulk-lifecycle/preview");
 
     // An edit without the value it takes is the field's message, and the API is not asked.
     let pilot = Pilot::new().await;
     let (status, _, html) =
-        pilot.send(post("/catalog/catalog-items/bulk", "action=assignBlueprint&mode=filter&blueprint_id=%20", true)).await;
+        pilot.send(form_get("/catalog/catalog-items/bulk", "action=assignBlueprint&mode=filter&blueprint_id=%20", true)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
     assert!(html.contains("Enter a value.") && html.contains("disabled"), "{html}");
     assert!(pilot.catalog_writes().is_empty());
@@ -3616,7 +3660,7 @@ async fn a_confirm_starts_the_operations_job_and_the_dialog_shows_its_outcome() 
 async fn the_checked_rows_removal_is_the_apis_preview_and_job() {
     let pilot = Pilot::new().await;
     let (status, _, html) =
-        pilot.send(post("/catalog/catalog-items/drafts?status=draft", "mode=ids&ids=cat_a&ids=cat_b", true)).await;
+        pilot.send(form_get("/catalog/catalog-items/drafts?status=draft", "mode=ids&ids=cat_a&ids=cat_b", true)).await;
     assert_eq!(status, StatusCode::OK, "{html}");
     assert!(html.contains("Bulk Remove drafts Preview") && html.contains("1 ready, 1 blocked."), "{html}");
     assert!(html.contains("Only draft items can be removed."), "the API's reason: {html}");
@@ -3631,7 +3675,7 @@ async fn the_checked_rows_removal_is_the_apis_preview_and_job() {
 
     // None checked: the API's refusal, and nothing to confirm.
     let pilot = Pilot::new().await;
-    let (status, _, html) = pilot.send(post("/catalog/catalog-items/drafts", "mode=ids", true)).await;
+    let (status, _, html) = pilot.send(form_get("/catalog/catalog-items/drafts", "mode=ids", true)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
     assert!(html.contains("Choose at least one Catalog Item to remove.") && html.contains("disabled"), "{html}");
 
@@ -3930,7 +3974,13 @@ async fn an_items_review_draws_its_sheet_with_its_evidence_and_park_forms() {
     );
 
     let (_, _, html) = pilot.send(action_get("/catalog/scopes/attention/review?item=gone")).await;
-    assert_eq!(html, r#"<dialog id="attention-sheet"></dialog>"#, "an item no longer in the queue");
+    // An item no longer in the queue: the empty sheet, then the area's stylesheets every patch
+    // from it carries (corten-run/corten#1366).
+    let links = html.strip_prefix(r#"<dialog id="attention-sheet"></dialog>"#).expect(&html);
+    assert!(
+        links.split_inclusive("data-corten-style>").all(|link| link.starts_with(r#"<link rel="stylesheet" href="/assets/"#)),
+        "an item no longer in the queue: {html}"
+    );
 
     // A command resolves in its row: its sheet opens no page and says nothing is missing, unless the
     // API says its target is.
@@ -6606,6 +6656,7 @@ fn post_multipart(
     };
     Request::post(uri)
         .header(header::HOST, "localhost:7790")
+        .header(header::ACCEPT, BROWSER_ACCEPT)
         .header(header::COOKIE, cookie)
         .header(header::CONTENT_TYPE, format!("multipart/form-data; boundary={BOUNDARY}"))
         .body(Body::from(body))
@@ -8823,7 +8874,7 @@ async fn a_reader_sees_provider_detail_without_its_commands_and_a_platform_admin
     let (status, _, html) = pilot.send(get("/catalog/providers/tcgplayer", Some("catalog-admin"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");
     assert!(html.contains("Operator session"), "offered by the surface (chase-sets/chase-sets#11050): {html}");
-    assert!(html.contains(r#"action="/catalog/providers/tcgplayer/operator-session/pair""#), "{html}");
+    assert!(html.contains(r#"action="/catalog/providers/tcgplayer"><input type="hidden" name="intent" value="pair">"#), "{html}");
     let (status, _, html) = pilot.send(get("/catalog/providers/lorcast", Some("catalog-admin"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");
     assert!(!html.contains("Operator session"), "{html}");
@@ -11151,11 +11202,11 @@ async fn the_operator_session_pairs_once_with_the_browsers_origin_and_disconnect
     let panel = &panel[..panel.find("</section>").unwrap()];
     assert!(panel.contains("Extension grant") && panel.contains("Active") && panel.contains("Revision"), "{panel}");
     assert!(!panel.contains("Stored at") && !panel.contains("Browser expiry"), "custody instants are never drawn: {panel}");
-    assert!(panel.contains(r#"action="/catalog/providers/tcgplayer/operator-session/disconnect""#), "{panel}");
+    assert!(panel.contains(r#"name="intent" value="disconnect">"#), "the forms post to the page, naming their write: {panel}");
     assert!(panel.contains(r#"name="confirmed" value="disconnect" required"#), "{panel}");
 
     // Pair: the browser's origin goes along, and the answer is the page with the grant, kept by nothing.
-    let mut req = post_as("catalog-admin", "/catalog/providers/tcgplayer/operator-session/pair", "", false);
+    let mut req = post_as("catalog-admin", "/catalog/providers/tcgplayer", "intent=pair", false);
     req.headers_mut().insert(header::ORIGIN, "http://localhost:7790".parse().unwrap());
     req.headers_mut().insert("sec-fetch-site", "same-origin".parse().unwrap());
     let (status, headers, html) = pilot.send(req).await;
@@ -11171,7 +11222,7 @@ async fn the_operator_session_pairs_once_with_the_browsers_origin_and_disconnect
     assert!(html.contains("This grant is shown once."), "{html}");
 
     // A sign-in that is too old is refused before anything is minted, with Sign in again.
-    let mut req = post_as("catalog-admin-old", "/catalog/providers/tcgplayer/operator-session/pair", "", false);
+    let mut req = post_as("catalog-admin-old", "/catalog/providers/tcgplayer", "intent=pair", false);
     req.headers_mut().insert(header::ORIGIN, "http://localhost:7790".parse().unwrap());
     let (status, _, html) = pilot.send(req).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
@@ -11180,19 +11231,16 @@ async fn the_operator_session_pairs_once_with_the_browsers_origin_and_disconnect
 
     // Disconnect needs its box; then it says what the API did, and a changed record is a conflict.
     let before = pilot.calls.lock().unwrap().iter().filter(|c| c.method == Method::DELETE).count();
-    let (status, _, _) =
-        pilot.send(post_as("catalog-admin", "/catalog/providers/tcgplayer/operator-session/disconnect", "", false)).await;
+    let (status, _, _) = pilot.send(post_as("catalog-admin", "/catalog/providers/tcgplayer", "intent=disconnect", false)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
     assert_eq!(pilot.calls.lock().unwrap().iter().filter(|c| c.method == Method::DELETE).count(), before);
-    let mut req =
-        post_as("catalog-admin", "/catalog/providers/tcgplayer/operator-session/disconnect", "confirmed=disconnect", false);
+    let mut req = post_as("catalog-admin", "/catalog/providers/tcgplayer", "intent=disconnect&confirmed=disconnect", false);
     req.headers_mut().insert(header::ORIGIN, "http://localhost:7790".parse().unwrap());
     let (status, _, html) = pilot.send(req).await;
     assert_eq!(status, StatusCode::OK, "{html}");
     assert!(html.contains("Extension grant revoked. The record is now revision 3."), "{html}");
     assert!(!html.contains("data-catalog-operator-session-disconnect"), "an answered Disconnect is not offered again: {html}");
-    let mut req =
-        post_as("catalog-admin-stale", "/catalog/providers/tcgplayer/operator-session/disconnect", "confirmed=disconnect", false);
+    let mut req = post_as("catalog-admin-stale", "/catalog/providers/tcgplayer", "intent=disconnect&confirmed=disconnect", false);
     req.headers_mut().insert(header::ORIGIN, "http://localhost:7790".parse().unwrap());
     let (status, _, html) = pilot.send(req).await;
     assert_eq!(status, StatusCode::CONFLICT, "{html}");
@@ -11201,8 +11249,7 @@ async fn the_operator_session_pairs_once_with_the_browsers_origin_and_disconnect
 
     // Only where the surface offers it (a platform admin on TCGplayer): another write sends nothing.
     let before = pilot.calls.lock().unwrap().len();
-    let (status, _, _) =
-        pilot.send(post_as("catalog-admin", "/catalog/providers/lorcast/operator-session/pair", "", false)).await;
+    let (status, _, _) = pilot.send(post_as("catalog-admin", "/catalog/providers/lorcast", "intent=pair", false)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
     assert!(pilot.calls.lock().unwrap()[before..].iter().all(|c| !c.path.starts_with("/api/catalog/operator-session")));
 }

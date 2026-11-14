@@ -7,7 +7,7 @@
 //! |---|---|
 //! | `GET /catalog/blueprints?search&status&has_components&has_field_rules&has_dimension_rules&page` | the list; `POST` creates |
 //! | `GET /catalog/blueprints/live?...` | the list's rows, again on each change (`<corten-live>`) |
-//! | `POST /catalog/blueprints/bulk?...`, `.../bulk/confirm?...` | a bulk change's preview; starts it |
+//! | `GET /catalog/blueprints/bulk?...`, `POST .../bulk/confirm?...` | a bulk change's preview; starts it |
 //! | `GET /catalog/blueprints/{id}`, `POST .../edit`, `.../lifecycle` | the blueprint; revise it; its status |
 //! | `POST /catalog/blueprints/{id}/components`, `.../components/{component_id}/detach` | attach or detach a component |
 //! | `GET /catalog/blueprints/{id}/field-rules`, `.../dimension-rules`, `.../product-resolution-rules` | a Set dialog (drawn when opened); `POST` sets |
@@ -32,7 +32,7 @@ use super::{
 use crate::{
     api::{ApiError, Caller, Method},
     app::{Shared, live_rows, read_failed},
-    auth::{CatalogAccess, Staff, Viewer},
+    auth::{CatalogAccess, CatalogManage, Staff, Viewer},
     text::{Cat, Pilot},
 };
 
@@ -111,12 +111,7 @@ pub mod url {
         pub query: BlueprintQuery,
     }
 
-    /// A bulk change's preview.
-    #[route("/catalog/blueprints/bulk", post = preview_bulk)]
-    pub struct BlueprintsBulk {
-        #[route(query)]
-        pub query: BlueprintQuery,
-    }
+    pub use crate::catalog::previews::url::BlueprintsBulk;
 
     /// The preview's confirm: it starts the change.
     #[route("/catalog/blueprints/bulk/confirm", post = confirm_bulk)]
@@ -664,9 +659,9 @@ fn selection_filter(query: &url::BlueprintQuery) -> Value {
     filter_query(&filters(query))
 }
 
-async fn preview_bulk(
+pub(crate) async fn preview_bulk(
     req: Req,
-    corten::Caller(staff): corten::Caller<Staff<CatalogAccess>>,
+    corten::Caller(staff): corten::Caller<Staff<CatalogManage>>,
     State(config): State<Shared>,
     headers: HeaderMap,
     Params(route): Params<crate::catalog::blueprints::url::BlueprintsBulk>,

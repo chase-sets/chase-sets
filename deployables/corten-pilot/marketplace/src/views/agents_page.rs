@@ -455,7 +455,7 @@ fn WebhookForm<'a>(t: AgentsMsg, p: Pilot, screen: &'a GrantScreen) -> impl Rend
             // Sent by the runtime when it runs (`data-patch`): the answer, with the new secret, replaces
             // the page and the address stays the grant's, so a reload reads it again instead of posting
             // the save again, which would rotate the secret.
-            <form class={Form} method="post" action={url::AgentWebhook { id }} data-patch>
+            <form class={Form} method="post" action={url::AgentPage { id, place: Default::default() }} data-patch>
                 if posted.is_some() {
                     <p id={WebhookErrorId} class={Error} tabindex="-1" autofocus>{p.agents_webhook_invalid()}</p>
                 }

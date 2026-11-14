@@ -191,6 +191,9 @@ async fn following(
 fn step_status(status: StatusCode, step: Option<&Raw>, following: Option<&Following>) -> StatusCode {
     match following.and_then(|f| f.problem) {
         Some(Problem::Invalid | Problem::Stale) if step.is_some() => StatusCode::UNPROCESSABLE_ENTITY,
+        // No definite answer, and the lookup found none: the API may have applied it, so this is
+        // an upstream failure (Corten's `Refusal::Upstream`), not a success.
+        Some(Problem::Ambiguous) if step.is_some() => StatusCode::BAD_GATEWAY,
         _ => status,
     }
 }

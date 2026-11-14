@@ -112,6 +112,9 @@ rules! {
     InsightsView => "insights-dashboards.view";
     /// Support > Customer Feedback (admin-web's route takes its nav entry's permission).
     SupportView => "support.view";
+    /// Catalog's bulk previews: a `GET` that writes nothing, for the staff who may make the change
+    /// it previews (the bar is theirs alone, and the API asks for the same).
+    CatalogManage => crate::catalog::MANAGE;
     /// Platform > Listing Evidence Policy: reading, and every write (each write's own permission is
     /// checked by its handler, as the API checks it).
     EvidenceView => "listing-evidence-policy.view";

@@ -17,7 +17,7 @@
 //! Without it, the form loads the address with a page more (`more=24`), up to the 192 the API reads
 //! at once.
 //!
-//! A result's Add to List posts to the item's `/items/{slug}/save` with `prepare` (`saving`), which
+//! A result's Add to List posts to the item's own page (`/items/{slug}`) with `prepare` (`saving`), which
 //! answers the dialog this page has empty, or the item page to choose the options the filters do
 //! not name.
 //!

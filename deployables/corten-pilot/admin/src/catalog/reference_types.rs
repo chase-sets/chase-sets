@@ -7,7 +7,7 @@
 //! |---|---|
 //! | `GET /catalog/reference-types?search&status&attribute_key&page` | the list; `POST` creates |
 //! | `GET /catalog/reference-types/live?...` | the list's rows, again on each change (`<corten-live>`) |
-//! | `POST /catalog/reference-types/bulk?...`, `.../bulk/confirm?...` | a bulk change's preview; starts it |
+//! | `GET /catalog/reference-types/bulk?...`, `POST .../bulk/confirm?...` | a bulk change's preview; starts it |
 //! | `GET /catalog/reference-types/{id}`, `POST .../edit`, `.../lifecycle` | the type; revise it; its status |
 use corten::{LiveResponse, LiveSince, http::HeaderMap, prelude::*};
 use platform::receipt::Receipt;
@@ -24,7 +24,7 @@ use super::{
 use crate::{
     api::Method,
     app::{Shared, live_rows, read_failed},
-    auth::{CatalogAccess, Staff, Viewer},
+    auth::{CatalogAccess, CatalogManage, Staff, Viewer},
     text::{Cat, Pilot},
 };
 
@@ -87,12 +87,7 @@ pub mod url {
         pub query: RefTypeQuery,
     }
 
-    /// A bulk change's preview.
-    #[route("/catalog/reference-types/bulk", post = preview_bulk)]
-    pub struct RefTypesBulk {
-        #[route(query)]
-        pub query: RefTypeQuery,
-    }
+    pub use crate::catalog::previews::url::RefTypesBulk;
 
     /// The preview's confirm: it starts the change.
     #[route("/catalog/reference-types/bulk/confirm", post = confirm_bulk)]
@@ -340,9 +335,9 @@ fn selection_filter(query: &url::RefTypeQuery) -> Value {
     filter_query(&filters(query))
 }
 
-async fn preview_bulk(
+pub(crate) async fn preview_bulk(
     req: Req,
-    corten::Caller(staff): corten::Caller<Staff<CatalogAccess>>,
+    corten::Caller(staff): corten::Caller<Staff<CatalogManage>>,
     State(config): State<Shared>,
     headers: HeaderMap,
     Params(route): Params<crate::catalog::reference_types::url::RefTypesBulk>,

@@ -6,7 +6,7 @@
 //! |---|---|
 //! | `GET /catalog/categories?search&status&hierarchy&parent_category_id&page` | the list; `POST` creates |
 //! | `GET /catalog/categories/live?...` | the list's rows, again on each change (`<corten-live>`) |
-//! | `POST /catalog/categories/bulk?...`, `.../bulk/confirm?...` | a bulk change's preview; starts it |
+//! | `GET /catalog/categories/bulk?...`, `POST .../bulk/confirm?...` | a bulk change's preview; starts it |
 //! | `GET /catalog/categories/{id}`, `POST .../edit`, `.../lifecycle` | the category; revise it; publish, deprecate, archive |
 //!
 //! The list is kept current as admin-web's is (`useCatalogRealtimeRevalidation` on the topic
@@ -27,7 +27,7 @@ use super::{
 use crate::{
     api::Method,
     app::{Shared, live_rows, read_failed},
-    auth::{CatalogAccess, Staff, Viewer},
+    auth::{CatalogAccess, CatalogManage, Staff, Viewer},
     text::{Cat, Pilot},
 };
 
@@ -92,12 +92,7 @@ pub mod url {
         pub query: CategoryQuery,
     }
 
-    /// A bulk change's preview.
-    #[route("/catalog/categories/bulk", post = preview_bulk)]
-    pub struct CategoriesBulk {
-        #[route(query)]
-        pub query: CategoryQuery,
-    }
+    pub use crate::catalog::previews::url::CategoriesBulk;
 
     /// The preview's confirm: it starts the change.
     #[route("/catalog/categories/bulk/confirm", post = confirm_bulk)]
@@ -345,9 +340,9 @@ fn selection_filter(query: &url::CategoryQuery) -> Value {
     filter_query(&filters(query))
 }
 
-async fn preview_bulk(
+pub(crate) async fn preview_bulk(
     req: Req,
-    corten::Caller(staff): corten::Caller<Staff<CatalogAccess>>,
+    corten::Caller(staff): corten::Caller<Staff<CatalogManage>>,
     State(config): State<Shared>,
     headers: HeaderMap,
     Params(route): Params<crate::catalog::categories::url::CategoriesBulk>,

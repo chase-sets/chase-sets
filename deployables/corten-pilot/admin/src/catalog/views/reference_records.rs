@@ -234,7 +234,7 @@ pub fn ref_record_rows<'a>(
     let (previous, next) = pages_around(screen, |page| {
         url::RefRecords::of(&url::RefRecordQuery { page: (page > 1).then_some(page), ..query.clone() }).href()
     });
-    let preview = url::RefRecordsBulk { query: query.clone() }.href();
+    let preview = url::RefRecordsBulk { query: query.clone() };
     let actions = ref_record_actions(t);
     let select = manage.then_some(p);
     html! {

@@ -17,8 +17,7 @@
 //! | `POST /catalog/providers/{key}/evidence?<context>` | records migration evidence ([`super::validation`]) |
 //! | `POST /catalog/providers/{key}/activate?<context>` | activates a profile version ([`super::validation`]) |
 //! | `POST /catalog/providers/{key}/sections/{section}?<context>` | saves a profile section ([`super::sections`]) |
-//! | `POST /catalog/providers/{key}/operator-session/pair?<context>` | pairs the operator extension ([`super::operator_session`]) |
-//! | `POST /catalog/providers/{key}/operator-session/disconnect?<context>` | revokes the extension grant ([`super::operator_session`]) |
+//! | `POST /catalog/providers/{key}?<context>` | the operator session's Pair (`intent=pair`) or Disconnect (`intent=disconnect`) ([`super::operator_session`]) |
 //!
 //! The context is the address's query as admin-web names it (`profileVersion`, `unitKey`,
 //! `jobId`); the pilot passes it to the API without reading it. A command's body is the API's own
@@ -60,8 +59,10 @@ use crate::{
 
 #[corten::routes(state = crate::app::Shared, area = crate::catalog::url::Catalog, caller = crate::auth::Staff<crate::auth::CatalogAccess>)]
 pub mod url {
-    /// A provider's page.
-    #[route("/catalog/providers/{key}", get = crate::catalog::provider::page)]
+    /// A provider's page. Its operator-session forms post here, each naming its write (`intent`):
+    /// Pair's answer carries a grant shown once, so it is drawn at the page's own address and
+    /// nothing may keep the page (`no_store`).
+    #[route("/catalog/providers/{key}", get = crate::catalog::provider::page, post = crate::catalog::operator_session::write, no_store)]
     pub struct Provider<'a> {
         pub key: &'a str,
     }
@@ -101,18 +102,6 @@ pub mod url {
     pub struct Section<'a> {
         pub key: &'a str,
         pub section: &'a str,
-    }
-
-    /// Mints an operator extension grant. Its answer carries the grant, so nothing may keep it.
-    #[route("/catalog/providers/{key}/operator-session/pair", post = crate::catalog::operator_session::pair, no_store)]
-    pub struct Pair<'a> {
-        pub key: &'a str,
-    }
-
-    /// Revokes every active operator extension grant.
-    #[route("/catalog/providers/{key}/operator-session/disconnect", post = crate::catalog::operator_session::disconnect, no_store)]
-    pub struct Disconnect<'a> {
-        pub key: &'a str,
     }
 
     /// Retries, resumes or cancels one of the provider's import jobs.

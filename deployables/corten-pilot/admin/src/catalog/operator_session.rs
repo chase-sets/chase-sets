@@ -9,7 +9,8 @@
 //!
 //! Pair answers with a grant shown once: the API keeps only its hash. So the pilot answers that
 //! POST itself with the page and `Cache-Control: no-store` (the route's `no_store`), never a
-//! redirect to an address that would carry it, as marketplace's security page answers a key's
+//! redirect to an address that would carry it. Both forms post to the provider's own page, each
+//! naming its write (`intent`), so the answer is drawn at an address that answers a `GET`, as marketplace's security page answers a key's
 //! secret. The grant is not part of the page's screen data. With JavaScript the page first hands
 //! it to the operator extension (`views/operator_session.js`) and shows it only when the
 //! extension does not confirm; without it the grant is shown at once. Disconnect is a form whose
@@ -18,8 +19,8 @@
 //!
 //! | Route | Answers |
 //! |---|---|
-//! | `POST /catalog/providers/{key}/operator-session/pair?<context>` | mints a grant and draws the page with it |
-//! | `POST /catalog/providers/{key}/operator-session/disconnect?<context>` | revokes every active grant and draws the page with the outcome |
+//! | `POST /catalog/providers/{key}?<context>`, `intent=pair` | mints a grant and draws the page with it |
+//! | `POST /catalog/providers/{key}?<context>`, `intent=disconnect` | revokes every active grant and draws the page with the outcome |
 use corten::{
     http::{HeaderMap, StatusCode, Uri, header},
     prelude::*,
@@ -210,14 +211,17 @@ async fn revoke(config: &Shared, headers: &HeaderMap) -> Answer {
     }
 }
 
-/// The box Disconnect's form carries.
+/// The panel's forms: the write each names (`intent`), and the box Disconnect's form carries.
 #[derive(Clone, Debug, Default, Fields)]
 #[serde(default)]
-pub struct DisconnectInput {
+pub struct OperatorInput {
+    pub intent: String,
     pub confirmed: String,
 }
 
-impl DisconnectInput {
+impl OperatorInput {
+    pub const PAIR: &'static str = "pair";
+    pub const DISCONNECT: &'static str = "disconnect";
     pub const CONFIRMED: &'static str = "disconnect";
 }
 
@@ -241,44 +245,33 @@ async fn drawn(
     provider::drawn_with(req, staff, config, headers, key, &context, &answer, status).await
 }
 
-/// Pair extension.
-pub(crate) async fn pair(
+/// Pair extension or Disconnect, by the write the form names. Each first asks the surface whether
+/// the panel is offered; Disconnect runs only once its box is checked.
+pub(crate) async fn write(
     req: Req,
     corten::Caller(staff): corten::Caller<Staff<CatalogAccess>>,
     State(config): State<Shared>,
     headers: HeaderMap,
     uri: Uri,
-    Params(route): Params<provider::url::Pair<'_>>,
+    Params(route): Params<provider::url::Provider<'_>>,
+    Form(input): Form<OperatorInput>,
 ) -> HtmlResult {
     let context = daily::context_of(&uri);
+    let refused = |errors| provider::again(&req, &staff, &config, &headers, &route.key, &context, errors);
     if !provider::offers_operator_session(&config, &headers, &route.key, &context).await {
-        return provider::again(&req, &staff, &config, &headers, &route.key, &context, super::not_offered(req.t())).await;
+        return refused(super::not_offered(req.t())).await;
     }
-    let answer = mint(&config, &headers).await;
-    drawn(&req, &staff, &config, &headers, &route.key, &uri, answer).await
-}
-
-/// Disconnect, once its box is checked.
-pub(crate) async fn disconnect(
-    req: Req,
-    corten::Caller(staff): corten::Caller<Staff<CatalogAccess>>,
-    State(config): State<Shared>,
-    headers: HeaderMap,
-    uri: Uri,
-    Params(route): Params<provider::url::Disconnect<'_>>,
-    Form(input): Form<DisconnectInput>,
-) -> HtmlResult {
-    let context = daily::context_of(&uri);
-    if !provider::offers_operator_session(&config, &headers, &route.key, &context).await {
-        return provider::again(&req, &staff, &config, &headers, &route.key, &context, super::not_offered(req.t())).await;
-    }
-    if input.confirmed != DisconnectInput::CONFIRMED {
-        let t: crate::text::Cat = req.t();
-        let mut errors = Errors::new();
-        errors.add_form(t.feedback_confirmation_required());
-        return provider::again(&req, &staff, &config, &headers, &route.key, &context, errors).await;
-    }
-    let answer = revoke(&config, &headers).await;
+    let answer = match input.intent.as_str() {
+        OperatorInput::PAIR => mint(&config, &headers).await,
+        OperatorInput::DISCONNECT if input.confirmed == OperatorInput::CONFIRMED => revoke(&config, &headers).await,
+        OperatorInput::DISCONNECT => {
+            let t: crate::text::Cat = req.t();
+            let mut errors = Errors::new();
+            errors.add_form(t.feedback_confirmation_required());
+            return refused(errors).await;
+        }
+        _ => return refused(super::not_offered(req.t())).await,
+    };
     drawn(&req, &staff, &config, &headers, &route.key, &uri, answer).await
 }
 
