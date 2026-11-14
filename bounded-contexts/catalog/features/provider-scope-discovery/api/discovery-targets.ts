@@ -1,3 +1,7 @@
+import {
+  catalogScopeProductDomainContracts,
+  catalogScopeUnqualifiedLanguageCode,
+} from "../../scope-registry/domain/contract";
 import { parseCatalogIntegrationUnitKey } from "../../source-observations/api/integration-unit";
 import type { CatalogProviderIngestionUnitProductDomain } from "../../source-observations/api/provider-integration-mapping-contract";
 import {
@@ -50,8 +54,6 @@ const SCOPE_DISCOVERY_QUERY_SCOPES: readonly CatalogProviderScope[] = [
   "product-line/category",
 ];
 
-const DEFAULT_DISCOVERY_LANGUAGE = "en";
-
 export function listProviderScopeDiscoveryTargets(
   profileVersions: readonly CatalogProviderIntegrationProfileVersionRecord[],
   classifyTarget: ProviderScopeDiscoveryTargetClassifier,
@@ -81,27 +83,44 @@ export function listProviderScopeDiscoveryTargets(
       if (!classification) {
         continue;
       }
-      const key = `${providerKey}:${unitKey}:${query.queryKind}:${DEFAULT_DISCOVERY_LANGUAGE}`;
-      if (targets.has(key)) {
-        continue;
-      }
+      for (const languageCode of discoveryLanguageCodes(
+        classification.productDomain,
+        version.profile.languageOptions,
+      )) {
+        const key = `${providerKey}:${unitKey}:${query.queryKind}:${languageCode}`;
+        if (targets.has(key)) {
+          continue;
+        }
 
-      targets.set(key, {
-        providerKey,
-        profileKey: version.profileKey,
-        ingestionUnitKey: unitKey,
-        productDomain: classification.productDomain,
-        queryKind: query.queryKind,
-        providerScope: query.scope,
-        parentScope: query.parentScope,
-        parentRequired: query.parentValue?.required === true,
-        scopeKind: classification.scopeKind,
-        languageCode: DEFAULT_DISCOVERY_LANGUAGE,
-      });
+        targets.set(key, {
+          providerKey,
+          profileKey: version.profileKey,
+          ingestionUnitKey: unitKey,
+          productDomain: classification.productDomain,
+          queryKind: query.queryKind,
+          providerScope: query.scope,
+          parentScope: query.parentScope,
+          parentRequired: query.parentValue?.required === true,
+          scopeKind: classification.scopeKind,
+          languageCode,
+        });
+      }
     }
   }
 
   return [...targets.values()];
+}
+
+// Every unit discovers the unqualified language; another language the domain
+// declares is discovered only where the unit's profile offers it.
+function discoveryLanguageCodes(
+  productDomain: ProviderScopeDiscoveryProductDomain,
+  profileLanguageOptions: readonly string[],
+): readonly string[] {
+  const offered = new Set(profileLanguageOptions);
+  return catalogScopeProductDomainContracts[productDomain].discoveryLanguageCodes.filter(
+    (languageCode) => languageCode === catalogScopeUnqualifiedLanguageCode || offered.has(languageCode),
+  );
 }
 
 function productDomainForUnitKey(unitKey: string): CatalogProviderIngestionUnitProductDomain | null {

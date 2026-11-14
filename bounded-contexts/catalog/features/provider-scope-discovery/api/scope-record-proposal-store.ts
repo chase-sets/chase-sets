@@ -1,7 +1,12 @@
 import { createHash } from "node:crypto";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { JsonObject } from "@chase-sets/primitives/json";
-import type { CatalogScopeProductDomain, CatalogScopeRecordKind } from "../../scope-registry/domain/contract";
+import {
+  catalogScopeUnqualifiedLanguageCode,
+  type CatalogScopeLanguageEditionFilter,
+  type CatalogScopeProductDomain,
+  type CatalogScopeRecordKind,
+} from "../../scope-registry/domain/contract";
 
 export type CanonicalScopeRecordProposalReviewStatus = "proposed" | "accepted" | "rejected";
 
@@ -92,6 +97,7 @@ export async function listCanonicalScopeRecordProposals(
   input: Readonly<{
     reviewStatus?: CanonicalScopeRecordProposalReviewStatus | null;
     productDomain?: CatalogScopeProductDomain | null;
+    languageEdition?: CatalogScopeLanguageEditionFilter | null;
     limit?: number;
   }> = {},
 ): Promise<readonly CanonicalScopeRecordProposalRecord[]> {
@@ -104,6 +110,9 @@ export async function listCanonicalScopeRecordProposals(
   if (input.productDomain) {
     params.push(input.productDomain);
     conditions.push(`product_domain = $${params.length}`);
+  }
+  if (input.languageEdition) {
+    conditions.push(languageEditionCondition("language_editions", input.languageEdition, params));
   }
   params.push(Math.min(Math.max(input.limit ?? 500, 1), 2_000));
 
@@ -150,17 +159,41 @@ export async function markCanonicalScopeRecordProposalAccepted(
   return result.rows[0] ? toProposalRecord(result.rows[0]) : null;
 }
 
+/**
+ * A proposal in a language edition other than the unqualified one is its own
+ * proposal, so it never merges into the unqualified proposal of the same code
+ * or name. Unqualified proposals keep the identity they always had.
+ */
 export function computeCanonicalScopeRecordProposalId(
-  input: Pick<CanonicalScopeRecordProposalInput, "productDomain" | "scopeKind" | "name" | "officialSetCode">,
+  input: Pick<
+    CanonicalScopeRecordProposalInput,
+    "productDomain" | "scopeKind" | "name" | "officialSetCode" | "languageEditions"
+  >,
 ): string {
+  const languageEditions = normalizedLanguageEditions(input.languageEditions);
+  const unqualified =
+    languageEditions.length === 0 ||
+    (languageEditions.length === 1 && languageEditions[0] === catalogScopeUnqualifiedLanguageCode);
   const identity = {
     productDomain: input.productDomain,
     scopeKind: input.scopeKind,
     identityKey: input.officialSetCode
       ? `code:${normalizeScopeIdentifierKey(input.officialSetCode)}`
       : `name:${normalizeScopeMatchKey(input.name)}`,
+    ...(unqualified ? {} : { languageEditions }),
   };
   return createHash("sha256").update(JSON.stringify(identity)).digest("hex");
+}
+
+/** SQL for "the `column` language editions hold the filter's edition"; appends its parameter. */
+export function languageEditionCondition(
+  column: string,
+  filter: CatalogScopeLanguageEditionFilter,
+  params: unknown[],
+): string {
+  params.push(filter.languageCode);
+  const held = `${column} ? $${params.length}`;
+  return filter.includesUnrecorded ? `(${held} OR ${column} = '[]'::jsonb)` : held;
 }
 
 export function normalizeScopeIdentifierKey(value: string): string {
@@ -182,9 +215,13 @@ function normalizeProposal(input: CanonicalScopeRecordProposalInput): CanonicalS
     name: input.name.trim(),
     officialSetCode: input.officialSetCode?.trim() || null,
     releaseDate: validIsoDate(input.releaseDate),
-    languageEditions: normalizedList(input.languageEditions.map((language) => language.toLowerCase())),
+    languageEditions: normalizedLanguageEditions(input.languageEditions),
     parentExternalIds: normalizedList(input.parentExternalIds),
   };
+}
+
+function normalizedLanguageEditions(values: readonly string[]): readonly string[] {
+  return normalizedList(values.map((language) => language.toLowerCase()));
 }
 
 function normalizedList(values: readonly string[]): readonly string[] {
