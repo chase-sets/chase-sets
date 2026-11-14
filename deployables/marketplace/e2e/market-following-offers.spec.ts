@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import { parseEnv } from "node:util";
 import { createPostgresEventStore, createPgPool, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { module as checkoutModule } from "@chase-sets/checkout";
+import { createSellerShippingSetupServices, type SellerShippingSetupInput } from "@chase-sets/fulfillment/server";
 import { toTransportEvent } from "@chase-sets/event-core/transport";
 import { readCompleteStream } from "@chase-sets/event-core/complete-stream";
 import { seedSyntheticOfferMarketPrice } from "@chase-sets/pricing/server";
@@ -683,6 +684,69 @@ test("market-following consent, changed target, Checkout acceptance and permanen
           accountId: identitySeedIds.demo.accountId,
           userId: identitySeedIds.demo.userId,
         };
+        const shippingSetup = {
+          origin: {
+            name: "Demo Receiving",
+            line1: "100 Market Street",
+            line2: null,
+            city: "Chicago",
+            state: "IL",
+            postalCode: "60601",
+            country: "US",
+          },
+          labelPreference: "seller-label-later",
+        } as const satisfies SellerShippingSetupInput;
+        const savedShipping = await seller.request.put("/api/marketplace/account/seller-shipping-setup", {
+          data: shippingSetup,
+        });
+        expect(savedShipping.status(), "save the synthetic seller's shipping choices through Fulfillment").toBe(200);
+        expect(await savedShipping.json()).toMatchObject({ setup: shippingSetup });
+        const fulfillmentUrl = new URL(sandbox.DATABASE_URL_FULFILLMENT ?? "");
+        if (
+          fulfillmentUrl.host !== databaseUrl.host ||
+          fulfillmentUrl.pathname !== databaseUrl.pathname.replace(/_pricing$/, "_fulfillment")
+        )
+          throw new Error("Shipping support fixture requires the same owned E2E sandbox.");
+        const fulfillmentPool = createPgPool(fulfillmentUrl.toString(), { max: 1 });
+        companionPools.push(fulfillmentPool);
+        // Explicit synthetic launch support uses the owned operation, not fabricated provider facts.
+        const shippingOperator = {
+          tenantId: "tnt_market_following_e2e",
+          sessionId: "ses_market_following_e2e_shipping_operator",
+          accountId: "acc_market_following_e2e_shipping_operator",
+          userId: "usr_market_following_e2e_shipping_operator",
+          membershipId: "mbr_market_following_e2e_shipping_operator",
+          roleKey: "platform-admin",
+          permissions: [],
+        } as const;
+        const shipping = createSellerShippingSetupServices({
+          pool: fulfillmentPool,
+          operatorAuthority: async (requester) =>
+            requester.membershipId === shippingOperator.membershipId
+              ? {
+                  kind: "granted",
+                  membershipId: requester.membershipId,
+                  roleKey: "platform-admin",
+                  rolePermissions: [],
+                }
+              : { kind: "denied", reason: "membership-mismatch" },
+        });
+        await shipping.changeSupport(
+          shippingOperator,
+          {
+            owner: { kind: "account", accountId: sellerFixtureIdentity.accountId },
+            action: "initialize",
+            reason: "Synthetic market-following E2E seller launch support",
+            operationId: "market_following_e2e_shipping_support",
+          },
+          {
+            tenantId: shippingOperator.tenantId,
+            audit: { performedByUserId: shippingOperator.userId, forAccountId: shippingOperator.accountId },
+          },
+        );
+        const shippingRead = await seller.request.get("/api/marketplace/account/seller-shipping-setup");
+        expect(shippingRead.ok(), "reload the synthetic seller's persisted shipping setup and support").toBe(true);
+        expect(await shippingRead.json()).toMatchObject({ setup: shippingSetup, supportStatus: "enabled" });
         const payoutPools: PgTransactionalPool[] = [];
         for (const contextName of ["settlement", "checkout"]) {
           const url = new URL(sandbox[`DATABASE_URL_${contextName.toUpperCase()}`] ?? "");
@@ -824,16 +888,18 @@ test("market-following consent, changed target, Checkout acceptance and permanen
         for (const [name, value] of Object.entries({
           sellerName: "Synthetic Seller",
           email: marketplaceBrowserE2eSeedContract.seller.email,
-          shipFromName: "Synthetic Seller",
-          shipFromLine1: "1 Main Street",
-          shipFromCity: "Chicago",
-          shipFromState: "IL",
-          shipFromPostalCode: "60601",
-          shipFromCountry: "US",
+          shipFromName: shippingSetup.origin.name,
+          shipFromLine1: shippingSetup.origin.line1,
+          shipFromCity: shippingSetup.origin.city,
+          shipFromState: shippingSetup.origin.state,
+          shipFromPostalCode: shippingSetup.origin.postalCode,
+          shipFromCountry: shippingSetup.origin.country,
         })) {
           const field = seller.locator(`input[name="${name}"]:visible`);
           if (await field.count()) await field.fill(value);
         }
+        await seller.getByRole("button", { name: "Edit label", exact: true }).click();
+        await seller.locator('select[name="labelPreference"]').selectOption(shippingSetup.labelPreference);
         // The design-system Checkbox input is sr-only and its label intercepts pointer clicks.
         const termsAccepted = seller.locator('input[name="termsAccepted"]');
         await termsAccepted.focus();
