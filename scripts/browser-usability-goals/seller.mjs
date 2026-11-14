@@ -11,8 +11,43 @@ export default {
     "^bounded-contexts/settlement/routes/marketplace/",
     "^bounded-contexts/channels/routes/marketplace/",
     "^bounded-contexts/identity/routes/marketplace/account-team\\.tsx$",
+    "^bounded-contexts/fulfillment/routes/seller-shipping-setup\\.tsx$",
   ],
   goals: [
+    ...[
+      { id: "seller-shipping-setup", startSignedIn: true, ownerMode: "authenticated account" },
+      { id: "guest-seller-shipping-setup", startSignedIn: false, ownerMode: "existing anonymous Sell List" },
+    ].map(({ id, startSignedIn, ownerMode }) => ({
+      id,
+      version: 1,
+      startPath: "/account/sell-list",
+      role: "seller",
+      startSignedIn,
+      host: "marketplace",
+      goal: "Save the shipping origin and label preference supplied in your task context for selling. Leave and return to confirm the saved choices, and report whether platform shipping support is available. Do not buy a label or confirm a sale.",
+      checks: ["saved-choices", "support-state", "clean-route-readback", "fixture-restored"],
+      oracle: {
+        "saved-choices": `Compare the saved choices against Fulfillment's committed setup snapshot for the synthetic ${ownerMode}; other owners must be unchanged. The moderator must preflight that owner before the run.`,
+        "support-state":
+          "Compare the reported support state with the same owner's canonical setup response and unchanged audited support state. Saved setup alone never means checkout is ready or a carrier will serve the address.",
+        "clean-route-readback":
+          "A clean-route revisit shows the persisted origin and preference for the same owner, with unchanged source revision and recording instant when nothing was saved again.",
+        "fixture-restored":
+          "Moderator resets the isolated synthetic fixture to its preflight state after the run; no support operation, provider call or other owner's setup may change.",
+      },
+      routes: {
+        "bounded-contexts/fulfillment/routes/seller-shipping-setup.tsx": "saved-choices",
+      },
+      paths: [
+        "bounded-contexts/fulfillment/features/seller-checkout-readiness/",
+        "bounded-contexts/fulfillment/routes/seller-shipping-setup",
+        "bounded-contexts/fulfillment/client.ts",
+        "bounded-contexts/fulfillment/support/request-support/api-client.ts",
+        "contracts/auth-context/",
+        "bounded-contexts/checkout/features/sell-list/",
+      ],
+      permits: "You may save only the synthetic shipping origin and label preference supplied in your task context.",
+    })),
     {
       id: "seller-away",
       version: 1,

@@ -1297,9 +1297,22 @@
       "path": "bounded-contexts/notifications/routes/account-notifications.tsx",
       "trackedCandidates": 1,
       "synthetic": false
+    },
+    {
+      "family": "boundedContextRouteSuiteOwnership:52",
+      "pattern": "/^bounded-contexts\\/fulfillment\\/routes\\/seller-shipping-setup\\.tsx$/",
+      "suites": ["marketplace_checkout"],
+      "path": "bounded-contexts/fulfillment/routes/seller-shipping-setup.tsx",
+      "trackedCandidates": 1,
+      "synthetic": false
     }
   ],
   "cases": [
+    {
+      "changedFiles": ["bounded-contexts/fulfillment/routes/seller-shipping-setup.tsx"],
+      "suiteIds": ["marketplace_checkout"],
+      "batches": ["marketplace_checkout"]
+    },
     {
       "changedFiles": ["deployables/marketplace/e2e/inventory-recovery.spec.ts"],
       "suiteIds": ["marketplace_seller"],
