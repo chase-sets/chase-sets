@@ -13,8 +13,9 @@
 //! the form again with what was typed, the closed authoring codes saying how to fix it. A sent
 //! review goes to its page, read after the write.
 //!
-//! Not ported: the draft marketplace keeps in the browser's session storage when the buyer goes to
-//! resolve first and restores when the review opens again, and its `dataLayer` analytics events.
+//! With JavaScript, following Open an order issue keeps the form in the tab's session storage and
+//! the form takes it back the next time it opens, as marketplace's does, and the resolution
+//! funnel's events go to window listeners and `dataLayer` (`views/order_review_draft.js`).
 //!
 //! | Route | Answers |
 //! |---|---|
