@@ -40,6 +40,7 @@ export const orderingWakeRegistryEntry = registryEntry({
     "platform-operations:support-affected-line-amount-projection",
   ],
   routeDependencyIds: [
+    "ordering.accepted-offer-to-purchases-list",
     "ordering.accepted-offer-to-sales-list",
     "ordering.postage-policy-command-to-home",
     "ordering.postage-policy-create-to-list",

@@ -185,6 +185,10 @@ export async function sha256SetNamesProbeReport(report: SetNamesProbeReport): Pr
   return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
+export function createSetNamesReceipt(result: SetNamesRequestResult, productLineId: string): SetNamesReceipt {
+  return receiptFor(result, summarize(result.body, productLineId));
+}
+
 function receiptFor(result: SetNamesRequestResult, summary: SetNamesSummary): SetNamesReceipt {
   const body = asEnvelope(result.body);
   return {
@@ -263,7 +267,11 @@ function summarize(body: unknown, requestedProductLineId: string): SetNamesSumma
     }
     for (const key of Object.keys(entry))
       if (!setNameDocumentedFields.includes(key as SetNameDocumentedField)) otherFieldCount++;
-    if (entry.categoryId !== undefined && String(entry.categoryId) !== requestedProductLineId) categoryIdMismatches++;
+    if (
+      entry.categoryId !== undefined &&
+      (typeof entry.categoryId !== "number" || String(entry.categoryId) !== requestedProductLineId)
+    )
+      categoryIdMismatches++;
     if (seenSetNameIds.has(entry.setNameId)) duplicateSetNameIdCount++;
     else if (entry.setNameId !== undefined && entry.setNameId !== null) seenSetNameIds.add(entry.setNameId);
     if (seenCleanSetNames.has(entry.cleanSetName)) duplicateCleanSetNameCount++;

@@ -474,8 +474,9 @@ async fn platform(State(stand): State<Stand>, method: Method, uri: Uri, headers:
             // none until its ship-from setup is saved. `lister_ended`'s session ends before its bulk
             // change is sent.
             "lister" | "starter" | "lister_ended" => actor(&["listings.view", "listings.manage", "offers.view"]),
-            // A seller who may read its listings but not change them.
-            "lookout" => actor(&["listings.view"]),
+            // A seller who may read its listings but not change them (the last two's payouts are
+            // pending and restricted).
+            "lookout" | "lookout_pending" | "lookout_restricted" => actor(&["listings.view"]),
             // The account's orders: `shopper` buys and may cancel, `merchant` sells too, `looker`
             // may only read its purchases.
             "shopper" => actor(&["orders.view", "orders.manage"]),
@@ -1462,7 +1463,9 @@ fn sell_terms(fingerprint: &str) -> Value {
 /// The Sell List page's reads and writes, as the stand-in answers them. `trader`'s, `lister`'s and
 /// `lookout`'s lists have the offer line and a product line (`sll_product`, 3 of Pikachu, a listing
 /// for the rest from 20.00) whose Smart Match offer is `off_short` for 2, with inventory `inv_pika`;
-/// `lister`'s offer misses its back photo, and only `trader` and `lister` have payouts set up.
+/// `lister`'s offer misses its back photo, and only `trader` and `lister` have payouts set up:
+/// `lookout`'s are not started (a bank account twice, onboarding and a code the page does not
+/// know), `lookout_pending`'s pending and `lookout_restricted`'s restricted.
 /// `trader`'s latest seller confirmation is `slc_01J`; any other account's list is empty. A read that
 /// waits for 43 is still catching up. The guest list `anon_one` has the offer line, which merging
 /// moves at 73; any other guest's is empty. Readiness with a line action, or for `anon_one`, is ready
@@ -1475,7 +1478,7 @@ fn sell_list_page(session: &str, method: &Method, uri: &Uri, headers: &HeaderMap
         _ => return None,
     };
     let guest = headers.get("x-checkout-anonymous-sell-list-id").and_then(|v| v.to_str().ok()).unwrap_or_default();
-    let has_lines = matches!(session, "trader" | "lister" | "lookout");
+    let has_lines = matches!(session, "trader" | "lister" | "lookout" | "lookout_pending" | "lookout_restricted");
     let sent: Value = serde_json::from_str(body).unwrap_or_default();
     Some(match (method.as_str(), rest) {
         ("GET", "") if waits_for(headers).as_deref() == Some("43") => refusal(
@@ -1518,12 +1521,13 @@ fn sell_list_page(session: &str, method: &Method, uri: &Uri, headers: &HeaderMap
         }))
         .into_response(),
         ("GET", "/payout-readiness") => {
-            let ready = matches!(session, "trader" | "lister");
-            Json(json!({
-                "status": if ready { "ready" } else { "not-started" },
-                "missing_requirements": if ready { json!([]) } else { json!(["external_account"]) },
-            }))
-            .into_response()
+            let (status, missing) = match session {
+                "trader" | "lister" => ("ready", json!([])),
+                "lookout_pending" => ("pending", json!([])),
+                "lookout_restricted" => ("restricted", json!(["individual.verification.document"])),
+                _ => ("not-started", json!(["external_account", "provider-onboarding", "bank account", "tax.id"])),
+            };
+            Json(json!({ "status": status, "missing_requirements": missing })).into_response()
         }
         ("GET", "/offer-reviews") => {
             let mut terms = sell_terms("fq_standard");
@@ -17499,11 +17503,37 @@ async fn a_line_missing_evidence_or_payouts_not_set_up_holds_continue_back_and_s
     assert!(page.contains("Evidence needs action") && page.contains("Add the required photo for this view."), "{page}");
     assert!(html.contains(r#"value="review-sell-list-checkout" disabled"#), "{html}");
     assert!(html.contains(r#"action="/account/sell-list/evidence" enctype="multipart/form-data""#), "{html}");
+    assert!(page.contains("Resolve 1 item before seller checkout starts. Offer acceptance is unavailable."), "{page}");
 
     let (status, _, html) = pilot.send(get(SELL_LIST_PAGE, Some("lookout"))).await;
     assert_eq!(status, StatusCode::OK, "{html}");
     assert_eq!(hrefs(&html, "Set up payouts").first(), Some(&"/account/payouts/setup?returnTo=%2Faccount%2Fsell-list"), "{html}");
     assert!(html.contains(r#"value="review-sell-list-checkout" disabled"#), "{html}");
+    let page = text(&html);
+    // Every line is ready, so the payout holds acceptance back, and each requirement is said once.
+    assert!(page.contains("Offer acceptance unavailable Offer acceptance is unavailable until payout setup is ready."), "{page}");
+    assert!(
+        page.contains(
+            "Payout setup required Complete payout setup before accepting offers or creating fallback listings. \
+             Add a bank account for payouts Complete payout provider onboarding Review additional payout setup requirements"
+        ),
+        "{page}"
+    );
+    assert_eq!(page.matches("Add a bank account for payouts").count(), 1, "{page}");
+    assert!(page.contains("Payout readiness Setup required"), "{page}");
+
+    for (session, readiness, description) in [
+        ("lookout_pending", "Verification pending", "Payout verification is pending."),
+        ("lookout_restricted", "Restricted", "Payouts are restricted. Review payout setup to resolve the restrictions."),
+    ] {
+        let (status, _, html) = pilot.send(get(SELL_LIST_PAGE, Some(session))).await;
+        assert_eq!(status, StatusCode::OK, "{html}");
+        let page = text(&html);
+        assert!(page.contains(&format!("Payout readiness {readiness}")), "{session}: {page}");
+        assert!(page.contains(&format!("Payout setup required {description}")), "{session}: {page}");
+    }
+    let (_, _, html) = pilot.send(get(SELL_LIST_PAGE, Some("lookout_restricted"))).await;
+    assert!(text(&html).contains("Provide identity verification documents"), "{html}");
 }
 
 #[tokio::test]
