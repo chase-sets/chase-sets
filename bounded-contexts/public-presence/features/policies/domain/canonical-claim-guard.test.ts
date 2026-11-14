@@ -2029,9 +2029,9 @@ describe("occurrence-scoped citation byte fence", () => {
         name: "provenance key edited",
         file: citationFencePaths.privacyPolicy,
         before:
-          'productTruthRefs: ["bounded-contexts/public-presence/features/policies/domain/policy-registry.ts:25-33"]',
+          'productTruthRefs: [\n          "bounded-contexts/public-presence/features/policies/domain/policy-registry.ts:25-33",',
         after:
-          'productEvidenceRefs: ["bounded-contexts/public-presence/features/policies/domain/policy-registry.ts:25-33"]',
+          'productEvidenceRefs: [\n          "bounded-contexts/public-presence/features/policies/domain/policy-registry.ts:25-33",',
       },
       {
         name: "static classification edited",
