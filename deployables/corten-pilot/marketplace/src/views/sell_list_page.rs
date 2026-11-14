@@ -610,7 +610,9 @@ fn LineCard<'a>(t: SellListMsg, line: &'a Line, surface: Surface, selectable: bo
                     }
                 </div>
             </div>
-            <p class={Big}>{if offers > 1 { t.page_best_offer_net(&net).to_string() } else { t.page_estimated_net(&net).to_string() }}</p>
+            <p class={Big}>
+                {if offers > 1 { t.page_best_offer_net(&net).to_string() } else { t.page_estimated_net(&net).to_string() }}
+            </p>
             <p class={Hint}>
                 {t.page_card_summary(crate::text::sell_list_msg::PageCardSummary { quantity: row.quantity, offer: &best_offer })}
             </p>
