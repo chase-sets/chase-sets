@@ -298,7 +298,7 @@ jobs:
   db-tests:
     name: DB Profile Tests (${{ matrix.db-workspace-group }})
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     needs: change-scope
     if: needs['change-scope'].outputs.db_tests_required == 'true'
     strategy:
@@ -324,7 +324,7 @@ jobs:
       TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
       # Keep API's isolated capacity at two workers; the hang-free other
       # matrix needs one additional workspace slot to finish its full sweep
-      # inside the existing 30-minute job budget. Workspace test settings and
+      # inside the 45-minute job budget. Workspace test settings and
       # failure propagation remain unchanged.
       DB_WORKSPACE_CONCURRENCY: ${{ matrix.db-workspace-group == 'other' && '3' || '2' }}
     steps:

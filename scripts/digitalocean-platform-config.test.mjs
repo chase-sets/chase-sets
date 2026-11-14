@@ -4113,7 +4113,7 @@ describe("DigitalOcean platform configuration", () => {
     expect(e2eCondition).toBe("needs['change-scope'].outputs.e2e_tests_required == 'true'");
 
     const dbProfileJob = workflowJob(platformPrWorkflow, "db-tests");
-    expect(dbProfileJob).toContain("timeout-minutes: 30");
+    expect(dbProfileJob).toContain("timeout-minutes: 45");
     expect(dbProfileJob).toContain(
       "image: ghcr.io/chase-sets/ci-mirror-pgvector:pg16@sha256:7b822b0aac60967beb1ea5e576b8602c94c300a157d187f385ae3e0da199b90a",
     );
@@ -4181,7 +4181,7 @@ describe("DigitalOcean platform configuration", () => {
       matrix: { "db-workspace-group": ["api", "other"] },
     });
     expect(job["continue-on-error"]).toBeUndefined();
-    expect(job["timeout-minutes"]).toBe(30);
+    expect(job["timeout-minutes"]).toBe(45);
     const execution = job.steps.filter((step) => step.name === "Run DB-profile tests");
     expect(execution).toHaveLength(1);
     expect(execution[0].if).toBeUndefined();
