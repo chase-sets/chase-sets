@@ -501,10 +501,6 @@ const boundedContextRouteSuiteOwnership = [
     suites: ["marketplace_checkout"],
   },
   {
-    pattern: /^bounded-contexts\/fulfillment\/routes\/seller-shipping-setup\.tsx$/,
-    suites: ["marketplace_checkout"],
-  },
-  {
     pattern: /^bounded-contexts\/discovery\/routes\/(?:search|public-|account-product-alerts|set\.)/,
     suites: ["marketplace_browse"],
   },
@@ -573,6 +569,10 @@ const boundedContextRouteSuiteOwnership = [
   {
     pattern: /^bounded-contexts\/notifications\/routes\/account-notifications\./,
     suites: ["marketplace_account"],
+  },
+  {
+    pattern: /^bounded-contexts\/fulfillment\/routes\/seller-shipping-setup\.tsx$/,
+    suites: ["marketplace_checkout"],
   },
 ];
 
