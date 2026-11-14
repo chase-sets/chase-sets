@@ -52,6 +52,9 @@ pub struct BulkFields {
     attempt: Option<SubmitKey>,
     /// The category page the search is on (its slug), or none for `/search`.
     category: String,
+    /// The search is on the home page (`/`), which is the search route too.
+    #[serde(default)]
+    home: bool,
 }
 
 /// The names as text.
@@ -59,6 +62,7 @@ pub mod field {
     use super::BulkFields;
     pub const ATTEMPT: &str = BulkFields::FIELDS.attempt.as_str();
     pub const CATEGORY: &str = BulkFields::FIELDS.category.as_str();
+    pub const HOME: &str = BulkFields::FIELDS.home.as_str();
 }
 
 /// The sheet: what an add would put in the cart, or what one came to.
@@ -104,30 +108,46 @@ impl Sheet {
     }
 }
 
-/// The search the form names: its parameters and its category page's slug.
+/// The search the form names: its parameters (with Load more's count, which the page it returns
+/// to keeps and the API's preview does not read), and where it is: its category page's slug, or
+/// the home page.
 pub struct Asked {
     pub terms: Terms,
     pub category: String,
+    pub home: bool,
 }
 
 impl Asked {
     fn read(raw: &Raw) -> Self {
-        let category = raw.get(field::CATEGORY).and_then(|v| v.all().first()).cloned().unwrap_or_default();
-        // A Load more's extra rows are not part of the search the add reads.
-        Asked { terms: Terms { more: 0, category: String::new(), ..Terms::read(raw) }, category }
+        let first = |name: &str| raw.get(name).and_then(|v| v.all().first()).cloned().unwrap_or_default();
+        let category = first(field::CATEGORY);
+        let home = category.is_empty() && first(field::HOME) == "true";
+        Asked { terms: Terms { category: String::new(), ..Terms::read(raw) }, category, home }
+    }
+
+    /// Where the search is.
+    pub fn place(&self) -> Place<'_> {
+        if !self.category.is_empty() {
+            Place::Category(&self.category)
+        } else if self.home {
+            Place::Home
+        } else {
+            Place::Search
+        }
     }
 
     /// The search's own address.
     pub fn href(&self) -> String {
-        let place = if self.category.is_empty() { Place::Search } else { Place::Category(&self.category) };
-        place.href(&self.terms)
+        self.place().href(&self.terms)
     }
 
-    /// The parameters the sheet's forms send again: the search's, and its category.
+    /// The parameters the sheet's forms send again: the search's, and where it is.
     pub fn pairs(&self) -> Vec<(String, String)> {
         let mut pairs = self.terms.pairs();
-        if !self.category.is_empty() {
-            pairs.push((field::CATEGORY.to_owned(), self.category.clone()));
+        match self.place() {
+            Place::Category(slug) => pairs.push((field::CATEGORY.to_owned(), slug.to_owned())),
+            Place::Home => pairs.push((field::HOME.to_owned(), "true".to_owned())),
+            Place::Search => {}
         }
         pairs
     }
@@ -254,7 +274,7 @@ async fn answer(
         let (t, pairs) = (req.t(), asked.pairs());
         return req.patch_with_status(status, views::BulkCartSheet { t, sheet: Some(&sheet), pairs: &pairs });
     }
-    crate::search::with_sheet(req, session, caller, asked.terms, asked.category, sheet, status).await
+    crate::search::with_sheet(req, session, caller, asked, sheet, status).await
 }
 
 /// A preview's line as the add sends it (`AddCheckoutCartLineRequest`), for Smart Match to fill.

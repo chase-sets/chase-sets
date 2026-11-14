@@ -711,7 +711,7 @@ async fn show(
     render(&req, viewer, &screen, failed, status)
 }
 
-/// The results for `terms` in `category` with Add matching products to Buy Cart's `sheet` open,
+/// The results for `asked`'s search, where it is, with Add matching products to Buy Cart's `sheet` open,
 /// answered `status` (a 502 when the results' read fails): its answer for a browser without
 /// JavaScript. Nothing is moved or read again from the words: the address it came from was already
 /// the search's own.
@@ -719,11 +719,11 @@ pub(crate) async fn with_sheet(
     req: &Req,
     session: Option<&Session>,
     caller: &impl Search,
-    terms: Terms,
-    category: String,
+    asked: crate::bulk_cart::Asked,
     sheet: crate::bulk_cart::Sheet,
     status: StatusCode,
 ) -> HtmlResult {
+    let crate::bulk_cart::Asked { terms, category, home } = asked;
     let limit = PAGE_SIZE + terms.more.min(MOST_SHOWN - PAGE_SIZE);
     let query = terms.api_query(&category, limit);
     let (results, categories) = tokio::join!(caller.search(&query), caller.categories());
@@ -734,7 +734,7 @@ pub(crate) async fn with_sheet(
     });
     let failed = results.is_none();
     let status = if failed { StatusCode::BAD_GATEWAY } else { status };
-    let screen = SearchScreen { terms, category, categories, results, shelf: None, home: false, bulk: Some(sheet) };
+    let screen = SearchScreen { terms, category, categories, results, shelf: None, home, bulk: Some(sheet) };
     render(req, session.and_then(Session::viewer), &screen, failed, status)
 }
 
