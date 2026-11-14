@@ -1,5 +1,4 @@
 import { createRoot } from "react-dom/client";
-import "@chase-sets/design-system/styles.css";
 import { ChaseRoot } from "@chase-sets/design-system/theme";
 import { OperatorExtensionPopup } from "../ui/extension-popup/popup";
 

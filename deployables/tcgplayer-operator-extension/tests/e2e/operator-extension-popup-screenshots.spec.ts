@@ -1,5 +1,4 @@
 import { createServer } from "vite";
-import tailwindcss from "@tailwindcss/vite";
 import { expect, test } from "@playwright/test";
 import { fileURLToPath } from "node:url";
 import { resolve } from "node:path";
@@ -12,6 +11,7 @@ const entry = fileURLToPath(
     import.meta.url,
   ),
 ).replaceAll("\\", "/");
+const stylesheet = resolve(import.meta.dirname, "../../dist/sandbox.css").replaceAll("\\", "/");
 
 test("captures the four synthetic popup component states @tcgplayer-operator-extension", async ({ page }, testInfo) => {
   const server = await createServer({
@@ -19,7 +19,6 @@ test("captures the four synthetic popup component states @tcgplayer-operator-ext
     configFile: false,
     appType: "custom",
     resolve: { alias: createWorkspaceSourceAliases() },
-    plugins: [tailwindcss()],
     server: { host: "127.0.0.1", port: 0, fs: { allow: [root] } },
   });
   server.middlewares.use((request, response, next) => {
@@ -31,7 +30,7 @@ test("captures the four synthetic popup component states @tcgplayer-operator-ext
     void server
       .transformIndexHtml(
         request.url,
-        `<!doctype html><html><head><title>Synthetic SetNames popup</title></head><body><div id="root"></div><script type="module" src="/@fs/${entry}"></script></body></html>`,
+        `<!doctype html><html><head><title>Synthetic SetNames popup</title><link rel="stylesheet" href="/@fs/${stylesheet}"></head><body><div id="root"></div><script type="module" src="/@fs/${entry}"></script></body></html>`,
       )
       .then((html) => response.end(html), next);
   });
@@ -44,6 +43,10 @@ test("captures the four synthetic popup component states @tcgplayer-operator-ext
     for (const state of ["empty", "loading", "error", "success"]) {
       await page.goto(`${origin}/synthetic-operator-popup.html?state=${state}`, { waitUntil: "load" });
       await expect(page.getByRole("heading", { name: "TCGplayer SetNames probe" })).toBeVisible();
+      await expect(page.getByRole("heading", { name: "TCGplayer SetNames probe" })).toHaveCSS(
+        "font-family",
+        /IBM Plex Sans/,
+      );
       if (state === "empty") {
         for (const input of await page.locator('input[inputmode="numeric"]').all()) await input.fill("");
         await expect(page.getByText("Enter at least one product-line id to run the probe.")).toBeVisible();
