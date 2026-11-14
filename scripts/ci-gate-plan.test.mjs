@@ -428,7 +428,13 @@ describe("shared E2E setup regression and enforcement", () => {
           const scope = classifyChanges({ changedFiles, workspaces });
           expect(previous.e2eSuiteIds, head).toEqual([]);
           expect(baseline.toOutputMap(previous).e2e_suite_batches_json).toBe("[]");
-          expect(scope).toEqual({ ...previous, e2eSuiteIds: ["admin_auth"], e2eTestsRequired: true });
+          // #11230 also drops the base's W1-W5 Platform API unit selection.
+          expect(scope).toEqual({
+            ...previous,
+            e2eSuiteIds: ["admin_auth"],
+            e2eTestsRequired: true,
+            unitTestsRequired: previous.affectedWorkspaces.length > 0,
+          });
           for (const mode of ["pull-request", "merge-group"]) {
             const inputs = { mode, labels: [], provenance: "same-repository" };
             expect(
@@ -954,7 +960,7 @@ describe("shared CI gate plan", () => {
       // all-DB sweep keeps its empty workspace list.
       expect(membership([])).toEqual({ selection: "NOT_REQUIRED", publicPresence: 0 });
       expect(membership([".github/workflows/platform-pr.yml"])).toEqual({
-        selection: "REQUIRED",
+        selection: "NOT_REQUIRED",
         publicPresence: 0,
       });
     },

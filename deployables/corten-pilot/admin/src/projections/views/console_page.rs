@@ -8,6 +8,7 @@ use corten::{
     i18n::{DateStyle, Decimal, TimeStyle, parse_timestamp},
     prelude::*,
 };
+use platform::ui::stats::{Stat, StatTone, Stats as KitStats, StatsSurface};
 
 use super::{detail_sheet, ids};
 use crate::{
@@ -18,7 +19,7 @@ use crate::{
         url,
     },
     text::Ops,
-    views::{LiveStatus, LiveWords, PageHeader, admin_web},
+    views::{LiveStatus, LiveWords, PageHeader, link_to},
 };
 
 /// The states the State filter offers, in admin-web's order.
@@ -112,14 +113,14 @@ fn live_words(t: Ops) -> LiveWords {
 }
 
 #[component(css)]
-pub fn ConsolePage<'a>(t: Ops, screen: &'a Screen, filters: &'a url::Filters, viewer: &'a Viewer) -> impl Render {
+pub fn ConsolePage<'a>(t: Ops, req: &'a Req, screen: &'a Screen, filters: &'a url::Filters, viewer: &'a Viewer) -> impl Render {
     let console = &screen.console;
     let page = url::Projections { filters: filters.clone() }.href();
     let live = url::ProjectionsLive { filters: filters.clone() }.href();
     let refresh = url::Refresh { filters: filters.clone() }.href();
     let reference = url::Reference::default().href();
     let catalog = viewer.can(crate::catalog::VIEW).then(|| crate::catalog::url::Dimensions::default().href());
-    let identity = viewer.can("accounts.view").then(|| admin_web("/access/accounts").map(|u| u.to_string())).flatten();
+    let identity = viewer.can("accounts.view").then(|| link_to(req, "/access/accounts")).flatten();
     let followed = console.operations.iter().any(Operation::live);
     let words = live_words(t);
     html! {
@@ -203,7 +204,11 @@ fn Health<'a>(t: Ops, screen: &'a Screen) -> impl Render {
         (t.projections_running_operations(), count(t, ops.map_or(&zero, |s| &s.running_count))),
         (
             t.projections_active_workers(),
-            t.projections_active_worker_summary(console.active_worker_count, console.stale_worker_count).to_string(),
+            t.projections_active_worker_summary(crate::text::ops::ProjectionsActiveWorkerSummary {
+                active: console.active_worker_count,
+                stale: console.stale_worker_count,
+            })
+            .to_string(),
         ),
     ];
     html! {
@@ -220,12 +225,9 @@ fn Health<'a>(t: Ops, screen: &'a Screen) -> impl Render {
                     }
                 </ul>
             }
-            <dl class={Stats}>
+            <dl class={KitStats { surface: StatsSurface::Cards }}>
                 for (name, value) in &stats {
-                    <div class={Stat}>
-                        <dt>{*name}</dt>
-                        <dd>{value}</dd>
-                    </div>
+                    <Stat label={name} value={value.as_str()} note="" tone={StatTone::Neutral} />
                 }
             </dl>
             <p class={Muted}>
@@ -525,7 +527,7 @@ fn Operations<'a>(t: Ops, rows: Vec<&'a Operation>, filters: &'a url::Filters) -
                             for operation in rows.iter() {
                                 let details = url::Projections { filters: filters.select(Some(&operation.operation_id)) }.href();
                                 let target = t
-                                    .projections_operation_target(&operation.context_name, operation.target().unwrap_or(t.projections_all()))
+                                    .projections_operation_target(crate::text::ops::ProjectionsOperationTarget { context: &operation.context_name, target: operation.target().unwrap_or(t.projections_all()) })
                                     .to_string();
                                 <tr>
                                     <td data-label={head[0]}>

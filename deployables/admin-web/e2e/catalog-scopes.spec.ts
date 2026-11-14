@@ -286,7 +286,7 @@ async function seedHeldSetScopeSyncScenario(testInfo: TestInfo): Promise<void> {
           `INSERT INTO catalog_provider_scope_mappings (
              mapping_id, scope_record_id, provider_key, unit_key, set_id, set_name,
              confidence, review_status, last_actor, last_reason, policy_version, reviewed_at
-           ) VALUES ($1, $2, 'tcgplayer', $3, $4, $5, 'exact', 'accepted',
+           ) VALUES ($1, $2, 'tcgplayer', $3, $4, NULL, 'exact', 'accepted',
                      'scope-sync-held-set-entry', 'E2E scenario fixture', 'provider-scope-mapping-v1', now())
            ON CONFLICT (mapping_id) DO UPDATE SET
              scope_record_id = EXCLUDED.scope_record_id,
@@ -301,13 +301,7 @@ async function seedHeldSetScopeSyncScenario(testInfo: TestInfo): Promise<void> {
              policy_version = EXCLUDED.policy_version,
              reviewed_at = EXCLUDED.reviewed_at,
              updated_at = now()`,
-          [
-            `mapping-${fixture.scopeRecordId}`,
-            fixture.scopeRecordId,
-            fixture.unitKey,
-            fixture.externalId,
-            fixture.label,
-          ],
+          [`mapping-${fixture.scopeRecordId}`, fixture.scopeRecordId, fixture.unitKey, fixture.externalId],
         );
       }
     });

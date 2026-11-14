@@ -76,6 +76,7 @@ export { createCheckpointKey, loadSubscriptionCheckpoint } from "./subscription-
 export type {
   ContextProjectionGroup,
   ContextProjectionGroupStatus,
+  ProjectionGroupLeaseRunner,
   ProjectionGroupGeneration,
   ProjectionGroupGenerationState,
   ProjectionGroupRevisionSyncToken,
@@ -99,6 +100,7 @@ export {
   resolveModuleProjectionGroups,
   summarizeProjectionReplayStatuses,
   syncContextProjectionGroups,
+  drainProjectionGroups,
   syncLocalProjectionGroups,
   syncProjectionGroup,
 } from "./projection-groups";

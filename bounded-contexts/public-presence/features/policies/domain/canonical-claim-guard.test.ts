@@ -837,8 +837,8 @@ const reviewedCitationFenceDigests: Readonly<Record<string, string>> = {
   [citationFencePaths.privacyPolicy]: "f7b4ee5417971f9be4ea90aeec0f6c27c005757c4c2b24f6ab6f91eb2d0ac11e",
   [citationFencePaths.authenticityTest]: "700ac32ceea294c75f90d708a0e7656e7b2abe2beebff9569e71abed24aa40d9",
   // Repinned for #10066, #8846, the current-main lost-update guard surface merge, and the #10176 JSON import census
-  // evidence-citation update and #9878 TCGplayer guard surface.
-  [citationFencePaths.staticSurfaces]: "e8f8cb666b6f1cf13c7bc86d21801c0d89bb85187f5ed9e847812d2ad8de11c1",
+  // evidence-citation update, #9878 TCGplayer guard surface, and the #9553 context-registry guard surface.
+  [citationFencePaths.staticSurfaces]: "9e95e3780ac11f188aff806d8273478bc6116a5f97ff90a407491a0e6dbb9b85",
 };
 
 const citationFenceOccurrences: Readonly<Record<string, readonly RegExp[]>> = {

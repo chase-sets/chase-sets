@@ -20,7 +20,7 @@ import type { AccountMenuItem, NavigationItem } from "@chase-sets/design-system"
 import { DiscoveryShellLayout } from "@chase-sets/discovery/web";
 import { resolveWebHostActiveKey } from "@chase-sets/platform-runtime/web";
 import { toRouteConfigEntry } from "@chase-sets/platform-runtime/web-route-config";
-import { webContextRegistry } from "../generated/web-context-registry";
+import { webContextRegistry } from "../context-registry";
 import {
   resolveMarketplaceAccountMenuItems,
   resolveMarketplaceActiveKey,

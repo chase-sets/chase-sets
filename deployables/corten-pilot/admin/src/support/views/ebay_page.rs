@@ -71,7 +71,9 @@ pub fn EbayPage<'a>(t: Sup, screen: &'a EbayScreen) -> impl Render {
         if let Some(counts) = &screen.counts {
             <section class={Part}>
                 <h2 class={Heading}>{t.ebay_count_title()}</h2>
-                <p>{t.ebay_counts(counts.connections, counts.credential_envelopes)}</p>
+                <p>
+                    {t.ebay_counts(crate::text::sup::EbayCounts { connections: counts.connections, credential_envelopes: counts.credential_envelopes })}
+                </p>
                 <p class={Muted}>{t.ebay_save_warning()}</p>
             </section>
         }

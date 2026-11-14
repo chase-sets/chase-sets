@@ -67,7 +67,8 @@ for (const javaScriptEnabled of [true, false]) {
   const { ctx, page, problems, status } = await open(`${base}${PATH}`, javaScriptEnabled);
   check(status === 200, `${label}: the console answers 200 (${status})`);
   check((await page.locator("main h1").textContent()) === "Projection Operations", `${label}: its heading`);
-  const counts = await page.locator("main dl dd").count();
+  // A figure's note is an empty description the kit hides when there is none.
+  const counts = await page.locator("main dl dd:not(:empty)").count();
   check(counts === 8, `${label}: eight counts (${counts})`);
   const rows = await queueRows(page);
   check(

@@ -19,14 +19,13 @@
 use std::{collections::HashMap, time::Duration};
 
 use corten::{
-    axum::http::{HeaderMap, StatusCode, Uri, header},
+    http::{HeaderMap, StatusCode, Uri, header},
     prelude::*,
     security::cookie,
 };
 use platform::{api::segment, money, receipt::Receipt};
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
-use crate::chrome::Chrome;
 use crate::{
     api::{
         ApiError, CommandError, CompositeReview, InventoryOption, LineAction, LineKept, ListingCommand, ListingEvidence,
@@ -88,7 +87,7 @@ impl Surface {
 /// handoff it waits on (`afterWrite`, `postWriteHandoff`), back from registration
 /// (`registrationReturn=seller-checkout`), and a seller confirmation still being saved
 /// (`confirmation=preparing`, `pendingConfirmationId`).
-#[derive(Clone, Debug, Default, Deserialize, Fields, Route)]
+#[derive(Clone, Debug, Default, Fields, Route)]
 #[serde(rename_all = "camelCase")]
 #[route(query)]
 pub struct Place {
@@ -285,14 +284,14 @@ pub struct Line {
 }
 
 impl Line {
-    /// The pick that pays the seller the most a unit, and what it would pay for the line
-    /// (`estimatedNet`).
-    pub fn best(&self) -> Option<(&Pick, i64)> {
+    /// The pick that pays the seller the most a unit, and what it would pay for its own quantity
+    /// (`estimatedNet`): none when it has no terms yet.
+    pub fn best(&self) -> Option<(&Pick, Option<i64>)> {
         let best = self.picks.iter().fold(None::<&Pick>, |best, p| match best {
             Some(b) if cents(p.net.as_deref()) <= cents(b.net.as_deref()) => Some(b),
             _ => Some(p),
         })?;
-        Some((best, times(best.net.as_deref(), self.row.quantity.min(best.quantity))))
+        Some((best, best.net.as_deref().map(|net| times(Some(net), best.quantity))))
     }
 
     /// The Smart Match offers' quantity.
@@ -378,14 +377,17 @@ pub struct SellListScreen {
     pub notice: Option<String>,
 }
 
-/// The list's totals in cents (`useSellListPageModel`).
+/// The list's totals in cents (`useSellListPageModel`). The fees and the payout are none while a
+/// line is not quoted: a selected offer without terms, or a product line without an offer.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Totals {
     pub quantity: u64,
     pub offer_gross: i64,
     pub future_listing_gross: i64,
-    pub fees: i64,
-    pub payout: i64,
+    pub fees: Option<i64>,
+    pub payout: Option<i64>,
+    /// A product line has more than one offer, so the payout is all of them (`hasMultipleOffers`).
+    pub all_offers: bool,
 }
 
 impl SellListScreen {
@@ -471,25 +473,30 @@ impl SellListScreen {
 
     pub fn totals(&self) -> Totals {
         let mut t = Totals::default();
+        let (mut fees, mut payout, mut quoted) = (0, 0, true);
         for line in &self.lines {
             let row = &line.row;
             t.quantity += row.quantity;
             if row.is_offer() {
                 let terms = line.offer_review.as_ref().and_then(|r| r.terms.as_ref());
+                quoted &= terms.is_some();
                 t.offer_gross += times(row.offer_price_amount.as_deref(), row.quantity);
-                let net = terms.map(|t| t.seller_net_unit_amount.as_str()).or(row.offer_price_amount.as_deref());
-                t.payout += times(net, row.quantity);
-                t.fees += times(terms.map(|t| t.marketplace_sales_fee_unit_amount.as_str()), row.quantity);
+                payout += times(terms.map(|t| t.seller_net_unit_amount.as_str()), row.quantity);
+                fees += times(terms.map(|t| t.marketplace_sales_fee_unit_amount.as_str()), row.quantity);
             } else {
-                for o in line.product_review.iter().flat_map(|r| &r.offers) {
-                    t.payout += times(Some(&o.terms.seller_net_unit_amount), o.offer.quantity_requested);
-                    t.fees += times(Some(&o.terms.marketplace_sales_fee_unit_amount), o.offer.quantity_requested);
+                let offers = line.product_review.as_ref().map_or(&[][..], |r| &r.offers[..]);
+                quoted &= !offers.is_empty();
+                t.all_offers |= offers.len() > 1;
+                for o in offers {
+                    payout += times(Some(&o.terms.seller_net_unit_amount), o.offer.quantity_requested);
+                    fees += times(Some(&o.terms.marketplace_sales_fee_unit_amount), o.offer.quantity_requested);
                 }
                 let fallback =
                     if row.fallback_mode == "create-listing" { row.quantity.saturating_sub(line.matched()) } else { 0 };
                 t.future_listing_gross += times(row.minimum_listing_price_amount.as_deref(), fallback);
             }
         }
+        (t.fees, t.payout) = if quoted { (Some(fees), Some(payout)) } else { (None, None) };
         t
     }
 
@@ -764,7 +771,7 @@ pub(crate) fn guest_id(headers: &HeaderMap) -> Option<String> {
     cookie::get(headers, ANONYMOUS_SELL_LIST_COOKIE).filter(|id| id.starts_with("anon_")).map(str::to_owned)
 }
 
-fn forget_guest(config: &Config) -> corten::axum::http::HeaderValue {
+fn forget_guest(config: &Config) -> corten::http::HeaderValue {
     let forget = cookie::SetCookie::remove(ANONYMOUS_SELL_LIST_COOKIE);
     let forget = if config.proto == "https" { forget } else { forget.insecure() };
     forget.header()
@@ -772,19 +779,17 @@ fn forget_guest(config: &Config) -> corten::axum::http::HeaderValue {
 
 pub(crate) async fn page(
     req: Req,
-    chrome: Chrome,
     session: Option<corten::Caller<Session>>,
     State(config): State<Shared>,
     headers: HeaderMap,
     Params(route): Params<crate::app::url::sell_list::SellList>,
 ) -> HtmlResult {
     let place = route.place;
-    render(&req, session.as_deref(), &config, &headers, Surface::SellList, &place, None, &chrome).await
+    render(&req, session.as_deref(), &config, &headers, Surface::SellList, &place, None).await
 }
 
 pub(crate) async fn desk_page(
     req: Req,
-    chrome: Chrome,
     Caller(DeskSeller(viewer)): Caller<DeskSeller>,
     State(config): State<Shared>,
     headers: HeaderMap,
@@ -792,7 +797,7 @@ pub(crate) async fn desk_page(
 ) -> HtmlResult {
     let place = route.place;
     let session = Session::Account(viewer);
-    render(&req, Some(&session), &config, &headers, Surface::DeskOffers, &place, None, &chrome).await
+    render(&req, Some(&session), &config, &headers, Surface::DeskOffers, &place, None).await
 }
 
 /// The page, read after the address's write, with `notice` (a write that did not happen, 422).
@@ -805,7 +810,6 @@ async fn render(
     surface: Surface,
     place: &Place,
     notice: Option<String>,
-    chrome: &Chrome,
 ) -> HtmlResult {
     if matches!(session, Some(Session::Unavailable)) {
         return Err(corten::Error::status(StatusCode::BAD_GATEWAY));
@@ -855,7 +859,7 @@ async fn render(
             Default::default()
         }
         Err(error) => {
-            return read_failed(req, viewer, error, waiting.then(|| t.route_sell_list_request_failed()), chrome.cart().await);
+            return read_failed(req, viewer, error, waiting.then(|| t.route_sell_list_request_failed()));
         }
     };
     if recovery.is_none() && list.items.is_empty() && list.count == 0 && place.waits_for_a_line() {
@@ -876,7 +880,7 @@ async fn render(
                 recovery = recovery.or(Some(Recovery::Pending));
                 CompositeReview::default()
             }
-            Err(error) => return read_failed(req, viewer, error, None, chrome.cart().await),
+            Err(error) => return read_failed(req, viewer, error, None),
         };
         let payout = caller.sell_payout_readiness().await.inspect_err(|e| tracing::warn!("payout readiness: {e}")).ok();
         (review, payout)
@@ -909,11 +913,10 @@ async fn render(
             <ReadAgain after={Duration::from_secs(2)} />
         }
     };
-    let cart = chrome.cart().await;
     let mut res = req.page_with_status(
         status,
         html! {
-            <Layout req={req} viewer={viewer} cart={cart} title={t.route_sell_list_chase_sets()} head={head}>
+            <Layout req={req} viewer={viewer} title={t.route_sell_list_chase_sets()} head={head}>
                 <views::SellListPage t={t} p={req.t()} screen={&screen} />
             </Layout>
         },
@@ -927,25 +930,23 @@ async fn render(
 /// The page's forms: the intent and, for each, what it sends.
 pub(crate) async fn write(
     req: Req,
-    chrome: Chrome,
     session: Option<corten::Caller<Session>>,
     State(config): State<Shared>,
     headers: HeaderMap,
     Form(raw): Form<Raw>,
 ) -> HtmlResult {
-    act(&req, session.as_deref(), &config, &headers, Surface::SellList, raw, &chrome).await
+    act(&req, session.as_deref(), &config, &headers, Surface::SellList, raw).await
 }
 
 pub(crate) async fn desk_write(
     req: Req,
-    chrome: Chrome,
     Caller(DeskSeller(viewer)): Caller<DeskSeller>,
     State(config): State<Shared>,
     headers: HeaderMap,
     Form(raw): Form<Raw>,
 ) -> HtmlResult {
     let session = Session::Account(viewer);
-    act(&req, Some(&session), &config, &headers, Surface::DeskOffers, raw, &chrome).await
+    act(&req, Some(&session), &config, &headers, Surface::DeskOffers, raw).await
 }
 
 /// Why a write did not happen, or where it went.
@@ -962,7 +963,6 @@ async fn act(
     headers: &HeaderMap,
     surface: Surface,
     raw: Raw,
-    chrome: &Chrome,
 ) -> HtmlResult {
     if matches!(session, Some(Session::Unavailable)) {
         return Err(corten::Error::status(StatusCode::BAD_GATEWAY));
@@ -1024,16 +1024,16 @@ async fn act(
             let to = to.parse::<Uri>().map_err(corten::Error::new)?;
             req.redirect(&to)
         }
-        Done::Refused(message) => render(req, session, config, headers, surface, &Place::default(), Some(message), chrome).await,
+        Done::Refused(message) => render(req, session, config, headers, surface, &Place::default(), Some(message)).await,
         Done::Failed(error) => match error.status() {
             Some(StatusCode::UNAUTHORIZED) => match sign_in_back_to(surface.path()) {
                 Some(to) => req.redirect(&to),
                 None => Err(corten::Error::status(StatusCode::INTERNAL_SERVER_ERROR)),
             },
-            Some(StatusCode::FORBIDDEN) => Err(corten::Error::new(error).with_status(StatusCode::FORBIDDEN)),
+            Some(StatusCode::FORBIDDEN) => Err(crate::app::api_refused(error)),
             Some(status) if status.is_client_error() => {
                 let message = error.refusal().unwrap_or(t.route_sell_list_request_failed()).to_owned();
-                render(req, session, config, headers, surface, &Place::default(), Some(message), chrome).await
+                render(req, session, config, headers, surface, &Place::default(), Some(message)).await
             }
             _ => Err(corten::Error::new(error).with_status(StatusCode::BAD_GATEWAY)),
         },
@@ -1158,7 +1158,6 @@ pub fn checkout_path(
 /// Marketplace with its alt text.
 pub(crate) async fn evidence(
     req: Req,
-    chrome: Chrome,
     session: Option<corten::Caller<Session>>,
     State(config): State<Shared>,
     headers: HeaderMap,
@@ -1171,14 +1170,14 @@ pub(crate) async fn evidence(
         Err(UploadError::TooLarge { .. }) => {
             let p: crate::text::Pilot = req.t();
             let message = p.seller_listing_photos_too_large().to_owned();
-            return render(&req, session, &config, &headers, Surface::SellList, &Place::default(), Some(message), &chrome).await;
+            return render(&req, session, &config, &headers, Surface::SellList, &Place::default(), Some(message)).await;
         }
         Err(other) => return Err(other.into()),
     };
     let surface = Surface::read(&first(&posted.fields, "surface"));
     if !account_sell_list(session) {
         let message = t.page_sign_in_required().to_owned();
-        return render(&req, session, &config, &headers, surface, &Place::default(), Some(message), &chrome).await;
+        return render(&req, session, &config, &headers, surface, &Place::default(), Some(message)).await;
     }
     let listing = first(&posted.fields, "listingId");
     let file = posted.files.into_iter().find(|u| u.field == "listingPhoto" && !u.bytes.is_empty());
@@ -1192,7 +1191,7 @@ pub(crate) async fn evidence(
         (Some(file), None) => file,
         (_, refusal) => {
             let message = refusal.unwrap_or(t.page_evidence_photo()).to_owned();
-            return render(&req, session, &config, &headers, surface, &Place::default(), Some(message), &chrome).await;
+            return render(&req, session, &config, &headers, surface, &Place::default(), Some(message)).await;
         }
     };
     let photo = Photo { filename: file.filename, content_type: file.content_type, bytes: file.bytes };
@@ -1201,12 +1200,10 @@ pub(crate) async fn evidence(
     let failed = t.route_sell_list_request_failed().to_owned();
     match listing_written(caller.add_listing_photos(&listing, &[photo], Some(&alt)).await, surface, &failed) {
         Done::To(to) => req.redirect(&to.parse::<Uri>().map_err(corten::Error::new)?),
-        Done::Refused(message) => {
-            render(&req, session, &config, &headers, surface, &Place::default(), Some(message), &chrome).await
-        }
+        Done::Refused(message) => render(&req, session, &config, &headers, surface, &Place::default(), Some(message)).await,
         Done::Failed(error) => {
             let message = error.refusal().map_or(failed, str::to_owned);
-            render(&req, session, &config, &headers, surface, &Place::default(), Some(message), &chrome).await
+            render(&req, session, &config, &headers, surface, &Place::default(), Some(message)).await
         }
     }
 }
@@ -1261,6 +1258,61 @@ mod tests {
             ReadinessDetail::FallbackForm
         );
         assert!(product_can_submit(None, Some(&stock)));
+    }
+
+    /// The offer line `a` (2 at 10.00) and the product line `b` (3), reviewed with or without the
+    /// offer's terms (9.00 net, 1.00 fee a unit) and with `offers` Smart Match offers of 2 each
+    /// (the first 7.00 net, the rest 7.50; 0.50 fee).
+    fn quoted_screen(offer_terms: bool, offers: usize) -> SellListScreen {
+        let terms = |net: &str, fee: &str| serde_json::json!({ "basis_amount": "10.00", "marketplace_sales_fee_unit_amount": fee, "seller_net_unit_amount": net });
+        let smart: Vec<_> = (0..offers)
+            .map(|i| {
+                serde_json::json!({
+                    "offer": { "offer_id": format!("off_{i}"), "quantity_requested": 2, "price_amount": "8.00" },
+                    "terms": terms(if i == 0 { "7.00" } else { "7.50" }, "0.50"),
+                })
+            })
+            .collect();
+        let review: CompositeReview = serde_json::from_value(serde_json::json!({
+            "offerReviews": [{ "lineId": "a", "status": "ready", "terms": if offer_terms { terms("9.00", "1.00") } else { serde_json::Value::Null } }],
+            "productOfferReviews": [{ "lineId": "b", "status": "ready", "offers": smart }],
+        }))
+        .unwrap();
+        let rows = vec![
+            SellListRow {
+                line_id: "a".into(),
+                line_type: "selected-offer".into(),
+                offer_id: Some("off_a".into()),
+                offer_price_amount: Some("10.00".into()),
+                quantity: 2,
+                ..SellListRow::default()
+            },
+            SellListRow { line_id: "b".into(), line_type: "product".into(), quantity: 3, ..SellListRow::default() },
+        ];
+        SellListScreen::of(Surface::SellList, true, rows, review, None)
+    }
+
+    #[test]
+    fn the_payout_and_fees_wait_for_every_line_to_be_quoted_and_say_when_they_are_all_offers() {
+        let all = quoted_screen(true, 2).totals();
+        // 2 x 9.00 + 2 x 7.00 + 2 x 7.50, and 2 x 1.00 + 4 x 0.50.
+        assert_eq!((all.payout, all.fees, all.all_offers), (Some(4_700), Some(400), true));
+        let one = quoted_screen(true, 1).totals();
+        assert_eq!((one.payout, one.fees, one.all_offers), (Some(3_200), Some(300), false));
+        // The offer without terms no longer counts at its price: nothing is quoted.
+        assert_eq!(quoted_screen(false, 1).totals().payout, None);
+        // A product line with no offer is not quoted either.
+        let none = quoted_screen(true, 0).totals();
+        assert_eq!((none.payout, none.fees), (None, None));
+    }
+
+    #[test]
+    fn a_lines_best_net_is_its_offers_own_quantity_or_none_without_terms() {
+        let screen = quoted_screen(false, 2);
+        let (pick, net) = screen.lines[1].best().unwrap();
+        // The 7.50 offer, for the 2 it asks for.
+        assert_eq!((pick.offer_id.as_str(), net), ("off_1", Some(1_500)));
+        assert_eq!(screen.lines[0].best().map(|(_, net)| net), Some(None));
     }
 
     #[test]

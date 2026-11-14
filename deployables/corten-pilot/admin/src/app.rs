@@ -13,7 +13,7 @@ use std::sync::Arc;
 
 use corten::{
     Fragment, LiveResponse, LiveSince,
-    axum::http::{HeaderMap, StatusCode},
+    http::{HeaderMap, StatusCode},
     prelude::*,
 };
 use futures_util::StreamExt;
@@ -51,7 +51,7 @@ impl Config {
 
 /// The pilot's sign-in, coming back to the screen the request was for: the path's section and
 /// screen (`/catalog/dimensions` for `/catalog/dimensions/dim_1/edit`), as admin-web returns.
-pub(crate) fn sign_in_at(path: &str) -> Option<corten::axum::http::Uri> {
+pub(crate) fn sign_in_at(path: &str) -> Option<corten::http::Uri> {
     let page: String = path.split('/').filter(|s| !s.is_empty()).take(2).map(|s| format!("/{s}")).collect();
     let page = if page.is_empty() { "/".to_owned() } else { page };
     crate::sign_in::url::SignIn { ask: crate::sign_in::Ask::back_to(&page) }.href().parse().ok()
@@ -130,7 +130,8 @@ corten::assets::embed!(pub struct Static = "static");
 /// The pilot: every screen is an area whose routes module says which staff may use it
 /// (`caller = Staff<..>`), so every route there, and any added later, takes that caller. Nothing
 /// is served outside an area but Corten's own (health, the runtime, assets, the PWA's manifest and
-/// worker) and the favicon; the offline page is an area for everyone (see `site`).
+/// worker), the favicon and the home at `/`, whose handler takes a signed-in `Viewer`; the offline
+/// page is an area for everyone (see `site`).
 pub fn app(config: Config) -> App {
     let shared: Shared = Arc::new(config);
     App::new(crate::site::files::router(shared.clone()))
@@ -171,6 +172,10 @@ pub fn app(config: Config) -> App {
         .area(|area| crate::growth::waitlist::area(area, shared.clone()))
         .area(|area| crate::growth::campaign::area(area, shared.clone()))
         .area(|area| crate::growth::promo::area(area, shared.clone()))
+        .area(|area| crate::sections::commerce::area(area, shared.clone()))
+        .area(|area| crate::sections::growth::area(area, shared.clone()))
+        .area(|area| crate::sections::support::area(area, shared.clone()))
+        .area(|area| crate::sections::platform::area(area, shared.clone()))
         .area(|area| crate::sign_in::url::area(area, shared.clone()).components(views::SIGN_IN))
         .area(|area| crate::sign_in::catalog::area(area, shared.clone()))
         .area(|area| crate::sign_in::account_select::area(area, shared.clone()).components(views::SIGN_IN))

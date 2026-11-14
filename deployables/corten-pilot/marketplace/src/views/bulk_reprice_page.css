@@ -35,11 +35,6 @@
 .strong[data-tone="danger"] {
   color: var(--color-danger);
 }
-.hint {
-  margin: 0;
-  color: var(--color-text-secondary);
-  font-size: 0.8125rem;
-}
 .row {
   display: flex;
   flex-wrap: wrap;
@@ -110,37 +105,6 @@
   max-width: 100%;
   min-height: var(--control-height);
   font: inherit;
-}
-.stats {
-  display: grid;
-  gap: var(--space-3);
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  margin: 0;
-}
-@media (min-width: 48rem) {
-  .stats {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-  }
-}
-.stat {
-  display: grid;
-  gap: var(--space-1);
-  min-width: 0;
-  align-content: start;
-}
-.stat dt {
-  color: var(--color-text-secondary);
-  font-size: 0.875rem;
-}
-.stat dd {
-  margin: 0;
-  font-size: 1.5rem;
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-}
-.stat dd.hint {
-  font-size: 0.8125rem;
-  font-weight: 400;
 }
 .job-row {
   display: flex;

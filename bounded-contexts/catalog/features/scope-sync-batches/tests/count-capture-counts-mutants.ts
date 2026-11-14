@@ -7,6 +7,7 @@ import * as adapter from "../../source-observations/api/providers/scrydex/adapte
 import * as acquisition from "../domain/count-acquisition";
 import * as plan from "../domain/count-capture-plan";
 import * as receipt from "../domain/count-lifecycle-receipt";
+import * as period from "../domain/scrydex-billing-period";
 import { normalizeScopeSyncBatchBudget } from "../domain/batch";
 import * as store from "../read-model/count-capture-store";
 import { createCountCaptureLifecycle } from "../api/count-capture-lifecycle";
@@ -28,6 +29,7 @@ export const captureStoreMutant = (replacements: Replacements) =>
       ...transport,
       ...acquisition,
       ...plan,
+      ...period,
       countCaptureAuthoritySchema: receipt.countCaptureAuthoritySchema,
       countLifecycleReceiptSchema: receipt.countLifecycleReceiptSchema,
       countLifecycleStopReceiptSchema: receipt.countLifecycleStopReceiptSchema,
@@ -52,6 +54,7 @@ export const captureLifecycleMutant = (replacements: Replacements, overrides: Re
       ...acquisition,
       ...plan,
       ...receipt,
+      ...period,
       countCaptureSendCap: store.countCaptureSendCap,
       countCapturePhaseCaps: store.countCapturePhaseCaps,
       countCaptureSealSchema: store.countCaptureSealSchema,
@@ -69,5 +72,5 @@ export const captureEffectsMutant = () =>
       ['else if (!effectsUnchanged(effects)) fail("unexpected-effects");', ""],
     ],
     "({ classifyCountLifecycleReceipt, validateCountLifecycleReceipt })",
-    { z, ...acquisition, ...plan, decodedReceiptText },
+    { z, ...acquisition, ...plan, ...period, decodedReceiptText },
   );

@@ -20,30 +20,9 @@
   font-size: 0.875rem;
   color: var(--color-text-secondary);
 }
-.rates,
-.volumes {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: var(--space-3);
+/* The rates and volumes are the kit's Stats; the page sets only their place. */
+.rates {
   margin: 0 0 var(--space-4);
-}
-.stat {
-  margin: 0;
-  padding: var(--space-4);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-lg);
-  background: var(--color-surface);
-}
-.stat dt {
-  font-size: 0.75rem;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--color-text-secondary);
-}
-.stat dd {
-  margin: var(--space-1) 0 0;
-  font: 600 1.5rem/1.2 var(--font-display);
 }
 .part {
   display: grid;
@@ -172,8 +151,6 @@
   font-weight: 600;
 }
 @media (min-width: 40rem) {
-  .rates,
-  .volumes,
   .fields {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -182,8 +159,20 @@
   }
 }
 @media (min-width: 64rem) {
-  .rates,
   .fields {
     grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+/* Stacked on a phone, a row is one block: a line between rows, not under each of its cells, and a
+   row header wraps as its cells do. */
+@media not (--md) {
+  .table tbody :is(th, td) {
+    padding-block: var(--space-1);
+    border-bottom: 0;
+    white-space: normal;
+  }
+  .table tbody tr:not(:last-child) {
+    border-bottom: 1px solid var(--color-border);
   }
 }

@@ -1,13 +1,15 @@
 //! The scopes list (admin-web's `CatalogScopeLandingPage`): its filters, the rows, and the pager.
 use corten::prelude::*;
+use platform::ui::table::{CellLabel, TableLayout};
 
 use super::{
-    AttentionBanner, AttentionPanel, AttentionSheet, Empty, Filters, ListPage, ListScreen, Pager, Pick, Search, Table, Tone,
-    TonePill, pages_around, value,
+    AliasReviewPart, AttentionBanner, AttentionPanel, AttentionSheet, Empty, Filters, ListPage, ListScreen, Pager, Pick, Search,
+    Table, Tone, TonePill, pages_around, value,
 };
 use crate::{
     catalog::{
-        scopes::{self, Promotion, ScopeBack, ScopeRow, ScopeScreen, Sync},
+        api::ScopeRecord,
+        scopes::{self, Promotion, ScopeBack, ScopeScreen, Sync},
         url,
     },
     text::{Cat, Pilot},
@@ -17,17 +19,17 @@ use crate::{
 const STATUSES: [(&str, &str); 4] =
     [("draft", "draft"), ("active", "active"), ("deprecated", "deprecated"), ("archived", "archived")];
 
-/// The list, with the attention queue above it (after the banner of the queue command before, if
-/// any) and an item's sheet (`back`), open.
+/// The list, with the attention queue and the all-scopes alias review above it (after the banner of
+/// the command before, if any) and an item's sheet (`back`), open.
 pub fn scope_list<'a>(
-    t: Cat,
-    p: Pilot,
+    req: &'a Req,
     query: &'a url::ScopeQuery,
     screen: &'a ScopeScreen,
     notice: &'a scopes::url::ScopeNotice,
     back: ScopeBack,
     manage: bool,
 ) -> impl Render + 'a {
+    let (t, p): (Cat, Pilot) = (req.t(), req.t());
     let (review, parked) = match back {
         ScopeBack::Review(key, parked) => (Some(key), parked),
         ScopeBack::None => (None, None),
@@ -38,12 +40,21 @@ pub fn scope_list<'a>(
     let f = url::ScopeQuery::FIELDS;
     let domains: Vec<(&str, &str)> = scopes::product_domains().iter().map(|d| (d.as_str(), d.as_str())).collect();
     let languages: Vec<(&str, &str)> = screen.languages.iter().map(|l| (l.as_str(), l.as_str())).collect();
+    let aliases = crate::catalog::attention::url::AliasReviewCommand { query: query.clone() }.href();
     html! {
         <ListPage title={title}>{()}</ListPage>
         if let Some(done) = notice.done {
             <AttentionBanner t={t} query={query} done={done} parked={notice.parked.as_deref()} manage={manage} />
         }
         <AttentionPanel t={t} query={query} queue={screen.attention.as_ref()} manage={manage} />
+        <AliasReviewPart
+            t={t}
+            p={p}
+            action={&aliases}
+            review={screen.alias_review.as_ref()}
+            failed={screen.alias_review_failed}
+            manage={manage}
+        />
         <Filters t={t} action={&filters}>
             <Search t={t} name={f.search} title={title} value={value(&query.search)} />
             <Pick
@@ -72,11 +83,11 @@ pub fn scope_list<'a>(
             <ListError t={t} message={error.as_str()} />
         }
         {scope_rows(t, p, query, &screen.list)}
-        <AttentionSheet t={t} query={query} item={item} parked={parked.as_ref()} manage={manage} />
+        <AttentionSheet t={t} p={p} req={req} query={query} item={item} parked={parked.as_ref()} manage={manage} />
     }
 }
 
-fn scope_rows<'a>(t: Cat, p: Pilot, query: &'a url::ScopeQuery, screen: &'a ListScreen<ScopeRow>) -> impl Render + 'a {
+fn scope_rows<'a>(t: Cat, p: Pilot, query: &'a url::ScopeQuery, screen: &'a ListScreen<ScopeRecord>) -> impl Render + 'a {
     let title = t.scopes_title();
     let filtered = query.search.is_some() || query.status.is_some();
     let empty_title = t.list_none_found(title.to_lowercase()).to_string();
@@ -101,7 +112,7 @@ fn scope_rows<'a>(t: Cat, p: Pilot, query: &'a url::ScopeQuery, screen: &'a List
         if screen.items.is_empty() {
             <Empty title={&empty_title} description={&empty_description} />
         } else {
-            <Table label={title} head={&head} all={None}>
+            <Table label={title} head={&head} all={None} layout={TableLayout::Stack}>
                 for row in &screen.items {
                     <ScopeRowView t={t} row={row} />
                 }
@@ -124,18 +135,23 @@ fn ListError<'a>(t: Cat, message: &'a str) -> impl Render {
 
 /// A scope's row; its View opens the scope's page.
 #[component(css)]
-pub fn ScopeRowView<'a>(t: Cat, row: &'a ScopeRow) -> impl Render {
-    let s = &row.scope;
+pub fn ScopeRowView<'a>(t: Cat, row: &'a ScopeRecord) -> impl Render {
+    let s = row;
     let domain = format!("{} · {}", s.product_domain, s.scope_kind);
-    let coverage = (!s.language_editions.is_empty())
-        .then(|| t.scopes_coverage_editions(s.language_editions.len(), s.language_editions.join(", ")).to_string());
-    let (promotion, promotion_tone) = match row.promotion {
+    let coverage = (!s.language_editions.is_empty()).then(|| {
+        t.scopes_coverage_editions(crate::text::cat::ScopesCoverageEditions {
+            count: s.language_editions.len(),
+            editions: s.language_editions.join(", "),
+        })
+        .to_string()
+    });
+    let (promotion, promotion_tone) = match row.promotion_readiness {
         Promotion::Unpublished => (t.scopes_promotion_unpublished(), Tone::Warning),
         Promotion::Live => (t.scopes_promotion_live(), Tone::Success),
         Promotion::Deprecated => (t.scopes_promotion_deprecated(), Tone::Neutral),
         Promotion::Archived => (t.scopes_promotion_archived(), Tone::Neutral),
     };
-    let (sync, sync_tone) = match row.sync {
+    let (sync, sync_tone) = match row.sync_freshness {
         Sync::Fresh => (t.scopes_sync_fresh(), Tone::Success),
         Sync::Stale => (t.scopes_sync_stale(), Tone::Warning),
     };
@@ -143,6 +159,7 @@ pub fn ScopeRowView<'a>(t: Cat, row: &'a ScopeRow) -> impl Render {
     html! {
         <tr>
             <td>
+                <CellLabel>{t.scopes_column_scope()}</CellLabel>
                 <span class={Scope}>
                     <strong>{&s.name}</strong>
                     if let Some(code) = &s.official_set_code {
@@ -150,15 +167,25 @@ pub fn ScopeRowView<'a>(t: Cat, row: &'a ScopeRow) -> impl Render {
                     }
                 </span>
             </td>
-            <td>{&domain}</td>
             <td>
+                <CellLabel>{t.scopes_column_domain()}</CellLabel>
+                {&domain}
+            </td>
+            <td>
+                <CellLabel>{t.scopes_column_coverage()}</CellLabel>
                 match &coverage {
                     Some(text) => { {text} }
                     None => <span class={Muted}>{t.scopes_coverage_none()}</span>,
                 }
             </td>
-            <td><TonePill text={promotion} tone={promotion_tone} /></td>
-            <td><TonePill text={sync} tone={sync_tone} /></td>
+            <td>
+                <CellLabel>{t.scopes_column_promotion()}</CellLabel>
+                <TonePill text={promotion} tone={promotion_tone} />
+            </td>
+            <td>
+                <CellLabel>{t.scopes_column_sync()}</CellLabel>
+                <TonePill text={sync} tone={sync_tone} />
+            </td>
             <td><a class={View} href={&view}>{t.list_view()}</a></td>
         </tr>
     }

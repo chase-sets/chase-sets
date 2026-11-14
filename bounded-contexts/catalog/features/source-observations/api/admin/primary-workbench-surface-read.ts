@@ -1,4 +1,16 @@
 import type { ListResponse } from "@chase-sets/http/responses";
+import {
+  boundCatalogImportPreview,
+  CatalogImportPreviewTimeoutError,
+  catalogImportPreviewMatchesSelection,
+  summarizeCatalogImportPreviewUsage,
+  type CatalogDailyImportPreview,
+} from "./daily-import-preview";
+import type {
+  SourceObservationIntegrationImportPreview,
+  SourceObservationIntegrationJobScope,
+} from "../../ui/contracts";
+import { integrationJobScopeForUnit } from "../../ui/primary-workbench-scope-context";
 import type { ResolvedActor } from "@chase-sets/auth-context";
 import type { ProviderScopeDiscoveryServices } from "../../../provider-scope-discovery/api/runtime";
 import type { ProviderRefreshSchedulePanelItem } from "../../../provider-scope-discovery/ui/provider-refresh-schedule-panel";
@@ -101,6 +113,9 @@ export class CatalogSourceOptionQueryRefusedError extends Error {
 // shape its HTTP route returns (the `ui/contracts` records). Query-string inputs
 // are parsed by the same functions the HTTP routes use.
 export type CatalogPrimaryWorkbenchSurfaceSources = Readonly<{
+  previewIntegrationImport?: (
+    scope: SourceObservationIntegrationJobScope,
+  ) => Promise<SourceObservationIntegrationImportPreview>;
   actor?: Partial<Pick<ResolvedActor, "roleKey" | "userId" | "membershipId">> | null;
   listRefreshSchedules?: ProviderScopeDiscoveryServices["listRefreshSchedules"];
   canManageCatalog: boolean;
@@ -275,6 +290,7 @@ async function readDailySurface(
     promotionOutcome,
     promotionValidation: currentPromotionPreview?.validation ?? null,
     promotionPreviewFingerprint: currentPromotionPreview?.fingerprint ?? null,
+    promotionPreviewCommittable: promotionPreviewHasCompleteCoverage(normalizedRouteContext, currentPromotionPreview),
     reviewPagination,
     sourceOptionPages: null,
     catalogSyncPreview: null,
@@ -307,6 +323,33 @@ export async function readCatalogPrimaryWorkbenchDeferredSourceOptions(
     sourceOptionPages,
     canManageCatalog: baseline.canManageCatalog,
   });
+}
+
+// A supplementary read, never part of the daily shell's critical path.
+export async function readCatalogPrimaryWorkbenchDeferredImportPreview(
+  location: URL,
+  sources: CatalogPrimaryWorkbenchSurfaceSources,
+): Promise<CatalogDailyImportPreview> {
+  const baseline = await loadIntegrationsBaseline(location, sources, "daily");
+  const { routeContext: context } = normalizedDailyRouteContext(
+    location,
+    baseline,
+    parseCatalogPrimaryWorkbenchRouteContext(location),
+  );
+  if (!context.providerKey || !context.unitKey || !context.importScope || !sources.previewIntegrationImport)
+    return null;
+  try {
+    const scope = context.scope ?? scopeContextFromRouteContext(context);
+    const filterLanguage = context.sourceObservationFilters.language;
+    if (scope.productId && filterLanguage && scope.languageCode && filterLanguage !== scope.languageCode) return null;
+    const expected = integrationJobScopeForUnit(scope, context.unitKey, context.sourceObservationFilters);
+    const preview = await boundCatalogImportPreview(sources.previewIntegrationImport(expected));
+    return catalogImportPreviewMatchesSelection(preview, expected, context)
+      ? { status: "ready", preview, usageSummary: summarizeCatalogImportPreviewUsage(preview.targets) }
+      : null;
+  } catch (error) {
+    return error instanceof CatalogImportPreviewTimeoutError ? { status: "unavailable" } : null;
+  }
 }
 
 async function loadIntegrationsBaseline(
@@ -514,6 +557,32 @@ async function selectedPromotionPreview(
   }
 }
 
+// The daily API owns the held selection's coverage rule; admission still owns the stale-token guard.
+function promotionPreviewHasCompleteCoverage(
+  context: CatalogPrimaryWorkbenchRouteContext,
+  preview: SourceObservationPromotionPreview | null,
+): boolean {
+  if (!preview || !context.promotionPreviewId || !preview.fingerprint) return false;
+  const { validation } = preview;
+  const selected = context.selectedObservationIds;
+  const covered = new Set(validation.coveredObservationIds);
+  const selectedSet = new Set(selected);
+  return (
+    validation.promoteAsDraft === (context.promoteAsDraft === true) &&
+    validation.coverage === "complete" &&
+    validation.continuation === null &&
+    validation.pageLimit > 0 &&
+    preview.eligible > 0 &&
+    covered.size <= validation.pageLimit &&
+    selectedSet.size === selected.length &&
+    covered.size === validation.coveredObservationIds.length &&
+    covered.size === preview.eligible &&
+    (selected.length === 0 ||
+      (selected.length === preview.matched && [...covered].every((id) => selectedSet.has(id)))) &&
+    !validation.diagnostics.some((diagnostic) => diagnostic.blocking)
+  );
+}
+
 async function sourceResult<T>(
   operation: () => Promise<T>,
   fallback: T,
@@ -537,6 +606,7 @@ type BuildSurfaceReadModelInput = Readonly<{
   promotionOutcome?: SourceObservationPromotionOutcomeRecord | null;
   promotionValidation?: SourceObservationPromotionValidation | null;
   promotionPreviewFingerprint?: string | null;
+  promotionPreviewCommittable?: boolean;
   reviewPagination: Readonly<{ limit: number; offset: number }> | undefined;
   sourceOptionPages: readonly CatalogPrimaryWorkbenchSourceOptionPageSnapshot[] | null;
   catalogSyncPreview: CatalogSyncProviderParticipationPreview | null;
@@ -598,6 +668,7 @@ function surfaceReadModelInput(
     promotionOutcome: input.promotionOutcome,
     promotionValidation: input.promotionValidation ?? null,
     promotionPreviewFingerprint: input.promotionPreviewFingerprint ?? null,
+    promotionPreviewCommittable: input.promotionPreviewCommittable === true,
     reviewPagination: input.reviewPagination,
     sourceOptionPages: input.sourceOptionPages,
     catalogSyncPreview: input.catalogSyncPreview,

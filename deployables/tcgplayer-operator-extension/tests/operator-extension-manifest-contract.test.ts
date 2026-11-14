@@ -5,6 +5,30 @@ import { describe, expect, it } from "vitest";
 import { isOperatorManifest, operatorExtensionId, operatorManifest, operatorPublicKey } from "../src/manifest-contract";
 
 describe("operator-extension-manifest-contract", () => {
+  it("equals the shipped SetNames probe manifest exactly, with no cookies permission", () => {
+    expect(operatorManifest).toEqual({
+      manifest_version: 3,
+      name: "Chase Sets TCGplayer Operator Extension",
+      version: "0.1.0",
+      key: operatorPublicKey,
+      incognito: "not_allowed",
+      permissions: ["storage"],
+      externally_connectable: { matches: ["https://admin.staging.chasesets.com/*", "https://admin.chasesets.com/*"] },
+      host_permissions: [
+        "https://admin.staging.chasesets.com/*",
+        "https://admin.chasesets.com/*",
+        "https://mpapi.tcgplayer.com/*",
+      ],
+      background: { service_worker: "background.js", type: "module" },
+      action: { default_popup: "popup.html" },
+      sandbox: { pages: ["sandbox.html"] },
+      content_security_policy: {
+        extension_pages: "script-src 'self'; object-src 'none'",
+        sandbox: "sandbox allow-scripts; script-src 'self'; object-src 'none'",
+      },
+    });
+    expect(operatorManifest.permissions).not.toContain("cookies");
+  });
   it("pins a distinct public identity and exact least-authority MV3 capabilities", () => {
     const digest = createHash("sha256").update(Buffer.from(operatorPublicKey, "base64")).digest("hex").slice(0, 32);
     const id = [...digest].map((digit) => String.fromCharCode(97 + Number.parseInt(digit, 16))).join("");

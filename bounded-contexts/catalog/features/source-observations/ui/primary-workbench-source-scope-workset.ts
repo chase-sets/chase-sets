@@ -19,6 +19,7 @@ import {
   importScopeFromScopeContext,
   integrationJobScopeForUnit,
   reapplyScopeForUnit,
+  promotionCommandPreviewFor,
   scopeContextFromProviderScope,
   scopeContextFromRouteContext,
   scopeDisplayLabel,
@@ -428,23 +429,18 @@ function sourceScopeUnitRow(
       "import-to-promotion",
     ),
     commandContext,
-    // What admin-web's handlers post for this row's form: its scope with the page's review filters.
+    // The row form posts currentWorkbenchHref plus commandContext: no review filters and no status.
     commandScopes: importScope
       ? {
-          import: integrationJobScopeForUnit(
-            routeScope,
-            candidate.unitKey,
-            input.routeContext.sourceObservationFilters,
-          ),
+          import: integrationJobScopeForUnit(routeScope, candidate.unitKey),
           reapply: reapplyScopeForUnit(
             scopeContextFromRouteContext({
               providerKey: candidate.providerKey,
               importScope,
-              scope: routeScope,
-              sourceObservationFilters: input.routeContext.sourceObservationFilters,
+              scope: { ...routeScope, status: null },
+              sourceObservationFilters: {},
             }),
             candidate.unitKey,
-            input.routeContext.sourceObservationFilters,
           ),
         }
       : null,
@@ -461,18 +457,30 @@ function sourceScopeUnitRow(
           blockers,
         ),
       ),
-      previewPromotion: action(
-        "observation.promote",
-        promotionPreviewBlockers(
-          input.canManage,
-          selectedScope,
-          candidate.profile,
-          candidate.unitKey,
-          importScope,
-          counts.eligible,
-          blockers,
+      previewPromotion: {
+        ...action(
+          "observation.promote",
+          promotionPreviewBlockers(
+            input.canManage,
+            selectedScope,
+            candidate.profile,
+            candidate.unitKey,
+            importScope,
+            counts.eligible,
+            blockers,
+          ),
         ),
-      ),
+        // The row form posts currentWorkbenchHref plus commandContext: no review filters and no status.
+        commandPreview: promotionCommandPreviewFor({
+          ...input.routeContext,
+          sourceObservationFilters: {},
+          providerKey: candidate.providerKey,
+          unitKey: candidate.unitKey,
+          scope: { ...routeScope, status: null },
+          importScope,
+          profileVersion: candidate.profile?.profileVersion ?? null,
+        }),
+      },
       reapply: action(
         "observation.reapply",
         reapplyBlockers(

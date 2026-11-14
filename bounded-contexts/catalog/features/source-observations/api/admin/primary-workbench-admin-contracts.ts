@@ -2,6 +2,7 @@
 export type {
   CatalogPrimaryWorkbenchReadModel,
   CatalogPrimaryWorkbenchActionReadModel,
+  CatalogPrimaryWorkbenchPromotionCommandPreview,
   CatalogPrimaryWorkbenchFlowStageKey,
   CatalogPrimaryWorkbenchFlowStageState,
   CatalogPrimaryWorkbenchFlowReadModel,
@@ -39,6 +40,7 @@ export {
   catalogPrimaryWorkbenchRetirementPolicy,
 } from "./primary-workbench-contract-descriptors";
 export type {
+  CatalogPrimaryWorkbenchGuidedScopeField,
   CatalogPrimaryWorkbenchContractVersion,
   CatalogPrimaryWorkbenchProviderScopeReadModel,
   CatalogPrimaryWorkbenchProviderTransportCategory,

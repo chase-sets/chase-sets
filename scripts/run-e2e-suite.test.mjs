@@ -888,6 +888,15 @@ describe("run e2e suite", () => {
     expect(unownedRoutes).toEqual([]);
   });
 
+  it("owns seller shipping setup without selecting test files or unclaimed siblings", () => {
+    const route = "bounded-contexts/fulfillment/routes/seller-shipping-setup.tsx";
+    expect(e2eSuiteIdsForChangedFile(route)).toEqual(["marketplace_checkout"]);
+    expect(e2eNoSuiteExclusionForChangedFile(route)).toBeNull();
+    for (const file of [route.replace(".tsx", ".test.tsx"), route.replace("setup.tsx", "setup-unclaimed.tsx")]) {
+      expect(e2eSuiteIdsForChangedFile(file), file).toEqual([]);
+    }
+  });
+
   it("owns the real Discovery analytics route without selecting tests or unclaimed siblings", async () => {
     const route = "bounded-contexts/discovery/routes/item-detail-rail-analytics.tsx";
     expect(existsSync(route)).toBe(true);

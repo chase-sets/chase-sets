@@ -13,7 +13,7 @@ export const e2eSuites = Object.freeze([
     id: "marketplace_account",
     label: "Marketplace Account",
     deployable: "marketplace",
-    journeys: ["account access", "authentication"],
+    journeys: ["account access", "authentication", "market-following Offer consent and Checkout acceptance"],
     grep: "@marketplace-account",
     estimatedDurationSeconds: 300,
   },
@@ -569,6 +569,10 @@ const boundedContextRouteSuiteOwnership = [
   {
     pattern: /^bounded-contexts\/notifications\/routes\/account-notifications\./,
     suites: ["marketplace_account"],
+  },
+  {
+    pattern: /^bounded-contexts\/fulfillment\/routes\/seller-shipping-setup\.tsx$/,
+    suites: ["marketplace_checkout"],
   },
 ];
 

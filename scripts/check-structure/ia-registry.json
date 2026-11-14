@@ -413,6 +413,12 @@
     },
     {
       "deployable": "marketplace-web",
+      "family": "sell",
+      "owningContext": "fulfillment",
+      "purpose": "Seller shipping setup before checkout for the authenticated account or existing anonymous Sell List."
+    },
+    {
+      "deployable": "marketplace-web",
       "family": "sets",
       "owningContext": "discovery",
       "purpose": "Sets surface (discovery)."

@@ -23,7 +23,10 @@ import { promotionReviewRoutes } from "./route-modules/promotion-review-routes";
 import { providerOptionRoutes } from "./route-modules/provider-options-routes";
 import { providerProfileRoutes } from "./route-modules/provider-profile-routes";
 import { sourceObservationReadReviewRoutes } from "./route-modules/source-observation-review-routes";
-import { primaryWorkbenchSurfaceRoutes } from "./route-modules/primary-workbench-surface-routes";
+import {
+  primaryWorkbenchSurfaceRoutes,
+  type PrimaryWorkbenchSurfaceRouteDeps,
+} from "./route-modules/primary-workbench-surface-routes";
 import { parseCatalogIntegrationControlPlaneOverviewAudience } from "./admin/admin-control-plane-overview";
 import { loadCatalogIntegrationControlPlaneOverview } from "./route-modules/control-plane-overview-load";
 import { requireCatalogIntegrationControlPlanePermission } from "./admin/admin-control-plane-rbac";
@@ -46,6 +49,7 @@ export function sourceObservationRoutes(
   profileVersions?: CatalogProviderIntegrationProfileVersionStore,
   readCountSpend?: () => Promise<readonly import("../../scope-sync-batches/domain/count-acquisition").CountSpend[]>,
   listRefreshSchedules?: ProviderScopeDiscoveryServices["listRefreshSchedules"],
+  getScopeRecord?: PrimaryWorkbenchSurfaceRouteDeps["getScopeRecord"],
 ) {
   const app = new Hono<CatalogAuthoringEnv>();
 
@@ -56,7 +60,10 @@ export function sourceObservationRoutes(
   app.route("/", integrationJobRoutes(services));
   app.route("/", catalogMergeCandidateRoutes(services));
   app.route("/", controlPlaneTelemetryRoutes(services));
-  app.route("/", primaryWorkbenchSurfaceRoutes({ services, profileVersions, readCountSpend, listRefreshSchedules }));
+  app.route(
+    "/",
+    primaryWorkbenchSurfaceRoutes({ services, profileVersions, readCountSpend, listRefreshSchedules, getScopeRecord }),
+  );
   app.route("/", sourceObservationReadReviewRoutes(services));
   app.get("/integration-control-plane/overview", async (c) => {
     const permissionError = requireCatalogIntegrationControlPlanePermission(c, "integration-control-plane-read");

@@ -33,7 +33,7 @@ describe("held-set resolver", () => {
         rows: [
           {
             unit_key: TCGPLAYER_MTG_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
-            set_id: "magic-shared",
+            set_coordinate: "magic-shared",
             scope_record_id: "scope-magic",
             review_status: "accepted",
             product_domain: "magic",
@@ -41,7 +41,7 @@ describe("held-set resolver", () => {
           },
           {
             unit_key: TCGPLAYER_POKEMON_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
-            set_id: "pokemon-shared",
+            set_coordinate: "pokemon-shared",
             scope_record_id: "scope-pokemon",
             review_status: "auto-accepted",
             product_domain: "pokemon",
@@ -64,5 +64,7 @@ describe("held-set resolver", () => {
       expect.objectContaining({ productLine: "Pokemon Japan", reason: "product-line-unresolved" }),
     ]);
     expect(query).toHaveBeenCalledTimes(2);
+    expect(query.mock.calls[1]?.[0]).toContain("COALESCE(m.set_name, m.set_id) AS set_coordinate");
+    expect(query.mock.calls[1]?.[0]).toContain("COALESCE(m.set_name, m.set_id) = ANY($2::text[])");
   });
 });

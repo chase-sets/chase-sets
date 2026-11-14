@@ -2,6 +2,7 @@ import { resolveActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import {
   CatalogSourceOptionQueryRefusedError,
   readCatalogPrimaryWorkbenchDeferredSourceOptions,
+  readCatalogPrimaryWorkbenchDeferredImportPreview,
   readCatalogPrimaryWorkbenchSurface,
   type CatalogPrimaryWorkbenchSurfaceKey,
   type CatalogPrimaryWorkbenchSurfaceSources,
@@ -48,6 +49,12 @@ export function withCatalogSurfaceReads<T>(client: T, request?: Request): T {
       (async (location: string) => {
         const url = new URL(location, LOCATION_ORIGIN);
         return wireShape(await readCatalogPrimaryWorkbenchDeferredSourceOptions(url, await sources(url)));
+      }),
+    getCatalogPrimaryWorkbenchDeferredImportPreview:
+      stub.getCatalogPrimaryWorkbenchDeferredImportPreview ??
+      (async (location: string) => {
+        const url = new URL(location, LOCATION_ORIGIN);
+        return wireShape(await readCatalogPrimaryWorkbenchDeferredImportPreview(url, await sources(url)));
       }),
     getSourceObservationEvidence:
       stub.getSourceObservationEvidence ??
@@ -99,6 +106,10 @@ function stubSurfaceSources(stub: StubClient, canManage: boolean): CatalogPrimar
         }>("listCatalogProviderRefreshSchedules")
       ).items,
     canManageCatalog: canManage,
+    previewIntegrationImport:
+      typeof stub.previewSourceObservationIntegrationImport === "function"
+        ? (scope) => call("previewSourceObservationIntegrationImport", scope)
+        : undefined,
     listIntegrationScopes: (filter) =>
       call("listSourceObservationIntegrationScopes", new URLSearchParams(filter).toString()),
     listProviderProfiles: () => call("listSourceObservationProviderProfiles"),

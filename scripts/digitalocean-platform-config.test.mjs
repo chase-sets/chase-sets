@@ -4113,7 +4113,7 @@ describe("DigitalOcean platform configuration", () => {
     expect(e2eCondition).toBe("needs['change-scope'].outputs.e2e_tests_required == 'true'");
 
     const dbProfileJob = workflowJob(platformPrWorkflow, "db-tests");
-    expect(dbProfileJob).toContain("timeout-minutes: 30");
+    expect(dbProfileJob).toContain("timeout-minutes: 45");
     expect(dbProfileJob).toContain(
       "image: ghcr.io/chase-sets/ci-mirror-pgvector:pg16@sha256:7b822b0aac60967beb1ea5e576b8602c94c300a157d187f385ae3e0da199b90a",
     );
@@ -4157,10 +4157,10 @@ describe("DigitalOcean platform configuration", () => {
     expect(job.if).toBe("needs['change-scope'].outputs.unit_tests_required == 'true'");
     const execution = job.steps.find((step) => step.name === "Run non-DB tests");
     expect(execution.run).toContain(
-      "node ./scripts/run-workspaces.mjs test --exclude-test-profile=db --concurrency=4 --workspace-list=\"${{ needs['change-scope'].outputs.unit_test_workspaces }}\" --shard=${{ matrix.shard }}/2",
+      "node ./scripts/run-workspaces.mjs test --exclude-test-profile=db --concurrency=4 --workspace-list=\"${{ needs['change-scope'].outputs.affected_workspaces }}\" --shard=${{ matrix.shard }}/2",
     );
     expect(execution.run).toContain(
-      "node ./scripts/run-workspaces.mjs test:unit --test-profile=db --concurrency=4 --workspace-list=\"${{ needs['change-scope'].outputs.unit_test_workspaces }}\" --shard=${{ matrix.shard }}/2",
+      "node ./scripts/run-workspaces.mjs test:unit --test-profile=db --concurrency=4 --workspace-list=\"${{ needs['change-scope'].outputs.affected_workspaces }}\" --shard=${{ matrix.shard }}/2",
     );
     expect(execution.run).toContain("--concurrency=4");
 
@@ -4181,7 +4181,7 @@ describe("DigitalOcean platform configuration", () => {
       matrix: { "db-workspace-group": ["api", "other"] },
     });
     expect(job["continue-on-error"]).toBeUndefined();
-    expect(job["timeout-minutes"]).toBe(30);
+    expect(job["timeout-minutes"]).toBe(45);
     const execution = job.steps.filter((step) => step.name === "Run DB-profile tests");
     expect(execution).toHaveLength(1);
     expect(execution[0].if).toBeUndefined();
@@ -4628,28 +4628,45 @@ describe("DigitalOcean platform configuration", () => {
     expect(doksFoundationAuthority).toContain('"name:Preflight DOKS version change#');
   });
 
-  it("executes the preflight against provider object and array response shapes", () => {
+  it("executes the preflight against a one-element provider array", () => {
     const cluster = { id: "synthetic-cluster-id", version: "1.36.5-do.1" };
     const oneElement = executeDoksPreflight({ providerResponse: [cluster] });
     expect(oneElement).toMatchObject({
       status: 0,
       artifact: { state: "present", id: cluster.id, version: cluster.version },
     });
+  });
+
+  it("executes the preflight against a provider object", () => {
+    const cluster = { id: "synthetic-cluster-id", version: "1.36.5-do.1" };
     expect(executeDoksPreflight({ providerResponse: cluster })).toMatchObject({
       status: 0,
       artifact: { state: "present", id: cluster.id, version: cluster.version },
     });
+  });
+
+  it("refuses an empty provider array during preflight", () => {
     const empty = executeDoksPreflight({ providerResponse: [] });
     expect(empty.status).not.toBe(0);
     expect(empty.artifact).toMatchObject({ state: "read-error" });
+  });
+
+  it("refuses multiple provider clusters during preflight", () => {
+    const cluster = { id: "synthetic-cluster-id", version: "1.36.5-do.1" };
     const multiple = executeDoksPreflight({
       providerResponse: [cluster, { id: "other-cluster", version: cluster.version }],
     });
     expect(multiple.status).not.toBe(0);
     expect(multiple.artifact).toMatchObject({ state: "read-error" });
+  });
+
+  it("refuses a malformed provider response during preflight", () => {
     const malformed = executeDoksPreflight({ providerResponse: null, providerResponseText: "not-json" });
     expect(malformed.status).not.toBe(0);
     expect(malformed.artifact).toMatchObject({ state: "read-error" });
+  });
+
+  it("refuses a provider read error during preflight", () => {
     const readError = executeDoksPreflight({ providerResponse: null, providerReadFails: true });
     expect(readError.status).not.toBe(0);
     expect(readError.artifact).toMatchObject({ state: "read-error" });

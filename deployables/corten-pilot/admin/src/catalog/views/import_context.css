@@ -1,0 +1,129 @@
+/* The daily workbench's import context bar (admin-web's CatalogImportContextBar): a disclosure
+   holding the context form and the source options. The fields share a row as room allows and
+   stack on a phone; every control and name wraps inside its box. */
+.bar {
+  margin-block-end: var(--space-2);
+}
+.head {
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+}
+.title {
+  font-weight: 600;
+}
+.line {
+  color: var(--color-text-secondary);
+  font-size: 0.875rem;
+  overflow-wrap: anywhere;
+}
+.body {
+  display: grid;
+  gap: var(--space-4);
+  padding-block: var(--space-3);
+  min-width: 0;
+}
+.form {
+  display: grid;
+  gap: var(--space-4);
+  min-width: 0;
+}
+.grid {
+  display: grid;
+  gap: var(--space-3);
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 14rem), 1fr));
+  min-width: 0;
+}
+.field {
+  display: grid;
+  gap: var(--space-1);
+  align-content: start;
+  min-width: 0;
+}
+.field select,
+.field input {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+}
+.label {
+  font-size: 0.875rem;
+  font-weight: 500;
+}
+.scope {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.scope legend {
+  padding: 0;
+  font-weight: 600;
+}
+.muted {
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: 0.875rem;
+  overflow-wrap: anywhere;
+}
+.strong {
+  margin: 0;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.apply {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  align-items: end;
+  justify-content: space-between;
+}
+.apply .field {
+  flex: 1 1 14rem;
+}
+.options {
+  display: grid;
+  gap: var(--space-3);
+  min-width: 0;
+  padding: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+.options h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+.options-head,
+.kind-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: start;
+  justify-content: space-between;
+  min-width: 0;
+}
+.options-head > div:first-child,
+.kind-head > div:first-child {
+  flex: 1 1 12rem;
+  min-width: 0;
+}
+.controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+}
+.kinds {
+  display: grid;
+  gap: var(--space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.kind {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
+}

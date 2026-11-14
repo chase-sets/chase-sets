@@ -1,4 +1,5 @@
 use corten::prelude::*;
+use platform::ui::table::{CellLabel, Table as KitTable, TableLayout};
 
 use super::{StatusBadge, keep};
 use crate::{
@@ -22,10 +23,12 @@ fn summary(t: Msg, policy: &Payload) -> String {
         Some(value) => t.list_insurance_value_threshold(value.to_string()).to_string(),
         None => none.to_owned(),
     };
-    t.list_requirement_summary(parcel, join(signature), insurance).to_string()
+    t.list_requirement_summary(crate::text::msg::ListRequirementSummary { parcel, signature: join(signature), insurance })
+        .to_string()
 }
 
-/// One of the list's groups (active, drafts, retired), or its empty state.
+/// One of the list's groups (active, drafts, retired), or its empty state. On a phone each policy is
+/// a block of labelled lines, as admin-web's `DataTable` stacks it (the kit's `TableLayout::Stack`).
 #[component(css)]
 pub fn PolicyTable<'a>(
     t: Msg,
@@ -45,43 +48,56 @@ pub fn PolicyTable<'a>(
                 </div>
             } else {
                 <div class={Scroll}>
-                    <table class={Table}>
-                        <thead>
-                            <tr>
-                                <th scope="col">{t.list_policy()}</th>
-                                <th scope="col">{t.list_requirements()}</th>
-                                <th scope="col">{t.common_status()}</th>
-                                <th scope="col">{t.list_updated()}</th>
-                                <th scope="col">{t.list_actions()}</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            for policy in policies {
+                    <KitTable layout={TableLayout::Stack}>
+                        <table class={Table}>
+                            <thead>
                                 <tr>
-                                    <td>
-                                        <span class={Name}>{&policy.label}</span>
-                                        <span class={Version}>{&policy.policy_version}</span>
-                                    </td>
-                                    <td>{summary(t, &policy.payload)}</td>
-                                    <td><StatusBadge status={&policy.status} /></td>
-                                    <td>{&policy.updated_at}</td>
-                                    <td>
-                                        <a
-                                            class={Open}
-                                            href={url::Policies {
-                                                limit: keep(screen.limit, 50),
-                                                offset: keep(screen.offset, 0),
-                                                policy: Some(policy.policy_id.clone()),
-                                                after_write: None,
-                                            }}
-                                        >
-                                            {t.list_open()}
-                                        </a>
-                                    </td>
+                                    <th scope="col">{t.list_policy()}</th>
+                                    <th scope="col">{t.list_requirements()}</th>
+                                    <th scope="col">{t.common_status()}</th>
+                                    <th scope="col">{t.list_updated()}</th>
+                                    <th scope="col">{t.list_actions()}</th>
                                 </tr>
-                            }
-                        </tbody>
-                    </table>
+                            </thead>
+                            <tbody>
+                                for policy in policies {
+                                    <tr>
+                                        <td>
+                                            <CellLabel>{t.list_policy()}</CellLabel>
+                                            <span class={Name}>{&policy.label}</span>
+                                            <span class={Version}>{&policy.policy_version}</span>
+                                        </td>
+                                        <td>
+                                            <CellLabel>{t.list_requirements()}</CellLabel>
+                                            {summary(t, &policy.payload)}
+                                        </td>
+                                        <td>
+                                            <CellLabel>{t.common_status()}</CellLabel>
+                                            <StatusBadge status={&policy.status} />
+                                        </td>
+                                        <td>
+                                            <CellLabel>{t.list_updated()}</CellLabel>
+                                            {&policy.updated_at}
+                                        </td>
+                                        <td>
+                                            <CellLabel>{t.list_actions()}</CellLabel>
+                                            <a
+                                                class={Open}
+                                                href={url::Policies {
+                                                    limit: keep(screen.limit, 50),
+                                                    offset: keep(screen.offset, 0),
+                                                    policy: Some(policy.policy_id.clone()),
+                                                    after_write: None,
+                                                }}
+                                            >
+                                                {t.list_open()}
+                                            </a>
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </KitTable>
                 </div>
             }
         </section>
@@ -105,7 +121,7 @@ pub fn Pagination<'a>(p: Pilot, screen: &'a Screen) -> impl Render {
         if show {
             <nav class={Pages} aria-label={p.pages_label()}>
                 if page > 1 { <a class={Open} href={at(page - 1)} rel="prev">{p.pages_previous()}</a> }
-                <span>{p.pages_current(page, pages)}</span>
+                <span>{p.pages_current(crate::text::pilot::PagesCurrent { page, pages })}</span>
                 if page < pages { <a class={Open} href={at(page + 1)} rel="next">{p.pages_next()}</a> }
             </nav>
         }

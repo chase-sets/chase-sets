@@ -55,11 +55,22 @@ export async function handleCandidateCommand(input: {
       }
 
       if (intent === "candidate.promote") {
+        const expectedVersion = candidateVersionFrom(formData);
+        if (expectedVersion === null) {
+          return candidateResult(intent, "error", "command-failed", { ...context, selectedObservationIds });
+        }
         const conflictResolutions = mergeCandidateConflictResolutionsFromFormData(formData);
         if (conflictResolutions === "missing-resolution") {
           return candidateResult(intent, "error", "reason-required", { ...context, selectedObservationIds });
         }
-        await api.promoteCatalogMergeCandidate(candidateId, { reason, conflictResolutions });
+        try {
+          await api.promoteCatalogMergeCandidate(candidateId, { reason, expectedVersion, conflictResolutions });
+        } catch (error) {
+          if (isStaleCandidateRefusal(error)) {
+            return candidateResult(intent, "error", "candidate-stale", { ...context, selectedObservationIds });
+          }
+          throw error;
+        }
       } else if (intent === "candidate.ignore") {
         await api.ignoreCatalogMergeCandidate(candidateId, { reason });
       } else {

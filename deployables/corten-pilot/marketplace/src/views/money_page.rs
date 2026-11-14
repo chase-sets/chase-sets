@@ -14,6 +14,8 @@ use corten::{
     prelude::*,
 };
 
+use platform::ui::steps::{Step, StepState, Steps, StepsLayout};
+
 use super::on_marketplace;
 use crate::{
     api::{BlockedPayout, Payout, WalletAdjustment, WalletEntry},
@@ -105,9 +107,10 @@ fn term(label: &str) -> &str {
 /// A payout's page (Settlement's `SettlementPayoutDetailPage`, without the support details
 /// marketplace hides from sellers): the header with Back to payouts, Payout requested after a
 /// request, the summary (the status, a failed payout's next step, the amounts and moments, the last
-/// provider check) and the status timeline as a list of steps.
+/// provider check) and the status timeline, the kit's `Steps` drawn as a timeline (each step's
+/// time or reference shown beside it on a phone too, and a failed payout's last step failed).
 #[component(css = MoneyPage)]
-pub fn PayoutPage<'a>(t: MoneyMsg, screen: &'a PayoutScreen) -> impl Render {
+pub fn PayoutPage<'a>(t: MoneyMsg, p: Pilot, screen: &'a PayoutScreen) -> impl Render {
     let payout = &screen.payout;
     let currency = payout.currency_code.as_str();
     let net = money(t, &payout.net_amount, currency);
@@ -248,15 +251,22 @@ pub fn PayoutPage<'a>(t: MoneyMsg, screen: &'a PayoutScreen) -> impl Render {
         </section>
         <section class={Section} aria-labelledby="payout-timeline-title">
             <h2 id="payout-timeline-title" class={PartTitle}>{t.detail_status_timeline()}</h2>
-            <ol class={Timeline}>
-                for (label, says, status) in steps {
-                    <li class={Step} data-status={status} aria-current={(status == "current").then_some("step")}>
-                        <p class={Strong}>{label}</p>
-                        <p class={Muted}>{&says}</p>
-                    </li>
-                }
-            </ol>
+            let timeline: Vec<Step> = steps
+                .iter()
+                .map(|(label, says, status)| Step { label, description: Some(says), link: None, state: step_state(p, status) })
+                .collect();
+            <Steps label={t.detail_status_timeline()} layout={StepsLayout::Timeline} steps={&timeline} />
         </section>
+    }
+}
+
+/// A timeline step's status as the kit's state, with its words: a failed payout's last step failed.
+fn step_state(p: Pilot, status: &str) -> StepState<'static> {
+    match status {
+        "complete" => StepState::Done(p.steps_done()),
+        "current" => StepState::Current,
+        "issue" => StepState::Failed(p.steps_failed()),
+        _ => StepState::Todo(p.steps_not_started()),
     }
 }
 

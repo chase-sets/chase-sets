@@ -59,7 +59,10 @@ Requests use domain-scoped throttling:
 
 The Operator Extension retains only the pairing grant needed to relay browser
 data. It does not read or push provider cookies, and pairing is not provider
-success proof.
+success proof. Each observation request must first authorize the grant hash and
+then confirm the creator's live active platform-admin Membership aggregate with
+`catalog.manage`; revoked, expired, or authority-lost grants are rejected before
+the request body is read.
 
 ## Catalog Sync Flow
 

@@ -1,12 +1,12 @@
 // @ts-check
 // Add's secure step on the saved payment methods page (marketplace's StripeSetupCard): Stripe's
-// Payment Element mounted with the SetupIntent's secret and the page's theme, and Save payment
+// Payment Element mounted with the SetupIntent's secret in Stripe's own appearance, and Save payment
 // method, which turns on once the fields are ready. Loading has one deadline over the whole chain,
 // as the payment step's. Save is Stripe's confirmSetup; once Stripe accepts it the browser goes to
 // the page with the setup's reference, which asks Payments what it saved and reads itself again
 // until it knows or `until` passes (five minutes, as marketplace's card polls).
 import { keep } from "corten";
-import { appearance, loadStripe } from "./stripe.js";
+import { loadStripe } from "./stripe.js";
 
 /** As the payment step's: half the account-payment UAT's 60 s readiness ceiling. */
 const DEADLINE_MS = 30_000;
@@ -57,7 +57,7 @@ function fail(parts, message) {
 
 /**
  * When the fields' place joins the page: load Stripe and mount its Payment Element with the
- * SetupIntent's secret and the page's theme, then turn Save on; any failure, or no answer within
+ * SetupIntent's secret in Stripe's own appearance, then turn Save on; any failure, or no answer within
  * the deadline, says Stripe could not load (or what Stripe said). Leaving the page unmounts it.
  *
  * @param {HTMLDivElement} target
@@ -84,7 +84,7 @@ export async function mount(target, parts, key, secret, couldNotLoad, signal) {
     const Stripe = await loadStripe();
     if (abandoned()) return;
     const stripe = Stripe(key);
-    const elements = stripe.elements({ clientSecret: secret, appearance: appearance(target) });
+    const elements = stripe.elements({ clientSecret: secret });
     const element = elements.create("payment");
     element.mount(target);
     state.element = element;

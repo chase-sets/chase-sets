@@ -7,6 +7,34 @@ import {
 } from "./catalog-merge-candidate-review-command-payloads";
 
 describe("Catalog Merge Candidate review command payloads", () => {
+  it.each(["ready", "has-conflicts"] as const)(
+    "builds promote for %s without split or mapping prerequisites",
+    (status) => {
+      const row = { ...candidateRow(), status, membership_json: [], proposed_external_product_references_json: [] };
+      const result = previewCatalogMergeCandidateReviewCommand(row, "candidate.promote");
+      expect(result).toMatchObject({
+        status: "available",
+        blockers: [],
+        preview: {
+          commandKey: "candidate.promote",
+          commandKind: "promote-catalog-merge-candidate",
+          route: {
+            method: "POST",
+            path: "/api/catalog/source-observations/admin/merge-candidates/:candidateId/promote",
+            candidateId: row.candidate_id,
+          },
+          body: { expectedVersion: 7, reason: "Promote from the scope-first Catalog sync workbench." },
+        },
+      });
+    },
+  );
+
+  it.each(["stale", "promoted", "rejected", "deferred"] as const)("omits promote preview for %s", (status) => {
+    expect(previewCatalogMergeCandidateReviewCommand({ ...candidateRow(), status }, "candidate.promote")).toMatchObject(
+      { status: "blocked", preview: null },
+    );
+  });
+
   it("builds an update Product mapping body that names the candidate version, not a snapshot", () => {
     const result = previewCatalogMergeCandidateReviewCommand(candidateRow(), "candidate.edit");
 

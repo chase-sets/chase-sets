@@ -5,7 +5,7 @@
 //! clock skew, sent as `Chase-Sets-Read-After-Write: encodeURIComponent(JSON)`.
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use corten::axum::http::HeaderMap;
+use corten::http::HeaderMap;
 use percent_encoding::{percent_decode_str, utf8_percent_encode};
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
@@ -101,7 +101,7 @@ impl Receipt {
 
 #[cfg(test)]
 mod tests {
-    use corten::axum::http::HeaderValue;
+    use corten::http::HeaderValue;
 
     use super::*;
 

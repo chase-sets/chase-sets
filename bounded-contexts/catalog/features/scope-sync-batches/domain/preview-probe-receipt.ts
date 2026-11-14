@@ -138,6 +138,7 @@ export type ScopeSyncBatchPreviewProbeProfileInput = Readonly<{
   active: boolean;
   profile: Readonly<{
     capabilities: readonly string[];
+    languageOptions: readonly string[];
     optionQueries: readonly Readonly<{
       queryKind: string;
       scope: string;
@@ -330,6 +331,12 @@ export function readScopeSyncBatchPreviewProbeProviderDetail(
   if (!Array.isArray(selected.capabilities) || !selected.capabilities.every((value) => typeof value === "string")) {
     return unresolved("provider-detail-capabilities-unreadable");
   }
+  if (
+    !Array.isArray(selected.languageOptions) ||
+    !selected.languageOptions.every((value) => typeof value === "string")
+  ) {
+    return unresolved("provider-detail-language-options-unreadable");
+  }
   const workspace = arrayOf(authoring.sectionWorkspaces).find(
     (candidate) => isRecord(candidate) && candidate.sectionKey === "provider-options",
   );
@@ -364,7 +371,11 @@ export function readScopeSyncBatchPreviewProbeProviderDetail(
       ingestionUnitKey: coordinates.unitKey,
       lifecycle: selected.lifecycle,
       active: selected.active,
-      profile: { capabilities: selected.capabilities as string[], optionQueries },
+      profile: {
+        capabilities: selected.capabilities as string[],
+        languageOptions: selected.languageOptions as string[],
+        optionQueries,
+      },
     },
   };
 }

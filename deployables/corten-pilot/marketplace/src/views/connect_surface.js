@@ -7,10 +7,8 @@
 // one. Settlement's step_up_required shows Sign in again. Leaving Stripe's setup form (onExit)
 // sends the page's Refresh setup status, as marketplace refreshes after it. Loading has one
 // deadline over the whole chain, as the payment steps do.
-import { connectAppearance } from "./stripe.js";
+import { connectScriptUrl } from "./stripe.js";
 
-/** Connect.js for @stripe/connect-js 3.x (its V1_URL). */
-const CONNECT_JS = "https://connect-js.stripe.com/v1.0/connect.js";
 /** As the payment steps': half the account-payment UAT's 60 s readiness ceiling. */
 const DEADLINE_MS = 30_000;
 
@@ -23,7 +21,7 @@ function loadConnect() {
   if (page.StripeConnect && typeof page.StripeConnect.init === "function") return Promise.resolve(page.StripeConnect);
   loading ??= new Promise((resolve, reject) => {
     const script = document.createElement("script");
-    script.src = CONNECT_JS;
+    script.src = connectScriptUrl();
     script.async = true;
     script.addEventListener("load", () =>
       page.StripeConnect && typeof page.StripeConnect.init === "function"
@@ -84,7 +82,7 @@ function component(session) {
 
 /**
  * When the component's place joins the page: ask for a session, load Connect.js and mount Stripe's
- * component with the page's theme; any failure, or no answer within the deadline, says why.
+ * component in Stripe's own appearance; any failure, or no answer within the deadline, says why.
  * Leaving the page removes it.
  *
  * @param {HTMLDivElement} target
@@ -132,7 +130,6 @@ export async function mount(target, parts, key, session, couldNotLoad, noSession
         return secret(session, noSession);
       },
       locale: document.documentElement.lang || "en-US",
-      appearance: connectAppearance(target),
     });
     const element = instance.create(component(session));
     element.setOnLoaderStart?.(() => {

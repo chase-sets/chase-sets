@@ -138,6 +138,7 @@ export async function prepareConnectorBoundSettlement(
     runSettlement: {
       runId: run.runId,
       expectedRunRevision: run.revision,
+      stagedReadback: null,
       fromState: "composed",
       toState: "abandoned",
       verificationSnapshotId: null,

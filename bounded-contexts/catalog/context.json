@@ -61,6 +61,11 @@
   "seedRequirements": [],
   "hostPorts": [
     {
+      "portName": "catalogOperatorAuthority",
+      "providedBy": "platform-api",
+      "purpose": "Checks the live Identity authority of the actor and each operator-session grant creator before Catalog observation access."
+    },
+    {
       "portName": "catalogAssetStorage",
       "providedBy": "platform-api",
       "purpose": "Stores Catalog-owned provider asset bytes and returns public URLs for Source Observation promotion."
@@ -751,7 +756,7 @@
     },
     "operator-session": {
       "classification": "slice",
-      "purpose": "Own Catalog encrypted TCGplayer Operator Session custody, Todd-only push grants, monotonic clearing fences, and per-attempt credential resolution.",
+      "purpose": "Own Catalog encrypted TCGplayer Operator Session custody, Todd-only push grants, monotonic clearing fences, per-attempt credential resolution, and grant-authorized operator-extension observation posts.",
       "expectedConsumers": [
         "source-observations",
         "Internal catalog module composition",
@@ -904,9 +909,11 @@
         "fields",
         "product-contents",
         "product-measures",
+        "provider-scope-discovery",
         "provider-scope-mapping",
         "reference-data",
         "scope-registry",
+        "scope-sync-batches",
         "scope-sync-state",
         "source-observations"
       ]
@@ -1120,6 +1127,25 @@
       }
     },
     {
+      "id": "catalog.operator-extension-scope-observation-posts",
+      "owner": "catalog",
+      "risk": "important",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "api-route:bounded-contexts/catalog/features/operator-session/api/route.ts:POST /scope-observations/tcgplayer-set-names"
+      ],
+      "visibleDestination": {
+        "description": "The extension receives the committed observation, new-observation and proposed-mapping counts for its one post; rows carry grant provenance ids, never the bearer or any TCGplayer credential."
+      },
+      "proof": {
+        "authoritativeResponse": "The route responds only after the observation upserts, mapping proposals and refresh-run record return; refusals carry fixed codes and write nothing.",
+        "tests": [
+          "bounded-contexts/catalog/features/operator-session/tests/set-name-observation-post.db.test.ts",
+          "bounded-contexts/catalog/features/operator-session/tests/set-name-observation-post.test.ts"
+        ]
+      }
+    },
+    {
       "id": "catalog.scope-sync-batch-command-snapshots",
       "owner": "catalog",
       "risk": "important",
@@ -1182,6 +1208,25 @@
       "proof": {
         "authoritativeResponse": "Pause and resume respond with the UPDATE ... RETURNING schedule row and run-now responds with the synchronous refresh result; the schedule list read is a direct read of the mutated table, never a projection. bounded-contexts/catalog/features/provider-scope-discovery/api/runtime.db.test.ts proves a pause is visible on the immediately following schedule list read and that run outcomes land on the schedule row before the command returns.",
         "tests": ["bounded-contexts/catalog/features/provider-scope-discovery/api/runtime.db.test.ts"]
+      }
+    },
+    {
+      "id": "catalog.provider-scope-discovery-proposal-acceptance",
+      "owner": "catalog",
+      "risk": "important",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "api-route:bounded-contexts/catalog/features/provider-scope-discovery/api/route.ts:POST /canonical-scope-record-proposals/:proposalId/accept"
+      ],
+      "visibleDestination": {
+        "description": "Accepting a canonical Scope Record proposal returns the accepted proposal row, the Scope Record id it resolved to, any Reference Record it created and published, and the per-unit mapping re-point summary. The proposal list reads the same catalog_scope_record_proposals table the command updated; the created Scope Record and the re-pointed mappings reach their read models through the Scope Registry and Provider Scope Mapping projections."
+      },
+      "proof": {
+        "authoritativeResponse": "The response carries the proposal row from the conditional UPDATE ... RETURNING (or its reread when a retry finds it already accepted) and ids decided from the Reference Record and Provider Scope Mapping streams, never from a projection. bounded-contexts/catalog/features/provider-scope-discovery/api/proposal-acceptance.db.test.ts proves the accepted proposal is visible on the next list read and that the created Scope Record projects active after a drain; runtime.db.test.ts proves the re-pointed mappings land on the accepted id.",
+        "tests": [
+          "bounded-contexts/catalog/features/provider-scope-discovery/api/proposal-acceptance.db.test.ts",
+          "bounded-contexts/catalog/features/provider-scope-discovery/api/runtime.db.test.ts"
+        ]
       }
     },
     {
@@ -1294,6 +1339,8 @@
         "api-route:bounded-contexts/catalog/features/catalog-items/api/route.ts:POST /bulk-lifecycle/preview",
         "api-route:bounded-contexts/catalog/features/catalog-items/api/route.ts:POST /bulk-publish/confirm",
         "api-route:bounded-contexts/catalog/features/catalog-items/api/route.ts:POST /bulk-publish/preview",
+        "api-route:bounded-contexts/catalog/features/catalog-items/api/route.ts:POST /bulk-remove-drafts/confirm",
+        "api-route:bounded-contexts/catalog/features/catalog-items/api/route.ts:POST /bulk-remove-drafts/preview",
         "api-route:bounded-contexts/catalog/features/catalog-items/api/route.ts:PUT /:id/external-catalog-item-references/:providerKey/:externalKey",
         "api-route:bounded-contexts/catalog/features/catalog-items/api/route.ts:PUT /:id/external-product-references/:providerKey/:externalKey",
         "api-route:bounded-contexts/catalog/features/catalog-items/api/route.ts:PUT /:id/fields/:fieldId",
@@ -1365,8 +1412,10 @@
         "api-route:bounded-contexts/catalog/features/source-observations/api/route-modules/catalog-merge-candidate-routes.ts:POST /admin/merge-candidates/:candidateId/promote",
         "api-route:bounded-contexts/catalog/features/source-observations/api/route-modules/catalog-merge-candidate-routes.ts:POST /admin/merge-candidates/:candidateId/split",
         "api-route:bounded-contexts/catalog/features/source-observations/api/route-modules/catalog-merge-candidate-routes.ts:POST /admin/merge-candidates/:candidateId/update",
+        "api-client:bounded-contexts/catalog/features/source-observations/api/promotion/catalog-merge-candidate-review-command-payloads.ts:POST H465c0434cbf3#1",
+        "api-client:bounded-contexts/catalog/features/source-observations/api/promotion/catalog-merge-candidate-review-command-payloads.ts:POST H849c09ce057b#1",
         "api-client:bounded-contexts/catalog/features/source-observations/api/promotion/catalog-merge-candidate-review-command-payloads.ts:POST H865d458e6139#1",
-        "api-client:bounded-contexts/catalog/features/source-observations/api/promotion/catalog-merge-candidate-review-command-payloads.ts:POST H8aaf2790a5e3#1",
+        "api-client:bounded-contexts/catalog/features/source-observations/api/promotion/catalog-merge-candidate-review-command-payloads.ts:POST H8869db554960#1",
         "api-client:bounded-contexts/catalog/features/source-observations/api/promotion/catalog-merge-candidate-review-command-payloads.ts:POST Hbfe1b7ff4330#1",
         "api-client:bounded-contexts/catalog/features/source-observations/api/promotion/catalog-merge-candidate-review-command-payloads.ts:POST He6cacbccf5d1#1",
         "api-route:bounded-contexts/catalog/features/source-observations/api/route-modules/promotion-review-routes.ts:POST /bulk-promote/preview",
@@ -1388,7 +1437,7 @@
         "description": "Source Observation workbench mutations return scoped job, review, Catalog sync scope preview/run/state, candidate generation, merge-candidate command payload preview, import preview, impact, and provider-profile snapshots to the same operator workflow; durable job event streams correct later progress without requiring an immediate projection-backed refresh."
       },
       "proof": {
-        "authoritativeResponse": "Bulk review, integration job, promotion review, provider profile, candidate generation, merge-candidate review command payload preview, and observation review routes return the durable job/profile/review/preview/candidate snapshot produced by the command service in the same request. Catalog sync scope preview returns the computed provider participation preview snapshot without enqueuing a provider job. Catalog sync scope run enqueue returns the durable parent run snapshot with selected provider-unit snapshots and child fan-out links. Catalog sync scope state returns the durable per-scope-per-provider-unit sync state snapshot read directly from catalog_scope_sync_state, the same table the fan-out and worker completion/failure hooks upsert into, so the response is never behind the write it reflects. Candidate generation returns the generated merge-candidate snapshot correlated to the requested sync run or scope. Merge-candidate review command previews return the exact split/update route and body payload from the candidate review row, and the submitted command routes return the command-owned candidate snapshot. Route tests cover Catalog sync scope preview/run/state, job enqueue/lifecycle snapshots, provider profile lifecycle responses, review command snapshots, candidate generation service wiring, merge-candidate command payload previews, and preview/impact responses.",
+        "authoritativeResponse": "Bulk review, integration job, promotion review, provider profile, candidate generation, merge-candidate review command payload preview, and observation review routes return the durable job/profile/review/preview/candidate snapshot produced by the command service in the same request. Catalog sync scope preview returns the computed provider participation preview snapshot without enqueuing a provider job. Catalog sync scope run enqueue returns the durable parent run snapshot with selected provider-unit snapshots and child fan-out links. Catalog sync scope state returns the durable per-scope-per-provider-unit sync state snapshot read directly from catalog_scope_sync_state, the same table the fan-out and worker completion/failure hooks upsert into, so the response is never behind the write it reflects. Candidate generation returns the generated merge-candidate snapshot correlated to the requested sync run or scope. Merge-candidate review command previews return the exact promote/split/update route and body payload from the candidate review row, and the submitted command routes return the command-owned candidate snapshot. Route tests cover Catalog sync scope preview/run/state, job enqueue/lifecycle snapshots, provider profile lifecycle responses, review command snapshots, candidate generation service wiring, merge-candidate command payload previews, and preview/impact responses.",
         "tests": [
           "bounded-contexts/catalog/features/source-observations/api/promotion/catalog-merge-candidate-review-command-payloads.test.ts",
           "bounded-contexts/catalog/features/source-observations/api/runtime-service-facets.test.ts",
@@ -1434,7 +1483,7 @@
         "api-client:bounded-contexts/catalog/support/shell-support/api/client.ts:POST H7503ecdfed3e#1",
         "api-client:bounded-contexts/catalog/support/shell-support/api/client.ts:POST H785a9293c67b#1",
         "api-client:bounded-contexts/catalog/support/shell-support/api/client.ts:POST H876c5e305fd2#1",
-        "api-client:bounded-contexts/catalog/support/shell-support/api/client.ts:POST H8acc70cf4320#1",
+        "api-client:bounded-contexts/catalog/support/shell-support/api/client.ts:POST Hefce8946403d#1",
         "api-client:bounded-contexts/catalog/support/shell-support/api/client.ts:POST H8ca59b7e95dc#1",
         "api-client:bounded-contexts/catalog/support/shell-support/api/client.ts:POST H8fb4eb8e717e#1",
         "api-client:bounded-contexts/catalog/support/shell-support/api/client.ts:POST He563b1cdce47#1",

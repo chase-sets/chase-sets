@@ -3,6 +3,7 @@
 //! status, target kind), rows and create dialog, and the page's values, status change and edit
 //! dialog. admin-web offers no bulk changes here.
 use corten::prelude::*;
+use platform::ui::table::TableLayout;
 
 use super::{
     ActionBar, CatalogDialog, DetailPage, Draft, Empty, Filters, KeyValues, LifecycleForm, ListPage, ListScreen, Pager, Pick,
@@ -73,6 +74,7 @@ pub fn template_list<'a>(
         </Filters>
         <corten-live src={&live}>{template_rows(t, p, query, screen)}</corten-live>
         <CatalogDialog
+            p={p}
             id={ids::CREATE_DIALOG}
             title={t.template_list_create_display_template()}
             description={None}
@@ -116,7 +118,7 @@ pub fn template_rows<'a>(
             if screen.items.is_empty() {
                 <Empty title={&empty_title} description={&empty_description} />
             } else {
-                <Table label={title} head={&head} all={None}>
+                <Table label={title} head={&head} all={None} layout={TableLayout::Stack}>
                     for row in &screen.items {
                         <TemplateRow t={t} row={row} />
                     }
@@ -184,6 +186,7 @@ pub fn template_page<'a>(
         </DetailPage>
         if editable {
             <CatalogDialog
+                p={p}
                 id={ids::EDIT_DIALOG}
                 title={t.template_edit_display_template()}
                 description={None}

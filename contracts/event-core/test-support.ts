@@ -25,6 +25,7 @@ import type {
 } from "./storage";
 import type { TransportEvent } from "./transport";
 import type { InMemoryConfigurationConsumer } from "./configuration-epoch-memory";
+import type { InMemoryOwnerStreamReservationStore } from "./owner-stream-reservation";
 export {
   createInMemoryConfigurationConsumer,
   createInMemoryConfigurationEpochStore,
@@ -111,6 +112,7 @@ export type InMemoryEventStore = Readonly<{
 
 export type InMemoryEventStoreOptions = Readonly<{
   configurationEpoch?: InMemoryConfigurationConsumer;
+  ownerStreamReservations?: InMemoryOwnerStreamReservationStore;
 }>;
 
 export type BoundedStreamReadContractInput = Readonly<{
@@ -249,6 +251,8 @@ export function createInMemoryEventStore(options: InMemoryEventStoreOptions = {}
   const eventStore: EventStore = {
     appendToStream: async (input) => {
       if (input.configurationGrants?.length) throw new Error("Class-C grants require appendToStreams.");
+      if (input.requestTerminal)
+        throw createEventStoreError("concurrency_conflict", "Request terminals require appendToStreams.");
       return appendToStream(input);
     },
     appendToStreams: async (inputs) => {
@@ -271,8 +275,27 @@ export function createInMemoryEventStore(options: InMemoryEventStoreOptions = {}
       const priorStreams = new Map([...streams].map(([streamId, events]) => [streamId, [...events]]));
       const priorAllEvents = [...allEvents];
       const priorEventsById = new Map(eventsById);
+      const priorOwnerReservations = options.ownerStreamReservations?.snapshot();
 
       try {
+        const terminalBindings = inputs.flatMap((input) => (input.requestTerminal ? [input.requestTerminal] : []));
+        const terminalKeys = terminalBindings.map((binding) =>
+          JSON.stringify([binding.consumerStoreId, binding.requestId]),
+        );
+        if (new Set(terminalKeys).size !== terminalKeys.length)
+          throw createEventStoreError("concurrency_conflict", "Each request terminal may participate once per append.");
+        for (const binding of terminalBindings.sort((left, right) =>
+          JSON.stringify([left.consumerStoreId, left.requestId]).localeCompare(
+            JSON.stringify([right.consumerStoreId, right.requestId]),
+          ),
+        )) {
+          if (!options.ownerStreamReservations)
+            throw createEventStoreError(
+              "concurrency_conflict",
+              "Request terminals require an owner-stream reservation store.",
+            );
+          options.ownerStreamReservations.commitRequestTerminalSync(binding);
+        }
         return inputs.map((input) => ({
           streamId: input.streamId,
           storedEvents: input.events.length === 0 ? [] : appendToStream(input),
@@ -284,12 +307,15 @@ export function createInMemoryEventStore(options: InMemoryEventStoreOptions = {}
         allEvents.splice(0, allEvents.length, ...priorAllEvents);
         eventsById.clear();
         for (const [eventId, event] of priorEventsById) eventsById.set(eventId, event);
+        if (priorOwnerReservations) options.ownerStreamReservations?.restore(priorOwnerReservations);
         throw error;
       }
     },
     appendToStreamsIndependently: async (inputs) => {
       if (inputs.some((input) => input.configurationGrants?.length))
         throw new Error("Class-C grants require appendToStreams.");
+      if (inputs.some((input) => input.requestTerminal))
+        throw createEventStoreError("concurrency_conflict", "Request terminals require appendToStreams.");
       const results: AppendToStreamsIndependentResult[] = [];
       for (const input of inputs) {
         if (input.events.length === 0) {

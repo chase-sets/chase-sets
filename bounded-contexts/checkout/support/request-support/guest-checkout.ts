@@ -1,9 +1,9 @@
-import { AUTH_GUEST_CHECKOUT_COOKIE_NAME } from "@chase-sets/auth-context";
+import { AUTH_GUEST_CHECKOUT_COOKIE_NAME, CHECKOUT_ANONYMOUS_SELL_LIST_COOKIE_NAME } from "@chase-sets/auth-context";
 import { serializeCookie } from "@chase-sets/http/cookies";
 import { createId } from "@chase-sets/primitives/typed-ids";
 
 export const CHECKOUT_ANONYMOUS_CART_COOKIE_NAME = "chase_sets_anonymous_cart";
-export const CHECKOUT_ANONYMOUS_SELL_LIST_COOKIE_NAME = "chase_sets_anonymous_sell_list";
+export { CHECKOUT_ANONYMOUS_SELL_LIST_COOKIE_NAME } from "@chase-sets/auth-context";
 const THIRTY_DAYS_SECONDS = 60 * 60 * 24 * 30;
 const ONE_DAY_SECONDS = 60 * 60 * 24;
 

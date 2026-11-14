@@ -114,6 +114,9 @@ importers:
       '@chase-sets/bounded-context-runtime':
         specifier: workspace:*
         version: link:../../infrastructure/bounded-context-runtime
+      '@chase-sets/catalog-seed':
+        specifier: workspace:*
+        version: link:../../contracts/catalog-seed
       '@chase-sets/design-system':
         specifier: workspace:*
         version: link:../../packages/design-system
@@ -347,6 +350,9 @@ importers:
       '@chase-sets/event-core-postgres':
         specifier: workspace:*
         version: link:../../infrastructure/event-core-postgres
+      '@chase-sets/fulfillment':
+        specifier: workspace:*
+        version: link:../fulfillment
       '@chase-sets/http':
         specifier: workspace:*
         version: link:../../contracts/http
@@ -383,6 +389,9 @@ importers:
       '@chase-sets/product-measures':
         specifier: workspace:*
         version: link:../../contracts/product-measures
+      '@chase-sets/settlement':
+        specifier: workspace:*
+        version: link:../settlement
       hono:
         specifier: ^4.13.13
         version: 4.13.13
@@ -2292,6 +2301,9 @@ importers:
         specifier: workspace:*
         version: link:../../infrastructure/platform-runtime
     devDependencies:
+      '@chase-sets/auth':
+        specifier: workspace:*
+        version: link:../../bounded-contexts/auth
       '@playwright/test':
         specifier: ^1.60.0
         version: 1.60.0
@@ -2307,6 +2319,9 @@ importers:
       fflate:
         specifier: ^0.8.3
         version: 0.8.3
+      hono:
+        specifier: ^4.13.13
+        version: 4.13.13
       typescript:
         specifier: ^7.0.0
         version: 7.0.2

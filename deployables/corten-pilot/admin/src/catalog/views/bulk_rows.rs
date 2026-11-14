@@ -1,4 +1,4 @@
-use corten::prelude::*;
+use corten::{Href, form::keep_query, prelude::*};
 
 use super::ids;
 use crate::{
@@ -6,12 +6,12 @@ use crate::{
     text::{Cat, Pilot},
 };
 
-/// The bulk bar's part of a list's rows: what it changes, where it posts, and the action labels.
+/// The bulk bar's part of a list's rows: what it changes, where it goes, and the action labels.
 pub struct Bar<'a> {
     /// The plural name of the records (`Dimensions`).
     pub entity: &'a str,
-    /// The preview's URL, with the list's filters.
-    pub action: &'a str,
+    /// The preview's route, with the list's filters.
+    pub action: &'a dyn Href,
     /// Every record the filters match, on every page.
     pub total: u32,
     /// The actions it offers: value and label.
@@ -20,8 +20,10 @@ pub struct Bar<'a> {
 
 /// A list's rows (`ids::ROWS`, what a change to the list draws again) for staff who may change
 /// them, with the bulk bar above them. The rows' boxes and the select-all box belong to the
-/// bar's form (`form="catalog-bulk"`), so it posts the checked ids without JavaScript, and
-/// Clear Selection is the form's reset. With it, the script keeps the count, the select-all box
+/// bar's form (`form="catalog-bulk"`), so it sends the checked ids without JavaScript, and
+/// Clear Selection is the form's reset. A preview writes nothing, so the form is a `GET` of the
+/// preview's route, which keeps the list's filters (`keep_query`): its answer, the list with the
+/// preview open, is at an address that can be reloaded and shared. With it, the script keeps the count, the select-all box
 /// and the buttons in step with the boxes. It runs again when the rows are drawn again, so the
 /// count follows a live change; a box the user checked keeps its mark through it.
 ///
@@ -30,9 +32,8 @@ pub struct Bar<'a> {
 ///
 /// `fields` are drawn after the action (what an action takes, such as the catalog items' tags)
 /// and `more` after the preview buttons (another submit of the form, with its `formaction`).
-/// A submit marked `data-requires="draft"` is enabled only while every checked row's box is
-/// marked `data-status="draft"` (admin-web's Remove Drafts); without the script the server
-/// checks it.
+/// A submit marked `data-checked` is enabled only while a row is checked (admin-web's Remove
+/// drafts); without the script the API refuses none checked.
 #[component(css, js)]
 pub fn BulkRows<'a, F: Render, M: Render, C: Render>(
     t: Cat,
@@ -44,7 +45,7 @@ pub fn BulkRows<'a, F: Render, M: Render, C: Render>(
 ) -> impl Patch {
     let (form, count, preview, clear) = refs();
     let f = BulkInput::FIELDS;
-    let matching = t.bulk_matching(bar.total, bar.entity).to_string();
+    let matching = t.bulk_matching(crate::text::cat::BulkMatching { count: bar.total, entity_name: bar.entity }).to_string();
     let sel = js::Selection { form, count, preview, clear };
     html! {
         <div
@@ -58,29 +59,31 @@ pub fn BulkRows<'a, F: Render, M: Render, C: Render>(
                 ref={form}
                 id={ids::BULK}
                 class={Bar}
-                method="post"
+                method="get"
                 action={bar.action}
                 data-patch
                 aria-label={p.bulk_label()}
             >
                 <output ref={count} class={Count}>{&matching}</output>
-                <div class={Actions}>
-                    <label class={Pick}>
-                        <span class={Label}>{t.bulk_action()}</span>
-                        <select name={f.action}>
-                            for (value, label) in bar.actions {
-                                <option value={*value}>{*label}</option>
-                            }
-                        </select>
-                    </label>
-                    {fields}
-                    <button ref={preview} type="submit" class={Small} name={f.mode} value="ids">{t.bulk_preview()}</button>
-                    <button type="submit" class={(Small, Secondary)} name={f.mode} value="filter">
-                        {t.bulk_preview_matching()}
-                    </button>
-                    {more}
-                    <button ref={clear} type="reset" class={(Small, Secondary)}>{t.bulk_clear_selection()}</button>
-                </div>
+                {keep_query(bar.action, &html! {
+                    <div class={Actions}>
+                        <label class={Pick}>
+                            <span class={Label}>{t.bulk_action()}</span>
+                            <select name={f.action}>
+                                for (value, label) in bar.actions {
+                                    <option value={*value}>{*label}</option>
+                                }
+                            </select>
+                        </label>
+                        {&fields}
+                        <button ref={preview} type="submit" class={Small} name={f.mode} value="ids">{t.bulk_preview()}</button>
+                        <button type="submit" class={(Small, Secondary)} name={f.mode} value="filter">
+                            {t.bulk_preview_matching()}
+                        </button>
+                        {&more}
+                        <button ref={clear} type="reset" class={(Small, Secondary)}>{t.bulk_clear_selection()}</button>
+                    </div>
+                })}
             </form>
             {children}
         </div>
@@ -97,12 +100,12 @@ pub fn SelectAll(p: Pilot) -> impl Render {
     }
 }
 
-/// A row's box, in the bulk form; `status`, the row's, for a submit that needs one.
+/// A row's box, in the bulk form.
 #[component(css = BulkRows)]
-pub fn SelectRow<'a>(p: Pilot, id: &'a str, status: Option<&'a str>) -> impl Render {
+pub fn SelectRow<'a>(p: Pilot, id: &'a str) -> impl Render {
     let f = BulkInput::FIELDS;
     let label = p.bulk_select_row(id).to_string();
     html! {
-        <input type="checkbox" class={Box} name={f.ids} value={id} form={ids::BULK} aria-label={&label} data-status={status}>
+        <input type="checkbox" class={Box} name={f.ids} value={id} form={ids::BULK} aria-label={&label}>
     }
 }

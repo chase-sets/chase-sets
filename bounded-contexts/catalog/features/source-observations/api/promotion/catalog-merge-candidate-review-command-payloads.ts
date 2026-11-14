@@ -8,9 +8,10 @@ import type {
 } from "../../domain/catalog-merge-candidate";
 import type { CatalogMergeCandidateListRow } from "../../read-model/queries";
 
-export type CatalogMergeCandidateReviewCommandKey = "candidate.split" | "candidate.edit";
+export type CatalogMergeCandidateReviewCommandKey = "candidate.promote" | "candidate.split" | "candidate.edit";
 
 export type CatalogMergeCandidateReviewCommandPreview =
+  | CatalogMergeCandidatePromoteCommandPreview
   | CatalogMergeCandidateSplitCommandPreview
   | CatalogMergeCandidateUpdateProductMappingCommandPreview;
 
@@ -42,6 +43,18 @@ export type CatalogMergeCandidateReviewCommandProvenance = Readonly<{
   fieldProvenance: readonly CatalogMergeCandidateFieldProvenance[];
   externalCatalogItemReferences: readonly CatalogMergeCandidateExternalCatalogItemReference[];
   externalProductReferences: readonly CatalogMergeCandidateExternalProductReference[];
+}>;
+
+export type CatalogMergeCandidatePromoteCommandPreview = Readonly<{
+  commandKind: "promote-catalog-merge-candidate";
+  commandKey: "candidate.promote";
+  route: Readonly<{
+    method: "POST";
+    path: "/api/catalog/source-observations/admin/merge-candidates/:candidateId/promote";
+    candidateId: string;
+  }>;
+  body: Readonly<{ reason: string; expectedVersion: number }>;
+  provenance: CatalogMergeCandidateReviewCommandProvenance;
 }>;
 
 export type CatalogMergeCandidateUpdateProductMappingCommandPreview = Readonly<{
@@ -99,6 +112,27 @@ export function previewCatalogMergeCandidateReviewCommand(
   const blockers = actionableBlockers(candidate);
   if (blockers.length > 0) {
     return { status: "blocked", preview: null, blockers };
+  }
+
+  if (commandKey === "candidate.promote") {
+    return {
+      status: "available",
+      blockers: [],
+      preview: {
+        commandKind: "promote-catalog-merge-candidate",
+        commandKey,
+        route: {
+          method: "POST",
+          path: "/api/catalog/source-observations/admin/merge-candidates/:candidateId/promote",
+          candidateId: candidate.candidate_id,
+        },
+        body: {
+          reason: "Promote from the scope-first Catalog sync workbench.",
+          expectedVersion: candidate.last_stream_version,
+        },
+        provenance: commandProvenance(candidate),
+      },
+    };
   }
 
   const snapshot = snapshotFromReviewRow(candidate);

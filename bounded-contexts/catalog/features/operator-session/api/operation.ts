@@ -1,18 +1,22 @@
 import type { PgPoolClient, PgQueryResult, PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { OperatorSessionRequestError } from "./request";
 
-const lockId = "84518450";
+const grantLockId = "84518450";
+// Serializes operator-extension observation writes across API replicas without blocking grant operations.
+export const observationWriteLockId = "84518451";
 const unavailable = () => new OperatorSessionRequestError("custody-unavailable", 503);
 
 export async function withOperatorSessionBackend<T>(
   pool: PgTransactionalPool,
   work: (bound: PgTransactionalPool) => Promise<T>,
+  lockId: string = grantLockId,
 ): Promise<T> {
   let client: PgPoolClient | undefined;
   let poisoned = false;
   let locked = false;
   let released = false;
   let expired = false;
+  let workFailed = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
   const deadline = new Promise<never>((_, reject) => {
     timer = setTimeout(() => {
@@ -37,7 +41,8 @@ export async function withOperatorSessionBackend<T>(
     ]);
     const boundClient: PgPoolClient = {
       async query<Row>(text: string, values?: readonly unknown[]): Promise<PgQueryResult<Row>> {
-        if (poisoned || released || !client) throw unavailable();
+        // A failed statement poisons further work, but transaction cleanup must still roll back.
+        if ((poisoned && text !== "ROLLBACK") || released || !client) throw unavailable();
         try {
           return await client.query<Row>(text, values);
         } catch (error) {
@@ -76,7 +81,12 @@ export async function withOperatorSessionBackend<T>(
       if (!locked) await Promise.race([new Promise((resolve) => setTimeout(resolve, 20)), deadline]);
     }
     clearTimeout(timer);
-    return await work(bound);
+    try {
+      return await work(bound);
+    } catch (error) {
+      workFailed = true;
+      throw error;
+    }
   } finally {
     clearTimeout(timer);
     if (client && !released) {
@@ -94,6 +104,6 @@ export async function withOperatorSessionBackend<T>(
       released = true;
       client.release(poisoned ? unavailable() : undefined);
     }
-    if (poisoned) throw unavailable();
+    if (poisoned && !workFailed) throw unavailable();
   }
 }

@@ -49,7 +49,12 @@ const rows = (page) =>
     .locator("tbody tr")
     .evaluateAll((trs) =>
       trs.map((tr) =>
-        Array.from(tr.querySelectorAll("td"), (td) => (td.textContent ?? "").replace(/\s+/g, " ").trim()).slice(0, 5),
+        Array.from(tr.querySelectorAll("td"), (td) => {
+          // What a reader hears: the kit's cell label for its stacked phone layout is aria-hidden.
+          const cell = /** @type {HTMLElement} */ (td.cloneNode(true));
+          cell.querySelectorAll('[aria-hidden="true"]').forEach((e) => e.remove());
+          return (cell.textContent ?? "").replace(/\s+/g, " ").trim();
+        }).slice(0, 5),
       ),
     );
 
@@ -74,7 +79,8 @@ const rows = (page) =>
     }
   }
   check(
-    (await page.locator('nav a[aria-current="page"]').textContent()) === "Scopes",
+    // The area's nav marks Catalog and its section nav marks Scopes.
+    (await page.locator('nav a[aria-current="page"]').allTextContents()).map((t) => t.trim()).includes("Scopes"),
     "the nav's Scopes is the current page",
   );
 

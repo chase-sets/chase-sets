@@ -404,6 +404,16 @@ const ebayReceiptLookupStagingActorDelta = [
     purpose: "application-runtime",
   },
 ];
+// Adds the staging-only persona sign-in verifier digest at the same Secret-apply sink.
+const connectorStagingPersonaVerifierDelta = [
+  {
+    file: ".github/workflows/platform-production.yml",
+    jobId: "deploy-staging",
+    stepAnchor: "name:Apply staging Kubernetes runtime secrets#33",
+    secretName: "CONNECTOR_STAGING_PERSONA_MAGIC_LINK_VERIFIER_SHA256",
+    purpose: "application-runtime",
+  },
+];
 // #9912 delta: the daily credential health check's rotation App key and its step-local liveness secrets.
 const credentialHealthWorkflow = ".github/workflows/platform-credential-health.yml";
 const credentialHealthDelta = [
@@ -1025,6 +1035,7 @@ describe("managed Postgres authority source generator", () => {
               : "EBAY_APPLICATION_CLIENT_SECRET",
         })),
         ...ebayReceiptLookupStagingActorDelta,
+        ...connectorStagingPersonaVerifierDelta,
         ...catalogCountPreparationDelta,
         ...idleDraftRetirementDelta,
         ...catalogCountLifecycleDelta,
