@@ -5749,6 +5749,48 @@ pub enum ListingCommand {
     Withdraw,
 }
 
+/// The bulk changes a seller makes to many listings at once (`MarketplaceListingBatchFamily`'s
+/// listing families).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+pub enum BatchFamily {
+    #[serde(rename = "listing.pause")]
+    Pause,
+    #[serde(rename = "listing.withdraw")]
+    Withdraw,
+}
+
+/// One bulk Pause or Withdraw (`POST /account/listings/batch`): its batch id, which a retry sends
+/// again, and the listings.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ListingBatch<'a> {
+    pub batch_id: &'a str,
+    pub family: BatchFamily,
+    pub listing_ids: &'a [String],
+}
+
+/// What a batch came to (`MarketplaceListingBatchResult`): each listing's terminal outcome.
+#[derive(Clone, Debug, Default, Deserialize)]
+pub struct BatchResult {
+    #[serde(default)]
+    pub items: Vec<BatchItem>,
+}
+
+/// A listing's outcome in a batch: `succeeded`, or `conflict`, `error` or `unknown` (the only
+/// one a retry of the batch sends again).
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BatchItem {
+    pub target_id: String,
+    pub outcome: String,
+}
+
+impl BatchItem {
+    pub fn succeeded(&self) -> bool {
+        self.outcome == "succeeded"
+    }
+}
+
 /// Why a listing command was not applied.
 #[derive(Debug)]
 pub enum CommandError {
@@ -5773,6 +5815,10 @@ pub trait SellerListings {
     async fn seller_listing(&self, id: &str) -> Result<SellerListing, ApiError>;
     async fn fee_history(&self, id: &str) -> Result<Vec<FeeHistoryEntry>, ApiError>;
     async fn listing_command(&self, id: &str, command: &ListingCommand) -> Result<Option<Receipt>, CommandError>;
+    /// Pauses or withdraws many listings as one batch: each one's outcome, and the receipt the
+    /// next read waits for. Marketplace keeps each batch's outcomes, so the same batch sent again
+    /// sends only the listings whose outcome was unknown.
+    async fn listing_batch(&self, batch: &ListingBatch<'_>) -> Result<(BatchResult, Option<Receipt>), ApiError>;
     /// Adds photos to a draft, each with `alt_text` when there is one.
     async fn add_listing_photos(
         &self,
@@ -5877,6 +5923,10 @@ impl SellerListings for Caller<'_> {
             req = req.json(&body);
         }
         answer(req).await
+    }
+
+    async fn listing_batch(&self, batch: &ListingBatch<'_>) -> Result<(BatchResult, Option<Receipt>), ApiError> {
+        self.write(self.request(Method::POST, "/api/marketplace/account/listings/batch", MARKETPLACE).json(batch)).await
     }
 
     async fn add_listing_photos(

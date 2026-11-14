@@ -12,24 +12,24 @@
 //!
 //! Writes, each its own form posting an `intent` to the page: turn listings off or on, schedule or
 //! cancel an away window, set or remove the order capacity (each redirects to the page with its
-//! receipt), and Pause or Withdraw the checked listings (the page again, each listing's outcome
-//! shown, read after the latest write). A date a seller picks means the start of that day where
+//! receipt), and Pause or Withdraw the checked listings as one batch (the page again, each listing's
+//! outcome shown, read after the batch). A date a seller picks means the start of that day where
 //! they are (marketplace's `localDateInputToInstant`): the browser's time zone (`ClientZone`), or
 //! before the runtime has run (a first page, no JavaScript) the zone the account chose in
 //! Identity's preferences, or UTC.
 use corten::{
-    ClientZone, LiveResponse,
+    ClientZone, LiveResponse, SubmitKey,
     extract::State,
     form::Errors,
     http::{HeaderMap, StatusCode},
     prelude::*,
 };
-use futures_util::{StreamExt, future::join_all};
+use futures_util::StreamExt;
 use platform::{realtime::Tick, receipt::Receipt};
 
 use crate::{
     api::{
-        ApiError, Availability, Caller as Api, CommandError, FeeLockRow, ListingCommand, ListingPage, OrderCapacity,
+        ApiError, Availability, BatchFamily, Caller as Api, CommandError, FeeLockRow, ListingBatch, ListingPage, OrderCapacity,
         PreferenceCalls as _, SellerListingList as _, SellerListings as _, SellerMetrics, SellerSetting, segment,
     },
     app::{Shared, read_failed, sign_in, url},
@@ -141,6 +141,8 @@ pub struct ListingsForm {
     pub max_open_orders: String,
     /// The checked listings, for Pause selected and Withdraw selected.
     pub listing_ids: Vec<String>,
+    /// The bulk form's batch id, drawn with the form: the same form sent again is the same batch.
+    pub attempt: Option<SubmitKey>,
 }
 
 /// One listing's outcome of a bulk Pause or Withdraw (`MarketplaceListingBulkActionOutcome`).
@@ -149,6 +151,12 @@ pub struct Outcome {
     pub listing_id: String,
     pub ok: bool,
     pub message: Option<String>,
+}
+
+impl Outcome {
+    fn failed(listing_id: String, message: &str) -> Self {
+        Outcome { listing_id, ok: false, message: Some(message.to_owned()) }
+    }
 }
 
 /// The page.
@@ -458,12 +466,12 @@ pub(crate) async fn write(
 ) -> HtmlResult {
     let place = route.place;
     let (t, p): (SellerListingsMsg, Pilot) = (req.t(), req.t());
-    if let Some(command) = match form.intent.as_str() {
-        "bulk-pause-listings" => Some(ListingCommand::Pause),
-        "bulk-withdraw-listings" => Some(ListingCommand::Withdraw),
+    if let Some(family) = match form.intent.as_str() {
+        "bulk-pause-listings" => Some(BatchFamily::Pause),
+        "bulk-withdraw-listings" => Some(BatchFamily::Withdraw),
         _ => None,
     } {
-        return bulk(&req, &viewer, &config, &headers, &place, form, command).await;
+        return bulk(&req, &viewer, &config, &headers, &place, form, family).await;
     }
     let refused_page = |errors: Errors, form: ListingsForm, status| {
         let after = After { errors, sent: form, ..After::default() };
@@ -505,9 +513,13 @@ pub(crate) async fn write(
     refused_page(errors, form, status).await
 }
 
-/// Pause selected or Withdraw selected: each checked listing's write, side by side, then the page
-/// with each one's outcome, read after the latest write. A refusal (4xx) is that listing's
-/// outcome; a failure (5xx, no answer) is the error page, as marketplace's action throws.
+/// Pause selected or Withdraw selected: the checked listings as one batch (marketplace's
+/// `applyListingBatch`) whose id is the form's attempt, then the page with each listing's outcome,
+/// read after the batch. The same form sent again (a double click, a resend after a lost answer)
+/// is the same batch: Marketplace answers what it decided and sends again only a listing whose
+/// outcome was unknown. A listing that did not succeed says the bulk action failed, as
+/// marketplace's page says; a refused batch (4xx) says why for every listing; a failure (5xx, no
+/// answer) is the error page, as marketplace's action throws.
 #[allow(clippy::too_many_arguments)]
 async fn bulk(
     req: &Req,
@@ -516,7 +528,7 @@ async fn bulk(
     headers: &HeaderMap,
     place: &Place,
     form: ListingsForm,
-    command: ListingCommand,
+    family: BatchFamily,
 ) -> HtmlResult {
     let (t, p): (SellerListingsMsg, Pilot) = (req.t(), req.t());
     let mut ids: Vec<String> = Vec::new();
@@ -531,36 +543,36 @@ async fn bulk(
         let after = After { errors, sent: form, ..After::default() };
         return render(req, viewer, config, headers, place, None, after, StatusCode::UNPROCESSABLE_ENTITY).await;
     }
+    // A form drawn before the batch id was part of it gets one of its own.
+    let batch_id = form.attempt.as_ref().map_or_else(|| uuid::Uuid::new_v4().to_string(), |key| key.as_str().to_owned());
     let caller = config.platform.caller(headers, config.proto, None);
-    let answers = join_all(ids.iter().map(|id| caller.listing_command(id, &command))).await;
-    let mut latest: Option<Receipt> = None;
-    let mut outcomes = Vec::with_capacity(ids.len());
-    for (listing_id, answer) in ids.into_iter().zip(answers) {
-        let message = match answer {
-            Ok(receipt) => {
-                latest = match (latest, receipt) {
-                    (Some(a), Some(b)) => Some(a.later(b)),
-                    (a, b) => a.or(b),
-                };
-                outcomes.push(Outcome { listing_id, ok: true, message: None });
-                continue;
+    let batch = ListingBatch { batch_id: &batch_id, family, listing_ids: &ids };
+    let (outcomes, receipt, status) = match caller.listing_batch(&batch).await {
+        Ok((result, receipt)) => {
+            let outcomes = ids
+                .into_iter()
+                .map(|listing_id| match result.items.iter().any(|item| item.target_id == listing_id && item.succeeded()) {
+                    true => Outcome { listing_id, ok: true, message: None },
+                    false => Outcome::failed(listing_id, t.route_bulk_action_request_failed()),
+                })
+                .collect();
+            (outcomes, receipt, StatusCode::OK)
+        }
+        Err(error) => match error.status() {
+            Some(StatusCode::UNAUTHORIZED) => return sign_in(req),
+            Some(status) if status.is_client_error() => {
+                let message = error
+                    .code()
+                    .and_then(|code| refusal(t, code))
+                    .or(error.refusal())
+                    .unwrap_or(t.route_bulk_action_request_failed());
+                (ids.into_iter().map(|id| Outcome::failed(id, message)).collect(), None, StatusCode::UNPROCESSABLE_ENTITY)
             }
-            Err(CommandError::Api(error)) => match error.status() {
-                Some(StatusCode::UNAUTHORIZED) => return sign_in(req),
-                Some(status) if status.is_client_error() => {
-                    error.code().and_then(|code| refusal(t, code)).or(error.refusal()).map(str::to_owned)
-                }
-                _ => return Err(corten::Error::new(error).with_status(StatusCode::BAD_GATEWAY)),
-            },
-            // A 409 that carries a fee quote or evidence: still that listing's refusal.
-            Err(CommandError::StaleQuote(_)) => Some(t.error_fee_quote_stale().to_owned()),
-            Err(CommandError::EvidenceIncomplete { message, .. }) => Some(message),
-        };
-        let message = message.unwrap_or_else(|| t.route_bulk_action_request_failed().to_owned());
-        outcomes.push(Outcome { listing_id, ok: false, message: Some(message) });
-    }
+            _ => return Err(corten::Error::new(error).with_status(StatusCode::BAD_GATEWAY)),
+        },
+    };
     let after = After { outcomes: Some(outcomes), ..After::default() };
-    render(req, viewer, config, headers, place, latest, after, StatusCode::OK).await
+    render(req, viewer, config, headers, place, receipt, after, status).await
 }
 
 /// The list's parts for `<corten-live>` (marketplace's `useRealtimePatchedSnapshot` on
