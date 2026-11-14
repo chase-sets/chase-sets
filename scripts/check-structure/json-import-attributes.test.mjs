@@ -563,11 +563,11 @@ describe("real repository execution membership", () => {
 
       expect(result.violations, result.violations.join("\n")).toEqual([]);
       expect(result.inventory.parserVersion).toBe("6.0.3");
-      expect(result.inventory.declarations).toHaveLength(138);
+      expect(result.inventory.declarations).toHaveLength(139);
       expect(result.inventory.partition).toEqual({
         "node-enforced": 57,
         "vite-excluded": 54,
-        "vitest-excluded": 27,
+        "vitest-excluded": 28,
         "manifest-only": 0,
         indeterminate: 0,
       });
@@ -581,8 +581,22 @@ describe("real repository execution membership", () => {
           disposition,
         }),
       );
+      expect(
+        normalized.filter(
+          ({ relativeFile }) => relativeFile === "bounded-contexts/fulfillment/routes/seller-shipping-setup.test.tsx",
+        ),
+      ).toEqual([
+        {
+          relativeFile: "bounded-contexts/fulfillment/routes/seller-shipping-setup.test.tsx",
+          form: "import",
+          specifier: "../context.json",
+          attributeText: null,
+          resolved: "bounded-contexts/fulfillment/context.json",
+          disposition: "vitest-excluded",
+        },
+      ]);
       expect(createHash("sha256").update(JSON.stringify(normalized)).digest("hex")).toBe(
-        "052e5a10f855839d16ccb8a5e69cd0791bc725f2996f54afca5d531c740d596a",
+        "4fbb60eedeaed4bea1bc20f5f915f4359c9e79651abb5d1207273e57e8816dfb",
       );
       expect(
         normalized.filter(

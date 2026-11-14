@@ -258,6 +258,7 @@ describe("portable route manifest contract", () => {
 
     expect(violations).toEqual([]);
     expect(routeModules.map(({ route }) => route.routeId)).toContain("account-desk-pricing-health");
+    expect(routeModules.map(({ route }) => route.routeId)).toContain("seller-shipping-setup");
     expect(routeModules).toContainEqual(
       expect.objectContaining({
         contextName: "discovery",
@@ -270,7 +271,7 @@ describe("portable route manifest contract", () => {
       }),
     );
     expect({ routeCount, portableCount, webResourceOnlyCount }).toEqual({
-      routeCount: 89,
+      routeCount: 90,
       portableCount: 3,
       webResourceOnlyCount: 3,
     });
