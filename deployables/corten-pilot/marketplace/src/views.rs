@@ -131,7 +131,7 @@ pub use repricing_page::{
 };
 pub use reviews_page::{ReviewAnchorId, ReviewPage, ReviewPreparing, ReviewsPage};
 pub use save_dialog::SaveDialog;
-pub use search_page::{LoadMore, ResultCard, ResultRows, ResultsId, SearchPage};
+pub use search_page::{LoadMore, ResultCard, ResultMarket, ResultRows, ResultsId, SearchPage};
 pub use security_page::SecurityPage;
 pub use sell_checkout_page::{SellCheckoutPage, SellConfirmationPage};
 pub use sell_list_page::SellListPage;
