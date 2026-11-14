@@ -5,7 +5,7 @@ import {
   STAGING_PERSONA_MAGIC_LINK_SECRET_ENV,
 } from "../deployables/tcgplayer-connector-extension/e2e/pairing-drill-staging.ts";
 import { readConnectorDrillDeployBinding } from "./connector-pairing-drill-deploy-binding.mjs";
-import { runStagingDrillCommand } from "./connector-pairing-drill-staging.mjs";
+import { runStagingDrillCommand } from "./connector-pairing-drill-staging-command.mjs";
 
 vi.mock("node:https", () => ({ request: vi.fn() }));
 

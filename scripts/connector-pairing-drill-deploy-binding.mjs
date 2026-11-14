@@ -49,13 +49,12 @@ export function ghApiTransport(gh = ghApi) {
 }
 
 const json = (bytes) => JSON.parse(Buffer.from(bytes).toString("utf8"));
-const isInstant = (value) =>
-  typeof value === "string" &&
-  /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/.test(value) &&
-  Number.isFinite(Date.parse(value));
-
 /** Derives the sign-in floor from selected deploy authority, never from the requested run or a local receipt. */
 export async function readStagingSignInReceiptFloor({ generation, requiredMerges }, { gh = ghApi } = {}) {
+  const isInstant = (value) =>
+    typeof value === "string" &&
+    /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/.test(value) &&
+    Number.isFinite(Date.parse(value));
   const signInMerges = requiredMerges.filter((merge) => merge.issue === 10640);
   if (signInMerges.length !== 1 || !signInMerges[0].contained) return null;
   const job = json(await gh([`repos/${repository}/actions/jobs/${generation.jobId}`]));
