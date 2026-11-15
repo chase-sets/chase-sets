@@ -1,4 +1,5 @@
 import { createPostgresEventStore } from "@chase-sets/event-core-postgres";
+import { createExtensionTcgplayerSealedProductRecorder } from "../../features/source-observations/api/extension-tcgplayer-sealed-products";
 import { createPostgresPromotionTargetExclusion } from "../../features/source-observations/api/promotion/promotion-target-exclusion";
 import { createCatalogProviderSendRuntime } from "../../features/source-observations/api/providers/provider-send-runtime";
 import { createEventStoreWakeNotificationConfigForSourceContext } from "@chase-sets/platform-runtime/source-context-wake-registry";
@@ -184,6 +185,11 @@ export function createCatalogServices(
   return {
     operatorSession: createOperatorSessionGrants(pool, ports.catalogOperatorAuthority, {
       tcgplayerSetNames: providerScopeDiscovery.recordExtensionScopeObservations,
+      tcgplayerSealedProducts: createExtensionTcgplayerSealedProductRecorder({
+        deps,
+        pool,
+        profileVersions: providerIntegrationProfiles,
+      }),
     }),
     dimensions,
     displayTemplates,

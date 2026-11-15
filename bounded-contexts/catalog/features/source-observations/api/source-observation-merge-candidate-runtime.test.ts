@@ -36,6 +36,87 @@ const siteIds = [
 ] as const;
 
 describe("source observation merge candidate bounded stream contracts", () => {
+  it.each(["promoted", "rejected"] as const)(
+    "preserves an identical %s candidate on extension reposts and continues admitting new products",
+    async (terminal) => {
+      const harness = createHarness(true);
+      const first = await harness.generate();
+      const candidate = first.candidates[0]!;
+      const streamId = catalogMergeCandidateStreamId(candidate.candidateId);
+      const state = harness.streams.get(streamId)!.reduce(
+        (state, event) =>
+          evolveCatalogMergeCandidate(state, {
+            type: event.eventType,
+            data: event.payload,
+          } as CatalogMergeCandidateEvent),
+        initialCatalogMergeCandidateState,
+      );
+      const events = decideCatalogMergeCandidate(state, {
+        ...(terminal === "promoted"
+          ? { type: "PromoteCatalogMergeCandidate", promotedAt: "2026-11-15T00:00:00.000Z" }
+          : { type: "IgnoreCatalogMergeCandidate", ignoredAt: "2026-11-15T00:00:00.000Z" }),
+        reason: "Reviewed synthetic source membership",
+        actor: { userId: "usr_reviewer", accountId: "acc_catalog" },
+      });
+      await harness.eventStore.appendToStream({
+        streamId,
+        expectedVersion: 1,
+        context,
+        events: events.map((event) => ({ eventType: event.type, payload: event.data })),
+      });
+      const terminalHistory = [...harness.streams.get(streamId)!];
+      const options = { preserveUnchangedTerminalCandidates: true };
+      const repeated = await harness.runtime.persistCatalogMergeCandidatesFromObservations(
+        [...harness.observations].reverse().map((row) => ({ ...row, observed_at: "2026-11-15T01:00:00.000Z" })),
+        context,
+        options,
+      );
+      expect(repeated.candidates.map((entry) => entry.candidateId)).toEqual([candidate.candidateId]);
+      expect(harness.streams.size).toBe(1);
+      expect(harness.streams.get(streamId)).toEqual(terminalHistory);
+
+      const newObservation = observationRow("obs_new_product", "sv2-new");
+      const newRow = { ...newObservation, normalized: { ...pokemonFacts(newObservation), cardNumber: "55" } };
+      const mixed = await harness.runtime.persistCatalogMergeCandidatesFromObservations(
+        [...harness.observations, newRow],
+        context,
+        options,
+      );
+      expect(mixed.exclusions).toEqual([]);
+      expect(mixed.candidates).toHaveLength(2);
+      expect(harness.streams.size).toBe(2);
+      expect(harness.streams.get(streamId)).toEqual(terminalHistory);
+
+      for (const changedRows of [
+        harness.observations.slice(0, 1),
+        harness.observations.map((row) => ({ ...row, source_record_hash: "changed-source-hash" })),
+        harness.observations.map((row) => ({ ...row, source_mapping_fingerprint: "changed-mapping" })),
+      ]) {
+        await expect(
+          harness.runtime.persistCatalogMergeCandidatesFromObservations(changedRows, context, options),
+        ).rejects.toThrow("Terminal Catalog Merge Candidates cannot be changed.");
+      }
+      await expect(
+        harness.runtime.persistCatalogMergeCandidatesFromObservations(harness.observations, context),
+      ).rejects.toThrow("Terminal Catalog Merge Candidates cannot be changed.");
+      expect(harness.streams.get(streamId)).toEqual(terminalHistory);
+    },
+  );
+
+  it("reconciles immediate extension reposts from canonical members without waiting for projections", async () => {
+    const harness = createHarness(true);
+    const first = await harness.generate();
+    const query = harness.db.query.bind(harness.db);
+    vi.spyOn(harness.db, "query").mockImplementation(async (sql, params) => {
+      if (sql.includes("FROM catalog_source_observations")) throw new Error("projection-not-caught-up");
+      return query(sql, params);
+    });
+    const repeated = await harness.runtime.persistCatalogMergeCandidatesFromObservations(harness.observations, context);
+    expect(repeated.candidates.map((candidate) => candidate.candidateId)).toEqual(
+      first.candidates.map((candidate) => candidate.candidateId),
+    );
+    expect(harness.streams.size).toBe(first.candidates.length);
+  });
   it(`${siteIds[0]} refreshes rather than recreates a candidate with history beyond the bound`, async () => {
     const harness = createHarness();
     const first = await harness.generate();
@@ -1073,7 +1154,7 @@ describe("source observation merge candidate reconciliation regressions", () => 
   });
 });
 
-function createHarness() {
+function createHarness(canonicalMembers = false) {
   const { eventStore, streams } = createInMemoryEventStore();
   const observations = [
     observationRow("obs_tcgdex_054", "sv2-054"),
@@ -1095,9 +1176,14 @@ function createHarness() {
       db,
     },
     profileVersions: staticCatalogProviderIntegrationProfileVersions,
+    loadObservationRows: canonicalMembers
+      ? async (ids) => observations.filter((row) => ids.includes(row.observation_id))
+      : undefined,
   });
 
   return {
+    db,
+    observations,
     eventStore,
     streams,
     runtime,

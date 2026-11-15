@@ -143,6 +143,9 @@ function createServices(overrides: Partial<CatalogAuthoringBulkJobServices> = {}
       recordTcgplayerSetNameObservations: async () => {
         throw new Error("operatorSession not expected");
       },
+      recordTcgplayerSealedProductObservations: async () => {
+        throw new Error("operatorSession not expected");
+      },
       execute: async () => {
         throw new Error("operatorSession not expected");
       },
