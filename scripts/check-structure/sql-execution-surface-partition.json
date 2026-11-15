@@ -386,6 +386,8 @@
     "bounded-contexts/platform-operations/features/public-doc-reviews/read-model/queries.ts",
     "bounded-contexts/platform-operations/features/reported-content/read-model/projection.ts",
     "bounded-contexts/platform-operations/features/reported-content/read-model/queries.ts",
+    "bounded-contexts/platform-operations/features/reported-content/read-model/response-state.ts",
+    "bounded-contexts/platform-operations/features/reported-content/read-model/schema.ts",
     "bounded-contexts/platform-operations/features/risk-alerts/read-model/projection.ts",
     "bounded-contexts/platform-operations/features/risk-alerts/read-model/queries.ts",
     "bounded-contexts/platform-operations/features/seller-compliance-cohorts/read-model/cohort-queries.ts",
@@ -534,7 +536,7 @@
     "infrastructure/platform-runtime/realtime-stream-limiter.ts"
   ],
   "unresolvedMemberRoots": {
-    "count": 278,
+    "count": 279,
     "fileCounts": {
       "bounded-contexts/auth/features/sessions/api/route.ts": 1,
       "bounded-contexts/auth/support/ucp-support/connector-oauth.ts": 1,
@@ -612,7 +614,7 @@
       "bounded-contexts/platform-operations/features/insights-dashboards/api/ops-http.ts": 7,
       "bounded-contexts/platform-operations/features/offer-economics/api/offer-economics-http.ts": 3,
       "bounded-contexts/platform-operations/features/platform-feedback/api/http.ts": 9,
-      "bounded-contexts/platform-operations/features/reported-content/api/http.ts": 4,
+      "bounded-contexts/platform-operations/features/reported-content/api/http.ts": 5,
       "bounded-contexts/platform-operations/features/risk-alerts/api/http.ts": 4,
       "bounded-contexts/platform-operations/features/support-requests/api/route.ts": 13,
       "bounded-contexts/pricing/features/market-rollups/api/route.ts": 4,
