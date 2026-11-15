@@ -41,5 +41,8 @@ export function operatorSessionPublicRoutes(services: Services) {
   });
   app.delete("/grant", (c) => services.execute("unpair", c.req.raw));
   app.post("/scope-observations/tcgplayer-set-names", (c) => services.recordTcgplayerSetNameObservations(c.req.raw));
+  app.post("/catalog-observations/tcgplayer-sealed-products", (c) =>
+    services.recordTcgplayerSealedProductObservations(c.req.raw),
+  );
   return app;
 }

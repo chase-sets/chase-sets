@@ -220,10 +220,10 @@ describe("authoritative-stream-read-diagnostics-transport-control", () => {
     expect(detachment.totals.detachmentEscapeSites).toBe(detachment.diagnostics.length);
   });
 
-  it("derives thirty-five green grammar instances across thirty-one live locations without a registry", () => {
+  it("derives thirty-six green grammar instances across thirty-two live locations without a registry", () => {
     const green = productionGrammar;
-    expect(green).toHaveLength(35);
-    expect(new Set(green.map((entry) => `${entry.file}:${entry.line}`))).toHaveLength(31);
+    expect(green).toHaveLength(36);
+    expect(new Set(green.map((entry) => `${entry.file}:${entry.line}`))).toHaveLength(32);
     expect(
       green
         .filter((entry) => entry.file.startsWith("bounded-contexts/auth/"))
@@ -239,6 +239,17 @@ describe("authoritative-stream-read-diagnostics-transport-control", () => {
         category: "type-position",
         file: "bounded-contexts/auth/features/sessions/api/session-authority.ts",
         symbol: "createAuthSessionAuthority.capture.readStream",
+      },
+    ]);
+    expect(
+      green
+        .filter((entry) => entry.file.endsWith("/extension-tcgplayer-sealed-products.ts"))
+        .map(({ category, symbol }) => ({ category, symbol })),
+    ).toEqual([
+      {
+        category: "member-declaration",
+        symbol:
+          "createExtensionTcgplayerSealedProductRecorder.recordExtensionTcgplayerSealedProducts.eventStore.readStream",
       },
     ]);
     expect(
