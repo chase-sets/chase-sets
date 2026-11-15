@@ -1,4 +1,6 @@
-import { readFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
 import vm from "node:vm";
 import { parse } from "yaml";
 import ts from "@chase-sets/typescript-compiler-api";
@@ -591,6 +593,14 @@ describe("AC7 exact staging admission", () => {
     readFileSync(new URL("../.github/workflows/catalog-staging-provider-uat.yml", import.meta.url), "utf8"),
   );
   const step = workflow.jobs["admit-reviewed-sha"].steps[0];
+  it("uploads only the whole-game receipt even when the journey fails", () => {
+    const upload = Object.values(workflow.jobs)
+      .flatMap((job) => job.steps ?? [])
+      .find((step) => step.name === "Upload whole-game rehearsal receipt");
+    expect(upload.if).toBe("${{ always() && startsWith(matrix.journey_scope, 'full-game-') }}");
+    expect(upload.with.path).toBe("artifacts/catalog-whole-game-rehearsal/receipt.json");
+    expect(upload.with["if-no-files-found"]).toBe("error");
+  });
   it.each([
     "https://production.invalid",
     "http://admin.staging.chasesets.com",
@@ -644,7 +654,14 @@ describe("AC7 exact staging admission", () => {
 });
 
 describe("AC8 bounded complete reads", () => {
-  function settleProbe({ delay = 0, stall = false, ready = [], zeroOutcomes = [], historicalOutcomes = [] } = {}) {
+  function settleProbe({
+    delay = 0,
+    stall = false,
+    ready = [],
+    zeroOutcomes = [],
+    historicalOutcomes = [],
+    failedJob,
+  } = {}) {
     const file = readFileSync(
       new URL("../deployables/admin-web/e2e/catalog-staging-provider-sync.uat.spec.ts", import.meta.url),
       "utf8",
@@ -677,6 +694,7 @@ describe("AC8 bounded complete reads", () => {
     });
     const reads = [];
     const publish = vi.fn();
+    const writeReceipt = vi.fn();
     let deadline;
     const read = async (_page, path) =>
       rehearsal.readBeforeWholeGameDeadline(deadline, async () => {
@@ -705,7 +723,8 @@ describe("AC8 bounded complete reads", () => {
       }),
       readActivePromoteJobs: async () => [],
       submitPromoteAllReady: async () => "zero",
-      waitForPromoteJob: async () => zeroJob,
+      waitForPromoteJob: async () => failedJob ?? zeroJob,
+      writeWholeGameReceipt: writeReceipt,
       readWholeGameJson: read,
       readWholeGameTotal: async () => 0,
       publishThroughCatalogItems: publish,
@@ -714,6 +733,7 @@ describe("AC8 bounded complete reads", () => {
     return {
       reads,
       publish,
+      writeReceipt,
       run: (budget) => {
         deadline = Date.now() + budget;
         return context.wholeGameSettle(
@@ -725,6 +745,56 @@ describe("AC8 bounded complete reads", () => {
       },
     };
   }
+  it.each([
+    {
+      status: "completed",
+      result: {
+        promoted: 1,
+        failed: 0,
+        outcomes: [
+          {
+            candidateId: "candidate-asset",
+            status: "failed",
+            diagnosticCode: "asset-processing-failed",
+            reason: "https://provider.invalid/private?secret=value",
+          },
+          {
+            candidateId: "candidate-unknown",
+            status: "failed",
+            diagnosticCode: "private-value",
+            reason: "provider body",
+          },
+          applied("candidate-ok", "item-ok"),
+        ],
+      },
+    },
+    { status: "failed", result: null },
+    { status: "completed", result: { promoted: 0, failed: 1, outcomes: [] } },
+  ])("records a redacted failure before refusing, never publishes: %j", async (override) => {
+    const job = promoteJob("failed-job", [], override);
+    const probe = settleProbe({ failedJob: job });
+    await expect(probe.run(1000)).rejects.toMatchObject({ code: "scope-promotion-failed" });
+    expect(probe.publish).not.toHaveBeenCalled();
+    expect(probe.writeReceipt).toHaveBeenCalledTimes(1);
+    const diagnostic = probe.writeReceipt.mock.calls[0][0];
+    expect(diagnostic).toMatchObject({
+      state: "failed",
+      promotionFailure: {
+        code: "scope-promotion-failed",
+        scopeRecordId: "scope-1",
+        jobId: "failed-job",
+        jobStatus: job.status,
+        failedOutcomes: job.result?.outcomes.some((outcome) => outcome.status === "failed")
+          ? [
+              { candidateId: "candidate-asset", reasonCode: "asset-processing-failed" },
+              { candidateId: "candidate-unknown", reasonCode: "unclassified" },
+            ]
+          : [],
+      },
+    });
+    expect(validateWholeGameReceipt(diagnostic)).toEqual([]);
+    expect(JSON.stringify(diagnostic)).not.toMatch(/provider|private|secret|reason"/);
+  });
   it.each([
     [100, false, 250, 3],
     [0, true, 75, 0],
@@ -1097,6 +1167,59 @@ describe("AC4 publish preview guard", () => {
 });
 
 describe("AC5 support-safe receipt schema", () => {
+  const failureReceipt = () =>
+    receipt({
+      state: "failed",
+      promotionFailure: rehearsal.wholeGamePromotionFailure(
+        promoteJob("failed-job", [
+          { candidateId: "candidate-1", status: "failed", diagnosticCode: "asset-processing-failed" },
+          { candidateId: "candidate-2", status: "failed", reason: "untrusted error text" },
+        ]),
+      ),
+    });
+
+  it("writes and reads a validated failure receipt, refusing unsafe replacements before writing", () => {
+    const directory = mkdtempSync(join(tmpdir(), "whole-game-failure-"));
+    const path = join(directory, "receipt.json");
+    try {
+      const context = vm.createContext({
+        validateWholeGameReceipt,
+        mkdirSync,
+        dirname,
+        writeFileSync,
+        wholeGameReceiptPath: path,
+      });
+      vm.runInContext(ts.transpile(journeyFunction("writeWholeGameReceipt").getText(journeySource)), context);
+      const diagnostic = failureReceipt();
+      context.writeWholeGameReceipt(diagnostic);
+      expect(existsSync(path)).toBe(true);
+      expect(JSON.parse(readFileSync(path, "utf8"))).toEqual(diagnostic);
+      const unsafe = { ...diagnostic, promotionFailure: { ...diagnostic.promotionFailure, reason: "provider body" } };
+      expect(() => context.writeWholeGameReceipt(unsafe)).toThrow(/schema validation/);
+      expect(JSON.parse(readFileSync(path, "utf8"))).toEqual(diagnostic);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it.each([
+    ["reasonCode", "https://provider.invalid/private"],
+    ["reasonCode", "new-unclassified-code"],
+    ["candidateId", "x".repeat(129)],
+    ["candidateId", "https://provider.invalid/candidate"],
+    ["reason", "provider body"],
+  ])("rejects unsafe or non-contract outcome evidence: %s", (key, value) => {
+    const diagnostic = failureReceipt();
+    diagnostic.promotionFailure.failedOutcomes[0][key] = value;
+    expect(validateWholeGameReceipt(diagnostic).length).toBeGreaterThan(0);
+  });
+
+  it("never accepts failure evidence as settled or failed without evidence", () => {
+    expect(validateWholeGameReceipt({ ...failureReceipt(), state: "settled" })).toContain("promotionFailure.state");
+    expect(validateWholeGameReceipt(receipt({ state: "failed" }))).toContain("promotionFailure.state");
+    expect(validateWholeGameReceipt({ ...failureReceipt(), settle: null })).toContain("promotionFailure.settle");
+  });
+
   it("accepts complete start and settle receipts", () => {
     expect(validateWholeGameReceipt(receipt())).toEqual([]);
     expect(

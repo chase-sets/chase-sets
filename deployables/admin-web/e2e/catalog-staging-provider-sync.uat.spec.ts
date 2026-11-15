@@ -102,6 +102,7 @@ import {
   wholeGameJourneyScopes,
   wholeGameReceiptPath,
   wholeGameReceiptSchemaVersion,
+  wholeGamePromotionFailure,
   type WholeGameBatchView,
   type WholeGameJobPage,
   type WholeGameJourneyScope,
@@ -7770,6 +7771,7 @@ async function wholeGameSettle(
             job.result.failed ||
             job.result.outcomes.some((outcome) => outcome.status === "failed")
           ) {
+            writeWholeGameReceipt({ ...receipt("failed"), promotionFailure: wholeGamePromotionFailure(job) });
             throw new WholeGameRehearsalRefusal("scope-promotion-failed");
           }
           if (job.promotionApplicationVersion !== 1)
