@@ -58,11 +58,14 @@ describe("Pricing worker seller audit composition", () => {
       };
       const auditGateway = async (
         gateway: Pick<
-          ReturnType<
-            Parameters<
-              PricingRecommendationServices["processNextRecommendationJob"]
-            >[0]["marketplaceListingGatewayForAccount"]
-          >,
+          | ReturnType<
+              Parameters<
+                PricingRecommendationServices["processNextRecommendationJob"]
+              >[0]["marketplaceListingGatewayForAccount"]
+            >
+          | ReturnType<
+              Parameters<RepricingEngineServices["processNextEvaluationJob"]>[0]["marketplaceGatewayForAccount"]
+            >,
           "applyBulkListingPriceUpdates"
         >,
       ) => {
@@ -74,6 +77,8 @@ describe("Pricing worker seller audit composition", () => {
               priceAmount: "9.99",
               priceCurrencyCode: "USD",
               idempotencyKey: batch.batchId,
+              expectedVersion: 1,
+              minimumChange: { mode: "absolute" as const, amount: "0" },
             },
           ],
         };
