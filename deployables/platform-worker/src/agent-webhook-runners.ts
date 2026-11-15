@@ -5,6 +5,7 @@ import {
   resolveAgentWebhookSigningSecret,
   resolveAgentWebhookTargets,
   resumeAgentGrantRevocation,
+  type RevokeAgentGrantPaymentInstruments,
 } from "@chase-sets/auth/server";
 import { createActiveAgentGrantFence, type IdentityServices } from "@chase-sets/identity/server";
 import type { PaymentsServices } from "@chase-sets/payments/server";
@@ -83,7 +84,8 @@ export function createAgentWebhookDispatchRunners(
             await resumeAgentGrantRevocation(
               {
                 advance: identity.agentGrantRevocations.advance,
-                cleanup: payments.payments.revokeSavedCheckoutInstrumentsForAgentGrant,
+                cleanup: payments.payments
+                  .revokeSavedCheckoutInstrumentsForAgentGrant satisfies RevokeAgentGrantPaymentInstruments,
                 exclude: outbox.excludeRevokedGrant,
               },
               operation.state,

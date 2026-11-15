@@ -181,13 +181,16 @@ describe("portable marketplace route composition", () => {
       ]),
     );
     const actualHostRoutes = flattenRouteConfig(marketplaceRouteConfig)
-      .filter((entry) => entry.file.startsWith("routes/"))
+      .filter((entry) => entry.file.startsWith("routes/") && entry.id !== "auth/guest-payment-claim")
       .map((entry) => ({ routePath: hostRoutePath(entry), fileExport: entry.file }))
       .sort((left, right) => left.fileExport.localeCompare(right.fileExport));
     const inventoriedHostRoutes = marketplaceHostRouteInventory
       .map(({ routePath, fileExport }) => ({ routePath, fileExport }))
       .sort((left, right) => left.fileExport.localeCompare(right.fileExport));
     expect(inventoriedHostRoutes).toEqual(actualHostRoutes);
+    expect(
+      flattenRouteConfig(marketplaceRouteConfig).filter((entry) => entry.id === "auth/guest-payment-claim"),
+    ).toEqual([expect.objectContaining({ path: "checkout/claim/:paymentId", file: "routes/guest-payment-claim.tsx" })]);
   });
 
   it("ratchets canonical metadata and portable operations", () => {

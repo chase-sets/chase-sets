@@ -12,6 +12,7 @@ import {
   createConnectorOAuthService,
   UCP_OAUTH_SUPPORTED_SCOPES,
   type ReceiptLookupActorOptions,
+  type RevokeAgentGrantPaymentInstruments,
 } from "@chase-sets/auth/server";
 import {
   createCheckoutUcpHandlers,
@@ -1215,8 +1216,8 @@ export function buildPlatformApiApp(runtime: ApiHostRuntime, options: BuildPlatf
           db: identityServices.auth.db,
           withActiveGrants: identityServices.identity.agentGrantRevocations?.withActiveGrants,
         }),
-        revokeStoredPaymentMethodsForAgentGrant:
-          paymentsServices?.payments?.revokeSavedCheckoutInstrumentsForAgentGrant,
+        revokeStoredPaymentMethodsForAgentGrant: paymentsServices?.payments
+          ?.revokeSavedCheckoutInstrumentsForAgentGrant satisfies RevokeAgentGrantPaymentInstruments | undefined,
       }),
     );
     app.use("/ucp/v1/*", platformActorMiddleware);

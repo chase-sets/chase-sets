@@ -36,6 +36,26 @@ function assertRouteCoverage(files) {
 }
 
 describe("browser usability route coverage", () => {
+  it("accounts for both guest claim route modules with the same explicit fixture gap", () => {
+    const routes = [
+      "bounded-contexts/auth/routes/marketplace/guest-payment-claim.tsx",
+      "deployables/marketplace/app/routes/guest-payment-claim.tsx",
+    ];
+    const guest = browserUsabilityGoalModules.find(({ id }) => id === "guest");
+    for (const route of routes) {
+      expect(trackedFiles).toContain(route);
+      expect(guest.excludedRoutes).toContainEqual({
+        path: route,
+        reason: "fixture-gap: no seeded captured guest payment and claim token",
+      });
+    }
+    expect(auditBrowserUsabilityRoutes(routes).coverage).toMatchObject({
+      unscoped: [],
+      invalid: [],
+      surfaces: { guest: { inScope: 2, claimed: 0, excluded: 2, unclaimed: [] } },
+    });
+  });
+
   it("claims shipping setup for both authenticated and existing anonymous sellers", () => {
     const route = "bounded-contexts/fulfillment/routes/seller-shipping-setup.tsx";
     const seller = browserUsabilityGoalModules.find(({ id }) => id === "seller");
