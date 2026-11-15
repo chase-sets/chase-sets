@@ -2062,7 +2062,16 @@ jobs:
           ingress_nodes="$(kubectl -n ingress-nginx get pods -l app.kubernetes.io/component=controller -o json \
             | jq -ce '[.items[] | select(.status.phase == "Running") | .spec.nodeName] | unique | select(length > 0)')"
           ingress_pod_cidrs="$(kubectl get nodes -o json | jq -er --argjson nodes "$ingress_nodes" \
-            '[.items[] | select(.metadata.name as $name | $nodes | index($name)) | .spec.podCIDRs[]] | unique | select(length > 0) | join(",")')"
+            '.items as $items | [
+              $nodes[] as $name
+              | ($items | map(select(.metadata.name == $name)) | first)
+              | (.spec.podCIDRs // [] | map(select(type == "string" and length > 0))) as $cidrs
+              | .metadata.annotations["network.cilium.io/ipv4-pod-cidr"] as $cilium_cidr
+              | if ($cidrs | length) > 0 then $cidrs[]
+                elif ($cilium_cidr | type == "string" and length > 0) then $cilium_cidr
+                else error("Missing pod CIDR for ingress node: \($name)")
+                end
+            ] | unique | select(length > 0) | join(",")')"
 
           # Keep the deploy-critical pre-upgrade hook aligned with production:
           # only schemas and the two long-lived bootstrap profiles belong there.
