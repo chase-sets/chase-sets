@@ -151,7 +151,7 @@ describeDb("sealed product observation posts", () => {
     expect(retainedProfile).not.toBeNull();
     const persistedContract = requireSourceObservationMappingContract(persistedProfile!);
     const retainedContract = requireSourceObservationMappingContract(retainedProfile!);
-    expect(persistedContract).toEqual(retainedContract);
+    expect(persistedContract).toEqual({ ...retainedContract, lifecycle: "active" });
     expect(catalogProviderSourceMappingFingerprint(retainedContract)).toBe(entry.expected.sourceMappingFingerprint);
     // The retired importer also read the persisted profile. JSONB key order affects its
     // serialization-based fingerprint, but must not change the executable contract.
