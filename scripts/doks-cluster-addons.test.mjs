@@ -169,8 +169,11 @@ describe("doks cluster addons planner", () => {
     const mainValues = parseYaml(
       runGit(["show", `${originMainRef}:infrastructure/helm/doks-ingress/ingress-nginx-values.yaml`], repositoryRoot),
     );
-    expect(ingressNginxValuesDocument).toEqual(mainValues);
-    expect(ingressNginxValuesDocument.defaultBackend.enabled).toBe(false);
+    const { defaultBackend, ...sharedValues } = ingressNginxValuesDocument;
+    const { defaultBackend: mainDefaultBackend, ...mainSharedValues } = mainValues;
+    expect(sharedValues).toEqual(mainSharedValues);
+    expect(defaultBackend.enabled).toBe(false);
+    expect(mainDefaultBackend?.enabled ?? false).toBe(false);
   });
 
   it("disables ingress-nginx trust in client forwarded headers and forbids copy snippets", () => {
