@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { ConfigurationEpochError, type ConfigurationConsumer } from "@chase-sets/event-core/configuration-epoch";
-import type { EventStore } from "@chase-sets/event-core/event-store";
+import { createEventStoreError, type EventStore } from "@chase-sets/event-core/event-store";
 import type { AppendToStreamInput } from "@chase-sets/event-core/storage";
 import {
   createPostgresConfigurationEpochStore,
@@ -132,6 +132,13 @@ export function createAuthSessionPersistence(store: PostgresEventStore, epochs: 
     readStream: (input) => store.readStream(input),
     readAll: (input) => store.readAll(input),
     appendToStreams: append,
-    appendToStream: async (input) => (await append([input]))[0].storedEvents,
+    appendToStream: async (input) => {
+      if (input.requestTerminal)
+        throw createEventStoreError("concurrency_conflict", "Request terminals require appendToStreams.");
+      if (input.configurationGrants?.length)
+        throw createEventStoreError("concurrency_conflict", "Class-C grants require appendToStreams.");
+      if (!input.events.length) return [];
+      return (await append([input]))[0].storedEvents;
+    },
   };
 }
