@@ -47,6 +47,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
 export async function action({ request }: ActionFunctionArgs) {
   await requireActorFromAuthApi({ request, permission: "channels.manage" });
   const form = await request.formData();
+  if (form.get("providerKey") === "ebay") return redirect("/account/channels/ebay");
   try {
     const connection = await createConnectionSetupRequestApiClient(request).connect(
       String(form.get("providerKey") ?? ""),

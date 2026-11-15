@@ -111,6 +111,7 @@ describe("channels-services-guard-negative", () => {
 
 function validCandidate() {
   return {
+    ebayConnection: { callback: vi.fn() },
     ebayAccountDeletion: { config: null },
     ebayAccountDeletionReceipts: {
       recordEbayAccountDeletionReceipt:

@@ -1,4 +1,28 @@
 export const channelsEnglishTranslations = {
+  "channels.ebay.title": "Connect eBay Sandbox",
+  "channels.ebay.description":
+    "Connect an eBay Sandbox seller account. This does not enable publication or connect a production account.",
+  "channels.ebay.state.connect": "Not connected",
+  "channels.ebay.state.consent": "Review access before continuing",
+  "channels.ebay.state.awaiting-callback": "Waiting for eBay",
+  "channels.ebay.state.declined": "Access was declined",
+  "channels.ebay.state.failed": "Connection could not be completed",
+  "channels.ebay.state.pending-setup": "Connected, but setup is incomplete",
+  "channels.ebay.state.connected": "Connected",
+  "channels.ebay.state.reauthorize": "Review access to your eBay account",
+  "channels.ebay.state.disconnected": "Disconnected from Chase Sets",
+  "channels.ebay.consent":
+    "Reauthorizing does not resume a paused connection. Continue to eBay to review and approve these permissions:",
+  "channels.ebay.connect": "Continue to eBay Sandbox",
+  "channels.ebay.reauthorize": "Reauthorize with eBay Sandbox",
+  "channels.ebay.disconnect": "Disconnect",
+  "channels.ebay.back": "Back to channels",
+  "channels.ebay.awaiting": "Complete consent on eBay. You will return here when you finish.",
+  "channels.ebay.tryAgain": "We could not confirm authorization. Review the permissions and try again.",
+  "channels.ebay.setupRequired":
+    "This connection is not active and cannot publish listings. Complete seller setup before activating it. Reauthorizing does not complete setup.",
+  "channels.ebay.unconfirmed":
+    "Chase Sets has removed the credentials for this connection. eBay revocation is unconfirmed. Remove Chase Sets access in your eBay account settings.",
   "channels.ebayDeletion.title": "eBay account-deletion lookup",
   "channels.ebayDeletion.description":
     "Look up one operator-held eBay user ID. Receipts do not confirm deletion of operator-held data.",
