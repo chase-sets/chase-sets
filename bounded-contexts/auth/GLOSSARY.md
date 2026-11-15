@@ -22,6 +22,10 @@ The secret value that identifies the active session when sent back to Chase Sets
 
 Session-token persistence belongs to Auth.
 
+## Session Authority Grant
+
+Auth's class-C grant for `session/<sessionId>`, captured from complete canonical Session history and the matching SQL Session Token, never a projection. It binds the real User, Session stream revision (the Owner-Stream Seal version), SQL token revision and earliest UTC expiry. Session and token writers record CLOSING before mutation and install only after all registered consumers acknowledge CLOSED-THROUGH. No consumers means immediate installation. A pending closure refuses capture and writers report a retryable conflict rather than an applied result. Retrying the retained writer resumes durable closure. Expiry is checked by the consumer's store clock under its terminal guard lock, not a timer, lease or closure transition. Pre-enrollment Sessions start OPEN at creation epoch zero.
+
 ## User Session Authority
 
 Auth's per-User event stream (`auth.user-session-authority-<userId>`) whose complete, monotonic history folds to that User's current Session Generation. A User with no history is at generation 0. Every Session start guards its append on this stream's version, so a start cannot commit across a concurrent advance, and actor resolution reads it on every request. Foreign, unknown, malformed, non-monotonic, or capped history fails closed. Only the successor bulk sign-out slice may advance it; nothing in Auth does yet.

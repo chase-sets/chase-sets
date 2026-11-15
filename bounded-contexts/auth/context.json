@@ -175,6 +175,11 @@
   ],
   "hostPorts": [
     {
+      "portName": "sessionConsumers",
+      "providedBy": "platform-api",
+      "purpose": "Transport routes to registered class-C Session consumers; required membership comes only from canonical Guard History."
+    },
+    {
       "portName": "notificationOutbox",
       "providedBy": "platform-worker",
       "purpose": "Durable outbound notification outbox used for magic-link email, SMS sign-in codes, and future Auth notification channels."
