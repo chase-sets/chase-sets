@@ -1,4 +1,5 @@
 import { t } from "@chase-sets/localization";
+import { createHash } from "node:crypto";
 import type { SellListLineId } from "../../runtime-support/common";
 import { MarketplaceApiError } from "@chase-sets/marketplace/server";
 import type {
@@ -230,6 +231,9 @@ export async function performMarketplaceHandoff(
     if ((readinessAction === "fallback-listing" || review.fallbackListing) && review.fallbackListing) {
       const listingIdOverride = reviewedListingId(confirmationId, line.line_id);
       const createdListing = await marketplaceApi.createListing({
+        idempotencyKey: createHash("sha256")
+          .update(JSON.stringify(["sell-confirm", confirmationId, line.line_id, "create"]))
+          .digest("hex"),
         inventoryItemId: review.fallbackListing.inventoryItemId,
         priceAmount: review.fallbackListing.priceAmount,
         priceCurrencyCode: review.fallbackListing.priceCurrencyCode,
@@ -240,6 +244,9 @@ export async function performMarketplaceHandoff(
       listingId = responseString(createdListing, "id", "listingId", "listing_id") || listingIdOverride;
       try {
         const result = await marketplaceApi.publishListing(listingId, {
+          idempotencyKey: createHash("sha256")
+            .update(JSON.stringify(["sell-confirm", confirmationId, line.line_id, "publish"]))
+            .digest("hex"),
           feeQuoteFingerprint: responseString(createdListing, "feeQuoteFingerprint", "fee_quote_fingerprint") || null,
         });
         writeResults.push(result);

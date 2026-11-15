@@ -108,6 +108,7 @@ export function MarketplaceListingSubmissionSection({
   allowDraftWithoutShipFromSetup?: boolean;
   errorMessage?: string | null;
 }) {
+  const [idempotencyKey, setIdempotencyKey] = useState(() => crypto.randomUUID());
   const [priceCurrencyCode, setPriceCurrencyCode] = useState("");
   const listing = ownListing ?? null;
   const listPrice = listing?.price_amount ?? bestListing?.price_amount ?? "";
@@ -146,6 +147,7 @@ export function MarketplaceListingSubmissionSection({
       spacing="none"
       id={formId}
       method="post"
+      onChange={() => setIdempotencyKey(crypto.randomUUID())}
       onSubmit={() => {
         trackItemDetailRailEvent("intent_submit_started", {
           intent: "sell",
@@ -156,6 +158,7 @@ export function MarketplaceListingSubmissionSection({
       }}
     >
       <Stack gap={3}>
+        <HiddenInput name="idempotencyKey" value={idempotencyKey} />
         <HiddenInput type="hidden" name="productId" value={productId ?? ""} />
         <HiddenInput type="hidden" name="selectedOptions" value={JSON.stringify(selectedOptions)} />
         <HiddenInput type="hidden" name="productSummary" value={productSummary ?? ""} />

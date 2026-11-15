@@ -7,12 +7,18 @@ export interface MarketplaceAttemptCaller {
   method: string;
   line: number;
   call: string;
+  identityEvidence?: string;
 }
 export const marketplaceAttemptInventoryIgnoreRules: readonly string[];
 export const marketplaceOfferCallerPartition: Map<string, string>;
 export function readTrackedMarketplaceCallerSources(root: string): MarketplaceCallerSource[];
 export function enumerateMarketplaceAttemptCallers(
   sources: readonly MarketplaceCallerSource[],
+): MarketplaceAttemptCaller[];
+export function enumerateListingAttemptCallers(sources: readonly MarketplaceCallerSource[]): MarketplaceAttemptCaller[];
+export const marketplaceListingCallerPartition: Map<string, string>;
+export function unpartitionedListingAttemptCallers(
+  callers: readonly MarketplaceAttemptCaller[],
 ): MarketplaceAttemptCaller[];
 export function unpartitionedMarketplaceOfferCallers(
   callers: readonly MarketplaceAttemptCaller[],

@@ -6,6 +6,8 @@ import { createDurableJobLaneRunners, type WorkerRunner } from "@chase-sets/plat
 import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
 import type { MarketplaceListingServices } from "./runtime";
 import type { PricingRecommendationServices } from "@chase-sets/pricing/server";
+import type { RepricingEngineServices } from "@chase-sets/pricing/server";
+import { listingCommandInput } from "../../../support/request-support/listing-attempt";
 import { listingAttempt } from "./listing-attempt";
 import { listingBatchStreamId, lookupListingBatch, runListingBatch } from "./listing-batch";
 
@@ -30,8 +32,35 @@ describe("Pricing worker seller audit composition", () => {
         }),
       };
       let appends = 0;
-      const listings: Pick<MarketplaceListingServices, "applyBulkListingPriceUpdates"> = {
-        applyBulkListingPriceUpdates: async (_params, context) => {
+      const listings: Pick<
+        MarketplaceListingServices,
+        "applyBulkListingPriceUpdates" | "pauseListing" | "publishListing"
+      > = {
+        pauseListing: async (params) => {
+          expect(params).toMatchObject(
+            listingCommandInput("listing.pause", {
+              listingId: target.targetId,
+              idempotencyKey: batch.batchId,
+              reason: "policy-input-missing",
+            }),
+          );
+          return { listingId: target.targetId, version: 1 };
+        },
+        publishListing: async (params) => {
+          expect(params).toMatchObject(
+            listingCommandInput("listing.publish", { listingId: target.targetId, idempotencyKey: batch.batchId }),
+          );
+          return { listingId: target.targetId, version: 1 };
+        },
+        applyBulkListingPriceUpdates: async (params, context) => {
+          expect(params.updates[0]).toMatchObject(
+            listingCommandInput("listing.update-price", {
+              listingId: target.targetId,
+              priceAmount: "9.99",
+              priceCurrencyCode: "USD",
+              idempotencyKey: batch.batchId,
+            }),
+          );
           const decisions = await runListingBatch({
             store: eventStore,
             batch,
@@ -99,6 +128,7 @@ describe("Pricing worker seller audit composition", () => {
       const runners: readonly WorkerRunner[] = runInNewContext(compiled + `\n${name}(services, config)`, {
         services,
         createDurableJobLaneRunners,
+        listingCommandInput,
         config: {
           workerId: "synthetic-worker",
           leaseTtlMs: 1000,
@@ -109,11 +139,34 @@ describe("Pricing worker seller audit composition", () => {
         logger: {},
         processRepricingEvaluationJob: async (
           _next: unknown,
-          input: { marketplaceGatewayForAccount: (accountId: string) => unknown },
-        ) =>
-          processNext({ marketplaceListingGatewayForAccount: input.marketplaceGatewayForAccount } as Parameters<
-            typeof processNext
-          >[0]),
+          input: Pick<
+            Parameters<RepricingEngineServices["processNextEvaluationJob"]>[0],
+            "marketplaceGatewayForAccount"
+          >,
+        ) => {
+          const gateway = input.marketplaceGatewayForAccount(batch.accountId);
+          await gateway.pauseListing(target.targetId, {
+            idempotencyKey: batch.batchId,
+            reason: "policy-input-missing",
+          });
+          await gateway.publishListing(target.targetId, { idempotencyKey: batch.batchId });
+          const body: Parameters<typeof gateway.applyBulkListingPriceUpdates>[0] = {
+            batchId: batch.batchId,
+            updates: [
+              {
+                listingId: target.targetId,
+                priceAmount: "9.99",
+                priceCurrencyCode: "USD",
+                expectedVersion: 1,
+                minimumChange: { mode: "percent", percent: 0 },
+                idempotencyKey: batch.batchId,
+              },
+            ],
+          };
+          expect((await gateway.applyBulkListingPriceUpdates(body)).items[0]?.outcome).toBe("applied");
+          expect((await gateway.applyBulkListingPriceUpdates(body)).items[0]?.outcome).toBe("applied");
+          return 1;
+        },
       });
       await runners[0]!.runOnce();
       expect(await lookupListingBatch(eventStore, batch)).toMatchObject({ items: [{ outcome: "succeeded" }] });

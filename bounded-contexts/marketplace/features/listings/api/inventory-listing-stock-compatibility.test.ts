@@ -152,6 +152,7 @@ describe("Inventory Listing stock compatibility", () => {
       await expect(
         runtime[method](
           {
+            idempotencyKey: "inventory_compatibility_attempt_0001",
             ...snapshot,
             accountId: "acc_seller",
             shipFromAddress,

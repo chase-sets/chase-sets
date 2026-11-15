@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import type { MarketplaceApiClient, MarketplaceCreateListingInput } from "@chase-sets/marketplace/server";
 import { createAggregateCommandHandler } from "@chase-sets/event-core/aggregate-command-handler";
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
 import type { CommandHandler } from "@chase-sets/event-core/command-handler";
@@ -71,25 +72,10 @@ export type PricingMarketplaceListingOutcome = Readonly<{
  */
 export type PricingMarketplaceListingGateway = Readonly<{
   applyBulkListingPriceUpdates: (
-    body: Readonly<{
-      batchId?: string;
-      updates: readonly Readonly<{
-        listingId: string;
-        priceAmount: string;
-        priceCurrencyCode: string;
-        idempotencyKey?: string;
-      }>[];
-    }>,
-    options?: Readonly<{ signal?: AbortSignal }>,
+    ...args: Parameters<MarketplaceApiClient["applyBulkListingPriceUpdates"]>
   ) => Promise<Readonly<{ items: readonly PricingMarketplaceListingOutcome[] }>>;
   createListing: (
-    body: Readonly<{
-      inventoryItemId: string;
-      priceAmount: string;
-      priceCurrencyCode: string;
-      quantityCap: number;
-      listingIdOverride?: string;
-    }>,
+    body: MarketplaceCreateListingInput,
     options?: Readonly<{ signal?: AbortSignal }>,
   ) => Promise<{ id?: string; listing_id?: string }>;
 }>;
@@ -814,6 +800,7 @@ export function createPricingRecommendationRuntime(
             params.marketplaceListings.createListing(
               {
                 inventoryItemId,
+                idempotencyKey: pricingRecommendationAttemptKey(params.accountId, row.recommendation_id),
                 priceAmount: price,
                 priceCurrencyCode: row.market_currency,
                 quantityCap,

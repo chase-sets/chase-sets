@@ -1,6 +1,13 @@
-export { createMarketplaceRequestApiClient, MarketplaceApiError } from "./support/request-support/api-client";
+export { listingFormAttempt, listingCommandInput } from "./support/request-support/listing-attempt";
+export type { MarketplaceApiClient, MarketplaceCreateListingInput } from "./client";
+export {
+  createMarketplaceApiClient,
+  createMarketplaceRequestApiClient,
+  MarketplaceApiError,
+} from "./support/request-support/api-client";
 export { hashMarketplaceRequest } from "./features/mutation-recovery/api/attempt";
 export { marketplaceOfferCanonicalRequest } from "./features/mutation-recovery/domain/contracts";
+export { marketplaceListingCanonicalRequest } from "./features/mutation-recovery/domain/contracts";
 export { createMarketplaceChannelInboundClampCapability } from "./features/channel-inbound-clamp/api/capability";
 export type { MarketplaceListingServices } from "./features/listings/api/runtime";
 export {

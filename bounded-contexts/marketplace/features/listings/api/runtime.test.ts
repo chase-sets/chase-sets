@@ -1,3 +1,4 @@
+import { listingBulkTestCommand, listingTestCommand } from "../tests/listing-attempt-test-support";
 import { describe, expect, it, vi } from "vitest";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import { getEventCommitMetadata, runWithEventCommitMetadata } from "@chase-sets/event-core/consistency";
@@ -251,6 +252,44 @@ function createDraftIntentDb() {
 }
 
 describe("marketplace listing runtime", () => {
+  it.each([
+    { idempotencyKey: "", requestHash: undefined, code: "invalid_attempt" },
+    { idempotencyKey: "snapshot_attempt_00000001", requestHash: "0".repeat(64), code: "attempt_conflict" },
+  ])("rejects $code before snapshot or owner writes", async ({ idempotencyKey, requestHash, code }) => {
+    const { eventStore, allEvents } = createInMemoryEventStore();
+    const query = vi.fn(async () => ({ rows: [] }));
+    const resolveListingTerms = vi.fn();
+    const services = createMarketplaceListingRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: { query } as never,
+      commercialTermsResolver: { resolveListingTerms } as never,
+    });
+    const request = {
+      idempotencyKey,
+      requestHash,
+      accountId: context.audit.forAccountId,
+      inventoryItemId: "inv_1",
+      catalogItemId: "cat_1",
+      productId: "cat_1::",
+      selectedOptions: [],
+      storageLocationId: "loc_1",
+      storageLocationName: "Shelf",
+      shipFromCode: "CHI",
+      shipFromAddress,
+      totalQuantity: 3,
+      acquisitionCostAmount: null,
+      priceAmount: "5.00",
+      priceCurrencyCode: "USD",
+      quantityCap: 1,
+    };
+    await expect(services.createListing(request, context)).rejects.toMatchObject({ code });
+    await expect(services.createListingFromInventorySnapshot(request, context)).rejects.toMatchObject({ code });
+    expect(query).not.toHaveBeenCalled();
+    expect(resolveListingTerms).not.toHaveBeenCalled();
+    expect(allEvents).toHaveLength(0);
+  });
+
   it("deduplicates and claims anonymous listing draft intents without creating listing events", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-04-17T00:00:00.000Z"));
@@ -380,14 +419,14 @@ describe("marketplace listing runtime", () => {
 
     const { result, metadata } = await runWithEventCommitMetadata(async () => {
       await services.createListing(
-        {
+        listingTestCommand("listing.create", {
           accountId: "acc_seller" as never,
           inventoryItemId: "inv_1",
           priceAmount: "20.00",
           priceCurrencyCode: "USD",
           quantityCap: 1,
           listingIdOverride: "lst_seed_1" as never,
-        },
+        }),
         context,
       );
 
@@ -397,11 +436,11 @@ describe("marketplace listing runtime", () => {
       });
 
       const result = await services.publishListing(
-        {
+        listingTestCommand("listing.publish", {
           accountId: "acc_seller",
           listingId: "lst_seed_1",
           feeQuoteFingerprint: preview.fee_quote_fingerprint,
-        },
+        }),
         context,
       );
 
@@ -477,21 +516,21 @@ describe("marketplace listing runtime", () => {
 
     for (const listingId of ["lst_concurrent_1", "lst_concurrent_2"]) {
       await services.createListing(
-        {
+        listingTestCommand("listing.create", {
           accountId: "acc_seller" as never,
           inventoryItemId: "inv_1",
           priceAmount: "20.00",
           priceCurrencyCode: "USD",
           quantityCap: 1,
           listingIdOverride: listingId as never,
-        },
+        }),
         context,
       );
     }
 
     const results = await Promise.allSettled(
       ["lst_concurrent_1", "lst_concurrent_2"].map((listingId) =>
-        services.publishListing({ accountId: "acc_seller", listingId }, context),
+        services.publishListing(listingTestCommand("listing.publish", { accountId: "acc_seller", listingId }), context),
       ),
     );
 
@@ -512,19 +551,22 @@ describe("marketplace listing runtime", () => {
 
     streams.delete("marketplace.inventory-listing-capacity-inv_1");
     await services.createListing(
-      {
+      listingTestCommand("listing.create", {
         accountId: "acc_seller" as never,
         inventoryItemId: "inv_1",
         priceAmount: "20.00",
         priceCurrencyCode: "USD",
         quantityCap: 1,
         listingIdOverride: "lst_after_rollout" as never,
-      },
+      }),
       context,
     );
 
     await expect(
-      services.publishListing({ accountId: "acc_seller", listingId: "lst_after_rollout" }, context),
+      services.publishListing(
+        listingTestCommand("listing.publish", { accountId: "acc_seller", listingId: "lst_after_rollout" }),
+        context,
+      ),
     ).rejects.toThrow("Active listing quantity caps cannot exceed current sellable inventory.");
   });
 
@@ -583,14 +625,14 @@ describe("marketplace listing runtime", () => {
     });
 
     await services.createListing(
-      {
+      listingTestCommand("listing.create", {
         accountId: "acc_seller" as never,
         inventoryItemId: "inv_1",
         priceAmount: "20.00",
         priceCurrencyCode: "USD",
         quantityCap: 1,
         listingIdOverride: "lst_seed_1" as never,
-      },
+      }),
       context,
     );
 
@@ -605,13 +647,13 @@ describe("marketplace listing runtime", () => {
 
     await expect(
       services.updateListingPrice(
-        {
+        listingTestCommand("listing.update-price", {
           accountId: "acc_seller",
           listingId: "lst_seed_1",
           priceAmount: "20.00",
           priceCurrencyCode: "USD",
           feeQuoteFingerprint: preview.fee_quote_fingerprint,
-        },
+        }),
         context,
       ),
     ).resolves.toEqual({
@@ -624,13 +666,13 @@ describe("marketplace listing runtime", () => {
 
     await expect(
       services.updateListingPrice(
-        {
+        listingTestCommand("listing.update-price", {
           accountId: "acc_seller",
           listingId: "lst_seed_1",
           priceAmount: "20.00",
           priceCurrencyCode: "EUR",
           feeQuoteFingerprint: preview.fee_quote_fingerprint,
-        },
+        }),
         context,
       ),
     ).resolves.toEqual({ listingId: "lst_seed_1", version: 2 });
@@ -693,24 +735,24 @@ describe("marketplace listing runtime", () => {
     });
 
     const created = await services.createListing(
-      {
+      listingTestCommand("listing.create", {
         accountId: "acc_seller" as never,
         inventoryItemId: "inv_1",
         priceAmount: "20.00",
         priceCurrencyCode: "USD",
         quantityCap: 1,
         listingIdOverride: "lst_missing_measure" as never,
-      },
+      }),
       context,
     );
 
     await expect(
       services.publishListing(
-        {
+        listingTestCommand("listing.publish", {
           accountId: "acc_seller",
           listingId: "lst_missing_measure",
           feeQuoteFingerprint: created.feeQuoteFingerprint,
-        },
+        }),
         context,
       ),
     ).rejects.toThrow("Listings require a resolved shipping measure before publication.");
@@ -768,14 +810,14 @@ describe("marketplace listing runtime", () => {
     });
 
     const createResult = await services.createListing(
-      {
+      listingTestCommand("listing.create", {
         accountId: "acc_seller" as never,
         inventoryItemId: "inv_1",
         priceAmount: "20.00",
         priceCurrencyCode: "USD",
         quantityCap: 1,
         listingIdOverride: "lst_history" as never,
-      },
+      }),
       context,
     );
     expect(createResult.version).toBe(1);
@@ -785,11 +827,11 @@ describe("marketplace listing runtime", () => {
       priceAmount: "20.00",
     });
     await services.publishListing(
-      {
+      listingTestCommand("listing.publish", {
         accountId: "acc_seller",
         listingId: "lst_history",
         feeQuoteFingerprint: preview.fee_quote_fingerprint,
-      },
+      }),
       context,
     );
 
@@ -866,24 +908,24 @@ describe("marketplace listing runtime", () => {
     });
 
     const created = await services.createListing(
-      {
+      listingTestCommand("listing.create", {
         accountId: "acc_seller" as never,
         inventoryItemId: "inv_1",
         priceAmount: "300.00",
         priceCurrencyCode: "USD",
         quantityCap: 1,
         listingIdOverride: "lst_high_dollar" as never,
-      },
+      }),
       context,
     );
 
     await expect(
       services.publishListing(
-        {
+        listingTestCommand("listing.publish", {
           accountId: "acc_seller",
           listingId: "lst_high_dollar",
           feeQuoteFingerprint: created.feeQuoteFingerprint,
-        },
+        }),
         context,
       ),
     ).rejects.toThrow("Listing evidence is incomplete.");
@@ -945,14 +987,14 @@ describe("marketplace listing runtime", () => {
     });
 
     const created = await services.createListing(
-      {
+      listingTestCommand("listing.create", {
         accountId: "acc_seller" as never,
         inventoryItemId: "inv_1",
         priceAmount: "300.00",
         priceCurrencyCode: "USD",
         quantityCap: 1,
         listingIdOverride: "lst_high_dollar" as never,
-      },
+      }),
       context,
     );
 
@@ -968,11 +1010,11 @@ describe("marketplace listing runtime", () => {
 
     await expect(
       services.publishListing(
-        {
+        listingTestCommand("listing.publish", {
           accountId: "acc_seller",
           listingId: "lst_high_dollar",
           feeQuoteFingerprint: created.feeQuoteFingerprint,
-        },
+        }),
         context,
       ),
     ).rejects.toThrow("Listing evidence is incomplete.");
@@ -1036,22 +1078,22 @@ describe("marketplace listing runtime", () => {
     });
 
     const original = await services.createListing(
-      {
+      listingTestCommand("listing.create", {
         accountId: "acc_seller" as never,
         inventoryItemId: "inv_1",
         priceAmount: "20.00",
         priceCurrencyCode: "USD",
         quantityCap: 1,
         listingIdOverride: "lst_original" as never,
-      },
+      }),
       context,
     );
     await services.publishListing(
-      {
+      listingTestCommand("listing.publish", {
         accountId: "acc_seller",
         listingId: "lst_original",
         feeQuoteFingerprint: original.feeQuoteFingerprint,
-      },
+      }),
       context,
     );
 
@@ -1066,14 +1108,14 @@ describe("marketplace listing runtime", () => {
       priceAmount: "20.00",
     });
     const newListing = await services.createListing(
-      {
+      listingTestCommand("listing.create", {
         accountId: "acc_seller" as never,
         inventoryItemId: "inv_1",
         priceAmount: "20.00",
         priceCurrencyCode: "USD",
         quantityCap: 1,
         listingIdOverride: "lst_after_change" as never,
-      },
+      }),
       context,
     );
 
@@ -1307,7 +1349,7 @@ describe("marketplace listing runtime", () => {
 
     await expect(
       services.createListingFromInventorySnapshot(
-        {
+        listingTestCommand("listing.create", {
           accountId: "acc_seller",
           inventoryItemId: "inv_held",
           catalogItemId: "cat_1",
@@ -1323,7 +1365,7 @@ describe("marketplace listing runtime", () => {
           priceAmount: "5.00",
           priceCurrencyCode: "USD",
           quantityCap: 2,
-        },
+        }),
         context,
       ),
     ).rejects.toThrow("Listing quantity caps cannot exceed available listing stock.");
@@ -1381,24 +1423,24 @@ describe("marketplace listing runtime", () => {
     });
 
     const created = await services.createListing(
-      {
+      listingTestCommand("listing.create", {
         accountId: "acc_seller" as never,
         inventoryItemId: "inv_1",
         priceAmount: "100.00",
         priceCurrencyCode: "USD",
         quantityCap: 1,
         listingIdOverride: "lst_default_threshold" as never,
-      },
+      }),
       context,
     );
 
     await expect(
       services.publishListing(
-        {
+        listingTestCommand("listing.publish", {
           accountId: "acc_seller",
           listingId: "lst_default_threshold",
           feeQuoteFingerprint: created.feeQuoteFingerprint,
-        },
+        }),
         context,
       ),
     ).resolves.toMatchObject({ listingId: "lst_default_threshold" });
@@ -1623,7 +1665,7 @@ describe("marketplace listing runtime", () => {
         publicationScope: "channel-only" as const,
         listingIdOverride: "lst_channel" as never,
       };
-      const result = await services.createListing(params, context);
+      const result = await services.createListing(listingTestCommand("listing.create", params), context);
       expect(result.state).toEqual(await services.loadListingState("lst_channel"));
       expect(result.state).toMatchObject({
         status: "draft",
@@ -1636,29 +1678,44 @@ describe("marketplace listing runtime", () => {
       });
       const owned = { accountId: "acc_seller", listingId: "lst_channel" };
       for (const command of [
-        () => services.publishListing(owned, context),
-        () => services.updateListingPrice({ ...owned, priceAmount: "25.00", priceCurrencyCode: "USD" }, context),
-        () => services.updateListingQuantityCap({ ...owned, quantityCap: 2 }, context),
-        () => services.updateListingPurchaseLimits({ ...owned, purchaseLimits: { maxUnitsPerOrder: 1 } }, context),
+        () => services.publishListing(listingTestCommand("listing.publish", owned), context),
+        () =>
+          services.updateListingPrice(
+            listingTestCommand("listing.update-price", { ...owned, priceAmount: "25.00", priceCurrencyCode: "USD" }),
+            context,
+          ),
+        () =>
+          services.updateListingQuantityCap(
+            listingTestCommand("listing.update-quantity", { ...owned, quantityCap: 2 }),
+            context,
+          ),
+        () =>
+          services.updateListingPurchaseLimits(
+            listingTestCommand("listing.update-purchase-limits", { ...owned, purchaseLimits: { maxUnitsPerOrder: 1 } }),
+            context,
+          ),
       ])
         await expect(command()).rejects.toThrow("channel-only");
       expect(
         await services.applyBulkListingPriceUpdates(
-          {
+          listingBulkTestCommand({
             accountId: "acc_seller",
             updates: [{ listingId: "lst_channel", priceAmount: "25.00", priceCurrencyCode: "USD" }],
-          },
+          }),
           context,
         ),
       ).toMatchObject([{ outcome: "error", message: expect.stringContaining("channel-only") }]);
       expect(terms.resolveListingTerms).not.toHaveBeenCalled();
       expect(terms.openListingTermsSession).not.toHaveBeenCalled();
       expect(await eventStore.readStream({ streamId: "marketplace.listing-lst_channel" })).toHaveLength(1);
-      expect(await services.createListing(params, context)).toEqual(result);
-      await expect(services.createListing({ ...params, publicationScope: "native" }, context)).rejects.toThrow(
-        "scope cannot change",
-      );
-      await services.withdrawListing(owned, context);
+      expect(await services.createListing(listingTestCommand("listing.create", params), context)).toEqual(result);
+      await expect(
+        services.createListing(
+          listingTestCommand("listing.create", { ...params, publicationScope: "native" }),
+          context,
+        ),
+      ).rejects.toThrow("scope cannot change");
+      await services.withdrawListing(listingTestCommand("listing.withdraw", owned), context);
       expect(await services.loadListingState("lst_channel")).toMatchObject({
         status: "withdrawn",
         publicationScope: "channel-only",
@@ -1675,14 +1732,14 @@ describe("marketplace listing runtime", () => {
         commercialTermsResolver: termsResolver as never,
       });
       await services.createListing(
-        {
+        listingTestCommand("listing.create", {
           accountId: "acc_seller" as never,
           inventoryItemId: "inv_1",
           priceAmount: "20.00",
           priceCurrencyCode: "USD",
           quantityCap: 1,
           listingIdOverride: "lst_founder_preserved" as never,
-        },
+        }),
         context,
       );
       const created = await services.loadListingState("lst_founder_preserved");
@@ -1690,20 +1747,20 @@ describe("marketplace listing runtime", () => {
 
       await expect(
         services.applyBulkListingPriceUpdates(
-          {
+          listingBulkTestCommand({
             accountId: "acc_seller",
             updates: [{ listingId: "lst_founder_preserved", priceAmount: "25.00", priceCurrencyCode: "USD" }],
-          },
+          }),
           context,
         ),
       ).resolves.toEqual([{ listingId: "lst_founder_preserved", outcome: "applied", version: 2 }]);
 
       await expect(
         services.applyBulkListingPriceUpdates(
-          {
+          listingBulkTestCommand({
             accountId: "acc_seller",
             updates: [{ listingId: "lst_founder_preserved", priceAmount: "25.00", priceCurrencyCode: "EUR" }],
-          },
+          }),
           context,
         ),
       ).resolves.toEqual([{ listingId: "lst_founder_preserved", outcome: "applied", version: 3 }]);
@@ -1738,14 +1795,14 @@ describe("marketplace listing runtime", () => {
         commercialTermsResolver: termsResolver as never,
       });
       await services.createListing(
-        {
+        listingTestCommand("listing.create", {
           accountId: "acc_seller" as never,
           inventoryItemId: "inv_1",
           priceAmount: "20.00",
           priceCurrencyCode: "USD",
           quantityCap: 1,
           listingIdOverride: "lst_nonzero_requote" as never,
-        },
+        }),
         context,
       );
       const created = await services.loadListingState("lst_nonzero_requote");
@@ -1753,10 +1810,10 @@ describe("marketplace listing runtime", () => {
       termsResolver.useTerms(nonzeroCurrentTerms);
 
       await services.applyBulkListingPriceUpdates(
-        {
+        listingBulkTestCommand({
           accountId: "acc_seller",
           updates: [{ listingId: "lst_nonzero_requote", priceAmount: "40.00", priceCurrencyCode: "USD" }],
-        },
+        }),
         context,
       );
 
@@ -1782,14 +1839,14 @@ describe("marketplace listing runtime", () => {
         commercialTermsResolver: termsResolver as never,
       });
       await services.createListing(
-        {
+        listingTestCommand("listing.create", {
           accountId: "acc_seller" as never,
           inventoryItemId: "inv_1",
           priceAmount: "20.00",
           priceCurrencyCode: "USD",
           quantityCap: 1,
           listingIdOverride: "lst_multi_tranche" as never,
-        },
+        }),
         context,
       );
       const restockTerms = {
@@ -1801,12 +1858,12 @@ describe("marketplace listing runtime", () => {
       termsResolver.useTerms(restockTerms);
       const restockQuote = await services.previewListingTerms({ accountId: "acc_seller", priceAmount: "20.00" });
       await services.updateListingQuantityCap(
-        {
+        listingTestCommand("listing.update-quantity", {
           accountId: "acc_seller",
           listingId: "lst_multi_tranche",
           quantityCap: 3,
           feeQuoteFingerprint: restockQuote.fee_quote_fingerprint,
-        },
+        }),
         context,
       );
       const before = await services.loadListingState("lst_multi_tranche");
@@ -1817,10 +1874,10 @@ describe("marketplace listing runtime", () => {
       });
 
       await services.applyBulkListingPriceUpdates(
-        {
+        listingBulkTestCommand({
           accountId: "acc_seller",
           updates: [{ listingId: "lst_multi_tranche", priceAmount: "30.00", priceCurrencyCode: "USD" }],
-        },
+        }),
         context,
       );
 
@@ -1848,14 +1905,14 @@ describe("marketplace listing runtime", () => {
       });
       const listingId = `lst_caller_${callerShape}`;
       await services.createListing(
-        {
+        listingTestCommand("listing.create", {
           accountId: "acc_seller" as never,
           inventoryItemId: "inv_1",
           priceAmount: "20.00",
           priceCurrencyCode: "USD",
           quantityCap: 1,
           listingIdOverride: listingId as never,
-        },
+        }),
         context,
       );
       termsResolver.useTerms(nonzeroCurrentTerms);
@@ -1881,7 +1938,10 @@ describe("marketplace listing runtime", () => {
       };
 
       await expect(
-        services.applyBulkListingPriceUpdates({ accountId: "acc_seller", updates: [update] }, context),
+        services.applyBulkListingPriceUpdates(
+          listingBulkTestCommand({ accountId: "acc_seller", updates: [update] }),
+          context,
+        ),
       ).resolves.toMatchObject([{ listingId, outcome: "applied" }]);
       expect((await readPriceUpdatedPayload(eventStore, listingId)).feeLocks[0]?.terms).toEqual(syntheticFounderTerms);
     });
@@ -1897,27 +1957,27 @@ describe("marketplace listing runtime", () => {
       });
 
       await services.createListing(
-        {
+        listingTestCommand("listing.create", {
           accountId: "acc_seller" as never,
           inventoryItemId: "inv_1",
           priceAmount: "20.00",
           priceCurrencyCode: "USD",
           quantityCap: 1,
           listingIdOverride: "lst_owned" as never,
-        },
+        }),
         context,
       );
 
       await expect(
         services.createListing(
-          {
+          listingTestCommand("listing.create", {
             accountId: "acc_intruder" as never,
             inventoryItemId: "inv_1",
             priceAmount: "20.00",
             priceCurrencyCode: "USD",
             quantityCap: 1,
             listingIdOverride: "lst_owned" as never,
-          },
+          }),
           context,
         ),
       ).rejects.toThrow("Listing not found.");
@@ -1935,19 +1995,22 @@ describe("marketplace listing runtime", () => {
 
       for (const listingId of ["lst_bulk_1", "lst_bulk_2", "lst_bulk_3"]) {
         await services.createListing(
-          {
+          listingTestCommand("listing.create", {
             accountId: "acc_seller" as never,
             inventoryItemId: "inv_1",
             priceAmount: "20.00",
             priceCurrencyCode: "USD",
             quantityCap: 1,
             listingIdOverride: listingId as never,
-          },
+          }),
           context,
         );
       }
       // lst_bulk_3 is withdrawn -- its later bulk price update must isolate to an "error" outcome.
-      await services.withdrawListing({ accountId: "acc_seller", listingId: "lst_bulk_3" }, context);
+      await services.withdrawListing(
+        listingTestCommand("listing.withdraw", { accountId: "acc_seller", listingId: "lst_bulk_3" }),
+        context,
+      );
 
       const [changedQuote, sameQuote, withdrawnQuote] = await Promise.all([
         services.previewListingTerms({ accountId: "acc_seller", priceAmount: "25.00" }),
@@ -1956,7 +2019,7 @@ describe("marketplace listing runtime", () => {
       ]);
 
       const outcomes = await services.applyBulkListingPriceUpdates(
-        {
+        listingBulkTestCommand({
           accountId: "acc_seller",
           updates: [
             {
@@ -1978,7 +2041,7 @@ describe("marketplace listing runtime", () => {
               feeQuoteFingerprint: withdrawnQuote.fee_quote_fingerprint,
             },
           ],
-        },
+        }),
         context,
       );
 
@@ -2013,28 +2076,33 @@ describe("marketplace listing runtime", () => {
         commercialTermsResolver: bulkTermsResolver() as never,
       });
       await services.createListing(
-        {
+        listingTestCommand("listing.create", {
           accountId: "acc_seller" as never,
           inventoryItemId: "inv_1",
           priceAmount: "20.00",
           priceCurrencyCode: "USD",
           quantityCap: 1,
           listingIdOverride: "lst_manual_wins" as never,
-        },
+        }),
         context,
       );
       await services.updateListingPrice(
-        { accountId: "acc_seller", listingId: "lst_manual_wins", priceAmount: "22.00", priceCurrencyCode: "USD" },
+        listingTestCommand("listing.update-price", {
+          accountId: "acc_seller",
+          listingId: "lst_manual_wins",
+          priceAmount: "22.00",
+          priceCurrencyCode: "USD",
+        }),
         context,
       );
 
       const outcomes = await services.applyBulkListingPriceUpdates(
-        {
+        listingBulkTestCommand({
           accountId: "acc_seller",
           updates: [
             { listingId: "lst_manual_wins", priceAmount: "18.00", priceCurrencyCode: "USD", expectedVersion: 1 },
           ],
-        },
+        }),
         context,
       );
 
@@ -2058,19 +2126,19 @@ describe("marketplace listing runtime", () => {
         commercialTermsResolver: bulkTermsResolver() as never,
       });
       await services.createListing(
-        {
+        listingTestCommand("listing.create", {
           accountId: "acc_seller" as never,
           inventoryItemId: "inv_1",
           priceAmount: "10.00",
           priceCurrencyCode: "USD",
           quantityCap: 1,
           listingIdOverride: "lst_authoritative_tolerance" as never,
-        },
+        }),
         context,
       );
 
       const outcomes = await services.applyBulkListingPriceUpdates(
-        {
+        listingBulkTestCommand({
           accountId: "acc_seller",
           updates: [
             {
@@ -2082,7 +2150,7 @@ describe("marketplace listing runtime", () => {
               idempotencyKey: "repricing:round:product:listing:price",
             },
           ],
-        },
+        }),
         context,
       );
 
@@ -2102,14 +2170,14 @@ describe("marketplace listing runtime", () => {
         commercialTermsResolver: bulkTermsResolver() as never,
       });
       await services.createListing(
-        {
+        listingTestCommand("listing.create", {
           accountId: "acc_seller" as never,
           inventoryItemId: "inv_1",
           priceAmount: "100.00",
           priceCurrencyCode: "USD",
           quantityCap: 1,
           listingIdOverride: "lst_retry_once" as never,
-        },
+        }),
         context,
       );
       const mutation = {
@@ -2147,14 +2215,14 @@ describe("marketplace listing runtime", () => {
       const listingId = "lst_complete_history";
       const idempotencyKey = "repricing:complete-history:lst_complete_history:price";
       await services.createListing(
-        {
+        listingTestCommand("listing.create", {
           accountId: "acc_seller" as never,
           inventoryItemId: "inv_1",
           priceAmount: "100.00",
           priceCurrencyCode: "USD",
           quantityCap: 1,
           listingIdOverride: listingId as never,
-        },
+        }),
         context,
       );
       const createdPayload = streams.get(`marketplace.listing-${listingId}`)?.[0]?.payload as {
@@ -2194,7 +2262,7 @@ describe("marketplace listing runtime", () => {
 
       await expect(
         services.applyBulkListingPriceUpdates(
-          {
+          listingBulkTestCommand({
             accountId: "acc_seller",
             updates: [
               {
@@ -2205,7 +2273,7 @@ describe("marketplace listing runtime", () => {
                 idempotencyKey,
               },
             ],
-          },
+          }),
           context,
         ),
       ).resolves.toEqual([{ listingId, outcome: "applied", version: 501 }]);
@@ -2229,19 +2297,19 @@ describe("marketplace listing runtime", () => {
       });
 
       await services.createListing(
-        {
+        listingTestCommand("listing.create", {
           accountId: "acc_seller" as never,
           inventoryItemId: "inv_1",
           priceAmount: "20.00",
           priceCurrencyCode: "USD",
           quantityCap: 1,
           listingIdOverride: "lst_owned" as never,
-        },
+        }),
         context,
       );
 
       const outcomes = await services.applyBulkListingPriceUpdates(
-        {
+        listingBulkTestCommand({
           accountId: "acc_seller",
           updates: [
             {
@@ -2257,7 +2325,7 @@ describe("marketplace listing runtime", () => {
               feeQuoteFingerprint: "stale-too",
             },
           ],
-        },
+        }),
         context,
       );
 
@@ -2296,14 +2364,14 @@ describe("marketplace listing runtime", () => {
       const listingIds = ["lst_chunk_1", "lst_chunk_2", "lst_chunk_3"];
       for (const listingId of listingIds) {
         await services.createListing(
-          {
+          listingTestCommand("listing.create", {
             accountId: "acc_seller" as never,
             inventoryItemId: "inv_1",
             priceAmount: "20.00",
             priceCurrencyCode: "USD",
             quantityCap: 1,
             listingIdOverride: listingId as never,
-          },
+          }),
           context,
         );
       }
@@ -2315,7 +2383,7 @@ describe("marketplace listing runtime", () => {
       );
 
       const outcomes = await services.applyBulkListingPriceUpdates(
-        {
+        listingBulkTestCommand({
           accountId: "acc_seller",
           updates: listingIds.map((listingId, index) => ({
             listingId,
@@ -2323,7 +2391,7 @@ describe("marketplace listing runtime", () => {
             priceCurrencyCode: "USD",
             feeQuoteFingerprint: quotes[index]!.fee_quote_fingerprint,
           })),
-        },
+        }),
         context,
       );
 
@@ -2350,27 +2418,27 @@ describe("marketplace listing runtime", () => {
       const listingIds = ["lst_session_1", "lst_session_2", "lst_session_3", "lst_session_4", "lst_session_5"];
       for (const listingId of listingIds) {
         await services.createListing(
-          {
+          listingTestCommand("listing.create", {
             accountId: "acc_seller" as never,
             inventoryItemId: "inv_1",
             priceAmount: "20.00",
             priceCurrencyCode: "USD",
             quantityCap: 1,
             listingIdOverride: listingId as never,
-          },
+          }),
           context,
         );
       }
 
       const outcomes = await services.applyBulkListingPriceUpdates(
-        {
+        listingBulkTestCommand({
           accountId: "acc_seller",
           updates: listingIds.map((listingId, index) => ({
             listingId,
             priceAmount: `${21 + index}.00`,
             priceCurrencyCode: "USD",
           })),
-        },
+        }),
         context,
       );
 
@@ -2447,26 +2515,26 @@ describe("marketplace listing runtime", () => {
       const listingIds = ["lst_revision_1", "lst_revision_2"];
       for (const listingId of listingIds) {
         await services.createListing(
-          {
+          listingTestCommand("listing.create", {
             accountId: "acc_seller" as never,
             inventoryItemId: "inv_1",
             priceAmount: "20.00",
             priceCurrencyCode: "USD",
             quantityCap: 1,
             listingIdOverride: listingId as never,
-          },
+          }),
           context,
         );
       }
 
       const outcomes = await services.applyBulkListingPriceUpdates(
-        {
+        listingBulkTestCommand({
           accountId: "acc_seller",
           updates: [
             { listingId: "lst_revision_1", priceAmount: "21.00", priceCurrencyCode: "USD" },
             { listingId: "lst_revision_2", priceAmount: "22.00", priceCurrencyCode: "USD" },
           ],
-        },
+        }),
         context,
       );
 
@@ -2499,7 +2567,10 @@ describe("marketplace listing runtime", () => {
       });
 
       await expect(
-        services.applyBulkListingPriceUpdates({ accountId: "acc_seller", updates: [] }, context),
+        services.applyBulkListingPriceUpdates(
+          listingBulkTestCommand({ accountId: "acc_seller", updates: [] }),
+          context,
+        ),
       ).resolves.toEqual([]);
     });
   });
@@ -2695,17 +2766,20 @@ describe("inventory capacity recovery", () => {
       reconcile: () => services.reconcileInventoryCapacity("inv_shared"),
       create: async (listingId: string, quantityCap = 1) => {
         await services.createListing(
-          {
+          listingTestCommand("listing.create", {
             accountId: "acc_seller" as never,
             inventoryItemId: "inv_shared",
             priceAmount: "10.00",
             priceCurrencyCode: "USD",
             quantityCap,
             listingIdOverride: listingId as never,
-          },
+          }),
           context,
         );
-        await services.publishListing({ accountId: "acc_seller", listingId }, context);
+        await services.publishListing(
+          listingTestCommand("listing.publish", { accountId: "acc_seller", listingId }),
+          context,
+        );
       },
     };
   }
@@ -2734,7 +2808,7 @@ describe("inventory capacity recovery", () => {
       context,
     );
     await f.services.createListing(
-      {
+      listingTestCommand("listing.create", {
         accountId: "acc_seller" as never,
         inventoryItemId: "inv_shared",
         priceAmount: "10.00",
@@ -2742,7 +2816,7 @@ describe("inventory capacity recovery", () => {
         quantityCap: 1,
         listingIdOverride: "lst_channel_only" as never,
         publicationScope: "channel-only",
-      },
+      }),
       context,
     );
     const count = f.allEvents.length;
@@ -2817,8 +2891,8 @@ describe("inventory capacity recovery", () => {
       f.setAvailable(1);
       f.race(async () => {
         const params = { accountId: "acc_seller", listingId: "lst_race" };
-        if (action === "pause") await f.services.pauseListing(params, context);
-        else await f.services.withdrawListing(params, context);
+        if (action === "pause") await f.services.pauseListing(listingTestCommand("listing.pause", params), context);
+        else await f.services.withdrawListing(listingTestCommand("listing.withdraw", params), context);
       });
       await f.reconcile();
       expect(await f.services.loadListingState("lst_race")).toMatchObject({
@@ -2837,7 +2911,11 @@ describe("inventory capacity recovery", () => {
     f.setAvailable(1);
     f.race(async () => {
       await f.services.updateListingPurchaseLimits(
-        { accountId: "acc_seller", listingId: "lst_revision", purchaseLimits: { maxUnitsPerOrder: 1 } },
+        listingTestCommand("listing.update-purchase-limits", {
+          accountId: "acc_seller",
+          listingId: "lst_revision",
+          purchaseLimits: { maxUnitsPerOrder: 1 },
+        }),
         context,
       );
     });
@@ -2876,7 +2954,12 @@ describe("inventory capacity recovery", () => {
     await f.reconcile();
     f.setAvailable(1);
     await f.services.disableSellerListingAvailability(
-      { accountId: "acc_seller", reasonCategory: "travel", availableAgainOn: null },
+      listingTestCommand("seller.availability", {
+        status: "unavailable",
+        accountId: "acc_seller",
+        reasonCategory: "travel",
+        availableAgainOn: null,
+      }),
       context,
     );
     await f.reconcile();
@@ -2884,7 +2967,10 @@ describe("inventory capacity recovery", () => {
       status: "paused",
       inventoryCapacityRecoveryBlock: "seller-away",
     });
-    await f.services.enableSellerListingAvailability({ accountId: "acc_seller" }, context);
+    await f.services.enableSellerListingAvailability(
+      listingTestCommand("seller.availability", { status: "available", accountId: "acc_seller" }),
+      context,
+    );
     await f.reconcile();
     expect((await f.services.loadListingState("lst_away")).status).toBe("active");
   });
@@ -2950,17 +3036,20 @@ describe("inventory capacity recovery", () => {
       } as never,
     });
     await services.createListing(
-      {
+      listingTestCommand("listing.create", {
         accountId: "acc_seller" as never,
         inventoryItemId: "inv_capacity",
         priceAmount: "20.00",
         priceCurrencyCode: "USD",
         quantityCap: 1,
         listingIdOverride: "lst_capacity" as never,
-      },
+      }),
       context,
     );
-    await services.publishListing({ accountId: "acc_seller", listingId: "lst_capacity" }, context);
+    await services.publishListing(
+      listingTestCommand("listing.publish", { accountId: "acc_seller", listingId: "lst_capacity" }),
+      context,
+    );
     const original = await services.loadListingState("lst_capacity");
     availableQuantity = 0;
     await services.reconcileInventoryCapacity("inv_capacity");
@@ -3059,7 +3148,13 @@ describe("issue-5258-marketplace-ac2 Listing Evidence description pre-check", ()
     const { allEvents, putObject, services, createParams } = createFixture();
 
     await expect(
-      services.createListing({ ...createParams, listingPhotoUploads: [upload("Front javascript:alert(1)")] }, context),
+      services.createListing(
+        listingTestCommand("listing.create", {
+          ...createParams,
+          listingPhotoUploads: [upload("Front javascript:alert(1)")],
+        }),
+        context,
+      ),
     ).rejects.toMatchObject({ name: "AuthoredTextRejectedError", code: "text_unsafe_link" });
     expect(putObject).not.toHaveBeenCalled();
     expect(allEvents).toHaveLength(0);
@@ -3067,7 +3162,7 @@ describe("issue-5258-marketplace-ac2 Listing Evidence description pre-check", ()
 
   it("rejects an unsafe replacement description before image work", async () => {
     const { allEvents, putObject, services, createParams } = createFixture();
-    await services.createListing(createParams, context);
+    await services.createListing(listingTestCommand("listing.create", createParams), context);
     await services.commandHandler({
       streamId: "marketplace.listing-lst_alt",
       command: { type: "AddListingPhotos", photos: [listingPhoto] as never },
@@ -3152,21 +3247,28 @@ describe("inventory capacity recovery revision races", () => {
     });
     const create = async (listingId: string) => {
       await services.createListing(
-        {
+        listingTestCommand("listing.create", {
           accountId: "acc_seller" as never,
           inventoryItemId: "inv_probe",
           priceAmount: "10.00",
           priceCurrencyCode: "USD",
           quantityCap: 1,
           listingIdOverride: listingId as never,
-        },
+        }),
         context,
       );
-      await services.publishListing({ accountId: "acc_seller", listingId }, context);
+      await services.publishListing(
+        listingTestCommand("listing.publish", { accountId: "acc_seller", listingId }),
+        context,
+      );
     };
     const sellerEdit = (listingId: string) =>
       services.updateListingPurchaseLimits(
-        { accountId: "acc_seller", listingId, purchaseLimits: { maxUnitsPerOrder: 1 } },
+        listingTestCommand("listing.update-purchase-limits", {
+          accountId: "acc_seller",
+          listingId,
+          purchaseLimits: { maxUnitsPerOrder: 1 },
+        }),
         context,
       );
     return {

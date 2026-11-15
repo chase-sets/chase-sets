@@ -1,4 +1,5 @@
 import "./observability-prelude";
+import { listingCommandInput } from "@chase-sets/marketplace/server";
 import { serve } from "@hono/node-server";
 import { Hono } from "hono";
 import {
@@ -1607,17 +1608,25 @@ function createPricingJobRunners(
               marketplaceListingGatewayForAccount: (accountId) => ({
                 applyBulkListingPriceUpdates: async (body) => ({
                   items: await marketplace.listings!.applyBulkListingPriceUpdates!(
-                    { accountId: accountId as never, ...body },
+                    {
+                      ...{ accountId: accountId as never, ...body },
+                      updates: body.updates.map((update) =>
+                        listingCommandInput("listing.update-price", {
+                          ...update,
+                          idempotencyKey: update.idempotencyKey ?? body.batchId ?? "",
+                        }),
+                      ),
+                    },
                     sellerSystemContext(accountId),
                   ),
                 }),
                 createListing: async (body) => {
                   const result = await marketplace.listings!.createListing!(
-                    {
+                    listingCommandInput("listing.create", {
                       accountId: accountId as never,
                       ...body,
                       listingIdOverride: body.listingIdOverride as never,
-                    },
+                    }),
                     sellerSystemContext(accountId),
                   );
                   return {
@@ -1646,18 +1655,30 @@ function createPricingJobRunners(
                 marketplaceGatewayForAccount: (accountId) => ({
                   applyBulkListingPriceUpdates: async (body) => ({
                     items: await marketplace.listings!.applyBulkListingPriceUpdates!(
-                      { accountId, ...body },
+                      {
+                        ...{ accountId, ...body },
+                        updates: body.updates.map((update) =>
+                          listingCommandInput("listing.update-price", {
+                            ...update,
+                            idempotencyKey: update.idempotencyKey ?? body.batchId ?? "",
+                          }),
+                        ),
+                      },
                       sellerSystemContext(accountId),
                     ),
                   }),
                   pauseListing: (listingId, body) =>
                     marketplace.listings!.pauseListing!(
-                      { accountId, listingId, reason: body.reason },
+                      listingCommandInput("listing.pause", { accountId, listingId, ...body }),
                       sellerSystemContext(accountId),
                     ),
                   publishListing: (listingId, body) =>
                     marketplace.listings!.publishListing!(
-                      { accountId, listingId, idempotencyKey: body.idempotencyKey },
+                      listingCommandInput("listing.publish", {
+                        accountId,
+                        listingId,
+                        idempotencyKey: body.idempotencyKey,
+                      }),
                       sellerSystemContext(accountId),
                     ),
                 }),
@@ -1721,7 +1742,15 @@ function createBulkRepriceIngestionJobRunners(
         marketplaceListingGatewayForAccount: (accountId) => ({
           applyBulkListingPriceUpdates: async (body) => ({
             items: await marketplace.listings!.applyBulkListingPriceUpdates!(
-              { accountId, ...body },
+              {
+                ...{ accountId, ...body },
+                updates: body.updates.map((update) =>
+                  listingCommandInput("listing.update-price", {
+                    ...update,
+                    idempotencyKey: update.idempotencyKey ?? body.batchId ?? "",
+                  }),
+                ),
+              },
               sellerSystemContext(accountId),
             ),
           }),

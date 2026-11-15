@@ -3503,6 +3503,7 @@ export const mcpToolCatalog = [
         "priceCurrencyCode",
         "quantityCap",
         "idempotencyKey",
+        "requestHash",
         "confirmationText",
       ],
       properties: {
@@ -3553,6 +3554,10 @@ export const mcpToolCatalog = [
           type: "string",
           description:
             "Stable unique string supplied by the agent host (for example, a UUID). Retried calls must reuse the same key so the action is applied at most once instead of repeating it.",
+        },
+        requestHash: {
+          type: "string",
+          description: "SHA-256 of the canonical Marketplace Listing command.",
         },
         confirmationText: {
           type: "string",
@@ -4225,7 +4230,7 @@ export const mcpToolCatalog = [
     inputSchema: {
       type: "object",
       additionalProperties: false,
-      required: ["accountId", "listingId", "idempotencyKey", "confirmationText"],
+      required: ["accountId", "listingId", "idempotencyKey", "requestHash", "confirmationText"],
       properties: {
         accountId: {
           type: "string",
@@ -4243,6 +4248,10 @@ export const mcpToolCatalog = [
           type: "string",
           description:
             "Stable unique string supplied by the agent host (for example, a UUID). Retried calls must reuse the same key so the action is applied at most once instead of repeating it.",
+        },
+        requestHash: {
+          type: "string",
+          description: "SHA-256 of the canonical Marketplace Listing command.",
         },
         confirmationText: {
           type: "string",
@@ -4542,7 +4551,7 @@ export const mcpToolCatalog = [
     inputSchema: {
       type: "object",
       additionalProperties: false,
-      required: ["accountId", "listingId", "reason", "idempotencyKey", "confirmationText"],
+      required: ["accountId", "listingId", "reason", "idempotencyKey", "confirmationText", "requestHash"],
       properties: {
         accountId: {
           type: "string",
@@ -4568,6 +4577,10 @@ export const mcpToolCatalog = [
         dryRun: {
           type: "boolean",
           description: "Validate the action without committing it.",
+        },
+        requestHash: {
+          type: "string",
+          description: "SHA-256 of the canonical Marketplace Listing command.",
         },
       },
     },
@@ -4640,7 +4653,15 @@ export const mcpToolCatalog = [
     inputSchema: {
       type: "object",
       additionalProperties: false,
-      required: ["accountId", "listingId", "priceAmount", "priceCurrencyCode", "idempotencyKey", "confirmationText"],
+      required: [
+        "accountId",
+        "listingId",
+        "priceAmount",
+        "priceCurrencyCode",
+        "idempotencyKey",
+        "requestHash",
+        "confirmationText",
+      ],
       properties: {
         accountId: {
           type: "string",
@@ -4666,6 +4687,10 @@ export const mcpToolCatalog = [
           type: "string",
           description:
             "Stable unique string supplied by the agent host (for example, a UUID). Retried calls must reuse the same key so the action is applied at most once instead of repeating it.",
+        },
+        requestHash: {
+          type: "string",
+          description: "SHA-256 of the canonical Marketplace Listing command.",
         },
         confirmationText: {
           type: "string",

@@ -74,6 +74,7 @@ describeWithMarketplaceSeedDatabase("representative commerce state", () => {
     partialRun = await runRepresentativeCommercePassThroughListings(runtime);
     await getMarketplaceServices(runtime.services).listings.updateListingPrice(
       {
+        idempotencyKey: "representative_price_drift_attempt_0001",
         accountId: partialRun.stock[0]!.accountId,
         listingId: partialRun.listings[0]!.listingId,
         priceAmount: "27.50",
@@ -528,7 +529,13 @@ describeWithMarketplaceSeedDatabase("representative commerce state", () => {
     const { stock, listings } = requireRun(firstRun);
     const listingId = listings[0]!.listingId;
     await services.listings.updateListingPrice(
-      { accountId: stock[0]!.accountId, listingId, priceAmount: "31.00", priceCurrencyCode: "EUR" },
+      {
+        accountId: stock[0]!.accountId,
+        listingId,
+        priceAmount: "31.00",
+        priceCurrencyCode: "EUR",
+        idempotencyKey: "representative_price_drift_attempt_0002",
+      },
       {
         tenantId: "tnt_identity",
         audit: { performedByUserId: "usr_repr_support_ops_user", forAccountId: "acc_repr_support_ops_account" },

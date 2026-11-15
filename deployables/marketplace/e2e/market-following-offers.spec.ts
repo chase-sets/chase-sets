@@ -1,3 +1,4 @@
+import { listingTestCommand } from "./support/listing-attempt";
 import { expect, test, type APIResponse, type BrowserContext, type Page } from "@playwright/test";
 import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
@@ -639,24 +640,25 @@ test("market-following consent, changed target, Checkout acceptance and permanen
       let sellerStepFailed = false;
       try {
         const listing = await seller.request.post("/api/marketplace/account/listings", {
-          data: {
+          data: listingTestCommand("listing.create", {
             idempotencyKey: `e2e_create_${randomUUID().replaceAll("-", "")}`,
             inventoryItemId: inventorySeedIds.items.surgingSparksBoosterBox,
             priceAmount: "135.00",
             priceCurrencyCode: "USD",
             quantityCap: owner.authority.offers.find((offer: { offerId: string }) => offer.offerId === controlOfferId)
               .quantity,
-          },
+          }),
         });
         expect(listing.status(), "create test-owned stock; the seeded demo Listing is withdrawn").toBe(201);
         rememberWrite(listing);
         const draft = await listing.json();
         listingId = draft.id;
         const published = await seller.request.post(`/api/marketplace/account/listings/${listingId}/publish`, {
-          data: {
+          data: listingTestCommand("listing.publish", {
             idempotencyKey: `e2e_publish_${randomUUID().replaceAll("-", "")}`,
             feeQuoteFingerprint: draft.feeQuoteFingerprint,
-          },
+            listingId,
+          }),
         });
         expect(published.ok(), "publish the test-owned Listing through its normal gates").toBe(true);
         rememberWrite(published);
@@ -1078,7 +1080,10 @@ test("market-following consent, changed target, Checkout acceptance and permanen
     await cleanup(async () => {
       if (listingId && sellerContext) {
         const withdrawn = await sellerContext.request.post(`/api/marketplace/account/listings/${listingId}/withdraw`, {
-          data: { idempotencyKey: `e2e_withdraw_${randomUUID().replaceAll("-", "")}` },
+          data: listingTestCommand("listing.withdraw", {
+            idempotencyKey: `e2e_withdraw_${randomUUID().replaceAll("-", "")}`,
+            listingId,
+          }),
         });
         expect(withdrawn.ok()).toBe(true);
       }

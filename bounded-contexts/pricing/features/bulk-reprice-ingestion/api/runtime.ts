@@ -1,3 +1,4 @@
+import type { MarketplaceApiClient } from "@chase-sets/marketplace/server";
 import { createHash } from "node:crypto";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
@@ -94,15 +95,7 @@ export type BulkRepriceListingOutcome = Readonly<{
 
 export type BulkRepriceMarketplaceListingGateway = Readonly<{
   applyBulkListingPriceUpdates: (
-    body: Readonly<{
-      batchId?: string;
-      updates: readonly Readonly<{
-        listingId: string;
-        priceAmount: string;
-        priceCurrencyCode: string;
-        idempotencyKey?: string;
-      }>[];
-    }>,
+    ...args: Parameters<MarketplaceApiClient["applyBulkListingPriceUpdates"]>
   ) => Promise<Readonly<{ items: readonly BulkRepriceListingOutcome[] }>>;
 }>;
 

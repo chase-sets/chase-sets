@@ -173,7 +173,7 @@ export type RepresentativeMarketplaceServices = Readonly<{
         quantityCap: number;
         listingIdOverride?: ListingId;
         listingPhotoUploads?: readonly RepresentativeListingPhotoUpload[] | null;
-        idempotencyKey?: string;
+        idempotencyKey: string;
       }>,
       context: EventStoreContext,
     ) => Promise<Readonly<{ listingId: string; version: number; feeQuoteFingerprint: string }>>;
@@ -182,7 +182,7 @@ export type RepresentativeMarketplaceServices = Readonly<{
         accountId: AccountId;
         listingId: string;
         feeQuoteFingerprint: string | null;
-        idempotencyKey?: string;
+        idempotencyKey: string;
         expectedVersion?: number;
       }>,
       context: EventStoreContext,
@@ -193,7 +193,7 @@ export type RepresentativeMarketplaceServices = Readonly<{
         listingId: string;
         priceAmount: string;
         priceCurrencyCode: string;
-        idempotencyKey?: string;
+        idempotencyKey: string;
         expectedVersion?: number;
       }>,
       context: EventStoreContext,

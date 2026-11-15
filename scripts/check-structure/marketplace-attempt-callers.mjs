@@ -1,6 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import ts from "@chase-sets/typescript-compiler-api";
 
 export const marketplaceAttemptInventoryIgnoreRules = [
@@ -22,7 +23,7 @@ export function readTrackedMarketplaceCallerSources(root) {
       "-l",
       "-z",
       "-E",
-      "submitOffer|updateOfferPrice|acceptOffer|declineOfferMatch|createSubmittedOffer|updateSubmittedOfferPrice|acceptOfferMatch|commandBuyerOfferPolicy|BuyerOfferPolicyServices|createBuyerOfferPolicyRuntime|SubmitOffer|AcceptOffer|DeclineOfferMatch|marketplace\\.(submit-offer|counter-offer|update-offer-price|accept-offer|decline-offer)|decline-offer|offers/submitted|offers/matches/|offer-policies/",
+      "submitOffer|updateOfferPrice|acceptOffer|declineOfferMatch|createSubmittedOffer|updateSubmittedOfferPrice|acceptOfferMatch|commandBuyerOfferPolicy|BuyerOfferPolicyServices|createBuyerOfferPolicyRuntime|SubmitOffer|AcceptOffer|DeclineOfferMatch|marketplace\\.(submit-offer|counter-offer|update-offer-price|accept-offer|decline-offer)|decline-offer|offers/submitted|offers/matches/|offer-policies/|[Ll]isting|SellerAwayWindow|ScheduledAwayWindow|SellerOrderCapacity",
       "--",
       "*.ts",
       "*.tsx",
@@ -60,14 +61,22 @@ const httpOfferCommands = [
   [/\/offer-policies\/[^/]+\/commands$/, "http-offer-policy-command"],
 ];
 
-function literalUrl(node) {
+function literalUrl(node, bindings = new Map(), seen = new Set()) {
+  if (ts.isIdentifier(node) && bindings.has(node.text) && !seen.has(node.text))
+    return literalUrl(bindings.get(node.text), bindings, new Set([...seen, node.text]));
   if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) return node.text;
   if (ts.isTemplateExpression(node))
-    return node.head.text + node.templateSpans.map((span) => `\${}${span.literal.text}`).join("");
+    return (
+      node.head.text +
+      node.templateSpans
+        .map((span) => `${literalUrl(span.expression, bindings, seen) ?? "${}"}${span.literal.text}`)
+        .join("")
+    );
   return null;
 }
 
-export function enumerateMarketplaceAttemptCallers(sources) {
+export function enumerateMarketplaceAttemptCallers(sources, listing = false) {
+  const activeMethods = listing ? listingMethods : methods;
   const callers = [];
   for (const file of sources) {
     const ast = ts.createSourceFile(file.path, file.source, ts.ScriptTarget.Latest, true);
@@ -75,15 +84,18 @@ export function enumerateMarketplaceAttemptCallers(sources) {
     const isTest = imports.some((name) => /^(vitest|node:test|@playwright\/test)$/.test(name));
     const policy = imports.some((name) => /offer-policy.*runtime/.test(name));
     const aliases = new Map();
+    const bindings = new Map();
     function collectAliases(node) {
-      if (ts.isImportSpecifier(node) && methods.has(node.propertyName?.text ?? node.name.text))
+      if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer)
+        bindings.set(node.name.text, node.initializer);
+      if (ts.isImportSpecifier(node) && activeMethods.has(node.propertyName?.text ?? node.name.text))
         aliases.set(node.name.text, node.propertyName?.text ?? node.name.text);
       if (
         ts.isBindingElement(node) &&
         ts.isIdentifier(node.name) &&
         node.propertyName &&
         ts.isIdentifier(node.propertyName) &&
-        methods.has(node.propertyName.text)
+        activeMethods.has(node.propertyName.text)
       )
         aliases.set(node.name.text, node.propertyName.text);
       if (
@@ -91,15 +103,32 @@ export function enumerateMarketplaceAttemptCallers(sources) {
         ts.isIdentifier(node.name) &&
         node.initializer &&
         ts.isPropertyAccessExpression(node.initializer) &&
-        methods.has(node.initializer.name.text)
+        activeMethods.has(node.initializer.name.text)
       )
         aliases.set(node.name.text, node.initializer.name.text);
       ts.forEachChild(node, collectAliases);
     }
     collectAliases(ast);
+    function expandIdentity(node, seen = new Set()) {
+      const evidence = [node.getText(ast)];
+      function visitIdentity(child) {
+        if (ts.isIdentifier(child) && bindings.has(child.text) && !seen.has(child.text)) {
+          seen.add(child.text);
+          evidence.push(expandIdentity(bindings.get(child.text), seen));
+        } else ts.forEachChild(child, visitIdentity);
+      }
+      ts.forEachChild(node, visitIdentity);
+      return evidence.join("\n");
+    }
     const add = (node, method, call = node.getText(ast)) => {
       const line = ast.getLineAndCharacterOfPosition(node.getStart(ast)).line + 1;
-      callers.push({ path: file.path, method, line, call });
+      callers.push({
+        path: file.path,
+        method,
+        line,
+        call,
+        ...(listing ? { identityEvidence: expandIdentity(node) + "\n" + imports.join("\n") } : {}),
+      });
     };
     function visit(node) {
       if (ts.isCallExpression(node)) {
@@ -112,15 +141,17 @@ export function enumerateMarketplaceAttemptCallers(sources) {
           if (
             tool &&
             ts.isStringLiteral(tool) &&
-            /^marketplace\.(submit-offer|counter-offer|update-offer-price|accept-offer|decline-offer)$/.test(
-              tool.text,
-            ) &&
+            (listing
+              ? /^marketplace\.(create-listing|update-listing-price|publish-listing|unpublish-listing)$/
+              : /^marketplace\.(submit-offer|counter-offer|update-offer-price|accept-offer|decline-offer)$/
+            ).test(tool.text) &&
             args
           ) {
-            add(node, "mcp-offer-command", args.getText(ast));
+            add(node, listing ? "mcp-listing-command" : "mcp-offer-command", args.getText(ast));
           }
         }
-        const expression = node.expression;
+        let expression = node.expression;
+        while (ts.isNonNullExpression(expression)) expression = expression.expression;
         const rawName = ts.isPropertyAccessExpression(expression)
           ? expression.name.text
           : ts.isElementAccessExpression(expression) && ts.isStringLiteral(expression.argumentExpression)
@@ -134,11 +165,12 @@ export function enumerateMarketplaceAttemptCallers(sources) {
           /type:\s*["'](?:SubmitOffer|AcceptOffer|UpdateOfferPrice|DeclineOfferMatch)["']/.test(node.getText(ast));
         const policyCommand = name === "execute" && policy;
         // Handler fixtures deliberately exercise invalid commands; transport callers are never exempt.
-        if (!isTest && (methods.has(name) || offerCommand || policyCommand)) add(node, name);
+        if ((listing || !isTest) && (activeMethods.has(name) || (!listing && (offerCommand || policyCommand))))
+          add(node, name);
         // HTTP transport producers (e.g. Playwright `request.post(url, { data })`). Route registrations
         // pass a handler, not an options object, so they never match.
         const [target, options] = node.arguments;
-        const url = target && literalUrl(target);
+        const url = target && literalUrl(target, bindings);
         if (
           url &&
           options &&
@@ -146,21 +178,63 @@ export function enumerateMarketplaceAttemptCallers(sources) {
           ts.isPropertyAccessExpression(expression) &&
           /^(post|patch|put)$/.test(expression.name.text)
         ) {
-          const command = httpOfferCommands.find(([pattern]) => pattern.test(url.split("?")[0]));
+          const command = (listing ? httpListingCommands : httpOfferCommands).find(([pattern]) =>
+            pattern.test(url.split("?")[0]),
+          );
           if (command) add(node, command[1], options.getText(ast));
         }
       }
       if (ts.isJsxElement(node) && /^(Form|RouterForm)$/.test(node.openingElement.tagName.getText(ast))) {
         const call = node.getText(ast);
-        if (/name=["']intent["']\s+value=["'](?:decline-offer|accept-offer)["']/.test(call)) {
+        if (!listing && /name=["']intent["']\s+value=["'](?:decline-offer|accept-offer)["']/.test(call)) {
           add(node, "offer-command-form");
         }
+        if (
+          listing &&
+          (/name=["']intent["']\s+value=["'](?:create-listing|create-and-publish-listing|list-at-price|bulk-pause-listings|bulk-withdraw-listings|update-quantity-cap|update-purchase-limits|schedule-away-window|cancel-away-window|set-order-capacity|clear-order-capacity|disable-listings|enable-listings)["']/.test(
+            call,
+          ) ||
+            imports.some((name) => name.endsWith("/listing-command-form")))
+        )
+          add(node, "listing-command-form");
       }
       ts.forEachChild(node, visit);
     }
     visit(ast);
   }
   return callers.sort((a, b) => a.path.localeCompare(b.path) || a.line - b.line);
+}
+
+const listingMethods = new Set([
+  "createListing",
+  "createListingFromInventorySnapshot",
+  "createListingWithPhotos",
+  "publishListing",
+  "pauseListing",
+  "withdrawListing",
+  "updateListingPrice",
+  "updateListingQuantityCap",
+  "updateListingPurchaseLimits",
+  "disableSellerListingAvailability",
+  "enableSellerListingAvailability",
+  "scheduleSellerAwayWindow",
+  "cancelScheduledAwayWindow",
+  "setSellerOrderCapacity",
+  "clearSellerOrderCapacity",
+  "applyListingBatch",
+  "applyBulkListingPriceUpdates",
+]);
+const httpListingCommands = [
+  [/\/account\/listings$/, "http-listing-create"],
+  [
+    /\/account\/listings\/[^/]+\/(?:publish|pause|withdraw|price|quantity-cap|purchase-limits)$/,
+    "http-listing-command",
+  ],
+  [/\/account\/listings\/(?:batch|prices\/bulk)$/, "http-listing-batch"],
+  [/\/account\/(?:listing-availability\/(?:enable|disable|away-window)|order-capacity)$/, "http-seller-command"],
+];
+export function enumerateListingAttemptCallers(sources) {
+  return enumerateMarketplaceAttemptCallers(sources, true);
 }
 
 // Every row is a command boundary or a named deterministic authoring exemption.
@@ -227,4 +301,132 @@ export function unpartitionedMarketplaceOfferCallers(callers) {
       (proof === "form-attemptId" && !/name=["']attemptId["']/.test(caller.call))
     );
   });
+}
+
+// Every tracked Listing command producer is assigned once; stream exemptions keep C2's complete-history proof.
+export const marketplaceListingCallerPartition = new Map([
+  ["bounded-contexts/inventory/features/inventory-items/ui/list-from-inventory-drawer.tsx", "form-attempt"],
+  ["bounded-contexts/discovery/features/item-detail/ui/commerce/listing-submission-section.tsx", "form-attempt"],
+  ["bounded-contexts/marketplace/features/listings/ui/listing-create-page.tsx", "form-attempt"],
+  ["bounded-contexts/marketplace/features/listings/ui/listing-detail-page.tsx", "form-attempt"],
+  ["bounded-contexts/marketplace/features/listings/ui/listing-list-page.tsx", "form-attempt"],
+  ["bounded-contexts/marketplace/features/listings/ui/time-away-capacity-card.tsx", "form-attempt"],
+  ["bounded-contexts/marketplace/features/listings/api/listing-caller-client.test.ts", "typed-owner-fixture"],
+  [
+    "bounded-contexts/channels/features/outbound-sync/api/runtime.ts",
+    "Channels publication port, not Marketplace Listing commands",
+  ],
+  [
+    "bounded-contexts/channels/features/publication-port/api/registry.ts",
+    "Channels publication port, not Marketplace Listing commands",
+  ],
+  [
+    "bounded-contexts/channels/features/publication-port/tests/channel-provider-registry-defaults.test.ts",
+    "Channels publication port, not Marketplace Listing commands",
+  ],
+  [
+    "bounded-contexts/channels/features/publication-port/tests/channel-publication-invocation-boundary.test.ts",
+    "Channels publication port, not Marketplace Listing commands",
+  ],
+  ["bounded-contexts/checkout/support/route-support/sell-checkout-session/sell-checkout-handoff.ts", "caller-identity"],
+  ["bounded-contexts/discovery/support/route-support/item-detail/action.ts", "form-attempt"],
+  ["bounded-contexts/marketplace/features/channel-inbound-clamp/api/runtime.ts", "authoritative-stream"],
+  [
+    "bounded-contexts/marketplace/features/channel-inbound-clamp/tests/channel-inbound-clamp.db.test.ts",
+    "typed-owner-fixture",
+  ],
+  ["bounded-contexts/marketplace/features/listings/api/mcp.ts", "mcp-attempt-boundary"],
+  ["bounded-contexts/marketplace/features/listings/api/pricing-worker-audit.test.ts", "typed-owner-fixture"],
+  ["bounded-contexts/marketplace/features/listings/api/route.ts", "http-attempt-boundary"],
+  ["bounded-contexts/marketplace/features/listings/api/runtime.test.ts", "typed-owner-fixture"],
+  ["bounded-contexts/marketplace/features/listings/api/runtime.ts", "owner-batch-and-import"],
+  [
+    "bounded-contexts/marketplace/features/listings/integrations/settlement/negative-balance-projection.ts",
+    "caller-identity",
+  ],
+  [
+    "bounded-contexts/marketplace/features/listings/tests/inventory-capacity-recovery.db.test.ts",
+    "typed-owner-fixture",
+  ],
+  [
+    "bounded-contexts/marketplace/features/listings/tests/inventory-snapshot-compatibility.db.test.ts",
+    "typed-owner-fixture",
+  ],
+  ["bounded-contexts/marketplace/features/listings/tests/listing-attempt.db.test.ts", "typed-owner-fixture"],
+  [
+    "bounded-contexts/marketplace/features/listings/tests/listing-moderation-reaction.db.test.ts",
+    "Pure domain command constructor, not a service caller",
+  ],
+  [
+    "bounded-contexts/marketplace/features/listings/tests/seller-availability-restore-sweep-sql.db.test.ts",
+    "typed-owner-fixture",
+  ],
+  [
+    "bounded-contexts/marketplace/features/listings/tests/seller-away-window-sweep-sql.db.test.ts",
+    "typed-owner-fixture",
+  ],
+  ["bounded-contexts/marketplace/routes/account-listing.tsx", "form-attempt"],
+  ["bounded-contexts/marketplace/routes/account-listings-new.tsx", "form-attempt"],
+  ["bounded-contexts/marketplace/routes/account-listings.tsx", "form-attempt"],
+  ["bounded-contexts/marketplace/support/runtime-support/seed.ts", "authoritative-stream"],
+  ["bounded-contexts/marketplace/tests/safe-listing-feedback.test.ts", "typed-owner-fixture"],
+  ["bounded-contexts/pricing/features/bulk-reprice-ingestion/api/runtime.ts", "caller-identity"],
+  ["bounded-contexts/pricing/features/recommendations/api/runtime.ts", "caller-identity"],
+  ["bounded-contexts/pricing/features/repricing-engine/api/runtime.ts", "caller-identity"],
+  ["bounded-contexts/pricing/support/request-support/marketplace-listings.ts", "imported-client-forwarder"],
+  ["contracts/catalog-seed/representative-commerce-state.ts", "authoritative-stream"],
+  ["deployables/marketplace-seed-testing/tests/representative-commerce-state.test.ts", "typed-owner-fixture"],
+  ["deployables/marketplace/e2e/accepted-offer-sales-handoff.spec.ts", "transport-fixture"],
+  ["deployables/marketplace/e2e/channel-connection-connect.spec.ts", "transport-fixture"],
+  ["deployables/marketplace/e2e/manual-sync-recovery.spec.ts", "transport-fixture"],
+  ["deployables/marketplace/e2e/market-following-offers.spec.ts", "transport-fixture"],
+  ["deployables/platform-worker/src/main.ts", "imported-service-forwarder"],
+  ["infrastructure/platform-runtime/mcp.test.ts", "mcp-transport-fixture"],
+]);
+
+export function unpartitionedListingAttemptCallers(callers) {
+  return callers.filter((caller) => {
+    const proof = marketplaceListingCallerPartition.get(caller.path);
+    const evidence = caller.identityEvidence ?? caller.call;
+    if (!proof) return true;
+    if (caller.method === "listing-command-form")
+      return !/name=["']idempotencyKey["']|\/listing-command-form/.test(evidence);
+    if (
+      proof === "Channels publication port, not Marketplace Listing commands" ||
+      proof === "Pure domain command constructor, not a service caller"
+    )
+      return false;
+    if (proof === "mcp-transport-fixture")
+      return !/idempotencyKey\s*:/.test(caller.call) || !/requestHash\s*:/.test(caller.call);
+    if (proof === "typed-owner-fixture")
+      return !/listingTestCommand|listingBulkTestCommand|idempotencyKey|batchId|key\(|as never|\b(?:body|params|keyed|base|owned|request|args|form)\b/.test(
+        evidence,
+      );
+    if (proof === "transport-fixture") return !/listingTestCommand\(/.test(caller.call);
+    if (proof === "mcp-attempt-boundary") return !/readListingAttempt\(args\)/.test(caller.call);
+    if (proof === "http-attempt-boundary")
+      return !/listingAttemptInput\(|\.\.\.attempt|batchId|parseListingLifecycleBatch/.test(evidence);
+    if (proof === "imported-client-forwarder") return !/\(body, options\)/.test(caller.call);
+    if (proof === "imported-service-forwarder") return !/\.\.\.body|idempotencyKey/.test(caller.call);
+    if (
+      caller.path === "bounded-contexts/pricing/features/repricing-engine/api/runtime.ts" &&
+      caller.method === "applyBulkListingPriceUpdates"
+    )
+      return !/\(\{ updates \}\)/.test(caller.call);
+    return !/listingFormAttempt\(|idempotencyKey|batchId|\.\.\.keyed|\bkeyed\b/.test(evidence);
+  });
+}
+
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  const root = fileURLToPath(new URL("../../", import.meta.url));
+  const sources = readTrackedMarketplaceCallerSources(root);
+  const listing = enumerateListingAttemptCallers(sources);
+  const offer = enumerateMarketplaceAttemptCallers(sources);
+  const violations = [...unpartitionedListingAttemptCallers(listing), ...unpartitionedMarketplaceOfferCallers(offer)];
+  for (const caller of violations) console.error(`${caller.path}:${caller.line}: unpartitioned ${caller.method}`);
+  if (violations.length) process.exitCode = 1;
+  else
+    console.log(
+      `Marketplace attempt caller partition: ${listing.length} Listing and ${offer.length} Offer callers checked.`,
+    );
 }
