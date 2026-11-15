@@ -156,6 +156,7 @@ runs:
             const created = await github.rest.issues.create({
               owner,
               repo,
+              type: "Bug",
               title,
               labels,
               body: [
@@ -166,6 +167,10 @@ runs:
                 commentBody,
               ].join("\n"),
             });
+            if (created.data?.type?.name !== "Bug" || created.data.type.is_enabled !== true) {
+              core.setFailed("ISSUE_CREATION_TYPE_MISMATCH: expected enabled native Bug in create response.");
+              return;
+            }
             issueNumber = created.data.number;
             core.info(`Created scheduled workflow alert issue #${issueNumber}.`);
             return;

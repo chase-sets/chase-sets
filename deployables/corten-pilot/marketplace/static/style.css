@@ -35,6 +35,12 @@
   }
 }
 
+/* The design system's Stat label is uppercase (stat.tsx). The kit's Stats reads its case from
+   this property, which no design token type carries (corten-run/corten#1054). */
+:root {
+  --stat-label-text-transform: uppercase;
+}
+
 * {
   box-sizing: border-box;
 }
@@ -56,6 +62,9 @@ body {
 @media (max-width: 47.99rem) {
   body[data-shell] {
     --shell-bottom-nav-height: 5.25rem;
+    /* The kit's toaster (views::Frame) sits above the bar, not on it. It is set on <body>: the
+       kit's theme declares it on :root after this stylesheet. */
+    --toasts-inset-bottom: calc(1rem + var(--shell-bottom-nav-height));
   }
 }
 main {
@@ -63,6 +72,11 @@ main {
   margin: 0 auto;
   padding: var(--space-6);
   padding-bottom: calc(var(--space-6) + var(--shell-bottom-nav-height) + env(safe-area-inset-bottom, 0px));
+}
+/* The error page's detail under corten dev: an API's long message wraps, not past a phone's edge. */
+main > pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 /* Printed, a page is on white paper and its content uses the page's own margins. */
 @media print {

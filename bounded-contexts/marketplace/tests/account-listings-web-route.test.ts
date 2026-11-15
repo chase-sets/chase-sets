@@ -298,25 +298,32 @@ describe("marketplace listings workbench route", () => {
     expect(pageReads).toBe(0);
   });
 
-  it("pauses selected listings in bulk and reports per-row outcomes", async () => {
+  it("pauses selected listings in bulk as one batch and reports per-row outcomes", async () => {
+    const batchBodies: unknown[] = [];
     vi.stubGlobal(
       "fetch",
-      vi.fn((input: string | URL | Request) => {
+      vi.fn((input: string | URL | Request, init?: RequestInit) => {
         const url = String(input);
 
         if (url.includes("/api/auth/session")) {
           return Promise.resolve(jsonResponse({ actor: sellerActor }));
         }
 
-        if (url.includes("/account/listings/lst_1/pause")) {
-          return Promise.resolve(jsonResponse({ id: "lst_1", version: 2, status: "paused" }));
-        }
-
-        if (url.includes("/account/listings/lst_2/pause")) {
+        if (url.includes("/account/listings/batch")) {
+          batchBodies.push(JSON.parse(String(init?.body)));
           return Promise.resolve(
-            jsonResponse({ error: { code: "validation_failed", message: "Listing is withdrawn." } }, 400),
+            jsonResponse({
+              batchId: "listing_batch_0000000000000001",
+              family: "listing.pause",
+              items: [
+                { targetId: "lst_1", outcome: "succeeded", version: 2 },
+                { targetId: "lst_2", outcome: "error", version: 0, message: "Listing is withdrawn." },
+              ],
+            }),
           );
         }
+
+        if (url.includes("/pause")) throw new Error("bulk pause must not send per-Listing commands");
 
         return Promise.resolve(jsonResponse({ items: [], total: 0, count: 0 }));
       }),
@@ -324,6 +331,7 @@ describe("marketplace listings workbench route", () => {
 
     const form = new URLSearchParams();
     form.set("intent", "bulk-pause-listings");
+    form.set("batchId", "listing_batch_0000000000000001");
     form.append("listingIds", "lst_1");
     form.append("listingIds", "lst_2");
 
@@ -349,6 +357,10 @@ describe("marketplace listings workbench route", () => {
     expect(bulkResult.bulkActionOutcomes.find((outcome) => outcome.listingId === "lst_2")).toMatchObject({
       outcome: "error",
     });
+    // One batch identity for the whole submission; the resubmitted form's id is reused, not re-minted.
+    expect(batchBodies).toEqual([
+      { batchId: "listing_batch_0000000000000001", family: "listing.pause", listingIds: ["lst_1", "lst_2"] },
+    ]);
   });
 
   it("keeps successful null-rate Seller Reliability as insufficient history", async () => {
@@ -379,19 +391,28 @@ describe("marketplace listings workbench route", () => {
 
   it("withdraws selected listings in bulk", async () => {
     const withdrawnIds: string[] = [];
+    const batchIds: string[] = [];
     vi.stubGlobal(
       "fetch",
-      vi.fn((input: string | URL | Request) => {
+      vi.fn((input: string | URL | Request, init?: RequestInit) => {
         const url = String(input);
 
         if (url.includes("/api/auth/session")) {
           return Promise.resolve(jsonResponse({ actor: sellerActor }));
         }
 
-        const match = url.match(/\/account\/listings\/([^/]+)\/withdraw/);
-        if (match) {
-          withdrawnIds.push(match[1]!);
-          return Promise.resolve(jsonResponse({ id: match[1], version: 2, status: "withdrawn" }));
+        if (url.includes("/account/listings/batch")) {
+          const body = JSON.parse(String(init?.body)) as { batchId: string; family: string; listingIds: string[] };
+          expect(body.family).toBe("listing.withdraw");
+          batchIds.push(body.batchId);
+          withdrawnIds.push(...body.listingIds);
+          return Promise.resolve(
+            jsonResponse({
+              batchId: body.batchId,
+              family: body.family,
+              items: body.listingIds.map((targetId) => ({ targetId, outcome: "succeeded", version: 2 })),
+            }),
+          );
         }
 
         return Promise.resolve(jsonResponse({ items: [], total: 0, count: 0 }));
@@ -413,6 +434,8 @@ describe("marketplace listings workbench route", () => {
     } as never);
 
     expect(withdrawnIds).toEqual(["lst_3"]);
+    // A form without a batch id gets one minted for the whole submission.
+    expect(batchIds).toEqual([expect.stringMatching(/^listing_batch_[a-f0-9]{32}$/)]);
     const bulkResult = result as { bulkActionOutcomes: Array<{ listingId: string; outcome: string }> };
     expect(bulkResult.bulkActionOutcomes).toEqual([
       { listingId: "lst_3", label: expect.any(String), outcome: "success", message: null },

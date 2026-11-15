@@ -1,7 +1,7 @@
 // Delivery-owned deploy authority for the connector pairing drill, and the only drill code that reads
 // GitHub Actions. The owning Deploy Staging job comes from the shared staging deploy generation (newest applied
 // job; a newer unfinished or indeterminate deploy, a skipped or incomplete listing refuses), the requested run and
-// commit must be that job's, and each required issue's closing-PR merge commit is compared with its deployed head.
+// commit must be that job's, and each required closed issue's implementation merge is compared with its deployed head.
 // Every read is `gh api`, read-only; the product drill receives only the result.
 import { execFile } from "node:child_process";
 import { selectStagingDeployGeneration } from "./staging-deploy-generation.mjs";
@@ -13,7 +13,9 @@ const requestTimeoutMs = 30_000;
 const decimalId = /^[1-9]\d{0,19}$/;
 const commitSha = /^[a-f0-9]{40}$/;
 const closingMergesQuery =
-  "query($owner: String!, $name: String!, $number: Int!) { repository(owner: $owner, name: $name) { issue(number: $number) { closedByPullRequestsReferences(first: 10, includeClosedPrs: true) { nodes { number merged mergeCommit { oid } } } } } }";
+  "query($owner: String!, $name: String!, $number: Int!) { repository(owner: $owner, name: $name) { issue(number: $number) { state closedByPullRequestsReferences(first: 10, includeClosedPrs: true) { pageInfo { hasNextPage } nodes { number merged mergeCommit { oid } } } } } }";
+// Reviewed manual closeout: the accepted sign-in implementation, not incidental issue references.
+const manualCloseoutPullRequests = new Map([[10640, 10944]]);
 
 /** One read-only `gh api` call; its stdout, or a value-free refusal. */
 export function ghApi(args, { run = execFile } = {}) {
@@ -49,14 +51,65 @@ export function ghApiTransport(gh = ghApi) {
 }
 
 const json = (bytes) => JSON.parse(Buffer.from(bytes).toString("utf8"));
+/** Derives the sign-in floor from selected deploy authority, never from the requested run or a local receipt. */
+export async function readStagingSignInReceiptFloor({ generation, requiredMerges }, { gh = ghApi } = {}) {
+  const isInstant = (value) =>
+    typeof value === "string" &&
+    /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/.test(value) &&
+    Number.isFinite(Date.parse(value));
+  const signInMerges = requiredMerges.filter((merge) => merge.issue === 10640);
+  if (signInMerges.length !== 1 || !signInMerges[0].contained) return null;
+  const job = json(await gh([`repos/${repository}/actions/jobs/${generation.jobId}`]));
+  if (
+    String(job.id) !== generation.jobId ||
+    String(job.run_id) !== generation.runId ||
+    job.run_attempt !== generation.runAttempt ||
+    job.name !== "Deploy Staging" ||
+    job.status !== "completed" ||
+    job.conclusion !== "success" ||
+    job.completed_at !== generation.jobCompletedAt ||
+    !isInstant(job.started_at) ||
+    !isInstant(job.completed_at) ||
+    !Array.isArray(job.steps) ||
+    !job.steps.every((step) => step && typeof step.name === "string")
+  )
+    return null;
+  const names = [
+    "Activate immutable release before staging mutation",
+    "Apply staging Kubernetes runtime secrets",
+    "Deploy staging Kubernetes release",
+    "Mark staging applied",
+  ];
+  let previousEnd = Date.parse(job.started_at);
+  let previousNumber = 0;
+  for (const name of names) {
+    const found = job.steps.filter((step) => step.name === name);
+    if (found.length !== 1) return null;
+    const [step] = found;
+    if (
+      step.status !== "completed" ||
+      step.conclusion !== "success" ||
+      !Number.isSafeInteger(step.number) ||
+      step.number <= previousNumber ||
+      !isInstant(step.started_at) ||
+      !isInstant(step.completed_at) ||
+      Date.parse(step.started_at) < previousEnd ||
+      Date.parse(step.completed_at) < Date.parse(step.started_at) ||
+      Date.parse(step.completed_at) > Date.parse(job.completed_at)
+    )
+      return null;
+    previousEnd = Date.parse(step.completed_at);
+    previousNumber = step.number;
+  }
+  return generation.runId;
+}
 
-/** The closing-PR merge of one issue, compared with the deployed head; ambiguity or absence is not contained. */
-async function requiredMerge(gh, issue, deployedHead) {
+async function readIssue(gh, issue, query) {
   const body = json(
     await gh([
       "graphql",
       "-f",
-      `query=${closingMergesQuery}`,
+      `query=${query}`,
       "-f",
       "owner=chase-sets",
       "-f",
@@ -65,12 +118,40 @@ async function requiredMerge(gh, issue, deployedHead) {
       `number=${issue}`,
     ]),
   );
-  const nodes = body?.data?.repository?.issue?.closedByPullRequestsReferences?.nodes;
-  if (!Array.isArray(nodes)) throw new Error("closing-merge-unreadable");
-  const merged = nodes.filter((node) => node?.merged === true && commitSha.test(node?.mergeCommit?.oid ?? ""));
-  if (merged.length !== 1) return { issue, pullRequest: null, mergeCommit: null, contained: false };
+  if (body.errors?.length || !body?.data?.repository?.issue) throw new Error("issue-unreadable");
+  return body.data.repository.issue;
+}
+
+/** Closing PRs take precedence; a manual closeout needs its explicitly reviewed implementation merge into main. */
+async function requiredMerge(gh, issue, deployedHead) {
+  const absent = { issue, pullRequest: null, mergeCommit: null, contained: false };
+  const record = await readIssue(gh, issue, closingMergesQuery);
+  if (record.state !== "CLOSED") return absent;
+  const closing = record.closedByPullRequestsReferences;
+  if (!Array.isArray(closing?.nodes) || closing.pageInfo?.hasNextPage !== false)
+    throw new Error("closing-merge-unreadable");
+  const isMerged = (node) => node?.merged === true && commitSha.test(node?.mergeCommit?.oid ?? "");
+  const manualCloseout = closing.nodes.length === 0;
+  let merged = closing.nodes.filter(isMerged);
+  if (manualCloseout) {
+    const number = manualCloseoutPullRequests.get(issue);
+    if (!number) return absent;
+    const pr = json(await gh([`repos/${repository}/pulls/${number}`]));
+    if (
+      pr?.number !== number ||
+      pr.merged !== true ||
+      pr.base?.ref !== "main" ||
+      pr.base?.repo?.full_name !== repository ||
+      !commitSha.test(pr.merge_commit_sha ?? "")
+    )
+      return absent;
+    merged = [{ number, mergeCommit: { oid: pr.merge_commit_sha } }];
+  }
+  if (merged.length !== 1) return absent;
   const [{ number, mergeCommit }] = merged;
   const { status } = json(await gh([`repos/${repository}/compare/${mergeCommit.oid}...${deployedHead}?per_page=1`]));
+  if (manualCloseout && !["ahead", "identical", "behind", "diverged"].includes(status))
+    throw new Error("mapped-merge-comparison-unreadable");
   return {
     issue,
     pullRequest: number,
@@ -81,7 +162,7 @@ async function requiredMerge(gh, issue, deployedHead) {
 
 /**
  * Binds the drill to `run` and `commit`, read immediately before launch. Returns `{binding}` or `{stop}`; the
- * pairing run's floor comes from staging sign-in's deployed receipt (`readReceiptFloor`), and without one it stops.
+ * pairing run's floor comes from staging sign-in's deployed authority (`readReceiptFloor`), and without one it stops.
  */
 export async function readConnectorDrillDeployBinding(
   { run, commit, requiredIssues, requireReceiptFloor },
@@ -126,9 +207,10 @@ export async function readConnectorDrillDeployBinding(
   }
   let receiptFloorRunId = null;
   if (requireReceiptFloor) {
-    receiptFloorRunId = await readReceiptFloor().catch(() => null);
+    receiptFloorRunId = await readReceiptFloor({ generation, requiredMerges }).catch(() => null);
     if (typeof receiptFloorRunId !== "string" || !decimalId.test(receiptFloorRunId))
       return { stop: "receipt-floor-unavailable" };
+    if (BigInt(receiptFloorRunId) > BigInt(generation.runId)) return { stop: "receipt-floor-newer-than-deploy" };
   }
   return {
     binding: {

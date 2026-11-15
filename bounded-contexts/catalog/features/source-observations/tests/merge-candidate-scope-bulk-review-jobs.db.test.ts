@@ -509,6 +509,7 @@ function candidateWriter(db: PgTransactionalPool, eventStore: EventStore) {
       for (const event of await eventStore.readStream({ streamId })) {
         await projection[event.eventType]?.({
           streamId,
+          streamVersion: event.streamVersion,
           data: event.payload,
           timing: { recordedAt: event.recordedAt },
         } as never);
@@ -1185,7 +1186,14 @@ describeDb("Catalog Merge Candidate application through real Catalog services (d
   it.each(poisons)("AC3: retained %s checkpoint history refuses visibly with no writes", async (poison) => {
     const observationId = `obs_${poison.replaceAll("-", "_")}`;
     const { candidateId, expectedTarget } = await arrange("create", observationId, `7${poisons.indexOf(poison)}`);
-    await services.sourceObservations.promoteCatalogMergeCandidate({ candidateId, reason: "Approved.", context });
+    await services.sourceObservations.promoteCatalogMergeCandidate({
+      candidateId,
+      expectedVersion: (await readCompleteStream(store, { streamId: catalogMergeCandidateStreamId(candidateId) })).at(
+        -1,
+      )!.streamVersion,
+      reason: "Approved.",
+      context,
+    });
     const job = await submit();
     const streamId = catalogMergeCandidateStreamId(candidateId);
     const approvedHistory = await readCompleteStream(store, { streamId });
@@ -1348,6 +1356,9 @@ describeDb("Catalog Merge Candidate application through real Catalog services (d
     // Approved by single-candidate promotion (approval only) and reported by a retained #9219 job.
     await services.sourceObservations.promoteCatalogMergeCandidate({
       candidateId,
+      expectedVersion: (await readCompleteStream(store, { streamId: catalogMergeCandidateStreamId(candidateId) })).at(
+        -1,
+      )!.streamVersion,
       reason: "Approved earlier.",
       context,
     });

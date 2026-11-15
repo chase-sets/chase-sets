@@ -19,7 +19,7 @@
 //! is, and with JavaScript it follows the run's status stream until it is done.
 use corten::{
     Fragment, LiveResponse,
-    axum::http::{HeaderMap, StatusCode},
+    http::{HeaderMap, StatusCode},
     prelude::*,
 };
 use futures_util::{StreamExt, stream};

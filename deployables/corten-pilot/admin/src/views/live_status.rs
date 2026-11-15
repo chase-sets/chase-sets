@@ -12,6 +12,7 @@ use corten::{
     prelude::*,
     view::AttrValue,
 };
+use platform::ui::status_dot::{LiveDot, StatusTone};
 
 /// A message with one argument, `{value}`: what `t.js().key()` gives for one.
 pub type WithValue = Template<{ corten::script::message_id(&["value"]) }>;
@@ -50,7 +51,10 @@ pub fn LiveStatus<'a, I: Id + AttrValue + Copy, C: Render>(
             on:corten-status={js::stale(target, since, words.stale_since, words.date)}
         >
             <div class={Status} role="status" aria-live="polite">
-                <span class={(Badge, Live)}><span class={Dot} aria-hidden="true"></span>{words.live}</span>
+                <span class={(Badge, Live)}>
+                    <LiveDot tone={StatusTone::Text} />
+                    {words.live}
+                </span>
                 <span class={(Badge, Connecting)}>{words.connecting}</span>
                 <div class={Stale}>
                     <div>

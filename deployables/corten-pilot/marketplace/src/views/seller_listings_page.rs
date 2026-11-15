@@ -9,15 +9,20 @@
 //! the seller is (`seller_listings::seller_zone`). The page's script counts the checked listings. One
 //! column on a phone; a listing's facts beside it from 64rem.
 use corten::{
+    SubmitKey,
     i18n::{Currency, DateStyle, Decimal, TimeStyle, parse_timestamp},
     prelude::*,
+};
+use platform::{
+    theme::gap_3,
+    ui::stack::{Gap, Stack as KitStack},
 };
 
 use super::listing_page::options;
 use crate::{
     api::{FeeLockRow, ListingPage, ListingRow, SellerMetrics, StatusCounts},
     app::url,
-    seller_listings::{Filters, ListingsForm, ListingsScreen, Outcome, Place, REASONS, STATUSES},
+    seller_listings::{Bulk, Filters, ListingsForm, ListingsScreen, Place, REASONS, STATUSES, Settled},
     text::{Pilot, SellerListingsMsg},
 };
 
@@ -192,8 +197,8 @@ pub fn SellerListingsPage<'a>(t: SellerListingsMsg, p: Pilot, screen: &'a Listin
         <section class={Section} aria-labelledby="current-title">
             <h2 id="current-title" class={PartTitle}>{t.list_current_listings()}</h2>
             <FilterForm t={t} filters={filters} />
-            if let Some(outcomes) = &screen.outcomes {
-                <BulkResults t={t} outcomes={outcomes} />
+            if let Some(bulk) = &screen.bulk {
+                <BulkResults t={t} p={p} bulk={bulk} filters={&screen.filters} />
             }
             <BulkForm t={t} p={p} screen={screen} />
         </section>
@@ -234,7 +239,7 @@ fn AvailabilityPart<'a>(t: SellerListingsMsg, screen: &'a ListingsScreen) -> imp
     let reason = sent(screen, intent, |s| &s.reason_category, a.disabled_reason_category.as_deref().unwrap_or_default());
     let on = sent(screen, intent, |s| &s.available_again_on, a.available_again_on.as_deref().unwrap_or_default());
     html! {
-        <div class={Stack}>
+        <div class={(KitStack { gap: Gap::App }, gap_3(), Stack)}>
             <p class={Badges}>
                 <span class={Badge} data-tone={if available { "success" } else { "warning" }}>
                     if available {
@@ -249,10 +254,7 @@ fn AvailabilityPart<'a>(t: SellerListingsMsg, screen: &'a ListingsScreen) -> imp
                 if available {
                     {t.list_availability_available_description()}
                 } else {
-                    {t.list_availability_unavailable_description(
-                        reason_label(t, a.disabled_reason_category.as_deref()),
-                        a.available_again_on.as_deref().unwrap_or(t.list_no_return_date()),
-                    )}
+                    {t.list_availability_unavailable_description(crate::text::seller_listings_msg::ListAvailabilityUnavailableDescription { reason: reason_label(t, a.disabled_reason_category.as_deref()), date: a.available_again_on.as_deref().unwrap_or(t.list_no_return_date()) })}
                 }
             </p>
             if !available && a.available_again_at.is_some() {
@@ -337,21 +339,17 @@ fn AwayWindowPart<'a>(t: SellerListingsMsg, screen: &'a ListingsScreen) -> impl 
     let starts = sent(screen, intent, |s| &s.away_window_starts_on, "");
     let ends = sent(screen, intent, |s| &s.away_window_ends_on, "");
     html! {
-        <div class={Stack}>
+        <div class={(KitStack { gap: Gap::App }, gap_3(), Stack)}>
             <h3 class={Strong}>{t.list_away_window()}</h3>
             if let Some(starts_at) = &a.away_window_starts_at {
                 <p class={Muted}>
-                    {t.list_away_window_scheduled_description(
-                        reason_label(t, a.away_window_reason_category.as_deref()),
-                        &when(t, Some(starts_at)),
-                        &a.away_window_ends_at.as_deref().map_or_else(|| t.list_no_return_date().to_owned(), |at| when(t, Some(at))),
-                    )}
+                    {t.list_away_window_scheduled_description(crate::text::seller_listings_msg::ListAwayWindowScheduledDescription { reason: reason_label(t, a.away_window_reason_category.as_deref()), start_date: &when(t, Some(starts_at)), end_date: &a.away_window_ends_at.as_deref().map_or_else(|| t.list_no_return_date().to_owned(), |at| when(t, Some(at))) })}
                 </p>
                 <div class={Banner}>
                     <p class={Strong}>{t.list_scheduled_restore_title()}</p>
                     <p>
                         if let Some(ends_at) = &a.away_window_ends_at {
-                            {t.list_scheduled_restore_notice_window(&when(t, Some(starts_at)), &when(t, Some(ends_at)))}
+                            {t.list_scheduled_restore_notice_window(crate::text::seller_listings_msg::ListScheduledRestoreNoticeWindow { start_date: &when(t, Some(starts_at)), end_date: &when(t, Some(ends_at)) })}
                         } else {
                             {t.list_scheduled_restore_notice_window_indefinite(&when(t, Some(starts_at)))}
                         }
@@ -433,11 +431,13 @@ fn CapacityPart<'a>(t: SellerListingsMsg, screen: &'a ListingsScreen) -> impl Re
     let value = sent(screen, "set-order-capacity", |s| &s.max_open_orders, &current);
     let open = match (screen.open_orders, cap) {
         (None, _) => t.list_order_capacity_open_orders_unavailable().to_owned(),
-        (Some(count), Some(cap)) => t.list_order_capacity_open_orders_now(count, cap).to_string(),
+        (Some(count), Some(cap)) => t
+            .list_order_capacity_open_orders_now(crate::text::seller_listings_msg::ListOrderCapacityOpenOrdersNow { count, cap })
+            .to_string(),
         (Some(count), None) => t.list_order_capacity_open_orders_now_unlimited(count).to_string(),
     };
     html! {
-        <div class={Stack}>
+        <div class={(KitStack { gap: Gap::App }, gap_3(), Stack)}>
             <h3 class={Strong}>{t.list_order_capacity()}</h3>
             <p class={Muted}>{t.list_order_capacity_description()}</p>
             <div class={Tight}>
@@ -604,23 +604,48 @@ fn FilterForm<'a>(t: SellerListingsMsg, filters: &'a Filters) -> impl Render {
     }
 }
 
-/// What a bulk Pause or Withdraw did to each listing.
+/// What a bulk Pause or Withdraw did to each listing, and, when one is not confirmed, the same
+/// batch to send again: its id as a plain field, not a fresh attempt, so the resend is that batch.
 #[component(css = SellerListingsPage)]
-fn BulkResults<'a>(t: SellerListingsMsg, outcomes: &'a [Outcome]) -> impl Render {
-    let succeeded = outcomes.iter().filter(|o| o.ok).count();
-    let failed = outcomes.len() - succeeded;
+fn BulkResults<'a>(t: SellerListingsMsg, p: Pilot, bulk: &'a Bulk, filters: &'a Filters) -> impl Render {
+    let outcomes = &bulk.outcomes;
+    let count = |state: Settled| outcomes.iter().filter(|o| o.state == state).count();
+    let (succeeded, unconfirmed) = (count(Settled::Succeeded), count(Settled::Unknown));
+    // Marketplace's count calls every listing that did not succeed failed; an unconfirmed one may
+    // have applied, so a batch with one says so apart.
+    let header = if unconfirmed == 0 {
+        let failed = outcomes.len() - succeeded;
+        t.list_bulk_action_results(crate::text::seller_listings_msg::ListBulkActionResults { succeeded, failed }).to_string()
+    } else {
+        let failed = outcomes.len() - succeeded - unconfirmed;
+        p.seller_listings_results_unconfirmed(crate::text::pilot::SellerListingsResultsUnconfirmed {
+            succeeded,
+            unconfirmed,
+            failed,
+        })
+        .to_string()
+    };
+    let f = ListingsForm::FIELDS;
     html! {
         <div class={(Card, Tinted)} role="status" tabindex="-1">
-            <p class={Strong}>{t.list_bulk_action_results(succeeded, failed)}</p>
+            <p class={Strong}>{header}</p>
             <ul class={Outcomes}>
                 for outcome in outcomes {
                     <li>
-                        <span class={Badge} data-tone={if outcome.ok { "success" } else { "danger" }}>
-                            if outcome.ok {
-                                {t.list_bulk_action_succeeded()}
-                            } else {
-                                {t.list_bulk_action_failed()}
-                            }
+                        <span
+                            class={Badge}
+                            data-tone={match outcome.state {
+                                Settled::Succeeded => "success",
+                                Settled::Conflict | Settled::Unknown => "warning",
+                                Settled::Failed => "danger",
+                            }}
+                        >
+                            {match outcome.state {
+                                Settled::Succeeded => t.list_bulk_action_succeeded(),
+                                Settled::Conflict => t.list_bulk_action_conflict(),
+                                Settled::Unknown => t.list_bulk_action_unknown(),
+                                Settled::Failed => t.list_bulk_action_failed(),
+                            }}
                         </span>
                         <span>{t.route_bulk_action_listing_label(&outcome.listing_id)}</span>
                         if let Some(message) = &outcome.message {
@@ -629,6 +654,17 @@ fn BulkResults<'a>(t: SellerListingsMsg, outcomes: &'a [Outcome]) -> impl Render
                     </li>
                 }
             </ul>
+            if let Some(resend) = &bulk.resend {
+                <form method="post" action={filters.here()}>
+                    <input type="hidden" name={f.attempt} value={&resend.batch_id}>
+                    for id in &resend.listing_ids {
+                        <input type="hidden" name={f.listing_ids} value={id}>
+                    }
+                    <button class={Button} type="submit" name={f.intent} value={resend.intent}>
+                        {p.seller_listings_send_again()}
+                    </button>
+                </form>
+            }
         </div>
     }
 }
@@ -650,6 +686,7 @@ fn BulkForm<'a>(t: SellerListingsMsg, p: Pilot, screen: &'a ListingsScreen) -> i
             on:reset={handlers::cleared(form, count, t.js().list_bulk_selected())}
             on:connect={handlers::picked(form, count, t.js().list_bulk_selected())}
         >
+            {SubmitKey::field(f.attempt)}
             <Rows t={t} p={p} page={&screen.page} filters={&screen.filters} />
             <div class={Bar}>
                 <output ref={count} class={Strong}></output>
@@ -677,7 +714,7 @@ fn Rows<'a>(t: SellerListingsMsg, p: Pilot, page: &'a ListingPage, filters: &'a 
     let paged = page.total > limit || filters.offset > 0;
     let next = filters.offset + limit;
     html! {
-        <div id={ListingRowsId} class={Stack}>
+        <div id={ListingRowsId} class={(KitStack { gap: Gap::App }, gap_3(), Stack)}>
             if page.items.is_empty() {
                 <div class={Card}>
                     <p class={Strong}>{t.list_no_listings_yet()}</p>
@@ -707,7 +744,7 @@ fn Rows<'a>(t: SellerListingsMsg, p: Pilot, page: &'a ListingPage, filters: &'a 
                             {p.seller_listings_previous()}
                         </a>
                     }
-                    <span>{p.seller_listings_page_of(current, pages)}</span>
+                    <span>{p.seller_listings_page_of(crate::text::pilot::SellerListingsPageOf { page: current, pages })}</span>
                     if next < page.total {
                         <a class={(Button, Secondary)} href={filters.at(next)} rel="next">{p.seller_listings_next()}</a>
                     }

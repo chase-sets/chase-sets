@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { Hono, type Context } from "hono";
 import {
   CHASE_SETS_READ_AFTER_WRITE_HEADER,
   CHASE_SETS_READ_TARGET_CONTEXT_HEADER,
@@ -11,11 +12,136 @@ import { createEventCoreMock, createEventCorePostgresMock, resetMockPoolState } 
 vi.mock("@chase-sets/event-core", () => createEventCoreMock());
 vi.mock("@chase-sets/event-core-postgres", () => createEventCorePostgresMock());
 
-import { attachReadConsistencyMiddleware, waitForProjectionFreshness } from "./index";
+import { attachReadConsistencyMiddleware, waitForProjectionFreshness, type ReadConsistencyAuditRecord } from "./index";
 
 describe("bounded context read consistency middleware", () => {
   beforeEach(() => {
     resetMockPoolState();
+  });
+
+  it("a receipted read is evaluated once by the most specific mount containing its path", async () => {
+    const clock = 1_800_000_000_000;
+    const dateNow = vi.spyOn(Date, "now").mockReturnValue(clock);
+    try {
+      const mounts = [
+        { contextName: "parent", mountPath: "/api/x" },
+        {
+          contextName: "child",
+          mountPath: "/api/x/admin",
+          readFreshnessRoutes: [{ routePath: "/items", dependencies: [{ projectionName: "items" }] }],
+        },
+      ];
+      const sources = [{ sourceContextName: "source", maxGlobalPosition: "42", eventIds: ["item-written"] }];
+      const receipt = encodeFreshWriteReceipt({ observedAtMs: clock, sources });
+      const expiredReceipt = encodeFreshWriteReceipt({ observedAtMs: clock - 86_400_000, sources });
+      const parentStatus = vi.fn(async () => ({ lastGlobalPosition: "42", state: "current" }));
+      const itemStatus = vi.fn(async () => ({ lastGlobalPosition: "42", state: "current" }));
+      const otherStatus = vi.fn(async () => ({ lastGlobalPosition: "42", state: "current" }));
+      const groups = [
+        {
+          targetContextName: "parent",
+          projectionName: "parent",
+          subscriptionRunners: [{ sourceContextName: "source", refreshStatus: parentStatus }],
+        },
+        {
+          targetContextName: "child",
+          projectionName: "items",
+          subscriptionRunners: [{ sourceContextName: "source", refreshStatus: itemStatus }],
+        },
+        {
+          targetContextName: "child",
+          projectionName: "other",
+          subscriptionRunners: [{ sourceContextName: "source", refreshStatus: otherStatus }],
+        },
+      ];
+      const audits: ReadConsistencyAuditRecord[] = [];
+      const app = new Hono();
+      attachReadConsistencyMiddleware(app, mounts, groups, {
+        timeoutMs: 0,
+        recordReadConsistencyAudit: (record) => audits.push(record),
+      });
+      const handler = vi.fn((c: Context) => c.text("handled"));
+      app.all("*", handler);
+      const paths = [
+        ["/api/x/admin/items", "/api/x/admin", "exact-dependency", ["items"]],
+        ["/api/x/admin/other", "/api/x/admin", "target-context", ["items", "other"]],
+        ["/api/x/admin", "/api/x/admin", "target-context", ["items", "other"]],
+        ["/api/x/admin/", "/api/x/admin", "target-context", ["items", "other"]],
+        ["/api/x/administrators/1", "/api/x", "target-context", ["parent"]],
+        ["/api/x/items", "/api/x", "target-context", ["parent"]],
+      ] as const;
+      for (const method of ["GET", "HEAD"]) {
+        for (const [path, mountPath, waitMode, polled] of paths) {
+          audits.length = 0;
+          vi.clearAllMocks();
+          const response = await app.request(path, {
+            method,
+            headers: { [CHASE_SETS_READ_AFTER_WRITE_HEADER]: receipt },
+          });
+          expect(response.status, `${method} ${path}`).toBe(200);
+          expect(handler).toHaveBeenCalledOnce();
+          expect(audits).toHaveLength(1);
+          expect(audits[0]).toMatchObject({
+            method,
+            mountPath,
+            waitMode,
+            outcome: "fresh",
+            routePaths: waitMode === "exact-dependency" ? ["/items"] : [],
+            dependencies:
+              waitMode === "exact-dependency" ? [{ targetContextName: "child", projectionName: "items" }] : [],
+            pending: [],
+          });
+          for (const [name, status] of [
+            ["parent", parentStatus],
+            ["items", itemStatus],
+            ["other", otherStatus],
+          ] as const) {
+            expect(status.mock.calls.length, `${method} ${path}: ${name}`).toBe(
+              polled.some((candidate) => candidate === name) ? 1 : 0,
+            );
+          }
+        }
+        for (const token of [undefined, "malformed-receipt", expiredReceipt]) {
+          audits.length = 0;
+          vi.clearAllMocks();
+          const response = await app.request("/api/x/admin/items", {
+            method,
+            headers: token ? { [CHASE_SETS_READ_AFTER_WRITE_HEADER]: token } : {},
+          });
+          expect(response.status).toBe(200);
+          expect(handler).toHaveBeenCalledOnce();
+          expect(parentStatus).not.toHaveBeenCalled();
+          expect(itemStatus).not.toHaveBeenCalled();
+          expect(otherStatus).not.toHaveBeenCalled();
+          expect(audits).toHaveLength(1);
+          expect(audits[0]).toMatchObject({
+            method,
+            mountPath: "/api/x/admin",
+            routePaths: ["/items"],
+            outcome: "missing-receipt",
+            waitMode: "exact-dependency",
+            readAfterWriteHeaderPresent: Boolean(token),
+            receiptSourceCount: 0,
+            pending: [],
+          });
+        }
+      }
+      const parentOnly = new Hono();
+      audits.length = 0;
+      attachReadConsistencyMiddleware(parentOnly, [mounts[0]!], groups, {
+        timeoutMs: 0,
+        recordReadConsistencyAudit: (record) => audits.push(record),
+      });
+      parentOnly.get("*", handler);
+      expect(
+        (await parentOnly.request("/api/x/admin/items", { headers: { [CHASE_SETS_READ_AFTER_WRITE_HEADER]: receipt } }))
+          .status,
+      ).toBe(200);
+      expect(audits).toHaveLength(1);
+      expect(audits[0]).toMatchObject({ mountPath: "/api/x", waitMode: "target-context" });
+    } finally {
+      dateNow.mockRestore();
+    }
   });
 
   it.each(["reaction", "orders"])(

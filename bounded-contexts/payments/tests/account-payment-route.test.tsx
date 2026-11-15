@@ -63,13 +63,13 @@ type StripeAppearanceMock = Readonly<{
 
 type StripeElementsOptionsMock = Readonly<{
   clientSecret: string;
-  appearance: StripeAppearanceMock;
+  appearance?: StripeAppearanceMock;
 }>;
 
 type StripeCheckoutOptionsMock = Readonly<{
   clientSecret: string;
-  elementsOptions: {
-    appearance: StripeAppearanceMock;
+  elementsOptions?: {
+    appearance?: StripeAppearanceMock;
   };
   defaultValues?: { email?: string };
 }>;
@@ -800,18 +800,6 @@ describe("marketplace account payment route", () => {
     });
     expect(elements).toHaveBeenCalledWith({
       clientSecret: "pi_secret_123",
-      appearance: expect.objectContaining({
-        theme: "flat",
-        variables: expect.objectContaining({
-          colorPrimary: "#4845c6",
-          colorText: "#211d33",
-        }),
-        rules: expect.objectContaining({
-          ".Input": expect.objectContaining({
-            color: "#211d33",
-          }),
-        }),
-      }),
     });
     expect(elementsCreate).toHaveBeenCalledWith("payment", {
       ...walletElementOptions,
@@ -945,24 +933,14 @@ describe("marketplace account payment route", () => {
       timeout: 1000,
     });
     const initCheckoutOptions = initCheckoutElementsSdk.mock.calls[0]?.[0];
-    expect(initCheckoutOptions).toMatchObject({
+    expect(initCheckoutOptions).toEqual({
       clientSecret: "cs_live_123_secret_456",
-      elementsOptions: {
-        appearance: {
-          theme: "flat",
-          variables: expect.objectContaining({
-            colorPrimary: "#4845c6",
-            colorText: "#211d33",
-          }),
-        },
-      },
       // Custom Checkout carries buyer defaultValues on the SDK itself
       // (stripe.initCheckoutElementsSdk), not per-element. The typed
       // @stripe/stripe-js loader has no `defaultValues` slot on
       // createPaymentElement for this integration pattern.
       defaultValues: { email: "buyer@example.com" },
     });
-    expect(initCheckoutOptions?.elementsOptions.appearance.rules).toBeUndefined();
     expect(createPaymentElement).toHaveBeenCalledWith(walletElementOptions);
     expect(paymentElement.mount).toHaveBeenCalled();
     // A successful first load never remounts; the defaultValues email stays.
@@ -1015,6 +993,10 @@ describe("marketplace account payment route", () => {
     expect(initCheckoutElementsSdk.mock.calls[0]?.[0]?.defaultValues).toEqual({ email: "buyer@example.com" });
     expect(initCheckoutElementsSdk.mock.calls[1]?.[0]?.defaultValues).toBeUndefined();
     expect(initCheckoutElementsSdk.mock.calls[1]?.[0]?.clientSecret).toBe("cs_live_123_secret_456");
+    for (const [options] of initCheckoutElementsSdk.mock.calls) {
+      expect(options).not.toHaveProperty("appearance");
+      expect(options.elementsOptions).toBeUndefined();
+    }
     expect(firstElement.destroy).toHaveBeenCalled();
     expect(secondElement.mount).toHaveBeenCalled();
 
@@ -1732,7 +1714,7 @@ describe("marketplace account payment route", () => {
     expect(document.body.innerHTML).not.toContain("_secret_");
   });
 
-  it("updates the Payment Element appearance in place when the scoped theme changes", async () => {
+  it("uses default Payment Element appearance without theme-only SDK calls", async () => {
     const paymentElement = {
       mount: vi.fn(),
       destroy: vi.fn(),
@@ -1772,33 +1754,30 @@ describe("marketplace account payment route", () => {
       </ChaseRoot>,
     );
 
-    await waitFor(() =>
-      expect(update).toHaveBeenCalledWith({
-        appearance: expect.objectContaining({
-          variables: expect.objectContaining({ colorText: "#eeeeee" }),
-        }),
-      }),
-    );
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
 
     expect(paymentElement.destroy).not.toHaveBeenCalled();
     expect(elements).toHaveBeenCalledTimes(1);
     expect(create).toHaveBeenCalledTimes(1);
-    expect(elements.mock.calls[0]?.[0].appearance.variables.colorText).toBe("#111111");
+    expect(elements.mock.calls[0]?.[0]).toEqual({ clientSecret: "pi_secret_123" });
+    expect(update).not.toHaveBeenCalled();
 
     rerender(
       <ChaseRoot theme={{ colors: { foreground: "var(--missing)" } }}>
         <MarketplaceAccountPaymentRoute />
       </ChaseRoot>,
     );
-    await waitFor(() =>
-      expect(update).toHaveBeenCalledWith({
-        appearance: expect.objectContaining({ variables: expect.objectContaining({ colorText: "#211d33" }) }),
-      }),
-    );
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(update).not.toHaveBeenCalled();
+    expect(elements).toHaveBeenCalledTimes(1);
     expect(paymentElement.destroy).not.toHaveBeenCalled();
   });
 
-  it("restyles a Checkout Session element in place when the scoped theme changes", async () => {
+  it("uses default Checkout appearance without theme-only SDK calls", async () => {
     const paymentElement = {
       mount: vi.fn(),
       destroy: vi.fn(),
@@ -1844,13 +1823,14 @@ describe("marketplace account payment route", () => {
       </ChaseRoot>,
     );
 
-    await waitFor(() =>
-      expect(changeAppearance).toHaveBeenCalledWith(
-        expect.objectContaining({
-          variables: expect.objectContaining({ colorText: "#eeeeee" }),
-        }),
-      ),
-    );
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(changeAppearance).not.toHaveBeenCalled();
+    expect(initCheckoutElementsSdk.mock.calls[0]?.[0]).toEqual({
+      clientSecret: "cs_live_123_secret_456",
+      defaultValues: { email: "buyer@example.com" },
+    });
 
     expect(paymentElement.destroy).not.toHaveBeenCalled();
     expect(initCheckoutElementsSdk).toHaveBeenCalledTimes(1);

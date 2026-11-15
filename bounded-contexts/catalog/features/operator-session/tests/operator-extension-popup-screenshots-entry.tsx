@@ -43,13 +43,19 @@ createRoot(document.getElementById("root")!).render(
   <ChaseRoot>
     <OperatorExtensionPopup
       request={async () => ({
-        paired: false,
-        state: "unpaired",
+        paired: true,
+        state: "idle",
         lastOutcome: null,
         lastPushedAt: null,
         serverRevision: 0,
       })}
       setNameRequest={request}
+      postSetNames={async () => ({
+        outcome: "recorded",
+        observationCount: 1,
+        newObservationCount: 1,
+        mappingsProposed: 0,
+      })}
       copyProbeReport={async () => undefined}
       extensionVersion="0.1.0"
       buildCommit="synthetic-screenshot"

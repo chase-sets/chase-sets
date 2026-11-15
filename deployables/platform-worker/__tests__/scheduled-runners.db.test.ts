@@ -5,9 +5,16 @@ import {
   createMultiContextTestPools,
   ensureMultiContextTestDatabases,
 } from "@chase-sets/bounded-context-runtime/test-support";
-import { createPostgresEventStore, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import {
+  createPostgresEventStore,
+  createPostgresProjectionStore,
+  type PgTransactionalPool,
+} from "@chase-sets/event-core-postgres";
+import { module as orderingModule } from "@chase-sets/ordering";
+import { module as pricingModule } from "@chase-sets/pricing";
 import { buildTransportEvent } from "@chase-sets/event-core/test-support";
 import { toTransportEvent } from "@chase-sets/event-core/transport";
+import { createMarketplaceOfferRuntime, createManagedOfferWork } from "@chase-sets/marketplace/server";
 import type { MarketplaceServices } from "@chase-sets/marketplace/server";
 import type { InventoryServices } from "@chase-sets/inventory/server";
 import { module as marketplaceModule } from "@chase-sets/marketplace";
@@ -24,7 +31,7 @@ import { createPostgresWorkSignalStore } from "@chase-sets/platform-runtime/work
 import { createWorkerHost, type WorkerHostRuntime, type WorkerRunner } from "@chase-sets/platform-runtime/worker";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { getPlatformWorkerContextsForRuntimeProfile } from "../src/config";
-import { workerContextRegistry } from "../src/generated/worker-context-registry";
+import { workerContextRegistry } from "../src/context-registry";
 import { createPlatformChannelSaleRecorder } from "../src/channels-reconciliation-runners";
 import {
   createInventoryProductResolutionMaintenanceRunners,
@@ -52,8 +59,8 @@ if (!adminDatabaseUrl && process.env.CI) {
 }
 
 const describeDatabase = adminDatabaseUrl ? describe : describe.skip;
-// 34 factory sites, minus the legacy postage-purchase fallback, plus cleanup and retention.
-const EXPECTED_REGISTERED_RUNNER_COUNT = 34;
+// Includes the context-owned seller compliance replay runner.
+const EXPECTED_REGISTERED_RUNNER_COUNT = 35;
 const NEGATIVE_CONTROL_RUNNER_NAME = "negative-control.ambiguous-joined-sql";
 const runtimeProfile = "public" as const;
 const contextNames = getPlatformWorkerContextsForRuntimeProfile(runtimeProfile);
@@ -220,6 +227,483 @@ describeDatabase("registered platform-worker scheduled runners", () => {
     expect(names).not.toContain("pricing.tcgplayer-market-capture");
     expect(new Set(names).size).toBe(names.length);
   });
+
+  it("seller compliance causal envelopes: mounted commands, lag silence, retry immutability and completion recovery", async () => {
+    const services = runtime.services["platform-operations"] as PlatformOperationsServices;
+    const entry = services.policyConsoleEntries.find(
+      (entry) => entry.policyKey === "platform-operations.seller-compliance-cohort",
+    )!;
+    const db = pools["platform-operations"];
+    const context = {
+      tenantId: "synthetic-cohort-tenant" as never,
+      audit: {
+        performedByUserId: "synthetic-cohort-operator" as never,
+        forAccountId: "synthetic-cohort-account" as never,
+      },
+    };
+    const value = {
+      activated: true,
+      currencyCode: "USD",
+      qualifyingTransactionCount: 1,
+      qualifyingGrossCents: "100",
+      disclosureGrossCents: "300",
+      windowMonths: 1,
+      lookbackMonths: 1,
+      comparisonIsInclusive: true,
+      saleUnit: "captured-order",
+      qualifyingGrossBasis: "item-gross",
+      refundTreatment: "exclude-refunded",
+      postCaptureCancellationTreatment: "exclude-cancelled",
+      mixedLineTreatment: "exclude-mixed",
+      unclassifiableTreatment: "exclude-unclassifiable",
+      classificationRules: [{ source: "productId", value: "synthetic-cohort-card" }],
+    };
+    const selected = registeredRunners.filter(
+      (runner) => runner.name === "platform-operations.seller-compliance-cohort-sweep",
+    );
+    expect(selected).toHaveLength(1);
+    const seller = "synthetic-cohort-causal-seller";
+    await db.query(
+      `INSERT INTO platform_operations_seller_compliance_sales
+      (payment_id,order_id,seller_account_id,sale_state,occurred_at,currency_code,item_gross_cents,
+       marketplace_sales_fee_cents,seller_item_net_cents,classification_inputs,change_sequence,recorded_at,changed_at)
+      VALUES ('synthetic-cohort-entry','synthetic-cohort-entry',$1,'captured','2025-05-10','USD',100,0,100,$2,800001,'2025-05-10','2025-05-10'),
+       ('synthetic-cohort-band','synthetic-cohort-band',$1,'captured','2025-05-12','USD',200,0,200,$2,800002,'2025-05-12','2025-05-12')`,
+      [seller, JSON.stringify([{ productId: "synthetic-cohort-card" }])],
+    );
+    const ledger = async () =>
+      (
+        await db.query(
+          `SELECT transition_version::text,kind,effective_at,observed_at,policy_version,target_state,target_band,recorded_at,published_at
+      FROM platform_operations_seller_compliance_cohort_transitions WHERE seller_account_id=$1 ORDER BY transition_version`,
+          [seller],
+        )
+      ).rows;
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      vi.setSystemTime(new Date("2025-05-13T00:00:00.000Z"));
+      await selected[0]!.runOnce();
+      expect(await ledger()).toEqual([]);
+      vi.setSystemTime(new Date("2025-04-01T00:00:00.000Z"));
+      await services.policies.createPolicyDocumentWithId(
+        entry.definition,
+        "synthetic-cohort-causal-policy",
+        {
+          value,
+          status: "active",
+          effectiveFrom: "2025-01-01T00:00:00.000Z",
+          effectiveUntil: null,
+          actorUserId: "synthetic-cohort-operator",
+        },
+        context,
+      );
+      vi.setSystemTime(new Date("2025-05-13T00:00:00.000Z"));
+      await services.sellerComplianceCohorts.runTick({ tick: "2025-05-13T00:00:00.000Z" });
+      const first = await ledger();
+      expect(first).toHaveLength(2);
+      expect(
+        first.map((row) => ({
+          kind: row.kind,
+          effectiveAt: (row.effective_at as Date).toISOString(),
+          observedAt: (row.observed_at as Date).toISOString(),
+          state: row.target_state,
+          band: row.target_band,
+        })),
+      ).toEqual([
+        {
+          kind: "entered",
+          effectiveAt: "2025-05-10T00:00:00.000Z",
+          observedAt: "2025-05-13T00:00:00.000Z",
+          state: "member",
+          band: "none",
+        },
+        {
+          kind: "disclosure-band-changed",
+          effectiveAt: "2025-05-12T00:00:00.000Z",
+          observedAt: "2025-05-13T00:00:00.000Z",
+          state: "member",
+          band: "disclosure",
+        },
+      ]);
+      await services.sellerComplianceCohorts.evaluateSeller({
+        sellerAccountId: seller,
+        tick: "2025-05-13T00:00:00.000Z",
+      });
+      expect(await ledger()).toEqual(first);
+      // Simulate a lost rebuildable row, retaining the authoritative immutable ledger.
+      await db.query(
+        "DELETE FROM platform_operations_seller_compliance_cohorts WHERE seller_account_id=$1 AND version=2",
+        [seller],
+      );
+      await services.sellerComplianceCohorts.evaluateSeller({
+        sellerAccountId: seller,
+        tick: "2025-05-13T00:00:00.000Z",
+      });
+      expect(await ledger()).toEqual(first);
+      expect(
+        (
+          await db.query(
+            "SELECT state,disclosure_band FROM platform_operations_seller_compliance_cohorts WHERE seller_account_id=$1",
+            [seller],
+          )
+        ).rows,
+      ).toEqual([{ state: "member", disclosure_band: "disclosure" }]);
+      const missing =
+        '{"eventId":"synthetic-absent-event","streamVersion":1,"documentId":"synthetic-absent-document","policyKey":"platform-operations.seller-compliance-cohort"}';
+      await db.query(
+        "UPDATE platform_operations_seller_compliance_cohorts SET policy_version=$2 WHERE seller_account_id=$1 AND version=2",
+        [seller, missing],
+      );
+      const frozen = (
+        await db.query("SELECT * FROM platform_operations_seller_compliance_cohorts WHERE seller_account_id=$1", [
+          seller,
+        ])
+      ).rows;
+      for (let i = 0; i < 2; i++)
+        await services.sellerComplianceCohorts.evaluateSeller({
+          sellerAccountId: seller,
+          tick: "2025-05-13T00:00:00.000Z",
+        });
+      expect(
+        (
+          await db.query("SELECT * FROM platform_operations_seller_compliance_cohorts WHERE seller_account_id=$1", [
+            seller,
+          ])
+        ).rows,
+      ).toEqual(frozen);
+      expect(
+        (
+          await db.query(
+            "SELECT failure_kind,policy_version FROM platform_operations_seller_compliance_evaluation_failures WHERE seller_account_id=$1",
+            [seller],
+          )
+        ).rows,
+      ).toEqual([{ failure_kind: "missing-prior-policy", policy_version: missing }]);
+      expect(await ledger()).toEqual(first);
+      await db.query(
+        "UPDATE platform_operations_seller_compliance_cohorts SET next_reevaluation_at=NULL WHERE seller_account_id=$1 AND version=2",
+        [seller],
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+    expect(externalFetch).not.toHaveBeenCalled();
+  });
+
+  it("seller compliance prospective timeline: unswept same-document revisions preserve the first causal exit", async () => {
+    const services = runtime.services["platform-operations"] as PlatformOperationsServices;
+    const entry = services.policyConsoleEntries.find(
+      (entry) => entry.policyKey === "platform-operations.seller-compliance-cohort",
+    )!;
+    const db = pools["platform-operations"];
+    const context = {
+      tenantId: "synthetic-cohort-tenant" as never,
+      audit: {
+        performedByUserId: "synthetic-cohort-operator" as never,
+        forAccountId: "synthetic-cohort-account" as never,
+      },
+    };
+    const value = {
+      activated: true,
+      currencyCode: "USD",
+      qualifyingTransactionCount: 1,
+      qualifyingGrossCents: "100",
+      disclosureGrossCents: "1000",
+      windowMonths: 12,
+      lookbackMonths: 12,
+      comparisonIsInclusive: true,
+      saleUnit: "captured-order",
+      qualifyingGrossBasis: "item-gross",
+      refundTreatment: "exclude-refunded",
+      postCaptureCancellationTreatment: "exclude-cancelled",
+      mixedLineTreatment: "exclude-mixed",
+      unclassifiableTreatment: "exclude-unclassifiable",
+      classificationRules: [{ source: "productId", value: "synthetic-cohort-card" }],
+    };
+    const seller = "synthetic-cohort-prospective-seller";
+    await db.query(
+      `INSERT INTO platform_operations_seller_compliance_sales
+      (payment_id,order_id,seller_account_id,sale_state,occurred_at,currency_code,item_gross_cents,marketplace_sales_fee_cents,seller_item_net_cents,classification_inputs,change_sequence,recorded_at,changed_at)
+      VALUES ('synthetic-prospective-payment','synthetic-prospective-order',$1,'captured','2026-04-02','USD',100,0,100,$2,800003,'2026-04-02','2026-04-02')`,
+      [seller, JSON.stringify([{ productId: "synthetic-cohort-card" }])],
+    );
+    const params = {
+      status: "active" as const,
+      effectiveFrom: "2026-01-01T00:00:00.000Z",
+      effectiveUntil: null,
+      actorUserId: "synthetic-cohort-operator",
+    };
+    const rows = async () =>
+      (
+        await db.query(
+          "SELECT kind,effective_at,observed_at,recorded_at,policy_version FROM platform_operations_seller_compliance_cohort_transitions WHERE seller_account_id=$1 ORDER BY transition_version",
+          [seller],
+        )
+      ).rows;
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      vi.setSystemTime(new Date("2026-04-01T00:00:00.000Z"));
+      await services.policies.createPolicyDocumentWithId(
+        entry.definition,
+        "synthetic-prospective-policy",
+        { ...params, value },
+        context,
+      );
+      await services.sellerComplianceCohorts.evaluateSeller({
+        sellerAccountId: seller,
+        tick: "2026-04-03T00:00:00.000Z",
+      });
+      const admitted = await rows();
+      expect(admitted.map((row) => row.kind)).toEqual(["entered"]);
+      for (const recordedAt of ["2026-05-10T00:00:00.000Z", "2026-05-15T00:00:00.000Z"]) {
+        vi.setSystemTime(new Date(recordedAt));
+        await services.policies.revisePolicyDocument(
+          entry.definition,
+          "synthetic-prospective-policy",
+          { ...params, value: { ...value, qualifyingGrossCents: "500" } },
+          context,
+        );
+      }
+      await services.sellerComplianceCohorts.evaluateSeller({
+        sellerAccountId: seller,
+        tick: "2026-05-20T00:00:00.000Z",
+      });
+      const exited = await rows();
+      expect(exited).toHaveLength(2);
+      expect(exited[0]).toEqual(admitted[0]);
+      expect(exited[1]).toMatchObject({
+        kind: "exited",
+        effective_at: new Date("2026-05-10T00:00:00.000Z"),
+        observed_at: new Date("2026-05-20T00:00:00.000Z"),
+      });
+      await services.sellerComplianceCohorts.evaluateSeller({
+        sellerAccountId: seller,
+        tick: "2026-05-20T00:00:00.000Z",
+      });
+      expect(await rows()).toEqual(exited);
+      vi.setSystemTime(new Date("2026-05-25T00:00:00.000Z"));
+      await services.policies.revisePolicyDocument(
+        entry.definition,
+        "synthetic-prospective-policy",
+        { ...params, effectiveFrom: "2026-06-01T00:00:00.000Z", value },
+        context,
+      );
+      await services.sellerComplianceCohorts.evaluateSeller({
+        sellerAccountId: seller,
+        tick: "2026-05-26T00:00:00.000Z",
+      });
+      expect(await rows()).toEqual(exited);
+      await services.sellerComplianceCohorts.evaluateSeller({
+        sellerAccountId: seller,
+        tick: "2026-06-01T00:00:00.000Z",
+      });
+      expect((await rows()).at(-1)).toMatchObject({
+        kind: "entered",
+        effective_at: new Date("2026-06-01T00:00:00.000Z"),
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("seller compliance sale-trigger resume processes 100 then 2 without a wall-clock cutoff", async () => {
+    const services = runtime.services["platform-operations"] as PlatformOperationsServices;
+    const db = pools["platform-operations"];
+    await db.query(`INSERT INTO platform_operations_seller_compliance_sales
+      (payment_id,order_id,seller_account_id,sale_state,occurred_at,change_sequence,recorded_at,changed_at)
+      SELECT 'synthetic-resume-payment-'||n,'synthetic-resume-order-'||n,'synthetic-resume-'||lpad(n::text,3,'0'),
+       'captured','2025-01-01',900000+n,'2025-01-01','2025-01-01' FROM generate_series(1,102) n`);
+    // Freeze the prior completed range, keeping policy authority unchanged for this sale-driven pass.
+    await services.sellerComplianceCohorts.runTick({ tick: "2026-06-01T00:00:00.000Z" });
+    let checkpoint = (
+      await db.query("SELECT * FROM platform_operations_seller_compliance_sweep_checkpoints WHERE trigger='cohort'")
+    ).rows[0]!;
+    while (checkpoint.current_snapshot !== null) {
+      await services.sellerComplianceCohorts.runTick({ tick: "2026-06-01T00:00:00.000Z" });
+      checkpoint = (
+        await db.query("SELECT * FROM platform_operations_seller_compliance_sweep_checkpoints WHERE trigger='cohort'")
+      ).rows[0]!;
+    }
+    await db.query(
+      `UPDATE platform_operations_seller_compliance_sales SET change_sequence=change_sequence+1000,revision=revision+1 WHERE payment_id LIKE 'synthetic-resume-payment-%' AND revision=1`,
+    );
+    expect(await services.sellerComplianceCohorts.runTick({ tick: "2026-06-02T00:00:00.000Z" })).toMatchObject({
+      processed: 100,
+    });
+    expect(await services.sellerComplianceCohorts.runTick({ tick: "2026-06-05T00:00:00.000Z" })).toMatchObject({
+      processed: 2,
+    });
+    const retained = (
+      await db.query(
+        "SELECT current_snapshot,last_completed_snapshot::text,seller_cursor,raw_page_cursor FROM platform_operations_seller_compliance_sweep_checkpoints WHERE trigger='cohort'",
+      )
+    ).rows[0]!;
+    expect(retained).toMatchObject({
+      current_snapshot: null,
+      last_completed_snapshot: "901102",
+      seller_cursor: "synthetic-resume-102",
+      raw_page_cursor: "synthetic-resume-102",
+    });
+  });
+
+  it.each(["combined inert history", "isolated raise history"])(
+    "seller compliance mounted command controls: %s",
+    async (scenario) => {
+      const databaseUrls = createMultiContextTestDatabaseUrls(
+        adminDatabaseUrl!,
+        ["platform-operations"],
+        "cohort_command_controls",
+      );
+      await ensureMultiContextTestDatabases(adminDatabaseUrl!, databaseUrls);
+      const scenarioPools = createMultiContextTestPools(databaseUrls);
+      const scenarioRuntime = createWorkerHost(workerContextRegistry, "platform-worker", {
+        pools: { ...pools, ...scenarioPools },
+        runtimeProfile,
+        hostPorts: workerHostPorts(),
+      });
+      const mounted = scenarioRuntime.mountedContexts.find((context) => context.contextName === "platform-operations")!;
+      await bootstrapContextDatabase(mounted.module, mounted.pool);
+      const services = scenarioRuntime.services["platform-operations"] as PlatformOperationsServices;
+      const entry = services.policyConsoleEntries.find(
+        (entry) => entry.policyKey === "platform-operations.seller-compliance-cohort",
+      )!;
+      const db = scenarioPools["platform-operations"];
+      const context = {
+        tenantId: "synthetic-cohort-tenant" as never,
+        audit: {
+          performedByUserId: "synthetic-cohort-operator" as never,
+          forAccountId: "synthetic-cohort-account" as never,
+        },
+      };
+      const value = {
+        activated: true,
+        currencyCode: "USD",
+        qualifyingTransactionCount: 1,
+        qualifyingGrossCents: "100",
+        disclosureGrossCents: "1000",
+        windowMonths: 1,
+        lookbackMonths: 12,
+        comparisonIsInclusive: true,
+        saleUnit: "captured-order",
+        qualifyingGrossBasis: "item-gross",
+        refundTreatment: "exclude-refunded",
+        postCaptureCancellationTreatment: "exclude-cancelled",
+        mixedLineTreatment: "exclude-mixed",
+        unclassifiableTreatment: "exclude-unclassifiable",
+        classificationRules: [{ source: "productId", value: "synthetic-cohort-card" }],
+      };
+      const params = {
+        value,
+        status: "active" as "active" | "inactive",
+        effectiveFrom: "2027-01-01T00:00:00.000Z",
+        effectiveUntil: null as string | null,
+        actorUserId: "synthetic-cohort-operator",
+      };
+      const seller = "synthetic-mounted-controls";
+      const document = "synthetic-mounted-controls-policy";
+      const evaluateAt = async (tick: string) => {
+        vi.setSystemTime(new Date(tick));
+        expect(await services.sellerComplianceCohorts.evaluateSeller({ sellerAccountId: seller, tick })).toBe(true);
+      };
+      const stored = async () =>
+        (
+          await db.query("SELECT * FROM platform_operations_seller_compliance_cohorts WHERE seller_account_id=$1", [
+            seller,
+          ])
+        ).rows;
+      const transitions = async () =>
+        (
+          await db.query(
+            "SELECT * FROM platform_operations_seller_compliance_cohort_transitions WHERE seller_account_id=$1 ORDER BY transition_version",
+            [seller],
+          )
+        ).rows;
+      const revise = async (at: string, overrides: Partial<typeof params> = {}) => {
+        vi.setSystemTime(new Date(at));
+        await services.policies.revisePolicyDocument(entry.definition, document, { ...params, ...overrides }, context);
+      };
+      vi.useFakeTimers({ toFake: ["Date"] });
+      try {
+        vi.setSystemTime(new Date("2027-01-01T00:00:00.000Z"));
+        // Each mounted scenario has its own complete policy history, with no fallback documents.
+        await services.policies.createPolicyDocumentWithId(entry.definition, document, params, context);
+        await db.query(
+          `INSERT INTO platform_operations_seller_compliance_sales
+        (payment_id,order_id,seller_account_id,sale_state,occurred_at,currency_code,item_gross_cents,marketplace_sales_fee_cents,seller_item_net_cents,classification_inputs,change_sequence,recorded_at,changed_at)
+        VALUES ('synthetic-controls-old','synthetic-controls-old',$1,'captured','2023-01-01','USD',100,0,100,$2,910001,'2023-01-01','2023-01-01')`,
+          [seller, JSON.stringify([{ productId: "synthetic-cohort-card" }])],
+        );
+        await evaluateAt("2027-01-02T00:00:00.000Z");
+        expect((await stored())[0]).toMatchObject({ state: "outside" });
+        expect(await transitions()).toEqual([]);
+        await db.query(
+          `INSERT INTO platform_operations_seller_compliance_sales
+        (payment_id,order_id,seller_account_id,sale_state,occurred_at,currency_code,item_gross_cents,marketplace_sales_fee_cents,seller_item_net_cents,classification_inputs,change_sequence,recorded_at,changed_at)
+        VALUES ('synthetic-controls-current','synthetic-controls-current',$1,'captured','2027-03-20','USD',100,0,100,$2,910002,'2027-03-20','2027-03-20')`,
+          [seller, JSON.stringify([{ productId: "synthetic-cohort-card" }])],
+        );
+        await evaluateAt("2027-03-21T00:00:00.000Z");
+        const member = await stored();
+        const entered = await transitions();
+        expect(entered).toHaveLength(1);
+        for (const [index, overrides] of (scenario === "combined inert history"
+          ? [
+              { status: "inactive" as const },
+              { value: { ...value, activated: false } },
+              { effectiveUntil: "2027-03-21T00:00:00.000Z" },
+            ]
+          : []
+        ).entries()) {
+          const day = `2027-03-${22 + index}`;
+          await revise(`${day}T00:00:00.000Z`, overrides);
+          await evaluateAt(`${day}T01:00:00.000Z`);
+          expect(await stored()).toEqual(member);
+          expect(await transitions()).toEqual(entered);
+          await revise(`${day}T12:00:00.000Z`);
+        }
+        // Same recorded time and value, varying only requested start: future is not authority yet.
+        await revise("2027-03-25T00:00:00.000Z", {
+          effectiveFrom: "2027-04-01T00:00:00.000Z",
+          value: { ...value, qualifyingGrossCents: "500" },
+        });
+        await evaluateAt("2027-03-26T00:00:00.000Z");
+        expect(await transitions()).toEqual(entered);
+        await revise("2027-03-25T00:00:00.000Z", { value: { ...value, qualifyingGrossCents: "500" } });
+        await evaluateAt("2027-03-26T00:00:00.000Z");
+        const exited = await transitions();
+        expect(exited).toHaveLength(2);
+        expect(exited[0]).toEqual(entered[0]);
+        expect(exited[1]).toMatchObject({
+          kind: "exited",
+          effective_at: new Date(
+            scenario === "combined inert history" ? "2027-03-22T00:00:00.000Z" : "2027-03-25T00:00:00.000Z",
+          ),
+          observed_at: new Date("2027-03-26T00:00:00.000Z"),
+        });
+        const outside = await stored();
+        await revise("2027-03-27T00:00:00.000Z", { value: { ...value, activated: false } });
+        await evaluateAt("2027-03-28T00:00:00.000Z");
+        expect(await stored()).toEqual(outside);
+        expect(await transitions()).toEqual(exited);
+        await revise("2027-04-01T00:00:00.000Z");
+        await evaluateAt("2027-04-02T00:00:00.000Z");
+        const reentered = await transitions();
+        expect(reentered).toHaveLength(3);
+        expect(reentered.slice(0, 2)).toEqual(exited);
+        expect(reentered[2]).toMatchObject({
+          kind: "entered",
+          effective_at: new Date(
+            scenario === "combined inert history" ? "2027-03-22T12:00:00.000Z" : "2027-04-01T00:00:00.000Z",
+          ),
+          observed_at: new Date("2027-04-02T00:00:00.000Z"),
+        });
+      } finally {
+        vi.useRealTimers();
+        await closeMultiContextTestPools(scenarioPools);
+      }
+      expect(externalFetch).not.toHaveBeenCalled();
+    },
+  );
 
   it("drains 1001 expired eBay receipts through the actual registered runner; omission leaves all expired rows", async () => {
     await pools.channels.query(`INSERT INTO channels_ebay_account_deletion_receipts
@@ -501,6 +985,426 @@ describeDatabase("registered platform-worker scheduled runners", () => {
         { generation: String(initialGeneration + BigInt(generation + 1)), pending_work_ids: [] },
       ]);
     }
+    expect(externalFetch).not.toHaveBeenCalled();
+  });
+
+  it("commits two managed Offers and two Orders across duplicate delivery, crash, replacement and an acceptance/repricing append barrier", async () => {
+    const services = runtime.services.marketplace as MarketplaceServices;
+    const ordering = runtime.services.ordering as ReturnType<typeof orderingModule.createServices>;
+    const store = createPostgresEventStore({ pool: pools.marketplace });
+    const orderStore = createPostgresEventStore({ pool: pools.ordering });
+    const pricing = pricingModule.createServices(pools.pricing, syntheticPricingHostPorts);
+    const priceStore = createPostgresEventStore({ pool: pools.pricing });
+    const buyer = "acc_race_buyer";
+    const policyId = "bop_postgres_race";
+    const product = { catalogItemId: "cat_postgres_race", productId: "cat_postgres_race::" };
+    const context = {
+      tenantId: "tnt_identity" as never,
+      audit: { forAccountId: buyer as never, performedByUserId: "usr_race" as never },
+    };
+    let estimateVersion = 0;
+    async function publishPrice(amount: string) {
+      const estimatedAt = new Date().toISOString();
+      const [event] = await priceStore.appendToStream({
+        streamId: "pricing.market-price-postgres-race",
+        expectedVersion: estimateVersion++,
+        context,
+        events: [
+          {
+            eventType: "pricing.market-price.estimated",
+            payload: {
+              schemaVersion: 1,
+              ...product,
+              estimateVersion: String(estimateVersion),
+              amount,
+              currencyCode: "USD",
+              estimatedAt,
+              freshUntil: new Date(Date.now() + 3_600_000).toISOString(),
+              window: { startedAt: estimatedAt, endedAt: estimatedAt },
+              confidence: "low",
+              band: null,
+              disclosure: "internal",
+              previousAmount: null,
+              inputs: { platformVerifiedTradeCount: 0, platformTradeCount: 0, externalCompCount: 0 },
+            },
+          },
+        ],
+      });
+      for (const set of pricing.projectors) await set.handlers[event!.eventType]?.(toTransportEvent(event!));
+      return event!;
+    }
+    const address = {
+      name: "Synthetic Buyer",
+      company: null,
+      line1: "1 Main Street",
+      line2: null,
+      city: "Chicago",
+      state: "IL",
+      postalCode: "60601",
+      country: "US",
+      phone: null,
+      email: null,
+    };
+    const measure = {
+      ...product,
+      selectedOptions: [],
+      measureVersion: "synthetic-race-v1",
+      unitLengthInches: 3.5,
+      unitWidthInches: 2.5,
+      unitHeightInches: 0.012,
+      unitWeightOunces: 0.064,
+      physicalFlags: ["raw-card"],
+      stackBehavior: "stackable-thickness",
+      source: "profile",
+      confidence: "measured",
+    };
+    const ids = ["one", "two"].map((suffix) => ({
+      offerId: `off_postgres_race_${suffix}`,
+      listingId: `lst_postgres_race_${suffix}`,
+      sellerAccountId: `acc_race_${suffix}`,
+      inventoryItemId: `inv_race_${suffix}`,
+    }));
+    await pools.marketplace.query(
+      "INSERT INTO marketplace_account_pages (account_id, display_name, status) VALUES ($1, 'Synthetic buyer', 'active')",
+      [buyer],
+    );
+    for (const item of ids) {
+      await pools.marketplace.query(
+        "INSERT INTO marketplace_account_pages (account_id, display_name, status) VALUES ($1, 'Synthetic seller', 'active')",
+        [item.sellerAccountId],
+      );
+      await pools.marketplace.query(
+        `INSERT INTO marketplace_supply_items (item_id, account_id, catalog_catalog_item_id, product_id, storage_location_id, total_quantity) VALUES ($1, $2, $3, $4, 'loc_race', 10)`,
+        [item.inventoryItemId, item.sellerAccountId, product.catalogItemId, product.productId],
+      );
+      await pools.ordering.query(
+        `INSERT INTO ordering_inventory_item_inputs (item_id, seller_account_id, catalog_catalog_item_id, product_id, total_quantity, updated_at, last_stream_version) VALUES ($1, $2, $3, $4, 10, now(), 1)`,
+        [item.inventoryItemId, item.sellerAccountId, product.catalogItemId, product.productId],
+      );
+      await store.appendToStream({
+        streamId: `marketplace.listing-${item.listingId}`,
+        expectedVersion: 0,
+        context,
+        events: [
+          {
+            eventType: "marketplace.listing.created",
+            payload: {
+              ...item,
+              accountId: item.sellerAccountId,
+              ...product,
+              itemTitle: "Synthetic race",
+              itemSubtitle: null,
+              selectedOptions: [],
+              productSummary: null,
+              productMeasureSnapshot: measure,
+              gradedCard: null,
+              storageLocationName: "Synthetic stock",
+              shipFromCode: "CHI",
+              shipFromAddress: address,
+              priceAmount: "12.00",
+              priceCurrencyCode: "USD",
+              marketplaceSalesFeeUnitAmount: "0.00",
+              sellerNetUnitAmount: "12.00",
+              shippingAllowancePercentageBps: 500,
+              termsScheduleId: "sch_race",
+              termsAgreementId: null,
+              termsResolvedAt: new Date().toISOString(),
+              feeQuoteFingerprint: "synthetic",
+              feeLocks: [],
+              quantityCap: 10,
+              purchaseLimits: { maxUnitsPerOrder: null, maxUnitsPerDay: null, maxUnitsPerCustomerAccount: null },
+              evidenceRequirements: null,
+              evidence: [],
+            },
+          },
+          { eventType: "marketplace.listing.published", payload: { listingId: item.listingId } },
+        ],
+      });
+      await services.offers.commandHandler({
+        streamId: `marketplace.offer-${item.offerId}`,
+        context,
+        command: {
+          type: "SubmitOffer",
+          offerId: item.offerId as never,
+          buyerAccountId: buyer as never,
+          ...product,
+          catalogItemId: product.catalogItemId as never,
+          productId: product.productId as never,
+          itemTitle: "Synthetic race",
+          itemSubtitle: null,
+          selectedOptions: [],
+          productSummary: null,
+          shippingDestinationSnapshot: address,
+          priceAmount: "10.00",
+          priceCurrencyCode: "USD",
+          quantityRequested: 1,
+        },
+      });
+    }
+    const orderingHandlers = orderingModule.buildSubscriptions!(ordering).filter(
+      (entry) => entry.sourceContextName === "marketplace",
+    );
+    const orderingSupply = orderingHandlers.find(
+      (entry) => entry.projectionName === "ordering-marketplace-supply-input-projection",
+    )!;
+    const orderingAcceptance = orderingHandlers.find(
+      (entry) => entry.reactionName === "ordering-marketplace-offer-acceptance",
+    )!;
+    async function project() {
+      for (const streamId of [
+        ...ids.flatMap((item) => [`marketplace.listing-${item.listingId}`, `marketplace.offer-${item.offerId}`]),
+        `marketplace.offer-policy-${policyId}`,
+      ]) {
+        for (const event of await readCompleteStream(store, { streamId })) {
+          for (const set of services.projectors) await set.handlers[event.eventType]?.(toTransportEvent(event));
+          const orderingHandler =
+            event.eventType === "marketplace.offer.accepted" ? orderingAcceptance : orderingSupply;
+          await orderingHandler.handlers[event.eventType]?.(toTransportEvent(event));
+        }
+      }
+    }
+    await services.buyerOfferPolicies.execute(
+      policyId,
+      {
+        type: "CreateBuyerOfferPolicy",
+        expectedVersion: 0,
+        operationId: "create",
+        attemptId: "postgres_race_create_attempt",
+      },
+      context,
+    );
+    const preview = await services.buyerOfferPolicies.execute(
+      policyId,
+      {
+        type: "PreviewBuyerOfferPolicy",
+        expectedVersion: 1,
+        operationId: "preview",
+        attemptId: "postgres_race_preview_attempt",
+        terms: {
+          currency: "USD",
+          adjustmentBps: 0,
+          offers: ids.map(({ offerId }) => ({
+            ...product,
+            offerId,
+            offerVersion: 1,
+            selectedOptions: [],
+            quantity: 1,
+            maximumUnitItemAmount: "15.00",
+          })),
+        },
+      },
+      context,
+    );
+    await services.buyerOfferPolicies.execute(
+      policyId,
+      {
+        type: "AuthorizeBuyerOfferPolicy",
+        expectedVersion: 2,
+        operationId: "authorize",
+        attemptId: "postgres_race_authorize_attempt",
+        previewId: preview.preview!.previewId,
+        consent: true,
+      },
+      context,
+    );
+    await project();
+    await publishPrice("12.00");
+    let clock = Date.now();
+    const now = () => new Date(clock);
+    const makeWorker = (offers = services.offers) =>
+      createManagedOfferWork({ eventStore: store, db: pools.marketplace, offers, now });
+    const worker = makeWorker();
+    const workId = await worker.enqueue(product, "synthetic-race-delivery", context);
+    expect(await worker.enqueue(product, "synthetic-race-delivery", context)).toBe(workId);
+    const workStream = `marketplace.offer-work-${workId}`;
+    const workProjection = services.projectors.find((entry) => entry.handlers["marketplace.offer.work-requested"])!;
+    async function projectWork() {
+      for (const event of await readCompleteStream(store, { streamId: workStream }))
+        await workProjection.handlers[event.eventType]!(toTransportEvent(event));
+    }
+    await projectWork();
+    const crash = createManagedOfferWork({
+      eventStore: store,
+      db: pools.marketplace,
+      now,
+      offers: {
+        applyManagedOfferPage: async (...args) => {
+          await services.offers.applyManagedOfferPage(...args);
+          throw new Error("synthetic crash after Offer append before work progress");
+        },
+      },
+    });
+    await expect(crash.run(context)).rejects.toThrow("synthetic crash after Offer append");
+    const afterCrash = await Promise.all(
+      ids.map((item) => readCompleteStream(store, { streamId: `marketplace.offer-${item.offerId}` })),
+    );
+    expect(
+      afterCrash.map((events) =>
+        events
+          .filter((event) => event.eventType === "marketplace.offer.price-updated")
+          .map((event) => event.payload.priceAmount),
+      ),
+    ).toEqual([["12.00"], ["12.00"]]);
+    await projectWork();
+    await project();
+    clock += 61_000; // Expire only the durable work lease, never the Offer.
+    expect(await makeWorker().run(context)).toBe(2);
+    expect(
+      await Promise.all(
+        ids.map((item) => readCompleteStream(store, { streamId: `marketplace.offer-${item.offerId}` })),
+      ),
+    ).toEqual(afterCrash);
+    await projectWork();
+    expect(await makeWorker().run(context)).toBe(0);
+    expect(
+      (await readCompleteStream(store, { streamId: workStream })).filter(
+        (event) => event.eventType === "marketplace.offer.work-requested",
+      ),
+    ).toHaveLength(1);
+
+    let release!: () => void;
+    let reached!: () => void;
+    const blocked = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const atAppend = new Promise<void>((resolve) => {
+      reached = resolve;
+    });
+    const append = store.appendToStreams!;
+    let armed = true;
+    const racingStore = {
+      ...store,
+      appendToStreams: async (inputs: Parameters<typeof append>[0]) => {
+        if (
+          armed &&
+          inputs.some((input) =>
+            input.events.some((event) => event.eventType === "marketplace.offer.managed-evaluated"),
+          )
+        ) {
+          armed = false;
+          expect(
+            inputs.some(
+              (input) => input.streamId === `marketplace.offer-policy-${policyId}` && input.events.length === 0,
+            ),
+          ).toBe(true);
+          expect(
+            inputs.some((input) => input.streamId.startsWith("marketplace.offer-work-") && input.events.length === 0),
+          ).toBe(true);
+          reached();
+          await blocked;
+        }
+        return append(inputs);
+      },
+    };
+    const racingOffers = createMarketplaceOfferRuntime({
+      eventStore: racingStore,
+      db: pools.marketplace,
+      checkpointStore: createPostgresProjectionStore({ db: pools.marketplace }),
+      commercialTermsResolver: services.commercialTermsResolver,
+      listingEvidencePolicyEvaluator: services.listingEvidencePolicies,
+      managedOfferPricing: createBuyerOfferPricing(pools.pricing),
+    });
+    const racingWorker = createManagedOfferWork({
+      eventStore: racingStore,
+      db: pools.marketplace,
+      offers: racingOffers,
+      now,
+    });
+    await publishPrice("13.00");
+    const raceWorkId = await racingWorker.enqueue(product, "synthetic-concurrent-reprice", context);
+    for (const event of await readCompleteStream(store, { streamId: `marketplace.offer-work-${raceWorkId}` }))
+      await workProjection.handlers[event.eventType]!(toTransportEvent(event));
+    const acceptances = await Promise.all(
+      ids.map(async (item) => ({
+        offerId: item.offerId,
+        listingId: item.listingId,
+        sellerAccountId: item.sellerAccountId,
+        sourceActionKey: `synthetic_race_accept_${item.offerId}`,
+        feeQuoteFingerprint: (
+          await services.offers.previewOfferAcceptanceTerms({
+            offerId: item.offerId as never,
+            listingId: item.listingId,
+            sellerAccountId: item.sellerAccountId as never,
+          })
+        ).fee_quote_fingerprint,
+      })),
+    );
+    const pending = racingWorker.run(context);
+    const observed = pending.catch((error: unknown) => error);
+    let workerOutcome: unknown;
+    try {
+      await Promise.race([
+        atAppend,
+        pending.then(() => {
+          throw new Error("Repricing did not reach its append barrier.");
+        }),
+      ]);
+      // The seller confirms the latest Market Price, not the blocked worker's older evaluation.
+      await publishPrice("12.00");
+      const accepted = await Promise.all(
+        acceptances.map((item) =>
+          services.offers.acceptOffer(
+            { ...item, offerId: item.offerId as never, sellerAccountId: item.sellerAccountId as never },
+            { ...context, audit: { ...context.audit, forAccountId: item.sellerAccountId as never } },
+          ),
+        ),
+      );
+      expect(accepted).toHaveLength(2);
+    } finally {
+      release();
+      workerOutcome = await observed;
+    }
+    expect(workerOutcome).toMatchObject({ code: "managed_offer_conflict" });
+    await project();
+    const acceptedFacts = await Promise.all(
+      ids.map((item) => readCompleteStream(store, { streamId: `marketplace.offer-${item.offerId}` })),
+    );
+    for (const events of acceptedFacts)
+      expect(events.filter((event) => event.eventType === "marketplace.offer.accepted")).toEqual([
+        expect.objectContaining({ payload: expect.objectContaining({ priceAmount: "12.00", quantityRequested: 1 }) }),
+      ]);
+    await services.buyerOfferPolicies.execute(
+      policyId,
+      {
+        type: "PauseBuyerOfferPolicy",
+        expectedVersion: 3,
+        operationId: "pause",
+        attemptId: "postgres_race_pause_attempt",
+      },
+      context,
+    );
+    for (const item of acceptances) {
+      const params = { ...item, offerId: item.offerId as never, sellerAccountId: item.sellerAccountId as never };
+      const sellerContext = { ...context, audit: { ...context.audit, forAccountId: item.sellerAccountId as never } };
+      await Promise.all([
+        services.offers.acceptOffer(params, sellerContext),
+        services.offers.acceptOffer(params, sellerContext),
+      ]);
+    }
+    await publishPrice("13.00");
+    clock += 61_000;
+    for (const event of await readCompleteStream(store, { streamId: `marketplace.offer-work-${raceWorkId}` }))
+      await workProjection.handlers[event.eventType]!(toTransportEvent(event));
+    await makeWorker().run(context);
+    for (const item of ids)
+      expect(await services.offers.applyManagedOffer(item.offerId as never, "after-acceptance", context)).toMatchObject(
+        { status: "unchanged" },
+      );
+    expect(
+      await Promise.all(
+        ids.map((item) => readCompleteStream(store, { streamId: `marketplace.offer-${item.offerId}` })),
+      ),
+    ).toEqual(acceptedFacts);
+    await project(); // Duplicate source delivery must not create another Order.
+    const orderEvents = (await orderStore.readAll()).filter(
+      (event) =>
+        event.eventType === "ordering.order.created" &&
+        ids.some((item) => event.payload.sourceReferenceId === item.offerId),
+    );
+    expect(orderEvents).toHaveLength(2);
+    expect(new Set(orderEvents.map((event) => event.streamId)).size).toBe(2);
+    for (const item of ids)
+      expect(orderEvents.filter((event) => event.payload.sourceReferenceId === item.offerId)).toHaveLength(1);
     expect(externalFetch).not.toHaveBeenCalled();
   });
 

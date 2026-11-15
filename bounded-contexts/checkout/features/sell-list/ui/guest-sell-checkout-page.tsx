@@ -269,6 +269,10 @@ export function GuestSellCheckoutPage({
           }
         />
 
+        <LinkButton href="/sell/shipping-setup" tone="secondary">
+          {t("fulfillment.shippingSetup.title")}
+        </LinkButton>
+
         {activeRecovery ? (
           <CheckoutReadinessPrompt
             tone="warning"

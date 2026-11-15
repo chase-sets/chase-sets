@@ -62,4 +62,33 @@ describe("checkout session projection", () => {
       "2026-07-10T00:00:00.000Z",
     ]);
   });
+  // chase-sets/chase-sets#10785: the orders keep the revision they were bound to once the preview is gone.
+  it.each([
+    ["keeps the revision the orders were bound to", { fulfillmentPreviewRevision: "rev_1" }, "rev_1"],
+    ["leaves the revision as it was for an older event", {}, null],
+  ])("records created orders and %s", async (_case, revision, value) => {
+    const db = {
+      query: vi.fn(async (_sql: string, _values?: readonly unknown[]) => ({ rows: [] })),
+    };
+    const handlers = buildCheckoutSessionProjectionHandlers(db);
+
+    await handlers["checkout.session.orders-created"]?.(
+      {
+        data: {
+          sessionId: "chk_1",
+          orderIds: ["ord_1"],
+          orderWriteCommitPositions: [],
+          ...revision,
+          recordedAt: "2026-11-07T00:00:00.000Z",
+        },
+      } as never,
+      {},
+    );
+
+    expect(db.query).toHaveBeenCalledTimes(1);
+    const [sql, values] = db.query.mock.calls[0]!;
+    expect(String(sql)).toContain("fulfillment_preview_revision = COALESCE($5, fulfillment_preview_revision)");
+    expect(String(sql)).not.toContain("fulfillment_preview_snapshot");
+    expect(values).toEqual(["chk_1", JSON.stringify(["ord_1"]), JSON.stringify([]), "2026-11-07T00:00:00.000Z", value]);
+  });
 });

@@ -3,6 +3,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { feedbackOverdueSql } from "../read-model/queries";
 import type { CustomerFeedbackApiEnv } from "./route";
 import { buildCustomerFeedbackAttentionApi } from "./route";
+import type { CsatAdminReadPort } from "../../csat/api/runtime";
+import { customerFeedbackRetentionPolicy } from "../../privacy/domain/policy";
 
 const context = {
   tenantId: "tnt_test" as never,
@@ -73,6 +75,119 @@ describe("Customer Feedback attention API authorization", () => {
     const response = await app.request("/cases/fbcase_01/reopen", { method: "POST" });
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({ caseId: "fbcase_01", status: "triaged" });
+  });
+});
+
+function exportApp(rowCount = 501) {
+  const rows = Array.from({ length: rowCount }, (_, index) =>
+    attentionRow(String(index), {
+      openedAt: "2026-07-14T10:00:00.000Z",
+      triageDueAt: "2026-07-14T11:00:00.000Z",
+    }),
+  );
+  const query = vi.fn(async (_sql: string, values?: readonly unknown[]) => ({
+    rows: values?.at(-1) === null ? rows : rows.slice(0, Number(values?.at(-1) ?? 100)),
+  }));
+  const invitations = {
+    resolveRetentionPolicy: vi.fn<CsatAdminReadPort["resolveRetentionPolicy"]>(
+      async () => customerFeedbackRetentionPolicy.defaultValue,
+    ),
+    recordAdminExport: vi.fn<CsatAdminReadPort["recordAdminExport"]>(async () => {}),
+  };
+  const app = new Hono<CustomerFeedbackApiEnv>();
+  app.use("*", async (c, next) => {
+    c.set("actor", {
+      sessionId: "ses_export",
+      tenantId: "tnt_test",
+      userId: "usr_export",
+      accountId: "acc_platform",
+      membershipId: "mem_export",
+      roleKey: "platform-admin",
+      permissions: ["customer-feedback.privacy.export-sensitive-feedback"],
+    });
+    await next();
+  });
+  app.route(
+    "/",
+    buildCustomerFeedbackAttentionApi({
+      db: { query } as never,
+      cases: { executeByCaseId: vi.fn() },
+      invitations,
+    }),
+  );
+  return { app, query, invitations };
+}
+
+describe("Customer Feedback attention export", () => {
+  it.each([0, 501])(
+    "exports all %s rows without the interactive cap, with an awaited content-free audit",
+    async (count) => {
+      const { app, query, invitations } = exportApp(count);
+      const response = await app.request("/attention/export?reason=%20CASE-REVIEW%20");
+      expect(response.status).toBe(201);
+      expect(response.headers.get("Cache-Control")).toBe("no-store");
+      expect(await response.json()).toMatchObject({
+        rowCount: count,
+        downloadHref: expect.stringMatching(/^\/export\/cse_/),
+      });
+      expect(query.mock.calls[0]![1]!.at(-1)).toBeNull();
+      const audit = invitations.recordAdminExport.mock.calls[0]![0];
+      expect(audit).toMatchObject({
+        actorId: "usr_export",
+        capability: "customer-feedback.privacy.export-sensitive-feedback",
+        filters: {},
+        reason: "case-review",
+        result: "completed",
+        rowCount: count,
+      });
+      expect(audit.artifactContent!.trim().split("\n")).toHaveLength(count + 1);
+      if (count) expect(audit.artifactContent).toContain('"fbcase_500"');
+      expect(audit.artifactContent).not.toContain("comment");
+    },
+  );
+
+  it.each(["", "?reason=customer%20comment", "?reason=x"])(
+    "rejects malformed reason %s without querying or auditing",
+    async (queryString) => {
+      const { app, query, invitations } = exportApp();
+      expect((await app.request(`/attention/export${queryString}`)).status).toBe(400);
+      expect(query).not.toHaveBeenCalled();
+      expect(invitations.recordAdminExport).not.toHaveBeenCalled();
+    },
+  );
+
+  it("awaits audit completion before returning export metadata", async () => {
+    const { app, invitations } = exportApp();
+    let release!: () => void;
+    invitations.recordAdminExport.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          release = resolve;
+        }),
+    );
+    let finished = false;
+    const pending = Promise.resolve(app.request("/attention/export?reason=case-review")).then((response) => {
+      finished = true;
+      return response;
+    });
+    await vi.waitFor(() => expect(invitations.recordAdminExport).toHaveBeenCalled());
+    expect(finished).toBe(false);
+    release();
+    expect((await pending).status).toBe(201);
+  });
+
+  it.each(["query", "audit"])("records %s failure and returns no usable artifact", async (failure) => {
+    const { app, query, invitations } = exportApp();
+    if (failure === "query") query.mockRejectedValueOnce(new Error("query failed"));
+    else invitations.recordAdminExport.mockRejectedValueOnce(new Error("audit failed"));
+    const response = await app.request("/attention/export?reason=case-review");
+    expect(response.status).toBe(500);
+    expect(await response.text()).not.toContain("downloadHref");
+    expect(invitations.recordAdminExport.mock.calls.at(-1)![0]).toMatchObject({
+      result: "failed",
+      artifactContent: null,
+      failureCode: "export-generation-failed",
+    });
   });
 });
 

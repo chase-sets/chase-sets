@@ -28,7 +28,7 @@ import {
   isPlatformWorkerRuntimeProfile,
   type PlatformWorkerRuntimeProfile,
 } from "@chase-sets/platform-runtime/runtime-profiles";
-import { workerContextRegistry } from "./generated/worker-context-registry";
+import { workerContextRegistry } from "./context-registry";
 import { parseChannelCredentialKeyring, type ChannelCredentialKeyring } from "@chase-sets/channels/server";
 import {
   parseSupportEvidenceCleanupBinding,

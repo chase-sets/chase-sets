@@ -349,7 +349,9 @@ fn ToolCatalog(d: DevelopersMsg) -> impl Render {
         <section class={Section} aria-labelledby="developers-catalog">
             <div class={SectionHead}>
                 <h2 class={SectionTitle} id="developers-catalog">{d.catalog_title()}</h2>
-                <p class={Muted}>{d.catalog_description(available.len(), planned.len())}</p>
+                <p class={Muted}>
+                    {d.catalog_description(crate::text::developers_msg::CatalogDescription { available: available.len(), planned: planned.len() })}
+                </p>
             </div>
             <ToolGroup d={d} title={d.catalog_available()} description={d.catalog_available_description()} tools={&available} />
             <ToolGroup d={d} title={d.catalog_planned()} description={d.catalog_planned_description()} tools={&planned} />
@@ -383,14 +385,18 @@ fn ToolDescriptor<'a>(d: DevelopersMsg, tool: &'a Tool) -> impl Render + 'a {
             <h4 class={CardTitle}>{&tool.title}</h4>
             <p class={Note}><code>{&tool.name}</code></p>
             <p class={Muted}>{&tool.description}</p>
-            <p class={Note}>{d.catalog_summary(&tool.service, &tool.risk, &tool.scope)}</p>
+            <p class={Note}>
+                {d.catalog_summary(crate::text::developers_msg::CatalogSummary { service: &tool.service, risk: &tool.risk, scope: &tool.scope })}
+            </p>
             <p class={Note}>{d.catalog_permissions()}</p>
             <ul class={List}>for item in &permissions { <li>{item}</li> }</ul>
             <p class={Note}>{d.catalog_oauth_scopes()}</p>
             <ul class={List}>for item in &scopes { <li>{item}</li> }</ul>
             <p class={Note}>{d.catalog_expected_usage()}</p>
             <ul class={List}>for item in &tool.usage { <li>{item}</li> }</ul>
-            <p class={Note}>{d.catalog_guardrails(confirmation, &tool.idempotency, dry_run)}</p>
+            <p class={Note}>
+                {d.catalog_guardrails(crate::text::developers_msg::CatalogGuardrails { confirmation, idempotency: &tool.idempotency, dry_run })}
+            </p>
             <div class={Schema}>
                 <p class={SchemaLabel}>{d.catalog_input_schema()}</p>
                 <pre>{&tool.input_schema}</pre>

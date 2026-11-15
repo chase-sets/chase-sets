@@ -5,10 +5,10 @@
       "module": "bounded-contexts/catalog/features/catalog-items/read-model/projection.ts",
       "kind": "UPDATE",
       "table": "catalog_items",
-      "digest": "f043c0e3f163c46f1cd4b42db8a370e67b21e0728efd8c508053d0bb1002047d"
+      "digest": "33f19ffdb84af39d9f6915e804b0d11ffc82ada1333855c72b63dd58c50b1a5a"
     },
     "classification": "key-only but safe",
-    "reason": "UPDATE at bounded-contexts/catalog/features/catalog-items/read-model/projection.ts:71 directly synchronizes catalog_items from an incoming projection or command fact; no prior row state decides this write."
+    "reason": "UPDATE at bounded-contexts/catalog/features/catalog-items/read-model/projection.ts:74 directly synchronizes catalog_items from an incoming projection or command fact; no prior row state decides this write."
   },
   {
     "id": "exception-bf540cf8f769be04",
@@ -16,10 +16,10 @@
       "module": "bounded-contexts/catalog/features/catalog-items/read-model/projection.ts",
       "kind": "UPDATE",
       "table": "catalog_items",
-      "digest": "d68cf99f7f7ca3c56b2334e8a2a7ef9db1e6a14ef3f2483e9fbb5052882ffa85"
+      "digest": "e6901e2a59fc39fd930de93e04b01bffb6009338d556c134037d50b8800c8d2f"
     },
     "classification": "key-only but safe",
-    "reason": "UPDATE at bounded-contexts/catalog/features/catalog-items/read-model/projection.ts:117 directly synchronizes catalog_items from an incoming projection or command fact; no prior row state decides this write."
+    "reason": "UPDATE at bounded-contexts/catalog/features/catalog-items/read-model/projection.ts:121 directly synchronizes catalog_items from an incoming projection or command fact; no prior row state decides this write."
   },
   {
     "id": "exception-20a94b05ff001cb4",
@@ -27,10 +27,10 @@
       "module": "bounded-contexts/catalog/features/catalog-items/read-model/projection.ts",
       "kind": "UPDATE",
       "table": "catalog_items",
-      "digest": "e735a647a359938b4336b4eaeab71cf2a6506032b8b68a336c3ef2c9ba71c3bf"
+      "digest": "727909e6ec063827c8547a71b68dffa7a1678edc92a80b049c718171c1890309"
     },
     "classification": "key-only but safe",
-    "reason": "UPDATE at bounded-contexts/catalog/features/catalog-items/read-model/projection.ts:150 directly synchronizes catalog_items from an incoming projection or command fact; no prior row state decides this write."
+    "reason": "UPDATE at bounded-contexts/catalog/features/catalog-items/read-model/projection.ts:155 directly synchronizes catalog_items from an incoming projection or command fact; no prior row state decides this write."
   },
   {
     "id": "exception-f4c40a750213cdd3",
@@ -38,10 +38,10 @@
       "module": "bounded-contexts/catalog/features/catalog-items/read-model/projection.ts",
       "kind": "UPDATE",
       "table": "catalog_items",
-      "digest": "ff31237cb39594c05ffc9f12798e475f9be18f5a4d7ce1898ff32645870f0343"
+      "digest": "f7c061ab049229e5fde0781785067d391e39d11d7d20376e43c7abd5e9cfa53a"
     },
     "classification": "key-only but safe",
-    "reason": "UPDATE at bounded-contexts/catalog/features/catalog-items/read-model/projection.ts:169 directly synchronizes catalog_items from an incoming projection or command fact; no prior row state decides this write."
+    "reason": "UPDATE at bounded-contexts/catalog/features/catalog-items/read-model/projection.ts:174 directly synchronizes catalog_items from an incoming projection or command fact; no prior row state decides this write."
   },
   {
     "id": "exception-861f69e463722a31",
@@ -49,10 +49,10 @@
       "module": "bounded-contexts/catalog/features/catalog-items/read-model/projection.ts",
       "kind": "UPDATE",
       "table": "catalog_items",
-      "digest": "ca5cbc631cba5c63322059312740fdcc1338c6ef4f9932965b1f9d5131d3724b"
+      "digest": "2dda6621e3b5d50d65203ae7bd4242826ba1be01c9daed876ae97923e964ca61"
     },
     "classification": "key-only but safe",
-    "reason": "UPDATE at bounded-contexts/catalog/features/catalog-items/read-model/projection.ts:198 directly synchronizes catalog_items from an incoming projection or command fact; no prior row state decides this write."
+    "reason": "UPDATE at bounded-contexts/catalog/features/catalog-items/read-model/projection.ts:206 directly synchronizes catalog_items from an incoming projection or command fact; no prior row state decides this write."
   },
   {
     "id": "exception-b0ba4f987062f57e",
@@ -60,10 +60,10 @@
       "module": "bounded-contexts/catalog/features/catalog-items/read-model/projection.ts",
       "kind": "UPDATE",
       "table": "catalog_items",
-      "digest": "d4113ea7979ca4078e35e430cc30c648ff698644d4314a0602f5771377f6980e"
+      "digest": "18027af5724f978ffad7e49bb905c76cc0763c830a111110e168049405cd2ce9"
     },
     "classification": "key-only but safe",
-    "reason": "UPDATE at bounded-contexts/catalog/features/catalog-items/read-model/projection.ts:210 directly synchronizes catalog_items from an incoming projection or command fact; no prior row state decides this write."
+    "reason": "UPDATE at bounded-contexts/catalog/features/catalog-items/read-model/projection.ts:217 directly synchronizes catalog_items from an incoming projection or command fact; no prior row state decides this write."
   },
   {
     "id": "exception-21595f875a0c22b6",
@@ -71,10 +71,10 @@
       "module": "bounded-contexts/catalog/features/catalog-items/read-model/projection.ts",
       "kind": "UPDATE",
       "table": "catalog_items",
-      "digest": "bd7048b8a15009647ca725c112d3ed029aca980306ac3136f6af80e4f9a84e12"
+      "digest": "69ce9d78e6a461e696e2988ef254b4f06056ad6c2782b96e5dcffd37fabbc1e0"
     },
     "classification": "key-only but safe",
-    "reason": "UPDATE at bounded-contexts/catalog/features/catalog-items/read-model/projection.ts:223 directly synchronizes catalog_items from an incoming projection or command fact; no prior row state decides this write."
+    "reason": "UPDATE at bounded-contexts/catalog/features/catalog-items/read-model/projection.ts:228 directly synchronizes catalog_items from an incoming projection or command fact; no prior row state decides this write."
   },
   {
     "id": "exception-0c69f007c3f8300a",
@@ -82,10 +82,10 @@
       "module": "bounded-contexts/catalog/features/catalog-items/read-model/projection.ts",
       "kind": "UPDATE",
       "table": "catalog_items",
-      "digest": "7d7ac9f5293f7924a3946098f89c9a89b47ccfff8091acc5883ef1a678de7956"
+      "digest": "33919326be94617e47d6c965e3eaa9590b9b340fcf8ecf45d97c6216d5e4a173"
     },
     "classification": "key-only but safe",
-    "reason": "UPDATE at bounded-contexts/catalog/features/catalog-items/read-model/projection.ts:234 directly synchronizes catalog_items from an incoming projection or command fact; no prior row state decides this write."
+    "reason": "UPDATE at bounded-contexts/catalog/features/catalog-items/read-model/projection.ts:244 directly synchronizes catalog_items from an incoming projection or command fact; no prior row state decides this write."
   },
   {
     "id": "exception-f7d531e63536c3ac",
@@ -93,10 +93,10 @@
       "module": "bounded-contexts/catalog/features/catalog-items/read-model/projection.ts",
       "kind": "UPDATE",
       "table": "catalog_items",
-      "digest": "89089e767d9c7cf23e3e12e10c742e4f948423ab28be046e523f223c25bbf591"
+      "digest": "62aac78c61d0da1b42523281c213e9f6385676a7d1ad50f8e380d942e5bbaf34"
     },
     "classification": "key-only but safe",
-    "reason": "UPDATE at bounded-contexts/catalog/features/catalog-items/read-model/projection.ts:244 directly synchronizes catalog_items from an incoming projection or command fact; no prior row state decides this write."
+    "reason": "UPDATE at bounded-contexts/catalog/features/catalog-items/read-model/projection.ts:254 directly synchronizes catalog_items from an incoming projection or command fact; no prior row state decides this write."
   },
   {
     "id": "exception-6851f9da20a1702d",
@@ -137,11 +137,11 @@
       "module": "bounded-contexts/catalog/features/catalog-items/read-model/projection.ts",
       "kind": "UPDATE",
       "table": "catalog_items",
-      "digest": "1dfa901596eb5ecedae7ebfd70552f072f0449d7dc3b2e0de7f4e0a78c8cf120",
+      "digest": "dd01ef656ad9d725723ae1201fbf76f30f22c91ce602e7d43079a632dee9f352",
       "boundary": "\"catalog.catalog-item.retired\""
     },
     "classification": "key-only but safe",
-    "reason": "UPDATE at bounded-contexts/catalog/features/catalog-items/read-model/projection.ts:367 directly synchronizes catalog_items from an incoming projection or command fact; no prior row state decides this write."
+    "reason": "UPDATE at bounded-contexts/catalog/features/catalog-items/read-model/projection.ts:407 directly synchronizes catalog_items from an incoming projection or command fact; no prior row state decides this write."
   },
   {
     "id": "exception-aad99bc03465a754",
@@ -149,11 +149,11 @@
       "module": "bounded-contexts/catalog/features/catalog-items/read-model/projection.ts",
       "kind": "UPDATE",
       "table": "catalog_items",
-      "digest": "1dfa901596eb5ecedae7ebfd70552f072f0449d7dc3b2e0de7f4e0a78c8cf120",
+      "digest": "dd01ef656ad9d725723ae1201fbf76f30f22c91ce602e7d43079a632dee9f352",
       "boundary": "\"catalog.catalog-item.archived\""
     },
     "classification": "key-only but safe",
-    "reason": "UPDATE at bounded-contexts/catalog/features/catalog-items/read-model/projection.ts:377 directly synchronizes catalog_items from an incoming projection or command fact; no prior row state decides this write."
+    "reason": "UPDATE at bounded-contexts/catalog/features/catalog-items/read-model/projection.ts:417 directly synchronizes catalog_items from an incoming projection or command fact; no prior row state decides this write."
   },
   {
     "id": "exception-8beeadf90a9a2c3f",
@@ -165,5 +165,53 @@
     },
     "classification": "key-only but safe",
     "reason": "DELETE at bounded-contexts/catalog/features/catalog-items/read-model/projection.ts:386 directly synchronizes catalog_items from an incoming projection or command fact; no prior row state decides this write."
+  },
+  {
+    "id": "exception-10783-greatest-product-linked",
+    "binding": {
+      "module": "bounded-contexts/catalog/features/catalog-items/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "catalog_items",
+      "digest": "fbc06ba971c7afbc34b9cce94f3fed8b2a5357ae1fd4a0342acef877d4e5bcef",
+      "boundary": "\"catalog.catalog-item.external-product-reference-linked\""
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/catalog/features/catalog-items/read-model/projection.ts:289 only advances catalog_items updated_at and source_stream_version through GREATEST, so a late or replayed reference fact can never move either token backwards."
+  },
+  {
+    "id": "exception-10783-greatest-item-linked",
+    "binding": {
+      "module": "bounded-contexts/catalog/features/catalog-items/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "catalog_items",
+      "digest": "fbc06ba971c7afbc34b9cce94f3fed8b2a5357ae1fd4a0342acef877d4e5bcef",
+      "boundary": "\"catalog.catalog-item.external-catalog-item-reference-linked\""
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/catalog/features/catalog-items/read-model/projection.ts:318 only advances catalog_items updated_at and source_stream_version through GREATEST, so a late or replayed reference fact can never move either token backwards."
+  },
+  {
+    "id": "exception-10783-greatest-product-unlinked",
+    "binding": {
+      "module": "bounded-contexts/catalog/features/catalog-items/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "catalog_items",
+      "digest": "fbc06ba971c7afbc34b9cce94f3fed8b2a5357ae1fd4a0342acef877d4e5bcef",
+      "boundary": "\"catalog.catalog-item.external-product-reference-unlinked\""
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/catalog/features/catalog-items/read-model/projection.ts:341 only advances catalog_items updated_at and source_stream_version through GREATEST, so a late or replayed reference fact can never move either token backwards."
+  },
+  {
+    "id": "exception-10783-greatest-item-unlinked",
+    "binding": {
+      "module": "bounded-contexts/catalog/features/catalog-items/read-model/projection.ts",
+      "kind": "UPDATE",
+      "table": "catalog_items",
+      "digest": "fbc06ba971c7afbc34b9cce94f3fed8b2a5357ae1fd4a0342acef877d4e5bcef",
+      "boundary": "\"catalog.catalog-item.external-catalog-item-reference-unlinked\""
+    },
+    "classification": "key-only but safe",
+    "reason": "UPDATE at bounded-contexts/catalog/features/catalog-items/read-model/projection.ts:364 only advances catalog_items updated_at and source_stream_version through GREATEST, so a late or replayed reference fact can never move either token backwards."
   }
 ]

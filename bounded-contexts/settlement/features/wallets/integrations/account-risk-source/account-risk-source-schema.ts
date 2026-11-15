@@ -355,4 +355,13 @@ export const settlementAccountRiskSourceSchemaMigrations: readonly BcSchemaMigra
      AND revealed_at IS NULL`,
     ],
   },
+  {
+    migrationId: "20261104_settlement_account_risk_source_revision",
+    description:
+      "Introduce the publication revision after immutable legacy normalization; existing rows start at zero.",
+    statements: [
+      `ALTER TABLE settlement_account_risk_sources
+  ADD COLUMN IF NOT EXISTS revision bigint NOT NULL DEFAULT 0`,
+    ],
+  },
 ] as const;

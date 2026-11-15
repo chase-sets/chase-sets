@@ -22,7 +22,10 @@ import {
   decideCatalogMergeCandidate,
   evolveCatalogMergeCandidate,
   initialCatalogMergeCandidateState,
+  normalizeConflictResolutionValues,
+  snapshotWithConflictResolutions,
   type CatalogMergeCandidateCommand,
+  type CatalogMergeCandidateConflictResolution,
   type CatalogMergeCandidateEvent,
   type CatalogMergeCandidatePromotionApplication,
   type CatalogMergeCandidatePromotionAppliedEvent,
@@ -141,6 +144,7 @@ type LoadedCandidate = Readonly<{
   state: CatalogMergeCandidateState;
   version: number;
   approvalVersion: number | null;
+  resolvedConflicts: readonly CatalogMergeCandidateConflictResolution[];
 }>;
 
 type ApplicationUnit = Readonly<{
@@ -203,7 +207,14 @@ export async function applyCatalogMergeCandidatePromotion(
   const authors = await resolveItemAuthors(ports, state.snapshot);
   if (authors.length === 0) return referenceOnlyOutcome(unit.candidateId);
   const approvalVersion = state.status === "promoted" ? loaded.approvalVersion! : loaded.version + 1;
-  const prepared = await prepareApplicationPlan(ports, unit, state.snapshot, authors, approvalVersion);
+  const prepared = await prepareApplicationPlan(
+    ports,
+    unit,
+    state.snapshot,
+    authors,
+    approvalVersion,
+    loaded.resolvedConflicts,
+  );
   let version = loaded.version;
   const now = new Date().toISOString();
   if (state.status === "ready") {
@@ -241,19 +252,21 @@ export async function loadCandidateApplication(eventStore: EventStore, candidate
   const codec = createPassthroughDomainEventCodec<CatalogMergeCandidateEvent>();
   let state = initialCatalogMergeCandidateState;
   let approvalVersion: number | null = null;
+  let resolvedConflicts: readonly CatalogMergeCandidateConflictResolution[] = [];
   for (const stored of history) {
     const event = codec.decode(stored);
     if (isApplicationCheckpoint(event)) requireAdmittedCheckpoint(state, candidateId, event);
     else if (state.promotionPlan) throw refused("conflicting-history", `${event.type} follows the bound plan`);
     state = evolveCatalogMergeCandidate(state, event);
-    if (stored.eventType === "catalog.merge-candidate.promoted") {
+    if (event.type === "catalog.merge-candidate.promoted") {
       if (approvalVersion !== null) throw refused("conflicting-history", "more than one approval is recorded");
       approvalVersion = stored.streamVersion;
+      resolvedConflicts = event.data.audit.conflictResolutions;
     }
   }
   if (state.promotionPlan && state.promotionPlan.approvalVersion !== approvalVersion)
     throw refused("conflicting-history", "the application plan does not bind the recorded approval");
-  return { state, version: history.at(-1)?.streamVersion ?? 0, approvalVersion };
+  return { state, version: history.at(-1)?.streamVersion ?? 0, approvalVersion, resolvedConflicts };
 }
 
 type ApplicationCheckpoint = CatalogMergeCandidatePromotionPlannedEvent | CatalogMergeCandidatePromotionAppliedEvent;
@@ -467,9 +480,17 @@ async function prepareApplicationPlan(
   snapshot: CatalogMergeCandidateReviewSnapshot,
   authors: readonly ItemAuthor[],
   approvalVersion: number,
+  resolvedConflicts: readonly CatalogMergeCandidateConflictResolution[],
 ): Promise<Readonly<{ plan: CatalogMergeCandidatePromotionPlan; session: PromotionTargetSession }>> {
   const { deps } = ports;
-  const effectiveSnapshot = snapshotWithAuthoredFacts(snapshot, authors);
+  const resolutionValues = normalizeConflictResolutionValues(resolvedConflicts);
+  if (resolutionValues.status === "ambiguous")
+    throw blocked("ambiguous-conflict-resolution", `${resolutionValues.fieldPath}: choose an explicit scalar value`);
+  resolvedConflicts = resolutionValues.resolutions;
+  const effectiveSnapshot = snapshotWithAuthoredFacts(
+    snapshotWithConflictResolutions(snapshot, resolvedConflicts),
+    authors,
+  );
   const resolved: ResolvedMember[] = [];
   for (const author of authors)
     resolved.push({ ...author, mapping: await loadCatalogItemPromotionProfile(deps, author.version.profile) });
@@ -573,6 +594,7 @@ async function prepareApplicationPlan(
     catalog,
     createCatalogItemId: mode === "create" ? (targetId as CatalogItemId) : null,
     assetPlan,
+    resolvedConflicts,
     promoteAsDraft: false,
     currentItem: mode === "create" ? null : promotionCurrentItem(target),
   });

@@ -52,6 +52,84 @@ export function restore(check, account, shipment, settled, unsettled) {
 }
 
 /**
+ * The fields of the command center's hidden form that asks the page to check a write.
+ * @typedef {object} CheckAny
+ * @property {HTMLFormElement} form
+ * @property {HTMLInputElement} attempt
+ * @property {HTMLInputElement} shipment
+ */
+
+/**
+ * The command center's `restore`: it holds many shipments, so it looks at every record this
+ * account's browser keeps, as marketplace's `ShipmentMutationBoundary` does. It forgets the write
+ * this answer settles on `shipment`, and asks the page to check the first other record it finds,
+ * one at a time. A write the page checked and could not confirm stays remembered.
+ *
+ * @param {CheckAny} check
+ * @param {string} account
+ * @param {string} shipment the shipment this answer is about, or ""
+ * @param {string} settled the attempt this answer settles, or ""
+ * @param {string} unsettled the attempt this page could not confirm, or ""
+ */
+export function restoreAny(check, account, shipment, settled, unsettled) {
+  /** @type {Storage} */
+  let storage;
+  try {
+    storage = window.sessionStorage;
+  } catch {
+    return;
+  }
+  if (shipment) restoreSettled(storage, account, shipment, settled);
+  const prefix = key(account, "");
+  for (let index = 0; index < storage.length; index += 1) {
+    const name = storage.key(index);
+    if (name === null || !name.startsWith(prefix)) continue;
+    const attempt = attemptOf(storage.getItem(name));
+    if (attempt === unsettled || attempt === settled) continue;
+    let found;
+    try {
+      found = decodeURIComponent(name.slice(prefix.length));
+    } catch {
+      continue;
+    }
+    check.attempt.value = attempt;
+    check.shipment.value = found;
+    check.form.requestSubmit();
+    return;
+  }
+}
+
+/**
+ * Forget `shipment`'s record when it is the write `settled` names.
+ * @param {Storage} storage
+ * @param {string} account
+ * @param {string} shipment
+ * @param {string} settled
+ */
+function restoreSettled(storage, account, shipment, settled) {
+  if (settled && attemptOf(storage.getItem(key(account, shipment))) === settled) {
+    storage.removeItem(key(account, shipment));
+  }
+}
+
+/**
+ * The attempt a record names, or "unreadable".
+ * @param {string | null} raw
+ * @returns {string}
+ */
+function attemptOf(raw) {
+  if (raw === null) return "";
+  /** @type {{ attemptId?: unknown } | null} */
+  let record = null;
+  try {
+    record = raw.length <= 2048 ? JSON.parse(raw) : null;
+  } catch {
+    record = null;
+  }
+  return typeof record?.attemptId === "string" && record.attemptId ? record.attemptId : "unreadable";
+}
+
+/**
  * Before a write form is sent: remember its attempt (the form's `SubmitKey`), so the next page
  * can check it if the answer is lost. A browser that cannot remember it sends nothing and says so.
  *

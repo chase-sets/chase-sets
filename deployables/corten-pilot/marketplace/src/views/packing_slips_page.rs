@@ -48,9 +48,7 @@ pub fn PackingSlipsPage<'a>(t: ShipmentsMsg, screen: &'a SlipsScreen) -> impl Re
                         </label>
                         <button type="submit" class={Button} data-tone="secondary">{t.slip_change_format()}</button>
                     </form>
-                    <span class={Print}>
-                        <PrintButton label={t.slip_print()} />
-                    </span>
+                    <PrintButton label={t.slip_print()} class={Print} />
                 </div>
             </div>
             <div class={Sheets} data-format={screen.format.as_str()}>

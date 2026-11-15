@@ -227,6 +227,7 @@ export function planWholeGameSettle(batch: WholeGameBatchView, input: WholeGameS
 // AC3 — promotion and publication progress is read back from the server, never remembered.
 export type WholeGamePromoteJob = Pick<CatalogMergeCandidateBulkJob, "jobId" | "kind" | "scopeRecordId" | "status"> &
   Readonly<{
+    createdAt?: CatalogMergeCandidateBulkJob["createdAt"];
     // The landed API serializes an absent stored discriminator as null.
     promotionApplicationVersion?: CatalogMergeCandidateBulkJob["promotionApplicationVersion"];
     result:
@@ -237,7 +238,12 @@ export type WholeGamePromoteJob = Pick<CatalogMergeCandidateBulkJob, "jobId" | "
               Partial<
                 Pick<
                   CatalogMergeCandidateBulkUnitResult,
-                  "candidateId" | "appliedCatalogItemId" | "appliedMode" | "approvalVersion" | "planFingerprint"
+                  | "candidateId"
+                  | "disposition"
+                  | "appliedCatalogItemId"
+                  | "appliedMode"
+                  | "approvalVersion"
+                  | "planFingerprint"
                 >
               >)[];
           }>)
@@ -248,17 +254,41 @@ export type WholeGameJobPage = Readonly<{ items: readonly WholeGamePromoteJob[];
 
 export type WholeGameScopePromotionStep =
   | Readonly<{ kind: "adopt-active-job"; jobIds: readonly string[] }>
+  | Readonly<{ kind: "reuse-completed-job"; jobIds: readonly string[] }>
   | Readonly<{ kind: "submit-promote-all-ready" }>;
 
-/** A killed dispatch leaves its job running server-side; adopting it instead of resubmitting prevents double promotion. */
+/** A zero pass is reusable only while both ready and approved candidates remain unchanged. */
+export function scopePromotionCheckpoint(
+  scopeRecordId: string,
+  completedJobs: readonly WholeGamePromoteJob[],
+): WholeGamePromoteJob | null {
+  const jobs = completedJobs.filter(
+    (job) =>
+      job.scopeRecordId === scopeRecordId && job.kind === "merge-candidate-promote" && job.status === "completed",
+  );
+  if (jobs.some((job) => !Number.isFinite(Date.parse(job.createdAt ?? "")))) return null;
+  const latest = [...jobs].sort((a, b) => Date.parse(b.createdAt!) - Date.parse(a.createdAt!))[0];
+  return latest?.promotionApplicationVersion === 1 &&
+    latest.result?.promoted === 0 &&
+    !latest.result.failed &&
+    !latest.result.outcomes.some((outcome) => outcome.status === "failed")
+    ? latest
+    : null;
+}
+
+/** Recover active AND completed work before deciding whether another scope job is necessary. */
 export function planScopePromotion(
   scopeRecordId: string,
   activeJobs: readonly WholeGamePromoteJob[],
+  completedJobs: readonly WholeGamePromoteJob[] = [],
+  changedCandidates = 1,
 ): WholeGameScopePromotionStep {
   const active = activeJobs.filter(
     (job) => job.scopeRecordId === scopeRecordId && job.kind === "merge-candidate-promote",
   );
   if (active.length > 0) return { kind: "adopt-active-job", jobIds: active.map((job) => job.jobId) };
+  const checkpoint = scopePromotionCheckpoint(scopeRecordId, completedJobs);
+  if (checkpoint && changedCandidates === 0) return { kind: "reuse-completed-job", jobIds: [checkpoint.jobId] };
   // The scope job also catches up approved-but-unapplied candidates, which
   // the ready projection cannot count. Its zero result proves convergence.
   return { kind: "submit-promote-all-ready" };
@@ -420,6 +450,20 @@ export function assertPublishPreviewGuard(
 }
 
 // AC5 — support-safe receipt: counts, states and opaque ids only.
+export type WholeGameScopeProgress = {
+  scopeRecordId: string;
+  state: "pending" | "promotion-running" | "converged";
+  completedJobsObserved: number;
+  promotedOutcomes: number;
+  jobIds: readonly string[];
+  startedAt: string;
+  waitStartedAt: string | null;
+  finishedAt: string | null;
+  deadlineAt: string;
+  readyRemaining: number | null;
+  changedPromotedRemaining: number | null;
+};
+
 export type WholeGameReceipt = Readonly<{
   schemaVersion: typeof wholeGameReceiptSchemaVersion;
   journeyScope: WholeGameJourneyScope;
@@ -450,6 +494,7 @@ export type WholeGameReceipt = Readonly<{
     published: number;
     readyRemaining: number;
     draftsRemaining: number;
+    scopeProgress?: readonly WholeGameScopeProgress[];
   }> | null;
 }>;
 
@@ -482,6 +527,19 @@ const settleCountKeys = [
   "draftsRemaining",
 ];
 const settleKeys = ["batchStatus", "units", "resumed", ...settleCountKeys];
+const scopeProgressKeys = [
+  "scopeRecordId",
+  "state",
+  "completedJobsObserved",
+  "promotedOutcomes",
+  "jobIds",
+  "startedAt",
+  "waitStartedAt",
+  "finishedAt",
+  "deadlineAt",
+  "readyRemaining",
+  "changedPromotedRemaining",
+];
 const unitStates: readonly WholeGameUnitState[] = ["queued", "running", "completed", "failed", "cancelled"];
 const batchStatuses: readonly WholeGameBatchStatus[] = [
   "queued",
@@ -532,13 +590,46 @@ export function validateWholeGameReceipt(value: unknown): readonly string[] {
   }
 
   if (receipt.settle !== null) {
-    const settle = record(receipt.settle, "settle", settleKeys, errors);
+    const hasProgress = typeof receipt.settle === "object" && Object.hasOwn(receipt.settle, "scopeProgress");
+    const settle = record(
+      receipt.settle,
+      "settle",
+      hasProgress ? [...settleKeys, "scopeProgress"] : settleKeys,
+      errors,
+    );
     if (settle) {
       if (!batchStatuses.includes(settle.batchStatus as WholeGameBatchStatus)) errors.push("settle.batchStatus");
       if (typeof settle.resumed !== "boolean") errors.push("settle.resumed");
       const units = record(settle.units, "settle.units", unitStates, errors);
       if (units) for (const state of unitStates) if (!count(units[state])) errors.push(`settle.units.${state}`);
       for (const key of settleCountKeys) if (!count(settle[key])) errors.push(`settle.${key}`);
+      if (hasProgress) {
+        if (!Array.isArray(settle.scopeProgress)) errors.push("settle.scopeProgress");
+        else
+          settle.scopeProgress.forEach((entry, index) => {
+            const path = `settle.scopeProgress.${index}`;
+            const progress = record(entry, path, scopeProgressKeys, errors);
+            if (!progress) return;
+            if (typeof progress.scopeRecordId !== "string" || !batchIdPattern.test(progress.scopeRecordId))
+              errors.push(`${path}.scopeRecordId`);
+            if (!["pending", "promotion-running", "converged"].includes(progress.state as string))
+              errors.push(`${path}.state`);
+            for (const key of ["completedJobsObserved", "promotedOutcomes"])
+              if (!count(progress[key])) errors.push(`${path}.${key}`);
+            for (const key of ["readyRemaining", "changedPromotedRemaining"])
+              if (progress[key] !== null && !count(progress[key])) errors.push(`${path}.${key}`);
+            if (
+              !Array.isArray(progress.jobIds) ||
+              progress.jobIds.some((id) => typeof id !== "string" || !batchIdPattern.test(id))
+            )
+              errors.push(`${path}.jobIds`);
+            for (const key of ["startedAt", "waitStartedAt", "finishedAt", "deadlineAt"]) {
+              if ((key === "waitStartedAt" || key === "finishedAt") && progress[key] === null) continue;
+              if (typeof progress[key] !== "string" || !Number.isFinite(Date.parse(progress[key] as string)))
+                errors.push(`${path}.${key}`);
+            }
+          });
+      }
     }
   }
   if (receipt.state === "settled") {

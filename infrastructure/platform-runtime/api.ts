@@ -2,7 +2,7 @@ import {
   bootstrapContextDatabase,
   countEventsWithPrefix,
   createProjectionAwarePool,
-  drainContextRuntime,
+  drainProjectionGroups,
   syncLocalProjectionGroups,
   resolveModuleApiMounts,
   resolveModuleProjectionGroups,
@@ -15,6 +15,7 @@ import {
   type ResolvedApiMount,
   type SchemaBootstrapLockAcquisition,
   type SchemaBootstrapOptions,
+  type ProjectionGroupLeaseRunner,
 } from "../bounded-context-runtime/index";
 import type {
   BcApiModule,
@@ -26,6 +27,12 @@ import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { buildAccountCapabilityRegistry, type AccountCapabilityRegistry } from "./account-capability-registry";
 import { runtimeProfileMatches, sourceRuntimeHostMatches } from "./host-runtime-selection";
 import { attachRuntimeLifecycleRegistry, type RuntimeLifecycleRegistry } from "./runtime-lifecycle";
+import type { PlatformControlPlane } from "./control-plane";
+import {
+  createProjectionGroupRunnerLeaseName,
+  ProjectionRunnerLeaseUnavailableError,
+  tryRunWithRenewedLease,
+} from "./worker";
 
 export type { EnvironmentDataProfile } from "@chase-sets/bounded-context-module";
 export {
@@ -93,6 +100,112 @@ export type ApiHostRuntime = Readonly<{
   projectionGroups: ReturnType<typeof resolveModuleProjectionGroups>;
   subscriptionRunners: ReturnType<typeof resolveModuleSubscriptions>;
 }>;
+
+export type ProjectionGroupLeasePort = Readonly<{
+  runWithLease: ProjectionGroupLeaseRunner;
+}>;
+
+const SEED_PROJECTION_LEASE_TTL_MS = 120_000;
+const SEED_PROJECTION_LEASE_RENEW_INTERVAL_MS = 30_000;
+const SEED_PROJECTION_LEASE_ACQUIRE_TIMEOUT_MS = 15_000;
+const SEED_PROJECTION_LEASE_ACQUIRE_RETRY_INTERVAL_MS = 500;
+
+const seedSubstepInFlight = new WeakMap<AbortSignal, Set<Promise<unknown>>>();
+
+export function createProjectionGroupLeasePort(
+  controlPlane: PlatformControlPlane,
+  hostName: ApiHostName,
+): ProjectionGroupLeasePort {
+  return {
+    runWithLease: async (group, signal, work) => {
+      const leaseName = createProjectionGroupRunnerLeaseName(group);
+      const run = (async () => {
+        if (signal?.aborted) {
+          throw new Error(`Seed projection lease '${leaseName}' was cancelled before acquisition.`);
+        }
+
+        const acquireDeadline = signal
+          ? Number.POSITIVE_INFINITY
+          : Date.now() + SEED_PROJECTION_LEASE_ACQUIRE_TIMEOUT_MS;
+        let attempts = 0;
+        for (;;) {
+          if (signal?.aborted) {
+            throw new Error(`Seed projection lease '${leaseName}' was cancelled before acquisition.`);
+          }
+          attempts += 1;
+          const outcome = await tryRunWithRenewedLease(
+            controlPlane,
+            {
+              leaseName,
+              ownerId: `seed:${hostName}`,
+              ttlMs: SEED_PROJECTION_LEASE_TTL_MS,
+              renewIntervalMs: SEED_PROJECTION_LEASE_RENEW_INTERVAL_MS,
+              acquireTimeoutMs: 0,
+              acquireRetryIntervalMs: 0,
+              signal,
+              shouldAbort: async () => signal?.aborted === true,
+              abortPollIntervalMs: 50,
+              metadata: { origin: "seed-api-host", hostName },
+            },
+            async (context) => {
+              if (signal?.aborted || context.signal?.aborted) {
+                throw new Error(`Seed projection lease '${leaseName}' was cancelled before leased work.`);
+              }
+              return work(context);
+            },
+          );
+          if (outcome.acquired) {
+            console.log(`[seed-api-host] lease ${leaseName} acquired after ${attempts} attempt(s).`);
+            return outcome.result;
+          }
+
+          if (Date.now() >= acquireDeadline) {
+            console.error(`[seed-api-host] lease ${leaseName} unavailable after ${attempts} attempt(s).`);
+            throw new ProjectionRunnerLeaseUnavailableError(leaseName);
+          }
+          const remainingMs = acquireDeadline - Date.now();
+          if (!signal) {
+            await new Promise((resolve) =>
+              setTimeout(resolve, Math.min(SEED_PROJECTION_LEASE_ACQUIRE_RETRY_INTERVAL_MS, remainingMs)),
+            );
+          } else {
+            await waitForSeedLeaseRetry(signal, SEED_PROJECTION_LEASE_ACQUIRE_RETRY_INTERVAL_MS);
+          }
+        }
+      })();
+      const inFlight = signal ? seedSubstepInFlight.get(signal) : undefined;
+      if (inFlight) {
+        inFlight.add(run);
+        void run.then(
+          () => inFlight.delete(run),
+          () => inFlight.delete(run),
+        );
+      }
+      return run;
+    },
+  };
+}
+
+async function waitForSeedLeaseRetry(signal: AbortSignal, delayMs: number): Promise<void> {
+  if (signal.aborted) {
+    throw new Error("Seed projection lease acquisition was cancelled.");
+  }
+  await new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      signal.removeEventListener("abort", onAbort);
+      resolve();
+    }, delayMs);
+    const onAbort = () => {
+      clearTimeout(timer);
+      signal.removeEventListener("abort", onAbort);
+      reject(new Error("Seed projection lease acquisition was cancelled."));
+    };
+    signal.addEventListener("abort", onAbort, { once: true });
+    if (signal.aborted) {
+      onAbort();
+    }
+  });
+}
 
 export type ApiHostMount = ResolvedApiMount;
 
@@ -362,9 +475,15 @@ export type ApiHostSeedOptions = BcSeedOptions &
     fullBootstrapDrain?: boolean;
     /** Converge seed owners before/after reconciliation; the caller owns the remaining runtime drain. */
     seedContextDrain?: boolean;
+    /** Fencing boundary for every seed projection sync and drain; seedApiHostIfEmpty requires it. */
+    projectionGroupLeasePort?: ProjectionGroupLeasePort;
   }>;
 
-async function runSeedSubstep<T>(label: string, timeoutMs: number | undefined, action: () => Promise<T>): Promise<T> {
+async function runSeedSubstep<T>(
+  label: string,
+  timeoutMs: number | undefined,
+  action: (signal: AbortSignal) => Promise<T>,
+): Promise<T> {
   const startedAt = Date.now();
   console.log(`[seed-api-host] ${label} started.`);
   try {
@@ -380,26 +499,37 @@ async function runSeedSubstep<T>(label: string, timeoutMs: number | undefined, a
 async function withSeedSubstepTimeout<T>(
   label: string,
   timeoutMs: number | undefined,
-  action: () => Promise<T>,
+  action: (signal: AbortSignal) => Promise<T>,
 ): Promise<T> {
-  if (timeoutMs === undefined) {
-    return action();
-  }
-
+  const abortController = new AbortController();
+  const inFlight = new Set<Promise<unknown>>();
+  seedSubstepInFlight.set(abortController.signal, inFlight);
+  const actionPromise = Promise.resolve().then(() => action(abortController.signal));
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
+    if (timeoutMs === undefined) {
+      return await actionPromise;
+    }
     return await Promise.race([
-      action(),
+      actionPromise,
       new Promise<never>((_resolve, reject) => {
         timer = setTimeout(() => {
           reject(new SeedApiHostSubstepTimeoutError(label, timeoutMs));
         }, timeoutMs);
       }),
     ]);
+  } catch (error) {
+    if (error instanceof SeedApiHostSubstepTimeoutError) {
+      abortController.abort();
+      void actionPromise.catch(() => undefined);
+      await Promise.allSettled([...inFlight]);
+    }
+    throw error;
   } finally {
     if (timer) {
       clearTimeout(timer);
     }
+    seedSubstepInFlight.delete(abortController.signal);
   }
 }
 
@@ -422,11 +552,12 @@ export async function seedApiHostIfEmpty(
   registry: ApiContextRegistry,
   hostName: ApiHostName,
   runtime: ApiHostRuntime,
-  options: ApiHostSeedOptions = {
-    enabledDataProfiles: nonProductionDataProfiles,
-    environmentName: null,
-  },
+  options: ApiHostSeedOptions & Readonly<{ projectionGroupLeasePort: ProjectionGroupLeasePort }>,
 ): Promise<void> {
+  // Untyped callers can still omit the port; refuse before any bootstrap or seed work.
+  if (!options.projectionGroupLeasePort) {
+    throw new Error("API host seed requires a ProjectionGroupLeasePort; unleased seed drains are not allowed.");
+  }
   if (options.schemaBootstrapLockAcquisition) {
     return seedApiHostIfEmptyWithHeldBootstrapLock(
       registry,
@@ -434,6 +565,7 @@ export async function seedApiHostIfEmpty(
       runtime,
       options,
       options.schemaBootstrapLockAcquisition,
+      options.projectionGroupLeasePort.runWithLease,
     );
   }
   const bootstrapLockContext = runtime.mountedContexts[0];
@@ -444,7 +576,15 @@ export async function seedApiHostIfEmpty(
   await withSchemaBootstrapLock(
     options.schemaBootstrapLockPool ?? bootstrapLockContext.pool,
     options.schemaBootstrap,
-    (lockAcquisition) => seedApiHostIfEmptyWithHeldBootstrapLock(registry, hostName, runtime, options, lockAcquisition),
+    (lockAcquisition) =>
+      seedApiHostIfEmptyWithHeldBootstrapLock(
+        registry,
+        hostName,
+        runtime,
+        options,
+        lockAcquisition,
+        options.projectionGroupLeasePort.runWithLease,
+      ),
   );
 }
 
@@ -454,6 +594,7 @@ async function seedApiHostIfEmptyWithHeldBootstrapLock(
   runtime: ApiHostRuntime,
   options: ApiHostSeedOptions,
   lockAcquisition: SchemaBootstrapLockAcquisition,
+  runWithLease: ProjectionGroupLeaseRunner,
 ): Promise<void> {
   const mountedContextsByName = new Map(runtime.mountedContexts.map((entry) => [entry.contextName, entry]));
   const runBootstrapDrain = shouldRunBootstrapDrain(options);
@@ -478,48 +619,52 @@ async function seedApiHostIfEmptyWithHeldBootstrapLock(
 
     const runContextSeed = shouldRunContextSeed(context, options);
     if (!runContextSeed) {
-      await runSeedSubstep(`seed:${contextName}`, substepTimeoutMs, () =>
-        seedApiModuleForHostBootstrap(context, options, lockAcquisition),
+      await runSeedSubstep(`seed:${contextName}`, substepTimeoutMs, (signal) =>
+        seedApiModuleForHostBootstrap(context, options, lockAcquisition, runWithLease, signal),
       );
       continue;
     }
 
     if (context.mountRole === "source-only") {
-      await runSeedSubstep(`seed:${contextName}`, substepTimeoutMs, () =>
-        seedApiModuleForHostBootstrap(context, options, lockAcquisition),
+      await runSeedSubstep(`seed:${contextName}`, substepTimeoutMs, (signal) =>
+        seedApiModuleForHostBootstrap(context, options, lockAcquisition, runWithLease, signal),
       );
-      await runSeedSubstep(`projection-drain:${contextName}`, substepTimeoutMs, async () => {
-        await syncLocalProjectionGroups(context);
-        await seedApiModuleForHostBootstrap(context, options, lockAcquisition);
-        await syncLocalProjectionGroups(context);
+      await runSeedSubstep(`projection-drain:${contextName}`, substepTimeoutMs, async (signal) => {
+        await syncLocalProjectionGroups(context, { signal }, runWithLease);
+        await seedApiModuleForHostBootstrap(context, options, lockAcquisition, runWithLease, signal);
+        await syncLocalProjectionGroups(context, { signal }, runWithLease);
       });
       continue;
     }
 
     if (runBootstrapDrain) {
-      await runSeedSubstep(`projection-sync:${contextName}`, substepTimeoutMs, () =>
+      await runSeedSubstep(`projection-sync:${contextName}`, substepTimeoutMs, (signal) =>
         syncContextProjectionGroups(runtime, contextName, {
           requiredOnly: !seedContextDrain,
+          context: { signal },
+          runWithLease,
         }),
       );
     }
-    await runSeedSubstep(`seed:${contextName}`, substepTimeoutMs, () =>
-      seedApiModuleForHostBootstrap(context, options, lockAcquisition),
+    await runSeedSubstep(`seed:${contextName}`, substepTimeoutMs, (signal) =>
+      seedApiModuleForHostBootstrap(context, options, lockAcquisition, runWithLease, signal),
     );
     if (runBootstrapDrain) {
-      await runSeedSubstep(`projection-drain:${contextName}`, substepTimeoutMs, async () => {
-        await syncContextProjectionGroups(runtime, contextName);
-        if (!seedContextDrain) await drainContextRuntime(runtime);
-        await seedApiModuleForHostBootstrap(context, options, lockAcquisition);
-        await syncContextProjectionGroups(runtime, contextName);
-        if (!seedContextDrain) await drainContextRuntime(runtime);
+      await runSeedSubstep(`projection-drain:${contextName}`, substepTimeoutMs, async (signal) => {
+        await syncContextProjectionGroups(runtime, contextName, { context: { signal }, runWithLease });
+        if (!seedContextDrain) await drainProjectionGroups(runtime, { signal }, runWithLease);
+        await seedApiModuleForHostBootstrap(context, options, lockAcquisition, runWithLease, signal);
+        await syncContextProjectionGroups(runtime, contextName, { context: { signal }, runWithLease });
+        if (!seedContextDrain) await drainProjectionGroups(runtime, { signal }, runWithLease);
       });
     }
   }
 
   if (runBootstrapDrain) {
     if (!seedContextDrain) {
-      await runSeedSubstep("projection-drain:all", substepTimeoutMs, () => drainContextRuntime(runtime));
+      await runSeedSubstep("projection-drain:all", substepTimeoutMs, (signal) =>
+        drainProjectionGroups(runtime, { signal }, runWithLease),
+      );
     }
 
     // A final reconciliation pass lets seeds that depend on downstream facts
@@ -530,10 +675,10 @@ async function seedApiHostIfEmptyWithHeldBootstrapLock(
       if (!context || !shouldRunContextSeed(context, options)) {
         continue;
       }
-      await runSeedSubstep(`seed-reconcile:${contextName}`, substepTimeoutMs, async () => {
-        await seedApiModuleForHostBootstrap(context, options, lockAcquisition);
-        await syncContextProjectionGroups(runtime, contextName);
-        if (!seedContextDrain) await drainContextRuntime(runtime);
+      await runSeedSubstep(`seed-reconcile:${contextName}`, substepTimeoutMs, async (signal) => {
+        await seedApiModuleForHostBootstrap(context, options, lockAcquisition, runWithLease, signal);
+        await syncContextProjectionGroups(runtime, contextName, { context: { signal }, runWithLease });
+        if (!seedContextDrain) await drainProjectionGroups(runtime, { signal }, runWithLease);
       });
     }
 
@@ -543,8 +688,8 @@ async function seedApiHostIfEmptyWithHeldBootstrapLock(
     // source's event types reporting a false tail lag whenever the source seeds
     // trailing non-subscribed events.
     if (!seedContextDrain) {
-      await runSeedSubstep("projection-settle:all", substepTimeoutMs, () =>
-        drainContextRuntime(runtime, { settleIdleCheckpoints: true }),
+      await runSeedSubstep("projection-settle:all", substepTimeoutMs, (signal) =>
+        drainProjectionGroups(runtime, { signal, settleIdleCheckpoints: true }, runWithLease),
       );
     }
   }
@@ -554,6 +699,8 @@ async function seedApiModuleForHostBootstrap(
   context: MountedContextRuntimeEntry,
   options: BcSeedOptions,
   lockAcquisition: SchemaBootstrapLockAcquisition,
+  runWithLease: ProjectionGroupLeaseRunner,
+  signal: AbortSignal,
 ): Promise<void> {
   // A queued twin must not re-enter an active context's general seed against
   // events whose projections the predecessor may not have drained. Event
@@ -568,13 +715,13 @@ async function seedApiModuleForHostBootstrap(
   ) {
     if (context.module.reconcileBootstrapState) {
       console.log(`${context.contextName} events already exist after queued bootstrap. Reconciling required state.`);
-      await reconcileRequiredBootstrapState(context, options);
+      await reconcileRequiredBootstrapState(context, options, runWithLease, signal);
       return;
     }
     console.log(
       `${context.contextName} events already exist after queued bootstrap. Draining existing events without general seed re-entry.`,
     );
-    await syncLocalProjectionGroups(context);
+    await syncLocalProjectionGroups(context, { signal }, runWithLease);
     return;
   }
 
@@ -586,17 +733,22 @@ async function seedApiModuleForHostBootstrap(
     !shouldRunBootstrapDrain(options)
   ) {
     console.log(`${context.contextName} seed completed. Reconciling required state before readiness.`);
-    await reconcileRequiredBootstrapState(context, options);
+    await reconcileRequiredBootstrapState(context, options, runWithLease, signal);
   }
 }
 
-async function reconcileRequiredBootstrapState(context: MountedContextRuntimeEntry, options: BcSeedOptions) {
+async function reconcileRequiredBootstrapState(
+  context: MountedContextRuntimeEntry,
+  options: BcSeedOptions,
+  runWithLease: ProjectionGroupLeaseRunner,
+  signal: AbortSignal,
+) {
   const reconcile = context.module.reconcileBootstrapState;
   if (!reconcile) {
     return;
   }
 
-  await syncLocalProjectionGroups(context);
+  await syncLocalProjectionGroups(context, { signal }, runWithLease);
   await reconcile(context.pool, context.services, options);
-  await syncLocalProjectionGroups(context);
+  await syncLocalProjectionGroups(context, { signal }, runWithLease);
 }

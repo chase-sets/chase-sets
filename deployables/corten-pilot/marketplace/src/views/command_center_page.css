@@ -1,0 +1,224 @@
+/* The seller's command center (Fulfillment's fulfillment-command-center-page.tsx). The cards are a
+   column on a phone and fill the width beside each other from 48rem. Every control is at least
+   2.75rem tall, and long references and notes wrap instead of widening the page. */
+.page {
+  display: grid;
+  gap: var(--space-6);
+  min-width: 0;
+}
+.muted {
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: 0.875rem;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.strong {
+  margin: 0;
+  color: var(--color-text);
+  font-size: 0.9375rem;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.section-title {
+  margin: 0;
+  font: 600 1.25rem/1.3 var(--font-display);
+}
+.card-title {
+  margin: 0;
+  font: 600 1rem/1.4 var(--font-display);
+  overflow-wrap: anywhere;
+}
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  align-items: center;
+  margin: 0;
+}
+
+.bucket {
+  display: grid;
+  gap: var(--space-3);
+  min-width: 0;
+}
+.cards {
+  display: grid;
+  gap: var(--space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+@media (--md) {
+  .cards {
+    grid-template-columns: repeat(auto-fill, minmax(20rem, 1fr));
+  }
+}
+.card {
+  display: grid;
+  gap: var(--space-3);
+  align-content: start;
+  min-width: 0;
+  padding: var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-sm);
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.125rem var(--space-2);
+  border-radius: var(--radius-full);
+  background: var(--color-surface-2);
+  color: var(--color-text-secondary);
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+.badge[data-tone="warning"] {
+  background: var(--color-warning-soft);
+  color: var(--color-text);
+}
+.badge[data-tone="accent"] {
+  background: var(--color-primary-soft);
+  color: var(--color-text);
+}
+.badge[data-tone="info"] {
+  background: var(--color-info-soft);
+  color: var(--color-text);
+}
+
+.primary,
+.secondary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-1);
+  min-height: 2.75rem;
+  padding: var(--space-2) var(--space-4);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: 600 0.875rem/1.2 var(--font-body);
+  text-align: center;
+  text-decoration: none;
+  cursor: pointer;
+}
+.primary {
+  border-color: var(--color-primary);
+  background: var(--color-primary);
+  color: var(--color-primary-foreground);
+}
+.primary:hover {
+  background: var(--color-primary-hover);
+}
+.secondary:hover {
+  background: var(--color-surface-2);
+}
+.controls:disabled .primary,
+.controls:disabled .secondary {
+  border-color: var(--color-border);
+  background: var(--color-surface-2);
+  color: var(--color-text-secondary);
+  cursor: not-allowed;
+}
+
+/* More actions: the summary is a button; the actions open below it. */
+.more {
+  display: grid;
+  gap: var(--space-3);
+  min-width: 0;
+}
+.more > summary {
+  list-style: none;
+}
+.more > summary::-webkit-details-marker {
+  display: none;
+}
+.more-actions {
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-2);
+}
+
+.write {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.controls {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.label {
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+.input {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 2.75rem;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: 0.9375rem/1.4 var(--font-body);
+}
+.unavailable {
+  margin: 0;
+  color: var(--color-danger);
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.banner {
+  display: grid;
+  gap: var(--space-1);
+  margin: 0;
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+.banner:focus {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+.info {
+  border-color: transparent;
+  background: var(--color-info-soft);
+}
+.danger {
+  border-color: var(--color-danger);
+  background: var(--color-danger-soft);
+}
+.warning {
+  border-color: var(--color-warning);
+  background: var(--color-warning-soft);
+}
+.status {
+  display: grid;
+  gap: var(--space-3);
+}
+.status:has(> form:only-child) {
+  display: none;
+}
+
+.empty {
+  display: grid;
+  gap: var(--space-1);
+  justify-items: center;
+  padding: var(--space-8) var(--space-4);
+  border: 1px dashed var(--color-border-strong);
+  border-radius: var(--radius-lg);
+  text-align: center;
+}

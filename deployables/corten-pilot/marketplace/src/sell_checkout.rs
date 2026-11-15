@@ -7,10 +7,13 @@
 //! same decisions (a pure computation, `POST /sell-list/readiness`): a changed list, or one that is not
 //! ready, is a recovery that sends the seller back to the Sell List. Confirming (one form) checks
 //! the fields, then does what marketplace's route does: the review plan in the address checked
-//! against the snapshot, the seller confirmation evidence sent for readiness, the Marketplace
+//! against the snapshot, the seller's ship-from and label choices with the seller confirmation
+//! evidence sent for readiness (Checkout reads risk, fulfillment and the payout estimate from
+//! their owners with the choices, and checks them again before it confirms), the Marketplace
 //! handoff (each selected offer and Smart Match target accepted, each fallback listing created and
 //! published, with keys derived from the confirmation, so a resent form replays), and
-//! `POST /sell-list/confirm` with what it did. The confirmation page is read after that write.
+//! `POST /sell-list/confirm` with what it did and the same choices. The confirmation page is read
+//! after that write.
 //!
 //! A guest's page is the same review of the guest sell list; confirming checks the fields and goes
 //! to marketplace's registration, back to the Sell List.
@@ -24,19 +27,17 @@
 use std::collections::BTreeMap;
 
 use corten::{
-    axum::http::{HeaderMap, StatusCode, Uri},
+    http::{HeaderMap, StatusCode, Uri},
     prelude::*,
 };
 use platform::{money, receipt::Receipt};
-use serde::Deserialize;
 use serde_json::{Value, json};
 
-use crate::chrome::Chrome;
 use crate::{
     api::{
-        ApiError, CheckoutSessions as _, EvidenceLabel, EvidencePayout, EvidenceShipFrom, EvidenceStatus, LineAction, LineKept,
-        Listings as _, OfferMatchCalls as _, ReadinessDecisions, SavedAddress, SellList as _, SellListConfirmation, SellListRow,
-        SellListSnapshot, SellPayoutReadiness, SellerEvidence,
+        ApiError, CheckoutSessions as _, EvidenceLabel, EvidencePayout, EvidenceShipFrom, EvidenceStatus, LabelChoice,
+        LineAction, LineKept, Listings as _, OfferMatchCalls as _, ReadinessDecisions, SavedAddress, SellList as _,
+        SellListConfirmation, SellListRow, SellListSnapshot, SellPayoutReadiness, SellerChoices, SellerEvidence, ShipFromChoice,
     },
     app::{Shared, read_failed, sign_in_back_to, url},
     auth::Session,
@@ -50,7 +51,7 @@ use crate::{
 
 /// The address the Sell List's Continue writes: the snapshot, the decisions and the review plan
 /// it was built with, and the readiness write's receipt.
-#[derive(Clone, Debug, Default, Deserialize, Fields, Route)]
+#[derive(Clone, Debug, Default, Fields, Route)]
 #[serde(rename_all = "camelCase")]
 #[route(query)]
 pub struct Place {
@@ -62,7 +63,7 @@ pub struct Place {
 }
 
 /// The confirmation's address: the confirm's receipt.
-#[derive(Clone, Debug, Default, Deserialize, Fields, Route)]
+#[derive(Clone, Debug, Default, Fields, Route)]
 #[serde(rename_all = "camelCase")]
 #[route(query)]
 pub struct ConfirmationPlace {
@@ -534,6 +535,26 @@ pub fn reviewed(lines: &[SellListRow], readiness: &SellListSnapshot, plan: Optio
     Some(out)
 }
 
+/// What the seller chose, as marketplace's action sends it for readiness and confirm: a saved
+/// address by its id, else the address typed (an empty line 2 as none), and the label preference.
+pub fn choices(values: &Values) -> SellerChoices {
+    let ship_from = if values.ship_from_address_id == MANUAL {
+        ShipFromChoice::Typed {
+            name: values.ship_from_name.clone(),
+            line1: values.line1.clone(),
+            line2: Some(values.line2.clone()).filter(|l| !l.is_empty()),
+            city: values.city.clone(),
+            state: values.state.clone(),
+            postal_code: values.postal_code.clone(),
+            country: values.country.clone(),
+        }
+    } else {
+        ShipFromChoice::Saved { address_id: values.ship_from_address_id.clone() }
+    };
+    let preference = if values.label_preference == "seller-label-later" { "seller-label-later" } else { "prepaid-label" };
+    SellerChoices { ship_from, label: LabelChoice { preference } }
+}
+
 /// The seller confirmation evidence marketplace's route builds (`buildSellerEvidence`): every
 /// dimension ready, the ship-from's place and the payout readiness read.
 pub fn evidence(values: &Values, payout: &Payout) -> SellerEvidence {
@@ -810,7 +831,6 @@ async fn load(
 
 pub(crate) async fn page(
     req: Req,
-    chrome: Chrome,
     session: Option<corten::Caller<Session>>,
     State(config): State<Shared>,
     headers: HeaderMap,
@@ -830,12 +850,12 @@ pub(crate) async fn page(
         place.sell_list_review_plan.as_deref(),
     );
     match load(req.t(), &caller, session, &headers, &id, &started).await {
-        Ok(screen) => render(&req, session, screen, StatusCode::OK, chrome.cart().await),
-        Err(error) => read_failed(&req, session.and_then(Session::viewer), error, None, chrome.cart().await),
+        Ok(screen) => render(&req, session, screen, StatusCode::OK),
+        Err(error) => read_failed(&req, session.and_then(Session::viewer), error, None),
     }
 }
 
-fn render(req: &Req, session: Option<&Session>, screen: Screen, status: StatusCode, cart: Option<u64>) -> HtmlResult {
+fn render(req: &Req, session: Option<&Session>, screen: Screen, status: StatusCode) -> HtmlResult {
     let t: SellCheckoutMsg = req.t();
     let head = html! {
         <meta name="description" content={t.route_meta_description()}>
@@ -844,7 +864,7 @@ fn render(req: &Req, session: Option<&Session>, screen: Screen, status: StatusCo
     req.page_with_status(
         status,
         html! {
-            <Layout req={req} viewer={session.and_then(Session::viewer)} cart={cart} title={t.route_meta_title()} head={head}>
+            <Layout req={req} viewer={session.and_then(Session::viewer)} title={t.route_meta_title()} head={head}>
                 <views::SellCheckoutPage t={t} screen={&screen} />
             </Layout>
         },
@@ -853,7 +873,6 @@ fn render(req: &Req, session: Option<&Session>, screen: Screen, status: StatusCo
 
 pub(crate) async fn write(
     req: Req,
-    chrome: Chrome,
     session: Option<corten::Caller<Session>>,
     State(config): State<Shared>,
     headers: HeaderMap,
@@ -875,30 +894,30 @@ pub(crate) async fn write(
     );
     let mut screen = match load(t, &caller, session, &headers, &id, &started).await {
         Ok(screen) => screen,
-        Err(error) => return read_failed(&req, session.and_then(Session::viewer), error, None, chrome.cart().await),
+        Err(error) => return read_failed(&req, session.and_then(Session::viewer), error, None),
     };
     screen.values = Values::read(&raw).with_saved(&screen.addresses);
     if screen.recovery.is_some() {
-        return refuse(&req, session, screen, t.route_validation_readiness_recovery(), chrome.cart().await);
+        return refuse(&req, session, screen, t.route_validation_readiness_recovery());
     }
     screen.errors = validate(t, &screen.values, screen.account);
     if screen.account && !screen.payout.as_ref().is_some_and(Payout::ready) {
         screen.errors.insert("payoutMethod", t.route_validation_payout_setup_required().to_owned());
     }
     if !screen.errors.is_empty() {
-        return render(&req, session, screen, StatusCode::UNPROCESSABLE_ENTITY, chrome.cart().await);
+        return render(&req, session, screen, StatusCode::UNPROCESSABLE_ENTITY);
     }
     if !screen.account {
         let back = format!("{}?registrationReturn=seller-checkout", url::SellList::PATH);
         return req.redirect(&url::Register { join: crate::register::Join::back_to(&back) });
     }
-    confirm(&req, session, &caller, screen, &started, &chrome).await
+    confirm(&req, session, &caller, screen, &started).await
 }
 
 /// The page again with the whole form's refusal (422).
-fn refuse(req: &Req, session: Option<&Session>, mut screen: Screen, message: &str, cart: Option<u64>) -> HtmlResult {
+fn refuse(req: &Req, session: Option<&Session>, mut screen: Screen, message: &str) -> HtmlResult {
     screen.errors.insert("form", message.to_owned());
-    render(req, session, screen, StatusCode::UNPROCESSABLE_ENTITY, cart)
+    render(req, session, screen, StatusCode::UNPROCESSABLE_ENTITY)
 }
 
 /// An account's confirm: once per session, after the plan, readiness with the seller's evidence
@@ -909,12 +928,11 @@ async fn confirm(
     caller: &platform::api::Caller<'_>,
     mut screen: Screen,
     started: &Started,
-    chrome: &Chrome,
 ) -> HtmlResult {
     let t: SellCheckoutMsg = req.t();
     let list: SellListMsg = req.t();
     let Some(readiness) = screen.readiness.clone() else {
-        return refuse(req, session, screen, t.route_validation_readiness_recovery(), chrome.cart().await);
+        return refuse(req, session, screen, t.route_validation_readiness_recovery());
     };
     let confirmation = confirmation_id(&screen.session_id);
     let key = stable(&screen.session_id);
@@ -923,23 +941,24 @@ async fn confirm(
         // Confirmed already (a resent form): its page.
         Ok(_) => return req.redirect(&done.href().parse::<Uri>().map_err(corten::Error::new)?),
         Err(error) if error.status() == Some(StatusCode::NOT_FOUND) => {}
-        Err(error) => return failed(req, session, screen, error, t, chrome.cart().await),
+        Err(error) => return failed(req, session, screen, error, t),
     }
     let plan = parse_plan(&started.plan);
     let Some(lines) = reviewed(&screen.lines, &readiness, plan.as_ref()) else {
-        return refuse(req, session, screen, t.route_validation_review_plan_required(), chrome.cart().await);
+        return refuse(req, session, screen, t.route_validation_review_plan_required());
     };
     let payout = screen.payout.clone().unwrap_or(Payout::Unavailable);
     let evidence = evidence(&screen.values, &payout);
-    match caller.seller_readiness(&started.decisions, &evidence).await {
+    let choices = choices(&screen.values);
+    match caller.seller_readiness(&started.decisions, &choices, &evidence).await {
         Ok(now) if now.status == "ready" && now.unresolved_line_ids.is_empty() && now.seller_readiness.status == "ready" => {
             let handed = match handoff(caller, list, t, &confirmation, &lines).await {
                 Ok(handed) => handed,
                 Err(Stopped::Stale(detail)) => {
                     screen.recovery = Some(Recovery::ReadinessStale(Some(detail.clone())));
-                    return refuse(req, session, screen, &detail, chrome.cart().await);
+                    return refuse(req, session, screen, &detail);
                 }
-                Err(Stopped::Failed(error)) => return failed(req, session, screen, error, t, chrome.cart().await),
+                Err(Stopped::Failed(error)) => return failed(req, session, screen, error, t),
             };
             let remaining: Vec<Value> =
                 handed.remaining.iter().map(|(line, quantity)| json!({ "lineId": line, "quantity": quantity })).collect();
@@ -948,31 +967,25 @@ async fn confirm(
                 "readinessSourceRevision": now.source_revision, "readinessDecisions": started.decisions,
                 "completedLineIds": handed.completed, "remainingLineQuantities": remaining,
                 "sellerEvidence": evidence, "handoffSummary": handed.summary,
+                "shipFrom": choices.ship_from, "label": choices.label,
             });
             let receipt = match caller.confirm_sell_list(&body).await {
                 Ok(receipt) => receipt,
-                Err(error) => return failed(req, session, screen, error, t, chrome.cart().await),
+                Err(error) => return failed(req, session, screen, error, t),
             };
             let latest = handed.receipts.into_iter().chain(receipt).reduce(Receipt::later);
             let place = ConfirmationPlace { after_write: latest.as_ref().map(Receipt::param) };
             let to = url::SellConfirmation { id: &key, place };
             req.redirect(&to.href().parse::<Uri>().map_err(corten::Error::new)?)
         }
-        Ok(_) => refuse(req, session, screen, t.route_validation_readiness_recovery(), chrome.cart().await),
-        Err(error) => failed(req, session, screen, error, t, chrome.cart().await),
+        Ok(_) => refuse(req, session, screen, t.route_validation_readiness_recovery()),
+        Err(error) => failed(req, session, screen, error, t),
     }
 }
 
 /// A write the API refused or that failed: sign-in for a session that ended, the API's words on
 /// the page for a refusal (422), else a bad gateway.
-fn failed(
-    req: &Req,
-    session: Option<&Session>,
-    screen: Screen,
-    error: ApiError,
-    t: SellCheckoutMsg,
-    cart: Option<u64>,
-) -> HtmlResult {
+fn failed(req: &Req, session: Option<&Session>, screen: Screen, error: ApiError, t: SellCheckoutMsg) -> HtmlResult {
     match error.status() {
         Some(StatusCode::UNAUTHORIZED) => {
             match sign_in_back_to(&format!("/checkout/sell/session/{}", stable(&screen.session_id))) {
@@ -980,10 +993,10 @@ fn failed(
                 None => Err(corten::Error::status(StatusCode::INTERNAL_SERVER_ERROR)),
             }
         }
-        Some(StatusCode::FORBIDDEN) => Err(corten::Error::new(error).with_status(StatusCode::FORBIDDEN)),
+        Some(StatusCode::FORBIDDEN) => Err(crate::app::api_refused(error)),
         Some(status) if status.is_client_error() => {
             let message = error.refusal().unwrap_or(t.route_validation_review_plan_required()).to_owned();
-            refuse(req, session, screen, &message, cart)
+            refuse(req, session, screen, &message)
         }
         _ => Err(corten::Error::new(error).with_status(StatusCode::BAD_GATEWAY)),
     }
@@ -993,7 +1006,6 @@ fn failed(
 /// which waits for it; one not saved goes there too. A guest goes to registration.
 pub(crate) async fn confirmation(
     req: Req,
-    chrome: Chrome,
     session: Option<corten::Caller<Session>>,
     State(config): State<Shared>,
     headers: HeaderMap,
@@ -1027,12 +1039,12 @@ pub(crate) async fn confirmation(
             return req.redirect(&back("preparing", place.after_write.clone())?);
         }
         Err(error) if error.status() == Some(StatusCode::NOT_FOUND) => return req.redirect(&back("missing", None)?),
-        Err(error) => return read_failed(&req, session.and_then(Session::viewer), error, None, chrome.cart().await),
+        Err(error) => return read_failed(&req, session.and_then(Session::viewer), error, None),
     };
-    render_confirmation(&req, session, &saved, chrome.cart().await)
+    render_confirmation(&req, session, &saved)
 }
 
-fn render_confirmation(req: &Req, session: Option<&Session>, saved: &SellListConfirmation, cart: Option<u64>) -> HtmlResult {
+fn render_confirmation(req: &Req, session: Option<&Session>, saved: &SellListConfirmation) -> HtmlResult {
     let t: SellCheckoutMsg = req.t();
     let head = html! {
         <meta name="description" content={t.signed_confirmation_description()}>
@@ -1044,7 +1056,6 @@ fn render_confirmation(req: &Req, session: Option<&Session>, saved: &SellListCon
             <Layout
                 req={req}
                 viewer={session.and_then(Session::viewer)}
-                cart={cart}
                 title={t.signed_confirmation_title()}
                 head={head}
             >
@@ -1157,5 +1168,30 @@ mod tests {
         assert_eq!(sent.ship_from.address_id.as_deref(), Some("adr_home"));
         assert_eq!(sent.label.preference, "prepaid-label");
         assert_eq!(sent.payout.readiness_status, "unavailable");
+    }
+
+    #[test]
+    fn the_choices_are_a_saved_address_by_its_id_or_the_one_typed_and_the_label() {
+        let mut values = Values {
+            ship_from_name: "Demo".into(),
+            line1: "1 Main".into(),
+            city: "Evanston".into(),
+            state: "IL".into(),
+            postal_code: "60201".into(),
+            label_preference: "seller-label-later".into(),
+            ..Values::default()
+        };
+        assert_eq!(
+            serde_json::to_value(choices(&values)).unwrap(),
+            json!({ "shipFrom": { "name": "Demo", "line1": "1 Main", "line2": null, "city": "Evanston", "state": "IL",
+                "postalCode": "60201", "country": "US" }, "label": { "preference": "seller-label-later" } })
+        );
+        values.ship_from_address_id = "adr_home".into();
+        values.line2 = "Unit 2".into();
+        values.label_preference = "anything".into();
+        assert_eq!(
+            serde_json::to_value(choices(&values)).unwrap(),
+            json!({ "shipFrom": { "addressId": "adr_home" }, "label": { "preference": "prepaid-label" } })
+        );
     }
 }

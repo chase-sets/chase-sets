@@ -10,7 +10,8 @@
 //! | Pause, Resume, Delete | `/account/notifications/product-alerts/{id}` | the settings at the alerts, read after the write (`afterWrite`); with a script, the alerts read after it, drawn in place |
 //!
 //! `/account/product-alerts` (Discovery's `account-product-alerts`) sends a `GET` to the settings at
-//! the alerts. Its form action is not ported: only marketplace's notification center posts to it.
+//! the alerts. A post there (`intent` and `alertId`, marketplace's form) pauses, resumes or deletes
+//! the alert it names and goes to the settings at the alerts (`change_alert_legacy`).
 //!
 //! Each form works without JavaScript (post, then redirect). With it, each is a `data-patch`
 //! form: the answer is only the part that changed. The API's answer to a feed or channel write
@@ -26,13 +27,11 @@
 use std::time::Duration;
 
 use corten::{
-    axum::http::{HeaderMap, StatusCode},
+    http::{HeaderMap, StatusCode},
     prelude::*,
 };
 use platform::receipt::Receipt;
-use serde::Deserialize;
 
-use crate::chrome::Chrome;
 use crate::{
     api::{AlertChange, ApiError, Caller as Api, Feed, Notifications as _, Preference, ProductAlert},
     app::{Shared, read_failed, sign_in_at, url},
@@ -48,7 +47,7 @@ pub(crate) async fn product_alerts(req: Req) -> HtmlResult {
 
 /// The address's parameters: the view, the settings' section, and the receipt of the write the
 /// read waits for.
-#[derive(Clone, Debug, Default, Deserialize, Fields, Route)]
+#[derive(Clone, Debug, Default, Fields, Route)]
 #[route(query)]
 #[serde(rename_all = "camelCase")]
 pub struct Place {
@@ -169,21 +168,21 @@ fn served_here(href: &str) -> bool {
 }
 
 /// The feed's form: the notification's delivery.
-#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[derive(Clone, Debug, Default, Fields)]
 #[serde(default)]
 pub struct ReadInput {
     pub delivery: String,
 }
 
 /// A channel's form: what to turn it to.
-#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[derive(Clone, Debug, Default, Fields)]
 #[serde(default)]
 pub struct PreferenceInput {
     pub enabled: String,
 }
 
 /// An alert's form: what to do with it.
-#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[derive(Clone, Debug, Default, Fields)]
 #[serde(default)]
 pub struct AlertInput {
     pub action: String,
@@ -191,7 +190,6 @@ pub struct AlertInput {
 
 pub(crate) async fn page(
     req: Req,
-    chrome: Chrome,
     Caller(Member(viewer)): Caller<Member>,
     State(config): State<Shared>,
     headers: HeaderMap,
@@ -202,8 +200,8 @@ pub(crate) async fn page(
     let caller = config.platform.caller(&headers, config.proto, None);
     match place.view() {
         View::Feed => match caller.feed().await {
-            Ok(feed) => render(&req, &viewer, &Screen::Feed(Some(feed)), None, StatusCode::OK, chrome.cart().await),
-            Err(error) => failed(&req, &viewer, Screen::Feed(None), error, chrome.cart().await),
+            Ok(feed) => render(&req, &viewer, &Screen::Feed(Some(feed)), None, StatusCode::OK),
+            Err(error) => failed(&req, &viewer, Screen::Feed(None), error),
         },
         // An alert write's read again (`ReadAgain::from` in its patch): the section alone. A read
         // that fails says so in place, as a patch the runtime applies whatever its status; signed
@@ -213,7 +211,7 @@ pub(crate) async fn page(
             match alerts(&waiting, receipt.is_some()).await {
                 Ok(alerts) => alerts_patch(&req, &alerts, &url::Notifications { place: place.clone() }),
                 Err(error) if matches!(error.status(), Some(StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN)) => {
-                    failed(&req, &viewer, Screen::Settings(None, Section::ProductAlerts), error, chrome.cart().await)
+                    failed(&req, &viewer, Screen::Settings(None, Section::ProductAlerts), error)
                 }
                 Err(error) => unconfirmed(&req, error),
             }
@@ -221,15 +219,8 @@ pub(crate) async fn page(
         View::Settings => {
             let waiting = config.platform.caller(&headers, config.proto, receipt.as_ref());
             match settings(&caller, &waiting, receipt.is_some()).await {
-                Ok(settings) => render(
-                    &req,
-                    &viewer,
-                    &Screen::Settings(Some(settings), place.section()),
-                    None,
-                    StatusCode::OK,
-                    chrome.cart().await,
-                ),
-                Err(error) => failed(&req, &viewer, Screen::Settings(None, place.section()), error, chrome.cart().await),
+                Ok(settings) => render(&req, &viewer, &Screen::Settings(Some(settings), place.section()), None, StatusCode::OK),
+                Err(error) => failed(&req, &viewer, Screen::Settings(None, place.section()), error),
             }
         }
     }
@@ -252,25 +243,18 @@ async fn alerts(caller: &Api<'_>, after_write: bool) -> Result<Alerts, ApiError>
 }
 
 /// A failed read: sign in again when the session ended, else the page's banner, 502.
-fn failed(req: &Req, viewer: &Viewer, screen: Screen, error: ApiError, cart: Option<u64>) -> HtmlResult {
+fn failed(req: &Req, viewer: &Viewer, screen: Screen, error: ApiError) -> HtmlResult {
     match error.status() {
         Some(StatusCode::UNAUTHORIZED) => sign_in(req),
-        Some(StatusCode::FORBIDDEN) => read_failed(req, Some(viewer), error, None, cart),
+        Some(StatusCode::FORBIDDEN) => read_failed(req, Some(viewer), error, None),
         _ => {
             tracing::warn!("the notification center's read failed: {error}");
-            render(req, viewer, &screen, None, StatusCode::BAD_GATEWAY, cart)
+            render(req, viewer, &screen, None, StatusCode::BAD_GATEWAY)
         }
     }
 }
 
-fn render(
-    req: &Req,
-    viewer: &Viewer,
-    screen: &Screen,
-    notice: Option<&Notice>,
-    status: StatusCode,
-    cart: Option<u64>,
-) -> HtmlResult {
+fn render(req: &Req, viewer: &Viewer, screen: &Screen, notice: Option<&Notice>, status: StatusCode) -> HtmlResult {
     let t: NotificationsMsg = req.t();
     let p: Pilot = req.t();
     let again = matches!(screen, Screen::Settings(Some(Settings { alerts: Alerts::CatchingUp, .. }), _));
@@ -283,7 +267,7 @@ fn render(
     req.page_with_status(
         status,
         html! {
-            <Layout req={req} viewer={Some(viewer)} cart={cart} title={t.route_title()} head={head}>
+            <Layout req={req} viewer={Some(viewer)} title={t.route_title()} head={head}>
                 <views::NotificationPage t={t} p={p} screen={screen} notice={notice} />
             </Layout>
         },
@@ -308,7 +292,7 @@ enum Which {
 
 /// A write the API did not take: sign in when the session ended, else the view again with what
 /// went wrong in the form's section (422 for a refusal, 502 when the API did not answer).
-async fn refused(req: &Req, viewer: &Viewer, caller: &Api<'_>, form: Which, error: ApiError, chrome: &Chrome) -> HtmlResult {
+async fn refused(req: &Req, viewer: &Viewer, caller: &Api<'_>, form: Which, error: ApiError) -> HtmlResult {
     if error.status() == Some(StatusCode::UNAUTHORIZED) {
         return sign_in(req);
     }
@@ -320,7 +304,7 @@ async fn refused(req: &Req, viewer: &Viewer, caller: &Api<'_>, form: Which, erro
     match form {
         Which::Feed => {
             let feed = caller.feed().await.ok();
-            render(req, viewer, &Screen::Feed(feed), Some(&Notice::Feed(message)), status, chrome.cart().await)
+            render(req, viewer, &Screen::Feed(feed), Some(&Notice::Feed(message)), status)
         }
         Which::Preferences | Which::Alerts => {
             let (notice, section) = match form {
@@ -328,7 +312,7 @@ async fn refused(req: &Req, viewer: &Viewer, caller: &Api<'_>, form: Which, erro
                 _ => (Notice::Alerts(message), Section::ProductAlerts),
             };
             let settings = settings(caller, caller, false).await.ok();
-            render(req, viewer, &Screen::Settings(settings, section), Some(&notice), status, chrome.cart().await)
+            render(req, viewer, &Screen::Settings(settings, section), Some(&notice), status)
         }
     }
 }
@@ -346,7 +330,6 @@ fn feed_after(req: &Req, feed: &Feed) -> HtmlResult {
 /// Mark read: the delivery the form names.
 pub(crate) async fn mark_read(
     req: Req,
-    chrome: Chrome,
     Caller(Member(viewer)): Caller<Member>,
     State(config): State<Shared>,
     headers: HeaderMap,
@@ -355,14 +338,13 @@ pub(crate) async fn mark_read(
     let caller = config.platform.caller(&headers, config.proto, None);
     match caller.mark_read(input.delivery.trim()).await {
         Ok(feed) => feed_after(&req, &feed),
-        Err(error) => refused(&req, &viewer, &caller, Which::Feed, error, &chrome).await,
+        Err(error) => refused(&req, &viewer, &caller, Which::Feed, error).await,
     }
 }
 
 /// Mark all read.
 pub(crate) async fn mark_all_read(
     req: Req,
-    chrome: Chrome,
     Caller(Member(viewer)): Caller<Member>,
     State(config): State<Shared>,
     headers: HeaderMap,
@@ -370,7 +352,7 @@ pub(crate) async fn mark_all_read(
     let caller = config.platform.caller(&headers, config.proto, None);
     match caller.mark_all_read().await {
         Ok(feed) => feed_after(&req, &feed),
-        Err(error) => refused(&req, &viewer, &caller, Which::Feed, error, &chrome).await,
+        Err(error) => refused(&req, &viewer, &caller, Which::Feed, error).await,
     }
 }
 
@@ -378,7 +360,6 @@ pub(crate) async fn mark_all_read(
 /// with, in place; without one, the settings.
 pub(crate) async fn set_preference(
     req: Req,
-    chrome: Chrome,
     Caller(Member(viewer)): Caller<Member>,
     State(config): State<Shared>,
     headers: HeaderMap,
@@ -393,7 +374,7 @@ pub(crate) async fn set_preference(
             req.patch(html! { <views::PreferenceSwitch t={t} preference={&preference} /> })
         }
         Ok(_) => req.redirect(&url::Notifications { place: Place::settings(Section::Preferences, None) }),
-        Err(error) => refused(&req, &viewer, &caller, Which::Preferences, error, &chrome).await,
+        Err(error) => refused(&req, &viewer, &caller, Which::Preferences, error).await,
     }
 }
 
@@ -405,7 +386,6 @@ pub(crate) async fn set_preference(
 /// with the receipt, which say the same and read themselves again. Carrying the receipt is what marketplace does not do (chase-sets/chase-sets#10627).
 pub(crate) async fn change_alert(
     req: Req,
-    chrome: Chrome,
     Caller(Member(viewer)): Caller<Member>,
     State(config): State<Shared>,
     headers: HeaderMap,
@@ -413,8 +393,8 @@ pub(crate) async fn change_alert(
     Form(input): Form<AlertInput>,
 ) -> HtmlResult {
     let id = route.id;
-    let caller = config.platform.caller(&headers, config.proto, None);
     let Some(change) = AlertChange::read(&input.action) else {
+        let caller = config.platform.caller(&headers, config.proto, None);
         let t: NotificationsMsg = req.t();
         let settings = settings(&caller, &caller, false).await.ok();
         let notice = Notice::Alerts(t.page_read_failure_description().to_owned());
@@ -424,19 +404,60 @@ pub(crate) async fn change_alert(
             &Screen::Settings(settings, Section::ProductAlerts),
             Some(&notice),
             StatusCode::UNPROCESSABLE_ENTITY,
-            chrome.cart().await,
         );
     };
-    let receipt = match caller.change_alert(&id, change).await {
+    apply(&req, &viewer, &config, &headers, &id, change, req.mode == corten::Mode::Action).await
+}
+
+/// What marketplace's `/account/product-alerts` action is sent: the intent and the alert.
+#[derive(Clone, Debug, Default, Fields)]
+#[serde(default, rename_all = "camelCase")]
+pub struct LegacyAlertInput {
+    pub intent: String,
+    pub alert_id: String,
+}
+
+/// Discovery's `account-product-alerts` action, for a form or a bookmark that still posts to
+/// marketplace's address: `pause`, `resume` or `delete` the `alertId`, as the notification center's
+/// own form does, then the settings at the alerts. Any other intent, or no alert, goes to the
+/// settings with nothing changed (marketplace's `onUnknownIntent`). No page posts here with the
+/// runtime, so the answer is always the redirect.
+pub(crate) async fn change_alert_legacy(
+    req: Req,
+    Caller(Member(viewer)): Caller<Member>,
+    State(config): State<Shared>,
+    headers: HeaderMap,
+    Form(input): Form<LegacyAlertInput>,
+) -> HtmlResult {
+    let id = input.alert_id.trim();
+    match AlertChange::read(&input.intent) {
+        Some(change) if !id.is_empty() => apply(&req, &viewer, &config, &headers, id, change, false).await,
+        _ => req.redirect(&url::Notifications { place: Place::settings(Section::ProductAlerts, None) }),
+    }
+}
+
+/// The change, then the alerts read after it: in place when `in_place`, else the settings at the
+/// alerts with the write's receipt.
+async fn apply(
+    req: &Req,
+    viewer: &Viewer,
+    config: &Shared,
+    headers: &HeaderMap,
+    id: &str,
+    change: AlertChange,
+    in_place: bool,
+) -> HtmlResult {
+    let caller = config.platform.caller(headers, config.proto, None);
+    let receipt = match caller.change_alert(id, change).await {
         Ok(receipt) => receipt,
-        Err(error) => return refused(&req, &viewer, &caller, Which::Alerts, error, &chrome).await,
+        Err(error) => return refused(req, viewer, &caller, Which::Alerts, error).await,
     };
     let to = url::Notifications { place: Place::settings(Section::ProductAlerts, receipt.as_ref()) };
-    if req.mode == corten::Mode::Action {
-        let waiting = config.platform.caller(&headers, config.proto, receipt.as_ref());
+    if in_place {
+        let waiting = config.platform.caller(headers, config.proto, receipt.as_ref());
         return match alerts(&waiting, receipt.is_some()).await {
-            Ok(alerts) => alerts_patch(&req, &alerts, &to),
-            Err(error) => unconfirmed(&req, error),
+            Ok(alerts) => alerts_patch(req, &alerts, &to),
+            Err(error) => unconfirmed(req, error),
         };
     }
     req.redirect(&to.at(views::ProductAlertsId))

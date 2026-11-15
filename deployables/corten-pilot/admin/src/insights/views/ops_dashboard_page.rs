@@ -1,10 +1,16 @@
 //! The Ops Dashboard (`OpsDashboardAdminPage`). Top to bottom: the header, the range form (its
 //! fields side by side from 40rem), the figures (one column on a phone, three from 40rem), GMV over
 //! time (a line drawn on the server, its points listed for screen readers), liquidity, the top
-//! catalog items and the reconciliation runs (tables that scroll on their own on a phone).
+//! catalog items and the reconciliation runs (tables that stack on a phone, a row a block of
+//! labelled lines).
 use corten::{
     i18n::{DateStyle, TimeStyle, parse_timestamp},
     prelude::*,
+};
+use platform::ui::{
+    stats::{Stat, StatTone, Stats as KitStats, StatsSurface},
+    table::{CellLabel, Table as KitTable, TableLayout},
+    visually_hidden::VisuallyHidden,
 };
 
 use super::{date, usd};
@@ -73,12 +79,7 @@ fn granularity_label(o: Ops, granularity: &str) -> &'static str {
 
 #[component(css = OpsDashboardPage)]
 fn Figure<'a>(label: &'a str, value: String) -> impl Render {
-    html! {
-        <div class={Stat}>
-            <p class={Muted}>{label}</p>
-            <p class={Value}>{value}</p>
-        </div>
-    }
+    html! { <Stat label={label} value={value.as_str()} note="" tone={StatTone::Neutral} /> }
 }
 
 #[component(css = OpsDashboardPage)]
@@ -117,9 +118,11 @@ fn Trend<'a>(o: Ops, p: Pilot, series: &'a [Point]) -> impl Render {
                     stroke-linejoin="round"
                 />
             </svg>
-            <ul class={Hidden} id="od-trend-points">
+            <ul class={VisuallyHidden {}} id="od-trend-points">
                 for point in series {
-                    <li>{o.od_chart_point_label(&date(o, &point.day), &usd(o, &point.gmv_amount)).to_string()}</li>
+                    <li>
+                        {o.od_chart_point_label(crate::text::ops::OdChartPointLabel { date: &date(o, &point.day), amount: &usd(o, &point.gmv_amount) }).to_string()}
+                    </li>
                 }
             </ul>
         } else {
@@ -165,23 +168,25 @@ pub fn OpsDashboardPage<'a>(o: Ops, p: Pilot, screen: &'a OpsScreen) -> impl Ren
                     </label>
                     <button class={Button} type="submit">{o.projections_apply_filters()}</button>
                 </form>
-                <p class={Muted}>{o.oe_window_range(&date(o, &s.from), &date(o, &s.to)).to_string()}</p>
+                <p class={Muted}>
+                    {o.oe_window_range(crate::text::ops::OeWindowRange { from: &date(o, &s.from), to: &date(o, &s.to) }).to_string()}
+                </p>
             </section>
-            <div class={Stats}>
+            <dl class={KitStats { surface: StatsSurface::Cards }}>
                 <Figure label={o.od_gmv()} value={usd(o, &s.summary.gmv_amount)} />
                 <Figure label={o.od_trade_count()} value={n(s.summary.trade_count)} />
                 <Figure label={o.od_order_count()} value={n(s.summary.order_count)} />
                 <Figure label={o.od_active_buyers()} value={n(s.summary.active_buyer_count)} />
                 <Figure label={o.od_active_sellers()} value={n(s.summary.active_seller_count)} />
                 <Figure label={o.od_verified_trade_count()} value={n(s.summary.verified_trade_count)} />
-            </div>
+            </dl>
             <section class={Card} aria-labelledby="od-trend">
                 <h2 class={Heading} id="od-trend">{o.od_trend()}</h2>
                 <Trend o={o} p={p} series={&screen.series} />
             </section>
             <section class={Card} aria-labelledby="od-liquidity">
                 <h2 class={Heading} id="od-liquidity">{o.od_liquidity()}</h2>
-                <div class={Stats}>
+                <dl class={KitStats { surface: StatsSurface::Cards }}>
                     <Figure
                         label={o.od_sell_through_rate()}
                         value={ratio_percent(s.liquidity.sell_through_rate.as_deref()).unwrap_or_else(na)}
@@ -191,7 +196,7 @@ pub fn OpsDashboardPage<'a>(o: Ops, p: Pilot, screen: &'a OpsScreen) -> impl Ren
                         value={s.liquidity.median_spread_amount.as_deref().map_or_else(na, |a| usd(o, a))}
                     />
                     <Figure label={o.od_spread_sample_count()} value={n(s.liquidity.spread_sample_count)} />
-                </div>
+                </dl>
                 <p class={Muted}>{o.od_time_to_sale_unavailable()}</p>
             </section>
             <section class={Card} aria-labelledby="od-top">
@@ -203,26 +208,40 @@ pub fn OpsDashboardPage<'a>(o: Ops, p: Pilot, screen: &'a OpsScreen) -> impl Ren
                     />
                 } else {
                     <div class={Scroll}>
-                        <table class={Table}>
-                            <thead>
-                                <tr>
-                                    <th scope="col">{o.od_catalog_item()}</th>
-                                    <th scope="col">{o.od_gmv()}</th>
-                                    <th scope="col">{o.od_trade_count()}</th>
-                                    <th scope="col">{o.od_unit_volume()}</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                for item in &s.top_catalog_items {
+                        <KitTable layout={TableLayout::Stack}>
+                            <table class={Table}>
+                                <thead>
                                     <tr>
-                                        <td class={Words}>{item.title.as_deref().unwrap_or(&item.catalog_item_id)}</td>
-                                        <td>{usd(o, &item.gmv_amount)}</td>
-                                        <td>{n(item.trade_count)}</td>
-                                        <td>{n(item.unit_volume)}</td>
+                                        <th scope="col">{o.od_catalog_item()}</th>
+                                        <th scope="col">{o.od_gmv()}</th>
+                                        <th scope="col">{o.od_trade_count()}</th>
+                                        <th scope="col">{o.od_unit_volume()}</th>
                                     </tr>
-                                }
-                            </tbody>
-                        </table>
+                                </thead>
+                                <tbody>
+                                    for item in &s.top_catalog_items {
+                                        <tr>
+                                            <td class={Words}>
+                                                <CellLabel>{o.od_catalog_item()}</CellLabel>
+                                                {item.title.as_deref().unwrap_or(&item.catalog_item_id)}
+                                            </td>
+                                            <td>
+                                                <CellLabel>{o.od_gmv()}</CellLabel>
+                                                {usd(o, &item.gmv_amount)}
+                                            </td>
+                                            <td>
+                                                <CellLabel>{o.od_trade_count()}</CellLabel>
+                                                {n(item.trade_count)}
+                                            </td>
+                                            <td>
+                                                <CellLabel>{o.od_unit_volume()}</CellLabel>
+                                                {n(item.unit_volume)}
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </KitTable>
                     </div>
                 }
             </section>
@@ -233,41 +252,57 @@ pub fn OpsDashboardPage<'a>(o: Ops, p: Pilot, screen: &'a OpsScreen) -> impl Ren
                     <Nothing title={o.od_reconciliation_empty_title()} description={o.od_reconciliation_empty_description()} />
                 } else {
                     <div class={Scroll}>
-                        <table class={Table}>
-                            <thead>
-                                <tr>
-                                    <th scope="col">{o.od_month()}</th>
-                                    <th scope="col">{o.od_status()}</th>
-                                    <th scope="col">{o.od_tape_gmv()}</th>
-                                    <th scope="col">{o.od_ledger_sale_total()}</th>
-                                    <th scope="col">{o.od_delta()}</th>
-                                    <th scope="col">{o.od_completed_at()}</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                for run in &screen.runs {
+                        <KitTable layout={TableLayout::Stack}>
+                            <table class={Table}>
+                                <thead>
                                     <tr>
-                                        <td>{&run.year_month}</td>
-                                        <td>
-                                            if run.status == "drift-alarm" {
-                                                <span class={(Pill, Bad)}>{o.od_status_drift_alarm()}</span>
-                                            } else {
-                                                <span class={(Pill, Good)}>{o.od_status_ok()}</span>
-                                            }
-                                        </td>
-                                        <td>{usd(o, &run.tape_gmv_amount)}</td>
-                                        <td>{usd(o, &run.ledger_sale_amount)}</td>
-                                        <td>
-                                            {match ratio_percent(run.delta_ratio.as_deref()) {
-                                                Some(ratio) => format!("{} ({ratio})", usd(o, &run.delta_amount)),
-                                                None => usd(o, &run.delta_amount),
-                                            }}
-                                        </td>
-                                        <td>{when(&run.completed_at)}</td>
+                                        <th scope="col">{o.od_month()}</th>
+                                        <th scope="col">{o.od_status()}</th>
+                                        <th scope="col">{o.od_tape_gmv()}</th>
+                                        <th scope="col">{o.od_ledger_sale_total()}</th>
+                                        <th scope="col">{o.od_delta()}</th>
+                                        <th scope="col">{o.od_completed_at()}</th>
                                     </tr>
-                                }
-                            </tbody>
-                        </table>
+                                </thead>
+                                <tbody>
+                                    for run in &screen.runs {
+                                        <tr>
+                                            <td>
+                                                <CellLabel>{o.od_month()}</CellLabel>
+                                                {&run.year_month}
+                                            </td>
+                                            <td>
+                                                <CellLabel>{o.od_status()}</CellLabel>
+                                                if run.status == "drift-alarm" {
+                                                    <span class={(Pill, Bad)}>{o.od_status_drift_alarm()}</span>
+                                                } else {
+                                                    <span class={(Pill, Good)}>{o.od_status_ok()}</span>
+                                                }
+                                            </td>
+                                            <td>
+                                                <CellLabel>{o.od_tape_gmv()}</CellLabel>
+                                                {usd(o, &run.tape_gmv_amount)}
+                                            </td>
+                                            <td>
+                                                <CellLabel>{o.od_ledger_sale_total()}</CellLabel>
+                                                {usd(o, &run.ledger_sale_amount)}
+                                            </td>
+                                            <td>
+                                                <CellLabel>{o.od_delta()}</CellLabel>
+                                                {match ratio_percent(run.delta_ratio.as_deref()) {
+                                                    Some(ratio) => format!("{} ({ratio})", usd(o, &run.delta_amount)),
+                                                    None => usd(o, &run.delta_amount),
+                                                }}
+                                            </td>
+                                            <td>
+                                                <CellLabel>{o.od_completed_at()}</CellLabel>
+                                                {when(&run.completed_at)}
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </KitTable>
                     </div>
                 }
             </section>

@@ -6,9 +6,21 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { parse as parseYaml } from "yaml";
+import { loadImageSources, mirrorReference } from "../ci-image-sources.mjs";
 import { repoRoot } from "../lib/repo.mjs";
 
 const workflowsRoot = path.join(repoRoot, ".github", "workflows");
+// #9230: the moved builder steps gained exactly this pinned mirror builder on
+// the host network (which inherits the blocked Docker Hub hosts).
+const mirroredBuilderDriverOpts = `image=${mirrorReference(
+  loadImageSources().find((source) => source.id === "buildkit"),
+)}\nnetwork=host\n`;
+// #9230: the Docker Hub guard and its helper load from one immutable trusted
+// main commit, never from target_sha. The literal is written out here on
+// purpose; scripts/check-github-actions-runtime.mjs keeps its own exact
+// reference exception for the same pin, so a pin change updates both.
+const trustedBlockDockerHubAction =
+  "chase-sets/chase-sets/.github/actions/block-docker-hub@9763ba0932d3904493e02ba6cb1df9d5133626d9";
 
 function workflowDocuments() {
   return readdirSync(workflowsRoot)
@@ -57,6 +69,55 @@ function findStepByShape(predicate) {
   return step;
 }
 
+const guardShapeViolation = `the Docker Hub guard step must be exactly { uses: ${trustedBlockDockerHubAction} }, with no if, continue-on-error, with or env`;
+const guardOrderViolation =
+  "the Docker Hub guard must directly follow the inline provenance step, as the second step, and directly precede the sole target checkout";
+
+function isDockerHubGuardLike(step) {
+  return (
+    (typeof step?.uses === "string" && /block-docker-hub/iu.test(step.uses)) ||
+    (typeof step?.run === "string" && /\b(?:docker-hub-hosts|hub-block-preflight|hub-block-canary)\b/u.test(step.run))
+  );
+}
+
+function isProvenanceStep(step) {
+  return (
+    step?.env?.TARGET_SHA === "${{ inputs.target_sha }}" &&
+    step?.env?.EXPECTED_BASE_SHA === "${{ inputs.expected_base_sha }}"
+  );
+}
+
+function isCheckoutStep(step) {
+  return typeof step?.uses === "string" && step.uses.startsWith("actions/checkout@");
+}
+
+// One validator for the real receiver steps and every mutated shape: exactly
+// one guard (by action reference or by an inline helper invocation), spelled
+// as the literal trusted full-SHA reference with nothing that can skip or
+// tolerate it, placed between provenance and the sole checkout so it precedes
+// every target-controlled setup, install, render and build step.
+function trustedDockerHubGuardViolations(steps) {
+  const guards = steps.filter(isDockerHubGuardLike);
+  if (guards.length !== 1) return [`expected exactly one Docker Hub guard step, found ${guards.length}`];
+  const [guard] = guards;
+  const violations = [];
+  if (guard.uses !== trustedBlockDockerHubAction || Object.keys(guard).join() !== "uses") {
+    violations.push(guardShapeViolation);
+  }
+  const provenanceIndexes = steps.flatMap((step, index) => (isProvenanceStep(step) ? [index] : []));
+  const checkoutIndexes = steps.flatMap((step, index) => (isCheckoutStep(step) ? [index] : []));
+  const guardIndex = steps.indexOf(guard);
+  if (
+    provenanceIndexes.join() !== "0" ||
+    checkoutIndexes.length !== 1 ||
+    guardIndex !== 1 ||
+    checkoutIndexes[0] !== guardIndex + 1
+  ) {
+    violations.push(guardOrderViolation);
+  }
+  return violations;
+}
+
 function callersOf(receiverPath) {
   const expectedUse = `./${receiverPath}`;
   return documents.flatMap(({ relativePath, workflow }) =>
@@ -73,6 +134,14 @@ function stepDigest(step) {
 function normalizeMovedStep(step) {
   const normalized = structuredClone(step);
   if (typeof normalized.uses === "string" && normalized.uses.startsWith("actions/checkout@")) {
+    delete normalized.with;
+  }
+  if (
+    typeof normalized.uses === "string" &&
+    normalized.uses.startsWith("docker/setup-buildx-action@") &&
+    Object.keys(normalized.with ?? {}).join() === "driver-opts" &&
+    normalized.with["driver-opts"] === mirroredBuilderDriverOpts
+  ) {
     delete normalized.with;
   }
   if (
@@ -268,7 +337,77 @@ describe("exact-target extraction and trigger/caller structure", () => {
         digest,
       ).toHaveLength(1);
     }
-    expect(receiverSteps).toHaveLength(movedStepDigests.length + 3);
+    expect(trustedDockerHubGuardViolations(receiverSteps)).toEqual([]);
+    expect(receiverSteps.filter((step) => step.uses === trustedBlockDockerHubAction)).toHaveLength(1);
+    expect(receiverSteps).toHaveLength(movedStepDigests.length + 4);
+  });
+
+  const guardIndexIn = (steps) => steps.findIndex(isDockerHubGuardLike);
+  const withGuard = (fields) => (steps) => {
+    steps[guardIndexIn(steps)] = { uses: trustedBlockDockerHubAction, ...fields };
+  };
+  const moveGuard = (destination) => (steps) => {
+    const [guard] = steps.splice(guardIndexIn(steps), 1);
+    steps.splice(destination(steps), 0, guard);
+  };
+  const firstBuildxIndex = (steps) =>
+    steps.findIndex((step) => String(step.uses).startsWith("docker/setup-buildx-action@"));
+  const trustedGuardPath = "chase-sets/chase-sets/.github/actions/block-docker-hub";
+
+  it.each([
+    ["a target-local reference", withGuard({ uses: "./.github/actions/block-docker-hub" }), guardShapeViolation],
+    [
+      "an input-derived reference",
+      withGuard({ uses: `${trustedGuardPath}@\${{ inputs.target_sha }}` }),
+      guardShapeViolation,
+    ],
+    ["a mutable branch reference", withGuard({ uses: `${trustedGuardPath}@main` }), guardShapeViolation],
+    [
+      "a different full-SHA reference",
+      withGuard({ uses: `${trustedGuardPath}@9763ba0932d3904493e02ba6cb1df9d5133626d8` }),
+      guardShapeViolation,
+    ],
+    [
+      "an uppercase SHA spelling",
+      withGuard({ uses: `${trustedGuardPath}@9763BA0932D3904493E02BA6CB1DF9D5133626D9` }),
+      guardShapeViolation,
+    ],
+    ["a conditional guard", withGuard({ if: "inputs.drill == 'none'" }), guardShapeViolation],
+    ["a tolerated guard", withGuard({ "continue-on-error": true }), guardShapeViolation],
+    [
+      "a missing guard",
+      (steps) => {
+        steps.splice(guardIndexIn(steps), 1);
+      },
+      "expected exactly one Docker Hub guard step, found 0",
+    ],
+    [
+      "a duplicate late target-local guard",
+      (steps) => {
+        steps.splice(firstBuildxIndex(steps), 0, { uses: "./.github/actions/block-docker-hub" });
+      },
+      "expected exactly one Docker Hub guard step, found 2",
+    ],
+    [
+      "an extra inline helper invocation",
+      (steps) => {
+        steps.splice(firstBuildxIndex(steps), 0, {
+          run: "node ./scripts/ci-image-sources.mjs hub-block-preflight",
+        });
+      },
+      "expected exactly one Docker Hub guard step, found 2",
+    ],
+    ["a guard before provenance", moveGuard(() => 0), guardOrderViolation],
+    [
+      "a guard after the target checkout",
+      moveGuard((steps) => steps.findIndex(isCheckoutStep) + 1),
+      guardOrderViolation,
+    ],
+    ["a guard after target setup and render", moveGuard(firstBuildxIndex), guardOrderViolation],
+  ])("negative control: the Docker Hub guard validator refuses %s", (_name, mutate, expectedViolation) => {
+    const steps = structuredClone(receiverSteps);
+    mutate(steps);
+    expect(trustedDockerHubGuardViolations(steps)).toContain(expectedViolation);
   });
 
   it("negative control: provenance validates before the sole checkout, which can materialize only target_sha", () => {

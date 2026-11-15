@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { scrydexPeriodDecisionSchema, type ScrydexPeriodDecision } from "../domain/scrydex-billing-period";
 import { z } from "zod";
 import { withPgTransaction, type PgQueryable, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import {
@@ -201,6 +202,18 @@ const runSchema = z
     baseline: baselineSchema.nullable(),
     notice: noticeSchema.nullable(),
     usage: usageSchema.nullable(),
+    periodLedger: z
+      .object({
+        plannedCredits: count,
+        decision: scrydexPeriodDecisionSchema.nullable(),
+        terminal: z
+          .object({ outcome: z.enum(["complete", "refused", "uncertain"]), at: instant, unreflectedCredits: count })
+          .strict()
+          .nullable(),
+      })
+      .strict()
+      .nullable()
+      .default(null),
     authority: countCaptureAuthoritySchema.nullable().default(null),
     quote: countQuoteSchema.nullable().default(null),
     quoteUsage: countLifecycleReceiptSchema.shape.usage.nullable().default(null),
@@ -365,6 +378,16 @@ export async function readCountCaptureEffects(db: PgQueryable, at: string): Prom
 // Staging-only capture history. Every change is one locked append of the whole run,
 // so two API replicas sharing one database serialize on the same lock.
 export function createCountCaptureStore(pool: PgTransactionalPool, now = () => new Date().toISOString()) {
+  const terminal = (run: CountCaptureRun, complete = false): CountCaptureRun => {
+    if (run.periodLedger && !run.periodLedger.terminal) {
+      run.periodLedger.terminal = {
+        outcome: complete ? "complete" : run.sends.some((send) => send.status === null) ? "uncertain" : "refused",
+        at: now(),
+        unreflectedCredits: run.sends.length,
+      };
+    }
+    return run;
+  };
   // A refused change appends the stopped run instead; it never releases a debit.
   async function mutate<T>(runId: string, work: (run: CountCaptureRun) => T): Promise<T> {
     const outcome = await withPgTransaction(pool, async (db) => {
@@ -379,7 +402,7 @@ export function createCountCaptureStore(pool: PgTransactionalPool, now = () => n
         value = work(next);
         next = parseRun(next);
       } catch {
-        await append(db, { ...run, status: "stopped" });
+        await append(db, terminal({ ...run, status: "stopped" }));
         return { accepted: false as const };
       }
       await append(db, next);
@@ -409,6 +432,20 @@ export function createCountCaptureStore(pool: PgTransactionalPool, now = () => n
         // resolve one at a time and nothing is debited after an unresolved one.
         if (run.sends.some((entry) => entry.status === null)) throw new CountCaptureStopped();
         const phase = binding.phase;
+        if (phase !== "bootstrap") {
+          const decision = run.periodLedger?.decision;
+          if (
+            !decision?.admitted ||
+            run.periodLedger?.terminal ||
+            decision.observedAt === null ||
+            Date.parse(now()) < Date.parse(decision.observedAt) ||
+            Date.parse(now()) - Date.parse(decision.observedAt) > 900_000 ||
+            !decision.period ||
+            Date.parse(now()) >= Date.parse(decision.period.endsAt) ||
+            run.sends.length >= decision.plannedCredits
+          )
+            throw new CountCaptureStopped();
+        }
         const inPhase = run.sends.filter((entry) => entry.phase === phase);
         if (run.sends.length >= countCaptureSendCap || inPhase.length >= countCapturePhaseCaps[phase])
           throw new CountCaptureStopped();
@@ -474,7 +511,7 @@ export function createCountCaptureStore(pool: PgTransactionalPool, now = () => n
       withPgTransaction(pool, async (db) => {
         await lock(db);
         const run = await latest(db, binding.runId);
-        if (run.status === "open") await append(db, { ...run, status: "stopped" });
+        if (run.status === "open") await append(db, terminal({ ...run, status: "stopped" }));
       }),
   };
 
@@ -497,6 +534,10 @@ export function createCountCaptureStore(pool: PgTransactionalPool, now = () => n
         const admittedAt = now();
         if (retained.some((run) => active(run, admittedAt))) throw new CountCaptureStopped();
         if (retained.some((run) => run.host.dispatchId === input.host.dispatchId)) throw new CountCaptureStopped();
+        for (const run of retained) {
+          if (run.status === "open" && !active(run, admittedAt))
+            await append(db, terminal({ ...run, status: "stopped" }));
+        }
         const run = parseRun({
           schemaVersion: 1,
           runId: randomUUID(),
@@ -513,6 +554,9 @@ export function createCountCaptureStore(pool: PgTransactionalPool, now = () => n
           baseline: null,
           notice: null,
           usage: null,
+          periodLedger: input.authority
+            ? { plannedCredits: countCaptureSendCap, decision: null, terminal: null }
+            : null,
         });
         await append(db, run);
         return run;
@@ -561,6 +605,25 @@ export function createCountCaptureStore(pool: PgTransactionalPool, now = () => n
         if (binding.phase !== "bootstrap" || run.usage) throw new CountCaptureStopped();
         run.usage = { ...usage, recordedAt: now() };
         return run.usage;
+      }),
+    recordPeriodDecision: (binding: CountCaptureBinding, decision: ScrydexPeriodDecision) =>
+      mutate(binding.runId, (run) => {
+        bound(run, binding);
+        if (
+          binding.phase !== "bootstrap" ||
+          run.periodLedger?.decision ||
+          decision.runId !== run.host.dispatchId ||
+          decision.plannedCredits !==
+            countCaptureSendCap -
+              countCapturePhaseCaps.bootstrap +
+              run.sends.filter((send) => send.phase === "bootstrap").length
+        )
+          throw new CountCaptureStopped();
+        run.periodLedger = {
+          plannedCredits: decision.plannedCredits,
+          decision: scrydexPeriodDecisionSchema.parse(decision),
+          terminal: null,
+        };
       }),
     bindQuote: (
       binding: CountCaptureBinding,
@@ -718,12 +781,17 @@ export function createCountCaptureStore(pool: PgTransactionalPool, now = () => n
         const run = parseRun(result.rows[0]?.payload);
         if (run.ownerHash !== ownerHash || run.status === "frozen" || run.host.dispatchId !== input.dispatchId)
           throw new CountCaptureStopped();
-        const sealed = parseRun({
-          ...run,
-          status: "frozen",
-          frozenAt: now(),
-          seal: { from: run.status, runnerRunId: input.runnerRunId, runnerRunAttempt: input.runnerRunAttempt },
-        });
+        const sealed = parseRun(
+          terminal(
+            {
+              ...run,
+              status: "frozen",
+              frozenAt: now(),
+              seal: { from: run.status, runnerRunId: input.runnerRunId, runnerRunAttempt: input.runnerRunAttempt },
+            },
+            run.status === "open" && run.reads.length === 2 && run.sends.every((send) => send.status === 200),
+          ),
+        );
         await append(db, sealed);
         return sealed;
       }),

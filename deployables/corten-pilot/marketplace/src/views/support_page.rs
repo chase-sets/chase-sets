@@ -163,9 +163,9 @@ pub fn SupportPage<'a>(t: SupportMsg, p: Pilot, screen: &'a SupportScreen) -> im
                         <p>
                             <span class={Badge} data-tone={if c.overdue { "danger" } else { "warning" }}>
                                 if c.overdue {
-                                    {t.deadline_overdue(c.value, c.unit)}
+                                    {t.deadline_overdue(crate::text::support_msg::DeadlineOverdue { value: c.value, unit: c.unit })}
                                 } else {
-                                    {t.deadline_due(c.value, c.unit)}
+                                    {t.deadline_due(crate::text::support_msg::DeadlineDue { value: c.value, unit: c.unit })}
                                 }
                             </span>
                             " "

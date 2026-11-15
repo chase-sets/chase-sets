@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { createWorkerHost } from "@chase-sets/platform-runtime/worker";
 import { createNoopCommercialTermsResolver } from "@chase-sets/commercial-terms/server";
 import type { module as fulfillmentModule } from "@chase-sets/fulfillment";
-import { workerContextRegistry } from "../src/generated/worker-context-registry";
+import { workerContextRegistry } from "../src/context-registry";
 import { createPlatformChannelSaleRecorder } from "../src/channels-reconciliation-runners";
 import {
   createFakeMoneyMovementGateway,
@@ -21,7 +21,6 @@ describe("Shipment Group admission worker host capability", () => {
       moneyMovementGateway: createFakeMoneyMovementGateway(),
       operationsRecorder: { record: () => undefined },
       postageLabelProvider: createSandboxPostageLabelProvider(),
-      draftListingCreator: { createDraftListings: async () => [] },
       notificationAdapter: { send: async () => undefined },
       agentWebhookOrderResolvers: {
         resolveOrderRecipient: async () => null,

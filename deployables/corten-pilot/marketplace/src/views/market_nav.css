@@ -106,9 +106,14 @@
   }
 }
 .icon {
+  display: inline-flex;
   flex-shrink: 0;
-  width: 1.25rem;
-  height: 1.25rem;
+  font-size: 1.25rem;
+}
+/* A visitor's cart entry (`data-hide-empty`) is shown only while its badge has a count: the
+   layout read draws the badge hidden at 0, and draws none when it was not read. */
+[data-hide-empty]:not(:has(.badge:not([hidden]))) {
+  display: none;
 }
 .badge {
   display: inline-flex;
@@ -207,12 +212,12 @@
 .slot:first-child .up {
   inset-inline: 0 auto;
 }
-@media (max-width: 47.99rem) {
+@media not (--md) {
   .wide {
     display: none;
   }
 }
-@media (min-width: 48rem) {
+@media (--md) {
   .phone {
     display: none;
   }

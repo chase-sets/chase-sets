@@ -133,6 +133,23 @@ describeDb("A-S separate owner and consumer database protocol", () => {
     }
   });
 
+  it("serializes concurrent identical registrations without appending REGISTERED or advancing topology", async () => {
+    const source = owner();
+    await source.open("owner/new");
+    await Promise.all(Array.from({ length: 4 }, () => owner().registerConsumer("owner/new", identity)));
+    const journal = await ownerPool.query<{ record: { kind: string } }>(
+      "SELECT record FROM event_configuration_guard_history WHERE role = 'source' AND key = $1 ORDER BY sequence",
+      ["owner/new"],
+    );
+    expect(journal.rows.map((row) => row.record.kind)).toEqual(["CREATED", "REGISTERED"]);
+    expect(await source.captureGrant("owner/new", identity)).toMatchObject({ topologyRevision: 1 });
+    await expect(source.registerConsumer("owner/new", { ...identity, incarnation: "conflicting" })).rejects.toThrow(
+      "conflicting consumer incarnation",
+    );
+    await source.beginClosure("owner/new");
+    await expect(source.registerConsumer("owner/new", identity)).rejects.toThrow("CLOSING");
+  });
+
   async function orderingScenario(mutant: "none" | "REMOVE_SHARED_LOCK" | "REMOVE_CLOSED_THROUGH_WAIT") {
     const source = owner();
     const grant = await source.captureGrant(key, identity);

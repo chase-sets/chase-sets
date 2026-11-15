@@ -9,7 +9,8 @@ import { type DurableJobWorkUnitRecord } from "@chase-sets/platform-runtime/dura
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import type { CatalogRuntimeDeps } from "../../../support/authoring-support/runtime-support";
-import { listSourceObservationIdsForReapply } from "../read-model/queries";
+import { listSourceObservationIdsForReapply, type SourceObservationFilterScope } from "../read-model/queries";
+import { assertProductCoordinateImportAllowed } from "./providers/product-coordinate-import-guard";
 import {
   type CatalogProviderIntegrationProfile,
   type CatalogProviderIntegrationProfileVersionRecord,
@@ -45,7 +46,10 @@ import {
   sourceObservationIntegrationJobTelemetryResult,
   recordIntegrationJobControlPlaneTelemetry,
 } from "./providers/provider-option-queries";
-import { normalizeReapplyProfileMode } from "./governance/catalog-integration-control-plane-readiness";
+import {
+  findCatalogProfileVersionFromSnapshot,
+  normalizeReapplyProfileMode,
+} from "./governance/catalog-integration-control-plane-readiness";
 import {
   normalizeOptionalKey,
   profileSelectorFromScope,
@@ -61,7 +65,6 @@ import {
   formatDateLike,
   normalizeIntegrationJobScope,
   reusableActiveIntegrationJobOperatorStatuses,
-  integrationScopeToObservationScope,
   isDurableJobClaimExpired,
   integrationJobOperatorStatus,
   retryableIntegrationJobResult,
@@ -89,6 +92,36 @@ import type { SourceObservationPromotionReapplyRuntime } from "./source-observat
 
 const INTEGRATION_REAPPLY_JOB_BATCH_SIZE = 10;
 const RETIRED_TCGPLAYER_MESSAGE = "TCGplayer server transport is retired; use the browser handoff.";
+
+// A reapply for one ingestion unit takes only the observations its profile maps, so a sibling
+// unit's observations on the same coordinate stay out of it. Without a unit, or reapplying each
+// observation with its original source profile, every observation on the coordinate is taken.
+function unitObservationKind(
+  scope: SourceObservationIntegrationJobScope,
+  profileVersion: CatalogProviderIntegrationProfileVersionRecord | null,
+): string | null {
+  return scope.ingestionUnitKey?.trim() && profileVersion
+    ? profileVersion.profile.normalizedObservationMapping.kind
+    : null;
+}
+
+// The observations an integration job's scope selects. A job for one ingestion unit passes the
+// normalized kind its profile maps, so a sibling unit's observations on the same coordinate (a
+// provider's sealed products beside its single cards) are not selected.
+function integrationScopeToObservationScope(
+  scope: SourceObservationIntegrationJobScope,
+  normalizedKind?: string | null,
+): SourceObservationFilterScope {
+  return {
+    provider: scope.provider?.trim() || undefined,
+    language: scope.language?.trim() || undefined,
+    productLineId: scope.productLineId?.trim() || undefined,
+    seriesId: scope.seriesId?.trim() || undefined,
+    expansionId: scope.setId?.trim() || undefined,
+    setId: scope.setId?.trim() || undefined,
+    normalizedKind: normalizedKind?.trim() || undefined,
+  };
+}
 
 function assertProviderTransportNotRetired(providerKey: string): void {
   if (providerKey.trim().toLowerCase() === "tcgplayer") {
@@ -219,6 +252,7 @@ export function createSourceObservationIntegrationJobRuntime({
       profileSelectorFromScope(scope),
     );
     assertCatalogIntegrationProfileUnitAllowed(rolloutControlPolicy, "import", providerProfileVersion);
+    assertProductCoordinateImportAllowed(scope, providerProfileVersion);
     const providerProfile = providerProfileVersion.profile;
 
     const targets = await previewProviderAdapterIntegrationImportTargets(scope, providerProfileVersion);
@@ -268,6 +302,7 @@ export function createSourceObservationIntegrationJobRuntime({
         : null;
     if (importProfileVersion) {
       assertCatalogIntegrationProfileUnitAllowed(rolloutControlPolicy, "import", importProfileVersion);
+      assertProductCoordinateImportAllowed(scope, importProfileVersion);
     }
     if (reapplyActiveProfileVersion) {
       assertCatalogIntegrationProfileUnitAllowed(rolloutControlPolicy, "reapply", reapplyActiveProfileVersion);
@@ -296,7 +331,10 @@ export function createSourceObservationIntegrationJobRuntime({
     const jobId = createId("job");
     const unitObservationIds =
       input.action === "reapply"
-        ? await listSourceObservationIdsForReapply(deps.db, integrationScopeToObservationScope(scope))
+        ? await listSourceObservationIdsForReapply(
+            deps.db,
+            integrationScopeToObservationScope(scope, unitObservationKind(scope, reapplyActiveProfileVersion)),
+          )
         : [];
     const progress = bulkProgress(0, unitObservationIds.length, null, null, "queued");
 
@@ -834,7 +872,21 @@ export function createSourceObservationIntegrationJobRuntime({
   > {
     throwIfJobRunCancelled(input.context);
     rolloutControlPolicy.assertAllowed({ capability: "reapply", providerKey: input.job.scope.provider });
-    const scope = integrationScopeToObservationScope(input.job.scope);
+    // A unit's refill selects by the kind its queued profile version maps, whatever is active now.
+    const queued =
+      input.job.scope.ingestionUnitKey && input.job.reapplyProfileMode === "current-active-profile"
+        ? input.job.profileSnapshot
+        : null;
+    const unitProfileVersion = queued ? await findCatalogProfileVersionFromSnapshot(profileVersions, queued) : null;
+    if (queued && !unitProfileVersion) {
+      throw new Error(
+        `Catalog provider profile version ${queued.providerKey}@${queued.profileVersion} from the integration job snapshot was not found.`,
+      );
+    }
+    const scope = integrationScopeToObservationScope(
+      input.job.scope,
+      unitObservationKind(input.job.scope, unitProfileVersion),
+    );
     const previousResult = input.job.result ?? summarizeIntegrationJobOutcomes(input.job.progress.total, []);
     const completedObservationIds = new Set(
       previousResult.outcomes.map((outcome) => outcome.expansionId).filter(Boolean),

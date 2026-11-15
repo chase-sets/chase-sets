@@ -69,16 +69,34 @@ describe("Capture Hermetic Chromium hosted proof", () => {
       with: { ref: source, "persist-credentials": false },
     });
     expect(job.steps[2]).toEqual({ uses: "./.github/actions/setup-pnpm-workspace", with: { install: true } });
-    expect(job.steps).toHaveLength(4);
-    const proof = job.steps[3];
-    expect(proof.shell).toBe("bash");
-    expect(proof.env).toEqual({ PLAYWRIGHT_BROWSERS_PATH: "${{ runner.temp }}/ac4-playwright" });
+    expect(job.steps).toHaveLength(5);
+    const install = job.steps[3];
+    const proof = job.steps[4];
+    expect(install.name).toBe("Install Playwright Chromium");
+    expect(install.shell).toBe("bash");
+    expect(install["timeout-minutes"]).toBe(11);
+    expect(install.if).toBeUndefined();
+    expect(install.env).toEqual({
+      PLAYWRIGHT_BROWSERS_PATH: "${{ runner.temp }}/ac4-playwright",
+      PLAYWRIGHT_INSTALL_SITE: "platform-pr-synthetic-capture",
+      PLAYWRIGHT_INSTALL_POLICY: "single-attempt",
+    });
     for (const fragment of [
       "set -euo pipefail",
       'test "$(git rev-parse HEAD)" = "$AC4_SOURCE_SHA"',
       'test "${CHASE_SETS_LANE_MODE+x}" != x',
       "AC4 source=%s run=%s attempt=%s job=%s",
-      "pnpm exec playwright install --with-deps chromium",
+      "node scripts/playwright-chromium-install.mjs",
+    ])
+      expect(install.run).toContain(fragment);
+    expect(proof.name).toBe("Prove three synthetic Chromium capture cases");
+    expect(proof.shell).toBe("bash");
+    expect(proof["timeout-minutes"]).toBe(4);
+    expect(proof.if).toBeUndefined();
+    expect(proof.env).toEqual({ PLAYWRIGHT_BROWSERS_PATH: "${{ runner.temp }}/ac4-playwright" });
+    expect(install["timeout-minutes"] + proof["timeout-minutes"]).toBeLessThanOrEqual(job["timeout-minutes"]);
+    for (const fragment of [
+      "set -euo pipefail",
       "CHASE_SETS_HERMETIC_CHROMIUM=1 xvfb-run --auto-servernum",
       "pnpm --filter @chase-sets/channels run test:unit",
       "features/connector-client/integrations/order-authority-probe/capture.test.ts",
@@ -132,7 +150,7 @@ describe("Capture Hermetic Chromium hosted proof", () => {
     status: "passed",
   }));
   function assertReceipt(assertions, success = true) {
-    const script = job.steps[3].run.match(/node --input-type=module -e '\n([\s\S]+?)\n' /)?.[1];
+    const script = job.steps[4].run.match(/node --input-type=module -e '\n([\s\S]+?)\n' /)?.[1];
     expect(script).toBeTruthy();
     const messages = [];
     runInNewContext(script.replace('import fs from "node:fs";', ""), {

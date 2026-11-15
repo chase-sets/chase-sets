@@ -17,7 +17,6 @@ import {
   type CatalogScopeCandidateReviewJobs,
 } from "../../../features/source-observations/ui/admin-control-plane/scope-detail/candidate-review-jobs-panel";
 import { loadDailySurfaceForRequest } from "../admin-integrations/integrations-loader-support";
-import { scopeDetailWorkbenchRequest } from "./scope-detail-route-context";
 
 // Scope Detail route loader (`/catalog/scopes/:id`). Loads the canonical Scope
 // Record and, only when the scope has sibling language editions to review,
@@ -57,7 +56,8 @@ export async function loader({ request, params }: LoaderFunctionArgs): Promise<C
       ? loadLanguageEditionAliasReview(api, scope.referenceRecordId)
       : Promise.resolve({ readModel: emptyAliasReviewReadModel(scope.referenceRecordId), failed: false }),
     loadScopeCoverageMatrix(api, scope.scopeRecordId),
-    loadDailySurfaceForRequest(scopeDetailWorkbenchRequest(request, scope)),
+    // The Catalog API composes the journey from this page's own address and Scope Record.
+    loadDailySurfaceForRequest(request),
     loadCandidateReviewJobs(api, scope.scopeRecordId, candidateReviewJobsCursor),
   ]);
 

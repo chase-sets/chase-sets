@@ -92,6 +92,273 @@ const journeySource = ts.createSourceFile(
 const journeyFunction = (name) =>
   journeySource.statements.find((node) => ts.isFunctionDeclaration(node) && node.name?.text === name);
 
+describe("restart-safe scope convergence", () => {
+  const checkpoint = (overrides = {}) =>
+    promoteJob("completed-between-dispatches", [], {
+      createdAt: "2026-11-14T10:00:00Z",
+      promotionApplicationVersion: 1,
+      result: { promoted: 0, failed: 0, outcomes: [] },
+      ...overrides,
+    });
+
+  it("reuses completed zero work instead of restarting the scope walk", () => {
+    expect(planScopePromotion("scope-1", [], [checkpoint()], 0)).toEqual({
+      kind: "reuse-completed-job",
+      jobIds: ["completed-between-dispatches"],
+    });
+  });
+
+  it.each([
+    { promotionApplicationVersion: null },
+    { createdAt: undefined },
+    { createdAt: "invalid" },
+    { result: { promoted: 1, failed: 0, outcomes: [] } },
+    { result: { promoted: 0, failed: 1, outcomes: [] } },
+    { result: { promoted: 0, failed: 0, outcomes: [{ status: "failed" }] } },
+  ])("never reuses an unproven convergence checkpoint: %j", (override) => {
+    expect(planScopePromotion("scope-1", [], [checkpoint(override)], 0).kind).toBe("submit-promote-all-ready");
+  });
+
+  it("new candidate changes invalidate history and active jobs take precedence", () => {
+    expect(planScopePromotion("scope-1", [], [checkpoint()], 1).kind).toBe("submit-promote-all-ready");
+    expect(planScopePromotion("scope-1", [], [checkpoint({ scopeRecordId: "other" })], 0).kind).toBe(
+      "submit-promote-all-ready",
+    );
+    expect(
+      planScopePromotion("scope-1", [checkpoint({ jobId: "active", status: "running" })], [checkpoint()], 0),
+    ).toEqual({ kind: "adopt-active-job", jobIds: ["active"] });
+  });
+
+  it("a newer nonzero pass invalidates an older checkpoint", () => {
+    const newer = checkpoint({ createdAt: "2026-11-14T11:00:00Z", result: { promoted: 1, outcomes: [] } });
+    expect(planScopePromotion("scope-1", [], [checkpoint(), newer], 0).kind).toBe("submit-promote-all-ready");
+  });
+
+  it("seven jobs finishing between dispatches advance once per scope and then rerun without submission", async () => {
+    const history = new Map();
+    const submitted = [];
+    let pending;
+    const scopes = Array.from({ length: 7 }, (_, index) => `scope-${index + 1}`);
+    const context = vm.createContext({
+      ...rehearsal,
+      Date,
+      URLSearchParams,
+      gotoWholeGamePage: async () => {},
+      readWholeGameBatch: async () =>
+        batch(
+          "completed",
+          scopes.map((scope) => unit(scope, "completed")),
+        ),
+      readActivePromoteJobs: async () => [],
+      readWholeGameJson: async (_page, path) => {
+        const url = new URL(path, rehearsal.wholeGameStagingOrigin);
+        if (url.pathname.endsWith("bulk-jobs/active"))
+          return { items: history.get(url.searchParams.get("scopeRecordId")) ?? [] };
+        if (url.pathname.endsWith("merge-candidates")) return { total: 0, items: [] };
+        throw new Error(`unexpected read ${path}`);
+      },
+      submitPromoteAllReady: async (_page, scopeRecordId) => {
+        submitted.push(scopeRecordId);
+        pending = checkpoint({ scopeRecordId, jobId: `job-${scopeRecordId}` });
+        return pending.jobId;
+      },
+      waitForPromoteJob: async () => null,
+    });
+    const declarations = ["wholeGameSettle", "wholeGameQuery", "promoteJobsPath", "readReadyCandidateCount"]
+      .map((name) => journeyFunction(name).getText(journeySource))
+      .join("\n");
+    vm.runInContext(ts.transpile(declarations, { target: ts.ScriptTarget.ES2022 }), context);
+    const run = () =>
+      context.wholeGameSettle(
+        {},
+        settleInput(),
+        { sha: "a".repeat(40), runId: "123", runAttempt: "1" },
+        { deadlineAt: Date.now() + 1000, pollMs: 1 },
+      );
+    for (const [index, scope] of scopes.entries()) {
+      const result = await run();
+      expect(result).toMatchObject({ state: "running", settle: { scopesPromoted: index, promoteJobsSubmitted: 1 } });
+      expect(result.settle.scopeProgress.at(-1)).toMatchObject({
+        scopeRecordId: scope,
+        state: "promotion-running",
+        jobIds: [`job-${scope}`],
+      });
+      expect(validateWholeGameReceipt(result)).toEqual([]);
+      history.set(scope, [pending]);
+    }
+    for (let rerun = 0; rerun < 2; rerun += 1) {
+      const result = await run();
+      expect(result).toMatchObject({
+        state: "settled",
+        settle: { scopesPromoted: 7, promoteJobsSubmitted: 0, promotedThisDispatch: 0, published: 0 },
+      });
+      expect(
+        result.settle.scopeProgress.every(
+          (progress) => progress.completedJobsObserved === 1 && progress.state === "converged",
+        ),
+      ).toBe(true);
+      expect(validateWholeGameReceipt(result)).toEqual([]);
+    }
+    expect(submitted).toEqual(scopes);
+  });
+});
+
+describe("reference-only settle completeness", () => {
+  const referenceOnly = (candidateId) => ({
+    candidateId,
+    status: "skipped-not-eligible",
+    disposition: "reference-only",
+    catalogItemId: null,
+  });
+  const convergedJob = (outcomes, overrides = {}) =>
+    promoteJob("current-zero", outcomes, {
+      createdAt: "2026-11-12T12:00:00Z",
+      promotionApplicationVersion: 1,
+      result: { promoted: 0, failed: 0, outcomes },
+      ...overrides,
+    });
+
+  async function count(pages, jobs, status = "ready") {
+    const reads = [];
+    const context = vm.createContext({
+      ...rehearsal,
+      URLSearchParams,
+      readWholeGameJson: async (_page, path) => {
+        reads.push(path);
+        const offset = Number(new URL(path, rehearsal.wholeGameStagingOrigin).searchParams.get("offset") ?? 0);
+        const page = pages[offset] ?? { total: 1, items: [] };
+        return { ...page, items: page.items.map((item) => ({ updated_at: "2026-11-11T12:00:00Z", ...item })) };
+      },
+      readWholeGameTotal: async () => pages[0].total,
+    });
+    const declarations = ["readReadyCandidateCount", "wholeGameQuery"]
+      .map((name) => journeyFunction(name).getText(journeySource))
+      .join("\n");
+    vm.runInContext(ts.transpile(declarations, { target: ts.ScriptTarget.ES2022 }), context);
+    return { remaining: await context.readReadyCandidateCount({}, "scope-1", jobs, undefined, status), reads };
+  }
+
+  it.each([
+    ["2026-11-11T12:00:00Z", 1],
+    ["2026-11-12T12:00:01Z", 1],
+    ["invalid", 1],
+    [undefined, 1],
+  ])(
+    "invalidates a checkpoint for approved-but-unapplied candidates absent from its outcomes (%s)",
+    async (updated_at, remaining) => {
+      const result = await count(
+        { 0: { total: 1, items: [{ candidate_id: "approved", updated_at }] } },
+        [convergedJob([])],
+        "promoted",
+      );
+      expect(result.remaining).toBe(remaining);
+      expect(new URL(result.reads[0], rehearsal.wholeGameStagingOrigin).searchParams.get("status")).toBe("promoted");
+    },
+  );
+
+  it.each([
+    ["2026-11-11T12:00:00Z", 0],
+    ["2026-11-12T12:00:00Z", 1],
+    ["2026-11-12T12:00:01Z", 1],
+    ["invalid", 1],
+    [undefined, 1],
+  ])(
+    "reuses a covered approved candidate only while strictly older than its checkpoint (%s)",
+    async (updated_at, remaining) => {
+      const job = convergedJob([referenceOnly("synthetic-approved")]);
+      const result = await count(
+        { 0: { total: 1, items: [{ candidate_id: "synthetic-approved", updated_at }] } },
+        [job],
+        "promoted",
+      );
+      expect(result.remaining).toBe(remaining);
+      expect(planScopePromotion("scope-1", [], [job], result.remaining).kind).toBe(
+        remaining === 0 ? "reuse-completed-job" : "submit-promote-all-ready",
+      );
+    },
+  );
+
+  it("does not borrow approved candidate coverage from an older zero checkpoint", async () => {
+    const result = await count(
+      { 0: { total: 1, items: [{ candidate_id: "synthetic-approved" }] } },
+      [
+        convergedJob([referenceOnly("synthetic-approved")], { jobId: "synthetic-older-zero" }),
+        convergedJob([], { jobId: "synthetic-latest-zero", createdAt: "2026-11-12T13:00:00Z" }),
+      ],
+      "promoted",
+    );
+    expect(result.remaining).toBe(1);
+  });
+
+  it("does not leave the Time Spiral reference-only set candidate blocking settle", async () => {
+    const candidateId = "cand_400f635bd596d757ecda7a4f";
+    const result = await count({ 0: { total: 1, items: [{ candidate_id: candidateId }] } }, [
+      convergedJob([referenceOnly(candidateId)]),
+    ]);
+    expect(result.remaining).toBe(0);
+  });
+
+  it("counts every unresolved ready candidate across pages, not unrelated disposition ids", async () => {
+    const result = await count(
+      {
+        0: { total: 3, items: [{ candidate_id: "reference" }, { candidate_id: "unknown" }] },
+        2: { total: 3, items: [{ candidate_id: "ordinary-skip" }] },
+      },
+      [
+        convergedJob([
+          referenceOnly("reference"),
+          referenceOnly("not-ready"),
+          {
+            candidateId: "ordinary-skip",
+            status: "skipped-not-eligible",
+            catalogItemId: null,
+          },
+        ]),
+      ],
+    );
+    expect(result.remaining).toBe(2);
+    expect(result.reads).toHaveLength(2);
+  });
+
+  it.each([
+    { createdAt: undefined },
+    { createdAt: "invalid" },
+    { status: "failed" },
+    { scopeRecordId: "other-scope" },
+    { promotionApplicationVersion: null },
+    { result: { promoted: 1, failed: 0, outcomes: [referenceOnly("reference")] } },
+    { result: { promoted: 0, failed: 1, outcomes: [referenceOnly("reference")] } },
+  ])("does not exempt candidates from a non-converged or wrong-scope job: %j", async (override) => {
+    const result = await count({ 0: { total: 1, items: [{ candidate_id: "reference" }] } }, [
+      convergedJob([referenceOnly("reference")], override),
+    ]);
+    expect(result.remaining).toBe(1);
+  });
+
+  it.each(["2026-11-12T12:00:01Z", "invalid", undefined])(
+    "keeps candidates edited after disposition or with unknown update time unresolved (%s)",
+    async (updated_at) => {
+      const result = await count({ 0: { total: 1, items: [{ candidate_id: "reference", updated_at }] } }, [
+        convergedJob([referenceOnly("reference")]),
+      ]);
+      expect(result.remaining).toBe(1);
+    },
+  );
+
+  it.each([
+    { 0: { total: 2, items: [{ candidate_id: "reference" }] } },
+    {
+      0: { total: 2, items: [{ candidate_id: "reference" }] },
+      1: { total: 2, items: [{ candidate_id: "reference" }] },
+    },
+    { 0: { total: 2, items: [{ candidate_id: "reference" }] }, 1: { total: 3, items: [{ candidate_id: "other" }] } },
+  ])("refuses truncated, repeated or changing ready pagination", async (pages) => {
+    await expect(count(pages, [convergedJob([referenceOnly("reference")])])).rejects.toMatchObject({
+      code: "ready-candidates-incomplete",
+    });
+  });
+});
+
 describe("whole-game repair regressions", () => {
   it("uses registered admin routes for every whole-game page", () => {
     const routes = new Set(resolveAdminWebRouteConfigRecords().map((route) => `/${route.routePath}`));
@@ -377,30 +644,45 @@ describe("AC7 exact staging admission", () => {
 });
 
 describe("AC8 bounded complete reads", () => {
-  function settleProbe({ delay = 0, stall = false } = {}) {
+  function settleProbe({ delay = 0, stall = false, ready = [], zeroOutcomes = [], historicalOutcomes = [] } = {}) {
     const file = readFileSync(
       new URL("../deployables/admin-web/e2e/catalog-staging-provider-sync.uat.spec.ts", import.meta.url),
       "utf8",
     );
     const source = ts.createSourceFile("journey.ts", file, ts.ScriptTarget.Latest, true);
-    const names = new Set(["wholeGameSettle", "wholeGameQuery", "promoteJobsPath", "draftItemsPath"]);
+    const names = new Set([
+      "wholeGameSettle",
+      "wholeGameQuery",
+      "promoteJobsPath",
+      "draftItemsPath",
+      "readReadyCandidateCount",
+    ]);
     const functions = source.statements.filter((node) => ts.isFunctionDeclaration(node) && names.has(node.name?.text));
-    expect(functions).toHaveLength(4);
+    expect(functions).toHaveLength(5);
     const declarations = functions.map((node) => node.getText(source)).join("\n");
     const jobs = [
       promoteJob(
         "history",
-        Array.from({ length: 10 }, (_, index) => applied(`candidate-${index}`, `item-${index}`)),
+        [
+          ...Array.from({ length: 10 }, (_, index) => applied(`candidate-${index}`, `item-${index}`)),
+          ...historicalOutcomes,
+        ],
         { promotionApplicationVersion: 1 },
       ),
     ];
-    const zeroJob = promoteJob("zero", [], { promotionApplicationVersion: 1 });
+    const zeroJob = promoteJob("zero", zeroOutcomes, {
+      createdAt: "2026-11-12T12:00:00Z",
+      promotionApplicationVersion: 1,
+      result: { promoted: 0, failed: 0, outcomes: zeroOutcomes },
+    });
     const reads = [];
     const publish = vi.fn();
     let deadline;
     const read = async (_page, path) =>
       rehearsal.readBeforeWholeGameDeadline(deadline, async () => {
         reads.push(path);
+        if (path.includes("merge-candidates?"))
+          return { total: ready.length, items: ready.map((item) => ({ updated_at: "2026-11-11T12:00:00Z", ...item })) };
         if (path.includes("bulk-jobs/active")) {
           if (stall) return new Promise(() => {});
           return { items: jobs };
@@ -425,7 +707,6 @@ describe("AC8 bounded complete reads", () => {
       submitPromoteAllReady: async () => "zero",
       waitForPromoteJob: async () => zeroJob,
       readWholeGameJson: read,
-      readReadyCandidateCount: async () => 0,
       readWholeGameTotal: async () => 0,
       publishThroughCatalogItems: publish,
     });
@@ -478,6 +759,26 @@ describe("AC8 bounded complete reads", () => {
       vi.useRealTimers();
     }
   });
+  it.each([true, false])(
+    "actual settle only exempts reference-only dispositions from its current pass (%s)",
+    async (current) => {
+      const outcome = {
+        candidateId: "reference",
+        status: "skipped-not-eligible",
+        disposition: "reference-only",
+        catalogItemId: null,
+      };
+      const probe = settleProbe({
+        ready: [{ candidate_id: "reference" }],
+        zeroOutcomes: current ? [outcome] : [],
+        historicalOutcomes: [outcome],
+      });
+      expect(await probe.run(1000)).toMatchObject({
+        state: current ? "settled" : "running",
+        settle: { promotedThisDispatch: 0, published: 0, readyRemaining: current ? 0 : 1, draftsRemaining: 0 },
+      });
+    },
+  );
   it("stops slow paginated reads at the deadline, never runs the publication continuation", async () => {
     vi.useFakeTimers();
     try {

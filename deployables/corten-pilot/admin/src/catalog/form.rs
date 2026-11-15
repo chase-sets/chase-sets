@@ -29,7 +29,7 @@ pub fn english(text: &str) -> Value {
 }
 
 /// A dimension's create and edit form.
-#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[derive(Clone, Debug, Default, Fields)]
 #[serde(default)]
 pub struct DimensionInput {
     /// The id a create was drawn with (empty for an edit).
@@ -71,7 +71,7 @@ impl DimensionInput {
 }
 
 /// A field's create and configure form. A checkbox sends `on`, or nothing when it is clear.
-#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[derive(Clone, Debug, Default, Fields)]
 #[serde(default)]
 pub struct FieldInput {
     pub field_id: String,
@@ -123,7 +123,7 @@ impl FieldInput {
 
 /// A category's create and edit form (admin-web's dialogs): the parent is typed as an id, as
 /// there, and the display order as a number.
-#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[derive(Clone, Debug, Default, Fields)]
 #[serde(default)]
 pub struct CategoryInput {
     /// The id a create was drawn with (empty for an edit).
@@ -191,7 +191,7 @@ pub fn display_order(order: f64) -> String {
 
 /// A component's create and edit form: its key, name and description (its rules have their
 /// own forms).
-#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[derive(Clone, Debug, Default, Fields)]
 #[serde(default)]
 pub struct ComponentInput {
     /// The id a create was drawn with (empty for an edit).
@@ -245,7 +245,7 @@ fn key_list(text: &str) -> Vec<&str> {
 
 /// A reference type's create and edit form: its key, name and description, and its attribute
 /// keys, one per line (`formatKeyList`) or separated by commas.
-#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[derive(Clone, Debug, Default, Fields)]
 #[serde(default)]
 pub struct RefTypeInput {
     /// The id a create was drawn with (empty for an edit).
@@ -289,7 +289,7 @@ impl RefTypeInput {
 /// attributes as text (`parseAttributesInput`), and a row per relationship, its type and the
 /// record it names. Add Relationship and Remove post the form back (`rerow`) to be drawn with a
 /// row more or less, as a blueprint's Set dialogs do.
-#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[derive(Clone, Debug, Default, Fields)]
 #[serde(default)]
 pub struct RefRecordInput {
     /// The id a create was drawn with (empty for an edit).
@@ -446,7 +446,7 @@ fn scalar(text: &str) -> Value {
 /// A display template's create and edit form (`DisplayTemplateInput`): its key, name and
 /// description, its target (a kind, and the record's id unless it is global), its priority, and
 /// its title and subtitle templates.
-#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[derive(Clone, Debug, Default, Fields)]
 #[serde(default)]
 pub struct TemplateInput {
     /// The id a create was drawn with (empty for an edit).
@@ -523,7 +523,7 @@ impl TemplateInput {
     }
 }
 /// A blueprint's create and edit form: its key, name and description.
-#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[derive(Clone, Debug, Default, Fields)]
 #[serde(default)]
 pub struct BlueprintInput {
     /// The id a create was drawn with (empty for an edit).
@@ -558,14 +558,14 @@ impl BlueprintInput {
 }
 
 /// A blueprint's Attach Component form.
-#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[derive(Clone, Debug, Default, Fields)]
 #[serde(default)]
 pub struct AttachInput {
     pub component_id: String,
 }
 
 /// A blueprint's Set Product Resolution Rules form: dimension ids separated by commas.
-#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[derive(Clone, Debug, Default, Fields)]
 #[serde(default)]
 pub struct OrderInput {
     pub canonical_dimension_order: String,
@@ -613,7 +613,7 @@ fn rerowed(rerow: Option<&str>, rows: usize) -> Option<Result<(), usize>> {
 
 /// A blueprint's Set Field Rules form: a row per rule, its field id and Required (a checked box
 /// sends its row's index). `rerow` adds or removes a row and writes nothing.
-#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[derive(Clone, Debug, Default, Fields)]
 #[serde(default)]
 pub struct FieldRulesInput {
     pub field_id: Vec<String>,
@@ -672,7 +672,7 @@ impl FieldRulesInput {
 
 /// A blueprint's Set Dimension Rules form: a row per rule, its dimension id, Required (a checked
 /// box sends its row's index), allowed option ids and when it applies, as text.
-#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[derive(Clone, Debug, Default, Fields)]
 #[serde(default)]
 pub struct DimensionRulesInput {
     pub dimension_id: Vec<String>,
@@ -764,7 +764,7 @@ impl DimensionRulesInput {
     }
 }
 /// A component's Add Field Rule form: a field id, and whether it is required.
-#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[derive(Clone, Debug, Default, Fields)]
 #[serde(default)]
 pub struct FieldRuleInput {
     pub field_id: String,
@@ -780,7 +780,7 @@ impl FieldRuleInput {
 /// A component's Add Dimension Rule form: a dimension id, whether it is required, the option ids
 /// it allows (comma separated, none for all), and when it applies (`dimensionId=optionId|optionId`
 /// clauses, comma separated).
-#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[derive(Clone, Debug, Default, Fields)]
 #[serde(default)]
 pub struct DimensionRuleInput {
     pub dimension_id: String,
@@ -806,7 +806,7 @@ impl DimensionRuleInput {
 /// An option's add and edit form: its code, a number, and a label per locale (rows of
 /// `label_locale` and `label_value`). `relabel` is the button that adds a row (`add`) or
 /// removes one (its index): the form is drawn again and nothing is written.
-#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[derive(Clone, Debug, Default, Fields)]
 #[serde(default)]
 pub struct OptionInput {
     pub option_id: String,
@@ -912,7 +912,7 @@ impl OptionInput {
 }
 
 /// The reorder form: option ids, comma-separated, as admin-web asks for them.
-#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[derive(Clone, Debug, Default, Fields)]
 #[serde(default)]
 pub struct ReorderInput {
     pub option_ids: String,
@@ -927,7 +927,7 @@ impl ReorderInput {
 
 /// A lifecycle form: the action its button names, and the status it was drawn for (only to draw
 /// the form again after a refusal; the API decides what the status allows).
-#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[derive(Clone, Debug, Default, Fields)]
 #[serde(default)]
 pub struct ActionInput {
     pub action: String,
@@ -945,7 +945,7 @@ impl ActionInput {
 /// the checked rows (`mode=ids`, their boxes join the form with `form=`) or every record the
 /// list's filters match (`mode=filter`).
 /// `all` is the select-all box, which joins the form so its script finds it; it is not read.
-#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[derive(Clone, Debug, Default, Fields)]
 pub struct BulkInput {
     #[serde(default)]
     pub action: String,
@@ -974,7 +974,7 @@ impl BulkInput {
 
 /// A catalog item's create form (admin-web's create dialog): its language and description. The
 /// title starts as the item's id, in English, as admin-web's create sends it.
-#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[derive(Clone, Debug, Default, Fields)]
 #[serde(default)]
 pub struct ItemInput {
     pub item_id: String,
@@ -1014,7 +1014,7 @@ pub enum Family {
 
 /// The catalog items' bulk form: `BulkInput`'s fields, and the value an edit takes (the
 /// blueprint, the category, or the tags, comma-separated, as admin-web's inputs take them).
-#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[derive(Clone, Debug, Default, Fields)]
 pub struct ItemBulkInput {
     #[serde(default)]
     pub action: String,
@@ -1160,7 +1160,7 @@ impl PublishInput {
 }
 
 /// One id a dialog takes: a blueprint's, a category's.
-#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[derive(Clone, Debug, Default, Fields)]
 #[serde(default)]
 pub struct IdInput {
     pub id: String,
@@ -1176,7 +1176,7 @@ impl IdInput {
 
 /// Set Field Value: the field, and its value as text or the reference record it names (only
 /// read for a reference field; the API says which fields are).
-#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[derive(Clone, Debug, Default, Fields)]
 #[serde(default)]
 pub struct FieldValueInput {
     pub field_id: String,
@@ -1201,7 +1201,7 @@ impl FieldValueInput {
 
 /// Edit Description: the language and the description. The title and subtitle are sent back as
 /// the API holds them when the write is sent (`localized_or`).
-#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[derive(Clone, Debug, Default, Fields)]
 #[serde(default)]
 pub struct MetadataInput {
     pub language_code: String,
@@ -1227,14 +1227,14 @@ impl MetadataInput {
 }
 
 /// Set Tags (comma-separated) or Set Image URLs (one per line).
-#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[derive(Clone, Debug, Default, Fields)]
 #[serde(default)]
 pub struct ListInput {
     pub text: String,
 }
 
 /// Set image fallback. `usage` is `permanent` or `loading-only`; `variants` a JSON object.
-#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[derive(Clone, Debug, Default, Fields)]
 #[serde(default)]
 pub struct FallbackInput {
     pub url: String,
@@ -1275,7 +1275,7 @@ impl FallbackInput {
 }
 
 /// Link an external reference: the provider, its key, and (a product reference) the options.
-#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[derive(Clone, Debug, Default, Fields)]
 #[serde(default)]
 pub struct ReferenceInput {
     pub provider_key: String,
@@ -1306,7 +1306,7 @@ impl ReferenceInput {
 
 /// Add content line: the type, the policy, the contained item and its options, and the quantity
 /// (empty for none).
-#[derive(Clone, Debug, Default, Deserialize, Fields)]
+#[derive(Clone, Debug, Default, Fields)]
 #[serde(default)]
 pub struct ContentLineInput {
     pub content_type_id: String,

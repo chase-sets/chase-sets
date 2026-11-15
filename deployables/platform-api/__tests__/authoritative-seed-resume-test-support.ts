@@ -31,7 +31,7 @@ import { createSupportEvidenceSeedContext } from "@chase-sets/platform-operation
 import { expect } from "vitest";
 import { createPlatformApiHost } from "../src/app";
 import type { PlatformApiContextName } from "../src/config";
-import { apiContextRegistry } from "../src/generated/api-context-registry";
+import { apiContextRegistry } from "../src/context-registry";
 import {
   createPlatformApiRetainedStateHandoff,
   listingPhotoStorage,
@@ -1493,9 +1493,15 @@ export function createHost(runtimeProfile: PlatformApiRuntimeProfile = "public")
   });
 }
 
-export const seedOptions: BcSeedOptions = {
+const testProjectionGroupLeasePort = {
+  runWithLease: async <T>(_group: unknown, _signal: AbortSignal | undefined, work: (context: never) => Promise<T>) =>
+    work(undefined as never),
+};
+
+export const seedOptions: BcSeedOptions & { projectionGroupLeasePort: typeof testProjectionGroupLeasePort } = {
   enabledDataProfiles: ["critical-bootstrap", "catalog-integration-bootstrap", "scenario-seed"],
   environmentName: "test",
+  projectionGroupLeasePort: testProjectionGroupLeasePort,
 };
 
 export async function ordinaryBoot(runtime: ReturnType<typeof createHost>): Promise<void> {

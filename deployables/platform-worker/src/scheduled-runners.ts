@@ -124,32 +124,7 @@ export function createRegisteredScheduledRunners({
         };
       }
     | undefined;
-  const platformOperations = services["platform-operations"] as
-    | {
-        supportRequests?: {
-          sweepSupportRequestDeadlines?: (
-            params: { now?: string; limit?: number },
-            context: typeof SYSTEM_CONTEXT,
-          ) => Promise<{
-            autoResolved: number;
-            fallbackEscalated: number;
-            escalated: number;
-            autoClosed: number;
-            responseRemindersEmitted: number;
-            reviewRemindersEmitted: number;
-            returnRefundsReleased: number;
-          }>;
-        };
-        opsDashboard?: {
-          recordReconciliationRun?: (params: {
-            yearMonth: string;
-            tapeGmvAmount: string;
-            ledgerSaleAmount: string;
-            now?: string;
-          }) => Promise<{ status: "ok" | "drift-alarm" }>;
-        };
-      }
-    | undefined;
+  const platformOperations = services["platform-operations"] as PlatformOperationsServices | undefined;
   const marketplaceReviews = (services.marketplace as { reviews?: unknown } | undefined)?.reviews as
     | {
         sweepReviewWindowExpirations?: (
@@ -350,6 +325,15 @@ export function createRegisteredScheduledRunners({
   }
 
   const sweepSupportRequestDeadlines = platformOperations?.supportRequests?.sweepSupportRequestDeadlines;
+  if (platformOperations?.sellerComplianceCohorts) {
+    runners.push(
+      createScheduledJobRunner("platform-operations.seller-compliance-cohort-sweep", 60_000, controlPlane, async () => {
+        const result = await platformOperations.sellerComplianceCohorts.runTick({ limit: 100 });
+        if (result.failed) logger.warn("Seller compliance cohort evaluations failed.", { result });
+        return result.processed;
+      }),
+    );
+  }
   if (sweepSupportRequestDeadlines && input.supportRequestDeadlineSweepIntervalMs) {
     runners.push(
       createScheduledJobRunner(
@@ -1026,6 +1010,15 @@ function createDurableJobRetentionTask(
         stagedInputCreatedBefore: stagedInputCreatedBefore(),
         limit: 500,
       });
+      if (result.commitJobsHeld || !result.handoffs.complete) {
+        logger.warn("Inventory import draft handoff scan held commit-job retention or did not finish its window.", {
+          commitJobsHeld: result.commitJobsHeld,
+          complete: result.handoffs.complete,
+          pages: result.handoffs.pages,
+          counts: result.handoffs.counts,
+          findings: result.handoffs.findings.slice(0, 10),
+        });
+      }
       return result.jobs + result.stagedInputs;
     });
   }

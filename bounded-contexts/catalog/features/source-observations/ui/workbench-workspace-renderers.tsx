@@ -1,11 +1,8 @@
+import type { CatalogDailyImportPreview } from "../api/admin/daily-import-preview";
 import type { ReactElement } from "react";
 import { Box } from "@chase-sets/design-system";
 import type { CatalogPrimaryWorkbenchReadModel } from "../api/primary-workbench-admin-contracts";
-import type {
-  CatalogScopeSyncUnitStateReadModel,
-  CatalogSyncRun,
-  SourceObservationIntegrationImportPreview,
-} from "./contracts";
+import type { CatalogScopeSyncUnitStateReadModel, CatalogSyncRun } from "./contracts";
 import type { CatalogPrimaryWorkbenchCommandFeedback } from "./primary-workbench-command-feedback";
 import type { CatalogControlPlaneWorkspaceKey } from "./admin-control-plane/information-architecture";
 import { CatalogIntegrationAuditEvidenceWorkspace } from "./admin-control-plane/evidence/audit-evidence-workspace";
@@ -20,7 +17,7 @@ export type CatalogPrimaryWorkbenchWorkspaceSlots = Readonly<{
   aliasVisibility?: ReactElement | null;
   commandFeedback?: CatalogPrimaryWorkbenchCommandFeedback | null;
   deferredSourceOptions?: Promise<CatalogPrimaryWorkbenchReadModel["sourceOptions"]> | null;
-  deferredImportPreview?: Promise<SourceObservationIntegrationImportPreview | null> | null;
+  deferredImportPreview?: Promise<CatalogDailyImportPreview> | null;
   deferredCatalogSyncRun?: Promise<CatalogSyncRun | null> | null;
   deferredScopeSyncState?: Promise<readonly CatalogScopeSyncUnitStateReadModel[] | null> | null;
 }>;

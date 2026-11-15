@@ -11,7 +11,8 @@ import {
   type SellerAttentionSource,
 } from "@chase-sets/seller-attention-queue";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
-import { buildFulfillmentCommandCenter, type FulfillmentCommandCenterShipmentInput } from "./command-center";
+import { buildFulfillmentCommandCenter } from "./command-center";
+import { listSellerCommandCenterShipments } from "./queries";
 
 // The projected fields the ship-by source reads from the shipment read model.
 // Only shipments awaiting the seller's dispatch with a ship-by deadline appear.
@@ -88,60 +89,9 @@ export function createShipByAttentionSourceFromReadModel(db: PgQueryable): Selle
   return {
     id: "fulfillment-ship-by",
     load: async (context) => {
-      const result = await db.query<FulfillmentCommandCenterShipmentInput>(
-        `SELECT
-           page.shipment_id,
-           page.order_id,
-           page.display_reference,
-           page.status,
-           page.label_status,
-           page.tracking_identifier,
-           page.carrier_name,
-           buyer.display_name AS buyer_display_name,
-           page.current_exception_type,
-           page.current_exception_notes,
-           COALESCE(line_stats.line_count, 0)::integer AS line_count,
-           COALESCE(line_stats.total_quantity, 0)::integer AS total_quantity,
-           page.created_at,
-           page.updated_at,
-           COALESCE(conflict_stats.conflicts, '[]'::jsonb) AS conflicts
-         FROM fulfillment_shipment_pages AS page
-         LEFT JOIN fulfillment_account_pages AS buyer
-           ON buyer.account_id = page.buyer_account_id
-         LEFT JOIN (
-           SELECT shipment_id, COUNT(*) AS line_count, COALESCE(SUM(quantity), 0) AS total_quantity
-           FROM fulfillment_shipment_line_pages
-           GROUP BY shipment_id
-         ) AS line_stats
-           ON line_stats.shipment_id = page.shipment_id
-         LEFT JOIN (
-           SELECT
-             conflict.shipment_id,
-             jsonb_agg(
-               jsonb_build_object(
-                 'order_id', conflict.order_id,
-                 'conflict_kind', conflict.conflict_kind,
-                 'origin', conflict.origin,
-                 'reason', conflict.reason,
-                 'shipment_status', conflict.shipment_status,
-                 'detected_at', conflict.detected_at
-               ) ORDER BY conflict.conflict_kind, conflict.origin
-             ) AS conflicts
-           FROM fulfillment_shipment_conflict_pages AS conflict
-           GROUP BY conflict.shipment_id
-         ) AS conflict_stats
-           ON conflict_stats.shipment_id = page.shipment_id
-         WHERE page.seller_account_id = $1
-           AND page.status <> 'cancelled'
-           AND (
-             page.status IN ('awaiting-package', 'packing', 'awaiting-label', 'label-attached', 'exception')
-             OR conflict_stats.shipment_id IS NOT NULL
-           )
-         ORDER BY page.created_at ASC, page.shipment_id ASC`,
-        [context.accountId],
-      );
+      const shipments = await listSellerCommandCenterShipments(db, { sellerAccountId: context.accountId });
 
-      return buildFulfillmentCommandCenter(result.rows).queue.map((item) => item.attention);
+      return buildFulfillmentCommandCenter(shipments).queue.map((item) => item.attention);
     },
   };
 }

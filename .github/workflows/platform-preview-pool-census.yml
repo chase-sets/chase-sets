@@ -118,6 +118,7 @@ jobs:
           test "$DURATION_MINUTES" -ge 1 -a "$DURATION_MINUTES" -le 60
           test "$INTERVAL_SECONDS" -ge 5 -a "$INTERVAL_SECONDS" -le 60
           node ./scripts/preview-pool-census.mjs \
+            --values infrastructure/helm/platform/values.preview.yaml \
             --mode "$MODE" \
             --duration-minutes "$DURATION_MINUTES" \
             --interval-seconds "$INTERVAL_SECONDS" \

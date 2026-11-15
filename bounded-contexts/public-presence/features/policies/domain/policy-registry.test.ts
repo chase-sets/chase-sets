@@ -10,6 +10,40 @@ import {
 import { publicPolicyRegistry, type PublicPolicyRegistryEntry } from "./policy-registry";
 import { renderPublicPolicyPublicationContracts } from "../integrations/compile-policy-publications.mjs";
 
+function noticeEmailErrors(registry: readonly PublicPolicyRegistryEntry[]): readonly string[] {
+  const errors: string[] = [];
+  for (const { artifact } of registry) {
+    const key = artifact.metadata.policyKey;
+    if (JSON.stringify(artifact).includes("[NOTICE-EMAIL]")) errors.push(key + ": notice-email placeholder");
+    for (const section of artifact.sections) {
+      const sentences = section.draftText.split(/(?<=[.!?])\s+|\n+/);
+      if (
+        sentences.some(
+          (sentence) => /notice|privacy request|opt-out/i.test(sentence) && sentence.includes("support@chasesets.com"),
+        )
+      ) {
+        errors.push(key + ": support address in notice sentence");
+      }
+      const manifest = section.reviewManifest;
+      const statements = [
+        manifest.scopeNote,
+        ...manifest.openQuestions,
+        ...manifest.assumptions.map(({ assertion }) => assertion),
+      ];
+      if (
+        statements.some(
+          (statement) =>
+            /notice.{0,20}email|legal@chasesets.com/i.test(statement) &&
+            /pending|missing|counsel-owned|did not supply/i.test(statement),
+        )
+      ) {
+        errors.push(key + ": email still unresolved");
+      }
+    }
+  }
+  return errors;
+}
+
 async function assertCorpusPublicationPin(
   registry: readonly PublicPolicyRegistryEntry[],
   compiled: Awaited<ReturnType<typeof renderPublicPolicyPublicationContracts>>,
@@ -70,6 +104,81 @@ function syntheticPublishedEntry(): PublicPolicyRegistryEntry {
 }
 
 describe("public policy registry", () => {
+  it("uses the dedicated legal-notice email across every registered artifact", () => {
+    expect(noticeEmailErrors(publicPolicyRegistry)).toEqual([]);
+    for (const key of ["terms-of-service", "seller-agreement", "privacy-policy"]) {
+      const artifact = publicPolicyRegistry.find(({ artifact }) => artifact.metadata.policyKey === key)!.artifact;
+      expect(artifact.sections.some(({ draftText }) => draftText.includes("US, or to legal@chasesets.com."))).toBe(
+        true,
+      );
+    }
+  });
+
+  it.each(publicPolicyRegistry.map(({ artifact }) => artifact.metadata.policyKey))(
+    "negative control: restoring the notice-email placeholder in %s fails",
+    (key) => {
+      const mutated = publicPolicyRegistry.map((entry) =>
+        entry.artifact.metadata.policyKey === key
+          ? {
+              ...entry,
+              artifact: {
+                ...entry.artifact,
+                sections: entry.artifact.sections.map((section, index) =>
+                  index === 0
+                    ? {
+                        ...section,
+                        draftText: section.draftText.includes("legal@chasesets.com")
+                          ? section.draftText.replace("legal@chasesets.com", "[NOTICE-EMAIL]")
+                          : section.draftText + " Send legal notices to [NOTICE-EMAIL].",
+                      }
+                    : section,
+                ),
+              },
+            }
+          : entry,
+      );
+      expect(noticeEmailErrors(mutated)).toContain(key + ": notice-email placeholder");
+    },
+  );
+
+  it.each(["terms-of-service", "seller-agreement", "privacy-policy"])(
+    "negative controls: %s rejects support routing and a pending email manifest",
+    (key) => {
+      const mutate = (pending: boolean) =>
+        publicPolicyRegistry.map((entry) =>
+          entry.artifact.metadata.policyKey === key
+            ? {
+                ...entry,
+                artifact: {
+                  ...entry.artifact,
+                  sections: entry.artifact.sections.map((section) =>
+                    section.draftText.includes("US, or to legal@chasesets.com.")
+                      ? {
+                          ...section,
+                          draftText: pending
+                            ? section.draftText
+                            : section.draftText.replace("legal@chasesets.com", "support@chasesets.com"),
+                          reviewManifest: pending
+                            ? {
+                                ...section.reviewManifest,
+                                openQuestions: [
+                                  ...section.reviewManifest.openQuestions,
+                                  "The legal-notice email remains pending.",
+                                ],
+                              }
+                            : section.reviewManifest,
+                        }
+                      : section,
+                  ),
+                },
+              }
+            : entry,
+        );
+      expect(noticeEmailErrors(mutate(false))).toContain(key + ": support address in notice sentence");
+      expect(noticeEmailErrors(mutate(true))).toContain(key + ": email still unresolved");
+    },
+  );
+
   it("registers exactly the seven-document launch corpus with unique keys and canonical hrefs", () => {
     const keys = publicPolicyRegistry.map((entry) => entry.artifact.metadata.policyKey);
 

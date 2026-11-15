@@ -16,7 +16,7 @@
 use corten::{Fields, Route, SubmitKey};
 use serde::{Deserialize, Serialize};
 
-use corten::{axum::http::StatusCode, prelude::Errors};
+use corten::{http::StatusCode, prelude::Errors};
 
 use crate::{
     api::{ApiError, Caller, Inventory as _},
@@ -26,7 +26,7 @@ use crate::{
 /// The kind of write an attempt is (`InventoryMutationFamily`), as the API keeps it: the
 /// storage locations' three, a restock decision's, Create inventory item's, and an item's
 /// adjustment and holds.
-#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq, corten::UrlValue)]
+#[derive(Clone, Copy, Debug, Serialize, PartialEq, Eq, corten::UrlValue)]
 pub enum Family {
     #[serde(rename = "location-create")]
     Create,
@@ -64,7 +64,7 @@ impl Family {
 /// What a page's address carries about the last write: its receipt (`after_write`), and a write
 /// to confirm (`attempt`, `family`, `target`, and `user` only when the browser's record names
 /// it). Every page that writes takes it.
-#[derive(Clone, Debug, Default, Deserialize, Fields, Route)]
+#[derive(Clone, Debug, Default, Fields, Route)]
 #[route(query)]
 pub struct Check {
     pub after_write: Option<String>,

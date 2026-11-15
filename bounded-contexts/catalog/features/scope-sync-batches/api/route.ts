@@ -12,7 +12,7 @@ import { HeldSetExportError } from "../domain/held-set-export";
 import { readHeldSetExportUpload } from "./held-set-upload";
 import type { ResolvedActor } from "@chase-sets/auth-context";
 import { resolvePublicRequestOrigin } from "@chase-sets/platform-runtime/http";
-import { CountAcquisitionRefused } from "../domain/count-acquisition";
+import { CountAcquisitionRefused, CountPeriodCapRefused } from "../domain/count-acquisition";
 import { countCaptureFields } from "../domain/count-capture-plan";
 import {
   countCaptureCompleteInputSchema,
@@ -121,6 +121,8 @@ export function scopeSyncBatchRoutes(services: ScopeSyncBatchServices, capture: 
     ),
   );
   app.onError((error, c) => {
+    if (error instanceof CountPeriodCapRefused)
+      return c.json({ error: { code: error.code, message: error.message, decision: error.decision } }, 409);
     if (error instanceof CountAcquisitionRefused)
       return c.json({ error: { code: error.code, message: error.message } }, 409);
     if (error instanceof z.ZodError) return c.json({ error: { code: "invalid-count-request" } }, 400);
@@ -147,15 +149,25 @@ export function scopeSyncBatchRoutes(services: ScopeSyncBatchServices, capture: 
         z.object({ quoteId: z.uuid(), fingerprint: z.string().regex(/^[a-f0-9]{64}$/) }).strict(),
         (session, input) => capture!.acquire(session, input),
       )(c);
-    const body = z
+    const { periodReserve, ...body } = z
       .object({
         quoteId: z.uuid(),
         fingerprint: z.string().regex(/^[a-f0-9]{64}$/),
         admission: z.literal("whole-quote").optional(),
+        // Validated by the staging period gate, which refuses an invalid reserve as unknown U.
+        periodReserve: z.unknown().optional(),
       })
       .strict()
       .parse(await c.req.json());
-    return c.json(await services.acquireCounts({ ...body, context: c.get("context") }));
+    return c.json(
+      await services.acquireCounts({
+        ...body,
+        ...(periodReserve === undefined
+          ? {}
+          : { periodAuthority: { kind: "reserve" as const, reserve: periodReserve } }),
+        context: c.get("context"),
+      }),
+    );
   });
   app.get("/counts/spend", async (c) => {
     const input = z

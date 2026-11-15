@@ -9,12 +9,12 @@
 //! What the attempt then is decides the page: succeeded redirects to the cart with the write's
 //! receipt; partial and failed-safe draw the cart with what was not applied; ambiguous draws it
 //! with the cart's writes paused until the buyer sends the same change again or refreshes.
-use corten::axum::http::StatusCode;
+use corten::http::StatusCode;
 use serde::Serialize;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
-use crate::api::{Caller, CartAnswer, CartAttempt, CartWrite, Checkout as _};
+use crate::api::{Caller, CartAnswer, CartAttempt, CartWrite, Checkout as _, CommandOutcome};
 use platform::receipt::Receipt;
 
 /// What one submission came to (`CheckoutCommandAttemptResolvedState`).
@@ -42,13 +42,15 @@ impl State {
 }
 
 /// A submission's outcome: its state, the API's message for a refusal, the messages of the
-/// commands that did not apply, and the receipt the next read waits for.
+/// commands that did not apply, the receipt the next read waits for, and each command's outcome
+/// as the API kept it (none when it kept no attempt or cannot say).
 #[derive(Debug)]
 pub struct Outcome {
     pub state: State,
     pub message: Option<String>,
     pub not_applied: Vec<Option<String>>,
     pub receipt: Option<Receipt>,
+    pub vector: Vec<CommandOutcome>,
 }
 
 /// The state an attempt the API kept resolves to (`checkoutCommandAttemptStateForResult`).
@@ -94,7 +96,8 @@ pub async fn submit(caller: &Caller<'_>, attempt: &str, write: &CartWrite) -> Re
         .flat_map(|a| a.vector.iter().filter(|c| c.outcome != "succeeded").map(|c| c.message.clone()))
         .collect();
     let receipt = receipt.or_else(|| attempt_kept.as_ref().and_then(lookup_receipt));
-    Ok(Outcome { state, message, not_applied, receipt })
+    let vector = attempt_kept.map(|a| a.vector).unwrap_or_default();
+    Ok(Outcome { state, message, not_applied, receipt, vector })
 }
 
 /// The receipt an attempt found by lookup proves: its event, appended with the cart's events
@@ -181,7 +184,10 @@ mod tests {
     fn an_attempt_resolves_as_the_web_hosts_do() {
         let attempt = |status: &str, outcomes: &[&str]| CartAttempt {
             owner_status: status.into(),
-            vector: outcomes.iter().map(|o| CommandOutcome { outcome: (*o).into(), message: None }).collect(),
+            vector: outcomes
+                .iter()
+                .map(|o| CommandOutcome { index: 0, outcome: (*o).into(), status: None, message: None })
+                .collect(),
             commit_receipt: None,
         };
         assert_eq!(state_of(&attempt("committed", &["succeeded", "succeeded"])), State::Succeeded);

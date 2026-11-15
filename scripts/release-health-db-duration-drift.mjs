@@ -587,10 +587,19 @@ export async function reconcileDbDurationIssues(digest, options) {
     const body = `${marker}\n\n${verdict.key}: median ${verdict.observedMs} ms; drift bound ${verdict.boundMs} ms; ratified ${verdict.baselineMs} ms (${digest.ratifiedAt}).\n\nChecked ${digest.checkedAt}; head ${digest.headSha}.\nSample jobs: ${digest.includedJobIds.join(", ")}.\n`;
     if (verdict.state === "breach") {
       const suffix = issue ? `issues/${issue.number}` : "issues";
-      await request(suffix, {
+      const { payload: saved } = await request(suffix, {
         method: issue ? "PATCH" : "POST",
-        body: { title, body, state: "open", labels: ["kind:tech-debt", "area:infrastructure"] },
+        body: {
+          title,
+          body,
+          state: "open",
+          ...(!issue ? { type: "Bug" } : {}),
+          labels: ["kind:tech-debt", "area:infrastructure"],
+        },
       });
+      if (!issue && (saved?.type?.name !== "Bug" || saved.type.is_enabled !== true)) {
+        throw new Error("ISSUE_CREATION_TYPE_MISMATCH: expected enabled native Bug in create response.");
+      }
       actions.push({ key: verdict.key, action: issue ? "updated" : "opened" });
     } else if (issue?.state === "open") {
       await request(`issues/${issue.number}/comments`, { method: "POST", body: { body: `Recovered: ${body}` } });

@@ -16,6 +16,7 @@ const expectedInventory = [
   ],
   ["bounded-contexts/catalog/features/product-measures/api/publication.ts", "publishProductMeasures"],
   ["bounded-contexts/catalog/features/product-contents/api/runtime.ts", "replaceProductContents"],
+  ["bounded-contexts/marketplace/features/listings/api/runtime.ts", "readAuthoritativeListing"],
   ["bounded-contexts/marketplace/features/listings/api/runtime.ts", "listSellerListingFeeHistory"],
   ["bounded-contexts/customer-feedback/features/csat/api/runtime.ts", "loadCooldownClaim"],
   [

@@ -2,10 +2,15 @@
 //! three dry runs, the gated live runs, Projections and the runbook), which wrap; what the last dry
 //! run said and the run itself, which the run's live stream draws again while it moves; the live
 //! gate; the feed's readiness; the filters (one column on a phone, two from 40rem, a row from
-//! 64rem); the open row's detail; and the feed rows, which scroll on their own on a phone.
+//! 64rem); the open row's detail; and the feed rows. The detail's signals and the feed rows stack
+//! on a phone, a row a block of labelled lines.
 use corten::{
     i18n::{DateStyle, TimeStyle, parse_timestamp},
     prelude::*,
+};
+use platform::ui::{
+    stats::{Stat, StatTone, Stats as KitStats, StatsSurface},
+    table::{CellLabel, Table as KitTable, TableLayout},
 };
 
 use crate::{
@@ -67,7 +72,14 @@ pub fn reason(t: Gro, value: &str) -> String {
         "missing-returns-policy" => t.gs_exclusion_reason_missing_returns_policy(),
         "missing-product-measure" => t.gs_exclusion_reason_missing_product_measure(),
         "not-crawlable" => t.gs_exclusion_reason_not_crawlable(),
-        other => return t.gs_unrecognized_reason_with_value(t.gs_exclusion_reason_family(), other).to_string(),
+        other => {
+            return t
+                .gs_unrecognized_reason_with_value(crate::text::gro::GsUnrecognizedReasonWithValue {
+                    family: t.gs_exclusion_reason_family(),
+                    value: other,
+                })
+                .to_string();
+        }
     };
     known.to_owned()
 }
@@ -136,12 +148,7 @@ fn Badge<'a>(words: &'a str, tone: &'static str) -> impl Render {
 
 #[component(css = GoogleShoppingPage)]
 fn Figure<'a>(label: &'a str, value: String) -> impl Render {
-    html! {
-        <div class={Stat}>
-            <p class={Muted}>{label}</p>
-            <p class={Value}>{value}</p>
-        </div>
-    }
+    html! { <Stat label={label} value={value.as_str()} note="" tone={StatTone::Neutral} /> }
 }
 
 /// The dry run, as `job_part` draws it.
@@ -184,17 +191,17 @@ fn JobPart<'a>(t: Gro, id: &'a str, job: Option<&'a Job>) -> impl Render {
                     <dd>{when(t, job.and_then(|j| j.updated_at.as_deref()))}</dd>
                 </div>
             </dl>
-            <div class={(Stats, Six)}>
+            <dl class={KitStats { surface: StatsSurface::Cards }}>
                 <Figure
                     label={t.gs_job_processed()}
-                    value={t.gs_job_processed_value(progress.completed, progress.total).to_string()}
+                    value={t.gs_job_processed_value(crate::text::gro::GsJobProcessedValue { completed: progress.completed, total: progress.total }).to_string()}
                 />
                 <Figure label={t.gs_job_submitted()} value={n(progress.submitted)} />
                 <Figure label={t.gs_job_skipped()} value={n(progress.skipped)} />
                 <Figure label={t.gs_job_deleted()} value={n(progress.deleted)} />
                 <Figure label={t.gs_job_failed()} value={n(progress.failed)} />
                 <Figure label={t.gs_job_excluded()} value={n(progress.excluded)} />
-            </div>
+            </dl>
             if let Some(message) = job.and_then(|j| j.error_message.as_deref()) {
                 <p class={(Alert, Words)} role="alert">{message}</p>
             }
@@ -232,7 +239,12 @@ fn Detail<'a>(t: Gro, row: &'a Row, view: &'a url::View) -> impl Render {
         Some(title) => title.to_owned(),
         None => t.gs_untitled_listing(&row.listing_id).to_string(),
     };
-    let issues = t.gs_issue_summary(row.active_issue_count, row.unknown_issue_code_count).to_string();
+    let issues = t
+        .gs_issue_summary(crate::text::gro::GsIssueSummary {
+            active: row.active_issue_count,
+            unknown: row.unknown_issue_code_count,
+        })
+        .to_string();
     html! {
         <section class={Card} aria-labelledby="gs-detail">
             <div class={Line}>
@@ -265,32 +277,61 @@ fn Detail<'a>(t: Gro, row: &'a Row, view: &'a url::View) -> impl Render {
                 </div>
             </dl>
             <div class={Scroll}>
-                <table class={Table}>
-                    <thead>
-                        <tr>
-                            <th scope="col">{t.gs_signal()}</th>
-                            <th scope="col">{t.gs_status()}</th>
-                            <th scope="col">{t.gs_reasons()}</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <tr>
-                            <td>{t.gs_eligibility()}</td>
-                            <td>{&row.eligibility_status}</td>
-                            <td>{reasons(t, &row.exclusion_reasons)}</td>
-                        </tr>
-                        <tr>
-                            <td>{t.gs_image_eligibility()}</td>
-                            <td>{&row.image_eligibility_status}</td>
-                            <td>{reasons(t, &row.image_exclusion_reasons)}</td>
-                        </tr>
-                        <tr>
-                            <td>{t.gs_diagnostics()}</td>
-                            <td>{row.diagnostic_status.as_deref().unwrap_or(t.gs_unknown())}</td>
-                            <td>{issues}</td>
-                        </tr>
-                    </tbody>
-                </table>
+                <KitTable layout={TableLayout::Stack}>
+                    <table class={Table}>
+                        <thead>
+                            <tr>
+                                <th scope="col">{t.gs_signal()}</th>
+                                <th scope="col">{t.gs_status()}</th>
+                                <th scope="col">{t.gs_reasons()}</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td>
+                                    <CellLabel>{t.gs_signal()}</CellLabel>
+                                    {t.gs_eligibility()}
+                                </td>
+                                <td>
+                                    <CellLabel>{t.gs_status()}</CellLabel>
+                                    {&row.eligibility_status}
+                                </td>
+                                <td>
+                                    <CellLabel>{t.gs_reasons()}</CellLabel>
+                                    {reasons(t, &row.exclusion_reasons)}
+                                </td>
+                            </tr>
+                            <tr>
+                                <td>
+                                    <CellLabel>{t.gs_signal()}</CellLabel>
+                                    {t.gs_image_eligibility()}
+                                </td>
+                                <td>
+                                    <CellLabel>{t.gs_status()}</CellLabel>
+                                    {&row.image_eligibility_status}
+                                </td>
+                                <td>
+                                    <CellLabel>{t.gs_reasons()}</CellLabel>
+                                    {reasons(t, &row.image_exclusion_reasons)}
+                                </td>
+                            </tr>
+                            <tr>
+                                <td>
+                                    <CellLabel>{t.gs_signal()}</CellLabel>
+                                    {t.gs_diagnostics()}
+                                </td>
+                                <td>
+                                    <CellLabel>{t.gs_status()}</CellLabel>
+                                    {row.diagnostic_status.as_deref().unwrap_or(t.gs_unknown())}
+                                </td>
+                                <td>
+                                    <CellLabel>{t.gs_reasons()}</CellLabel>
+                                    {issues}
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </KitTable>
             </div>
         </section>
     }
@@ -307,6 +348,7 @@ fn FeedRow<'a>(t: Gro, row: &'a Row, screen: &'a ShoppingScreen) -> impl Render 
     html! {
         <tr>
             <td class={Words}>
+                <CellLabel>{t.gs_listing()}</CellLabel>
                 <a href={&inspect}>{&row.listing_id}</a>
                 <p class={Small}>{&row.merchant_offer_id}</p>
                 <span class={Links}>
@@ -320,6 +362,7 @@ fn FeedRow<'a>(t: Gro, row: &'a Row, screen: &'a ShoppingScreen) -> impl Render 
                 </span>
             </td>
             <td>
+                <CellLabel>{t.gs_eligibility()}</CellLabel>
                 <span class={Pills}>
                     <Badge
                         words={&row.eligibility_status}
@@ -337,21 +380,34 @@ fn FeedRow<'a>(t: Gro, row: &'a Row, screen: &'a ShoppingScreen) -> impl Render 
                 </p>
             </td>
             <td>
+                <CellLabel>{t.gs_sync()}</CellLabel>
                 <Badge words={&row.sync_status} tone={sync_tone(&row.sync_status)} />
                 <p class={Small}>
                     {row.last_sync_error_code.as_deref().or(row.last_provider_operation.as_deref()).unwrap_or(t.gs_no_provider_operation())}
                 </p>
             </td>
             <td>
+                <CellLabel>{t.gs_diagnostics()}</CellLabel>
                 <Badge
                     words={row.diagnostic_status.as_deref().unwrap_or(t.gs_unknown())}
                     tone={diagnostic_tone(row.diagnostic_status.as_deref())}
                 />
-                <p class={Small}>{t.gs_issue_summary(row.active_issue_count, row.unknown_issue_code_count).to_string()}</p>
+                <p class={Small}>
+                    {t.gs_issue_summary(crate::text::gro::GsIssueSummary { active: row.active_issue_count, unknown: row.unknown_issue_code_count }).to_string()}
+                </p>
             </td>
-            <td>{row.remediation_owners.join(", ")}</td>
-            <td>{when(t, Some(&row.updated_at))}</td>
-            <td><a class={(Button, Secondary, Small)} href={&inspect}>{t.gs_inspect()}</a></td>
+            <td>
+                <CellLabel>{t.gs_owners()}</CellLabel>
+                {row.remediation_owners.join(", ")}
+            </td>
+            <td>
+                <CellLabel>{t.gs_updated()}</CellLabel>
+                {when(t, Some(&row.updated_at))}
+            </td>
+            <td>
+                <CellLabel>{t.gs_action()}</CellLabel>
+                <a class={(Button, Secondary, Small)} href={&inspect}>{t.gs_inspect()}</a>
+            </td>
         </tr>
     }
 }
@@ -365,7 +421,7 @@ fn notice(t: Gro, queued: &url::Queued) -> Option<String> {
         ("maintenance", job) => {
             let total = queued.total.as_deref().unwrap_or("0");
             Some(match job {
-                Some(job) => t.gs_maintenance_queued(job, total).to_string(),
+                Some(job) => t.gs_maintenance_queued(crate::text::gro::GsMaintenanceQueued { job_id: job, total }).to_string(),
                 None => t.gs_maintenance_previewed(total).to_string(),
             })
         }
@@ -388,7 +444,13 @@ pub fn GoogleShoppingPage<'a>(t: Gro, o: Ops, screen: &'a ShoppingScreen) -> imp
     let projections = crate::projections::url::Projections {
         filters: crate::projections::url::Filters { context_name: Some("discovery".into()), ..Default::default() },
     };
-    let headline = t.gs_eligibility_headline(s.eligible_rows, s.total_rows, s.excluded_rows).to_string();
+    let headline = t
+        .gs_eligibility_headline(crate::text::gro::GsEligibilityHeadline {
+            eligible: s.eligible_rows,
+            total: s.total_rows,
+            excluded: s.excluded_rows,
+        })
+        .to_string();
     html! {
         <div class={Page}>
             <header class={Header}>
@@ -453,7 +515,7 @@ pub fn GoogleShoppingPage<'a>(t: Gro, o: Ops, screen: &'a ShoppingScreen) -> imp
                     <Badge words={&t.gs_generated_at(&when(t, Some(&screen.feed.generated_at))).to_string()} tone="info" />
                 </span>
                 <p class={Muted}>{t.gs_refresh_cutoff(&when(t, Some(&screen.feed.refresh_cutoff))).to_string()}</p>
-                <div class={(Stats, Four)}>
+                <dl class={KitStats { surface: StatsSurface::Cards }}>
                     <Figure label={t.gs_total_rows()} value={n(s.total_rows)} />
                     <Figure label={t.gs_eligible_rows()} value={n(s.eligible_rows)} />
                     <Figure label={t.gs_failed_rows()} value={n(s.failed_rows)} />
@@ -462,7 +524,7 @@ pub fn GoogleShoppingPage<'a>(t: Gro, o: Ops, screen: &'a ShoppingScreen) -> imp
                     <Figure label={t.gs_pending_delete_rows()} value={n(s.pending_delete_rows)} />
                     <Figure label={t.gs_stale_rows()} value={n(s.stale_rows)} />
                     <Figure label={t.gs_pending_diagnostics_rows()} value={n(s.pending_diagnostics_rows)} />
-                </div>
+                </dl>
             </section>
             <section class={Card} aria-labelledby="gs-filters">
                 <h2 class={Heading} id="gs-filters">{t.gs_filters()}</h2>
@@ -539,24 +601,26 @@ pub fn GoogleShoppingPage<'a>(t: Gro, o: Ops, screen: &'a ShoppingScreen) -> imp
                     </div>
                 } else {
                     <div class={Scroll}>
-                        <table class={Table}>
-                            <thead>
-                                <tr>
-                                    <th scope="col">{t.gs_listing()}</th>
-                                    <th scope="col">{t.gs_eligibility()}</th>
-                                    <th scope="col">{t.gs_sync()}</th>
-                                    <th scope="col">{t.gs_diagnostics()}</th>
-                                    <th scope="col">{t.gs_owners()}</th>
-                                    <th scope="col">{t.gs_updated()}</th>
-                                    <th scope="col">{t.gs_action()}</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                for row in &screen.feed.rows {
-                                    <FeedRow t={t} row={row} screen={screen} />
-                                }
-                            </tbody>
-                        </table>
+                        <KitTable layout={TableLayout::Stack}>
+                            <table class={Table}>
+                                <thead>
+                                    <tr>
+                                        <th scope="col">{t.gs_listing()}</th>
+                                        <th scope="col">{t.gs_eligibility()}</th>
+                                        <th scope="col">{t.gs_sync()}</th>
+                                        <th scope="col">{t.gs_diagnostics()}</th>
+                                        <th scope="col">{t.gs_owners()}</th>
+                                        <th scope="col">{t.gs_updated()}</th>
+                                        <th scope="col">{t.gs_action()}</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    for row in &screen.feed.rows {
+                                        <FeedRow t={t} row={row} screen={screen} />
+                                    }
+                                </tbody>
+                            </table>
+                        </KitTable>
                     </div>
                 }
             </section>

@@ -229,6 +229,7 @@ function createServices() {
       },
       fulfillmentGroups: [],
       customerSafeFacts: ["Ready for checkout."],
+      linePresentations: [],
     })),
     readCart: vi.fn<CheckoutCartServices["readCart"]>(async () => ({
       lines: [],
@@ -411,13 +412,121 @@ describe("checkout cart routes", () => {
     expect(services.readCart).toHaveBeenCalledWith({ accountId: "anon_cart_1" });
   });
 
-  it("returns the domain oracle for account and guest unresolved, mixed, empty, and optimization reads", async () => {
+  it("returns explicit presentation facts for account and guest seven-reason and pricing controls", async () => {
     const base = internalCartLineRow();
+    const exactUsd = { state: "exact", amount: "25.00", currency: "USD" };
     const cases = [
-      { name: "empty", lines: [] as CheckoutCartLineRow[] },
+      { name: "empty", lines: [] as CheckoutCartLineRow[], expected: [] },
+      {
+        name: "ready",
+        lines: [base],
+        expected: [
+          { lineId: "cli_1", reason: "ready", fulfillmentAvailable: true, listingId: "lst_1", price: exactUsd },
+        ],
+      },
       {
         name: "unresolved",
         lines: [internalCartLineRow({ availability_state: "unavailable" })],
+        expected: [
+          { lineId: "cli_1", reason: "unavailable", fulfillmentAvailable: false, listingId: "lst_1", price: exactUsd },
+        ],
+      },
+      {
+        name: "waiting-for-supply",
+        lines: [internalCartLineRow({ availability_state: "waiting-for-supply", seller_options: [] })],
+        expected: [
+          {
+            lineId: "cli_1",
+            reason: "waiting-for-supply",
+            fulfillmentAvailable: false,
+            listingId: "lst_1",
+            price: null,
+          },
+        ],
+      },
+      {
+        name: "changed",
+        lines: [internalCartLineRow({ availability_state: "changed" })],
+        expected: [
+          { lineId: "cli_1", reason: "changed", fulfillmentAvailable: false, listingId: "lst_1", price: exactUsd },
+        ],
+      },
+      {
+        name: "shipping-measure-missing",
+        lines: [
+          internalCartLineRow({ seller_options: [{ ...base.seller_options[0]!, product_measure_snapshot: null }] }),
+        ],
+        expected: [
+          {
+            lineId: "cli_1",
+            reason: "shipping-measure-missing",
+            fulfillmentAvailable: false,
+            listingId: "lst_1",
+            price: exactUsd,
+          },
+        ],
+      },
+      {
+        name: "unassigned-fulfillment",
+        lines: [internalCartLineRow({ fulfillment_mode: "optimize", locked_listing_id: null, seller_options: [] })],
+        expected: [
+          {
+            lineId: "cli_1",
+            reason: "unassigned-fulfillment",
+            fulfillmentAvailable: false,
+            listingId: null,
+            price: null,
+          },
+        ],
+      },
+      {
+        name: "snapshot-fallback",
+        lines: [
+          internalCartLineRow({
+            seller_options: [],
+            selected_listing_id: "lst_1",
+            selected_listing_price_amount: "25.00",
+            selected_listing_price_currency_code: "USD",
+            selected_listing_stream_version: 9,
+          }),
+        ],
+        expected: [
+          {
+            lineId: "cli_1",
+            reason: "waiting-for-supply",
+            fulfillmentAvailable: false,
+            listingId: "lst_1",
+            price: exactUsd,
+          },
+        ],
+      },
+      {
+        name: "priced-Smart-Match",
+        lines: [internalCartLineRow({ fulfillment_mode: "optimize", locked_listing_id: null })],
+        expected: [
+          {
+            lineId: "cli_1",
+            reason: "ready",
+            fulfillmentAvailable: true,
+            listingId: "lst_1",
+            price: { state: "indicative", amount: "25.00", currency: "USD" },
+          },
+        ],
+      },
+      {
+        name: "unpriced-invalid-stream",
+        lines: [
+          internalCartLineRow({ seller_options: [{ ...base.seller_options[0]!, listing_stream_version: null }] }),
+        ],
+        expected: [
+          {
+            lineId: "cli_1",
+            reason: "unassigned-fulfillment",
+            fulfillmentAvailable: false,
+            listingId: "lst_1",
+            price: null,
+          },
+        ],
       },
       {
         name: "mixed-currency",
@@ -435,6 +544,22 @@ describe("checkout cart routes", () => {
             ],
           }),
         ],
+        expected: [
+          {
+            lineId: "cli_1",
+            reason: "currency-mismatch",
+            fulfillmentAvailable: true,
+            listingId: "lst_1",
+            price: exactUsd,
+          },
+          {
+            lineId: "cli_eur",
+            reason: "currency-mismatch",
+            fulfillmentAvailable: true,
+            listingId: "lst_eur",
+            price: { state: "exact", amount: "25.00", currency: "EUR" },
+          },
+        ],
       },
       {
         name: "optimization",
@@ -446,6 +571,15 @@ describe("checkout cart routes", () => {
               { ...base.seller_options[0]!, listing_id: "lst_lower", price_amount: "24.00" },
             ],
           }),
+        ],
+        expected: [
+          {
+            lineId: "cli_1",
+            reason: "ready",
+            fulfillmentAvailable: true,
+            listingId: "lst_expensive",
+            price: { state: "exact", amount: "30.00", currency: "USD" },
+          },
         ],
       },
     ];
@@ -464,6 +598,10 @@ describe("checkout cart routes", () => {
         expect(response.status, `${routeKind} ${testCase.name}`).toBe(200);
         const body = (await response.json()) as { readiness: unknown };
         expect(body.readiness, `${routeKind} ${testCase.name}`).toEqual(readiness);
+        expect(body.readiness, `${routeKind} ${testCase.name} explicit facts`).toMatchObject({
+          loaded: { linePresentations: testCase.expected },
+          declined: { linePresentations: testCase.expected },
+        });
       }
     }
   });
@@ -784,6 +922,7 @@ describe("checkout cart routes", () => {
       },
       fulfillmentGroups: [],
       customerSafeFacts: ["Some cart items need attention before checkout."],
+      linePresentations: [],
     });
     const { events, telemetry } = collectCheckoutObservabilityEvents();
     const app = buildApp({
@@ -876,6 +1015,7 @@ describe("checkout cart routes", () => {
           },
         ],
         customerSafeFacts: ["Ready for checkout.", "Save $4.00 by changing fulfillment before checkout."],
+        linePresentations: [],
       });
       const { events, telemetry } = collectCheckoutObservabilityEvents();
       const app = buildApp({
@@ -1874,6 +2014,10 @@ describe("post-claim cart reads through the real Cart runtime", () => {
     };
     expect(guestBody.items).toHaveLength(1);
     expect(guestBody.readiness).toEqual(createCartReadinessRead(guestBody.items));
+    expect(guestBody.readiness).toMatchObject({
+      loaded: { linePresentations: [{ lineId: guestBody.items[0]!.line_id, reason: expect.any(String) }] },
+      declined: { linePresentations: [{ lineId: guestBody.items[0]!.line_id, reason: expect.any(String) }] },
+    });
 
     const accountResponse = await harness
       .accountApp(OTHER)
@@ -1884,6 +2028,10 @@ describe("post-claim cart reads through the real Cart runtime", () => {
     };
     expect(accountBody.items).toHaveLength(1);
     expect(accountBody.readiness).toEqual(createCartReadinessRead(accountBody.items));
+    expect(accountBody.readiness).toMatchObject({
+      loaded: { linePresentations: [{ lineId: accountBody.items[0]!.line_id, reason: expect.any(String) }] },
+      declined: { linePresentations: [{ lineId: accountBody.items[0]!.line_id, reason: expect.any(String) }] },
+    });
   });
 
   it("keeps an indeterminate guest read on the same work and response, and re-decides on retry", async () => {

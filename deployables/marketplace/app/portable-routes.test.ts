@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { createPortableClientRouter, type PortableClientFetch } from "@chase-sets/platform-runtime/portable-client";
 import { discoveryPortableRoutes } from "@chase-sets/discovery/web";
 import { identityPortableRoutes } from "@chase-sets/identity/web";
-import { webContextRegistry } from "./generated/web-context-registry";
+import { webContextRegistry } from "./context-registry";
 import { resolveMarketplaceRouteConfigRecords } from "./host";
 import { marketplaceHostRouteInventory } from "./host-route-inventory";
 import marketplaceRouteConfig from "./routes";
@@ -172,7 +172,7 @@ describe("portable marketplace route composition", () => {
   });
 
   it("inventories every host-local route as explicitly unsupported on mobile", () => {
-    expect(marketplaceHostRouteInventory).toHaveLength(15);
+    expect(marketplaceHostRouteInventory).toHaveLength(14);
     expect(marketplaceHostRouteInventory).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ routePath: "/", owner: "marketplace-web", followUp: "#5238" }),

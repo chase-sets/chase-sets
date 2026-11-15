@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { performance } from "node:perf_hooks";
 import ts from "@chase-sets/typescript-compiler-api";
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import {
   GRANT_KINDS,
   WAKE_LISTENER_EVENT_STORE_TABLES,
@@ -120,8 +120,29 @@ function grantBoundaryMatrix() {
   };
 }
 
-function documentationFixture(source, extension, jsDocParsingMode) {
-  const path = join(import.meta.dirname, `synthetic-jsdoc-preservation.${extension}`).replaceAll("\\", "/");
+const documentationModes = [
+  ["ParseAll", ts.JSDocParsingMode.ParseAll],
+  ["ParseForTypeErrors", ts.JSDocParsingMode.ParseForTypeErrors],
+  ["ParseNone rejecting control", ts.JSDocParsingMode.ParseNone],
+];
+
+function documentationFixtureMatrix() {
+  const started = performance.now();
+  const fixtures = documentationModes.flatMap(([_name, mode]) =>
+    [
+      ["mjs", '// @ts-check\n/** @type {number} */\nexport const syntheticValue = "wrong";'],
+      [
+        "mts",
+        "/** @see syntheticMissingReference */\n/** {@link syntheticMissingReference} */\nexport declare const syntheticValue: number;",
+      ],
+    ].map(([extension, source]) => ({
+      mode,
+      extension,
+      source,
+      path: join(import.meta.dirname, `synthetic-jsdoc-preservation.${mode}.${extension}`).replaceAll("\\", "/"),
+    })),
+  );
+  const sources = new Map(fixtures.map((fixture) => [fixture.path, fixture]));
   const options = {
     allowJs: true,
     strict: true,
@@ -133,12 +154,25 @@ function documentationFixture(source, extension, jsDocParsingMode) {
     types: ["node"],
   };
   const host = ts.createCompilerHost(options);
-  host.jsDocParsingMode = jsDocParsingMode;
+  const getSourceFile = host.getSourceFile;
+  // Each root keeps its own parsing mode; only the dependency graph is shared.
+  host.getSourceFile = (file, languageVersion, onError, shouldCreateNewSourceFile) => {
+    const fixture = sources.get(file.replaceAll("\\", "/"));
+    if (fixture) {
+      return ts.createSourceFile(
+        file,
+        fixture.source,
+        { languageVersion: options.target, jsDocParsingMode: fixture.mode },
+        true,
+      );
+    }
+    return getSourceFile(file, languageVersion, onError, shouldCreateNewSourceFile);
+  };
   const read = host.readFile;
   const exists = host.fileExists;
-  host.readFile = (file) => (file.replaceAll("\\", "/") === path ? source : read(file));
-  host.fileExists = (file) => file.replaceAll("\\", "/") === path || exists(file);
-  const program = ts.createProgram({ rootNames: [path], options, host });
+  host.readFile = (file) => sources.get(file.replaceAll("\\", "/"))?.source ?? read(file);
+  host.fileExists = (file) => sources.has(file.replaceAll("\\", "/")) || exists(file);
+  const program = ts.createProgram({ rootNames: fixtures.map(({ path }) => path), options, host });
   const describeDiagnostic = (diagnostic) => ({
     file: diagnostic.file?.fileName.replaceAll("\\", "/"),
     code: diagnostic.code,
@@ -152,19 +186,37 @@ function documentationFixture(source, extension, jsDocParsingMode) {
     .getPreEmitDiagnostics(program)
     .map(describeDiagnostic)
     .sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right)));
-  const documentation = [];
-  function visitDocumentation(node) {
-    if (ts.isJSDocSeeTag(node) || ts.isJSDocLink(node)) {
-      documentation.push({ kind: node.kind, start: node.pos, end: node.end, text: node.getText() });
+  expect(diagnostics.filter((diagnostic) => !sources.has(diagnostic.file))).toEqual([]);
+  const results = new Map();
+  for (const { mode, extension, path } of fixtures) {
+    const documentation = [];
+    function visitDocumentation(node) {
+      if (ts.isJSDocSeeTag(node) || ts.isJSDocLink(node)) {
+        documentation.push({ kind: node.kind, start: node.pos, end: node.end, text: node.getText() });
+      }
+      ts.forEachChild(node, visitDocumentation);
     }
-    ts.forEachChild(node, visitDocumentation);
+    function visit(node) {
+      for (const doc of node.jsDoc ?? []) visitDocumentation(doc);
+      ts.forEachChild(node, visit);
+    }
+    visit(program.getSourceFile(path));
+    results.set(`${mode}.${extension}`, {
+      path,
+      diagnostics: diagnostics.filter((diagnostic) => diagnostic.file === path),
+      documentation,
+    });
   }
-  function visit(node) {
-    for (const doc of node.jsDoc ?? []) visitDocumentation(doc);
-    ts.forEachChild(node, visit);
-  }
-  visit(program.getSourceFile(path));
-  return { path, diagnostics, documentation };
+  console.info(
+    JSON.stringify({
+      documentationMatrix: {
+        programs: { before: 6, after: 1 },
+        roots: fixtures.length,
+        elapsedMs: performance.now() - started,
+      },
+    }),
+  );
+  return results;
 }
 
 describe("database grant typed module boundary", () => {
@@ -187,48 +239,59 @@ describe("database grant typed module boundary", () => {
     console.info(JSON.stringify({ boundaryMatrix: matrix.work }));
   });
 
-  describe.each([
-    ["ParseAll", ts.JSDocParsingMode.ParseAll],
-    ["ParseForTypeErrors", ts.JSDocParsingMode.ParseForTypeErrors],
-    ["ParseNone rejecting control", ts.JSDocParsingMode.ParseNone],
-  ])("%s", (_name, mode) => {
-    it("retains JS JSDoc type errors", () => {
-      const source = '// @ts-check\n/** @type {number} */\nexport const syntheticValue = "wrong";';
-      const result = documentationFixture(source, "mjs", mode);
-      const expected = [
-        {
-          file: result.path,
-          code: 2322,
-          category: ts.DiagnosticCategory.Error,
-          start: 48,
-          length: 14,
-          message: "Type 'string' is not assignable to type 'number'.",
-          relatedInformation: undefined,
-        },
-      ];
-      if (mode === ts.JSDocParsingMode.ParseNone) {
-        expect(result.diagnostics).toEqual([]);
-        expect(() => expect(result.diagnostics).toEqual(expected)).toThrow();
-      } else {
-        expect(result.diagnostics).toEqual(expected);
-      }
+  describe("JSDoc parsing modes", () => {
+    let fixtures;
+    let started;
+    beforeAll(() => {
+      fixtures = documentationFixtureMatrix();
+    });
+    beforeEach(() => {
+      started = performance.now();
+    });
+    afterEach(({ task }) => {
+      console.info(
+        JSON.stringify({
+          documentationCase: { mode: task.suite.name, name: task.name, elapsedMs: performance.now() - started },
+        }),
+      );
     });
 
-    it("retains TS see/link parsing and diagnostics", () => {
-      const source =
-        "/** @see syntheticMissingReference */\n/** {@link syntheticMissingReference} */\nexport declare const syntheticValue: number;";
-      const result = documentationFixture(source, "mts", mode);
-      const expected = [
-        { kind: ts.SyntaxKind.JSDocSeeTag, start: 4, end: 34, text: "@see syntheticMissingReference" },
-        { kind: ts.SyntaxKind.JSDocLink, start: 42, end: 75, text: "{@link syntheticMissingReference}" },
-      ];
-      expect(result.diagnostics).toEqual([]);
-      if (mode === ts.JSDocParsingMode.ParseNone) {
-        expect(result.documentation).toEqual([]);
-        expect(() => expect(result.documentation).toEqual(expected)).toThrow();
-      } else {
-        expect(result.documentation).toEqual(expected);
-      }
+    describe.each(documentationModes)("%s", (_name, mode) => {
+      it("retains JS JSDoc type errors", () => {
+        const result = fixtures.get(`${mode}.mjs`);
+        const expected = [
+          {
+            file: result.path,
+            code: 2322,
+            category: ts.DiagnosticCategory.Error,
+            start: 48,
+            length: 14,
+            message: "Type 'string' is not assignable to type 'number'.",
+            relatedInformation: undefined,
+          },
+        ];
+        if (mode === ts.JSDocParsingMode.ParseNone) {
+          expect(result.diagnostics).toEqual([]);
+          expect(() => expect(result.diagnostics).toEqual(expected)).toThrow();
+        } else {
+          expect(result.diagnostics).toEqual(expected);
+        }
+      });
+
+      it("retains TS see/link parsing and diagnostics", () => {
+        const result = fixtures.get(`${mode}.mts`);
+        const expected = [
+          { kind: ts.SyntaxKind.JSDocSeeTag, start: 4, end: 34, text: "@see syntheticMissingReference" },
+          { kind: ts.SyntaxKind.JSDocLink, start: 42, end: 75, text: "{@link syntheticMissingReference}" },
+        ];
+        expect(result.diagnostics).toEqual([]);
+        if (mode === ts.JSDocParsingMode.ParseNone) {
+          expect(result.documentation).toEqual([]);
+          expect(() => expect(result.documentation).toEqual(expected)).toThrow();
+        } else {
+          expect(result.documentation).toEqual(expected);
+        }
+      });
     });
   });
 });

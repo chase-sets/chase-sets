@@ -203,6 +203,7 @@ describe("bulk review job routes — Catalog Merge Candidate scope jobs", () => 
     });
 
     expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({ error: { code: "invalid_bulk_job_request" } });
     expect(enqueueCatalogMergeCandidateBulkJob).not.toHaveBeenCalled();
   });
 
@@ -263,7 +264,9 @@ describe("bulk review job routes — Catalog Merge Candidate scope jobs", () => 
   it.each(["", "?scopeRecordId=%20"])("requires a scope for failed-job readback: %s", async (query) => {
     const listFailedCatalogMergeCandidateBulkJobs = vi.fn();
     const app = buildApp({ listFailedCatalogMergeCandidateBulkJobs } as unknown as SourceObservationRouteServices);
-    expect((await app.request(`/source-observations/merge-candidate-bulk-jobs/failed${query}`)).status).toBe(400);
+    const response = await app.request(`/source-observations/merge-candidate-bulk-jobs/failed${query}`);
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({ error: { code: "scope_required" } });
     expect(listFailedCatalogMergeCandidateBulkJobs).not.toHaveBeenCalled();
   });
 
@@ -374,6 +377,7 @@ describe("bulk review job routes — Catalog Merge Candidate scope jobs", () => 
       const response = await app.request(`/source-observations/bulk-jobs/active?${query}`);
 
       expect(response.status).toBe(400);
+      await expect(response.json()).resolves.toMatchObject({ error: { code: "invalid_filter" } });
       expect(listActiveBulkReviewJobs).not.toHaveBeenCalled();
       expect(listCompletedCatalogMergeCandidateBulkJobs).not.toHaveBeenCalled();
     },
@@ -390,6 +394,7 @@ describe("bulk review job routes — Catalog Merge Candidate scope jobs", () => 
     );
 
     expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({ error: { code: "invalid_cursor" } });
   });
 
   it("reads a candidate scope job by id when it is not an observation bulk job", async () => {

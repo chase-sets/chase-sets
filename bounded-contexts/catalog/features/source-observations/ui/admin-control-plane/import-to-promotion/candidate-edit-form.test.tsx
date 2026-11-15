@@ -28,10 +28,7 @@ function row(
     editForm: {
       state: "available",
       blockers: [],
-      baseSnapshotJson: JSON.stringify({
-        identityFingerprint: "sha256:cand",
-        membership: [{ observationId: "obs_1" }],
-      }),
+      candidateVersion: 5,
       promotionIntent: "create-catalog-item",
       catalogItemId: null,
       productIds: ["prod_a"],
@@ -44,12 +41,15 @@ function row(
 }
 
 describe("CatalogMergeCandidateEditForm", () => {
-  it("renders the typed editor with a base snapshot, field inputs, and promotion intent", () => {
+  it("renders the typed editor with the candidate version, field inputs, and promotion intent", () => {
     const { container } = render(<CatalogMergeCandidateEditForm row={row()} readModel={readModel()} />);
 
     expect(container.querySelector('[data-catalog-merge-candidate-edit-form="true"]')).toBeTruthy();
-    expect(container.querySelector('input[name="candidateEditBaseSnapshot"]')).toBeTruthy();
+    // The page posts the version it read and its typed changes, never a snapshot of its own.
+    expect(container.querySelector('input[name="candidateVersion"]')).toHaveProperty("value", "5");
+    expect(container.querySelector('input[name="candidateEditBaseSnapshot"]')).toBeNull();
     expect(container.querySelector('input[name="candidateEditFact.name"]')).toBeTruthy();
+    expect(container.querySelector('input[name="candidateEditFactShown.name"]')).toHaveProperty("value", "Charmander");
     expect(container.querySelector('input[name="candidateEditCatalogItemId"]')).toBeTruthy();
     // Editing submits the candidate.edit intent, preserving audit.
     expect(container.querySelector('input[name="_intent"]')).toHaveProperty("value", "candidate.edit");
@@ -60,7 +60,7 @@ describe("CatalogMergeCandidateEditForm", () => {
   it("renders a blocked explanation instead of inputs when editing is unavailable", () => {
     render(
       <CatalogMergeCandidateEditForm
-        row={row({ state: "blocked", baseSnapshotJson: null, blockers: ["no-promotion-eligible-observations"] })}
+        row={row({ state: "blocked", candidateVersion: null, blockers: ["no-promotion-eligible-observations"] })}
         readModel={readModel()}
       />,
     );

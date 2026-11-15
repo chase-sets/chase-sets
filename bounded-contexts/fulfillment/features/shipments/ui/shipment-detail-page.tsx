@@ -25,10 +25,16 @@ import {
   Textarea,
   productOptionsFromSummary,
 } from "@chase-sets/design-system";
-import type { FulfillmentShipmentDetail } from "./contracts";
+import type { FulfillmentShipmentDetail, ShipmentActionName } from "./contracts";
 
-function canRaiseException(status: string) {
-  return status !== "delivered" && status !== "returned";
+/** Whether the shipment's action plan, from the Fulfillment API, offers this action. */
+function offers(shipment: FulfillmentShipmentDetail, action: ShipmentActionName) {
+  const plan = shipment.action_plan;
+  return plan ? plan.primary === action || plan.disclosed.includes(action) : false;
+}
+
+function actionTone(shipment: FulfillmentShipmentDetail, action: ShipmentActionName) {
+  return shipment.action_plan?.primary === action ? "primary" : "secondary";
 }
 
 function isLetterMailpiece(shipment: FulfillmentShipmentDetail) {
@@ -169,11 +175,7 @@ export function FulfillmentShipmentDetailPage({
   const packingFlowHref = `/account/sales/shipments/${shipment.shipment_id}/packing`;
   const letterMailpiece = isLetterMailpiece(shipment);
   const postagePolicySnapshot = shipment.shipping_plan_snapshot?.postagePolicySnapshot;
-  const canResolveOrderCancellation =
-    (shipment.status === "packing" || shipment.status === "awaiting-label") &&
-    (shipment.conflicts ?? []).some(
-      (conflict) => conflict.conflict_kind === "cancellation" && conflict.origin === "order-cancelled",
-    );
+  const canResolveOrderCancellation = role === "seller" && offers(shipment, "cancel-shipment");
 
   return (
     <Page>
@@ -203,14 +205,14 @@ export function FulfillmentShipmentDetailPage({
                 {t("fulfillment.features.shipments.ui.shipmentDetailPage.print.packing.slip")}
               </LinkButton>
             ) : null}
-            {role === "seller" && shipment.status === "awaiting-package" ? (
+            {role === "seller" && offers(shipment, "start-packing") ? (
               <Form spacing="none" method="post" action={packingFlowHref}>
                 <Button type="submit" name="intent" value="start-packing" leadingIcon="package">
                   {t("fulfillment.features.shipments.ui.shipmentDetailPage.start.packing")}
                 </Button>
               </Form>
             ) : null}
-            {role === "seller" && shipment.status === "packing" ? (
+            {role === "seller" && offers(shipment, "complete-packing") ? (
               <LinkButton href={packingFlowHref} tone="primary" leadingIcon="package">
                 {t("fulfillment.features.shipments.ui.shipmentDetailPage.resume.packing")}
               </LinkButton>
@@ -418,7 +420,12 @@ export function FulfillmentShipmentDetailPage({
             {canResolveOrderCancellation ? (
               <Card elevation="tinted" data-elevation-role="furniture">
                 <Form spacing="none" method="post">
-                  <Button type="submit" name="intent" value="cancel-shipment" tone="secondary">
+                  <Button
+                    type="submit"
+                    name="intent"
+                    value="cancel-shipment"
+                    tone={actionTone(shipment, "cancel-shipment")}
+                  >
                     {t("fulfillment.features.shipments.ui.shipmentDetailPage.cancel.shipment")}
                   </Button>
                 </Form>
@@ -666,7 +673,7 @@ export function FulfillmentShipmentDetailPage({
       {role === "seller" ? (
         <PageSection title={t("fulfillment.features.shipments.ui.shipmentDetailPage.actions")}>
           <Stack gap={3}>
-            {shipment.status === "awaiting-label" && letterMailpiece ? (
+            {offers(shipment, "buy-label") && letterMailpiece ? (
               <Card elevation="tinted" data-elevation-role="furniture">
                 <Form spacing="none" method="post">
                   <Stack gap={3}>
@@ -686,7 +693,7 @@ export function FulfillmentShipmentDetailPage({
               </Card>
             ) : null}
 
-            {shipment.status === "awaiting-label" && !letterMailpiece ? (
+            {offers(shipment, "buy-label") && !letterMailpiece ? (
               <Card elevation="tinted" data-elevation-role="furniture">
                 <Form spacing="none" method="post">
                   <Stack gap={3}>
@@ -746,53 +753,61 @@ export function FulfillmentShipmentDetailPage({
               </Card>
             ) : null}
 
-            {shipment.status === "label-attached" ? (
+            {offers(shipment, "dispatch") || offers(shipment, "void-label") ? (
               <Card elevation="tinted" data-elevation-role="furniture">
                 <Form spacing="none" method="post">
                   <Stack gap={3}>
-                    <Button type="submit" name="intent" value="dispatch-shipment">
-                      {t("fulfillment.features.shipments.ui.shipmentDetailPage.mark.dispatched")}
-                    </Button>
+                    {offers(shipment, "dispatch") ? (
+                      <Button type="submit" name="intent" value="dispatch-shipment">
+                        {t("fulfillment.features.shipments.ui.shipmentDetailPage.mark.dispatched")}
+                      </Button>
+                    ) : null}
                     <TextInput
                       label={t("fulfillment.features.shipments.ui.shipmentDetailPage.tracking.identifier")}
                       name="trackingIdentifier"
                       readOnly
                       defaultValue={shipment.tracking_identifier ?? ""}
                     />
-                    <Button type="submit" name="intent" value="void-label" tone="secondary">
-                      {t("fulfillment.features.shipments.ui.shipmentDetailPage.void.label")}
-                    </Button>
+                    {offers(shipment, "void-label") ? (
+                      <Button type="submit" name="intent" value="void-label" tone={actionTone(shipment, "void-label")}>
+                        {t("fulfillment.features.shipments.ui.shipmentDetailPage.void.label")}
+                      </Button>
+                    ) : null}
                   </Stack>
                 </Form>
               </Card>
             ) : null}
 
-            {shipment.status === "dispatched" || shipment.status === "exception" ? (
+            {offers(shipment, "record-delivery") || offers(shipment, "return") ? (
               <Card elevation="tinted" data-elevation-role="furniture">
                 <Stack gap={3}>
-                  <Form spacing="none" method="post">
-                    <Button type="submit" name="intent" value="deliver-shipment">
-                      {t("fulfillment.features.shipments.ui.shipmentDetailPage.mark.delivered")}
-                    </Button>
-                  </Form>
-                  <Form spacing="none" method="post">
-                    <Stack gap={3}>
-                      <Textarea
-                        label={t("fulfillment.features.shipments.ui.shipmentDetailPage.return.notes")}
-                        name="reason"
-                        rows={3}
-                        defaultValue=""
-                      />
-                      <Button type="submit" name="intent" value="return-shipment" tone="secondary">
-                        {t("fulfillment.features.shipments.ui.shipmentDetailPage.mark.returned")}
+                  {offers(shipment, "record-delivery") ? (
+                    <Form spacing="none" method="post">
+                      <Button type="submit" name="intent" value="deliver-shipment">
+                        {t("fulfillment.features.shipments.ui.shipmentDetailPage.mark.delivered")}
                       </Button>
-                    </Stack>
-                  </Form>
+                    </Form>
+                  ) : null}
+                  {offers(shipment, "return") ? (
+                    <Form spacing="none" method="post">
+                      <Stack gap={3}>
+                        <Textarea
+                          label={t("fulfillment.features.shipments.ui.shipmentDetailPage.return.notes")}
+                          name="reason"
+                          rows={3}
+                          defaultValue=""
+                        />
+                        <Button type="submit" name="intent" value="return-shipment" tone="secondary">
+                          {t("fulfillment.features.shipments.ui.shipmentDetailPage.mark.returned")}
+                        </Button>
+                      </Stack>
+                    </Form>
+                  ) : null}
                 </Stack>
               </Card>
             ) : null}
 
-            {canRaiseException(shipment.status) ? (
+            {offers(shipment, "raise-exception") ? (
               <Card elevation="tinted" data-elevation-role="furniture">
                 <Form spacing="none" method="post">
                   <Stack gap={3}>

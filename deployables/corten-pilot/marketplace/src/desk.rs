@@ -11,15 +11,12 @@
 //!
 //! The page has no writes and no script: every row is a link.
 use corten::{
-    axum::{
-        extract::State,
-        http::{HeaderMap, StatusCode},
-    },
+    extract::State,
+    http::{HeaderMap, StatusCode},
     prelude::*,
 };
 use serde::Serialize;
 
-use crate::chrome::Chrome;
 use crate::{
     api::{AttentionQueue, AttentionRollup, AttentionSource, DeskCalls as _, SellerListingList as _},
     app::{Shared, sign_in},
@@ -78,7 +75,6 @@ pub fn unavailable() -> AttentionQueue {
 
 pub(crate) async fn page(
     req: Req,
-    chrome: Chrome,
     Caller(DeskSeller(viewer)): Caller<DeskSeller>,
     State(config): State<Shared>,
     headers: HeaderMap,
@@ -104,11 +100,10 @@ pub(crate) async fn page(
     let (req, shown) = (&req, &screen);
     let t: DeskMsg = req.t();
     let head = html! { <meta name="description" content={t.meta_description()}> };
-    let cart = chrome.cart().await;
     req.screen(
         &screen,
         html! {
-            <Layout req={req} viewer={Some(&viewer)} cart={cart} title={t.title()} head={head}>
+            <Layout req={req} viewer={Some(&viewer)} title={t.title()} head={head}>
                 <views::DeskPage t={t} screen={shown} />
             </Layout>
         },

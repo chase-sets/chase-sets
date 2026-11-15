@@ -1130,6 +1130,49 @@ describe("platform Kubernetes deployment", () => {
     ).toEqual(expect.arrayContaining(["--values", "infrastructure/helm/platform/values.production.yaml"]));
   });
 
+  it.each([
+    ["platform-pr.yml", "Reset preview namespace", "Deploy preview Kubernetes release"],
+    ["platform-merge-gate-verification.yml", "Create gate namespace", "Deploy gate Kubernetes release"],
+    ["platform-ephemeral-verification.yml", "Reset verification namespace", "Deploy verification Kubernetes release"],
+  ])("pins %s to a fresh preview install without deploy retry", (file, resetName, deployName) => {
+    const workflow = parseYaml(readFileSync(`.github/workflows/${file}`, "utf8"));
+    const job = Object.values(workflow.jobs).find((job) => job.steps?.some((step) => step.name === deployName));
+    const reset = job.steps.findIndex((step) => step.name === resetName);
+    const deploy = job.steps.findIndex((step) => step.name === deployName);
+    expect(reset).toBeGreaterThanOrEqual(0);
+    expect(reset).toBeLessThan(deploy);
+    if (file === "platform-merge-gate-verification.yml") {
+      expect(job.env.CHASE_SETS_KUBERNETES_NAMESPACE).toBe(
+        "chase-sets-gate-${{ github.run_id }}-${{ github.run_attempt }}",
+      );
+      expect(job.steps[reset].run).toContain("kubectl create -f -");
+    } else {
+      expect(job.steps[reset].run).toContain(
+        'kubectl delete namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" --ignore-not-found --wait=true',
+      );
+      expect(job.steps[reset].run).toContain('kubectl create namespace "$CHASE_SETS_KUBERNETES_NAMESPACE"');
+      if (file === "platform-ephemeral-verification.yml") {
+        expect(job.env.CHASE_SETS_KUBERNETES_NAMESPACE).toBe(
+          "chase-sets-verify-${{ github.run_id }}-${{ github.run_attempt }}",
+        );
+      }
+    }
+    const run = job.steps[deploy].run;
+    expect(run.match(/pnpm run platform:kubernetes-deployment -- deploy/g)).toHaveLength(1);
+    expect(run).toContain("DEPLOYMENT_ENVIRONMENT=preview");
+    expect(run).not.toMatch(/--attempts-out|--admission-retry|\b(for|while|until)\b|continue-on-error/);
+    expect(job.steps[deploy]["continue-on-error"]).not.toBe(true);
+    const args = buildHelmUpgradeArgs({
+      release: "preview-fixture",
+      namespace: "preview-fixture",
+      timeout: "15m",
+      image: "registry.digitalocean.com/chase-sets/chase-sets-platform:fixture",
+      envOverrides: { DEPLOYMENT_ENVIRONMENT: "preview", PREVIEW_IDENTIFIER: "pr-9963" },
+    });
+    expect(args.slice(0, 2)).toEqual(["upgrade", "--install"]);
+    expect(args).toEqual(expect.arrayContaining(["--values", "infrastructure/helm/platform/values.preview.yaml"]));
+  });
+
   it("enables in-cluster collection with environment-safe export only for long-lived environments", () => {
     const stagingArgs = buildHelmUpgradeArgs({
       release: "chase-sets-platform",
@@ -1335,7 +1378,9 @@ describe("platform Kubernetes deployment", () => {
 
     // The env helper computes the origin from the platform-api component name
     // (which is release-fullname-derived), not from the baked base value.
-    expect(envHelper).toContain('{{- else if eq .name "CHASE_SETS_INTERNAL_API_ORIGIN" }}');
+    const computedOriginBranch =
+      '{{- else if or (eq .name "CHASE_SETS_INTERNAL_API_ORIGIN") (eq .name "PLATFORM_API_ORIGIN") }}';
+    expect(envHelper).toContain(computedOriginBranch);
     expect(envHelper).toContain(
       'value: {{ printf "http://%s:8080" (include "chase-sets-platform.componentName" (dict "root" $root "name" "platform-api")) | quote }}',
     );
@@ -1344,7 +1389,7 @@ describe("platform Kubernetes deployment", () => {
     // the computed origin sits ahead of the plain base-value fallback so the
     // baked staging default can never leak into a preview release.
     const globalOverrideBranch = envHelper.indexOf("hasKey $envOverrides .name");
-    const originBranch = envHelper.indexOf('{{- else if eq .name "CHASE_SETS_INTERNAL_API_ORIGIN" }}');
+    const originBranch = envHelper.indexOf(computedOriginBranch);
     const baseValueBranch = envHelper.indexOf('value: {{ default "" .value | quote }}');
     expect(globalOverrideBranch).toBeGreaterThan(-1);
     expect(originBranch).toBeGreaterThan(globalOverrideBranch);
@@ -5293,6 +5338,120 @@ describe("platform Kubernetes deployment", () => {
     });
   });
 
+  describe("component image rollback identity", () => {
+    const pilotImage = `registry.digitalocean.com/chase-sets/chase-sets-corten-admin@sha256:${"c".repeat(64)}`;
+    const values = {
+      ...rollbackValues,
+      components: {
+        ...rollbackValues.components,
+        "admin-corten": { enabled: true, kind: "service", image: pilotImage },
+      },
+    };
+    const before = [{ revision: 3, status: "deployed", description: "Upgrade complete" }];
+    const after = [
+      { revision: 3, status: "superseded", description: "Upgrade complete" },
+      { revision: 4, status: "deployed", description: "Rollback to 3" },
+    ];
+    const workloadList = (image = pilotImage) => {
+      const list = JSON.parse(rollbackWorkloadList());
+      list.items.push({
+        kind: "Deployment",
+        metadata: {
+          name: "proof-chase-sets-platform-admin-corten",
+          labels: { "app.kubernetes.io/component": "admin-corten" },
+        },
+        spec: { template: { spec: { containers: [{ name: "admin-corten", image }] } } },
+      });
+      return JSON.stringify(list);
+    };
+    const captureOptions = (image = pilotImage, recordedValues = values) => ({
+      values: recordedValues,
+      release: "proof",
+      namespace: "staging",
+      registryName: "chase-sets",
+      repository: "chase-sets-platform",
+      tag: rollbackTag,
+      digest: rollbackDigest,
+      lastKnownGoodCommit: rollbackTag,
+      releaseTag: "release-synthetic-split-image",
+      spawn: completedSpawn(
+        [],
+        [
+          { code: 0, stdout: helmHistory(before) },
+          { code: 0, stdout: JSON.stringify(recordedValues) },
+          { code: 0, stdout: workloadList(image) },
+          { code: 0, stdout: helmHistory(before) },
+        ],
+      ),
+    });
+
+    it("captures the recorded pilot digest alongside the global platform image", async () => {
+      const target = await captureKubernetesRollbackTarget(captureOptions());
+      expect(target.workloadIdentities).toEqual([
+        expect.objectContaining({
+          component: "admin-corten",
+          images: [{ container: "admin-corten", containerType: "application", image: pilotImage }],
+        }),
+        expect.objectContaining({
+          component: "platform-worker",
+          images: [{ container: "platform-worker", containerType: "application", image: rollbackImageRef }],
+        }),
+      ]);
+    });
+
+    it("refuses capture when the pilot digest differs from its recorded image", async () => {
+      await expect(
+        captureKubernetesRollbackTarget(captureOptions(pilotImage.replace("c".repeat(64), "d".repeat(64)))),
+      ).rejects.toThrow("does not match");
+    });
+
+    it.each(["", "registry.digitalocean.com/chase-sets/chase-sets-corten-admin:latest"])(
+      "refuses a recorded pilot image without an immutable digest: %s",
+      async (image) => {
+        const recordedValues = structuredClone(values);
+        recordedValues.components["admin-corten"].image = image;
+        await expect(captureKubernetesRollbackTarget(captureOptions(pilotImage, recordedValues))).rejects.toThrow();
+      },
+    );
+
+    it.each([false, true])("verifies restored pilot identity with altered digest=%s", async (altered) => {
+      const rollbackTarget = await captureKubernetesRollbackTarget(captureOptions());
+      const result = await rollbackPlatformOnKubernetes({
+        values,
+        release: "proof",
+        namespace: "staging",
+        releaseExists: true,
+        revision: "3",
+        rollbackTarget,
+        spawn: completedSpawn(
+          [],
+          [
+            { code: 0, stdout: helmHistory(before) },
+            { code: 0, stdout: JSON.stringify(values) },
+            { code: 0, stdout: helmHistory(before) },
+            { code: 0 },
+            { code: 0 },
+            { code: 0 },
+            { code: 0, stdout: helmHistory(after) },
+            { code: 0, stdout: JSON.stringify(values) },
+            {
+              code: 0,
+              stdout: workloadList(altered ? pilotImage.replace("c".repeat(64), "d".repeat(64)) : pilotImage),
+            },
+            { code: 0, stdout: helmHistory(after) },
+          ],
+        ),
+      });
+      expect(result.result).toBe(altered ? "failure" : "success");
+      if (altered) {
+        expect(result.reason).toContain("admin-corten");
+        expect(result.reason).toContain("does not match");
+      } else {
+        expect(result.rollbackIdentity.workloadIdentities).toEqual(rollbackTarget.workloadIdentities);
+      }
+    });
+  });
+
   it("cryptographically binds an index to its digest before accepting its production platform manifest", async () => {
     const rawIndex = JSON.stringify(productionIndex);
     const capturedIndexDigest = `sha256:${createHash("sha256").update(rawIndex).digest("hex")}`;
@@ -7223,6 +7382,9 @@ describe("preview Postgres connection ceiling and diagnostics (#10022)", () => {
       namespace,
       timeout: "15m",
       image: "registry.digitalocean.com/chase-sets/chase-sets-platform:release-sha",
+      ...(environment === "staging"
+        ? { cortenAdminImage: `registry.digitalocean.com/chase-sets/chase-sets-corten-admin@sha256:${"a".repeat(64)}` }
+        : {}),
       envOverrides: {
         DEPLOYMENT_ENVIRONMENT: environment,
         ...(environment === "preview" ? { PREVIEW_IDENTIFIER: "pr-123" } : {}),
@@ -7258,13 +7420,13 @@ describe("preview Postgres connection ceiling and diagnostics (#10022)", () => {
 
   it("reserves memory and requires single-node, cross-namespace release isolation for PR, gate and verify", () => {
     const memoryByComponent = {
-      "public-web": "1024Mi",
-      marketplace: "1152Mi",
-      "admin-web": "832Mi",
-      "platform-api": "640Mi",
-      "platform-worker": "832Mi",
-      "platform-bootstrap": "1152Mi",
-      "preview-postgres": "448Mi",
+      "public-web": "1216Mi",
+      marketplace: "1280Mi",
+      "admin-web": "960Mi",
+      "platform-api": "1408Mi",
+      "platform-worker": "960Mi",
+      "platform-bootstrap": "896Mi",
+      "preview-postgres": "512Mi",
     };
     for (const release of ["chase-sets-pr-123", "chase-sets-gate-1-1", "chase-sets-verify-1-1"]) {
       const args = deployArgs("preview", release);
@@ -7278,7 +7440,10 @@ describe("preview Postgres connection ceiling and diagnostics (#10022)", () => {
         const component = pod.metadata.labels["app.kubernetes.io/component"];
         const { spec, metadata } = pod.spec.template;
         expect(spec.containers).toHaveLength(1);
-        expect(spec.containers[0].resources).toEqual({ requests: { memory: memoryByComponent[component] } });
+        expect(spec.containers[0].resources).toEqual({
+          requests: { cpu: component === "platform-bootstrap" ? "250m" : "100m", memory: memoryByComponent[component] },
+          limits: { memory: memoryByComponent[component] },
+        });
         const selector = (operator) => ({
           matchExpressions: [
             { key: "app.kubernetes.io/name", operator: "In", values: ["chase-sets-platform"] },
@@ -7307,6 +7472,7 @@ describe("preview Postgres connection ceiling and diagnostics (#10022)", () => {
         } else if (component === "platform-bootstrap") {
           expect(pod.kind).toBe("Job");
           expect(pod.metadata.annotations["helm.sh/hook-weight"]).toBe("-20");
+          expect(pod.metadata.annotations["helm.sh/hook-delete-policy"]).toContain("hook-succeeded");
           expect(pod.spec.activeDeadlineSeconds).toBe(890);
         } else {
           expect(pod.kind).toBe("Deployment");

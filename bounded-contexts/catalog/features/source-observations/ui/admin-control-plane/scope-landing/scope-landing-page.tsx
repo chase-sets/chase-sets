@@ -278,7 +278,12 @@ function AttentionQueueHomeSlot({
   canManage: boolean;
 }>) {
   return result.status === "ready" ? (
-    <CatalogAttentionQueuePanel readModel={result.readModel} actionHref={actionHref} canManage={canManage} />
+    <CatalogAttentionQueuePanel
+      readModel={result.readModel}
+      actionHref={actionHref}
+      canManage={canManage}
+      navigation={result.navigation}
+    />
   ) : (
     <OperationalStatusBanner
       tone="warning"

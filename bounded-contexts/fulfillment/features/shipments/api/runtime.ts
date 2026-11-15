@@ -57,6 +57,7 @@ import {
   getShipmentForPostageRecovery,
   listStaleFulfillmentPostageLabelOperations,
   listStaleFulfillmentPostageLabelVoidOperations,
+  listSellerCommandCenterShipments,
   listSellerPackingSlips,
   listBuyerShipments,
   listSellerShipments,
@@ -93,6 +94,7 @@ import {
   ShipmentHistoryPoisonedError,
 } from "../domain/mutation-attempt";
 import { assertShipmentActionAllowed } from "../domain/shipment-action";
+import { buildFulfillmentCommandCenter, type FulfillmentCommandCenter } from "../read-model/command-center";
 import {
   claimPostageOperationForFinalization,
   claimReservedPostageOperation,
@@ -331,6 +333,9 @@ export type FulfillmentShipmentServices = Readonly<{
   getBuyerShipment: (shipmentId: string, buyerAccountId: string) => ReturnType<typeof getBuyerShipment>;
   listSellerShipments: (params: Parameters<typeof listSellerShipments>[1]) => ReturnType<typeof listSellerShipments>;
   getSellerShipment: (shipmentId: string, sellerAccountId: string) => ReturnType<typeof getSellerShipment>;
+  // The seller's command center: the shipments that need them now, bucketed, ordered by the
+  // Seller Desk attention policy, each with its action plan.
+  getSellerCommandCenter: (params: Readonly<{ sellerAccountId: string }>) => Promise<FulfillmentCommandCenter>;
   recoverShipmentMutation: (
     params: Readonly<{ shipmentId: string; sellerAccountId: string; mutationAttemptId: string }>,
     context: EventStoreContext,
@@ -1301,6 +1306,27 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
     return `shipment:${shipment.shipment_id}:purchase-usps-label:${attemptScope}`;
   }
 
+  // The stored Shipment, not its page row, decides whether postage may be bought. Callers run this before a fresh
+  // purchase operation is reserved or the provider is invoked, so a lagging row can never let a cancelled or
+  // already-labelled Shipment buy postage. Replays of an operation that already exists keep their own protocol.
+  async function requireStoredShipmentAcceptsLabelPurchase(shipmentId: string) {
+    const stored = await repository.load(`fulfillment.shipment-${shipmentId}`);
+    if (stored.state.status === null) {
+      throw new FulfillmentDomainError("Shipment not found.");
+    }
+    assertShipmentActionAllowed("buy-label", {
+      status: stored.state.status,
+      labelStatus: stored.state.labelStatus,
+      conflicts: stored.state.conflicts.map((conflict) => ({
+        conflict_kind: conflict.conflictKind,
+        origin: conflict.origin,
+      })),
+    });
+    if (stored.state.packageStatus !== "packed") {
+      throw new FulfillmentDomainError("Shipment must be packed and awaiting a label before postage can be purchased.");
+    }
+  }
+
   async function getShipmentVersion(shipmentId: string) {
     const loaded = await repository.load(`fulfillment.shipment-${shipmentId}`);
     return loaded.version;
@@ -2145,11 +2171,6 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
         params.sellerAccountId,
         params.mutationAttemptId ? context : undefined,
       );
-      if (shipment.status !== "awaiting-label" || shipment.package_status !== "packed") {
-        throw new FulfillmentDomainError(
-          "Shipment must be packed and awaiting a label before postage can be purchased.",
-        );
-      }
       const senderSnapshot = normalizeAddressSnapshot(
         shipment.shipping_origin_snapshot ?? {
           name: "",
@@ -2243,6 +2264,16 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
           target: targetKey,
           request: authoritativeRequest,
         });
+        const priorOperation = await findPostageOperationByDigest(deps.db, {
+          tenantId,
+          sellerAccountId: params.sellerAccountId,
+          subjectKind: "shipment",
+          subjectId: params.shipmentId,
+          keyDigest,
+        });
+        if (!priorOperation) {
+          await requireStoredShipmentAcceptsLabelPurchase(params.shipmentId);
+        }
         const reservation = await reservePostageOperation(deps.db, {
           tenantId,
           sellerAccountId: params.sellerAccountId,
@@ -2472,6 +2503,15 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
         throw new FulfillmentDomainError(
           "Postage label purchase is already in progress; retry after recovery completes.",
         );
+      }
+      try {
+        await requireStoredShipmentAcceptsLabelPurchase(params.shipmentId);
+      } catch (error) {
+        await recordFulfillmentPostageLabelOperationFailed(deps.db, {
+          operationKey,
+          errorMessage: error instanceof Error ? error.message : "Label purchase was refused.",
+        });
+        throw error;
       }
 
       let purchasedLabel;
@@ -3092,6 +3132,8 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
     getBuyerShipment: (shipmentId, buyerAccountId) => getBuyerShipment(deps.db, shipmentId, buyerAccountId),
     listSellerShipments: (params) => listSellerShipments(deps.db, params),
     getSellerShipment: (shipmentId, sellerAccountId) => getSellerShipment(deps.db, shipmentId, sellerAccountId),
+    getSellerCommandCenter: async (params) =>
+      buildFulfillmentCommandCenter(await listSellerCommandCenterShipments(deps.db, params)),
     listSellerPackingSlips: (params) => listSellerPackingSlips(deps.db, params),
     projectors: [
       createProjectionHandlerSet({

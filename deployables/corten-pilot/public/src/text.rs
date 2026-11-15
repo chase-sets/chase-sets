@@ -3,10 +3,10 @@
 //! scripts/export.mjs, so the copy cannot drift; `Pilot` is what the pilot says itself, the
 //! design system's English chart words among it. `messages!` checks every call against the
 //! catalogs when the crate compiles.
-pub use compare::CompareMsg;
-pub use developers::DevelopersMsg;
+pub use compare::{CompareMsg, compare_msg};
+pub use developers::{DevelopersMsg, developers_msg};
 pub use help::HelpMsg;
-pub use home::HomeMsg;
+pub use home::{HomeMsg, home_msg};
 pub use market::MarketMsg;
 pub use pilot::Pilot;
 pub use policy::PolicyMsg;
@@ -47,8 +47,10 @@ mod policy {
     }
 }
 
-mod pilot {
+/// The arguments of Pilot's messages that take two or more are `text::pilot::..`.
+pub(crate) mod pilot {
     corten::i18n::messages! {
         pub struct Pilot { "en" => "locales/pilot.en.json" }
     }
+    pub(crate) use self::pilot::*;
 }

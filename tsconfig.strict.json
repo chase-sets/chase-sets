@@ -3,12 +3,8 @@
 // they import under both flags. A strict-set file that imports non-strict code
 // surfaces that code's errors: fix or avoid the import. Adding another root, or
 // editing an imported file outside these roots, needs its own issue.
-// contracts/catalog-seed is excluded by name: every file in it is a bootstrap DB
-// enrollment workload input pinned by raw SHA-256 in
-// deployables/platform-api/__tests__/fixtures/db-enrollment-workload-<run>.json,
-// so its strict repairs need a host-serialized re-enrollment capture. A sibling
-// issue adds it. A child "exclude" replaces the parent's list, so tsconfig.json's
-// entries are restated here.
+// A child "exclude" replaces the parent's list, so tsconfig.json's entries are
+// restated here.
 {
   "extends": "./tsconfig.json",
   "compilerOptions": {
@@ -23,7 +19,6 @@
     "**/build/**",
     "**/coverage/**",
     "**/dist/**",
-    "**/node_modules/**",
-    "contracts/catalog-seed/**"
+    "**/node_modules/**"
   ]
 }

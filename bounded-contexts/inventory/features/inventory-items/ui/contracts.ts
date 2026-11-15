@@ -5,6 +5,7 @@ import type {
   InventoryHoldReleaseReason,
   InventoryHoldSourceRef,
   InventoryOfflineSaleChannel,
+  InventoryProducerAdjustmentReason,
 } from "@chase-sets/event-core/public-event-payloads";
 
 export type InventoryHold = Readonly<{
@@ -43,7 +44,7 @@ export type InventoryItemLedgerEntry = Readonly<{
   hold_quantity: number | null;
   purpose: InventoryHoldPurpose | null;
   reason: string;
-  reason_code: InventoryAdjustmentReason | null;
+  reason_code: InventoryAdjustmentReason | InventoryProducerAdjustmentReason | null;
   note: string | null;
   sale_price_amount: string | null;
   channel: InventoryOfflineSaleChannel | null;

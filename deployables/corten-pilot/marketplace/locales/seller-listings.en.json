@@ -196,6 +196,8 @@
   "list.bulk.action.results": "{succeeded} succeeded, {failed} failed",
   "list.bulk.action.succeeded": "Succeeded",
   "list.bulk.action.failed": "Failed",
+  "list.bulk.action.conflict": "Changed elsewhere",
+  "list.bulk.action.unknown": "Unconfirmed",
   "route.bulk.action.listing.label": "Listing {listingId}",
   "route.bulk.action.request.failed": "Bulk listing action failed.",
   "route.account.access": "Account access",

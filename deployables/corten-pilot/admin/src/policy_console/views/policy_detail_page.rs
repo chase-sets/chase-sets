@@ -1,8 +1,9 @@
 //! A policy's page (`PolicyConsoleDetailPage`). Top to bottom: the header (its context, key and
 //! schema), the publication runbook, what is in effect and what is scheduled (side by side from
 //! 48rem), the revision form for an operator who may revise, and the revision history (a table that
-//! scrolls on its own on a phone).
+//! stacks on a phone, a row a block of labelled lines).
 use corten::prelude::*;
+use platform::ui::table::{CellLabel, Table as KitTable, TableLayout};
 
 use super::{status, when};
 use crate::{
@@ -124,30 +125,50 @@ pub fn PolicyDetailPage<'a>(o: Ops, here: &'a Here, screen: &'a PolicyScreen) ->
             <section class={Card} aria-labelledby="policy-history">
                 <h2 class={Heading} id="policy-history">{o.policy_detail_history_title()}</h2>
                 <div class={Scroll}>
-                    <table class={Table}>
-                        <thead>
-                            <tr>
-                                <th scope="col">{o.policy_detail_history_event()}</th>
-                                <th scope="col">{o.policy_detail_status()}</th>
-                                <th scope="col">{o.policy_detail_effective_from()}</th>
-                                <th scope="col">{o.policy_detail_effective_until()}</th>
-                                <th scope="col">{o.policy_detail_history_actor()}</th>
-                                <th scope="col">{o.policy_detail_history_recorded_at()}</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            for row in &screen.history {
+                    <KitTable layout={TableLayout::Stack}>
+                        <table class={Table}>
+                            <thead>
                                 <tr>
-                                    <td>{&row.event_type}</td>
-                                    <td>{status(o, &row.status).0}</td>
-                                    <td>{when(o, here, &row.effective_from)}</td>
-                                    <td>{at(row.effective_until.as_deref(), o.policy_detail_open_ended())}</td>
-                                    <td>{&row.actor_user_id}</td>
-                                    <td>{when(o, here, &row.recorded_at)}</td>
+                                    <th scope="col">{o.policy_detail_history_event()}</th>
+                                    <th scope="col">{o.policy_detail_status()}</th>
+                                    <th scope="col">{o.policy_detail_effective_from()}</th>
+                                    <th scope="col">{o.policy_detail_effective_until()}</th>
+                                    <th scope="col">{o.policy_detail_history_actor()}</th>
+                                    <th scope="col">{o.policy_detail_history_recorded_at()}</th>
                                 </tr>
-                            }
-                        </tbody>
-                    </table>
+                            </thead>
+                            <tbody>
+                                for row in &screen.history {
+                                    <tr>
+                                        <td>
+                                            <CellLabel>{o.policy_detail_history_event()}</CellLabel>
+                                            {&row.event_type}
+                                        </td>
+                                        <td>
+                                            <CellLabel>{o.policy_detail_status()}</CellLabel>
+                                            {status(o, &row.status).0}
+                                        </td>
+                                        <td>
+                                            <CellLabel>{o.policy_detail_effective_from()}</CellLabel>
+                                            {when(o, here, &row.effective_from)}
+                                        </td>
+                                        <td>
+                                            <CellLabel>{o.policy_detail_effective_until()}</CellLabel>
+                                            {at(row.effective_until.as_deref(), o.policy_detail_open_ended())}
+                                        </td>
+                                        <td>
+                                            <CellLabel>{o.policy_detail_history_actor()}</CellLabel>
+                                            {&row.actor_user_id}
+                                        </td>
+                                        <td>
+                                            <CellLabel>{o.policy_detail_history_recorded_at()}</CellLabel>
+                                            {when(o, here, &row.recorded_at)}
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </KitTable>
                 </div>
             </section>
         </div>

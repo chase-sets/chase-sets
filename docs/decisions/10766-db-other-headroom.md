@@ -1,6 +1,11 @@
 # DB-other headroom decision
 
-**Decision status: `REJECT_AND_ESCALATE`**
+**Decision status: `SUPERSEDED`**
+
+The [replacement scope for #10766 Restore deterministic headroom for Platform PR DB Profile Tests (other)](https://github.com/chase-sets/chase-sets/issues/10766#issuecomment-6875676168)
+sets the DB job timeout to 45 minutes (2,700,000 ms), retaining concurrency 3,
+the 600,000 ms workspace ceiling, and coverage. The rejected decision and
+calculation below are historical evidence, not current implementation constraints.
 
 This Probe is decision-only. It does not change the runner, workflow, tests,
 timeouts, concurrency, retry semantics, or coverage. The implementation

@@ -71,7 +71,7 @@ let dimensionUrl = "";
   check(new URL(page.url()).pathname === "/catalog/dimensions", "the area opens on the dimensions");
   check((await page.locator("h1").textContent()) === "Dimensions", "the list renders in the shell");
   check(
-    (await page.locator('nav a[aria-current="page"]').textContent()) === "Dimensions",
+    (await page.locator('nav a[aria-current="page"]').allTextContents()).map((t) => t.trim()).includes("Dimensions"),
     "the catalog's nav marks the page",
   );
   check(
@@ -209,7 +209,7 @@ let dimensionUrl = "";
   await page.goto(`${base}/catalog/fields`);
   await navigated(page);
   check(
-    (await page.locator('nav a[aria-current="page"]').textContent()) === "Fields",
+    (await page.locator('nav a[aria-current="page"]').allTextContents()).map((t) => t.trim()).includes("Fields"),
     "the fields list is the catalog nav's Fields",
   );
   await page.getByRole("button", { name: "New Field" }).click();

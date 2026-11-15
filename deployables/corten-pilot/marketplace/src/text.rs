@@ -1,48 +1,49 @@
 //! The screens' text. `Msg` (storage locations) and `Restock` (restock decisions) are the
 //! Inventory context's own catalogs for each screen, `ItemMsg` the Discovery context's item page's,
-//! `SearchMsg` the Discovery context's search page's, `ListingMsg` its public listing page's, `AccountMsg` its public account page's (with Reputation's review words), `AddressesMsg` the Identity context's shipping addresses page's, `AccountHomeMsg` its account page's, `SecurityMsg` its security page's, `TeamMsg` its team page's, `ConsentsMsg` its consent history's, `ReviewsMsg` the Reputation context's account review pages', `SessionsMsg` the Auth context's session pages', `AgentsMsg` its connected agents pages', `ListingNewMsg` the Marketplace context's Create listing page's, `SellerListingMsg` its seller's listing page's, `SellerListingsMsg` its seller's list of listings', `OfferMatchesMsg` its seller's offer matches', `SubmittedOffersMsg` its buyer's submitted offers', `InventoryMsg` the Inventory context's inventory list's, `NotificationsMsg` the Notifications context's notification center's, `OrdersMsg` the Ordering context's order pages', `ImportsMsg` the Inventory context's import page's, `ShipmentsMsg` the Fulfillment context's shipment pages', `CartMsg` the Checkout context's cart page's, `SellListMsg` its Sell List's (with Marketplace's evidence coverage words), `CheckoutMsg` its buy checkout page's, `DeskMsg` the Marketplace context's Seller Desk home's, `MoneyMsg` the Settlement context's Seller Desk money page's, `PaymentMethodsMsg` the Payments context's saved payment methods page's (with its payment page's secure step words), `PaymentStartMsg` its page for starting a payment for a buyer's orders, `SupportMsg` the Platform Operations context's Support Request participant page's, `SignInMsg` the Auth context's sign-in, magic link and account selection pages' (exported from contracts/localization by
+//! `SearchMsg` the Discovery context's search page's, `ListingMsg` its public listing page's, `AccountMsg` its public account page's (with Reputation's review words), `AddressesMsg` the Identity context's shipping addresses page's, `AccountHomeMsg` its account page's, `SecurityMsg` its security page's, `TeamMsg` its team page's, `ConsentsMsg` its consent history's, `ReviewsMsg` the Reputation context's account review pages', `SessionsMsg` the Auth context's session pages', `AgentsMsg` its connected agents pages', `ListingNewMsg` the Marketplace context's Create listing page's, `SellerListingMsg` its seller's listing page's, `SellerListingsMsg` its seller's list of listings', `OfferMatchesMsg` its seller's offer matches', `SubmittedOffersMsg` its buyer's submitted offers', `InventoryMsg` the Inventory context's inventory list's, `NotificationsMsg` the Notifications context's notification center's, `OrdersMsg` the Ordering context's order pages', `ImportsMsg` the Inventory context's import page's, `ShipmentsMsg` the Fulfillment context's shipment pages', `ShippingSetupMsg` its seller shipping setup's, `CartMsg` the Checkout context's cart page's, `SellListMsg` its Sell List's (with Marketplace's evidence coverage words), `CheckoutMsg` its buy checkout page's, `DeskMsg` the Marketplace context's Seller Desk home's, `MoneyMsg` the Settlement context's Seller Desk money page's, `PaymentMethodsMsg` the Payments context's saved payment methods page's (with its payment page's secure step words), `PaymentStartMsg` its page for starting a payment for a buyer's orders, `SupportMsg` the Platform Operations context's Support Request participant page's, `SignInMsg` the Auth context's sign-in, magic link and account selection pages' (exported from contracts/localization by
 //! scripts/export.mjs, so the copy cannot drift); `Pilot` is the pilot's shell, input checks and
 //! the routes' own messages. `messages!` checks every call against the catalogs when the crate
 //! compiles.
-pub use account::AccountMsg;
-pub use account_home::AccountHomeMsg;
+pub use account::{AccountMsg, account_msg};
+pub use account_home::{AccountHomeMsg, account_home_msg};
 pub use addresses::AddressesMsg;
-pub use agents::AgentsMsg;
-pub use cart::CartMsg;
-pub use channels::ChannelsMsg;
-pub use checkout::CheckoutMsg;
-pub use consents::ConsentsMsg;
-pub use desk::DeskMsg;
-pub use imports::ImportsMsg;
+pub use agents::{AgentsMsg, agents_msg};
+pub use cart::{CartMsg, cart_msg};
+pub use channels::{ChannelsMsg, channels_msg};
+pub use checkout::{CheckoutMsg, checkout_msg};
+pub use consents::{ConsentsMsg, consents_msg};
+pub use desk::{DeskMsg, desk_msg};
+pub use imports::{ImportsMsg, imports_msg};
 pub use inventory::Msg;
-pub use inventory_list::InventoryMsg;
-pub use item::ItemMsg;
+pub use inventory_list::{InventoryMsg, inventory_msg};
+pub use item::{ItemMsg, item_msg};
 pub use listing::ListingMsg;
-pub use listing_new::ListingNewMsg;
+pub use listing_new::{ListingNewMsg, listing_new_msg};
 pub use money::MoneyMsg;
 pub use notifications::NotificationsMsg;
-pub use offer_matches::OfferMatchesMsg;
-pub use orders::OrdersMsg;
-pub use payment::PaymentMsg;
+pub use offer_matches::{OfferMatchesMsg, offer_matches_msg};
+pub use orders::{OrdersMsg, orders_msg};
+pub use payment::{PaymentMsg, payment_msg};
 pub use payment_methods::PaymentMethodsMsg;
-pub use payment_start::PaymentStartMsg;
+pub use payment_start::{PaymentStartMsg, payment_start_msg};
 pub use pilot::Pilot;
-pub use repricing::RepricingMsg;
+pub use repricing::{RepricingMsg, repricing_msg};
 pub use restock::Restock;
-pub use reviews::ReviewsMsg;
-pub use search::SearchMsg;
-pub use security::SecurityMsg;
+pub use reviews::{ReviewsMsg, reviews_msg};
+pub use search::{SearchMsg, search_msg};
+pub use security::{SecurityMsg, security_msg};
 pub use sell_checkout::SellCheckoutMsg;
-pub use sell_list::SellListMsg;
-pub use seller_listing::SellerListingMsg;
-pub use seller_listings::SellerListingsMsg;
-pub use sessions::SessionsMsg;
-pub use shipments::ShipmentsMsg;
-pub use sign_in::SignInMsg;
+pub use sell_list::{SellListMsg, sell_list_msg};
+pub use seller_listing::{SellerListingMsg, seller_listing_msg};
+pub use seller_listings::{SellerListingsMsg, seller_listings_msg};
+pub use sessions::{SessionsMsg, sessions_msg};
+pub use shipments::{ShipmentsMsg, shipments_msg};
+pub use shipping_setup::ShippingSetupMsg;
+pub use sign_in::{SignInMsg, sign_in_msg};
 pub use site::SiteMsg;
-pub use submitted_offers::SubmittedOffersMsg;
-pub use support::SupportMsg;
-pub use team::TeamMsg;
+pub use submitted_offers::{SubmittedOffersMsg, submitted_offers_msg};
+pub use support::{SupportMsg, support_msg};
+pub use team::{TeamMsg, team_msg};
 
 mod sign_in {
     corten::i18n::messages! {
@@ -176,6 +177,12 @@ mod shipments {
     }
 }
 
+mod shipping_setup {
+    corten::i18n::messages! {
+        pub struct ShippingSetupMsg { "en" => "locales/shipping_setup.en.json" }
+    }
+}
+
 mod orders {
     corten::i18n::messages! {
         pub struct OrdersMsg { "en" => "locales/orders.en.json" }
@@ -273,8 +280,10 @@ mod search {
     }
 }
 
-mod pilot {
+/// The arguments of Pilot's messages that take two or more are `text::pilot::..`.
+pub(crate) mod pilot {
     corten::i18n::messages! {
         pub struct Pilot { "en" => "locales/pilot.en.json" }
     }
+    pub(crate) use self::pilot::*;
 }
