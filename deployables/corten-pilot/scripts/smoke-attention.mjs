@@ -107,7 +107,14 @@ let key = "";
     .locator("[data-attention-destination]")
     .getAttribute("href")
     .catch(() => null);
-  check(destination === null || destination.startsWith(adminWeb), `its destination is admin-web's (${destination})`);
+  // A destination is admin-web's, or a page the pilot serves itself (a provider's workbench).
+  const served =
+    destination?.startsWith("/") &&
+    (await page.request.get(`${base}${destination}`, { maxRedirects: 0 })).status() < 400;
+  check(
+    destination === null || destination.startsWith(adminWeb) || served,
+    `its destination is admin-web's or the pilot's own (${destination})`,
+  );
 
   // Dismiss without a reason: the browser asks for one; with one, the item leaves the queue.
   await sheet.locator("#attention-dismiss").getByRole("button", { name: "Dismiss" }).click();

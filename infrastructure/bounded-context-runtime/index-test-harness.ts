@@ -44,6 +44,7 @@ export const projectionGroupGenerationsByPool = new Map<
       started_at?: string;
       active_generation: string;
       rebuilding_generation: string | null;
+      target_projection_revision?: number | null;
       state: "active" | "rebuilding" | "failed";
     }
   >
@@ -348,6 +349,7 @@ export function createMockPool(): MockPool {
                 generation_rebuilding_generation: generation?.rebuilding_generation ?? null,
                 generation_state: generation?.state ?? null,
                 generation_started_at: generation?.started_at ?? null,
+                generation_target_projection_revision: generation?.target_projection_revision ?? null,
               },
             ],
           };
@@ -380,7 +382,8 @@ export function createMockPool(): MockPool {
             rows:
               generation?.state === "rebuilding" &&
               generation.rebuilding_generation === expectedToken &&
-              generation.started_at === params[3]
+              generation.started_at === params[3] &&
+              generation.target_projection_revision === params[4]
                 ? [{ rebuilding_generation: expectedToken, started_at: generation.started_at }]
                 : [],
           };
@@ -523,6 +526,7 @@ export function createMockPool(): MockPool {
             started_at: startedAt,
             active_generation: activeGeneration.toString(),
             rebuilding_generation: nextGeneration.toString(),
+            target_projection_revision: Number(params[3]),
             state: "rebuilding",
           });
           return {
@@ -559,7 +563,12 @@ export function createMockPool(): MockPool {
           getGenerationRetentionStore(pool).delete(key);
           return { rows: [], rowCount: 1 } as never;
         }
+        const targetRevisionIndex = sql.includes("generation.target_projection_revision = $6") ? 5 : 4;
+        if (current.target_projection_revision !== params[targetRevisionIndex]) {
+          return { rows: [], rowCount: 0 } as never;
+        }
         store.set(key, {
+          target_projection_revision: current.target_projection_revision,
           started_at: current.started_at,
           active_generation: expectedToken,
           rebuilding_generation: null,
