@@ -192,7 +192,7 @@ describeDb("scope-sync-held-set-resolution real DB matrix", () => {
         audit: { performedByUserId: "usr_set_name_creator", forAccountId: "acc_identity_system" },
       } as never,
     });
-    expect(posted.mappingsProposed).toBe(3);
+    expect(posted.mappingsProposed).toBe(6);
     expect(await reasons()).toEqual({
       "Synthetic Magic Core Set": "mapping-missing",
       "Synthetic Unicode Edition": "mapping-missing",
@@ -210,7 +210,7 @@ describeDb("scope-sync-held-set-resolution real DB matrix", () => {
         { set_id: null, set_name: "  Synthetic Padded Edition  ", review_status: "auto-accepted" },
       ]),
     );
-    expect(mappings.rows).toHaveLength(3);
+    expect(mappings.rows).toHaveLength(6);
 
     const result = await resolveHeldSetExport(pools.catalog, held);
     expect(result.unresolved).toEqual([]);

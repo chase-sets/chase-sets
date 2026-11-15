@@ -1,0 +1,325 @@
+{
+  "commit": "e88692696a1fab8a65870c25ba5d64ce6b47eb80",
+  "path": "bounded-contexts/catalog/features/source-observations/api/providers/tcgplayer-automation-catalog-client.ts",
+  "cases": [
+    {
+      "unitKey": "tcgplayer:mtg:sealed-product:source-observation-import",
+      "detail": {
+        "productId": 96601,
+        "productName": "Time Spiral Booster Pack",
+        "productLineId": 1,
+        "productLineName": "Magic",
+        "productTypeName": "Sealed Products",
+        "setName": "Time Spiral",
+        "setCode": "TSP",
+        "setId": 1001,
+        "rarityName": "Sealed",
+        "sealed": true,
+        "productStatusId": 1,
+        "customAttributes": {
+          "number": "PACK",
+          "releaseDate": "2006-10-06"
+        },
+        "barcode": "0653569123456",
+        "formattedAttributes": {},
+        "skus": [
+          {
+            "sku": 50096601,
+            "condition": "Sealed",
+            "variant": "Sealed",
+            "language": "English"
+          }
+        ]
+      },
+      "expected": {
+        "observationId": "tcgplayer_en_product_96601",
+        "providerKey": "tcgplayer",
+        "externalKey": "product:96601",
+        "languageCode": "en",
+        "sourceRecordHash": "942892dc9cc7e46741be604bb738b41f0037482a60d37fdaddc59bb0f57e7508",
+        "sourceUpdatedAt": "2006-10-06",
+        "observedAt": "2026-10-18T00:00:00.000Z",
+        "sourceProfileKey": "mtg-sealed-product-sku",
+        "sourceProfileVersion": "2026.06.19",
+        "sourceMappingFingerprint": "5bb42889bd979389c2556318e12e5d39647aa363296548b417302fa101dac941",
+        "normalized": {
+          "kind": "magic-sealed-product",
+          "languageCode": "en",
+          "tcg": "magic",
+          "name": "Time Spiral Booster Pack",
+          "setCode": "tsp",
+          "setName": "Time Spiral",
+          "setId": "1001",
+          "sealedProductForm": "booster-pack",
+          "packCount": 1,
+          "releaseDate": "2006-10-06",
+          "releaseYear": 2006,
+          "productLineName": "Magic: The Gathering",
+          "barcode": "0653569123456",
+          "imageUrls": [],
+          "mergeIdentity": {
+            "tcg": "magic",
+            "productLineName": "Magic",
+            "setName": "Time Spiral",
+            "printedProductName": "Time Spiral Booster Pack",
+            "collectorNumber": "PACK",
+            "languageCode": "en",
+            "productForm": "sealed",
+            "barcode": "0653569123456"
+          },
+          "externalCatalogItemReferences": [
+            {
+              "providerKey": "tcgplayer",
+              "externalKey": "product:96601"
+            }
+          ],
+          "externalProductReferences": []
+        },
+        "sourcePayload": {
+          "productId": 96601,
+          "productName": "Time Spiral Booster Pack",
+          "productLineId": 1,
+          "productLineName": "Magic",
+          "productTypeName": "Sealed Products",
+          "setName": "Time Spiral",
+          "setCode": "TSP",
+          "setId": 1001,
+          "rarityName": "Sealed",
+          "sealed": true,
+          "productStatusId": 1,
+          "customAttributes": {
+            "number": "PACK",
+            "releaseDate": "2006-10-06"
+          },
+          "barcode": "0653569123456",
+          "formattedAttributes": {},
+          "skus": [
+            {
+              "sku": 50096601,
+              "condition": "Sealed",
+              "variant": "Sealed",
+              "language": "English"
+            }
+          ]
+        },
+        "sourceUrlSha256": "dc83f8d7cd4aaafb380b0ee7a664b89d64aa872d2ae4a6934ccde80365f4adc2"
+      }
+    },
+    {
+      "unitKey": "tcgplayer:pokemon:sealed-product:source-observation-import",
+      "detail": {
+        "productId": 497105,
+        "productName": "Scarlet & Violet Elite Trainer Box",
+        "productLineId": 3,
+        "productLineName": "Pokemon",
+        "productTypeName": "Sealed Products",
+        "setName": "Scarlet & Violet",
+        "setCode": "SVI",
+        "setId": 10001,
+        "rarityName": "Sealed",
+        "sealed": true,
+        "productStatusId": 1,
+        "customAttributes": {
+          "number": "ETB",
+          "releaseDate": "2023-03-31"
+        },
+        "barcode": "0820650851234",
+        "formattedAttributes": {},
+        "skus": [
+          {
+            "sku": 15501001,
+            "condition": "Sealed",
+            "variant": "Sealed",
+            "language": "English"
+          }
+        ]
+      },
+      "expected": {
+        "observationId": "tcgplayer_en_product_497105",
+        "providerKey": "tcgplayer",
+        "externalKey": "product:497105",
+        "languageCode": "en",
+        "sourceRecordHash": "a5060ea0e3d994a9d3be27f5d423ba2303e1c2806be41e49556233349d15208c",
+        "sourceUpdatedAt": "2023-03-31",
+        "observedAt": "2026-10-18T00:00:00.000Z",
+        "sourceProfileKey": "pokemon-sealed-product-sku",
+        "sourceProfileVersion": "2026.07.13",
+        "sourceMappingFingerprint": "748b212e6914bde25807478fa55cd1aced0d5062a56f44fd17fb211bc6cfda62",
+        "normalized": {
+          "kind": "pokemon-sealed-product",
+          "languageCode": "en",
+          "tcg": "pokemon",
+          "name": "Scarlet & Violet Elite Trainer Box",
+          "setCode": "svi",
+          "setName": "Scarlet & Violet",
+          "setId": "10001",
+          "sealedProductForm": "sealed-product",
+          "packCount": 1,
+          "releaseDate": "2023-03-31",
+          "releaseYear": 2023,
+          "productLineName": "Pokemon",
+          "barcode": "0820650851234",
+          "imageUrls": [],
+          "mergeIdentity": {
+            "tcg": "pokemon",
+            "productLineName": "Pokemon",
+            "setName": "Scarlet & Violet",
+            "printedProductName": "Scarlet & Violet Elite Trainer Box",
+            "collectorNumber": "ETB",
+            "languageCode": "en",
+            "productForm": "sealed",
+            "barcode": "0820650851234"
+          },
+          "externalCatalogItemReferences": [
+            {
+              "providerKey": "tcgplayer",
+              "externalKey": "product:497105"
+            }
+          ],
+          "externalProductReferences": []
+        },
+        "sourcePayload": {
+          "productId": 497105,
+          "productName": "Scarlet & Violet Elite Trainer Box",
+          "productLineId": 3,
+          "productLineName": "Pokemon",
+          "productTypeName": "Sealed Products",
+          "setName": "Scarlet & Violet",
+          "setCode": "SVI",
+          "setId": 10001,
+          "rarityName": "Sealed",
+          "sealed": true,
+          "productStatusId": 1,
+          "customAttributes": {
+            "number": "ETB",
+            "releaseDate": "2023-03-31"
+          },
+          "barcode": "0820650851234",
+          "formattedAttributes": {},
+          "skus": [
+            {
+              "sku": 15501001,
+              "condition": "Sealed",
+              "variant": "Sealed",
+              "language": "English"
+            }
+          ]
+        },
+        "sourceUrlSha256": "2e6de855b3f8ddf1223da85c2ac430ceac5ac4b3b7e86f4e078bbc1a08927544"
+      }
+    },
+    {
+      "unitKey": "tcgplayer:lorcana:sealed-product:source-observation-import",
+      "detail": {
+        "productId": 1005020,
+        "productName": "The First Chapter Booster Box",
+        "productLineId": 82,
+        "productLineName": "Disney Lorcana",
+        "productTypeName": "Sealed Products",
+        "setName": "The First Chapter",
+        "setCode": "SYN",
+        "setId": 1001,
+        "rarityName": "Sealed",
+        "sealed": true,
+        "productStatusId": 1,
+        "customAttributes": {
+          "number": "BOX"
+        },
+        "barcode": "4050368981234",
+        "formattedAttributes": {},
+        "skus": [
+          {
+            "sku": 411070432,
+            "condition": "Sealed",
+            "variant": "Sealed",
+            "language": "English"
+          }
+        ]
+      },
+      "expected": {
+        "observationId": "tcgplayer_en_product_1005020",
+        "providerKey": "tcgplayer",
+        "externalKey": "product:1005020",
+        "languageCode": "en",
+        "sourceRecordHash": "f89b79a0d9bfa295cd5d1d56afd97c50baa6f09b59be4c506f2395dbd7e2acee",
+        "sourceUpdatedAt": null,
+        "observedAt": "2026-10-18T00:00:00.000Z",
+        "sourceProfileKey": "lorcana-sealed-product-sku",
+        "sourceProfileVersion": "2026.06.23",
+        "sourceMappingFingerprint": "7e3c5ac9724b386dca0b87dd7503f9c161beb2893c8c1e9c9d7e07146ae6900a",
+        "normalized": {
+          "kind": "provider-product",
+          "languageCode": "en",
+          "tcg": "lorcana",
+          "name": "The First Chapter Booster Box",
+          "setName": "The First Chapter",
+          "expansionName": "The First Chapter",
+          "cardNumber": "BOX",
+          "imageUrls": [],
+          "mergeIdentity": {
+            "tcg": "disney lorcana",
+            "productLineName": "Disney Lorcana",
+            "setName": "The First Chapter",
+            "printedProductName": "The First Chapter Booster Box",
+            "collectorNumber": "BOX",
+            "languageCode": "en",
+            "productForm": "sealed",
+            "barcode": "4050368981234"
+          },
+          "externalCatalogItemReferences": [
+            {
+              "providerKey": "tcgplayer",
+              "externalKey": "product:1005020"
+            }
+          ],
+          "externalProductReferences": [],
+          "providerProductId": "1005020",
+          "providerProductName": "The First Chapter Booster Box",
+          "productLineName": "Disney Lorcana",
+          "productCategoryName": "Sealed Products",
+          "skuReferences": [
+            {
+              "providerKey": "tcgplayer",
+              "externalKey": "sku:411070432",
+              "reviewEvidence": {
+                "condition": "Sealed",
+                "printing": "Sealed",
+                "language": "English",
+                "productForm": "unopened"
+              }
+            }
+          ],
+          "productForm": "sealed",
+          "barcode": "4050368981234"
+        },
+        "sourcePayload": {
+          "productId": 1005020,
+          "productName": "The First Chapter Booster Box",
+          "productLineId": 82,
+          "productLineName": "Disney Lorcana",
+          "productTypeName": "Sealed Products",
+          "setName": "The First Chapter",
+          "setCode": "SYN",
+          "setId": 1001,
+          "rarityName": "Sealed",
+          "sealed": true,
+          "productStatusId": 1,
+          "customAttributes": {
+            "number": "BOX"
+          },
+          "barcode": "4050368981234",
+          "formattedAttributes": {},
+          "skus": [
+            {
+              "sku": 411070432,
+              "condition": "Sealed",
+              "variant": "Sealed",
+              "language": "English"
+            }
+          ]
+        },
+        "sourceUrlSha256": "42551ec0e88449be8212c6b57164ccd007341eed6cce90144de095715ee2c9f3"
+      }
+    }
+  ]
+}

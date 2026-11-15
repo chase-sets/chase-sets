@@ -171,14 +171,37 @@ function parseSource(file, text) {
 }
 
 // `retentionSweeps: x` or `retentionSweeps: [...x, ...y]` on `export const
-// module = {...}` or `= defineBoundedContextModule({...})`; [] when unmounted,
+// module = {...}` or `= defineBoundedContextModule({...})`, including an exact
+// const-module spread extended only with workerJobFactories; [] when unmounted,
 // null when unsupported, including any other wrapper or an overriding member.
 function mountedSweepIdentifiers(source, imports) {
   const moduleDeclaration = source.statements
     .filter((statement) => ts.isVariableStatement(statement) && isExported(statement))
     .flatMap((statement) => statement.declarationList.declarations)
     .find((declaration) => ts.isIdentifier(declaration.name) && declaration.name.text === "module");
-  const initializer = moduleDeclaration?.initializer;
+  let initializer = moduleDeclaration?.initializer;
+  if (initializer && ts.isObjectLiteralExpression(initializer)) {
+    const [spread, ...capabilities] = initializer.properties;
+    if (spread && ts.isSpreadAssignment(spread) && ts.isIdentifier(spread.expression)) {
+      if (
+        capabilities.length !== 1 ||
+        !ts.isPropertyAssignment(capabilities[0]) ||
+        propertyName(capabilities[0]) !== "workerJobFactories" ||
+        !ts.isObjectLiteralExpression(capabilities[0].initializer) ||
+        capabilities[0].initializer.properties.some((property) => !ts.isShorthandPropertyAssignment(property))
+      )
+        return null;
+      const bindings = source.statements
+        .filter(
+          (statement) => ts.isVariableStatement(statement) && statement.declarationList.flags & ts.NodeFlags.Const,
+        )
+        .flatMap((statement) => statement.declarationList.declarations)
+        .filter((declaration) => ts.isIdentifier(declaration.name) && declaration.name.text === spread.expression.text);
+      if (bindings.length !== 1) return null;
+      initializer = bindings[0].initializer;
+      if (!initializer || !ts.isCallExpression(initializer)) return null;
+    }
+  }
   const moduleObject =
     initializer && ts.isCallExpression(initializer)
       ? isModuleConstructor(initializer.expression, source, imports) && initializer.arguments.length === 1

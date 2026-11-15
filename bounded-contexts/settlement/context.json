@@ -1,4 +1,96 @@
 {
+  "scheduledJobs": [
+    {
+      "id": "settlement.account-linkage-closer",
+      "schedule": {
+        "kind": "configured-interval",
+        "configKey": "settlementAccountLinkageCloserIntervalMs"
+      },
+      "runnerExport": "createSettlementAccountLinkageCloserRunners",
+      "group": "scheduled",
+      "order": 115,
+      "runtimeProfiles": [
+        "proof",
+        "public"
+      ],
+      "lockScope": "job:settlement.account-linkage-closer"
+    },
+    {
+      "id": "settlement.seller-funds-release",
+      "schedule": {
+        "kind": "configured-interval",
+        "configKey": "sellerFundsReleaseIntervalMs"
+      },
+      "runnerExport": "createSettlementSellerFundsReleaseRunners",
+      "group": "scheduled",
+      "order": 118,
+      "runtimeProfiles": [
+        "proof",
+        "public"
+      ],
+      "lockScope": "job:settlement.seller-funds-release"
+    },
+    {
+      "id": "settlement.spend-hold-sweep",
+      "schedule": {
+        "kind": "configured-interval",
+        "configKey": "spendHoldSweepIntervalMs"
+      },
+      "runnerExport": "createSettlementSpendHoldSweepRunners",
+      "group": "scheduled",
+      "order": 119,
+      "runtimeProfiles": [
+        "proof",
+        "public"
+      ],
+      "lockScope": "job:settlement.spend-hold-sweep"
+    },
+    {
+      "id": "settlement.payout-reconciliation",
+      "schedule": {
+        "kind": "configured-interval",
+        "configKey": "payoutReconciliationIntervalMs"
+      },
+      "runnerExport": "createSettlementPayoutReconciliationRunners",
+      "group": "scheduled",
+      "order": 120,
+      "runtimeProfiles": [
+        "proof",
+        "public"
+      ],
+      "lockScope": "job:settlement.payout-reconciliation"
+    },
+    {
+      "id": "settlement.liability-reconciliation",
+      "schedule": {
+        "kind": "configured-interval",
+        "configKey": "liabilityReconciliationIntervalMs"
+      },
+      "runnerExport": "createSettlementLiabilityReconciliationRunners",
+      "group": "scheduled",
+      "order": 121,
+      "runtimeProfiles": [
+        "proof",
+        "public"
+      ],
+      "lockScope": "job:settlement.liability-reconciliation"
+    },
+    {
+      "id": "settlement.payout-reconciliation-jobs",
+      "schedule": {
+        "kind": "durable",
+        "laneCount": "settlementPayoutReconciliationJobLaneCount"
+      },
+      "runnerExport": "createSettlementJobRunners",
+      "group": "jobs",
+      "order": 50,
+      "runtimeProfiles": [
+        "proof",
+        "public"
+      ],
+      "lockScope": "job:job:settlement.payout-reconciliation-jobs.lane-{lane}"
+    }
+  ],
   "contextName": "settlement",
   "packageName": "@chase-sets/settlement",
   "requiredProofSets": [

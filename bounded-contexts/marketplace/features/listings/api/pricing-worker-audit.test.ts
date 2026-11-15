@@ -1,14 +1,14 @@
-import { readFileSync } from "node:fs";
-import { runInNewContext } from "node:vm";
-import ts from "@chase-sets/typescript-compiler-api";
 import { describe, expect, it } from "vitest";
-import { createDurableJobLaneRunners, type WorkerRunner } from "@chase-sets/platform-runtime/worker";
 import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
 import type { MarketplaceListingServices } from "./runtime";
-import type { PricingRecommendationServices } from "@chase-sets/pricing/server";
-import type { RepricingEngineServices } from "@chase-sets/pricing/server";
-import { listingCommandInput } from "../../../support/request-support/listing-attempt";
+import {
+  createPricingJobRunners,
+  createBulkRepriceIngestionJobRunners,
+  type PricingRecommendationServices,
+  type RepricingEngineServices,
+} from "@chase-sets/pricing/server";
 import { listingAttempt } from "./listing-attempt";
+import { listingCommandInput } from "../../../support/request-support/listing-attempt";
 import { listingBatchStreamId, lookupListingBatch, runListingBatch } from "./listing-batch";
 
 describe("Pricing worker seller audit composition", () => {
@@ -88,8 +88,19 @@ describe("Pricing worker seller audit composition", () => {
           }));
         },
       };
-      const processNext: PricingRecommendationServices["processNextRecommendationJob"] = async (input) => {
-        const gateway = input.marketplaceListingGatewayForAccount!(batch.accountId);
+      const auditGateway = async (
+        gateway: Pick<
+          | ReturnType<
+              Parameters<
+                PricingRecommendationServices["processNextRecommendationJob"]
+              >[0]["marketplaceListingGatewayForAccount"]
+            >
+          | ReturnType<
+              Parameters<RepricingEngineServices["processNextEvaluationJob"]>[0]["marketplaceGatewayForAccount"]
+            >,
+          "applyBulkListingPriceUpdates"
+        >,
+      ) => {
         const body = {
           batchId: batch.batchId,
           updates: [
@@ -98,6 +109,8 @@ describe("Pricing worker seller audit composition", () => {
               priceAmount: "9.99",
               priceCurrencyCode: "USD",
               idempotencyKey: batch.batchId,
+              expectedVersion: 1,
+              minimumChange: { mode: "absolute" as const, amount: "0" },
             },
           ],
         };
@@ -105,73 +118,43 @@ describe("Pricing worker seller audit composition", () => {
         expect((await gateway.applyBulkListingPriceUpdates(body)).items[0]?.outcome).toBe("applied");
         return 1;
       };
-      const text = readFileSync(
-        new URL("../../../../../deployables/platform-worker/src/main.ts", import.meta.url),
-        "utf8",
-      );
-      const source = ts.createSourceFile("main.ts", text, ts.ScriptTarget.ES2022, true);
-      const name = kind === "bulk-reprice" ? "createBulkRepriceIngestionJobRunners" : "createPricingJobRunners";
-      const declarations = source.statements.filter(
-        (node) =>
-          (ts.isFunctionDeclaration(node) && (node.name?.text === name || node.name?.text === "sellerSystemContext")) ||
-          (ts.isVariableStatement(node) &&
-            node.declarationList.declarations.some((decl) => decl.name.getText(source) === "SYSTEM_CONTEXT")),
-      );
-      const compiled = ts.transpileModule(declarations.map((node) => node.getText(source)).join("\n"), {
-        compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS },
-      }).outputText;
+      const processNext: PricingRecommendationServices["processNextRecommendationJob"] = async (input) =>
+        auditGateway(input.marketplaceListingGatewayForAccount(batch.accountId));
+      const processEvaluation: RepricingEngineServices["processNextEvaluationJob"] = async (input) => {
+        const gateway = input.marketplaceGatewayForAccount(batch.accountId);
+        await gateway.pauseListing(target.targetId, {
+          idempotencyKey: batch.batchId,
+          reason: "policy-input-missing",
+        });
+        // The owner, not the wiring, must reject a supplied mismatched hash.
+        await gateway.publishListing(target.targetId, { idempotencyKey: batch.batchId, requestHash: "0".repeat(64) });
+        return auditGateway(gateway);
+      };
       const services = {
         marketplace: { listings },
         inventory: { importBatches: {} },
         pricing: {
           recommendations: kind === "recommendation" ? { processNextRecommendationJob: processNext } : undefined,
           bulkRepriceIngestion: { processNextBulkRepriceJob: processNext },
-          repricingEngine: kind === "evaluation" ? { processNextEvaluationJob: () => 1 } : undefined,
+          repricingEngine: kind === "evaluation" ? { processNextEvaluationJob: processEvaluation } : undefined,
         },
       };
-      const runners: readonly WorkerRunner[] = runInNewContext(compiled + `\n${name}(services, config)`, {
+      const factory = kind === "bulk-reprice" ? createBulkRepriceIngestionJobRunners : createPricingJobRunners;
+      const runners = factory({
         services,
-        createDurableJobLaneRunners,
-        listingCommandInput,
         config: {
           workerId: "synthetic-worker",
           leaseTtlMs: 1000,
           pricingRecommendationJobLaneCount: 1,
+          pricingRecommendationJobWorkflowMaxActiveClaims: 1,
+          pricingRecommendationJobMaxActiveClaimsPerJob: 1,
           pricingBulkRepriceJobLaneCount: 1,
+          pricingBulkRepriceJobWorkflowMaxActiveClaims: 1,
+          pricingBulkRepriceJobMaxActiveClaimsPerJob: 1,
           pricingRepricingEvaluationJobLaneCount: 1,
+          pricingRepricingDryRunJobLaneCount: 1,
         },
-        logger: {},
-        processRepricingEvaluationJob: async (
-          _next: unknown,
-          input: Pick<
-            Parameters<RepricingEngineServices["processNextEvaluationJob"]>[0],
-            "marketplaceGatewayForAccount"
-          >,
-        ) => {
-          const gateway = input.marketplaceGatewayForAccount(batch.accountId);
-          await gateway.pauseListing(target.targetId, {
-            idempotencyKey: batch.batchId,
-            reason: "policy-input-missing",
-          });
-          // The owner, not the wiring, must reject a supplied mismatched hash.
-          await gateway.publishListing(target.targetId, { idempotencyKey: batch.batchId, requestHash: "0".repeat(64) });
-          const body: Parameters<typeof gateway.applyBulkListingPriceUpdates>[0] = {
-            batchId: batch.batchId,
-            updates: [
-              {
-                listingId: target.targetId,
-                priceAmount: "9.99",
-                priceCurrencyCode: "USD",
-                expectedVersion: 1,
-                minimumChange: { mode: "percent", percent: 0 },
-                idempotencyKey: batch.batchId,
-              },
-            ],
-          };
-          expect((await gateway.applyBulkListingPriceUpdates(body)).items[0]?.outcome).toBe("applied");
-          expect((await gateway.applyBulkListingPriceUpdates(body)).items[0]?.outcome).toBe("applied");
-          return 1;
-        },
+        logger: { info() {}, warn() {}, error() {} },
       });
       await runners[0]!.runOnce();
       expect(await lookupListingBatch(eventStore, batch)).toMatchObject({ items: [{ outcome: "succeeded" }] });

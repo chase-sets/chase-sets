@@ -1,4 +1,126 @@
 {
+  "scheduledJobs": [
+    {
+      "id": "marketplace.review-opportunity-publication",
+      "schedule": {
+        "kind": "interval",
+        "intervalMs": 1000
+      },
+      "runnerExport": "createMarketplaceReviewOpportunityPublicationRunners",
+      "group": "scheduled",
+      "order": 102,
+      "runtimeProfiles": [
+        "proof",
+        "public"
+      ],
+      "lockScope": "job:marketplace.review-opportunity-publication"
+    },
+    {
+      "id": "marketplace.review-opportunity-backfill",
+      "schedule": {
+        "kind": "interval",
+        "intervalMs": 60000
+      },
+      "runnerExport": "createMarketplaceReviewOpportunityPublicationRunners",
+      "group": "scheduled",
+      "order": 102,
+      "runtimeProfiles": [
+        "proof",
+        "public"
+      ],
+      "lockScope": "job:marketplace.review-opportunity-backfill"
+    },
+    {
+      "id": "marketplace.managed-offer-work",
+      "schedule": {
+        "kind": "interval",
+        "intervalMs": 1000
+      },
+      "runnerExport": "createMarketplaceManagedOfferWorkRunners",
+      "group": "scheduled",
+      "order": 103,
+      "runtimeProfiles": [
+        "proof",
+        "public"
+      ],
+      "lockScope": "job:marketplace.managed-offer-work"
+    },
+    {
+      "id": "marketplace.managed-offer-recovery",
+      "schedule": {
+        "kind": "interval",
+        "intervalMs": 60000
+      },
+      "runnerExport": "createMarketplaceManagedOfferWorkRunners",
+      "group": "scheduled",
+      "order": 103,
+      "runtimeProfiles": [
+        "proof",
+        "public"
+      ],
+      "lockScope": "job:marketplace.managed-offer-recovery"
+    },
+    {
+      "id": "marketplace.review-window-sweep",
+      "schedule": {
+        "kind": "configured-interval",
+        "configKey": "reviewWindowSweepIntervalMs"
+      },
+      "runnerExport": "createMarketplaceReviewWindowSweepRunners",
+      "group": "scheduled",
+      "order": 110,
+      "runtimeProfiles": [
+        "proof",
+        "public"
+      ],
+      "lockScope": "job:marketplace.review-window-sweep"
+    },
+    {
+      "id": "marketplace.review-opportunity-reminder-sweep",
+      "schedule": {
+        "kind": "configured-interval",
+        "configKey": "reviewOpportunityReminderSweepIntervalMs"
+      },
+      "runnerExport": "createMarketplaceReviewOpportunityReminderSweepRunners",
+      "group": "scheduled",
+      "order": 111,
+      "runtimeProfiles": [
+        "proof",
+        "public"
+      ],
+      "lockScope": "job:marketplace.review-opportunity-reminder-sweep"
+    },
+    {
+      "id": "marketplace.seller-availability-restore-sweep",
+      "schedule": {
+        "kind": "configured-interval",
+        "configKey": "sellerAvailabilityRestoreSweepIntervalMs"
+      },
+      "runnerExport": "createMarketplaceSellerAvailabilityRestoreSweepRunners",
+      "group": "scheduled",
+      "order": 112,
+      "runtimeProfiles": [
+        "proof",
+        "public"
+      ],
+      "lockScope": "job:marketplace.seller-availability-restore-sweep"
+    },
+    {
+      "id": "marketplace.seller-away-window-start-sweep",
+      "schedule": {
+        "kind": "configured-interval",
+        "configKey": "sellerAwayWindowStartSweepIntervalMs"
+      },
+      "runnerExport": "createMarketplaceSellerAwayWindowStartSweepRunners",
+      "group": "scheduled",
+      "order": 113,
+      "runtimeProfiles": [
+        "proof",
+        "public"
+      ],
+      "lockScope": "job:marketplace.seller-away-window-start-sweep"
+    }
+  ],
   "contextName": "marketplace",
   "packageName": "@chase-sets/marketplace",
   "localeCatalogs": ["contracts/localization/locales/en/marketplace.ts"],

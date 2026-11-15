@@ -417,7 +417,7 @@
     "consumer": "Collections to Inventory host port",
     "status": "cutover"
   },
-  "deployables/platform-worker/src/main.ts": {
+  "bounded-contexts/pricing/support/runtime-support/worker-jobs.ts": {
     "families": ["item-read"],
     "authority": "trusted account-scoped reader",
     "attempt": "no mutation",

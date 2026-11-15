@@ -375,6 +375,7 @@ export const marketplaceListingCallerPartition = new Map([
   ["bounded-contexts/pricing/features/recommendations/api/runtime.ts", "caller-identity"],
   ["bounded-contexts/pricing/features/repricing-engine/api/runtime.ts", "caller-identity"],
   ["bounded-contexts/pricing/support/request-support/marketplace-listings.ts", "imported-client-forwarder"],
+  ["bounded-contexts/pricing/support/runtime-support/worker-jobs.ts", "imported-service-forwarder"],
   ["contracts/catalog-seed/representative-commerce-state.ts", "authoritative-stream"],
   ["deployables/marketplace-seed-testing/tests/representative-commerce-state.test.ts", "typed-owner-fixture"],
   ["deployables/marketplace-seed-testing/tests/marketplace-seed.test.ts", "typed-owner-fixture"],
@@ -382,7 +383,6 @@ export const marketplaceListingCallerPartition = new Map([
   ["deployables/marketplace/e2e/channel-connection-connect.spec.ts", "transport-fixture"],
   ["deployables/marketplace/e2e/manual-sync-recovery.spec.ts", "transport-fixture"],
   ["deployables/marketplace/e2e/market-following-offers.spec.ts", "transport-fixture"],
-  ["deployables/platform-worker/src/main.ts", "imported-service-forwarder"],
   ["infrastructure/platform-runtime/mcp.test.ts", "mcp-transport-fixture"],
 ]);
 

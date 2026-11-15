@@ -1,3 +1,4 @@
+import { createCustomerFeedbackAttentionDigestRunners } from "./support/runtime-support/worker-jobs";
 export { default as contextManifest } from "./context.json" with { type: "json" };
 
 import {
@@ -36,7 +37,7 @@ const customerFeedbackContextManifest = contextManifest as BcContextManifest;
  * invitation-unique CSAT analytics projections, and the closed-loop case
  * lifecycle. UI composes on this foundation separately.
  */
-export const module = defineBoundedContextModule<
+const contextModule = defineBoundedContextModule<
   CustomerFeedbackServices,
   PgTransactionalPool,
   CustomerFeedbackHostPorts
@@ -79,3 +80,5 @@ export const module = defineBoundedContextModule<
     }),
   ],
 });
+
+export const module = { ...contextModule, workerJobFactories: { createCustomerFeedbackAttentionDigestRunners } };

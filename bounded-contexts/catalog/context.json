@@ -1,4 +1,69 @@
 {
+  "scheduledJobs": [
+    {
+      "id": "catalog.provider-scope-refresh",
+      "schedule": {
+        "kind": "configured-interval",
+        "configKey": "catalogProviderScopeRefreshIntervalMs"
+      },
+      "runnerExport": "createCatalogProviderScopeRefreshRunners",
+      "group": "scheduled",
+      "order": 117,
+      "runtimeProfiles": [
+        "proof",
+        "public"
+      ],
+      "lockScope": "job:catalog.provider-scope-refresh"
+    },
+    {
+      "id": "catalog.source-observation-bulk-jobs",
+      "schedule": {
+        "kind": "durable",
+        "laneCount": "sourceObservationBulkJobLaneCount"
+      },
+      "runnerExport": "createCatalogBulkJobRunners",
+      "group": "jobs",
+      "order": 10,
+      "runtimeProfiles": [
+        "landing",
+        "proof",
+        "public"
+      ],
+      "lockScope": "job:job:catalog.source-observation-bulk-jobs.lane-{lane}"
+    },
+    {
+      "id": "catalog.source-observation-integration-jobs",
+      "schedule": {
+        "kind": "durable",
+        "laneCount": "sourceObservationIntegrationJobLaneCount"
+      },
+      "runnerExport": "createCatalogBulkJobRunners",
+      "group": "jobs",
+      "order": 10,
+      "runtimeProfiles": [
+        "landing",
+        "proof",
+        "public"
+      ],
+      "lockScope": "job:job:catalog.source-observation-integration-jobs.lane-{lane}"
+    },
+    {
+      "id": "catalog.authoring-bulk-jobs",
+      "schedule": {
+        "kind": "durable",
+        "laneCount": "catalogAuthoringBulkJobLaneCount"
+      },
+      "runnerExport": "createCatalogBulkJobRunners",
+      "group": "jobs",
+      "order": 10,
+      "runtimeProfiles": [
+        "landing",
+        "proof",
+        "public"
+      ],
+      "lockScope": "job:job:catalog.authoring-bulk-jobs.lane-{lane}"
+    }
+  ],
   "contextName": "catalog",
   "packageName": "@chase-sets/catalog",
   "localeCatalogs": ["contracts/localization/locales/en/catalog.ts"],
@@ -836,6 +901,7 @@
         "dimensions",
         "display-templates",
         "fields",
+        "operator-session",
         "product-contents",
         "product-measures",
         "provider-scope-discovery",
@@ -1132,16 +1198,19 @@
       "risk": "important",
       "strategy": "snapshot-return",
       "surfaces": [
-        "api-route:bounded-contexts/catalog/features/operator-session/api/route.ts:POST /scope-observations/tcgplayer-set-names"
+        "api-route:bounded-contexts/catalog/features/operator-session/api/route.ts:POST /scope-observations/tcgplayer-set-names",
+        "api-route:bounded-contexts/catalog/features/operator-session/api/route.ts:POST /catalog-observations/tcgplayer-sealed-products"
       ],
       "visibleDestination": {
-        "description": "The extension receives the committed observation, new-observation and proposed-mapping counts for its one post; rows carry grant provenance ids, never the bearer or any TCGplayer credential."
+        "description": "The extension receives committed counts for its set-name or sealed-product post; grant provenance ids, never the bearer or any provider credential, accompany admission."
       },
       "proof": {
-        "authoritativeResponse": "The route responds only after the observation upserts, mapping proposals and refresh-run record return; refusals carry fixed codes and write nothing.",
+        "authoritativeResponse": "Set-name success follows observation upserts, per-unit mapping proposals and the refresh-run record. Sealed-product success follows the atomic observation, candidate and admission-event commit, using canonical member streams rather than projection catch-up. Validation refusals carry fixed codes and write no observations; a lost commit acknowledgement remains an unknown backend outcome.",
         "tests": [
           "bounded-contexts/catalog/features/operator-session/tests/set-name-observation-post.db.test.ts",
-          "bounded-contexts/catalog/features/operator-session/tests/set-name-observation-post.test.ts"
+          "bounded-contexts/catalog/features/operator-session/tests/set-name-observation-post.test.ts",
+          "bounded-contexts/catalog/features/operator-session/tests/sealed-product-observation-post.test.ts",
+          "bounded-contexts/catalog/features/operator-session/tests/sealed-product-observation-post.db.test.ts"
         ]
       }
     },

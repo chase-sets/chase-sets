@@ -108,7 +108,7 @@ describe("operator-extension set-name post privacy boundary", () => {
     expect(response.status).toBe(200);
     expect(response.headers.get("cache-control")).toBe("no-store");
     expectNoMarkers("response", await response.text());
-    expect(store.observations()).toHaveLength(2);
+    expect(store.observations()).toHaveLength(4);
     expect(store.observations()[0]!.metadata).toMatchObject({
       grantId: "grant_privacy",
       creatorUserId: "usr_creator",

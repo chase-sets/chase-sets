@@ -53,6 +53,7 @@
     "zod": "^4.6.6"
   },
   "devDependencies": {
+    "@chase-sets/pricing": "workspace:*",
     "vitest": "^4.1.4"
   }
 }

@@ -1,3 +1,4 @@
+import type { WorkerRunner as JobRunner } from "@chase-sets/bounded-context-module";
 import type { BcRetentionSweep } from "@chase-sets/bounded-context-module";
 import { ZERO_GLOBAL_POSITION } from "@chase-sets/event-core/storage";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
@@ -149,7 +150,7 @@ export function createRetentionSweepRunner(
     maxBatchesPerRun?: number;
     observer?: RetentionSweepObserver;
   }>,
-): WorkerRunner {
+): JobRunner {
   const intervalMs = Math.max(1_000, Math.floor(input.intervalMs ?? DEFAULT_RETENTION_SWEEP_RUNNER_INTERVAL_MS));
   const maxBatchesPerRun = Math.max(
     1,
