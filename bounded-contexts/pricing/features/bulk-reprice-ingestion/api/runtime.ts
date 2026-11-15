@@ -17,6 +17,7 @@ import { chunkItems, defaultLaneYield } from "@chase-sets/platform-runtime/bulk-
 import { createPolicyResolver } from "@chase-sets/platform-policy/resolver";
 import { createInternalId } from "@chase-sets/primitives/typed-ids";
 import { normalizeMoneyAmount, tryMoneyToCents } from "@chase-sets/primitives/money";
+import { applyBulkRepriceWaveUpdates, bulkRepriceRowDecision } from "./wave-outcomes";
 import {
   parseBulkRepriceCsv,
   parseBulkRepriceJsonRows,
@@ -437,10 +438,11 @@ export function createBulkRepriceIngestionRuntime(deps: BulkRepriceRuntimeDeps):
 
       const waves = chunkItems(inputRows, policy.chunkSize);
       let completed = 0;
+      let unknown = 0;
 
       for (const [waveIndex, wave] of waves.entries()) {
         jobContext.throwIfCancelled();
-        await runDurableJobSideEffect(
+        const waveUnknown = await runDurableJobSideEffect(
           jobContext,
           () =>
             processBulkRepriceWave({
@@ -454,7 +456,8 @@ export function createBulkRepriceIngestionRuntime(deps: BulkRepriceRuntimeDeps):
             }),
           { renewIntervalMs: 5_000, claimLostMessage: "Bulk reprice job claim was lost while applying a wave." },
         );
-        completed += wave.length;
+        unknown += waveUnknown;
+        completed += wave.length - waveUnknown;
         const runningSummary = await summarizeBulkRepriceRowOutcomes(deps.db, { jobId: claimed.jobId });
         await progressCheckpoint.checkpoint(
           jobProgress("processing", completed, inputRows.length, "Processed a wave of rows."),
@@ -469,6 +472,24 @@ export function createBulkRepriceIngestionRuntime(deps: BulkRepriceRuntimeDeps):
       }
 
       const summary = await summarizeBulkRepriceRowOutcomes(deps.db, { jobId: claimed.jobId });
+      if (unknown > 0) {
+        const message = `${unknown} Marketplace price update outcome(s) remain unknown after retry; these updates may already have applied.`;
+        const progress = jobProgress("failed", summary.total, inputRows.length, message);
+        await progressCheckpoint.flush(progress, {
+          applied: summary.applied,
+          unchanged: summary.unchanged,
+          failed: summary.failed,
+          total: inputRows.length,
+        });
+        const failed = await jobStore.fail({
+          jobId: claimed.jobId,
+          claimOwnerId: input.claimOwnerId,
+          progress,
+          errorMessage: message,
+        });
+        if (!failed) throw new Error("Bulk reprice job claim was lost before recording unknown outcomes.");
+        return 1;
+      }
       const succeeded = await jobStore.complete({
         jobId: claimed.jobId,
         claimOwnerId: input.claimOwnerId,
@@ -543,9 +564,10 @@ async function processBulkRepriceWave(params: {
   batchId: string;
   marketplaceGateway: BulkRepriceMarketplaceListingGateway;
   inventoryGateway: BulkRepriceInventorySkuGateway;
-}): Promise<void> {
+}): Promise<number> {
   const { db, jobId, accountId, wave, batchId, marketplaceGateway, inventoryGateway } = params;
   const outcomes: BulkRepriceRowUpsert[] = [];
+  let unknown = 0;
 
   const invalidRows = wave.filter((row) => row.validationErrors.length > 0);
   for (const row of invalidRows) {
@@ -741,40 +763,31 @@ async function processBulkRepriceWave(params: {
       priceCurrencyCode: entry.priceCurrencyCode,
       idempotencyKey: bulkRepriceTargetKey(jobId, listingId, entry.rowNumber),
     }));
-    const bulkResult = await marketplaceGateway.applyBulkListingPriceUpdates({ batchId, updates });
-    const outcomeByListingId = new Map(bulkResult.items.map((item) => [item.listingId, item] as const));
+    const outcomeByListingId = await applyBulkRepriceWaveUpdates(marketplaceGateway, { batchId, updates });
 
     for (const [listingId, entry] of updatesByListingId) {
       const marketplaceOutcome = outcomeByListingId.get(listingId);
+      const decision = bulkRepriceRowDecision(marketplaceOutcome);
+      if (!decision) {
+        unknown += 1;
+        continue;
+      }
       const rowNumber = entry.rowNumber;
       const sourceRow = candidateRowByNumber.get(rowNumber);
       const previousPrice = normalizeMoney(listingsByListingId.get(listingId)?.price_amount ?? "0");
 
-      if (marketplaceOutcome && (marketplaceOutcome.outcome === "applied" || marketplaceOutcome.outcome === "no_op")) {
-        outcomes.push({
-          rowNumber,
-          sellerSku: sourceRow?.sellerSku ?? null,
-          listingId: sourceRow?.listingId ?? null,
-          requestedPriceAmount: entry.priceAmount,
-          resolvedListingId: listingId,
-          previousPriceAmount: previousPrice,
-          outcome: marketplaceOutcome.outcome === "applied" ? "applied" : "unchanged",
-          errorMessage: null,
-        });
-      } else {
-        outcomes.push({
-          rowNumber,
-          sellerSku: sourceRow?.sellerSku ?? null,
-          listingId: sourceRow?.listingId ?? null,
-          requestedPriceAmount: entry.priceAmount,
-          resolvedListingId: listingId,
-          previousPriceAmount: previousPrice,
-          outcome: "failed",
-          errorMessage: marketplaceOutcome?.message ?? "Marketplace did not apply this price update.",
-        });
-      }
+      outcomes.push({
+        rowNumber,
+        sellerSku: sourceRow?.sellerSku ?? null,
+        listingId: sourceRow?.listingId ?? null,
+        requestedPriceAmount: entry.priceAmount,
+        resolvedListingId: listingId,
+        previousPriceAmount: previousPrice,
+        ...decision,
+      });
     }
   }
 
   await upsertBulkRepriceRows(db, { jobId, rows: outcomes });
+  return unknown;
 }
