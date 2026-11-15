@@ -86,6 +86,10 @@ describe("scheduled job module/server binding", () => {
     expect(
       fixture({ factory: "export function createJobs():{runners:readonly WorkerRunner[]}{return {runners:[]}}" }),
     ).not.toEqual([]);
+    expect(
+      fixture({ factory: "export function createJobs():readonly {runner:WorkerRunner}[]{return []}" }),
+    ).not.toEqual([]);
+    expect(fixture({ factory: "export function createJobs():readonly WorkerRunner[][]{return []}" })).not.toEqual([]);
   });
 });
 describe("worker service assertion inventory", () => {

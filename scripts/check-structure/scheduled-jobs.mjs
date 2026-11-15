@@ -134,21 +134,26 @@ export function checkScheduledJobBindings({ program, contexts, rootDir, factoryF
       const signatures = checker.getSignaturesOfType(type, ts.SignatureKind.Call);
       const signature = signatures[0],
         declaration = signature?.declaration;
-      let canonical = false;
-      if (declaration?.type)
-        visit(declaration.type, (node) => {
-          if (!ts.isTypeReferenceNode(node)) return;
-          const symbol = resolveSymbol(checker, checker.getSymbolAtLocation(node.typeName));
-          if (
-            symbol?.name === "WorkerRunner" &&
-            symbol.declarations?.some(
-              (d) =>
-                path.resolve(d.getSourceFile().fileName) ===
-                path.resolve(rootDir, "contracts/bounded-context-module/index.ts"),
-            )
-          )
-            canonical = true;
-        });
+      let arrayType = declaration?.type;
+      while (arrayType && (ts.isTypeOperatorNode(arrayType) || ts.isParenthesizedTypeNode(arrayType)))
+        arrayType = arrayType.type;
+      const elementType =
+        arrayType && ts.isArrayTypeNode(arrayType)
+          ? arrayType.elementType
+          : arrayType && ts.isTypeReferenceNode(arrayType) && arrayType.typeArguments?.length === 1
+            ? arrayType.typeArguments[0]
+            : undefined;
+      const runnerSymbol =
+        elementType && ts.isTypeReferenceNode(elementType)
+          ? resolveSymbol(checker, checker.getSymbolAtLocation(elementType.typeName))
+          : undefined;
+      const canonical =
+        runnerSymbol?.name === "WorkerRunner" &&
+        runnerSymbol.declarations?.some(
+          (d) =>
+            path.resolve(d.getSourceFile().fileName) ===
+            path.resolve(rootDir, "contracts/bounded-context-module/index.ts"),
+        );
       if (!signature || !canonical || !checker.isArrayType(checker.getReturnTypeOfSignature(signature)))
         problem(context, job, `factory '${job.runnerExport}' must return canonical WorkerRunner[]`);
       if (declaration) {
