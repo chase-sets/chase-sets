@@ -101,6 +101,24 @@ describe("Auth Session owner enrollment", () => {
     await expect(store.appendToStream(changes[0])).rejects.toThrow("PENDING");
     expect(appendToStreamsInTransaction).toHaveBeenCalledTimes(1);
   });
+  it.each([{ configurationGrants: [{}] }, { requestTerminal: {} }])(
+    "preserves the single-stream refusal for atomic terminal inputs %j",
+    async (binding) => {
+      const appendToStreamsInTransaction = vi.fn().mockResolvedValue([{ storedEvents: [] }]);
+      const raw = { appendToStreamsInTransaction } as unknown as PostgresEventStore;
+      const transaction = vi.fn(async (_keys, work) => work({ query: vi.fn() }));
+      const store = createAuthSessionPersistence(raw, { transaction } as unknown as AuthSessionEpochs);
+      await expect(
+        store.appendToStream({
+          streamId: start.streamId,
+          events: [{ eventType: "auth.session.revoked", payload: {} }],
+          ...binding,
+        } as unknown as AppendToStreamInput),
+      ).rejects.toMatchObject({ code: "concurrency_conflict" });
+      expect(transaction).not.toHaveBeenCalled();
+      expect(appendToStreamsInTransaction).not.toHaveBeenCalled();
+    },
+  );
   it.each([
     "2026-01-01",
     "2026-02-30T00:00:00.000Z",

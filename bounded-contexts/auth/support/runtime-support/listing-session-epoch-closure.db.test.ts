@@ -55,6 +55,10 @@ const writers = [
 ] as const;
 type Writer = (typeof writers)[number];
 
+function commitTerminal(store: ReturnType<typeof createPostgresEventStore>, input: AppendToStreamInput) {
+  return store.appendToStreams!([input]);
+}
+
 describeDb("Listing Session acknowledged epoch closure", () => {
   let pools: Record<(typeof contextNames)[number], PgTransactionalPool>;
   let pool: PgTransactionalPool;
@@ -168,11 +172,11 @@ describeDb("Listing Session acknowledged epoch closure", () => {
     async (writer) => {
       const f = await fixture();
       await f.write(writer);
-      await expect(f.terminalStore.appendToStream(f.terminal)).rejects.toMatchObject({ code: "concurrency_conflict" });
+      await expect(commitTerminal(f.terminalStore, f.terminal)).rejects.toMatchObject({ code: "concurrency_conflict" });
       expect(await f.terminalStore.readStream({ streamId: f.terminal.streamId })).toHaveLength(0);
       const next = await (await f.epochs.source()).captureGrant(key, consumer, expiresAt);
       expect(next.epoch).toBe(f.captured.grant.epoch + 1);
-      await f.terminalStore.appendToStream({ ...f.terminal, configurationGrants: [next] });
+      await commitTerminal(f.terminalStore, { ...f.terminal, configurationGrants: [next] });
       const recaptured = await f.authority.capture({
         ...input,
         tokenHash:
@@ -218,7 +222,7 @@ describeDb("Listing Session acknowledged epoch closure", () => {
       transaction: (_keys, work) => withConfigurationEpochTransaction(pool, work),
     };
     await f.write(writer, omitted);
-    const refused = await f.terminalStore.appendToStream(f.terminal).then(
+    const refused = await commitTerminal(f.terminalStore, f.terminal).then(
       () => false,
       () => true,
     );
@@ -238,7 +242,7 @@ describeDb("Listing Session acknowledged epoch closure", () => {
       expect((await (await f.epochs.source()).status(key)).status).toBe("BLOCKED");
       expect((await f.authority.capture(input)).kind).toBe("denied");
       await f.write(writer);
-      await expect(f.terminalStore.appendToStream(f.terminal)).rejects.toMatchObject({ code: "concurrency_conflict" });
+      await expect(commitTerminal(f.terminalStore, f.terminal)).rejects.toMatchObject({ code: "concurrency_conflict" });
     },
   );
 
@@ -253,10 +257,10 @@ describeDb("Listing Session acknowledged epoch closure", () => {
     const bounds = storeTime.rows[0];
     const expired = { ...f.captured.grant, validUntil: new Date(bounds.before).toISOString() };
     await expect(
-      f.terminalStore.appendToStream({ ...f.terminal, configurationGrants: [expired] }),
+      commitTerminal(f.terminalStore, { ...f.terminal, configurationGrants: [expired] }),
     ).rejects.toMatchObject({ code: "concurrency_conflict" });
     expect(await f.terminalStore.readStream({ streamId: f.terminal.streamId })).toHaveLength(0);
-    await f.terminalStore.appendToStream({
+    await commitTerminal(f.terminalStore, {
       ...f.terminal,
       configurationGrants: [{ ...expired, validUntil: new Date(bounds.after).toISOString() }],
     });
@@ -278,7 +282,7 @@ describeDb("Listing Session acknowledged epoch closure", () => {
     expect((await f.authority.capture(input)).kind).toBe("granted");
     expect(f.captured.grant.epoch).toBe(0);
     await f.write(writers[0]);
-    await expect(f.terminalStore.appendToStream(f.terminal)).rejects.toMatchObject({ code: "concurrency_conflict" });
+    await expect(commitTerminal(f.terminalStore, f.terminal)).rejects.toMatchObject({ code: "concurrency_conflict" });
   });
 
   it("creation cannot grant before canonical commit and no-consumer token writes install immediately", async () => {
@@ -349,7 +353,7 @@ describeDb("Listing Session acknowledged epoch closure", () => {
       "DELETE FROM identity_session_tokens AS candidate WHERE candidate.expires_at < now() - interval '7 days'",
     );
     await expect(
-      f.terminalStore.appendToStream({ ...f.terminal, configurationGrants: [expired] }),
+      commitTerminal(f.terminalStore, { ...f.terminal, configurationGrants: [expired] }),
     ).rejects.toMatchObject({ code: "concurrency_conflict" });
     expect((await f.authority.capture(input)).kind).toBe("denied");
     expect(await source.status(key)).toEqual(before);
@@ -404,9 +408,9 @@ describeDb("Listing Session acknowledged epoch closure", () => {
   it.each(seedWriters)("seed $name: close-first and newer epoch; $mutant defeats refusal", async (writer) => {
     const f = await seedFixture(writer);
     await f.write();
-    await expect(f.terminalStore.appendToStream(f.terminal)).rejects.toMatchObject({ code: "concurrency_conflict" });
+    await expect(commitTerminal(f.terminalStore, f.terminal)).rejects.toMatchObject({ code: "concurrency_conflict" });
     expect(await f.terminalStore.readStream({ streamId: f.terminal.streamId })).toHaveLength(0);
-    await f.terminalStore.appendToStream({
+    await commitTerminal(f.terminalStore, {
       ...f.terminal,
       configurationGrants: [await f.source.captureGrant(f.targetKey, consumer)],
     });
@@ -414,7 +418,7 @@ describeDb("Listing Session acknowledged epoch closure", () => {
   it.each(seedWriters)("seed $name: $mutant makes stale terminal commit", async (writer) => {
     const f = await seedFixture(writer);
     await f.write({ ...f.epochs, transaction: (_keys, work) => withConfigurationEpochTransaction(pool, work) });
-    await f.terminalStore.appendToStream(f.terminal);
+    await commitTerminal(f.terminalStore, f.terminal);
     expect(await f.terminalStore.readStream({ streamId: f.terminal.streamId }), writer.mutant).toHaveLength(1);
   });
   it.each(seedWriters)("seed $name: terminal-first installs only after COMMIT", async (writer) => {
