@@ -177,6 +177,12 @@ function formatReportDateTime(value: string | null) {
   return value ? formatDateTime(value) : t("platformOperations.reportedContent.notSet");
 }
 
+function responseLabel(item: ReportedContentQueueItem) {
+  return t(
+    `platformOperations.reportedContent.response.${!item.response_open ? "disposed" : item.overdue ? "overdue" : item.acknowledged_at ? "acknowledged" : "open"}`,
+  );
+}
+
 function reasonSummary(item: Pick<ReportedContentQueueItem, "reasons">) {
   return item.reasons.map((reason) => `${reason.reason} (${reason.count})`).join(", ");
 }
@@ -238,6 +244,31 @@ export function ReportedContentAdminListPage({
         <DataTable<ReportedContentQueueItem>
           columns={[
             {
+              key: "severity",
+              header: t("platformOperations.reportedContent.severity"),
+              cell: (item) => t(`platformOperations.reportedContent.severity.${item.severity}`),
+            },
+            {
+              key: "acknowledge_due_at",
+              header: t("platformOperations.reportedContent.acknowledgeDue"),
+              cell: (item) => formatReportDateTime(item.acknowledge_due_at),
+            },
+            {
+              key: "disposition_due_at",
+              header: t("platformOperations.reportedContent.dispositionDue"),
+              cell: (item) => formatReportDateTime(item.disposition_due_at),
+            },
+            {
+              key: "accountable_role",
+              header: t("platformOperations.reportedContent.accountableRole"),
+              cell: (item) => item.accountable_role,
+            },
+            {
+              key: "overdue",
+              header: t("platformOperations.reportedContent.responseState"),
+              cell: (item) => responseLabel(item),
+            },
+            {
               key: "status",
               header: t("platformOperations.reportedContent.status"),
               cell: (item) => <Badge tone={statusTone(item.status)}>{statusLabel(item.status)}</Badge>,
@@ -266,7 +297,7 @@ export function ReportedContentAdminListPage({
               key: "action",
               header: t("platformOperations.reportedContent.action"),
               cell: (item) => (
-                <LinkButton href={`/support/reported-content/${item.target_type}/${item.target_id}`} size="sm">
+                <LinkButton href={`/reported-content/${item.target_type}/${item.target_id}`} size="sm">
                   {t("platformOperations.reportedContent.open")}
                 </LinkButton>
               ),
@@ -305,7 +336,7 @@ export function ReportedContentAdminDetailPage({
         description={t("platformOperations.reportedContent.detailDescription")}
       />
       <Stack gap={3}>
-        <LinkButton href="/support/reported-content" tone="secondary">
+        <LinkButton href="/reported-content" tone="secondary">
           {t("platformOperations.reportedContent.back")}
         </LinkButton>
         {href ? (
@@ -318,6 +349,24 @@ export function ReportedContentAdminDetailPage({
         <DetailPanel title={t("platformOperations.reportedContent.queueItem")}>
           <KeyValueList
             items={[
+              {
+                key: t("platformOperations.reportedContent.severity"),
+                value: t(`platformOperations.reportedContent.severity.${item.severity}`),
+              },
+              {
+                key: t("platformOperations.reportedContent.acknowledgeDue"),
+                value: formatReportDateTime(item.acknowledge_due_at),
+              },
+              {
+                key: t("platformOperations.reportedContent.dispositionDue"),
+                value: formatReportDateTime(item.disposition_due_at),
+              },
+              { key: t("platformOperations.reportedContent.accountableRole"), value: item.accountable_role },
+              { key: t("platformOperations.reportedContent.responseState"), value: responseLabel(item) },
+              {
+                key: t("platformOperations.reportedContent.responsePolicy"),
+                value: item.policy_code ?? item.policy_revision ?? "policy-incomplete",
+              },
               { key: t("platformOperations.reportedContent.status"), value: statusLabel(item.status) },
               { key: t("platformOperations.reportedContent.targetType"), value: targetTypeLabel(item.target_type) },
               { key: t("platformOperations.reportedContent.targetId"), value: item.target_id },
@@ -345,6 +394,11 @@ export function ReportedContentAdminDetailPage({
             ]}
           />
           <Form spacing="md" method="post">
+            {item.response_open && !item.acknowledged_at ? (
+              <Button type="submit" name="action" value="acknowledge">
+                {t("platformOperations.reportedContent.acknowledge")}
+              </Button>
+            ) : null}
             <Textarea
               name="note"
               label={t("platformOperations.reportedContent.actionNote")}

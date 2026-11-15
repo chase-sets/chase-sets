@@ -86,7 +86,8 @@
       "handlers": {
         "marketplace.report.submitted": "<function>",
         "marketplace.listing.auto-unlisted": "<function>",
-        "platform-operations.reported-content.action-recorded": "<function>"
+        "platform-operations.reported-content.action-recorded": "<function>",
+        "platform-operations.reported-content.acknowledged": "<function>"
       },
       "inlineApply": false,
       "errorPolicy": "strict-per-stream",
@@ -97,6 +98,7 @@
       "eventTypes": [
         "marketplace.listing.auto-unlisted",
         "marketplace.report.submitted",
+        "platform-operations.reported-content.acknowledged",
         "platform-operations.reported-content.action-recorded"
       ],
       "streamPrefixes": ["platform-operations.reported-content-"],
@@ -256,7 +258,8 @@
       "subscriptionVersion": 1,
       "checkpointKey": "reported-content-queue-projection:platform-operations:v1",
       "handlers": {
-        "platform-operations.reported-content.action-recorded": "<function>"
+        "platform-operations.reported-content.action-recorded": "<function>",
+        "platform-operations.reported-content.acknowledged": "<function>"
       },
       "inlineApply": false,
       "errorPolicy": "strict-per-stream",
@@ -264,7 +267,10 @@
       "projectionCascadeChunkSize": "<undefined>",
       "projectionTransactionTimeoutMs": "<undefined>",
       "projectionStatementTimeoutMs": "<undefined>",
-      "eventTypes": ["platform-operations.reported-content.action-recorded"],
+      "eventTypes": [
+        "platform-operations.reported-content.action-recorded",
+        "platform-operations.reported-content.acknowledged"
+      ],
       "streamPrefixes": "<undefined>",
       "order": 61
     },
@@ -895,9 +901,13 @@
       "projectionName": "reported-content-queue-projection",
       "subscriptionVersion": 1,
       "handlers": {
-        "platform-operations.reported-content.action-recorded": "<function>"
+        "platform-operations.reported-content.action-recorded": "<function>",
+        "platform-operations.reported-content.acknowledged": "<function>"
       },
-      "eventTypes": ["platform-operations.reported-content.action-recorded"],
+      "eventTypes": [
+        "platform-operations.reported-content.action-recorded",
+        "platform-operations.reported-content.acknowledged"
+      ],
       "streamPrefixes": "<undefined>",
       "errorPolicy": "<undefined>",
       "batchSize": "<undefined>",

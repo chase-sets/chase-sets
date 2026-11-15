@@ -186,6 +186,7 @@ describe("reported-content-target-action-partition", () => {
       "action-not-allowed",
       "note-required",
       "target-not-queued",
+      "target-disposed",
       "invalid-listing-removal-directive",
     ]);
   });

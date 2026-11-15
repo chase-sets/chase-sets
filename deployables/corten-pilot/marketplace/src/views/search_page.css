@@ -505,7 +505,7 @@
 .save {
   display: contents;
 }
-/* Add matching products to Buy Cart's form, whose button sits among the controls. */
+/* Add matching products to Buy Cart's form, whose button sits among the controls as one of them. */
 .bulk {
   display: contents;
 }

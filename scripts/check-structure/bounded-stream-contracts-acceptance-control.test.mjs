@@ -67,6 +67,11 @@ const expectedInventory = [
   // Fenced enrollment reads the creation event; its decorator still forwards complete caller requests.
   ["bounded-contexts/identity/features/account-management/api/fences.ts#readStream#1", "1"],
   ["bounded-contexts/identity/features/account-management/api/fences.ts#readStream#2", null],
+  // Acknowledgement reads every page before checking disposition and the stream version.
+  [
+    "bounded-contexts/platform-operations/features/reported-content/api/runtime.ts#readStream#1",
+    "EVENT_STORE_READ_PAGE_SIZE_MAX",
+  ],
   // Evidence Access Attempt audit pages are explicit cursor pages that report nextCursor.
   ["bounded-contexts/platform-operations/features/support-requests/api/evidence-access-audit.ts#readStream#1", "51"],
   [
@@ -114,7 +119,7 @@ const program = ts.createProgram({
 const candidateInventory = deriveProgramInventory(program);
 
 describe("bounded-stream-contracts-acceptance-control", () => {
-  it("derives the exact twenty-two-call corpus and five production pointer/test bindings from one TypeScript Program", () => {
+  it("derives the exact twenty-three-call corpus and five production pointer/test bindings from one TypeScript Program", () => {
     expect(acceptanceErrors(candidateInventory)).toEqual([]);
     expect(candidateInventory.map((site) => [site.id, site.limit])).toEqual(expectedInventory);
   });
@@ -132,6 +137,16 @@ describe("bounded-stream-contracts-acceptance-control", () => {
           readSource(file).replace("store.readStream(input)", "store.readStream({ ...input, limit: 1 })"),
         ),
       ),
+    ).toContain("inventory-mismatch");
+  });
+
+  it("retains the Reported Content acknowledgement's complete-history page bound", () => {
+    const file = "bounded-contexts/platform-operations/features/reported-content/api/runtime.ts";
+    const site = candidateInventory.find((candidate) => candidate.file === file);
+    expect(site).toBeDefined();
+    expect(site.limit).toBe("EVENT_STORE_READ_PAGE_SIZE_MAX");
+    expect(
+      errorCodes(mutatedInventory(file, readSource(file).replace("limit: EVENT_STORE_READ_PAGE_SIZE_MAX", "limit: 1"))),
     ).toContain("inventory-mismatch");
   });
 

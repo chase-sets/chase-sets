@@ -1,4 +1,23 @@
 export const platformOperationsEnglishTranslations = {
+  "platformOperations.reportedContent.severity": "Severity",
+  "platformOperations.reportedContent.severity.critical": "Critical",
+  "platformOperations.reportedContent.severity.high": "High",
+  "platformOperations.reportedContent.severity.standard": "Standard",
+  "platformOperations.reportedContent.acknowledgeDue": "Acknowledgement due",
+  "platformOperations.reportedContent.dispositionDue": "Disposition or escalation due",
+  "platformOperations.reportedContent.accountableRole": "Accountable role",
+  "platformOperations.reportedContent.responseState": "Response state",
+  "platformOperations.reportedContent.responsePolicy": "Response policy",
+  "platformOperations.reportedContent.response.disposed": "Disposed",
+  "platformOperations.reportedContent.response.overdue": "Overdue",
+  "platformOperations.reportedContent.response.acknowledged": "Acknowledged",
+  "platformOperations.reportedContent.response.open": "Open",
+  "platformOperations.reportedContent.acknowledge": "Acknowledge",
+  "platformOperations.operationsAttention.source.reportedContentResponse": "Reported Content response",
+  "platformOperations.operationsAttention.summary.reportedContent":
+    "Reported Content: {severity}; accountable role: {role}",
+  "platformOperations.operationsAttention.summary.reportedContentIncomplete":
+    "Reported Content source incomplete. Open the moderation queue to review all work.",
   "support.participantAttempt.checkBeforeRetry": "Check status before retrying this support action.",
   "support.participantAttempt.ambiguous":
     "We could not confirm whether your support action completed. Do not submit it again yet.",
