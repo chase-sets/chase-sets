@@ -220,10 +220,10 @@ describe("authoritative-stream-read-diagnostics-transport-control", () => {
     expect(detachment.totals.detachmentEscapeSites).toBe(detachment.diagnostics.length);
   });
 
-  it("derives thirty-three green grammar instances across twenty-nine live locations without a registry", () => {
+  it("derives thirty-four green grammar instances across thirty live locations without a registry", () => {
     const green = productionGrammar;
-    expect(green).toHaveLength(33);
-    expect(new Set(green.map((entry) => `${entry.file}:${entry.line}`))).toHaveLength(29);
+    expect(green).toHaveLength(34);
+    expect(new Set(green.map((entry) => `${entry.file}:${entry.line}`))).toHaveLength(30);
     expect(
       green
         .filter((entry) => entry.file.endsWith("/extension-tcgplayer-sealed-products.ts"))
@@ -235,6 +235,11 @@ describe("authoritative-stream-read-diagnostics-transport-control", () => {
           "createExtensionTcgplayerSealedProductRecorder.recordExtensionTcgplayerSealedProducts.eventStore.readStream",
       },
     ]);
+    expect(
+      green
+        .filter((entry) => entry.file === "bounded-contexts/catalog/features/product-contents/api/runtime.ts")
+        .map(({ category, symbol }) => ({ category, symbol })),
+    ).toEqual([{ category: "member-declaration", symbol: "readProductContentsAuthoringState.reader.readStream" }]);
     const declarations = resolveGrammarSelectors(green, memberDeclarationSelectors);
     expect(declarations.errors).toEqual([]);
     expect(declarations.resolved).toHaveLength(memberDeclarationSelectors.length);
