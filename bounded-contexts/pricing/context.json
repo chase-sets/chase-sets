@@ -1039,7 +1039,13 @@
     "request-support": {
       "classification": "support",
       "purpose": "Provide Pricing request HTTP client composition for route loaders and composition seams.",
-      "expectedConsumers": ["pricing-health", "repricing-policies"],
+      "expectedConsumers": [
+        "bulk-reprice-ingestion",
+        "pricing-health",
+        "recommendations",
+        "repricing-engine",
+        "repricing-policies"
+      ],
       "crossCuttingRuntimeComposition": true
     },
     "route-support": {

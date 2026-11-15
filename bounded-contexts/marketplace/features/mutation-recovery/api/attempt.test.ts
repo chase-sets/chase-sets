@@ -9,7 +9,7 @@ import {
   type MarketplaceAttemptInput,
 } from "./attempt";
 import { createMarketplaceMutationLookup } from "./lookup";
-import { marketplaceOfferCanonicalRequest } from "../domain/contracts";
+import { canonicalMarketplaceMoneyAmount, marketplaceOfferCanonicalRequest } from "../domain/contracts";
 import { offerAttemptResultSchema } from "../../offers/api/attempt-result";
 import { context } from "../../offer-policy/tests/fixtures";
 
@@ -39,6 +39,19 @@ function observedStore() {
 }
 
 describe("Marketplace attempt core", () => {
+  it.each([
+    ["010.00", "10"],
+    [" 0010.0100 ", "10.01"],
+    ["000.000", "0"],
+    ["10.", "10."],
+    ["1.0.0", "1.0.0"],
+    [`1.${"0".repeat(100_000)}1`, `1.${"0".repeat(100_000)}1`],
+    [`${"0".repeat(100_000)}1.000`, "1"],
+    [`${"0".repeat(100_000)}x`, `${"0".repeat(100_000)}x`],
+  ])("normalizes decimal spelling without changing invalid amounts (case %#)", (input, expected) => {
+    expect(canonicalMarketplaceMoneyAmount(input)).toBe(expected);
+  });
+
   it.each([
     ["a short id", { ...submit, attemptId: "too_short" }],
     ["a Checkout key outside acceptance", { ...submit, attemptId: checkoutKey }],

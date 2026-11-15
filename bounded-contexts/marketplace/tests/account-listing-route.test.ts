@@ -329,6 +329,7 @@ describe("marketplace listing detail route", () => {
     );
 
     const form = new URLSearchParams();
+    form.set("idempotencyKey", "test_form_attempt_10923");
     form.set("intent", "publish");
     form.set("feeQuoteFingerprint", "quote-1");
 
@@ -383,6 +384,7 @@ describe("marketplace listing detail route", () => {
     );
 
     const form = new URLSearchParams();
+    form.set("idempotencyKey", "test_form_attempt_10923");
     form.set("intent", "update-price");
     form.set("priceAmount", "20.00");
     form.set("priceCurrencyCode", "USD");
@@ -427,7 +429,11 @@ describe("marketplace listing detail route", () => {
         );
       }),
     );
-    const form = new URLSearchParams({ intent: "publish", feeQuoteFingerprint: "quote-1" });
+    const form = new URLSearchParams({
+      idempotencyKey: "test_form_attempt_10923",
+      intent: "publish",
+      feeQuoteFingerprint: "quote-1",
+    });
 
     const result = await listingAction({
       request: new Request("http://localhost/account/listings/lst_1", {
@@ -458,6 +464,7 @@ describe("marketplace listing detail route", () => {
       }),
     );
     const form = new URLSearchParams({
+      idempotencyKey: "test_form_attempt_10923",
       intent: "classify-photo",
       photoId: "lpho_1",
       slotId: "",
@@ -504,6 +511,7 @@ describe("marketplace listing detail route", () => {
     );
 
     const form = new URLSearchParams();
+    form.set("idempotencyKey", "test_form_attempt_10923");
     form.set("intent", "update-price");
     form.set("priceAmount", "20.00");
     form.set("priceCurrencyCode", "USD");

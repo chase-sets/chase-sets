@@ -302,6 +302,7 @@ describe("marketplace listing create route", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     const form = new URLSearchParams();
+    form.set("idempotencyKey", "test_form_attempt_10923");
     form.set("intent", "create-and-publish-listing");
     form.set("inventoryItemId", "inv_1");
     form.set("priceAmount", "24.99");
@@ -372,6 +373,7 @@ describe("marketplace listing create route", () => {
       }),
     );
     const form = new URLSearchParams({
+      idempotencyKey: "test_form_attempt_10923",
       intent: "create-and-publish-listing",
       inventoryItemId: "inv_1",
       priceAmount: "24.99",
@@ -419,6 +421,7 @@ describe("marketplace listing create route", () => {
     );
 
     const form = new URLSearchParams();
+    form.set("idempotencyKey", "test_form_attempt_10923");
     form.set("intent", "create-listing");
     form.set("inventoryItemId", "inv_1");
     form.set("priceAmount", "24.99");
@@ -494,6 +497,7 @@ describe("marketplace listing create route", () => {
     );
 
     const form = new URLSearchParams();
+    form.set("idempotencyKey", "test_form_attempt_10923");
     form.set("intent", "create-listing");
     form.set("inventoryItemId", "inv_1");
     form.set("priceAmount", "24.99");
@@ -561,6 +565,7 @@ describe("marketplace listing create route", () => {
     );
 
     const form = new URLSearchParams();
+    form.set("idempotencyKey", "test_form_attempt_10923");
     form.set("intent", "create-listing");
     form.set("inventoryItemId", "inv_1");
     form.set("priceAmount", "24.99");

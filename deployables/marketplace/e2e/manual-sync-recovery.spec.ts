@@ -1,3 +1,4 @@
+import { listingTestCommand } from "./support/listing-attempt";
 import { expect, test, type APIResponse, type Page } from "@playwright/test";
 import { randomUUID } from "node:crypto";
 import sharp from "sharp";
@@ -124,7 +125,10 @@ test.describe("manual TCGplayer clamp recovery", () => {
         async () => {
           if (listingId) {
             const response = await page.request.post(`/api/marketplace/account/listings/${listingId}/withdraw`, {
-              data: { idempotencyKey: `e2e_withdraw_${randomUUID().replaceAll("-", "")}` },
+              data: listingTestCommand("listing.withdraw", {
+                idempotencyKey: `e2e_withdraw_${randomUUID().replaceAll("-", "")}`,
+                listingId,
+              }),
             });
             expect(response.ok(), "owned recovery Listing cleanup must succeed").toBe(true);
           }
@@ -267,13 +271,13 @@ async function recoveryListing(page: Page, storageLocationId: string, created: (
     (supply) => supply.items.some((candidate) => candidate.item_id === item.id),
   );
   const createdResponse = await page.request.post("/api/marketplace/account/listings", {
-    data: {
+    data: listingTestCommand("listing.create", {
       idempotencyKey: `e2e_create_${randomUUID().replaceAll("-", "")}`,
       inventoryItemId: item.id,
       priceAmount: "5.00",
       priceCurrencyCode: "USD",
       quantityCap: 1,
-    },
+    }),
   });
   expect(createdResponse.ok()).toBe(true);
   const listing = await responseJson<{ id: string; feeQuoteFingerprint: string }>(createdResponse);
@@ -322,10 +326,11 @@ async function recoveryListing(page: Page, storageLocationId: string, created: (
     expect(classified.ok()).toBe(true);
   }
   const published = await page.request.post(`${listingPath}/publish`, {
-    data: {
+    data: listingTestCommand("listing.publish", {
+      listingId: listing.id,
       idempotencyKey: `e2e_publish_${randomUUID().replaceAll("-", "")}`,
       feeQuoteFingerprint: listing.feeQuoteFingerprint,
-    },
+    }),
   });
   expect(published.ok()).toBe(true);
   return { listingId: listing.id, inventoryItemId: item.id };

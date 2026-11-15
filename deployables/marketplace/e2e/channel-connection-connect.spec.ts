@@ -1,3 +1,4 @@
+import { listingTestCommand } from "./support/listing-attempt";
 import { expect, test, type APIResponse, type Page, type TestInfo } from "@playwright/test";
 import { randomUUID } from "node:crypto";
 import sharp from "sharp";
@@ -575,13 +576,13 @@ async function publishTwoSellerListings(
     );
     const listing = await successfulJson<{ id: string; feeQuoteFingerprint: string }>(
       await page.request.post("/api/marketplace/account/listings", {
-        data: {
+        data: listingTestCommand("listing.create", {
           idempotencyKey: `e2e_create_${randomUUID().replaceAll("-", "")}`,
           inventoryItemId: item.id,
           priceAmount: "5.00",
           priceCurrencyCode: "USD",
           quantityCap: 2,
-        },
+        }),
       }),
     );
     const path = `/api/marketplace/account/listings/${listing.id}`;
@@ -629,10 +630,11 @@ async function publishTwoSellerListings(
     }
     await successfulJson(
       await page.request.post(`${path}/publish`, {
-        data: {
+        data: listingTestCommand("listing.publish", {
           idempotencyKey: `e2e_publish_${randomUUID().replaceAll("-", "")}`,
           feeQuoteFingerprint: listing.feeQuoteFingerprint,
-        },
+          listingId: listing.id,
+        }),
       }),
     );
   }
