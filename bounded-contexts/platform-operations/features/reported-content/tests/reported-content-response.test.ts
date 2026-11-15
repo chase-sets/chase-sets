@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import pg from "pg";
 import {
   reportedContentDueTimes,
   reportedContentReason,
@@ -165,6 +166,40 @@ function row(): ResponseRow {
 }
 
 describe("reported-content-acknowledgement-lifecycle", () => {
+  it("normalizes pg removal timestamps before comparing same-second fractional actions", async () => {
+    const removedAt = "2026-11-16T16:00:00.900Z";
+    const decodedRemoval = pg.types.getTypeParser(1184, "text")("2026-11-16 16:00:00.900+00");
+    expect(decodedRemoval).toBeInstanceOf(Date);
+    expect((decodedRemoval as Date).getTime()).toBe(Date.parse(removedAt));
+    const query = vi.fn(async (sql: string, _values?: readonly unknown[]) => {
+      if (!sql.includes("SELECT q.*")) return { rows: [{ updated: 1 }] };
+      return {
+        rows: [
+          {
+            ...row(),
+            status: "manually-unlisted",
+            last_action: "dismiss",
+            last_action_at: "2026-11-16T16:00:00.100Z",
+            response_removed_at: sql.includes("q.response_removed_at::text AS response_removed_at")
+              ? (decodedRemoval as Date).toISOString()
+              : decodedRemoval,
+            reports: [...row().reports, { reason: "other", submittedAt: "2026-11-17T15:00:00.000Z" }],
+          },
+        ],
+      };
+    });
+    await refreshReportedContentResponses({ query } as unknown as PgQueryable, "listing", "lst_1");
+    expect(query).toHaveBeenLastCalledWith(
+      expect.stringContaining("UPDATE platform_operations_reported_content_queue_pages"),
+      expect.arrayContaining(["listing", "lst_1"]),
+    );
+    const values = query.mock.calls.at(-1)![1]!;
+    expect(values[8]).toBeNull();
+    expect(values[9]).toBeNull();
+    expect(values[11]).toBe(false);
+    expect(values[12]).toBe("manually-unlisted");
+  });
+
   it("stops one clock on acknowledgement and both on disposition; re-report starts a new cycle", () => {
     const initial = row();
     const ack = {

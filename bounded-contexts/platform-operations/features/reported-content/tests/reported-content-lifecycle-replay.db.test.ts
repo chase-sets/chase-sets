@@ -493,7 +493,8 @@ describeDb("reported-content-lifecycle-replay", () => {
     await db().query(`UPDATE platform_operations_reported_content_queue_pages SET
       policy_revision = NULL, severity = NULL, acknowledge_due_at = NULL, disposition_due_at = NULL`);
     const before = await eventCount();
-    await reportedContentResponseSchemaMigrations[0]!.dataStep!(db());
+    const backfill = reportedContentResponseSchemaMigrations.find((migration) => migration.dataStep)!.dataStep!;
+    await backfill(db());
     const rows = await snapshot();
     expect(rows).toHaveLength(2);
     for (const row of rows) {
@@ -501,9 +502,52 @@ describeDb("reported-content-lifecycle-replay", () => {
       expect(row.acknowledge_due_at).not.toBeNull();
       expect(row.disposition_due_at).not.toBeNull();
     }
-    await reportedContentResponseSchemaMigrations[0]!.dataStep!(db());
+    await backfill(db());
     expect(await snapshot()).toEqual(rows);
     expect(await eventCount()).toBe(before);
+  });
+
+  it("same-second removal stays closed through a later report and delayed unlist audit", async () => {
+    const firstAt = "2026-11-16T15:00:00.000Z";
+    const dismissAt = "2026-11-16T16:00:00.100Z";
+    const removalAt = "2026-11-16T16:00:00.900Z";
+    const laterAt = "2026-11-17T15:00:00.000Z";
+    const first = marketplaceReport("fraction-first", 1, "visitor:first");
+    const dismiss = actionRecorded("fraction-dismiss", 2, "listing", listing, "dismiss");
+    const audit = actionRecorded("fraction-unlist", 3, "listing", listing, "unlist");
+    const later = marketplaceReport("fraction-later", 4, "visitor:later");
+    await deliver([
+      { ...first, recordedAt: firstAt, data: { ...first.data, submittedAt: firstAt } },
+      { ...dismiss, recordedAt: dismissAt, data: { ...dismiss.data, recordedAt: dismissAt } },
+      {
+        name: "fraction-removal",
+        type: "marketplace.listing.operator-unlisted",
+        streamId: `marketplace.listing-${listing}`,
+        recordedAt: removalAt,
+        data: {
+          listingEnforcement: {
+            version: 1,
+            listingEnforcementActionId: id("lea", "E1"),
+            accountId: id("acc", "F1"),
+            source: "operator-unlist",
+            sourceActionId: audit.data.actionId,
+            occurredAt: removalAt,
+          },
+        },
+      },
+    ]);
+    const closed = {
+      response_open: false,
+      status: "manually-unlisted",
+      acknowledge_due_at: null,
+      disposition_due_at: null,
+    };
+    expect((await snapshot())[0]).toMatchObject(closed);
+    await deliver([{ ...later, recordedAt: laterAt, data: { ...later.data, submittedAt: laterAt } }]);
+    expect((await snapshot())[0]).toMatchObject(closed);
+    await deliver([{ ...audit, recordedAt: removalAt, data: { ...audit.data, recordedAt: removalAt } }]);
+    expect((await snapshot())[0]).toMatchObject(closed);
+    expect(await eventCount()).toBe(0);
   });
 
   it("a report retry repairs response derivation after a failure between the two writes", async () => {

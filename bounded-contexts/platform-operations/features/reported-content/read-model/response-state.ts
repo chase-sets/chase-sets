@@ -68,7 +68,7 @@ export async function refreshReportedContentResponses(db: PgQueryable, targetTyp
   for (let attempt = 0; attempt < 8; attempt++) {
     const rows = await db.query<ResponseRow>(
       `
-      SELECT q.*, q.last_action_at::text AS last_action_at,
+      SELECT q.*, q.last_action_at::text AS last_action_at, q.response_removed_at::text AS response_removed_at,
         (SELECT COUNT(*)::integer FROM platform_operations_reported_content_queue_pages p,
           jsonb_array_elements(p.response_actions) a
           WHERE p.target_owner_account_id = q.target_owner_account_id

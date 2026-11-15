@@ -42,11 +42,18 @@ ALTER TABLE platform_operations_reported_content_queue_pages
   ADD COLUMN IF NOT EXISTS response_acknowledgements jsonb NOT NULL DEFAULT '[]'::jsonb,
   ADD COLUMN IF NOT EXISTS response_version integer NOT NULL DEFAULT 0;
 
-CREATE INDEX IF NOT EXISTS platform_operations_reported_content_owner_idx
-  ON platform_operations_reported_content_queue_pages (target_owner_account_id, status);
 `;
 
 export const reportedContentResponseSchemaMigrations: readonly BcSchemaMigration[] = [
+  {
+    migrationId: "20261115_reported_content_owner_index",
+    description: "Index report owners concurrently before deriving historical response state.",
+    statements: [
+      `DROP INDEX CONCURRENTLY IF EXISTS platform_operations_reported_content_owner_idx`,
+      `CREATE INDEX CONCURRENTLY platform_operations_reported_content_owner_idx
+      ON platform_operations_reported_content_queue_pages (target_owner_account_id, status)`,
+    ],
+  },
   {
     migrationId: "20261115_reported_content_response",
     description: "Backfill effective response policy and prior dispositions without appending events.",
