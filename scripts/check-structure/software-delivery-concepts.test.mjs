@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
   findSoftwareDeliveryConceptViolations,
@@ -12,6 +13,7 @@ function labelsFor(relativeFile, content) {
 
 describe("software delivery concepts guard", () => {
   const requestFile = "bounded-contexts/catalog/features/operator-session/api/request.ts";
+  const responseFile = "bounded-contexts/channels/features/ebay-connection/api/provider.ts";
   const cleanup = `async function readBody(request: Request) {
     if (!request.body) return "";
     const reader = request.body.getReader();
@@ -20,6 +22,28 @@ describe("software delivery concepts guard", () => {
   it("admits the proven Web Streams reader cleanup in the operator request codec only", () => {
     expect(labelsFor(requestFile, cleanup)).toEqual([]);
     expect(labelsFor("deployables/platform-api/src/request.ts", cleanup)).toContain("releaseLock deploy gate");
+  });
+  it("admits only proven DOM Response reader cleanup in the eBay provider codec", () => {
+    const responseCleanup = cleanup
+      .replaceAll("request", "response")
+      .replace("response: Request", "response: Response")
+      .replace("!response.body", "!response.ok || !response.body");
+    expect(labelsFor(responseFile, responseCleanup)).toEqual([]);
+    expect(labelsFor(responseFile, readFileSync(new URL(`../../${responseFile}`, import.meta.url), "utf8"))).toEqual(
+      [],
+    );
+    expect(labelsFor(responseFile, responseCleanup + "\ndeploy.releaseLock();")).toContain("releaseLock deploy gate");
+    expect(labelsFor(responseFile, responseCleanup.replace("response: Response", "response: unknown"))).toContain(
+      "releaseLock deploy gate",
+    );
+    expect(
+      labelsFor(
+        responseFile,
+        "interface Response { body: { getReader(): { read(): void; releaseLock(): void } }; ok: boolean }\n" +
+          responseCleanup,
+      ),
+    ).toContain("releaseLock deploy gate");
+    expect(labelsFor("deployables/platform-api/src/response.ts", responseCleanup)).toContain("releaseLock deploy gate");
   });
   it.each([
     cleanup + "\nreleaseLock();",

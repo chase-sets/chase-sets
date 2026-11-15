@@ -2,7 +2,7 @@ import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import { redirect, type LoaderFunctionArgs } from "react-router";
 import { createEbayConnectionClient } from "../../features/ebay-connection/ui/api-client";
 
-export async function loader({ request }: LoaderFunctionArgs) {
+export const loader = async ({ request }: LoaderFunctionArgs) => {
   const url = new URL(request.url),
     declined = url.pathname.endsWith("/declined");
   const cleanUrl = new URL("/account/channels/ebay", url.origin);
@@ -38,4 +38,4 @@ export async function loader({ request }: LoaderFunctionArgs) {
     destination = "/account/channels/ebay?outcome=failed";
   }
   return redirect(destination, { headers: { "Cache-Control": "no-store", "Referrer-Policy": "no-referrer" } });
-}
+};
