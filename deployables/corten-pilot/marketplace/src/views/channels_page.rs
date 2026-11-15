@@ -699,7 +699,7 @@ fn ManualSync<'a>(t: ChannelsMsg, id: &'a str, panel: &'a ManualSyncPanel, said:
     let open = run.is_some_and(|run| OPEN_RUN_STATES.contains(&run.state.as_str()));
     let live = panel.inbound_coverage.state == "live";
     let write = url::ChannelManualSync { id }.href();
-    let ingest = url::ChannelManualSyncIngest { id }.href();
+    let ingest = url::ChannelConnection { id, place: Default::default() }.ingest();
     let download = url::ChannelManualSyncDownload { id }.href();
     let f = ManualSyncForm::FIELDS;
     let g = IngestForm::FIELDS;

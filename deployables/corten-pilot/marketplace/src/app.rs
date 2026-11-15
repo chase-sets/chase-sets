@@ -202,8 +202,7 @@ pub mod url {
     pub use cart::{Cart, CartCheckout, CartLock, CartQuantity, CartRemove};
     pub use categories::Category;
     pub use channels::{
-        ChannelConnection, ChannelManualSync, ChannelManualSyncDownload, ChannelManualSyncIngest, ChannelPublication,
-        ChannelPublications, Channels,
+        ChannelConnection, ChannelManualSync, ChannelManualSyncDownload, ChannelPublication, ChannelPublications, Channels,
     };
     pub use checkout::{BuyCheckout, BuyConfirmation};
     pub use checkout_start::CheckoutStart;
@@ -1318,8 +1317,15 @@ pub mod url {
             pub place: crate::channels::PublicationPlace,
         }
 
-        /// A connection, after the write whose receipt the address carries; its writes post to it.
-        #[route("/account/channels/{id}", get = crate::channels::connection, post = crate::channels::command)]
+        /// A connection, after the write whose receipt the address carries; its writes post to it,
+        /// and an export's ingest (`multipart/form-data`) is its `ingest` post, whose answer is the
+        /// connection with Channels' receipt.
+        #[route(
+            "/account/channels/{id}",
+            get = crate::channels::connection,
+            post = crate::channels::command,
+            post(ingest) = crate::channels::manual_sync_ingest
+        )]
         pub struct ChannelConnection<'a> {
             pub id: &'a str,
             #[route(query)]
@@ -1329,15 +1335,6 @@ pub mod url {
         /// A connection's manual sync writes, but an export's ingest and the download.
         #[route("/account/channels/{id}/manual-sync", post = crate::channels::manual_sync)]
         pub struct ChannelManualSync<'a> {
-            pub id: &'a str,
-        }
-
-        /// Ingest a Live or Staged export (`multipart/form-data`): the connection with Channels'
-        /// receipt, drawn here. Its `GET` is the connection, so the address works when opened
-        /// again. A workaround: the connection's route takes the panel's other writes as its one
-        /// `POST`, urlencoded (corten-run/corten#1403).
-        #[route("/account/channels/{id}/manual-sync/ingest", get = crate::channels::to_connection, post = crate::channels::manual_sync_ingest)]
-        pub struct ChannelManualSyncIngest<'a> {
             pub id: &'a str,
         }
 

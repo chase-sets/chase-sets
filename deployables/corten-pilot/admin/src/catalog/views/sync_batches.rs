@@ -192,7 +192,7 @@ fn Carried<'a>(input: &'a BatchInput) -> impl Render {
 /// From held-set export: the CSV upload, and what it resolved to with Preview resolved sets.
 #[component(css = SyncBatchPage)]
 fn HeldSets<'a>(t: Cat, resolution: Option<&'a Resolution>) -> impl Render {
-    let action = url::HeldSets.href();
+    let action = url::SyncBatches::default().held_sets();
     let main = url::SyncBatches::default().href();
     let f = crate::catalog::sync_batches::HeldSetForm::FIELDS;
     html! {

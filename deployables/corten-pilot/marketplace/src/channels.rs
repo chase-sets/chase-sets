@@ -16,9 +16,9 @@
 //! pairing and operation log are on marketplace for now.
 //!
 //! The manual sync panel is Channels' (`ManualSyncPanel`): which actions the run allows is its
-//! answer. Its writes post to `{id}/manual-sync` (an export's ingest, a file, to
-//! `{id}/manual-sync/ingest`) and go back to the connection, or draw it with what was refused; an
-//! ingest draws it with Channels' receipt (422 when Channels refused the export), and its address
+//! answer. Its writes post to `{id}/manual-sync` (an export's ingest, a file, to the connection's
+//! `ingest` post, `{id}?do=ingest`) and go back to the connection, or draw it with what was refused;
+//! an ingest draws it with Channels' receipt (422 when Channels refused the export), and its address
 //! opened again is the connection. Clamp and download posts to `{id}/manual-sync/download`
 //! and answers Channels' CSV, or, refused, the connection with what was refused, as the other
 //! writes do (`PageOr`; marketplace shows Channels' JSON instead,
@@ -557,7 +557,7 @@ pub(crate) async fn manual_sync_ingest(
     Caller(ChannelsMember(viewer)): Caller<ChannelsMember>,
     State(config): State<Shared>,
     headers: HeaderMap,
-    Params(route): Params<url::channels::ChannelManualSyncIngest<'_>>,
+    Params(route): Params<url::channels::ChannelConnection<'_>>,
     upload: corten::Upload<Raw>,
 ) -> HtmlResult {
     if !viewer.actor.can(CHANNELS_MANAGE) {
@@ -586,15 +586,6 @@ pub(crate) async fn manual_sync_ingest(
         }
         Err(error) => manual_refused(&req, &viewer, &config, &headers, id, error).await,
     }
-}
-
-/// The ingest's address opened again (a reload from history, a bookmark): the connection.
-pub(crate) async fn to_connection(
-    req: Req,
-    _: Caller<ChannelsMember>,
-    Params(route): Params<url::channels::ChannelManualSyncIngest<'_>>,
-) -> HtmlResult {
-    req.redirect(&url::channels::ChannelConnection { id: &route.id, place: ConnectionPlace::default() })
 }
 
 /// Clamp and download CSV: Channels claims the composed run and sends its Staged batch, passed on
