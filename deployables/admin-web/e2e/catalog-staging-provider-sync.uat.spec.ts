@@ -3599,6 +3599,7 @@ test.describe("catalog staging provider sync UAT", () => {
         page,
         providerUatJourneyScope,
         startedAt + testInfo.timeout - wholeGameDeadlineMarginMs,
+        writeWholeGameReceipt,
       );
       writeWholeGameReceipt(receipt);
       return;
@@ -7335,6 +7336,7 @@ type WholeGameRuntime = Readonly<{ deadlineAt: number; pollMs: number }>;
 type WholeGameBatchSnapshot = WholeGameBatchView & Readonly<{ planFingerprint: string }>;
 
 type WholeGameRunIdentity = Pick<WholeGameReceipt, "sha" | "runId" | "runAttempt">;
+type WholeGameReceiptSink = (receipt: WholeGameReceipt) => void;
 
 type WholeGameSettleCounts = {
   -readonly [Key in Exclude<
@@ -7359,12 +7361,13 @@ async function runWholeGameJourney(
   page: Page,
   scope: WholeGameJourneyScope,
   deadlineAt: number,
+  receiptSink: WholeGameReceiptSink,
   env: NodeJS.ProcessEnv = process.env,
 ): Promise<WholeGameReceipt> {
   const run = wholeGameRunIdentity(env);
   return scope === "full-game-start"
     ? wholeGameStart(page, parseWholeGameStartInput(env), run)
-    : wholeGameSettle(page, parseWholeGameSettleInput(env), run, { deadlineAt, pollMs: wholeGamePollMs });
+    : wholeGameSettle(page, parseWholeGameSettleInput(env), run, { deadlineAt, pollMs: wholeGamePollMs }, receiptSink);
 }
 
 async function signInWholeGame(
@@ -7620,6 +7623,7 @@ async function wholeGameSettle(
   input: WholeGameSettleInput,
   run: WholeGameRunIdentity,
   runtime: WholeGameRuntime,
+  receiptSink: WholeGameReceiptSink,
 ): Promise<WholeGameReceipt> {
   const batchPath = `/catalog/scopes/sync-batches?${wholeGameQuery({ batchId: input.batchId })}`;
   let batch: WholeGameBatchSnapshot;
@@ -7771,7 +7775,7 @@ async function wholeGameSettle(
             job.result.failed ||
             job.result.outcomes.some((outcome) => outcome.status === "failed")
           ) {
-            writeWholeGameReceipt({ ...receipt("failed"), promotionFailure: wholeGamePromotionFailure(job) });
+            receiptSink({ ...receipt("failed"), promotionFailure: wholeGamePromotionFailure(job) });
             throw new WholeGameRehearsalRefusal("scope-promotion-failed");
           }
           if (job.promotionApplicationVersion !== 1)
@@ -8209,6 +8213,7 @@ function fixturePublishPreview(
 }
 
 const fixtureRun: WholeGameRunIdentity = { sha: "a".repeat(40), runId: "9220", runAttempt: "1" };
+const fixtureReceiptSink: WholeGameReceiptSink = () => {};
 const fixtureRuntime = (): WholeGameRuntime => ({ deadlineAt: Date.now() + 60_000, pollMs: 10 });
 
 const fixtureAppliedOutcome = (candidateId = "candidate-create", itemId = "created-item") => ({
@@ -8831,6 +8836,7 @@ test.describe("catalog whole-game rehearsal journeys", () => {
         { batchId: requested.batchId, retryFailed, resumeCancelled },
         fixtureRun,
         fixtureRuntime(),
+        fixtureReceiptSink,
       );
       expect(result.state).toBe(expectedState);
       expect(result.settle).toMatchObject({
@@ -8879,6 +8885,7 @@ test.describe("catalog whole-game rehearsal journeys", () => {
           { batchId: requested.batchId, retryFailed: intent === "retry-unit", resumeCancelled: intent === "resume" },
           fixtureRun,
           fixtureRuntime(),
+          fixtureReceiptSink,
         ).then((receipt) => receipts.push(receipt)),
       ).rejects.toMatchObject({ code: "batch-command-refused" });
       expect(receipts).toEqual([]);
@@ -8895,21 +8902,21 @@ test.describe("catalog whole-game rehearsal journeys", () => {
       const recoveredOutcome = fixtureAppliedOutcome("candidate-create", "recovered-item");
       const admin = await serveWholeGameApplicationFixture(page, { abortAt, recoveredOutcome });
       const input = { batchId: "batch-requested", retryFailed: false, resumeCancelled: false };
-      await expect(wholeGameSettle(page, input, fixtureRun, fixtureRuntime())).rejects.toThrow();
+      await expect(wholeGameSettle(page, input, fixtureRun, fixtureRuntime(), fixtureReceiptSink)).rejects.toThrow();
       expect(admin.applicationComplete()).toBe(true);
       expect(admin.terminalComplete()).toBe(abortAt === "completed-before-publication");
       expect(admin.calls.filter((call) => call.startsWith("POST /catalog/scopes/scope-1"))).toHaveLength(
         abortAt === "active-after-application" ? 1 : 2,
       );
       expect(admin.calls.filter((call) => call.startsWith("POST /api/catalog/items/bulk-publish/confirm"))).toEqual([]);
-      const recovered = await wholeGameSettle(page, input, fixtureRun, fixtureRuntime());
+      const recovered = await wholeGameSettle(page, input, fixtureRun, fixtureRuntime(), fixtureReceiptSink);
       expect(recovered).toMatchObject({
         state: "settled",
         settle: { published: 1, promotedOutcomes: 1, promotedWithoutCatalogItem: 0 },
       });
       expect(admin.calls.some((call) => call.startsWith("GET /api/catalog/items/recovered-item"))).toBe(true);
       expect(admin.calls.some((call) => call.includes("/api/catalog/items/null"))).toBe(false);
-      const rerun = await wholeGameSettle(page, input, fixtureRun, fixtureRuntime());
+      const rerun = await wholeGameSettle(page, input, fixtureRun, fixtureRuntime(), fixtureReceiptSink);
       expect(rerun).toMatchObject({ state: "settled", settle: { promotedThisDispatch: 0, published: 0 } });
       expect(
         admin.calls.filter((call) => call.startsWith("POST /api/catalog/items/bulk-publish/confirm")),
@@ -8940,11 +8947,11 @@ test.describe("catalog whole-game rehearsal journeys", () => {
         history: historyKind === "mixed" ? [legacy, applied] : [legacy],
       });
       const input = { batchId: "batch-requested", retryFailed: false, resumeCancelled: false };
-      expect(await wholeGameSettle(page, input, fixtureRun, fixtureRuntime())).toMatchObject({
+      expect(await wholeGameSettle(page, input, fixtureRun, fixtureRuntime(), fixtureReceiptSink)).toMatchObject({
         state: "settled",
         settle: { promotedOutcomes: 1, published: 1 },
       });
-      expect(await wholeGameSettle(page, input, fixtureRun, fixtureRuntime())).toMatchObject({
+      expect(await wholeGameSettle(page, input, fixtureRun, fixtureRuntime(), fixtureReceiptSink)).toMatchObject({
         state: "settled",
         settle: { promotedThisDispatch: 0, published: 0 },
       });
@@ -8978,6 +8985,7 @@ test.describe("catalog whole-game rehearsal journeys", () => {
           { batchId: "batch-requested", retryFailed: false, resumeCancelled: false },
           fixtureRun,
           fixtureRuntime(),
+          fixtureReceiptSink,
         ),
       ).rejects.toMatchObject({
         code: defect === "failed-catch-up" ? "scope-promotion-failed" : "promoted-catalog-item-unresolved",
@@ -9097,7 +9105,7 @@ test.describe("catalog whole-game rehearsal journeys", () => {
     });
     const input = { batchId: "batch-requested", retryFailed: true, resumeCancelled: false };
 
-    const receipt = await wholeGameSettle(page, input, fixtureRun, fixtureRuntime());
+    const receipt = await wholeGameSettle(page, input, fixtureRun, fixtureRuntime(), fixtureReceiptSink);
     expect(receipt).toMatchObject({ state: "running", settle: { batchStatus: "partial", retriedUnits: 1 } });
     const posts = calls.filter((call) => call.startsWith("POST "));
     expect(posts).toHaveLength(1);
@@ -9105,7 +9113,7 @@ test.describe("catalog whole-game rehearsal journeys", () => {
     expect(posts[0]).toContain("scopeRecordId=scope-2");
 
     apiBatch = other;
-    await expect(wholeGameSettle(page, input, fixtureRun, fixtureRuntime())).rejects.toMatchObject({
+    await expect(wholeGameSettle(page, input, fixtureRun, fixtureRuntime(), fixtureReceiptSink)).rejects.toMatchObject({
       code: "batch-id-mismatch",
     });
     expect(calls.filter((call) => call.startsWith("POST "))).toHaveLength(1);
@@ -9180,7 +9188,7 @@ test.describe("catalog whole-game rehearsal journeys", () => {
     });
     const input = { batchId: "batch-requested", retryFailed: false, resumeCancelled: false };
 
-    const rerun = await wholeGameSettle(page, input, fixtureRun, fixtureRuntime());
+    const rerun = await wholeGameSettle(page, input, fixtureRun, fixtureRuntime(), fixtureReceiptSink);
     expect(rerun).toMatchObject({
       state: "settled",
       settle: {
@@ -9198,7 +9206,7 @@ test.describe("catalog whole-game rehearsal journeys", () => {
     });
     expect(validateWholeGameReceipt(rerun)).toEqual([]);
 
-    const further = await wholeGameSettle(page, input, fixtureRun, fixtureRuntime());
+    const further = await wholeGameSettle(page, input, fixtureRun, fixtureRuntime(), fixtureReceiptSink);
     expect(further).toMatchObject({
       state: "settled",
       settle: { promotedThisDispatch: 0, published: 0, promoteJobsSubmitted: 1, promoteJobsAdopted: 0 },
