@@ -252,8 +252,9 @@ export function createChannelCredentialRuntime(
       const result = await query(
         db,
         `DELETE FROM channels_connection_credentials
-        WHERE row_id=$1 AND token_generation=$2 AND envelope_revision=$3 AND account_id=$4
-        AND connection_id=$5 AND provider_key=$6 AND environment=$7 AND key_id=$8 RETURNING row_id`,
+        WHERE row_id = $1 AND token_generation = $2 AND envelope_revision = $3 AND account_id = $4
+        AND connection_id = $5 AND provider_key = $6 AND environment = $7 AND key_id = $8
+        AND version = $9 AND kind = $10 AND payload_format = $11 AND created_at = $12 RETURNING row_id`,
         [
           expected.rowId,
           expected.tokenGeneration,
@@ -263,6 +264,10 @@ export function createChannelCredentialRuntime(
           expected.providerKey,
           expected.environment,
           expected.keyId,
+          expected.version,
+          expected.kind,
+          expected.payloadFormat,
+          expected.createdAt,
         ],
       );
       if (result.rows.length !== 1) throw new ChannelCredentialError("conflict");

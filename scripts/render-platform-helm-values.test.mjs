@@ -689,7 +689,12 @@ describe("render platform Helm values", () => {
     expect(stagingValues.components["platform-api"]).toEqual({
       ...doksStagingApiOverrides,
       env: [
-        ...baselineValues.components["platform-api"].env,
+        ...baselineValues.components["platform-api"].env.map((entry) => ({
+          ...entry,
+          ...(entry.name === "EBAY_APPLICATION_CLIENT_ID" ? { secretKey: "EBAY_SANDBOX_APP_ID" } : {}),
+          ...(entry.name === "EBAY_APPLICATION_CLIENT_SECRET" ? { secretKey: "EBAY_SANDBOX_CERT_ID" } : {}),
+        })),
+        { name: "EBAY_OAUTH_RUNAME", secret: true, secretKey: "EBAY_SANDBOX_RUNAME" },
         {
           name: "EBAY_RECEIPT_LOOKUP_STAGING_ACTOR_JSON",
           secret: true,
