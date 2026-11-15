@@ -43,7 +43,7 @@ impl Config {
     pub fn from_env() -> Self {
         let var = |name: &str, default: &str| std::env::var(name).unwrap_or_else(|_| default.into());
         Config {
-            platform: Platform::new(&var("PLATFORM_API_ORIGIN", "http://localhost:7762")),
+            platform: Platform::new(&Platform::origin_from_env()),
             proto: if var("PUBLIC_PROTO", "http") == "https" { "https" } else { "http" },
         }
     }
@@ -134,12 +134,14 @@ corten::assets::embed!(pub struct Static = "static");
 /// page is an area for everyone (see `site`).
 pub fn app(config: Config) -> App {
     let shared: Shared = Arc::new(config);
+    // Sign-in and account selection redirect to admin-web for a page the pilot does not serve,
+    // and browsers apply `form-action` to the redirects a form's submission follows.
+    let policy = corten::security::Policy::new().form_action(admin_web_origin());
     App::new(crate::site::files::router(shared.clone()))
         .assets(Static)
         .pwa(crate::site::pwa())
-        // Sign-in and account selection redirect to admin-web for a page the pilot does not serve,
-        // and browsers apply `form-action` to the redirects a form's submission follows.
-        .policy(corten::security::Policy::new().form_action(admin_web_origin()))
+        .policy(if shared.proto == "https" { policy.hsts() } else { policy })
+        .layer(platform::access_log::AccessLog::new())
         .messages::<Msg>()
         // Return Intake reads a receipt time in the operator's zone.
         .client_zone()

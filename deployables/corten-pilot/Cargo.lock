@@ -222,12 +222,15 @@ dependencies = [
  "corten-run",
  "corten-ui",
  "futures-util",
+ "http-body",
  "percent-encoding",
  "reqwest",
  "serde",
  "serde_json",
  "time",
  "tokio",
+ "tower-layer",
+ "tower-service",
  "tracing",
 ]
 

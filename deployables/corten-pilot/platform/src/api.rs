@@ -61,6 +61,13 @@ pub struct Platform {
 }
 
 impl Platform {
+    /// The API's origin from the environment: `CHASE_SETS_INTERNAL_API_ORIGIN`, the name the
+    /// React hosts and the deploy give it, else `PLATFORM_API_ORIGIN`, else the dev system's
+    /// `http://localhost:7762`. An empty value counts as unset.
+    pub fn origin_from_env() -> String {
+        origin_from(|name| std::env::var(name).ok())
+    }
+
     pub fn new(origin: &str) -> Self {
         let client = || reqwest::Client::builder().timeout(Duration::from_secs(10));
         let http = client().build().expect("an HTTP client");
@@ -97,6 +104,14 @@ impl Platform {
     pub fn anonymous(&self, host: &str, proto: &'static str) -> Caller<'_> {
         Caller { platform: self, cookie: None, host: host.to_owned(), proto, receipt: None }
     }
+}
+
+/// [`Platform::origin_from_env`], reading the variables through `var`.
+fn origin_from(var: impl Fn(&str) -> Option<String>) -> String {
+    ["CHASE_SETS_INTERNAL_API_ORIGIN", "PLATFORM_API_ORIGIN"]
+        .into_iter()
+        .find_map(|name| var(name).map(|value| value.trim().to_owned()).filter(|value| !value.is_empty()))
+        .unwrap_or_else(|| "http://localhost:7762".into())
 }
 
 pub struct Caller<'a> {
@@ -348,5 +363,24 @@ mod error_body_tests {
         );
         assert_eq!(parts(r#"{"error":"Bulk rejection requires a reason."}"#), None);
         assert_eq!(parts(r#"{"message":"no error key"}"#), None);
+    }
+}
+
+#[cfg(test)]
+mod origin_tests {
+    use super::origin_from;
+
+    #[test]
+    fn the_deploys_name_wins_then_the_pilots_then_the_dev_system() {
+        let from = |vars: &[(&str, &str)]| {
+            let vars: Vec<(String, String)> = vars.iter().map(|(k, v)| ((*k).into(), (*v).into())).collect();
+            origin_from(move |name| vars.iter().find(|(k, _)| k == name).map(|(_, v)| v.clone()))
+        };
+        let internal = ("CHASE_SETS_INTERNAL_API_ORIGIN", " http://platform-api:8080 ");
+        let pilot = ("PLATFORM_API_ORIGIN", "http://localhost:9000");
+        assert_eq!(from(&[internal, pilot]), "http://platform-api:8080");
+        assert_eq!(from(&[pilot]), "http://localhost:9000");
+        assert_eq!(from(&[("CHASE_SETS_INTERNAL_API_ORIGIN", "  "), pilot]), "http://localhost:9000", "empty is unset");
+        assert_eq!(from(&[]), "http://localhost:7762");
     }
 }

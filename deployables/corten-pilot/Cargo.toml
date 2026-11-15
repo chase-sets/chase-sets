@@ -29,6 +29,10 @@ time = { version = "0.3", default-features = false, features = ["std", "parsing"
 jiff = "0.2"
 uuid = { version = "1", features = ["v4"] }
 http-body-util = "0.1"
+# The access log's layer around each app (platform's access_log), as Corten's App::layer takes it.
+http-body = "1"
+tower-layer = "0.3"
+tower-service = "0.3"
 tower = { version = "0.5", features = ["util"] }
 
 # Thin LTO, as `corten new` writes it (corten-run/corten#952): about 1.7% fewer instructions per page
