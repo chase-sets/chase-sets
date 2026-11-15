@@ -24,7 +24,7 @@ import {
   type AgentOAuthScope,
 } from "@chase-sets/auth-context";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
-import type { PaymentServices } from "@chase-sets/payments/server";
+import type { RevokeAgentGrantPaymentInstruments } from "../../features/agent-grants/api/payment-instrument-revocation";
 import type { ResolvedActor } from "@chase-sets/platform-runtime/auth";
 import {
   isAgentGrantRail,
@@ -125,7 +125,7 @@ export type UcpOAuthRoutesOptions = Readonly<{
   // Per-grant spending mandates (agent consent state). Surfaced in introspection and the
   // connected-agents listing, and configured through the mandate endpoint.
   agentGrantConsent?: AgentGrantConsentDirectory;
-  revokeStoredPaymentMethodsForAgentGrant?: PaymentServices["revokeSavedCheckoutInstrumentsForAgentGrant"];
+  revokeStoredPaymentMethodsForAgentGrant?: RevokeAgentGrantPaymentInstruments;
   // Read model over the MCP audit sink (infrastructure/platform-runtime/mcp-audit-log.ts),
   // filtered to one grant. Powers the connected-agents activity view.
   agentGrantActivity?: AgentGrantActivityDirectory;

@@ -4,6 +4,7 @@ import { getWorkerHostEntries, type WorkerHostRuntime } from "@chase-sets/platfo
 import type { PlatformControlPlane } from "@chase-sets/platform-runtime/control-plane";
 import { getContextDatabaseEnvName } from "@chase-sets/platform-runtime/config-schema";
 import { workerContextRegistry } from "../src/context-registry";
+import { createAgentGrantRevocationWorkerPorts } from "../src/agent-webhook-runners";
 import { getPlatformWorkerContextsForRuntimeProfile, loadConfig, type PlatformWorkerConfig } from "../src/config";
 import { createNoopNotificationAdapter } from "@chase-sets/outbound-messaging";
 
@@ -75,6 +76,7 @@ export function censusInput(profile: "landing" | "proof" | "public", enabled = t
   return {
     services,
     runtime,
+    ports: createAgentGrantRevocationWorkerPorts(runtime),
     config,
     controlPlane,
     logger,

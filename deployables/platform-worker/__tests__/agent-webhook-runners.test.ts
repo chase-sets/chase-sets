@@ -4,6 +4,7 @@ import type { AgentGrantRevocations, RevocationState } from "@chase-sets/identit
 import type { PaymentServices } from "@chase-sets/payments/server";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { createAgentWebhookDispatchRunners } from "@chase-sets/auth/server";
+import { createAgentGrantRevocationWorkerPorts } from "../src/agent-webhook-runners";
 
 describe("agent webhook worker runners", () => {
   it("recovery-isolation completes healthy work after a throwing operation", async () => {
@@ -49,9 +50,11 @@ describe("agent webhook worker runners", () => {
         },
       },
     } as unknown as WorkerHostRuntime;
-    const recovery = createAgentWebhookDispatchRunners({ runtime: runtime, config: { workerId: "worker_1" } }).find(
-      (runner) => runner.name === "auth.agent-grant-revocation-recovery",
-    )!;
+    const recovery = createAgentWebhookDispatchRunners({
+      runtime: runtime,
+      ports: createAgentGrantRevocationWorkerPorts(runtime),
+      config: { workerId: "worker_1" },
+    }).find((runner) => runner.name === "auth.agent-grant-revocation-recovery")!;
     await recovery.runOnce().catch(() => undefined);
     expect(states[0].phase).toBe("identity-terminal");
     expect(states[1].phase).toBe("completed");
@@ -93,9 +96,11 @@ describe("agent webhook worker runners", () => {
       },
     } as unknown as WorkerHostRuntime;
     const recovery = () =>
-      createAgentWebhookDispatchRunners({ runtime: runtime, config: { workerId: "worker_1" } }).find(
-        (runner) => runner.name === "auth.agent-grant-revocation-recovery",
-      )!;
+      createAgentWebhookDispatchRunners({
+        runtime: runtime,
+        ports: createAgentGrantRevocationWorkerPorts(runtime),
+        config: { workerId: "worker_1" },
+      }).find((runner) => runner.name === "auth.agent-grant-revocation-recovery")!;
     await expect(recovery().runOnce()).rejects.toThrow("agent_grant_revocation_recovery_pending");
     expect(state.phase).toBe("identity-terminal");
     expect(await recovery().runOnce()).toMatchObject({ processed: 1 });

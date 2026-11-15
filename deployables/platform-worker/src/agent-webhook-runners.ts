@@ -1,4 +1,7 @@
 import { resolveAgentWebhookTargets } from "@chase-sets/auth/server";
+import type { RevokeAgentGrantPaymentInstruments } from "@chase-sets/auth/server";
+import type { PaymentsServices } from "@chase-sets/payments/server";
+import type { WorkerHostRuntime } from "@chase-sets/platform-runtime/worker";
 import { createActiveAgentGrantFence } from "@chase-sets/identity/server";
 
 import {
@@ -6,6 +9,15 @@ import {
   resolveShipmentOrderId as resolveOrderingShipmentOrderId,
 } from "@chase-sets/ordering/server";
 import type { PgQueryable, PgTransactionalPool } from "@chase-sets/event-core-postgres";
+
+export function createAgentGrantRevocationWorkerPorts(runtime: WorkerHostRuntime) {
+  const payments = runtime.services.payments as PaymentsServices | undefined;
+  return {
+    revokeAgentGrantPaymentInstruments: payments?.payments?.revokeSavedCheckoutInstrumentsForAgentGrant satisfies
+      | RevokeAgentGrantPaymentInstruments
+      | undefined,
+  };
+}
 
 /**
  * Cross-context resolvers the Auth agent-order-webhook projection needs but

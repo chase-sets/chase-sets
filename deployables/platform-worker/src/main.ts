@@ -121,7 +121,10 @@ import {
   type ProjectionWakeIntentOutcomeSignal,
 } from "@chase-sets/observability";
 import { loadConfig, type PlatformWorkerCatalogAssetStorageConfig } from "./config";
-import { createOrderingAgentWebhookOrderResolvers } from "./agent-webhook-runners";
+import {
+  createAgentGrantRevocationWorkerPorts,
+  createOrderingAgentWebhookOrderResolvers,
+} from "./agent-webhook-runners";
 
 import { createPlatformWorkerMarketplaceChannelInboundClampBinding } from "./channels-outbound-runners";
 import { createPlatformChannelSaleRecorder } from "./channels-reconciliation-runners";
@@ -421,6 +424,7 @@ const jobComposition = createPlatformWorkerJobComposition(
   {
     services: runtime.services,
     runtime,
+    ports: createAgentGrantRevocationWorkerPorts(runtime),
     config,
     controlPlane,
     logger,

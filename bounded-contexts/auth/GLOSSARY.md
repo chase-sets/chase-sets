@@ -50,6 +50,18 @@ from the dedicated eBay receipt lookup bearer. It carries the
 
 Auth's per-request copy of Identity's current Capability Grants, carried on a Session-backed actor as `capabilityAssignments` (key, assignment id, assignment version). Auth projects `identity.account-capability.granted` and `.revoked` into `auth_identity_account_capabilities`, keeping the newest assignment version per tenant, Account and key, and reads the selected Account's grants on every actor resolution. A grant or revoke therefore applies on the next request after projection commit, an already-resolved actor keeps its snapshot, and switching Accounts never carries another Account's grant. Actors without an active Membership resolve to no actor, an actor whose email is unverified for commerce carries no grant, and guest checkout and UCP/agent actors never carry one. Only `support.evidence.any-case` can be granted today.
 
+## ReadGuestPaymentClaimability
+
+Auth's required host port for caller-authorized Payments access and captured eligibility. It forwards the Request and payment ID; failures are not a negative eligibility fact.
+
+## createGuestPaymentClaimRoute
+
+Auth's guest claim route factory, bound once by the marketplace host to ReadGuestPaymentClaimability. Auth owns claim credentials, cookies, continuations and browser-auth returns.
+
+## RevokeAgentGrantPaymentInstruments
+
+Auth's optional host-supplied agent grant revocation effect. Payments owns instrument cleanup; hosts supply the operation without a production Auth-to-Payments dependency.
+
 ## Guest Contact
 
 The normalized email address and trimmed display name bound once to a guest checkout Account before an email-dependent claim journey can begin.

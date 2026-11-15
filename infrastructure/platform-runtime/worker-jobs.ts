@@ -56,6 +56,7 @@ export type WorkerJobInput<TConfig> = Readonly<{
   controlPlane: PlatformControlPlane;
   logger: WorkerJobLogger;
   runtime: WorkerHostRuntime;
+  ports?: Readonly<Record<string, unknown>>;
   notification?: Readonly<{
     emailAdapter: NotificationChannelAdapter;
     mobileMessageAdapters: () => readonly NotificationChannelAdapter[];

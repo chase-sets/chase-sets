@@ -1,7 +1,7 @@
 import type { WorkerRunner } from "@chase-sets/bounded-context-module";
 import type { WorkerJobInput } from "@chase-sets/platform-runtime/worker-jobs";
 import { createActiveAgentGrantFence, type IdentityServices } from "@chase-sets/identity/server";
-import type { PaymentsServices } from "@chase-sets/payments/server";
+import type { RevokeAgentGrantPaymentInstruments } from "../../features/agent-grants/api/payment-instrument-revocation";
 import { ZERO_GLOBAL_POSITION } from "@chase-sets/event-core/storage";
 import { createAgentWebhookDispatcher } from "../../support/ucp-support/agent-webhooks";
 import { createFetchAgentWebhookSender } from "../../support/ucp-support/agent-webhooks";
@@ -10,8 +10,9 @@ import { resolveAgentWebhookSigningSecret } from "../../support/ucp-support/agen
 import { resumeAgentGrantRevocation } from "../../features/agent-grants/api/revocation";
 export function createAgentWebhookDispatchRunners({
   runtime,
+  ports,
   config: input,
-}: Pick<WorkerJobInput<Readonly<{ workerId: string }>>, "runtime" | "config">): readonly WorkerRunner[] {
+}: Pick<WorkerJobInput<Readonly<{ workerId: string }>>, "runtime" | "config" | "ports">): readonly WorkerRunner[] {
   const authContext = runtime.mountedContexts.find((context) => context.contextName === "auth");
   if (!authContext) {
     return [];
@@ -36,8 +37,10 @@ export function createAgentWebhookDispatchRunners({
     },
   ];
   const identity = runtime.services.identity as IdentityServices | undefined;
-  const payments = runtime.services.payments as PaymentsServices | undefined;
-  if (identity?.agentGrantRevocations && payments?.payments)
+  const revokePaymentInstruments = ports?.revokeAgentGrantPaymentInstruments as
+    | RevokeAgentGrantPaymentInstruments
+    | undefined;
+  if (identity?.agentGrantRevocations && revokePaymentInstruments)
     runners.push({
       name: "auth.agent-grant-revocation-recovery",
       kind: "job",
@@ -53,7 +56,7 @@ export function createAgentWebhookDispatchRunners({
             await resumeAgentGrantRevocation(
               {
                 advance: identity.agentGrantRevocations.advance,
-                cleanup: payments.payments.revokeSavedCheckoutInstrumentsForAgentGrant,
+                cleanup: revokePaymentInstruments,
                 exclude: outbox.excludeRevokedGrant,
               },
               operation.state,
