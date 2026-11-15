@@ -2,6 +2,12 @@
 
 `@chase-sets/bounded-context-module` defines the normalized manifest and runtime module surfaces shared by bounded contexts and platform hosts.
 
+## Scheduled Jobs
+
+`scheduledJobs` declares existing runner identities, schedule metadata (including configuration keys or durable lane counts), lock scopes, runtime profiles, construction order and runner groups. `runnerExport` names the context-owned factory exposed both through `./server` and the identical function on `module.workerJobFactories`. The static worker context registry supplies membership; no generated or separate job registry is required. A declaration does not activate a disabled runtime profile or turn a durable lane into a timer.
+
+`WorkerRunner<TProjectionStatus>` is the canonical event-core-based runner contract. Platform runtime specializes its optional projection status while scheduled factories use the same contract without projection state. Schedule claims and worker leases remain infrastructure-owned.
+
 ## Shell Contributions
 
 Contexts own shell declarations; infrastructure composes them within a host and expanded slot. `placements` expands one declaration into several slots, replacing `slot` when supplied. Marketplace supports `top-nav`, `bottom-nav`, and `account-menu`; Admin supports `primary-nav` with an explicit section. Admin hrefs and active aliases receive that section prefix before composition. `placement` is different: it passes `"primary"` or `"utility"` through to the design system's `NavigationItem.placement`, not a route module's root/layout placement.

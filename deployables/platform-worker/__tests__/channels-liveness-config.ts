@@ -1,4 +1,4 @@
-import type { RegisteredScheduledRunnerConfig } from "../src/scheduled-runners";
+import { RegisteredScheduledRunnerConfig } from "../src/scheduled-runners";
 
 export const livenessConfig: RegisteredScheduledRunnerConfig = {
   workerId: "synthetic-liveness-worker",

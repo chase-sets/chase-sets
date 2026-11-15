@@ -4,6 +4,10 @@ This file is the cross-context index for marketplace language. Detailed definiti
 
 Aggregate language and projection language may differ. When they do, each model name must stay within its surface: the Ordering aggregate is `Order`, the buyer read model is `Purchase`, and the seller read model is `Sale`.
 
+## Scheduled Job Declaration
+
+A **Scheduled Job Declaration** is a context's `scheduledJobs` manifest contribution: an existing runner's identity, scheduling metadata, factory binding, runtime-profile eligibility, runner group and lock scope. The owning context defines its work; infrastructure composes it through the static worker context registry and retains scheduling and lease mechanics. See [Bounded Context Module](../contracts/bounded-context-module/README.md#scheduled-jobs).
+
 ## Language Constitution
 
 Bounded contexts own behavior and the words for that behavior. A context-local `GLOSSARY.md` is the source of truth for local terms; this master glossary indexes cross-context terms, external-facing terms, and language families that are easy to confuse.

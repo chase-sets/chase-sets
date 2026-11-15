@@ -258,6 +258,10 @@ jobs:
             http://localhost:18182 \
             http://localhost:18181
 
+      - name: Worker registry boot evidence
+        if: always()
+        run: docker compose -f docker-compose.pr-smoke.yml logs --no-color platform-worker
+
       - name: Compose boot logs
         if: failure()
         run: docker compose -f docker-compose.pr-smoke.yml logs --no-color

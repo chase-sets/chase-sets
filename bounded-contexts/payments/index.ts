@@ -1,3 +1,4 @@
+import { createPaymentsWalletFundingReconciliationRunners } from "./support/runtime-support/worker-jobs";
 export { default as contextManifest } from "./context.json" with { type: "json" };
 
 import {
@@ -53,7 +54,7 @@ function subscriptionEventContext(event: SubscriptionContextEvent): EventStoreCo
   };
 }
 
-export const module = defineBoundedContextModule<PaymentsServices, PgTransactionalPool, PaymentsServiceOptions>({
+const contextModule = defineBoundedContextModule<PaymentsServices, PgTransactionalPool, PaymentsServiceOptions>({
   manifest: paymentsContextManifest,
   schemaSql: paymentsSchemaSql,
   retentionSweeps: paymentsRetentionSweeps,
@@ -115,3 +116,5 @@ export const module = defineBoundedContextModule<PaymentsServices, PgTransaction
   seed: seedPaymentsDatabase,
   inspectSeedState: (pool) => inspectPaymentsSeedState(pool),
 });
+
+export const module = { ...contextModule, workerJobFactories: { createPaymentsWalletFundingReconciliationRunners } };

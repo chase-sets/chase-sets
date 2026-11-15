@@ -33,12 +33,9 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { getPlatformWorkerContextsForRuntimeProfile } from "../src/config";
 import { workerContextRegistry } from "../src/context-registry";
 import { createPlatformChannelSaleRecorder } from "../src/channels-reconciliation-runners";
-import {
-  createInventoryProductResolutionMaintenanceRunners,
-  createRegisteredScheduledRunners,
-  createSupportEvidenceCleanupHostPort,
-  type RegisteredScheduledRunnerConfig,
-} from "../src/scheduled-runners";
+import { createSupportEvidenceCleanupHostPort, type RegisteredScheduledRunnerConfig } from "../src/scheduled-runners";
+import { createRegisteredScheduledRunners } from "./scheduled-job-test-support";
+import { createInventoryProductResolutionMaintenanceRunners } from "@chase-sets/inventory/server";
 import {
   attachmentOperationStreamId,
   createAttachmentManifest,
@@ -46,7 +43,7 @@ import {
   type PlatformOperationsServices,
 } from "@chase-sets/platform-operations/server";
 import { readCompleteStream } from "@chase-sets/event-core/complete-stream";
-import { createChannelsOutboundRunners } from "../src/channels-outbound-runners";
+import { createChannelsOutboundRunners } from "@chase-sets/channels/server";
 import {
   createFakeMoneyMovementGateway,
   createFakePaymentProcessorGateway,
@@ -753,9 +750,12 @@ describeDatabase("registered platform-worker scheduled runners", () => {
 
   it("executes the exact Channels outbound runner set with real composed services", async () => {
     expect(isChannelsServices(runtime.services.channels)).toBe(true);
-    const runners = createChannelsOutboundRunners(runtime.services, {
-      workerId: "channels-composition-db-test",
-      channelsOutboundOperationLaneCount: 2,
+    const runners = createChannelsOutboundRunners({
+      services: runtime.services,
+      config: {
+        workerId: "channels-composition-db-test",
+        channelsOutboundOperationLaneCount: 2,
+      },
     });
     expect(runners.map((runner) => runner.name)).toEqual([
       "job:channels.outbound-operations.lane-1",

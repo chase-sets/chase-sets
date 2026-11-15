@@ -1,3 +1,9 @@
+import {
+  createChannelsEbayAccountDeletionReceiptExpiryRunners,
+  createChannelsConnectorLivenessSweepRunners,
+  createChannelsOutboundRunners,
+  createChannelsScheduledReconciliationRunners,
+} from "./support/runtime-support/worker-jobs";
 export { default as contextManifest } from "./context.json" with { type: "json" };
 export { type ChannelEnvironment } from "./features/connections/domain/contracts";
 export {
@@ -243,7 +249,7 @@ type ChannelsHostPorts = ChannelConnectionHostPorts &
     resolveTcgplayerOrderPullAuthority?: () => Promise<unknown>;
   }>;
 
-export const module = defineBoundedContextModule<ChannelsServices, PgTransactionalPool, ChannelsHostPorts>({
+const contextModule = defineBoundedContextModule<ChannelsServices, PgTransactionalPool, ChannelsHostPorts>({
   manifest: channelsContextManifest,
   schemaSql: `${platformPolicySchemaSql}\n${channelConnectionSchemaSql}\n${channelCredentialSchemaSql}\n${channelListingCompositionSchemaSql}\n${outboundSyncSchemaSql}\n${tcgplayerCsvSchemaSql}\n${channelHealthSchemaSql}\n${manualSyncSchemaSql}\n${channelReconciliationSchemaSql}\n${channelAttentionSchemaSql}\n${connectorFeedSchemaSql}\n${connectorInboundSchemaSql}\n${tcgplayerOrdersSchemaSql}\n${connectorLivenessSchemaSql}\n${fulfillmentObservationSchemaSql}\n${liveExportSnapshotSchemaSql}\n${ebayReceiptSchemaSql}`,
   schemaMigrations: [
@@ -526,3 +532,13 @@ export const module = defineBoundedContextModule<ChannelsServices, PgTransaction
     }),
   ],
 });
+
+export const module = {
+  ...contextModule,
+  workerJobFactories: {
+    createChannelsEbayAccountDeletionReceiptExpiryRunners,
+    createChannelsConnectorLivenessSweepRunners,
+    createChannelsOutboundRunners,
+    createChannelsScheduledReconciliationRunners,
+  },
+};

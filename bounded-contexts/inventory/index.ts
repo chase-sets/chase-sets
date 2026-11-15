@@ -1,3 +1,7 @@
+import {
+  createInventoryImportProductResolutionMaintenanceEnqueueRunners,
+  createInventoryJobRunners,
+} from "./support/runtime-support/worker-jobs";
 export { default as contextManifest } from "./context.json" with { type: "json" };
 
 import {
@@ -318,4 +322,9 @@ function buildInventoryProjectionGroups(): readonly BcProjectionGroup[] {
   });
 }
 
-export const module = { ...baseModule, buildProjectionGroups: buildInventoryProjectionGroups };
+const contextModule = { ...baseModule, buildProjectionGroups: buildInventoryProjectionGroups };
+
+export const module = {
+  ...contextModule,
+  workerJobFactories: { createInventoryImportProductResolutionMaintenanceEnqueueRunners, createInventoryJobRunners },
+};

@@ -1,4 +1,111 @@
 {
+  "scheduledJobs": [
+    {
+      "id": "channels.ebay-account-deletion-receipt-expiry",
+      "schedule": {
+        "kind": "interval",
+        "intervalMs": 1800000
+      },
+      "runnerExport": "createChannelsEbayAccountDeletionReceiptExpiryRunners",
+      "group": "scheduled",
+      "order": 100,
+      "runtimeProfiles": [
+        "proof",
+        "public"
+      ],
+      "lockScope": "job:channels.ebay-account-deletion-receipt-expiry"
+    },
+    {
+      "id": "channels.connector-liveness-sweep",
+      "schedule": {
+        "kind": "configured-interval",
+        "configKey": "channelsConnectorLivenessSweepIntervalMs"
+      },
+      "runnerExport": "createChannelsConnectorLivenessSweepRunners",
+      "group": "scheduled",
+      "order": 101,
+      "runtimeProfiles": [
+        "proof",
+        "public"
+      ],
+      "lockScope": "job:channels.connector-liveness-sweep"
+    },
+    {
+      "id": "channels.outbound-operations",
+      "schedule": {
+        "kind": "durable",
+        "laneCount": "channelsOutboundOperationLaneCount"
+      },
+      "runnerExport": "createChannelsOutboundRunners",
+      "group": "jobs",
+      "order": 60,
+      "runtimeProfiles": [
+        "proof",
+        "public"
+      ],
+      "lockScope": "job:job:channels.outbound-operations.lane-{lane}"
+    },
+    {
+      "id": "channels-drift-reconciliation",
+      "schedule": {
+        "kind": "interval",
+        "intervalMs": 60000
+      },
+      "runnerExport": "createChannelsScheduledReconciliationRunners",
+      "group": "scheduled",
+      "order": 200,
+      "runtimeProfiles": [
+        "proof",
+        "public"
+      ],
+      "lockScope": "job:channels-drift-reconciliation"
+    },
+    {
+      "id": "channels-tcgplayer-orders",
+      "schedule": {
+        "kind": "interval",
+        "intervalMs": 60000
+      },
+      "runnerExport": "createChannelsScheduledReconciliationRunners",
+      "group": "scheduled",
+      "order": 200,
+      "runtimeProfiles": [
+        "proof",
+        "public"
+      ],
+      "lockScope": "job:channels-tcgplayer-orders"
+    },
+    {
+      "id": "channels-live-export-snapshots",
+      "schedule": {
+        "kind": "interval",
+        "intervalMs": 60000
+      },
+      "runnerExport": "createChannelsScheduledReconciliationRunners",
+      "group": "scheduled",
+      "order": 200,
+      "runtimeProfiles": [
+        "proof",
+        "public"
+      ],
+      "lockScope": "job:channels-live-export-snapshots"
+    },
+    {
+      "id": "channels-order-fulfillment-observations",
+      "schedule": {
+        "kind": "interval",
+        "intervalMs": 60000
+      },
+      "runnerExport": "createChannelsScheduledReconciliationRunners",
+      "group": "scheduled",
+      "order": 200,
+      "runtimeProfiles": [
+        "proof",
+        "public"
+      ],
+      "lockScope": "job:channels-order-fulfillment-observations"
+    }
+  ],
   "contextName": "channels",
   "packageName": "@chase-sets/channels",
   "ownedNouns": [

@@ -1,3 +1,4 @@
+import type { WorkerRunner as CanonicalWorkerRunner } from "@chase-sets/bounded-context-module";
 import {
   compactRuntimeSubscriptionLedgers,
   createProjectionAwarePool,
@@ -61,45 +62,7 @@ export type WorkerHostRuntime = Readonly<{
   subscriptionRunners: ReturnType<typeof resolveModuleSubscriptions>;
 }>;
 
-export type WorkerRunner = Readonly<{
-  name: string;
-  kind: "projector" | "projection-group" | "subscription" | "job";
-  /**
-   * Overrides the single-flight lease identity for this runner. Defaults to
-   * `${kind}:${name}`. Use this when two runners that share a `name` (for
-   * stable observability/metrics) must NOT share one platform-wide lease
-   * because they cover different work scopes. The projection wake lane runners
-   * set this to their hosted-context cohort so a lane held by a worker that
-   * does not host a given target context can never starve that context's
-   * intents platform-wide (see `createProjectionWakeSchedulerRunners`).
-   */
-  leaseName?: string;
-  runOnce: (context?: ProjectionRunContext) => Promise<ProjectorRunResult>;
-  priority?: () => bigint | number;
-  rescheduleOnCompletion?: (result: ProjectorRunResult) => boolean;
-  /**
-   * Reserved-capacity runners belong to the loop's critical class: only they
-   * may occupy the loop's reserved slots (`reservedRunnerSlots`), which fill
-   * before the shared slots on every scheduling pass. Beyond the reservation
-   * they compete fairly in the shared rotation. Hot-lane wake runners use
-   * this so critical read-after-write wakes are not starved by standard/bulk
-   * passes.
-   */
-  reservedCapacity?: boolean;
-  /**
-   * Refreshes this runner's cached backlog so a subsequent `priority()` call
-   * reflects the live source head. The loop invokes this on idle runners whose
-   * cached `priority()` reads 0 so a group that fell behind WITHOUT running
-   * (e.g. backlog appended during a wake-relay outage, which leaves no wake
-   * intent and no runner pass to update the cache) surfaces a positive
-   * priority and re-enters the fair rotation instead of starving behind an
-   * always-positive high-backlog group (the discovery cascade). Read-only: it
-   * must never process events, acquire the run lease, or advance a checkpoint,
-   * so exactly-once and the idle-lease yield stay intact.
-   */
-  refreshPriority?: () => Promise<void>;
-  projectionStatusSnapshot?: () => ContextProjectionGroupStatus;
-}>;
+export type WorkerRunner = CanonicalWorkerRunner<ContextProjectionGroupStatus>;
 
 export type WorkerRunnerLoop = Readonly<{
   start: () => void;
@@ -237,13 +200,7 @@ export class ProjectionOperationTimedOutError extends Error {
   }
 }
 
-export type DurableJobLaneRunContext = Readonly<{
-  workflowName: string;
-  laneName: string;
-  laneIndex: number;
-  laneCount: number;
-  runnerContext?: ProjectionRunContext;
-}>;
+export { createDurableJobLaneRunners, type DurableJobLaneRunContext } from "./worker-jobs";
 
 type WorkerRunnerLoopOptions = Readonly<{
   workerId: string;
@@ -321,32 +278,6 @@ type HeldRunnerLease = {
   terminalEventEmitted: boolean;
   releasePromise?: Promise<void>;
 };
-
-export function createDurableJobLaneRunners(input: {
-  workflowName: string;
-  laneCount: number;
-  runLane: (context: DurableJobLaneRunContext) => Promise<ProjectorRunResult>;
-  priority?: () => bigint | number;
-}): readonly WorkerRunner[] {
-  const laneCount = Math.max(1, Math.floor(input.laneCount));
-  return Array.from({ length: laneCount }, (_, index): WorkerRunner => {
-    const laneIndex = index + 1;
-    const laneName = `job:${input.workflowName}.lane-${laneIndex}`;
-    return {
-      name: laneName,
-      kind: "job",
-      priority: input.priority,
-      runOnce: (runnerContext) =>
-        input.runLane({
-          workflowName: input.workflowName,
-          laneName,
-          laneIndex,
-          laneCount,
-          runnerContext,
-        }),
-    };
-  });
-}
 
 export function getWorkerHostEntries<TRegistry extends WorkerContextRegistry>(
   registry: TRegistry,
