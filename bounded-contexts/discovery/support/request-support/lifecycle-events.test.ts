@@ -41,6 +41,7 @@ async function searchApp(
       total: 0,
       nextCursor: null,
       retrievalMode: "lexical" as const,
+      cursorState: "fresh" as const,
       lexicalCount: 0,
       queryHash: "hash",
       resultSetKey: "result",
