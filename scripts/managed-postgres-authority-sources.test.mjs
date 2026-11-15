@@ -1045,6 +1045,7 @@ describe("managed Postgres authority source generator", () => {
         ...previewRuntimeSecretsDelta,
         ...reviewedPreviewWildcardDelta,
         ...ebayAccountDeletionDelta,
+        ...ebaySandboxOAuthDelta,
         ...ebayAccountDeletionDelta.map((entry) => ({
           ...entry,
           secretName:
