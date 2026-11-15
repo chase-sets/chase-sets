@@ -43,6 +43,22 @@ async function commitPrice(store: ReturnType<typeof createInMemoryEventStore>, a
 }
 
 describe("Listing attempt carrier", () => {
+  it("replays a stable seed denomination attempt without another price event", async () => {
+    const store = createInMemoryEventStore();
+    const key = "seed_listing_denomination_lst_seed_charizard_base_set_nm";
+    const attempt = priceAttempt(priceRequest, key);
+    await commitPrice(store, attempt);
+    const run = vi.fn();
+    await expect(
+      runListingAttempt(store.eventStore, priceAttempt(priceRequest, key), (receipt) => receipt, run),
+    ).resolves.toMatchObject({ id: "lst_1", version: 1 });
+    expect(run).not.toHaveBeenCalled();
+    expect(store.allEvents).toHaveLength(1);
+    expect(() => priceAttempt(priceRequest, "seed:listing-denomination:lst_seed_charizard_base_set_nm")).toThrow(
+      "A valid Marketplace attempt identity is required.",
+    );
+  });
+
   it("returns the first receipt for an exact retry and treats 10 and 10.00 as the same amount", async () => {
     const store = createInMemoryEventStore();
     await commitPrice(store);
