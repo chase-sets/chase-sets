@@ -6,7 +6,7 @@ is a standalone server in front of the existing platform API: every call forward
 user's cookies, as the React apps do, and business rules stay in the API. The pilot owns only the
 screens.
 
-It is not deployed. It is not part of the platform gates or the delivery loop. Its own CI job,
+Only the admin app is deployed: to staging, at `admin-corten.staging.chasesets.com` next to admin-web, since [#11330 [infrastructure] Deploy Corten admin alongside staging admin-web](https://github.com/chase-sets/chase-sets/pull/11330). The marketplace and public apps are not deployed. The pilot is not part of the platform gates or the delivery loop. Its own CI job,
 [corten-pilot.yml](../../.github/workflows/corten-pilot.yml), is advisory.
 
 ## Owner
@@ -150,7 +150,7 @@ checked rows, an observation's evidence or a unit's scope) and Create or update 
 selection and confirmation the Catalog API builds for the read; a promotion the read does not offer is
 not offered. The commit presents the token the preview answered, with the draft choice it bound, and is
 offered while the read says the held preview may be committed (`previewCommittable`). A merge
-candidate's Promote sends the version the read offered it with, and its Evidence opens the candidate's detail sheet from the row the read gave; a promote with blocking conflicts to resolve stays on admin-web, as the API does not apply the value a resolution chooses ([chase-sets/chase-sets#11235 [catalog] A merge candidate's conflict resolution is never applied: Keep the catalog value still writes the proposed value](https://github.com/chase-sets/chase-sets/issues/11235)). Its import context
+candidate's Promote sends the version the read offered it with, and its Evidence opens the candidate's detail sheet from the row the read gave; the sheet resolves a candidate's blocking conflicts, the catalog's value or the source's for each with a reason, and promotes with those choices, which the API applies. Its import context
 bar chooses the provider, unit, scope and profile version from synced source options and reloads or
 force-refreshes them; the scope selects, their options and the bar's summary line are the Catalog
 API's.
@@ -223,10 +223,11 @@ node scripts/measure.mjs screen=<screen> marketplace=http://localhost:7753 pilot
 ```
 
 `corten check` needs TypeScript on the `PATH` to type-check the apps' scripts (CI puts the repo's
-`node_modules/.bin` there). The pilot has no image and nothing deploys it: the root `.dockerignore`
-keeps it out of the platform image, and a `deployables/*/Dockerfile` would make every pilot PR build
-and preview the platform ([#11327 [infrastructure] Deploy the Corten admin app to staging next to admin-web](https://github.com/chase-sets/chase-sets/issues/11327)
-is the first deploy). Each app writes one line per request on standard output in admin-web's shape,
+`node_modules/.bin` there). The root `.dockerignore` keeps the pilot out of the platform image, and a `deployables/*/Dockerfile`
+would make every pilot PR build and preview the platform. The admin app has its own image instead,
+`Dockerfile.corten-admin` at the repository root with its own `Dockerfile.corten-admin.dockerignore`,
+which staging runs as the Helm component `admin-corten`. That deploy plumbing belongs to the delivery
+loop ([#11327 [infrastructure] Deploy the Corten admin app to staging next to admin-web](https://github.com/chase-sets/chase-sets/issues/11327)). Each app writes one line per request on standard output in admin-web's shape,
 `GET /path 200 5123 - 4.210 ms`, without the query ([platform/src/access_log.rs](platform/src/access_log.rs)).
 
 | Variable | Default | |
@@ -255,7 +256,7 @@ registered files.
 
 ## Corten pin
 
-`Cargo.toml` pins Corten to `4674d1d3` (Corten `main` on 2026-11-15), whose framework package is
+`Cargo.toml` pins Corten to `0245ddea` (Corten `main` on 2026-11-15), whose framework package is
 `corten-run` (the library is still `corten`). Corten 0.2.0 is released (tag `v0.2.0`, `a833b4e3`), and the pin is a git revision past it. The
 pin follows Corten's latest `main` (Todd, 2026-11-02), and each move is its own commit that says
 what changed; the workarounds a move lets go follow it in commits of their own. The history of every move is in the
@@ -307,11 +308,8 @@ but keep their own bordered choice rows, which are the design system's `Checkbox
 | [corten-run/corten#1395 A form's row cannot hold rows, so a list whose items own a list (rules and their conditions, lines and their parts) needs a hand-built composite key](https://github.com/corten-run/corten/issues/1395) | open. A repricing policy's conditions and anchors are top-level rows keyed by rule and place (`conditions[{rule}-{index}]`), built by `repricing_body::slot` and split by `read` ([marketplace/src/repricing_body.rs](marketplace/src/repricing_body.rs)) |
 | [corten-run/corten#1366 A patch answered by another area's handler draws that area's components unstyled: the runtime's patch loads no section stylesheet and check_rendered reads the handler's path](https://github.com/corten-run/corten/issues/1366) | closed by Corten's patch stylesheets (pinned since `de46e974`): a patch from an area's handler brings that area's stylesheet. Add to List's dialog (`SaveDialog`) stays in `views::SEARCH`, since the search page draws it empty for the patch to fill ([marketplace/src/views.rs](marketplace/src/views.rs)) |
 | [corten-run/corten#1370 A write that answers its own result with JavaScript (a patch, or its page) cannot bring a layout read up to date: only a redirect redraws the shell, so a partial result must choose between its detail and the shell's count](https://github.com/corten-run/corten/issues/1370) | open. A bulk add from a search that adds only some lines patches its sheet with JavaScript, and the shell's cart count stays as it was until the next page; without JavaScript the page gives the count it read after the write ([marketplace/src/bulk_cart.rs](marketplace/src/bulk_cart.rs), `commit`) |
-| [corten-run/corten#1371 A data-patch answer to a trigger outside a dialog cannot open it again once the user closed it: the patch keeps the user's closed state over the answer's open](https://github.com/corten-run/corten/issues/1371) | open. The search page's two sheet triggers (Add to List, Add matching products to Buy Cart) run `search.js`'s `fresh(id)` as they submit, which swaps a closed sheet for an empty hidden element of its id, so the answer opens it ([marketplace/src/views/search.js](marketplace/src/views/search.js)) |
-| [corten-run/corten#1372 A data-keep-place navigation gives focus to a hidden input with the focused control's name and value: placeOf matches any input in main by index](https://github.com/corten-run/corten/issues/1372) | open. Add matching products to Buy Cart's form, whose hidden fields repeat the filters, is drawn after the rail with its button in the control bar (`form="bulk-trigger"`), so a filter's focus comes back to the filter ([marketplace/src/views/search_page.rs](marketplace/src/views/search_page.rs), `BulkTriggerId`) |
 | [corten-run/corten#1449 A Corten app writes no line per request, and an app's middleware cannot write a faithful one: it never sees a 421 or a cross-site refusal and logs a 200 where the client got a 304](https://github.com/corten-run/corten/issues/1449) | open. Each app's requests are logged by a tower layer around it, `AccessLog` ([platform/src/access_log.rs](platform/src/access_log.rs)) |
 | [corten-run/corten#1462 A patches route's handler whose part needs its own read cannot answer its page without building a patch it will not send: only patch_or turns a page into HtmlResult<Patches>, and it takes the patch already built](https://github.com/corten-run/corten/issues/1462) | open. The notification center's address, which an alert write's patch reads the alerts section again from, answers the runtime's read itself and reaches the page through `patch_or` with an `AlertsSection` that is never drawn ([marketplace/src/notifications.rs](marketplace/src/notifications.rs)) |
-| [corten-run/corten#1388 Kit Checkbox, Radio and Switch ignore --control-height: their label, the whole target, stays 20 px when a theme makes every other control 44 px](https://github.com/corten-run/corten/issues/1388) | open. Market following's checkboxes sit in a `Choice` row of the control height whose label fills it ([marketplace/src/views/market_following.css](marketplace/src/views/market_following.css)); the kit's copied files are unchanged, and the pilot's other kit checkboxes, radios and switches stay 20 px until it lands |
 
 Every Corten gap the pilot found and how it closed is in the [README before it was cut](https://github.com/chase-sets/chase-sets/blob/5a683c4eb5/deployables/corten-pilot/README.md) ("Corten gaps").
 
@@ -322,7 +320,6 @@ instead. Remove the workaround when the issue closes.
 
 | Issue | Cited in |
 |---|---|
-| [chase-sets/chase-sets#11235 [catalog] A merge candidate's conflict resolution is never applied: Keep the catalog value still writes the proposed value](https://github.com/chase-sets/chase-sets/issues/11235) | [admin/src/catalog/views/daily_page.rs](admin/src/catalog/views/daily_page.rs) |
 | [chase-sets/chase-sets#11239 [platform-operations] Offer a Support Request's remedy choices and actions from the Support API: admin-web's remedy panel uses the compiled launch policy and its own effect and permission rules](https://github.com/chase-sets/chase-sets/issues/11239) | [admin/src/support/requests.rs](admin/src/support/requests.rs) |
 | [chase-sets/chase-sets#9995 [checkout] Apply Sell List commands exactly once and converge the Offer handoff](https://github.com/chase-sets/chase-sets/issues/9995) | [marketplace/src/selling.rs](marketplace/src/selling.rs), [marketplace/src/api.rs](marketplace/src/api.rs) |
 | [chase-sets/chase-sets#8766 Show every seller attention source in the Desk Needs you queue](https://github.com/chase-sets/chase-sets/issues/8766) | [scripts/smoke-market-desk.mjs](scripts/smoke-market-desk.mjs), [marketplace/src/views/desk_page.rs](marketplace/src/views/desk_page.rs) |

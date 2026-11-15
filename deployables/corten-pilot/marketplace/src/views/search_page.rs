@@ -3,7 +3,7 @@
 //! filters are one GET form: a rail beside the results from 64rem, and below that a dialog the
 //! Filters button opens. The words box and the sort are in the form by its id, so changing any
 //! of them sends every choice.
-use corten::{prelude::*, script::ElementId};
+use corten::prelude::*;
 use platform::{
     search::SearchGlyph,
     ui::{input::Input, input_group::InputGroup, visually_hidden::VisuallyHidden},
@@ -23,7 +23,7 @@ use crate::{
         Activity, CURSOR, Filter, HomeShelf, Kind, MOST_SHOWN, PAGE_SIZE, Place, SearchScreen, Terms, TermsQuery, category_href,
     },
     text::{ItemMsg, Pilot, SearchMsg},
-    views::{BulkCartSheet, SaveDialog, bulk_cart_sheet::BulkCartId, save_dialog::SaveToListId},
+    views::{BulkCartSheet, SaveDialog},
 };
 
 corten::script::script!(pub mod handlers = "search.js");
@@ -47,10 +47,6 @@ pub struct ResultId<'a>(pub &'a str);
 /// item).
 #[derive(Id)]
 pub struct ResultMarketId<'a>(pub &'a str);
-
-/// Add matching products to Buy Cart's form, which its button in the control bar sends.
-#[derive(Id)]
-pub struct BulkTriggerId;
 
 /// The results' list, which Load more adds rows to.
 #[derive(Id)]
@@ -268,8 +264,14 @@ pub fn SearchPage<'a>(t: SearchMsg, i: ItemMsg, p: Pilot, screen: &'a SearchScre
                             }
                         </select>
                     </label>
+                    // Add matching products to Buy Cart: a GET form with the search's parameters.
                     if bulk {
-                        <button type="submit" class={Secondary} form={BulkTriggerId}>{t.page_add_matching_to_cart()}</button>
+                        <form class={Bulk} method="get" action={url::SearchCart.href()} data-patch>
+                            for (name, value) in &bulk_pairs {
+                                <input type="hidden" name={name} value={value}>
+                            }
+                            <button type="submit" class={Secondary}>{t.page_add_matching_to_cart()}</button>
+                        </form>
                     }
                     <a class={Secondary} href={&url::Search { terms: Terms::default() }.href()}>{t.page_clear_all_filters()}</a>
                 </div>
@@ -329,24 +331,6 @@ pub fn SearchPage<'a>(t: SearchMsg, i: ItemMsg, p: Pilot, screen: &'a SearchScre
             </div>
             // Add to List's dialog, empty until a result's Add to List fills it.
             <SaveDialog t={i} save={None} label="" product="" page={&[]} action="" input={None} message={None} />
-            // Add matching products to Buy Cart's form, after the filters: its hidden fields repeat
-            // the filters' names and values, and a filter's navigation gives focus back to the
-            // first control of its name and value in <main>, so above the rail they would take it
-            // (corten-run/corten#1372). Its button is in the control bar.
-            if bulk {
-                <form
-                    class={Bulk}
-                    id={BulkTriggerId}
-                    method="get"
-                    action={url::SearchCart.href()}
-                    data-patch
-                    on:submit={handlers::fresh(ElementId::of(&BulkCartId))}
-                >
-                    for (name, value) in &bulk_pairs {
-                        <input type="hidden" name={name} value={value}>
-                    }
-                </form>
-            }
             // Add matching products to Buy Cart's sheet: empty until its preview fills it, or open.
             <BulkCartSheet t={t} sheet={screen.bulk.as_ref()} pairs={&bulk_pairs} />
         </div>
@@ -1086,7 +1070,6 @@ pub fn ResultMarket<'a>(t: SearchMsg, i: ItemMsg, item: &'a SearchItem, terms: &
                     method="post"
                     action={&save}
                     data-patch
-                    on:submit={handlers::fresh(ElementId::of(&SaveToListId))}
                 >
                     for (key, value) in &address {
                         <input type="hidden" name={key} value={value}>

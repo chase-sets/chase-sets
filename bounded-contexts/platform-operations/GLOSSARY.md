@@ -130,7 +130,31 @@ Disabling delivery retains the Listing aggregate reader and all visibility consu
 
 ## Moderation Queue
 
-**Moderation Queue** is the Platform Operations queue that groups content reports by target and highlights auto-unlisted targets for operator review.
+**Moderation Queue** is the Platform Operations queue that groups content reports by target and orders human work by severity, then the earliest response deadline.
+
+## Reported Content Severity
+
+**Reported Content Severity** is the maximum reason-derived tier of a target's reports: critical, high or standard. Unknown policy is critical with `policy-incomplete`. It orders human work and never authorizes enforcement.
+
+## Acknowledgement
+
+**Acknowledgement** is a private, idempotent operator fact that stops the acknowledgement clock for one open response cycle. Disposition stops both clocks. A distinct later report reopens non-removal dispositions and starts a new cycle; exact report redelivery changes nothing.
+
+## Response Due Time
+
+**Response Due Time** is the deadline derived from the response start and its effective policy revision. Critical targets use one and four staffed hours; high uses four staffed hours and one local calendar day; standard uses one and three eight-hour business days.
+
+## Response Policy Revision
+
+**Response Policy Revision** is an immutable effective-dated code policy. Coverage is Monday to Friday, 09:00 to 17:00 America/Chicago, excluding observed US federal holidays. The first revision covers retained historical reports as well as new reports. Critical escalation uses the operator-configured `REPORTED_CONTENT_CRITICAL_ESCALATION_CHANNEL`; no notification is sent by this slice.
+
+## Accountable Role
+
+**Accountable Role** is the primary Founder role for Reported Content response. The backup Host agent triages and pages the Founder but never decides moderation alone.
+
+## Repeat-Owner Priority
+
+**Repeat-Owner Priority** raises severity to at least high after two prior non-dismiss dispositions against the same owner within 180 days of the report. It never emits an enforcement command.
 
 ## Risk Alert
 

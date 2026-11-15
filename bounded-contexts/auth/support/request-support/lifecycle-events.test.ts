@@ -1,89 +1,87 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
-import type { EventStoreContext } from "@chase-sets/event-core/storage";
+import { ZERO_GLOBAL_POSITION, type EventStoreContext } from "@chase-sets/event-core/storage";
 import { startInteractiveAuth } from "../runtime-support/services";
 import { createAuthServicesFake } from "../auth-support/test-support";
+import { createSessionRuntime } from "../../features/sessions/api/runtime";
+import {
+  expectHelperParity,
+  expectProjectionFailure,
+  expectSourceEvent,
+} from "../../../customer-feedback/tests/outcome-fact-test-support";
 
 const context = {
   tenantId: "tnt_test",
   audit: { performedByUserId: "usr_system", forAccountId: "acc_system" },
 } as EventStoreContext;
 
+async function signIn() {
+  const { eventStore } = createInMemoryEventStore();
+  const sessions = createSessionRuntime({
+    eventStore,
+    db: { query: async () => ({ rows: [] }) },
+    checkpointStore: {
+      loadCheckpoint: async () => ZERO_GLOBAL_POSITION,
+      saveCheckpoint: async () => undefined,
+    },
+  });
+  const services = createAuthServicesFake({
+    eventStore,
+    identity: { listActiveMembershipsForUser: async () => [{ accountId: "acc_1", status: "active" }] },
+    sessions,
+  });
+  const result = await startInteractiveAuth(services, {
+    userId: "usr_1",
+    sessionId: "ses_1",
+    accountId: "acc_1",
+    authenticationMethod: "password",
+    context,
+  });
+  const event = (await eventStore.readStream({ streamId: "auth.session-ses_1" }))[0]!;
+  return { result, event, sessions };
+}
+
 describe("auth lifecycle events", () => {
-  it("emits auth.session.started from the production sign-in/session entrypoint with exact payload and envelope identity", async () => {
-    const { eventStore } = createInMemoryEventStore();
-    const services = createAuthServicesFake({
-      eventStore,
-      identity: { listActiveMembershipsForUser: async () => [{ accountId: "acc_1", status: "active" }] },
-      sessions: {
-        commandHandler: vi.fn(async (input: { command: Record<string, unknown>; streamId: string }) => {
-          const storedEvents = await eventStore.appendToStream({
-            streamId: input.streamId,
-            expectedVersion: "no_stream",
-            context,
-            events: [{ eventType: "auth.session.started", payload: input.command as never }],
-          });
-          return {
-            version: 1,
-            state: {
-              id: input.command.sessionId,
-              userId: input.command.userId,
-              accountId: input.command.accountId,
-              availableAccountIds: input.command.availableAccountIds,
-              authenticationMethod: input.command.authenticationMethod,
-              status: "active",
-              expiresAt: input.command.expiresAt,
-            },
-            storedEvents,
-          };
-        }),
-      },
-    });
-
-    const result = await startInteractiveAuth(services, {
-      userId: "usr_1",
-      sessionId: "ses_1",
-      accountId: "acc_1",
-      authenticationMethod: "password",
-      context,
-    });
-
+  it("emits auth.session.started event with exact payload and envelope identity", async () => {
+    const { result, event } = await signIn();
     expect(result).toMatchObject({ type: "session-started", sessionId: "ses_1" });
-    const event = (await eventStore.readAll())[0];
-    expect(event).toMatchObject({
+    expectSourceEvent(event, {
       eventType: "auth.session.started",
-      eventId: "evt_1",
-      streamId: "auth.session-ses_1",
-      tenantId: "tnt_test",
-      performedByUserId: "usr_system",
-      forAccountId: "acc_system",
       payload: {
         sessionId: "ses_1",
         userId: "usr_1",
         accountId: "acc_1",
         availableAccountIds: ["acc_1"],
         authenticationMethod: "password",
+        sessionGeneration: 0,
+        expiresAt: result.type === "session-started" ? result.session.expires_at : "",
       },
+      tenantId: context.tenantId,
+      performedByUserId: context.audit.performedByUserId,
+      forAccountId: context.audit.forAccountId,
     });
-    expect(event.recordedAt).toBeTruthy();
+    expect(event.streamId).toBe("auth.session-ses_1");
+    expect(event.recordedAt).toBe(result.type === "session-started" ? result.session.updated_at : null);
   });
 
-  it("continues sign-in when the downstream CSAT projection fails", async () => {
-    const services = createAuthServicesFake({
-      identity: { listActiveMembershipsForUser: async () => [{ accountId: "acc_2", status: "active" }] },
-      eventStore: {
-        appendToStream: vi.fn(async () => {
-          throw new Error("projection append failed");
-        }),
-      },
+  it("projects auth.session.started with helper-parity row", async () => {
+    const { event } = await signIn();
+    await expectHelperParity(event, {
+      idempotencyKey: "auth:authentication:ses_1",
+      outcomeCode: "authentication.completed",
+      sourceContext: "auth",
+      subjectAccountId: "acc_1",
+      subjectKind: "account",
+      subjectEntityType: "session",
+      subjectEntityId: "ses_1",
+      authenticationMethod: "password",
     });
-    await expect(
-      startInteractiveAuth(services, {
-        userId: "usr_2",
-        accountId: "acc_2",
-        authenticationMethod: "password",
-        context,
-      }),
-    ).resolves.toMatchObject({ type: "session-started", session: { account_id: "acc_2" } });
+  });
+
+  it("continues sign-in when CSAT projection fails", async () => {
+    const { result, event, sessions } = await signIn();
+    await expectProjectionFailure(event);
+    expect(result).toMatchObject({ type: "session-started", session: { account_id: "acc_1" } });
+    await expect(sessions.getSessionState("ses_1")).resolves.toMatchObject({ status: "active" });
   });
 });

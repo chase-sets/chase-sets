@@ -35,29 +35,31 @@ describe("platform deploy incident classification", () => {
     ).toMatchObject({ action: "close", kind: "superseded-no-op", noOp: true });
   });
 
-  it("closes a staging run that reports applied=false before production", () => {
+  it("closes an explicitly superseded staging run that was never applied", () => {
     expect(
       classifyPlatformDeployRun({
         resolveReleaseResult: "success",
         buildImageResult: "success",
         deployStagingResult: "success",
         stagingApplied: "false",
+        stagingSuperseded: "true",
         deployProductionResult: "skipped",
         recordStagingHealthResult: "success",
       }),
     ).toMatchObject({ action: "close", reason: "superseded-pre-mutation", noOp: true });
   });
 
-  it("supports the pre-applied-signal workflow as a legacy no-op", () => {
+  it.each([undefined, "false"])("does not infer supersession from an unapplied staging run (%s)", (stagingApplied) => {
     expect(
       classifyPlatformDeployRun({
         resolveReleaseResult: "success",
         buildImageResult: "success",
         deployStagingResult: "success",
+        stagingApplied,
         deployProductionResult: "skipped",
         recordStagingHealthResult: "success",
       }).noOp,
-    ).toBe(true);
+    ).toBe(false);
   });
 
   it("leaves a real staging failure open even when production was skipped", () => {
@@ -67,6 +69,7 @@ describe("platform deploy incident classification", () => {
         buildImageResult: "success",
         deployStagingResult: "failure",
         stagingApplied: "false",
+        stagingSuperseded: "true",
         deployProductionResult: "skipped",
         recordStagingHealthResult: "success",
       }),
@@ -97,6 +100,7 @@ describe("platform deploy incident classification", () => {
         buildImageResult: "success",
         deployStagingResult: "success",
         stagingApplied: "true",
+        stagingSuperseded: "true",
         deployProductionResult: "failure",
         productionSuperseded: "false",
         recordStagingHealthResult: "success",
@@ -136,7 +140,7 @@ describe("platform deploy incident classification", () => {
         supersededByCommit: "b".repeat(40),
         reason: "staging-superseded-before-apply",
       }),
-    ).toContain("The newer release owns the deploy lane");
+    ).toContain("This is not evidence that the newer release deployed");
     expect(
       buildSupersededNoOpResolutionComment({
         runUrl: "run",
@@ -153,6 +157,7 @@ describe("platform deploy incident classification", () => {
         RESOLVE_RELEASE_RESULT: "success",
         DEPLOY_STAGING_RESULT: "success",
         STAGING_APPLIED: "false",
+        STAGING_SUPERSEDED: "true",
         STAGING_FAILURE_CLASSIFICATION: "staging-bootstrap-timeout",
       }),
     ).toMatchObject({
@@ -160,6 +165,7 @@ describe("platform deploy incident classification", () => {
       resolveReleaseResult: "success",
       deployStagingResult: "success",
       stagingApplied: "false",
+      stagingSuperseded: "true",
       stagingRootCauseCode: "staging-bootstrap-timeout",
     });
   });
