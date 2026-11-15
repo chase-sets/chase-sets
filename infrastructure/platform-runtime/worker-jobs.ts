@@ -136,7 +136,7 @@ export function composeWorkerJobs<TInput>(
             const lockScope = job.lockScope
               .replace("{lane}", identity.lane ?? "")
               .replace("{contextName}", identity.contextName ?? "");
-            if (`${runner.kind}:${runner.leaseName ?? runner.name}` !== lockScope) {
+            if ((runner.leaseName ?? `${runner.kind}:${runner.name}`) !== lockScope) {
               throw new Error(`${entry.contextName}/${job.id}: runner lease differs from declared lock scope`);
             }
           }
@@ -148,7 +148,7 @@ export function composeWorkerJobs<TInput>(
   const identities = new Set<string>();
   for (const contribution of contributions.sort((left, right) => left.order - right.order)) {
     for (const runner of contribution.create()) {
-      const identity = `${runner.kind}:${runner.leaseName ?? runner.name}`;
+      const identity = runner.leaseName ?? `${runner.kind}:${runner.name}`;
       if (identities.has(identity)) throw new Error(`${runner.name}: duplicate runner lease ${identity}`);
       identities.add(identity);
       groups[contribution.group].push(runner);

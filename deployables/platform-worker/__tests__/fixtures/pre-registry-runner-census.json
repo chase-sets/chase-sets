@@ -1434,7 +1434,25 @@
       ]
     }
   },
+  "alternateCapabilities": {
+    "fulfillmentPostagePurchaseFallback": {
+      "head": "7102e3d56ac12516cde7ee3ef8638c4afd38bfa5",
+      "source": "deployables/platform-worker/src/scheduled-runners.ts",
+      "runner": {
+        "name": "fulfillment.postage-label-purchase-reconciliation",
+        "lease": "job:fulfillment.postage-label-purchase-reconciliation",
+        "intervalMs": 300000
+      },
+      "calls": [
+        ["claim", { "runnerName": "fulfillment.postage-label-purchase-reconciliation", "intervalMs": 300000 }],
+        ["service", { "staleAfterMs": 300000, "limit": 100 }],
+        ["complete", { "runnerName": "fulfillment.postage-label-purchase-reconciliation" }]
+      ],
+      "result": { "processed": 3, "lastGlobalPosition": "0" }
+    }
+  },
   "classification": {
+    "fulfillment.postage-label-purchase-reconciliation": "context-owned migration",
     "job:catalog.source-observation-bulk-jobs.lane-1": "context-owned migration",
     "job:catalog.source-observation-bulk-jobs.lane-2": "context-owned migration",
     "job:catalog.source-observation-integration-jobs.lane-1": "context-owned migration",

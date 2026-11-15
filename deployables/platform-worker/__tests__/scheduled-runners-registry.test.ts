@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { WorkerJobInput, WorkerJobRegistry } from "@chase-sets/platform-runtime/worker-jobs";
+import { composeWorkerJobs } from "@chase-sets/platform-runtime/worker-jobs";
 import type { WorkerRunner } from "@chase-sets/bounded-context-module";
 import type { PlatformWorkerConfig } from "../src/config";
 import { workerContextRegistry } from "../src/context-registry";
@@ -15,9 +16,9 @@ const registry: Registry = workerContextRegistry;
 async function census(input: ReturnType<typeof censusInput>, entries: Registry = registry) {
   const groups = createPlatformWorkerJobComposition(input, censusRetention, entries);
   const expectedIntervals = new Set(
-    Object.values(baseline.profiles).flatMap((profile) =>
-      profile.scheduled.filter((r) => r.intervalMs !== null).map((r) => r.name),
-    ),
+    Object.values(baseline.profiles)
+      .flatMap((profile) => profile.scheduled.filter((r) => r.intervalMs !== null).map((r) => r.name))
+      .concat(Object.values(baseline.alternateCapabilities).map((branch) => branch.runner.name)),
   );
   for (const runner of groups.scheduled) if (expectedIntervals.has(runner.name)) await runner.runOnce();
   const schedules = new Map(input.claims.map((claim) => [claim.runnerName, claim.intervalMs]));
@@ -121,6 +122,83 @@ describe("static worker job registry", () => {
     }));
     await expect(census(censusInput("proof"), metadata)).rejects.toThrow();
   });
+  it("covers the original Fulfillment alternate capability across profiles, absence and omission", async () => {
+    const captured = baseline.alternateCapabilities.fulfillmentPostagePurchaseFallback;
+    const mainName = "fulfillment.postage-operation-reconciliation";
+    expect(captured.head).toBe(baseline.head);
+    expect(baseline.classification).toHaveProperty(captured.runner.name, "context-owned migration");
+    const prepare = (profile: "landing" | "proof" | "public", enabled: boolean, available = true) => {
+      const input = censusInput(profile, enabled);
+      const calls: unknown[] = [];
+      const reconcile = vi.fn(async (value: unknown) => {
+        calls.push(["service", value]);
+        return { checked: 3 };
+      });
+      const original = input.services.fulfillment;
+      if (original) {
+        const shipments = Reflect.get(original, "shipments");
+        input.services.fulfillment = new Proxy(original, {
+          get: (target, key) =>
+            key !== "shipments"
+              ? Reflect.get(target, key)
+              : new Proxy(shipments, {
+                  get: (target, key) =>
+                    key === "listStalePostageOperationLocators" || key === "reconcilePostageOperationLocator"
+                      ? undefined
+                      : key === "reconcileStalePostageLabelPurchases"
+                        ? available
+                          ? reconcile
+                          : undefined
+                        : Reflect.get(target, key),
+                }),
+        });
+      }
+      return { input, calls, reconcile };
+    };
+    for (const profile of ["landing", "proof", "public"] as const) {
+      for (const enabled of [false, true]) {
+        const { input } = prepare(profile, enabled);
+        const expected = structuredClone(baseline.profiles[`${profile}:${enabled ? "enabled" : "disabled"}`]);
+        expected.scheduled = expected.scheduled.map((runner) => (runner.name === mainName ? captured.runner : runner));
+        expect(await census(input)).toEqual(expected);
+        const absent = prepare(profile, enabled, false).input;
+        expect((await census(absent)).scheduled).toEqual(
+          expected.scheduled.filter((runner) => runner.name !== captured.runner.name),
+        );
+        if (profile !== "landing") {
+          const removed = registry.map((entry) =>
+            entry.contextName !== "fulfillment"
+              ? entry
+              : {
+                  ...entry,
+                  module: {
+                    ...entry.module,
+                    workerJobFactories: {
+                      ...entry.module.workerJobFactories,
+                      createFulfillmentPostageOperationReconciliationRunners: () => [],
+                    },
+                  },
+                },
+          );
+          expect(await census(prepare(profile, enabled).input, removed)).not.toEqual(expected);
+        }
+      }
+    }
+    const { input, calls, reconcile } = prepare("proof", true);
+    vi.spyOn(input.controlPlane, "claimScheduledRunner").mockImplementation(async (value) => {
+      calls.push(["claim", value]);
+      return true;
+    });
+    vi.spyOn(input.controlPlane, "recordScheduledRunnerCompleted").mockImplementation(async (value) => {
+      calls.push(["complete", value]);
+    });
+    const runner = createPlatformWorkerJobComposition(input, censusRetention).scheduled.find(
+      (runner) => runner.name === captured.runner.name,
+    )!;
+    expect(await runner.runOnce()).toEqual(captured.result);
+    expect(reconcile).toHaveBeenCalledOnce();
+    expect(calls).toEqual(captured.calls);
+  });
   it("admits a new job on an already registered module without a host edit", () => {
     const input = censusInput("proof");
     const runner: WorkerRunner = {
@@ -155,6 +233,47 @@ describe("static worker job registry", () => {
           },
     );
     expect(createPlatformWorkerJobComposition(input, censusRetention, entries).scheduled.at(-1)).toBe(runner);
+  });
+  it("uses canonical explicit lease overrides and detects implicit/explicit lease collisions", () => {
+    const input = censusInput("proof");
+    const runner: WorkerRunner = {
+      name: "payments.synthetic-override",
+      kind: "job",
+      leaseName: "job:shared",
+      runOnce: async () => ({ processed: 0, lastGlobalPosition: "0" as never }),
+    };
+    const template = registry.find((entry) => entry.contextName === "payments")!;
+    const entry = {
+      ...template,
+      manifest: {
+        ...template.manifest,
+        scheduledJobs: [
+          {
+            id: runner.name,
+            runnerExport: "createSyntheticJob",
+            group: "jobs",
+            order: 1,
+            runtimeProfiles: ["proof"],
+            schedule: { kind: "dispatch" },
+            lockScope: "job:shared",
+          },
+        ],
+      },
+      module: { ...template.module, workerJobFactories: { createSyntheticJob: () => [runner] } },
+    };
+    expect(composeWorkerJobs([entry], input, "proof").jobs).toEqual([runner]);
+    const mismatch = {
+      ...entry,
+      manifest: {
+        ...entry.manifest,
+        scheduledJobs: entry.manifest.scheduledJobs.map((job) => ({ ...job, lockScope: "job:different" })),
+      },
+    };
+    expect(() => composeWorkerJobs([mismatch], input, "proof")).toThrow(/lease differs/);
+    const implicit = { ...runner, name: "shared", leaseName: undefined };
+    expect(() =>
+      composeWorkerJobs([entry], input, "proof", [{ order: 2, group: "jobs", create: () => [implicit] }]),
+    ).toThrow(/duplicate runner lease job:shared/);
   });
   it("keeps Catalog bulk on landing and source-only services eligible without activating other groups", () => {
     const input = censusInput("landing");

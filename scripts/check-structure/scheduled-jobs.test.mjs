@@ -123,6 +123,9 @@ describe("worker service assertion inventory", () => {
       "const {discovery:alias}=runtime.services;const value=alias as {sync:unknown};",
       "function helper(services:Readonly<Record<string,unknown>>){return services.discovery as {sync:unknown}}",
       "function helper(bag){return bag.discovery as {sync:unknown}}helper(runtime.services);",
+      'type Bag=WorkerHostRuntime["services"]; const read=(bag:Bag)=>bag.discovery as\n | {sync:unknown}\n | undefined; read(runtime.services);',
+      "const read=function(bag){return bag.discovery as {sync:unknown}}; const forward=read; forward(runtime.services);",
+      'type Bag=WorkerHostRuntime["services"]; function read(bag:Bag){return bag.discovery as {sync:unknown}}',
     ])
       expect(findAnonymousServiceAssertions(source)).toHaveLength(1);
   });
@@ -130,6 +133,11 @@ describe("worker service assertion inventory", () => {
     expect(
       findAnonymousServiceAssertions(
         "const x=runtime.services.discovery as DiscoveryServices|undefined; const y=pool as {end:()=>void};",
+      ),
+    ).toEqual([]);
+    expect(
+      findAnonymousServiceAssertions(
+        'type Bag=WorkerHostRuntime["services"]; const read=(bag:Bag)=>bag.discovery as DiscoveryServices|undefined; read(runtime.services);',
       ),
     ).toEqual([]);
   });

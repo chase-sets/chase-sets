@@ -18,13 +18,41 @@ export function findAnonymousServiceAssertions(source, file = "worker.ts") {
   const tree = parse(file, source);
   const tainted = new Set(["services", "runtime", "mountedContexts"]);
   const functions = new Map();
+  const callableAliases = new Map();
+  const typeAliases = new Map();
   visit(tree, (node) => {
     if (ts.isFunctionDeclaration(node) && node.name) functions.set(node.name.text, node);
-    if (
-      ts.isParameter(node) &&
-      node.type &&
-      /WorkerHostRuntime|Record<string,\s*unknown>/.test(node.type.getText(tree))
-    ) {
+    if (ts.isTypeAliasDeclaration(node)) typeAliases.set(node.name.text, node.type);
+    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer) {
+      let value = node.initializer;
+      while (ts.isParenthesizedExpression(value)) value = value.expression;
+      if (ts.isArrowFunction(value) || ts.isFunctionExpression(value)) functions.set(node.name.text, value);
+      else if (ts.isIdentifier(value)) callableAliases.set(node.name.text, value.text);
+    }
+  });
+  const serviceBagType = (node, seen = new Set()) => {
+    if (/WorkerHostRuntime|Record<string,unknown>/.test(node.getText(tree).replace(/\s/g, ""))) return true;
+    let found = false;
+    visit(node, (child) => {
+      if (!ts.isTypeReferenceNode(child) || !ts.isIdentifier(child.typeName)) return;
+      const name = child.typeName.text;
+      const alias = typeAliases.get(name);
+      if (alias && !seen.has(name)) {
+        seen.add(name);
+        found ||= serviceBagType(alias, seen);
+      }
+    });
+    return found;
+  };
+  const calledFunction = (name, seen = new Set()) => {
+    if (functions.has(name)) return functions.get(name);
+    if (seen.has(name)) return undefined;
+    seen.add(name);
+    const alias = callableAliases.get(name);
+    return alias && calledFunction(alias, seen);
+  };
+  visit(tree, (node) => {
+    if (ts.isParameter(node) && node.type && serviceBagType(node.type)) {
       visit(node.name, (child) => {
         if (ts.isIdentifier(child)) tainted.add(child.text);
       });
@@ -43,7 +71,7 @@ export function findAnonymousServiceAssertions(source, file = "worker.ts") {
     changed = false;
     visit(tree, (node) => {
       if (ts.isCallExpression(node) && ts.isIdentifier(node.expression)) {
-        const fn = functions.get(node.expression.text);
+        const fn = calledFunction(node.expression.text);
         for (const [index, argument] of node.arguments.entries())
           if (fn?.parameters[index] && derived(argument)) {
             visit(fn.parameters[index].name, (child) => {
