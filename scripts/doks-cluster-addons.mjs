@@ -175,7 +175,7 @@ export function planClusterAddons(options = {}) {
         "--create-namespace",
         "--values",
         pinned.ingressNginx.valuesFile,
-        // Refs #10392: production enablement follows fresh staging acceptance.
+        // Production enablement follows fresh staging acceptance.
         ...(environment === "staging" ? ["--set", "defaultBackend.enabled=true"] : []),
         "--set-string",
         `${lbAnnotationKey}=${lbName}`,
