@@ -14498,6 +14498,14 @@ async fn the_status_part_waits_while_the_status_holds_and_redraws_the_page_once_
     let (status, headers, _) =
         pilot.send(get("/account/payments/pay_paid/status?since=pending-confirmation&until=1", Some("payer"))).await;
     assert_eq!((status, headers[header::LOCATION].to_str().unwrap()), (StatusCode::SEE_OTHER, "/account/payments/pay_paid"));
+    // A guest's part read by someone who is not the guest: the runtime still gets a patch, the
+    // watch empty and asking no more, where the payment page would answer them.
+    let mut stranger = get(&format!("/checkout/payments/pay_1/status?since=pending-confirmation&until={until}"), None);
+    stranger.headers_mut().insert("corten", "action".parse().unwrap());
+    let (status, headers, html) = pilot.send(stranger).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(headers.contains_key("corten-patch"), "{headers:?}");
+    assert!(html.contains(r#"<p id="payment-watch" hidden></p>"#) && !html.contains("data-corten-read-again"), "{html}");
 }
 
 #[tokio::test]

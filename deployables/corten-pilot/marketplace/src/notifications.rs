@@ -188,39 +188,56 @@ pub struct AlertInput {
     pub action: String,
 }
 
+/// The feed or the settings. The runtime reads only the alerts' section from here, again after an
+/// alert's write (`ReadAgain::from` in its patch): the section alone, read after the write whose
+/// receipt the address carries. A read that fails says so in place, as a 502 patch the runtime
+/// applies whatever its status, and asks no more; signed out, the next load signs in. Without a
+/// script, or for a data client, the page.
 pub(crate) async fn page(
     req: Req,
     Caller(Member(viewer)): Caller<Member>,
     State(config): State<Shared>,
     headers: HeaderMap,
     Params(route): Params<crate::app::url::notifications::Notifications>,
-) -> HtmlResult {
+) -> HtmlResult<Patches> {
     let place = route.place;
     let receipt = Receipt::from_param(place.after_write.as_deref());
-    let caller = config.platform.caller(&headers, config.proto, None);
+    if req.mode == corten::Mode::Action {
+        let waiting = config.platform.caller(&headers, config.proto, receipt.as_ref());
+        return match alerts(&waiting, receipt.is_some()).await {
+            Ok(alerts) => alerts_patch(&req, &alerts, &url::Notifications { place }),
+            Err(error) => unconfirmed(&req, error),
+        };
+    }
+    // Only `patch_or` answers a page as this route's answer, and it takes its patch already
+    // built: this one is never drawn, since the runtime's read is answered above
+    // (corten-run/corten#1462).
+    let (t, p): (NotificationsMsg, Pilot) = (req.t(), req.t());
+    let unsent = Alerts::CatchingUp;
+    let unsent = html! { <views::AlertsSection t={t} p={p} alerts={&unsent} notice={None} focus={false} /> };
+    req.patch_or(unsent, || whole(&req, &viewer, &config, &headers, place, receipt)).await
+}
+
+/// The page: the feed, or the settings read after the write whose receipt the address carries.
+async fn whole(
+    req: &Req,
+    viewer: &Viewer,
+    config: &Shared,
+    headers: &HeaderMap,
+    place: Place,
+    receipt: Option<Receipt>,
+) -> HtmlResult {
+    let caller = config.platform.caller(headers, config.proto, None);
     match place.view() {
         View::Feed => match caller.feed().await {
-            Ok(feed) => render(&req, &viewer, &Screen::Feed(Some(feed)), None, StatusCode::OK),
-            Err(error) => failed(&req, &viewer, Screen::Feed(None), error),
+            Ok(feed) => render(req, viewer, &Screen::Feed(Some(feed)), None, StatusCode::OK),
+            Err(error) => failed(req, viewer, Screen::Feed(None), error),
         },
-        // An alert write's read again (`ReadAgain::from` in its patch): the section alone. A read
-        // that fails says so in place, as a patch the runtime applies whatever its status; signed
-        // out or refused answers the page's, which stops the reads.
-        View::Settings if req.mode == corten::Mode::Action && place.section() == Section::ProductAlerts => {
-            let waiting = config.platform.caller(&headers, config.proto, receipt.as_ref());
-            match alerts(&waiting, receipt.is_some()).await {
-                Ok(alerts) => alerts_patch(&req, &alerts, &url::Notifications { place: place.clone() }),
-                Err(error) if matches!(error.status(), Some(StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN)) => {
-                    failed(&req, &viewer, Screen::Settings(None, Section::ProductAlerts), error)
-                }
-                Err(error) => unconfirmed(&req, error),
-            }
-        }
         View::Settings => {
-            let waiting = config.platform.caller(&headers, config.proto, receipt.as_ref());
+            let waiting = config.platform.caller(headers, config.proto, receipt.as_ref());
             match settings(&caller, &waiting, receipt.is_some()).await {
-                Ok(settings) => render(&req, &viewer, &Screen::Settings(Some(settings), place.section()), None, StatusCode::OK),
-                Err(error) => failed(&req, &viewer, Screen::Settings(None, place.section()), error),
+                Ok(settings) => render(req, viewer, &Screen::Settings(Some(settings), place.section()), None, StatusCode::OK),
+                Err(error) => failed(req, viewer, Screen::Settings(None, place.section()), error),
             }
         }
     }
@@ -465,7 +482,7 @@ async fn apply(
 
 /// The alerts' section when the read after a write failed: the write was saved, the section says
 /// so and that a reload shows it (502).
-fn unconfirmed(req: &Req, error: ApiError) -> HtmlResult {
+fn unconfirmed<Kind>(req: &Req, error: ApiError) -> HtmlResult<Kind> {
     tracing::warn!("the product alerts' read after a write failed: {error}");
     let (t, p): (NotificationsMsg, Pilot) = (req.t(), req.t());
     req.patch_with_status(
@@ -476,7 +493,7 @@ fn unconfirmed(req: &Req, error: ApiError) -> HtmlResult {
 
 /// The alerts' section as a patch; while the read is catching up with a write it asks to be read
 /// again from `from`, the settings' address with the write's receipt, which answers this again.
-fn alerts_patch(req: &Req, alerts: &Alerts, from: &url::Notifications) -> HtmlResult {
+fn alerts_patch<Kind>(req: &Req, alerts: &Alerts, from: &url::Notifications) -> HtmlResult<Kind> {
     let (t, p): (NotificationsMsg, Pilot) = (req.t(), req.t());
     let again = matches!(alerts, Alerts::CatchingUp).then(|| ReadAgain { after: Duration::from_secs(2) }.from(from));
     req.patch(html! {
