@@ -81,6 +81,7 @@ use futures_util::stream;
 use platform::receipt::Receipt;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
+use std::collections::BTreeMap;
 
 use super::{
     Sent,
@@ -929,14 +930,33 @@ impl Candidate {
     }
 
     /// The promote the API offers with the version it read (its `commandPreview`), when the
-    /// command may run and no blocking conflict needs a
-    /// resolution first; a promote that resolves conflicts stays on admin-web's conflict form.
+    /// command may run and no blocking conflict needs a resolution first.
     pub fn promote(&self) -> Option<(&Action, u64)> {
         let action = self.actions.iter().find(|a| a.key == "candidate.promote" && a.open())?;
         let version = action.command_preview.as_ref()?.body.expected_version?;
         (self.conflicts.blocking == 0).then_some((action, version))
     }
+
+    /// The version a promote that resolves the blocking conflicts names (admin-web's
+    /// `MergeCandidateConflictResolutionForm`): offered when the conflicts are all that block it
+    /// and the read gave each one's values, so every conflict the API checks for has its choice.
+    pub fn resolvable(&self) -> Option<u64> {
+        let action = self.actions.iter().find(|a| a.key == "candidate.promote")?;
+        let version = action.command_preview.as_ref()?.body.expected_version?;
+        let conflicts = &self.conflicts;
+        let only_conflicts = action.blockers.iter().all(|b| b == PROMOTION_CONFLICT);
+        let described = conflicts.blocking > 0 && conflicts.blocking_conflicts.len() as u64 == conflicts.blocking;
+        (only_conflicts && self.other_blockers().is_empty() && described).then_some(version)
+    }
+
+    /// What blocks the promote besides its conflicts, which must clear before resolving them helps.
+    pub fn other_blockers(&self) -> Vec<String> {
+        self.promote_readiness.blockers.iter().filter(|b| *b != PROMOTION_CONFLICT).cloned().collect()
+    }
 }
+
+/// The blocker a candidate's unresolved blocking conflicts give its promote.
+const PROMOTION_CONFLICT: &str = "promotion-conflict";
 
 /// A candidate's typed edit (`CatalogPrimaryWorkbenchMergeCandidateEditFormReadModel`): what the
 /// form shows and the version it names. The API applies the edit to the snapshot it holds.
@@ -985,11 +1005,28 @@ pub struct CandidateSource {
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize, ToJson)]
-#[serde(default)]
+#[serde(default, rename_all = "camelCase")]
 pub struct Conflicts {
     pub blocking: u64,
     pub warnings: u64,
     pub messages: Vec<String>,
+    /// Each blocking conflict with the values a resolution chooses between.
+    pub blocking_conflicts: Vec<BlockingConflict>,
+}
+
+/// A blocking conflict as the read gives it to resolve: the catalog's value and the proposed one,
+/// each as the page shows it and as the JSON the API compares a resolution's choice with.
+#[derive(Clone, Debug, Default, Deserialize, Serialize, ToJson)]
+#[serde(default, rename_all = "camelCase")]
+pub struct BlockingConflict {
+    pub code: String,
+    pub message: String,
+    pub field_path: Option<String>,
+    pub existing_value_display: String,
+    pub proposed_value_display: String,
+    pub existing_value_json: String,
+    pub proposed_value_json: String,
+    pub observation_ids: Vec<String>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize, ToJson)]
@@ -2074,6 +2111,41 @@ pub struct CandidateInput {
     /// The indexes of the external references to drop.
     pub drop_catalog_ref: Vec<String>,
     pub drop_product_ref: Vec<String>,
+    /// A promote's resolution of each blocking conflict, by the conflict's code.
+    #[fields(rows)]
+    #[serde(default)]
+    pub conflict: BTreeMap<String, Resolution>,
+}
+
+/// A blocking conflict's resolution (admin-web's `resolution.{code}` and `reason.{code}`): the
+/// value chosen, as the JSON the read gave for it, and why, with the field and observations the
+/// read named for the conflict. The API checks the value is one of the two the conflict holds.
+#[derive(Clone, Debug, Default, Fields)]
+#[serde(default)]
+pub struct Resolution {
+    pub value: String,
+    pub reason: String,
+    pub field: String,
+    pub observation: Vec<String>,
+}
+
+impl Resolution {
+    /// The conflict's resolution for the API, or `None` when its reason is blank or its value is
+    /// not the JSON a choice carries.
+    fn body(&self, code: &str) -> Option<Value> {
+        let reason = self.reason.trim();
+        let chosen: Value = serde_json::from_str(&self.value).ok()?;
+        let field = Some(self.field.trim()).filter(|f| !f.is_empty());
+        (!reason.is_empty()).then(|| {
+            json!({
+                "conflictCode": code,
+                "fieldPath": field,
+                "chosenValue": chosen,
+                "reason": reason,
+                "observationIds": self.observation,
+            })
+        })
+    }
 }
 
 /// The merge candidate commands the row's buttons send. Split and promote are each their own form
@@ -2108,9 +2180,9 @@ impl CandidateInput {
             "promote" => {
                 let version = self.version()?;
                 let typed = self.reason.trim();
+                let resolutions = self.resolutions()?;
                 let reason = if typed.is_empty() { reason(t.wb_merge_action_promote()) } else { typed.to_owned() };
-                // No conflict to resolve: the row offers Promote only without blocking conflicts.
-                Some(("promote", json!({ "reason": reason, "expectedVersion": version, "conflictResolutions": [] })))
+                Some(("promote", json!({ "reason": reason, "expectedVersion": version, "conflictResolutions": resolutions })))
             }
             "update" => {
                 let version = self.version()?;
@@ -2122,6 +2194,20 @@ impl CandidateInput {
 
     fn version(&self) -> Option<u64> {
         self.version.trim().parse().ok()
+    }
+
+    /// Each conflict's resolution, or `None` when one lacks its reason or value, or the promote
+    /// that resolves conflicts lacks its own reason (admin-web's form requires them all).
+    fn resolutions(&self) -> Option<Vec<Value>> {
+        if !self.conflict.is_empty() && self.reason.trim().is_empty() {
+            return None;
+        }
+        self.conflict.iter().map(|(code, resolution)| resolution.body(code)).collect()
+    }
+
+    /// The conflicts a promote names without a reason or value to resolve them with.
+    pub fn unresolved(&self) -> impl Iterator<Item = &String> {
+        self.conflict.iter().filter(|(code, resolution)| resolution.body(code).is_none()).map(|(code, _)| code)
     }
 
     /// The edit (`catalogMergeCandidateEditRequestFromFormData`): the intent when it is one the
@@ -2195,6 +2281,20 @@ pub(crate) async fn candidate(
                     Err(denied) => Sent::Denied(denied),
                 },
             }
+        }
+        // A resolution without its reason or value is the conflict form's own message, at its fields.
+        None if input.command == "promote" && !input.conflict.is_empty() => {
+            let f = CandidateInput::FIELDS;
+            let mut errors = Errors::new();
+            let message = t.wb_merge_conflict_resolution_description();
+            for code in input.unresolved() {
+                errors.add(f.conflict.at(code).reason, message);
+            }
+            if input.reason.trim().is_empty() {
+                errors.add(f.reason, message);
+            }
+            errors.add_form(message);
+            Sent::Refused(errors)
         }
         None => Sent::Refused(super::not_offered(req.t())),
     };
