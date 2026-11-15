@@ -32,6 +32,14 @@ export function createReportedContentApiClient({
   fetch?: typeof globalThis.fetch;
 }> = {}) {
   return {
+    async acknowledgeReportedContent(targetType: string, targetId: string): Promise<{ acknowledgedAt: string }> {
+      return parseJsonResponse(
+        await fetch(
+          `${baseUrl}/reported-content/${encodeURIComponent(targetType)}/${encodeURIComponent(targetId)}/acknowledge`,
+          { method: "POST" },
+        ),
+      );
+    },
     async listReportedContentQueue(query = ""): Promise<ListResponse<ReportedContentQueueItem>> {
       return parseJsonResponse(await fetch(`${baseUrl}/reported-content${query ? `?${query}` : ""}`));
     },

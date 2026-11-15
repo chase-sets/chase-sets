@@ -76,7 +76,10 @@ describeDb("reported content removal SQL", () => {
   const snapshot = async () =>
     (
       await pools["platform-operations"].query(
-        "SELECT * FROM platform_operations_reported_content_queue_pages ORDER BY target_type, target_id",
+        `SELECT target_type, target_id, target_owner_account_id, status, report_count, reasons, reports,
+          first_reported_at, last_reported_at, auto_unlisted_at, auto_unlist_report_id, auto_unlist_threshold,
+          last_action, last_action_at, last_action_note, last_action_by_user_id, updated_at
+          FROM platform_operations_reported_content_queue_pages ORDER BY target_type, target_id`,
       )
     ).rows;
 

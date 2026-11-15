@@ -36,6 +36,17 @@ function queueFilters(params: Readonly<{ status?: string | null; targetType?: st
 }
 
 const selectColumns = `
+  CASE WHEN policy_revision IS NULL OR policy_code = 'policy-incomplete' THEN 'critical' ELSE COALESCE(severity, 'critical') END AS severity,
+  policy_revision,
+  CASE WHEN policy_revision IS NULL THEN 'policy-incomplete' ELSE policy_code END AS policy_code,
+  response_started_at::text AS response_started_at,
+  acknowledged_at::text AS acknowledged_at,
+  acknowledge_due_at::text AS acknowledge_due_at,
+  disposition_due_at::text AS disposition_due_at,
+  COALESCE(accountable_role, 'Founder') AS accountable_role,
+  response_open,
+  (response_open AND (policy_revision IS NULL OR policy_code = 'policy-incomplete'
+    OR acknowledge_due_at <= now() OR disposition_due_at <= now())) IS TRUE AS overdue,
   target_type,
   target_id,
   target_owner_account_id,
@@ -61,10 +72,19 @@ export async function listReportedContentQueue(
     offset?: number;
     status?: string | null;
     targetType?: string | null;
+    attentionOnly?: boolean;
   }>,
 ): Promise<{ items: ReportedContentQueueItem[]; total: number }> {
   const { limit, offset } = normalizePageParams(params);
   const filters = queueFilters(params);
+  if (params.attentionOnly)
+    filters.where += ` AND response_open AND (
+    COALESCE(severity, 'critical') IN ('critical', 'high') OR policy_revision IS NULL
+    OR policy_code = 'policy-incomplete' OR acknowledge_due_at <= now() OR disposition_due_at <= now())
+    AND NOT EXISTS (SELECT 1 FROM event_store_events e
+      WHERE e.stream_id = 'platform-operations.reported-content-' || target_type || '-' || target_id
+        AND e.event_type = 'platform-operations.reported-content.action-recorded'
+        AND (e.payload->>'recordedAt')::timestamptz >= COALESCE(response_started_at, first_reported_at))`;
   const countResult = await db.query<{ count: string }>(
     `SELECT COUNT(*) AS count
      FROM platform_operations_reported_content_queue_pages
@@ -76,9 +96,9 @@ export async function listReportedContentQueue(
      FROM platform_operations_reported_content_queue_pages
      ${filters.where}
      ORDER BY
-       CASE WHEN status = 'auto-unlisted' THEN 0 ELSE 1 END,
-       report_count DESC,
-       last_reported_at DESC,
+       CASE WHEN policy_revision IS NULL OR policy_code = 'policy-incomplete' THEN 0
+         ELSE CASE COALESCE(severity, 'critical') WHEN 'critical' THEN 0 WHEN 'high' THEN 1 ELSE 2 END END,
+       LEAST(acknowledge_due_at, disposition_due_at) ASC NULLS FIRST,
        target_id ASC
      LIMIT $${filters.values.length + 1} OFFSET $${filters.values.length + 2}`,
     [...filters.values, limit, offset],

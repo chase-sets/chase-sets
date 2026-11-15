@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { composeModuleSchemaSql } from "@chase-sets/bounded-context-runtime";
 import {
   closeMultiContextTestPools,
@@ -8,6 +8,7 @@ import {
   resetMultiContextTestSchemas,
 } from "@chase-sets/bounded-context-runtime/test-support";
 import { createPostgresEventStore } from "@chase-sets/event-core-postgres";
+import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { buildTransportEvent } from "@chase-sets/event-core/test-support";
 import { createId } from "@chase-sets/primitives/typed-ids";
@@ -17,7 +18,7 @@ import {
   REPORTED_CONTENT_TARGET_TYPES,
 } from "../api/contracts";
 import { createReportedContentRuntime } from "../api/runtime";
-import { reportedContentSchemaSql } from "../read-model/schema";
+import { reportedContentSchemaSql, reportedContentResponseSchemaMigrations } from "../read-model/schema";
 import {
   buildIdentityReportedContentProjectionHandlers,
   buildMarketplaceReportedContentProjectionHandlers,
@@ -144,6 +145,7 @@ function interleavings(sources: readonly (readonly Fact[])[]): Fact[][] {
 }
 
 describeDb("reported-content-lifecycle-replay", () => {
+  afterEach(() => vi.useRealTimers());
   let pools: ReturnType<typeof createMultiContextTestPools<"platform-operations">>;
   beforeAll(async () => {
     const urls = createMultiContextTestDatabaseUrls(databaseBaseUrl!, ["platform-operations"], "reported_lifecycle");
@@ -203,7 +205,7 @@ describeDb("reported-content-lifecycle-replay", () => {
           await db().query(
             "SELECT * FROM platform_operations_reported_content_queue_pages ORDER BY target_type, target_id",
           )
-        ).rows,
+        ).rows.map(({ response_version: _casVersion, ...state }) => state),
       ),
     ) as Record<string, unknown>[];
   const truncate = () => db().query("TRUNCATE platform_operations_reported_content_queue_pages");
@@ -312,7 +314,7 @@ describeDb("reported-content-lifecycle-replay", () => {
     ]);
   });
 
-  it("needs-review, auto-unlisted, a re-report and each disposition hold their status", async () => {
+  it("needs-review, auto-unlisted, re-report reopening and removal dispositions follow the ruled lifecycle", async () => {
     await deliver(canonical.slice(0, 2));
     expect((await snapshot()).map((row) => row.status)).toEqual(["needs-review", "needs-review"]);
     await deliver(canonical.slice(2, 3));
@@ -320,7 +322,7 @@ describeDb("reported-content-lifecycle-replay", () => {
     await deliver(canonical.slice(3, 5));
     await deliver([marketplace[2]!]);
     expect((await snapshot()).find((row) => row.target_type === "listing")).toMatchObject({
-      status: "dismissed",
+      status: "needs-review",
       report_count: 2,
     });
 
@@ -347,6 +349,197 @@ describeDb("reported-content-lifecycle-replay", () => {
       }
     }
   });
+
+  it("reported-content-acknowledgement-lifecycle: private event, concurrent no-op, rebuild and day-after reads", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(at(2)));
+    const report = marketplaceReport("ack-report", 1, "visitor:ack");
+    await deliver([report]);
+    const store = createPostgresEventStore({ pool: db() });
+    const runtime = createReportedContentRuntime({ db: db(), eventStore: store });
+    const command = { targetType: "listing", targetId: listing, operatorUserId: operator };
+    const results = await Promise.all([runtime.acknowledge(command, context), runtime.acknowledge(command, context)]);
+    expect(results[0]).toEqual(results[1]);
+    const history = await store.readStream({ streamId: `platform-operations.reported-content-listing-${listing}` });
+    expect(history.map((event) => event.eventType)).toEqual(["platform-operations.reported-content.acknowledged"]);
+    const ack: Fact = {
+      name: "ack",
+      type: history[0]!.eventType,
+      streamId: history[0]!.streamId,
+      recordedAt: results[0]!.acknowledgedAt,
+      data: history[0]!.payload,
+    };
+    await deliver([ack]);
+    const acknowledged = await snapshot();
+    expect(acknowledged[0]).toMatchObject({
+      acknowledged_at: results[0]!.acknowledgedAt,
+      acknowledge_due_at: null,
+      response_open: true,
+    });
+    vi.setSystemTime(new Date("2026-07-09T10:00:00.000Z"));
+    await runtime.getReportedContentQueueItem("listing", listing);
+    await runtime.listReportedContentQueue({ attentionOnly: true });
+    expect(await eventCount()).toBe(1);
+    const disposed = actionRecorded("ack-disposed", 30, "listing", listing, "dismiss");
+    await deliver([disposed]);
+    await expect(runtime.acknowledge(command, context)).rejects.toMatchObject({ code: "target-disposed" });
+    const expected = await snapshot();
+    expect(expected[0]).toMatchObject({ response_open: false, acknowledge_due_at: null, disposition_due_at: null });
+    for (const order of [
+      [ack, disposed, report],
+      [disposed, report, ack],
+      [report, ack, disposed],
+    ]) {
+      await truncate();
+      await deliver(order);
+      expect(await snapshot()).toEqual(expected);
+    }
+    expect(await eventCount()).toBe(1);
+  });
+
+  it("acknowledge-versus-disposition serializes on the authoritative stream and stops both clocks", async () => {
+    await deliver([marketplace[0]!]);
+    const store = createPostgresEventStore({ pool: db() });
+    const runtime = createReportedContentRuntime({ db: db(), eventStore: store });
+    const [ack, action] = await Promise.allSettled([
+      runtime.acknowledge({ targetType: "listing", targetId: listing, operatorUserId: operator }, context),
+      runtime.recordModerationAction(
+        { targetType: "listing", targetId: listing, action: "dismiss", note: null, operatorUserId: operator },
+        context,
+      ),
+    ]);
+    expect(action.status).toBe("fulfilled");
+    if (ack.status === "rejected") expect(ack.reason).toMatchObject({ code: "target-disposed" });
+    const history = await store.readStream({ streamId: `platform-operations.reported-content-listing-${listing}` });
+    expect(
+      history.filter((event) => event.eventType === "platform-operations.reported-content.action-recorded"),
+    ).toHaveLength(1);
+    expect(
+      history.filter((event) => event.eventType === "platform-operations.reported-content.acknowledged"),
+    ).toHaveLength(ack.status === "fulfilled" ? 1 : 0);
+    await deliver(
+      history.map((event) => ({
+        name: event.eventId,
+        type: event.eventType,
+        streamId: event.streamId,
+        recordedAt: event.recordedAt,
+        data: event.payload,
+      })),
+    );
+    expect((await snapshot())[0]).toMatchObject({
+      response_open: false,
+      acknowledge_due_at: null,
+      disposition_due_at: null,
+    });
+    expect(await eventCount()).toBe(history.length);
+  });
+
+  it("repeat-owner priority has exact zero enforcement events and excludes dismissals and expired history", async () => {
+    const first = marketplaceReport("owner-first", 1, "visitor:first");
+    const second = {
+      ...marketplaceReport("owner-second", 2, "visitor:second"),
+      data: { ...first.data, reportId: id("rpt", 2), targetId: id("lst", "repeat2"), submittedAt: at(2) },
+    };
+    const third = {
+      ...marketplaceReport("owner-third", 5, "visitor:third"),
+      data: { ...first.data, reportId: id("rpt", 5), targetId: id("lst", "repeat3"), submittedAt: at(5) },
+    };
+    const actions = [
+      actionRecorded("owner-action1", 3, "listing", listing, "contact-seller"),
+      actionRecorded("owner-action2", 4, "listing", String(second.data.targetId), "contact-seller"),
+    ];
+    await deliver([first, second, ...actions, third]);
+    expect((await runtimeItem(String(third.data.targetId)))?.severity).toBe("high");
+    const runtime = createReportedContentRuntime({ db: db(), eventStore: createPostgresEventStore({ pool: db() }) });
+    expect((await runtime.listReportedContentQueue({})).items[0]!.target_id).toBe(third.data.targetId);
+    expect(await eventCount()).toBe(0);
+    await truncate();
+    await deliver([third, ...actions, first, second]);
+    expect((await runtimeItem(String(third.data.targetId)))?.severity).toBe("high");
+    expect(await eventCount()).toBe(0);
+    await truncate();
+    await deliver([
+      first,
+      second,
+      actions[0]!,
+      { ...actions[1]!, data: { ...actions[1]!.data, action: "dismiss" } },
+      third,
+    ]);
+    expect((await runtimeItem(String(third.data.targetId)))?.severity).toBe("standard");
+    await truncate();
+    const expired = { ...actions[1]!, data: { ...actions[1]!.data, recordedAt: "2025-01-01T00:00:00.000Z" } };
+    await deliver([first, second, actions[0]!, expired, third]);
+    expect((await runtimeItem(String(third.data.targetId)))?.severity).toBe("standard");
+    expect(await eventCount()).toBe(0);
+  });
+
+  it("a committed disposition clears attention even before its queue projection catches up", async () => {
+    await deliver([{ ...marketplace[0]!, data: { ...marketplace[0]!.data, reason: "sexual-exploitation" } }]);
+    const runtime = createReportedContentRuntime({ db: db(), eventStore: createPostgresEventStore({ pool: db() }) });
+    expect((await runtime.listReportedContentQueue({ attentionOnly: true })).items).toHaveLength(1);
+    await runtime.recordModerationAction(
+      { targetType: "listing", targetId: listing, action: "dismiss", note: null, operatorUserId: operator },
+      context,
+    );
+    const attention = await runtime.listReportedContentQueue({ attentionOnly: true });
+    expect(attention).toEqual({ items: [], total: 0 });
+    await expect(
+      runtime.acknowledge({ targetType: "listing", targetId: listing, operatorUserId: operator }, context),
+    ).rejects.toMatchObject({ code: "target-disposed" });
+  });
+
+  it("same-change migration fills historical response deadlines without appending events", async () => {
+    await deliver([marketplace[0]!, identity[0]!]);
+    await db().query(`UPDATE platform_operations_reported_content_queue_pages SET
+      policy_revision = NULL, severity = NULL, acknowledge_due_at = NULL, disposition_due_at = NULL`);
+    const before = await eventCount();
+    await reportedContentResponseSchemaMigrations[0]!.dataStep!(db());
+    const rows = await snapshot();
+    expect(rows).toHaveLength(2);
+    for (const row of rows) {
+      expect(row.policy_revision).toBe("reported-content-response/2026-11-14");
+      expect(row.acknowledge_due_at).not.toBeNull();
+      expect(row.disposition_due_at).not.toBeNull();
+    }
+    await reportedContentResponseSchemaMigrations[0]!.dataStep!(db());
+    expect(await snapshot()).toEqual(rows);
+    expect(await eventCount()).toBe(before);
+  });
+
+  it("a report retry repairs response derivation after a failure between the two writes", async () => {
+    let fail = true;
+    const flaky: PgQueryable = {
+      query: async <Row>(sql: string, values?: readonly unknown[]) => {
+        if (fail && sql.includes("SELECT q.*")) {
+          fail = false;
+          throw new Error("synthetic-response-write-failure");
+        }
+        return db().query<Row>(sql, values);
+      },
+    };
+    const projection = buildMarketplaceReportedContentProjectionHandlers(flaky);
+    const fact = marketplace[0]!;
+    const event = buildTransportEvent(fact.type, fact.data, {
+      streamId: fact.streamId,
+      timing: { occurredAt: fact.recordedAt, recordedAt: fact.recordedAt },
+    });
+    await expect(projection[fact.type]!(event)).rejects.toThrow("synthetic-response-write-failure");
+    expect((await snapshot())[0]).toMatchObject({ report_count: 1, policy_revision: null });
+    await projection[fact.type]!(event);
+    const repaired = await snapshot();
+    expect(repaired[0]).toMatchObject({ report_count: 1, policy_revision: "reported-content-response/2026-11-14" });
+    expect(repaired[0]!.acknowledge_due_at).not.toBeNull();
+    await projection[fact.type]!(event);
+    expect(await snapshot()).toEqual(repaired);
+    expect(await eventCount()).toBe(0);
+  });
+
+  async function runtimeItem(targetId: string) {
+    return createReportedContentRuntime({
+      db: db(),
+      eventStore: createPostgresEventStore({ pool: db() }),
+    }).getReportedContentQueueItem("listing", targetId);
+  }
 
   it("malformed events poison without writing", async () => {
     await deliver(canonical);

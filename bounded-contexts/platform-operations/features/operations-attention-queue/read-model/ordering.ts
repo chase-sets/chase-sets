@@ -31,6 +31,7 @@ export type OperationsAttentionSourceId =
   | "projection-blocked-stream"
   | "wake-stalled-job"
   | "support-request-deadline"
+  | "reported-content-response"
   | "platform-feedback-unreviewed";
 
 // The thing that needs an operator's attention.
@@ -39,10 +40,15 @@ export type OperationsAttentionEntity =
   | "blocked-stream"
   | "wake-job"
   | "support-request"
+  | "reported-content"
   | "platform-feedback";
 
 // The existing admin surface an item routes to, opened in one click.
-export type OperationsAttentionSurfaceId = "projection-operations" | "support-operations" | "platform-feedback";
+export type OperationsAttentionSurfaceId =
+  | "projection-operations"
+  | "support-operations"
+  | "platform-feedback"
+  | "reported-content";
 
 export type OperationsAttentionSourceDescriptor = Readonly<{
   id: OperationsAttentionSourceId;
@@ -62,6 +68,18 @@ export type OperationsAttentionSourceDescriptor = Readonly<{
 }>;
 
 export const OPERATIONS_ATTENTION_SOURCES: readonly OperationsAttentionSourceDescriptor[] = [
+  {
+    id: "reported-content-response",
+    ownerSlice: "reported-content",
+    entity: "reported-content",
+    surface: "reported-content",
+    peakSeverity: "critical",
+    requiredPermission: "reported-content.view",
+    buildHref: (entityId) =>
+      entityId === "incomplete"
+        ? "/reported-content"
+        : `/reported-content/${entityId.split(":").map(encodeURIComponent).join("/")}`,
+  },
   {
     id: "projection-poison-event",
     ownerSlice: "projection-operations",
@@ -113,10 +131,11 @@ export const OPERATIONS_ATTENTION_SOURCES: readonly OperationsAttentionSourceDes
 // (a poisoned or blocked projection) and stalled wake work outrank an unreviewed
 // feedback note — the policy the operator surface presents.
 export const OPERATIONS_ATTENTION_SOURCE_PRIORITY: Readonly<Record<OperationsAttentionSourceId, number>> = {
-  "projection-poison-event": 5,
-  "projection-blocked-stream": 4,
-  "wake-stalled-job": 3,
+  "projection-poison-event": 6,
+  "projection-blocked-stream": 5,
+  "wake-stalled-job": 4,
   "support-request-deadline": 2,
+  "reported-content-response": 3,
   "platform-feedback-unreviewed": 1,
 };
 
