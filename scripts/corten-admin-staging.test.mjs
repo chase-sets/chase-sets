@@ -254,7 +254,66 @@ describe("Corten admin staging deployment", () => {
     expect(deploy.env.CORTEN_ADMIN_IMAGE).toBe("${{ needs.build-image.outputs.corten_admin_image }}");
     expect(deploy.run).toContain('--corten-admin-image "$CORTEN_ADMIN_IMAGE"');
     expect(deploy.run).toContain("PROXIES=${ingress_pod_cidrs}");
-    expect(deploy.run).toContain(".spec.podCIDRs[]");
+    expect(deploy.run).toContain('metadata.annotations["network.cilium.io/ipv4-pod-cidr"]');
     expect(deploy.run).toContain("ADMIN_WEB_ORIGIN=https://${admin_domain}");
+  });
+
+  describe("ingress pod CIDR discovery", () => {
+    const deploy = workflow.jobs["deploy-staging"].steps.find(({ id }) => id === "staging_kubernetes_deploy");
+    const filter = deploy.run.match(/ingress_pod_cidrs=[\s\S]*?'([^']+)'/)[1];
+    const annotation = (cidr) => ({ "network.cilium.io/ipv4-pod-cidr": cidr });
+    const node = (name, spec = {}, annotations = {}) => ({ metadata: { name, annotations }, spec });
+    const discover = (items, nodes = ["synthetic-ingress-node"]) =>
+      spawnSync("jq", ["-er", "--argjson", "nodes", JSON.stringify(nodes), filter], {
+        input: JSON.stringify({ items }),
+        encoding: "utf8",
+      });
+
+    it.each([{}, { podCIDRs: null }, { podCIDRs: [] }, { podCIDR: "", podCIDRs: [] }])(
+      "reads Cilium annotations when spec has no pod CIDRs: %j",
+      (spec) => {
+        const result = discover([node("synthetic-ingress-node", spec, annotation("192.0.2.0/25"))]);
+        expect(result.error).toBeUndefined();
+        expect(result.status, result.stderr).toBe(0);
+        expect(result.stdout.trim()).toBe("192.0.2.0/25");
+      },
+    );
+
+    it("prefers spec CIDRs, deduplicates and sorts only ingress nodes for PROXIES", () => {
+      const result = discover(
+        [
+          node(
+            "synthetic-ingress-node",
+            { podCIDRs: ["2001:db8::/64", "192.0.2.0/25"] },
+            annotation("198.51.100.0/24"),
+          ),
+          node("synthetic-ingress-node-2", {}, annotation("192.0.2.0/25")),
+          node("synthetic-other-node"),
+        ],
+        ["synthetic-ingress-node", "synthetic-ingress-node-2"],
+      );
+      expect(result.status, result.stderr).toBe(0);
+      expect(result.stdout.trim()).toBe("192.0.2.0/25,2001:db8::/64");
+    });
+
+    it.each([undefined, ""])("fails closed if any ingress node has no CIDR (annotation %j)", (cidr) => {
+      const result = discover(
+        [
+          node("synthetic-ingress-node", {}, annotation("192.0.2.0/25")),
+          node("synthetic-ingress-node-2", { podCIDRs: [] }, annotation(cidr)),
+        ],
+        ["synthetic-ingress-node", "synthetic-ingress-node-2"],
+      );
+      expect(result.error).toBeUndefined();
+      expect(result.status).not.toBe(0);
+      expect(result.stdout).toBe("");
+      expect(result.stderr).toContain("Missing pod CIDR for ingress node: synthetic-ingress-node-2");
+    });
+
+    it("fails closed if an ingress node is absent from the node list", () => {
+      const result = discover([]);
+      expect(result.status).not.toBe(0);
+      expect(result.stderr).toContain("Missing pod CIDR for ingress node: synthetic-ingress-node");
+    });
   });
 });
