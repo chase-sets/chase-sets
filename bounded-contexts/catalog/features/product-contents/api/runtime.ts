@@ -293,7 +293,7 @@ async function replaceProductContents(
   // a raw serialized comparison would append duplicate events on every
   // retained-state repeat run.
   if (retainedFact && productContentsContentIdentity(retainedFact) === productContentsContentIdentity(fact)) {
-    await replaceResolvedProductContents(deps, deps.db, retainedFact, currentVersion);
+    await replaceResolvedProductContents(deps, deps.db, retainedFact, lastResolved!.streamVersion);
     return { ...retainedFact, version: currentVersion };
   }
 
@@ -639,7 +639,15 @@ async function shouldWriteResolvedProductContents(
       db,
     )
   ).events;
-  return (latestEvents.at(-1)?.streamVersion ?? 0) <= factVersion;
+  return !latestEvents.some(
+    (event) =>
+      event.streamVersion > factVersion &&
+      event.eventType === "catalog.product-contents.resolved" &&
+      sameSelectedOptions(
+        (event.payload as ProductContentsResolvedFact).containerSelectedOptions,
+        fact.containerSelectedOptions,
+      ),
+  );
 }
 
 function isPgTransactionalPool(db: PgQueryable): db is PgTransactionalPool {

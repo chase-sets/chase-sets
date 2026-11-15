@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ChaseRoot } from "@chase-sets/design-system";
 import { renderToString } from "react-dom/server";
@@ -534,6 +534,144 @@ describe("CatalogItemDetailPage", () => {
   });
 
   it.each(["add", "remove"] as const)(
+    "navigation waits for the new container snapshot before %s with equal stream versions",
+    async (action) => {
+      const user = userEvent.setup();
+      const pack: ProductContentLineDetail = {
+        lineId: "pcl_pack",
+        containerCatalogItemId: "cat_1",
+        containerSelectedOptions: null,
+        containerProductId: null,
+        containedCatalogItemId: "cat_pack",
+        containedSelectedOptions: null,
+        containedProductId: null,
+        quantity: 1,
+        contentTypeId: "pct_pack",
+        inclusionPolicyId: null,
+        provenance: {},
+        resolutionStatus: "resolved",
+        targetLifecycleStatus: "active",
+        resolvedFactHash: "hash",
+        resolverVersion: 1,
+        resolvedAt: "2026-07-01T00:00:00.000Z",
+        updatedAt: "2026-07-01T00:00:00.000Z",
+      };
+      const box = { ...pack, lineId: "pcl_box", containerCatalogItemId: "cat_2", containedCatalogItemId: "cat_box" };
+      const fetch = stubCatalogFetches({ contentLines: [pack] });
+      const fallbackFetch = fetch.getMockImplementation()!;
+      const respond = (body: unknown) =>
+        new Response(JSON.stringify(body), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      let releaseAuthoring!: (response: Response) => void;
+      const pendingAuthoring = new Promise<Response>((resolve) => {
+        releaseAuthoring = resolve;
+      });
+      let releaseDepartedCommand!: (response: Response) => void;
+      const pendingDepartedCommand = new Promise<Response>((resolve) => {
+        releaseDepartedCommand = resolve;
+      });
+      let aWrite = false;
+      let bAuthoringRead = false;
+      let bProjectionRead = false;
+      let lines: ProductContentLineDetail[] = [box];
+      let version = 2;
+      const writes: { lines: ProductContentLineInput[]; expectedVersion: number }[] = [];
+      fetch.mockImplementation(async (request, init) => {
+        const url = String(request);
+        if (url.endsWith("/containers/cat_1") && init?.method === "PUT") {
+          aWrite = true;
+          return pendingDepartedCommand;
+        }
+        if (url.endsWith("/containers/cat_1/authoring")) {
+          return respond({ containerCatalogItemId: "cat_1", lines: [pack], version: 2 });
+        }
+        if (url.endsWith("/containers/cat_2/authoring")) {
+          bAuthoringRead = true;
+          return pendingAuthoring;
+        }
+        if (url.endsWith("/containers/cat_2") && init?.method === "PUT") {
+          const body = JSON.parse(String(init.body)) as (typeof writes)[number];
+          writes.push(body);
+          expect(body.expectedVersion).toBe(version);
+          version += 2;
+          lines = body.lines.map((line, index) => ({ ...box, ...line, lineId: `pcl_b_${index}` }));
+          return respond({ containerCatalogItemId: "cat_2", lines, version });
+        }
+        if (url.endsWith("/containers/cat_2")) {
+          bProjectionRead = true;
+          return respond({ items: lines });
+        }
+        if (url.endsWith("/items/cat_2")) return respond({ ...catalogItem, catalog_item_id: "cat_2" });
+        return fallbackFetch(request, init);
+      });
+      const page = (id: string) => (
+        <ChaseRoot reducedMotion="always">
+          <CatalogItemDetailPage id={id} initialData={{ ...catalogItem, catalog_item_id: id }} />
+        </ChaseRoot>
+      );
+      const view = render(page("cat_1"));
+      await waitFor(() => expect(screen.getByText("1 content lines")).toBeTruthy());
+      fireEvent.click(screen.getByRole("button", { name: /^Contents/ }));
+      await waitFor(() =>
+        expect(screen.getByRole("button", { name: "Add content line" }).hasAttribute("disabled")).toBe(false),
+      );
+      const aRow = screen
+        .getAllByText("Booster pack")
+        .map((element) => element.closest("tr"))
+        .find(Boolean)!;
+      fireEvent.click(within(aRow).getByRole("button", { name: "Remove" }));
+      await waitFor(() => expect(aWrite).toBe(true));
+      view.rerender(page("cat_2"));
+      await waitFor(() => expect(bAuthoringRead && bProjectionRead).toBe(true));
+      const row = () =>
+        screen
+          .getAllByText("Sealed Box")
+          .map((element) => element.closest("tr"))
+          .find(Boolean)!;
+      await waitFor(() => expect(row()).toBeTruthy());
+      const add = screen.getByRole("button", { name: "Add content line" });
+      const remove = within(row()).getByRole("button", { name: "Remove" });
+      expect(add.hasAttribute("disabled")).toBe(true);
+      expect(remove.hasAttribute("disabled")).toBe(true);
+      fireEvent.click(add);
+      fireEvent.click(remove);
+      expect(writes).toHaveLength(0);
+      expect(lines).toEqual([box]);
+      expect(screen.queryByRole("dialog", { name: "Add content line" })).toBeNull();
+      await act(async () => {
+        releaseDepartedCommand(
+          action === "add"
+            ? respond({ containerCatalogItemId: "cat_1", lines: [], version: 4 })
+            : new Response(JSON.stringify({ error: { message: "Departed container conflict" } }), { status: 409 }),
+        );
+      });
+      expect(add.hasAttribute("disabled")).toBe(true);
+      expect(screen.queryByText("Departed container conflict")).toBeNull();
+      expect(writes).toHaveLength(0);
+      releaseAuthoring(respond({ containerCatalogItemId: "cat_2", lines, version }));
+      await waitFor(() => expect(add.hasAttribute("disabled")).toBe(false));
+      if (action === "remove") {
+        fireEvent.click(within(row()).getByRole("button", { name: "Remove" }));
+      } else {
+        fireEvent.click(add);
+        const dialog = screen.getByRole("dialog", { name: "Add content line" });
+        const target = within(dialog).getByRole("combobox", { name: "Contained Catalog Item" });
+        await user.click(within(target.parentElement!).getByRole("button"));
+        await user.click(await screen.findByRole("option", { name: /Booster pack/ }));
+        fireEvent.click(within(dialog).getByRole("button", { name: "Add content line" }));
+      }
+      await waitFor(() => expect(writes).toHaveLength(1));
+      expect(writes[0]?.expectedVersion).toBe(2);
+      expect(writes[0]?.lines).toHaveLength(action === "add" ? 2 : 0);
+      if (action === "add")
+        expect(lines).toContainEqual(expect.objectContaining({ containedCatalogItemId: "cat_box" }));
+      expect(version).toBe(4);
+    },
+  );
+
+  it.each(["add", "remove"] as const)(
     "stale add and remove refresh without replay or lost concurrent lines: %s",
     async (action) => {
       const user = userEvent.setup();
@@ -574,7 +712,7 @@ describe("CatalogItemDetailPage", () => {
         const url = String(request);
         if (url.endsWith("/product-contents/containers/cat_1/authoring")) {
           authoringReads += 1;
-          return respond({ lines, version });
+          return respond({ containerCatalogItemId: "cat_1", lines, version });
         }
         if (url.endsWith("/product-contents/containers/cat_1") && init?.method === "PUT") {
           const body = JSON.parse(String(init.body)) as (typeof writes)[number];
@@ -584,7 +722,7 @@ describe("CatalogItemDetailPage", () => {
           }
           version += 2;
           lines = body.lines.map((line, index) => ({ ...pack, ...line, lineId: `pcl_${index}` }));
-          return respond({ lines, version });
+          return respond({ containerCatalogItemId: "cat_1", lines, version });
         }
         return fallbackFetch(request, init);
       });
@@ -801,7 +939,11 @@ function stubCatalogFetches(
           resolvedFactHash: "hash",
           resolverVersion: 1,
           resolvedAt: "2026-07-01T00:00:00.000Z",
+          version: 2,
         });
+      }
+      if (url.endsWith("/product-contents/containers/cat_1/authoring")) {
+        return jsonResponse({ containerCatalogItemId: "cat_1", lines: contentLines, version: 0 });
       }
       if (url.includes("/product-contents/containers/cat_1")) {
         return jsonResponse({ items: contentLines, total: contentLines.length, count: contentLines.length });

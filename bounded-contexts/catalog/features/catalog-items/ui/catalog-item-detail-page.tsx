@@ -1,5 +1,5 @@
 import { formatLanguageCodeLabel, t } from "@chase-sets/localization";
-import { useEffect, useState, type MouseEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
 import {
   Button,
   Combobox,
@@ -419,9 +419,12 @@ export function CatalogItemDetailPage({
   const { data: productContentPoliciesData } = useProductContentInclusionPolicies();
   const { data: productContentItemsData } = useCatalogItemList("limit=500&status=active");
   const { data: productContentsData, refresh: refreshProductContents } = useProductContentsForContainer(id);
+  const productContentsIdentity = useMemo(() => ({ id }), [id]);
+  const currentProductContentsIdentity = useRef(productContentsIdentity);
+  currentProductContentsIdentity.current = productContentsIdentity;
   const { data: authoringProductContentsData, refresh: refreshAuthoringProductContents } = useFetch(
-    () => getProductContentsAuthoringState(id),
-    [id],
+    async () => ({ identity: productContentsIdentity, snapshot: await getProductContentsAuthoringState(id) }),
+    [productContentsIdentity],
   );
   const { data: productContainersData, refresh: refreshProductContainers } = useProductContainersForContained(id);
   const fields = fieldsData?.items ?? [];
@@ -433,11 +436,26 @@ export function CatalogItemDetailPage({
   const productContentCatalogItems = productContentItemsData?.items ?? [];
   useEffect(() => {
     setAuthoritativeProductContents(null);
+    setProductContentError(null);
+    setShowAddProductContent(false);
+    setProductContentTypeId("");
+    setProductContentPolicyId("");
+    setProductContentTargetItemId("");
+    setProductContentTargetOptions("");
+    setProductContentQuantity("1");
   }, [id]);
 
+  const productContentsSnapshot =
+    authoritativeProductContents?.containerCatalogItemId === id
+      ? authoritativeProductContents
+      : authoringProductContentsData?.identity === productContentsIdentity &&
+          authoringProductContentsData.snapshot.containerCatalogItemId === id
+        ? authoringProductContentsData.snapshot
+        : null;
   const productContents =
-    authoritativeProductContents?.lines ?? authoringProductContentsData?.lines ?? productContentsData?.items ?? [];
-  const productContentsVersion = authoritativeProductContents?.version ?? authoringProductContentsData?.version ?? 0;
+    productContentsSnapshot?.lines ??
+    productContentsData?.items.filter((line) => line.containerCatalogItemId === id) ??
+    [];
   const productContainers = productContainersData?.items ?? [];
   const resolvedProductContents = productContents.filter((line) => line.resolutionStatus === "resolved");
   const unresolvedProductContentEvidence = productContents.filter((line) => line.resolutionStatus === "unresolved");
@@ -712,6 +730,7 @@ export function CatalogItemDetailPage({
   }
 
   async function handleAddProductContentLine() {
+    if (!productContentsSnapshot) return;
     const nextLine: ProductContentLineInput = {
       containedCatalogItemId: productContentTargetItemId || null,
       containedSelectedOptions: parseSelectedOptionsInput(productContentTargetOptions),
@@ -724,9 +743,11 @@ export function CatalogItemDetailPage({
     setProductContentError(null);
     try {
       const result = await replaceProductContents(id, {
-        lines: [...productContents.map(productContentLineToInput), nextLine],
-        expectedVersion: productContentsVersion,
+        lines: [...productContentsSnapshot.lines.map(productContentLineToInput), nextLine],
+        expectedVersion: productContentsSnapshot.version,
       });
+      if (currentProductContentsIdentity.current !== productContentsIdentity || result.containerCatalogItemId !== id)
+        return;
       setAuthoritativeProductContents(result);
       addToast(t("catalog.features.catalogItems.ui.catalogItemDetailPage.product.contents.updated"), "success");
       setShowAddProductContent(false);
@@ -739,6 +760,7 @@ export function CatalogItemDetailPage({
       refreshAuthoringProductContents();
       refreshProductContainers();
     } catch (error) {
+      if (currentProductContentsIdentity.current !== productContentsIdentity) return;
       if (error instanceof ApiError && error.status === 409) {
         setAuthoritativeProductContents(null);
         refreshAuthoringProductContents();
@@ -754,6 +776,7 @@ export function CatalogItemDetailPage({
   }
 
   function startAddProductContentLine() {
+    if (!productContentsSnapshot) return;
     setProductContentTypeId((current) => current || productContentTypeOptions[0]?.value || "");
     setProductContentPolicyId((current) => current || productContentPolicyOptions[0]?.value || "");
     setProductContentError(null);
@@ -761,18 +784,24 @@ export function CatalogItemDetailPage({
   }
 
   async function handleRemoveProductContentLine(line: ProductContentLineDetail) {
+    if (!productContentsSnapshot) return;
     setProductContentError(null);
     try {
       const result = await replaceProductContents(id, {
-        lines: productContents.filter((entry) => entry.lineId !== line.lineId).map(productContentLineToInput),
-        expectedVersion: productContentsVersion,
+        lines: productContentsSnapshot.lines
+          .filter((entry) => entry.lineId !== line.lineId)
+          .map(productContentLineToInput),
+        expectedVersion: productContentsSnapshot.version,
       });
+      if (currentProductContentsIdentity.current !== productContentsIdentity || result.containerCatalogItemId !== id)
+        return;
       setAuthoritativeProductContents(result);
       addToast(t("catalog.features.catalogItems.ui.catalogItemDetailPage.product.contents.updated"), "success");
       refreshProductContents();
       refreshAuthoringProductContents();
       refreshProductContainers();
     } catch (error) {
+      if (currentProductContentsIdentity.current !== productContentsIdentity) return;
       if (error instanceof ApiError && error.status === 409) {
         setAuthoritativeProductContents(null);
         refreshAuthoringProductContents();
@@ -877,7 +906,12 @@ export function CatalogItemDetailPage({
       header: "",
       cell: (row) =>
         data?.status !== "archived" ? (
-          <Button size="sm" tone="danger" onClick={() => handleRemoveProductContentLine(row)}>
+          <Button
+            size="sm"
+            tone="danger"
+            disabled={!productContentsSnapshot}
+            onClick={() => handleRemoveProductContentLine(row)}
+          >
             {t("catalog.features.catalogItems.ui.catalogItemDetailPage.remove")}
           </Button>
         ) : null,
@@ -1070,7 +1104,7 @@ export function CatalogItemDetailPage({
                   <Stack gap={3}>
                     {data.status !== "archived" && (
                       <Inline>
-                        <Button size="sm" onClick={startAddProductContentLine}>
+                        <Button size="sm" disabled={!productContentsSnapshot} onClick={startAddProductContentLine}>
                           {t("catalog.features.catalogItems.ui.catalogItemDetailPage.add.content.line")}
                         </Button>
                       </Inline>
@@ -1675,7 +1709,10 @@ export function CatalogItemDetailPage({
         onOpenChange={setShowAddProductContent}
         title={t("catalog.features.catalogItems.ui.catalogItemDetailPage.add.content.line")}
         footer={
-          <Button onClick={handleAddProductContentLine} disabled={!productContentTypeId || !productContentTargetItemId}>
+          <Button
+            onClick={handleAddProductContentLine}
+            disabled={!productContentsSnapshot || !productContentTypeId || !productContentTargetItemId}
+          >
             {t("catalog.features.catalogItems.ui.catalogItemDetailPage.add.content.line")}
           </Button>
         }

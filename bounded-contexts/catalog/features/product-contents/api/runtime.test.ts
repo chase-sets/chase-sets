@@ -256,6 +256,63 @@ const context = {
 };
 
 describe("product content runtime", () => {
+  it("retains delayed cross-selection writeback and replays both selections from empty rows", async () => {
+    const { db, resolved } = createContentDb([
+      {
+        catalog_item_id: "cat_box",
+        status: "active",
+        blueprint_id: "bp_languages",
+        canonical_dimension_order: ["language"],
+        dimension_rules: [{ dimensionId: "language", allowedOptions: [{ optionId: "en" }, { optionId: "ja" }] }],
+      },
+    ]);
+    const { eventStore } = createEventStore();
+    const services = createProductContentRuntime({ db, eventStore, checkpointStore: createCheckpointStore() });
+    await services.upsertContentType({
+      contentTypeId: "pct_card",
+      key: "card",
+      displayName: localizedTextMapFromEnglish("Card"),
+    });
+    const input = {
+      containerCatalogItemId: "cat_box" as never,
+      expectedVersion: 0,
+      containerSelectedOptions: [{ dimensionId: "language", optionId: "en" }],
+      lines: [{ quantity: 1, contentTypeId: "pct_card" }],
+    };
+    const append = eventStore.appendToStream;
+    vi.spyOn(eventStore, "appendToStream").mockImplementationOnce(async (command) => {
+      const committed = await append(command);
+      await services.replaceProductContents(
+        {
+          ...input,
+          expectedVersion: 2,
+          containerSelectedOptions: [{ dimensionId: "language", optionId: "ja" }],
+          lines: [{ ...input.lines[0]!, quantity: 2 }],
+        },
+        context,
+      );
+      return committed;
+    });
+    await services.replaceProductContents(input, context);
+    const expected = [
+      ["cat_box::language:en", 1],
+      ["cat_box::language:ja", 2],
+    ];
+    const projected = () => [...resolved.values()].map((row) => [row.container_product_id, row.quantity]).sort();
+    expect(projected()).toEqual(expected);
+    resolved.clear();
+    const events = await eventStore.readStream({ streamId: "catalog.product-contents-cat_box" });
+    const handler = services.projectors[0]!.handlers["catalog.product-contents.resolved"]!;
+    for (const event of events.filter((event) => event.eventType === "catalog.product-contents.resolved")) {
+      await handler({ data: event.payload, streamVersion: event.streamVersion } as never, { db });
+    }
+    expect(projected()).toEqual(expected);
+    resolved.clear();
+    await services.replaceProductContents({ ...input, expectedVersion: 4 }, context);
+    expect(projected()).toEqual([expected[0]]);
+    expect(await eventStore.readStream({ streamId: "catalog.product-contents-cat_box" })).toHaveLength(4);
+  });
+
   it("authoring snapshot binds lines and version across empty, cleared and paged streams", async () => {
     const { db, resolved } = createContentDb([
       {

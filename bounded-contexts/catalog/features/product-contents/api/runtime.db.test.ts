@@ -138,4 +138,80 @@ describeDb("product contents runtime db", () => {
     expect(await eventStore.readStream({ streamId: "catalog.product-contents-cat_box" })).toHaveLength(4);
     expect((await services.listProductContentsForContainer("cat_box"))[0]?.quantity).toBe(2);
   });
+
+  it("delayed cross-selection writeback and replay retain both configurations with a capped pool", async () => {
+    await pool.query(
+      `INSERT INTO catalog_blueprints (blueprint_id, key, name, dimension_rules, canonical_dimension_order)
+       VALUES ('bp_languages', 'languages', 'Languages', $1, '["language"]'::jsonb)`,
+      [JSON.stringify([{ dimensionId: "language", allowedOptions: [{ optionId: "en" }, { optionId: "ja" }] }])],
+    );
+    await pool.query(
+      "INSERT INTO catalog_items (catalog_item_id, status, blueprint_id) VALUES ('cat_box', 'active', 'bp_languages')",
+    );
+    const eventStore = createPostgresEventStore({ pool });
+    const checkpointStore = {
+      loadCheckpoint: async () => ZERO_GLOBAL_POSITION,
+      saveCheckpoint: async () => undefined,
+    };
+    const services = createProductContentRuntime({ db: pool, eventStore, checkpointStore });
+    const context = {
+      tenantId: "tnt_product_contents" as never,
+      audit: { performedByUserId: "usr_product_contents" as never, forAccountId: "acc_product_contents" as never },
+    };
+    await services.upsertContentType({
+      contentTypeId: "pct_included_item",
+      key: "included-item",
+      displayName: { defaultLocale: "en", values: { en: "Included item" } },
+    });
+    const input = {
+      containerCatalogItemId: "cat_box" as never,
+      containerSelectedOptions: [{ dimensionId: "language", optionId: "en" }],
+      expectedVersion: 0,
+      lines: [{ quantity: 1, contentTypeId: "pct_included_item" }],
+    };
+    let interleaved = false;
+    const delayedStore: EventStore & Pick<typeof eventStore, "readStreamInTransaction"> = {
+      ...eventStore,
+      appendToStream: async (command) => {
+        const committed = await eventStore.appendToStream(command);
+        if (!interleaved) {
+          interleaved = true;
+          await services.replaceProductContents(
+            {
+              ...input,
+              expectedVersion: 2,
+              containerSelectedOptions: [{ dimensionId: "language", optionId: "ja" }],
+              lines: [{ ...input.lines[0]!, quantity: 2 }],
+            },
+            context,
+          );
+        }
+        return committed;
+      },
+    };
+    const delayedServices = createProductContentRuntime({ db: pool, eventStore: delayedStore, checkpointStore });
+    await delayedServices.replaceProductContents(input, context);
+    const projected = async () =>
+      (await services.listProductContentsForContainer("cat_box"))
+        .map((line) => [line.containerProductId, line.quantity])
+        .sort();
+    const expected = [
+      ["cat_box::language:en", 1],
+      ["cat_box::language:ja", 2],
+    ];
+    expect(await projected()).toEqual(expected);
+    await pool.query("DELETE FROM catalog_resolved_product_contents");
+    const events = await eventStore.readStream({ streamId: "catalog.product-contents-cat_box" });
+    const handler = services.projectors[0]!.handlers["catalog.product-contents.resolved"]!;
+    for (const event of events.filter((event) => event.eventType === "catalog.product-contents.resolved")) {
+      await withPgTransaction(pool, (client) =>
+        handler({ data: event.payload, streamVersion: event.streamVersion } as never, { db: client }),
+      );
+    }
+    expect(await projected()).toEqual(expected);
+    await pool.query("DELETE FROM catalog_resolved_product_contents");
+    await services.replaceProductContents({ ...input, expectedVersion: 4 }, context);
+    expect(await projected()).toEqual([expected[0]]);
+    expect(await eventStore.readStream({ streamId: "catalog.product-contents-cat_box" })).toHaveLength(4);
+  });
 });
