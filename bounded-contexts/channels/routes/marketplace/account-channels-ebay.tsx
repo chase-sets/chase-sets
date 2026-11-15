@@ -11,7 +11,21 @@ export async function loader({ request }: LoaderFunctionArgs) {
     client = createEbayConnectionClient(request);
   const publication = url.searchParams.get("publication") === "true";
   const connectionId = url.searchParams.get("connectionId");
-  const consent = await client(`/consent?publication=${publication}`);
+  let state: EbayJourneyState = "consent";
+  let authorizationAvailable = true;
+  if (["declined", "failed"].includes(url.searchParams.get("outcome") ?? ""))
+    state = url.searchParams.get("outcome") as "declined" | "failed";
+  if (connectionId) {
+    const connection = await client(`/connections/${encodeURIComponent(connectionId)}`);
+    if (!connection || typeof connection !== "object") throw new Response(null, { status: 404 });
+    authorizationAvailable = Reflect.get(connection, "authorizationAvailable") === true;
+    const status: unknown = Reflect.get(connection, "status");
+    if (status === "active") state = "connected";
+    else if (status === "paused") state = "reauthorize";
+    else if (status === "pending-setup" || status === "disconnected") state = status;
+    else throw new Response(null, { status: 503 });
+  }
+  const consent = authorizationAvailable ? await client(`/consent?publication=${publication}`) : { scopes: [] };
   if (
     !consent ||
     typeof consent !== "object" ||
@@ -19,19 +33,13 @@ export async function loader({ request }: LoaderFunctionArgs) {
     Reflect.get(consent, "scopes").some((scope: unknown) => typeof scope !== "string")
   )
     throw new Response(null, { status: 503 });
-  let state: EbayJourneyState = "consent";
-  if (["declined", "failed"].includes(url.searchParams.get("outcome") ?? ""))
-    state = url.searchParams.get("outcome") as "declined" | "failed";
-  if (connectionId) {
-    const connection = await client(`/connections/${encodeURIComponent(connectionId)}`);
-    if (!connection || typeof connection !== "object") throw new Response(null, { status: 404 });
-    const status: unknown = Reflect.get(connection, "status");
-    if (status === "active") state = "connected";
-    else if (status === "paused") state = "reauthorize";
-    else if (status === "pending-setup" || status === "disconnected") state = status;
-    else throw new Response(null, { status: 503 });
-  }
-  return { state, scopes: Reflect.get(consent, "scopes") as string[], connectionId, publication };
+  return {
+    state,
+    scopes: Reflect.get(consent, "scopes") as string[],
+    connectionId,
+    publication,
+    authorizationAvailable,
+  };
 }
 export async function action({ request }: ActionFunctionArgs) {
   await requireActorFromAuthApi({ request, permission: "channels.manage" });

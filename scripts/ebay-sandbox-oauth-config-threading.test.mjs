@@ -46,6 +46,7 @@ describe("ebay-sandbox-oauth-config-threading", () => {
   it("uses only the existing staging secrets in the owning secret-apply step", () => {
     const workflow = parse(read(".github/workflows/platform-production.yml"));
     const authority = JSON.parse(read(".github/authority/platform-production/deploy-staging.json"));
+    const manifest = JSON.parse(read("scripts/managed-postgres-authority-manifest.json"));
     const step = workflow.jobs["deploy-staging"].steps.find(
       (step) => step.name === "Apply staging Kubernetes runtime secrets",
     );
@@ -57,6 +58,13 @@ describe("ebay-sandbox-oauth-config-threading", () => {
             grant.secretName === secretName && grant.stepAnchor === "name:Apply staging Kubernetes runtime secrets#35",
         ),
       ).toBe(true);
+      expect(manifest.grants).toContainEqual({
+        file: ".github/workflows/platform-production.yml",
+        jobId: "deploy-staging",
+        stepAnchor: "name:Apply staging Kubernetes runtime secrets#35",
+        secretName,
+        purpose: "application-runtime",
+      });
       for (const [jobId, job] of Object.entries(workflow.jobs)) {
         expect(job.env ?? {}).not.toHaveProperty(secretName);
         for (const other of job.steps ?? [])

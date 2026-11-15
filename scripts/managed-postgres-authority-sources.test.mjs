@@ -331,6 +331,15 @@ const previewPoolCensusDelta = [
   purpose,
 }));
 // #9293 adds only the two deployment values at the five existing Secret-apply sinks.
+const ebaySandboxOAuthDelta = ["EBAY_SANDBOX_APP_ID", "EBAY_SANDBOX_CERT_ID", "EBAY_SANDBOX_RUNAME"].map(
+  (secretName) => ({
+    file: ".github/workflows/platform-production.yml",
+    jobId: "deploy-staging",
+    stepAnchor: "name:Apply staging Kubernetes runtime secrets#35",
+    secretName,
+    purpose: "application-runtime",
+  }),
+);
 const ebayAccountDeletionDelta = [
   {
     file: ".github/workflows/platform-ephemeral-verification.yml",
@@ -1036,6 +1045,7 @@ describe("managed Postgres authority source generator", () => {
         ...previewRuntimeSecretsDelta,
         ...reviewedPreviewWildcardDelta,
         ...ebayAccountDeletionDelta,
+        ...ebaySandboxOAuthDelta,
         ...ebayAccountDeletionDelta.map((entry) => ({
           ...entry,
           secretName:

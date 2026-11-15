@@ -8,10 +8,10 @@ export function createEbayConnectionRoutes(service: EbayConnectionServices) {
   app.use("*", async (c, next) => {
     c.header("Cache-Control", "no-store");
     c.header("Referrer-Policy", "no-referrer");
-    if (!service.enabled) return c.json({ error: { code: "unavailable" } }, 404);
     await next();
   });
   app.get("/consent", (c) => {
+    if (!service.enabled) return c.json({ error: { code: "unavailable" } }, 404);
     const query = new URL(c.req.url).searchParams;
     if (
       [...query.keys()].some((key) => key !== "publication") ||
@@ -82,7 +82,8 @@ export function createEbayConnectionRoutes(service: EbayConnectionServices) {
   });
   app.get("/connections/:id", async (c) => {
     try {
-      return c.json(await service.detail({ accountId: c.get("actor").accountId, connectionId: c.req.param("id") }));
+      const detail = await service.detail({ accountId: c.get("actor").accountId, connectionId: c.req.param("id") });
+      return c.json(detail ? { ...detail, authorizationAvailable: service.enabled } : null);
     } catch (error) {
       return safeError(error);
     }

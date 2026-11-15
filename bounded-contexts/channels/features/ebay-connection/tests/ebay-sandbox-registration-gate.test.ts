@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { parseEbayOAuthConfiguration, ebaySetupDeclaration } from "../domain/configuration";
 import { Hono } from "hono";
 import { module as channelsModule } from "../../../index";
@@ -35,6 +35,31 @@ describe("ebay-sandbox-registration-gate", () => {
           ...(enabled ? [{ providerKey: "ebay", environment: "sandbox" }] : []),
         ],
       });
+      const detail = vi.spyOn(services.ebayConnection!, "detail").mockResolvedValue({
+        status: "pending-setup",
+        capabilities: ["connection", "sellerSetup"],
+        remoteRevocation: null,
+      });
+      const existing = await app.request("/ebay/connections/synthetic-connection");
+      expect(existing.status).toBe(200);
+      expect(await existing.json()).toMatchObject({ status: "pending-setup", authorizationAvailable: enabled });
+      expect(detail).toHaveBeenCalledWith({ accountId: "acc_owner", connectionId: "synthetic-connection" });
+      if (!enabled) {
+        expect((await app.request("/ebay/consent")).status).toBe(404);
+        for (const [path, body] of [
+          ["start", { publication: false, connectionId: null }],
+          ["callback", { state: "a".repeat(43), code: "synthetic-code" }],
+          ["declined", { state: "a".repeat(43) }],
+        ] as const) {
+          const rejected = await app.request(`/ebay/${path}`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify(body),
+          });
+          expect(rejected.status).toBe(409);
+          expect(await rejected.json()).toEqual({ error: { code: "unavailable" } });
+        }
+      }
       const rejected = await app.request("/ebay/start", {
         method: "POST",
         headers: { "content-type": "application/json" },

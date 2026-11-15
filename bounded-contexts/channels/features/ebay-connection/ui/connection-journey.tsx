@@ -28,11 +28,13 @@ export function EbayConnectionJourney({
   scopes,
   connectionId,
   publication = false,
+  authorizationAvailable = true,
 }: {
   state: EbayJourneyState;
   scopes: readonly string[];
   connectionId: string | null;
   publication?: boolean;
+  authorizationAvailable?: boolean;
 }) {
   const live = connectionId !== null && state !== "disconnected";
   return (
@@ -55,7 +57,7 @@ export function EbayConnectionJourney({
             />
           ) : null}
           {state === "pending-setup" ? <Text>{t("channels.ebay.setupRequired")}</Text> : null}
-          {state !== "awaiting-callback" ? (
+          {authorizationAvailable && state !== "awaiting-callback" ? (
             <Card>
               <Stack gap={3}>
                 <Text>{t("channels.ebay.consent")}</Text>
@@ -70,9 +72,9 @@ export function EbayConnectionJourney({
                 </RouterForm>
               </Stack>
             </Card>
-          ) : (
+          ) : state === "awaiting-callback" ? (
             <Text>{t("channels.ebay.awaiting")}</Text>
-          )}
+          ) : null}
           {live ? (
             <RouterForm method="post">
               <HiddenInput name="intent" value="disconnect" />
