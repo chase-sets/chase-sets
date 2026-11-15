@@ -8,12 +8,14 @@
 //! |---|---|
 //! | `GET /support/reported-content?status&targetType` | the counts and the queue (100 at most, as admin-web reads it) |
 //! | `GET /support/reported-content/{targetType}/{targetId}?after_write&recorded` | a target's page |
-//! | `POST /support/reported-content/{targetType}/{targetId}` | a moderation action (`action`, `note`), then the page |
+//! | `POST /support/reported-content/{targetType}/{targetId}` | a moderation action (`action`, `note`) or `action=acknowledge`, then the page |
 //!
 //! Which actions a target type has is the published contract table
 //! (`platformOperationsReportedContentActionsByTargetType`, exported to
 //! `reported-content-actions.json`); the API checks it again, and that a note is there when the
-//! action needs one.
+//! action needs one. `acknowledge` is not a moderation action: it records that the target's open
+//! response was seen (`/acknowledge`), and the page offers it while the response is open and not
+//! acknowledged, as admin-web does.
 //!
 //! Support > Risk Alerts ([`risk`]) is its own area with the same permission and this area's
 //! stylesheet.
@@ -96,6 +98,28 @@ pub const STATUSES: [&str; 11] = [
 /// The target types, in admin-web's order.
 pub const TARGET_TYPES: [&str; 3] = ["listing", "review", "account-profile"];
 
+/// The action that acknowledges a target's open response (its own endpoint, not a moderation action).
+pub const ACKNOWLEDGE: &str = "acknowledge";
+
+impl QueueItem {
+    /// Whether the page offers Acknowledge: the response is open and not acknowledged yet.
+    pub fn acknowledgeable(&self) -> bool {
+        self.response_open && self.acknowledged_at.is_none()
+    }
+}
+
+/// The pilot's page for an admin-web path, when it is the queue's or a target's (the attention
+/// queue's Open).
+pub fn serves(path: &str) -> Option<String> {
+    let rest = path.strip_prefix("/support/reported-content")?;
+    if rest.is_empty() || rest.starts_with('?') {
+        return Some(path.to_owned());
+    }
+    let mut parts = rest.strip_prefix('/')?.split('/');
+    let whole = |part: Option<&str>| part.is_some_and(|p| !p.is_empty() && !p.contains(['?', '#']));
+    (whole(parts.next()) && whole(parts.next()) && parts.next().is_none()).then(|| path.to_owned())
+}
+
 /// Each target type's moderation actions (the contract table, from scripts/export.mjs).
 pub fn actions(target_type: &str) -> &'static [String] {
     static TABLE: LazyLock<BTreeMap<String, Vec<String>>> = LazyLock::new(|| {
@@ -125,9 +149,31 @@ pub struct Report {
 }
 
 /// A queued target (`ReportedContentQueueItem`); a target's page also has its reports
-/// (`ReportedContentQueueDetail`).
+/// (`ReportedContentQueueDetail`). The response fields are the API's: its severity, the policy
+/// revision that set its deadlines (or `policy_code` when none could), when the response started
+/// and was acknowledged, its two deadlines, who answers for it, and whether it is open and overdue.
 #[derive(Clone, Debug, Deserialize, Serialize, ToJson)]
 pub struct QueueItem {
+    #[serde(default)]
+    pub severity: String,
+    #[serde(default)]
+    pub policy_revision: Option<String>,
+    #[serde(default)]
+    pub policy_code: Option<String>,
+    #[serde(default)]
+    pub response_started_at: Option<String>,
+    #[serde(default)]
+    pub acknowledged_at: Option<String>,
+    #[serde(default)]
+    pub acknowledge_due_at: Option<String>,
+    #[serde(default)]
+    pub disposition_due_at: Option<String>,
+    #[serde(default)]
+    pub accountable_role: String,
+    #[serde(default)]
+    pub response_open: bool,
+    #[serde(default)]
+    pub overdue: bool,
     pub target_type: String,
     pub target_id: String,
     #[serde(default)]
@@ -271,11 +317,12 @@ fn behind(recorded: Option<&str>, last_action_at: Option<&str>) -> bool {
 }
 
 /// Where an action's page goes after it: with its receipt, or with the time the API says it
-/// recorded the action when it answered no receipt.
+/// recorded the action (`recordedAt`, or an acknowledgement's `acknowledgedAt`) when it answered
+/// no receipt.
 fn after_action(answer: &serde_json::Value, receipt: Option<&Receipt>) -> (Option<String>, Option<String>) {
     match receipt {
         Some(receipt) => (Some(receipt.param()), None),
-        None => (None, answer["recordedAt"].as_str().map(str::to_owned)),
+        None => (None, answer["recordedAt"].as_str().or_else(|| answer["acknowledgedAt"].as_str()).map(str::to_owned)),
     }
 }
 
@@ -305,8 +352,8 @@ async fn draw(
         Err(error) => return read_failed(req, error, receipt.is_some()),
     };
     // An action answers no receipt (chase-sets/chase-sets#10833): until the target shows an
-    // action as late as it, the page says the action is still being applied.
-    catching_up |= behind(recorded, item.last_action_at.as_deref());
+    // action or an acknowledgement as late as it, the page says it is still being applied.
+    catching_up |= behind(recorded, item.last_action_at.as_deref()) && behind(recorded, item.acknowledged_at.as_deref());
     let marketplace_href = (item.target_type == "listing")
         .then(marketplace_origin)
         .flatten()
@@ -348,16 +395,22 @@ async fn act(
     Form(form): Form<ActionForm>,
 ) -> HtmlResult {
     let target = (route.target_type.as_str(), route.target_id.as_str());
-    // admin-web refuses an action it does not know (400) before the API sees it.
-    if !TARGET_TYPES.iter().any(|t| actions(t).contains(&form.action)) {
-        return Err(corten::Error::status(StatusCode::BAD_REQUEST));
-    }
-    let note = Some(form.note.trim()).filter(|n| !n.is_empty());
-    let path = format!("{BASE}/{}/{}/actions", segment(target.0), segment(target.1));
     let caller = config.platform.caller(&headers, config.proto, None);
-    let body = json!({ "action": form.action, "note": note });
-    match caller.write::<serde_json::Value>(caller.request(Method::POST, &path, CONTEXT).json(&body)).await {
-        // admin-web drops the section here (chase-sets/chase-sets#10832); the pilot does not.
+    let at = format!("{BASE}/{}/{}", segment(target.0), segment(target.1));
+    let request = if form.action == ACKNOWLEDGE {
+        // An acknowledgement has no body and no note, as admin-web sends it.
+        caller.request(Method::POST, &format!("{at}/acknowledge"), CONTEXT)
+    } else {
+        // admin-web refuses an action it does not know (400) before the API sees it.
+        if !TARGET_TYPES.iter().any(|t| actions(t).contains(&form.action)) {
+            return Err(corten::Error::status(StatusCode::BAD_REQUEST));
+        }
+        let note = Some(form.note.trim()).filter(|n| !n.is_empty());
+        caller.request(Method::POST, &format!("{at}/actions"), CONTEXT).json(&json!({ "action": form.action, "note": note }))
+    };
+    match caller.write::<serde_json::Value>(request).await {
+        // admin-web drops the section here (chase-sets/chase-sets#10832, and for an
+        // acknowledgement chase-sets/chase-sets#11373); the pilot does not.
         Ok((answer, receipt)) => {
             let (after_write, recorded) = after_action(&answer, receipt.as_ref());
             req.redirect(&url::Item { target_type: target.0, target_id: target.1, after_write, recorded })
@@ -376,5 +429,33 @@ async fn act(
             };
             draw(&req, &staff.viewer, &config, &headers, target, After::default(), refusal, status).await
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_pilot_serves_the_queue_and_a_targets_page() {
+        assert_eq!(serves("/support/reported-content").as_deref(), Some("/support/reported-content"));
+        assert_eq!(
+            serves("/support/reported-content?status=needs-review").as_deref(),
+            Some("/support/reported-content?status=needs-review")
+        );
+        assert_eq!(serves("/support/reported-content/listing/lst_1").as_deref(), Some("/support/reported-content/listing/lst_1"));
+        assert_eq!(serves("/support/reported-content/listing"), None, "a target needs its id");
+        assert_eq!(serves("/support/reported-content/listing/lst_1/actions"), None);
+        assert_eq!(serves("/support/reported-content/listing/lst_1?x=1"), None);
+        assert_eq!(serves("/support/reported-contentx"), None);
+        assert_eq!(serves("/reported-content/listing/lst_1"), None, "only the sectioned path");
+    }
+
+    #[test]
+    fn a_page_is_behind_until_it_shows_an_action_or_an_acknowledgement_as_late_as_the_write() {
+        let at = Some("2026-11-15T12:00:00.000Z");
+        assert!(behind(at, None) && behind(at, Some("2026-11-15T11:59:59.000Z")));
+        assert!(!behind(at, Some("2026-11-15T12:00:00.000Z")));
+        assert!(!behind(None, None), "a page after a receipt, or after nothing, is not behind");
     }
 }
