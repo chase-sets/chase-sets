@@ -6,15 +6,21 @@ type DiagnosticEvent = Pick<StoredEvent, "eventType" | "streamVersion" | "occurr
 export function managedOfferEvaluations(events: readonly DiagnosticEvent[]) {
   return events
     .filter((event) => event.eventType === "marketplace.offer.managed-evaluated")
-    .map((event) => ({
-      streamVersion: event.streamVersion,
-      occurredAt: event.occurredAt,
-      status: event.payload.status,
-      reason: event.payload.reason,
-      policyVersion: event.payload.policyVersion,
-      operationId: event.payload.operationId,
-      evidence: event.payload.evidence,
-    }));
+    .map((event) => {
+      const evidence = event.payload.evidence;
+      return {
+        streamVersion: event.streamVersion,
+        occurredAt: event.occurredAt,
+        status: event.payload.status,
+        reason: event.payload.reason,
+        policyVersion: event.payload.policyVersion,
+        operationId: event.payload.operationId,
+        evidence:
+          evidence && typeof evidence === "object" && !Array.isArray(evidence)
+            ? { marketPrice: evidence.marketPrice ?? null, evaluatedAt: evidence.evaluatedAt ?? null }
+            : null,
+      };
+    });
 }
 
 /** Product-scoped authoritative work, including claims not yet projected into the work queue. */
@@ -60,7 +66,7 @@ export async function readManagedOfferWorkDiagnostics(
       workId: row.payload.workId,
       catalogItemId: row.payload.catalogItemId,
       productId: row.payload.productId,
-      kind: row.payload.kind,
+      kind: row.payload.kind ?? "reaction",
       status: row.payload.status,
       availableAt: row.payload.availableAt,
       afterOfferId: row.payload.afterOfferId,

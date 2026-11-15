@@ -50,7 +50,7 @@ describe("managed Offer convergence diagnostics", () => {
     expect(
       managedOfferEvaluations([{ ...held, payload: { ...held.payload, evidence: { marketPrice: null } } }])[0]!
         .evidence,
-    ).toEqual({ marketPrice: null });
+    ).toEqual({ marketPrice: null, evaluatedAt: null });
   });
 
   it("reads authoritative Product work and operation-linked claims with the actual page selection", async () => {

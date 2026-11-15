@@ -28,6 +28,7 @@ import {
   recordDirectory,
   stagingRoot,
   timelineAttachmentName,
+  validateTimeline,
 } from "./lib/journey-package-contract.mjs";
 import {
   checkoutGit,
@@ -54,6 +55,59 @@ const notTheTarget = "deployables/marketplace/e2e/not-the-journey-package-target
 const timelineStart = Date.parse("2026-11-01T10:00:00.000Z");
 const attachedLater = "2026-11-01T10:01:00.000Z";
 const fixedNow = () => new Date("2026-11-03T12:00:00.000Z");
+function diagnosticTimeline() {
+  const timeline = completeTimeline(timelineStart);
+  const convergence = timeline.entries.find((entry) => entry.kind === "convergence");
+  const workId = "a".repeat(64);
+  const product = { catalogItemId: "cat_seed_box", productId: "cat_seed_box::" };
+  const at = convergence.endedAt;
+  Object.assign(convergence, {
+    projectionStreamVersion: 5,
+    diagnosticsReadError: null,
+    evaluations: [
+      {
+        streamVersion: 4,
+        occurredAt: at,
+        status: "held",
+        reason: "market-price-stale",
+        policyVersion: 3,
+        operationId: `${workId}_${convergence.offerId}`,
+        evidence: {
+          evaluatedAt: at,
+          marketPrice: {
+            ...product,
+            estimateVersion: "8347002",
+            amount: "135.00",
+            currencyCode: "USD",
+            estimatedAt: at,
+            freshUntil: at,
+          },
+        },
+      },
+    ],
+    productWork: {
+      productWorkLimit: 20,
+      eventLimit: 500,
+      truncated: false,
+      events: [
+        {
+          streamId: `marketplace.offer-work-${workId}`,
+          streamVersion: "3",
+          eventType: "marketplace.offer.work-progressed",
+          occurredAt: at,
+          workId,
+          ...product,
+          kind: "reaction",
+          status: "completed",
+          availableAt: at,
+          afterOfferId: convergence.offerId,
+          page: { claimVersion: 2, afterOfferId: "", offerIds: [convergence.offerId] },
+        },
+      ],
+    },
+  });
+  return timeline;
+}
 const MiB = 1024 * 1024;
 const roots = [];
 
@@ -327,6 +381,69 @@ describe("journey package projection", () => {
       outcome: { status: "summary", state: "unenrolled" },
     });
     expectNoPackage(raw);
+  });
+
+  it("packages held Pricing evidence and actual Product work pages without relaxing the closed schema", () => {
+    const timeline = diagnosticTimeline();
+    const root = makeRoot();
+    writeRecord(root, { items: completeItems(timeline) });
+    expect(step(root).outcome).toMatchObject({ status: "published", package: "success" });
+    const packaged = JSON.parse(readFileSync(path.join(root, packageRoot, "timeline.json"), "utf8"));
+    expect(packaged.entries.find((entry) => entry.kind === "convergence")).toEqual(timeline.entries[5]);
+    const empty = diagnosticTimeline();
+    Object.assign(empty.entries[5], {
+      evaluations: [],
+      productWork: null,
+      projectionStreamVersion: null,
+      diagnosticsReadError: "Product work diagnostics read failed or exceeded the remaining budget.",
+    });
+    expect(validateTimeline(empty)).toEqual(empty);
+  });
+
+  it("refuses unknown, secret-shaped, unbounded or malformed convergence diagnostics", () => {
+    const mutations = [
+      (entry) => {
+        entry.evaluations[0].requestBody = { password: witnesses.password };
+      },
+      (entry) => {
+        entry.evaluations[0].operationId = witnesses.session;
+      },
+      (entry) => {
+        entry.evaluations[0].status = "unknown";
+      },
+      (entry) => {
+        entry.evaluations[0].reason = witnesses.password;
+      },
+      (entry) => {
+        entry.evaluations[0].evidence.marketPrice.sessionId = witnesses.session;
+      },
+      (entry) => {
+        entry.evaluations[0].evidence.marketPrice.productId = witnesses.url;
+      },
+      (entry) => {
+        entry.productWork.events[0].page.offerIds = Array(101).fill(entry.offerId);
+      },
+      (entry) => {
+        entry.productWork.events[0].page.password = witnesses.password;
+      },
+      (entry) => {
+        entry.productWork.events = Array(501).fill(entry.productWork.events[0]);
+      },
+      (entry) => {
+        entry.productWork.events[0].streamId = witnesses.url;
+      },
+      (entry) => {
+        entry.diagnosticsReadError = witnesses.password;
+      },
+      (entry) => {
+        delete entry.projectionStreamVersion;
+      },
+    ];
+    for (const mutate of mutations) {
+      const timeline = diagnosticTimeline();
+      mutate(timeline.entries[5]);
+      expect(() => validateTimeline(timeline)).toThrow("timeline-invalid");
+    }
   });
 
   it("refuses an incomplete, conflicting or unknown-version success", () => {
