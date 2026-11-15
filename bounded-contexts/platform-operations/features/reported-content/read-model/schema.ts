@@ -49,6 +49,7 @@ export const reportedContentResponseSchemaMigrations: readonly BcSchemaMigration
     migrationId: "20261115_reported_content_owner_index",
     description: "Index report owners concurrently before deriving historical response state.",
     statements: [
+      `SET lock_timeout = '5s'`,
       `DROP INDEX CONCURRENTLY IF EXISTS platform_operations_reported_content_owner_idx`,
       `CREATE INDEX CONCURRENTLY platform_operations_reported_content_owner_idx
       ON platform_operations_reported_content_queue_pages (target_owner_account_id, status)`,

@@ -13,9 +13,11 @@ describe("reported content response rollout", () => {
     expect(index).toBeGreaterThanOrEqual(0);
     expect(index).toBeLessThan(backfill);
     expect(reportedContentResponseSchemaMigrations[index]!.dataStep).toBeUndefined();
-    expect(reportedContentResponseSchemaMigrations[index]!.statements).toContainEqual(
-      expect.stringContaining("CREATE INDEX CONCURRENTLY"),
-    );
+    expect(reportedContentResponseSchemaMigrations[index]!.statements).toEqual([
+      "SET lock_timeout = '5s'",
+      "DROP INDEX CONCURRENTLY IF EXISTS platform_operations_reported_content_owner_idx",
+      expect.stringContaining("CREATE INDEX CONCURRENTLY platform_operations_reported_content_owner_idx"),
+    ]);
   });
 
   it("executes the owner index through the installed runner without a transaction", async () => {
@@ -34,10 +36,12 @@ describe("reported content response rollout", () => {
     const statements = query.mock.calls.map(([sql]) => sql);
     expect(statements).not.toContain("BEGIN");
     expect(statements).not.toContain("COMMIT");
-    const drop = statements.indexOf(migration.statements[0]!);
-    expect(drop).toBeGreaterThan(0);
-    expect(statements[drop + 1]).toBe(migration.statements[1]);
-    expect(statements[drop + 2]).toContain("INSERT INTO bounded_context_schema_migrations");
+    const start = statements.indexOf(migration.statements[0]!);
+    expect(start).toBeGreaterThan(0);
+    expect(statements.slice(start, start + migration.statements.length + 1)).toEqual([
+      ...migration.statements,
+      expect.stringContaining("INSERT INTO bounded_context_schema_migrations"),
+    ]);
     expect(release).toHaveBeenCalled();
   });
 });
