@@ -127,7 +127,7 @@ describe("reported-content-operator-minimization", () => {
       formatDateTime(open.acknowledge_due_at),
       formatDateTime(open.disposition_due_at),
     ])
-      expect(screen.getByText(text)).toBeTruthy();
+      expect(within(screen.getByRole("table")).getByText(text)).toBeTruthy();
   });
   it("shows response severity, deadlines, overdue state and the acknowledge action only while open", () => {
     const open = {
