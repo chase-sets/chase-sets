@@ -1,4 +1,81 @@
 {
+  "scheduledJobs": [
+    {
+      "id": "fulfillment.postage-operation-reconciliation",
+      "schedule": {
+        "kind": "interval",
+        "intervalMs": 300000
+      },
+      "runnerExport": "createFulfillmentPostageOperationReconciliationRunners",
+      "group": "scheduled",
+      "order": 122,
+      "runtimeProfiles": [
+        "proof",
+        "public"
+      ],
+      "lockScope": "job:fulfillment.postage-operation-reconciliation"
+    },
+    {
+      "id": "fulfillment.postage-label-purchase-reconciliation",
+      "schedule": {
+        "kind": "interval",
+        "intervalMs": 300000
+      },
+      "runnerExport": "createFulfillmentPostageOperationReconciliationRunners",
+      "group": "scheduled",
+      "order": 122,
+      "runtimeProfiles": [
+        "proof",
+        "public"
+      ],
+      "lockScope": "job:fulfillment.postage-label-purchase-reconciliation"
+    },
+    {
+      "id": "fulfillment.postage-label-void-reconciliation",
+      "schedule": {
+        "kind": "interval",
+        "intervalMs": 300000
+      },
+      "runnerExport": "createFulfillmentPostageLabelVoidReconciliationRunners",
+      "group": "scheduled",
+      "order": 123,
+      "runtimeProfiles": [
+        "proof",
+        "public"
+      ],
+      "lockScope": "job:fulfillment.postage-label-void-reconciliation"
+    },
+    {
+      "id": "fulfillment.return-shipment-deadline-sweep",
+      "schedule": {
+        "kind": "interval",
+        "intervalMs": 300000
+      },
+      "runnerExport": "createFulfillmentReturnShipmentDeadlineSweepRunners",
+      "group": "scheduled",
+      "order": 124,
+      "runtimeProfiles": [
+        "proof",
+        "public"
+      ],
+      "lockScope": "job:fulfillment.return-shipment-deadline-sweep"
+    },
+    {
+      "id": "fulfillment.return-label-purchase-reconciliation",
+      "schedule": {
+        "kind": "interval",
+        "intervalMs": 300000
+      },
+      "runnerExport": "createFulfillmentReturnLabelPurchaseReconciliationRunners",
+      "group": "scheduled",
+      "order": 125,
+      "runtimeProfiles": [
+        "proof",
+        "public"
+      ],
+      "lockScope": "job:fulfillment.return-label-purchase-reconciliation"
+    }
+  ],
   "contextName": "fulfillment",
   "packageName": "@chase-sets/fulfillment",
   "localeCatalogs": ["contracts/localization/locales/en/fulfillment.ts"],

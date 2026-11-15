@@ -15,7 +15,7 @@ import {
 } from "@chase-sets/platform-runtime/control-plane";
 import { createPostgresWorkSignalStore } from "@chase-sets/platform-runtime/work-signal-store";
 import { livenessConfig } from "./channels-liveness-config";
-import { createRegisteredScheduledRunners } from "../src/scheduled-runners";
+import { createRegisteredScheduledRunners } from "./scheduled-job-test-support";
 
 export { describeDb, target, seller, transportContext } from "./channels-liveness-fixture";
 export const runnerName = "channels.connector-liveness-sweep";

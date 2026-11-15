@@ -1,4 +1,51 @@
 {
+  "scheduledJobs": [
+    {
+      "id": "inventory.import-product-resolution-maintenance.enqueue",
+      "schedule": {
+        "kind": "interval",
+        "intervalMs": 86400000
+      },
+      "runnerExport": "createInventoryImportProductResolutionMaintenanceEnqueueRunners",
+      "group": "scheduled",
+      "order": 129,
+      "runtimeProfiles": [
+        "proof",
+        "public"
+      ],
+      "lockScope": "job:inventory.import-product-resolution-maintenance.enqueue"
+    },
+    {
+      "id": "inventory.import-batch-jobs",
+      "schedule": {
+        "kind": "durable",
+        "laneCount": "inventoryImportBatchJobLaneCount"
+      },
+      "runnerExport": "createInventoryJobRunners",
+      "group": "inventory-jobs",
+      "order": 0,
+      "runtimeProfiles": [
+        "proof",
+        "public"
+      ],
+      "lockScope": "job:job:inventory.import-batch-jobs.lane-{lane}"
+    },
+    {
+      "id": "inventory.import-product-resolution-maintenance",
+      "schedule": {
+        "kind": "durable",
+        "laneCount": 1
+      },
+      "runnerExport": "createInventoryJobRunners",
+      "group": "inventory-jobs",
+      "order": 0,
+      "runtimeProfiles": [
+        "proof",
+        "public"
+      ],
+      "lockScope": "job:job:inventory.import-product-resolution-maintenance.lane-{lane}"
+    }
+  ],
   "contextName": "inventory",
   "packageName": "@chase-sets/inventory",
   "localeCatalogs": ["contracts/localization/locales/en/inventory.ts"],

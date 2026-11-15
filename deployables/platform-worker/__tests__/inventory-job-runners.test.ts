@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { createInventoryJobRunners } from "../src/inventory-job-runners";
+import { createInventoryJobRunners } from "@chase-sets/inventory/server";
 
 const config = {
   workerId: "worker_inventory_test",
@@ -18,11 +18,11 @@ describe("inventory import draft delivery worker runner", () => {
       attempts: 8,
       code: "inventory-draft-conflict:unexpected-failure",
     }));
-    const [runner] = createInventoryJobRunners(
-      { inventory: { importBatches: { processNextImportDraftListingDelivery } } },
-      config,
-      logger,
-    );
+    const [runner] = createInventoryJobRunners({
+      services: { inventory: { importBatches: { processNextImportDraftListingDelivery } } },
+      config: config,
+      logger: logger,
+    });
 
     await expect(runner?.runOnce()).resolves.toMatchObject({ processed: 1 });
     expect(processNextImportDraftListingDelivery).toHaveBeenCalledExactlyOnceWith();
@@ -47,11 +47,11 @@ describe("inventory import draft delivery worker runner", () => {
       { outcome: "accepted" as const, messageId: "imr_runner_3", attempts: 1 },
     ];
     const processNextImportDraftListingDelivery = vi.fn(async () => results.shift() ?? { outcome: "idle" as const });
-    const [runner] = createInventoryJobRunners(
-      { inventory: { importBatches: { processNextImportDraftListingDelivery } } },
-      config,
-      logger,
-    );
+    const [runner] = createInventoryJobRunners({
+      services: { inventory: { importBatches: { processNextImportDraftListingDelivery } } },
+      config: config,
+      logger: logger,
+    });
 
     await runner?.runOnce();
     await runner?.runOnce();

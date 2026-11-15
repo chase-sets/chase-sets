@@ -184,3 +184,12 @@ export {
   lookupEbayReceiptsAsService,
   EbayReceiptClientError,
 } from "./features/ebay-account-deletion/api/receipt-actor-client";
+
+export {
+  createChannelsEbayAccountDeletionReceiptExpiryRunners,
+  createChannelsConnectorLivenessSweepRunners,
+  createChannelsOutboundRunners,
+  createChannelsReconciliationRunners,
+  accountScopedWorkerContext,
+  createChannelsScheduledReconciliationRunners,
+} from "./support/runtime-support/worker-jobs";

@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { buildTransportEvent } from "@chase-sets/event-core/test-support";
 import { module as marketplaceModule } from "@chase-sets/marketplace";
 import type { MarketplaceServices } from "@chase-sets/marketplace/server";
-import { createRegisteredScheduledRunners } from "../src/scheduled-runners";
+import { createRegisteredScheduledRunners } from "./scheduled-job-test-support";
 
 describe("registered managed Offer entrypoints", () => {
   it("dispatches the declared Pricing reaction and both scheduled runners to the typed Marketplace work service", async () => {

@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { module as channelsModule } from "@chase-sets/channels";
 import { createPostgresPlatformControlPlane } from "@chase-sets/platform-runtime/control-plane";
 import { createPostgresWorkSignalStore } from "@chase-sets/platform-runtime/work-signal-store";
-import { createRegisteredScheduledRunners } from "../src/scheduled-runners";
+import { createRegisteredScheduledRunners } from "./scheduled-job-test-support";
 import { livenessConfig } from "./channels-liveness-config";
 
 describe("eBay receipt registered worker", () => {

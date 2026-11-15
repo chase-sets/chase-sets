@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { MarketplaceServices } from "@chase-sets/marketplace/server";
-import { createRegisteredScheduledRunners } from "../src/scheduled-runners";
+import { createRegisteredScheduledRunners } from "./scheduled-job-test-support";
 
 describe("registered review opportunity publication", () => {
   it("unconditionally invokes the real publication and backfill interface without sweep configuration", async () => {

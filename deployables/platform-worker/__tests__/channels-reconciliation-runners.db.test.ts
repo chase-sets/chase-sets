@@ -27,11 +27,9 @@ import {
   bootstrapPlatformControlPlane,
   createPostgresPlatformControlPlane,
 } from "@chase-sets/platform-runtime/control-plane";
-import {
-  accountScopedWorkerContext,
-  createChannelsReconciliationRunners,
-  createPlatformChannelSaleRecorder,
-} from "../src/channels-reconciliation-runners";
+import { createPlatformChannelSaleRecorder } from "../src/channels-reconciliation-runners";
+import { accountScopedWorkerContext } from "@chase-sets/channels/server";
+import { createChannelsReconciliationRunners } from "@chase-sets/channels/server";
 
 const databaseBaseUrl = process.env.TEST_DATABASE_URL;
 if (!databaseBaseUrl && process.env.CI) {

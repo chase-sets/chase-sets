@@ -1,3 +1,11 @@
+import {
+  createSettlementAccountLinkageCloserRunners,
+  createSettlementSellerFundsReleaseRunners,
+  createSettlementSpendHoldSweepRunners,
+  createSettlementPayoutReconciliationRunners,
+  createSettlementLiabilityReconciliationRunners,
+  createSettlementJobRunners,
+} from "./support/runtime-support/worker-jobs";
 export { default as contextManifest } from "./context.json" with { type: "json" };
 
 import {
@@ -39,7 +47,7 @@ import { createSettlementWalletMcpHandlers } from "./features/wallets/api/mcp";
 import { getProtectionCoverageByRemedy } from "./features/protection-coverage/read-model/protection-coverage-queries";
 import { SettlementDomainError } from "./support/runtime-support/common";
 
-export const module = defineBoundedContextModule<SettlementServices, PgTransactionalPool, SettlementHostPorts>({
+const contextModule = defineBoundedContextModule<SettlementServices, PgTransactionalPool, SettlementHostPorts>({
   manifest: contextManifest,
   schemaSql: settlementSchemaSql,
   retentionSweeps: settlementRetentionSweeps,
@@ -139,3 +147,15 @@ export const module = defineBoundedContextModule<SettlementServices, PgTransacti
   inspectSeedState: (pool, options) => inspectSettlementSeedState(pool, options),
   reconcileBootstrapState: reconcileSettlementBootstrapState,
 });
+
+export const module = {
+  ...contextModule,
+  workerJobFactories: {
+    createSettlementAccountLinkageCloserRunners,
+    createSettlementSellerFundsReleaseRunners,
+    createSettlementSpendHoldSweepRunners,
+    createSettlementPayoutReconciliationRunners,
+    createSettlementLiabilityReconciliationRunners,
+    createSettlementJobRunners,
+  },
+};

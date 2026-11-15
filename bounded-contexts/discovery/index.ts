@@ -1,3 +1,4 @@
+import { createDiscoverySearchEmbeddingEnrichmentRunners } from "./support/runtime-support/worker-jobs";
 import { createCheckpointKey } from "@chase-sets/bounded-context-runtime";
 import { resetProductMeasurePublicationParts, type PgQueryable } from "@chase-sets/event-core-postgres";
 export { default as contextManifest } from "./context.json" with { type: "json" };
@@ -107,7 +108,9 @@ function buildDiscoveryProjectionGroups(services: DiscoveryServices): readonly B
   );
 }
 
-export const module = {
+const contextModule = {
   ...baseModule,
   buildProjectionGroups: buildDiscoveryProjectionGroups,
 };
+
+export const module = { ...contextModule, workerJobFactories: { createDiscoverySearchEmbeddingEnrichmentRunners } };
