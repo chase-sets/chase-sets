@@ -1,4 +1,8 @@
-import type { CatalogScopeRecordDetail } from "../../../../scope-registry/ui/contracts";
+import type {
+  CatalogScopePromotionReadiness,
+  CatalogScopeRecordDetail,
+  CatalogScopeSyncFreshness,
+} from "../../../../scope-registry/ui/contracts";
 import type { CatalogScopeLanguageEditionReviewReadModel } from "./language-editions/language-edition-review";
 
 // ---------------------------------------------------------------------------
@@ -15,21 +19,17 @@ import type { CatalogScopeLanguageEditionReviewReadModel } from "./language-edit
 // record and the reference-record-scoped alias review), so it never fans out to
 // another API. The interactive per-stage commands (run a sync, promote) reach
 // the operator through their own sections; this model answers "where is this
-// scope in its journey, and what is blocking it?".
+// scope in its journey, and what is blocking it?". The scope's promotion
+// readiness and sync freshness are the Catalog API's, read from the record.
 // ---------------------------------------------------------------------------
-
-// Mirror the landing model's stale-sync threshold (which itself mirrors the
-// attention-queue runtime): a scope whose projection has not advanced in two
-// weeks reads as a lagging sync on both scope surfaces.
-export const SCOPE_JOURNEY_STALE_SYNC_MS = 14 * 24 * 60 * 60 * 1000;
 
 export type CatalogScopeJourneyStageKey = "coverage" | "sync" | "jobs" | "candidates" | "promotion";
 
 export type CatalogScopeJourneyStageStatus = "complete" | "current" | "upcoming" | "blocked";
 
-export type CatalogScopeJourneyPromotionReadiness = "unpublished" | "live" | "deprecated" | "archived";
+export type CatalogScopeJourneyPromotionReadiness = CatalogScopePromotionReadiness;
 
-export type CatalogScopeJourneySyncFreshness = "fresh" | "stale";
+export type CatalogScopeJourneySyncFreshness = CatalogScopeSyncFreshness;
 
 // The single condition the whole journey is in. `loading` is a page-owned
 // transient (it is not derivable from a resolved read model), so it is not part
@@ -67,14 +67,12 @@ export function buildCatalogScopeJourneyOverviewReadModel(input: {
   // True when the supplementary alias-review load failed and the section is
   // rendering a degraded (empty) review model rather than the real candidates.
   languageEditionReviewFailed: boolean;
-  generatedAt: string;
 }): CatalogScopeJourneyOverviewReadModel {
   const { scope, languageEditionReview, languageEditionReviewFailed } = input;
 
   const editionCount = scope.languageEditions.length;
   const { linkedEditionCount, pendingCandidateCount } = editionCoverage(languageEditionReview, editionCount);
-  const promotionReadiness = promotionReadinessFromLifecycle(scope.lifecycleStatus);
-  const syncFreshness = syncFreshnessFromUpdatedAt(scope.updatedAt, Date.parse(input.generatedAt));
+  const { promotionReadiness, syncFreshness } = scope;
 
   const condition = journeyCondition({
     editionCount,
@@ -169,27 +167,4 @@ function promotionStageStatus(readiness: CatalogScopeJourneyPromotionReadiness):
     case "unpublished":
       return "upcoming";
   }
-}
-
-function promotionReadinessFromLifecycle(lifecycleStatus: string): CatalogScopeJourneyPromotionReadiness {
-  switch (lifecycleStatus) {
-    case "active":
-      return "live";
-    case "deprecated":
-      return "deprecated";
-    case "archived":
-      return "archived";
-    default:
-      return "unpublished";
-  }
-}
-
-function syncFreshnessFromUpdatedAt(updatedAt: string, generatedAtMs: number): CatalogScopeJourneySyncFreshness {
-  const updatedMs = Date.parse(updatedAt);
-  if (!Number.isFinite(updatedMs) || !Number.isFinite(generatedAtMs)) {
-    // An unparseable timestamp reads as stale so it surfaces for review rather
-    // than falsely reading as fresh.
-    return "stale";
-  }
-  return generatedAtMs - updatedMs <= SCOPE_JOURNEY_STALE_SYNC_MS ? "fresh" : "stale";
 }

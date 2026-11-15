@@ -42,6 +42,7 @@ import { validateRealClockElapsedBounds } from "./real-clock-elapsed-bounds.mjs"
 import { validateProviderScopePickerShapeGuard } from "./provider-scope-picker-shape-guard.mjs";
 import { validatePricingRegistryConformance } from "./pricing-registry-conformance.mjs";
 import { validateJsonImportAttributes } from "./json-import-attributes.mjs";
+import { validateContextRegistries } from "./context-registry-guard.mjs";
 import { validateChannelConnectionContractProvenance } from "./channel-connection-contract-provenance.mjs";
 import { validateCancellationProducerUniqueness } from "./cancellation-producer-uniqueness.mjs";
 import { validateConnectorFakeGraph } from "./connector-fake-public-codecs.mjs";
@@ -99,6 +100,8 @@ const placeholderFieldTokens = new Set([
 ]);
 const crossCuttingRuntimeCompositionSupportDirectories = new Set(["auth-support", "request-support", "seed-support"]);
 const nonPackageWorkspaceDirectoryExceptions = new Set([
+  // A Rust (Corten) app; its scripts run with the root workspace's tools.
+  "deployables/corten-pilot",
   "infrastructure/digitalocean",
   "infrastructure/helm",
   "infrastructure/remote-dev",
@@ -2072,6 +2075,7 @@ export async function runStructureCheck(options = {}) {
 
   const jsonImportAttributesResult = await validateJsonImportAttributes({ repoRoot });
   violations.push(...jsonImportAttributesResult.violations);
+  violations.push(...validateContextRegistries({ repoRoot }).violations);
   const channelConnectionContractProvenance = await validateChannelConnectionContractProvenance({ repoRoot });
   violations.push(...channelConnectionContractProvenance.violations);
   const cancellationProducerUniqueness = validateCancellationProducerUniqueness({ repoRoot });

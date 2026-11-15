@@ -458,7 +458,7 @@ describe("create-canonical Stripe Payments webhook endpoint", () => {
     expect(spawned).toEqual([
       {
         command: "gh",
-        args: ["secret", "set", "STRIPE_WEBHOOK_SECRET", "--env", "production"],
+        args: ["secret", "set", "STRIPE_WEBHOOK_SECRET", "--env", "production", "--repo", "chase-sets/chase-sets"],
         options: { stdio: ["pipe", "inherit", "inherit"] },
         stdinWrites: [signingSecret],
       },

@@ -10,6 +10,7 @@ import {
 } from "./scrydex-cache-capture";
 import {
   classifyScrydexCoordinatePreviewRequest,
+  deriveScrydexCoordinatePreviewReasons,
   scrydexCoordinatePreviewIsolationPath,
   scrydexCoordinatePreviewPhases,
   validateScrydexCoordinatePreviewReceipt,
@@ -188,6 +189,62 @@ const derived = (...values: string[]) => [
 ];
 
 const validate = validateScrydexCoordinatePreviewReceipt;
+
+describe("strict five-row mapping version joins", () => {
+  // Synthetic timestamps retain the captured precision pairs; no live receipt is promoted.
+  const pairs = [
+    ["2026-10-10T05:18:47.195000Z", "2026-10-10T05:18:47.195Z"],
+    ["2026-10-10T05:18:47.319000Z", "2026-10-10T05:18:47.319Z"],
+    ["2026-10-10T05:18:47.012000Z", "2026-10-10T05:18:47.012Z"],
+    ["2026-10-10T05:18:47.025000Z", "2026-10-10T05:18:47.025Z"],
+    ["2026-10-10T05:18:47.608000Z", "2026-10-10T05:18:47.608Z"],
+  ] as const;
+  function receiptWithVersions(canonical: boolean) {
+    return mutant((receipt) => {
+      for (const [index, row] of receipt.rows.entries()) {
+        const [lossless, milliseconds] = pairs[index]!;
+        row.mapping.version = lossless;
+        sampleOf(receipt, row.unitKey).mappingVersions.find(
+          (entry) => entry.mappingId === row.mapping.mappingId,
+        )!.version = canonical ? lossless : milliseconds;
+      }
+    });
+  }
+
+  it("joins all five canonical versions and derives exactly five reasons from the millisecond strings", () => {
+    expect(deriveScrydexCoordinatePreviewReasons(receiptWithVersions(true))).toEqual([]);
+    expect(validate(receiptWithVersions(true))).toEqual([]);
+    const reasons = scrydexCacheCaptureUnits.map(({ unitKey }) => `mapping-sample-missing:${unitKey}`).sort();
+    expect(deriveScrydexCoordinatePreviewReasons(receiptWithVersions(false))).toEqual(reasons);
+    expect(validate(receiptWithVersions(false))).toEqual(derived(...reasons));
+  });
+
+  it.each(scrydexCacheCaptureUnits.map((unit, index) => ({ ...unit, index })))(
+    "refuses only the precision mismatch for $unitKey",
+    ({ unitKey, index }) => {
+      const receipt = receiptWithVersions(true);
+      const row = rowOf(receipt, unitKey);
+      sampleOf(receipt, unitKey).mappingVersions.find((entry) => entry.mappingId === row.mapping.mappingId)!.version =
+        pairs[index]![1];
+      expect(deriveScrydexCoordinatePreviewReasons(receipt)).toEqual([`mapping-sample-missing:${unitKey}`]);
+    },
+  );
+
+  it.each(["mappingId", "reviewStatus", "version"] as const)("refuses a mapping-only %s change", (field) => {
+    for (const { unitKey } of scrydexCacheCaptureUnits) {
+      const receipt = receiptWithVersions(true);
+      const row = rowOf(receipt, unitKey);
+      const mapping = sampleOf(receipt, unitKey).mappingVersions.find(
+        (entry) => entry.mappingId === row.mapping.mappingId,
+      )!;
+      if (field === "mappingId") mapping.mappingId = "synthetic-other-mapping";
+      else if (field === "reviewStatus") mapping.reviewStatus = "accepted";
+      else mapping.version = mapping.version.replace("000Z", "001Z");
+      expect(deriveScrydexCoordinatePreviewReasons(receipt)).toEqual([`mapping-sample-missing:${unitKey}`]);
+      expect(validate(receipt)).toEqual(derived(`mapping-sample-missing:${unitKey}`));
+    }
+  });
+});
 
 describe("oracle", () => {
   it("[]", () => {

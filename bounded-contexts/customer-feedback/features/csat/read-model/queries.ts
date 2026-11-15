@@ -163,7 +163,7 @@ export async function listCsatAdminQueue(db: PgQueryable, params: CsatAdminQueue
   appendArrayFilter(predicates, values, "i.outcome_code", params.outcomeCodes);
   appendArrayFilter(predicates, values, "i.subject_kind", params.customerRoles);
   appendArrayFilter(predicates, values, "i.state", params.states);
-  appendArrayFilter(predicates, values, "f.rating", params.ratings);
+  appendArrayFilter(predicates, values, "f.rating", params.ratings, "smallint");
   if (params.followUpConsent === "granted") predicates.push("i.follow_up_consent IS TRUE");
   if (params.followUpConsent === "not-granted") predicates.push("i.follow_up_consent IS NOT TRUE");
   if (cursor) {
@@ -203,10 +203,11 @@ function appendArrayFilter(
   values: unknown[],
   column: string,
   filter?: readonly (string | number)[],
+  arrayType: "text" | "smallint" = "text",
 ) {
   if (!filter || filter.length === 0) return;
   values.push([...new Set(filter)]);
-  predicates.push(`${column} = ANY($${values.length}::text[])`);
+  predicates.push(`${column} = ANY($${values.length}::${arrayType}[])`);
 }
 
 function toAdminQueueItem(row: AdminQueueRow): CsatAdminQueueItem {

@@ -370,15 +370,18 @@ export const sellerAgreementPolicyArtifact: SellerAgreementPolicyArtifact = {
       id: "governing-law",
       title: "Governing law and dispute forum",
       draftText:
-        "This Agreement is between you and Chase Sets Limited, registered in Wichita, Kansas, and is governed by the laws of the State of Kansas, without regard to conflict-of-law rules, except that the Dispute resolution subject above governs how disputes are resolved. Any small-claims or court action permitted by that subject must be brought in the state and federal courts located in Kansas.\n\nNotices under this Agreement, including the informal-dispute notice and arbitration opt-out described in the Dispute resolution subject, must be sent in writing to Chase Sets Limited, PO Box 164, Maize, KS 67101-0164, US, or to [NOTICE-EMAIL].",
+        "This Agreement is between you and Chase Sets Limited, registered in Wichita, Kansas, and is governed by the laws of the State of Kansas, without regard to conflict-of-law rules, except that the Dispute resolution subject above governs how disputes are resolved. Any small-claims or court action permitted by that subject must be brought in the state and federal courts located in Kansas.\n\nNotices under this Agreement, including the informal-dispute notice and arbitration opt-out described in the Dispute resolution subject, must be sent in writing to Chase Sets Limited, PO Box 164, Maize, KS 67101-0164, US, or to legal@chasesets.com.",
       reviewStatus: "counsel-required",
       reviewManifest: {
         scopeNote:
-          "Align the entity, governing-law state, courts and mailing notice address with the Terms of Service and #5677, retaining [NOTICE-EMAIL] because that fact remains pending.",
-        decisionRefs: [5677],
-        productTruthRefs: [],
+          "Align the entity, governing-law state, courts and mailing notice address with the Terms of Service and the ratified contracting decision, and the legal-notice email with Todd's recorded selection.",
+        decisionRefs: [5677, 8668, 10299],
+        productTruthRefs: [
+          "https://github.com/chase-sets/chase-sets/issues/8668#issuecomment-6043970242",
+          "https://github.com/chase-sets/chase-sets/issues/10299#issuecomment-6883088071",
+        ],
         openQuestions: [
-          "#5677 did not supply a dedicated legal-notice email; [NOTICE-EMAIL] remains pending, as in the Terms of Service. Counsel must confirm the final governing-law and forum language before publication.",
+          "Counsel must confirm the final governing-law and forum language before publication.",
           "Initial rollout jurisdictions (#5678: US, all 50 states + DC) are carried in the artifact's rolloutJurisdictionsOrProductLimits metadata field at publication time, not in this subject's prose.",
         ],
         assumptions: [

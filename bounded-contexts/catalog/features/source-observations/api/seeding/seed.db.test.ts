@@ -1,7 +1,12 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { catalogSeedIds } from "@chase-sets/catalog-seed";
 import type { JsonObject } from "@chase-sets/primitives/json";
-import { bootstrapContextDatabase, drainLocalProjectionHandlerSets } from "@chase-sets/bounded-context-runtime";
+import {
+  bootstrapContextDatabase,
+  createSubscriptionRunner,
+  drainLocalProjectionHandlerSets,
+} from "@chase-sets/bounded-context-runtime";
+import type { ProjectorHandler } from "@chase-sets/event-core/projector";
 import {
   closeMultiContextTestPools,
   createMultiContextTestDatabaseUrls,
@@ -350,6 +355,209 @@ describeDb("promoted Source Observation scenario seed database lifecycle", () =>
       }
     });
   }
+
+  describe("blocked Source Observation projection retries across seeded histories", () => {
+    it.each([
+      { case: "empty", history: "empty", ledger: [], projected: undefined, converges: true },
+      {
+        case: "recorded-only",
+        history: "recorded-only",
+        ledger: ["applied"],
+        projected: { status: "observed", promoted_catalog_item_id: null },
+        converges: true,
+      },
+      {
+        case: "promoted-only",
+        history: "promoted-only",
+        ledger: ["applied"],
+        projected: undefined,
+        converges: false,
+      },
+      {
+        case: "terminal",
+        history: "terminal",
+        ledger: ["applied", "applied"],
+        projected: { status: "rejected", promoted_catalog_item_id: null },
+        converges: false,
+      },
+      {
+        case: "unexpected",
+        history: "unexpected",
+        ledger: ["applied", null],
+        projected: { status: "observed", promoted_catalog_item_id: null },
+        converges: false,
+      },
+      {
+        case: "identity",
+        history: "mismatched-identity",
+        ledger: ["applied"],
+        projected: { status: "observed", promoted_catalog_item_id: null },
+        converges: false,
+      },
+      {
+        case: "facts",
+        history: "mismatched-facts",
+        ledger: ["applied"],
+        projected: { status: "observed", promoted_catalog_item_id: null },
+        converges: false,
+      },
+      {
+        case: "target",
+        history: "mismatched-target",
+        ledger: ["applied", "applied"],
+        projected: { status: "promoted", promoted_catalog_item_id: "cat_seed_missing_target" },
+        converges: false,
+      },
+      {
+        case: "profile",
+        history: "mismatched-profile",
+        ledger: ["applied"],
+        projected: { status: "observed", promoted_catalog_item_id: null },
+        converges: false,
+      },
+      {
+        case: "fingerprint",
+        history: "mismatched-fingerprint",
+        ledger: ["applied", "applied"],
+        projected: {
+          status: "promoted",
+          promoted_catalog_item_id: catalogSeedIds.items.pikachuJungle,
+          promotion_plan_fingerprint: "f".repeat(64),
+        },
+        converges: false,
+      },
+      {
+        case: "repeated",
+        history: "recorded-only",
+        ledger: ["applied"],
+        projected: { status: "observed", promoted_catalog_item_id: null },
+        converges: true,
+      },
+    ] as const)("retries $case history before probing the seed", async (scenario) => {
+      const services = createCatalogServices(pool);
+      await appendCatalogItemLifecycle(pool, services, catalogSeedIds.items.pikachuJungle);
+      const evidence = await buildCatalogBrowserE2ePromotedObservationSeedEvidence(pool);
+      const history =
+        scenario.history === "empty"
+          ? []
+          : scenario.history === "recorded-only"
+            ? commandEvents(evidence.recordCommand).events
+            : poisonedHistory(scenario.history, evidence.recordCommand, evidence.promotionCommand);
+      await appendObservationHistory(pool, history);
+
+      const projection = services.sourceObservations.projectors[0]!;
+      expect(projection.projectionName).toBe("catalog-source-observation-projection");
+      let firstPass = true;
+      let firstPassCalls = 0;
+      let retryCalls = 0;
+      const handlers = Object.fromEntries(
+        Object.entries(projection.handlers).map(([eventType, handler]) => {
+          const wrapped: ProjectorHandler = async (event, context) => {
+            if (event.streamId === observationStreamId) {
+              if (firstPass) {
+                firstPassCalls += 1;
+                if (event.streamVersion === 1) {
+                  throw new Error("synthetic first-apply poison");
+                }
+              } else {
+                retryCalls += 1;
+              }
+            }
+            await handler(event, context);
+          };
+          return [eventType, wrapped];
+        }),
+      );
+      const projectionKey = "catalog-source-observation-projection:catalog:v1";
+      const runner = createSubscriptionRunner("catalog", pool, pool, {
+        subscriptionName: "catalog.catalog-source-observation-projection",
+        handlerKind: "projection",
+        sourceContextName: "catalog",
+        projectionName: projection.projectionName,
+        subscriptionVersion: 1,
+        handlers,
+        inlineApply: projection.inlineApply === true,
+        eventTypes: projection.eventTypes,
+        streamPrefixes: projection.streamPrefixes ?? ["catalog."],
+        errorPolicy: projection.errorPolicy,
+        batchSize: projection.batchSize,
+        checkpointBatchSize: projection.checkpointBatchSize,
+        order: 0,
+      });
+      async function recoveryState() {
+        const applications = await pool.query<{ status: string | null }>(
+          `SELECT application.status
+             FROM event_store_events AS event
+             LEFT JOIN event_subscription_applications AS application
+               ON application.event_id = event.event_id AND application.projection_key = $1
+             WHERE event.stream_id = $2 ORDER BY event.stream_version`,
+          [projectionKey, observationStreamId],
+        );
+        const blocked = await pool.query<{ state: string }>(
+          "SELECT state FROM event_projection_blocked_streams WHERE projection_key = $1 AND stream_id = $2",
+          [projectionKey, observationStreamId],
+        );
+        const poison = await pool.query<{ stream_version: number; state: string }>(
+          `SELECT stream_version::integer, state FROM event_projection_poison_events
+             WHERE projection_key = $1 AND stream_id = $2 ORDER BY stream_version`,
+          [projectionKey, observationStreamId],
+        );
+        return { ledger: applications.rows.map((row) => row.status), blocked: blocked.rows, poison: poison.rows };
+      }
+
+      await runner.runOnce();
+      expect(firstPassCalls).toBe(history.length === 0 ? 0 : 1);
+      expect(await recoveryState()).toEqual({
+        ledger: history.map((_, index) => (index === 0 ? "poison" : null)),
+        blocked: history.length === 0 ? [] : [{ state: "blocked" }],
+        poison: history.length === 0 ? [] : [{ stream_version: 1, state: "blocked" }],
+      });
+      firstPass = false;
+
+      const retry = await runner.retryBlockedStream(observationStreamId);
+      expect(retry.state).toBe(scenario.case === "empty" ? "already-resolved" : "resolved");
+      const expectedRecovery = {
+        ledger: scenario.ledger,
+        blocked: scenario.case === "empty" ? [] : [{ state: "resolved" }],
+        poison: scenario.case === "empty" ? [] : [{ stream_version: 1, state: "resolved" }],
+      };
+      expect(await recoveryState()).toEqual(expectedRecovery);
+      const row = await projectedObservation(pool);
+      if (scenario.projected === undefined) {
+        expect(row).toBeUndefined();
+      } else {
+        expect(row).toMatchObject(scenario.projected);
+      }
+      if (scenario.case === "repeated") {
+        expect(retryCalls).toBe(1);
+        expect((await runner.retryBlockedStream(observationStreamId)).state).toBe("already-resolved");
+        expect(retryCalls).toBe(1);
+        expect(await recoveryState()).toEqual(expectedRecovery);
+        expect(await projectedObservation(pool)).toEqual(row);
+      }
+
+      const countBefore = await observationEventCount(pool);
+      if (scenario.converges) {
+        await seedPromotedSourceObservationScenario(services);
+        if (scenario.case === "repeated") {
+          await seedPromotedSourceObservationScenario(services);
+        }
+        const events = await pool.query<{ event_type: string }>(
+          "SELECT event_type FROM event_store_events WHERE stream_id = $1 ORDER BY stream_version",
+          [observationStreamId],
+        );
+        expect(events.rows.map((event) => event.event_type)).toEqual([
+          "catalog.source-observation.recorded",
+          "catalog.source-observation.promoted",
+        ]);
+      } else {
+        await expect(seedPromotedSourceObservationScenario(services)).rejects.toThrow(
+          /cannot reconcile lifecycle|cannot rehydrate|mismatched identity, facts, target, profile, terminal state, or fingerprint|unexpected event/,
+        );
+        expect(await observationEventCount(pool)).toBe(countBefore);
+      }
+    });
+  });
 
   it("older-revision promoted stream reconciles or refuses naming the differing field path", async () => {
     const services = createCatalogServices(pool);

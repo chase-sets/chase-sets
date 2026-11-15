@@ -1,4 +1,7 @@
-import { quoteLockedMarketplaceFeeTerms, type CommercialTermsResolver } from "../../api";
+import type { CommercialTermsResolver } from "../../api";
+// Not a value import from ../../api: that HTTP barrel reaches the Listing runtime's native `sharp`
+// import, and ./server (bundled into the web SSR build) reaches this module via the Offer runtime.
+import { quoteLockedMarketplaceFeeTerms } from "../request-support/commercial-terms-fee-quote";
 import type { MarketplaceListingFeeLock } from "../../features/listings/domain/fee-lock";
 import type {
   MarketplaceListingTermsPreview,

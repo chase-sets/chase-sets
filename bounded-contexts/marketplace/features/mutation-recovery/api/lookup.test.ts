@@ -9,6 +9,11 @@ import { getMutationResultCommandReceipt } from "@chase-sets/http/responses";
 import { readFileSync, readdirSync } from "node:fs";
 import { offerEvidenceSnapshotSchema } from "../../offers/domain/evidence-snapshot-schema";
 import { buildListingEvidenceSnapshot } from "../../listings/domain/evidence-snapshot";
+import {
+  createListingMutationLookup,
+  listingAttempt,
+  stampListingAttemptEvents,
+} from "../../listings/api/listing-attempt";
 
 const input = {
   attemptId: "lookup_attempt_identity_01",
@@ -18,6 +23,111 @@ const input = {
   request: { priceAmount: "10.00" },
 };
 describe("Marketplace owner lookup", () => {
+  it("classifies Listing committed, incomplete, and foreign histories without writing", async () => {
+    const store = createInMemoryEventStore();
+    const attempt = listingAttempt({
+      idempotencyKey: "lookup_listing_attempt_01",
+      mutationKind: "listing.update-price",
+      accountId: "acc_seller",
+      targetId: "lst_lookup",
+      request: { listingId: "lst_lookup", priceAmount: "10.00", priceCurrencyCode: "USD" },
+    });
+    const context = {
+      tenantId: "tnt_test" as never,
+      audit: { performedByUserId: "usr_test" as never, forAccountId: "acc_seller" as never },
+    };
+    await store.eventStore.appendToStream({
+      streamId: attempt.streamId,
+      expectedVersion: "any",
+      context,
+      events: stampListingAttemptEvents(attempt, [
+        { eventType: "marketplace.listing.price-updated", payload: { priceAmount: "10.00", priceCurrencyCode: "USD" } },
+      ]),
+    });
+    const lookup = createListingMutationLookup(store.eventStore);
+    const query = {
+      attemptId: "lookup_listing_attempt_01",
+      accountId: "acc_seller",
+      mutationKind: "listing.update-price" as const,
+      target: { kind: "listing" as const, id: "lst_lookup" },
+      requestHash: attempt.binding.canonicalRequestHash,
+    };
+    await expect(lookup(query)).resolves.toMatchObject({ ownerStatus: "committed" });
+    await expect(lookup({ ...query, requestHash: "f".repeat(64) })).resolves.toMatchObject({
+      ownerStatus: "not-observed",
+    });
+    const appendToStreams = vi.spyOn(store.eventStore, "appendToStreams");
+    await expect(
+      lookup({
+        ...query,
+        target: { kind: "listing", id: "inv_wrong" },
+      }),
+    ).resolves.toMatchObject({ ownerStatus: "not-observed" });
+    expect(appendToStreams).not.toHaveBeenCalled();
+    await expect(lookup({ ...query, accountId: "acc_other" })).resolves.toMatchObject({ ownerStatus: "not-observed" });
+
+    const createStore = createInMemoryEventStore().eventStore;
+    const createAttempt = listingAttempt({
+      idempotencyKey: "lookup_listing_create_01",
+      mutationKind: "listing.create",
+      accountId: "acc_seller",
+      targetId: "inv_one",
+      request: { inventoryItemId: "inv_one", priceAmount: "10.00", priceCurrencyCode: "USD" },
+    });
+    await createStore.appendToStream({
+      streamId: createAttempt.streamId,
+      expectedVersion: "any",
+      context,
+      events: stampListingAttemptEvents(createAttempt, [{ eventType: "marketplace.listing.created", payload: {} }]),
+    });
+    const createLookup = createListingMutationLookup(createStore);
+    const createQuery = {
+      attemptId: "lookup_listing_create_01",
+      accountId: "acc_seller",
+      mutationKind: "listing.create" as const,
+      target: { kind: "inventory-item" as const, id: "inv_one" },
+      requestHash: createAttempt.binding.canonicalRequestHash,
+    };
+    await expect(createLookup(createQuery)).resolves.toMatchObject({ ownerStatus: "committed" });
+    await expect(
+      createLookup({ ...createQuery, target: { kind: "inventory-item", id: "inv_wrong" } as const }),
+    ).resolves.toMatchObject({
+      ownerStatus: "not-observed",
+    });
+
+    const incompleteStore = createInMemoryEventStore();
+    await incompleteStore.eventStore.appendToStream({
+      streamId: attempt.streamId,
+      expectedVersion: "any",
+      context,
+      events: stampListingAttemptEvents(attempt, [
+        { eventType: "marketplace.listing.evidence-requirements-refreshed", payload: {} },
+      ]),
+    });
+    await expect(createListingMutationLookup(incompleteStore.eventStore)(query)).resolves.toMatchObject({
+      ownerStatus: "ambiguous",
+      reason: "history-incomplete",
+    });
+
+    for (const event of [
+      { eventType: "marketplace.listing.evidence-requirements-refreshed", payload: {} },
+      { eventType: "marketplace.listing.published", payload: {} },
+    ]) {
+      const historyStore = createInMemoryEventStore();
+      await historyStore.eventStore.appendToStream({
+        streamId: attempt.streamId,
+        expectedVersion: "any",
+        context,
+        events: stampListingAttemptEvents(attempt, [event]),
+      });
+      const before = (await historyStore.eventStore.readStream({ streamId: attempt.streamId })).length;
+      await expect(createListingMutationLookup(historyStore.eventStore)(query)).resolves.toMatchObject({
+        ownerStatus: "ambiguous",
+        reason: "history-incomplete",
+      });
+      expect((await historyStore.eventStore.readStream({ streamId: attempt.streamId })).length).toBe(before);
+    }
+  });
   it("rejects poisoned evidence hashes and shallow nested evidence facts", () => {
     const snapshot = buildListingEvidenceSnapshot({ evidence: [], createdAt: "2026-01-01T00:00:00.000Z" });
     expect(offerEvidenceSnapshotSchema.safeParse(snapshot).success).toBe(true);

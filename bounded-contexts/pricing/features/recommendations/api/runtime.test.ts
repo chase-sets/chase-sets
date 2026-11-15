@@ -4,6 +4,8 @@ import type { AppendToStreamInput, EventStoreContext, StoredEvent } from "@chase
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import {
   createPricingRecommendationRuntime,
+  pricingRecommendationAttemptKey,
+  pricingRecommendationBatchId,
   recommendedAmount,
   type PricingMarketplaceListingGateway,
   type RefreshCandidate,
@@ -409,7 +411,17 @@ describe("pricing recommendation runtime", () => {
     // previewListingTerms + updateListingPrice pair per listing.
     expect(gateway.applyBulkListingPriceUpdates).toHaveBeenCalledTimes(1);
     expect(gateway.applyBulkListingPriceUpdates).toHaveBeenCalledWith(
-      { updates: [{ listingId: "lst_1", priceAmount: "17.99", priceCurrencyCode: "USD" }] },
+      {
+        batchId: pricingRecommendationBatchId("acc_1", ["rec_active"]),
+        updates: [
+          {
+            listingId: "lst_1",
+            priceAmount: "17.99",
+            priceCurrencyCode: "USD",
+            idempotencyKey: pricingRecommendationAttemptKey("acc_1", "rec_active"),
+          },
+        ],
+      },
       expect.any(Object),
     );
     expect(events.at(-1)?.eventType).toBe("pricing.recommendation.applied");
@@ -452,9 +464,20 @@ describe("pricing recommendation runtime", () => {
     expect(gateway.applyBulkListingPriceUpdates).toHaveBeenCalledTimes(1);
     expect(gateway.applyBulkListingPriceUpdates).toHaveBeenCalledWith(
       {
+        batchId: pricingRecommendationBatchId("acc_1", ["rec_active", "rec_active_2"]),
         updates: [
-          { listingId: "lst_1", priceAmount: "17.99", priceCurrencyCode: "USD" },
-          { listingId: "lst_2", priceAmount: "24.99", priceCurrencyCode: "USD" },
+          {
+            listingId: "lst_1",
+            priceAmount: "17.99",
+            priceCurrencyCode: "USD",
+            idempotencyKey: pricingRecommendationAttemptKey("acc_1", "rec_active"),
+          },
+          {
+            listingId: "lst_2",
+            priceAmount: "24.99",
+            priceCurrencyCode: "USD",
+            idempotencyKey: pricingRecommendationAttemptKey("acc_1", "rec_active_2"),
+          },
         ],
       },
       expect.any(Object),
@@ -550,6 +573,84 @@ describe("pricing recommendation runtime", () => {
     expect(events.at(-1)?.payload).toMatchObject({
       errorMessage: "Fee quote changed.",
     });
+  });
+
+  it("leaves an unknown target proposed and re-sends only it under its first target attempt", async () => {
+    const recommendations = [
+      proposedRecommendation,
+      {
+        ...proposedRecommendation,
+        recommendation_id: "rec_unknown",
+        listing_id: "lst_2",
+        recommended_list_amount: 24.99,
+      },
+      {
+        ...proposedRecommendation,
+        recommendation_id: "rec_conflict",
+        listing_id: "lst_3",
+        recommended_list_amount: 31.5,
+      },
+    ] satisfies AccountRecommendationListItem[];
+    const rows: { recommendations: AccountRecommendationListItem[] } = { recommendations: [...recommendations] };
+    const firstOutcomes: Record<string, "applied" | "unknown" | "conflict"> = {
+      lst_1: "applied",
+      lst_2: "unknown",
+      lst_3: "conflict",
+    };
+    const sentKeysByListing = new Map<string, string[]>();
+    const batchIds: string[] = [];
+    const gateway: PricingMarketplaceListingGateway = {
+      applyBulkListingPriceUpdates: vi.fn(
+        async (body: Parameters<PricingMarketplaceListingGateway["applyBulkListingPriceUpdates"]>[0]) => {
+          batchIds.push(body.batchId ?? "");
+          for (const update of body.updates)
+            sentKeysByListing.set(update.listingId, [
+              ...(sentKeysByListing.get(update.listingId) ?? []),
+              update.idempotencyKey ?? "",
+            ]);
+          return {
+            items: body.updates.map((update) => ({
+              listingId: update.listingId,
+              outcome: batchIds.length === 1 ? (firstOutcomes[update.listingId] ?? "error") : ("no_op" as const),
+              version: 2,
+            })),
+          };
+        },
+      ),
+      createListing: vi.fn(async () => ({ id: "lst_created" })),
+    };
+    const { services, events } = createRuntime(queryStub(rows));
+    for (const recommendation of recommendations) await seedRecommendation(services, recommendation);
+    const apply = () =>
+      services.applyRecommendations(
+        {
+          accountId: "acc_1",
+          recommendationIds: recommendations.map((recommendation) => recommendation.recommendation_id),
+          marketplaceListings: gateway,
+        },
+        context,
+      );
+
+    await expect(apply()).resolves.toEqual({ appliedCount: 1, failedCount: 1 });
+    // Only the unknown target is still a selected proposed recommendation on the retry.
+    rows.recommendations = recommendations.filter((row) => row.recommendation_id === "rec_unknown");
+    await expect(apply()).resolves.toEqual({ appliedCount: 1, failedCount: 0 });
+
+    expect(Object.fromEntries([...sentKeysByListing].map(([listingId, keys]) => [listingId, keys.length]))).toEqual({
+      lst_1: 1,
+      lst_2: 2,
+      lst_3: 1,
+    });
+    expect(new Set(sentKeysByListing.get("lst_2"))).toEqual(
+      new Set([pricingRecommendationAttemptKey("acc_1", "rec_unknown")]),
+    );
+    expect(batchIds).toEqual([
+      pricingRecommendationBatchId("acc_1", ["rec_active", "rec_unknown", "rec_conflict"]),
+      pricingRecommendationBatchId("acc_1", ["rec_unknown"]),
+    ]);
+    const unknownEvents = events.filter((event) => event.streamId === "pricing.recommendation-rec_unknown");
+    expect(unknownEvents.map((event) => event.eventType)).not.toContain("pricing.recommendation.failed");
+    expect(unknownEvents.at(-1)?.eventType).toBe("pricing.recommendation.applied");
   });
 
   it("refuses to reprice a legacy amount-only listing instead of choosing a currency", async () => {

@@ -1,11 +1,20 @@
-import type { CatalogAttentionQueueReadModel } from "./contracts";
-import { summarizeCatalogAttentionItems, type CatalogAttentionItem } from "../read-model/attention-item";
+import { buildCatalogAttentionQueueReadModel, type CatalogAttentionQueueReadModel } from "./contracts";
+import {
+  CATALOG_ATTENTION_KIND_SEVERITIES,
+  CATALOG_ATTENTION_SUMMARY_WINDOW,
+  catalogAttentionKindRecord,
+  catalogAttentionSeverityRecord,
+  type CatalogAttentionItem,
+  type CatalogAttentionItemKind,
+  type CatalogAttentionQueueWindow,
+  type CatalogAttentionTotalKind,
+} from "../read-model/attention-item";
 
 // Serialized attention read models as the daily route loader receives them from
 // the API — the shape `assembleCatalogAttentionQueue` produces, built directly so
 // loader and render tests can express exact items without the six source-row
-// fixtures. Counts and freshness are derived from the items the same way the
-// assembler derives them, so a fixture is internally consistent by construction.
+// fixtures. Counts, coverage and freshness come from the same derivation the
+// assembler uses, so a fixture is internally consistent by construction.
 
 export const CATALOG_ATTENTION_FIXTURE_GENERATED_AT = "2026-07-09T12:00:00.000Z";
 
@@ -29,14 +38,14 @@ export function catalogAttentionAliasCandidateItem(
       intent: "alias.accept",
       mode: "command",
       labelKey: "catalog.features.attentionQueue.action.acceptAlias",
-      fields: { aliasHash: "h1", targetKind: "catalog-item", targetId: "i1" },
+      fields: { aliasHashes: "h1", targetKind: "catalog-item", targetId: "i1", targetKey: "name" },
     },
     secondaryResolutions: [
       {
         intent: "alias.reject",
         mode: "command",
         labelKey: "catalog.features.attentionQueue.action.rejectAlias",
-        fields: { aliasHash: "h1", targetKind: "catalog-item", targetId: "i1" },
+        fields: { aliasHashes: "h1", targetKind: "catalog-item", targetId: "i1", targetKey: "name" },
         requiresReason: true,
       },
     ],
@@ -70,20 +79,38 @@ export function catalogAttentionProviderHealthItem(
   };
 }
 
+// Per-kind cohort overrides: `total` adds unreturned work beyond the window (to
+// the kind's first severity) and `totalKind` marks a lower bound.
+export type CatalogAttentionFixtureCohort = Readonly<{
+  total?: number;
+  totalKind?: CatalogAttentionTotalKind;
+}>;
+
 export function catalogAttentionQueueReadModelFixture(
   items: readonly CatalogAttentionItem[] = [catalogAttentionProviderHealthItem(), catalogAttentionAliasCandidateItem()],
   generatedAt: string = CATALOG_ATTENTION_FIXTURE_GENERATED_AT,
+  options: Readonly<{
+    window?: CatalogAttentionQueueWindow;
+    cohorts?: Partial<Record<CatalogAttentionItemKind, CatalogAttentionFixtureCohort>>;
+  }> = {},
 ): CatalogAttentionQueueReadModel {
-  const observedAts = items.map((item) => item.observedAt).sort((left, right) => left.localeCompare(right));
-  return {
+  return buildCatalogAttentionQueueReadModel({
     generatedAt,
-    empty: items.length === 0,
-    items,
-    counts: summarizeCatalogAttentionItems(items),
-    freshness: {
-      generatedAt,
-      oldestObservedAt: observedAts[0] ?? null,
-      newestObservedAt: observedAts.at(-1) ?? null,
-    },
-  };
+    window: options.window ?? CATALOG_ATTENTION_SUMMARY_WINDOW,
+    slices: catalogAttentionKindRecord((kind) => {
+      const kindItems = items.filter((item) => item.kind === kind);
+      const cohort = options.cohorts?.[kind] ?? {};
+      const unreturned = Math.max(0, (cohort.total ?? kindItems.length) - kindItems.length);
+      const primarySeverity = CATALOG_ATTENTION_KIND_SEVERITIES[kind][0];
+      return {
+        bySeverity: catalogAttentionSeverityRecord(
+          (severity) =>
+            kindItems.filter((item) => item.severity === severity).length +
+            (severity === primarySeverity ? unreturned : 0),
+        ),
+        totalKind: cohort.totalKind ?? "exact",
+        items: kindItems,
+      };
+    }),
+  });
 }

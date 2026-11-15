@@ -148,6 +148,7 @@ export type PairingDrillReceipt = Readonly<{
   lifecycle: readonly string[];
 }>;
 export type PairingDrillEvidence = Readonly<{
+  signIn?: StagingPersonaSignInReceipt;
   forwardCount: number;
   forwards: readonly ForwardRecord[];
   requests: readonly DrillRequestRow[];
@@ -219,6 +220,14 @@ export type DrillLaunchOptions = Readonly<{
   env: Record<string, string>;
   args: string[];
 }>;
+export type StagingPersonaSignInReceipt = Readonly<{
+  alias: string;
+  host: string;
+  issuanceStatus: number | null;
+  landingStatus: number | null;
+  expiresAt: string | null;
+  outcome: "used" | "refused";
+}>;
 export type DeployedPairingDrillInput = Readonly<{
   mode: "deployed";
   /** Smoke loads `/account/channels` only: it never signs in, loads the extension or creates a connection. */
@@ -231,7 +240,7 @@ export type DeployedPairingDrillInput = Readonly<{
   clientId?: string;
   artifactDigest?: string;
   personaAlias?: string;
-  signIn?: (context: BrowserContext) => Promise<void>;
+  signIn?: (context: BrowserContext) => Promise<void | StagingPersonaSignInReceipt>;
   resolver?: PairingDrillResolver;
   /** Completed response authority from the test-owned resolver server, never a live fallback. */
   fakeDocuments?: FakeDocumentSource;
@@ -306,6 +315,7 @@ export type DeployedPairingDrillReceipt = DeployedDrillRows &
     deploy: PairingDrillDeployBinding;
     preflight: readonly PairingDrillPreflightRow[];
     personaAlias: string | null;
+    signIn?: StagingPersonaSignInReceipt;
     clientIdSuffix: string | null;
     artifactDigest: string | null;
     extensionId: string | null;
@@ -1627,6 +1637,7 @@ async function deployedDrill(input: DeployedPairingDrillInput): Promise<{ receip
   const isolation = { tcgplayer: 0, workerEscapes: 0, connectionWrites: 0 };
   let lifecycle: readonly string[] = [];
   let profile: DeployedDrillProfile | null = null;
+  let signIn: StagingPersonaSignInReceipt | undefined;
   let connectionId: string | null = null;
   let claimPhase: DeployedClaimRow["phase"] = "paused";
   let removeResponses: (() => void) | undefined;
@@ -1642,6 +1653,7 @@ async function deployedDrill(input: DeployedPairingDrillInput): Promise<{ receip
     forwards: [],
     requests: sorted(requests),
     lifecycle,
+    ...(signIn ? { signIn } : {}),
     deployed: {
       steps: [...steps],
       pages: [...pages],
@@ -1835,7 +1847,13 @@ async function deployedDrill(input: DeployedPairingDrillInput): Promise<{ receip
       badge: await connector.evaluate(() => chrome.action.getBadgeText({})),
     });
 
-    await input.signIn!(context);
+    try {
+      signIn = (await input.signIn!(context)) || undefined;
+      if (!input.resolver && !signIn) fail("connector-drill-sign-in-unavailable");
+    } catch (error) {
+      if (error instanceof PairingDrillRefusal) signIn = error.evidence.signIn;
+      throw error;
+    }
     await inspectCookies(context);
     const page = context.pages()[0] ?? (await context.newPage());
     if (!(await open(page, "/account/channels"))) fail("connector-drill-page-status");
@@ -2239,6 +2257,7 @@ async function deployedDrill(input: DeployedPairingDrillInput): Promise<{ receip
     deploy: input.preflight!.deploy,
     preflight: input.preflight!.rows,
     personaAlias: input.smoke ? null : input.personaAlias!,
+    ...(signIn ? { signIn } : {}),
     clientIdSuffix: input.smoke ? null : input.clientId!.slice(-4),
     artifactDigest: input.smoke ? null : input.artifactDigest!,
     extensionId: input.smoke ? null : TCGPLAYER_CONNECTOR_EXTENSION_ID,

@@ -36,9 +36,14 @@ describe("staged-import-floor-owner-inventory", () => {
     );
   });
   it("enrolls the exact DB producer test and excludes it from local non-DB unit tests", () => {
-    const pkg = JSON.parse(readFileSync(resolve(root, "bounded-contexts/channels/package.json"), "utf8"));
+    const pkg = JSON.parse(readFileSync(resolve(root, "bounded-contexts/channels/package.json"), "utf8")) as {
+      scripts: Record<string, string>;
+    };
+    const dbArgs = Object.entries(pkg.scripts)
+      .filter(([name]) => /^test:db:\d+$/.test(name))
+      .flatMap(([, script]) => script.split(/\s+/));
     const path = "features/connector-feed/tests/staged-import-floor-policy-production.db.test.ts";
-    expect(pkg.scripts["test:db"].split(" ")).toContain(path);
+    expect(dbArgs.filter((argument) => argument === path)).toHaveLength(1);
     expect(pkg.scripts["test:unit"]).toContain(`--exclude ${path}`);
   });
 });

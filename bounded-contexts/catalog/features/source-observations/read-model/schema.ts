@@ -204,6 +204,18 @@ async function repairLegacyYgojsonSetRows(db: BcSchemaMigrationClient): Promise<
   await rebuildSourceObservationIntegrationScopeSummaries(db, keys, new Date().toISOString());
 }
 
+// The stream version the projection last applied to a candidate (`catalog.merge-candidate-<id>`):
+// the version an update or split names as the one the operator saw. Rows written before the
+// column existed take their stream's current version.
+const catalogMergeCandidateStreamVersionColumnSql = `ALTER TABLE catalog_merge_candidates
+  ADD COLUMN IF NOT EXISTS last_stream_version bigint NOT NULL DEFAULT 0;`;
+
+const catalogMergeCandidateStreamVersionBackfillSql = `UPDATE catalog_merge_candidates AS c
+   SET last_stream_version = s.current_version
+  FROM event_store_streams AS s
+ WHERE s.stream_id = 'catalog.merge-candidate-' || c.candidate_id
+   AND c.last_stream_version = 0;`;
+
 const catalogMergeCandidateScopeIdentityV2WipeSql = `DELETE FROM catalog_merge_candidate_observations;
 DELETE FROM catalog_merge_candidates;
 DELETE FROM event_store_streams
@@ -362,6 +374,7 @@ CREATE TABLE IF NOT EXISTS catalog_merge_candidates (
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
   stale_at timestamptz NULL,
+  last_stream_version bigint NOT NULL DEFAULT 0,
   CONSTRAINT catalog_merge_candidates_status_check
     CHECK (status IN ('ready', 'has-conflicts', 'stale', 'deferred', 'rejected', 'promoted')),
   CONSTRAINT catalog_merge_candidates_promotion_intent_check
@@ -389,7 +402,8 @@ ALTER TABLE catalog_merge_candidates
   ADD COLUMN IF NOT EXISTS promotion_intent text NOT NULL DEFAULT 'create-catalog-item',
   ADD COLUMN IF NOT EXISTS created_at timestamptz NOT NULL DEFAULT now(),
   ADD COLUMN IF NOT EXISTS updated_at timestamptz NOT NULL DEFAULT now(),
-  ADD COLUMN IF NOT EXISTS stale_at timestamptz NULL;
+  ADD COLUMN IF NOT EXISTS stale_at timestamptz NULL,
+  ADD COLUMN IF NOT EXISTS last_stream_version bigint NOT NULL DEFAULT 0;
 
 ALTER TABLE catalog_merge_candidates
   ALTER COLUMN identity_fingerprint DROP DEFAULT,
@@ -808,5 +822,14 @@ END $$;`,
     description: "Derive canonical YGOJSON set IDs in legacy observations and rebuild affected summaries.",
     dataStep: repairLegacyYgojsonSetRows,
     statements: [],
+  },
+  {
+    migrationId: "20261106_catalog_merge_candidate_stream_version",
+    description: "Record each Catalog Merge Candidate's stream version so an edit or split can name the one it saw.",
+    statements: [
+      "SET LOCAL lock_timeout = '5s';",
+      catalogMergeCandidateStreamVersionColumnSql,
+      catalogMergeCandidateStreamVersionBackfillSql,
+    ],
   },
 ];

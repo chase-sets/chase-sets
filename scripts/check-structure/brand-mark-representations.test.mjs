@@ -285,6 +285,11 @@ export const committedCallers = [
   "deployables/admin-web/app/routes/favicon.ts",
   "deployables/admin-web/app/routes/manifest.ts",
   "deployables/admin-web/app/routes/pwa-endpoints.test.ts",
+  "deployables/corten-pilot/admin/src/site.rs",
+  "deployables/corten-pilot/marketplace/src/site.rs",
+  "deployables/corten-pilot/public/src/site.rs",
+  "deployables/corten-pilot/public/src/tests.rs",
+  "deployables/corten-pilot/scripts/export.mjs",
   "deployables/marketplace/app/pwa/service-worker-source.ts",
   "deployables/marketplace/app/routes/favicon.ts",
   "deployables/marketplace/app/routes/manifest.ts",
@@ -299,6 +304,8 @@ export const committedCallers = [
   "deployables/platform-api/__tests__/fixtures/bootstrap-db-capture-40787363393.json",
   "deployables/platform-api/__tests__/fixtures/bootstrap-db-capture-41043769783-paired.json",
   "deployables/platform-api/__tests__/fixtures/bootstrap-db-capture-41043769783.json",
+  "deployables/platform-api/__tests__/fixtures/bootstrap-db-capture-41551303861-paired.json",
+  "deployables/platform-api/__tests__/fixtures/bootstrap-db-capture-41551303861.json",
   "deployables/public-web/app/routes/favicon.ts",
   "docs/campaigns/brand-distribution-kit.md",
   "packages/design-system/COMPONENT_INDEX.md",
@@ -749,7 +756,7 @@ describe("lockfile package-entry discipline", () => {
   it("declares the root sharp importer at exactly the version the lockfile already resolves", () => {
     const rootPackage = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
     expect(rootPackage.devDependencies.sharp).toBe("^0.35.5");
-    expect(lock.importers["."].devDependencies.sharp.version).toBe("0.35.5(@types/node@25.6.2)");
+    expect(lock.importers["."].devDependencies.sharp.version).toBe("0.35.5(@types/node@24.19.2)");
     expect(packageKeys).toContain("sharp@0.35.5");
   });
 

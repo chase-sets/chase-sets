@@ -1,0 +1,25 @@
+.pill {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  padding: 0.25rem 0.625rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  box-shadow: var(--shadow-sm);
+}
+.success {
+  background: var(--color-success-soft);
+  color: var(--color-success);
+  border-color: var(--color-success);
+}
+.neutral {
+  background: var(--color-surface-3);
+  color: var(--color-text-secondary);
+  border-color: var(--color-border-strong);
+}
+.warning {
+  background: var(--color-warning-soft);
+  color: var(--color-warning);
+  border-color: var(--color-warning);
+}

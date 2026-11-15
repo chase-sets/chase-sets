@@ -17,6 +17,7 @@ import {
 } from "../domain/count-lifecycle-receipt";
 import * as acquisition from "../domain/count-acquisition";
 import * as plan from "../domain/count-capture-plan";
+import * as period from "../domain/scrydex-billing-period";
 import { decodedReceiptText } from "../domain/preview-probe-receipt";
 import { guardDisabledMutant } from "../tests/count-capture-mutants";
 
@@ -505,7 +506,7 @@ describe("isolates the count capture runner", () => {
           ')\n    miss("freeze-unknown-or-drift");',
         ],
         "({ classifyCountLifecycleReceipt })",
-        { z, ...acquisition, ...plan, decodedReceiptText },
+        { z, ...acquisition, ...plan, ...period, decodedReceiptText },
       );
       expect(classifyCountLifecycleReceipt(result).verdict).toBe("INCOMPLETE");
       expect(withoutBoundary.classifyCountLifecycleReceipt(result).verdict).toBe("CONFORMING");

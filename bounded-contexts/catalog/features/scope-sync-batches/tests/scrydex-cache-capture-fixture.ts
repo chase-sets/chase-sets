@@ -145,8 +145,11 @@ export function syntheticScopeRow(scopeRecordId: string, productDomain: string):
 export function syntheticScopePageJson(
   input: Readonly<{ productDomain: string; scopeRecordIds: readonly string[]; total?: number }>,
 ): unknown {
-  const items = input.scopeRecordIds.map((id) => scopeRecordDetailFromRow(syntheticScopeRow(id, input.productDomain)));
-  return JSON.parse(JSON.stringify({ items, total: input.total ?? items.length, count: items.length }));
+  const generatedAt = "2026-06-10T00:00:00.000Z";
+  const items = input.scopeRecordIds.map((id) =>
+    scopeRecordDetailFromRow(syntheticScopeRow(id, input.productDomain), generatedAt),
+  );
+  return JSON.parse(JSON.stringify({ generatedAt, items, total: input.total ?? items.length, count: items.length }));
 }
 
 const deniedLive = async (): Promise<never> => {

@@ -23,6 +23,7 @@ import {
   importScopeMatchesProviderScope,
   importScopeMatchesStructuredSelection,
   providerScopeMatchesStructuredSet,
+  scopeContextFromRouteContext,
 } from "./primary-workbench-scope-context";
 import { providerScopeMatchesSelectedScope } from "./primary-workbench-source-scope-workset";
 
@@ -89,7 +90,7 @@ export function resolveCatalogPrimaryWorkbenchRouteSelection(
       sourceOptionProfileCannotSelectScope(sourceOptionNormalizationProfile, parsedContext.scope)),
   );
   const discardParsedImportScope = unitContextMismatch || legacyImportScopeMismatch || productScopeMismatch;
-  const routeScope = productScopeMismatch
+  let routeScope = productScopeMismatch
     ? providerOnlyScopeContext(providerKey)
     : discardParsedImportScope && legacyImportScopeMismatch && explicitStructuredScope
       ? sanitizeScopeForSourceOptionProfile(
@@ -121,6 +122,14 @@ export function resolveCatalogPrimaryWorkbenchRouteSelection(
       ? null
       : inferImportScope(input.scopes.items, providerKey);
   const importScope = unitContextMismatch ? null : (parsedImportScope ?? structuredImportScope ?? inferredImportScope);
+  // Complete only the accepted selection. Discarded URL scope and explicit
+  // parent-only/unit-only selections must never regain inferred descendants.
+  routeScope = scopeContextFromRouteContext({
+    providerKey,
+    importScope,
+    scope: routeScope,
+    sourceObservationFilters: parsedContext.sourceObservationFilters,
+  });
   const discardParsedImportScopeFilters = discardParsedImportScope || unitRouteWithoutExplicitScope;
   const profileVersion =
     unitContextMismatch || useActiveProfileForSourceOptions

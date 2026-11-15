@@ -444,27 +444,42 @@ async function handleAction(intent: string, { request, formData }: FormActionCon
             .filter(Boolean),
         ),
       ];
-      const bulkActionOutcomes: MarketplaceListingBulkActionOutcome[] = await Promise.all(
-        listingIds.map(async (listingId) => {
-          try {
-            await (intent === "bulk-pause-listings" ? api.pauseListing(listingId) : api.withdrawListing(listingId));
-            return {
+      if (listingIds.length === 0) return { bulkActionOutcomes: [] };
+      // One batch identity per submission (a resubmitted form keeps its id) and one target attempt per Listing.
+      const submittedBatchId = String(formData.get("batchId") ?? "");
+      const batchId = /^[A-Za-z0-9_-]{22,128}$/.test(submittedBatchId)
+        ? submittedBatchId
+        : `listing_batch_${globalThis.crypto.randomUUID().replaceAll("-", "")}`;
+      let batch: Awaited<ReturnType<typeof api.applyListingBatch>>;
+      try {
+        batch = await api.applyListingBatch({
+          batchId,
+          family: intent === "bulk-pause-listings" ? "listing.pause" : "listing.withdraw",
+          listingIds,
+        });
+      } catch (error) {
+        const status = marketplaceApiErrorAdapter.getStatus(error);
+        if (status === null || status < 400 || status >= 500) throwListingActionFailure(error);
+        const message = bulkActionOutcomeErrorMessage(error);
+        return {
+          bulkActionOutcomes: listingIds.map((listingId) => ({
+            listingId,
+            label: bulkActionOutcomeLabel(listingId),
+            outcome: "error" as const,
+            message,
+          })),
+        };
+      }
+      const outcomes = new Map(batch.items.map((item) => [item.targetId, item.outcome] as const));
+      const bulkActionOutcomes: MarketplaceListingBulkActionOutcome[] = listingIds.map((listingId) =>
+        outcomes.get(listingId) === "succeeded"
+          ? { listingId, label: bulkActionOutcomeLabel(listingId), outcome: "success", message: null }
+          : {
               listingId,
               label: bulkActionOutcomeLabel(listingId),
-              outcome: "success" as const,
-              message: null,
-            };
-          } catch (error) {
-            const status = marketplaceApiErrorAdapter.getStatus(error);
-            if (status === null || status < 400 || status >= 500) throwListingActionFailure(error);
-            return {
-              listingId,
-              label: bulkActionOutcomeLabel(listingId),
-              outcome: "error" as const,
-              message: bulkActionOutcomeErrorMessage(error),
-            };
-          }
-        }),
+              outcome: "error",
+              message: t("marketplace.routes.accountListings.bulk.action.request.failed"),
+            },
       );
 
       return { bulkActionOutcomes };

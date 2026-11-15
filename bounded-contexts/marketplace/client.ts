@@ -22,6 +22,10 @@ export type {
   MarketplaceBulkListingPriceUpdateInput,
   MarketplaceBulkListingPriceUpdateOutcome,
   MarketplaceItemListing,
+  MarketplaceListingBatchFamily,
+  MarketplaceListingBatchItem,
+  MarketplaceListingBatchOutcome,
+  MarketplaceListingBatchResult,
   MarketplaceListingDetail,
   MarketplaceListingEvidenceReadiness,
   MarketplaceListingFeeLockReportEntry,
@@ -64,6 +68,7 @@ import type {
   MarketplaceBulkListingPriceUpdateInput,
   MarketplaceBulkListingPriceUpdateOutcome,
   MarketplaceItemListing,
+  MarketplaceListingBatchResult,
   MarketplaceListingDetail,
   MarketplaceListingEvidenceReadiness,
   MarketplaceListingFeeLockReportEntry,
@@ -149,6 +154,10 @@ function headersToRecord(headers: HeadersInit | undefined): Record<string, strin
 function queryFromString(query: string) {
   const params = new URLSearchParams(query);
   return Object.fromEntries(params.entries());
+}
+
+function derivedListingAttemptKey() {
+  return `browser_${globalThis.crypto.randomUUID().replaceAll("-", "")}`;
 }
 
 function marketplaceApiErrorMessage(status: number, body: unknown) {
@@ -386,7 +395,7 @@ export function createMarketplaceApiClient({
     async disableSellerListingAvailability(body: Record<string, unknown>) {
       return parseJsonResponse(
         await client.account["listing-availability"].disable.$post({
-          json: body,
+          json: { idempotencyKey: derivedListingAttemptKey(), ...body },
           header: headers,
         }),
       );
@@ -394,7 +403,7 @@ export function createMarketplaceApiClient({
     async enableSellerListingAvailability() {
       return parseJsonResponse(
         await client.account["listing-availability"].enable.$post({
-          json: {},
+          json: { idempotencyKey: derivedListingAttemptKey() },
           header: headers,
         }),
       );
@@ -402,7 +411,7 @@ export function createMarketplaceApiClient({
     async scheduleSellerAwayWindow(body: Record<string, unknown>) {
       return parseJsonResponse(
         await client.account["listing-availability"]["away-window"].$post({
-          json: body,
+          json: { idempotencyKey: derivedListingAttemptKey(), ...body },
           header: headers,
         }),
       );
@@ -410,7 +419,7 @@ export function createMarketplaceApiClient({
     async cancelScheduledAwayWindow() {
       return parseJsonResponse(
         await client.account["listing-availability"]["away-window"].$delete({
-          header: headers,
+          header: { ...headersToRecord(headers), "Idempotency-Key": derivedListingAttemptKey() },
         }),
       );
     },
@@ -424,7 +433,7 @@ export function createMarketplaceApiClient({
     async setSellerOrderCapacity(maxOpenOrders: number) {
       return parseJsonResponse(
         await client.account["order-capacity"].$post({
-          json: { maxOpenOrders },
+          json: { maxOpenOrders, idempotencyKey: derivedListingAttemptKey() },
           header: headers,
         }),
       );
@@ -432,7 +441,7 @@ export function createMarketplaceApiClient({
     async clearSellerOrderCapacity() {
       return parseJsonResponse(
         await client.account["order-capacity"].$delete({
-          header: headers,
+          header: { ...headersToRecord(headers), "Idempotency-Key": derivedListingAttemptKey() },
         }),
       );
     },
@@ -498,12 +507,13 @@ export function createMarketplaceApiClient({
             "content-type": "application/json",
             ...headersToRecord(headers),
           },
-          body: JSON.stringify(body),
+          body: JSON.stringify({ idempotencyKey: derivedListingAttemptKey(), ...body }),
           signal: options.signal,
         }),
       );
     },
     async createListingWithPhotos(formData: FormData) {
+      if (!formData.has("idempotencyKey")) formData.set("idempotencyKey", derivedListingAttemptKey());
       return parseJsonResponse(
         await configuredFetch(joinApiPath(baseUrl, "/account/listings"), {
           method: "POST",
@@ -612,24 +622,39 @@ export function createMarketplaceApiClient({
             "content-type": "application/json",
             ...headersToRecord(headers),
           },
-          body: JSON.stringify(body),
+          body: JSON.stringify({ idempotencyKey: derivedListingAttemptKey(), ...body }),
           signal: options.signal,
         }),
       );
     },
+    /** A caller that retries (e.g. a Pricing job) passes its stable `batchId` so the retry reads the same vector. */
     async applyBulkListingPriceUpdates(
-      body: Readonly<{ updates: readonly MarketplaceBulkListingPriceUpdateInput[] }>,
+      body: Readonly<{ batchId?: string; updates: readonly MarketplaceBulkListingPriceUpdateInput[] }>,
       options: Readonly<{ signal?: AbortSignal }> = {},
     ): Promise<ListResponse<MarketplaceBulkListingPriceUpdateOutcome>> {
+      const { batchId, ...rest } = body;
       return parseJsonResponse(
         await configuredFetch(joinApiPath(baseUrl, "/account/listings/prices/bulk"), {
           method: "POST",
           headers: {
             "content-type": "application/json",
             ...headersToRecord(headers),
+            "Idempotency-Key": batchId ?? derivedListingAttemptKey(),
           },
-          body: JSON.stringify(body),
+          body: JSON.stringify(rest),
           signal: options.signal,
+        }),
+      );
+    },
+    /** One bulk pause or withdraw: one batch id, one target attempt per Listing, and the terminal vector back. */
+    async applyListingBatch(
+      body: Readonly<{ batchId: string; family: "listing.pause" | "listing.withdraw"; listingIds: readonly string[] }>,
+    ): Promise<MarketplaceListingBatchResult> {
+      return parseJsonResponse(
+        await configuredFetch(joinApiPath(baseUrl, "/account/listings/batch"), {
+          method: "POST",
+          headers: { "content-type": "application/json", ...headersToRecord(headers) },
+          body: JSON.stringify(body),
         }),
       );
     },
@@ -637,7 +662,7 @@ export function createMarketplaceApiClient({
       return parseJsonResponse(
         await client.account.listings[":id"]["quantity-cap"].$post({
           param: { id },
-          json: body,
+          json: { idempotencyKey: derivedListingAttemptKey(), ...body },
           header: headers,
         }),
       );
@@ -646,7 +671,7 @@ export function createMarketplaceApiClient({
       return parseJsonResponse(
         await client.account.listings[":id"]["purchase-limits"].$post({
           param: { id },
-          json: body,
+          json: { idempotencyKey: derivedListingAttemptKey(), ...body },
           header: headers,
         }),
       );
@@ -655,7 +680,7 @@ export function createMarketplaceApiClient({
       return parseJsonResponse(
         await client.account.listings[":id"].publish.$post({
           param: { id },
-          json: body,
+          json: { idempotencyKey: derivedListingAttemptKey(), ...body },
           header: headers,
         }),
       );
@@ -664,7 +689,7 @@ export function createMarketplaceApiClient({
       return parseJsonResponse(
         await client.account.listings[":id"].pause.$post({
           param: { id },
-          json: {},
+          json: { idempotencyKey: derivedListingAttemptKey() },
           header: headers,
         }),
       );
@@ -673,7 +698,7 @@ export function createMarketplaceApiClient({
       return parseJsonResponse(
         await client.account.listings[":id"].withdraw.$post({
           param: { id },
-          json: {},
+          json: { idempotencyKey: derivedListingAttemptKey() },
           header: headers,
         }),
       );

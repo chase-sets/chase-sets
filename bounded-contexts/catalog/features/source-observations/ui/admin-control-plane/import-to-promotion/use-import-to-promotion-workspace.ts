@@ -1,5 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import type { CatalogPrimaryWorkbenchReadModel } from "../../../api/primary-workbench-admin-contracts";
+import type {
+  CatalogPrimaryWorkbenchFlowStageKey,
+  CatalogPrimaryWorkbenchReadModel,
+} from "../../../api/primary-workbench-admin-contracts";
 import { isReviewableObservationRow } from "../source-observation-review/source-observation-review-module";
 import {
   observationSelectionScopeKey,
@@ -16,7 +19,7 @@ const OBSERVATION_KEY_SEPARATOR = String.fromCharCode(0x1f);
 // The three ordered stages of the daily flow. Only one stage is expanded at a
 // time; the rest render a collapsed summary. Stage selection is the single piece
 // of view state besides observation selection.
-export type ImportToPromotionStageKey = "run-sync" | "review-changes" | "create-items";
+export type ImportToPromotionStageKey = CatalogPrimaryWorkbenchFlowStageKey;
 
 export type ImportToPromotionWorkspaceState = Readonly<{
   activeStage: ImportToPromotionStageKey;
@@ -27,47 +30,6 @@ export type ImportToPromotionWorkspaceState = Readonly<{
   selectedEligibleObservationCount: number;
   selectedReviewableObservationCount: number;
 }>;
-
-// The stage the read model implies right now: the first stage that still has work
-// or a blocker, so "where do I run a sync / create items?" is answerable at a
-// glance without hunting through collapsed sections. This is SERVER TRUTH — it is
-// recomputed from the latest read model on every render, so an in-place command
-// revalidation (a returned-data command, a live poll, or a fetcher
-// submit) re-derives it and moves the stepper to where work actually moved.
-function serverDerivedActiveStage(readModel: CatalogPrimaryWorkbenchReadModel): ImportToPromotionStageKey {
-  if (readModel.promotionResult || readModel.promotionPreview.previewId) {
-    return "create-items";
-  }
-  // Anything to review (rows in scope, ready candidates, or changed evidence)
-  // lands on the review stage so the changes are in front.
-  if (
-    readModel.sourceObservationReview.rows.length > 0 ||
-    readModel.sourceObservationReview.promotionReadyCount > 0 ||
-    readModel.sourceObservationReview.counts.changed > 0
-  ) {
-    return "review-changes";
-  }
-  // Otherwise there is nothing to review yet: keep Run sync expanded so the
-  // operator can pull provider data and watch the durable import.
-  return "run-sync";
-}
-
-function routeTargetStage(readModel: CatalogPrimaryWorkbenchReadModel): ImportToPromotionStageKey | null {
-  switch (readModel.routeContext.section) {
-    case "import-jobs":
-    case "provider-scope-selection":
-    case "readiness":
-      return "run-sync";
-    case "source-observation-review":
-    case "conflict-resolution":
-      return "review-changes";
-    case "promotion-preview":
-    case "promotion-result":
-      return "create-items";
-    default:
-      return null;
-  }
-}
 
 export function useImportToPromotionWorkspace(
   readModel: CatalogPrimaryWorkbenchReadModel,
@@ -123,7 +85,10 @@ function useReconciledActiveStage(readModel: CatalogPrimaryWorkbenchReadModel): 
   activeStage: ImportToPromotionStageKey;
   setActiveStage: (stage: ImportToPromotionStageKey) => void;
 } {
-  const derivedStage = routeTargetStage(readModel) ?? serverDerivedActiveStage(readModel);
+  // The read model's open stage: the route section's stage, else the first stage
+  // that still has work. Recomputed by the API on every read, so a command or
+  // poll that moves the work moves it here.
+  const derivedStage = readModel.flow.openStage;
   // The operator's explicit choice and the derived stage that was in effect when
   // they made it. A null override means "follow server truth".
   const [override, setOverride] = useState<{
@@ -148,10 +113,10 @@ function useReconciledActiveStage(readModel: CatalogPrimaryWorkbenchReadModel): 
       // invalidated the moment a later command or route handoff changes it.
       setOverride({
         stage,
-        derivedStageAtSelection: routeTargetStage(readModel) ?? serverDerivedActiveStage(readModel),
+        derivedStageAtSelection: readModel.flow.openStage,
       });
     },
-    [readModel],
+    [readModel.flow.openStage],
   );
 
   return { activeStage, setActiveStage };
@@ -185,6 +150,15 @@ function useDurableObservationSelection(readModel: CatalogPrimaryWorkbenchReadMo
     }
     return new Set(readPersistedObservationSelection(scopeKey));
   });
+  const [selectionSource, setSelectionSource] = useState({ scopeKey, urlSelectionKey });
+  let currentSelection = selectedObservationKeys;
+  if (selectionSource.scopeKey !== scopeKey || selectionSource.urlSelectionKey !== urlSelectionKey) {
+    currentSelection = new Set(
+      urlSelectionKey ? urlSelectionKey.split(OBSERVATION_KEY_SEPARATOR) : readPersistedObservationSelection(scopeKey),
+    );
+    setSelectedObservationKeys(currentSelection);
+    setSelectionSource({ scopeKey, urlSelectionKey });
+  }
 
   // Reconcile on scope change or an explicit URL-carried selection (a deep link
   // or a just-completed command's redirect): a non-empty URL selection wins and
@@ -210,5 +184,5 @@ function useDurableObservationSelection(readModel: CatalogPrimaryWorkbenchReadMo
     [scopeKey],
   );
 
-  return { selectedObservationKeys, setSelectedObservationKeys: persistSelection };
+  return { selectedObservationKeys: currentSelection, setSelectedObservationKeys: persistSelection };
 }

@@ -26,6 +26,120 @@ type RouteControlPlaneOverview = CatalogIntegrationControlPlaneOverview & {
 };
 
 describe("source observation routes: integration discovery and profile administration", () => {
+  describe.each(["rollback", "deprecate", "retire"] as const)("%s confirmation boundary", (operation) => {
+    const providerKey = "tcgdex";
+    const version = "synthetic version:1";
+    const confirmation = `confirm:provider-profile.${operation}:${providerKey}:${version}`;
+    const path = `/source-observations/provider-profiles/${providerKey}/${encodeURIComponent(version)}/${operation}`;
+
+    it.each([
+      ["missing body", undefined],
+      ["empty body", ""],
+      ["missing field", "{}"],
+      ["empty field", JSON.stringify({ lifecycleConfirmation: "" })],
+      ["null field", JSON.stringify({ lifecycleConfirmation: null })],
+      ["number field", JSON.stringify({ lifecycleConfirmation: 1 })],
+      ["boolean field", JSON.stringify({ lifecycleConfirmation: true })],
+      ["object field", JSON.stringify({ lifecycleConfirmation: {} })],
+      ["array field", JSON.stringify({ lifecycleConfirmation: [confirmation] })],
+      ["malformed JSON", "{"],
+      ["null body", "null"],
+      ["array body", JSON.stringify([confirmation])],
+      ["string body", JSON.stringify(confirmation)],
+      ["number body", "1"],
+      ["boolean body", "true"],
+      [
+        "different operation",
+        JSON.stringify({
+          lifecycleConfirmation: `confirm:provider-profile.${operation === "rollback" ? "retire" : "rollback"}:${providerKey}:${version}`,
+        }),
+      ],
+      [
+        "different provider",
+        JSON.stringify({ lifecycleConfirmation: `confirm:provider-profile.${operation}:other-provider:${version}` }),
+      ],
+      [
+        "different version",
+        JSON.stringify({ lifecycleConfirmation: `confirm:provider-profile.${operation}:${providerKey}:other-version` }),
+      ],
+      ["padded confirmation", JSON.stringify({ lifecycleConfirmation: ` ${confirmation} ` })],
+    ])("rejects %s without lifecycle mutation", async (_name, body) => {
+      const store = mutableProfileStore([
+        profileVersion(providerKey, { profileVersion: version, lifecycle: "deprecated", active: false }),
+      ]);
+      const mutations = [
+        "rollbackProfileVersion",
+        "deprecateProfileVersion",
+        "upsertProfileVersion",
+        "activateProfileVersion",
+      ] as const;
+      const spies = mutations.map((method) => vi.spyOn(store, method));
+      const app = buildApp({} as SourceObservationRouteServices, store);
+      const before = await store.listProfileVersions();
+
+      const response = await app.request(path, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body,
+      });
+
+      expect(response.status).toBe(400);
+      await expect(response.json()).resolves.toEqual({
+        error: { code: "lifecycle_confirmation_required", message: expect.stringMatching(/\S/) },
+      });
+      expect(await store.listProfileVersions()).toEqual(before);
+      for (const spy of spies) expect(spy).not.toHaveBeenCalled();
+    });
+
+    it("performs the existing transition with exact confirmation and decoded path parameters", async () => {
+      const store = mutableProfileStore([
+        profileVersion(providerKey, {
+          profileVersion: version,
+          lifecycle: operation === "deprecate" ? "active" : "deprecated",
+          active: operation === "deprecate",
+        }),
+      ]);
+      const app = buildApp({} as SourceObservationRouteServices, store);
+      const response = await app.request(path, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ lifecycleConfirmation: confirmation }),
+      });
+      const lifecycle = operation === "rollback" ? "active" : operation === "deprecate" ? "deprecated" : "retired";
+
+      expect(response.status).toBe(200);
+      await expect(response.json()).resolves.toMatchObject({
+        providerKey,
+        profileVersion: version,
+        lifecycle,
+        active: operation === "rollback",
+      });
+      await expect(store.getProfileVersion(providerKey, version)).resolves.toMatchObject({
+        lifecycle,
+        active: operation === "rollback",
+      });
+    });
+
+    it("retains active-job refusal after exact confirmation", async () => {
+      const store = mutableProfileStore([
+        profileVersion(providerKey, { profileVersion: version, lifecycle: "deprecated", active: false }),
+      ]);
+      const before = await store.listProfileVersions();
+      const listActiveIntegrationJobs = vi.fn(async () => [
+        integrationJobFixture({ jobId: "job_synthetic_blocker", status: "running", scope: { provider: providerKey } }),
+      ]);
+      const app = buildApp({ listActiveIntegrationJobs } as unknown as SourceObservationRouteServices, store);
+      const response = await app.request(path, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ lifecycleConfirmation: confirmation }),
+      });
+      expect(response.status).toBe(409);
+      await expect(response.json()).resolves.toMatchObject({ error: { code: "profile_lifecycle_job_conflict" } });
+      expect(await store.listProfileVersions()).toEqual(before);
+    });
+  });
+
   it("lists integration scopes using provider language and expansion filters", async () => {
     const listIntegrationScopes = vi.fn(async () => [
       {
@@ -1066,6 +1180,156 @@ describe("source observation routes: integration discovery and profile administr
     });
   });
 
+  it.each(["active", "deprecated", "retired"] as const)(
+    "refuses a section edit on a %s profile version without a write",
+    async (lifecycle) => {
+      const store = mutableProfileStore([
+        profileVersion("tcgdex", { profileVersion: "2026.06.03", lifecycle, active: lifecycle === "active" }),
+      ]);
+      const upsert = vi.spyOn(store, "upsertProfileVersion");
+      const app = buildApp({} as SourceObservationRouteServices, store);
+
+      const response = await app.request(
+        "/source-observations/provider-profiles/tcgdex/2026.06.03/sections/migration-evidence",
+        {
+          method: "PATCH",
+          body: JSON.stringify({
+            command: {
+              section: "migration-evidence",
+              migrationEvidence: { evidenceText: "Synthetic evidence.", recordedAt: "2026-11-06T00:00:00.000Z" },
+            },
+          }),
+          headers: { "content-type": "application/json" },
+        },
+      );
+
+      expect(response.status).toBe(409);
+      await expect(response.json()).resolves.toEqual({
+        error: {
+          code: "profile_version_immutable",
+          message: `Only draft or test Catalog provider profile versions can be edited; '${lifecycle}' is immutable.`,
+          lifecycle,
+        },
+      });
+      expect(upsert).not.toHaveBeenCalled();
+    },
+  );
+
+  it("answers a section edit on an unknown profile version with not found", async () => {
+    const app = buildApp({} as SourceObservationRouteServices, mutableProfileStore([]));
+
+    const response = await app.request("/source-observations/provider-profiles/tcgdex/missing/sections/basics", {
+      method: "PATCH",
+      body: JSON.stringify({ command: { section: "basics", displayName: "Synthetic" } }),
+      headers: { "content-type": "application/json" },
+    });
+
+    expect(response.status).toBe(404);
+    await expect(response.json()).resolves.toMatchObject({ error: { code: "profile_version_not_found" } });
+  });
+
+  it("refuses to create a profile version that is not draft or test", async () => {
+    const store = mutableProfileStore([]);
+    const upsert = vi.spyOn(store, "upsertProfileVersion");
+    const app = buildApp({} as SourceObservationRouteServices, store);
+
+    const response = await app.request("/source-observations/provider-profiles", {
+      method: "POST",
+      body: JSON.stringify({
+        version: profileVersion("tcgdex", { profileVersion: "2026.11.06", lifecycle: "active" }),
+      }),
+      headers: { "content-type": "application/json" },
+    });
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toMatchObject({ error: { code: "profile_version_immutable" } });
+    expect(upsert).not.toHaveBeenCalled();
+  });
+
+  describe.each(["active", "deprecated", "retired"] as const)("onto an existing %s profile version", (lifecycle) => {
+    const evidence = { evidenceText: "Recorded before activation.", recordedAt: "2026-11-01T00:00:00.000Z" };
+    const destination = () =>
+      profileVersion("tcgdex", {
+        profileVersion: "2026.11.01",
+        lifecycle,
+        active: lifecycle === "active",
+        migrationEvidence: evidence,
+      });
+
+    it("refuses a create with a 409 and leaves the version as it was", async () => {
+      const store = mutableProfileStore([destination()]);
+      const app = buildApp({} as SourceObservationRouteServices, store);
+
+      const response = await app.request("/source-observations/provider-profiles", {
+        method: "POST",
+        body: JSON.stringify({
+          version: profileVersion("tcgdex", { profileVersion: "2026.11.01", lifecycle: "draft" }),
+        }),
+        headers: { "content-type": "application/json" },
+      });
+
+      expect(response.status).toBe(409);
+      await expect(response.json()).resolves.toEqual({
+        error: {
+          code: "profile_version_immutable",
+          message: `Only draft or test Catalog provider profile versions can be edited; '${lifecycle}' is immutable.`,
+          lifecycle,
+        },
+      });
+      await expect(store.getProfileVersion("tcgdex", "2026.11.01")).resolves.toMatchObject({
+        lifecycle,
+        active: lifecycle === "active",
+        migrationEvidence: evidence,
+      });
+    });
+
+    it("refuses a clone with a 409 and leaves the version as it was", async () => {
+      const store = mutableProfileStore([profileVersion("tcgdex", { profileVersion: "2026.06.03" }), destination()]);
+      const app = buildApp({} as SourceObservationRouteServices, store);
+
+      const response = await app.request("/source-observations/provider-profiles/tcgdex/2026.06.03/clone", {
+        method: "POST",
+        body: JSON.stringify({ targetProfileVersion: "2026.11.01" }),
+        headers: { "content-type": "application/json" },
+      });
+
+      expect(response.status).toBe(409);
+      await expect(response.json()).resolves.toMatchObject({ error: { code: "profile_version_immutable", lifecycle } });
+      await expect(store.getProfileVersion("tcgdex", "2026.11.01")).resolves.toMatchObject({
+        lifecycle,
+        active: lifecycle === "active",
+        migrationEvidence: evidence,
+      });
+    });
+  });
+
+  it("still replaces a draft profile version on create", async () => {
+    const store = mutableProfileStore([profileVersion("tcgdex", { profileVersion: "2026.11.01", lifecycle: "draft" })]);
+    const app = buildApp({} as SourceObservationRouteServices, store);
+
+    const response = await app.request("/source-observations/provider-profiles", {
+      method: "POST",
+      body: JSON.stringify({ version: profileVersion("tcgdex", { profileVersion: "2026.11.01", lifecycle: "test" }) }),
+      headers: { "content-type": "application/json" },
+    });
+
+    expect(response.status).toBe(201);
+    await expect(store.getProfileVersion("tcgdex", "2026.11.01")).resolves.toMatchObject({ lifecycle: "test" });
+  });
+
+  it("answers a clone of an unknown profile version with not found", async () => {
+    const app = buildApp({} as SourceObservationRouteServices, mutableProfileStore([]));
+
+    const response = await app.request("/source-observations/provider-profiles/tcgdex/missing/clone", {
+      method: "POST",
+      body: JSON.stringify({ targetProfileVersion: "2026.11.01" }),
+      headers: { "content-type": "application/json" },
+    });
+
+    expect(response.status).toBe(404);
+    await expect(response.json()).resolves.toMatchObject({ error: { code: "profile_version_not_found" } });
+  });
+
   it("returns structured bad requests for empty deep profile section commands", async () => {
     const services = {} as SourceObservationRouteServices;
     const store = mutableProfileStore([
@@ -1237,5 +1501,25 @@ describe("source observation routes: integration discovery and profile administr
         profileLifecycle: "active",
       }),
     );
+  });
+});
+
+describe("source observation routes: provider profile review without a profile store", () => {
+  it.each([
+    ["/source-observations/provider-profiles", "{}"],
+    ["/source-observations/provider-profiles/tcgdex/v1/dry-run", "{}"],
+  ])("answers %s with the error envelope", async (path, body) => {
+    const app = buildApp({} as SourceObservationRouteServices);
+
+    const response = await app.request(path, {
+      method: "POST",
+      body,
+      headers: { "content-type": "application/json" },
+    });
+
+    expect(response.status).toBe(503);
+    await expect(response.json()).resolves.toMatchObject({
+      error: { code: "profile_review_unavailable", message: expect.any(String) },
+    });
   });
 });

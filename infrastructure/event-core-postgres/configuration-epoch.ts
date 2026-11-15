@@ -97,7 +97,7 @@ type StoreIdentity = Readonly<{ store_id: string; incarnation: string }>;
 type ConsumerTarget = Readonly<{ identity: ConfigurationConsumer; pool: PgTransactionalPool }>;
 
 /** SQL timeouts never settle a closure. The pending journal remains authoritative. */
-async function boundStep(client: PgQueryable): Promise<void> {
+export async function boundStep(client: PgQueryable): Promise<void> {
   await client.query("SET LOCAL statement_timeout = '5s'");
   await client.query("SET LOCAL lock_timeout = '5s'");
 }

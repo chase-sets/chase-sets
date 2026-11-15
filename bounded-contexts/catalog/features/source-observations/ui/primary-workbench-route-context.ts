@@ -109,6 +109,18 @@ export function parseCatalogPrimaryWorkbenchRouteContext(url: string | URL): Cat
   return routeContextFromLocation(parsedUrl.searchParams, parsedUrl.pathname, true);
 }
 
+// Only the provider-detail path supplies provider identity.
+export function catalogProviderKeyFromPath(pathname: string | null | undefined): string | null {
+  const segment = pathname?.match(/^\/catalog\/providers\/([^/]+)\/?$/)?.[1];
+  if (!segment) return null;
+  try {
+    const value = decodeURIComponent(segment);
+    return value.trim() ? value : null;
+  } catch {
+    return null;
+  }
+}
+
 // Request intent the parsed context does not keep: whether the operator named a
 // structured scope or a language explicitly, and whether the request is a
 // source-option refresh. Route selection reads these to pick its fallbacks.
@@ -194,7 +206,9 @@ function routeContextFromLocation(
   pathname: string | null | undefined,
   includeReturnPath: boolean,
 ): CatalogPrimaryWorkbenchRouteContext {
-  const providerKey = nullableParam(searchParams, "providerKey");
+  const providerKey = searchParams.get("providerKey")
+    ? nullableParam(searchParams, "providerKey")
+    : catalogProviderKeyFromPath(pathname);
   const importScope = nullableParam(searchParams, "importScope");
   const sourceObservationFilters = parseSourceObservationFilters(searchParams);
   const scope = scopeContextFromSearchParams({

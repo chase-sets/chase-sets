@@ -23,6 +23,7 @@ export type CatalogPrimaryWorkbenchCommandTelemetryResult =
   | "section-conflict"
   | "section-invalid"
   | "lifecycle-conflict"
+  | "candidate-stale"
   | "confirmation-required"
   | "preview-required"
   | "job-required"
@@ -402,7 +403,7 @@ function blockerCategoryForCommandResult(
   ) {
     return "readiness";
   }
-  if (result === "section-conflict") {
+  if (result === "section-conflict" || result === "candidate-stale") {
     return "stale-context";
   }
   if (result === "lifecycle-conflict") {
@@ -430,6 +431,7 @@ function promotionTelemetryResult(
     case "section-conflict":
     case "section-invalid":
     case "lifecycle-conflict":
+    case "candidate-stale":
     case "confirmation-required":
     case "preview-required":
     case "reason-required":

@@ -1,0 +1,30 @@
+{
+  "maxLetterUnits": 8,
+  "maxLetterWeightOunces": 3.5,
+  "maxLetterThicknessInches": 0.25,
+  "maxLetterDeclaredValueAmount": 50,
+  "letterEnvelopeWeightOunces": 0.4,
+  "parcelPackagingWeightOunces": 2,
+  "policyVersion": "default-postage-policy-v2",
+  "parcelRequiredShippingOptions": [
+    "expedited",
+    "priority"
+  ],
+  "letterRequiredPhysicalFlags": [
+    "raw-card"
+  ],
+  "parcelRequiredPhysicalFlags": [
+    "slab",
+    "sealed",
+    "rigid",
+    "metal",
+    "jumbo",
+    "irregular"
+  ],
+  "signatureRequiredShippingOptions": [
+    "priority"
+  ],
+  "signatureRequiredDeclaredValueAmount": 250,
+  "signatureRequiredPhysicalFlags": [],
+  "insuranceRequiredDeclaredValueAmount": 500
+}

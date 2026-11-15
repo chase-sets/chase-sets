@@ -1,0 +1,3 @@
+# Corten's own layout (its rustfmt.toml), which `corten fmt` also reads for html!.
+max_width = 130
+use_small_heuristics = "Max"

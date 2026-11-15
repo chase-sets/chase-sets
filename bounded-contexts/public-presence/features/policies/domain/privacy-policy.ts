@@ -26,8 +26,8 @@ export type PrivacyPolicySubjectId = (typeof requiredPrivacyPolicySubjectIds)[nu
  * non-published, non-effective, empty rollout scope, and non-consent-
  * activatable until qualified counsel reviews this exact candidate and a
  * separately authorized change records that approval. Bracketed [ALL-CAPS]
- * tokens are explicit placeholders for counsel-owned conclusions or, like
- * [NOTICE-EMAIL], pending operator-supplied facts, never operative statements.
+ * tokens are explicit placeholders for counsel-owned conclusions, never
+ * operative statements.
  *
  * Operative prose describes provider relationships by function, never by legal
  * role: the `service provider` characterization is reserved for the N6
@@ -65,12 +65,16 @@ export const privacyPolicyArtifact: PublicPolicyArtifact<"privacy-policy", Priva
       reviewManifest: {
         scopeNote:
           "Define who the notice speaks for (the #5677 contracting entity), which surfaces it covers, and where its coverage ends relative to other users' and providers' own notices.",
-        decisionRefs: [5677, 5678, 5679],
-        productTruthRefs: ["bounded-contexts/public-presence/features/policies/domain/policy-registry.ts:25-33"],
+        decisionRefs: [5677, 5678, 5679, 8668, 10299],
+        productTruthRefs: [
+          "bounded-contexts/public-presence/features/policies/domain/policy-registry.ts:25-33",
+          "https://github.com/chase-sets/chase-sets/issues/8668#issuecomment-6043970242",
+          "https://github.com/chase-sets/chase-sets/issues/10299#issuecomment-6883088071",
+        ],
         openQuestions: [
           "Initial rollout jurisdictions are ratified (#5678: US, all 50 states + DC). As in the Seller Agreement, that scope is carried in metadata.rolloutJurisdictionsOrProductLimits at publication time, so the field stays empty in this candidate and this draft makes no jurisdiction claim.",
           "E-SIGN and INFORM Consumers Act conclusions from the #5685 discovery remain counsel-owned; whether INFORM verification or disclosure duties change what this notice must say about seller information is part of the #5679 engagement (E-SIGN capture itself is #5900).",
-          "#5677 recorded the entity and mailing notice address but did not supply a dedicated legal/privacy notice email; [NOTICE-EMAIL] in the rights section is an explicit placeholder pending that operator-supplied fact, as in the Terms of Service, and this draft does not designate the general support contact as the privacy contact.",
+          "Todd selected legal@chasesets.com for contract notices, arbitration opt-outs and privacy requests on 2026-10-07, and confirmed receipt on 2026-11-14 (selection and receipt records cited in productTruthRefs). The general support contact is unchanged.",
           "Channels ships Connector Pairing (bounded-contexts/channels/GLOSSARY.md:21-32): a seller consumes a one-use pairing code to bind a Connector, a client authorized for one Channel Connection through a separate Auth-issued grant and neither an agent nor a seller actor, to that Channel Connection. This notice's covered surfaces do not name Channel Connections or Connector Pairing; whether it must describe the personal information those surfaces process is a counsel question.",
         ],
         assumptions: [
@@ -342,21 +346,23 @@ export const privacyPolicyArtifact: PublicPolicyArtifact<"privacy-policy", Priva
       id: "privacy-rights-and-requests",
       title: "Your privacy rights and how to make a request",
       draftText:
-        "Depending on where you live, you may have rights over your personal information, such as the right to know what Chase Sets has collected about you, to access a copy of it, to correct it, to delete it, and to exercise those rights without being treated worse for doing so. You can submit a privacy request from your Account through a Support Request, or by writing to Chase Sets Limited, PO Box 164, Maize, KS 67101-0164, US, or to [NOTICE-EMAIL]. Chase Sets needs to confirm that a request comes from you, or from an agent you have authorized, before acting on it. [RIGHTS-VERIFICATION-AND-RESPONSE: counsel's operative description of the verification method, authorized-agent handling, response timing, and any appeal process will be stated here before this notice takes effect.] Independent of any request, your Wallet history, orders, and account records remain visible to you in your account area.",
+        "Depending on where you live, you may have rights over your personal information, such as the right to know what Chase Sets has collected about you, to access a copy of it, to correct it, to delete it, and to exercise those rights without being treated worse for doing so. You can submit a privacy request from your Account through a Support Request, or by writing to Chase Sets Limited, PO Box 164, Maize, KS 67101-0164, US, or to legal@chasesets.com. Chase Sets needs to confirm that a request comes from you, or from an agent you have authorized, before acting on it. [RIGHTS-VERIFICATION-AND-RESPONSE: counsel's operative description of the verification method, authorized-agent handling, response timing, and any appeal process will be stated here before this notice takes effect.] Independent of any request, your Wallet history, orders, and account records remain visible to you in your account area.",
       reviewStatus: "counsel-required",
       reviewManifest: {
         scopeNote:
-          "Describe the request intake that exists today (Support Request plus the #5677 mailing address) and reserve rights scope, verification, timing, and appeal for counsel.",
-        decisionRefs: [5677, 5679],
+          "Describe request intake through Support Request, the ratified mailing address and legal/privacy email; reserve rights scope, verification, timing, and appeal for counsel.",
+        decisionRefs: [5677, 5679, 8668, 10299],
         productTruthRefs: [
           "bounded-contexts/platform-operations/features/support-requests/domain/common.ts:5-30",
           "bounded-contexts/settlement/routes/marketplace/account-desk-money.tsx:63-75",
+          "https://github.com/chase-sets/chase-sets/issues/8668#issuecomment-6043970242",
+          "https://github.com/chase-sets/chase-sets/issues/10299#issuecomment-6883088071",
         ],
         openQuestions: [
           "Which rights apply in which launch states, the verification standard per request type, authorized-agent handling, response timing, and any appeal path are counsel judgments.",
           "The shipped Support Request flow types are order-centric (product-not-received, return-request, payment-problem, and similar); no dedicated privacy-request flow type or self-service data-export surface exists today. If counsel requires a dedicated intake or export mechanism at launch, that is a new fixed-scope product issue.",
           "Internally, redaction machinery exists only for Customer Feedback data; fulfilling account-wide deletion requests has no shipped end-to-end mechanism and needs counsel-guided product work before rights language promises it.",
-          "#5677 did not supply a dedicated notice email; [NOTICE-EMAIL] remains an explicit placeholder pending that operator-supplied fact, as in the Terms of Service.",
+          "Todd selected legal@chasesets.com for contract notices, arbitration opt-outs and privacy requests on 2026-10-07, and confirmed receipt on 2026-11-14 (selection and receipt records cited in productTruthRefs). The general support contact is unchanged.",
         ],
         assumptions: [
           {

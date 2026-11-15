@@ -934,7 +934,10 @@ describe("Scope Sync Batch preview probe roster and fence (#9244)", () => {
         .map((target) => target.providerKey),
     );
     expect(derived.discoveryProviders).toEqual([...runtimeProviders].sort());
-    expect(new Set(derived.units.flatMap((unit) => unit.discoveryLanguages))).toEqual(new Set(["en"]));
+    expect(new Set(derived.units.flatMap((unit) => unit.discoveryLanguages))).toEqual(new Set(["en", "ja"]));
+    expect(derived.units.filter((unit) => unit.discoveryLanguages.includes("ja")).map((unit) => unit.unitKey)).toEqual([
+      "tcgdex:pokemon:single-card:source-observation-import",
+    ]);
     for (const domain of ["magic", "pokemon", "yugioh", "one-piece", "lorcana"]) {
       expect(
         derived.units.some((unit) => unit.productDomain === domain),
@@ -1017,6 +1020,29 @@ describe("Scope Sync Batch preview probe roster and fence (#9244)", () => {
     expect(validateScopeSyncBatchPreviewProbeReceipt(forged, expectedIdentity).errors).toContain(
       `complete capture has an unread source in row ${omittedRows[0].rowKey}`,
     );
+  });
+
+  it("keeps a deployed unit whose provider detail omits its language options unresolved", async () => {
+    const reviews = await registryReviews();
+    const daily = surfaceLoaderData("daily", `${identity.origin}/catalog/integrations`, reviews);
+    const tcgdexUnit = "tcgdex:pokemon:single-card:source-observation-import";
+    const readDetail = providerDetailReader(reviews, []);
+    const deployed = await readScopeSyncBatchPreviewProbeDeployedRoster(daily, async (coordinates) => {
+      const loaderData = await readDetail(coordinates);
+      if (coordinates.unitKey === tcgdexUnit) {
+        delete loaderData.route.readModel.profileAuthoring.selectedProfile.languageOptions;
+      }
+      return loaderData;
+    });
+
+    expect(deployed.unresolvedUnits).toEqual([
+      {
+        providerKey: "tcgdex",
+        unitKey: tcgdexUnit,
+        productDomain: "pokemon",
+        reason: "provider-detail-language-options-unreadable",
+      },
+    ]);
   });
 
   it("allows only preview and run-now writes and refuses every execution intent", () => {

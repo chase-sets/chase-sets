@@ -1,4 +1,6 @@
+import type { BcSchemaMigration } from "@chase-sets/bounded-context-module";
 import { eventCorePostgresSchemaSql } from "@chase-sets/event-core-postgres";
+import { SESSION_GENERATION_SCHEMA_MIGRATION_ID } from "../../features/sessions/domain/session-generation";
 import { invitationAttemptSchemaSql } from "../../features/invitation-acceptance/read-model/schema";
 import { notificationOutboxSchemaSql } from "@chase-sets/notification-outbox";
 import { authIdentityProjectionSchemaSql } from "../auth-support/identity-projection";
@@ -17,6 +19,7 @@ CREATE TABLE IF NOT EXISTS identity_sessions (
   status text NOT NULL,
   expires_at timestamptz NOT NULL,
   started_at timestamptz NOT NULL DEFAULT now(),
+  session_generation integer NOT NULL DEFAULT 0,
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 
@@ -25,6 +28,13 @@ CREATE TABLE IF NOT EXISTS identity_sessions (
 -- account-switch/revoke/expire mutations -- see buildSessionProjectionHandlers.
 ALTER TABLE identity_sessions
   ADD COLUMN IF NOT EXISTS started_at timestamptz NOT NULL DEFAULT now();
+
+-- Display copy of the Session Generation a Session started in. The constant
+-- default reads every row projected before the column existed as generation 0
+-- without rewriting it (or its started_at); authSessionGenerationSchemaMigrations
+-- records the same expansion in the schema ledger.
+ALTER TABLE identity_sessions
+  ADD COLUMN IF NOT EXISTS session_generation integer NOT NULL DEFAULT 0;
 
 CREATE TABLE IF NOT EXISTS identity_session_lookup (
   token_hash text PRIMARY KEY,
@@ -191,6 +201,17 @@ ALTER TABLE identity_guest_checkout_claim_tokens
 CREATE UNIQUE INDEX IF NOT EXISTS identity_guest_checkout_claim_tokens_continuation_hash_idx
   ON identity_guest_checkout_claim_tokens (continuation_hash)
   WHERE continuation_hash IS NOT NULL;`;
+
+export const authSessionGenerationSchemaMigrations: readonly BcSchemaMigration[] = [
+  {
+    migrationId: SESSION_GENERATION_SCHEMA_MIGRATION_ID,
+    description: "Project the Session Generation each Auth Session started in; earlier rows read as generation 0.",
+    statements: [
+      "SET lock_timeout = '5s';",
+      "ALTER TABLE identity_sessions ADD COLUMN IF NOT EXISTS session_generation integer NOT NULL DEFAULT 0;",
+    ],
+  },
+];
 
 export const authSchemaSql = [
   eventCorePostgresSchemaSql,

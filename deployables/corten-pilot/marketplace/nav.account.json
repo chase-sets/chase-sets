@@ -1,0 +1,88 @@
+[
+  {
+    "key": "account",
+    "label": "Account",
+    "href": "/account",
+    "order": 200,
+    "visibility": "signed-in",
+    "requiredPermissions": [
+      "accounts.view"
+    ],
+    "requiredPermissionsMatch": "all",
+    "excludedRoleKeys": [
+      "guest-buyer"
+    ],
+    "icon": "user"
+  },
+  {
+    "key": "security",
+    "label": "Security",
+    "href": "/account/security",
+    "order": 220,
+    "visibility": "signed-in",
+    "requiredPermissions": [
+      "security.manage"
+    ],
+    "requiredPermissionsMatch": "all",
+    "excludedRoleKeys": [
+      "guest-buyer"
+    ],
+    "icon": "settings"
+  },
+  {
+    "key": "consents",
+    "label": "Consent History",
+    "href": "/account/consents",
+    "order": 230,
+    "visibility": "signed-in",
+    "requiredPermissions": [],
+    "requiredPermissionsMatch": "all",
+    "excludedRoleKeys": [
+      "guest-buyer"
+    ],
+    "icon": "clock"
+  },
+  {
+    "key": "reviews",
+    "label": "Reviews",
+    "href": "/account/reviews",
+    "order": 250,
+    "visibility": "signed-in",
+    "requiredPermissions": [
+      "reputation.view"
+    ],
+    "requiredPermissionsMatch": "all",
+    "excludedRoleKeys": [
+      "guest-buyer"
+    ],
+    "icon": "star"
+  },
+  {
+    "key": "submitted-offers",
+    "label": "Submitted Offers",
+    "href": "/account/offers/submitted",
+    "order": 240,
+    "visibility": "signed-in",
+    "requiredPermissions": [
+      "offers.view"
+    ],
+    "requiredPermissionsMatch": "all",
+    "excludedRoleKeys": [
+      "guest-buyer"
+    ],
+    "icon": "message"
+  },
+  {
+    "key": "payment-methods",
+    "label": "Payment methods",
+    "href": "/account/payment-methods",
+    "order": 210,
+    "visibility": "signed-in",
+    "requiredPermissions": [],
+    "requiredPermissionsMatch": "all",
+    "excludedRoleKeys": [
+      "guest-buyer"
+    ],
+    "icon": "creditCard"
+  }
+]

@@ -1,12 +1,21 @@
 {
   "contextName": "settlement",
   "packageName": "@chase-sets/settlement",
+  "requiredProofSets": [
+    {
+      "version": 1,
+      "ownerContext": "marketplace",
+      "proofSetId": "marketplace.offer-match-seller-control-fresh-read-forms",
+      "reason": "Settlement checkout risk changes must retain Marketplace seller-control fresh-read proof."
+    }
+  ],
   "localeCatalogs": ["contracts/localization/locales/en/settlement.ts"],
   "ownedNouns": ["wallet", "wallet-adjustment", "payout", "payout-readiness", "ledger-entry"],
   "streamPrefix": "settlement.",
   "apiBasePath": "/api/settlement",
   "slices": [
     "wallets",
+    "seller-checkout-risk",
     "payout-readiness",
     "payouts",
     "money-dashboard",
@@ -729,6 +738,11 @@
     }
   ],
   "directoryIntent": {
+    "seller-checkout-risk": {
+      "classification": "slice",
+      "purpose": "Publish Settlement-owned seller checkout risk reads and their revision-backed authority contract.",
+      "expectedConsumers": ["Internal settlement module composition", "Checkout owner-read adapters"]
+    },
     "wallets": {
       "classification": "slice",
       "purpose": "Own wallets feature behavior, read models, and UI contracts for the settlement context.",

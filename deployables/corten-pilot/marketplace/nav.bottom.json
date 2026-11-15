@@ -1,0 +1,208 @@
+[
+  {
+    "key": "sign-in",
+    "label": "Sign In",
+    "href": "/sign-in",
+    "order": 20,
+    "visibility": "signed-out",
+    "requiredPermissions": [],
+    "requiredPermissionsMatch": "all",
+    "excludedRoleKeys": [],
+    "icon": "user",
+    "placement": "utility",
+    "packingPriority": 350
+  },
+  {
+    "key": "register",
+    "label": "Register",
+    "href": "/register",
+    "order": 30,
+    "visibility": "signed-out",
+    "requiredPermissions": [],
+    "requiredPermissionsMatch": "all",
+    "excludedRoleKeys": [],
+    "icon": "plus",
+    "placement": "utility",
+    "packingPriority": 300
+  },
+  {
+    "key": "cart",
+    "label": "Buy Cart",
+    "href": "/account/cart",
+    "order": 50,
+    "visibility": "always",
+    "requiredPermissions": [],
+    "requiredPermissionsMatch": "all",
+    "excludedRoleKeys": [],
+    "icon": "cart",
+    "placement": "utility",
+    "packingPriority": 650,
+    "badge": {
+      "valueKey": "checkout.cart-count",
+      "max": 99,
+      "hideWhenEmptyForSignedOut": true
+    }
+  },
+  {
+    "key": "search",
+    "label": "Browse",
+    "href": "/search",
+    "order": 10,
+    "visibility": "always",
+    "requiredPermissions": [],
+    "requiredPermissionsMatch": "all",
+    "excludedRoleKeys": [],
+    "icon": "search",
+    "packingPriority": 700
+  },
+  {
+    "key": "account-menu",
+    "label": "Account",
+    "order": 200,
+    "visibility": "signed-in",
+    "requiredPermissions": [
+      "accounts.view"
+    ],
+    "requiredPermissionsMatch": "all",
+    "excludedRoleKeys": [
+      "guest-buyer"
+    ],
+    "icon": "user",
+    "placement": "utility",
+    "packingPriority": 450,
+    "children": [
+      {
+        "key": "account",
+        "label": "Account",
+        "href": "/account",
+        "order": 200,
+        "visibility": "signed-in",
+        "requiredPermissions": [
+          "accounts.view"
+        ],
+        "requiredPermissionsMatch": "all",
+        "excludedRoleKeys": [
+          "guest-buyer"
+        ],
+        "icon": "user",
+        "placement": "utility",
+        "packingPriority": 0
+      },
+      {
+        "key": "reviews",
+        "label": "Reviews",
+        "href": "/account/reviews",
+        "order": 250,
+        "visibility": "signed-in",
+        "requiredPermissions": [
+          "reputation.view",
+          "accounts.view"
+        ],
+        "requiredPermissionsMatch": "all",
+        "excludedRoleKeys": [
+          "guest-buyer"
+        ],
+        "icon": "star",
+        "packingPriority": 0
+      },
+      {
+        "key": "submitted-offers",
+        "label": "Submitted Offers",
+        "href": "/account/offers/submitted",
+        "order": 240,
+        "visibility": "signed-in",
+        "requiredPermissions": [
+          "offers.view",
+          "accounts.view"
+        ],
+        "requiredPermissionsMatch": "all",
+        "excludedRoleKeys": [
+          "guest-buyer"
+        ],
+        "icon": "message",
+        "packingPriority": 0
+      }
+    ]
+  },
+  {
+    "key": "selling-workspace",
+    "label": "Sell",
+    "order": 170,
+    "visibility": "signed-in",
+    "requiredPermissions": [],
+    "requiredPermissionsMatch": "all",
+    "excludedRoleKeys": [
+      "guest-buyer"
+    ],
+    "icon": "store",
+    "packingPriority": 550,
+    "children": [
+      {
+        "key": "sale-shipments",
+        "label": "Shipping",
+        "href": "/account/sales/shipments",
+        "order": 195,
+        "visibility": "signed-in",
+        "requiredPermissions": [
+          "fulfillment.view"
+        ],
+        "requiredPermissionsMatch": "all",
+        "excludedRoleKeys": [
+          "guest-buyer"
+        ],
+        "icon": "truck",
+        "packingPriority": 0
+      },
+      {
+        "key": "sales",
+        "label": "Sales",
+        "href": "/account/sales",
+        "order": 190,
+        "visibility": "signed-in",
+        "requiredPermissions": [
+          "orders.view",
+          "listings.view"
+        ],
+        "requiredPermissionsMatch": "all",
+        "excludedRoleKeys": [
+          "guest-buyer"
+        ],
+        "icon": "dollar",
+        "packingPriority": 0
+      }
+    ]
+  },
+  {
+    "key": "notifications",
+    "label": "Alerts",
+    "href": "/account/notifications",
+    "order": 90,
+    "visibility": "signed-in",
+    "requiredPermissions": [
+      "accounts.view"
+    ],
+    "requiredPermissionsMatch": "all",
+    "excludedRoleKeys": [
+      "guest-buyer"
+    ],
+    "icon": "bell",
+    "placement": "utility",
+    "packingPriority": 600
+  },
+  {
+    "key": "purchases",
+    "label": "Purchases",
+    "href": "/account/purchases",
+    "order": 80,
+    "visibility": "signed-in",
+    "requiredPermissions": [
+      "orders.view"
+    ],
+    "requiredPermissionsMatch": "all",
+    "excludedRoleKeys": [
+      "guest-buyer"
+    ],
+    "icon": "bag",
+    "packingPriority": 400
+  }
+]

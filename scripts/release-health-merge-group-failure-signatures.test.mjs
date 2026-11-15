@@ -654,7 +654,13 @@ describe("GitHub event evaluation", () => {
       }
       if (parsed.pathname.endsWith("/issues") && request.method === "POST") {
         issueBody = JSON.parse(request.body).body;
-        return response({ number: 6000, state: "open", title: "created", body: issueBody });
+        return response({
+          number: 6000,
+          state: "open",
+          title: "created",
+          body: issueBody,
+          type: { name: "Bug", is_enabled: true },
+        });
       }
       if (parsed.pathname.endsWith("/issues/6000") && request.method === "PATCH") {
         issueBody = JSON.parse(request.body).body;
@@ -826,7 +832,13 @@ describe("GitHub event evaluation", () => {
       if (parsed.pathname.endsWith("/issues") && request.method === "POST") {
         const body = JSON.parse(request.body).body;
         issueBodies.set(6001, body);
-        return response({ number: 6001, state: "open", title: "created", body });
+        return response({
+          number: 6001,
+          state: "open",
+          title: "created",
+          body,
+          type: { name: "Bug", is_enabled: true },
+        });
       }
       const issueMatch = parsed.pathname.match(/\/issues\/(5309|6001)$/);
       if (issueMatch && request.method === "PATCH") {
@@ -1039,7 +1051,12 @@ describe("GitHub event evaluation", () => {
       if (parsed.pathname.endsWith("/actions/jobs/456/logs")) return response(log);
       if (parsed.pathname.endsWith("/issues") && request.method === "POST") {
         created = true;
-        return response({ number: 6000, state: "open", body: JSON.parse(request.body).body });
+        return response({
+          number: 6000,
+          state: "open",
+          body: JSON.parse(request.body).body,
+          type: { name: "Bug", is_enabled: true },
+        });
       }
       if (parsed.pathname.endsWith("/issues/5309") && request.method === "PATCH") {
         patchedBody = JSON.parse(request.body).body;

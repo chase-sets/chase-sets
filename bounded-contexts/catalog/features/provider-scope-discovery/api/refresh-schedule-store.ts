@@ -192,21 +192,27 @@ export async function recordProviderRefreshRun(
 
 // Upsert one scan's worth of option evidence for a provider. Returns every
 // written record with `newlyObserved` marking first sight and `changed`
-// marking the hash delta the mapping matcher consumes.
+// marking the hash delta the mapping matcher consumes. `preserveRawIdentity`
+// keeps provider text (external id, label, parents, image URL) byte-for-byte
+// for producers whose identity is exact, such as operator-extension posts.
 export async function upsertProviderScopeObservations(
   db: PgQueryable,
   input: Readonly<{
     scanId: string;
     scannedAt?: Date;
     observations: readonly ProviderScopeObservationInput[];
+    preserveRawIdentity?: boolean;
   }>,
 ): Promise<readonly ProviderScopeObservationRecord[]> {
   const scannedAt = (input.scannedAt ?? new Date()).toISOString();
   const written: ProviderScopeObservationRecord[] = [];
+  const normalize = input.preserveRawIdentity
+    ? normalizeProviderScopeObservationKeys
+    : normalizeProviderScopeObservation;
 
   for (const observation of input.observations) {
-    const normalized = normalizeProviderScopeObservation(observation);
-    const observationHash = hashProviderScopeObservation(normalized);
+    const normalized = normalize(observation);
+    const observationHash = hashNormalizedProviderScopeObservation(normalized);
     const result = await db.query<{
       first_observed_at: string | Date;
       inserted: boolean;
@@ -347,7 +353,10 @@ export async function listProviderScopeObservations(
 }
 
 export function hashProviderScopeObservation(input: ProviderScopeObservationInput): string {
-  const normalized = normalizeProviderScopeObservation(input);
+  return hashNormalizedProviderScopeObservation(normalizeProviderScopeObservation(input));
+}
+
+function hashNormalizedProviderScopeObservation(normalized: ProviderScopeObservationInput): string {
   return createHash("sha256")
     .update(
       JSON.stringify({
@@ -363,6 +372,22 @@ export function hashProviderScopeObservation(input: ProviderScopeObservationInpu
       }),
     )
     .digest("hex");
+}
+
+// Normalizes only Chase Sets-owned keys; provider text and metadata values stay exact.
+function normalizeProviderScopeObservationKeys(input: ProviderScopeObservationInput): ProviderScopeObservationInput {
+  return {
+    providerKey: input.providerKey.trim().toLowerCase(),
+    unitKey: input.unitKey.trim().toLowerCase(),
+    scopeKind: input.scopeKind,
+    sourceQueryKind: input.sourceQueryKind.trim().toLowerCase(),
+    languageCode: input.languageCode.trim().toLowerCase(),
+    externalId: input.externalId,
+    label: input.label,
+    parents: [...input.parents],
+    imageUrl: input.imageUrl,
+    metadata: normalizeJsonValue(input.metadata) as JsonObject,
+  };
 }
 
 function normalizeProviderScopeObservation(input: ProviderScopeObservationInput): ProviderScopeObservationInput {

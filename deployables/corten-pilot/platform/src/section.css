@@ -1,0 +1,53 @@
+.part {
+  display: grid;
+  gap: var(--space-3);
+  margin-block: var(--space-6);
+}
+.title {
+  margin: 0;
+  font: 600 1.125rem/1.4 var(--font-display);
+}
+.card {
+  background: var(--color-surface-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-5);
+}
+.header {
+  display: grid;
+  gap: var(--space-1);
+  margin-block-end: var(--space-5);
+}
+.header h1 {
+  margin: 0;
+  font: 600 1.875rem/1.2 var(--font-display);
+  /* An id in a title (a reported target's, say) wraps instead of widening a phone's page. */
+  overflow-wrap: anywhere;
+}
+.eyebrow {
+  margin: 0;
+  color: var(--color-primary);
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.description {
+  margin: 0;
+  color: var(--color-text-secondary);
+  max-width: 48rem;
+}
+.info {
+  display: grid;
+  gap: var(--space-1);
+  padding: var(--space-4);
+  border: 1px solid var(--color-info);
+  border-radius: var(--radius-lg);
+  background: var(--color-info-soft);
+}
+.info p {
+  margin: 0;
+}
+.info-title {
+  font-weight: 600;
+}

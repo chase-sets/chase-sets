@@ -1,6 +1,7 @@
 import { expect, it } from "vitest";
 import { escapeLikePattern } from "@chase-sets/event-core-postgres";
 import { module as marketplaceModule } from "@chase-sets/marketplace";
+import { hashMarketplaceRequest } from "@chase-sets/marketplace/server";
 import { createMarketplaceSeedRuntime, describeWithMarketplaceSeedDatabase, useMarketplaceSeedRuntime } from "../index";
 
 const seedIds = {
@@ -207,7 +208,7 @@ describeWithMarketplaceSeedDatabase("marketplace development seed", () => {
     const knownUpdates = await pools.marketplace.query<{ event_id: string }>(
       "SELECT event_id FROM event_store_events WHERE event_type = 'marketplace.listing.price-updated'",
     );
-    const { counted, counter } = countOwnerCalls(
+    const { counted, counter, updates } = countOwnerCalls(
       createMarketplaceSeedRuntime(pools).services.marketplace as MarketplaceSeedServices,
     );
     await marketplaceModule.seed!(pools.marketplace, counted);
@@ -219,6 +220,19 @@ describeWithMarketplaceSeedDatabase("marketplace development seed", () => {
     );
     expect(Number(after.rows[0]?.count ?? 0) - Number(before.rows[0]?.count ?? 0)).toBe(22);
     expect(counter.calls).toBe(3);
+    expect(updates).toHaveLength(22);
+    const expectedEventIds = new Map<string, string>();
+    for (const update of updates) {
+      expect(update.idempotencyKey).toBe(`seed_listing_denomination_${update.listingId}`);
+      expect(update.expectedVersion).toBe(versionsBefore.get(listingStream(update.listingId)));
+      const fingerprint = hashMarketplaceRequest([
+        update.accountId,
+        "listing.update-price",
+        { kind: "listing", id: update.listingId },
+        update.idempotencyKey,
+      ]);
+      expectedEventIds.set(listingStream(update.listingId), `mla_${fingerprint}:0`);
+    }
     const known = new Set(knownUpdates.rows.map((row) => row.event_id));
     const appended = (
       await pools.marketplace.query<{ stream_id: string; stream_version: string; event_id: string }>(
@@ -230,11 +244,10 @@ describeWithMarketplaceSeedDatabase("marketplace development seed", () => {
     expect(new Set(appended.map((row) => row.stream_id)).size).toBe(22);
     const versionsAfter = await readListingStreamVersions(pools.marketplace);
     for (const row of appended) {
-      const listingId = row.stream_id.slice("marketplace.listing-".length);
       const prior = versionsBefore.get(row.stream_id)!;
       expect(Number(row.stream_version)).toBe(prior + 1);
       expect(versionsAfter.get(row.stream_id)).toBe(prior + 1);
-      expect(row.event_id).toMatch(new RegExp(`^seed:listing-denomination:${listingId}(:\\d+)?$`));
+      expect(row.event_id).toBe(expectedEventIds.get(row.stream_id));
     }
     const withdrawnStreamId = listingStream(marketplaceReservedSeedIds.listings.surgingSparksWithdrawn);
     expect(versionsAfter.get(withdrawnStreamId)).toBe(versionsBefore.get(withdrawnStreamId));
@@ -394,33 +407,48 @@ describeWithMarketplaceSeedDatabase("marketplace development seed", () => {
     await runMarketplaceSeed(pools);
     const listingId = marketplaceReservedSeedIds.listings.pikachuJunglePremiumCopy;
     const streamId = listingStream(listingId);
+    const original = await snapshotListingStream(pools.marketplace, streamId);
     const published = await readSingleEvent(pools.marketplace, streamId, "marketplace.listing.published");
-    await setEventAtVersion(pools.marketplace, streamId, published.stream_version, "marketplace.listing.photos-added", {
-      evidence: [],
-    });
-    const draft = await marketplaceModule.inspectSeedState!(pools.marketplace);
-    expect(draft.find((report) => report.id === listingId)).toMatchObject({ kind: "draft", status: "draft" });
-    const streamUpdatesBefore = await countListingEvents(
-      pools.marketplace,
-      streamId,
-      "marketplace.listing.price-updated",
-    );
-    const updatesBefore = await countListingEvents(pools.marketplace, "%", "marketplace.listing.price-updated", true);
+    try {
+      await setEventAtVersion(
+        pools.marketplace,
+        streamId,
+        published.stream_version,
+        "marketplace.listing.photos-added",
+        {
+          evidence: [],
+        },
+      );
+      const draft = await marketplaceModule.inspectSeedState!(pools.marketplace);
+      expect(draft.find((report) => report.id === listingId)).toMatchObject({ kind: "draft", status: "draft" });
+      const streamUpdatesBefore = await countListingEvents(
+        pools.marketplace,
+        streamId,
+        "marketplace.listing.price-updated",
+      );
+      const updatesBefore = await countListingEvents(pools.marketplace, "%", "marketplace.listing.price-updated", true);
 
-    await runMarketplaceSeed(pools);
+      await runMarketplaceSeed(pools);
 
-    await expect(countListingEvents(pools.marketplace, streamId, "marketplace.listing.price-updated")).resolves.toBe(
-      streamUpdatesBefore,
-    );
-    await expect(countListingEvents(pools.marketplace, "%", "marketplace.listing.price-updated", true)).resolves.toBe(
-      updatesBefore,
-    );
-    await expect(countListingEvents(pools.marketplace, streamId, "marketplace.listing.published")).resolves.toBe(1);
-    const reports = await marketplaceModule.inspectSeedState!(pools.marketplace);
-    expect(reports.find((report) => report.id === listingId)).toMatchObject({ kind: "active", status: "active" });
-    const eventsAfter = await countStreamEvents(pools.marketplace, streamId);
-    await runMarketplaceSeed(pools);
-    await expect(countStreamEvents(pools.marketplace, streamId)).resolves.toBe(eventsAfter);
+      await expect(countListingEvents(pools.marketplace, streamId, "marketplace.listing.price-updated")).resolves.toBe(
+        streamUpdatesBefore,
+      );
+      await expect(countListingEvents(pools.marketplace, "%", "marketplace.listing.price-updated", true)).resolves.toBe(
+        updatesBefore,
+      );
+      await expect(countListingEvents(pools.marketplace, streamId, "marketplace.listing.published")).resolves.toBe(1);
+      const reports = await marketplaceModule.inspectSeedState!(pools.marketplace);
+      expect(reports.find((report) => report.id === listingId)).toMatchObject({ kind: "active", status: "active" });
+      const eventsAfter = await countStreamEvents(pools.marketplace, streamId);
+      await runMarketplaceSeed(pools);
+      await expect(countStreamEvents(pools.marketplace, streamId)).resolves.toBe(eventsAfter);
+    } finally {
+      const restored = await restoreListingStream(pools.marketplace, original);
+      expect(restored.events.find((event) => event.stream_version === Number(published.stream_version))).toMatchObject({
+        event_type: "marketplace.listing.published",
+        payload: published.payload,
+      });
+    }
   }, 300_000);
 
   it("reconciles a legacy active draft to exact and authors it in one real-DB seed", async () => {
@@ -492,7 +520,8 @@ describeWithMarketplaceSeedDatabase("marketplace development seed", () => {
     const withdrawnId = marketplaceReservedSeedIds.listings.surgingSparksWithdrawn;
     const withdrawnStream = listingStream(withdrawnId);
     await resetListingStream(pools, withdrawnStream);
-    const withdrawnPayload = await readCreatedPayload(pools.marketplace, withdrawnStream);
+    const original = await snapshotListingStream(pools.marketplace, withdrawnStream);
+    expect(original.events.at(-1)).toMatchObject({ event_type: "marketplace.listing.withdrawn" });
     try {
       await stripCreatedCurrency(pools.marketplace, withdrawnStream);
       await deleteLatestEvent(pools, withdrawnStream, "marketplace.listing.withdrawn");
@@ -522,7 +551,9 @@ describeWithMarketplaceSeedDatabase("marketplace development seed", () => {
         status: "withdrawn",
       });
     } finally {
-      await restoreCreatedPayload(pools.marketplace, withdrawnStream, withdrawnPayload);
+      const restored = await restoreListingStream(pools.marketplace, original);
+      expect(restored.events.at(-1)).toEqual(original.events.at(-1));
+      expect(restored.stream.current_version).toBe(original.stream.current_version);
     }
   }, 300_000);
 
@@ -548,65 +579,80 @@ describeWithMarketplaceSeedDatabase("marketplace development seed", () => {
   it("converges after an interruption between owner calls, in the same boot and a second boot", async () => {
     const { pools } = seedRuntime;
     await runMarketplaceSeed(pools);
-    const later = await pools.marketplace.query<{ stream_id: string; payload: unknown }>(
-      `SELECT stream_id, payload FROM event_store_events
+    const later = await pools.marketplace.query<{ stream_id: string; account_id: string }>(
+      `SELECT stream_id, payload->>'accountId' AS account_id FROM event_store_events
        WHERE event_type = 'marketplace.listing.created'
          AND stream_id LIKE 'marketplace.listing-lst\\_seed\\_%'
-         AND payload->>'accountId' <> $1`,
+         AND payload->>'accountId' <> $1 ORDER BY stream_id`,
       [seedIds.demoAccountId],
     );
     expect(later.rows).toHaveLength(10);
+    const cardVaultAccountId = (
+      (await readCreatedPayload(
+        pools.marketplace,
+        listingStream(marketplaceReservedSeedIds.listings.cardVaultCharizardNearMint),
+      )) as { accountId: string }
+    ).accountId;
+    const cardVault = later.rows.filter((row) => row.account_id === cardVaultAccountId);
+    const sealed = later.rows.filter((row) => row.account_id !== cardVaultAccountId);
+    expect(cardVault).toHaveLength(7);
+    expect(sealed).toHaveLength(3);
+    const idOf = (streamId: string) => streamId.slice("marketplace.listing-".length);
+    const updatesOn = (rows: typeof later.rows) =>
+      Promise.all(
+        rows.map((row) => countListingEvents(pools.marketplace, row.stream_id, "marketplace.listing.price-updated")),
+      );
+    const kinds = async () => {
+      const reports = await marketplaceModule.inspectSeedState!(pools.marketplace);
+      return later.rows.map((row) => reports.find((report) => report.id === idOf(row.stream_id))?.kind);
+    };
+    const snapshots = await Promise.all(
+      later.rows.map((row) => snapshotListingStream(pools.marketplace, row.stream_id)),
+    );
     try {
       for (const row of later.rows) await stripCreatedCurrency(pools.marketplace, row.stream_id);
+      expect(await kinds()).toEqual(later.rows.map(() => "draft"));
       const updatesBefore = await countListingEvents(pools.marketplace, "%", "marketplace.listing.price-updated", true);
-      const perStreamBefore = await Promise.all(
-        later.rows.map((row) =>
-          countListingEvents(pools.marketplace, row.stream_id, "marketplace.listing.price-updated"),
-        ),
-      );
-      const { counted, counter } = countOwnerCalls(
+      const cardVaultBefore = await updatesOn(cardVault);
+      const sealedBefore = await updatesOn(sealed);
+      const interrupted = countOwnerCalls(
         createMarketplaceSeedRuntime(pools).services.marketplace as MarketplaceSeedServices,
+        { interruptAtCall: 2 },
       );
-      const original = counted.listings.applyBulkListingPriceUpdates;
-      let completed = 0;
-      const interrupted = {
-        ...counted,
-        listings: {
-          ...counted.listings,
-          applyBulkListingPriceUpdates: async (...args: Parameters<typeof original>) => {
-            const result = await original(...args);
-            completed += 1;
-            if (completed === 1) throw new Error("synthetic interruption between owner calls");
-            return result;
-          },
-        },
-      } as typeof counted;
-      await expect(marketplaceModule.seed!(pools.marketplace, interrupted)).rejects.toThrow(
-        "synthetic interruption between owner calls",
+      const failure: unknown = await marketplaceModule.seed!(pools.marketplace, interrupted.counted).then(
+        () => undefined,
+        (error: unknown) => error,
       );
-      expect(counter.calls).toBe(1);
-      expect(completed).toBe(1);
+      expect(failure).toBeInstanceOf(Error);
+      const message = (failure as Error).message;
+      expect(message).toMatch(
+        new RegExp(`reconciliation failed; .*owner call did not apply: ${syntheticInterruption}; listing states: `),
+      );
+      for (const row of sealed) expect(message).toMatch(new RegExp(`${idOf(row.stream_id)} version \\d+ not-applied`));
+      expect(interrupted.counter).toEqual({ calls: 2, completed: 1 });
+      expect(await updatesOn(cardVault)).toEqual(cardVaultBefore.map((count) => count + 1));
+      expect(await updatesOn(sealed)).toEqual(sealedBefore);
       await expect(countListingEvents(pools.marketplace, "%", "marketplace.listing.price-updated", true)).resolves.toBe(
         updatesBefore + 7,
       );
-      await marketplaceModule.seed!(pools.marketplace, interrupted);
-      expect(counter.calls).toBe(2);
+      const recovered = countOwnerCalls(
+        createMarketplaceSeedRuntime(pools).services.marketplace as MarketplaceSeedServices,
+      );
+      await marketplaceModule.seed!(pools.marketplace, recovered.counted);
+      expect(recovered.counter).toEqual({ calls: 1, completed: 1 });
+      expect(await updatesOn(cardVault)).toEqual(cardVaultBefore.map((count) => count + 1));
+      expect(await updatesOn(sealed)).toEqual(sealedBefore.map((count) => count + 1));
       await expect(countListingEvents(pools.marketplace, "%", "marketplace.listing.price-updated", true)).resolves.toBe(
         updatesBefore + 10,
       );
-      for (const [index, row] of later.rows.entries()) {
-        await expect(
-          countListingEvents(pools.marketplace, row.stream_id, "marketplace.listing.price-updated"),
-        ).resolves.toBe(perStreamBefore[index]! + 1);
-      }
-      await marketplaceModule.seed!(pools.marketplace, interrupted);
-      expect(counter.calls).toBe(2);
+      expect(await kinds()).toEqual(later.rows.map(() => "active"));
+      const eventsConverged = await countStreamEvents(pools.marketplace, "marketplace.%");
+      await marketplaceModule.seed!(pools.marketplace, recovered.counted);
+      expect(recovered.counter).toEqual({ calls: 1, completed: 1 });
       await runMarketplaceSeed(pools);
-      await expect(countListingEvents(pools.marketplace, "%", "marketplace.listing.price-updated", true)).resolves.toBe(
-        updatesBefore + 10,
-      );
+      await expect(countStreamEvents(pools.marketplace, "marketplace.%")).resolves.toBe(eventsConverged);
     } finally {
-      for (const row of later.rows) await restoreCreatedPayload(pools.marketplace, row.stream_id, row.payload);
+      for (const snapshot of snapshots) await restoreListingStream(pools.marketplace, snapshot);
     }
   }, 300_000);
 
@@ -636,7 +682,7 @@ describeWithMarketplaceSeedDatabase("marketplace development seed", () => {
             await original(
               {
                 ...args[0],
-                updates: [{ ...args[0].updates[0]!, idempotencyKey: "owner-write:marketplace-seed" }],
+                updates: [{ ...args[0].updates[0]!, idempotencyKey: "owner_write_marketplace_seed" }],
               },
               args[1],
             );
@@ -700,20 +746,74 @@ describeWithMarketplaceSeedDatabase("marketplace development seed", () => {
 
 const listingStream = (listingId: string) => `marketplace.listing-${listingId}`;
 
-function countOwnerCalls(services: MarketplaceSeedServices) {
+const syntheticInterruption = "synthetic interruption between owner calls";
+
+function countOwnerCalls(services: MarketplaceSeedServices, options: { interruptAtCall?: number } = {}) {
   const original = services.listings.applyBulkListingPriceUpdates;
-  const counter = { calls: 0 };
+  const counter = { calls: 0, completed: 0 };
+  const updates: (Parameters<typeof original>[0]["updates"][number] & { accountId: string })[] = [];
   const counted = {
     ...services,
     listings: {
       ...services.listings,
       applyBulkListingPriceUpdates: async (...args: Parameters<typeof original>) => {
         counter.calls += 1;
-        return original(...args);
+        if (counter.calls === options.interruptAtCall) throw new Error(syntheticInterruption);
+        updates.push(...args[0].updates.map((update) => ({ ...update, accountId: args[0].accountId })));
+        const outcomes = await original(...args);
+        counter.completed += 1;
+        return outcomes;
       },
     },
   } as typeof services;
-  return { counted, counter };
+  return { counted, counter, updates };
+}
+
+type ListingStreamSnapshot = {
+  streamId: string;
+  stream: { current_version: number } & Record<string, unknown>;
+  events: Array<{ stream_version: number; event_type: string; payload: unknown } & Record<string, unknown>>;
+};
+
+async function snapshotListingStream(
+  pool: ReturnType<typeof useMarketplaceSeedRuntime>["pools"]["marketplace"],
+  streamId: string,
+): Promise<ListingStreamSnapshot> {
+  const stream = await pool.query<{ row: ListingStreamSnapshot["stream"] }>(
+    "SELECT to_jsonb(streams) AS row FROM event_store_streams AS streams WHERE stream_id = $1",
+    [streamId],
+  );
+  const events = await pool.query<{ row: ListingStreamSnapshot["events"][number] }>(
+    `SELECT to_jsonb(events) AS row FROM event_store_events AS events
+     WHERE stream_id = $1 ORDER BY stream_version`,
+    [streamId],
+  );
+  expect(stream.rows).toHaveLength(1);
+  expect(events.rows.length).toBeGreaterThan(0);
+  expect(stream.rows[0]!.row.current_version).toBe(events.rows.at(-1)!.row.stream_version);
+  return { streamId, stream: stream.rows[0]!.row, events: events.rows.map((row) => row.row) };
+}
+
+async function restoreListingStream(
+  pool: ReturnType<typeof useMarketplaceSeedRuntime>["pools"]["marketplace"],
+  snapshot: ListingStreamSnapshot,
+) {
+  await pool.query("DELETE FROM event_store_events WHERE stream_id = $1", [snapshot.streamId]);
+  await pool.query(
+    `INSERT INTO event_store_streams
+     SELECT * FROM jsonb_populate_record(NULL::event_store_streams, $1::jsonb)
+     ON CONFLICT (stream_id) DO UPDATE
+     SET current_version = EXCLUDED.current_version, updated_at = EXCLUDED.updated_at`,
+    [JSON.stringify(snapshot.stream)],
+  );
+  await pool.query(
+    `INSERT INTO event_store_events
+     SELECT * FROM jsonb_populate_recordset(NULL::event_store_events, $1::jsonb)`,
+    [JSON.stringify(snapshot.events)],
+  );
+  const restored = await snapshotListingStream(pool, snapshot.streamId);
+  expect(restored).toEqual(snapshot);
+  return restored;
 }
 
 async function readSingleEvent(

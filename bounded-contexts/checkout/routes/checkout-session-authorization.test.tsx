@@ -183,7 +183,12 @@ function checkoutSession(sourceType: "cart" | "buy-now" = "buy-now"): CheckoutSe
   };
 }
 
-const signedInActor = { accountId: "acc_buyer", roleKey: "owner", permissions: ["orders.view", "payouts.view"] };
+// An owner who may pay: Auth grants orders.manage once the email is verified (#10785).
+const signedInActor = {
+  accountId: "acc_buyer",
+  roleKey: "owner",
+  permissions: ["orders.view", "orders.manage", "payouts.view"],
+};
 const savedInstrument = {
   instrument_id: "sci_card_1",
   payment_method_category: "card",

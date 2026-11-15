@@ -52,12 +52,12 @@
             "scopeRecordId": "scope-synthetic-op01",
             "mappingVersions": [
               {
-                "version": "2026-10-13T07:00:00.000Z",
+                "version": "2026-10-13T07:00:00.000000Z",
                 "mappingId": "mapping-synthetic-sealed",
                 "reviewStatus": "accepted"
               },
               {
-                "version": "2026-10-13T07:00:00.000Z",
+                "version": "2026-10-13T07:00:00.000000Z",
                 "mappingId": "mapping-synthetic-cards",
                 "reviewStatus": "accepted"
               }
@@ -171,12 +171,12 @@
             "mappingVersions": [
               {
                 "mappingId": "mapping-synthetic-sealed",
-                "version": "2026-10-13T07:00:00.000Z",
+                "version": "2026-10-13T07:00:00.000000Z",
                 "reviewStatus": "accepted"
               },
               {
                 "mappingId": "mapping-synthetic-cards",
-                "version": "2026-10-13T07:00:00.000Z",
+                "version": "2026-10-13T07:00:00.000000Z",
                 "reviewStatus": "accepted"
               }
             ],
@@ -279,12 +279,12 @@
             "mappingVersions": [
               {
                 "mappingId": "mapping-synthetic-sealed",
-                "version": "2026-10-13T07:30:00.000Z",
+                "version": "2026-10-13T07:30:00.000000Z",
                 "reviewStatus": "accepted"
               },
               {
                 "mappingId": "mapping-synthetic-cards",
-                "version": "2026-10-13T07:00:00.000Z",
+                "version": "2026-10-13T07:00:00.000000Z",
                 "reviewStatus": "accepted"
               }
             ],
@@ -382,12 +382,12 @@
             "scopeRecordId": "scope-synthetic-op01",
             "mappingVersions": [
               {
-                "version": "2026-10-13T07:00:00.000Z",
+                "version": "2026-10-13T07:00:00.000000Z",
                 "mappingId": "mapping-synthetic-sealed",
                 "reviewStatus": "accepted"
               },
               {
-                "version": "2026-10-13T07:00:00.000Z",
+                "version": "2026-10-13T07:00:00.000000Z",
                 "mappingId": "mapping-synthetic-cards",
                 "reviewStatus": "accepted"
               }

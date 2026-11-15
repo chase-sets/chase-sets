@@ -21,7 +21,7 @@ type ObservationRow = Readonly<{
 
 type MappingRow = Readonly<{
   unit_key: string;
-  set_id: string;
+  set_coordinate: string;
   scope_record_id: string;
   review_status: string;
   product_domain: HeldSetResolution["resolved"][number]["productDomain"] | null;
@@ -73,7 +73,7 @@ export async function resolveHeldSetExport(db: PgQueryable, bytes: Uint8Array): 
   const mappingRows = await loadMappings(db, locatedPairs);
   const mappingsByObservation = new Map<string, MappingRow[]>();
   for (const mapping of mappingRows) {
-    const key = mappingKey(mapping.unit_key, mapping.set_id);
+    const key = mappingKey(mapping.unit_key, mapping.set_coordinate);
     mappingsByObservation.set(key, [...(mappingsByObservation.get(key) ?? []), mapping]);
   }
 
@@ -157,7 +157,7 @@ async function loadMappings(db: PgQueryable, pairs: readonly LocatedPair[]): Pro
   const result = await db.query<MappingRow>(
     `SELECT
        m.unit_key,
-       m.set_id,
+       COALESCE(m.set_name, m.set_id) AS set_coordinate,
        m.scope_record_id,
        m.review_status,
        r.product_domain,
@@ -166,8 +166,8 @@ async function loadMappings(db: PgQueryable, pairs: readonly LocatedPair[]): Pro
      LEFT JOIN catalog_scope_records r ON r.scope_record_id = m.scope_record_id
      WHERE m.provider_key = 'tcgplayer'
        AND m.unit_key = ANY($1::text[])
-       AND m.set_id = ANY($2::text[])
-     ORDER BY m.unit_key ASC, m.set_id ASC, m.scope_record_id ASC, m.mapping_id ASC`,
+       AND COALESCE(m.set_name, m.set_id) = ANY($2::text[])
+     ORDER BY m.unit_key ASC, set_coordinate ASC, m.scope_record_id ASC, m.mapping_id ASC`,
     [unitKeys, externalIds],
   );
   return result.rows;

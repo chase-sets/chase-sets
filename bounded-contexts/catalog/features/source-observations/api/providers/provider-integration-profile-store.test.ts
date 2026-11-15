@@ -250,6 +250,40 @@ describe("catalog provider integration profile version store", () => {
     });
   });
 
+  it("lets a write guard see the persisted row under the provider lock and refuse before any write", async () => {
+    const db = new InMemoryProfileVersionDb();
+    const store = createCatalogProviderIntegrationProfileVersionStore(db);
+    await store.upsertProfileVersion(tcgdexVersion("2026.06.04", "active", true));
+    const seen: (string | null)[] = [];
+    const refusal = new Error("immutable");
+    db.statements.length = 0;
+
+    await expect(
+      store.upsertProfileVersion(tcgdexVersion("2026.06.04", "draft", false), (persisted) => {
+        seen.push(persisted?.lifecycle ?? null);
+        throw refusal;
+      }),
+    ).rejects.toBe(refusal);
+
+    expect(seen).toEqual(["active"]);
+    const lock = db.statements.findIndex((sql) => sql.includes("pg_advisory_xact_lock"));
+    const read = db.statements.findIndex((sql) => sql.includes("profile_key = $2 AND profile_version = $3"));
+    expect(lock).toBeGreaterThanOrEqual(0);
+    expect(read).toBeGreaterThan(lock);
+    expect(db.statements.some((sql) => sql.includes("INSERT INTO"))).toBe(false);
+    expect(db.statements).toContain("ROLLBACK");
+    await expect(store.getProfileVersion("tcgdex", "2026.06.04")).resolves.toMatchObject({
+      lifecycle: "active",
+      active: true,
+    });
+
+    const fresh: (string | null)[] = [];
+    await store.upsertProfileVersion(tcgdexVersion("2026.06.05", "draft", false), (persisted) => {
+      fresh.push(persisted?.lifecycle ?? null);
+    });
+    expect(fresh).toEqual([null]);
+  });
+
   it("refreshes section projections after canonical profile version writes", async () => {
     const db = new InMemoryProfileVersionDb();
     const store = createCatalogProviderIntegrationProfileVersionStore(db);
@@ -498,6 +532,11 @@ class InMemoryProfileVersionDb {
       const row = rowFromInsertParams(params);
       this.rows.set(rowKey(row), row);
       return { rows: [row as T] };
+    }
+
+    if (sql.includes("WHERE provider_key = $1 AND profile_key = $2 AND profile_version = $3")) {
+      const row = this.rows.get(`${String(params[0])}:${String(params[1])}:${String(params[2])}`);
+      return { rows: (row ? [row] : []) as T[] };
     }
 
     if (sql.includes("WHERE provider_key = $1 AND profile_version = $2")) {

@@ -122,7 +122,13 @@ describeDb("Inventory snapshot PostgreSQL compatibility", () => {
     const response = await routes.request("/account/listings", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ priceAmount: "10.00", priceCurrencyCode: "USD", quantityCap: 1, inventorySnapshot }),
+      body: JSON.stringify({
+        priceAmount: "10.00",
+        priceCurrencyCode: "USD",
+        quantityCap: 1,
+        idempotencyKey: "inventory_snapshot_attempt_0000000000000001",
+        inventorySnapshot,
+      }),
     });
     return { response, services };
   }

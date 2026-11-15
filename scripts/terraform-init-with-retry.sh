@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Opt-in callers share Terraform's lock-verified plugin cache.
+if [ -n "${TF_PLUGIN_CACHE_DIR:-}" ]; then
+  mkdir -p "$TF_PLUGIN_CACHE_DIR"
+fi
+
 attempts="${TERRAFORM_INIT_RETRY_ATTEMPTS:-5}"
 base_delay_seconds="${TERRAFORM_INIT_RETRY_DELAY_SECONDS:-20}"
 attempt=1

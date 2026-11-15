@@ -109,7 +109,22 @@ export async function action({
       const reviewedLines = reviewedLinesForConfirmation(state.lines, state.readiness, reviewPlan);
       const marketplaceApi = createMarketplaceRequestApiClient(request);
       const sellerEvidence = buildSellerEvidence(values, state.payoutSummary);
-      const sellerReadiness = await api.createSellListReadiness({ ...readinessDecisions, sellerEvidence });
+      const choices = {
+        shipFrom:
+          values.shipFromAddressId === "__manual"
+            ? {
+                name: values.shipFromName,
+                line1: values.shipFromLine1,
+                line2: values.shipFromLine2 || null,
+                city: values.shipFromCity,
+                state: values.shipFromState,
+                postalCode: values.shipFromPostalCode,
+                country: values.shipFromCountry,
+              }
+            : { addressId: values.shipFromAddressId },
+        label: { preference: sellerEvidence.label.preference },
+      };
+      const sellerReadiness = await api.createSellListReadiness({ ...readinessDecisions, ...choices, sellerEvidence });
       if (
         sellerReadiness.readiness.status !== "ready" ||
         sellerReadiness.readiness.unresolvedLineIds.length > 0 ||
@@ -125,6 +140,7 @@ export async function action({
         readinessDecisions,
         completedLineIds: marketplaceHandoff.completedLineIds,
         remainingLineQuantities: marketplaceHandoff.remainingLineQuantities,
+        ...choices,
         sellerEvidence,
         handoffSummary: marketplaceHandoff.summary,
       });
