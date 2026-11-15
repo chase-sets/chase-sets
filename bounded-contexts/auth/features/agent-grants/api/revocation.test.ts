@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { resumeAgentGrantRevocation } from "./revocation";
 import type { AgentGrantRevocations, RevocationState } from "@chase-sets/identity/server";
-import type { PaymentServices } from "@chase-sets/payments/server";
+import type { RevokeAgentGrantPaymentInstruments } from "./payment-instrument-revocation";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 
 const context: EventStoreContext = {
@@ -98,7 +98,7 @@ describe("agent-grant-revocation-stage-recovery", () => {
       const advance: AgentGrantRevocations["advance"] = vi.fn(
         async () => (state = { ...state, phase: phases[state.version], version: state.version + 1 }),
       );
-      const cleanup: PaymentServices["revokeSavedCheckoutInstrumentsForAgentGrant"] = vi.fn(async () => ({
+      const cleanup: RevokeAgentGrantPaymentInstruments = vi.fn(async () => ({
         detached: 0,
         alreadyRemoved: 0,
         instrumentIds: [],

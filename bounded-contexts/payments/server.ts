@@ -49,3 +49,4 @@ export function createPaymentsRequestApiClient(request: Request, options: Paymen
     headers: createPaymentsRequestApiHeaders(options),
   });
 }
+export { readGuestPaymentClaimability } from "./support/request-support/guest-payment-claimability";

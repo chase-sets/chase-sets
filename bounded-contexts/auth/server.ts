@@ -6,6 +6,7 @@ export {
   type ReceiptLookupCredential,
 } from "./features/service-actors/api/receipt-lookup";
 export { resumeAgentGrantRevocation } from "./features/agent-grants/api/revocation";
+export type { RevokeAgentGrantPaymentInstruments } from "./features/agent-grants/api/payment-instrument-revocation";
 export { fenceAgentGrantActor, fenceAgentGrantSpendPolicy } from "./features/agent-grants/api/authority";
 export {
   createConnectorOAuthService,
@@ -88,3 +89,7 @@ export {
   type AgentWebhookSender,
   type AgentWebhookTarget,
 } from "./support/ucp-support/agent-webhooks";
+export {
+  createGuestPaymentClaimRoute,
+  type ReadGuestPaymentClaimability,
+} from "./support/route-support/guest-payment-claim/route";

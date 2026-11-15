@@ -2,6 +2,10 @@
 
 This glossary defines the canonical terminology for the Payments bounded context.
 
+## Guest Payment Claimability
+
+Payments' server-only `readGuestPaymentClaimability` reader supplies eligibility for a caller-authorized guest claim attempt. It reuses the request-scoped payment read and captured rule, preserving freshness metadata and propagating failures unchanged.
+
 ## Payment
 
 A **Payment** is the external charge workflow associated with one or more orders.
