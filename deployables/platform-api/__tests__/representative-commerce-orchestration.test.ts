@@ -113,6 +113,7 @@ function harness(currency: string | null = null, version = 0, fresh = false) {
         upsertContentType: vi.fn(),
         upsertInclusionPolicy: vi.fn(),
         replaceProductContents: vi.fn(),
+        readProductContentsAuthoringState: vi.fn(),
       },
     },
     inventory: { db: { query }, catalogItems: {}, items: {} },

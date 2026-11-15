@@ -126,10 +126,38 @@ describe("staging persona sign-in custody", () => {
     expect(input.goto).not.toHaveBeenCalled();
   });
 
+  it.each([350, 60_000])("accepts a ten-minute expiry with %s ms of server-ahead clock skew", async (skewMs) => {
+    vi.spyOn(Date, "now").mockReturnValue(now);
+    process.env[STAGING_PERSONA_MAGIC_LINK_SECRET_ENV] = bearer;
+    const serverExpiresAt = new Date(now + 600_000 + skewMs).toISOString();
+    const fetchMock = vi.fn(
+      async () => new Response(JSON.stringify({ alias: "card-vault", link, expiresAt: serverExpiresAt })),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const input = context();
+    const signIn = createStagingPersonaSignIn();
+
+    await expect(signIn(input.value as never, "card-vault")).resolves.toMatchObject({
+      issuanceStatus: 200,
+      landingStatus: 200,
+      expiresAt: serverExpiresAt,
+      outcome: "used",
+    });
+    expect(input.probe).toHaveBeenCalledWith(`${origin}/sign-in/magic`, { waitUntil: "commit", timeout: 10_000 });
+    expect(input.consume).toHaveBeenCalledWith(link);
+    expect(input.goto).toHaveBeenCalledTimes(2);
+    expect(input.probe.mock.invocationCallOrder[0]).toBeLessThan(input.consume.mock.invocationCallOrder[0]);
+    await expect(signIn(input.value as never, "card-vault")).rejects.toMatchObject({
+      code: "connector-drill-sign-in-unavailable",
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it.each([
     ["stale", { expiresAt: new Date(now).toISOString() }],
+    ["past expiry", { expiresAt: new Date(now - 1).toISOString() }],
     ["malformed expiry", { expiresAt: "not-a-date" }],
-    ["over ten minutes", { expiresAt: new Date(now + 600_001).toISOString() }],
+    ["over ten minutes plus clock-skew tolerance", { expiresAt: new Date(now + 660_001).toISOString() }],
     ["foreign link", { link: "https://foreign.invalid/sign-in/magic?token=synthetic" }],
     ["wrong path", { link: `${origin}/other?token=synthetic` }],
     ["extra query", { link: `${link}&redirect=foreign` }],
@@ -145,7 +173,7 @@ describe("staging persona sign-in custody", () => {
     const input = context();
     await expect(createStagingPersonaSignIn()(input.value as never, "card-vault")).rejects.toMatchObject({
       code: "connector-drill-sign-in-unavailable",
-      evidence: { signIn: { outcome: "refused", issuanceStatus: 200 } },
+      evidence: { signIn: { outcome: "refused", issuanceStatus: 200, expiresAt: null, landingStatus: null } },
     });
     expect(input.probe).not.toHaveBeenCalled();
     expect(input.goto).not.toHaveBeenCalled();
