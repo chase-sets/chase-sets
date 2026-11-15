@@ -3134,7 +3134,7 @@ jobs:
           if [ "${STAGING_SUPERSEDED:-}" = "true" ]; then
             attempt_result="skipped"
             attempt_phase="queue"
-            attempt_reason="candidate-not-on-main-before-staging-mutation"
+            attempt_reason="candidate-superseded-not-on-main-before-staging-mutation"
             superseded_by_commit="${STAGING_SUPERSEDED_BY_COMMIT:-}"
             RELEASE_STATE_TRANSITIONS="$(jq -cn \
               --arg commit "$RELEASE_COMMIT" \

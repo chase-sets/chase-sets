@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
+import { normalizeDeliveryConclusion } from "./release-health-delivery-health.mjs";
 import {
   createLatestOnlyReleaseState,
   parseResolveReleaseCommitArgs,
@@ -231,7 +232,11 @@ describe("resolve release commit", () => {
     const workflow = readFileSync(resolve(".github/workflows/platform-production.yml"), "utf8");
     const stagingHealth = workflowJob(workflow, "record-staging-release-health");
     expect(stagingHealth).toContain('if [ "${STAGING_SUPERSEDED:-}" = "true" ]; then');
-    expect(stagingHealth).toContain('attempt_reason="candidate-not-on-main-before-staging-mutation"');
+    const supersededReason = "candidate-superseded-not-on-main-before-staging-mutation";
+    expect(stagingHealth).toContain(`attempt_reason="${supersededReason}"`);
+    expect(normalizeDeliveryConclusion({ conclusion: "skipped", reason: supersededReason })).toBe(
+      "intentional-superseded/coalesced",
+    );
     expect(stagingHealth).toContain('{type:"superseded", commit:$commit, supersededByCommit:$pending, mode:$mode}');
     expect(stagingHealth).not.toContain('{type:"coalesced", commit:$commit');
     expect(stagingHealth).toContain('{type:"active", commit:$commit, imageDigest:$digest, mode:$mode}');
