@@ -3241,18 +3241,46 @@ describe("change-scope", () => {
     },
   );
 
-  it("keeps every output except the enumerated DB, Public Presence and setup E2E deltas byte-identical to the base commit", () => {
+  it("keeps every output except the enumerated DB, Public Presence, setup E2E and acyclic context fan-out deltas byte-identical to the base commit", () => {
     for (const testCase of dbTestsOldVersusNewCorpus) {
       const scope = classifyChanges({ changedFiles: testCase.changedFiles });
       const outputs = toOutputMap(scope);
 
       expect(Object.keys(outputs)).toEqual(currentOutputMapKeyOrder);
       expect(outputs.db_tests).toBe(testCase.expectedDbTests);
-      expect(outputs).toEqual(
-        withSetupE2eOutput(
-          withPublicPresenceEnrollmentOutputs({ ...testCase.baseOutputMap, db_tests: testCase.expectedDbTests }),
-        ),
+      const expected = withSetupE2eOutput(
+        withPublicPresenceEnrollmentOutputs({ ...testCase.baseOutputMap, db_tests: testCase.expectedDbTests }),
       );
+      if (testCase.name === "unrelated bounded-context change") {
+        // Making Auth -> Payments test-only stops Ordering's runtime fan-out at
+        // Auth, before Channels, Pricing, public-web and the connector extension. Preserve the frozen
+        // baseline above and enumerate only the affected-workspace delta here.
+        const affected = [
+          "@chase-sets/app-admin-web",
+          "@chase-sets/app-marketplace-web",
+          "@chase-sets/app-platform-api",
+          "@chase-sets/app-platform-worker",
+          "@chase-sets/auth",
+          "@chase-sets/checkout",
+          "@chase-sets/discovery",
+          "@chase-sets/marketplace-seed-testing",
+          "@chase-sets/notifications",
+          "@chase-sets/ordering",
+          "@chase-sets/payments",
+          "@chase-sets/platform-runtime",
+          "@chase-sets/public-presence",
+          "@chase-sets/settlement",
+        ];
+        expect(JSON.parse(expected.affected_workspaces_json).filter((name) => !affected.includes(name))).toEqual([
+          "@chase-sets/app-public-web",
+          "@chase-sets/app-tcgplayer-connector-extension",
+          "@chase-sets/channels",
+          "@chase-sets/pricing",
+        ]);
+        expected.affected_workspaces = affected.join(",");
+        expected.affected_workspaces_json = JSON.stringify(affected);
+      }
+      expect(outputs).toEqual(expected);
       expect(String(scope.dbTestsRequired)).toBe(testCase.expectedDbTests);
     }
   });

@@ -495,9 +495,11 @@ describe("public policy corpus compiler", () => {
     // ratified-decision and shipped-control review-text reconciliation.
     // Re-derived with the same baseline registry after the legal-notice email and authority update:
     // [#9050 Fill the legal-notice email in the Terms, Seller Agreement and Privacy Policy drafts](https://github.com/chase-sets/chase-sets/issues/9050).
+    // Re-derived for the Marketplace Checkout Fee glossary line move in
+    // [#7864 Break the Auth and Payments dependency cycle and reject cycles in the structure gate](https://github.com/chase-sets/chase-sets/issues/7864).
     expect(
       fingerprint(baseline.find(({ relativePath }) => relativePath === "terms-of-service-publication.ts")?.content),
-    ).toBe("sha256:6edec4beb2f266bea880a55d5f45bbd4cef0bff97e0c6fee9f0a968d00223f31");
+    ).toBe("sha256:6baa1749a66c77dddf906af20ee4b92f0f5bbfed6bda2585abee952ff889d175");
 
     for (const module of changed) {
       const before = baseline.find((candidate) => candidate.relativePath === module.relativePath)?.content;
