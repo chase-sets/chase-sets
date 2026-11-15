@@ -184,6 +184,7 @@ CREATE TABLE IF NOT EXISTS ${PROJECTION_GROUP_GENERATIONS_TABLE} (
   projection_name text NOT NULL,
   active_generation bigint NOT NULL DEFAULT 1 CHECK (active_generation >= 1),
   rebuilding_generation bigint NULL CHECK (rebuilding_generation IS NULL OR rebuilding_generation > active_generation),
+  target_projection_revision integer NULL CHECK (target_projection_revision IS NULL OR target_projection_revision >= 1),
   previous_generation bigint NULL CHECK (previous_generation IS NULL OR previous_generation >= 1),
   previous_generation_retain_until timestamptz NULL,
   state text NOT NULL CHECK (state IN ('active', 'rebuilding', 'failed')),
@@ -198,6 +199,7 @@ CREATE INDEX IF NOT EXISTS ${PROJECTION_GROUP_GENERATIONS_TABLE}_state_idx
   ON ${PROJECTION_GROUP_GENERATIONS_TABLE} (state, updated_at DESC);
 
 ALTER TABLE ${PROJECTION_GROUP_GENERATIONS_TABLE}
+  ADD COLUMN IF NOT EXISTS target_projection_revision integer NULL CHECK (target_projection_revision IS NULL OR target_projection_revision >= 1),
   ADD COLUMN IF NOT EXISTS previous_generation bigint NULL CHECK (previous_generation IS NULL OR previous_generation >= 1),
   ADD COLUMN IF NOT EXISTS previous_generation_retain_until timestamptz NULL;
 
