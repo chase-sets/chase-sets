@@ -1,5 +1,8 @@
 import { createHash } from "node:crypto";
-import type { MarketplaceApiClient, MarketplaceCreateListingInput } from "@chase-sets/marketplace/server";
+import type {
+  MarketplaceApiClient,
+  MarketplaceCreateListingInput,
+} from "@chase-sets/marketplace/integration/listing-commands";
 import { createAggregateCommandHandler } from "@chase-sets/event-core/aggregate-command-handler";
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
 import type { CommandHandler } from "@chase-sets/event-core/command-handler";

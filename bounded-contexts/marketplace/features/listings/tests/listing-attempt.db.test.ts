@@ -370,14 +370,13 @@ describeDb("Listing attempts on PostgreSQL", () => {
     });
     // First send commits only the first target, then the response is lost.
     const firstSend = await f.listings.applyBulkListingPriceUpdates(
-      { batchId: `fixture_bulk_${crypto.randomUUID()}`, accountId: "acc_seller", updates: [batch(one, "11.00")] },
+      { accountId: "acc_seller", updates: [batch(one, "11.00")] },
       context,
     );
     expect(firstSend).toMatchObject([{ listingId: one, outcome: "applied" }]);
     const before = await f.streamLengths([one, two]);
     const retried = await f.listings.applyBulkListingPriceUpdates(
       {
-        batchId: `fixture_bulk_${crypto.randomUUID()}`,
         accountId: "acc_seller",
         updates: [batch(one, "11.00"), batch(two, "11.00")],
       },
@@ -394,7 +393,6 @@ describeDb("Listing attempts on PostgreSQL", () => {
     await f.expectNoAppend(async () => {
       const replay = await f.restart().applyBulkListingPriceUpdates(
         {
-          batchId: `fixture_bulk_${crypto.randomUUID()}`,
           accountId: "acc_seller",
           updates: [batch(one, "11"), batch(two, "11.00")],
         },
@@ -407,7 +405,6 @@ describeDb("Listing attempts on PostgreSQL", () => {
       expect(
         await f.listings.applyBulkListingPriceUpdates(
           {
-            batchId: `fixture_bulk_${crypto.randomUUID()}`,
             accountId: "acc_seller",
             updates: [batch(one, "11.00", "CAD")],
           },
@@ -689,6 +686,7 @@ describeDb("Listing attempts on PostgreSQL", () => {
   it("replays seller availability, away and capacity attempts and conflicts on a changed field", async () => {
     const f = await fixture(pools.marketplace);
     const disable = {
+      status: "unavailable",
       accountId: "acc_seller",
       reasonCategory: null,
       availableAgainOn: null,
@@ -710,7 +708,6 @@ describeDb("Listing attempts on PostgreSQL", () => {
       expect(
         f.listings.disableSellerListingAvailability(
           listingTestCommand("seller.availability", {
-            status: "unavailable",
             ...disable,
             availableAgainOn: "2031-01-01",
           }),
@@ -718,7 +715,7 @@ describeDb("Listing attempts on PostgreSQL", () => {
         ),
       ).rejects.toMatchObject({ code: "attempt_conflict" }),
     );
-    const enable = { accountId: "acc_seller", idempotencyKey: key("enable") };
+    const enable = { status: "available", accountId: "acc_seller", idempotencyKey: key("enable") };
     const enabled = await f.listings.enableSellerListingAvailability(
       listingTestCommand("seller.availability", enable),
       context,
@@ -732,6 +729,7 @@ describeDb("Listing attempts on PostgreSQL", () => {
     );
 
     const away = {
+      action: "schedule",
       accountId: "acc_seller",
       startsAt: "2031-01-01T00:00:00.000Z",
       endsAt: "2031-01-08T00:00:00.000Z",
@@ -747,7 +745,7 @@ describeDb("Listing attempts on PostgreSQL", () => {
     await f.expectNoAppend(() =>
       expect(
         f.listings.scheduleSellerAwayWindow(
-          listingTestCommand("seller.away", { action: "schedule", ...away, endsAt: "2031-01-09T00:00:00.000Z" }),
+          listingTestCommand("seller.away", { ...away, endsAt: "2031-01-09T00:00:00.000Z" }),
           context,
         ),
       ).rejects.toMatchObject({ code: "attempt_conflict" }),

@@ -95,10 +95,16 @@ export function marketplaceCanonicalRequest(kind: MarketplaceMutationKind, input
 /** Normalizes a decimal money amount so `10`, `10.0` and `010.00` compare equal; anything else stays as sent. */
 export function canonicalMarketplaceMoneyAmount(value: unknown): unknown {
   if (typeof value !== "string") return value ?? null;
-  const match = /^\s*(\d+)(?:\.(\d+))?\s*$/.exec(value);
+  const match = /^(\d+)(?:\.(\d+))?$/.exec(value.trim());
   if (!match) return value;
-  const whole = match[1]!.replace(/^0+(?=\d)/, "");
-  const fraction = (match[2] ?? "").replace(/0+$/, "");
+  const digits = match[1]!;
+  let start = 0;
+  while (start < digits.length - 1 && digits[start] === "0") start++;
+  const whole = digits.slice(start);
+  const decimals = match[2] ?? "";
+  let end = decimals.length;
+  while (end > 0 && decimals[end - 1] === "0") end--;
+  const fraction = decimals.slice(0, end);
   return fraction ? `${whole}.${fraction}` : whole;
 }
 

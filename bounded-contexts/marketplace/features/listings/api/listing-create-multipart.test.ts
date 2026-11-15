@@ -135,6 +135,7 @@ async function submitPhotoCreate(stockPath: StockPath, intent: string, limits: P
     .png()
     .toBuffer();
   const form = new FormData();
+  form.set("idempotencyKey", "test_form_attempt_10923");
   for (const [key, value] of Object.entries({
     intent,
     inventoryItemId: stockPath === "Listing stock" ? "" : "inv_1",
