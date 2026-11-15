@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 import {
   discoverInventoryCallers,
   partitionInventoryCallers,
@@ -652,13 +652,34 @@ const briefS3CleanControls = [
   ["C4", "export function route(x: any) { return [...[{ value: x }]]; }"],
 ].map(([id, source]) => ({ id, source }));
 
-async function matrix(cases, run) {
-  const fixtures = Object.fromEntries(
+const formsByFamily = new Map(
+  familyExpressions.map(([family, expression, type]) => [
+    family,
+    [...shapes(expression, type), ...p1(expression, type, "member")],
+  ]),
+);
+const familyMatrixCases = familyExpressions.map(([family]) => ({
+  family,
+  source: formsByFamily
+    .get(family)
+    .map((form) => `{ ${form} }`)
+    .join("\n"),
+}));
+const sharedMatrices = new Map();
+
+function matrixFixtures(cases, prefix = "") {
+  return Object.fromEntries(
     cases.map(({ source, id }, index) => [
-      `bounded-contexts/unexpected/features/arbitrary/api/case-${index}${id?.endsWith("J1") ? ".tsx" : ".ts"}`,
+      `bounded-contexts/unexpected/features/arbitrary/api/${prefix}case-${index}${id?.endsWith("J1") ? ".tsx" : ".ts"}`,
       `${prelude}\n${source}\n`,
     ]),
   );
+}
+
+async function matrix(cases, run) {
+  const shared = sharedMatrices.get(cases);
+  if (shared) return run(shared);
+  const fixtures = matrixFixtures(cases);
   return withTemporaryCorpus({ "tsconfig.json": fixtureConfig, ...fixtures }, async (root) => {
     const roots = enumerateTrackedRoots(root);
     const program = createClassificationProgram(root, roots);
@@ -798,19 +819,7 @@ describe("issue-7169-type-resolved-census-matrix", () => {
   });
 
   it("rejects every derived family's M16 and P1 forms at arbitrary paths", async () => {
-    const formsByFamily = new Map(
-      familyExpressions.map(([family, expression, type]) => [
-        family,
-        [...shapes(expression, type), ...p1(expression, type, "member")],
-      ]),
-    );
-    const cases = familyExpressions.map(([family]) => ({
-      family,
-      source: formsByFamily
-        .get(family)
-        .map((form) => `{ ${form} }`)
-        .join("\n"),
-    }));
+    const cases = familyMatrixCases;
     let rejectedForms = 0;
     let totalDiagnostics = 0;
     const reasonCounts = new Map();
@@ -1129,6 +1138,39 @@ function expectOneErasurePerForm(diagnostics, { family, forms }, file) {
   expect(diagnostics, family).toHaveLength(forms.length);
 }
 
+const throwErasurePreservationGroups = [
+  ["S1 family matrix and restock", [...familyMatrixCases, ...restockControls().map((source) => ({ source }))]],
+  [
+    "S1 repair, W8-W9, assignment closure and S3",
+    [
+      ...repairControls,
+      ...finiteAliasCleanControls,
+      ...assignmentClosureControls,
+      ...briefS3Controls,
+      ...briefS3CleanControls,
+    ],
+  ],
+];
+
+beforeAll(async () => {
+  const groups = [familyMatrixCases, ...throwErasurePreservationGroups.map(([, cases]) => cases)].map(
+    (cases, index) => ({ cases, fixtures: matrixFixtures(cases, `matrix-${index}/`) }),
+  );
+  await withTemporaryCorpus(
+    { "tsconfig.json": fixtureConfig, ...Object.assign({}, ...groups.map(({ fixtures }) => fixtures)) },
+    (root) => {
+      const roots = enumerateTrackedRoots(root);
+      const program = createClassificationProgram(root, roots);
+      const families = resolveInventoryFamilies(program, repoRoot);
+      // The Program retains the fixture sources after temporary corpus cleanup.
+      // Each matrix still scans only its own roots; census results are not cached.
+      for (const { cases, fixtures } of groups) {
+        sharedMatrices.set(cases, { root, roots: Object.keys(fixtures).sort(), program, families, fixtures });
+      }
+    },
+  );
+});
+
 describe("issue-7169-census-throw-erasure", () => {
   it("rejects every derived family's thrown operand forms whatever catch receives them", async () => {
     await matrix(throwCases, ({ root, roots, program, families, fixtures }) => {
@@ -1200,38 +1242,21 @@ describe("issue-7169-census-throw-erasure", () => {
     });
   });
 
-  it.each([
-    [
-      "S1 family matrix and restock",
-      () => [
-        ...familyExpressions.map(([family, expression, type]) => ({
-          family,
-          source: [...shapes(expression, type), ...p1(expression, type, "member")]
-            .map((form) => `{ ${form} }`)
-            .join("\n"),
-        })),
-        ...restockControls().map((source) => ({ source })),
-      ],
-    ],
-    [
-      "S1 repair, W8-W9, assignment closure and S3",
-      () => [
-        ...repairControls,
-        ...finiteAliasCleanControls,
-        ...assignmentClosureControls,
-        ...briefS3Controls,
-        ...briefS3CleanControls,
-      ],
-    ],
-  ])("keeps every %s verdict under the throw-erasure-off bypass", async (group, controls) => {
-    const cases = controls();
-    await matrix(cases, ({ root, roots, program, families }) => {
-      const options = { repoRoot: root, roots, program, families };
-      const candidate = analyzeInventoryDynamicDispatch(options);
-      const bypass = analyzeInventoryDynamicDispatch({ ...options, mutant: throwErasureOff });
-      expect(candidate.diagnostics.length).toBeGreaterThan(0);
-      expect(bypass.diagnostics).toEqual(candidate.diagnostics);
-      emit("throw-erasure-off-unchanged", { group, controls: cases.length, diagnostics: candidate.diagnostics.length });
-    });
-  });
+  it.each(throwErasurePreservationGroups)(
+    "keeps every %s verdict under the throw-erasure-off bypass",
+    async (group, cases) => {
+      await matrix(cases, ({ root, roots, program, families }) => {
+        const options = { repoRoot: root, roots, program, families };
+        const candidate = analyzeInventoryDynamicDispatch(options);
+        const bypass = analyzeInventoryDynamicDispatch({ ...options, mutant: throwErasureOff });
+        expect(candidate.diagnostics.length).toBeGreaterThan(0);
+        expect(bypass.diagnostics).toEqual(candidate.diagnostics);
+        emit("throw-erasure-off-unchanged", {
+          group,
+          controls: cases.length,
+          diagnostics: candidate.diagnostics.length,
+        });
+      });
+    },
+  );
 });
