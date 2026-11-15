@@ -1284,7 +1284,14 @@ function executeStep(step, env = {}) {
     trace() { printf '%s\\n' "$*" >> "$TRACE"; }
     node() { trace node "$@"; [[ -z "\${FAIL_ON:-}" || "$*" != *"$FAIL_ON"* ]] || { echo revocation_membership_changed >&2; return 1; }; }
     pnpm() { trace pnpm "$@"; }
-    git() { trace git "$@"; [[ "$1" != rev-parse ]] || printf '%s\\n' "$LATEST_MAIN"; }
+    git() {
+      trace git "$@"
+      case "$1" in
+        fetch) return "\${FETCH_STATUS:-0}" ;;
+        rev-parse) printf '%s\\n' "$LATEST_MAIN" ;;
+        merge-base) return "\${ANCESTRY_STATUS:-0}" ;;
+      esac
+    }
     terraform() { printf 'synthetic\\n'; }
     kubectl() {
       trace kubectl "$@"
@@ -1323,7 +1330,13 @@ function executeStep(step, env = {}) {
     });
     if (result.error) throw result.error;
     const read = (name) => (existsSync(join(directory, name)) ? readFileSync(join(directory, name), "utf8") : "");
-    return { status: result.status, stderr: result.stderr, trace: read("trace").trim().split("\n"), env: read("env") };
+    return {
+      status: result.status,
+      stderr: result.stderr,
+      trace: read("trace").trim().split("\n"),
+      env: read("env"),
+      outputs: read("output"),
+    };
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }
@@ -1345,6 +1358,7 @@ function eligibilityViolations(document) {
       AGENT_GRANT_REVOCATION_ACTIVATION: selection,
       AUTOMATIC_RELEASE: "true",
       LATEST_MAIN: "c".repeat(40),
+      ANCESTRY_STATUS: "1",
     });
     const skipped = coalesced.env.includes("SHOULD_DEPLOY=false");
     if (selection === "none" ? !skipped || coalesced.status !== 0 : skipped || coalesced.status === 0)
@@ -1365,6 +1379,71 @@ function eligibilityViolations(document) {
 }
 
 describe("revocation-caller-partition workflow caller", () => {
+  it.each(selections)("activates an automatic ancestor even while main keeps advancing (%s)", (selection) => {
+    const step = stepNamed(productionWorkflow, "deploy-staging", "Activate immutable release before staging mutation");
+    for (const latest of ["a", "c", "d", "e"]) {
+      const result = executeStep(step, {
+        AUTOMATIC_RELEASE: "true",
+        AGENT_GRANT_REVOCATION_ACTIVATION: selection,
+        LATEST_MAIN: latest.repeat(40),
+      });
+      expect(result.status).toBe(0);
+      expect(result.env).not.toContain("SHOULD_DEPLOY=false");
+      expect(result.outputs).toContain("superseded=false");
+      expect(result.outputs).toContain(`active_release_commit=${"a".repeat(40)}`);
+      expect(result.outputs).toContain(`active_image_digest=sha256:${"b".repeat(64)}`);
+      if (latest !== "a")
+        expect(result.trace).toContain(`git merge-base --is-ancestor ${"a".repeat(40)} ${latest.repeat(40)}`);
+    }
+  });
+
+  it("records a removed-lineage automatic candidate as superseded without activating it", () => {
+    const result = executeStep(
+      stepNamed(productionWorkflow, "deploy-staging", "Activate immutable release before staging mutation"),
+      {
+        AUTOMATIC_RELEASE: "true",
+        AGENT_GRANT_REVOCATION_ACTIVATION: "none",
+        LATEST_MAIN: "c".repeat(40),
+        ANCESTRY_STATUS: "1",
+      },
+    );
+    expect(result.status).toBe(0);
+    expect(result.env).toContain("SHOULD_DEPLOY=false");
+    expect(result.outputs).toContain("superseded=true");
+    expect(result.outputs).toContain(`latest_main=${"c".repeat(40)}`);
+    expect(result.outputs).not.toContain("active_release_commit=");
+  });
+
+  it("keeps manual activation independent of main freshness", () => {
+    const result = executeStep(
+      stepNamed(productionWorkflow, "deploy-staging", "Activate immutable release before staging mutation"),
+      { AUTOMATIC_RELEASE: "false", AGENT_GRANT_REVOCATION_ACTIVATION: "staging" },
+    );
+    expect(result.status).toBe(0);
+    expect(result.trace.some((line) => line.startsWith("git "))).toBe(false);
+    expect(result.outputs).toContain(`active_release_commit=${"a".repeat(40)}`);
+  });
+
+  it("refuses activation on invalid digest or unavailable ancestry instead of reporting a no-op", () => {
+    const step = stepNamed(productionWorkflow, "deploy-staging", "Activate immutable release before staging mutation");
+    for (const overrides of [
+      { RELEASE_IMAGE_DIGEST: "mutable-tag" },
+      { FETCH_STATUS: "128" },
+      { ANCESTRY_STATUS: "128" },
+    ]) {
+      const result = executeStep(step, {
+        AUTOMATIC_RELEASE: "true",
+        AGENT_GRANT_REVOCATION_ACTIVATION: "none",
+        LATEST_MAIN: "c".repeat(40),
+        ...overrides,
+      });
+      expect(result.status).not.toBe(0);
+      expect(result.env).not.toContain("SHOULD_DEPLOY=false");
+      expect(result.outputs).not.toContain("active_release_commit=");
+      expect(result.outputs).not.toContain("superseded=true");
+    }
+  });
+
   it("proves the jq seam drains piped Terraform output under pipefail", () => {
     expect(runPipeSafetyControl(nonConsumingJqStub).status).toBe(141);
     expect(runPipeSafetyControl(drainingJqStub).status).toBe(0);

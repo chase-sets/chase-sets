@@ -226,6 +226,19 @@ describe("resolve release commit", () => {
     expect(deploy.match(/^  workflow_dispatch:$/gm)).toHaveLength(1);
     expect(deploy).not.toContain("dispatch-release-candidate:");
   });
+
+  it("records only removed-lineage candidates as superseded, not as pending-run coalescing", () => {
+    const workflow = readFileSync(resolve(".github/workflows/platform-production.yml"), "utf8");
+    const stagingHealth = workflowJob(workflow, "record-staging-release-health");
+    expect(stagingHealth).toContain('if [ "${STAGING_SUPERSEDED:-}" = "true" ]; then');
+    expect(stagingHealth).toContain('attempt_reason="candidate-not-on-main-before-staging-mutation"');
+    expect(stagingHealth).toContain('{type:"superseded", commit:$commit, supersededByCommit:$pending, mode:$mode}');
+    expect(stagingHealth).not.toContain('{type:"coalesced", commit:$commit');
+    expect(stagingHealth).toContain('{type:"active", commit:$commit, imageDigest:$digest, mode:$mode}');
+    const incident = workflowStep(workflow, "Classify deploy outcome");
+    expect(incident).toContain("STAGING_SUPERSEDED: ${{ needs.deploy-staging.outputs.superseded || 'false' }}");
+    expect(workflowJob(workflow, "deploy-production")).toContain("if: needs.deploy-staging.outputs.deployed == 'true'");
+  });
 });
 
 describe("latest-only release state", () => {

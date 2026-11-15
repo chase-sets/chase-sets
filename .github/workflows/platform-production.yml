@@ -1551,13 +1551,22 @@ jobs:
           if [ "$AUTOMATIC_RELEASE" = "true" ]; then
             git fetch origin main
             latest_main="$(git rev-parse origin/main)"
-            if [ "$RELEASE_COMMIT" != "$latest_main" ]; then
-              # Coalescing skips both deploy jobs, so it cannot carry a requested activation.
+            if git merge-base --is-ancestor "$RELEASE_COMMIT" "$latest_main"; then
+              # Only pending runs coalesce. A running ancestor must make progress
+              # even when merges arrive faster than the build and staging setup.
+              echo "Candidate ${RELEASE_COMMIT} remains on main's lineage; continuing with latest pending ${latest_main}."
+            else
+              ancestry_status=$?
+              if [ "$ancestry_status" -ne 1 ]; then
+                echo "Cannot verify candidate ${RELEASE_COMMIT} against main; refusing staging mutation." >&2
+                exit "$ancestry_status"
+              fi
+              # A candidate removed from main cannot carry a requested activation.
               if [ "$AGENT_GRANT_REVOCATION_ACTIVATION" != "none" ]; then
                 echo "revocation_activation_not_deployed" >&2
                 exit 1
               fi
-              echo "Candidate ${RELEASE_COMMIT} was coalesced into latest pending ${latest_main} before staging mutation."
+              echo "Candidate ${RELEASE_COMMIT} is no longer on main's lineage; superseded by ${latest_main} before staging mutation."
               {
                 echo "superseded=true"
                 echo "latest_main=${latest_main}"
@@ -3125,14 +3134,13 @@ jobs:
           if [ "${STAGING_SUPERSEDED:-}" = "true" ]; then
             attempt_result="skipped"
             attempt_phase="queue"
-            attempt_reason="candidate-superseded-before-staging-mutation"
+            attempt_reason="candidate-not-on-main-before-staging-mutation"
             superseded_by_commit="${STAGING_SUPERSEDED_BY_COMMIT:-}"
             RELEASE_STATE_TRANSITIONS="$(jq -cn \
               --arg commit "$RELEASE_COMMIT" \
               --arg pending "$superseded_by_commit" \
               --arg mode "$RELEASE_STATE_MODE" \
               '[
-                {type:"coalesced", commit:$commit, supersededByCommit:$pending},
                 {type:"pending", commit:$pending, mode:"automatic"},
                 {type:"superseded", commit:$commit, supersededByCommit:$pending, mode:$mode}
               ]')"
@@ -5278,6 +5286,7 @@ jobs:
           ROOT_CAUSE_PROVIDER_REASON: ${{ needs.build-image.result == 'failure' && needs.build-image.outputs.root_cause_provider_reason || needs.deploy-staging.result == 'failure' && needs.deploy-staging.outputs.root_cause_provider_reason || needs.deploy-production.outputs.root_cause_provider_reason }}
           STAGING_APPLIED: ${{ needs.deploy-staging.outputs.applied || '' }}
           STAGING_DEPLOYED: ${{ needs.deploy-staging.outputs.deployed || '' }}
+          STAGING_SUPERSEDED: ${{ needs.deploy-staging.outputs.superseded || 'false' }}
           PRODUCTION_SUPERSEDED: "false"
           SUPERSEDED_BY_COMMIT: ${{ needs.deploy-staging.outputs.superseded_by_commit || '' }}
         run: |
