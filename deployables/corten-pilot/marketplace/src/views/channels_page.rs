@@ -699,7 +699,6 @@ fn ManualSync<'a>(t: ChannelsMsg, id: &'a str, panel: &'a ManualSyncPanel, said:
     let open = run.is_some_and(|run| OPEN_RUN_STATES.contains(&run.state.as_str()));
     let live = panel.inbound_coverage.state == "live";
     let write = url::ChannelManualSync { id }.href();
-    let ingest = url::ChannelConnection { id, place: Default::default() }.ingest();
     let download = url::ChannelManualSyncDownload { id }.href();
     let f = ManualSyncForm::FIELDS;
     let g = IngestForm::FIELDS;
@@ -827,7 +826,12 @@ fn ManualSync<'a>(t: ChannelsMsg, id: &'a str, panel: &'a ManualSyncPanel, said:
                     ("staged", can("ingest-staged"), t.manual_sync_file_staged_label(), t.manual_sync_action_ingest_staged()),
                 ] {
                     if allowed {
-                        <form class={Form} method="post" action={&ingest} enctype="multipart/form-data">
+                        <form
+                            class={Form}
+                            method="post"
+                            action={url::ChannelConnection { id, place: Default::default() }.ingest()}
+                            enctype="multipart/form-data"
+                        >
                             <input type="hidden" name={g.surface} value={surface}>
                             <label class={Field}>
                                 <span class={Strong}>{label}</span>
