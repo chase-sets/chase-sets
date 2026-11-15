@@ -5,11 +5,9 @@
 //!
 //! The seller acts on a shipment from its page too: buys its label (with the service, the
 //! addresses, why they changed and the package), voids it, dispatches, records delivery or a
-//! return, raises an exception, or cancels it. Which of those the page offers is the API's action
-//! plan for the shipment, the one the command center draws; the shipment's own read does not carry
-//! it yet (https://github.com/chase-sets/chase-sets/issues/11002), so the page reads it from the
-//! command center, and a shipment the command center leaves out keeps its link to marketplace.
-//! Each action is recovered as packing's writes are (`packing`).
+//! return, raises an exception, or cancels it. Which of those the page offers is the action plan
+//! the shipment's own read carries, the one the command center draws. Each action is recovered as
+//! packing's writes are (`packing`).
 //!
 //! | Route | Answers |
 //! |---|---|
@@ -27,8 +25,8 @@ use platform::receipt::Receipt;
 
 use crate::{
     api::{
-        ActionFields, ActionPlan, ApiError, CommandCenter, LabelAddress, LabelPurchase, ShipmentAction, ShipmentCommands as _,
-        ShipmentDetail, ShipmentList, Shipments as _, Side,
+        ActionFields, ApiError, LabelAddress, LabelPurchase, ShipmentAction, ShipmentCommands as _, ShipmentDetail, ShipmentList,
+        Shipments as _, Side,
     },
     app::{Shared, read_failed, sign_in, url},
     auth::{Shipper, Viewer},
@@ -144,13 +142,12 @@ pub struct ListScreen {
     pub shipments: ShipmentList,
 }
 
-/// A shipment's page: for its seller, the actions its state allows (none when the command center
-/// leaves it out) and what the page says about the last action.
+/// A shipment's page: the shipment (for its seller, with the actions its state allows) and what
+/// the page says about the last action.
 #[derive(Serialize, ToJson)]
 pub struct ShipmentScreen {
     pub side: Side,
     pub shipment: ShipmentDetail,
-    pub plan: Option<ActionPlan>,
     pub outcome: Outcome,
     /// The form a refused action sent, so the page keeps what the seller typed.
     #[serde(skip)]
@@ -276,22 +273,8 @@ struct View {
     status: StatusCode,
 }
 
-/// The shipment's action plan, from the command center until the shipment's read carries it
-/// (https://github.com/chase-sets/chase-sets/issues/11002): none when the command center leaves the
-/// shipment out (dispatched and finished shipments) or cannot be read.
-fn plan(center: Result<CommandCenter, ApiError>, id: &str) -> Option<ActionPlan> {
-    match center {
-        Ok(center) => center.buckets.into_iter().flat_map(|b| b.items).find(|item| item.shipment_id == id).map(|item| item.plan),
-        Err(error) => {
-            tracing::warn!("the command center read for a shipment's actions failed: {error}");
-            None
-        }
-    }
-}
-
 /// A shipment's page; after a write (`receipt`), read after it, and while the read is behind the
-/// page says so and reads itself again. The seller's page also reads the command center, for the
-/// shipment's actions.
+/// page says so and reads itself again.
 #[allow(clippy::too_many_arguments)]
 async fn shipment(
     req: &Req,
@@ -304,14 +287,7 @@ async fn shipment(
     view: View,
 ) -> HtmlResult {
     let caller = config.platform.caller(headers, config.proto, receipt.as_ref());
-    let (read, center) = match side {
-        Side::Buyer => (caller.shipment(side, id).await, None),
-        Side::Seller => {
-            let (read, center) = tokio::join!(caller.shipment(side, id), caller.command_center());
-            (read, Some(center))
-        }
-    };
-    let shipment = match read {
+    let shipment = match caller.shipment(side, id).await {
         Ok(shipment) => shipment,
         Err(error) if receipt.is_some() && error.catching_up() => {
             let t: ShipmentsMsg = req.t();
@@ -322,9 +298,8 @@ async fn shipment(
         }
         Err(error) => return shipment_failed(req, viewer, error),
     };
-    let plan = center.and_then(|center| plan(center, id));
     let View { outcome, sent, status } = view;
-    let screen = ShipmentScreen { side, shipment, plan, outcome, sent };
+    let screen = ShipmentScreen { side, shipment, outcome, sent };
     let t: ShipmentsMsg = req.t();
     let title = match side {
         Side::Buyer => t.shipment_shipment_marketplace(),

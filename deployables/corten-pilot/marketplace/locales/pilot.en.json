@@ -110,9 +110,7 @@
   },
   "shipments": {
     "line": "{count} line",
-    "lines": "{count} lines",
-    "actions_on_marketplace": "This shipment's actions are on marketplace for now.",
-    "open_on_marketplace": "Open on marketplace"
+    "lines": "{count} lines"
   },
   "packing": {
     "quantity_invalid": "Enter how many of this line are packed as a whole number.",
