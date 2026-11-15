@@ -1335,7 +1335,9 @@ describe("platform Kubernetes deployment", () => {
 
     // The env helper computes the origin from the platform-api component name
     // (which is release-fullname-derived), not from the baked base value.
-    expect(envHelper).toContain('{{- else if eq .name "CHASE_SETS_INTERNAL_API_ORIGIN" }}');
+    const computedOriginBranch =
+      '{{- else if or (eq .name "CHASE_SETS_INTERNAL_API_ORIGIN") (eq .name "PLATFORM_API_ORIGIN") }}';
+    expect(envHelper).toContain(computedOriginBranch);
     expect(envHelper).toContain(
       'value: {{ printf "http://%s:8080" (include "chase-sets-platform.componentName" (dict "root" $root "name" "platform-api")) | quote }}',
     );
@@ -1344,7 +1346,7 @@ describe("platform Kubernetes deployment", () => {
     // the computed origin sits ahead of the plain base-value fallback so the
     // baked staging default can never leak into a preview release.
     const globalOverrideBranch = envHelper.indexOf("hasKey $envOverrides .name");
-    const originBranch = envHelper.indexOf('{{- else if eq .name "CHASE_SETS_INTERNAL_API_ORIGIN" }}');
+    const originBranch = envHelper.indexOf(computedOriginBranch);
     const baseValueBranch = envHelper.indexOf('value: {{ default "" .value | quote }}');
     expect(globalOverrideBranch).toBeGreaterThan(-1);
     expect(originBranch).toBeGreaterThan(globalOverrideBranch);
@@ -5293,6 +5295,120 @@ describe("platform Kubernetes deployment", () => {
     });
   });
 
+  describe("component image rollback identity", () => {
+    const pilotImage = `registry.digitalocean.com/chase-sets/chase-sets-corten-admin@sha256:${"c".repeat(64)}`;
+    const values = {
+      ...rollbackValues,
+      components: {
+        ...rollbackValues.components,
+        "admin-corten": { enabled: true, kind: "service", image: pilotImage },
+      },
+    };
+    const before = [{ revision: 3, status: "deployed", description: "Upgrade complete" }];
+    const after = [
+      { revision: 3, status: "superseded", description: "Upgrade complete" },
+      { revision: 4, status: "deployed", description: "Rollback to 3" },
+    ];
+    const workloadList = (image = pilotImage) => {
+      const list = JSON.parse(rollbackWorkloadList());
+      list.items.push({
+        kind: "Deployment",
+        metadata: {
+          name: "proof-chase-sets-platform-admin-corten",
+          labels: { "app.kubernetes.io/component": "admin-corten" },
+        },
+        spec: { template: { spec: { containers: [{ name: "admin-corten", image }] } } },
+      });
+      return JSON.stringify(list);
+    };
+    const captureOptions = (image = pilotImage, recordedValues = values) => ({
+      values: recordedValues,
+      release: "proof",
+      namespace: "staging",
+      registryName: "chase-sets",
+      repository: "chase-sets-platform",
+      tag: rollbackTag,
+      digest: rollbackDigest,
+      lastKnownGoodCommit: rollbackTag,
+      releaseTag: "release-synthetic-split-image",
+      spawn: completedSpawn(
+        [],
+        [
+          { code: 0, stdout: helmHistory(before) },
+          { code: 0, stdout: JSON.stringify(recordedValues) },
+          { code: 0, stdout: workloadList(image) },
+          { code: 0, stdout: helmHistory(before) },
+        ],
+      ),
+    });
+
+    it("captures the recorded pilot digest alongside the global platform image", async () => {
+      const target = await captureKubernetesRollbackTarget(captureOptions());
+      expect(target.workloadIdentities).toEqual([
+        expect.objectContaining({
+          component: "admin-corten",
+          images: [{ container: "admin-corten", containerType: "application", image: pilotImage }],
+        }),
+        expect.objectContaining({
+          component: "platform-worker",
+          images: [{ container: "platform-worker", containerType: "application", image: rollbackImageRef }],
+        }),
+      ]);
+    });
+
+    it("refuses capture when the pilot digest differs from its recorded image", async () => {
+      await expect(
+        captureKubernetesRollbackTarget(captureOptions(pilotImage.replace("c".repeat(64), "d".repeat(64)))),
+      ).rejects.toThrow("does not match");
+    });
+
+    it.each(["", "registry.digitalocean.com/chase-sets/chase-sets-corten-admin:latest"])(
+      "refuses a recorded pilot image without an immutable digest: %s",
+      async (image) => {
+        const recordedValues = structuredClone(values);
+        recordedValues.components["admin-corten"].image = image;
+        await expect(captureKubernetesRollbackTarget(captureOptions(pilotImage, recordedValues))).rejects.toThrow();
+      },
+    );
+
+    it.each([false, true])("verifies restored pilot identity with altered digest=%s", async (altered) => {
+      const rollbackTarget = await captureKubernetesRollbackTarget(captureOptions());
+      const result = await rollbackPlatformOnKubernetes({
+        values,
+        release: "proof",
+        namespace: "staging",
+        releaseExists: true,
+        revision: "3",
+        rollbackTarget,
+        spawn: completedSpawn(
+          [],
+          [
+            { code: 0, stdout: helmHistory(before) },
+            { code: 0, stdout: JSON.stringify(values) },
+            { code: 0, stdout: helmHistory(before) },
+            { code: 0 },
+            { code: 0 },
+            { code: 0 },
+            { code: 0, stdout: helmHistory(after) },
+            { code: 0, stdout: JSON.stringify(values) },
+            {
+              code: 0,
+              stdout: workloadList(altered ? pilotImage.replace("c".repeat(64), "d".repeat(64)) : pilotImage),
+            },
+            { code: 0, stdout: helmHistory(after) },
+          ],
+        ),
+      });
+      expect(result.result).toBe(altered ? "failure" : "success");
+      if (altered) {
+        expect(result.reason).toContain("admin-corten");
+        expect(result.reason).toContain("does not match");
+      } else {
+        expect(result.rollbackIdentity.workloadIdentities).toEqual(rollbackTarget.workloadIdentities);
+      }
+    });
+  });
+
   it("cryptographically binds an index to its digest before accepting its production platform manifest", async () => {
     const rawIndex = JSON.stringify(productionIndex);
     const capturedIndexDigest = `sha256:${createHash("sha256").update(rawIndex).digest("hex")}`;
@@ -7223,6 +7339,9 @@ describe("preview Postgres connection ceiling and diagnostics (#10022)", () => {
       namespace,
       timeout: "15m",
       image: "registry.digitalocean.com/chase-sets/chase-sets-platform:release-sha",
+      ...(environment === "staging"
+        ? { cortenAdminImage: `registry.digitalocean.com/chase-sets/chase-sets-corten-admin@sha256:${"a".repeat(64)}` }
+        : {}),
       envOverrides: {
         DEPLOYMENT_ENVIRONMENT: environment,
         ...(environment === "preview" ? { PREVIEW_IDENTIFIER: "pr-123" } : {}),

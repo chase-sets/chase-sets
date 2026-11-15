@@ -944,12 +944,14 @@ spec:
       "www.staging.chasesets.com",
       "marketplace.staging.chasesets.com",
       "admin.staging.chasesets.com",
+      "admin-corten.staging.chasesets.com",
     ]);
     expect(Object.fromEntries(doksIngress.hosts.map((host) => [host.host, host.paths.at(-1)]))).toEqual({
       "staging.chasesets.com": { path: "/", service: "marketplace" },
       "www.staging.chasesets.com": { path: "/", service: "public-web" },
       "marketplace.staging.chasesets.com": { path: "/", service: "marketplace" },
       "admin.staging.chasesets.com": { path: "/", service: "admin-web" },
+      "admin-corten.staging.chasesets.com": { path: "/", service: "admin-corten" },
     });
     expect(doksIngress.hosts[0].paths.map((route) => route.path)).toEqual([
       "/.well-known",
@@ -1019,10 +1021,10 @@ spec:
       "www.staging.chasesets.com",
       "marketplace.staging.chasesets.com",
       "admin.staging.chasesets.com",
+      "admin-corten.staging.chasesets.com",
     ]);
 
-    // #5564: this is the canonical DOKS-served staging topology — exactly 4
-    // hosts, none of them the legacy landing-/marketplace-/admin-staging
+    // The staging pilot adds a fifth host, none of them the legacy landing-/marketplace-/admin-staging
     // redirect hostnames (those were retired outright, not rewired to DOKS;
     // see #5568). The deploy-blocking ingress-wait gate in
     // .github/workflows/platform-production.yml probes exactly this host set

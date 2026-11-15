@@ -25,6 +25,15 @@ const sourceCli = "scripts/managed-postgres-authority-sources.mjs";
 const guardCli = "scripts/managed-postgres-authority-guard.mjs";
 const schemaPath = "scripts/managed-postgres-authority-manifest.schema.json";
 const workflowPath = ".github/workflows/platform-production.yml";
+const cortenAdminImageDelta = [
+  {
+    file: workflowPath,
+    jobId: "build-image",
+    stepAnchor: "name:Build and push Corten admin image#9",
+    secretName: "DIGITALOCEAN_ACCESS_TOKEN",
+    purpose: "terraform-infra",
+  },
+];
 const fragmentPath = `${AUTHORITY_ROOT}/platform-production/deploy.json`;
 const boundaryTarget = "./.github/actions/export-managed-postgres-authority";
 // Rule for later grant changes: `migrationBase` and its 1609-grant assertion never move. A slice that adds grants
@@ -1066,6 +1075,7 @@ describe("managed Postgres authority source generator", () => {
         .concat(registryCleanupResolverDelta)
         .map(applyProductionMarkerMintInsertions)
         .concat(productionMarkerAppKeyDelta)
+        .concat(cortenAdminImageDelta)
         .map(applyTerraformProviderCacheStepInsertions),
     };
     // Exact stable-record multiset parity below is the authority; a whole-corpus total would only re-conflict.

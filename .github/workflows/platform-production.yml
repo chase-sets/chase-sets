@@ -689,6 +689,7 @@ jobs:
     outputs:
       platform_image: ${{ steps.release_image_identity.outputs.image }}
       platform_image_digest: ${{ steps.release_image_identity.outputs.digest }}
+      corten_admin_image: ${{ steps.corten_admin_image.outputs.image }}
       root_cause_code: ${{ steps.build_image_failure_classification.outputs.root_cause_code || 'unknown' }}
       root_cause_summary: ${{ steps.build_image_failure_classification.outputs.root_cause_summary || 'The image build failed without a known safe classification.' }}
       affected_component: ${{ steps.build_image_failure_classification.outputs.affected_component || 'unknown' }}
@@ -841,6 +842,34 @@ jobs:
             --out=artifacts/release-health/registry-gc-gate.json
           docker push "$RELEASE_IMAGE"
           echo "Pushed release image ${RELEASE_IMAGE}"
+
+      - name: Build and push Corten admin image
+        id: corten_admin_image
+        env:
+          DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          RELEASE_IMAGE: ${{ steps.release_image.outputs.image }}
+        run: |
+          set -euo pipefail
+          registry_name="${RELEASE_IMAGE#registry.digitalocean.com/}"
+          registry_name="${registry_name%%/*}"
+          image="registry.digitalocean.com/${registry_name}/chase-sets-corten-admin:${{ needs.resolve-release.outputs.release_commit }}"
+          if ! docker buildx imagetools inspect "$image" >/dev/null 2>&1; then
+            node ./scripts/digitalocean-registry-gc-gate.mjs assert-writable \
+              --registry="$registry_name" \
+              --out=artifacts/release-health/registry-gc-corten-admin.json
+            docker buildx build \
+              --pull \
+              --file Dockerfile.corten-admin \
+              --cache-from type=gha,scope=corten-admin-image \
+              --cache-to type=gha,scope=corten-admin-image,mode=max \
+              --push --tag "$image" .
+          fi
+          digest="$(docker buildx imagetools inspect "$image" --format '{{.Manifest.Digest}}')"
+          if ! [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo "Corten admin image did not resolve to an immutable sha256 digest." >&2
+            exit 1
+          fi
+          echo "image=${image}@${digest}" >> "$GITHUB_OUTPUT"
 
       - name: Pin release image identity
         id: release_image_identity
@@ -1979,6 +2008,7 @@ jobs:
           PLATFORM_IMAGE_REF: ${{ steps.image.outputs.image }}@${{ steps.image.outputs.digest }}
           RELEASE_COMMIT: ${{ needs.resolve-release.outputs.release_commit }}
           RELEASE_IMAGE_DIGEST: ${{ steps.image.outputs.digest }}
+          CORTEN_ADMIN_IMAGE: ${{ needs.build-image.outputs.corten_admin_image }}
           AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
         run: |
@@ -2027,14 +2057,24 @@ jobs:
           add_optional_runtime_env "STRIPE_API_BASE_URL" "${TF_VAR_stripe_api_base_url:-}"
           add_optional_runtime_env "EASYPOST_API_BASE_URL" "${TF_VAR_easypost_api_base_url:-}"
 
+          admin_domain="$(terraform -chdir=infrastructure/digitalocean/platform output -raw admin_domain)"
+          test -n "$admin_domain"
+          ingress_nodes="$(kubectl -n ingress-nginx get pods -l app.kubernetes.io/component=controller -o json \
+            | jq -ce '[.items[] | select(.status.phase == "Running") | .spec.nodeName] | unique | select(length > 0)')"
+          ingress_pod_cidrs="$(kubectl get nodes -o json | jq -er --argjson nodes "$ingress_nodes" \
+            '[.items[] | select(.metadata.name as $name | $nodes | index($name)) | .spec.podCIDRs[]] | unique | select(length > 0) | join(",")')"
+
           # Keep the deploy-critical pre-upgrade hook aligned with production:
           # only schemas and the two long-lived bootstrap profiles belong there.
           # Scenario data is reconciled after this rollout by a separate Job,
           # while the worker fleet is available to drain projections.
           pnpm run platform:kubernetes-deployment -- deploy \
             --image "$PLATFORM_IMAGE_REF" \
+            --corten-admin-image "$CORTEN_ADMIN_IMAGE" \
             --image-pull-secret chase-sets \
             --runtime-env "DEPLOYMENT_ENVIRONMENT=staging" \
+            --runtime-env "ADMIN_WEB_ORIGIN=https://${admin_domain}" \
+            --runtime-env "PROXIES=${ingress_pod_cidrs}" \
             --runtime-env "OBSERVABILITY_ENABLED=${TF_VAR_observability_enabled:-true}" \
             --runtime-env "CATALOG_PROVIDER_SEND_WINDOW_ENABLED=${{ inputs.catalog_provider_send_window_enabled == true && 'true' || 'false' }}" \
             --runtime-env "CHASE_SETS_RUNTIME_PROFILE=public" \
@@ -2102,7 +2142,7 @@ jobs:
             exit 1
           fi
 
-          # #5564: probe exactly the 4 hosts DOKS serves (landing, admin,
+          # Probe every host DOKS serves (landing, both admins,
           # marketplace, staging-root — matching buildDoksIngressHosts() in
           # scripts/render-platform-helm-values.mjs). The legacy
           # landing-/marketplace-/admin-staging redirect hostnames were
@@ -2111,6 +2151,7 @@ jobs:
           ingress_urls=(
             "https://${landing_domain}/health/ready"
             "https://${admin_domain}/health/ready"
+            "https://admin-corten.staging.chasesets.com/health/ready"
           )
           for hostname in "${marketplace_domains[@]}" "${staging_root_marketplace_domains[@]}"; do
             ingress_urls+=("https://${hostname}/health/ready")
@@ -2207,6 +2248,10 @@ jobs:
 
           cd ../../..
           export MARKETPLACE_ROOT_WEB_URL="https://${staging_root_marketplace_domain}"
+          node ./scripts/platform-ingress-wait.mjs \
+            --attempts 1 \
+            --expect-status 200 \
+            --url "https://admin-corten.staging.chasesets.com/health/ready"
           pnpm run smoke:platform -- \
             "https://${landing_domain}" \
             "https://${admin_domain}" \
