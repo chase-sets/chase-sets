@@ -8,6 +8,41 @@ import {
 import type { NotificationChannelAdapter } from "@chase-sets/outbound-messaging";
 import type { WorkerHostRuntime } from "./worker";
 import type { PlatformControlPlane } from "./control-plane";
+import type { ProjectionRunContext, ProjectorRunResult } from "@chase-sets/event-core/projector";
+
+export type DurableJobLaneRunContext = Readonly<{
+  workflowName: string;
+  laneName: string;
+  laneIndex: number;
+  laneCount: number;
+  runnerContext?: ProjectionRunContext;
+}>;
+
+export function createDurableJobLaneRunners(input: {
+  workflowName: string;
+  laneCount: number;
+  runLane: (context: DurableJobLaneRunContext) => Promise<ProjectorRunResult>;
+  priority?: () => bigint | number;
+}): readonly WorkerRunner[] {
+  const laneCount = Math.max(1, Math.floor(input.laneCount));
+  return Array.from({ length: laneCount }, (_, index): WorkerRunner => {
+    const laneIndex = index + 1;
+    const laneName = `job:${input.workflowName}.lane-${laneIndex}`;
+    return {
+      name: laneName,
+      kind: "job",
+      priority: input.priority,
+      runOnce: (runnerContext) =>
+        input.runLane({
+          workflowName: input.workflowName,
+          laneName,
+          laneIndex,
+          laneCount,
+          runnerContext,
+        }),
+    };
+  });
+}
 
 export type WorkerJobLogger = Readonly<{
   info: (message: string, fields?: Readonly<Record<string, unknown>>) => void;

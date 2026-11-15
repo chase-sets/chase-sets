@@ -1,5 +1,5 @@
 import type { WorkerRunner } from "@chase-sets/bounded-context-module";
-import { createDurableJobLaneRunners } from "@chase-sets/platform-runtime/worker";
+import { createDurableJobLaneRunners } from "@chase-sets/platform-runtime/worker-jobs";
 import { createScheduledJobRunner, type WorkerJobInput } from "@chase-sets/platform-runtime/worker-jobs";
 import type { CatalogServices } from "../authoring-support/services";
 

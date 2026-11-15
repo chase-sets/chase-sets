@@ -2,14 +2,18 @@ import { vi } from "vitest";
 import { module as channelsModule } from "@chase-sets/channels";
 import { getWorkerHostEntries, type WorkerHostRuntime } from "@chase-sets/platform-runtime/worker";
 import type { PlatformControlPlane } from "@chase-sets/platform-runtime/control-plane";
+import { getContextDatabaseEnvName } from "@chase-sets/platform-runtime/config-schema";
 import { workerContextRegistry } from "../src/context-registry";
-import { loadConfig, type PlatformWorkerConfig } from "../src/config";
+import { getPlatformWorkerContextsForRuntimeProfile, loadConfig, type PlatformWorkerConfig } from "../src/config";
 import { createNoopNotificationAdapter } from "@chase-sets/outbound-messaging";
 
 // Services are deliberately inert. Composition may inspect capabilities, but
 // any database access during construction is a regression.
 export function censusInput(profile: "landing" | "proof" | "public", enabled = true) {
-  vi.stubEnv("DATABASE_URL", "postgresql://synthetic:synthetic@localhost:1/census");
+  const databaseUrl = "postgresql://synthetic:synthetic@localhost:1/census";
+  vi.stubEnv("PLATFORM_CONTROL_DATABASE_URL", databaseUrl);
+  for (const contextName of getPlatformWorkerContextsForRuntimeProfile(profile))
+    vi.stubEnv(getContextDatabaseEnvName(contextName), databaseUrl);
   vi.stubEnv("CHASE_SETS_RUNTIME_PROFILE", profile);
   const unavailable = async (): Promise<never> => {
     throw new Error("census must not access a database");

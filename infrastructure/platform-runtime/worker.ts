@@ -200,13 +200,7 @@ export class ProjectionOperationTimedOutError extends Error {
   }
 }
 
-export type DurableJobLaneRunContext = Readonly<{
-  workflowName: string;
-  laneName: string;
-  laneIndex: number;
-  laneCount: number;
-  runnerContext?: ProjectionRunContext;
-}>;
+export { createDurableJobLaneRunners, type DurableJobLaneRunContext } from "./worker-jobs";
 
 type WorkerRunnerLoopOptions = Readonly<{
   workerId: string;
@@ -284,32 +278,6 @@ type HeldRunnerLease = {
   terminalEventEmitted: boolean;
   releasePromise?: Promise<void>;
 };
-
-export function createDurableJobLaneRunners(input: {
-  workflowName: string;
-  laneCount: number;
-  runLane: (context: DurableJobLaneRunContext) => Promise<ProjectorRunResult>;
-  priority?: () => bigint | number;
-}): readonly CanonicalWorkerRunner[] {
-  const laneCount = Math.max(1, Math.floor(input.laneCount));
-  return Array.from({ length: laneCount }, (_, index): CanonicalWorkerRunner => {
-    const laneIndex = index + 1;
-    const laneName = `job:${input.workflowName}.lane-${laneIndex}`;
-    return {
-      name: laneName,
-      kind: "job",
-      priority: input.priority,
-      runOnce: (runnerContext) =>
-        input.runLane({
-          workflowName: input.workflowName,
-          laneName,
-          laneIndex,
-          laneCount,
-          runnerContext,
-        }),
-    };
-  });
-}
 
 export function getWorkerHostEntries<TRegistry extends WorkerContextRegistry>(
   registry: TRegistry,

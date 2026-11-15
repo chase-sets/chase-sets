@@ -135,6 +135,25 @@ export const module = defineBoundedContextModule({
     await expect(validateRetentionSweepCoverage({ repoRoot: await connector() })).resolves.toEqual({ violations: [] });
   });
 
+  it("follows an identical const module extended only with worker factories", async () => {
+    const source =
+      mountedModule.replace("export const module =", "const contextModule =") +
+      "\nexport const module = { ...contextModule, workerJobFactories: { createJobs } };";
+    await expect(
+      validateRetentionSweepCoverage({ repoRoot: await connector({ [moduleFile]: source }) }),
+    ).resolves.toEqual({ violations: [] });
+    for (const invalid of [
+      source.replace("workerJobFactories: { createJobs }", "retentionSweeps: []"),
+      source.replace("workerJobFactories: { createJobs }", "workerJobFactories: {}, ...overrides"),
+      source.replace("workerJobFactories: { createJobs }", "workerJobFactories: discard(contextModule)"),
+      source.replace("const contextModule =", "let contextModule ="),
+      source.replace("const contextModule = defineBoundedContextModule", "const contextModule = discard"),
+    ])
+      await expect(
+        validateRetentionSweepCoverage({ repoRoot: await connector({ [moduleFile]: invalid }) }),
+      ).resolves.toEqual({ violations: [payloadViolation] });
+  });
+
   it("flags the planted payload table when no policy declares or mounts it", async () => {
     const root = await connector({
       [policyFile]: "export const nothing = [];",
