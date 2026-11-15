@@ -64,6 +64,7 @@ fn source(t: Ops, id: &str) -> &str {
         "wake-stalled-job" => t.attention_source_wake_stalled_job(),
         "support-request-deadline" => t.attention_source_support_request_deadline(),
         "platform-feedback-unreviewed" => t.attention_source_platform_feedback_unreviewed(),
+        "reported-content-response" => t.attention_source_reported_content_response(),
         other => other,
     }
 }

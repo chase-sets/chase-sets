@@ -98,7 +98,7 @@ async fn live(
 fn section(surface: &str) -> Option<&'static str> {
     match surface {
         "projection-operations" => Some("platform"),
-        "support-operations" | "platform-feedback" => Some("support"),
+        "support-operations" | "platform-feedback" | "reported-content" => Some("support"),
         _ => None,
     }
 }
@@ -117,6 +117,7 @@ pub fn open_href(link: &DeepLink) -> Option<String> {
     // A page the pilot serves opens here.
     let own = crate::support::feedback::serves(&path)
         .or_else(|| crate::support::requests::serves(&path))
+        .or_else(|| crate::reported::serves(&path))
         .or_else(|| crate::projections::serves(&path));
     if let Some(own) = own {
         return Some(own);
@@ -149,6 +150,12 @@ mod tests {
             Some("/support/platform-feedback/pfb_1"),
             "a sectioned path as it is"
         );
+        assert_eq!(
+            open_href(&link("reported-content", "/reported-content/listing/lst_1")).as_deref(),
+            Some("/support/reported-content/listing/lst_1"),
+            "the pilot serves a reported target's page"
+        );
+        assert_eq!(open_href(&link("reported-content", "/reported-content")).as_deref(), Some("/support/reported-content"));
         assert_eq!(open("other", "/elsewhere"), None, "an unknown surface has no page");
         assert_eq!(open("platform-feedback", "https://example.test/x"), None, "only admin-web paths");
         assert_eq!(open("platform-feedback", "//example.test/x"), None);
