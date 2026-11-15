@@ -371,6 +371,7 @@ export const marketplaceListingCallerPartition = new Map([
   ["bounded-contexts/marketplace/support/runtime-support/seed.ts", "authoritative-stream"],
   ["bounded-contexts/marketplace/tests/safe-listing-feedback.test.ts", "typed-owner-fixture"],
   ["bounded-contexts/pricing/features/bulk-reprice-ingestion/api/runtime.ts", "caller-identity"],
+  ["bounded-contexts/pricing/features/bulk-reprice-ingestion/api/wave-outcomes.ts", "caller-identity"],
   ["bounded-contexts/pricing/features/recommendations/api/runtime.ts", "caller-identity"],
   ["bounded-contexts/pricing/features/repricing-engine/api/runtime.ts", "caller-identity"],
   ["bounded-contexts/pricing/support/request-support/marketplace-listings.ts", "imported-client-forwarder"],
@@ -414,6 +415,13 @@ export function unpartitionedListingAttemptCallers(callers) {
       caller.method === "applyBulkListingPriceUpdates"
     )
       return !/\(\{ updates \}\)/.test(caller.call);
+    // The gateway batch is typed by the Marketplace client, which requires and parses batchId; the
+    // unknown-target re-drive replays that same batch identity with the unchanged row requests.
+    if (
+      caller.path === "bounded-contexts/pricing/features/bulk-reprice-ingestion/api/wave-outcomes.ts" &&
+      caller.method === "applyBulkListingPriceUpdates"
+    )
+      return !/\((?:batch|\{ \.\.\.batch, updates: unknownUpdates \})\)/.test(caller.call);
     return !/listingFormAttempt\(|idempotencyKey|batchId|\.\.\.keyed|\bkeyed\b/.test(evidence);
   });
 }
