@@ -10,7 +10,6 @@ import type { PgQueryable } from "@chase-sets/event-core-postgres";
  * every outbox row of the job's batch carries a durable acknowledgement.
  */
 
-export const DRAFT_LISTING_HANDOFF_PAGE_LIMIT = 500;
 export const DRAFT_LISTING_HANDOFF_MAX_PAGES = 50;
 const MAX_PAGE_LIMIT = 500;
 const MAX_PAGES = 100;
@@ -168,11 +167,7 @@ export async function scanInventoryDraftListingHandoffs(
   input: Readonly<{ since: Date | string; pageLimit?: number; maxPages?: number }>,
 ): Promise<DraftListingHandoffScan> {
   const since = parseRetentionInstant(input.since).toISOString();
-  const pageLimit = boundedPositiveInteger(
-    input.pageLimit ?? DRAFT_LISTING_HANDOFF_PAGE_LIMIT,
-    MAX_PAGE_LIMIT,
-    "pageLimit",
-  );
+  const pageLimit = boundedPositiveInteger(input.pageLimit ?? MAX_PAGE_LIMIT, MAX_PAGE_LIMIT, "pageLimit");
   const maxPages = boundedPositiveInteger(input.maxPages ?? DRAFT_LISTING_HANDOFF_MAX_PAGES, MAX_PAGES, "maxPages");
 
   const head = await db.query<{ scan_until: string; lineage_started_at: string | null }>(
