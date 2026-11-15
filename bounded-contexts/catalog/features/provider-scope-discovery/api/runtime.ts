@@ -2,6 +2,7 @@ import type { CommandHandler } from "@chase-sets/event-core/command-handler";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { withPgTransaction, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import type { TcgplayerSetNameObservationRecorder } from "../../operator-session/api/set-name-observations";
+import { tcgplayerExtensionSealedProductUnitKeys } from "../../source-observations/api/providers/tcgplayer/adapter";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import type { CatalogRuntimeDeps } from "../../../support/authoring-support/runtime-support";
 import {
@@ -279,39 +280,46 @@ export function createProviderScopeDiscoveryRuntime(
       if (!target) {
         throw new ExtensionScopeObservationError("scope-observation-target-unavailable");
       }
+      const sealedUnitKey = input.unitKey.replace(":single-card:", ":sealed-product:");
+      const sealedTarget = tcgplayerExtensionSealedProductUnitKeys.some((key) => key === sealedUnitKey)
+        ? extensionSetNameTarget(sealedUnitKey)
+        : null;
+      const targets = [target, ...(sealedTarget ? [sealedTarget] : [])];
       const scanId = createId("job");
       const now = new Date();
       const triggeredBy = `operator-extension-grant:${input.provenance.grantId}`;
       const parent = String(input.productLineId);
-      const observations = input.sets
-        .filter((set) => set.active)
-        .map(
-          (set): ProviderScopeObservationInput => ({
-            providerKey: target.providerKey,
-            unitKey: target.ingestionUnitKey,
-            scopeKind: target.scopeKind,
-            sourceQueryKind: target.queryKind,
-            languageCode: target.languageCode,
-            externalId: set.cleanSetName,
-            label: set.name,
-            parents: [parent],
-            imageUrl: null,
-            metadata: {
-              productLineId: parent,
-              setNameId: String(set.setNameId),
-              categoryId: String(set.categoryId),
-              cleanSetName: set.cleanSetName,
-              urlName: set.urlName,
-              abbreviation: set.abbreviation,
-              releaseDate: set.releaseDate,
-              isSupplemental: String(set.isSupplemental),
-              active: String(set.active),
-              grantId: input.provenance.grantId,
-              creatorUserId: input.provenance.creatorUserId,
-              creatorMembershipId: input.provenance.creatorMembershipId,
-            },
-          }),
-        );
+      const observations = targets.flatMap((target) =>
+        input.sets
+          .filter((set) => set.active)
+          .map(
+            (set): ProviderScopeObservationInput => ({
+              providerKey: target.providerKey,
+              unitKey: target.ingestionUnitKey,
+              scopeKind: target.scopeKind,
+              sourceQueryKind: target.queryKind,
+              languageCode: target.languageCode,
+              externalId: set.cleanSetName,
+              label: set.name,
+              parents: [parent],
+              imageUrl: null,
+              metadata: {
+                productLineId: parent,
+                setNameId: String(set.setNameId),
+                categoryId: String(set.categoryId),
+                cleanSetName: set.cleanSetName,
+                urlName: set.urlName,
+                abbreviation: set.abbreviation,
+                releaseDate: set.releaseDate,
+                isSupplemental: String(set.isSupplemental),
+                active: String(set.active),
+                grantId: input.provenance.grantId,
+                creatorUserId: input.provenance.creatorUserId,
+                creatorMembershipId: input.provenance.creatorMembershipId,
+              },
+            }),
+          ),
+      );
 
       try {
         if (!backend) throw new ExtensionScopeObservationError("scope-observations-unavailable");
@@ -323,15 +331,18 @@ export function createProviderScopeDiscoveryRuntime(
             observations,
             preserveRawIdentity: true,
           });
-          const mappingsProposed = await proposeMappingsForTarget({
-            db: transaction,
-            ports,
-            target,
-            written,
-            scanId,
-            context: input.context,
-            actor: triggeredBy,
-          });
+          let mappingsProposed = 0;
+          for (const target of targets) {
+            mappingsProposed += await proposeMappingsForTarget({
+              db: transaction,
+              ports,
+              target,
+              written: written.filter((observation) => observation.unitKey === target.ingestionUnitKey),
+              scanId,
+              context: input.context,
+              actor: triggeredBy,
+            });
+          }
           await recordProviderRefreshRun(transaction, {
             providerKey: target.providerKey,
             status: "succeeded",

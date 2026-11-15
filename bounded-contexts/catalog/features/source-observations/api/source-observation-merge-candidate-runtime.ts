@@ -55,6 +55,7 @@ import {
 export type SourceObservationMergeCandidateRuntimeDeps = Readonly<{
   deps: CatalogRuntimeDeps;
   profileVersions: CatalogProviderIntegrationProfileVersionReader;
+  loadObservationRows?: (ids: readonly string[]) => Promise<readonly SourceObservationListRow[]>;
 }>;
 
 /**
@@ -66,6 +67,7 @@ export type SourceObservationMergeCandidateRuntimeDeps = Readonly<{
 export function createSourceObservationMergeCandidateRuntime({
   deps,
   profileVersions,
+  loadObservationRows,
 }: SourceObservationMergeCandidateRuntimeDeps) {
   const codec = createPassthroughDomainEventCodec<CatalogMergeCandidateEvent>();
   const { commandHandler: catalogMergeCandidateCommandHandler, repository: catalogMergeCandidateRepository } =
@@ -162,7 +164,9 @@ export function createSourceObservationMergeCandidateRuntime({
       const existingMembers = existing.flatMap(({ state }) =>
         (state.snapshot?.membership ?? []).map((member) => member.observationId),
       );
-      const priorRows = await listSourceObservationsByIds(deps.db, existingMembers);
+      const priorRows = loadObservationRows
+        ? await loadObservationRows([...new Set(existingMembers)])
+        : await listSourceObservationsByIds(deps.db, existingMembers);
       const priorIds = new Set(priorRows.map((row) => row.observation_id));
       const requestedIds = new Set(existingMembers);
       if (

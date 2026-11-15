@@ -1,0 +1,101 @@
+import { expect, it } from "vitest";
+import { sourceObservationStreamId } from "../../source-observations/api/source-observation-stream-identity";
+import { describeDb, useOperatorSessionDatabase } from "./db-fixture";
+import { composeSealedProducts, acceptSealedMapping } from "./sealed-product-db-fixture";
+import { salvage, sealedPost } from "./sealed-product-observation-fixture";
+import { grantBearer, provenance } from "./set-name-observation-fixture";
+
+describeDb("sealed product observation posts", () => {
+  const db = useOperatorSessionDatabase("sealed_product_observation_post");
+  it.each(salvage.cases)("records salvage parity for $unitKey and one admission per post", async (entry) => {
+    const pool = db();
+    const h = await composeSealedProducts(pool);
+    const response = await h.post({ ...sealedPost(), products: [entry.detail] });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      recorded: 1,
+      changed: 0,
+      unchanged: 0,
+      candidateCount: 0,
+      exclusions: [{ productId: entry.detail.productId, code: "unmapped-provider-scope" }],
+    });
+    const loaded = await h.observations.load(sourceObservationStreamId(entry.expected.observationId));
+    expect(loaded.state).toMatchObject({
+      id: entry.expected.observationId,
+      externalKey: entry.expected.externalKey,
+      sourceProfileKey: entry.expected.sourceProfileKey,
+      sourceProfileVersion: entry.expected.sourceProfileVersion,
+      sourceMappingFingerprint: entry.expected.sourceMappingFingerprint,
+      sourceRecordHash: entry.expected.sourceRecordHash,
+      normalized: entry.expected.normalized,
+      sourcePayload: entry.expected.sourcePayload,
+    });
+    const admissions = await pool.query<{ payload: unknown }>(
+      "SELECT payload FROM event_store_events WHERE event_type = 'catalog.operator-session.sealed-product-observations-admitted'",
+    );
+    expect(admissions.rows).toEqual([{ payload: { ...provenance, observationIds: [entry.expected.observationId] } }]);
+    const events = await pool.query("SELECT payload, metadata FROM event_store_events");
+    const rows = await pool.query("SELECT * FROM catalog_source_observations");
+    const evidence = JSON.stringify([events.rows, rows.rows]);
+    for (const marker of [grantBearer, "hostile-cookie-value", "hostile-forwarded-token", "TCGAuthTicket="])
+      expect(evidence).not.toContain(marker);
+  });
+  it("converges concurrent posts, retains revisions on repeat, records changed detail, and creates one mapped candidate", async () => {
+    const pool = db();
+    const h = await composeSealedProducts(pool);
+    const entry = salvage.cases[0]!;
+    await acceptSealedMapping(pool, entry.unitKey, entry.detail.setName, entry.detail.productLineId);
+    const racing = await Promise.all([h.post(), h.post()]);
+    expect(racing.map((response) => response.status)).toEqual([200, 200]);
+    const results = await Promise.all(racing.map((response) => response.json()));
+    expect(results.map((result) => result.recorded).sort()).toEqual([0, 1]);
+    expect(results.map((result) => result.unchanged).sort()).toEqual([0, 1]);
+    expect(results.every((result) => result.candidateCount === 1)).toBe(true);
+    const streamId = sourceObservationStreamId(entry.expected.observationId);
+    const version = (await h.observations.load(streamId)).version;
+    expect((await h.post()).status).toBe(200);
+    expect((await h.observations.load(streamId)).version).toBe(version);
+    const changed = sealedPost();
+    changed.products[0]!.customAttributes.packCount = 2;
+    expect(await (await h.post(changed)).json()).toMatchObject({
+      recorded: 0,
+      changed: 1,
+      unchanged: 0,
+      candidateCount: 1,
+    });
+    expect((await h.observations.load(streamId)).version).toBeGreaterThan(version);
+    expect(
+      (
+        await pool.query(
+          "SELECT DISTINCT stream_id FROM event_store_events WHERE stream_id LIKE 'catalog.merge-candidate-%'",
+        )
+      ).rows,
+    ).toHaveLength(1);
+    expect(
+      (
+        await pool.query(
+          "SELECT event_id FROM event_store_events WHERE event_type = 'catalog.operator-session.sealed-product-observations-admitted'",
+        )
+      ).rows,
+    ).toHaveLength(4);
+  });
+  it("rolls back observations and candidates when the admission append fails", async () => {
+    const pool = db();
+    const h = await composeSealedProducts(pool);
+    await pool.query(`CREATE FUNCTION refuse_sealed_admission() RETURNS trigger LANGUAGE plpgsql AS $$
+      BEGIN IF NEW.event_type = 'catalog.operator-session.sealed-product-observations-admitted' THEN
+        RAISE EXCEPTION 'synthetic admission failure'; END IF; RETURN NEW; END $$`);
+    await pool.query(
+      "CREATE TRIGGER refuse_sealed_admission BEFORE INSERT ON event_store_events FOR EACH ROW EXECUTE FUNCTION refuse_sealed_admission()",
+    );
+    expect((await h.post()).status).toBe(503);
+    expect(
+      (await pool.query("SELECT event_id FROM event_store_events WHERE stream_id LIKE 'catalog.source-observation-%'"))
+        .rows,
+    ).toEqual([]);
+    expect(
+      (await pool.query("SELECT event_id FROM event_store_events WHERE stream_id LIKE 'catalog.merge-candidate-%'"))
+        .rows,
+    ).toEqual([]);
+  });
+});

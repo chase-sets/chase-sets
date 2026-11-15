@@ -36,6 +36,20 @@ const siteIds = [
 ] as const;
 
 describe("source observation merge candidate bounded stream contracts", () => {
+  it("reconciles immediate extension reposts from canonical members without waiting for projections", async () => {
+    const harness = createHarness(true);
+    const first = await harness.generate();
+    const query = harness.db.query.bind(harness.db);
+    vi.spyOn(harness.db, "query").mockImplementation(async (sql, params) => {
+      if (sql.includes("FROM catalog_source_observations")) throw new Error("projection-not-caught-up");
+      return query(sql, params);
+    });
+    const repeated = await harness.runtime.persistCatalogMergeCandidatesFromObservations(harness.observations, context);
+    expect(repeated.candidates.map((candidate) => candidate.candidateId)).toEqual(
+      first.candidates.map((candidate) => candidate.candidateId),
+    );
+    expect(harness.streams.size).toBe(first.candidates.length);
+  });
   it(`${siteIds[0]} refreshes rather than recreates a candidate with history beyond the bound`, async () => {
     const harness = createHarness();
     const first = await harness.generate();
@@ -1073,7 +1087,7 @@ describe("source observation merge candidate reconciliation regressions", () => 
   });
 });
 
-function createHarness() {
+function createHarness(canonicalMembers = false) {
   const { eventStore, streams } = createInMemoryEventStore();
   const observations = [
     observationRow("obs_tcgdex_054", "sv2-054"),
@@ -1095,9 +1109,14 @@ function createHarness() {
       db,
     },
     profileVersions: staticCatalogProviderIntegrationProfileVersions,
+    loadObservationRows: canonicalMembers
+      ? async (ids) => observations.filter((row) => ids.includes(row.observation_id))
+      : undefined,
   });
 
   return {
+    db,
+    observations,
     eventStore,
     streams,
     runtime,

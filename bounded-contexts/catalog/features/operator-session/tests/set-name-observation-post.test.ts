@@ -421,15 +421,18 @@ describe("recordExtensionScopeObservations against an in-memory observation stor
       context: testContext,
     });
     expect(store.commands).toEqual(
-      sets.map((set) =>
-        expect.objectContaining({
-          command: expect.objectContaining({
-            candidate: expect.objectContaining({
-              coordinates: expect.objectContaining({ setName: set.cleanSetName }),
-              evidence: expect.objectContaining({ externalId: set.cleanSetName }),
+      ["single-card", "sealed-product"].flatMap((form) =>
+        sets.map((set) =>
+          expect.objectContaining({
+            command: expect.objectContaining({
+              candidate: expect.objectContaining({
+                unitKey: `tcgplayer:mtg:${form}:source-observation-import`,
+                coordinates: expect.objectContaining({ setName: set.cleanSetName }),
+                evidence: expect.objectContaining({ externalId: set.cleanSetName }),
+              }),
             }),
           }),
-        }),
+        ),
       ),
     );
   });
@@ -468,13 +471,13 @@ describe("recordExtensionScopeObservations against an in-memory observation stor
       fail = false;
       const retry = await handler(postRequest(post));
       expect(retry.status).toBe(200);
-      expect(store.observations()).toHaveLength(2);
+      expect(store.observations()).toHaveLength(4);
       expect(store.proposals()).toHaveLength(2);
-      expect(store.commands).toHaveLength(2);
+      expect(store.commands).toHaveLength(4);
       const third = await handler(postRequest(post));
       expect(third.status).toBe(200);
-      await expect(third.json()).resolves.toEqual({ observationCount: 2, newObservationCount: 0, mappingsProposed: 0 });
-      expect(store.commands).toHaveLength(2);
+      await expect(third.json()).resolves.toEqual({ observationCount: 4, newObservationCount: 0, mappingsProposed: 0 });
+      expect(store.commands).toHaveLength(4);
       const rollback = store.statements.findIndex(({ sql }) => sql === "ROLLBACK");
       const failedRun = store.statements.findIndex(({ sql }) => sql.includes("SET last_run_completed_at"));
       expect(rollback).toBeGreaterThan(-1);
@@ -493,16 +496,22 @@ describe("recordExtensionScopeObservations against an in-memory observation stor
         context: testContext,
       });
       expect(result).toEqual({
-        observationCount: unit.observations.length,
-        newObservationCount: unit.observations.length,
-        mappingsProposed: unit.observations.length,
+        observationCount: unit.observations.length * (unit.productLineId === 1 ? 2 : 1),
+        newObservationCount: unit.observations.length * (unit.productLineId === 1 ? 2 : 1),
+        mappingsProposed: unit.observations.length * (unit.productLineId === 1 ? 2 : 1),
       });
     }
     const expected = salvage.units.flatMap((unit) =>
-      unit.observations.map((observation) => ({
-        ...observation,
-        metadata: { ...observation.metadata, ...provenance },
-      })),
+      [
+        unit.unitKey,
+        ...(unit.productLineId === 1 ? [unit.unitKey.replace(":single-card:", ":sealed-product:")] : []),
+      ].flatMap((unitKey) =>
+        unit.observations.map((observation) => ({
+          ...observation,
+          unitKey,
+          metadata: { ...observation.metadata, ...provenance },
+        })),
+      ),
     );
     const stored = store.observations().map(({ observationHash: _hash, ...observation }) => observation);
     expect(stored).toEqual(expected);
@@ -518,7 +527,7 @@ describe("recordExtensionScopeObservations against an in-memory observation stor
     const unitKey = "tcgplayer:pokemon:single-card:source-observation-import";
     const input = { unitKey, productLineId: pokemonLine, sets: unicodeControlSets, provenance, context: testContext };
     await store.runtime.recordExtensionScopeObservations(input);
-    const stored = store.observations();
+    const stored = store.observations().filter((observation) => observation.unitKey === unitKey);
     expect(stored.map((observation) => observation.externalId)).toEqual(
       unicodeControlSets.map((set) => set.cleanSetName),
     );
@@ -536,11 +545,11 @@ describe("recordExtensionScopeObservations against an in-memory observation stor
 
     const commands = store.commands.length;
     await expect(store.runtime.recordExtensionScopeObservations(input)).resolves.toEqual({
-      observationCount: 6,
+      observationCount: 12,
       newObservationCount: 0,
       mappingsProposed: 0,
     });
-    expect(store.observations()).toHaveLength(6);
+    expect(store.observations()).toHaveLength(12);
     expect(store.commands).toHaveLength(commands);
   });
 
@@ -554,7 +563,7 @@ describe("recordExtensionScopeObservations against an in-memory observation stor
       provenance,
       context: testContext,
     });
-    expect(store.observations().map((observation) => observation.metadata.setNameId)).toEqual(["1"]);
+    expect(store.observations().map((observation) => observation.metadata.setNameId)).toEqual(["1", "1"]);
 
     const failing = createInMemoryObservationStore();
     const query = failing.db.query.bind(failing.db);
@@ -587,7 +596,7 @@ describe("recordExtensionScopeObservations against an in-memory observation stor
           provenance,
           context: testContext,
         }),
-      ).resolves.toMatchObject({ observationCount: 1 });
+      ).resolves.toMatchObject({ observationCount: [1, 3].includes(unit.productLineId!) ? 2 : 1 });
     }
   });
 });
