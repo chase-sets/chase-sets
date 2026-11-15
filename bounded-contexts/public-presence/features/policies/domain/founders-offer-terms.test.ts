@@ -636,7 +636,7 @@ describe("founders clause-level source authority", () => {
         /marketplaceGateway.applyBulkListingPriceUpdates\(\{ batchId, updates \}\)/,
       ],
       [
-        "bounded-contexts/pricing/support/request-support/marketplace-listings.ts:25-25",
+        "bounded-contexts/pricing/support/request-support/marketplace-listings.ts:31-31",
         /applyBulkListingPriceUpdates: \(body, options\) => marketplaceApi.applyBulkListingPriceUpdates\(body, options\)/,
       ],
       [
