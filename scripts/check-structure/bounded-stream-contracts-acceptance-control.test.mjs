@@ -57,6 +57,8 @@ const boundedSites = [
 
 const expectedInventory = [
   ...boundedSites.map(({ id }) => [id, "1"]),
+  // Auth's enrolled writer adapter forwards the caller's complete history request unchanged.
+  ["bounded-contexts/auth/features/sessions/api/owner-epochs.ts#readStream#1", null],
   // The authority-tracking decorator forwards the caller's complete read request.
   [
     "bounded-contexts/catalog/features/source-observations/api/promotion/promotion-material-guards.ts#readStream#1",
@@ -117,9 +119,25 @@ const program = ts.createProgram({
 const candidateInventory = deriveProgramInventory(program);
 
 describe("bounded-stream-contracts-acceptance-control", () => {
-  it("derives the exact twenty-two-call corpus and five production pointer/test bindings from one TypeScript Program", () => {
+  it("derives the exact twenty-three-call corpus and five production pointer/test bindings from one TypeScript Program", () => {
     expect(acceptanceErrors(candidateInventory)).toEqual([]);
     expect(candidateInventory.map((site) => [site.id, site.limit])).toEqual(expectedInventory);
+  });
+
+  it("keeps the Auth Session persistence reader's complete history request unchanged", () => {
+    const file = "bounded-contexts/auth/features/sessions/api/owner-epochs.ts";
+    const site = candidateInventory.find((candidate) => candidate.file === file);
+    expect(site).toBeDefined();
+    expect(site.call.arguments.map((argument) => argument.getText(site.source))).toEqual(["input"]);
+    expect(site.limit).toBeNull();
+    expect(
+      errorCodes(
+        mutatedInventory(
+          file,
+          readSource(file).replace("store.readStream(input)", "store.readStream({ ...input, limit: 1 })"),
+        ),
+      ),
+    ).toContain("inventory-mismatch");
   });
 
   it("retains the Reported Content acknowledgement's complete-history page bound", () => {

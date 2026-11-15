@@ -75,3 +75,11 @@ export type { InventoryRestockDecision } from "./features/restock-decisions/api/
 export { createImportResolutionAttentionSourceFromReadModel } from "./features/import-batches/read-model/seller-attention-source";
 export { inventorySeedIds } from "./support/seed-support/ids";
 export { createInventoryRepresentativeSeedServices } from "./support/seed-support/representative-services";
+
+export {
+  createInventoryProductResolutionMaintenanceRunners,
+  createInventoryJobRunners,
+  type InventoryJobRunnerConfig,
+} from "./support/runtime-support/worker-jobs";
+
+export { createInventoryImportProductResolutionMaintenanceEnqueueRunners } from "./support/runtime-support/worker-jobs";

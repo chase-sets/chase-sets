@@ -2050,6 +2050,19 @@ function withPublicPresenceAffected(names) {
     .filter((name) => affected.has(name));
 }
 
+function withWorkerJobDependents(names, changedFiles) {
+  const affected = new Set(names);
+  const changedDependencyCorpusPaths = [
+    "bounded-contexts/ordering/features/tax-quotes/domain/tax-quote.ts",
+    "bounded-contexts/pricing/context.json",
+  ];
+  if (changedFiles.some((file) => changedDependencyCorpusPaths.includes(file))) {
+    affected.add("@chase-sets/marketplace");
+    affected.add("@chase-sets/platform-operations");
+  }
+  return [...affected];
+}
+
 // Applies #9670's only permitted delta to an output map captured before it:
 // Public Presence joins the affected and direct lists once and the unit gate
 // turns on. An empty diff, and an empty list that requires DB tests (the
@@ -2088,7 +2101,9 @@ function withPublicPresenceEnrollmentOutputs(baseOutputMap) {
   ) {
     return baseOutputMap;
   }
-  const nextAffected = withPublicPresenceAffected(affected);
+  const nextAffected = withPublicPresenceAffected(
+    withWorkerJobDependents(affected, JSON.parse(baseOutputMap.changed_files_json)),
+  );
   const direct = JSON.parse(baseOutputMap.directly_affected_workspaces_json);
   return {
     ...baseOutputMap,
@@ -3241,7 +3256,7 @@ describe("change-scope", () => {
     },
   );
 
-  it("keeps every output except the enumerated DB, Public Presence, setup E2E and acyclic context fan-out deltas byte-identical to the base commit", () => {
+  it("keeps every output except enumerated DB, enrollment, job dependency, setup E2E and acyclic context fan-out deltas byte-identical to the base commit", () => {
     for (const testCase of dbTestsOldVersusNewCorpus) {
       const scope = classifyChanges({ changedFiles: testCase.changedFiles });
       const outputs = toOutputMap(scope);
@@ -3267,6 +3282,7 @@ describe("change-scope", () => {
           "@chase-sets/notifications",
           "@chase-sets/ordering",
           "@chase-sets/payments",
+          "@chase-sets/platform-operations",
           "@chase-sets/platform-runtime",
           "@chase-sets/public-presence",
           "@chase-sets/settlement",
@@ -3275,6 +3291,7 @@ describe("change-scope", () => {
           "@chase-sets/app-public-web",
           "@chase-sets/app-tcgplayer-connector-extension",
           "@chase-sets/channels",
+          "@chase-sets/marketplace",
           "@chase-sets/pricing",
         ]);
         expected.affected_workspaces = affected.join(",");
@@ -3533,7 +3550,9 @@ describe("change-scope", () => {
       expect(next.affectedWorkspaces).toEqual(prior.affectedWorkspaces);
       if (testCase.expectedAffectedWorkspaces) {
         expect(next.affectedWorkspaces, `${testCase.name}:${testCase.status} affected_workspaces`).toEqual(
-          withPublicPresenceAffected(testCase.expectedAffectedWorkspaces),
+          withPublicPresenceAffected(
+            withWorkerJobDependents(testCase.expectedAffectedWorkspaces, testCase.changedFiles),
+          ),
         );
       }
 

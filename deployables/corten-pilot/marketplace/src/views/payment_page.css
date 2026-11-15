@@ -7,6 +7,10 @@
   gap: var(--space-4);
   min-width: 0;
 }
+/* Save this order's page: one column as wide as a form reads well. */
+.narrow {
+  max-width: 40rem;
+}
 .page:has(.bar) {
   padding-block-end: 9rem;
 }

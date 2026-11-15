@@ -12,8 +12,8 @@ describe("channel-reconciliation-real-composition-contract", () => {
     expect(index).toContain("readClaimedChannelState: (input) => readPersistedClaimedState(pool, input)");
     expect(reader).toContain("readAppliedListingMembership(db");
     expect(reader).toContain("readSnapshotRowsById(db");
-    expect(source("deployables/platform-worker/src/channels-reconciliation-runners.ts")).toContain(
-      "ReturnType<typeof channelsModule.createServices>",
+    expect(source("bounded-contexts/channels/support/runtime-support/worker-jobs.ts")).toContain(
+      "services: ChannelsServices",
     );
     expect(source("deployables/platform-api/src/app.ts")).toContain("channelSaleRecorder");
   });
@@ -43,7 +43,9 @@ describe("channel-reconciliation-real-composition-contract", () => {
     expect(contracts).toContain('import type { RecordExternalChannelSale } from "@chase-sets/inventory/server"');
     expect(inventory).toContain("createInventoryExternalChannelSaleRuntime(deps, holdCollisions).bind(context)");
     expect(worker).toContain("createInventoryExternalChannelSaleRecorderForPool");
-    expect(worker).toContain("ReturnType<typeof channelsModule.createServices>");
+    expect(source("bounded-contexts/channels/support/runtime-support/worker-jobs.ts")).toContain(
+      "services: ChannelsServices",
+    );
     expect(worker).not.toMatch(/runtime\.services\.inventory\s+as\s+\{/);
     expect(worker).not.toMatch(/channelSaleRecorder[\s\S]{0,120}\bthrow\b/);
   });

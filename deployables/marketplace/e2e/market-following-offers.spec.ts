@@ -26,6 +26,7 @@ import {
   verifyMarketFollowingBuyerContactInOwnedSandbox,
 } from "@chase-sets/identity/seed-support/market-following-verification";
 import { signInWithPassword } from "./support/auth";
+import { managedOfferEvaluations, readManagedOfferWorkDiagnostics } from "./support/managed-offer-diagnostics";
 import {
   marketplaceBrowserE2eBuyerCredentials,
   marketplaceBrowserE2eSellerCredentials,
@@ -334,11 +335,15 @@ test("market-following consent, changed target, Checkout acceptance and permanen
         baselineStreamVersion: 0,
         currentStreamVersion: 0,
         eventTypes: [] as string[],
+        evaluations: [] as ReturnType<typeof managedOfferEvaluations>,
+        productWork: null as Awaited<ReturnType<typeof readManagedOfferWorkDiagnostics>> | null,
+        diagnosticsReadError: null as string | null,
         priceUpdateVersion: null as number | null,
         evaluationVersion: null as number | null,
         amount: null as string | null,
         currency: null as string | null,
         offerStatus: null as string | null,
+        projectionStreamVersion: null as number | null,
         outcome: "not-converged",
       };
       let startedAtMs: number | undefined;
@@ -418,6 +423,16 @@ test("market-following consent, changed target, Checkout acceptance and permanen
                 try {
                   const events = await beforeDeadline(readOfferStream);
                   convergence.currentStreamVersion = events.at(-1)?.streamVersion ?? baselineVersion;
+                  convergence.evaluations = managedOfferEvaluations(events);
+                  try {
+                    convergence.productWork = await beforeDeadline(() =>
+                      readManagedOfferWorkDiagnostics(client, fixture, events),
+                    );
+                    convergence.diagnosticsReadError = null;
+                  } catch {
+                    convergence.diagnosticsReadError =
+                      "Product work diagnostics read failed or exceeded the remaining budget.";
+                  }
                   const relevant = events.filter((event) =>
                     ["marketplace.offer.price-updated", "marketplace.offer.managed-evaluated"].includes(
                       event.eventType,
@@ -508,6 +523,7 @@ test("market-following consent, changed target, Checkout acceptance and permanen
                   convergence.amount = detail.price_amount;
                   convergence.currency = detail.price_currency_code;
                   convergence.offerStatus = detail.status;
+                  convergence.projectionStreamVersion = detail.last_stream_version;
                   remainingBudget();
                   convergence.endedAt = new Date().toISOString();
                   convergence.elapsedMs = Math.floor(performance.now() - startedAtMs!);

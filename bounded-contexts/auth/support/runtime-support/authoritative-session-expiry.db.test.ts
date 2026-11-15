@@ -615,7 +615,7 @@ describeDb("authoritative Auth Session actor resolution", () => {
 
   async function issueLocatorToken(sessionId: string) {
     const token = `session-token-${sessionId}`;
-    await upsertSessionToken(services.db, {
+    await upsertSessionToken(services.pool, {
       sessionId,
       tokenHash: services.auth.hashSecret(token),
       expiresAt: new Date(Date.now() + LOCATOR_EXPIRY_OFFSET_MS).toISOString(),
@@ -694,7 +694,7 @@ describeDb("authoritative Auth Session actor resolution", () => {
     });
     const startedEvent = requireStoredEvent(result.storedEvents[0]);
     const token = `session-token-${options.sessionId}`;
-    await upsertSessionToken(services.db, {
+    await upsertSessionToken(services.pool, {
       sessionId: options.sessionId,
       tokenHash: services.auth.hashSecret(token),
       expiresAt: new Date(Date.now() + LOCATOR_EXPIRY_OFFSET_MS).toISOString(),

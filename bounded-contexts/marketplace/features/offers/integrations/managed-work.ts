@@ -78,7 +78,12 @@ export function createManagedOfferWork(deps: {
     if (!latest) return 0;
     const work = latest.payload as Work;
     if (work.status === "completed" || Date.parse(work.availableAt) > now().getTime()) return 0;
-    const claim: Work = { ...work, status: "claimed", availableAt: new Date(now().getTime() + 60_000).toISOString() };
+    const claim: Work & { page: null } = {
+      ...work,
+      status: "claimed",
+      availableAt: new Date(now().getTime() + 60_000).toISOString(),
+      page: null,
+    };
     try {
       await deps.eventStore.appendToStream({
         streamId,
@@ -114,6 +119,11 @@ export function createManagedOfferWork(deps: {
           eventType: "marketplace.offer.work-progressed",
           payload: {
             ...work,
+            page: {
+              claimVersion,
+              afterOfferId: work.afterOfferId,
+              offerIds: page.rows.map((row) => row.offer_id),
+            },
             afterOfferId: page.rows.at(-1)?.offer_id ?? work.afterOfferId,
             status: page.rows.length === 100 ? "pending" : "completed",
             availableAt: now().toISOString(),

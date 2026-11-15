@@ -1,4 +1,66 @@
 {
+  "scheduledJobs": [
+    {
+      "id": "platform-operations.seller-compliance-cohort-sweep",
+      "schedule": {
+        "kind": "interval",
+        "intervalMs": 60000
+      },
+      "runnerExport": "createPlatformOperationsSellerComplianceCohortSweepRunners",
+      "group": "scheduled",
+      "order": 106,
+      "runtimeProfiles": [
+        "proof",
+        "public"
+      ],
+      "lockScope": "job:platform-operations.seller-compliance-cohort-sweep"
+    },
+    {
+      "id": "platform-operations.support-request-deadline-sweep",
+      "schedule": {
+        "kind": "configured-interval",
+        "configKey": "supportRequestDeadlineSweepIntervalMs"
+      },
+      "runnerExport": "createPlatformOperationsSupportRequestDeadlineSweepRunners",
+      "group": "scheduled",
+      "order": 107,
+      "runtimeProfiles": [
+        "proof",
+        "public"
+      ],
+      "lockScope": "job:platform-operations.support-request-deadline-sweep"
+    },
+    {
+      "id": "support-evidence-operation-cleanup",
+      "schedule": {
+        "kind": "configured-interval",
+        "configKey": "supportEvidenceCleanupIntervalMs"
+      },
+      "runnerExport": "createPlatformOperationsSupportEvidenceCleanupRunners",
+      "group": "scheduled",
+      "order": 108,
+      "runtimeProfiles": [
+        "proof",
+        "public"
+      ],
+      "lockScope": "job:support-evidence-operation-cleanup"
+    },
+    {
+      "id": "platform-operations.gmv-reconciliation",
+      "schedule": {
+        "kind": "configured-interval",
+        "configKey": "gmvReconciliationIntervalMs"
+      },
+      "runnerExport": "createPlatformOperationsGmvReconciliationRunners",
+      "group": "scheduled",
+      "order": 116,
+      "runtimeProfiles": [
+        "proof",
+        "public"
+      ],
+      "lockScope": "job:platform-operations.gmv-reconciliation"
+    }
+  ],
   "contextName": "platform-operations",
   "packageName": "@chase-sets/platform-operations",
   "localeCatalogs": ["contracts/localization/locales/en/platform-operations.ts"],
@@ -74,7 +136,7 @@
     "./web",
     "./integration/link-intents"
   ],
-  "allowedContextDependencies": ["@chase-sets/customer-feedback"],
+  "allowedContextDependencies": ["@chase-sets/customer-feedback", "@chase-sets/pricing", "@chase-sets/settlement"],
   "seedRequirements": ["identity", "ordering", "fulfillment", "payments", "settlement"],
   "eventSubscriptions": [
     {

@@ -12,7 +12,7 @@ const allowed = new Set([
   ownerPath,
   "bounded-contexts/identity/support/ucp-support/linked-platform-authorizations.ts",
   "bounded-contexts/auth/features/agent-grants/api/revocation.ts",
-  "deployables/platform-worker/src/agent-webhook-runners.ts",
+  "bounded-contexts/auth/support/runtime-support/worker-jobs.ts",
 ]);
 function callers(directory: string): string[] {
   return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {

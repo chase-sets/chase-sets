@@ -329,7 +329,7 @@ describe("exact-target extraction and trigger/caller structure", () => {
     ]);
   });
 
-  it("keeps every moved step body equal to the pinned base except the two run-attribution values", () => {
+  it("keeps every moved step body equal to the pinned base except attribution, with exact worker boot evidence", () => {
     const actualDigests = receiverSteps.map((step) => stepDigest(normalizeMovedStep(step)));
     for (const digest of movedStepDigests) {
       expect(
@@ -339,7 +339,21 @@ describe("exact-target extraction and trigger/caller structure", () => {
     }
     expect(trustedDockerHubGuardViolations(receiverSteps)).toEqual([]);
     expect(receiverSteps.filter((step) => step.uses === trustedBlockDockerHubAction)).toHaveLength(1);
-    expect(receiverSteps).toHaveLength(movedStepDigests.length + 4);
+    const bootEvidence = receiverSteps.filter((step) => step.name === "Worker registry boot evidence");
+    expect(bootEvidence).toEqual([
+      {
+        name: "Worker registry boot evidence",
+        if: "always()",
+        run: "docker compose -f docker-compose.pr-smoke.yml logs --no-color platform-worker",
+      },
+    ]);
+    expect(receiverSteps.indexOf(bootEvidence[0])).toBeGreaterThan(
+      receiverSteps.findIndex((step) => step.name === "Smoke check"),
+    );
+    expect(receiverSteps.indexOf(bootEvidence[0])).toBeLessThan(
+      receiverSteps.findIndex((step) => step.name === "Compose teardown"),
+    );
+    expect(receiverSteps).toHaveLength(movedStepDigests.length + 5);
   });
 
   const guardIndexIn = (steps) => steps.findIndex(isDockerHubGuardLike);

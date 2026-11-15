@@ -31,7 +31,7 @@ const migrationIds = [
 // Fixed Settlement lifecycle evidence at abb4857e, not SQL eligibility inference or a guard exemption.
 // Full source pins include imports, exports, every executable member and opaque expressions.
 const composedSources = {
-  "bounded-contexts/settlement/index.ts": "3204e9b1b2e6e44f6bf91ae073af4f3ff23d2581a81f88b34b323a79cf0ee683",
+  "bounded-contexts/settlement/index.ts": "8604850829725b147c19292fa546e8870f4ca301fdc48c0f8dd97a050b50683c",
   "bounded-contexts/settlement/support/runtime-support/schema.ts":
     "2274e4327827a68c647aa383821fe93b6157dadfceba961918ebbe3fe88ca7be",
   "bounded-contexts/settlement/support/runtime-support/unlogged-projection-migrations.ts":

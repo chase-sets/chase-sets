@@ -61,7 +61,7 @@ const registeredCallers = new Map([
   ],
   ["bounded-contexts/pricing/support/request-support/marketplace-listings.ts", ["PricingMarketplaceListingGateway"]],
   ["contracts/catalog-seed/representative-commerce-state.ts", ["priceCurrencyCode: string"]],
-  ["deployables/platform-worker/src/main.ts", ["MarketplaceListingServices"]],
+  ["bounded-contexts/pricing/support/runtime-support/worker-jobs.ts", ["MarketplaceServices", "...body"]],
 ]);
 
 const registeredOfferCallers = new Map([

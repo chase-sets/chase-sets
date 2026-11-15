@@ -283,10 +283,142 @@ const entryKeys = Object.freeze({
   failure: ["kind", "at", "classification", "knownLocator", "location"],
 });
 
+const convergenceDiagnosticKeys = ["evaluations", "productWork", "diagnosticsReadError", "projectionStreamVersion"];
+const catalogItemPattern = /^cat_[A-Za-z0-9_]{1,160}$/;
+const productPattern = /^cat_[A-Za-z0-9_:|=.-]{1,240}$/;
+const workIdPattern = /^[a-f0-9]{64}$/;
+const workStreamPattern = /^marketplace\.offer-work-[a-f0-9]{64}$/;
+const operationPattern = new RegExp(`^[a-f0-9]{64}_off_${ulid}$`);
+const evaluationReasons = [
+  "market-price-target",
+  "market-price-unavailable",
+  "market-price-invalid",
+  "market-price-product-mismatch",
+  "market-price-currency-mismatch",
+  "market-price-stale",
+  "evaluation-time-invalid",
+  "target-below-minimum",
+];
+
+function validateConvergenceDiagnostics(entry, path) {
+  const code = "timeline-invalid";
+  const integer = (value, key) => requireInteger(value, 0, 1_000_000, code, `${path}.${key}`);
+  const array = (value, maximum, key) => {
+    if (!Array.isArray(value) || value.length > maximum) refuse(code, { path: `${path}.${key}` });
+  };
+  const product = (value, key) => {
+    requirePattern(value.catalogItemId, catalogItemPattern, code, `${path}.${key}.catalogItemId`);
+    requirePattern(value.productId, productPattern, code, `${path}.${key}.productId`);
+  };
+  const cursor = (value, key) => {
+    if (value !== "") requirePattern(value, offerIdPattern, code, `${path}.${key}`);
+  };
+  nullable(entry.projectionStreamVersion, (value) => integer(value, "projectionStreamVersion"));
+  nullable(entry.diagnosticsReadError, (value) =>
+    requireEnum(
+      value,
+      ["Product work diagnostics read failed or exceeded the remaining budget."],
+      code,
+      `${path}.diagnosticsReadError`,
+    ),
+  );
+  array(entry.evaluations, 64, "evaluations");
+  entry.evaluations.forEach((evaluation, index) => {
+    const key = `evaluations[${index}]`;
+    requireClosed(
+      evaluation,
+      ["streamVersion", "occurredAt", "status", "reason", "policyVersion", "operationId", "evidence"],
+      code,
+      `${path}.${key}`,
+    );
+    integer(evaluation.streamVersion, `${key}.streamVersion`);
+    integer(evaluation.policyVersion, `${key}.policyVersion`);
+    requireInstant(evaluation.occurredAt, `${path}.${key}.occurredAt`);
+    requireEnum(evaluation.status, ["held", "applied"], code, `${path}.${key}.status`);
+    requireEnum(evaluation.reason, evaluationReasons, code, `${path}.${key}.reason`);
+    requirePattern(evaluation.operationId, operationPattern, code, `${path}.${key}.operationId`);
+    requireClosed(evaluation.evidence, ["marketPrice", "evaluatedAt"], code, `${path}.${key}.evidence`);
+    nullable(evaluation.evidence.evaluatedAt, (value) => requireInstant(value, `${path}.${key}.evidence.evaluatedAt`));
+    nullable(evaluation.evidence.marketPrice, (price) => {
+      const priceKey = `${key}.evidence.marketPrice`;
+      requireClosed(
+        price,
+        ["catalogItemId", "productId", "estimateVersion", "amount", "currencyCode", "estimatedAt", "freshUntil"],
+        code,
+        `${path}.${priceKey}`,
+      );
+      product(price, priceKey);
+      requirePattern(price.estimateVersion, /^[1-9][0-9]{0,18}$/, code, `${path}.${priceKey}.estimateVersion`);
+      requirePattern(price.amount, amountPattern, code, `${path}.${priceKey}.amount`);
+      requirePattern(price.currencyCode, /^[A-Za-z]{3}$/, code, `${path}.${priceKey}.currencyCode`);
+      requireInstant(price.estimatedAt, `${path}.${priceKey}.estimatedAt`);
+      requireInstant(price.freshUntil, `${path}.${priceKey}.freshUntil`);
+    });
+  });
+  nullable(entry.productWork, (work) => {
+    requireClosed(work, ["productWorkLimit", "eventLimit", "truncated", "events"], code, `${path}.productWork`);
+    if (work.productWorkLimit !== 20 || work.eventLimit !== 500 || typeof work.truncated !== "boolean")
+      refuse(code, { path: `${path}.productWork` });
+    array(work.events, 500, "productWork.events");
+    work.events.forEach((event, index) => {
+      const key = `productWork.events[${index}]`;
+      requireClosed(
+        event,
+        [
+          "streamId",
+          "streamVersion",
+          "eventType",
+          "occurredAt",
+          "workId",
+          "catalogItemId",
+          "productId",
+          "kind",
+          "status",
+          "availableAt",
+          "afterOfferId",
+          "page",
+        ],
+        code,
+        `${path}.${key}`,
+      );
+      requirePattern(event.streamId, workStreamPattern, code, `${path}.${key}.streamId`);
+      requirePattern(event.workId, workIdPattern, code, `${path}.${key}.workId`);
+      requirePattern(event.streamVersion, /^[1-9][0-9]{0,5}$/, code, `${path}.${key}.streamVersion`);
+      requireEnum(
+        event.eventType,
+        ["marketplace.offer.work-requested", "marketplace.offer.work-claimed", "marketplace.offer.work-progressed"],
+        code,
+        `${path}.${key}.eventType`,
+      );
+      requireEnum(event.kind, ["reaction", "recovery"], code, `${path}.${key}.kind`);
+      requireEnum(event.status, ["pending", "claimed", "completed"], code, `${path}.${key}.status`);
+      requireInstant(event.occurredAt, `${path}.${key}.occurredAt`);
+      requireInstant(event.availableAt, `${path}.${key}.availableAt`);
+      product(event, key);
+      cursor(event.afterOfferId, `${key}.afterOfferId`);
+      nullable(event.page, (page) => {
+        requireClosed(page, ["claimVersion", "afterOfferId", "offerIds"], code, `${path}.${key}.page`);
+        integer(page.claimVersion, `${key}.page.claimVersion`);
+        cursor(page.afterOfferId, `${key}.page.afterOfferId`);
+        array(page.offerIds, 100, `${key}.page.offerIds`);
+        page.offerIds.forEach((id, offerIndex) =>
+          requirePattern(id, offerIdPattern, code, `${path}.${key}.page.offerIds[${offerIndex}]`),
+        );
+      });
+    });
+  });
+}
+
 function validateEntry(entry, path) {
   if (!isPlainObject(entry)) refuse("timeline-invalid", { path });
   const kind = requireEnum(entry.kind, Object.keys(entryKeys), "timeline-invalid", `${path}.kind`);
-  requireClosed(entry, entryKeys[kind], "timeline-invalid", path);
+  const hasDiagnostics = kind === "convergence" && convergenceDiagnosticKeys.some((key) => Object.hasOwn(entry, key));
+  requireClosed(
+    entry,
+    hasDiagnostics ? [...entryKeys[kind], ...convergenceDiagnosticKeys] : entryKeys[kind],
+    "timeline-invalid",
+    path,
+  );
   const code = "timeline-invalid";
   if (kind === "command") {
     requireInstant(entry.at, `${path}.at`);
@@ -299,6 +431,7 @@ function validateEntry(entry, path) {
     return { ...entry, offerIds: [...entry.offerIds] };
   }
   if (kind === "convergence") {
+    if (hasDiagnostics) validateConvergenceDiagnostics(entry, path);
     requireInstant(entry.startedAt, `${path}.startedAt`);
     requireInstant(entry.endedAt, `${path}.endedAt`);
     const window = Date.parse(entry.endedAt) - Date.parse(entry.startedAt);
