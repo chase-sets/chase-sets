@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from "node:util";
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
 import { createAggregateCommandHandler } from "@chase-sets/event-core/aggregate-command-handler";
 import { recordCommittedEvents } from "@chase-sets/event-core/consistency";
@@ -55,6 +56,7 @@ import {
 export type SourceObservationMergeCandidateRuntimeDeps = Readonly<{
   deps: CatalogRuntimeDeps;
   profileVersions: CatalogProviderIntegrationProfileVersionReader;
+  loadObservationRows?: (ids: readonly string[]) => Promise<readonly SourceObservationListRow[]>;
 }>;
 
 /**
@@ -66,6 +68,7 @@ export type SourceObservationMergeCandidateRuntimeDeps = Readonly<{
 export function createSourceObservationMergeCandidateRuntime({
   deps,
   profileVersions,
+  loadObservationRows,
 }: SourceObservationMergeCandidateRuntimeDeps) {
   const codec = createPassthroughDomainEventCodec<CatalogMergeCandidateEvent>();
   const { commandHandler: catalogMergeCandidateCommandHandler, repository: catalogMergeCandidateRepository } =
@@ -102,6 +105,7 @@ export function createSourceObservationMergeCandidateRuntime({
   async function persistCatalogMergeCandidatesFromObservations(
     observations: readonly SourceObservationListRow[],
     context: EventStoreContext,
+    options: Readonly<{ preserveUnchangedTerminalCandidates?: boolean }> = {},
   ): Promise<CatalogMergeCandidateMatchBatch> {
     const addedAt = new Date().toISOString();
     const providerKeys = [
@@ -162,7 +166,9 @@ export function createSourceObservationMergeCandidateRuntime({
       const existingMembers = existing.flatMap(({ state }) =>
         (state.snapshot?.membership ?? []).map((member) => member.observationId),
       );
-      const priorRows = await listSourceObservationsByIds(deps.db, existingMembers);
+      const priorRows = loadObservationRows
+        ? await loadObservationRows([...new Set(existingMembers)])
+        : await listSourceObservationsByIds(deps.db, existingMembers);
       const priorIds = new Set(priorRows.map((row) => row.observation_id));
       const requestedIds = new Set(existingMembers);
       if (
@@ -273,6 +279,16 @@ export function createSourceObservationMergeCandidateRuntime({
       const existingEvents = await deps.eventStore.readStream({ streamId, limit: 1 });
       if (existingEvents.length > 0 !== (loadedCandidate.state.id !== null)) {
         throw new Error("Catalog Merge Candidate stream changed during reconciliation; import failed closed.");
+      }
+      // Extension reposts preserve a review decision only when the canonical source membership is unchanged.
+      // Issue: https://github.com/chase-sets/chase-sets/issues/10040
+      if (
+        options.preserveUnchangedTerminalCandidates &&
+        (loadedCandidate.state.status === "promoted" || loadedCandidate.state.status === "rejected") &&
+        loadedCandidate.state.snapshot &&
+        sameCandidateSourceMembership(loadedCandidate.state.snapshot, candidate.snapshot)
+      ) {
+        continue;
       }
       const now = new Date().toISOString();
       await catalogMergeCandidateCommandHandler({
@@ -651,6 +667,32 @@ function applyCatalogMergeCandidateEdit(
     fieldProvenance,
     promotionIntent: edit.promotionIntent,
   };
+}
+
+function sameCandidateSourceMembership(
+  existing: CatalogMergeCandidateReviewSnapshot,
+  incoming: CatalogMergeCandidateReviewSnapshot,
+): boolean {
+  if (
+    !isDeepStrictEqual(existing.identity, incoming.identity) ||
+    existing.membership.length !== incoming.membership.length
+  ) {
+    return false;
+  }
+  const priorMembers = new Map(existing.membership.map((member) => [member.observationId, member]));
+  return incoming.membership.every((member) => {
+    const prior = priorMembers.get(member.observationId);
+    return (
+      prior !== undefined &&
+      prior.syncRunId === member.syncRunId &&
+      prior.providerKey === member.providerKey &&
+      prior.externalKey === member.externalKey &&
+      prior.sourceRecordHash === member.sourceRecordHash &&
+      prior.sourceProfileKey === member.sourceProfileKey &&
+      prior.sourceProfileVersion === member.sourceProfileVersion &&
+      prior.sourceMappingFingerprint === member.sourceMappingFingerprint
+    );
+  });
 }
 
 function uniqueTrimmedIds(values: readonly string[]): readonly string[] {

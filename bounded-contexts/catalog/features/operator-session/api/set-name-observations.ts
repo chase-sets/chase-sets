@@ -41,7 +41,7 @@ function refusal(code: string, status: number): Response {
 
 // Grant-authorized Catalog writes are platform-wide, so they use the platform system tenant and
 // account; the audit user is the live grant creator. The bearer never leaves authorization.
-function operatorExtensionContext(grant: ObservationGrant): EventStoreContext {
+export function operatorExtensionContext(grant: ObservationGrant): EventStoreContext {
   return {
     tenantId: "tnt_identity" as TenantId,
     audit: { performedByUserId: grant.creatorUserId as UserId, forAccountId: "acc_identity_system" as AccountId },

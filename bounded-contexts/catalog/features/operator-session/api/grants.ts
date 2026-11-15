@@ -8,6 +8,10 @@ import {
   createTcgplayerSetNameObservationPost,
   type TcgplayerSetNameObservationRecorder,
 } from "./set-name-observations";
+import {
+  createTcgplayerSealedProductObservationPost,
+  type TcgplayerSealedProductObservationRecorder,
+} from "./sealed-product-observations";
 
 type Action = "metadata" | "mint" | "disconnect" | "unpair";
 type GrantRow = { id: string; active: boolean; created_at: Date; last_used_at: Date; idle_expires_at: Date };
@@ -31,6 +35,7 @@ function grantsCatalogManage(
 
 export type OperatorObservationRecorders = Readonly<{
   tcgplayerSetNames?: TcgplayerSetNameObservationRecorder;
+  tcgplayerSealedProducts?: TcgplayerSealedProductObservationRecorder;
 }>;
 
 export function createOperatorSessionGrants(
@@ -120,6 +125,11 @@ export function createOperatorSessionGrants(
   }
   return {
     authorizeObservationGrant,
+    recordTcgplayerSealedProductObservations: createTcgplayerSealedProductObservationPost({
+      authorizeObservationGrant,
+      record: observationRecorders.tcgplayerSealedProducts,
+      serializeWrites: (work) => withOperatorSessionBackend(pool, work, observationWriteLockId),
+    }),
     recordTcgplayerSetNameObservations: createTcgplayerSetNameObservationPost({
       authorizeObservationGrant,
       record: observationRecorders.tcgplayerSetNames,
