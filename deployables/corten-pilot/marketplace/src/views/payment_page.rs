@@ -4,7 +4,7 @@
 //! payment, the deadline while it waits, the secure payment step, the status, the event timeline,
 //! staff's support details, the wallet's cover, and the purchases. A guest checkout's page has no
 //! Back to purchases or Open purchase; its Retry payment is a form (see `payment`), and a paid
-//! guest order offers Save this order: a passkey or a claim link (see `payment`).
+//! guest order offers Save this order, a link to the claim (see `guest_claim`).
 //!
 //! The secure payment step is Stripe's: the step's script (`payment_entry.js`) loads Stripe.js,
 //! mounts the payment fields in the step and turns Confirm payment on once they are ready; Confirm
@@ -20,13 +20,11 @@ use corten::{
     prelude::*,
 };
 
-use platform::auth::{PASSKEY_LABEL, passkey};
-
 use crate::{
     api::{AccountPayment, PaymentOrder},
     app::url,
     // `Defaults` by its name: payment_entry.js's `mount` takes its generated declaration.
-    payment::{Claim, Defaults, GuestForm, PaymentScreen, WatchRoute},
+    payment::{Defaults, GuestForm, PaymentScreen, WatchRoute},
     text::PaymentMsg,
 };
 
@@ -78,6 +76,12 @@ fn provider_event(t: PaymentMsg, kind: &str) -> String {
         "payment-cancelled" => t.provider_closed_payment_session().to_owned(),
         other => other.replace('-', " "),
     }
+}
+
+/// Save this order's address, carrying the receipt the page was read after
+/// (`preserveFreshWriteMetadata`).
+fn claim_place(screen: &PaymentScreen) -> crate::guest_claim::ClaimPlace {
+    crate::guest_claim::ClaimPlace { after_write: screen.after_write.clone(), claim_continuation: None }
 }
 
 /// A label the catalog ends with `": "`, as a term.
@@ -179,14 +183,13 @@ pub fn PaymentContent<'a>(t: PaymentMsg, screen: &'a PaymentScreen) -> impl Patc
                             <p>{says}</p>
                         </div>
                     </section>
-                    if screen.claim.is_some() || screen.claim_error.is_some() || screen.claim_sent.is_some() {
-                        <SaveOrder
-                            t={t}
-                            id={&payment.payment_id}
-                            claim={screen.claim.as_ref()}
-                            error={screen.claim_error.as_deref()}
-                            sent={screen.claim_sent.as_deref()}
-                        />
+                    // Save this order (`guestClaimSection`): the claim, read after the write this page was.
+                    if screen.guest && payment.status == "captured" {
+                        <p>
+                            <a class={Button} href={url::GuestClaim { id: &payment.payment_id, place: claim_place(screen) }}>
+                                {t.save_this_order()}
+                            </a>
+                        </p>
                     }
                     <section class={Section} aria-labelledby="payment-timeline-title">
                         <h2 id="payment-timeline-title" class={PartTitle}>{t.event_timeline()}</h2>
@@ -487,110 +490,6 @@ pub fn PaymentWatch<'a>(again: Option<&'a WatchRoute<'a>>) -> impl Patch {
             Some(WatchRoute::Guest(from)) => { {read.from(from)} }
             None => {}
         }
-    }
-}
-
-/// A paid guest order's Save this order (`GuestClaimPrompt`, see `payment`): why the last claim did
-/// not save it, then a passkey for the contact's email (the shared passkey step creates it and
-/// sends the form with its credential; without a script the form comes without one and the page
-/// says so), a claim link emailed there and, once sent, that it was, with the token to type where
-/// the page shows it. A link sent when the contact could not be read again says only that it was
-/// sent (`sent`).
-#[component(css = PaymentPage)]
-fn SaveOrder<'a>(
-    t: PaymentMsg,
-    id: &'a str,
-    claim: Option<&'a Claim>,
-    error: Option<&'a str>,
-    sent: Option<&'a str>,
-) -> impl Render {
-    let f = GuestForm::FIELDS;
-    let action = url::GuestPayment { id, place: Default::default() };
-    let (challenge_id, challenge, credential_id, response, button, warning) = refs();
-    let parts = passkey::Parts { challenge_id, challenge, credential_id, response, button, warning };
-    let (email, name) = refs();
-    let challenges = url::PasskeyChallenge.href();
-    html! {
-        <section class={Section} aria-labelledby="payment-save-title">
-            <h2 id="payment-save-title" class={PartTitle}>{t.save_this_order()}</h2>
-            <div class={Card}>
-                <p><span class={Badge} data-tone="accent">{t.recommended()}</span></p>
-                <p class={Muted}>{t.save_this_order_after_payment_with_a_passkey()}</p>
-                if let Some(error) = error {
-                    <div class={Banner} data-tone="danger" role="alert">
-                        <p class={Strong}>{t.could_not_save_order()}</p>
-                        <p>{error}</p>
-                    </div>
-                }
-                if let Some(sent) = sent {
-                    <div class={Banner} role="status">
-                        <p>{sent}</p>
-                    </div>
-                }
-                if let Some(claim) = claim {
-                    <form
-                        class={Form}
-                        method="post"
-                        action={&action}
-                        on:submit={passkey::register(event, target, parts, &challenges, email, name)}
-                    >
-                        <input type="hidden" name={f.intent} value="claim-passkey">
-                        <input type="hidden" ref={email} name={f.email} value={&claim.contact_email}>
-                        <input type="hidden" ref={challenge_id} name={f.challenge_id} value="">
-                        <input type="hidden" ref={challenge} name={f.challenge} value="">
-                        <input type="hidden" ref={credential_id} name={f.external_credential_id} value="">
-                        <input type="hidden" ref={response} name={f.webauthn_response} value="">
-                        <input type="hidden" name="label" value={PASSKEY_LABEL}>
-                        <label class={Field}>
-                            <span class={Label}>{t.contact_name()}</span>
-                            <input
-                                ref={name}
-                                class={Input}
-                                type="text"
-                                name={f.display_name}
-                                autocomplete="name"
-                                required
-                                value={&claim.display_name}
-                            >
-                        </label>
-                        <p class={Muted}>{t.we_will_save_this_order_to(&claim.contact_email)}</p>
-                        <div ref={warning} class={Banner} data-tone="warning" role="alert" tabindex="-1" hidden>
-                            <p class={Strong}>{t.passkey_unavailable()}</p>
-                            <p>{t.passkey_registration_failed()}</p>
-                        </div>
-                        <button ref={button} class={Button} type="submit">{t.save_with_passkey()}</button>
-                    </form>
-                    <hr class={Divider}>
-                    <form class={Form} method="post" action={&action}>
-                        <input type="hidden" name={f.intent} value="claim-link-request">
-                        <input type="hidden" name={f.display_name} value={&claim.display_name}>
-                        <p class={Muted}>{t.send_a_claim_link_to(&claim.contact_email)}</p>
-                        <button class={(Button, Secondary)} type="submit">{t.email_me_a_claim_link()}</button>
-                    </form>
-                    if let Some(sent) = &claim.link_sent {
-                        <div class={Banner} role="status">
-                            <p>{sent}</p>
-                        </div>
-                    }
-                    if let Some(token) = &claim.token {
-                        <form class={(Form, Inset)} method="post" action={&action}>
-                            <p class={Muted}>{t.local_recovery_token_in_production()}</p>
-                            <input type="hidden" name={f.intent} value="claim-link-consume">
-                            <input type="hidden" name={f.display_name} value={&claim.display_name}>
-                            <label class={Field}>
-                                <span class={Label}>{t.claim_token()}</span>
-                                <input class={Input} type="text" name={f.token} autocomplete="off" required value={token}>
-                            </label>
-                            <button class={Button} type="submit">{t.verify_email_and_save_order()}</button>
-                        </form>
-                    }
-                    <details class={Fold}>
-                        <summary>{t.other_options()}</summary>
-                        <p class={Muted}>{t.password_setup_is_available_only_after()}</p>
-                    </details>
-                }
-            </div>
-        </section>
     }
 }
 
