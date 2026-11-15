@@ -43,7 +43,7 @@ use crate::{
         views::AliasReviewPart,
     },
     text::{Cat, Pilot},
-    views::{admin_web, link_to},
+    views::link_to,
 };
 
 /// The form whose refusal the page draws (a refused command's message at the top of the page).
@@ -1214,13 +1214,12 @@ fn candidate_tone(status: &str) -> &'static str {
 
 /// Merged candidate review (`CatalogIntegrationMergeCandidateReviewModule`): each candidate's
 /// identity, sources, status and readiness, and the ignore, defer, split and edit the API offers
-/// it, its promote once the API checks it against the version read, and its detail sheet; a
-/// blocking conflict's resolution opens on admin-web (chase-sets/chase-sets#11235).
+/// it, its promote once the API checks it against the version read, and its detail sheet, which
+/// resolves its blocking conflicts.
 #[component(css = DailyPage)]
 fn CandidatesModule<'a>(t: Cat, p: Pilot, model: &'a Daily, context: &'a str, manage: bool) -> impl Render {
     let merge = &model.merge_candidate_review;
     let ready = t.wb_merge_ready_count(merge.counts.ready).to_string();
-    let elsewhere = admin_web(&daily::location(context)).map(|u| u.to_string());
     let conflicts = t.wb_merge_conflict_count(merge.counts.conflict).to_string();
     html! {
         <Module
@@ -1256,19 +1255,11 @@ fn CandidatesModule<'a>(t: Cat, p: Pilot, model: &'a Daily, context: &'a str, ma
                                     row={row}
                                     context={context}
                                     manage={manage}
-                                    elsewhere={elsewhere.as_deref()}
                                 />
                             }
                         </tbody>
                     </table>
                 </Table>
-            }
-            if let (true, Some(href)) = (merge.rows.iter().any(|row| row.conflicts.blocking > 0), &elsewhere) {
-                <p class={Muted}>
-                    {p.integrations_conflicts_elsewhere()}
-                    " "
-                    <a href={href}>{p.integrations_candidates_open()}</a>
-                </p>
             }
         </Module>
     }
@@ -1278,16 +1269,9 @@ fn CandidatesModule<'a>(t: Cat, p: Pilot, model: &'a Daily, context: &'a str, ma
 /// offers it (admin-web's `MergeCandidateActionButton`), with the blockers of those it does not.
 /// Split is its own form, carrying the version and the observations the API's split names; Edit
 /// opens a dialog with the typed edit (admin-web's `CatalogMergeCandidateEditForm`), and Evidence the
-/// candidate's detail sheet.
+/// candidate's detail sheet, where its blocking conflicts are resolved.
 #[component(css = DailyPage)]
-fn CandidateRow<'a>(
-    t: Cat,
-    p: Pilot,
-    row: &'a Candidate,
-    context: &'a str,
-    manage: bool,
-    elsewhere: Option<&'a str>,
-) -> impl Render {
+fn CandidateRow<'a>(t: Cat, p: Pilot, row: &'a Candidate, context: &'a str, manage: bool) -> impl Render {
     let intent = state_label(&row.proposed_mapping.promotion_intent);
     let sources = t.wb_merge_sources_count(row.source_count).to_string();
     let status = state_label(&row.status);
@@ -1367,7 +1351,7 @@ fn CandidateRow<'a>(
                     >
                         {t.wb_evidence()}
                     </button>
-                    <CandidateDetail t={t} p={p} dialog={detail} row={row} elsewhere={elsewhere} />
+                    <CandidateDetail t={t} dialog={detail} row={row} manage={manage} action={&action} />
                     if manage && !commands.is_empty() {
                         <form
                             method="post"
@@ -1475,18 +1459,12 @@ struct CandidateDetailId<'a>(&'a str);
 /// A candidate's detail (admin-web's `MergeCandidateDetailSheet`) in the kit's sheet from the right:
 /// its mapping, each source's values, the field provenance, the proposed references and facts, its
 /// conflicts and the commands the API built for it, all from the row the read gave. A candidate
-/// with blocking conflicts says their resolution runs on admin-web (chase-sets/chase-sets#11235:
-/// the API does not apply the value a resolution chooses, so the pilot does not offer the choice).
-/// Without JavaScript the dialog opens by its trigger's command, as the candidate edit does.
+/// with blocking conflicts has them to resolve first. Without JavaScript the dialog opens by its
+/// trigger's command, as the candidate edit does.
 #[component(css = DailyPage)]
-fn CandidateDetail<'a>(
-    t: Cat,
-    p: Pilot,
-    dialog: CandidateDetailId<'a>,
-    row: &'a Candidate,
-    elsewhere: Option<&'a str>,
-) -> impl Render {
+fn CandidateDetail<'a>(t: Cat, dialog: CandidateDetailId<'a>, row: &'a Candidate, manage: bool, action: &'a str) -> impl Render {
     let heading = super::id_with(&dialog, "-title");
+    let conflicts = super::id_with(&dialog, "-conflicts");
     let title = t.wb_merge_detail_title(&row.identity_label).to_string();
     let mapping = &row.proposed_mapping;
     let products = if mapping.product_ids.is_empty() { t.wb_none().to_owned() } else { mapping.product_ids.join(", ") };
@@ -1548,13 +1526,7 @@ fn CandidateDetail<'a>(
             <p>{t.wb_merge_detail_description()}</p>
             <div class={(KitStack { gap: Gap::App }, gap_4(), Stack)}>
                 if row.conflicts.blocking > 0 {
-                    <p class={Muted}>
-                        {p.integrations_conflicts_elsewhere()}
-                        if let Some(href) = elsewhere {
-                            " "
-                            <a href={href}>{p.integrations_candidates_open()}</a>
-                        }
-                    </p>
+                    <ConflictResolution t={t} row={row} manage={manage} action={action} heading={&conflicts} />
                 }
                 <Pairs items={&items} />
                 <EvidenceList title={t.wb_merge_detail_source_comparison()} items={&compared} empty={t.wb_none()} />
@@ -1573,6 +1545,80 @@ fn CandidateDetail<'a>(
                 />
             </div>
         </dialog>
+    }
+}
+
+/// A candidate's blocking conflicts to resolve (admin-web's `MergeCandidateConflictResolutionForm`):
+/// for each, the catalog's value or the proposed one and why, then the promote's own reason. The
+/// form promotes with the version read and every choice, and the API applies the values chosen.
+/// While something besides the conflicts blocks the promote, the section names that instead.
+#[component(css = DailyPage)]
+fn ConflictResolution<'a>(t: Cat, row: &'a Candidate, manage: bool, action: &'a str, heading: &'a str) -> impl Render {
+    let f = CandidateInput::FIELDS;
+    let others = row.other_blockers();
+    let version = row.resolvable().filter(|_| manage);
+    let count = t.wb_merge_conflicts_blocking(row.conflicts.blocking).to_string();
+    html! {
+        <section class={(Edit, Resolve)} aria-labelledby={heading} data-catalog-merge-candidate-conflicts={&row.candidate_id}>
+            <h3 id={heading}>{t.wb_merge_conflict_resolution_title()}</h3>
+            <p class={Muted}>{t.wb_merge_conflict_resolution_description()}</p>
+            <p><Pill text={&count} tone="danger" /></p>
+            if !others.is_empty() {
+                <Banner
+                    tone="warning"
+                    title={t.wb_merge_conflict_resolution_other_blockers_title()}
+                    description={t.wb_merge_conflict_resolution_other_blockers_description()}
+                />
+                <Blockers t={t} blockers={&others} />
+            } else if let Some(version) = version {
+                <form method="post" action={action} class={Edit} data-catalog-merge-candidate-conflict-resolution-form="true">
+                    <input type="hidden" name={f.command} value="promote">
+                    <input type="hidden" name={f.version} value={version}>
+                    for conflict in &row.conflicts.blocking_conflicts {
+                        let resolution = f.conflict.at(&conflict.code);
+                        let keep = t.wb_merge_conflict_resolution_keep_existing(&conflict.existing_value_display).to_string();
+                        let proposed = t.wb_merge_conflict_resolution_use_proposed(&conflict.proposed_value_display).to_string();
+                        <div class={Conflict} data-catalog-conflict-code={&conflict.code}>
+                            <p class={Words}>{&conflict.message}</p>
+                            <input
+                                type="hidden"
+                                name={resolution.field}
+                                value={conflict.field_path.as_deref().unwrap_or_default()}
+                            >
+                            for id in &conflict.observation_ids {
+                                <input type="hidden" name={resolution.observation} value={id}>
+                            }
+                            <RadioGroup legend={t.wb_merge_conflict_resolution_chosen_value()}>
+                                <Radio label={&keep}>
+                                    <input
+                                        type="radio"
+                                        name={resolution.value}
+                                        value={&conflict.existing_value_json}
+                                        checked={true}
+                                    >
+                                </Radio>
+                                <Radio label={&proposed}>
+                                    <input type="radio" name={resolution.value} value={&conflict.proposed_value_json}>
+                                </Radio>
+                            </RadioGroup>
+                            <label class={Field}>
+                                <span>{t.wb_merge_conflict_resolution_reason()}</span>
+                                <textarea name={resolution.reason} rows="2" required class={Textarea {}}></textarea>
+                            </label>
+                        </div>
+                    }
+                    <label class={Field}>
+                        <span>{t.wb_merge_conflict_resolution_promote_reason()}</span>
+                        <textarea name={f.reason} rows="2" required class={Textarea {}}></textarea>
+                    </label>
+                    <div class={Row}>
+                        <button type="submit" class={Button { variant: ButtonVariant::Primary, size: ButtonSize::Sm }}>
+                            {t.wb_merge_conflict_resolution_submit()}
+                        </button>
+                    </div>
+                </form>
+            }
+        </section>
     }
 }
 
