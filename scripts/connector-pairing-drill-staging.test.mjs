@@ -67,6 +67,8 @@ function syntheticGh({
   issueState = "CLOSED",
   linkedMerged = true,
   linked = true,
+  incidentalOnly = false,
+  incidentalContained = false,
 } = {}) {
   const selectedJob = syntheticJob();
   if (stale) {
@@ -126,9 +128,9 @@ function syntheticGh({
                         __typename: "CrossReferencedEvent",
                         source: {
                           __typename: "PullRequest",
-                          number: 19001,
+                          number: 90000000003,
                           merged: linkedMerged,
-                          mergeCommit: { oid: "c".repeat(40) },
+                          mergeCommit: { oid: "e".repeat(40) },
                           baseRefName: "main",
                           repository: { nameWithOwner: "chase-sets/chase-sets" },
                         },
@@ -143,6 +145,18 @@ function syntheticGh({
       });
     }
     const path = args.at(-1);
+    if (path === `${repo}/pulls/10944`)
+      return json(
+        incidentalOnly || !linked
+          ? null
+          : {
+              number: 10944,
+              merged: linkedMerged,
+              merge_commit_sha: "c".repeat(40),
+              base: { ref: "main", repo: { full_name: "chase-sets/chase-sets" } },
+            },
+      );
+    if (incidentalContained && path.includes(`/compare/${"e".repeat(40)}...`)) return json({ status: "ahead" });
     if (path.includes("/compare/")) return json({ status: contained ? "ahead" : "behind" });
     if (path.includes("/actions/workflows/")) return json({ total_count: 1, workflow_runs: [listedRun] });
     if (path === `${repo}/actions/runs/${run}/attempts/1/jobs?per_page=100&page=1`)
@@ -186,7 +200,7 @@ describe("staging pairing command with its real deploy adapter and receipt-floor
     expect(gh.mock.calls.map(([args]) => args.at(-1))).toContain(`${repo}/actions/jobs/${jobId}`);
   });
 
-  it("passes the receipt-floor boundary for a manually closed prerequisite without sign-in or browser launch", async () => {
+  it("passes the receipt-floor boundary for the mapped implementation alongside incidental references", async () => {
     await expect(invoke(syntheticGh({ manualCloseout: true }))).rejects.toBe(edgeBoundary);
     expect(edgeRequest).toHaveBeenCalledTimes(1);
     expect(launch).not.toHaveBeenCalled();
@@ -195,9 +209,14 @@ describe("staging pairing command with its real deploy adapter and receipt-floor
   it.each([
     ["missing", { missing: true }],
     ["open prerequisite", { manualCloseout: true, issueState: "OPEN" }],
-    ["unmerged linked PR", { manualCloseout: true, linkedMerged: false }],
-    ["uncontained linked PR", { manualCloseout: true, contained: false }],
-    ["no linked PR", { manualCloseout: true, linked: false }],
+    ["unmerged mapped PR", { manualCloseout: true, linkedMerged: false }],
+    ["uncontained mapped PR", { manualCloseout: true, contained: false }],
+    ["missing mapped PR", { manualCloseout: true, linked: false }],
+    ["incidental reference alone", { manualCloseout: true, incidentalOnly: true }],
+    [
+      "uncontained implementation beside contained incidental reference",
+      { manualCloseout: true, contained: false, incidentalContained: true },
+    ],
     ["malformed JSON", { malformed: true }],
     [
       "wrong job identity",

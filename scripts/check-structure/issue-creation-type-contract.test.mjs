@@ -112,7 +112,7 @@ const reviewedSiteContexts = {
   "scripts/catalog-staging-scrydex-coordinate-preview.mjs":
     "9074c190b4a94e3e32314b3e4e4322075ffa9440cc637dd196c6c6242b7945b2",
   "scripts/connector-pairing-drill-deploy-binding.mjs":
-    "8cbf4020a20a91a7ba26fcf3058f91d007a5e1d8e08ac47b622ae8d667cc10f0",
+    "d54c3079ace98306c96401fd274ba411128026ae9a40b0e4ad2c5a7ad6195719",
   "scripts/dispatch-unlock-count.mjs": "cdc5e770ee4b7f91eac40f91118bfad992a4a01dd15d85bd5dba574910d30872",
   "scripts/easypost-refund-event-replay.mjs": "0a1980a7006e3c58b1df5f799bb0092c322c9a41659314ebbd50679de83a6cfd",
   "scripts/guest-buy-now-freshness-probe.mjs": "2faa364ba0e4b78dee01b4002df76145288c0ff4441d70bdf8a5c4ce4733ea38",

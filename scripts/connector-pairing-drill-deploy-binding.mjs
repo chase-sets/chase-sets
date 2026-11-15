@@ -1,7 +1,7 @@
 // Delivery-owned deploy authority for the connector pairing drill, and the only drill code that reads
 // GitHub Actions. The owning Deploy Staging job comes from the shared staging deploy generation (newest applied
 // job; a newer unfinished or indeterminate deploy, a skipped or incomplete listing refuses), the requested run and
-// commit must be that job's, and each required closed issue's linked PR merge is compared with its deployed head.
+// commit must be that job's, and each required closed issue's implementation merge is compared with its deployed head.
 // Every read is `gh api`, read-only; the product drill receives only the result.
 import { execFile } from "node:child_process";
 import { selectStagingDeployGeneration } from "./staging-deploy-generation.mjs";
@@ -14,25 +14,8 @@ const decimalId = /^[1-9]\d{0,19}$/;
 const commitSha = /^[a-f0-9]{40}$/;
 const closingMergesQuery =
   "query($owner: String!, $name: String!, $number: Int!) { repository(owner: $owner, name: $name) { issue(number: $number) { state closedByPullRequestsReferences(first: 10, includeClosedPrs: true) { pageInfo { hasNextPage } nodes { number merged mergeCommit { oid } } } } } }";
-const linkedMergesQuery = `
-  query($owner: String!, $name: String!, $number: Int!) {
-    repository(owner: $owner, name: $name) {
-      issue(number: $number) {
-        state
-        timelineItems(first: 100, itemTypes: [CROSS_REFERENCED_EVENT, CONNECTED_EVENT]) {
-          pageInfo { hasNextPage }
-          nodes {
-            ... on CrossReferencedEvent { source { ...MergeAuthority } }
-            ... on ConnectedEvent { subject { ...MergeAuthority } }
-          }
-        }
-      }
-    }
-  }
-  fragment MergeAuthority on PullRequest {
-    number merged baseRefName mergeCommit { oid } repository { nameWithOwner }
-  }
-`;
+// Reviewed manual closeout: the accepted sign-in implementation, not incidental issue references.
+const manualCloseoutPullRequests = new Map([[10640, 10944]]);
 
 /** One read-only `gh api` call; its stdout, or a value-free refusal. */
 export function ghApi(args, { run = execFile } = {}) {
@@ -139,7 +122,7 @@ async function readIssue(gh, issue, query) {
   return body.data.repository.issue;
 }
 
-/** Closing PRs take precedence; a manual closeout needs one unique, deployed timeline-linked merge into main. */
+/** Closing PRs take precedence; a manual closeout needs its explicitly reviewed implementation merge into main. */
 async function requiredMerge(gh, issue, deployedHead) {
   const absent = { issue, pullRequest: null, mergeCommit: null, contained: false };
   const record = await readIssue(gh, issue, closingMergesQuery);
@@ -151,37 +134,30 @@ async function requiredMerge(gh, issue, deployedHead) {
   const manualCloseout = closing.nodes.length === 0;
   let merged = closing.nodes.filter(isMerged);
   if (manualCloseout) {
-    const linked = await readIssue(gh, issue, linkedMergesQuery);
-    if (linked.state !== "CLOSED") return absent;
-    const timeline = linked.timelineItems;
-    if (!Array.isArray(timeline?.nodes) || timeline.pageInfo?.hasNextPage !== false)
-      throw new Error("linked-merge-unreadable");
-    merged = [
-      ...new Map(
-        timeline.nodes
-          .map((event) => event?.source ?? event?.subject)
-          .filter(
-            (pr) =>
-              isMerged(pr) &&
-              pr.baseRefName === "main" &&
-              pr.repository?.nameWithOwner === repository &&
-              Number.isSafeInteger(pr.number) &&
-              pr.number > 0,
-          )
-          .map((pr) => [pr.number, pr]),
-      ).values(),
-    ];
-  } else if (merged.length !== 1) return absent;
-  const candidates = [];
-  for (const { number, mergeCommit } of merged) {
-    const { status } = json(await gh([`repos/${repository}/compare/${mergeCommit.oid}...${deployedHead}?per_page=1`]));
-    if (manualCloseout && !["ahead", "identical", "behind", "diverged"].includes(status))
-      throw new Error("linked-merge-comparison-unreadable");
-    const contained = status === "ahead" || status === "identical";
-    if (!manualCloseout || contained)
-      candidates.push({ issue, pullRequest: number, mergeCommit: mergeCommit.oid, contained });
+    const number = manualCloseoutPullRequests.get(issue);
+    if (!number) return absent;
+    const pr = json(await gh([`repos/${repository}/pulls/${number}`]));
+    if (
+      pr?.number !== number ||
+      pr.merged !== true ||
+      pr.base?.ref !== "main" ||
+      pr.base?.repo?.full_name !== repository ||
+      !commitSha.test(pr.merge_commit_sha ?? "")
+    )
+      return absent;
+    merged = [{ number, mergeCommit: { oid: pr.merge_commit_sha } }];
   }
-  return candidates.length === 1 ? candidates[0] : absent;
+  if (merged.length !== 1) return absent;
+  const [{ number, mergeCommit }] = merged;
+  const { status } = json(await gh([`repos/${repository}/compare/${mergeCommit.oid}...${deployedHead}?per_page=1`]));
+  if (manualCloseout && !["ahead", "identical", "behind", "diverged"].includes(status))
+    throw new Error("mapped-merge-comparison-unreadable");
+  return {
+    issue,
+    pullRequest: number,
+    mergeCommit: mergeCommit.oid,
+    contained: status === "ahead" || status === "identical",
+  };
 }
 
 /**
