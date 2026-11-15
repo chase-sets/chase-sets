@@ -77,6 +77,21 @@ describe("TCGplayer Lorcana sealed mapping", () => {
     expect(observation.normalized.sealedProductForm).toBe(sealedProductForm);
   });
 
+  it("retains a genuinely stale source timestamp and a partial payload without a release date", async () => {
+    const normal = await fixture("normal");
+    const stale = await fixture("stale");
+    const partial = await fixture("partial");
+    expect(Date.parse(String(stale.sourceUpdatedAt))).toBeLessThan(Date.parse(String(normal.sourceUpdatedAt)));
+    expect(partial.sourceUpdatedAt).toBeNull();
+    expect(
+      requireCatalogProviderSourceObservation({
+        contract: lorcanaSealedContract,
+        payload: partial,
+        observedAt: "2026-11-15T00:00:00.000Z",
+      }).normalized.releaseDate,
+    ).toBeNull();
+  });
+
   it.each(["Magic: The Gathering", "Pokemon"])(
     "keeps bundle classification for %s unchanged",
     async (productLineName) => {

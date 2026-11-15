@@ -11,7 +11,8 @@
   "sealed": true,
   "productStatusId": 1,
   "customAttributes": {
-    "number": "BOX"
+    "number": "BOX",
+    "releaseDate": "2026-06-23T00:00:00.000Z"
   },
   "barcode": "4050368981234",
   "formattedAttributes": {},
@@ -26,7 +27,7 @@
   "observationId": "tcgplayer_en_product_1005020",
   "externalKey": "product:1005020",
   "sourceUrl": "https://mp-search-api.tcgplayer.com/v2/product/1005020/details",
-  "sourceUpdatedAt": null,
+  "sourceUpdatedAt": "2026-06-23T00:00:00.000Z",
   "sourcePayload": {
     "productId": 1005020,
     "productName": "The First Chapter Booster Box",
@@ -40,7 +41,8 @@
     "sealed": true,
     "productStatusId": 1,
     "customAttributes": {
-      "number": "BOX"
+      "number": "BOX",
+      "releaseDate": "2026-06-23T00:00:00.000Z"
     },
     "barcode": "4050368981234",
     "formattedAttributes": {},
@@ -70,7 +72,8 @@
     "barcode": "4050368981234",
     "productStatusId": 1,
     "number": "BOX",
-    "releaseYear": null,
+    "releaseDate": "2026-06-23T00:00:00.000Z",
+    "releaseYear": 2026,
     "skus": [
       {
         "sku": 411070432,
@@ -83,7 +86,7 @@
   "productForm": "sealed",
   "sealedProductForm": "booster-box",
   "packCount": 36,
-  "releaseYear": null,
+  "releaseYear": 2026,
   "imageUrls": [],
   "mergeIdentity": {
     "tcg": "disney lorcana",

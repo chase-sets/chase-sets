@@ -18,7 +18,8 @@ for (const flow of catalogProviderRequiredFixtureFlows) {
     rarityName: "Sealed",
     sealed: true,
     productStatusId: 1,
-    customAttributes: prior.customAttributes,
+    customAttributes:
+      flow === "partial" ? prior.customAttributes : { ...prior.customAttributes, releaseDate: prior.sourceUpdatedAt },
     barcode: flow === "partial" ? undefined : prior.barcode,
     formattedAttributes: {},
     skus: prior.externalProductReferences.map((reference: { externalKey: string }) => ({
