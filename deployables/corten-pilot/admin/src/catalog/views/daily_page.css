@@ -185,6 +185,20 @@ corten-live[status="closed"] .read-in {
   padding: 0;
   border: 0;
 }
+/* A candidate's blocking conflicts to resolve in its detail sheet, each conflict a group of its own. */
+.resolve > h3 {
+  margin: 0;
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+.conflict {
+  display: grid;
+  gap: var(--space-3);
+  min-width: 0;
+  padding: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
 /* The create stage's identity verdicts (admin-web's compact StatusReasonList): a reason's badge and
    its words, one a line. */
 .verdicts {
