@@ -112,6 +112,8 @@ Semantic post-write handoffs use the same structure rules as other fresh-write p
 
 ## Data Ownership And Structure
 
+The structure gate rejects cycles in `allowedContextDependencies` with a deterministic package-identity path. Only bounded-context packages are vertices; other packages are terminal dependencies. Test dependencies, host ports, event subscriptions and `seedRequirements` do not create edges in this graph. Malformed graph input fails with a named diagnostic. Auth and Payments integrate guest claims and agent grant instrument revocation through host bindings, not reciprocal production imports.
+
 Each implemented bounded context is the canonical home for its own:
 
 - data model

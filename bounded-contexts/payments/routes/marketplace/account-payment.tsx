@@ -1,43 +1,19 @@
 import { t } from "@chase-sets/localization";
-import { useRef, useState, type FormEvent } from "react";
-import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
+import { preserveFreshWriteMetadata } from "@chase-sets/http/responses";
+import type { MetaFunction } from "react-router";
 import { redirect, useActionData, useLoaderData } from "react-router";
-import { RouterForm } from "@chase-sets/design-system/react-router";
-import {
-  Badge,
-  Banner,
-  Button,
-  Divider,
-  HiddenInput,
-  Inset,
-  PageSection,
-  ProgressiveDisclosure,
-  Stack,
-  Surface,
-  Text,
-  TextInput,
-} from "@chase-sets/design-system";
+import { LinkButton } from "@chase-sets/design-system";
 import { requireActorFromAuthApi, resolveActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import { defineFormAction, defineResourceRoute, type FormActionContext } from "@chase-sets/platform-runtime/http";
 import {
   navigateAfterWriteWithPlatformPostWriteToken,
   resolvePlatformPostWriteRequest,
 } from "@chase-sets/platform-runtime/post-write-tokens";
-import {
-  completeBrowserAuthentication,
-  createInternalAuthRequestApiClient,
-  clearGuestCheckoutCookie,
-  AuthApiError,
-  type InteractiveAuthResult,
-} from "@chase-sets/auth/server";
-import { createPasskeyCredential, type PasskeyCredentialPayload } from "@chase-sets/auth/web";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { createPaymentsRequestApiClient, PaymentsApiError } from "../../support/request-support/api-client";
 import type { PaymentsAccountOrderInput } from "../../support/request-support/api-client";
 import type {
   AccountPaymentOrderView,
-  GuestCheckoutClaimContext,
-  GuestClaimActionData,
   PaymentElementDefaultValues,
 } from "../../features/payments/ui/account-payment/account-payment-contracts";
 import { isClaimablePayment } from "../../features/payments/ui/account-payment/account-payment-display";
@@ -50,7 +26,6 @@ export { AccountPaymentErrorBoundary as ErrorBoundary };
 
 function isAuthOrAuthorizationStatus(error: unknown, status: number) {
   return (
-    (error instanceof AuthApiError && error.status === status) ||
     (error instanceof PaymentsApiError && error.status === status) ||
     (error instanceof Error && "status" in error && error.status === status)
   );
@@ -130,17 +105,6 @@ function needsPaymentElementDefaultValues(
   return payment.status === "pending-confirmation";
 }
 
-const GUEST_PAYMENT_CLAIM_LOCAL_RECOVERY_TOKEN_ENV = "GUEST_PAYMENT_CLAIM_LOCAL_RECOVERY_TOKEN_ENABLED";
-const truthyEnvValues = new Set(["1", "true", "yes", "on"]);
-
-function canExposeGuestPaymentClaimLocalRecoveryToken() {
-  if (process.env.NODE_ENV === "production" || process.env.DEPLOYMENT_ENVIRONMENT === "production") {
-    return false;
-  }
-
-  return truthyEnvValues.has((process.env[GUEST_PAYMENT_CLAIM_LOCAL_RECOVERY_TOKEN_ENV] ?? "").trim().toLowerCase());
-}
-
 export const loader = defineResourceRoute({
   manifest: contextManifest,
   routeId: "account-payment",
@@ -148,20 +112,8 @@ export const loader = defineResourceRoute({
     const resolvedRequest = await resolvePlatformPostWriteRequest(args.request);
     const url = new URL(resolvedRequest.url);
     const isGuestCheckoutPayment = url.pathname.startsWith("/checkout/payments/");
-    const claimContinuation = url.searchParams.get("claimContinuation")?.trim();
-    if (isGuestCheckoutPayment && claimContinuation) {
-      const result = await createInternalAuthRequestApiClient(
-        resolvedRequest,
-      ).claimGuestCheckoutWithClaimContinuation<InteractiveAuthResult>({
-        continuation: claimContinuation,
-        paymentId: args.params.paymentId,
-      });
-      const response = completeBrowserAuthentication(resolvedRequest, result, {
-        defaultSuccessPath: `/account/payments/${args.params.paymentId}`,
-        accountSelectionPath: "/account/select",
-      });
-      clearGuestCheckoutCookie(response.headers, resolvedRequest);
-      throw response;
+    if (isGuestCheckoutPayment && url.searchParams.get("claimContinuation")?.trim()) {
+      throw redirect(`/checkout/claim/${args.params.paymentId}${url.search}`);
     }
     return { ...args, request: resolvedRequest };
   },
@@ -182,17 +134,11 @@ export const loader = defineResourceRoute({
     try {
       const paymentsApi = createPaymentsRequestApiClient(request);
       const { orders } = await paymentsApi.listAccountOrderInputs({ orderIds: payment.order_ids });
-      const guestClaimContext =
-        isGuestCheckoutPayment && isClaimablePayment(payment)
-          ? await createInternalAuthRequestApiClient(request).getGuestCheckoutClaimContext<GuestCheckoutClaimContext>({
-              paymentId: params.paymentId,
-            })
-          : null;
       return {
         payment,
         orders: orders.map(orderView),
         isGuestCheckoutPayment,
-        guestClaimContext,
+        guestClaimPath: preserveFreshWriteMetadata(`/checkout/claim/${params.paymentId}`, request),
         showSupportDetails: isInternalPaymentSupportActor(actor),
         paymentElementDefaultValues: needsPaymentElementDefaultValues(payment)
           ? resolvePaymentElementDefaultValues(orders)
@@ -231,16 +177,13 @@ export const loader = defineResourceRoute({
 async function handleAction(
   intent: string,
   { request, params, formData }: FormActionContext,
-): Promise<Response | GuestClaimActionData | null> {
+): Promise<Response | Readonly<{ scope: "retry"; error: string }> | null> {
   const pathname = new URL(request.url).pathname;
   if (!pathname.startsWith("/checkout/payments/")) {
     throw new Response("Not found.", { status: 404 });
   }
 
-  const displayName = String(formData.get("displayName") ?? "").trim();
-  const email = String(formData.get("email") ?? "").trim();
   const paymentsApi = createPaymentsRequestApiClient(request);
-  const successPath = `/account/payments/${params.paymentId}`;
 
   try {
     const payment = await paymentsApi.getAccountPayment(params.paymentId!);
@@ -276,76 +219,6 @@ async function handleAction(
       );
     }
 
-    if (!isClaimablePayment(payment)) {
-      return {
-        scope: "claim",
-        error: t("payments.routes.marketplace.accountPayment.you.can.save.this.order.after.payment"),
-      };
-    }
-
-    if (intent === "claim-link-request") {
-      const result = await createInternalAuthRequestApiClient(request).requestGuestCheckoutClaimLink<{
-        token: string;
-        expiresAt: string;
-      }>({
-        paymentId: params.paymentId,
-        origin: new URL(request.url).origin,
-      });
-
-      return {
-        status: "claim-link-sent",
-        token: canExposeGuestPaymentClaimLocalRecoveryToken() ? result.token : null,
-        expiresAt: result.expiresAt,
-        displayName,
-      };
-    }
-
-    if (intent === "claim-link-consume") {
-      if (!canExposeGuestPaymentClaimLocalRecoveryToken()) {
-        return {
-          scope: "claim",
-          error: t("payments.routes.marketplace.accountPayment.claim.token.entry.is.not.available"),
-        };
-      }
-
-      const result = await createInternalAuthRequestApiClient(
-        request,
-      ).claimGuestCheckoutWithMagicLink<InteractiveAuthResult>({
-        token: formData.get("token"),
-        paymentId: params.paymentId,
-        displayName,
-      });
-
-      const response = completeBrowserAuthentication(request, result, {
-        defaultSuccessPath: successPath,
-        accountSelectionPath: "/account/select",
-      });
-      clearGuestCheckoutCookie(response.headers, request);
-      return response;
-    }
-
-    if (intent === "claim-passkey") {
-      const result = await createInternalAuthRequestApiClient(
-        request,
-      ).claimGuestCheckoutWithPasskey<InteractiveAuthResult>({
-        displayName,
-        email,
-        paymentId: params.paymentId,
-        challengeId: formData.get("challengeId"),
-        challenge: formData.get("challenge"),
-        externalCredentialId: formData.get("externalCredentialId"),
-        label: formData.get("label"),
-        webauthnResponse: formData.get("webauthnResponse"),
-      });
-
-      const response = completeBrowserAuthentication(request, result, {
-        defaultSuccessPath: successPath,
-        accountSelectionPath: "/account/select",
-      });
-      clearGuestCheckoutCookie(response.headers, request);
-      return response;
-    }
-
     return null;
   } catch (error) {
     if (
@@ -356,13 +229,11 @@ async function handleAction(
     }
 
     return {
-      scope: intent === "retry-payment" ? "retry" : "claim",
+      scope: "retry",
       error:
         error instanceof Error
           ? error.message
-          : intent === "retry-payment"
-            ? t("payments.routes.marketplace.accountPayment.could.not.retry.this.payment")
-            : t("payments.routes.marketplace.accountPayment.could.not.save.this.order"),
+          : t("payments.routes.marketplace.accountPayment.could.not.retry.this.payment"),
     };
   }
 }
@@ -370,9 +241,6 @@ async function handleAction(
 export const action = defineFormAction({
   intents: {
     "retry-payment": (context) => handleAction("retry-payment", context),
-    "claim-link-request": (context) => handleAction("claim-link-request", context),
-    "claim-link-consume": (context) => handleAction("claim-link-consume", context),
-    "claim-passkey": (context) => handleAction("claim-passkey", context),
   },
   onUnknownIntent: (context) => handleAction("", context),
 });
@@ -380,164 +248,16 @@ export const action = defineFormAction({
 export const meta: MetaFunction = () =>
   buildOpenGraphMeta({ title: t("payments.routes.marketplace.accountPayment.payment.marketplace") });
 
-function PasskeyHiddenFields({ payload }: { payload: PasskeyCredentialPayload | null }) {
-  return (
-    <>
-      <HiddenInput type="hidden" name="challengeId" value={payload?.challengeId ?? ""} readOnly />
-      <HiddenInput type="hidden" name="challenge" value={payload?.challenge ?? ""} readOnly />
-      <HiddenInput type="hidden" name="externalCredentialId" value={payload?.externalCredentialId ?? ""} readOnly />
-      <HiddenInput type="hidden" name="label" value={payload?.label ?? ""} readOnly />
-      <HiddenInput type="hidden" name="webauthnResponse" value={payload?.webauthnResponse ?? ""} readOnly />
-    </>
-  );
-}
-
-function GuestClaimPrompt({
-  actionData,
-  claimContext,
-}: {
-  actionData: GuestClaimActionData | undefined;
-  claimContext: GuestCheckoutClaimContext;
-}) {
-  const [displayName, setDisplayName] = useState(claimContext.contactName);
-  const [passkeyPayload, setPasskeyPayload] = useState<PasskeyCredentialPayload | null>(null);
-  const [passkeyError, setPasskeyError] = useState<string | null>(null);
-  const [isCreatingPasskey, setIsCreatingPasskey] = useState(false);
-  const passkeyFormRef = useRef<HTMLFormElement | null>(null);
-
-  async function handlePasskeySubmit(event: FormEvent<HTMLFormElement>) {
-    if (passkeyPayload) {
-      return;
-    }
-
-    event.preventDefault();
-    setPasskeyError(null);
-    setIsCreatingPasskey(true);
-
-    try {
-      const payload = await createPasskeyCredential({
-        displayName,
-        email: claimContext.contactEmail,
-      });
-      setPasskeyPayload(payload);
-      window.setTimeout(() => passkeyFormRef.current?.requestSubmit(), 0);
-    } catch (error) {
-      setPasskeyError(
-        error instanceof Error
-          ? error.message
-          : t("payments.routes.marketplace.accountPayment.passkey.registration.failed"),
-      );
-    } finally {
-      setIsCreatingPasskey(false);
-    }
-  }
-
-  return (
-    <PageSection title={t("payments.routes.marketplace.accountPayment.save.this.order")}>
-      <Surface elevation="elevated" glow>
-        <Stack gap={3}>
-          <Badge tone="accent">{t("payments.routes.marketplace.accountPayment.recommended")}</Badge>
-          <Text tone="secondary">
-            {t("payments.routes.marketplace.accountPayment.save.this.order.after.payment.with.a.passkey")}
-          </Text>
-          {actionData && "error" in actionData && actionData.scope === "claim" ? (
-            <Banner
-              title={t("payments.routes.marketplace.accountPayment.could.not.save.order")}
-              description={actionData.error}
-              tone="danger"
-            />
-          ) : null}
-          {passkeyError ? (
-            <Banner
-              title={t("payments.routes.marketplace.accountPayment.passkey.unavailable")}
-              description={passkeyError}
-              tone="warning"
-            />
-          ) : null}
-          <RouterForm ref={passkeyFormRef} method="post" onSubmit={handlePasskeySubmit} spacing="none">
-            <Stack gap={3}>
-              <HiddenInput type="hidden" name="intent" value="claim-passkey" readOnly />
-              <HiddenInput type="hidden" name="email" value={claimContext.contactEmail} readOnly />
-              <PasskeyHiddenFields payload={passkeyPayload} />
-              <TextInput
-                label={t("payments.routes.marketplace.accountPayment.contact.name")}
-                name="displayName"
-                required
-                value={displayName}
-                onChange={(event) => setDisplayName(event.currentTarget.value)}
-              />
-              <Inset>
-                <Text size="sm" tone="secondary">
-                  {t("payments.routes.marketplace.accountPayment.we.will.save.this.order.to", {
-                    email: claimContext.contactEmail,
-                  })}
-                </Text>
-              </Inset>
-              <Button type="submit" leadingIcon="shield" loading={isCreatingPasskey}>
-                {t("payments.routes.marketplace.accountPayment.save.with.passkey")}
-              </Button>
-            </Stack>
-          </RouterForm>
-          <Divider />
-          <RouterForm method="post" spacing="none">
-            <Stack gap={3}>
-              <HiddenInput type="hidden" name="intent" value="claim-link-request" readOnly />
-              <HiddenInput type="hidden" name="displayName" value={displayName} readOnly />
-              <Text size="sm" tone="secondary">
-                {t("payments.routes.marketplace.accountPayment.send.a.claim.link.to", {
-                  email: claimContext.contactEmail,
-                })}
-              </Text>
-              <Button type="submit" tone="secondary" leadingIcon="message">
-                {t("payments.routes.marketplace.accountPayment.email.me.a.claim.link")}
-              </Button>
-            </Stack>
-          </RouterForm>
-          {actionData && "status" in actionData && actionData.token ? (
-            <Inset>
-              <RouterForm method="post" spacing="none">
-                <Stack gap={2}>
-                  <Text size="sm" tone="secondary">
-                    {t("payments.routes.marketplace.accountPayment.local.recovery.token.in.production")}
-                  </Text>
-                  <HiddenInput type="hidden" name="intent" value="claim-link-consume" readOnly />
-                  <HiddenInput type="hidden" name="displayName" value={actionData.displayName} readOnly />
-                  <TextInput
-                    label={t("payments.routes.marketplace.accountPayment.claim.token")}
-                    name="token"
-                    defaultValue={actionData.token}
-                    required
-                  />
-                  <Button type="submit" leadingIcon="message">
-                    {t("payments.routes.marketplace.accountPayment.verify.email.and.save.order")}
-                  </Button>
-                </Stack>
-              </RouterForm>
-            </Inset>
-          ) : null}
-          <ProgressiveDisclosure
-            title={t("payments.routes.marketplace.accountPayment.other.options")}
-            summary={t("payments.routes.marketplace.accountPayment.password.setup.is.available.only.after")}
-            tone="info"
-          >
-            <Text size="sm" tone="secondary">
-              {t("payments.routes.marketplace.accountPayment.password.setup.is.available.only.after")}
-            </Text>
-          </ProgressiveDisclosure>
-        </Stack>
-      </Surface>
-    </PageSection>
-  );
-}
-
 export default function MarketplaceAccountPaymentRoute() {
   const data = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
   const retryActionError =
     actionData && "error" in actionData && actionData.scope === "retry" ? actionData.error : null;
   const guestClaimSection =
-    data.isGuestCheckoutPayment && data.guestClaimContext ? (
-      <GuestClaimPrompt actionData={actionData ?? undefined} claimContext={data.guestClaimContext} />
+    data.isGuestCheckoutPayment && isClaimablePayment(data.payment) ? (
+      <LinkButton href={data.guestClaimPath}>
+        {t("payments.routes.marketplace.accountPayment.save.this.order")}
+      </LinkButton>
     ) : null;
   return (
     <AccountPaymentPage

@@ -339,6 +339,63 @@ describe("read-after-write route inventory guard", () => {
     expect(result.reportEntries[0].dependencies).toEqual(["checkout_session_pages"]);
   });
 
+  it.each(["valid", "unowned-table", "missing-route"])(
+    "validates a cross-context API freshness declaration against its API owner: %s",
+    async (scenario) => {
+      const root = createTempRepo();
+      writeRoute(root, "bounded-contexts/auth/routes/checkout-start.tsx", ["appendFreshWriteToken"]);
+      writeRoute(root, "bounded-contexts/auth/routes/checkout-session.tsx", ["loadFreshlyWrittenResource"]);
+      const contexts = createContextManifest(root);
+      const checkout = contexts.get("bounded-contexts/checkout");
+      contexts.set("bounded-contexts/auth", {
+        root: "bounded-contexts/auth",
+        rootAbs: path.join(root, "bounded-contexts/auth"),
+        packageName: "@chase-sets/auth",
+        manifest: {
+          ...checkout.manifest,
+          contextName: "auth",
+          packageName: "@chase-sets/auth",
+          apiMounts: [],
+          projectionGroups: [],
+          mutationConsistencyInventory: checkout.manifest.mutationConsistencyInventory.map((entry) => ({
+            ...entry,
+            surfaces: entry.surfaces.map((surface) =>
+              surface.replace("bounded-contexts/checkout/", "bounded-contexts/auth/"),
+            ),
+          })),
+        },
+      });
+      checkout.manifest = {
+        ...checkout.manifest,
+        deployableContributions: [],
+        readAfterWriteRouteInventory: [],
+        mutationConsistencyInventory: [],
+      };
+      if (scenario === "unowned-table") {
+        checkout.manifest.projectionGroups = [];
+      }
+      if (scenario === "missing-route") {
+        writeFileSync(
+          path.join(root, "bounded-contexts/checkout/features/sessions/api/route.ts"),
+          "export function sessionRoutes() { return new Hono(); }\n",
+          "utf8",
+        );
+      }
+
+      const result = await validate(root, contexts);
+
+      if (scenario === "valid") {
+        expect(result.violations).toEqual([]);
+      } else {
+        expect(result.violations).toContain(
+          scenario === "unowned-table"
+            ? "bounded-contexts/checkout/context.json readFreshnessRoutes /account/checkout-sessions/:sessionId dependencies[0]: readModelTable 'checkout.checkout_session_pages' is not owned by a declared projection group"
+            : "bounded-contexts/checkout/context.json readFreshnessRoutes /account/checkout-sessions/:sessionId: routePath '/account/checkout-sessions/:sessionId' does not match a discovered GET/HEAD API route",
+        );
+      }
+    },
+  );
+
   it("fails when a live freshness route omits runtime dependencies", async () => {
     const root = createTempRepo();
     writeRoute(root, "bounded-contexts/checkout/routes/checkout-start.tsx", ["appendFreshWriteToken"]);

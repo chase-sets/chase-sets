@@ -347,7 +347,7 @@ export const termsOfServicePolicyArtifact: TermsOfServicePolicyArtifact = {
         productTruthRefs: [
           "infrastructure/stripe-payments/index.ts:1669-1693",
           "infrastructure/stripe-connect/index.ts:1100-1160",
-          "bounded-contexts/payments/GLOSSARY.md:101-103",
+          "bounded-contexts/payments/GLOSSARY.md:105-107",
           "bounded-contexts/public-presence/features/policies/domain/seller-agreement.ts:154",
         ],
         openQuestions: [

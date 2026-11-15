@@ -24,25 +24,6 @@ export type PaymentElementDefaultValues = Readonly<{
   }>;
 }>;
 
-export type GuestCheckoutClaimContext = Readonly<{
-  accountId: string;
-  paymentId: string;
-  contactEmail: string;
-  contactName: string;
-}>;
-
-export type GuestClaimActionData =
-  | Readonly<{
-      status: "claim-link-sent";
-      token: string | null;
-      expiresAt: string;
-      displayName: string;
-    }>
-  | Readonly<{
-      scope: "claim" | "retry";
-      error: string;
-    }>;
-
 export type AccountPaymentPageProps = Readonly<{
   payment: PaymentsPaymentDetail;
   orders: readonly AccountPaymentOrderView[];

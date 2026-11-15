@@ -1,5 +1,5 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { bootstrapContextDatabase, drainContextRuntime } from "@chase-sets/bounded-context-runtime";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { bootstrapContextDatabase } from "@chase-sets/bounded-context-runtime";
 import {
   closeMultiContextTestPools,
   createMultiContextTestDatabaseUrls,
@@ -16,6 +16,9 @@ import { module as discoveryModule } from "../../../../discovery/index";
 import { module as notificationsModule } from "../../../../notifications/index";
 import { module as customerFeedbackModule } from "../../../index";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
+import { toTransportEvent } from "@chase-sets/event-core/transport";
+import { seedApiHostIfEmpty } from "@chase-sets/platform-runtime/api";
+import { buildAuthOutcomeFactProjectionHandlers } from "../integrations/auth/outcome-fact-projection";
 
 const databaseBaseUrl = process.env.TEST_DATABASE_URL;
 if (!databaseBaseUrl && process.env.CI)
@@ -103,7 +106,7 @@ describeDb("CSAT outcome projection against real rows and checkpoints", () => {
     }
   }
 
-  it("projects real Auth rows, replays idempotently, and resumes from the persisted first checkpoint", async () => {
+  it("catches up Auth history in 100-event checkpointed batches and resumes exactly once", async () => {
     await appendAuthEvents(101);
     await createPostgresEventStore({ pool: pools.auth }).appendToStream({
       streamId: "auth.session-legacy",
@@ -124,30 +127,84 @@ describeDb("CSAT outcome projection against real rows and checkpoints", () => {
       ],
     });
     const firstRuntime = runtime();
+    const group = firstRuntime.projectionGroups.find(
+      (candidate) => candidate.projectionName === "customer-feedback-csat-outcome-fact-projection",
+    )!;
+    expect(group.requiredDuringBootstrap).toBe(false);
+    const calls = firstRuntime.subscriptionRunners.map((candidate) => vi.spyOn(candidate, "runOnce"));
+    const registry = firstRuntime.mountedContexts.map((mounted) => ({
+      contextName: mounted.contextName,
+      packageName: `@chase-sets/${mounted.contextName}`,
+      manifest: { contextName: mounted.contextName, apiDeployables: ["platform-api"] },
+      module: mounted.module,
+    }));
+    // The real host bootstrap returns while all 102 historical facts remain pending.
+    await seedApiHostIfEmpty(
+      registry,
+      "platform-api",
+      {
+        ...firstRuntime,
+        accountCapabilityRegistry: [],
+        mountedModules: firstRuntime.mountedContexts.map(({ module, services }) => ({ module, services })),
+      },
+      {
+        enabledDataProfiles: [],
+        environmentName: "production",
+        projectionGroupLeasePort: {
+          runWithLease: async (_group, _signal, work) => work({ ownerId: "bootstrap", fencingToken: "1" }),
+        },
+      },
+    );
+    for (const call of calls) expect(call).not.toHaveBeenCalled();
+    expect(
+      (await pools["customer-feedback"].query("SELECT idempotency_key FROM customer_feedback_csat_outcome_facts")).rows,
+    ).toEqual([]);
     const runner = firstRuntime.subscriptionRunners.find(
       (candidate) =>
         candidate.sourceContextName === "auth" &&
         candidate.projectionName === "customer-feedback-csat-outcome-fact-projection",
     );
     expect(runner).toBeDefined();
-    await runner!.runOnce();
-    const firstCheckpoint = await pools["customer-feedback"].query<{ checkpoint: string }>(
-      "SELECT last_global_position::text AS checkpoint FROM event_subscription_checkpoints WHERE checkpoint_key = $1",
+    expect(runner!.checkpointBatchSize).toBe(100);
+    const throwIfLeaseLost = vi.fn();
+    const firstPass = await runner!.runOnce({ ownerId: "worker-first", fencingToken: "2", throwIfLeaseLost });
+    expect(firstPass.processed).toBe(100);
+    expect(throwIfLeaseLost).toHaveBeenCalled();
+    const firstCheckpoint = await pools["customer-feedback"].query<{
+      checkpoint: string;
+      owner: string;
+      fence: string;
+    }>(
+      "SELECT last_global_position::text AS checkpoint, lease_owner_id AS owner, lease_fencing_token::text AS fence FROM event_subscription_checkpoints WHERE checkpoint_key = $1",
       [runner!.checkpointKey],
     );
-    expect(firstCheckpoint.rows[0]?.checkpoint).toBe("100");
+    expect(firstCheckpoint.rows).toEqual([{ checkpoint: "100", owner: "worker-first", fence: "2" }]);
+    const leaseLost = new Error("synthetic lease lost after the first checkpoint");
+    await expect(
+      runner!.runOnce({
+        ownerId: "worker-first",
+        fencingToken: "2",
+        throwIfLeaseLost: () => {
+          throw leaseLost;
+        },
+      }),
+    ).rejects.toBe(leaseLost);
+    expect(
+      (await pools["customer-feedback"].query("SELECT idempotency_key FROM customer_feedback_csat_outcome_facts")).rows,
+    ).toHaveLength(100);
 
     const restarted = runtime();
-    await drainContextRuntime({
-      subscriptionRunners: restarted.subscriptionRunners.filter(
-        (candidate) => candidate.checkpointKey === runner!.checkpointKey,
-      ),
-    });
-    await drainContextRuntime({
-      subscriptionRunners: restarted.subscriptionRunners.filter(
-        (candidate) => candidate.checkpointKey === runner!.checkpointKey,
-      ),
-    });
+    const resumed = restarted.subscriptionRunners.find(
+      (candidate) => candidate.checkpointKey === runner!.checkpointKey,
+    )!;
+    const secondPass = await resumed.runOnce({ ownerId: "worker-restarted", fencingToken: "3" });
+    expect(secondPass.processed).toBe(2);
+    expect(secondPass.lastGlobalPosition).toBe("102");
+    const checkpoint = await pools["customer-feedback"].query<{ checkpoint: string; owner: string; fence: string }>(
+      "SELECT last_global_position::text AS checkpoint, lease_owner_id AS owner, lease_fencing_token::text AS fence FROM event_subscription_checkpoints WHERE checkpoint_key = $1",
+      [resumed.checkpointKey],
+    );
+    expect(checkpoint.rows).toEqual([{ checkpoint: "102", owner: "worker-restarted", fence: "3" }]);
     const rows = await pools["customer-feedback"].query<{
       idempotency_key: string;
       source_event_id: string;
@@ -160,9 +217,14 @@ describeDb("CSAT outcome projection against real rows and checkpoints", () => {
     expect(rows.rows.find((row) => row.source_event_id === "evt_csat_legacy")).toMatchObject({
       authentication_method: null,
     });
-    await restarted.subscriptionRunners
-      .find((candidate) => candidate.checkpointKey === runner!.checkpointKey)!
-      .runOnce();
+    // Actual redelivery, not another empty run at an already advanced checkpoint.
+    const handler = buildAuthOutcomeFactProjectionHandlers()["auth.session.started"]!;
+    const history = await createPostgresEventStore({ pool: pools.auth }).readAll({ limit: 100 });
+    for (const event of history) {
+      await handler(toTransportEvent(event), { db: pools["customer-feedback"] });
+      await handler(toTransportEvent(event), { db: pools["customer-feedback"] });
+    }
+    expect((await resumed.runOnce({ ownerId: "worker-restarted", fencingToken: "3" })).processed).toBe(0);
     const replayRows = await pools["customer-feedback"].query<{ count: string }>(
       "SELECT count(*)::text AS count FROM customer_feedback_csat_outcome_facts",
     );

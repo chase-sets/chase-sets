@@ -43,6 +43,7 @@ import { validateProviderScopePickerShapeGuard } from "./provider-scope-picker-s
 import { validatePricingRegistryConformance } from "./pricing-registry-conformance.mjs";
 import { validateJsonImportAttributes } from "./json-import-attributes.mjs";
 import { validateContextRegistries } from "./context-registry-guard.mjs";
+import { findContextDependencyCycleViolations } from "./context-dependency-cycles.mjs";
 import { validateChannelConnectionContractProvenance } from "./channel-connection-contract-provenance.mjs";
 import { validateCancellationProducerUniqueness } from "./cancellation-producer-uniqueness.mjs";
 import { validateConnectorFakeGraph } from "./connector-fake-public-codecs.mjs";
@@ -2065,6 +2066,9 @@ export async function runStructureCheck(options = {}) {
   }
 
   const contextManifests = await loadContextManifests();
+  violations.push(
+    ...findContextDependencyCycleViolations([...contextManifests.values()].map(({ manifest }) => manifest)),
+  );
   for (const context of contextManifests.values()) {
     const indexPath = path.join(repoRoot, context.root, "index.ts");
     const violation = findContextRootExportViolation(await readFile(indexPath, "utf8"), context.root);

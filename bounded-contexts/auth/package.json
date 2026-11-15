@@ -23,7 +23,8 @@
   },
   "types": "./index.ts",
   "devDependencies": {
-    "@chase-sets/typescript-compiler-api": "workspace:*"
+    "@chase-sets/typescript-compiler-api": "workspace:*",
+    "@chase-sets/payments": "workspace:*"
   },
   "dependencies": {
     "@chase-sets/auth-context": "workspace:*",
@@ -36,7 +37,6 @@
     "@chase-sets/http": "workspace:*",
     "@chase-sets/identity": "workspace:*",
     "@chase-sets/identity-seed": "workspace:*",
-    "@chase-sets/payments": "workspace:*",
     "@chase-sets/localization": "workspace:*",
     "@chase-sets/notification-outbox": "workspace:*",
     "@chase-sets/outbound-messaging": "workspace:*",

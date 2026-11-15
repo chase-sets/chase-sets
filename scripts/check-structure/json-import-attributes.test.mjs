@@ -61,6 +61,43 @@ function withFixture(files, callback) {
   }
 }
 
+function gitIndexControl(rootDir, control) {
+  let setupGitCalls = 0;
+  let statusProbes = 0;
+  const censusGitCalls = [];
+  return {
+    git(...args) {
+      if (args[0] === "status") statusProbes += 1;
+      else setupGitCalls += 1;
+      return execFileSync("git", ["-C", rootDir, ...args], { encoding: "utf8", timeout: 10_000 });
+    },
+    inspect() {
+      const inventory = inspectJsonImportAttributes({ rootDir });
+      censusGitCalls.push(inventory.work.gitSubprocesses);
+      return inventory;
+    },
+    assertWork() {
+      const receipt = {
+        control,
+        setupGitCalls,
+        censusGitCalls,
+        statusProbes,
+        totalGitCalls: setupGitCalls + statusProbes + censusGitCalls.reduce((sum, count) => sum + count, 0),
+        fixtureCensusCount: censusGitCalls.length,
+      };
+      console.info(JSON.stringify({ gitIndexControlWork: receipt }));
+      expect(receipt).toEqual({
+        control,
+        setupGitCalls: 2,
+        censusGitCalls: [2, 2],
+        statusProbes: 1,
+        totalGitCalls: 7,
+        fixtureCensusCount: 2,
+      });
+    },
+  };
+}
+
 function contextFiles(indexSource, extraFiles = {}) {
   return {
     "bounded-contexts/example/package.json": JSON.stringify({
@@ -383,11 +420,11 @@ describe("real repository execution membership", () => {
         ".gitignore": "generated/\n",
       }),
       ({ rootDir }) => {
-        const git = (...args) => execFileSync("git", ["-C", rootDir, ...args], { encoding: "utf8", timeout: 10_000 });
+        const { git, inspect, assertWork } = gitIndexControl(rootDir, "ignored and untracked generated output");
         git("init", "--quiet");
         git("add", ".");
         const digest = () => {
-          const inventory = inspectJsonImportAttributes({ rootDir });
+          const inventory = inspect();
           const records = inventory.declarations.map(
             ({ relativeFile, form, specifier, attributeText, resolved, disposition }) => ({
               relativeFile,
@@ -398,6 +435,16 @@ describe("real repository execution membership", () => {
               disposition,
             }),
           );
+          expect(records).toEqual([
+            {
+              relativeFile: "bounded-contexts/example/index.ts",
+              form: "export",
+              specifier: "./context.json",
+              attributeText: 'with { type: "json" }',
+              resolved: "bounded-contexts/example/context.json",
+              disposition: "node-enforced",
+            },
+          ]);
           return {
             digest: createHash("sha256").update(JSON.stringify(records)).digest("hex"),
             partition: inventory.partition,
@@ -415,9 +462,11 @@ describe("real repository execution membership", () => {
           'export { default } from "./bounded-contexts/example/context.json";',
         );
         const after = digest();
-        expect(git("status", "--porcelain", "--ignored")).toContain("!! generated/");
-        expect(git("status", "--porcelain", "--ignored")).toContain("?? untracked.ts");
+        const status = git("status", "--porcelain", "--ignored");
+        expect(status).toContain("!! generated/");
+        expect(status).toContain("?? untracked.ts");
         expect(after).toEqual(before);
+        assertWork();
         console.info(JSON.stringify({ ignoredOutputDigest: { before: before.digest, after: after.digest } }));
       },
     );
@@ -430,7 +479,7 @@ describe("real repository execution membership", () => {
       "bounded-contexts/rogue/package.json",
       { name: "@chase-sets/rogue", exports: { ".": "../example/extra.ts" } },
     ],
-  ])("keeps the Git-index partition unchanged after %s", (_case, untrackedFile, untrackedJson) => {
+  ])("keeps the Git-index partition unchanged after %s", (control, untrackedFile, untrackedJson) => {
     withFixture(
       contextFiles(
         'export { default as contextManifest } from "./context.json" with { type: "json" };\n' +
@@ -446,11 +495,11 @@ describe("real repository execution membership", () => {
         },
       ),
       ({ rootDir }) => {
-        const git = (...args) => execFileSync("git", ["-C", rootDir, ...args], { encoding: "utf8", timeout: 10_000 });
+        const { git, inspect: inspectCensus, assertWork } = gitIndexControl(rootDir, control);
         git("init", "--quiet");
         git("add", ".");
         const inspect = () => {
-          const { declarations, partition, discoveryViolations, work } = inspectJsonImportAttributes({ rootDir });
+          const { declarations, partition, discoveryViolations, work } = inspectCensus();
           const records = declarations.map(({ relativeFile, specifier, resolved, disposition }) => ({
             relativeFile,
             specifier,
@@ -467,6 +516,7 @@ describe("real repository execution membership", () => {
         expect(git("status", "--porcelain")).toContain(`?? ${path.posix.dirname(untrackedFile)}/`);
         expect(after.census).toEqual(before.census);
         expect(after.work.enrolledWorkspaces).toEqual(before.work.enrolledWorkspaces);
+        assertWork();
       },
     );
   });
@@ -563,9 +613,9 @@ describe("real repository execution membership", () => {
 
       expect(result.violations, result.violations.join("\n")).toEqual([]);
       expect(result.inventory.parserVersion).toBe("6.0.3");
-      expect(result.inventory.declarations).toHaveLength(139);
+      expect(result.inventory.declarations).toHaveLength(140);
       expect(result.inventory.partition).toEqual({
-        "node-enforced": 57,
+        "node-enforced": 58,
         "vite-excluded": 54,
         "vitest-excluded": 28,
         "manifest-only": 0,
@@ -596,7 +646,7 @@ describe("real repository execution membership", () => {
         },
       ]);
       expect(createHash("sha256").update(JSON.stringify(normalized)).digest("hex")).toBe(
-        "4fbb60eedeaed4bea1bc20f5f915f4359c9e79651abb5d1207273e57e8816dfb",
+        "bcd5020ae3781c1220808dbc225745a91295f07a7fad47b5f44dbc5c24de5ea8",
       );
       expect(
         normalized.filter(
@@ -653,6 +703,20 @@ describe("real repository execution membership", () => {
           (entry) => entry.relativeFile === "bounded-contexts/catalog/support/authoring-support/index.ts",
         ),
       ).toMatchObject({ disposition: "node-enforced", attributeText: 'with { type: "json" }' });
+      expect(
+        normalized.filter(
+          (entry) => entry.relativeFile === "bounded-contexts/auth/support/route-support/guest-payment-claim/route.ts",
+        ),
+      ).toEqual([
+        {
+          relativeFile: "bounded-contexts/auth/support/route-support/guest-payment-claim/route.ts",
+          form: "import",
+          specifier: "../../../context.json",
+          attributeText: 'with { type: "json" }',
+          resolved: "bounded-contexts/auth/context.json",
+          disposition: "node-enforced",
+        },
+      ]);
       expect(
         result.inventory.declarations.find(
           (entry) => entry.relativeFile === "bounded-contexts/settlement/routes/marketplace/account-desk-payout.tsx",

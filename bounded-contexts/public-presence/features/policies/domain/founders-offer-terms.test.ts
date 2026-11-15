@@ -632,8 +632,13 @@ describe("founders clause-level source authority", () => {
         /updates: bulkUpdates.map/,
       ],
       [
-        "bounded-contexts/pricing/features/bulk-reprice-ingestion/api/runtime.ts:744-744",
-        /marketplaceGateway.applyBulkListingPriceUpdates\(\{ batchId, updates \}\)/,
+        "bounded-contexts/pricing/features/bulk-reprice-ingestion/api/runtime.ts:783-783",
+        /applyBulkRepriceWaveUpdates\(marketplaceGateway, \{ batchId, updates \}\)/,
+      ],
+      [
+        "bounded-contexts/pricing/features/bulk-reprice-ingestion/api/wave-outcomes.ts:8-15",
+        /gateway.applyBulkListingPriceUpdates\(batch\)/,
+        /\.applyBulkListingPriceUpdates\(\{ \.\.\.batch, updates: unknownUpdates \}\)/,
       ],
       [
         "bounded-contexts/pricing/support/request-support/marketplace-listings.ts:25-25",

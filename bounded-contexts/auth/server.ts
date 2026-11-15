@@ -13,6 +13,7 @@ export {
   type AuthSessionTopology,
 } from "./features/sessions/api/owner-epochs";
 export { createAuthSessionAuthority, type SessionAuthorityInput } from "./features/sessions/api/session-authority";
+export type { RevokeAgentGrantPaymentInstruments } from "./features/agent-grants/api/payment-instrument-revocation";
 export { fenceAgentGrantActor, fenceAgentGrantSpendPolicy } from "./features/agent-grants/api/authority";
 export {
   createConnectorOAuthService,
@@ -95,3 +96,7 @@ export {
   type AgentWebhookSender,
   type AgentWebhookTarget,
 } from "./support/ucp-support/agent-webhooks";
+export {
+  createGuestPaymentClaimRoute,
+  type ReadGuestPaymentClaimability,
+} from "./support/route-support/guest-payment-claim/route";

@@ -151,6 +151,20 @@ publishes when it completes an outcome it owns. Customer Feedback consumes Outco
 Facts to decide whether to issue an invitation; it never reaches into another
 context's aggregate or database.
 
+## CSAT Outcome Fact
+
+A **CSAT Outcome Fact** is Customer Feedback's immutable projection of a native
+source occurrence into `customer_feedback_csat_outcome_facts`. The source owns
+the occurrence; Customer Feedback owns its outcome code, subject, and byte-stable
+idempotency key. Redelivery inserts no duplicate row and changes no existing row.
+
+Auth, Identity, and Discovery facts retain the source envelope's `recordedAt`,
+event identifier, and performing User without classifying customer versus seed
+activity. Auth retains its authentication method; absent historical methods are
+stored as null. Recording a fact does not issue an invitation or apply sampling.
+The optional version-1 subscriptions recover from position zero through the
+standard bounded, checkpointed runner, not a separate backfill process.
+
 ## Sampling Policy
 
 A **Sampling Policy** decides which eligible outcomes receive a survey and records
