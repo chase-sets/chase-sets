@@ -123,6 +123,7 @@ export function createExtensionTcgplayerSealedProductRecorder(
       const generated = await mergeCandidates.persistCatalogMergeCandidatesFromObservations(
         observations.map(mergeCandidates.sourceObservationRecordToCandidateRow),
         request.context,
+        { preserveUnchangedTerminalCandidates: true },
       );
       const admission = await eventStore.appendToStream({
         streamId: `catalog.operator-session-sealed-product-admission-${randomUUID()}`,

@@ -9,6 +9,7 @@ import { resolveCatalogProviderSelectedOptions } from "../../../source-observati
 import {
   catalogProviderIntegrationProfileVersions,
   catalogProviderProfileVersionIngestionUnitKey,
+  type CatalogProviderIntegrationProfileVersionRecord,
 } from "../../../source-observations/api/provider-integration-profiles";
 import { requireCatalogProviderSourceObservation } from "../../../source-observations/api/promotion/provider-source-observation-normalizer";
 import { requireSourceObservationMappingContract } from "../../../source-observations/api/source-observation-promotion-execution";
@@ -67,7 +68,7 @@ const cases = ["mtg", "pokemon", "lorcana"].map((domain) => {
     })),
   };
   const unitKey = `tcgplayer:${domain}:sealed-product:source-observation-import`;
-  const profile = catalogProviderIntegrationProfileVersions.find(
+  const profile: CatalogProviderIntegrationProfileVersionRecord = catalogProviderIntegrationProfileVersions.find(
     (version) => version.active && catalogProviderProfileVersionIngestionUnitKey(version) === unitKey,
   )!;
   const payload = build({

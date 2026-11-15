@@ -836,6 +836,7 @@
         "dimensions",
         "display-templates",
         "fields",
+        "operator-session",
         "product-contents",
         "product-measures",
         "provider-scope-discovery",
