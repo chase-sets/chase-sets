@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { Hono } from "hono";
+import { createHash } from "node:crypto";
 import { ZERO_GLOBAL_POSITION } from "@chase-sets/event-core/storage";
 import type { EventStore } from "@chase-sets/event-core/event-store";
 import { buildIdentityApi, type IdentityApiEnv } from "../../../api";
@@ -76,21 +77,31 @@ describe("invitation-acceptance-identity-atomicity", () => {
     },
   );
 
-  it("production invitation acceptance publishes the discriminated onboarding fact", async () => {
+  it("production invitation acceptance publishes the discriminated onboarding fact", async ({ onTestFinished }) => {
+    const recordedAt = "2026-06-15T12:00:00.000Z";
+    vi.useFakeTimers({ toFake: ["Date"], now: new Date(recordedAt) });
+    onTestFinished(() => {
+      vi.useRealTimers();
+    });
     const store = createInMemoryEventStore();
     await seedAcceptance(store);
     const response = await accept(store);
     expect(response.status).toBe(200);
     const event = (await store.readAll()).find((candidate) => candidate.eventType === "identity.onboarding.completed");
+    const digest = createHash("sha256")
+      .update("identity:onboarding:invitation:ivt_invited:usr_recipient", "utf8")
+      .digest("hex");
+    expect(event?.payload).toEqual({
+      accountId: "acc_invited",
+      userId: "usr_recipient",
+      onboardingPath: "invitation",
+      invitationId: "ivt_invited",
+    });
     expect(event).toMatchObject({
       eventType: "identity.onboarding.completed",
-      payload: {
-        accountId: "acc_invited",
-        userId: "usr_recipient",
-        onboardingPath: "invitation",
-        invitationId: "ivt_invited",
-      },
-      streamId: expect.stringMatching(/^identity\.onboarding-/),
+      streamId: `identity.onboarding-${digest}`,
+      eventId: `evt_lifecycle_${digest}`,
+      recordedAt,
       tenantId: acceptanceContext.tenantId,
       performedByUserId: acceptanceContext.audit.performedByUserId,
       forAccountId: acceptanceContext.audit.forAccountId,
