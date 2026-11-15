@@ -28,7 +28,6 @@ use platform::{
 use super::{
     command_center_page::action_value,
     listing_page::options,
-    on_marketplace,
     order_page::display_reference,
     packing_page::{WriteForm, handlers},
 };
@@ -190,7 +189,6 @@ pub fn ShipmentPage<'a>(t: ShipmentsMsg, p: Pilot, viewer: &'a Viewer, screen: &
         Side::Seller => crate::app::url::SaleShipments::default().href(),
     };
     let slip = crate::packing_slips::href(&s.shipment_id);
-    let on_market = on_marketplace(&format!("/account/sales/shipments/{}", crate::api::segment(&s.shipment_id)));
     let start = crate::app::url::PackingStart { id: &s.shipment_id }.href();
     let packing = crate::app::url::Packing { id: &s.shipment_id, place: Default::default() }.href();
     let policy = s.shipping_plan_snapshot.as_ref().and_then(|plan| plan.postage_policy_snapshot.as_ref());
@@ -257,7 +255,7 @@ pub fn ShipmentPage<'a>(t: ShipmentsMsg, p: Pilot, viewer: &'a Viewer, screen: &
                             {t.detail_print_packing_slip()}
                         </a>
                     }
-                    if seller && s.status == "awaiting-package" {
+                    if seller && offers(s, ShipmentAction::StartPacking) {
                         <WriteForm
                             p={p}
                             viewer={viewer}
@@ -269,7 +267,7 @@ pub fn ShipmentPage<'a>(t: ShipmentsMsg, p: Pilot, viewer: &'a Viewer, screen: &
                             <button type="submit" class={Primary}>{t.detail_start_packing()}</button>
                         </WriteForm>
                     }
-                    if seller && s.status == "packing" {
+                    if seller && offers(s, ShipmentAction::CompletePacking) {
                         <a class={Primary} href={&packing}>{t.detail_resume_packing()}</a>
                     }
                     <a class={Secondary} href={&back}>{t.detail_back()}</a>
@@ -365,7 +363,7 @@ pub fn ShipmentPage<'a>(t: ShipmentsMsg, p: Pilot, viewer: &'a Viewer, screen: &
                 }
             </section>
             if seller {
-                <SellerActions t={t} p={p} viewer={viewer} screen={screen} on_market={&on_market} />
+                <SellerActions t={t} p={p} viewer={viewer} screen={screen} />
             }
         </div>
     }
@@ -599,22 +597,21 @@ fn ShipmentStatus<'a>(t: ShipmentsMsg, p: Pilot, viewer: &'a Viewer, id: &'a str
     }
 }
 
-/// The seller's actions (`shipment-detail-page.tsx`'s Actions): those the API's plan allows, the
-/// next one first as the primary button. Packing's two are the heading's. Without a plan (the
-/// command center leaves the shipment out) the actions are marketplace's, a link there.
+/// Whether the shipment's action plan, from the API, offers `action` (`shipment-detail-page.tsx`'s
+/// `offers`); a read without a plan offers nothing.
+fn offers(s: &ShipmentDetail, action: ShipmentAction) -> bool {
+    s.action_plan.as_ref().is_some_and(|plan| plan.primary == Some(action) || plan.disclosed.contains(&action))
+}
+
+/// The seller's actions (`shipment-detail-page.tsx`'s Actions): those the shipment's action plan
+/// offers, the next one first as the primary button. Packing's two are the heading's.
 #[component(css = ShipmentPage)]
-fn SellerActions<'a>(
-    t: ShipmentsMsg,
-    p: Pilot,
-    viewer: &'a Viewer,
-    screen: &'a ShipmentScreen,
-    on_market: &'a str,
-) -> impl Render {
+fn SellerActions<'a>(t: ShipmentsMsg, p: Pilot, viewer: &'a Viewer, screen: &'a ShipmentScreen) -> impl Render {
     let s = &screen.shipment;
     let writes = screen.outcome.writes();
     let sent = screen.sent.as_ref();
-    let actions: Vec<(ShipmentAction, bool)> = screen
-        .plan
+    let actions: Vec<(ShipmentAction, bool)> = s
+        .action_plan
         .iter()
         .flat_map(|plan| plan.primary.map(|a| (a, true)).into_iter().chain(plan.disclosed.iter().map(|a| (*a, false))))
         .filter(|(a, _)| !matches!(a, ShipmentAction::StartPacking | ShipmentAction::CompletePacking | ShipmentAction::Other))
@@ -622,24 +619,16 @@ fn SellerActions<'a>(
     html! {
         <section class={Part} aria-labelledby="shipment-actions">
             <h2 id="shipment-actions" class={SectionTitle}>{t.detail_actions()}</h2>
-            match &screen.plan {
-                None => {
-                    <div class={(Card, Tinted)}>
-                        <p class={Muted}>{p.shipments_actions_on_marketplace()}</p>
-                        <p class={Actions}><a class={Secondary} href={on_market}>{p.shipments_open_on_marketplace()}</a></p>
-                    </div>
-                }
-                Some(_) => {
-                    <ul class={List}>
-                        for (action, primary) in actions {
-                            <li class={(Card, Tinted)}>
-                                <ActionForm p={p} viewer={viewer} id={&s.shipment_id} writes={writes}>
-                                    <ActionBody t={t} s={s} action={action} primary={primary} sent={sent} />
-                                </ActionForm>
-                            </li>
-                        }
-                    </ul>
-                }
+            if !actions.is_empty() {
+                <ul class={List}>
+                    for (action, primary) in actions {
+                        <li class={(Card, Tinted)}>
+                            <ActionForm p={p} viewer={viewer} id={&s.shipment_id} writes={writes}>
+                                <ActionBody t={t} s={s} action={action} primary={primary} sent={sent} />
+                            </ActionForm>
+                        </li>
+                    }
+                </ul>
             }
         </section>
     }
