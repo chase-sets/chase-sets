@@ -14523,6 +14523,14 @@ async fn the_status_part_waits_while_the_status_holds_and_redraws_the_page_once_
     let (status, headers, _) =
         pilot.send(get("/account/payments/pay_paid/status?since=pending-confirmation&until=1", Some("payer"))).await;
     assert_eq!((status, headers[header::LOCATION].to_str().unwrap()), (StatusCode::SEE_OTHER, "/account/payments/pay_paid"));
+    // A guest's part read by someone who is not the guest: the runtime still gets a patch, the
+    // watch empty and asking no more, where the payment page would answer them.
+    let mut stranger = get(&format!("/checkout/payments/pay_1/status?since=pending-confirmation&until={until}"), None);
+    stranger.headers_mut().insert("corten", "action".parse().unwrap());
+    let (status, headers, html) = pilot.send(stranger).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(headers.contains_key("corten-patch"), "{headers:?}");
+    assert!(html.contains(r#"<p id="payment-watch" hidden></p>"#) && !html.contains("data-corten-read-again"), "{html}");
 }
 
 #[tokio::test]
@@ -14751,7 +14759,7 @@ async fn sign_in_asks_for_an_email_or_phone_then_offers_its_methods() {
     assert!(html.contains(r#"name="returnTo" value="/account/cart""#), "{html}");
     assert!(html.contains(r#"name="signInMethod" value="password""#) && html.contains(r#"name="signInIdentifier""#));
     assert!(
-        html.contains(r#"href="/api/auth/social/google/start?journey=sign-in&amp;returnTo=%2Faccount%2Fcart""#),
+        html.contains(r#"href="/api/auth/social/google/start?journey=sign-in&amp;returnTo=%2Faccount%2Fcart" data-reload>"#),
         "the pilot's relay: {html}"
     );
     assert!(!html.contains(r#"type="password""#));
@@ -14940,7 +14948,7 @@ async fn the_register_page_offers_marketplaces_methods_in_its_order_each_at_its_
     assert!(html.contains(r#"autocomplete="email""#) && html.contains(r#"autocomplete="name""#), "{html}");
     assert!(!html.contains(r#"href="http://localhost:7753/register"#), "no longer marketplace's: {html}");
     assert!(
-        html.contains(r#"href="/api/auth/social/google/start?journey=registration&amp;returnTo=%2Faccount%2Fcart""#),
+        html.contains(r#"href="/api/auth/social/google/start?journey=registration&amp;returnTo=%2Faccount%2Fcart" data-reload>"#),
         "{html}"
     );
 
