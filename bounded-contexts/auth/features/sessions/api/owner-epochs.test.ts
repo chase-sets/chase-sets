@@ -33,9 +33,18 @@ describe("Auth Session owner enrollment", () => {
     expect(manifest.scripts["test:db"].split(/\s+/)).toContain(proof);
     expect(manifest.scripts["test:unit"]).toContain(`--exclude ${proof}`);
     expect(existsSync(new URL(`../../../${proof}`, import.meta.url))).toBe(true);
-    expect(authSchemaSql).toContain("revision bigint NOT NULL DEFAULT 1 CHECK (revision > 0)");
-    expect(authSessionEpochSchemaMigrations[0].statements.join("\n")).toContain(
-      "ALTER TABLE identity_session_tokens ADD COLUMN IF NOT EXISTS revision bigint",
+    expect(authSchemaSql).toContain(
+      "revision bigint NOT NULL DEFAULT 1 CONSTRAINT identity_session_tokens_revision_check CHECK (revision > 0)",
+    );
+    const statements = authSessionEpochSchemaMigrations[0].statements;
+    expect(statements[1]).toBe(
+      "ALTER TABLE identity_session_tokens ADD COLUMN IF NOT EXISTS revision bigint NOT NULL DEFAULT 1;",
+    );
+    expect(statements[2]).toContain(
+      "ADD CONSTRAINT identity_session_tokens_revision_check CHECK (revision > 0) NOT VALID;",
+    );
+    expect(statements[3]).toBe(
+      "ALTER TABLE identity_session_tokens VALIDATE CONSTRAINT identity_session_tokens_revision_check;",
     );
   });
   it("normalizes valid UTC expiry precision without accepting calendar rollover", () => {
