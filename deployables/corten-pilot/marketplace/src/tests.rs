@@ -20475,7 +20475,11 @@ async fn a_paid_guest_order_is_saved_to_an_account_with_a_passkey_or_a_claim_lin
         assert_eq!(status, StatusCode::OK, "{id}: {html}");
         let page = text(&html);
         assert!(page.contains("This order cannot be saved to an account right now."), "{id}: {html}");
-        assert!(!page.contains("Save with passkey") && html.contains(&format!(r#"href="/checkout/payments/{id}">Back to payment</a>"#)), "{html}");
+        assert!(
+            !page.contains("Save with passkey")
+                && html.contains(&format!(r#"href="/checkout/payments/{id}">Back to payment</a>"#)),
+            "{html}"
+        );
     }
     // A payment not paid yet says it can be saved after payment, without asking Auth.
     let asked = claim_sent(&pilot, "claim-context").len();
