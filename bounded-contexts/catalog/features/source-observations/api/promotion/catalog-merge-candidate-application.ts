@@ -434,6 +434,13 @@ const promotionFacts = [
   },
   { fieldPath: "catalogItem.rarity", fieldIdKey: "rarity", valueKind: "raw", factKey: "rarity", required: false },
   {
+    fieldPath: "catalogItem.productForm",
+    fieldIdKey: "cardVariant",
+    valueKind: "raw",
+    factKey: "productForm",
+    required: false,
+  },
+  {
     fieldPath: "catalogItem.releaseYear",
     fieldIdKey: "releaseYear",
     valueKind: "raw",
@@ -936,15 +943,15 @@ function candidateCatalogMapping(
   const referenceFieldId =
     referenceField === "expansion" ? fieldIds.expansion : referenceField === "set" ? fieldIds.set : null;
   if (referenceField && !referenceFieldId) throw blocked("missing-reference-record-target", referenceField);
-  const fields: CatalogMergeCandidatePromotionFieldMapping[] = promotionFacts.map(
-    ({ fieldPath, fieldIdKey, valueKind, factKey, required }) => ({
+  const fields: CatalogMergeCandidatePromotionFieldMapping[] = promotionFacts
+    .filter((fact) => fact.factKey !== "productForm" || "sealedProductForm" in primary.normalized)
+    .map(({ fieldPath, fieldIdKey, valueKind, factKey, required }) => ({
       fieldPath,
       fieldId: fieldIds[fieldIdKey],
       valueKind,
       factKey,
       ...(required ? { required } : {}),
-    }),
-  );
+    }));
   if (referenceFieldId) {
     fields.push({
       fieldPath: referenceField === "expansion" ? "catalogItem.expansionName" : "catalogItem.setName",

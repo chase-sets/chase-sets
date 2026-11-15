@@ -56,6 +56,9 @@ describeDb("TCGplayer Lorcana sealed promotion", () => {
       expect(candidates.rows).toHaveLength(1);
       const candidateId = candidates.rows[0]!.stream_id.slice("catalog.merge-candidate-".length);
       const before = await loadCandidateApplication(store, candidateId);
+      if (version === "current") {
+        expect(before.state.snapshot?.proposedCatalogItemFacts.productForm).toBe("booster-box");
+      }
       expect(before.state.snapshot?.membership[0]?.sourceProfileVersion).toBe(
         version === "prior"
           ? TCGPLAYER_LORCANA_SEALED_PRODUCT_PRIOR_PROFILE_VERSION
@@ -121,6 +124,9 @@ describeDb("TCGplayer Lorcana sealed promotion", () => {
         expect.arrayContaining([
           expect.objectContaining({ providerKey: "tcgplayer", externalKey: `product:${entry.detail.productId}` }),
         ]),
+      );
+      expect(item.fieldValues).toEqual(
+        expect.arrayContaining([{ fieldId: catalogSeedIds.fields.sealedProductForm, value: "booster-box" }]),
       );
     },
   );
