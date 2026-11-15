@@ -1045,7 +1045,6 @@ describe("managed Postgres authority source generator", () => {
         ...previewRuntimeSecretsDelta,
         ...reviewedPreviewWildcardDelta,
         ...ebayAccountDeletionDelta,
-        ...ebaySandboxOAuthDelta,
         ...ebayAccountDeletionDelta.map((entry) => ({
           ...entry,
           secretName:
@@ -1086,7 +1085,8 @@ describe("managed Postgres authority source generator", () => {
         .map(applyProductionMarkerMintInsertions)
         .concat(productionMarkerAppKeyDelta)
         .concat(cortenAdminImageDelta)
-        .map(applyTerraformProviderCacheStepInsertions),
+        .map(applyTerraformProviderCacheStepInsertions)
+        .concat(ebaySandboxOAuthDelta),
     };
     // Exact stable-record multiset parity below is the authority; a whole-corpus total would only re-conflict.
     const isCatalogKeyring = ({ secretName }) => secretName === "CATALOG_OPERATOR_SESSION_KEYRING_JSON";
