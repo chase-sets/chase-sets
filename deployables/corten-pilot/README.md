@@ -6,7 +6,7 @@ is a standalone server in front of the existing platform API: every call forward
 user's cookies, as the React apps do, and business rules stay in the API. The pilot owns only the
 screens.
 
-It is not deployed. It is not part of the platform gates or the delivery loop. Its own CI job,
+Only the admin app is deployed: to staging, at `admin-corten.staging.chasesets.com` next to admin-web, since [#11330 [infrastructure] Deploy Corten admin alongside staging admin-web](https://github.com/chase-sets/chase-sets/pull/11330). The marketplace and public apps are not deployed. The pilot is not part of the platform gates or the delivery loop. Its own CI job,
 [corten-pilot.yml](../../.github/workflows/corten-pilot.yml), is advisory.
 
 ## Owner
@@ -223,10 +223,11 @@ node scripts/measure.mjs screen=<screen> marketplace=http://localhost:7753 pilot
 ```
 
 `corten check` needs TypeScript on the `PATH` to type-check the apps' scripts (CI puts the repo's
-`node_modules/.bin` there). The pilot has no image and nothing deploys it: the root `.dockerignore`
-keeps it out of the platform image, and a `deployables/*/Dockerfile` would make every pilot PR build
-and preview the platform ([#11327 [infrastructure] Deploy the Corten admin app to staging next to admin-web](https://github.com/chase-sets/chase-sets/issues/11327)
-is the first deploy). Each app writes one line per request on standard output in admin-web's shape,
+`node_modules/.bin` there). The root `.dockerignore` keeps the pilot out of the platform image, and a `deployables/*/Dockerfile`
+would make every pilot PR build and preview the platform. The admin app has its own image instead,
+`Dockerfile.corten-admin` at the repository root with its own `Dockerfile.corten-admin.dockerignore`,
+which staging runs as the Helm component `admin-corten`. That deploy plumbing belongs to the delivery
+loop ([#11327 [infrastructure] Deploy the Corten admin app to staging next to admin-web](https://github.com/chase-sets/chase-sets/issues/11327)). Each app writes one line per request on standard output in admin-web's shape,
 `GET /path 200 5123 - 4.210 ms`, without the query ([platform/src/access_log.rs](platform/src/access_log.rs)).
 
 | Variable | Default | |
