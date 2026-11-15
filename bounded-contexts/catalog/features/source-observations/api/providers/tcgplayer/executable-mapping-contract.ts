@@ -725,25 +725,27 @@ export const tcgplayerLorcanaSealedProductProviderProductSourceObservationMappin
   },
   promotionCommandPlan: {
     ...pokemonSealedPromotionCommandPlan,
-    commands: pokemonSealedPromotionCommandPlan.commands.map((command) => {
-      if (command.commandName === "AssignBlueprintToCatalogItem") {
-        return {
-          ...command,
-          inputs: {
-            blueprintKey: constantExpression("lorcana-sealed-product", "catalog-truth", ["promotion-command"]),
-          },
-        };
-      }
-      if (command.commandName === "AssignCatalogItemToCategory") {
-        return {
-          ...command,
-          inputs: {
-            categoryKey: constantExpression("lorcana-sealed-products", "catalog-truth", ["promotion-command"]),
-          },
-        };
-      }
-      return command;
-    }),
+    commands: pokemonSealedPromotionCommandPlan.commands.map(
+      (command): CatalogProviderExecutableMappingContract["promotionCommandPlan"]["commands"][number] => {
+        if (command.commandName === "AssignBlueprintToCatalogItem") {
+          return {
+            ...command,
+            inputs: {
+              blueprintKey: constantExpression("lorcana-sealed-product", "catalog-truth", ["promotion-command"]),
+            },
+          };
+        }
+        if (command.commandName === "AssignCatalogItemToCategory") {
+          return {
+            ...command,
+            inputs: {
+              categoryKey: constantExpression("lorcana-sealed-products", "catalog-truth", ["promotion-command"]),
+            },
+          };
+        }
+        return command;
+      },
+    ),
   },
   duplicatePrevention: tcgplayerPokemonSealedProductSourceObservationMappingContract.duplicatePrevention,
 } as const satisfies CatalogProviderExecutableMappingContract;
