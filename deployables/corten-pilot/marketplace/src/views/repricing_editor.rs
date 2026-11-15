@@ -773,13 +773,7 @@ fn FloorFields<'a>(t: RepricingMsg, rule: u32, floor: &'a Value) -> impl Render 
 /// An anchor of a rule's chain: a Pricing Goal's summary, or its source and what that source takes,
 /// with Move up and Remove anchor.
 #[component(css = super::repricing_page::RepricingPage)]
-fn AnchorFields<'a>(
-    t: RepricingMsg,
-    anchor: &'a Value,
-    rule: u32,
-    index: u32,
-    advanced: bool,
-) -> impl Render {
+fn AnchorFields<'a>(t: RepricingMsg, anchor: &'a Value, rule: u32, index: u32, advanced: bool) -> impl Render {
     let row = PolicyForm::FIELDS.rules.at(&rule).anchors.at(&index);
     let at = format!("{rule}-{index}");
     let op = PolicyForm::FIELDS.op;
@@ -863,7 +857,12 @@ fn AnchorFields<'a>(
                 >
                     {t.editor_move_up()}
                 </button>
-                <button type="submit" class={(Button, Secondary)} name={op} value={Op::RemoveAnchor(rule as usize, index as usize).value()}>
+                <button
+                    type="submit"
+                    class={(Button, Secondary)}
+                    name={op}
+                    value={Op::RemoveAnchor(rule as usize, index as usize).value()}
+                >
                     {t.editor_remove_anchor()}
                 </button>
             </div>
