@@ -1080,8 +1080,14 @@ async function syntheticWebpImage(): Promise<ArrayBuffer> {
   return new Uint8Array(webp).buffer;
 }
 
+// Each projected event advances its stream's version, as the event store does;
+// the catalog item projection stores it as source_stream_version (NOT NULL).
+const streamVersions = new Map<string, number>();
+
 function projectionEvent(streamId: string, data: Record<string, unknown>) {
-  return { streamId, data, timing: { recordedAt: new Date().toISOString() } } as never;
+  const streamVersion = (streamVersions.get(streamId) ?? 0) + 1;
+  streamVersions.set(streamId, streamVersion);
+  return { streamId, streamVersion, data, timing: { recordedAt: new Date().toISOString() } } as never;
 }
 
 async function insertObservation(

@@ -521,6 +521,45 @@ describeWithMarketplaceSeedDatabase("representative commerce state", () => {
     expect(discoveryBuyerListing?.visible_quantity).toBeGreaterThan(0);
   });
 
+  // Runs last: it drifts and repairs the canary price after every projection assertion above has read it.
+  it("resumes a crash after the keyed price-repair append and appends nothing on resume, reboot or day-after", async () => {
+    const runtime = requireRun(testRuntime);
+    const services = getMarketplaceServices(runtime.services);
+    const { stock, listings } = requireRun(firstRun);
+    const listingId = listings[0]!.listingId;
+    await services.listings.updateListingPrice(
+      { accountId: stock[0]!.accountId, listingId, priceAmount: "31.00", priceCurrencyCode: "EUR" },
+      {
+        tenantId: "tnt_identity",
+        audit: { performedByUserId: "usr_repr_support_ops_user", forAccountId: "acc_repr_support_ops_account" },
+        correlationId: "representative-crash-after-repair-test",
+      } as never,
+    );
+    const crashing = {
+      ...services,
+      listings: {
+        ...services.listings,
+        updateListingPrice: async (...args: Parameters<typeof services.listings.updateListingPrice>) => {
+          await services.listings.updateListingPrice(...args);
+          throw new Error("synthetic crash after price repair");
+        },
+      },
+    };
+
+    await expect(publishRepresentativeListings(crashing, stock)).rejects.toThrow("synthetic crash after price repair");
+    const afterCrash = await readListingEventTypes(seedRuntime.pools, listingId);
+    expect(afterCrash.slice(-2)).toEqual(["marketplace.listing.price-updated", "marketplace.listing.price-updated"]);
+    for (const boot of ["resume", "second boot", "day-after"]) {
+      await expect(
+        publishRepresentativeListings(getMarketplaceServices(runtime.services), stock).then((results) => ({
+          boot,
+          results,
+        })),
+      ).resolves.toEqual({ boot, results: [expect.objectContaining({ listingId, status: "already-present" })] });
+    }
+    expect(await readListingEventTypes(seedRuntime.pools, listingId)).toEqual(afterCrash);
+  });
+
   function requireRun<Run>(run: Run | null): Run {
     if (!run) {
       throw new Error("Representative commerce state run is not initialized.");
@@ -542,6 +581,14 @@ type MarketplaceSeedRuntime = Awaited<ReturnType<ReturnType<typeof useMarketplac
 
 function countAcceptedOffers(results: readonly MarketplaceRepresentativeOfferAcceptanceResult[]): number {
   return results.filter((result) => result.status === "accepted" || result.status === "already-accepted").length;
+}
+
+async function readListingEventTypes(pools: MarketplaceSeedRuntimePools, listingId: string): Promise<string[]> {
+  const result = await pools.marketplace.query<{ event_type: string }>(
+    "SELECT event_type FROM event_store_events WHERE stream_id=$1 ORDER BY stream_version",
+    [`marketplace.listing-${listingId}`],
+  );
+  return result.rows.map((row) => row.event_type);
 }
 
 async function readEventCounts(pools: MarketplaceSeedRuntimePools): Promise<ReadonlyMap<string, number>> {

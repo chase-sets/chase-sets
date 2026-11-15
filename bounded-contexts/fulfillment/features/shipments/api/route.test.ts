@@ -105,6 +105,12 @@ function createServices(): FulfillmentShipmentServices {
     getBuyerShipment: vi.fn(async () => null),
     listSellerShipments: vi.fn(async () => ({ items: [], total: 0 })),
     getSellerShipment: vi.fn(async () => null),
+    getSellerCommandCenter: vi.fn(async () => ({
+      source: "fulfillment-ship-by" as const,
+      buckets: [],
+      queue: [],
+      totalNeedingAttention: 0,
+    })),
     listSellerPackingSlips: vi.fn(
       async ({ shipmentIds }: { shipmentIds: readonly string[] }) =>
         shipmentIds.map((shipmentId) => ({
@@ -234,6 +240,35 @@ describe("fulfillment shipment routes", () => {
       expect(mutation).not.toHaveBeenCalled();
     }
   });
+  it("answers the seller's command center for the current account and needs fulfillment.view", async () => {
+    const services = createServices();
+    const seller = {
+      sessionId: "ses_1",
+      tenantId: "tnt_identity",
+      userId: "usr_1",
+      accountId: "acc_seller",
+      membershipId: "mbr_1",
+      roleKey: "owner",
+    };
+    const app = buildSellerApp({ actor: { ...seller, permissions: ["fulfillment.view"] }, services });
+
+    const response = await app.fetch(new Request("http://fulfillment.test/account/sales/shipments/command-center"));
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      source: "fulfillment-ship-by",
+      buckets: [],
+      queue: [],
+      totalNeedingAttention: 0,
+    });
+    expect(services.getSellerCommandCenter).toHaveBeenCalledWith({ sellerAccountId: "acc_seller" });
+    expect(services.getSellerShipment).not.toHaveBeenCalled();
+
+    const denied = buildSellerApp({ actor: { ...seller, permissions: [] }, services: createServices() });
+    const refused = await denied.fetch(new Request("http://fulfillment.test/account/sales/shipments/command-center"));
+    expect(refused.status).toBe(403);
+  });
+
   it("lists seller shipments for the current account", async () => {
     const services = createServices();
     const app = buildSellerApp({
@@ -262,6 +297,51 @@ describe("fulfillment shipment routes", () => {
       limit: 50,
       offset: 0,
     });
+  });
+
+  it("returns the seller's shipment detail with its action plan", async () => {
+    const services = createServices();
+    const [slip] = await services.listSellerPackingSlips({ sellerAccountId: "acc_seller", shipmentIds: ["shp_1"] });
+    vi.mocked(services.getSellerShipment).mockResolvedValueOnce({
+      ...slip!,
+      status: "label-attached",
+      label_status: "purchased",
+      conflicts: [
+        {
+          order_id: "ord_1",
+          conflict_kind: "cancellation",
+          origin: "order-cancelled",
+          reason: "buyer-cancelled",
+          shipment_status: "label-attached",
+          detected_at: "2026-04-02T00:16:00.000Z",
+        },
+      ],
+    } as never);
+    const app = buildSellerApp({
+      actor: {
+        sessionId: "ses_1",
+        tenantId: "tnt_identity",
+        userId: "usr_seller",
+        accountId: "acc_seller",
+        membershipId: "mbr_1",
+        roleKey: "owner",
+        permissions: ["fulfillment.view"],
+      },
+      services,
+    });
+
+    const response = await app.fetch(new Request("http://fulfillment.test/account/sales/shipments/shp_1"));
+
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.shipment_id).toBe("shp_1");
+    expect(body.action_plan).toEqual({
+      status: "label-attached",
+      primary: "void-label",
+      disclosed: ["raise-exception"],
+      terminal: false,
+    });
+    expect(services.getSellerShipment).toHaveBeenCalledWith("shp_1", "acc_seller");
   });
 
   it("rejects seller package updates without fulfillment manage permission", async () => {

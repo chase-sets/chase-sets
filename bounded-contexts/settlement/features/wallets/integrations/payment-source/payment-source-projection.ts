@@ -444,12 +444,14 @@ async function refreshTrustSignalEligibleReviewCounts(
          account_id,
          review_count,
          average_rating,
+         revision,
          updated_at
        )
        SELECT
          $1,
          COUNT(*)::integer,
          CASE WHEN COUNT(*) = 0 THEN NULL ELSE ROUND(AVG(rating)::numeric, 2) END,
+         1,
          $2
        FROM settlement_account_review_sources
        INNER JOIN settlement_order_trust_signal_sources trust_source
@@ -461,6 +463,7 @@ async function refreshTrustSignalEligibleReviewCounts(
        ON CONFLICT (account_id) DO UPDATE SET
          review_count = EXCLUDED.review_count,
          average_rating = EXCLUDED.average_rating,
+         revision = settlement_account_risk_sources.revision + 1,
          updated_at = EXCLUDED.updated_at`,
       [sellerAccountId, updatedAt],
     );

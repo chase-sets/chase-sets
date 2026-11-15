@@ -660,10 +660,18 @@ describe("Search bulk route data transport", () => {
 
   it("holds a lost bulk commit as ambiguous after one lookup and resends the same attempt only on request", async () => {
     addCartLines.mockRejectedValueOnce(new TypeError("fetch failed"));
-    getCartCommandAttempt.mockResolvedValueOnce(bulkAttempt("not-observed"));
+    const lookup = deferred<ReturnType<typeof bulkAttempt>>();
+    getCartCommandAttempt.mockReturnValueOnce(lookup.promise);
     const test = await setup();
-    await openPreview();
+    const sheet = await openPreview();
+    // The sheet schedules its own initial focus onto its header Close control; a
+    // commit sent before that lands lets it overwrite the result heading's focus.
+    const close = within(sheet).getByLabelText("Close");
+    await waitFor(() => expect(document.activeElement).toBe(close));
     fireEvent.click(screen.getByRole("button", { name: COMMIT }));
+    await waitFor(() => expect(getCartCommandAttempt).toHaveBeenCalledTimes(1));
+    expect(screen.queryByRole("heading", { name: AMBIGUOUS })).toBeNull();
+    await act(async () => lookup.resolve(bulkAttempt("not-observed")));
     await settleRouter(test.router);
 
     const heading = await screen.findByRole("heading", { name: AMBIGUOUS });

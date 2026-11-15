@@ -35,6 +35,7 @@ function fixture(cap = 2) {
     }),
     loadQuote: vi.fn(async () => quote),
     admit: vi.fn(async () => "execution-1"),
+    admitPeriod: vi.fn(async () => undefined),
     approve: vi.fn(async () => quote),
     claim: vi.fn(async (_quote, target) => {
       if (evidence.has(target.query.kind)) return null;
@@ -182,11 +183,13 @@ describe("Whole-quote count admission", () => {
     const quote = await f.runtime.quote({ selection: {}, owner: "owner" });
     expect((await acquire(f, quote)).state).toBe("complete");
     expect(f.ledger.admit).toHaveBeenCalledOnce();
-    expect(f.ledger.admit).toHaveBeenCalledWith(expect.objectContaining({ quoteId: quote.quoteId }), "owner", {
-      fingerprint: "authority",
-      allowed: true,
-      headroom: 10,
-    });
+    expect(f.ledger.admit).toHaveBeenCalledWith(
+      expect.objectContaining({ quoteId: quote.quoteId }),
+      "owner",
+      { fingerprint: "authority", allowed: true, headroom: 10 },
+      null,
+    );
+    expect(f.ledger.admitPeriod).not.toHaveBeenCalled();
     const admitted = vi.mocked(f.ledger.admit).mock.invocationCallOrder[0]!;
     expect(admitted).toBeLessThan(vi.mocked(f.ledger.approve).mock.invocationCallOrder[0]!);
     expect(vi.mocked(f.ledger.claim).mock.calls.map((call) => call[4])).toEqual(["execution-1", "execution-1"]);

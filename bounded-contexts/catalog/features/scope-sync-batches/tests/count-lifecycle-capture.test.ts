@@ -159,9 +159,8 @@ describe("staging count capture lifecycle", () => {
       readCountCaptureRoster(f.pool, createCatalogProviderIntegrationProfileVersionStore(f.pool), id),
     readEffects: (at: string) => readCountCaptureEffects(f.pool, at),
     countAuthority: () => f.countStore.authority(),
-    observeUsage: async () => {
-      throw new Error("Unexpected bootstrap.");
-    },
+    periodLedger: f.countStore.periodLedger,
+    observeUsage: f.observeUsage,
     readCountEvidence: (q: Parameters<typeof readCountCaptureEvidence>[2]) =>
       readCountCaptureEvidence(f.pool, f.countStore.slot, q),
     now: () => f.clock.now,
@@ -429,7 +428,7 @@ describe("staging count capture lifecycle", () => {
     frozenAt: null,
     quoteCap: countCapturePhaseCaps.acquisition,
   };
-  const acquiredRun = (status: "open" | "stopped") => ({ ...settledRun, status, sends: 2, acquisition: "bound" });
+  const acquiredRun = (status: "open" | "stopped") => ({ ...settledRun, status, sends: 3, acquisition: "bound" });
   const refusedRun = {
     ...settledRun,
     status: "stopped",
@@ -437,14 +436,17 @@ describe("staging count capture lifecycle", () => {
       requestId: expect.stringMatching(/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/),
       phase: "acquisition",
     },
-    sends: 0,
+    sends: 1,
     acquisition: null,
   };
   const admittedRun = { ...settledRun, status: "open", phase: "baseline", sends: 0, quoteCap: null, acquisition: null };
   const acquired = {
     counts: ["cards", "sealed"].map((kind) => ({ kind, credits: 1, outcome: "complete", quote: "bound" })),
     countCredits: 2,
-    sends: ["cards", "sealed"].map((category) => ({ phase: "acquisition", category, status: 200, request: "shared" })),
+    sends: [
+      ...["cards", "sealed"].map((category) => ({ phase: "acquisition", category, status: 200, request: "split" })),
+      { phase: "bootstrap", category: "usage", status: 200, request: "shared" },
+    ],
   };
   const zero = { fetch: 0, count: 0, capture: 0 };
   const single = { freezeIntent: false, firstJourney: null, originalUnchanged: null };
@@ -462,7 +464,7 @@ describe("staging count capture lifecycle", () => {
       runs: [refusedRun],
       counts: [],
       countCredits: 0,
-      sends: [],
+      sends: [{ phase: "bootstrap", category: "usage", status: 200, request: "shared" }],
       delta: zero,
     },
     disabled: {

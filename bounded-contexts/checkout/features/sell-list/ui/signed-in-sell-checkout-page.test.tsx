@@ -115,6 +115,7 @@ describe("signed-in sell checkout page", () => {
     );
 
     expect(markup).toContain("Seller checkout details");
+    expect(markup).toContain('href="/sell/shipping-setup"');
     expect(markup).toContain("seller@example.com");
     expect(markup).toContain("Sale and label updates / 316-555-0110");
     expect(markup).toContain("Ship from");

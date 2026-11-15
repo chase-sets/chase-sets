@@ -33,6 +33,55 @@ const context = {
 };
 
 describe("CSAT invitation runtime", () => {
+  it("persists content-free export audit and expiring artifact in one statement, never in audit columns", async () => {
+    const memory = createInMemoryEventStore();
+    const query = vi.fn(async (_sql: string, _values?: readonly unknown[]) => ({ rows: [] }));
+    const runtime = createCsatInvitationRuntime({ eventStore: memory.eventStore, db: { query } as never });
+    const audit = {
+      exportId: "cse_synthetic",
+      actorId: "usr_operator",
+      capability: "customer-feedback.privacy.export-sensitive-feedback",
+      filters: { states: ["submitted"] },
+      reason: "case-review",
+      startedAt: "2026-11-01T00:00:00.000Z",
+      completedAt: "2026-11-01T00:00:01.000Z",
+      artifactExpiresAt: "2026-11-02T00:00:00.000Z",
+      rowCount: 1,
+      result: "completed" as const,
+      failureCode: null,
+      artifactContent: "header\nprivate-artifact-only\n",
+    };
+    await runtime.recordAdminExport(audit);
+    expect(query).toHaveBeenCalledTimes(1);
+    const [sql, values] = query.mock.calls[0]!;
+    const auditSql = sql.slice(0, sql.indexOf("INSERT INTO customer_feedback_csat_export_artifacts"));
+    expect(auditSql).not.toContain("artifact_content");
+    expect(auditSql).not.toContain("$12");
+    expect(sql).toContain("WHERE $12::text IS NOT NULL");
+    expect(values).toEqual([
+      audit.exportId,
+      audit.actorId,
+      audit.capability,
+      JSON.stringify(audit.filters),
+      audit.reason,
+      audit.startedAt,
+      audit.completedAt,
+      audit.artifactExpiresAt,
+      1,
+      "completed",
+      null,
+      audit.artifactContent,
+    ]);
+    await runtime.recordAdminExport({
+      ...audit,
+      exportId: "cse_failed",
+      result: "failed",
+      failureCode: "export-generation-failed",
+      artifactContent: null,
+    });
+    expect(query.mock.calls[1]![1]!.at(-1)).toBeNull();
+  });
+
   it("collapses concurrent at-least-once outcome delivery onto one invitation stream", async () => {
     const store = createInMemoryEventStore();
     const db = { query: vi.fn(async () => ({ rows: [] })) };

@@ -41,6 +41,7 @@ Supporting evidence, replay, reapply, rollback impact, semantic comparison, fixt
 | `importJobs` | Durable job state, operator state, unit/scope context, profile snapshot, Catalog consistency policy, observation links, and job blockers. |
 | `sourceObservationReview` | Counts, cursor, selected observations, redaction marker, duplicate conflicts, and promotion-ready count. |
 | `promotionPreview` | Preview id, dispositions, command plan hash, confirmation requirement, destructive count, and blockers. |
+| `promotionPreview.previewCommittable` | Daily API offer for the held `promotionPreviewId`, using its own preview of the location's full selected ids and draft choice. False without a token, manage permission, successful complete preview, or fresh evidence. Admission's stale-token 409 remains authoritative. Preview actions return this verdict with `currentFingerprint`; admin-web requires equality to its original receipt fingerprint and fails closed on missing or failed reads. API deploys first; older reads cannot authorize a commit. |
 | `promotionResult` | Promoted Catalog Item ids, promoted reference ids, skipped observations, and audit evidence ids. |
 | `actions` | Command availability with explicit action states, blocker categories, and copy keys. |
 | `deploySkew` | Fail-closed version skew policy; unsupported UI/API pairings cannot use fallbacks. |
@@ -107,6 +108,31 @@ The workbench contract pins command routes under the Source Observations admin A
 | `start-replay` | `POST` | `/api/catalog/source-observations/admin/replay-jobs` | `catalog.manage` | Requires idempotency and fails closed for missing profile, stale replay, replay reuse, or security blockers. |
 
 Admin page routes may wrap these API routes, but no implementation may preserve retired admin module structure, hidden compatibility redirects, support-only legacy routes, or raw JSON escape hatches.
+
+## Provider Profile Lifecycle Confirmation
+
+The existing lifecycle HTTP commands require `catalog.manage` before reading confirmation input. Each accepts `Content-Type: application/json` with the following body (substitute the requested decoded provider key and profile version):
+
+| Method and route | JSON body |
+| --- | --- |
+| `POST /api/catalog/source-observations/provider-profiles/:providerKey/:profileVersion/rollback` | `{"lifecycleConfirmation":"confirm:provider-profile.rollback:<providerKey>:<profileVersion>"}` |
+| `POST /api/catalog/source-observations/provider-profiles/:providerKey/:profileVersion/deprecate` | `{"lifecycleConfirmation":"confirm:provider-profile.deprecate:<providerKey>:<profileVersion>"}` |
+| `POST /api/catalog/source-observations/provider-profiles/:providerKey/:profileVersion/retire` | `{"lifecycleConfirmation":"confirm:provider-profile.retire:<providerKey>:<profileVersion>"}` |
+
+Catalog compares the raw string with the operation and decoded path parameters. Missing or empty bodies/fields, malformed or non-object JSON, non-string fields, and mismatched values all return HTTP 400 before lifecycle mutation:
+
+```json
+{
+  "error": {
+    "code": "lifecycle_confirmation_required",
+    "message": "Confirm the destructive action before continuing."
+  }
+}
+```
+
+The code is stable; the non-empty message is localized. No trimming, coercion or inferred consent is allowed. This is operator intent, not authorization, replay protection or proof of a fresh impact preview. Existing permission refusal, active-job conflicts (409), retirement active/reference constraints and all lifecycle transitions remain unchanged. A matching request returns HTTP 200 with the existing provider profile version review: rollback activates the selected version, deprecate marks it deprecated, and retire retains it as inactive/retired. Activation remains bodyless.
+
+This intentionally tightens the contract: old bodyless calls fail closed, with no compatibility fallback. Shared Catalog clients and UI wrappers forward caller-supplied `lifecycleConfirmation` unchanged; an absent checkbox is forwarded as `null`, not synthesized consent. The admin action maps only HTTP 400 with this code to existing `confirmation-required` feedback, preserving success, 409 `lifecycle-conflict` and other failure feedback. Independently owned clients must forward this JSON before consuming the enforcing API. This HTTP guard does not secure direct service calls or imply lifecycle MCP tool availability.
 
 ## Admin Route Command Bridge
 

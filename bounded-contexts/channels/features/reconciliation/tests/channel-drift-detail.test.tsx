@@ -66,6 +66,14 @@ function harness(
       environment: "sandbox",
       status: options.status ?? "active",
       createdAt: "2026-09-14T00:00:00.000Z",
+      allowedActions:
+        options.status === "paused"
+          ? ["resume", "disconnect"]
+          : options.status === "pending-setup"
+            ? ["disconnect"]
+            : options.status === "disconnected"
+              ? []
+              : ["pause", "disconnect"],
     },
   ]);
   const read = vi.fn<ChannelReconciliationServices["readChannelDriftDetail"]>(async () => detail);

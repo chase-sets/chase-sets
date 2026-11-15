@@ -15,20 +15,41 @@ import {
   runProviderSendRequest,
 } from "../../source-observations/api/providers/provider-send-admission";
 import type { CatalogProviderSendRuntime } from "../../source-observations/api/providers/provider-send-runtime";
+import { boundCountCaptureRequest } from "../../source-observations/api/providers/count-capture-transport";
 import {
   CountAcquisitionRefused,
+  CountPeriodCapRefused,
   countFingerprint,
   countQueryKey,
   type CountAdmission,
+  type CountPeriodAuthority,
   type CountPreparationView,
   type CountQuote,
   type CountTarget,
 } from "../domain/count-acquisition";
+import { scrydexPeriodReserveSchema } from "../domain/scrydex-billing-period";
 import type { ScopeSyncBatchSelection } from "../domain/batch";
 import { createCountStore, lockCountHeadroom } from "../read-model/count-store";
 import { createScopeSyncBatchStore } from "../read-model/store";
 import { createCountAcquisition } from "./count-acquisition";
 import { resolveScopeSyncCountMembership } from "./planner";
+
+/**
+ * Resolves a staging acquisition's period gate before anything is read or sent.
+ * A capture run is honored, ungated here, only inside its own bound acquisition
+ * request, where its bootstrap decision and per-debit store check gate every
+ * send; anything but a well-formed reserve is unknown U and refuses.
+ */
+function stagingPeriod(authority: CountPeriodAuthority | undefined) {
+  if (authority?.kind === "capture-run") {
+    const bound = boundCountCaptureRequest();
+    if (bound?.runId !== authority.runId || bound.phase !== "acquisition") throw new CountPeriodCapRefused(null);
+    return null;
+  }
+  const reserve = authority?.kind === "reserve" ? scrydexPeriodReserveSchema.safeParse(authority.reserve) : null;
+  if (!reserve?.success) throw new CountPeriodCapRefused(null);
+  return { reserve: reserve.data, runId: reserve.data.runId };
+}
 
 export function createScopeSyncCountRuntime(deps: {
   pool: PgTransactionalPool;
@@ -134,10 +155,11 @@ export function createScopeSyncCountRuntime(deps: {
   const engine = createCountAcquisition({
     ledger: {
       ...deps.store,
-      admit: (quote, owner, authority) => deps.store.admit(deps.pool, quote, owner, authority),
+      admit: (quote, owner, authority, period) => deps.store.admit(deps.pool, quote, owner, authority, period),
+      admitPeriod: (quote, owner, period) => deps.store.admitPeriod(deps.pool, quote, owner, period),
       approve: (id, fingerprint, owner) => deps.store.approve(deps.pool, id, fingerprint, owner),
-      claim: (quote, target, owner, authority, executionId) =>
-        deps.store.claim(deps.pool, quote, target, owner, authority, executionId),
+      claim: (quote, target, owner, authority, executionId, period) =>
+        deps.store.claim(deps.pool, quote, target, owner, authority, executionId, period),
       end: (quoteId, executionId, owner, state) => deps.store.end(deps.pool, quoteId, executionId, owner, state),
     },
     resolve,
@@ -167,15 +189,24 @@ export function createScopeSyncCountRuntime(deps: {
   return {
     quoteCounts: (input: { selection: ScopeSyncBatchSelection; cap?: number; context: EventStoreContext }) =>
       engine.quote({ ...input, owner: owner(input.context) }),
-    acquireCounts: async (input: {
+    acquireCounts: async ({
+      periodAuthority,
+      ...input
+    }: {
       quoteId: string;
       fingerprint: string;
       admission?: CountAdmission;
+      periodAuthority?: CountPeriodAuthority;
       context: EventStoreContext;
     }) => {
       // Whole-quote admission exists for staging count preparation only.
       if (input.admission && deps.environment !== "staging") throw new CountAcquisitionRefused();
-      return engine.acquire({ ...input, owner: owner(input.context) });
+      // Outside staging nothing is period-gated, and a period reserve is refused.
+      if (deps.environment !== "staging") {
+        if (periodAuthority?.kind === "reserve") throw new CountAcquisitionRefused();
+        return engine.acquire({ ...input, owner: owner(input.context) });
+      }
+      return engine.acquire({ ...input, owner: owner(input.context), period: stagingPeriod(periodAuthority) });
     },
     getCountQuote: async (input: {
       quoteId: string;

@@ -4,7 +4,9 @@ import type { AccountId, TenantId, UserId } from "@chase-sets/primitives/typed-i
 import type { CatalogAuthoringEnv } from "../../../../support/authoring-support/api";
 import { sourceObservationRoutes } from "../route";
 import type { SourceObservationRouteServices } from "../route";
+import type { ProviderScopeDiscoveryServices } from "../../../provider-scope-discovery/api/runtime";
 import type { CatalogProviderIntegrationProfileVersionStore } from "../providers/provider-integration-profile-store";
+import type { SourceObservationPromotionPreview } from "../../read-model/queries";
 import {
   catalogProviderIntegrationProfileVersions,
   type CatalogProviderIntegrationProfileVersionRecord,
@@ -51,6 +53,8 @@ export function buildApp(
   services: SourceObservationRouteServices,
   profileVersions?: CatalogProviderIntegrationProfileVersionStore,
   actor: CatalogAuthoringEnv["Variables"]["actor"] = manageActor,
+  listRefreshSchedules?: ProviderScopeDiscoveryServices["listRefreshSchedules"],
+  getScopeRecord?: Parameters<typeof sourceObservationRoutes>[4],
 ) {
   const app = new Hono<CatalogAuthoringEnv>();
 
@@ -59,7 +63,10 @@ export function buildApp(
     c.set("context", context);
     await next();
   });
-  app.route("/source-observations", sourceObservationRoutes(services, profileVersions));
+  app.route(
+    "/source-observations",
+    sourceObservationRoutes(services, profileVersions, undefined, listRefreshSchedules, getScopeRecord),
+  );
 
   return app;
 }
@@ -70,7 +77,15 @@ export function mutableProfileStore(
   let records: CatalogProviderIntegrationProfileVersionRecord[] = [...initialRecords];
   return {
     seedProfileVersions: async () => records,
-    upsertProfileVersion: async (version) => {
+    upsertProfileVersion: async (version, guard) => {
+      guard?.(
+        records.find(
+          (candidate) =>
+            candidate.providerKey === version.providerKey &&
+            candidate.profileKey === version.profileKey &&
+            candidate.profileVersion === version.profileVersion,
+        ) ?? null,
+      );
       records = records.filter(
         (candidate) =>
           !(
@@ -237,6 +252,45 @@ export function baseIntegrationJob() {
     completedAt: null as string | null,
     updatedAt: "2026-05-23T00:00:02.000Z",
   };
+}
+
+/** A promotion preview as the runtime returns it: counts, fingerprint and a complete, unblocked validation page. */
+export function promotionPreviewFixture(
+  overrides: Partial<Omit<SourceObservationPromotionPreview, "scope" | "validation">> &
+    Readonly<{
+      scope?: Partial<SourceObservationPromotionPreview["scope"]>;
+      validation?: Partial<SourceObservationPromotionPreview["validation"]>;
+    }> = {},
+): SourceObservationPromotionPreview {
+  const { scope, validation, ...rest } = overrides;
+  return {
+    matched: 1,
+    eligible: 1,
+    terminal: 0,
+    fingerprint: "content-a",
+    ...rest,
+    scope: {
+      search: "",
+      status: "",
+      syncRunId: "",
+      provider: "",
+      language: "",
+      productLineId: "",
+      seriesId: "",
+      expansionId: "",
+      setId: "",
+      ...scope,
+    },
+    validation: {
+      promoteAsDraft: false,
+      pageLimit: 100,
+      coveredObservationIds: [],
+      coverage: "complete",
+      continuation: null,
+      diagnostics: [],
+      ...validation,
+    },
+  } as SourceObservationPromotionPreview;
 }
 
 export function bulkJobFixture(

@@ -18,6 +18,8 @@ export async function providerDetailAction(args: ActionFunctionArgs): Promise<Re
 
   const href = catalogProviderDetailHref(providerKey, {
     profileVersion: result.context.profileVersion,
+    unitKey: result.context.unitKey,
+    jobId: result.context.jobId,
     commandStatus: result.feedback.status,
     commandIntent: result.feedback.intent,
     commandResult: result.feedback.result,

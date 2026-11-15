@@ -1,5 +1,6 @@
 import { ProviderSendStoppedError } from "./providers/provider-send-admission";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
+import { createPostgresEventStore, type PgQueryable } from "@chase-sets/event-core-postgres";
 import { isDurableJobHandoffError } from "@chase-sets/platform-runtime/durable-job-store";
 import { createHash } from "node:crypto";
 import { acquireSourceObservationTarget, promotionCurrentItem } from "./promotion/source-observation-target-exclusion";
@@ -41,6 +42,7 @@ import {
   type CatalogIntegrationRolloutControlPolicy,
 } from "./governance/catalog-integration-rollout-controls";
 import { resolveCatalogProviderDuplicatePrevention } from "./promotion/provider-duplicate-prevention-resolver";
+import { createCatalogProviderIntegrationProfileVersionStore } from "./providers/provider-integration-profile-store";
 import type {
   CatalogProviderIntegrationProfileVersionReader,
   SourceObservationAliasPromotion,
@@ -96,6 +98,34 @@ function boundedPreflightDiagnostic(
   diagnosticText: string,
 ): SourceObservationPromotionPreviewDiagnostic {
   return { observationId, code: "runtime-preflight-failed", path: "observation", diagnosticText, blocking: true };
+}
+
+type PromotionPreviewReads = Readonly<{
+  deps: CatalogRuntimeDeps;
+  profileVersions: CatalogProviderIntegrationProfileVersionReader;
+}>;
+
+/**
+ * A promotion preview's reads on one transaction's client: Catalog rows, event
+ * streams and provider profile versions. Profile versions come from the
+ * canonical store on that client, as the promotion target exclusion validates
+ * them. The event store's pool refuses a connection, so a read that would leave
+ * the client fails instead of waiting behind the transaction that holds it.
+ */
+function promotionPreviewReadsOn(deps: CatalogRuntimeDeps, client: PgQueryable): PromotionPreviewReads {
+  return {
+    deps: {
+      ...deps,
+      db: client,
+      eventStore: createPostgresEventStore({
+        pool: {
+          query: client.query.bind(client),
+          connect: () => Promise.reject(new Error("promotion-preview-reads-on-its-transaction")),
+        },
+      }),
+    },
+    profileVersions: createCatalogProviderIntegrationProfileVersionStore(client),
+  };
 }
 
 export type SourceObservationPromotionReapplyRuntimeDeps = Readonly<{
@@ -890,9 +920,10 @@ export function createSourceObservationPromotionReapplyRuntime({
   async function validatePromotionSelection(
     selection: Readonly<{ scope: SourceObservationFilterScope } | { observationIds: readonly string[] }>,
     options: Readonly<{ promoteAsDraft?: boolean; validationAfter?: string | null }>,
+    reads: PromotionPreviewReads,
   ): Promise<SourceObservationPromotionValidation> {
     const promoteAsDraft = options.promoteAsDraft === true;
-    const page = await listSourceObservationIdsForPromotionValidation(deps.db, selection, {
+    const page = await listSourceObservationIdsForPromotionValidation(reads.deps.db, selection, {
       limit: PROMOTION_VALIDATION_PAGE_LIMIT,
       after: options.validationAfter ?? null,
     });
@@ -900,7 +931,7 @@ export function createSourceObservationPromotionReapplyRuntime({
     const coverage = page.length > PROMOTION_VALIDATION_PAGE_LIMIT ? "partial" : "complete";
     const diagnostics: SourceObservationPromotionPreviewDiagnostic[] = [];
     for (const observationId of coveredObservationIds) {
-      diagnostics.push(...(await previewObservationDiagnostics(observationId, promoteAsDraft)));
+      diagnostics.push(...(await previewObservationDiagnostics(observationId, promoteAsDraft, reads)));
     }
 
     return {
@@ -916,9 +947,10 @@ export function createSourceObservationPromotionReapplyRuntime({
   async function previewObservationDiagnostics(
     observationId: string,
     promoteAsDraft: boolean,
+    { deps: reads, profileVersions: profiles }: PromotionPreviewReads,
   ): Promise<readonly SourceObservationPromotionPreviewDiagnostic[]> {
     try {
-      const observation = await getSourceObservationDetail(deps.db, observationId);
+      const observation = await getSourceObservationDetail(reads.db, observationId);
       if (!observation) {
         return [boundedPreflightDiagnostic(observationId, "Source observation was not found.")];
       }
@@ -933,7 +965,7 @@ export function createSourceObservationPromotionReapplyRuntime({
       }
       const normalized = requireCatalogItemPromotionObservation(observation.normalized, observation.provider_key);
       const providerProfileVersion = await requireCatalogPromotionProfileVersion(
-        profileVersions,
+        profiles,
         observation.provider_key,
         normalized,
       );
@@ -942,10 +974,10 @@ export function createSourceObservationPromotionReapplyRuntime({
         observation.status === "changed" || observation.status === "promoted"
           ? (observation.promoted_catalog_item_id as CatalogItemId | null)
           : null;
-      const catalogMapping = await loadCatalogItemPromotionProfile(deps, providerProfile);
+      const catalogMapping = await loadCatalogItemPromotionProfile(reads, providerProfile);
       const duplicatePreventionResult = !existingCatalogItemId
         ? await resolveCatalogProviderDuplicatePrevention({
-            db: deps.db,
+            db: reads.db,
             profile: providerProfile,
             providerKey: observation.provider_key,
             externalKey: observation.external_key,
@@ -972,7 +1004,7 @@ export function createSourceObservationPromotionReapplyRuntime({
         existingCatalogItemId ??
         (duplicatePreventionResult?.status === "matched" ? duplicatePreventionResult.catalogItemId : null);
       const plan = await previewCatalogItemPromotionPlan({
-        deps,
+        deps: reads,
         catalogItemId: reusableCatalogItemId ?? PROMOTION_PREVIEW_CREATE_CATALOG_ITEM_ID,
         mode: reusableCatalogItemId ? "refresh" : "create",
         normalized,
@@ -1000,12 +1032,18 @@ export function createSourceObservationPromotionReapplyRuntime({
   async function previewPromotionSelection(
     selection: Readonly<{ scope: SourceObservationFilterScope } | { observationIds: readonly string[] }>,
     options: Readonly<{ promoteAsDraft?: boolean; validationAfter?: string | null }>,
+    db: PgQueryable = deps.db,
   ): Promise<SourceObservationPromotionPreview> {
+    // An admission passes its transaction's client, and then every read the
+    // preview makes goes through that client: the preview it checks is one
+    // snapshot, and it never waits on the pool for a second connection while
+    // the admission holds the first. Ordinary previews keep the pooled readers.
+    const reads = db === deps.db ? { deps, profileVersions } : promotionPreviewReadsOn(deps, db);
     const scopePreview =
       "observationIds" in selection
-        ? await previewSourceObservationPromotionIds(deps.db, selection.observationIds)
-        : await previewSourceObservationPromotionScope(deps.db, selection.scope);
-    return { ...scopePreview, validation: await validatePromotionSelection(selection, options) };
+        ? await previewSourceObservationPromotionIds(db, selection.observationIds)
+        : await previewSourceObservationPromotionScope(db, selection.scope);
+    return { ...scopePreview, validation: await validatePromotionSelection(selection, options, reads) };
   }
 
   const services: SourceObservationReviewServices & PromotionReapplyServices = {
@@ -1111,6 +1149,7 @@ export function createSourceObservationPromotionReapplyRuntime({
 
   return {
     services,
+    previewPromotionSelection,
     promoteObservationIds,
     reapplyObservationIds,
     rejectObservationIds,

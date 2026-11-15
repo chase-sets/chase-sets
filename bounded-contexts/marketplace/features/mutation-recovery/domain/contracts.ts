@@ -15,18 +15,46 @@ const identity = z
   .min(1)
   .max(1024)
   .regex(/^[A-Za-z0-9_:.,=|%-]+$/);
+export const marketplaceListingMutationKinds = [
+  "listing.create",
+  "listing.publish",
+  "listing.update-price",
+  "listing.update-quantity",
+  "listing.update-purchase-limits",
+  "listing.pause",
+  "listing.withdraw",
+  "seller.availability",
+  "seller.away",
+  "seller.order-capacity",
+] as const;
 export const marketplaceMutationKindSchema = z.enum([
   "offer.accept",
   "offer.submit",
   "offer.update-price",
   "offer.decline",
   "offer-policy.command",
+  ...marketplaceListingMutationKinds,
 ]);
 export type MarketplaceMutationKind = z.infer<typeof marketplaceMutationKindSchema>;
+export type MarketplaceListingMutationKind = (typeof marketplaceListingMutationKinds)[number];
 export const marketplaceRecoveryTargetSchema = z.strictObject({
-  kind: z.enum(["offer", "product", "offer-policy"]),
+  kind: z.enum(["offer", "product", "offer-policy", "inventory-item", "listing", "seller"]),
   id: identity,
 });
+export type MarketplaceRecoveryTarget = z.infer<typeof marketplaceRecoveryTargetSchema>;
+
+export function isMarketplaceListingMutationKind(kind: string): kind is MarketplaceListingMutationKind {
+  return (marketplaceListingMutationKinds as readonly string[]).includes(kind);
+}
+
+export function marketplaceRecoveryTargetKind(kind: MarketplaceMutationKind): MarketplaceRecoveryTarget["kind"] {
+  if (kind === "offer.submit") return "product";
+  if (kind === "offer-policy.command") return "offer-policy";
+  if (kind === "listing.create") return "inventory-item";
+  if (kind.startsWith("listing.")) return "listing";
+  if (kind.startsWith("seller.")) return "seller";
+  return "offer";
+}
 export const marketplaceOwnerReceiptSchema = z.strictObject({
   id: identity,
   version: z.number().int().nonnegative().safe(),
@@ -54,6 +82,87 @@ export function canonicalMarketplaceRequest(value: unknown): string {
       .join(",")}}`;
   }
   return JSON.stringify(value);
+}
+
+export function marketplaceCanonicalRequest(kind: MarketplaceMutationKind, input: unknown): unknown {
+  if (kind === "offer-policy.command" || input === null) return input;
+  const request = input as Record<string, unknown>;
+  return isMarketplaceListingMutationKind(kind)
+    ? marketplaceListingCanonicalRequest(kind, request)
+    : marketplaceOfferCanonicalRequest(kind, request);
+}
+
+/** Normalizes a decimal money amount so `10`, `10.0` and `010.00` compare equal; anything else stays as sent. */
+export function canonicalMarketplaceMoneyAmount(value: unknown): unknown {
+  if (typeof value !== "string") return value ?? null;
+  const match = /^\s*(\d+)(?:\.(\d+))?\s*$/.exec(value);
+  if (!match) return value;
+  const whole = match[1]!.replace(/^0+(?=\d)/, "");
+  const fraction = (match[2] ?? "").replace(/0+$/, "");
+  return fraction ? `${whole}.${fraction}` : whole;
+}
+
+function canonicalPurchaseLimits(value: unknown) {
+  const limits = (value ?? {}) as Record<string, unknown>;
+  return {
+    maxUnitsPerOrder: limits.maxUnitsPerOrder ?? null,
+    maxUnitsPerDay: limits.maxUnitsPerDay ?? null,
+    maxUnitsPerCustomerAccount: limits.maxUnitsPerCustomerAccount ?? null,
+  };
+}
+
+/** Every business field of a Listing or seller-account command; amount and currency compare together. */
+export function marketplaceListingCanonicalRequest(
+  kind: MarketplaceListingMutationKind,
+  input: Record<string, unknown>,
+): Record<string, unknown> {
+  switch (kind) {
+    case "listing.create":
+      return {
+        inventoryItemId: input.inventoryItemId,
+        listingIdOverride: input.listingIdOverride ?? null,
+        publicationScope: input.publicationScope ?? "native",
+        priceAmount: canonicalMarketplaceMoneyAmount(input.priceAmount),
+        priceCurrencyCode: input.priceCurrencyCode,
+        quantityCap: input.quantityCap,
+        purchaseLimits: canonicalPurchaseLimits(input.purchaseLimits),
+      };
+    case "listing.publish":
+    case "listing.withdraw":
+      return { listingId: input.listingId };
+    case "listing.update-price":
+      return {
+        listingId: input.listingId,
+        priceAmount: canonicalMarketplaceMoneyAmount(input.priceAmount),
+        priceCurrencyCode: input.priceCurrencyCode,
+      };
+    case "listing.update-quantity":
+      return {
+        listingId: input.listingId,
+        quantityCap: input.quantityCap,
+        purchaseLimits: input.purchaseLimits == null ? null : canonicalPurchaseLimits(input.purchaseLimits),
+      };
+    case "listing.update-purchase-limits":
+      return { listingId: input.listingId, purchaseLimits: canonicalPurchaseLimits(input.purchaseLimits) };
+    case "listing.pause":
+      return { listingId: input.listingId, reason: input.reason ?? "seller" };
+    case "seller.availability":
+      return {
+        status: input.status,
+        reasonCategory: input.reasonCategory ?? null,
+        availableAgainOn: input.availableAgainOn ?? null,
+        availableAgainAt: input.availableAgainAt ?? null,
+      };
+    case "seller.away":
+      return {
+        action: input.action,
+        startsAt: input.startsAt ?? null,
+        endsAt: input.endsAt ?? null,
+        reasonCategory: input.reasonCategory ?? null,
+      };
+    case "seller.order-capacity":
+      return { maxOpenOrders: input.maxOpenOrders ?? null };
+  }
 }
 
 export function marketplaceOfferCanonicalRequest(

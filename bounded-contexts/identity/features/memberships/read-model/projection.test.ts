@@ -59,5 +59,10 @@ describe("membership role permission projection", () => {
       "identity.membership.granted": ROLE_PERMISSIONS[roleKey],
       "identity.membership.role-changed": ROLE_PERMISSIONS[roleKey],
     });
+    for (const permissions of Object.values(await projectedPermissions(roleKey))) {
+      expect(permissions.includes("customer-feedback.privacy.export-sensitive-feedback")).toBe(
+        roleKey === "platform-admin",
+      );
+    }
   });
 });

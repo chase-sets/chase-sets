@@ -67,6 +67,7 @@ export default defineConfig({
   reporter: [
     ["list"],
     [retryTelemetryReporterPath],
+    ["./scripts/lib/journey-package-reporter.mjs"],
     ["html", { open: "never", outputFolder: "artifacts/playwright/report" }],
     ...(renderedCopySweep
       ? [["json", { outputFile: "artifacts/playwright/rendered-copy-results.json" }] as const]

@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const { mockApi, mockCreateFulfillmentRequestApiClient, mockRequireActor } = vi.hoisted(() => ({
-  mockApi: { cancelShipment: vi.fn() },
+  mockApi: { cancelShipment: vi.fn(), getSellerCommandCenter: vi.fn() },
   mockCreateFulfillmentRequestApiClient: vi.fn(),
   mockRequireActor: vi.fn(),
 }));
@@ -11,7 +11,7 @@ vi.mock("../../support/request-support/api-client", () => ({
   createFulfillmentRequestApiClient: mockCreateFulfillmentRequestApiClient,
 }));
 
-import { action } from "./account-sale-shipments";
+import { action, loader } from "./account-sale-shipments";
 
 function formRequest(values: Record<string, string>) {
   return new Request("https://marketplace.chasesets.test/account/sales/shipments", {
@@ -28,6 +28,23 @@ describe("fulfillment seller command-center route", () => {
   });
 
   afterEach(() => vi.clearAllMocks());
+
+  it("draws the command center the Fulfillment API returns", async () => {
+    const commandCenter = { source: "fulfillment-ship-by", buckets: [], queue: [], totalNeedingAttention: 0 };
+    mockApi.getSellerCommandCenter.mockResolvedValue(commandCenter);
+    mockRequireActor.mockResolvedValue({
+      tenantId: "tnt_1",
+      accountId: "acc_seller",
+      permissions: ["fulfillment.view"],
+    });
+    const data = await loader({
+      request: new Request("https://marketplace.chasesets.test/account/sales/shipments"),
+      params: {},
+      context: undefined,
+    } as never);
+    expect(data).toEqual({ commandCenter, recoveryScope: { tenantId: "tnt_1", sellerAccountId: "acc_seller" } });
+    expect(mockApi.getSellerCommandCenter).toHaveBeenCalledTimes(1);
+  });
 
   it("enrolls cancel-shipment and calls the real client seam exactly once", async () => {
     mockApi.cancelShipment.mockResolvedValue({ id: "shp_race", version: 4 });
@@ -46,23 +63,6 @@ describe("fulfillment seller command-center route", () => {
     expect(response.status).toBe(302);
     expect(mockApi.cancelShipment).toHaveBeenCalledTimes(1);
     expect(mockApi.cancelShipment).toHaveBeenCalledWith("shp_race", "attempt-race");
-  });
-
-  it("rejects a missing conflict before calling the client", async () => {
-    const result = await action({
-      request: formRequest({
-        intent: "cancel-shipment",
-        shipmentId: "shp_race",
-        status: "packing",
-        labelStatus: "not-purchased",
-        hasOrderCancellationConflict: "false",
-        mutationAttemptId: "attempt-race",
-      }),
-      params: {},
-      context: undefined,
-    } as never);
-    expect(result).toEqual({ error: "Cannot cancel shipment without an order cancellation conflict." });
-    expect(mockApi.cancelShipment).not.toHaveBeenCalled();
   });
 
   it("cannot use a forged positive form fact to override aggregate refusal", async () => {

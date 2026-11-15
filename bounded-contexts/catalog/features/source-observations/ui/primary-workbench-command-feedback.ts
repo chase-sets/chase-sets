@@ -27,6 +27,7 @@ export type CatalogPrimaryWorkbenchCommandFeedback = Readonly<{
     | "section-conflict"
     | "section-invalid"
     | "lifecycle-conflict"
+    | "candidate-stale"
     | "confirmation-required"
     | "preview-required"
     | "job-required"
@@ -111,6 +112,8 @@ export function commandFeedbackDescription(feedback: CatalogPrimaryWorkbenchComm
       return t("catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.section.invalid");
     case "lifecycle-conflict":
       return t("catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.lifecycle.conflict");
+    case "candidate-stale":
+      return t("catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.candidate.stale");
     case "confirmation-required":
       return t("catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.confirmation.required");
     case "unsupported-command":

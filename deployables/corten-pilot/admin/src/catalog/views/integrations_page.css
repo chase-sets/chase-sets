@@ -1,0 +1,152 @@
+/* The integrations workbench's surfaces, around the UI kit's cards, tables, badges, alerts and
+   accordion (platform::ui): the header's action wraps, the metrics fill the row, and each table
+   stacks on a phone, a row a block of labelled lines. */
+.page {
+  display: grid;
+  gap: var(--space-4);
+  min-width: 0;
+}
+.header {
+  display: grid;
+  gap: var(--space-3);
+}
+.header h1 {
+  margin: 0;
+  font: 600 1.75rem/1.25 var(--font-display);
+}
+.eyebrow {
+  margin: 0;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-text-secondary);
+}
+.muted {
+  margin: 0;
+  font-size: 0.875rem;
+  font-weight: 400;
+  color: var(--color-text-secondary);
+}
+.strong {
+  margin: 0;
+  font-weight: 600;
+}
+.words {
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+.module-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  align-items: flex-start;
+  justify-content: space-between;
+}
+.module-head h2 {
+  margin: 0;
+}
+.module-head p {
+  margin: var(--space-1) 0 0;
+  max-width: 70ch;
+}
+.status {
+  flex: none;
+}
+.stack {
+  min-width: 0;
+}
+.metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+  gap: var(--space-3);
+  margin: 0;
+}
+.metric {
+  min-width: 0;
+  padding: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-2);
+}
+.metric dt {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--color-text-secondary);
+}
+.metric dd {
+  margin: 0;
+}
+.value {
+  font: 600 1.25rem/1.4 var(--font-display);
+  overflow-wrap: anywhere;
+}
+.trend {
+  font-size: 0.75rem;
+  color: var(--color-text-secondary);
+  overflow-wrap: anywhere;
+}
+.pairs {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+  gap: var(--space-2) var(--space-4);
+  margin: 0;
+}
+.pair {
+  min-width: 0;
+}
+.pair dt {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--color-text-secondary);
+}
+.pair dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+/* Inside a stacked row's cell the list is one column. */
+td .pairs {
+  grid-template-columns: minmax(0, 1fr);
+  min-inline-size: 12rem;
+}
+.cell-text {
+  display: grid;
+  gap: var(--space-1);
+  justify-items: start;
+  min-width: 0;
+}
+.badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+}
+.caption {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.drawer .stack {
+  margin-block-start: var(--space-3);
+}
+.nothing {
+  display: grid;
+  gap: var(--space-1);
+  padding: var(--space-6) var(--space-4);
+  border: 1px dashed var(--color-border-strong);
+  border-radius: var(--radius-lg);
+  text-align: center;
+}
+@media (min-width: 40rem) {
+  .header {
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: start;
+  }
+}

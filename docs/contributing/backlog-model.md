@@ -44,6 +44,14 @@ human evidence. This grants no provider or production authorization.
 `test`, `ops`) — a Slice can be tech-debt; an Epic cannot be a Bug. The native
 Epic issue type is the only Epic signal.
 
+Headless registration uses `gh api --method POST repos/chase-sets/chase-sets/issues -f type=<Slice|Bug|Decision|Probe> ... --jq .type.name`.
+Replace the type placeholder with the accepted work form and `...` with the
+title, body, labels and milestone fields. `gh issue create` cannot set type.
+Capture the create response and fail registration unless its native type
+matches the requested name and `is_enabled` is true; never repair by PATCH.
+Machine alerts use native `Bug`, including incidents in Operations.
+Guard: `scripts/check-structure/issue-creation-type-contract.test.mjs`.
+
 Deliberately **not** adopted: *story*, *story points*, *velocity*, *sprints*.
 A slice already carries scope fence, acceptance criteria with evidence methods,
 a verification plan, and a predicted file footprint — strictly more information
@@ -280,11 +288,6 @@ battery can fail when the documentation, issue forms, or labeler drift.
 Every one of these was created for a single workstream and outlived it — 55 of
 them accumulated across finished June milestones and had to be swept. Sequencing
 inside a workstream is what an epic's chain DAG is for.
-
-Existing banned-family and stray labels are registered by exact name as
-`grandfathered-frozen` in the registry. They may remain on existing issues but
-must never be newly applied, recreated, or renamed. Their convergence is future
-operator work owned by [#6174](https://github.com/chase-sets/chase-sets/issues/6174).
 
 `full-pr-battery` is not a live or registered label. Its existing
 `platform-pr.yml` condition is therefore inactive rather than an alternate

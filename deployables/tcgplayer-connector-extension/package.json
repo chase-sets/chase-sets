@@ -17,11 +17,13 @@
     "@chase-sets/platform-runtime": "workspace:*"
   },
   "devDependencies": {
+    "@chase-sets/auth": "workspace:*",
     "fake-indexeddb": "^6.2.4",
     "@playwright/test": "^1.60.0",
     "@types/chrome": "^0.1.36",
     "@types/node": "^24.19.1",
     "fflate": "^0.8.3",
+    "hono": "^4.13.13",
     "typescript": "^7.0.0",
     "vite": "^8.0.0",
     "vitest": "^4.0.18"

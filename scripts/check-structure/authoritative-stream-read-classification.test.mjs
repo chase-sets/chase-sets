@@ -62,12 +62,12 @@ describe("authoritative-stream-read-classification-acceptance-control", () => {
     expect(production.totals).toMatchObject({
       roots: production.roots.length,
       loadedRoots: production.roots.length,
-      discoveredCallCandidates: 19,
-      authoritativeSites: 18,
+      discoveredCallCandidates: 21,
+      authoritativeSites: 19,
       helperSites: 1,
       ambiguousOriginSites: 0,
       outOfLocationHelperSites: 0,
-      insufficientReceiverContractSites: 1,
+      insufficientReceiverContractSites: 2,
       authorityAbsentCandidates: 0,
       optionalSyntaxOutcomes: 0,
       dynamicKeyOutcomes: 0,
@@ -95,12 +95,14 @@ describe("authoritative-stream-read-classification-acceptance-control", () => {
       ],
       ["bounded-contexts/channels/features/manual-sync/api/seed.ts", "CANONICAL"],
       ["bounded-contexts/channels/features/manual-sync/api/seed.ts", "CANONICAL"],
+      ["bounded-contexts/fulfillment/features/seller-checkout-readiness/api/test-support.ts", "CANONICAL"],
       ["bounded-contexts/identity/api.ts", "CANONICAL"],
       ["bounded-contexts/identity/features/account-capabilities/api/assignment-contract.test-support.ts", "CANONICAL"],
       ["bounded-contexts/identity/features/account-capabilities/api/assignment-contract.test-support.ts", "CANONICAL"],
       ["bounded-contexts/identity/features/account-management/api/fences.ts", "CANONICAL"],
       ["bounded-contexts/identity/features/account-management/api/fences.ts", "CANONICAL"],
       ["bounded-contexts/inventory/support/runtime-support/mutation-attempt.ts", "CANONICAL"],
+      ["bounded-contexts/marketplace/features/listings/api/listing-attempt.ts", "INSUFFICIENT_RECEIVER_CONTRACT"],
       ["bounded-contexts/marketplace/features/mutation-recovery/api/lookup.ts", "INSUFFICIENT_RECEIVER_CONTRACT"],
       ["bounded-contexts/platform-operations/features/support-requests/api/evidence-access-audit.ts", "CANONICAL"],
       [
@@ -116,7 +118,7 @@ describe("authoritative-stream-read-classification-acceptance-control", () => {
       ["infrastructure/bounded-context-runtime/subscriptions.ts", "CANONICAL"],
       ["infrastructure/bounded-context-runtime/subscriptions.ts", "CANONICAL"],
     ]);
-    expect(production.anchors.canonicalDeclarations).toEqual(["contracts/event-core/event-store.ts:79"]);
+    expect(production.anchors.canonicalDeclarations).toEqual(["contracts/event-core/event-store.ts:88"]);
     expect(production.anchors.helperDeclarations).toEqual(["contracts/event-core/complete-stream.ts:5"]);
     expect(production.program.getCompilerOptions()).toMatchObject({
       allowJs: true,
@@ -175,7 +177,6 @@ describe("authoritative-stream-read-classification-acceptance-control", () => {
         "scripts/check-structure/run.mjs",
         "scripts/lib/heavy-slot.mjs",
         "scripts/verify-static-surfaces.mjs",
-        "scripts/verify-static-scoped.mjs",
         "tsconfig.json",
         "tsconfig.base.json",
       ]),

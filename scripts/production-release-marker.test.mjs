@@ -1,6 +1,13 @@
+import { execFile, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { EventEmitter } from "node:events";
 import { readFileSync } from "node:fs";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { createServer } from "node:http";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
 import { describe, expect, it, vi } from "vitest";
 import {
   admitPriorProductionJob,
@@ -22,6 +29,9 @@ import {
   reconcileMarkerOnly,
   readOnlySpawn,
   markerIo,
+  output as writeMarkerOutput,
+  publisherPushEnv,
+  publisherTokenVariable,
 } from "./production-release-marker.mjs";
 import { verifyKubernetesDeploymentTransition } from "./platform-kubernetes-deployment.mjs";
 import { releaseLockRefusal, runReleaseLockCheck } from "./release-lock.mjs";
@@ -46,6 +56,15 @@ const identity = {
   release: "synthetic",
   namespace: "synthetic",
 };
+// A synthetic publisher credential: tests trace where it travels and never authenticate with it.
+const publisherToken = "ghs_SYNTHETIC0PUBLISHER0TOKEN0000000000";
+const publisherTokenEncoding = Buffer.from(`x-access-token:${publisherToken}`).toString("base64");
+const publisherHeader = `AUTHORIZATION: basic ${publisherTokenEncoding}`;
+function carriesPublisherAuthority(value) {
+  const text = typeof value === "string" ? value : JSON.stringify(value ?? null);
+  return text.includes(publisherToken) || text.includes(publisherTokenEncoding);
+}
+const execFileAsync = promisify(execFile);
 const names = [
   "Verify promoted platform runtime image",
   "Capture production rollback target",
@@ -1104,6 +1123,40 @@ describe("bounded GitHub authority reads", () => {
       });
     });
 
+    it.each(Object.keys(modes))(
+      "%s removes publisher authority before its first read and keeps it out of refusal and summary",
+      async (mode) => {
+        const root = await mkdtemp(join(tmpdir(), "marker-mode-summary-"));
+        try {
+          const summary = join(root, "summary.md");
+          await writeFile(summary, "");
+          const env = {
+            ...modeEnv,
+            ...modes[mode].env,
+            GITHUB_STEP_SUMMARY: summary,
+            [publisherTokenVariable]: publisherToken,
+          };
+          const read = authority(modes[mode].outcomes());
+          const fetch = vi.fn(async (url, init) => {
+            expect(env).not.toHaveProperty(publisherTokenVariable);
+            expect(carriesPublisherAuthority(init.headers)).toBe(false);
+            return read.fetch(url, init);
+          });
+          const refusal = await main(mode, env, { ...read.deps, fetch }).catch((error) => error);
+          expect(refusal.message).toBe(modes[mode].refusal);
+          expect(fetch).toHaveBeenCalled();
+          expect(env).not.toHaveProperty(publisherTokenVariable);
+          const written = await readFile(summary, "utf8");
+          if (mode === "marker-only") expect(written).toContain("- phase: refused");
+          expect(carriesPublisherAuthority([refusal.message, refusal.marker, written, read.log.mock.calls])).toBe(
+            false,
+          );
+        } finally {
+          await rm(root, { recursive: true, force: true });
+        }
+      },
+    );
+
     it.each(Object.keys(modes))("%s refuses an exhausted executor read before any effect", async (mode) => {
       const read = authority({ [executorPath]: Array(4).fill(failures["HTTP 503"]) });
       const refusal = await main(mode, { ...modeEnv, ...modes[mode].env }, read.deps).catch((error) => error);
@@ -1304,7 +1357,7 @@ describe("publication interruption through the real command adapter", () => {
       const state = { production: previousCommit, tag: null, registry: null, localTag: null, fetched: previousCommit };
       let interrupted = false;
       const object = "c".repeat(40);
-      const runCommand = vi.fn(async (program, args) => {
+      const runCommand = vi.fn(async (program, args, options) => {
         if (program === "docker") {
           if (args.includes("create")) {
             state.registry = manifest;
@@ -1352,6 +1405,7 @@ describe("publication interruption through the real command adapter", () => {
           expect(args).toContain(`--force-with-lease=refs/tags/${identity.tag}:${state.tag ?? ""}`);
           expect(args).not.toContain("--force");
           expect(args.some((arg) => arg.startsWith("+"))).toBe(false);
+          expect(options.env.GIT_CONFIG_VALUE_1).toBe(publisherHeader);
           if (fault !== "registry" && !interrupted) {
             interrupted = true;
             if (fault !== "no-effect") state.tag = object;
@@ -1369,7 +1423,13 @@ describe("publication interruption through the real command adapter", () => {
         image: "registry.digitalocean.com/synthetic/chase-sets-platform",
         createdAt: run.created_at,
       };
-      const io = markerIo(release, { DIGITALOCEAN_ACCESS_TOKEN: "synthetic-token" }, async () => {}, runCommand);
+      const io = markerIo(
+        release,
+        { DIGITALOCEAN_ACCESS_TOKEN: "synthetic-token" },
+        async () => {},
+        runCommand,
+        publisherToken,
+      );
       expect(await publishReleaseMarker(release, io)).toMatchObject({
         marker_updated: "true",
         production_marker_commit: commit,
@@ -1386,12 +1446,1147 @@ describe("publication interruption through the real command adapter", () => {
     const runCommand = vi.fn(async () => {
       throw Object.assign(new Error("synthetic non-ancestor"), { code: 1 });
     });
-    const io = markerIo(identity, {}, async () => {}, runCommand);
+    const io = markerIo(identity, {}, async () => {}, runCommand, publisherToken);
     await expect(io.publishGit({ production: previousCommit, tag: { object: "c".repeat(40) } })).rejects.toThrow(
       "non-ancestor",
     );
     expect(runCommand).toHaveBeenCalledOnce();
     expect(runCommand.mock.calls[0][1][0]).toBe("merge-base");
+  });
+});
+
+describe("publisher authority for the atomic push", () => {
+  const extraHeaderKey = "http.https://github.com/.extraheader";
+  const checkoutHeader = `AUTHORIZATION: basic ${Buffer.from("x-access-token:SYNTHETIC-CHECKOUT-TOKEN").toString("base64")}`;
+  const refusal = "production marker publisher authority unavailable";
+  const registryEnv = { DIGITALOCEAN_ACCESS_TOKEN: "synthetic-registry-token" };
+  const release = {
+    ...identity,
+    image: "registry.digitalocean.com/synthetic/chase-sets-platform",
+    createdAt: run.created_at,
+  };
+  const localTag = "c".repeat(40);
+  const retainedTag = { object: "e".repeat(40), commit, annotated: true };
+  const minimalEnv = () => ({
+    PATH: process.env.PATH,
+    ...(process.env.SystemRoot ? { SystemRoot: process.env.SystemRoot } : {}),
+  });
+
+  // Stateful remote refs, registry and local tag; every command is recorded with its options.
+  function remote(initial = {}, { refusePush = false, losePushResponse = false } = {}) {
+    const state = {
+      production: previousCommit,
+      tag: null,
+      registry: null,
+      localTag: null,
+      fetched: null,
+      ancestor: true,
+      ...initial,
+    };
+    let lost = false;
+    const runCommand = vi.fn(async (program, args) => {
+      if (program === "docker") {
+        if (args.includes("create")) {
+          state.registry = manifest;
+          return { stdout: "" };
+        }
+        if (!state.registry)
+          throw Object.assign(new Error("synthetic missing"), { code: 1, stderr: `ERROR: ${args[3]}: not found\n` });
+        return { stdout: args.includes("--raw") ? state.registry : `${digest}\n` };
+      }
+      if (program === "doctl") {
+        throw Object.assign(new Error("synthetic no active GC"), { stderr: `404 ${ACTIVE_GC_NOT_FOUND_PHRASE}` });
+      }
+      expect(program).toBe("git");
+      if (args[0] === "fetch") {
+        state.fetched = args.at(-1).startsWith("refs/tags/") ? state.tag?.object : state.production;
+        return { stdout: "" };
+      }
+      if (args[0] === "ls-remote") {
+        const tag = state.tag
+          ? `${state.tag.object}\trefs/tags/${release.tag}\n${state.tag.annotated ? `${state.tag.commit}\trefs/tags/${release.tag}^{}\n` : ""}`
+          : "";
+        return { stdout: `${state.production}\trefs/heads/production\n${tag}` };
+      }
+      if (args[0] === "merge-base") {
+        if (state.ancestor) return { stdout: "" };
+        throw Object.assign(new Error("synthetic non-ancestor"), { code: 1 });
+      }
+      if (args[0] === "cat-file") return { stdout: "tag\n" };
+      if (args[0] === "rev-parse") {
+        if (args.at(-1) === "FETCH_HEAD") return { stdout: state.fetched };
+        if (args.at(-1).endsWith("^{commit}")) return { stdout: commit };
+        if (!state.localTag) throw Object.assign(new Error("synthetic missing local tag"), { code: 128 });
+        return { stdout: state.localTag };
+      }
+      if (args[0] === "-c" && args.includes("tag")) {
+        state.localTag = localTag;
+        return { stdout: "" };
+      }
+      if (args[0] === "push") {
+        // A hostile refusal quotes the credential; only the authoritative read-back may decide.
+        if (refusePush)
+          throw Object.assign(new Error(`synthetic 403 for ${publisherToken}`), { code: 1, stderr: publisherHeader });
+        state.tag = { object: args.at(-2).split(":")[0], commit, annotated: true };
+        state.production = commit;
+        if (losePushResponse && !lost) {
+          lost = true;
+          throw new Error("synthetic lost Git response");
+        }
+        return { stdout: "" };
+      }
+      throw new Error(`unhandled synthetic command ${program} ${args.join(" ")}`);
+    });
+    return {
+      state,
+      runCommand,
+      pushes: () => runCommand.mock.calls.filter(([, args]) => args[0] === "push"),
+      creates: () => runCommand.mock.calls.filter(([program, args]) => program === "docker" && args.includes("create")),
+    };
+  }
+  function pushArgs([production, tag, source]) {
+    return [
+      "push",
+      "--atomic",
+      `--force-with-lease=refs/heads/production:${production}`,
+      `--force-with-lease=refs/tags/${release.tag}:${tag}`,
+      "origin",
+      `${source}:refs/tags/${release.tag}`,
+      `${commit}:refs/heads/production`,
+    ];
+  }
+  function expectPublisherPush([, args, options]) {
+    expect(carriesPublisherAuthority(args)).toBe(false);
+    expect(options.env).toMatchObject({
+      GIT_TERMINAL_PROMPT: "0",
+      GIT_CONFIG_COUNT: "2",
+      GIT_CONFIG_KEY_0: extraHeaderKey,
+      GIT_CONFIG_VALUE_0: "",
+      GIT_CONFIG_KEY_1: extraHeaderKey,
+      GIT_CONFIG_VALUE_1: publisherHeader,
+    });
+    expect(options.env).not.toHaveProperty("GIT_CONFIG_PARAMETERS");
+    expect(Object.values(options.env).filter((value) => carriesPublisherAuthority(value))).toEqual([publisherHeader]);
+  }
+  function expectOnlyPushCarriesAuthority(runCommand) {
+    for (const call of runCommand.mock.calls.filter(([, args]) => args[0] !== "push")) {
+      expect(carriesPublisherAuthority(call), call.slice(0, 2).flat().join(" ")).toBe(false);
+      expect(call[2]?.env?.GIT_CONFIG_COUNT).toBeUndefined();
+    }
+  }
+
+  const complete = { registry: manifest, production: commit, tag: retainedTag };
+  const pushed = [previousCommit, "", localTag];
+  it.each([
+    { state: "absent", initial: {}, outcome: "complete", creates: 1, pushes: [pushed] },
+    { state: "registry-only", initial: { registry: manifest }, outcome: "complete", creates: 0, pushes: [pushed] },
+    {
+      state: "partial Git: tag only",
+      initial: { registry: manifest, tag: retainedTag },
+      outcome: "complete",
+      creates: 0,
+      pushes: [[previousCommit, retainedTag.object, retainedTag.object]],
+    },
+    {
+      state: "partial Git: production only",
+      initial: { registry: manifest, production: commit },
+      outcome: "complete",
+      creates: 0,
+      pushes: [[commit, "", localTag]],
+    },
+    { state: "complete", initial: complete, outcome: "complete", creates: 0, pushes: [] },
+    {
+      state: "conflict: lightweight tag",
+      initial: { registry: manifest, tag: { object: commit, annotated: false } },
+      outcome: "conflicting release tag",
+      creates: 0,
+      pushes: [],
+    },
+    {
+      state: "conflict: tag on another commit",
+      initial: { tag: { ...retainedTag, commit: previousCommit } },
+      outcome: "conflicting release tag",
+      creates: 0,
+      pushes: [],
+    },
+    {
+      state: "moved",
+      initial: { production: "d".repeat(40) },
+      outcome: "production ref moved",
+      creates: 0,
+      pushes: [],
+    },
+    {
+      state: "non-ancestor",
+      initial: { ancestor: false },
+      outcome: "production-marker-non-fast-forward",
+      creates: 0,
+      pushes: [],
+    },
+    {
+      state: "lost response with valid read-back",
+      initial: {},
+      fault: { losePushResponse: true },
+      outcome: "complete",
+      creates: 1,
+      pushes: [pushed],
+    },
+    {
+      state: "unauthorized push",
+      initial: {},
+      fault: { refusePush: true },
+      outcome: "publication result remains unknown after three attempts",
+      creates: 1,
+      pushes: [pushed, pushed, pushed],
+    },
+  ])("publication state/effect counts: $state", async ({ initial, fault, outcome, creates, pushes }) => {
+    const double = remote({ ...initial }, fault);
+    const io = markerIo(release, registryEnv, async () => {}, double.runCommand, publisherToken);
+    const result = await publishReleaseMarker(release, io).catch((error) => error);
+    if (outcome === "complete") {
+      expect(result).toEqual({
+        marker_updated: "true",
+        marker_mismatch: "false",
+        production_marker_commit: commit,
+        marker_error: "",
+        marker_phase: "complete",
+        release_tag: release.tag,
+      });
+      expect(double.state).toMatchObject({ production: commit, tag: { commit, annotated: true }, registry: manifest });
+    } else {
+      expect(result.message).toBe(outcome);
+      expect(result.marker).toMatchObject({ marker_updated: "false", marker_mismatch: "true", marker_error: outcome });
+      expect(carriesPublisherAuthority([result.message, result.marker])).toBe(false);
+    }
+    expect(double.creates()).toHaveLength(creates);
+    expect(double.pushes().map(([, args]) => args)).toEqual(pushes.map(pushArgs));
+    for (const push of double.pushes()) expectPublisherPush(push);
+    expectOnlyPushCarriesAuthority(double.runCommand);
+  });
+
+  it("leaves a retained complete marker inert on every later run without publisher authority", async () => {
+    const double = remote({ ...complete });
+    const io = markerIo(release, registryEnv, async () => {}, double.runCommand, undefined);
+    for (let day = 0; day < 2; day += 1) {
+      expect(await publishReleaseMarker(release, io)).toMatchObject({
+        marker_updated: "true",
+        marker_phase: "complete",
+      });
+    }
+    expect(double.pushes()).toHaveLength(0);
+    expect(double.creates()).toHaveLength(0);
+    expect(double.state).toMatchObject({ ...complete, localTag: null });
+  });
+
+  it("push selects App rather than checkout credentials", async () => {
+    const double = remote();
+    // Pre-existing command-line config would otherwise append the checkout header after the reset.
+    const callerEnv = {
+      ...registryEnv,
+      GIT_CONFIG_PARAMETERS: `'${extraHeaderKey}'='${checkoutHeader}'`,
+      GIT_CONFIG_COUNT: "1",
+      GIT_CONFIG_KEY_0: extraHeaderKey,
+      GIT_CONFIG_VALUE_0: checkoutHeader,
+    };
+    const before = structuredClone(callerEnv);
+    await markerIo(release, callerEnv, async () => {}, double.runCommand, publisherToken).publishGit({
+      production: previousCommit,
+      tag: null,
+    });
+    const [push] = double.pushes();
+    expect(double.pushes()).toHaveLength(1);
+    expectPublisherPush(push);
+    expect(push[2].env.DIGITALOCEAN_ACCESS_TOKEN).toBe("synthetic-registry-token");
+    expect(JSON.stringify(push[2].env)).not.toContain(checkoutHeader);
+    expect(callerEnv).toEqual(before);
+    for (const call of double.runCommand.mock.calls.filter(([, args]) => args[0] !== "push"))
+      expect(carriesPublisherAuthority(call)).toBe(false);
+    expect(publisherPushEnv({ GITHUB_SERVER_URL: "https://github.com/" }, publisherToken).GIT_CONFIG_KEY_1).toBe(
+      extraHeaderKey,
+    );
+  });
+
+  it("git sends only the App header over checkout's persisted credential", async () => {
+    const authorizations = [];
+    const server = createServer((request, response) => {
+      for (let index = 0; index < request.rawHeaders.length; index += 2)
+        if (request.rawHeaders[index].toLowerCase() === "authorization")
+          authorizations.push(`${request.rawHeaders[index]}: ${request.rawHeaders[index + 1]}`);
+      response.writeHead(404).end();
+    });
+    await new Promise((listening) => server.listen(0, "127.0.0.1", listening));
+    const origin = `http://127.0.0.1:${server.address().port}`;
+    const root = await mkdtemp(join(tmpdir(), "marker-push-credential-"));
+    try {
+      const globalConfig = join(root, "global.config");
+      const checkoutCredentials = join(root, "checkout-credentials.config");
+      const repository = join(root, "repository");
+      await writeFile(globalConfig, "");
+      // Built from nothing: no inherited credential, helper, proxy or user config reaches these git children.
+      const base = { ...minimalEnv(), HOME: root, GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: globalConfig };
+      const git = (args, env = base) =>
+        execFileAsync("git", args, { cwd: root, env: { ...env, GIT_TERMINAL_PROMPT: "0" }, timeout: 30_000 });
+      await git(["init", "--quiet", "repository"]);
+      // actions/checkout persists its token under the URL-scoped key in an included file.
+      await writeFile(checkoutCredentials, `[http "${origin}/"]\n\textraheader = ${checkoutHeader}\n`);
+      await git(["-C", repository, "config", "remote.origin.url", `${origin}/synthetic.git`]);
+      await git(["-C", repository, "config", "include.path", checkoutCredentials]);
+      const sent = async (env) => {
+        authorizations.length = 0;
+        const result = await git(["-C", repository, "ls-remote", "origin"], env).catch((error) => error);
+        expect(result.code).toBe(128);
+        return [...authorizations];
+      };
+      expect(await sent(base)).toEqual([checkoutHeader]);
+      const pushEnv = publisherPushEnv({ ...base, GITHUB_SERVER_URL: origin }, publisherToken);
+      expect(await sent(pushEnv)).toEqual([publisherHeader]);
+      // Appending without the reset, or resetting the URL-less key that ranks below checkout's, sends both headers.
+      const key = `http.${origin}/.extraheader`;
+      expect(
+        await sent({ ...base, GIT_CONFIG_COUNT: "1", GIT_CONFIG_KEY_0: key, GIT_CONFIG_VALUE_0: publisherHeader }),
+      ).toEqual([checkoutHeader, publisherHeader]);
+      expect(await sent({ ...pushEnv, GIT_CONFIG_KEY_0: "http.extraheader" })).toEqual([
+        checkoutHeader,
+        publisherHeader,
+      ]);
+    } finally {
+      await new Promise((closed) => server.close(closed));
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it.each([undefined, "", "  ", "two words"])("missing publisher authority refuses before push (%j)", async (token) => {
+    const double = remote();
+    const io = markerIo(release, registryEnv, async () => {}, double.runCommand, token);
+    await expect(io.publishGit({ production: previousCommit, tag: null })).rejects.toMatchObject({
+      code: "production-marker-publisher-authority-missing",
+      message: refusal,
+    });
+    expect(double.runCommand).not.toHaveBeenCalled();
+
+    const publishGit = vi.spyOn(io, "publishGit");
+    const result = await publishReleaseMarker(release, io).catch((error) => error);
+    expect(result.message).toBe(refusal);
+    expect(result.marker).toMatchObject({
+      marker_updated: "false",
+      marker_mismatch: "true",
+      marker_phase: "publication",
+      marker_operation: "atomic-git-publication",
+      marker_error: refusal,
+    });
+    // A swallowed refusal would retry twice more and end as the generic unknown result.
+    expect(publishGit).toHaveBeenCalledOnce();
+    expect(double.pushes()).toHaveLength(0);
+    expect(double.creates()).toHaveLength(1);
+    expect(double.state).toMatchObject({ production: previousCommit, tag: null, localTag: null });
+  });
+
+  it("reconcile and marker-only recovery publish through the same App-only push", async () => {
+    const history = syntheticTransition().observedHistory;
+    const recoveryIo = (double, token) => ({
+      ...markerIo(release, registryEnv, async () => {}, double.runCommand, token),
+      readHistory: vi.fn(async () => structuredClone(history)),
+      readValues: vi.fn(async () => ({ global: { image: { tag: commit } } })),
+      readAuthority: vi.fn(async () => syntheticTransition()),
+      assertWriters: vi.fn(async () => {}),
+      capture: vi.fn(async () => ({ preDeployHistory: structuredClone(history) })),
+    });
+    const callers = {
+      reconcile: (io) => reconcileReleaseMarker({ ...release, attempt: 2 }, io),
+      "marker-only": (io) => reconcileMarkerOnly({ ...release, resultingHeadRevision: 21 }, io),
+    };
+    for (const [caller, reconcile] of Object.entries(callers)) {
+      const authorized = remote({ registry: manifest });
+      await reconcile(recoveryIo(authorized, publisherToken));
+      expect(authorized.state, caller).toMatchObject({ production: commit, tag: { commit, annotated: true } });
+      expect(
+        authorized.pushes().map(([, args]) => args),
+        caller,
+      ).toEqual([pushArgs(pushed)]);
+      expectPublisherPush(authorized.pushes()[0]);
+      expectOnlyPushCarriesAuthority(authorized.runCommand);
+
+      const withheld = remote({ registry: manifest });
+      await expect(reconcile(recoveryIo(withheld, undefined)), caller).rejects.toThrow(refusal);
+      expect(withheld.pushes(), caller).toHaveLength(0);
+      expect(withheld.state.production, caller).toBe(previousCommit);
+    }
+  });
+
+  it("main hands publisher authority to every publishing caller and to no other path", () => {
+    const source = readFileSync(new URL("./production-release-marker.mjs", import.meta.url), "utf8");
+    const body = source.slice(
+      source.indexOf("export async function main("),
+      source.indexOf("\nexport async function output("),
+    );
+    expect(body.split("\n")[1].trim()).toBe("const publisherToken = takePublisherToken(env);");
+    expect(body.match(/markerIo\([^)]*\)/g)).toEqual([
+      "markerIo(sourceIdentity, env, assertFresh, command, publisherToken)",
+      "markerIo(identity, env, assertFresh, command, publisherToken)",
+      "markerIo(identity, env, assertFresh, command, publisherToken)",
+    ]);
+    expect(body.match(/publisherToken/g)).toHaveLength(4);
+    const retain = body.slice(
+      body.indexOf('if (action === "retain-identity")'),
+      body.indexOf("await gitRefs(identity)"),
+    );
+    expect(retain).toContain("transition.markerIdentity = {");
+    expect(retain).not.toMatch(/markerIo|publisherToken|publishGit/);
+  });
+
+  it("keeps publisher authority out of the CLI's output, summary and stderr", async () => {
+    const root = await mkdtemp(join(tmpdir(), "marker-cli-output-"));
+    try {
+      const output = join(root, "output.txt");
+      const summary = join(root, "summary.md");
+      await writeFile(output, "");
+      await writeFile(summary, "");
+      // Without a GitHub credential the CLI refuses before any read or child process, then writes its fields.
+      const result = spawnSync(
+        process.execPath,
+        [fileURLToPath(new URL("./production-release-marker.mjs", import.meta.url)), "publish"],
+        {
+          encoding: "utf8",
+          env: {
+            ...minimalEnv(),
+            GITHUB_OUTPUT: output,
+            GITHUB_STEP_SUMMARY: summary,
+            RELEASE_COMMIT: commit,
+            [publisherTokenVariable]: publisherToken,
+          },
+          timeout: 60_000,
+        },
+      );
+      expect(result.status).toBe(1);
+      const written = [await readFile(output, "utf8"), await readFile(summary, "utf8"), result.stdout, result.stderr];
+      expect(written[0]).toContain("marker_error=missing GitHub authority credentials");
+      expect(carriesPublisherAuthority(written)).toBe(false);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("old transition artifacts stay admissible and a mint support step never widens retry admission", () => {
+    const historical = syntheticTransition();
+    expect(Object.keys(historical.markerIdentity).sort()).toEqual([
+      "attempt",
+      "commit",
+      "digest",
+      "jobId",
+      "productionCommit",
+      "runId",
+      "tag",
+    ]);
+    expect(validateTransitionAuthority(historical, syntheticArtifact(), syntheticJob(), identity)).toBe(historical);
+    const withMint = (conclusion) => {
+      const job = syntheticJob();
+      job.steps.push({
+        name: "Mint production marker push token",
+        number: job.steps.length + 1,
+        status: "completed",
+        conclusion,
+        started_at: timestamp(19),
+        completed_at: timestamp(19),
+      });
+      return job;
+    };
+    const source = { runId: run.id, attempt: 1, workflowHead: commit };
+    // continue-on-error reports a failed mint as success, so the marker step stays the only failure.
+    for (const conclusion of ["success", "skipped"])
+      expect(admitPriorProductionJob(withMint(conclusion), source)).toBeTruthy();
+    expect(() => admitPriorProductionJob(withMint("failure"), source)).toThrow(
+      "failure is not confined to marker publication",
+    );
+  });
+});
+
+describe("failure-only marker_attempts diagnostics", () => {
+  const release = {
+    ...identity,
+    image: "registry.digitalocean.com/synthetic/chase-sets-platform",
+    createdAt: run.created_at,
+  };
+  const registryEnv = { DIGITALOCEAN_ACCESS_TOKEN: "synthetic-registry-token" };
+  const ref = `${release.image}:${release.tag}`;
+  const localTag = "c".repeat(40);
+  const retainedTag = { object: "e".repeat(40), commit, annotated: true };
+  const exhausted = "publication result remains unknown after three attempts";
+  const refusal = "production marker publisher authority unavailable";
+  const success = {
+    marker_updated: "true",
+    marker_mismatch: "false",
+    production_marker_commit: commit,
+    marker_error: "",
+    marker_phase: "complete",
+    release_tag: release.tag,
+  };
+  const sha256 = (bytes) => createHash("sha256").update(bytes).digest("hex");
+  // Child failures in the shapes execFile reports; every message is synthetic.
+  const exit = (code, stderr = "") => Object.assign(new Error("synthetic command failure"), { code, stderr });
+  const timedOut = () =>
+    Object.assign(new Error("synthetic timeout"), { code: null, killed: true, signal: "SIGTERM", stderr: "" });
+  const lostResponse = () => new Error("synthetic lost response");
+  const absent = () => exit(1, `ERROR: ${ref}: not found\n`);
+  // GitHub's recorded server detail for the 2026-11-02 refusal (rule suite 4860169851). The push stderr that carried
+  // it was not captured, so fixtures hold the detail alone and never claim any surrounding framing as observed.
+  const workflowDetail =
+    "refusing to allow a GitHub App to create or update workflow `.github/workflows/platform-pr.yml` without `workflows` permission";
+  // git and GitHub refusal formats with synthetic refs and URLs.
+  const pushStderr = {
+    "workflow-update-permission": `${workflowDetail}\n`,
+    "ruleset-refusal": "remote: error: GH013: Repository rule violations found for refs/heads/production.\n",
+    "authentication-refusal": "fatal: Authentication failed for 'https://github.com/synthetic/synthetic/'\n",
+    "lease-conflict": " ! [rejected]        production -> production (stale info)\n",
+    "transport-timeout":
+      "fatal: unable to access 'https://github.com/synthetic/synthetic/': Operation timed out after 300000 milliseconds with 0 bytes received\n",
+  };
+  const noGit = "not-run/none/not-run/not-run";
+  const records = (...entries) =>
+    entries.map(([registry, git], index) => `${index + 1}:registry=${registry},git=${git}`);
+  const thrice = (registry, git) => records([registry, git], [registry, git], [registry, git]).join(";");
+  const outcome = "(?:not-run|returned|exit-nonzero|timeout|signal|spawn-error|unknown)";
+  const attemptGrammar = new RegExp(
+    `^[1-3]:registry=(?:present|written-present|written-absent|unknown)/${outcome},` +
+      `git=(?:not-run|local-tag-read|local-tag-create|local-tag-verify|ancestry|atomic-push|authoritative-readback)/` +
+      `(?:none|workflow-update-permission|ruleset-refusal|authentication-refusal|lease-conflict|transport-timeout|unknown)/` +
+      `${outcome}/(?:not-run|not-converged|complete|unknown)$`,
+  );
+  function expectGrammar(attempts) {
+    if (attempts === "") return;
+    const entries = attempts.split(";");
+    expect(entries.length).toBeLessThanOrEqual(3);
+    entries.forEach((entry, index) => {
+      expect(entry).toMatch(attemptGrammar);
+      expect(entry.startsWith(`${index + 1}:`)).toBe(true);
+    });
+  }
+
+  // Stateful remote refs, registry and local tag behind the real command adapter. A fault may change state; it
+  // returns an error to throw, "no-effect" to return without an effect, or nothing to run the ordinary effect.
+  function remote(initial = {}, faults = {}) {
+    const state = {
+      production: previousCommit,
+      tag: null,
+      registry: null,
+      localTag: null,
+      localTagType: "tag",
+      fetched: null,
+      ancestor: true,
+      ...initial,
+    };
+    const calls = [];
+    const operationOf = (program, args) => {
+      if (program === "docker")
+        return args.includes("create") ? "registry-create" : args.includes("--raw") ? "registry-raw" : "registry-read";
+      if (program === "doctl") return "gc-read";
+      expect(program).toBe("git");
+      if (args[0] === "rev-parse") {
+        if (args.at(-1) === "FETCH_HEAD") return "fetch-head";
+        if (args[1] === "--verify") return "local-tag-read";
+        return args.at(-1).endsWith("^{commit}") ? "local-tag-commit" : "local-tag-object";
+      }
+      if (args[0] === "cat-file") return "local-tag-type";
+      if (args[0] === "-c" && args.includes("tag")) return "local-tag-create";
+      return { fetch: "fetch", "ls-remote": "ls-remote", "merge-base": "ancestry", push: "push" }[args[0]];
+    };
+    const runCommand = vi.fn(async (program, args) => {
+      const operation = operationOf(program, args);
+      calls.push(operation);
+      const fault = faults[operation]?.(calls.filter((call) => call === operation).length, state);
+      if (fault === "no-effect") return { stdout: "" };
+      if (fault) throw fault;
+      switch (operation) {
+        case "registry-read":
+          if (!state.registry) throw absent();
+          return { stdout: `sha256:${sha256(state.registry)}\n` };
+        case "registry-raw":
+          return { stdout: state.registry };
+        case "registry-create":
+          state.registry = manifest;
+          return { stdout: "" };
+        case "gc-read":
+          throw Object.assign(new Error("synthetic no active GC"), { stderr: `404 ${ACTIVE_GC_NOT_FOUND_PHRASE}` });
+        case "fetch":
+          state.fetched = args.at(-1).startsWith("refs/tags/") ? state.tag?.object : state.production;
+          return { stdout: "" };
+        case "ls-remote": {
+          const tag = state.tag
+            ? `${state.tag.object}\trefs/tags/${release.tag}\n${state.tag.annotated ? `${state.tag.commit}\trefs/tags/${release.tag}^{}\n` : ""}`
+            : "";
+          return { stdout: `${state.production}\trefs/heads/production\n${tag}` };
+        }
+        case "fetch-head":
+          return { stdout: state.fetched };
+        case "local-tag-read":
+          if (!state.localTag) throw exit(128);
+          return { stdout: state.localTag };
+        case "local-tag-type":
+          return { stdout: `${state.localTagType}\n` };
+        case "local-tag-commit":
+          return { stdout: commit };
+        case "local-tag-create":
+          state.localTag = localTag;
+          return { stdout: "" };
+        case "local-tag-object":
+          return { stdout: state.localTag };
+        case "ancestry":
+          return { stdout: "" };
+        case "push":
+          state.tag = { object: args.at(-2).split(":")[0], commit, annotated: true };
+          state.production = commit;
+          return { stdout: "" };
+      }
+      throw new Error(`unhandled synthetic command ${program} ${args.join(" ")}`);
+    });
+    return { state, runCommand, count: (operation) => calls.filter((call) => call === operation).length };
+  }
+  const applyPush = (state) => {
+    state.tag = { object: localTag, commit, annotated: true };
+    state.production = commit;
+  };
+  // Admission ancestry stays in memory, so the double's only merge-base child is publication's own ancestry check.
+  const adapter = (double, { withholdToken = false, assertFresh = async () => {} } = {}) => ({
+    ...markerIo(release, registryEnv, assertFresh, double.runCommand, withholdToken ? undefined : publisherToken),
+    isAncestor: async () => double.state.ancestor,
+  });
+  const effects = ({ production, tag, registry, localTag }) => ({ production, tag, registry, localTag });
+  const publish = (double, options) => publishReleaseMarker(release, adapter(double, options)).catch((error) => error);
+
+  it("marker_attempts records every exhausted iteration", async () => {
+    const cases = [
+      {
+        name: "three pure registry failures",
+        initial: {},
+        // The create never becomes visible; each response fails in a different shape.
+        faults: { "registry-create": (n) => [exit(1), timedOut(), lostResponse()][n - 1] },
+        operation: "registry-publication",
+        attempts: records(
+          ["written-absent/exit-nonzero", noGit],
+          ["written-absent/timeout", noGit],
+          ["written-absent/unknown", noGit],
+        ),
+        pushes: 0,
+      },
+      {
+        name: "three pure Git failures",
+        initial: { registry: manifest },
+        faults: { push: (n) => [exit(1, pushStderr["workflow-update-permission"]), timedOut(), lostResponse()][n - 1] },
+        operation: "atomic-git-publication",
+        attempts: records(
+          ["present/not-run", "atomic-push/workflow-update-permission/exit-nonzero/not-converged"],
+          ["present/not-run", "atomic-push/unknown/timeout/not-converged"],
+          ["present/not-run", "atomic-push/unknown/unknown/not-converged"],
+        ),
+        pushes: 3,
+      },
+      {
+        name: "registry absent, then Git nonconvergence",
+        initial: {},
+        faults: {
+          // The first create is not yet visible to its own read-back; the next iteration sees it.
+          "registry-read": (n) => (n === 3 ? absent() : undefined),
+          push: (n) => (n === 1 ? "no-effect" : exit(1, pushStderr["ruleset-refusal"])),
+        },
+        operation: "atomic-git-publication",
+        attempts: records(
+          ["written-absent/returned", noGit],
+          ["present/not-run", "atomic-push/none/returned/not-converged"],
+          ["present/not-run", "atomic-push/ruleset-refusal/exit-nonzero/not-converged"],
+        ),
+        pushes: 2,
+      },
+    ];
+    for (const { name, initial, faults, operation, attempts, pushes } of cases) {
+      const double = remote(initial, faults);
+      const result = await publish(double);
+      expect(result.message, name).toBe(exhausted);
+      expect(result.marker, name).toMatchObject({ marker_operation: operation, marker_error: exhausted });
+      // Exactly one record per iteration: a dropped earlier record or per-operation records change the string.
+      expect(result.marker.marker_attempts, name).toBe(attempts.join(";"));
+      expectGrammar(result.marker.marker_attempts);
+      expect(double.count("push"), name).toBe(pushes);
+      expect(double.state.production, name).toBe(previousCommit);
+    }
+  });
+
+  it.each([
+    {
+      name: "local tag read failure",
+      faults: { "local-tag-read": () => exit(129) },
+      attempts: thrice("present/not-run", "local-tag-read/unknown/exit-nonzero/not-converged"),
+      message: exhausted,
+    },
+    {
+      name: "local tag read spawn failure",
+      faults: { "local-tag-read": () => Object.assign(lostResponse(), { code: "ENOENT", syscall: "spawn git" }) },
+      attempts: thrice("present/not-run", "local-tag-read/unknown/spawn-error/not-converged"),
+      message: exhausted,
+    },
+    {
+      name: "conflicting local tag",
+      initial: { localTag, localTagType: "commit" },
+      attempts: thrice("present/not-run", "local-tag-verify/unknown/returned/not-converged"),
+      message: exhausted,
+    },
+    {
+      name: "local tag create failure",
+      faults: { "local-tag-create": () => exit(128, pushStderr["ruleset-refusal"]) },
+      attempts: thrice("present/not-run", "local-tag-create/unknown/exit-nonzero/not-converged"),
+      message: exhausted,
+    },
+    {
+      name: "local tag object read killed by signal",
+      faults: { "local-tag-object": () => Object.assign(lostResponse(), { code: null, signal: "SIGKILL" }) },
+      attempts: thrice("present/not-run", "local-tag-read/unknown/signal/not-converged"),
+      message: exhausted,
+    },
+    {
+      name: "publication ancestry failure",
+      faults: { ancestry: () => exit(1, pushStderr["lease-conflict"]) },
+      attempts: thrice("present/not-run", "ancestry/unknown/exit-nonzero/not-converged"),
+      message: exhausted,
+    },
+    ...Object.entries(pushStderr).map(([cause, stderr]) => ({
+      name: `push refusal: ${cause}`,
+      faults: { push: () => exit(1, stderr) },
+      attempts: thrice("present/not-run", `atomic-push/${cause}/exit-nonzero/not-converged`),
+      message: exhausted,
+    })),
+    {
+      name: "push refusal as buffered stderr",
+      faults: { push: () => exit(1, Buffer.from(pushStderr["workflow-update-permission"])) },
+      attempts: thrice("present/not-run", "atomic-push/workflow-update-permission/exit-nonzero/not-converged"),
+      message: exhausted,
+    },
+    {
+      name: "workflow detail inside adversarial surrounding text",
+      faults: {
+        push: () => exit(1, `remote: Bearer ghs_SYNTHETIC0HOSTILE prefix ${workflowDetail} suffix https://x.invalid\n`),
+      },
+      attempts: thrice("present/not-run", "atomic-push/workflow-update-permission/exit-nonzero/not-converged"),
+      message: exhausted,
+    },
+    {
+      name: "anchored signature behind adversarial prefix",
+      faults: { push: () => exit(1, `hostile ${pushStderr["ruleset-refusal"]}`) },
+      attempts: thrice("present/not-run", "atomic-push/unknown/exit-nonzero/not-converged"),
+      message: exhausted,
+    },
+    {
+      name: "unmatched refusal",
+      faults: { push: () => exit(1, "error: failed to push some refs to 'https://github.com/synthetic/synthetic'\n") },
+      attempts: thrice("present/not-run", "atomic-push/unknown/exit-nonzero/not-converged"),
+      message: exhausted,
+    },
+    {
+      name: "merely secret-bearing refusal",
+      faults: { push: () => exit(1, `remote: Authorization: Bearer ${publisherToken}\n`) },
+      attempts: thrice("present/not-run", "atomic-push/unknown/exit-nonzero/not-converged"),
+      message: exhausted,
+    },
+    {
+      name: "ambiguous workflow and ruleset signatures",
+      faults: { push: () => exit(1, `${pushStderr["ruleset-refusal"]}${pushStderr["workflow-update-permission"]}`) },
+      attempts: thrice("present/not-run", "atomic-push/unknown/exit-nonzero/not-converged"),
+      message: exhausted,
+    },
+    {
+      name: "ambiguous lease and authentication signatures",
+      faults: { push: () => exit(1, `${pushStderr["lease-conflict"]}${pushStderr["authentication-refusal"]}`) },
+      attempts: thrice("present/not-run", "atomic-push/unknown/exit-nonzero/not-converged"),
+      message: exhausted,
+    },
+    {
+      name: "signatures only in message and stdout",
+      faults: {
+        push: () => Object.assign(exit(1), { message: workflowDetail, stdout: pushStderr["ruleset-refusal"] }),
+      },
+      attempts: thrice("present/not-run", "atomic-push/unknown/exit-nonzero/not-converged"),
+      message: exhausted,
+    },
+    {
+      name: "unrecognized exit and error codes",
+      faults: { push: (n) => (n === 1 ? exit(300) : Object.assign(lostResponse(), { code: "ESYNTHETIC" })) },
+      attempts: thrice("present/not-run", "atomic-push/unknown/unknown/not-converged"),
+      message: exhausted,
+    },
+    {
+      name: "read-back failure after a returned push",
+      faults: { push: () => "no-effect", fetch: (n) => (n === 4 ? exit(128) : undefined) },
+      attempts: records(["present/not-run", "authoritative-readback/unknown/exit-nonzero/unknown"]).join(";"),
+      operation: "read-after-publication",
+      message: "synthetic command failure",
+    },
+    {
+      name: "read-back timeout after a classified push refusal",
+      faults: {
+        push: () => exit(1, pushStderr["workflow-update-permission"]),
+        fetch: (n) => (n === 4 ? timedOut() : undefined),
+      },
+      attempts: records(["present/not-run", "authoritative-readback/unknown/timeout/unknown"]).join(";"),
+      operation: "read-after-publication",
+      message: "synthetic timeout",
+    },
+    {
+      name: "read-back refusal of a moved production ref",
+      faults: {
+        push: (_n, state) => {
+          state.production = "d".repeat(40);
+          return "no-effect";
+        },
+      },
+      attempts: records(["present/not-run", "authoritative-readback/unknown/unknown/unknown"]).join(";"),
+      operation: "read-after-publication",
+      message: "production ref moved",
+    },
+    {
+      name: "final registry identity refusal after converged refs",
+      faults: {
+        push: (_n, state) => {
+          state.registry = Buffer.from("{}");
+        },
+      },
+      attempts: records(["unknown/not-run", "atomic-push/none/returned/complete"]).join(";"),
+      operation: "registry-identity",
+      message: "Captured OCI index manifest schemaVersion must be 2.",
+      converged: true,
+    },
+    {
+      name: "fixed pre-push publisher authority refusal",
+      withholdToken: true,
+      attempts: records(["present/not-run", "atomic-push/authentication-refusal/not-run/not-run"]).join(";"),
+      message: refusal,
+    },
+  ])(
+    "marker_attempts preserves suboperation and conservative push cause: $name",
+    async ({ initial = {}, faults = {}, attempts, operation = "atomic-git-publication", message, ...rest }) => {
+      const double = remote({ registry: manifest, ...initial }, faults);
+      const result = await publish(double, { withholdToken: rest.withholdToken });
+      // No cause grants success: every row refuses, and only an authoritative read-back ever moved the refs.
+      expect(result).toBeInstanceOf(Error);
+      expect(result.message).toBe(message);
+      expect(result.marker).toMatchObject({ marker_updated: "false", marker_operation: operation });
+      expect(result.marker.marker_attempts).toBe(attempts);
+      expectGrammar(result.marker.marker_attempts);
+      if (!rest.converged) expect(double.state.tag).toBeNull();
+      expect(double.count("registry-create")).toBe(0);
+    },
+  );
+
+  it.each([
+    { state: "absent", initial: {}, creates: 1, pushes: 1, localTags: 1 },
+    { state: "registry-only", initial: { registry: manifest }, creates: 0, pushes: 1, localTags: 1 },
+    {
+      state: "pre-existing correct index",
+      initial: {
+        registry: Buffer.from(
+          JSON.stringify({
+            schemaVersion: 2,
+            mediaType: "application/vnd.oci.image.index.v1+json",
+            manifests: [
+              {
+                mediaType: "application/vnd.oci.image.manifest.v1+json",
+                digest,
+                platform: { os: "linux", architecture: "amd64" },
+              },
+            ],
+          }),
+        ),
+      },
+      creates: 0,
+      pushes: 1,
+      localTags: 1,
+    },
+    {
+      state: "partial Git: tag only",
+      initial: { registry: manifest, tag: retainedTag },
+      creates: 0,
+      pushes: 1,
+      localTags: 0,
+    },
+    {
+      state: "partial Git: production only",
+      initial: { registry: manifest, production: commit },
+      creates: 0,
+      pushes: 1,
+      localTags: 1,
+    },
+    {
+      state: "complete retained steady state, two later runs",
+      initial: { registry: manifest, production: commit, tag: retainedTag },
+      runs: 2,
+      creates: 0,
+      pushes: 0,
+      localTags: 0,
+    },
+    {
+      state: "lost registry response with successful read-back",
+      initial: {},
+      faults: {
+        "registry-create": (_n, state) => {
+          state.registry = manifest;
+          return lostResponse();
+        },
+      },
+      creates: 1,
+      pushes: 1,
+      localTags: 1,
+    },
+    {
+      state: "lost push response with successful read-back",
+      initial: { registry: manifest },
+      faults: {
+        push: (_n, state) => {
+          applyPush(state);
+          return lostResponse();
+        },
+      },
+      creates: 0,
+      pushes: 1,
+      localTags: 1,
+    },
+    {
+      state: "classified push refusal whose refs converged",
+      initial: { registry: manifest },
+      faults: {
+        push: (_n, state) => {
+          applyPush(state);
+          return exit(1, pushStderr["workflow-update-permission"]);
+        },
+      },
+      creates: 0,
+      pushes: 1,
+      localTags: 1,
+    },
+    {
+      state: "convergence on iteration 2",
+      initial: {},
+      faults: { push: (n) => (n === 1 ? exit(1, pushStderr["lease-conflict"]) : undefined) },
+      creates: 1,
+      pushes: 2,
+      localTags: 1,
+    },
+    {
+      state: "convergence on iteration 3",
+      initial: { registry: manifest },
+      faults: { push: (n) => (n < 3 ? timedOut() : undefined) },
+      creates: 0,
+      pushes: 3,
+      localTags: 1,
+    },
+    {
+      state: "convergence after a registry write not yet visible",
+      initial: {},
+      faults: { "registry-read": (n) => (n === 3 ? absent() : undefined) },
+      creates: 1,
+      pushes: 1,
+      localTags: 1,
+    },
+    {
+      state: "wrong digest",
+      initial: { registry: Buffer.from(JSON.stringify({ schemaVersion: 2, mediaType: "synthetic" })) },
+      refusal: "is not an image index",
+    },
+    {
+      state: "wrong platform",
+      initial: {
+        registry: Buffer.from(
+          JSON.stringify({
+            schemaVersion: 2,
+            mediaType: "application/vnd.oci.image.index.v1+json",
+            manifests: [
+              {
+                mediaType: "application/vnd.oci.image.manifest.v1+json",
+                digest,
+                platform: { os: "linux", architecture: "arm64" },
+              },
+            ],
+          }),
+        ),
+      },
+      refusal: "exactly one linux/amd64 manifest; observed 0",
+    },
+    {
+      state: "duplicate platform member",
+      initial: {
+        registry: Buffer.from(
+          JSON.stringify({
+            schemaVersion: 2,
+            mediaType: "application/vnd.oci.image.index.v1+json",
+            manifests: [digest, `sha256:${"f".repeat(64)}`].map((member) => ({
+              mediaType: "application/vnd.oci.image.manifest.v1+json",
+              digest: member,
+              platform: { os: "linux", architecture: "amd64" },
+            })),
+          }),
+        ),
+      },
+      refusal: "exactly one linux/amd64 manifest; observed 2",
+    },
+    {
+      state: "conflict: lightweight tag",
+      initial: { registry: manifest, tag: { object: commit, annotated: false } },
+      refusal: "conflicting release tag",
+    },
+    {
+      state: "conflict: tag on another commit",
+      initial: { tag: { ...retainedTag, commit: previousCommit } },
+      refusal: "conflicting release tag",
+    },
+    { state: "moved", initial: { production: "d".repeat(40) }, refusal: "production ref moved" },
+    { state: "failed ancestry", initial: { ancestor: false }, refusal: "production-marker-non-fast-forward" },
+    {
+      state: "writer conflict",
+      initial: {},
+      assertFresh: async () => {
+        throw new Error("synthetic writer conflict");
+      },
+      refusal: "synthetic writer conflict",
+    },
+    {
+      state: "unknown ref read",
+      initial: {},
+      faults: { fetch: () => exit(128) },
+      refusal: "synthetic command failure",
+    },
+    {
+      state: "unknown registry read",
+      initial: {},
+      faults: { "registry-read": () => exit(1, "ERROR: failed to authorize: 401 Unauthorized\n") },
+      refusal: "registry identity unavailable",
+    },
+  ])(
+    "publication results and effect counts are unchanged by diagnostics: $state",
+    async ({ initial, faults, runs = 1, creates = 0, pushes = 0, localTags = 0, refusal: refused, assertFresh }) => {
+      const double = remote(initial, faults);
+      // The double replaces these fields and never mutates them, so a shallow snapshot is exact.
+      const before = effects(double.state);
+      for (let day = 0; day < runs; day += 1) {
+        const result = await publish(double, { assertFresh });
+        if (refused) {
+          expect(result).toBeInstanceOf(Error);
+          expect(result.message).toContain(refused);
+          expectGrammar(result.marker.marker_attempts);
+          expect(effects(double.state)).toEqual(before);
+        } else {
+          // Today's exact success object: no marker_attempts or other diagnostic on any success.
+          expect(result).toEqual(success);
+          expect(double.state).toMatchObject({ production: commit, tag: { commit, annotated: true } });
+        }
+      }
+      expect(double.count("registry-create")).toBe(creates);
+      expect(double.count("push")).toBe(pushes);
+      expect(double.count("local-tag-create")).toBe(localTags);
+    },
+  );
+
+  it("marker_attempts carries no error text", async () => {
+    // Synthetic secrets in every error field a child can carry, with bearer, URL, command and signature context.
+    const sentinel = "Zq7Xv3Kp9Wm2Jt5R";
+    const hostile = `Authorization: Bearer ghs_${sentinel} https://x-access-token:${sentinel}@github.com/synthetic.git git push --force-with-lease origin ${sentinel}`;
+    const hostileError = (code, signature = "") =>
+      Object.assign(new Error(`Command failed: ${hostile}`), {
+        code,
+        stdout: hostile,
+        stderr: `${hostile}\n${hostile} ${signature}\n`,
+        body: hostile,
+      });
+    const scenarios = [
+      {
+        name: "exhausted mixed history",
+        faults: {
+          "registry-create": (_n, state) => {
+            state.registry = manifest;
+            return hostileError(1, workflowDetail);
+          },
+          "registry-read": (n) => (n === 3 ? absent() : undefined),
+          "local-tag-create": (n) => (n === 1 ? hostileError(128, workflowDetail) : undefined),
+          push: () => hostileError(1, workflowDetail),
+        },
+        attempts: records(
+          ["written-absent/exit-nonzero", noGit],
+          ["present/not-run", "local-tag-create/unknown/exit-nonzero/not-converged"],
+          ["present/not-run", "atomic-push/workflow-update-permission/exit-nonzero/not-converged"],
+        ).join(";"),
+      },
+      {
+        name: "exhausted ambiguous refusals",
+        initial: { registry: manifest },
+        faults: { push: () => hostileError(1, `${workflowDetail}\n${pushStderr["ruleset-refusal"]}`) },
+        attempts: thrice("present/not-run", "atomic-push/unknown/exit-nonzero/not-converged"),
+      },
+      {
+        name: "read-back failure",
+        initial: { registry: manifest },
+        faults: {
+          push: () => hostileError(1, workflowDetail),
+          fetch: (n) =>
+            n === 4 ? Object.assign(hostileError(128), { message: "synthetic command failure" }) : undefined,
+        },
+        attempts: records(["present/not-run", "authoritative-readback/unknown/exit-nonzero/unknown"]).join(";"),
+      },
+    ];
+    const root = await mkdtemp(join(tmpdir(), "marker-attempts-output-"));
+    try {
+      for (const { name, initial = {}, faults, attempts } of scenarios) {
+        const result = await publish(remote(initial, faults));
+        expect(result.marker.marker_attempts, name).toBe(attempts);
+        const outputPath = join(root, "output.txt");
+        const summaryPath = join(root, "summary.md");
+        await writeFile(outputPath, "");
+        await writeFile(summaryPath, "");
+        await writeMarkerOutput(result.marker, { GITHUB_OUTPUT: outputPath, GITHUB_STEP_SUMMARY: summaryPath });
+        const serialized = [await readFile(outputPath, "utf8"), await readFile(summaryPath, "utf8")];
+        expect(serialized[0].split("\n"), name).toContain(`marker_attempts=${attempts}`);
+        const surfaces = [result.message, ...Object.values(result.marker), ...serialized];
+        for (const surface of surfaces) {
+          for (const forbidden of [
+            "Bearer",
+            "ghs_",
+            "x-access-token",
+            "https://",
+            "--force-with-lease",
+            sha256(sentinel),
+          ])
+            expect(surface, name).not.toContain(forbidden);
+          for (let start = 0; start + 4 <= sentinel.length; start += 1)
+            expect(surface, name).not.toContain(sentinel.slice(start, start + 4));
+        }
+      }
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it.each([
+    { caller: "publish", publishThrough: (io) => publishReleaseMarker(release, io) },
+    { caller: "reconcile", publishThrough: (io) => reconcileReleaseMarker({ ...release, attempt: 2 }, io) },
+    {
+      caller: "marker-only",
+      publishThrough: (io) => reconcileMarkerOnly({ ...release, resultingHeadRevision: 21 }, io),
+    },
+  ])("every publisher caller surfaces marker_attempts on exhaustion: $caller", async ({ caller, publishThrough }) => {
+    const history = syntheticTransition().observedHistory;
+    const double = remote({ registry: manifest }, { push: () => exit(1, pushStderr["workflow-update-permission"]) });
+    const io = {
+      ...adapter(double),
+      readHistory: vi.fn(async () => structuredClone(history)),
+      readValues: vi.fn(async () => ({ global: { image: { tag: commit } } })),
+      readAuthority: vi.fn(async () => syntheticTransition()),
+      assertWriters: vi.fn(async () => {}),
+      capture: vi.fn(async () => ({ preDeployHistory: structuredClone(history) })),
+    };
+    const result = await publishThrough(io).catch((error) => error);
+    expect(result.message).toBe(exhausted);
+    expect(result.marker).toMatchObject({
+      marker_updated: "false",
+      marker_phase: "publication",
+      marker_operation: "atomic-git-publication",
+      marker_attempts: thrice("present/not-run", "atomic-push/workflow-update-permission/exit-nonzero/not-converged"),
+    });
+    expect(double.count("push")).toBe(3);
+    // The recovery callers reach the shared publisher only through their own freshness and capture checks.
+    if (caller !== "publish") expect(io.capture).toHaveBeenCalled();
   });
 });
 

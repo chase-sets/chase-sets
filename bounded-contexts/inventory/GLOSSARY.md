@@ -127,6 +127,13 @@ Notes:
 - At most one `released`, `consumed`, or `expired` terminal may appear, and nothing may follow it.
 - Reading Hold Cleanup Authority never releases, consumes, or otherwise mutates the Hold.
 
+## Sale-Consumed
+
+**Sale-consumed** is the producer-only Inventory adjustment reason for the
+single stock reduction paired with an order Hold's terminal consumption. The
+consumed Hold ledger row is an audit detail with a null quantity delta; the
+paired Inventory Item adjustment is the only quantity-bearing movement.
+
 ## Hold Source Lookup
 
 A **Hold Source Lookup** is the reverse, exact-tenant query from an Ordering order id to the Hold streams whose Hold Source Reference carries it.

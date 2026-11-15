@@ -20,7 +20,7 @@ import {
   type WorkerHostRuntimeProfile,
 } from "@chase-sets/platform-runtime/worker";
 import { describe, expect, it } from "vitest";
-import { workerContextRegistry } from "../src/generated/worker-context-registry";
+import { workerContextRegistry } from "../src/context-registry";
 import {
   assertWorkerAssembly,
   assertWorkerMembership,

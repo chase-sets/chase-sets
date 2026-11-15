@@ -2,10 +2,14 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { Hono } from "hono";
-import { describe, expect, it } from "vitest";
+import { Hono, type Context } from "hono";
+import { describe, expect, it, vi } from "vitest";
 
-import { CHASE_SETS_READ_AFTER_WRITE_HEADER, encodeFreshWriteReceipt } from "@chase-sets/http/responses";
+import {
+  CHASE_SETS_READ_AFTER_WRITE_HEADER,
+  CHASE_SETS_READ_TARGET_CONTEXT_HEADER,
+  encodeFreshWriteReceipt,
+} from "@chase-sets/http/responses";
 import {
   attachReadConsistencyMiddleware,
   resolveReadConsistencyDependency,
@@ -14,7 +18,7 @@ import {
 } from "@chase-sets/bounded-context-runtime";
 import type { BcReadFreshnessRoute } from "@chase-sets/bounded-context-module";
 import { projectionFreshnessWakeEnqueueMetricRecord } from "@chase-sets/observability";
-import { apiContextRegistry } from "../src/generated/api-context-registry";
+import { apiContextRegistry } from "../src/context-registry";
 import { CRITICAL_READ_CONSISTENCY_ROUTE_TUNING } from "../src/config";
 import { createRouteInventoryRuntime } from "./route-inventory-test-support";
 
@@ -511,54 +515,149 @@ describe("critical exact read-after-write waits", () => {
     ]);
   });
 
-  it("backs accepted-offer sales list freshness with the offer process and sale list read models", () => {
-    const salesLiveRoutes = findLiveFreshnessRoutes("ordering", "/account/sales");
-    expect(salesLiveRoutes).toEqual([
-      {
-        mountPath: "/api/marketplace",
-        route: {
-          routePath: "/account/sales",
-          methods: ["GET", "HEAD"],
-          dependencies: [
-            { projectionName: "ordering-marketplace-offer-acceptance" },
-            { readModelTable: "ordering_order_pages" },
-            { readModelTable: "ordering_order_line_pages" },
-          ],
+  it.each(["ordering-marketplace-supply-input-projection", "ordering-inventory-supply-input-projection"])(
+    "refuses setup-input readiness on Purchases until %s has applied the receipt",
+    async (laggingProjectionName) => {
+      let inputsReady = false;
+      const groups = apiContextRegistry.flatMap((entry) =>
+        (entry.module.projectionGroups ?? []).map((group) => ({
+          targetContextName: entry.contextName as string,
+          projectionName: group.projectionName,
+          handlerKind: group.handlerKind,
+          ownedTables: group.ownedTables,
+          subscriptionRunners: group.sourceContextNames.map((sourceContextName) => ({
+            sourceContextName,
+            refreshStatus: async () => ({
+              lastGlobalPosition: group.projectionName === laggingProjectionName && !inputsReady ? "0" : "42",
+              sourceHeadGlobalPosition: "42",
+              state: group.projectionName === laggingProjectionName && !inputsReady ? "behind" : "caught-up",
+            }),
+            // Setup has listing and stock writes, but no accepted Offer or Order yet.
+            readReceiptApplicationOutputs: async () => ({ state: "applied" as const, outputPositions: [] }),
+          })),
+        })),
+      );
+      const app = new Hono();
+      attachReadConsistencyMiddleware(
+        app,
+        apiContextRegistry.flatMap((entry) =>
+          entry.module.apiMounts.map((mount) => ({ ...mount, contextName: entry.contextName as string })),
+        ),
+        groups,
+        { timeoutMs: 0, exactDependencyMode: "enabled" },
+      );
+      const handler = vi.fn((context: Context) => context.json({ items: [], total: 0 }));
+      app.get("/api/marketplace/account/purchases", handler);
+      const headers = {
+        [CHASE_SETS_READ_TARGET_CONTEXT_HEADER]: "ordering",
+        [CHASE_SETS_READ_AFTER_WRITE_HEADER]: encodeFreshWriteReceipt({
+          observedAtMs: Date.now(),
+          sources: ["inventory", "marketplace"].map((sourceContextName) => ({
+            sourceContextName,
+            maxGlobalPosition: "42",
+            eventIds: [`evt_${sourceContextName}_setup`],
+          })),
+        }),
+      };
+
+      const pending = await app.request("/api/marketplace/account/purchases", { headers });
+      expect(pending.status).toBe(503);
+      expect(handler).not.toHaveBeenCalled();
+      expect(await pending.json()).toMatchObject({
+        error: {
+          code: "projection_freshness_timeout",
+          pending: [expect.objectContaining({ projectionName: laggingProjectionName })],
         },
-      },
-    ]);
+      });
 
-    const resolvedDependencies = [
-      ...new Map(
-        salesLiveRoutes
-          .flatMap(({ route }) =>
-            route.dependencies.flatMap((dependency) =>
-              resolveReadConsistencyDependency("ordering", dependency, mountedProjectionGroups),
-            ),
-          )
-          .map((dependency) => [`${dependency.targetContextName}:${dependency.projectionName}`, dependency]),
-      ).values(),
-    ];
+      inputsReady = true;
+      const ready = await app.request("/api/marketplace/account/purchases", { headers });
+      expect(ready.status).toBe(200);
+      expect(await ready.json()).toEqual({ items: [], total: 0 });
+      expect(handler).toHaveBeenCalledTimes(1);
+    },
+  );
 
-    expect(resolvedDependencies).toEqual([
-      { targetContextName: "ordering", projectionName: "ordering-marketplace-offer-acceptance" },
-      { targetContextName: "ordering", projectionName: "ordering-order-projection" },
-    ]);
-  });
+  it.each(["/account/purchases", "/account/sales"])(
+    "backs accepted-offer %s freshness with the offer process and Order list read models",
+    (routePath) => {
+      const listLiveRoutes = findLiveFreshnessRoutes("ordering", routePath);
+      expect(listLiveRoutes).toEqual([
+        {
+          mountPath: "/api/marketplace",
+          route: {
+            routePath,
+            methods: ["GET", "HEAD"],
+            dependencies: [
+              ...(routePath === "/account/purchases"
+                ? [
+                    { projectionName: "ordering-marketplace-supply-input-projection" },
+                    { projectionName: "ordering-inventory-supply-input-projection" },
+                  ]
+                : []),
+              { projectionName: "ordering-marketplace-offer-acceptance" },
+              { readModelTable: "ordering_order_pages" },
+              { readModelTable: "ordering_order_line_pages" },
+            ],
+          },
+        },
+      ]);
+
+      const resolvedDependencies = [
+        ...new Map(
+          listLiveRoutes
+            .flatMap(({ route }) =>
+              route.dependencies.flatMap((dependency) =>
+                resolveReadConsistencyDependency("ordering", dependency, mountedProjectionGroups),
+              ),
+            )
+            .map((dependency) => [`${dependency.targetContextName}:${dependency.projectionName}`, dependency]),
+        ).values(),
+      ];
+
+      expect(resolvedDependencies).toEqual([
+        ...(routePath === "/account/purchases"
+          ? [
+              { targetContextName: "ordering", projectionName: "ordering-marketplace-supply-input-projection" },
+              { targetContextName: "ordering", projectionName: "ordering-inventory-supply-input-projection" },
+            ]
+          : []),
+        { targetContextName: "ordering", projectionName: "ordering-marketplace-offer-acceptance" },
+        { targetContextName: "ordering", projectionName: "ordering-order-projection" },
+      ]);
+    },
+  );
 
   it.each([
-    {
-      routePath: "/account/sales",
-      sourceContextName: "marketplace",
-      dependencies: ["ordering-marketplace-offer-acceptance", "ordering-order-projection"],
-      polled: ["ordering-marketplace-offer-acceptance"],
-    },
-    {
-      routePath: "/account/sales",
-      sourceContextName: "ordering",
-      dependencies: ["ordering-marketplace-offer-acceptance", "ordering-order-projection"],
-      polled: ["ordering-order-projection"],
-    },
+    ...["/account/purchases", "/account/sales"].flatMap((routePath) => [
+      {
+        routePath,
+        sourceContextName: "marketplace",
+        dependencies: [
+          ...(routePath === "/account/purchases"
+            ? ["ordering-marketplace-supply-input-projection", "ordering-inventory-supply-input-projection"]
+            : []),
+          "ordering-marketplace-offer-acceptance",
+          "ordering-order-projection",
+        ],
+        polled: [
+          ...(routePath === "/account/purchases" ? ["ordering-marketplace-supply-input-projection"] : []),
+          "ordering-marketplace-offer-acceptance",
+        ],
+      },
+      {
+        routePath,
+        sourceContextName: "ordering",
+        dependencies: [
+          ...(routePath === "/account/purchases"
+            ? ["ordering-marketplace-supply-input-projection", "ordering-inventory-supply-input-projection"]
+            : []),
+          "ordering-marketplace-offer-acceptance",
+          "ordering-order-projection",
+        ],
+        polled: ["ordering-order-projection"],
+      },
+    ]),
     ...["/account/sales/:id", "/account/purchases/:id"].map((routePath) => ({
       routePath,
       sourceContextName: "ordering",
@@ -622,7 +721,7 @@ describe("critical exact read-after-write waits", () => {
     expect([...new Set(polled)].sort()).toEqual([...testCase.polled].sort());
   });
 
-  it("keeps Ordering account sales as the only freshness route depending on a reaction group", () => {
+  it("keeps Ordering account lists as the only freshness routes depending on a reaction group", () => {
     const reactionGroups = new Set(
       apiContextRegistry.flatMap((entry) =>
         (entry.module.projectionGroups ?? [])
@@ -647,6 +746,12 @@ describe("critical exact read-after-write waits", () => {
 
     expect(reactionGroups.size).toBeGreaterThan(0);
     expect(reactionRoutes).toEqual([
+      {
+        contextName: "ordering",
+        mountPath: "/api/marketplace",
+        routePath: "/account/purchases",
+        reactions: [{ targetContextName: "ordering", projectionName: "ordering-marketplace-offer-acceptance" }],
+      },
       {
         contextName: "ordering",
         mountPath: "/api/marketplace",
@@ -784,6 +889,161 @@ describe("critical exact read-after-write waits", () => {
     expect(resolvedDependencies).toEqual([
       { targetContextName: "public-presence", projectionName: "public-presence-waitlist-projection" },
     ]);
+  });
+
+  it("admin waitlist receipted read waits only on the waitlist projection through composed mounts", async () => {
+    const app = new Hono();
+    const audits: ReadConsistencyAuditRecord[] = [];
+    const handler = vi.fn((c: Context) => c.json({ items: [] }));
+    const waitlistStatus = vi.fn(async () => ({
+      lastGlobalPosition: "3432",
+      sourceHeadGlobalPosition: "3432",
+      state: "current",
+      lastError: null,
+    }));
+    const policyStatus = vi.fn(async () => ({
+      lastGlobalPosition: "3429",
+      sourceHeadGlobalPosition: "3432",
+      state: "behind",
+      lastError: null,
+    }));
+    const mounts = apiContextRegistry.flatMap((entry) =>
+      entry.module.apiMounts.map((mount) => ({ ...mount, contextName: entry.contextName as string })),
+    );
+    const groups = mountedProjectionGroups.map((group) => {
+      const refreshStatus =
+        group.targetContextName !== "public-presence"
+          ? undefined
+          : group.projectionName === "public-presence-waitlist-projection"
+            ? waitlistStatus
+            : group.projectionName === "platform-policy-document-projection"
+              ? policyStatus
+              : undefined;
+      return refreshStatus
+        ? { ...group, subscriptionRunners: [{ sourceContextName: "public-presence", refreshStatus }] }
+        : group;
+    });
+    attachReadConsistencyMiddleware(app, mounts, groups, {
+      timeoutMs: 0,
+      routeTuning: CRITICAL_READ_CONSISTENCY_ROUTE_TUNING,
+      recordReadConsistencyAudit: (record) => audits.push(record),
+    });
+    app.get("/api/public-presence/admin/waitlist", handler);
+    const response = await app.request("/api/public-presence/admin/waitlist?search=x", {
+      headers: {
+        [CHASE_SETS_READ_TARGET_CONTEXT_HEADER]: "public-presence",
+        [CHASE_SETS_READ_AFTER_WRITE_HEADER]: encodeFreshWriteReceipt({
+          observedAtMs: Date.now(),
+          sources: [{ sourceContextName: "public-presence", maxGlobalPosition: "3432", eventIds: ["e1", "e2", "e3"] }],
+        }),
+      },
+    });
+
+    expect({ status: response.status, handlerCalls: handler.mock.calls.length, audits }).toMatchObject({
+      status: 200,
+      handlerCalls: 1,
+      audits: [
+        {
+          outcome: "fresh",
+          mountPath: "/api/public-presence/admin",
+          routePaths: ["/waitlist"],
+          waitMode: "exact-dependency",
+          receiptEventCount: 3,
+          dependencies: [
+            { targetContextName: "public-presence", projectionName: "public-presence-waitlist-projection" },
+          ],
+          pending: [],
+        },
+      ],
+    });
+    expect(audits).toHaveLength(1);
+    expect(waitlistStatus).toHaveBeenCalledOnce();
+    expect(policyStatus).not.toHaveBeenCalled();
+  });
+
+  it("admin waitlist receipted read still refuses while its own projection lags", async () => {
+    const app = new Hono();
+    const audits: ReadConsistencyAuditRecord[] = [];
+    const handler = vi.fn((c: Context) => c.json({ items: [] }));
+    let elapsedMs = 0;
+    const waitlistStatus = vi.fn(async () => {
+      elapsedMs += 900;
+      return {
+        lastGlobalPosition: "3431",
+        sourceHeadGlobalPosition: "3432",
+        state: "behind",
+        lastError: null,
+      };
+    });
+    const policyStatus = vi.fn(async () => ({
+      lastGlobalPosition: "3432",
+      sourceHeadGlobalPosition: "3432",
+      state: "current",
+      lastError: null,
+    }));
+    const mounts = apiContextRegistry.flatMap((entry) =>
+      entry.module.apiMounts.map((mount) => ({ ...mount, contextName: entry.contextName as string })),
+    );
+    const groups = mountedProjectionGroups.map((group) => {
+      const refreshStatus =
+        group.targetContextName !== "public-presence"
+          ? undefined
+          : group.projectionName === "public-presence-waitlist-projection"
+            ? waitlistStatus
+            : group.projectionName === "platform-policy-document-projection"
+              ? policyStatus
+              : undefined;
+      return refreshStatus
+        ? { ...group, subscriptionRunners: [{ sourceContextName: "public-presence", refreshStatus }] }
+        : group;
+    });
+    attachReadConsistencyMiddleware(app, mounts, groups, {
+      timeoutMs: 5_000,
+      nowMs: () => elapsedMs,
+      routeTuning: CRITICAL_READ_CONSISTENCY_ROUTE_TUNING,
+      recordReadConsistencyAudit: (record) => audits.push(record),
+    });
+    app.get("/api/public-presence/admin/waitlist", handler);
+    const response = await app.request("/api/public-presence/admin/waitlist?search=x", {
+      headers: {
+        [CHASE_SETS_READ_TARGET_CONTEXT_HEADER]: "public-presence",
+        [CHASE_SETS_READ_AFTER_WRITE_HEADER]: encodeFreshWriteReceipt({
+          observedAtMs: Date.now(),
+          sources: [{ sourceContextName: "public-presence", maxGlobalPosition: "3432", eventIds: ["e1", "e2", "e3"] }],
+        }),
+      },
+    });
+
+    expect(response.status).toBe(503);
+    expect(handler).not.toHaveBeenCalled();
+    const pending = [
+      {
+        targetContextName: "public-presence",
+        projectionName: "public-presence-waitlist-projection",
+        sourceContextName: "public-presence",
+        requiredGlobalPosition: "3432",
+        lastGlobalPosition: "3431",
+        state: "behind",
+        lastError: null,
+      },
+    ];
+    expect(await response.json()).toMatchObject({
+      error: { code: "projection_freshness_timeout", waitMode: "exact-dependency", pending },
+    });
+    expect(audits).toHaveLength(1);
+    expect(audits[0]).toMatchObject({
+      outcome: "timeout",
+      mountPath: "/api/public-presence/admin",
+      routePaths: ["/waitlist"],
+      waitMode: "exact-dependency",
+      durationMs: 900,
+      receiptEventCount: 3,
+      dependencies: [{ targetContextName: "public-presence", projectionName: "public-presence-waitlist-projection" }],
+      pending,
+    });
+    expect(audits[0]?.pending).toHaveLength(1);
+    expect(waitlistStatus).toHaveBeenCalledOnce();
+    expect(policyStatus).not.toHaveBeenCalled();
   });
 
   it("blocks stale non-cart platform API command-to-GET reads before the handler runs", async () => {

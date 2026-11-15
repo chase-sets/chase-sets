@@ -112,6 +112,7 @@ const compositionLocalImports = [
   "../api/primary-workbench-admin-contracts",
   "./admin-control-plane/information-architecture",
   "./primary-workbench-core-read-model",
+  "./primary-workbench-daily-flow",
   "./primary-workbench-read-model-input",
   "./primary-workbench-surface-actions",
   "./primary-workbench-surface-slices",

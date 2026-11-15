@@ -243,8 +243,10 @@ factory. A trusted sibling-owned composition must supply those closures.
   The publisher binds the manifest digest, validates serialized bytes again,
   writes both files exclusively and renames the owned partial directory.
   A claimed failure retains the cleanup obligation, never reports it cleaned.
-- Component observer and real J: #8954, not this boundary's early checkpoints.
-- H2/H3: #8953. Operator installation: #8364. Joint acceptance: #8255.
+- Component-observer and real-J appearance qualification is retired, not an
+  outstanding boundary checkpoint.
+- Appearance-only H2/H3, operator-installation and joint-acceptance work is retired;
+  this does not remove retained boundary or provider-object cleanup safety.
 
 The parent transport in `test-window-policy.mjs` admits only the exact serialized
 and parsed bootstrap GET, with fixed outgoing headers, no redirects or cookies,
@@ -255,5 +257,5 @@ routing. Deadline, cancellation and cap close the owned browser. The required
 sender is supplied by the trusted caller; no default network client exists.
 Hosted controls use only synthetic responses and make no provider request.
 Native direct-client probes and browser negatives run only on hosted CI.
-Actual provider/scenario composition remains #8954's responsibility; these
-synthetic boundary controls neither enable nor qualify a provider window.
+No appearance provider/scenario composition is planned; these synthetic boundary
+controls neither enable nor qualify a provider window.

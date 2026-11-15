@@ -1,5 +1,13 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
-import { catalogIsoUtcTimestampColumns } from "../../../support/runtime-support/iso-utc-timestamp";
+import {
+  catalogIsoUtcTimestamp,
+  catalogIsoUtcTimestampColumns,
+} from "../../../support/runtime-support/iso-utc-timestamp";
+import type {
+  CatalogAttentionSourcePage,
+  CatalogAttentionSourceWindow,
+} from "../../attention-queue/read-model/attention-item";
+import { catalogAttentionItemParkedSql } from "../../attention-queue/read-model/dismissal-queries";
 import {
   normalizeProviderScopeMappingIdentity,
   type ProviderScopeMappingConfidenceTier,
@@ -28,23 +36,49 @@ export type ProviderScopeMappingRow = Readonly<{
   updated_at: string;
 }>;
 
+// The columns an attention-queue unmapped-scope item needs, and no evidence or provenance.
+export type ProviderScopeMappingAttentionRow = Pick<
+  ProviderScopeMappingRow,
+  | "mapping_id"
+  | "scope_record_id"
+  | "provider_key"
+  | "unit_key"
+  | "set_id"
+  | "set_name"
+  | "confidence"
+  | "review_status"
+  | "proposed_at"
+>;
+
 // Attention queue: provider scope mappings still awaiting review. A
 // `proposed` mapping is a scope a provider unit produced that no operator has
-// accepted or rejected yet — the "unmapped scope" that needs a human.
-export async function listProposedProviderScopeMappings(
+// accepted or rejected yet — the "unmapped scope" that needs a human. Counts the
+// whole unparked cohort and reads one window, oldest first.
+export async function readProposedProviderScopeMappingAttentionWindow(
   db: PgQueryable,
-  options: Readonly<{ limit?: number }> = {},
-): Promise<readonly ProviderScopeMappingRow[]> {
-  const limit = Math.min(1000, Math.max(1, Math.trunc(options.limit ?? 200)));
-  const result = await db.query<ProviderScopeMappingRow>(
-    `SELECT *, ${catalogIsoUtcTimestampColumns("proposed_at", "reviewed_at", "updated_at")}
-     FROM catalog_provider_scope_mappings
-     WHERE review_status = 'proposed'
-     ORDER BY catalog_provider_scope_mappings.proposed_at ASC, mapping_id ASC
-     LIMIT ${limit}`,
-  );
+  window: CatalogAttentionSourceWindow,
+): Promise<CatalogAttentionSourcePage<ProviderScopeMappingAttentionRow>> {
+  const cohort = `FROM catalog_provider_scope_mappings scope_mapping
+     WHERE scope_mapping.review_status = 'proposed'
+       AND NOT ${catalogAttentionItemParkedSql("'unmapped-scope:' || scope_mapping.mapping_id", "$1")}`;
+  const [count, page] = await Promise.all([
+    db.query<{ total: number }>(`SELECT COUNT(*)::integer AS total ${cohort}`, [window.now]),
+    window.limit > 0
+      ? db.query<ProviderScopeMappingAttentionRow>(
+          `SELECT scope_mapping.mapping_id, scope_mapping.scope_record_id,
+                  scope_mapping.provider_key, scope_mapping.unit_key,
+                  scope_mapping.set_id, scope_mapping.set_name,
+                  scope_mapping.confidence, scope_mapping.review_status,
+                  ${catalogIsoUtcTimestamp("scope_mapping.proposed_at", "proposed_at")}
+           ${cohort}
+           ORDER BY scope_mapping.proposed_at ASC, scope_mapping.mapping_id ASC
+           LIMIT $2 OFFSET $3`,
+          [window.now, window.limit, window.offset],
+        )
+      : Promise.resolve({ rows: [] }),
+  ]);
 
-  return result.rows;
+  return { total: count.rows[0]?.total ?? 0, rows: page.rows };
 }
 
 export async function listAcceptedProviderScopeMappingsByScopeRecord(

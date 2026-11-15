@@ -279,6 +279,12 @@ export interface MarketplaceListingPriceInput {
   priceCurrencyCode: string;
 }
 
+/** The shipped Listing carrier every browser, MCP, Discovery, Checkout and Pricing command sends. */
+export interface MarketplaceListingAttemptInput {
+  idempotencyKey: string;
+  requestHash?: string;
+}
+
 export interface MarketplaceCreateListingInput extends MarketplaceListingPriceInput {
   inventoryItemId: string;
   quantityCap: number;
@@ -343,15 +349,47 @@ export interface MarketplaceBulkListingPriceUpdateInput {
    */
   expectedVersion?: number;
   minimumChange?: Readonly<{ mode: "absolute"; amount: string }> | Readonly<{ mode: "percent"; percent: number }>;
+  /** The target's attempt: the batch id, a caller-owned target attempt, or an exempt engine `repricing:` key. */
   idempotencyKey?: string;
+  /** Canonical listingId + amount + currency hash; a changed value under the same key conflicts. */
+  requestHash?: string;
 }
 
-/** Per-listing outcome of a bulk price-update run -- failure isolation means one listing's conflict or error never prevents the others from applying. */
+/**
+ * Per-listing outcome of a bulk price-update run -- failure isolation means one listing's conflict or error never
+ * prevents the others from applying. `unknown` means the append may have committed: only those targets are re-sent.
+ */
 export interface MarketplaceBulkListingPriceUpdateOutcome {
   listingId: string;
-  outcome: "applied" | "no_op" | "conflict" | "error";
+  outcome: "applied" | "no_op" | "conflict" | "error" | "unknown";
   version: number;
   message?: string;
+}
+
+/** The bulk families whose terminal vector Marketplace persists under one batch id. */
+export type MarketplaceListingBatchFamily =
+  | "listing.update-price"
+  | "listing.pause"
+  | "listing.withdraw"
+  | "seller.availability"
+  | "seller.away"
+  | "seller.order-capacity";
+
+/** A batch target's terminal outcome; `unknown` is the only outcome a retry re-drives. */
+export type MarketplaceListingBatchOutcome = "succeeded" | "conflict" | "error" | "unknown";
+
+export interface MarketplaceListingBatchItem {
+  /** The Listing id, or the seller account id for seller families. */
+  targetId: string;
+  outcome: MarketplaceListingBatchOutcome;
+  version: number;
+  message?: string;
+}
+
+export interface MarketplaceListingBatchResult {
+  batchId: string;
+  family: MarketplaceListingBatchFamily;
+  items: readonly MarketplaceListingBatchItem[];
 }
 
 export interface MarketplacePublicStandardTermsPreview {

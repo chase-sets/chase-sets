@@ -1,0 +1,47 @@
+{
+  "risk": {
+    "owner": "Settlement",
+    "read": "createSellerCheckoutRiskReader",
+    "key": "trusted account or anonymous owner",
+    "moments": ["readiness", "pre-confirm"],
+    "revision": "policyRevision and sourceRevision; source-only drift recorded",
+    "time": "sourceTimestamp; owned absence null",
+    "reason": "risk-not-clear"
+  },
+  "label": {
+    "owner": "Fulfillment",
+    "read": "createSellerCheckoutReadinessReader",
+    "key": "trusted owner, resolved shipFromLocationId, chosen label preference",
+    "moments": ["readiness", "pre-confirm"],
+    "revision": "sourceRevision matched to resolveOrigin",
+    "time": "sourceTimestamp matched to resolveOrigin",
+    "reason": "label-not-ready"
+  },
+  "provider": {
+    "owner": "Fulfillment",
+    "read": "createSellerCheckoutReadinessReader",
+    "key": "same resolved owner/location/preference",
+    "moments": ["readiness", "pre-confirm"],
+    "revision": "sourceRevision",
+    "time": "sourceTimestamp",
+    "reason": "provider-not-ready"
+  },
+  "payoutEstimate": {
+    "owner": "Checkout",
+    "read": "loadCheckoutSellListCompositeReview and getSellPayoutReadiness",
+    "key": "trusted owner and included line IDs",
+    "moments": ["readiness", "pre-confirm"],
+    "revision": "line sourceRevision and canonical estimate",
+    "time": "payout updated_at and line updated_at",
+    "reason": "payout-not-ready"
+  },
+  "freshness": {
+    "owner": "Checkout and Fulfillment",
+    "read": "listSellListReadinessLines and resolveOrigin",
+    "key": "trusted owner and exact listing evidence",
+    "moments": ["readiness", "pre-confirm"],
+    "revision": "canonical line/listing-evidence sourceRevision and Fulfillment revision",
+    "time": "actual line/listing-evidence and Fulfillment timestamps",
+    "reason": "seller-evidence-stale"
+  }
+}

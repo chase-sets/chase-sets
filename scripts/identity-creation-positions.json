@@ -251,6 +251,13 @@
       "occurrences": 1,
       "disposition": "test-fixture",
       "reason": "This database fixture seeds an existing user aggregate so production bootstrap reconciliation has authoritative state to inspect."
+    },
+    {
+      "path": "deployables/platform-api/__tests__/catalog-operator-authority-host-port.test.ts",
+      "command": "GrantMembership",
+      "occurrences": 1,
+      "disposition": "test-fixture",
+      "reason": "This composition test seeds a synthetic membership aggregate so the host-port authority can evaluate the live Membership state."
     }
   ]
 }

@@ -78,44 +78,6 @@ export function WorkspaceBlockerPanel({
 // that deep-links into the governance-controls workspace carrying return context
 // back to the daily job. Everything else (the full matrix, kill switches,
 // observability) lives on /admin/integrations/governance.
-type CatalogDailyGovernanceStatus = "denied" | "stopped";
-
-const governanceDenialBlockers = new Set<CatalogPrimaryWorkbenchBlockerCategory>([
-  "permission-denied",
-  "authorization-denied",
-  "rbac-missing",
-]);
-const governanceStopBlockers = new Set<CatalogPrimaryWorkbenchBlockerCategory>([
-  "rollout-disabled",
-  "kill-switch-active",
-]);
-
-// Detect whether a primary command is denied or stopped by governance, from the
-// shared core read model the daily surface already loads (no governance slice
-// required). Denial takes precedence over a rollout stop because an access
-// failure is the more fundamental block. Returns null when nothing is
-// governance-blocked, so the daily flow renders no indicator in the common case.
-export function catalogDailyGovernanceStatus(
-  readModel: CatalogPrimaryWorkbenchReadModel,
-): CatalogDailyGovernanceStatus | null {
-  const blockers = new Set<CatalogPrimaryWorkbenchBlockerCategory>([
-    ...readModel.readiness.blockers,
-    ...readModel.promotionPreview.blockers,
-  ]);
-  const denied =
-    readModel.readiness.rbacAllowed === false ||
-    readModel.actions.some((action) => action.state === "denied") ||
-    [...governanceDenialBlockers].some((blocker) => blockers.has(blocker));
-  if (denied) {
-    return "denied";
-  }
-  const stopped =
-    readModel.readiness.rolloutEnabled === false ||
-    [...governanceStopBlockers].some((blocker) => blockers.has(blocker));
-
-  return stopped ? "stopped" : null;
-}
-
 // The slim daily denied/stopped indicator. A compact tone-danger banner that
 // names the governance failure mode and links into governance-controls with the
 // daily working set as return context — the only governance affordance the daily
@@ -125,7 +87,7 @@ export function DailyGovernanceStatusIndicator({
 }: Readonly<{
   readModel: CatalogPrimaryWorkbenchReadModel;
 }>) {
-  const status = catalogDailyGovernanceStatus(readModel);
+  const status = readModel.dailyStatus.governance;
   if (!status) {
     return null;
   }
@@ -156,30 +118,6 @@ export function DailyGovernanceStatusIndicator({
 // blocked, the daily flow does NOT host that dashboard — it shows only this slim
 // indicator that deep-links into health triage on the health surface carrying
 // return context back to the daily job. Mirrors DailyGovernanceStatusIndicator.
-type CatalogDailyHealthStatus = "degraded" | "blocked";
-
-const transportBlockingTransports = new Set<CatalogPrimaryWorkbenchReadModel["readiness"]["providerTransport"][number]>(
-  ["timeout", "pagination-failure", "degraded-provider"],
-);
-
-// Derive the daily health signal from the core read model the daily surface
-// already loads — provider transport degradation, stale read-model freshness, and
-// failed jobs — without computing the full health-triage slice (which the daily
-// surface deliberately omits). A blocking transport failure surfaces as
-// "blocked"; softer degradation (partial data, stale cache, throttling, stale
-// freshness, failed jobs) surfaces as "degraded". Returns null when health is
-// nominal, so the daily flow renders no indicator in the common case.
-export function catalogDailyHealthStatus(readModel: CatalogPrimaryWorkbenchReadModel): CatalogDailyHealthStatus | null {
-  const transport = readModel.readiness.providerTransport;
-  if (transport.some((category) => transportBlockingTransports.has(category))) {
-    return "blocked";
-  }
-  const degraded =
-    transport.length > 0 || readModel.readiness.freshness !== "fresh" || readModel.importJobs.failedJobCount > 0;
-
-  return degraded ? "degraded" : null;
-}
-
 // The slim daily degraded/blocked health indicator. A compact tone-warning/danger
 // banner that names the degradation and links into health triage on the release
 // surface with the daily working set as return context — the only health
@@ -189,7 +127,7 @@ export function DailyHealthStatusIndicator({
 }: Readonly<{
   readModel: CatalogPrimaryWorkbenchReadModel;
 }>) {
-  const status = catalogDailyHealthStatus(readModel);
+  const status = readModel.dailyStatus.health;
   if (!status) {
     return null;
   }

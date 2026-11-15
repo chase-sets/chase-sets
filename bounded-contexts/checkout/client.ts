@@ -14,6 +14,7 @@ import type {
   CheckoutSellPayoutReadinessRow,
 } from "./features/sell-list/read-model/queries";
 import type { CheckoutShipFromAddressRow } from "./features/cart/integrations/identity/identity-queries";
+import type { SellerCheckoutChoices } from "./features/sell-list/domain/owner-reads";
 import type {
   SellListConfirmationSummary,
   SellListReadinessDecisionInput,
@@ -586,7 +587,8 @@ export function createCheckoutApiClient({
       );
     },
     async createSellListReadiness(
-      body: SellListReadinessDecisionInput & { sellerEvidence?: SellListSellerConfirmationEvidence | null } = {},
+      body: SellListReadinessDecisionInput &
+        SellerCheckoutChoices & { sellerEvidence?: SellListSellerConfirmationEvidence | null } = {},
     ): Promise<CheckoutMutationResult<{ readiness: SellListReadinessSnapshot }>> {
       return parseJsonResponse(await client.account["sell-list"].readiness.$post({ json: body, header: headers }));
     },
@@ -637,16 +639,17 @@ export function createCheckoutApiClient({
       );
     },
     async confirmSellListCheckout(
-      body: Readonly<{
-        confirmationId: string;
-        readinessSnapshotId: string;
-        readinessSourceRevision: string;
-        readinessDecisions?: SellListReadinessDecisionInput | null;
-        completedLineIds?: readonly string[];
-        remainingLineQuantities?: readonly { lineId: string; quantity: number }[];
-        sellerEvidence: SellListSellerConfirmationEvidence;
-        handoffSummary: SellListConfirmationSummary;
-      }>,
+      body: SellerCheckoutChoices &
+        Readonly<{
+          confirmationId: string;
+          readinessSnapshotId: string;
+          readinessSourceRevision: string;
+          readinessDecisions?: SellListReadinessDecisionInput | null;
+          completedLineIds?: readonly string[];
+          remainingLineQuantities?: readonly { lineId: string; quantity: number }[];
+          sellerEvidence: SellListSellerConfirmationEvidence;
+          handoffSummary: SellListConfirmationSummary;
+        }>,
     ): Promise<CheckoutMutationResult<{ confirmation: CheckoutSellListConfirmationRow }>> {
       return parseJsonResponse(await client.account["sell-list"].confirm.$post({ json: body, header: headers }));
     },

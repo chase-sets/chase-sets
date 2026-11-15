@@ -34,8 +34,6 @@ const forbiddenValues = [
   "synthetic-billing.invalid",
   "synthetic-scrydex.invalid",
   "synthetic-plan-tier",
-  "2026-09-22",
-  "2026-10-22",
   "2026-10-01",
 ];
 const forbiddenFieldNames = [
@@ -45,9 +43,11 @@ const forbiddenFieldNames = [
   "email",
   "invoice_url",
   "plan",
-  "overage",
+  "overage_price",
+  "overage_cost",
   "daily_usage",
-  "period",
+  "period_start",
+  "period_end",
   "credits_consumed",
 ];
 
@@ -104,6 +104,11 @@ describe("Scrydex usage snapshot boundary", () => {
       totalCredits: 50_000,
       remainingCredits: 41_234,
       usedCredits: 8_766,
+      billingPeriod: {
+        startsAt: "2026-09-22T19:39:46.000Z",
+        endsAt: "2026-10-22T19:39:46.000Z",
+        overageCreditsConsumed: 0,
+      },
       observedAt: observedAt.toISOString(),
       attemptedAt: observedAt.toISOString(),
       attemptState: "checked",

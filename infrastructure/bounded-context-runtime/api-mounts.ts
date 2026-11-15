@@ -879,6 +879,7 @@ export function attachReadConsistencyMiddleware(
   for (const [mountPath, contextNames] of contextsByMountPath) {
     const routeDependencyMatchers = routeDependenciesByMountPath.get(mountPath) ?? [];
     const routeTuningMatchers = routeTuningByMountPath.get(mountPath) ?? [];
+    const longerMountPaths = [...contextsByMountPath.keys()].filter((candidate) => candidate.length > mountPath.length);
 
     app.use(normalizeMountWildcard(mountPath), async (context: unknown, next) => {
       const req = (
@@ -894,6 +895,12 @@ export function attachReadConsistencyMiddleware(
       const startedAt = nowMs();
       const method = req?.method?.toUpperCase() ?? "GET";
       if (method !== "GET" && method !== "HEAD") {
+        await next();
+        return;
+      }
+
+      const requestPath = req?.path ?? (req?.url ? new URL(req.url).pathname : mountPath);
+      if (longerMountPaths.some((candidate) => requestPath === candidate || requestPath.startsWith(`${candidate}/`))) {
         await next();
         return;
       }

@@ -7,7 +7,7 @@ import {
 import { listProjectionInterestOverridesForPushMigration } from "@chase-sets/platform-runtime/projection-push-migration";
 import { createWorkerHost, type WorkerHostRuntime } from "@chase-sets/platform-runtime/worker";
 import { describe, expect, it } from "vitest";
-import { workerContextRegistry } from "../src/generated/worker-context-registry";
+import { workerContextRegistry } from "../src/context-registry";
 import { createPlatformChannelSaleRecorder } from "../src/channels-reconciliation-runners";
 import {
   createFakeMoneyMovementGateway,

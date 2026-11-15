@@ -195,7 +195,7 @@ const shippedEvidenceChecks: readonly {
   },
   {
     subjectId: "opt-in-and-fee",
-    ref: "bounded-contexts/checkout/features/sessions/domain/domain.ts:803-825",
+    ref: "bounded-contexts/checkout/features/sessions/domain/domain.ts:833-855",
     keyword: "SelectAuthenticityCheckOptIn",
   },
   {

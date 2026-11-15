@@ -6,18 +6,23 @@ import {
 } from "@chase-sets/bounded-context-runtime";
 import { module as identityModule } from "@chase-sets/identity";
 import { module as paymentsModule } from "@chase-sets/payments";
-import { getApiHostSeedOrder, seedApiHostIfEmpty } from "@chase-sets/platform-runtime/api";
+import { getApiHostSeedOrder, nonProductionDataProfiles, seedApiHostIfEmpty } from "@chase-sets/platform-runtime/api";
 import type { ResolvedActor } from "@chase-sets/platform-runtime/auth";
 import { createFakePaymentProcessorGateway } from "@chase-sets/payment-processing/test-support";
 import { buildPlatformApiApp, createPlatformApiHost } from "../src/app";
 import type { PlatformApiContextName } from "../src/config";
-import { apiContextRegistry } from "../src/generated/api-context-registry";
+import { apiContextRegistry } from "../src/context-registry";
 import {
   createPlatformApiBootstrapTestHarness,
   listingPhotoStorage,
   requireCatalogContext,
 } from "./bootstrap-db-test-support";
 import type { PlatformApiTestPools } from "./bootstrap-db-test-support";
+
+const testProjectionGroupLeasePort = {
+  runWithLease: async <T>(_group: unknown, _signal: AbortSignal | undefined, work: (context: never) => Promise<T>) =>
+    work(undefined as never),
+};
 
 let databaseUrls: Readonly<Record<PlatformApiContextName, string>>;
 let pools: PlatformApiTestPools;
@@ -40,7 +45,11 @@ describe("platform api bootstrap scenario", () => {
 
     expect(pools.auth).not.toBe(pools.identity);
 
-    await seedApiHostIfEmpty(apiContextRegistry, "platform-api", runtime);
+    await seedApiHostIfEmpty(apiContextRegistry, "platform-api", runtime, {
+      projectionGroupLeasePort: testProjectionGroupLeasePort,
+      enabledDataProfiles: nonProductionDataProfiles,
+      environmentName: null,
+    });
 
     const seedOrder = getApiHostSeedOrder(apiContextRegistry, "platform-api");
     expect(seedOrder.indexOf("identity")).toBeLessThan(seedOrder.indexOf("auth"));
@@ -245,6 +254,7 @@ describe("platform api bootstrap scenario", () => {
       "20260710_projection_recovery_marker_backfill",
       "20261015_subscription_reaction_output_positions",
       "20261022_configuration_epoch_closure",
+      "20261028_owner_stream_reservations",
       ...(catalogContext.module.schemaMigrations ?? []).map((migration) => migration.migrationId),
     ].sort();
 

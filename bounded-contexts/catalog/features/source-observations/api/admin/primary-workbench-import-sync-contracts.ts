@@ -4,6 +4,8 @@ import type {
   CatalogAdminProfileVersionPointer,
 } from "./admin-control-plane-read-model-contracts";
 import type { CatalogIntegrationUnitKey } from "../governance/integration-unit";
+import type { SourceObservationFilterScope } from "../../read-model/queries";
+import type { SourceObservationIntegrationJobScope } from "../source-observation-runtime-contracts";
 import type {
   CatalogPrimaryWorkbenchCommandKey,
   CatalogPrimaryWorkbenchBlockerCategory,
@@ -157,6 +159,16 @@ export type CatalogPrimaryWorkbenchSourceScopeWorksetUnitReadModel = Readonly<{
     expansionId: string | null;
     expansionName: string | null;
   }>;
+  /**
+   * The bodies the unit's commands post: `import` to `POST /integration-jobs` as
+   * `{action: "import", scope}`, `reapply` to `POST /reapply` as `{scope}`. The reapply
+   * scope names the unit, so its active profile version reapplies the observations. Null while
+   * the unit has no scope. The API still refuses them with the blockers the actions report.
+   */
+  commandScopes: Readonly<{
+    import: SourceObservationIntegrationJobScope;
+    reapply: SourceObservationFilterScope & Readonly<{ ingestionUnitKey?: string }>;
+  }> | null;
   actions: Readonly<{
     import: CatalogPrimaryWorkbenchActionReadModel;
     previewPromotion: CatalogPrimaryWorkbenchActionReadModel;

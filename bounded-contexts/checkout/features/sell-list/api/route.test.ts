@@ -7,6 +7,7 @@ import type { CheckoutObservabilityTelemetry } from "../../sessions/api/checkout
 import type { CheckoutSellListConfirmationRow } from "../read-model/queries";
 import { createAccountSellListRoutes, createGuestSellListRoutes } from "./route";
 import type { CheckoutSellListServices } from "./runtime";
+import { checkoutOwnerRuntimeFixture, choices } from "./owner-read.fixture";
 
 const readySellerReadiness: SellListReadinessSnapshot["sellerReadiness"] = {
   status: "ready",
@@ -194,6 +195,47 @@ function guestCheckoutActor(): CheckoutApiEnv["Variables"]["actor"] {
 }
 
 describe("checkout sell list routes", () => {
+  it.each(["manual", "saved"] as const)(
+    "AC2 composes account readiness with %s choices, never a posted owner/status",
+    async (kind) => {
+      const f = checkoutOwnerRuntimeFixture();
+      const app = buildApp({ actor: sellerActor(), services: f.services });
+      const response = await app.request("/account/sell-list/readiness", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-checkout-anonymous-sell-list-id": "anon_foreign" },
+        body: JSON.stringify({
+          ...choices,
+          shipFrom: kind === "saved" ? { addressId: "adr_fixture" } : choices.shipFrom,
+          sellerAccountId: "acc_foreign",
+          sellerEvidence: sellerEvidence(),
+        }),
+      });
+      expect(response.status).toBe(200);
+      expect(await response.json()).toMatchObject({
+        readiness: {
+          sellerReadiness: { status: "ready" },
+          ownerReads: { owner: { kind: "account", accountId: "acc_seller" } },
+        },
+      });
+    },
+  );
+
+  it("AC2 composes anonymous readiness only from its trusted header and full manual choice", async () => {
+    const f = checkoutOwnerRuntimeFixture("anon_trusted");
+    const app = buildApp({ actor: null, services: f.services });
+    const response = await app.request("/guest/sell-list/readiness", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-checkout-anonymous-sell-list-id": "anon_trusted" },
+      body: JSON.stringify({ ...choices, sellerAccountId: "acc_foreign", sellerEvidence: sellerEvidence() }),
+    });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      readiness: {
+        sellerReadiness: { status: "ready" },
+        ownerReads: { owner: { kind: "anonymous", anonymousSellListId: "anon_trusted" } },
+      },
+    });
+  });
   it("counts sell list item quantities instead of raw lines", async () => {
     const services = createServices();
     vi.mocked(services.listLines).mockResolvedValue([

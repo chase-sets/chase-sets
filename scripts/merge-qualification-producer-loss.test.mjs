@@ -159,6 +159,47 @@ const observerWriter = (id) => ({
 });
 
 describe("producer dispatch-loss reconciliation", () => {
+  it("reads transported policy history with the same landing-time authority and no local git", async () => {
+    const reads = [];
+    const result = await readHistoricalProducerPolicy({
+      repository: "chase-sets/chase-sets",
+      run: producer(),
+      execFile: () => {
+        throw new Error("local git must not run");
+      },
+      readHistory: async () => `${policyRevision}\t2026-07-21T09:00:00Z\n`,
+      readLandingEvidence: async ({ revision }) => {
+        reads.push(revision);
+        return [{ base: { ref: "main" }, merged_at: "2026-07-21T09:30:00Z", merge_commit_sha: revision }];
+      },
+      readPolicy: async () => '{"enabled":false}',
+    });
+    expect(result).toMatchObject({ revision: policyRevision, decision: { enabled: false } });
+    expect(reads).toEqual([policyRevision]);
+    await expect(
+      readHistoricalProducerPolicy({ run: producer(), readHistory: async () => "x".repeat(65_537) }),
+    ).rejects.toThrow("producer_policy_history_invalid");
+  });
+
+  it("inventories only the latest producer attempt regardless of listing order", async () => {
+    for (const runs of [
+      [producer(), producer({ run_attempt: 2 })],
+      [producer({ run_attempt: 2 }), producer()],
+    ]) {
+      const result = await inventoryMergeQualificationProducerAttempts({
+        repository: "chase-sets/chase-sets",
+        now: () => now,
+        advisoryRuns: [],
+        requestJson: async () => ({ total_count: runs.length, workflow_runs: runs }),
+        readHistoricalPolicyContent: async () => ({ revision: policyRevision, decision: { enabled: true } }),
+        readProducerImageEligibility: async () => true,
+      });
+      expect(result.errors).toEqual([]);
+      expect(result.attempts).toMatchObject([{ run_id: "4000", run_attempt: "2" }]);
+      expect(result.attempts).toHaveLength(1);
+    }
+  });
+
   it("inventories complete producer and advisory windows before filtering", async () => {
     const calls = [];
     const result = await inventoryMergeQualificationProducerAttempts({
@@ -213,7 +254,7 @@ describe("producer dispatch-loss reconciliation", () => {
         decision: { enabled: true, reasonCode: "policy_enabled" },
       }),
     });
-    expect(result).toEqual({ attempts: [], errors: [] });
+    expect(result).toEqual({ attempts: [], settled: 0, errors: [] });
   });
 
   it("anchors producer admission to completion rather than start", async () => {
@@ -235,7 +276,7 @@ describe("producer dispatch-loss reconciliation", () => {
         decision: { enabled: true, reasonCode: "policy_enabled" },
       }),
     });
-    expect(result).toEqual({ attempts: [], errors: [] });
+    expect(result).toEqual({ attempts: [], settled: 0, errors: [] });
   });
 
   it("anchors the tick to producer completion and admits a late advisory", async () => {
@@ -303,7 +344,7 @@ describe("producer dispatch-loss reconciliation", () => {
         throw new Error("producer_policy_landing_evidence_unavailable");
       },
     });
-    expect(result).toEqual({ attempts: [], errors: [] });
+    expect(result).toEqual({ attempts: [], settled: 0, errors: [] });
   });
 
   it("does not read image eligibility for an advisory joined before the tick", async () => {
@@ -328,7 +369,7 @@ describe("producer dispatch-loss reconciliation", () => {
         return true;
       },
     });
-    expect(result).toEqual({ attempts: [], errors: [] });
+    expect(result).toEqual({ attempts: [], settled: 0, errors: [] });
     expect(eligibilityReads).toBe(0);
   });
 
@@ -349,7 +390,7 @@ describe("producer dispatch-loss reconciliation", () => {
       }),
     });
     if (result.attempts.length) reconcileCalls += result.attempts.length;
-    expect(result).toEqual({ attempts: [], errors: [] });
+    expect(result).toEqual({ attempts: [], settled: 0, errors: [] });
     expect(reconcileCalls).toBe(0);
   });
 
@@ -658,7 +699,7 @@ describe("producer dispatch-loss reconciliation", () => {
         }),
         readProducerImageEligibility: async () => true,
       });
-      expect(result).toEqual({ attempts: [], errors: [] });
+      expect(result).toEqual({ attempts: [], settled: 0, errors: [] });
     },
   );
 
@@ -677,7 +718,7 @@ describe("producer dispatch-loss reconciliation", () => {
       }),
       readProducerImageEligibility: async () => false,
     });
-    expect(result).toEqual({ attempts: [], errors: [] });
+    expect(result).toEqual({ attempts: [], settled: 0, errors: [] });
   });
 
   it.each([
@@ -954,7 +995,7 @@ describe("producer dispatch-loss reconciliation", () => {
         decision: { enabled: true },
       }),
     });
-    expect(result).toEqual({ attempts: [], errors: ["advisory_identity_invalid"] });
+    expect(result).toEqual({ attempts: [], settled: 0, errors: ["advisory_identity_invalid"] });
     const pending = await inventoryMergeQualificationProducerAttempts({
       repository: "chase-sets/chase-sets",
       now: () => now,
@@ -968,7 +1009,7 @@ describe("producer dispatch-loss reconciliation", () => {
         decision: { enabled: true },
       }),
     });
-    expect(pending).toEqual({ attempts: [], errors: [] });
+    expect(pending).toEqual({ attempts: [], settled: 0, errors: [] });
     const foreign = await inventoryMergeQualificationProducerAttempts({
       repository: "chase-sets/chase-sets",
       now: () => now,

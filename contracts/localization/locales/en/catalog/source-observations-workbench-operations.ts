@@ -98,6 +98,8 @@ export const catalogSourceObservationsWorkbenchOperationsEnglishTranslations = {
     "Choose a durable import job before retrying, resuming, or cancelling it.",
   "catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.lifecycle.conflict":
     "The lifecycle command was blocked by active jobs, references, or profile state. Review lifecycle recovery evidence before retrying.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.candidate.stale":
+    "The merge candidate changed after this page loaded it, so nothing was saved. Review the candidate as it is now and try again.",
   "catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.preview.description":
     "Promotion preview is ready for the current provider, scope, filters, and selection checkpoint.",
   "catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.preview.required":
@@ -670,6 +672,8 @@ export const catalogSourceObservationsWorkbenchOperationsEnglishTranslations = {
     "Scoped to {scope}: only the {count} eligible observation(s) here are promoted.",
   "catalog.features.sourceObservations.ui.primaryWorkbench.stage.create.promoteScope.title":
     "Promote all eligible in this scope",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.stage.create.receipt.emptyString": "Empty string",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.stage.create.receipt.notReturned": "Not returned",
   "catalog.features.sourceObservations.ui.primaryWorkbench.stage.create.scoped.badge": "Scoped",
   "catalog.features.sourceObservations.ui.primaryWorkbench.stage.create.summary":
     "{count} Catalog Item(s) created or updated.",

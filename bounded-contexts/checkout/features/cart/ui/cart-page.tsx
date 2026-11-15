@@ -1,4 +1,4 @@
-import { useEffect, useMemo, type ReactNode } from "react";
+import { useEffect, useMemo } from "react";
 import { formatLanguageCodeLabel, formatMoney, t } from "@chase-sets/localization";
 import { centsToSignedMoneyAmount, trySignedMoneyToCents } from "@chase-sets/primitives/money";
 import {
@@ -32,7 +32,12 @@ import {
   Text,
   productOptionsFromSummary,
 } from "@chase-sets/design-system";
-import { type CartReadinessDecisionInput, type CartReadinessRead, type CartReadinessSnapshot } from "../api/contracts";
+import {
+  type CartReadinessDecisionInput,
+  type CartReadinessLinePresentation,
+  type CartReadinessRead,
+  type CartReadinessSnapshot,
+} from "../api/contracts";
 import type { CheckoutCartLine } from "./contracts";
 import {
   useOptimisticCartMutationConsistency,
@@ -44,6 +49,8 @@ type CheckoutCartLineGroup = CheckoutCartLine & {
   groupKey: string;
   lineIds: readonly string[];
   sourceQuantity: number;
+  presentation: CartReadinessLinePresentation | null;
+  presentationQuantity: number;
 };
 
 type CartRecoveryState = Readonly<
@@ -63,21 +70,50 @@ type CartRecoveryState = Readonly<
 const CART_ITEM_FALLBACK_IMAGE_URL = "/fake-cdn/assets/pokemon-card-back.png";
 const BUY_READINESS_ROUTE = "/checkout/buy/readiness";
 
-function cartLineGroupKey(line: CheckoutCartLine) {
+function cartLinePresentationKey(line: CheckoutCartLine, presentation: CartReadinessLinePresentation | null) {
+  if (!presentation) {
+    return "no-read";
+  }
+
+  const price = presentation.price;
+  const quantity = Math.max(1, Number(line.quantity) || 1);
+  const amountMinor = price ? trySignedMoneyToCents(price.amount) : null;
+  const normalizedPrice =
+    price && amountMinor !== null && amountMinor % BigInt(quantity) === 0n
+      ? { state: price.state, currency: price.currency, unitAmountMinor: String(amountMinor / BigInt(quantity)) }
+      : price
+        ? { state: price.state, currency: price.currency, amount: price.amount }
+        : null;
+
+  return JSON.stringify({
+    reason: presentation.reason,
+    fulfillmentAvailable: presentation.fulfillmentAvailable,
+    listingId: presentation.listingId,
+    price: normalizedPrice,
+  });
+}
+
+function cartLineGroupKey(line: CheckoutCartLine, presentation: CartReadinessLinePresentation | null) {
   return [
     line.catalog_catalog_item_id,
     line.product_id,
     line.fulfillment_mode,
     line.locked_listing_id ?? "",
     line.seller_preference_id ?? "",
+    cartLinePresentationKey(line, presentation),
   ].join(":");
 }
 
-function groupCartLines(cartLines: readonly CheckoutCartLine[]): CheckoutCartLineGroup[] {
+function groupCartLines(
+  cartLines: readonly CheckoutCartLine[],
+  linePresentations: readonly CartReadinessLinePresentation[] = [],
+): CheckoutCartLineGroup[] {
   const grouped = new Map<string, CheckoutCartLineGroup>();
+  const presentationByLineId = new Map(linePresentations.map((presentation) => [presentation.lineId, presentation]));
 
   for (const line of cartLines) {
-    const key = cartLineGroupKey(line);
+    const presentation = presentationByLineId.get(line.line_id) ?? null;
+    const key = cartLineGroupKey(line, presentation);
     const existing = grouped.get(key);
 
     if (!existing) {
@@ -86,6 +122,8 @@ function groupCartLines(cartLines: readonly CheckoutCartLine[]): CheckoutCartLin
         groupKey: key,
         lineIds: [line.line_id],
         sourceQuantity: line.quantity,
+        presentation,
+        presentationQuantity: line.quantity,
       });
       continue;
     }
@@ -95,6 +133,8 @@ function groupCartLines(cartLines: readonly CheckoutCartLine[]): CheckoutCartLin
       quantity: existing.quantity + line.quantity,
       sourceQuantity: existing.sourceQuantity + line.quantity,
       lineIds: [...existing.lineIds, line.line_id],
+      presentation: mergeLinePresentations(existing.presentation, presentation),
+      presentationQuantity: existing.presentationQuantity + line.quantity,
       seller_options: mergeSellerOptions(existing.seller_options, line.seller_options),
       ...selectedListingSnapshotFields(existing.selected_listing_id ? existing : line),
       updated_at:
@@ -109,6 +149,32 @@ function groupCartLines(cartLines: readonly CheckoutCartLine[]): CheckoutCartLin
       new Date(right.updated_at).getTime() - new Date(left.updated_at).getTime() ||
       left.line_id.localeCompare(right.line_id),
   );
+}
+
+function mergeLinePresentations(
+  left: CartReadinessLinePresentation | null,
+  right: CartReadinessLinePresentation | null,
+): CartReadinessLinePresentation | null {
+  if (!left || !right || !left.price || !right.price) {
+    return left ?? right;
+  }
+  const leftAmount = trySignedMoneyToCents(left.price.amount);
+  const rightAmount = trySignedMoneyToCents(right.price.amount);
+  if (
+    leftAmount === null ||
+    rightAmount === null ||
+    left.price.state !== right.price.state ||
+    left.price.currency !== right.price.currency
+  ) {
+    return left;
+  }
+  return {
+    ...left,
+    price: {
+      ...left.price,
+      amount: centsToSignedMoneyAmount(leftAmount + rightAmount),
+    },
+  };
 }
 
 function mergeSellerOptions(left: CheckoutCartLine["seller_options"], right: CheckoutCartLine["seller_options"]) {
@@ -155,144 +221,85 @@ function selectedListingSnapshotFields(
   };
 }
 
-type CartListingMoney = Readonly<{ amountMinor: bigint; currency: string }>;
-
-function listingMoney(
-  priceAmount: string | null | undefined,
-  priceCurrencyCode: string | null | undefined,
-  listingStreamVersion: number | null | undefined,
-): CartListingMoney | null {
-  const amountMinor = trySignedMoneyToCents(priceAmount ?? "");
-  if (
-    amountMinor === null ||
-    amountMinor < 0n ||
-    !/^[A-Z]{3}$/.test(priceCurrencyCode ?? "") ||
-    !Number.isInteger(listingStreamVersion) ||
-    Number(listingStreamVersion) <= 0
-  ) {
+function optimisticLinePrice(line: CheckoutCartLineGroup): CartReadinessLinePresentation["price"] {
+  const price = line.presentation?.price;
+  if (!price || price.state !== "indicative" || line.presentationQuantity < 1) {
     return null;
   }
-
-  return { amountMinor, currency: priceCurrencyCode as string };
+  const amountMinor = trySignedMoneyToCents(price.amount);
+  const sourceQuantity = BigInt(line.presentationQuantity);
+  if (amountMinor === null || amountMinor % sourceQuantity !== 0n) {
+    return null;
+  }
+  return {
+    ...price,
+    amount: centsToSignedMoneyAmount((amountMinor / sourceQuantity) * BigInt(line.quantity)),
+  };
 }
 
-function sellerOptionMoney(option: CheckoutCartLine["seller_options"][number] | null | undefined) {
-  return option ? listingMoney(option.price_amount, option.price_currency_code, option.listing_stream_version) : null;
-}
+function optimisticIndicativeSubtotal(
+  lines: readonly CheckoutCartLineGroup[],
+): { amount: string; currency: string } | null {
+  let currency: string | null = null;
+  let amountMinor = 0n;
 
-function selectedUnitMoney(line: CheckoutCartLineGroup, listingId: string | null): CartListingMoney | null {
-  if (line.locked_listing_id) {
-    const selected = line.seller_options.find((option) => option.listing_id === line.locked_listing_id);
-    const selectedMoney = sellerOptionMoney(selected);
-    if (selectedMoney) {
-      return selectedMoney;
+  for (const line of lines) {
+    const price = line.presentation?.price;
+    if (!price || price.state !== "indicative" || line.presentationQuantity < 1) {
+      return null;
     }
 
-    if (line.selected_listing_id === line.locked_listing_id) {
-      return listingMoney(
-        line.selected_listing_price_amount,
-        line.selected_listing_price_currency_code,
-        line.selected_listing_stream_version,
-      );
+    const unitAmountMinor = trySignedMoneyToCents(price.amount);
+    if (unitAmountMinor === null || unitAmountMinor < 0n) {
+      return null;
     }
-
-    return null;
+    const divisor = BigInt(line.presentationQuantity);
+    if (unitAmountMinor % divisor !== 0n) {
+      return null;
+    }
+    if (currency === null) {
+      currency = price.currency;
+    } else if (currency !== price.currency) {
+      return null;
+    }
+    amountMinor += (unitAmountMinor / divisor) * BigInt(line.quantity);
   }
 
-  return sellerOptionMoney(findSellerOption(line, listingId));
-}
-
-function hasKnownLinePrice(line: CheckoutCartLineGroup, listingId: string | null) {
-  return selectedUnitMoney(line, listingId) !== null;
-}
-
-// A locked listing is pinned, so its price is a charge-grade `exact` value. An
-// `optimize` line resolves its final listing under Smart Match at checkout, so
-// its known floor is surfaced as an `indicative` `from <amount>`. A line with no
-// priced options defers to a single quiet `Priced at checkout` statement.
-function linePriceState(line: CheckoutCartLineGroup, listingId: string | null): "exact" | "indicative" | "deferred" {
-  if (!hasKnownLinePrice(line, listingId)) {
-    return "deferred";
-  }
-
-  return line.fulfillment_mode === "locked-listing" && line.locked_listing_id ? "exact" : "indicative";
-}
-
-function linePrice(line: CheckoutCartLineGroup, listingId: string | null): ReactNode {
-  const unitMoney = selectedUnitMoney(line, listingId);
-  if (!unitMoney) {
-    return null;
-  }
-
-  return formatMoney(centsToSignedMoneyAmount(unitMoney.amountMinor * BigInt(line.quantity)), unitMoney.currency);
+  return currency === null ? null : { amount: centsToSignedMoneyAmount(amountMinor), currency };
 }
 
 function marketRecoveryHref(itemTitle: string) {
   return `/search?q=${encodeURIComponent(itemTitle)}`;
 }
 
-function hasFulfillmentPath(line: CheckoutCartLineGroup) {
-  if (line.availability_state !== "available") {
-    return false;
+function readinessLabel(line: CheckoutCartLineGroup, status: OptimisticCorrectionStatus) {
+  if (status === "pending") {
+    return t("checkout.features.cart.ui.cartPage.cart.update.pending");
   }
-
-  if (line.fulfillment_mode === "locked-listing") {
-    const selected = findSellerOption(line, line.locked_listing_id);
-    return selected ? sellerOptionCanFulfill(selected, line.quantity) : false;
+  switch (line.presentation?.reason) {
+    case "unavailable":
+      return t("checkout.features.cart.ui.cartPage.unavailable");
+    case "waiting-for-supply":
+      return t("checkout.features.cart.ui.cartPage.waiting.for.supply");
+    case "changed":
+    case "currency-mismatch":
+      return t("checkout.features.cart.ui.cartPage.needs.review");
+    case "shipping-measure-missing":
+      return t("checkout.features.cart.ui.cartPage.shipping.measure.missing");
+    case "unassigned-fulfillment":
+      return t("checkout.features.cart.ui.cartPage.needs.fulfillment");
+    case "ready":
+      return t("checkout.features.cart.ui.cartPage.ready");
+    default:
+      return t("checkout.features.cart.ui.cartPage.needs.review");
   }
-
-  return lineHasMeasuredPricedSupply(line);
 }
 
-function lockedListingIsWaitingForSupply(line: CheckoutCartLineGroup) {
-  return (
-    line.fulfillment_mode === "locked-listing" && Boolean(line.locked_listing_id) && line.seller_options.length === 0
-  );
-}
-
-function lockedListingChanged(line: CheckoutCartLineGroup) {
-  return (
-    line.fulfillment_mode === "locked-listing" &&
-    Boolean(line.locked_listing_id) &&
-    line.seller_options.length > 0 &&
-    findSellerOption(line, line.locked_listing_id) === null
-  );
-}
-
-function readinessLabel(line: CheckoutCartLineGroup) {
-  if (line.availability_state === "unavailable") {
-    return t("checkout.features.cart.ui.cartPage.unavailable");
+function readinessTone(line: CheckoutCartLineGroup, status: OptimisticCorrectionStatus) {
+  if (status === "pending") {
+    return "neutral";
   }
-
-  if (line.availability_state === "waiting-for-supply") {
-    return t("checkout.features.cart.ui.cartPage.waiting.for.supply");
-  }
-
-  if (line.availability_state === "changed") {
-    return t("checkout.features.cart.ui.cartPage.needs.review");
-  }
-
-  if (lockedListingIsWaitingForSupply(line)) {
-    return t("checkout.features.cart.ui.cartPage.waiting.for.supply");
-  }
-
-  if (lockedListingChanged(line)) {
-    return t("checkout.features.cart.ui.cartPage.needs.review");
-  }
-
-  if (lineHasMissingShippingMeasure(line)) {
-    return t("checkout.features.cart.ui.cartPage.shipping.measure.missing");
-  }
-
-  if (!hasFulfillmentPath(line)) {
-    return t("checkout.features.cart.ui.cartPage.needs.fulfillment");
-  }
-
-  return t("checkout.features.cart.ui.cartPage.ready");
-}
-
-function readinessTone(line: CheckoutCartLineGroup) {
-  return hasFulfillmentPath(line) ? "success" : "warning";
+  return line.presentation?.reason === "ready" && line.presentation.fulfillmentAvailable ? "success" : "warning";
 }
 
 function renderLineOptions(line: CheckoutCartLineGroup) {
@@ -320,57 +327,6 @@ function findSellerOption(line: CheckoutCartLineGroup, listingId: string | null)
   }
 
   return line.seller_options.find((option) => option.listing_id === listingId) ?? null;
-}
-
-function sellerOptionCanFulfill(option: CheckoutCartSellerOption, quantity: number) {
-  return sellerOptionHasPricedQuantity(option, quantity) && sellerOptionHasProductMeasure(option);
-}
-
-function sellerOptionHasPricedAvailability(option: CheckoutCartSellerOption) {
-  return option.available_quantity > 0 && sellerOptionMoney(option) !== null;
-}
-
-function sellerOptionHasPricedQuantity(option: CheckoutCartSellerOption, quantity: number) {
-  return option.available_quantity >= quantity && sellerOptionMoney(option) !== null;
-}
-
-function sellerOptionHasProductMeasure(option: CheckoutCartSellerOption) {
-  return typeof option.product_measure_snapshot === "object" && option.product_measure_snapshot !== null;
-}
-
-function aggregateSellerOptionQuantity(
-  line: CheckoutCartLineGroup,
-  predicate: (option: CheckoutCartSellerOption) => boolean,
-) {
-  return line.seller_options.reduce((sum, option) => (predicate(option) ? sum + option.available_quantity : sum), 0);
-}
-
-function lineHasPricedSupply(line: CheckoutCartLineGroup) {
-  return aggregateSellerOptionQuantity(line, sellerOptionHasPricedAvailability) >= line.quantity;
-}
-
-function lineHasMeasuredPricedSupply(line: CheckoutCartLineGroup) {
-  return (
-    aggregateSellerOptionQuantity(
-      line,
-      (option) => sellerOptionHasPricedAvailability(option) && sellerOptionHasProductMeasure(option),
-    ) >= line.quantity
-  );
-}
-
-function lineHasMissingShippingMeasure(line: CheckoutCartLineGroup) {
-  if (line.availability_state !== "available") {
-    return false;
-  }
-
-  if (line.fulfillment_mode === "locked-listing") {
-    const selected = findSellerOption(line, line.locked_listing_id);
-    return selected
-      ? sellerOptionHasPricedQuantity(selected, line.quantity) && !sellerOptionHasProductMeasure(selected)
-      : false;
-  }
-
-  return lineHasPricedSupply(line) && !lineHasMeasuredPricedSupply(line);
 }
 
 function selectedListingSnapshotSeller(line: CheckoutCartLineGroup, listingId: string | null) {
@@ -464,8 +420,9 @@ function ListingPreferenceStatus({ line }: { line: CheckoutCartLineGroup }) {
   );
 }
 
-function LinePrice({ line, listingId }: { line: CheckoutCartLineGroup; listingId: string | null }) {
-  const state = linePriceState(line, listingId);
+function LinePrice({ line, status }: { line: CheckoutCartLineGroup; status: OptimisticCorrectionStatus }) {
+  const price = status === "pending" ? optimisticLinePrice(line) : line.presentation?.price;
+  const state = price?.state ?? "deferred";
 
   if (state === "deferred") {
     return (
@@ -482,7 +439,7 @@ function LinePrice({ line, listingId }: { line: CheckoutCartLineGroup; listingId
           {t("checkout.features.cart.ui.cartPage.from")}
         </Text>
       ) : null}
-      <Text weight="semibold">{linePrice(line, listingId)}</Text>
+      <Text weight="semibold">{price ? formatMoney(price.amount, price.currency) : null}</Text>
     </Inline>
   );
 }
@@ -572,11 +529,12 @@ function CartLineActions({
       </Button>
     ) : null;
 
-  const alternativesAction = !hasFulfillmentPath(line) ? (
-    <LinkButton href={marketRecoveryHref(line.item_title)} tone="secondary" size="sm" block>
-      {t("checkout.features.cart.ui.cartPage.find.alternatives")}
-    </LinkButton>
-  ) : null;
+  const alternativesAction =
+    line.presentation?.fulfillmentAvailable === false ? (
+      <LinkButton href={marketRecoveryHref(line.item_title)} tone="secondary" size="sm" block>
+        {t("checkout.features.cart.ui.cartPage.find.alternatives")}
+      </LinkButton>
+    ) : null;
 
   const removeAction = (
     <DestructiveAction
@@ -640,15 +598,15 @@ function CartLineRow({
           {line.item_language_code ? (
             <Badge tone="neutral">{formatLanguageCodeLabel(line.item_language_code)}</Badge>
           ) : null}
-          <Badge tone={readinessTone(line)}>{readinessLabel(line)}</Badge>
+          <Badge tone={readinessTone(line, status)}>{readinessLabel(line, status)}</Badge>
         </Inline>
       }
       productSummary={
         <Stack gap={2}>
           {renderLineOptions(line)}
           <ListingPreferenceStatus line={line} />
-          <SellerReputation option={selectedListingSellerOption(line, listingId)} />
-          <LinePrice line={line} listingId={listingId} />
+          <SellerReputation option={selectedListingSellerOption(line, line.presentation?.listingId ?? listingId)} />
+          <LinePrice line={line} status={status} />
         </Stack>
       }
       quantityControl={
@@ -814,6 +772,11 @@ function CartAttemptNotice({
   );
 }
 
+function hasCompleteLinePresentations(cartLines: readonly CheckoutCartLine[], snapshot: CartReadinessSnapshot) {
+  const answeredLineIds = new Set((snapshot.linePresentations ?? []).map((presentation) => presentation.lineId));
+  return cartLines.every((line) => answeredLineIds.has(line.line_id));
+}
+
 export function CheckoutCartPage({
   cartLines,
   readiness: providedReadiness,
@@ -827,14 +790,23 @@ export function CheckoutCartPage({
   recoveryState?: CartRecoveryState | null;
   attemptState?: CartAttemptState | null;
 }) {
-  const sourceCartLineGroups = useMemo(() => groupCartLines(cartLines), [cartLines]);
+  const sourceCartLineGroups = useMemo(
+    () => groupCartLines(cartLines, providedReadiness?.loaded.linePresentations ?? []),
+    [cartLines, providedReadiness],
+  );
   const cartMutations = useOptimisticCartMutationConsistency({ sourceCartLineGroups });
   const visibleAttempt = cartMutations.attemptState ?? attemptState ?? null;
   const cartLineGroups = cartMutations.cartLineGroups;
   const hasPendingOptimisticMutation = sourceCartLineGroups.some(
     (line) => cartMutations.statusForLine(line) !== "idle",
   );
-  const readiness = providedReadiness && !hasPendingOptimisticMutation ? providedReadiness : null;
+  const readiness =
+    providedReadiness &&
+    !hasPendingOptimisticMutation &&
+    hasCompleteLinePresentations(cartLines, providedReadiness.loaded) &&
+    hasCompleteLinePresentations(cartLines, providedReadiness.declined)
+      ? providedReadiness
+      : null;
   const visibleErrorMessage = cartMutations.errorMessage ?? errorMessage;
   const cartLineCount = cartLineGroups.reduce((sum, line) => sum + line.quantity, 0);
   const checkoutReadinessSnapshot = readiness?.declined ?? null;
@@ -851,7 +823,9 @@ export function CheckoutCartPage({
         }
       : null;
   const blockedLineCount = readiness?.blockedLineCount ?? 0;
-  const estimatedSubtotal = readiness?.estimatedSubtotal ?? null;
+  const estimatedSubtotal =
+    readiness?.estimatedSubtotal ??
+    (hasPendingOptimisticMutation ? optimisticIndicativeSubtotal(cartLineGroups) : null);
   const hasKnownTotal = estimatedSubtotal !== null;
   const estimatedTotal = estimatedSubtotal
     ? formatMoney(estimatedSubtotal.amount, estimatedSubtotal.currency)
@@ -866,7 +840,7 @@ export function CheckoutCartPage({
       } satisfies CartReadinessDecisionInput)
     : null;
   const acceptedOptimization =
-    readiness?.accepted && acceptedOptimizationDecision
+    readiness?.accepted && acceptedOptimizationDecision && hasCompleteLinePresentations(cartLines, readiness.accepted)
       ? { decisions: acceptedOptimizationDecision, snapshot: readiness.accepted }
       : null;
   const cartReady = Boolean(readiness && cartLineGroups.length > 0 && checkoutReadinessSnapshot?.status === "ready");
@@ -1029,7 +1003,11 @@ export function CheckoutCartPage({
                   <CartLineRow
                     key={line.line_id}
                     line={line}
-                    listingId={providedReadiness?.lineListingIds[line.line_id] ?? null}
+                    listingId={
+                      readiness
+                        ? (line.presentation?.listingId ?? readiness.lineListingIds[line.line_id] ?? null)
+                        : null
+                    }
                     status={cartMutations.statusForLine(line)}
                     disabled={cartMutations.actionsDisabled}
                     onQuantityChange={cartMutations.setQuantity}

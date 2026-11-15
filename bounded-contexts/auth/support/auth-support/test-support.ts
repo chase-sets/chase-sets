@@ -73,7 +73,6 @@ export function createAuthServicesFake(overrides: AuthServicesFakeOverrides = {}
       getUser: vi.fn(async () => ({ user_id: resolvedSession.user_id, status: "active" })),
       getUserByEmail: vi.fn(async () => null),
       getUserByPhone: vi.fn(async () => null),
-      getUserBySocialLogin: vi.fn(async () => null),
       findPendingInvitationByEmail: vi.fn(async () => null),
       listActiveMembershipsForUser: vi.fn(async () => resolvedMemberships),
       getActiveMembershipForUserAccount: vi.fn(async () => resolvedMemberships[0] ?? null),

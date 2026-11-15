@@ -115,6 +115,8 @@ export type {
   MarketplaceLockedFeeListingCohortWeeklyPoint,
 } from "./features/listings/read-model/queries";
 export type { ManagedOfferPricing } from "./features/offers/api/managed-authority";
+export { createMarketplaceOfferRuntime } from "./features/offers/api/runtime";
+export { createManagedOfferWork } from "./features/offers/integrations/managed-work";
 export {
   MARKETPLACE_OFFER_LIFECYCLE_ANCHOR_EVENT_TYPE,
   MARKETPLACE_OFFER_LIFECYCLE_EVENT_TYPES,

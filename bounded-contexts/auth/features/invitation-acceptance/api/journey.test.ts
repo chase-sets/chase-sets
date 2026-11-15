@@ -5,7 +5,14 @@ import {
   createInternalSystemTestActor,
   createTestEventStoreContext,
 } from "@chase-sets/bounded-context-runtime/test-support";
+import { createInMemoryEventStore as createSessionEventStore } from "@chase-sets/event-core/test-support";
 import { createInMemoryEventStore } from "../../../../identity/tests/in-memory-event-store";
+import { createSessionRuntime } from "../../sessions/api/runtime";
+import { toSessionStreamId } from "../../sessions/domain/auth-flow";
+import {
+  SESSION_GENERATION_ADVANCED_EVENT_TYPE,
+  toUserSessionAuthorityStreamId,
+} from "../../sessions/domain/session-generation";
 import { ATTEMPT_STAGES } from "../domain/attempt";
 import { acceptInvitationAttempt, lookupInvitationAttempt } from "./journey";
 import { readAttempt } from "./attempt-store";
@@ -570,5 +577,80 @@ describe("invitation-acceptance-response-loss", () => {
     await expect(
       acceptInvitationAttempt(f.services, f.identity, { ...f.input, invitationId: "ivt_other" }, request, context),
     ).rejects.toThrow();
+  });
+});
+
+describe("invitation-acceptance-session-generation-guard", () => {
+  it("a guard-conflicted Session start leaves no Session or token and the replay starts one guarded Session", async () => {
+    const f = fixture("password", true);
+    const actual = await vi.importActual<typeof import("../../../support/runtime-support/services")>(
+      "../../../support/runtime-support/services",
+    );
+    start.mockImplementation(actual.startInteractiveAuth);
+    const sessionStore = createSessionEventStore();
+    const authorityStreamId = toUserSessionAuthorityStreamId("usr_existing");
+    let contending = true;
+    let generation = 0;
+    const sessions = createSessionRuntime({
+      eventStore: {
+        ...sessionStore.eventStore,
+        readStream: async (input) => {
+          const page = await sessionStore.eventStore.readStream(input);
+          if (contending && input.streamId === authorityStreamId) {
+            // A concurrent advance commits between this start's authority read and its guarded append.
+            await sessionStore.eventStore.appendToStream({
+              streamId: authorityStreamId,
+              expectedVersion: generation === 0 ? "no_stream" : generation,
+              context,
+              events: [
+                {
+                  eventType: SESSION_GENERATION_ADVANCED_EVENT_TYPE,
+                  payload: { userId: "usr_existing", sessionGeneration: (generation += 1) },
+                },
+              ],
+            });
+          }
+          return page;
+        },
+      },
+      checkpointStore: {} as never,
+      db: { query: vi.fn(async () => ({ rows: [] })) } as never,
+    });
+    const baseQuery = (f.services.db as unknown as { query: (sql: string, values?: unknown[]) => Promise<unknown> })
+      .query;
+    const tokenWrites: unknown[][] = [];
+    const query = vi.fn(async (sql: string, values: unknown[] = []) => {
+      if (sql.includes("FROM auth_identity_accounts")) return { rows: [{ account_id: "acc_invited" }] };
+      if (sql.includes("INSERT INTO identity_session_tokens")) tokenWrites.push(values);
+      return baseQuery(sql, values);
+    });
+    const services = {
+      ...f.services,
+      db: { query },
+      auth: { ...f.services.auth, issueOpaqueToken: () => "synthetic-guarded-session-secret" },
+      sessions,
+    } as unknown as AuthServices;
+
+    await expect(acceptInvitationAttempt(services, f.identity, f.input, request, context)).rejects.toMatchObject({
+      code: "concurrency_conflict",
+    });
+    const attempted = (await readAttempt(f.store, attemptId, context))!;
+    expect(attempted.stage).not.toBe("completed");
+    expect(await sessions.getSessionState(attempted.binding.sessionId)).toBeNull();
+    expect(sessionStore.streams.get(toSessionStreamId(attempted.binding.sessionId)) ?? []).toEqual([]);
+    expect(tokenWrites).toEqual([]);
+
+    contending = false;
+    const replayed = await acceptInvitationAttempt(services, f.identity, f.input, request, context);
+
+    expect(replayed.type).toBe("session-started");
+    expect(await sessions.getSessionState(attempted.binding.sessionId)).toMatchObject({
+      status: "active",
+      sessionGeneration: generation,
+    });
+    expect(generation).toBeGreaterThan(0);
+    expect(tokenWrites).toHaveLength(1);
+    expect(tokenWrites[0]?.[0]).toBe(attempted.binding.sessionId);
+    expect((await readAttempt(f.store, attemptId, context))?.stage).toBe("completed");
   });
 });

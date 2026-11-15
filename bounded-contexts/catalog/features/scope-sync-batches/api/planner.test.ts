@@ -18,7 +18,59 @@ import {
 } from "../../source-observations/api/providers/mtgjson/adapter";
 import { createTcgplayerProviderAdapter } from "../../source-observations/api/provider-adapters/tcgplayer";
 import { createTcgdexProviderAdapter } from "../../source-observations/api/providers/tcgdex/adapter";
-import { createScopeSyncBatchPlanner } from "./planner";
+import { createScopeSyncBatchPlanner, resolveScopeSyncCountMembership } from "./planner";
+import { assertScopeSyncBatchPreviewCurrent, ScopeSyncBatchStalePreviewError } from "../domain/batch";
+import { createScopeSyncBatchConfirmationCheck } from "./count-capture-planner";
+import {
+  captureCountQuery,
+  createCapturePlannerFixture,
+  createCaptureReaderFixture,
+} from "../tests/count-capture-planner-fixture";
+
+describe("accepted mapping SQL version boundary", () => {
+  it.each(["2026-10-10T05:18:47.195000Z", "2026-10-10T05:18:47.195123Z"])(
+    "preserves %s in membership, plan and JSON preview sample",
+    async (version) => {
+      const reader = createCaptureReaderFixture();
+      const f = createCapturePlannerFixture((kind) => reader.read(captureCountQuery(kind)), { value: version });
+      const membership = await resolveScopeSyncCountMembership(f.db, f.input.selection);
+      expect(membership.mappings.map((mapping) => mapping.updated_at)).toEqual([version, version, version]);
+      const result = await f.planner.resolve(f.input);
+      expect(result.plans[0]!.mappingVersions.map((mapping) => mapping.version)).toEqual([version, version, version]);
+      const json = JSON.parse(JSON.stringify(result.preview));
+      expect(json.samples[0].mappingVersions.map((mapping: { version: string }) => mapping.version)).toEqual([
+        version,
+        version,
+        version,
+      ]);
+    },
+  );
+
+  it.each(["2026-10-10T05:18:47.196000Z", "2026-10-10T05:18:47.195001Z"])(
+    "changes only mapping updated_at to %s and refuses the stale fingerprint",
+    async (changedVersion) => {
+      const mappingVersion = { value: "2026-10-10T05:18:47.195000Z" };
+      const reader = createCaptureReaderFixture();
+      const f = createCapturePlannerFixture((kind) => reader.read(captureCountQuery(kind)), mappingVersion);
+      const before = await f.planner.resolve(f.input);
+      const repeated = await f.planner.resolve(f.input);
+      expect(before.preview.confirmAllowed).toBe(true);
+      expect(repeated.preview.planFingerprint).toBe(before.preview.planFingerprint);
+      mappingVersion.value = changedVersion;
+      const after = await f.planner.resolve(f.input);
+      expect(after.preview.planFingerprint).not.toBe(before.preview.planFingerprint);
+      expect(() => assertScopeSyncBatchPreviewCurrent(before.preview.planFingerprint, after.preview)).toThrow(
+        ScopeSyncBatchStalePreviewError,
+      );
+      expect(
+        await createScopeSyncBatchConfirmationCheck(f.planner).preConfirmPlannerRead({
+          ...f.input,
+          planFingerprint: before.preview.planFingerprint,
+        }),
+      ).toMatchObject({ eligible: false, refusal: "scope_sync_batch_stale_preview" });
+    },
+  );
+});
 
 const timestamp = "2026-10-14T00:00:00.000Z";
 const selection = {
