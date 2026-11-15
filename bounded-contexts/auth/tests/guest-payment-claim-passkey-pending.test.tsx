@@ -6,9 +6,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { ChaseRoot } from "@chase-sets/design-system";
 
 const createPasskeyCredential = vi.hoisted(() => vi.fn());
-vi.mock("@chase-sets/auth/web", () => ({ createPasskeyCredential }));
+vi.mock("../support/ui-support/passkey-browser", () => ({ createPasskeyCredential }));
 
-import MarketplaceAccountPaymentRoute from "../routes/marketplace/account-payment";
+import MarketplaceAccountPaymentRoute from "../routes/marketplace/guest-payment-claim";
 
 const payment = {
   payment_id: "pay_pending",
@@ -88,7 +88,7 @@ describe.each(["normal completion", "assertion failure", "pending unmount"])(
       const router = createMemoryRouter(
         [
           {
-            path: "/account/payments/:paymentId",
+            path: "/checkout/claim/:paymentId",
             loader: () => guestData,
             action: async () => {
               posts += 1;
@@ -97,7 +97,7 @@ describe.each(["normal completion", "assertion failure", "pending unmount"])(
             element: <MarketplaceAccountPaymentRoute />,
           },
         ],
-        { initialEntries: ["/account/payments/pay_pending"] },
+        { initialEntries: ["/checkout/claim/pay_pending"] },
       );
       // Match the established guest-claim route harness: initialize the data
       // router before rendering the route component so the claim surface, not

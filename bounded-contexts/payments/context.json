@@ -9,7 +9,6 @@
   "allowedSupportDirectories": ["request-support", "runtime-support", "seed-support", "ucp-support", "ui-support"],
   "publicExports": [".", "./context", "./routes/*", "./seed-support/*", "./server", "./web"],
   "allowedContextDependencies": [
-    "@chase-sets/auth",
     "@chase-sets/customer-feedback",
     "@chase-sets/marketplace",
     "@chase-sets/ordering"
@@ -521,24 +520,6 @@
         }
       },
       "proof": {
-        "tests": ["bounded-contexts/payments/tests/guest-payment-claim-action.test.ts"]
-      }
-    },
-    {
-      "id": "payments.guest-claim-command-snapshots",
-      "owner": "payments",
-      "risk": "important",
-      "strategy": "snapshot-return",
-      "surfaces": [
-        "post-form:bounded-contexts/payments/routes/marketplace/account-payment.tsx:H02130cc2df9a#1",
-        "post-form:bounded-contexts/payments/routes/marketplace/account-payment.tsx:Hb08a81ecfd73#1",
-        "post-form:bounded-contexts/payments/routes/marketplace/account-payment.tsx:Hb08a81ecfd73#2"
-      ],
-      "visibleDestination": {
-        "description": "Guest claim forms on the payment detail page return Auth-owned inline token/session snapshots or browser-auth redirects; they do not mutate Payments state or rely on realtime payment correction."
-      },
-      "proof": {
-        "authoritativeResponse": "The route action reads the current payment before claim commands, then returns the Auth command result directly as action data or a browser authentication response without re-reading a Payments projection.",
         "tests": ["bounded-contexts/payments/tests/guest-payment-claim-action.test.ts"]
       }
     },

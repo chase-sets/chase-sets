@@ -17,6 +17,7 @@ const expectedHitsByFile = {
   "features/agent-grants/ui/agent-grant-detail-page.tsx": 6,
   "features/agent-grants/ui/agent-grant-list-page.tsx": 1,
   "features/invitation-acceptance/ui/invitation-acceptance-page.tsx": 4,
+  "features/registration/ui/guest-payment-claim-error-boundary.tsx": 5,
   "features/registration/ui/register-page.tsx": 7,
   "features/sessions/ui/session-detail-page.tsx": 4,
   "features/sessions/ui/session-list-page.tsx": 10,
@@ -139,7 +140,7 @@ describe("Auth human-readable values", () => {
     );
     const partition = hits.map((hit) => ({ ...hit, disposition: classify(hit) }));
 
-    expect(hits).toHaveLength(48);
+    expect(hits).toHaveLength(53);
     expect(counts).toEqual(expectedHitsByFile);
     expect(partition).toHaveLength(hits.length);
     expect(
@@ -155,6 +156,11 @@ describe("Auth human-readable values", () => {
     expect(
       partition.filter((hit) => hit.file === "routes/marketplace/invite.tsx").map((hit) => hit.disposition),
     ).toEqual(["MACHINE_ONLY", "MACHINE_ONLY"]);
+    expect(
+      partition
+        .filter((hit) => hit.file === "features/registration/ui/guest-payment-claim-error-boundary.tsx")
+        .map((hit) => hit.disposition),
+    ).toEqual(Array(5).fill("MACHINE_ONLY"));
     expect(
       partition.every((hit) => ["VISIBLE_LABEL", "MACHINE_ONLY", "OPERATOR_REFERENCE"].includes(hit.disposition)),
     ).toBe(true);

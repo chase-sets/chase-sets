@@ -280,26 +280,11 @@ export const paymentsEnglishTranslations = {
     "Sign in again to manage payment methods.",
   "payments.routes.marketplace.accountPaymentMethods.check.again": "Check again",
   "payments.routes.marketplace.accountPaymentMethods.reload": "Reload",
-  "payments.routes.marketplace.accountPayment.claim.token": "Claim token",
-  "payments.routes.marketplace.accountPayment.claim.token.entry.is.not.available":
-    "Claim token entry is not available here. Use the emailed link or request a new one.",
-  "payments.routes.marketplace.accountPayment.contact.name": "Contact name",
   "payments.routes.marketplace.accountPayment.continue.shopping": "Continue shopping",
   "payments.routes.marketplace.accountPayment.could.not.retry.payment": "Could not retry payment",
   "payments.routes.marketplace.accountPayment.could.not.retry.this.payment": "Could not retry this payment.",
-  "payments.routes.marketplace.accountPayment.could.not.save.order": "Could not save order",
-  "payments.routes.marketplace.accountPayment.could.not.save.this.order": "Could not save this order.",
-  "payments.routes.marketplace.accountPayment.email.me.a.claim.link": "Email me a claim link",
   "payments.routes.marketplace.accountPayment.link.unavailable": "Link unavailable",
-  "payments.routes.marketplace.accountPayment.local.recovery.token.in.production":
-    "Local recovery token. In production this arrives by email.",
-  "payments.routes.marketplace.accountPayment.other.options": "Other options",
-  "payments.routes.marketplace.accountPayment.passkey.registration.failed": "Passkey registration failed.",
-  "payments.routes.marketplace.accountPayment.passkey.unavailable": "Passkey unavailable",
-  "payments.routes.marketplace.accountPayment.password.setup.is.available.only.after":
-    "Password setup is available only after email verification or an authenticated session.",
   "payments.routes.marketplace.accountPayment.payment.link.expired": "Payment link expired",
-  "payments.routes.marketplace.accountPayment.recommended": "Recommended",
   "payments.routes.marketplace.accountPayment.refresh.payment": "Refresh payment",
   "payments.routes.marketplace.accountPayment.refresh.payment.in.a.moment":
     "Refresh this payment in a moment. Keep this page open so the original secure handoff can finish.",
@@ -308,10 +293,6 @@ export const paymentsEnglishTranslations = {
   "payments.routes.marketplace.accountPayment.return.to.your.cart.to.review":
     "Return to your Buy Cart to review your items and start checkout again. If you already completed payment, contact support with the email address you used at checkout.",
   "payments.routes.marketplace.accountPayment.save.this.order": "Save this order",
-  "payments.routes.marketplace.accountPayment.save.this.order.after.payment.with.a.passkey":
-    "Save this order after payment with a passkey. You can use an email link if this device cannot create one.",
-  "payments.routes.marketplace.accountPayment.save.with.passkey": "Save with passkey",
-  "payments.routes.marketplace.accountPayment.send.a.claim.link.to": "Send a claim link to {email}.",
   "payments.routes.marketplace.accountPayment.this.checkout.payment.link.is.no.longer":
     "This checkout payment link is no longer valid. Your payment was not charged from this link.",
   "payments.routes.marketplace.accountPayment.this.payment.cannot.be.retried": "This payment cannot be retried.",
@@ -322,10 +303,6 @@ export const paymentsEnglishTranslations = {
     "Review your Buy Cart or open your purchases to start another payment.",
   "payments.routes.marketplace.accountPayment.support.can.help.with.order.access":
     "Support can help recover order access if you already completed payment elsewhere.",
-  "payments.routes.marketplace.accountPayment.verify.email.and.save.order": "Verify email and save order",
-  "payments.routes.marketplace.accountPayment.we.will.save.this.order.to": "We will save this order to {email}.",
-  "payments.routes.marketplace.accountPayment.you.can.save.this.order.after.payment":
-    "You can save this order after payment is complete.",
   "payments.routes.marketplace.accountPayment.feedback.description":
     "Tell us how checkout and payment worked for this purchase.",
   "payments.routes.marketplace.accountPayment.feedback.title": "How was checkout?",

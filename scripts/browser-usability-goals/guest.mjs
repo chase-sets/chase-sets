@@ -5,7 +5,7 @@ export default {
     "^bounded-contexts/commercial-terms/routes/public/",
     "^bounded-contexts/discovery/routes/(search|set|item-detail|item-detail-market-history|public-account|public-listing)\\.tsx$",
     "^bounded-contexts/pricing/routes/marketplace/market-price-history\\.tsx$",
-    "^bounded-contexts/auth/routes/marketplace/(sign-in|sign-in-magic|register|invite|sign-out|guest-checkout-exit)\\.tsx$",
+    "^bounded-contexts/auth/routes/marketplace/(sign-in|sign-in-magic|register|invite|sign-out|guest-checkout-exit|guest-payment-claim)\\.tsx$",
     "^deployables/(marketplace|public-web)/app/routes/",
     "^bounded-contexts/discovery/routes/item-detail-rail-analytics\\.tsx$",
   ],
@@ -356,6 +356,14 @@ export default {
     {
       path: "bounded-contexts/auth/routes/marketplace/guest-checkout-exit.tsx",
       reason: "fixture-gap: no seeded guest checkout session to exit from",
+    },
+    {
+      path: "bounded-contexts/auth/routes/marketplace/guest-payment-claim.tsx",
+      reason: "fixture-gap: no seeded captured guest payment and claim token",
+    },
+    {
+      path: "deployables/marketplace/app/routes/guest-payment-claim.tsx",
+      reason: "fixture-gap: no seeded captured guest payment and claim token",
     },
     { path: "deployables/marketplace/app/routes/layout.tsx", reason: "layout-only" },
     { path: "deployables/marketplace/app/routes/not-found.tsx", reason: "error-page" },

@@ -1597,6 +1597,7 @@ function validateMutationConsistencyInventory(options) {
 function validateInventoryEntry(options) {
   const {
     context,
+    contextsByName,
     entry,
     index,
     freshnessRoutesByContext,
@@ -1747,13 +1748,14 @@ function validateInventoryEntry(options) {
     violations,
   });
 
+  const apiContext = contextsByName.get(destination.apiContextName);
   validateFreshnessRouteDependencies({
-    context: context,
-    contextLabel: `${context.root}/context.json`,
+    context: apiContext,
+    contextLabel: `${apiContext.root}/context.json`,
     apiRoutePathsByContext,
     projectionGroupsByContext,
     route: freshnessRoute.route,
-    routeLabel: `${context.root}/context.json readFreshnessRoutes ${destination.apiRoutePath}`,
+    routeLabel: `${apiContext.root}/context.json readFreshnessRoutes ${destination.apiRoutePath}`,
     tableOwnersByContext,
     violations,
   });
@@ -1816,6 +1818,7 @@ export async function validateReadAfterWriteRouteInventory(options) {
 
     const validatedEntry = validateInventoryEntry({
       context,
+      contextsByName: indexes.contextsByName,
       entry,
       index,
       freshnessRoutesByContext: indexes.freshnessRoutesByContext,
