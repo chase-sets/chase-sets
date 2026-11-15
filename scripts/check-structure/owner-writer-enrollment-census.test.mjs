@@ -2,14 +2,29 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { repoRoot } from "../lib/repo.mjs";
-import { discoverOwnerWriters, enrollmentErrors, ownerWriterSources } from "./owner-writer-enrollment-census.mjs";
+import {
+  discoverOwnerWriters,
+  enrollmentErrors,
+  ownerWriterSourcePaths,
+  ownerWriterSources,
+} from "./owner-writer-enrollment-census.mjs";
 
 const manifest = JSON.parse(
   readFileSync(path.join(repoRoot, "scripts/check-structure/owner-writer-enrollment.json"), "utf8"),
 );
+const sourcePaths = ownerWriterSourcePaths();
+const sourceScopes = Map.groupBy(sourcePaths, (file) => file.split("/").slice(0, 2).join("/"));
 describe("owner writer enrollment census", () => {
-  it("closes every append, handler and SQL writer discovered by owner dataflow", () => {
-    expect(enrollmentErrors(discoverOwnerWriters(ownerWriterSources()), manifest)).toEqual([]);
+  it.each([...sourceScopes])("closes every append, handler and SQL writer in %s", (_scope, files) => {
+    const selected = new Set(files);
+    expect(
+      enrollmentErrors(discoverOwnerWriters(ownerWriterSources(files)), {
+        writers: manifest.writers.filter((writer) => selected.has(writer.file)),
+      }),
+    ).toEqual([]);
+  });
+  it("covers every manifest writer in the complete discovered source inventory", () => {
+    expect(manifest.writers.filter((writer) => !sourcePaths.includes(writer.file))).toEqual([]);
   });
   it("enrolls the linked-platform principal admitted with listings.manage and every physical delegation SQL writer", () => {
     expect(manifest.keys).toContain("delegation/<delegationId>");
