@@ -284,7 +284,7 @@ const paymentSurfaceRootCounts = {
   "../features/payments/ui/account-payment/account-payment-page.tsx": 8,
   "../features/payments/ui/account-payment/stripe-setup-card.tsx": 1,
   "../features/payments/ui/account-payment/stripe-confirmation-card.tsx": 1,
-  "../routes/marketplace/account-payment.tsx": 1,
+  "../routes/marketplace/account-payment.tsx": 0,
   "../routes/marketplace/account-payment-new.tsx": 4,
   "../routes/marketplace/account-payment-methods.tsx": 1,
 } as const;
@@ -309,6 +309,28 @@ function expectSurfaceTreatment(anchor: HTMLElement, treatment: SurfaceTreatment
 }
 
 describe("marketplace account payment route", () => {
+  it.each(["captured", "pending-confirmation", "failed", "cancelled"])(
+    "offers only a claim link for captured guest payments: %s",
+    (status) => {
+      mockUseLoaderData.mockReturnValue({
+        payment: buildPayment({ status }),
+        orders: [],
+        isGuestCheckoutPayment: true,
+        guestClaimPath: "/checkout/claim/pay_1?afterWrite=kept",
+        paymentElementDefaultValues: null,
+      });
+      render(
+        <ChaseRoot>
+          <MarketplaceAccountPaymentRoute />
+        </ChaseRoot>,
+      );
+      const link = screen.queryByRole("link", { name: "Save this order" });
+      if (status === "captured") expect(link?.getAttribute("href")).toBe("/checkout/claim/pay_1?afterWrite=kept");
+      else expect(link).toBeNull();
+      expect(screen.queryByRole("button", { name: "Email me a claim link" })).toBeNull();
+      expect(screen.queryByRole("button", { name: "Save with passkey" })).toBeNull();
+    },
+  );
   beforeEach(() => {
     mockUseActionData.mockReturnValue(null);
     mockUseRevalidator.mockReturnValue({
@@ -480,40 +502,6 @@ describe("marketplace account payment route", () => {
     );
   });
 
-  it("raises the guest order claim host with its glow", () => {
-    mockUseLoaderData.mockReturnValue({
-      payment: buildPayment({
-        status: "captured",
-        processor_status: "succeeded",
-        captured_at: "2026-04-01T00:05:00.000Z",
-      }),
-      orders: [buildPurchase({ status: "paid" })],
-      isGuestCheckoutPayment: true,
-      guestClaimContext: {
-        accountId: "acc_guest",
-        paymentId: "pay_1",
-        contactEmail: "jane@example.com",
-        contactName: "Jane Smith",
-      },
-      showSupportDetails: false,
-      paymentElementDefaultValues: null,
-    });
-
-    render(
-      <ChaseRoot>
-        <MarketplaceAccountPaymentRoute />
-      </ChaseRoot>,
-    );
-
-    expectSurfaceTreatment(
-      screen.getByText(
-        "Save this order after payment with a passkey. You can use an email link if this device cannot create one.",
-      ),
-      "elevated",
-      true,
-    );
-  });
-
   it("does not render the retired checkout-payment feedback prompt for any payment status", () => {
     for (const status of ["pending-confirmation", "failed", "cancelled", "captured"]) {
       cleanup();
@@ -674,78 +662,6 @@ describe("marketplace account payment route", () => {
 
     expect(screen.getAllByText("The secure processor could not complete this payment.").length).toBeGreaterThan(0);
     expect(screen.getAllByRole("button", { name: "Retry payment" }).length).toBeGreaterThan(0);
-  });
-
-  it("does not render manual guest claim token entry when no gated local token is present", () => {
-    mockUseActionData.mockReturnValue({
-      status: "claim-link-sent",
-      token: null,
-      expiresAt: "2026-05-04T16:00:00.000Z",
-      displayName: "Jane Smith",
-    });
-    mockUseLoaderData.mockReturnValue({
-      payment: buildPayment({
-        status: "captured",
-        processor_status: "succeeded",
-        captured_at: "2026-04-01T00:05:00.000Z",
-      }),
-      orders: [buildPurchase({ status: "paid" })],
-      isGuestCheckoutPayment: true,
-      guestClaimContext: {
-        accountId: "acc_guest",
-        paymentId: "pay_1",
-        contactEmail: "jane@example.com",
-        contactName: "Jane Smith",
-      },
-      showSupportDetails: false,
-      paymentElementDefaultValues: null,
-    });
-
-    render(
-      <ChaseRoot>
-        <MarketplaceAccountPaymentRoute />
-      </ChaseRoot>,
-    );
-
-    expect(screen.getByText("Save this order")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Email me a claim link" })).toBeTruthy();
-    expect(screen.queryByLabelText("Claim token")).toBeNull();
-    expect(screen.queryByText("Local recovery token. In production this arrives by email.")).toBeNull();
-  });
-
-  it("renders manual guest claim token entry only when action data carries a gated local token", () => {
-    mockUseActionData.mockReturnValue({
-      status: "claim-link-sent",
-      token: "magic_token",
-      expiresAt: "2026-05-04T16:00:00.000Z",
-      displayName: "Jane Smith",
-    });
-    mockUseLoaderData.mockReturnValue({
-      payment: buildPayment({
-        status: "captured",
-        processor_status: "succeeded",
-        captured_at: "2026-04-01T00:05:00.000Z",
-      }),
-      orders: [buildPurchase({ status: "paid" })],
-      isGuestCheckoutPayment: true,
-      guestClaimContext: {
-        accountId: "acc_guest",
-        paymentId: "pay_1",
-        contactEmail: "jane@example.com",
-        contactName: "Jane Smith",
-      },
-      showSupportDetails: false,
-      paymentElementDefaultValues: null,
-    });
-
-    render(
-      <ChaseRoot>
-        <MarketplaceAccountPaymentRoute />
-      </ChaseRoot>,
-    );
-
-    expect(screen.getByLabelText("Claim token")).toHaveProperty("value", "magic_token");
-    expect(screen.getByText("Local recovery token. In production this arrives by email.")).toBeTruthy();
   });
 
   it("confirms a pending Stripe payment and revalidates afterward", async () => {

@@ -11,6 +11,30 @@ import type { AuthServices } from "../runtime-support/services";
 import { AUTH_GUEST_CHECKOUT_PERMISSIONS, AUTH_GUEST_CHECKOUT_ROLE_KEY } from "../runtime-support/runtime";
 import { registerGuestCheckoutRoutes } from "./guest-checkout-routes";
 import type { AuthApiEnv } from "./support";
+import { readFileSync } from "node:fs";
+import { runInNewContext } from "node:vm";
+import ts from "@chase-sets/typescript-compiler-api";
+
+it("pins the stable issued-link builder and rejects the new-URL builder mutant", () => {
+  const source = readFileSync(new URL("./guest-checkout-routes.ts", import.meta.url), "utf8");
+  const parsed = ts.createSourceFile("guest-checkout-routes.ts", source, ts.ScriptTarget.Latest, true);
+  const builder = parsed.statements.find(
+    (node) => ts.isFunctionDeclaration(node) && node.name?.text === "buildClaimContinuationLink",
+  );
+  if (!builder) throw new Error("Missing claim continuation link builder.");
+  const execute = (text: string): unknown =>
+    runInNewContext(
+      ts.transpileModule(text, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None } })
+        .outputText + '; buildClaimContinuationLink("https://marketplace.test", "pay_1", "issued");',
+      { URL, encodeURIComponent },
+    );
+  const assertCompatible = (url: unknown) =>
+    expect(url).toBe("https://marketplace.test/checkout/payments/pay_1?claimContinuation=issued");
+  assertCompatible(execute(builder.getText(parsed)));
+  expect(() =>
+    assertCompatible(execute(builder.getText(parsed).replace("/checkout/payments/", "/checkout/claim/"))),
+  ).toThrow();
+});
 
 const {
   mockClaimGuestAccount,

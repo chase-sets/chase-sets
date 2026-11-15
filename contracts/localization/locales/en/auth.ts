@@ -392,4 +392,57 @@ export const authEnglishTranslations = {
   "auth.values.family.sessionStatus": "Session status",
   "auth.values.unrecognized": "Unrecognized {family}",
   "auth.values.unrecognized.withValue": "Unrecognized {family}: {value}",
+  "auth.routes.marketplace.guestPaymentClaim.back.to.purchases": "Back to purchases",
+  "auth.routes.marketplace.guestPaymentClaim.payment.marketplace": "Payment | Marketplace",
+  "auth.routes.marketplace.guestPaymentClaim.payment.has.not.started": "Your payment has not started.",
+  "auth.routes.marketplace.guestPaymentClaim.payment.not.found": "Payment not found.",
+  "auth.routes.marketplace.guestPaymentClaim.payment.not.found.description":
+    "We could not find this payment. It may have expired, moved to another account, or already been replaced.",
+  "auth.routes.marketplace.guestPaymentClaim.payment.preparing": "Preparing payment",
+  "auth.routes.marketplace.guestPaymentClaim.payment.preparing.description":
+    "We are getting your secure payment ready. Refresh in a moment and your payment details should appear.",
+  "auth.routes.marketplace.guestPaymentClaim.secure.checkout": "Secure Checkout",
+  "auth.routes.marketplace.guestPaymentClaim.claim.token": "Claim token",
+  "auth.routes.marketplace.guestPaymentClaim.claim.token.entry.is.not.available":
+    "Claim token entry is not available here. Use the emailed link or request a new one.",
+  "auth.routes.marketplace.guestPaymentClaim.contact.name": "Contact name",
+  "auth.routes.marketplace.guestPaymentClaim.continue.shopping": "Continue shopping",
+  "auth.routes.marketplace.guestPaymentClaim.could.not.save.order": "Could not save order",
+  "auth.routes.marketplace.guestPaymentClaim.could.not.save.this.order": "Could not save this order.",
+  "auth.routes.marketplace.guestPaymentClaim.email.me.a.claim.link": "Email me a claim link",
+  "auth.routes.marketplace.guestPaymentClaim.link.unavailable": "Link unavailable",
+  "auth.routes.marketplace.guestPaymentClaim.local.recovery.token.in.production":
+    "Local recovery token. In production this arrives by email.",
+  "auth.routes.marketplace.guestPaymentClaim.other.options": "Other options",
+  "auth.routes.marketplace.guestPaymentClaim.passkey.registration.failed": "Passkey registration failed.",
+  "auth.routes.marketplace.guestPaymentClaim.passkey.unavailable": "Passkey unavailable",
+  "auth.routes.marketplace.guestPaymentClaim.password.setup.is.available.only.after":
+    "Password setup is available only after email verification or an authenticated session.",
+  "auth.routes.marketplace.guestPaymentClaim.payment.link.expired": "Payment link expired",
+  "auth.routes.marketplace.guestPaymentClaim.recommended": "Recommended",
+  "auth.routes.marketplace.guestPaymentClaim.refresh.payment": "Refresh payment",
+  "auth.routes.marketplace.guestPaymentClaim.refresh.payment.in.a.moment":
+    "Refresh this payment in a moment. Keep this page open so the original secure handoff can finish.",
+  "auth.routes.marketplace.guestPaymentClaim.recover.checkout": "Recover checkout",
+  "auth.routes.marketplace.guestPaymentClaim.return.to.cart": "Return to buy cart",
+  "auth.routes.marketplace.guestPaymentClaim.return.to.your.cart.to.review":
+    "Return to your Buy Cart to review your items and start checkout again. If you already completed payment, contact support with the email address you used at checkout.",
+  "auth.routes.marketplace.guestPaymentClaim.save.this.order": "Save this order",
+  "auth.routes.marketplace.guestPaymentClaim.save.this.order.after.payment.with.a.passkey":
+    "Save this order after payment with a passkey. You can use an email link if this device cannot create one.",
+  "auth.routes.marketplace.guestPaymentClaim.save.with.passkey": "Save with passkey",
+  "auth.routes.marketplace.guestPaymentClaim.send.a.claim.link.to": "Send a claim link to {email}.",
+  "auth.routes.marketplace.guestPaymentClaim.this.checkout.payment.link.is.no.longer":
+    "This checkout payment link is no longer valid. Your payment was not charged from this link.",
+  "auth.routes.marketplace.guestPaymentClaim.no.payment.was.charged": "No payment was charged from this expired link.",
+  "auth.routes.marketplace.guestPaymentClaim.review.cart.or.start.checkout.again":
+    "Review your Buy Cart or start checkout again.",
+  "auth.routes.marketplace.guestPaymentClaim.review.cart.or.purchases":
+    "Review your Buy Cart or open your purchases to start another payment.",
+  "auth.routes.marketplace.guestPaymentClaim.support.can.help.with.order.access":
+    "Support can help recover order access if you already completed payment elsewhere.",
+  "auth.routes.marketplace.guestPaymentClaim.verify.email.and.save.order": "Verify email and save order",
+  "auth.routes.marketplace.guestPaymentClaim.we.will.save.this.order.to": "We will save this order to {email}.",
+  "auth.routes.marketplace.guestPaymentClaim.you.can.save.this.order.after.payment":
+    "You can save this order after payment is complete.",
 } as const;
