@@ -2557,6 +2557,9 @@ importers:
       '@chase-sets/localization':
         specifier: workspace:*
         version: link:../../contracts/localization
+      '@chase-sets/outbound-messaging':
+        specifier: workspace:*
+        version: link:../../contracts/outbound-messaging
       '@chase-sets/primitives':
         specifier: workspace:*
         version: link:../../contracts/primitives

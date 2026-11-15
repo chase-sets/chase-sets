@@ -88,6 +88,7 @@
     "@chase-sets/event-core-postgres": "workspace:*",
     "@chase-sets/http": "workspace:*",
     "@chase-sets/localization": "workspace:*",
+    "@chase-sets/outbound-messaging": "workspace:*",
     "@chase-sets/primitives": "workspace:*",
     "@chase-sets/realtime": "workspace:*",
     "@chase-sets/stripe-config": "workspace:*",

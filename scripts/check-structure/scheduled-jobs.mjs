@@ -177,22 +177,42 @@ export function checkScheduledJobBindings({ program, contexts, rootDir, factoryF
   return violations;
 }
 
-export function validateScheduledJobs({ repoRoot = defaultRoot } = {}) {
-  const contexts = listBoundedContextManifests({ repoRoot })
+export function loadScheduledJobContexts({ repoRoot = defaultRoot } = {}) {
+  return listBoundedContextManifests({ repoRoot })
     .filter((context) => context.manifest.scheduledJobs?.length)
     .map((context) => ({ ...context.manifest, root: path.relative(repoRoot, context.dir) }));
+}
+
+export function createScheduledJobProgram(contexts, { repoRoot = defaultRoot } = {}) {
   const rootNames = contexts.flatMap((context) =>
     ["index.ts", "server.ts"].map((file) => path.resolve(repoRoot, context.root, file)),
   );
   const config = ts.readConfigFile(path.join(repoRoot, "deployables/platform-worker/tsconfig.json"), ts.sys.readFile);
+  // Roots are explicit; expanding the worker's repository-wide include globs
+  // only to discard that file list makes compiler setup needlessly expensive.
   const options = ts.parseJsonConfigFileContent(
     config.config,
-    ts.sys,
+    { ...ts.sys, readDirectory: () => [] },
     path.join(repoRoot, "deployables/platform-worker"),
   ).options;
   const program = ts.createProgram({ rootNames, options });
+  program.getTypeChecker();
+  return program;
+}
+
+export function validateScheduledJobs({
+  repoRoot = defaultRoot,
+  contexts = loadScheduledJobContexts({ repoRoot }),
+  program = createScheduledJobProgram(contexts, { repoRoot }),
+} = {}) {
   const factoryFiles = new Set();
   const violations = checkScheduledJobBindings({ program, contexts, rootDir: repoRoot, factoryFiles });
+  violations.push(...findWorkerServiceAssertions({ repoRoot }));
+  return { violations, factoryFiles };
+}
+
+export function findWorkerServiceAssertions({ repoRoot = defaultRoot } = {}) {
+  const violations = [];
   const sourceDir = path.join(repoRoot, "deployables/platform-worker/src");
   function scan(dir) {
     if (!existsSync(dir)) return;
@@ -209,5 +229,5 @@ export function validateScheduledJobs({ repoRoot = defaultRoot } = {}) {
     }
   }
   scan(sourceDir);
-  return { violations, factoryFiles };
+  return violations;
 }

@@ -2,8 +2,17 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import ts from "@chase-sets/typescript-compiler-api";
-import { afterEach, describe, expect, it } from "vitest";
-import { checkScheduledJobBindings, findAnonymousServiceAssertions, validateScheduledJobs } from "./scheduled-jobs.mjs";
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { repoRoot } from "../lib/repo.mjs";
+import {
+  checkScheduledJobBindings,
+  createScheduledJobProgram,
+  findAnonymousServiceAssertions,
+  findWorkerServiceAssertions,
+  loadScheduledJobContexts,
+} from "./scheduled-jobs.mjs";
+
+const repositoryContexts = loadScheduledJobContexts();
 
 const roots = [];
 afterEach(() => {
@@ -64,7 +73,21 @@ function fixture({
   });
 }
 describe("scheduled job module/server binding", () => {
-  it("validates the actual registered context factories", () => expect(validateScheduledJobs().violations).toEqual([]));
+  describe("actual repository bindings", () => {
+    let program;
+    beforeAll(() => {
+      program = createScheduledJobProgram(repositoryContexts);
+    });
+    afterAll(() => {
+      program = undefined;
+    });
+    it.each(repositoryContexts)("validates actual registered factories in $contextName", (context) => {
+      expect(checkScheduledJobBindings({ program, contexts: [context], rootDir: repoRoot })).toEqual([]);
+    });
+  });
+  it("validates the actual worker service assertion inventory", () => {
+    expect(findWorkerServiceAssertions()).toEqual([]);
+  });
   it("accepts the identical owned canonical factory", () => expect(fixture()).toEqual([]));
   it("rejects missing factory even with plausible name/comment", () =>
     expect(
