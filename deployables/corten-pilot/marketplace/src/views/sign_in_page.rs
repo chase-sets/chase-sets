@@ -101,8 +101,12 @@ fn Start<'a>(t: SignInMsg, ask: &'a Ask) -> impl Render {
         <section class={(Card, Flush)}>
             <p class={Muted}>{t.page_continue_with_social_login()}</p>
             <div class={Row}>
-                <a class={(Button, Secondary)} href={&social("google", &return_to)} data-reload>{t.page_continue_with_google()}</a>
-                <a class={(Button, Secondary)} href={&social("facebook", &return_to)} data-reload>{t.page_continue_with_facebook()}</a>
+                <a class={(Button, Secondary)} href={&social("google", &return_to)} data-reload>
+                    {t.page_continue_with_google()}
+                </a>
+                <a class={(Button, Secondary)} href={&social("facebook", &return_to)} data-reload>
+                    {t.page_continue_with_facebook()}
+                </a>
             </div>
         </section>
         <section class={Card}>

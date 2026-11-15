@@ -68,7 +68,9 @@ fn Start<'a>(t: SignInMsg, ask: &'a Ask) -> impl Render {
     html! {
         <section class={(Card, Flush)}>
             <p class={Muted}>{t.page_continue_with_workspace_account()}</p>
-            <a class={(Button, Secondary)} href={&workspace(&ask.return_to())} data-reload>{t.page_continue_with_google_workspace()}</a>
+            <a class={(Button, Secondary)} href={&workspace(&ask.return_to())} data-reload>
+                {t.page_continue_with_google_workspace()}
+            </a>
         </section>
         <section class={Card}>
             <p class={Muted}>{t.page_you_can_sign_in_with()}</p>
