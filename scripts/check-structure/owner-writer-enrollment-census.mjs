@@ -16,15 +16,23 @@ const sinkNames = new Set([
   "commandHandler",
   "createAggregateCommandHandler",
   "query",
+  "upsertRow",
+  "updateRow",
+  "transitionStatus",
+  "expired",
 ]);
 const possibleSink =
-  /\b(?:appendToStreams?(?:InTransaction|Independently)?|append|commandHandler|createAggregateCommandHandler|query)\b|\[\s*[^\s\]]/u;
+  /\b(?:appendToStreams?(?:InTransaction|Independently)?|append|commandHandler|createAggregateCommandHandler|query|upsertRow|updateRow|transitionStatus|expired)\b|\[\s*[^\s\]]/u;
 const ownerPatterns = ["account", "user", "membership"].map((kind) => [
   kind,
   new RegExp(
     `identity\\.${kind}[-.]|\\b${kind}s\\.commandHandler|\\b${kind[0].toUpperCase()}${kind.slice(1)}(?:Event|Command|State)\\b`,
     "u",
   ),
+]);
+ownerPatterns.push([
+  "session",
+  /auth\.session[-.]|\bsessions\.commandHandler|\bSession(?:Event|Command|State)\b|\b(?:StartSession|RevokeSession|ExpireSession|SwitchSessionAccount)\b|sessionEventCodec|toSessionStreamId|identity_session_tokens|identity_sessions/u,
 ]);
 export function ownerWriterSourcePaths() {
   return execFileSync("git", ["ls-files", "--cached", "--others", "--exclude-standard"], {
@@ -123,6 +131,12 @@ export function discoverOwnerWriters(sources) {
       }
       if (ts.isNonNullExpression(node) || ts.isParenthesizedExpression(node) || ts.isAsExpression(node))
         return resolveSink(node.expression, seen);
+      if (
+        ts.isCallExpression(node) &&
+        ts.isPropertyAccessExpression(node.expression) &&
+        node.expression.name.text === "bind"
+      )
+        return resolveSink(node.expression.expression, seen);
       return undefined;
     }
     for (const node of calls) {
@@ -135,8 +149,14 @@ export function discoverOwnerWriters(sources) {
         /\b(?:INSERT\s+INTO|UPDATE|DELETE\s+FROM|MERGE\s+INTO|COPY|TRUNCATE(?:\s+TABLE)?)\s+(?:[a-z_][a-z_0-9]*\.)?"?identity_linked_platform_authorizations"?\b/iu.test(
           statement,
         );
+      const sessionSql =
+        resolved.name === "query" &&
+        /\b(?:INSERT\s+INTO|UPDATE|DELETE\s+FROM|MERGE\s+INTO|COPY|TRUNCATE(?:\s+TABLE)?)\s+(?:[a-z_][a-z_0-9]*\.)?"?identity_session(?:_tokens|s)"?\b/iu.test(
+          statement,
+        );
       const sql =
         delegationSql ||
+        sessionSql ||
         (resolved?.name === "query" &&
           /\b(?:INSERT\s+INTO|UPDATE|DELETE\s+FROM|MERGE\s+INTO|COPY|TRUNCATE(?:\s+TABLE)?)\s+(?:[a-z_][a-z_0-9]*\.)?"?event_store_(?:events|streams)"?\b/iu.test(
             statement,
@@ -146,10 +166,26 @@ export function discoverOwnerWriters(sources) {
         const data = `${callee} ${resolved.target} ${node.arguments.map((arg) => flow(arg)).join(" ")}`;
         const kinds = ownerPatterns.filter(([, pattern]) => pattern.test(data)).map(([kind]) => kind);
         if (delegationSql) kinds.push("delegation");
+        if (sessionSql && !kinds.includes("session")) kinds.push("session");
+        if (
+          ["upsertRow", "updateRow", "transitionStatus", "expired"].includes(resolved.name) &&
+          !kinds.includes("session")
+        )
+          continue;
         // Dynamic Identity sinks are deliberately UNKNOWN until explicitly classified.
-        if (kinds.length || file.startsWith("bounded-contexts/identity/")) {
+        if (
+          kinds.length ||
+          file.startsWith("bounded-contexts/identity/") ||
+          file.startsWith("bounded-contexts/auth/")
+        ) {
           const symbol = owner(node);
-          const sinkName = delegationSql ? "delegation SQL" : sql ? "event-store SQL" : callee;
+          const sinkName = delegationSql
+            ? "delegation SQL"
+            : sessionSql
+              ? "session SQL"
+              : sql
+                ? "event-store SQL"
+                : callee;
           const ordinal =
             sites.filter((site) => site.file === file && site.symbol === symbol && site.sink === sinkName).length + 1;
           sites.push({ file, symbol, sink: sinkName, ordinal, keys: kinds });

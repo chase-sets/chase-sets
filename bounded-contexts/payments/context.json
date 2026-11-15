@@ -1,4 +1,36 @@
 {
+  "scheduledJobs": [
+    {
+      "id": "payments.wallet-funding-reconciliation",
+      "schedule": {
+        "kind": "configured-interval",
+        "configKey": "paymentReconciliationIntervalMs"
+      },
+      "runnerExport": "createPaymentsWalletFundingReconciliationRunners",
+      "group": "scheduled",
+      "order": 104,
+      "runtimeProfiles": [
+        "proof",
+        "public"
+      ],
+      "lockScope": "job:payments.wallet-funding-reconciliation"
+    },
+    {
+      "id": "payments.reconciliation",
+      "schedule": {
+        "kind": "configured-interval",
+        "configKey": "paymentReconciliationIntervalMs"
+      },
+      "runnerExport": "createPaymentsWalletFundingReconciliationRunners",
+      "group": "scheduled",
+      "order": 104,
+      "runtimeProfiles": [
+        "proof",
+        "public"
+      ],
+      "lockScope": "job:payments.reconciliation"
+    }
+  ],
   "contextName": "payments",
   "packageName": "@chase-sets/payments",
   "localeCatalogs": ["contracts/localization/locales/en/payments.ts"],

@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import type { RepricingEngineServices } from "@chase-sets/pricing/server";
 import { describe, expect, it, vi } from "vitest";
-import { processRepricingEvaluationJob } from "../src/repricing-evaluation-lane";
+import { processRepricingEvaluationJob } from "@chase-sets/pricing/server";
 
 describe("repricing evaluation lane", () => {
   it("logs exactly one structured ops signal per tripped product round, not per seller", async () => {
@@ -27,7 +27,10 @@ describe("repricing evaluation lane", () => {
     expect(logger.info).toHaveBeenCalledExactlyOnceWith("pricing.repricing-spiral-breaker.tripped", trip);
     await expect(processRepricingEvaluationJob(async () => 0, input, logger)).resolves.toBe(0);
     expect(logger.info).toHaveBeenCalledTimes(1);
-    const main = readFileSync(new URL("../src/main.ts", import.meta.url), "utf8");
+    const main = readFileSync(
+      new URL("../../../bounded-contexts/pricing/support/runtime-support/worker-jobs.ts", import.meta.url),
+      "utf8",
+    );
     expect(/processed:\s*await processRepricingEvaluationJob\(\s*processNextEvaluationJob,/.test(main)).toBe(true);
   });
 });

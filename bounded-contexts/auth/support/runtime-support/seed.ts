@@ -7,6 +7,7 @@ import { createAuthSecretAdapters } from "../auth-support/adapters";
 import { toSessionStreamId, type AuthMethod } from "../../features/sessions/domain/auth-flow";
 import { upsertPasswordCredential } from "../auth-support/store";
 import { createSessionRuntime, type SessionServices } from "../../features/sessions/api/runtime";
+import { createAuthSessionEpochs, createAuthSessionPersistence } from "../../features/sessions/api/owner-epochs";
 import {
   evolveSession,
   initialSessionState,
@@ -79,7 +80,10 @@ export async function seedAuthDatabase(pool: PgTransactionalPool) {
   const activeExpiresAt = new Date(now.getTime() + 30 * dayMs).toISOString();
   let recordedAt = isoUtcFromDate(now);
 
-  const eventStore = createPostgresEventStore({ pool, now: () => recordedAt });
+  const eventStore = createAuthSessionPersistence(
+    createPostgresEventStore({ pool, now: () => recordedAt }),
+    createAuthSessionEpochs(pool),
+  );
   const checkpointStore = createPostgresProjectionStore({ db });
   const sessions = createSessionRuntime({ eventStore, checkpointStore, db });
   const auth = createAuthSecretAdapters();

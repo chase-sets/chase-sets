@@ -2,7 +2,8 @@
 //! (`ReportedContentAdminListPage`): its three counts, the status and target filters, and the queue
 //! as a table that stacks on a phone; and a target's page (`ReportedContentAdminDetailPage`): its
 //! queue facts and moderation form beside its report history from 64rem, stacked below that. The
-//! form's buttons each send their action, as admin-web's do, so it works without a script.
+//! form's buttons each send their action, as admin-web's do, so it works without a script. Both
+//! show the target's response: its severity, its two deadlines, who answers for it and its state.
 use corten::{
     i18n::{DateStyle, TimeStyle, parse_timestamp},
     prelude::*,
@@ -15,7 +16,7 @@ use serde_json::{Map, Value};
 
 use crate::{
     reported::{
-        ActionForm, ItemScreen, QueueItem, QueueScreen, STATUSES, TARGET_TYPES, actions,
+        ACKNOWLEDGE, ActionForm, ItemScreen, QueueItem, QueueScreen, STATUSES, TARGET_TYPES, actions,
         risk::{self, AlertScreen, KINDS, RiskAlert, RisksScreen, url as risk_url},
         url,
     },
@@ -77,6 +78,36 @@ fn action(t: Ops, value: &str) -> (&'static str, &'static str, bool) {
 fn when(t: Ops, at: Option<&str>) -> String {
     at.and_then(parse_timestamp)
         .map_or_else(|| t.reported_not_set().to_owned(), |at| t.date_time(at, DateStyle::Medium, TimeStyle::Short).to_string())
+}
+
+/// A severity's words, else the severity as it is.
+fn severity(t: Ops, value: &str) -> String {
+    match value {
+        "critical" => t.reported_severity_critical(),
+        "high" => t.reported_severity_high(),
+        "standard" => t.reported_severity_standard(),
+        other => return other.to_owned(),
+    }
+    .to_owned()
+}
+
+/// The response's state (admin-web's `responseLabel`): disposed once it is closed, else overdue,
+/// else acknowledged, else open.
+fn response(t: Ops, item: &QueueItem) -> &'static str {
+    if !item.response_open {
+        t.reported_response_disposed()
+    } else if item.overdue {
+        t.reported_response_overdue()
+    } else if item.acknowledged_at.is_some() {
+        t.reported_response_acknowledged()
+    } else {
+        t.reported_response_open()
+    }
+}
+
+/// The policy that set the response's deadlines, as admin-web shows it.
+fn policy(item: &QueueItem) -> &str {
+    item.policy_code.as_deref().or(item.policy_revision.as_deref()).unwrap_or("policy-incomplete")
 }
 
 fn reasons(item: &QueueItem) -> String {
@@ -152,6 +183,11 @@ pub fn ReportedPage<'a>(t: Ops, screen: &'a QueueScreen) -> impl Render {
                         <table class={Table} aria-label={t.reported_queue()}>
                             <thead>
                                 <tr>
+                                    <th scope="col">{t.reported_severity()}</th>
+                                    <th scope="col">{t.reported_acknowledge_due()}</th>
+                                    <th scope="col">{t.reported_disposition_due()}</th>
+                                    <th scope="col">{t.reported_accountable_role()}</th>
+                                    <th scope="col">{t.reported_response_state()}</th>
                                     <th scope="col">{t.reported_status()}</th>
                                     <th scope="col">{t.reported_target()}</th>
                                     <th scope="col">{t.reported_reports()}</th>
@@ -163,6 +199,26 @@ pub fn ReportedPage<'a>(t: Ops, screen: &'a QueueScreen) -> impl Render {
                             <tbody>
                                 for item in &screen.queue.items {
                                     <tr>
+                                        <td>
+                                            <CellLabel>{t.reported_severity()}</CellLabel>
+                                            {severity(t, &item.severity)}
+                                        </td>
+                                        <td>
+                                            <CellLabel>{t.reported_acknowledge_due()}</CellLabel>
+                                            {when(t, item.acknowledge_due_at.as_deref())}
+                                        </td>
+                                        <td>
+                                            <CellLabel>{t.reported_disposition_due()}</CellLabel>
+                                            {when(t, item.disposition_due_at.as_deref())}
+                                        </td>
+                                        <td class={Words}>
+                                            <CellLabel>{t.reported_accountable_role()}</CellLabel>
+                                            {&item.accountable_role}
+                                        </td>
+                                        <td>
+                                            <CellLabel>{t.reported_response_state()}</CellLabel>
+                                            {response(t, item)}
+                                        </td>
                                         <td>
                                             <CellLabel>{t.reported_status()}</CellLabel>
                                             <StatusPill t={t} value={&item.status} />
@@ -244,6 +300,12 @@ pub fn ItemPage<'a>(t: Ops, p: Pilot, screen: &'a ItemScreen) -> impl Render {
             <section class={Panel}>
                 <h2 class={Heading}>{t.reported_queue_item()}</h2>
                 <dl class={Facts}>
+                    <Fact label={t.reported_severity()} value={&severity(t, &item.severity)} />
+                    <Fact label={t.reported_acknowledge_due()} value={&when(t, item.acknowledge_due_at.as_deref())} />
+                    <Fact label={t.reported_disposition_due()} value={&when(t, item.disposition_due_at.as_deref())} />
+                    <Fact label={t.reported_accountable_role()} value={&item.accountable_role} />
+                    <Fact label={t.reported_response_state()} value={response(t, item)} />
+                    <Fact label={t.reported_response_policy()} value={policy(item)} />
                     <Fact label={t.reported_status()} value={&status(t, &item.status)} />
                     <Fact label={t.reported_target_type()} value={&kind} />
                     <Fact label={t.reported_target_id()} value={&item.target_id} />
@@ -255,6 +317,13 @@ pub fn ItemPage<'a>(t: Ops, p: Pilot, screen: &'a ItemScreen) -> impl Render {
                     <Fact label={t.reported_auto_unlisted_at()} value={&when(t, item.auto_unlisted_at.as_deref())} />
                 </dl>
                 <form class={Moderate} method="post" action={&here}>
+                    if item.acknowledgeable() {
+                        <div class={Actions}>
+                            <button type="submit" class={Button} name={f.action} value={ACKNOWLEDGE}>
+                                {t.reported_acknowledge()}
+                            </button>
+                        </div>
+                    }
                     <label class={Field}>
                         <span>{t.reported_action_note()}</span>
                         <textarea name={f.note} rows="3" maxlength="1000"></textarea>

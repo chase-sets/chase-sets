@@ -627,10 +627,19 @@ fn auth_sessions(method: &Method, rest: &str, body: &str) -> Response {
 }
 
 /// Platform Operations' reported content: a listing with two reports and a review in the queue
-/// (one page of 12), and a withdrawal without its note refused as the API refuses it.
+/// (one page of 12), and a withdrawal without its note refused as the API refuses it. The listing's
+/// response is critical, open and not acknowledged, and acknowledging it answers no receipt; the
+/// review's is acknowledged and overdue, and acknowledging it is refused as disposed.
 fn reported_content(method: &Method, rest: &str, body: &str) -> Response {
     let item = |kind: &str, id: &str, status: &str| {
+        let listing = kind == "listing";
         json!({
+            "severity": if listing { "critical" } else { "standard" },
+            "policy_revision": if listing { json!("rcp-2026-11") } else { Value::Null }, "policy_code": Value::Null,
+            "response_started_at": "2026-10-28T12:00:00.000Z",
+            "acknowledged_at": if listing { Value::Null } else { json!("2026-10-30T09:00:00.000Z") },
+            "acknowledge_due_at": "2026-10-28T13:00:00.000Z", "disposition_due_at": "2026-10-29T12:00:00.000Z",
+            "accountable_role": "trust-and-safety", "response_open": true, "overdue": !listing,
             "target_type": kind, "target_id": id, "target_owner_account_id": "acc_seller", "status": status,
             "report_count": 2, "reasons": [{ "reason": "counterfeit", "count": 2 }],
             "first_reported_at": "2026-10-28T12:00:00.000Z", "last_reported_at": "2026-10-29T12:00:00.000Z",
@@ -667,6 +676,12 @@ fn reported_content(method: &Method, rest: &str, body: &str) -> Response {
             Json(json!({ "id": "rca_1", "recordedAt": "2026-10-30T12:00:00.000Z" })).into_response()
         }
         (Method::POST, "/listing/lst_1/actions" | "/review/rev_1/actions") => written(StatusCode::OK, "act_1"),
+        (Method::POST, "/listing/lst_1/acknowledge") => Json(json!({ "acknowledgedAt": "2026-11-15T12:00:00.000Z" })).into_response(),
+        // As the API refuses it: a reason and no message.
+        (Method::POST, "/review/rev_1/acknowledge") => {
+            (StatusCode::BAD_REQUEST, Json(json!({ "error": { "code": "validation_failed", "reason": "target-disposed" } })))
+                .into_response()
+        }
         _ => StatusCode::NOT_FOUND.into_response(),
     }
 }
@@ -4238,6 +4253,7 @@ fn operations_attention(cookie: &str) -> Response {
             wake,
             { "id": "support-request-deadline", "status": "available", "itemCount": 1, "total": 1 },
             { "id": "platform-feedback-unreviewed", "status": "available", "itemCount": 1, "total": 1 },
+            { "id": "reported-content-response", "status": "available", "itemCount": 1, "total": 1 },
         ])
     };
     if cookie.contains("chase_sets_session=ops-empty") {
@@ -4272,6 +4288,16 @@ fn operations_attention(cookie: &str) -> Response {
                 "observedAt": "2026-10-24 08:00:00+00",
             },
             {
+                "id": "reported-content-response:listing:lst_1",
+                "source": "reported-content-response",
+                "entity": "reported-content",
+                "severity": "critical",
+                "summary": { "code": "reportedContent", "params": { "severity": "critical", "role": "trust-and-safety" } },
+                "deepLink": { "surface": "reported-content", "href": "/reported-content/listing/lst_1" },
+                "dueAt": "2026-10-28T13:00:00.000Z",
+                "observedAt": "2026-10-28T12:00:00.000Z",
+            },
+            {
                 "id": "platform-feedback-unreviewed:pfb_1",
                 "source": "platform-feedback-unreviewed",
                 "entity": "platform-feedback",
@@ -4282,9 +4308,12 @@ fn operations_attention(cookie: &str) -> Response {
             },
         ],
         "rollup": {
-            "total": 3,
-            "bySeverity": { "critical": 1, "warning": 1, "info": 1 },
-            "bySource": { "projection-poison-event": 1, "support-request-deadline": 1, "platform-feedback-unreviewed": 1 },
+            "total": 4,
+            "bySeverity": { "critical": 2, "warning": 1, "info": 1 },
+            "bySource": {
+                "projection-poison-event": 1, "support-request-deadline": 1, "platform-feedback-unreviewed": 1,
+                "reported-content-response": 1,
+            },
         },
         "sources": sources(json!({ "id": "wake-stalled-job", "status": "unavailable", "itemCount": 0, "total": "unknown", "reason": "wake status unavailable" })),
         "degraded": true,
@@ -4301,7 +4330,7 @@ async fn the_attention_queue_draws_its_counts_its_missing_sources_and_its_items_
         html.contains("<title>Attention Queue | Chase Sets Admin</title>") && html.contains("<h1>What needs you</h1>"),
         "{html}"
     );
-    for (label, count) in [("Total", 3), ("Critical", 1), ("Warning", 1), ("Info", 1)] {
+    for (label, count) in [("Total", 4), ("Critical", 2), ("Warning", 1), ("Info", 1)] {
         assert!(html.contains(&format!("<dt>{label}</dt><dd class=\"stats__value\">{count}</dd>")), "{label}: {html}");
     }
     assert!(
@@ -4311,6 +4340,7 @@ async fn the_attention_queue_draws_its_counts_its_missing_sources_and_its_items_
     let rows = [
         "Poison event OrderPlaced on ordering-orders (retried 3)",
         "Support case SR-1042 needs review",
+        "Reported Content: critical; accountable role: trust-and-safety",
         "platformOperations.operationsAttention.summary.somethingNew",
     ];
     let at: Vec<usize> = rows.iter().map(|row| html.find(row).unwrap_or_else(|| panic!("{row}: {html}"))).collect();
@@ -4326,6 +4356,10 @@ async fn the_attention_queue_draws_its_counts_its_missing_sources_and_its_items_
     );
     assert!(html.contains(r#"href="/support/requests?requestId=req_1">Open</a>"#), "the pilot serves a request's sheet: {html}");
     assert!(html.contains(r#"href="/support/platform-feedback/pfb_1">Open</a>"#), "the pilot serves a feedback's page: {html}");
+    assert!(
+        html.contains(r#"href="/support/reported-content/listing/lst_1">Open</a>"#) && html.contains("Reported Content response"),
+        "the pilot serves a reported target's page: {html}"
+    );
     assert!(html.contains(r#"id="attention-live" src="/platform/operations-attention/live""#), "{html}");
     assert!(html.contains(r#"<div id="attention-queue">"#), "{html}");
     assert!(
@@ -5542,6 +5576,10 @@ async fn reported_content_reads_the_queue_and_its_counts_as_admin_web_does() {
         "Listing lst_1",
         "counterfeit (2)",
         "Showing 2 of 12",
+        "Critical",
+        "trust-and-safety",
+        "Oct 28, 2026, 1:00 PM UTC",
+        "Oct 29, 2026, 12:00 PM UTC",
     ] {
         assert!(html.contains(text), "{text}: {html}");
     }
@@ -5554,6 +5592,10 @@ async fn reported_content_reads_the_queue_and_its_counts_as_admin_web_does() {
         ),
         "the queue stacks on a phone: {html}"
     );
+    for (label, words) in [("Severity", "Standard"), ("Response state", "Open"), ("Response state", "Overdue")] {
+        let cell = format!(r#"<span class="table__label" aria-hidden="true">{label}</span>{words}</td>"#);
+        assert!(html.contains(&cell), "{cell}: {html}");
+    }
     assert!(marks_current(&html, "/support/reported-content"), "the nav serves it: {html}");
     assert_eq!(pilot.send(get("/support/reported-content", Some("staff"))).await.0, StatusCode::FORBIDDEN);
     let (status, _, _) = pilot.send(get("/support/reported-content/listing/lst_1", Some("staff"))).await;
@@ -5569,13 +5611,28 @@ async fn a_reported_targets_page_offers_its_target_types_actions_and_its_reports
         assert!(html.contains(&format!(r#"value="{action}""#)), "{action}: {html}");
     }
     assert!(!html.contains(r#"value="withdraw-review""#), "{html}");
-    for text in
-        ["Fake holo.", "No details provided.", "Visitor at", "Signed-in account at", "Latest moderation action: contact seller"]
-    {
+    for text in [
+        "Fake holo.",
+        "No details provided.",
+        "Visitor at",
+        "Signed-in account at",
+        "Latest moderation action: contact seller",
+        "<dt>Severity</dt><dd>Critical</dd>",
+        "<dt>Accountable role</dt><dd>trust-and-safety</dd>",
+        "<dt>Response state</dt><dd>Open</dd>",
+        "<dt>Response policy</dt><dd>rcp-2026-11</dd>",
+        r#"value="acknowledge">Acknowledge</button>"#,
+    ] {
         assert!(html.contains(text), "{text}: {html}");
     }
     let (_, _, html) = pilot.send(get("/support/reported-content/review/rev_1", Some("moderator"))).await;
     assert!(html.contains(r#"value="withdraw-review""#) && html.contains(r#"value="withdraw-review-reply""#), "{html}");
+    assert!(
+        html.contains("<dt>Response state</dt><dd>Overdue</dd>")
+            && html.contains("<dt>Response policy</dt><dd>policy-incomplete</dd>"),
+        "{html}"
+    );
+    assert!(!html.contains(r#"value="acknowledge""#), "an acknowledged response is not offered again: {html}");
     let (status, _, _) = pilot.send(get("/support/reported-content/listing/lst_none", Some("moderator"))).await;
     assert_eq!(status, StatusCode::NOT_FOUND);
 }
@@ -5638,6 +5695,39 @@ async fn an_action_answered_without_a_receipt_carries_its_time_and_the_page_says
     let caught_up = "/support/reported-content/review/rev_1?recorded=2026-10-29T13%3A00%3A00.000Z";
     let (_, _, html) = pilot.send(get(caught_up, Some("moderator"))).await;
     assert!(!html.contains("Refresh in a moment"), "the target shows the action: {html}");
+}
+
+#[tokio::test]
+async fn acknowledging_a_response_posts_to_its_endpoint_and_a_refusal_draws_the_page_again() {
+    let pilot = Pilot::new().await;
+    let at = "/support/reported-content/listing/lst_1";
+    let (status, headers, _) = pilot.send(post_as("moderator", at, "action=acknowledge&note=ignored", false)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let write = pilot.calls_to(REPORTED).into_iter().last().unwrap();
+    assert_eq!(
+        (write.method, write.path.as_str(), write.body.as_str()),
+        (Method::POST, &*format!("{REPORTED}/listing/lst_1/acknowledge"), ""),
+        "no body and no note, as admin-web sends it"
+    );
+    let to = headers[header::LOCATION].to_str().unwrap().to_owned();
+    assert_eq!(to, "/support/reported-content/listing/lst_1?recorded=2026-11-15T12%3A00%3A00.000Z", "the section stays");
+    let (status, _, html) = pilot.send(get(&to, Some("moderator"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains("Refresh in a moment"), "the target does not show the acknowledgement yet: {html}");
+    // The review's last action (Oct 29) is older than this; its acknowledgement (Oct 30, 9:00) is not.
+    let shown = "/support/reported-content/review/rev_1?recorded=2026-10-30T09%3A00%3A00.000Z";
+    let (_, _, html) = pilot.send(get(shown, Some("moderator"))).await;
+    assert!(!html.contains("Refresh in a moment"), "the target shows the acknowledgement: {html}");
+
+    let review = "/support/reported-content/review/rev_1";
+    let (status, headers, html) = pilot.send(post_as("moderator", review, "action=acknowledge", false)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+    assert!(headers.get(header::LOCATION).is_none());
+    assert!(html.contains("The change was not made.") && html.contains(r#"role="alert""#), "{html}");
+    let (status, _, _) = pilot.send(post_as("staff", at, "action=acknowledge", false)).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    let writes = pilot.calls_to(REPORTED).into_iter().filter(|c| c.method == Method::POST).count();
+    assert_eq!(writes, 2, "the forbidden one writes nothing");
 }
 
 const RISK: &str = "/api/experience/risk-alerts";

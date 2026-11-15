@@ -21,3 +21,7 @@ export {
   discoveryRealtimeTopicPolicyManifest,
   discoveryRealtimeTopics,
 } from "./support/realtime-support/topics";
+
+export type { DiscoveryServices } from "./support/runtime-support/services";
+
+export { createDiscoverySearchEmbeddingEnrichmentRunners } from "./support/runtime-support/worker-jobs";

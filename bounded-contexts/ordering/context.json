@@ -1,4 +1,21 @@
 {
+  "scheduledJobs": [
+    {
+      "id": "ordering.payment-deadline-sweep",
+      "schedule": {
+        "kind": "configured-interval",
+        "configKey": "paymentDeadlineSweepIntervalMs"
+      },
+      "runnerExport": "createOrderingPaymentDeadlineSweepRunners",
+      "group": "scheduled",
+      "order": 105,
+      "runtimeProfiles": [
+        "proof",
+        "public"
+      ],
+      "lockScope": "job:ordering.payment-deadline-sweep"
+    }
+  ],
   "contextName": "ordering",
   "packageName": "@chase-sets/ordering",
   "localeCatalogs": ["contracts/localization/locales/en/ordering.ts"],

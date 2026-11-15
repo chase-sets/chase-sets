@@ -94,3 +94,8 @@ export type {
 } from "./features/scope-sync-batches/domain/preview-probe-receipt";
 export type { ScopeSyncBatchPreview } from "./features/scope-sync-batches/domain/batch";
 export { buildCatalogPrimaryWorkbenchReadModelForSurface } from "./features/source-observations/ui/primary-workbench-read-model";
+
+export {
+  createCatalogProviderScopeRefreshRunners,
+  createCatalogBulkJobRunners,
+} from "./support/runtime-support/worker-jobs";

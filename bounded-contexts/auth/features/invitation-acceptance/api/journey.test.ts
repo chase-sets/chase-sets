@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { IdentityAuthMutationClient } from "@chase-sets/identity/server";
 import type { AuthServices } from "../../../support/runtime-support/services";
+import { createAuthSessionEpochsFake } from "../../../support/auth-support/test-support";
 import {
   createInternalSystemTestActor,
   createTestEventStoreContext,
@@ -627,6 +628,7 @@ describe("invitation-acceptance-session-generation-guard", () => {
     const services = {
       ...f.services,
       db: { query },
+      sessionEpochs: createAuthSessionEpochsFake({ query } as AuthServices["db"]),
       auth: { ...f.services.auth, issueOpaqueToken: () => "synthetic-guarded-session-secret" },
       sessions,
     } as unknown as AuthServices;

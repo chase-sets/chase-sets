@@ -4160,7 +4160,7 @@ describe("DigitalOcean platform configuration", () => {
       "node ./scripts/run-workspaces.mjs test --exclude-test-profile=db --concurrency=4 --workspace-list=\"${{ needs['change-scope'].outputs.affected_workspaces }}\" --shard=${{ matrix.shard }}/2",
     );
     expect(execution.run).toContain(
-      "node ./scripts/run-workspaces.mjs test:unit --test-profile=db --concurrency=4 --workspace-list=\"${{ needs['change-scope'].outputs.affected_workspaces }}\" --shard=${{ matrix.shard }}/2",
+      "node ./scripts/run-workspaces.mjs test:unit --test-profile=db --concurrency=4 --exclusive-workspace-list=@chase-sets/catalog --workspace-list=\"${{ needs['change-scope'].outputs.affected_workspaces }}\" --shard=${{ matrix.shard }}/2",
     );
     expect(execution.run).toContain("--concurrency=4");
 

@@ -46,6 +46,13 @@ import {
   upsertSessionToken,
 } from "../auth-support/store";
 import { createSessionRuntime } from "../../features/sessions/api/runtime";
+import {
+  createAuthSessionEpochs,
+  createAuthSessionPersistence,
+  type AuthSessionEpochs,
+  type AuthSessionTopology,
+} from "../../features/sessions/api/owner-epochs";
+import { createAuthSessionAuthority } from "../../features/sessions/api/session-authority";
 import type { SessionRow } from "../../features/sessions/read-model/queries";
 import type { SessionState } from "../../features/sessions/domain/domain";
 import type { SocialLoginProvider } from "../social-login-support/providers";
@@ -123,6 +130,8 @@ export type AuthServices = Readonly<{
    */
   awaitInvitationProjectionFreshness?: InvitationProjectionFreshnessWaiter;
   sessions: ReturnType<typeof createSessionRuntime>;
+  sessionEpochs?: AuthSessionEpochs;
+  sessionAuthority?: ReturnType<typeof createAuthSessionAuthority>;
   notificationOutbox: NotificationOutbox;
   agentWebhookOutbox: AgentWebhookOutbox;
   agentWebhookOrderResolvers: AgentWebhookOrderResolvers;
@@ -146,6 +155,7 @@ export type AdminGoogleWorkspaceSsoConfig = Readonly<{
 }>;
 
 export type AuthHostPorts = Readonly<{
+  sessionConsumers?: AuthSessionTopology;
   notificationOutbox?: NotificationOutbox;
   agentWebhookOrderResolvers?: AgentWebhookOrderResolvers;
   socialLoginProviders?: readonly SocialLoginProvider[];
@@ -197,10 +207,12 @@ export function createAuthServices(pool: PgTransactionalPool, ports: AuthHostPor
   // Bounds-validated at host boot -- fails closed before any request is
   // served if a deployable's env override is out of range.
   const securityLifetimes = resolveAuthSecurityLifetimesMs(ports.securityLifetimes);
-  const eventStore = createPostgresEventStore({
+  const rawEventStore = createPostgresEventStore({
     pool,
     wakeNotifications: createEventStoreWakeNotificationConfigForSourceContext({ sourceContextName: "auth" }),
   });
+  const sessionEpochs = createAuthSessionEpochs(pool, ports.sessionConsumers);
+  const eventStore = createAuthSessionPersistence(rawEventStore, sessionEpochs);
   const checkpointStore = createPostgresProjectionStore({ db: pool });
   const db = pool as PgQueryable;
   const notificationOutbox = ports.notificationOutbox ?? createPostgresNotificationOutbox({ db });
@@ -243,6 +255,8 @@ export function createAuthServices(pool: PgTransactionalPool, ports: AuthHostPor
       readInvitationProjectionPosition: createAuthIdentityInvitationProjectionPositionReader(db),
     }),
     sessions,
+    sessionEpochs,
+    sessionAuthority: createAuthSessionAuthority(pool, rawEventStore, sessionEpochs),
     notificationOutbox,
     agentWebhookOutbox,
     agentWebhookOrderResolvers: ports.agentWebhookOrderResolvers ?? noopAgentWebhookOrderResolvers,
@@ -528,11 +542,15 @@ async function issueSessionToken(
   }>,
 ) {
   const sessionToken = services.auth.issueOpaqueToken("session");
-  await upsertSessionToken(services.db, {
-    sessionId: params.sessionId,
-    tokenHash: services.auth.hashSecret(sessionToken),
-    expiresAt: params.expiresAt,
-  });
+  await upsertSessionToken(
+    services.pool,
+    {
+      sessionId: params.sessionId,
+      tokenHash: services.auth.hashSecret(sessionToken),
+      expiresAt: params.expiresAt,
+    },
+    services.sessionEpochs,
+  );
 
   return sessionToken;
 }
@@ -606,7 +624,7 @@ export async function startInteractiveAuth(
 }
 
 export async function revokeSession(
-  services: AuthServices,
+  services: Pick<AuthServices, "sessions">,
   params: Readonly<{
     sessionId: string;
     context: EventStoreContext;

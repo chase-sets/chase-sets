@@ -1,4 +1,6 @@
-import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import type { PgQueryable, PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import { createAuthSessionEpochs, type AuthSessionEpochs } from "../../features/sessions/api/owner-epochs";
+import { sessionExpiry } from "../../features/sessions/api/session-authority";
 import type { AuthMethod } from "../../features/sessions/domain/auth-flow";
 
 export async function upsertPasswordCredential(
@@ -372,15 +374,18 @@ export async function consumeChallenge(
 }
 
 export async function upsertSessionToken(
-  db: PgQueryable,
+  pool: PgTransactionalPool,
   params: Readonly<{
     sessionId: string;
     tokenHash: string;
     expiresAt: string;
   }>,
+  epochs: AuthSessionEpochs = createAuthSessionEpochs(pool),
 ) {
-  await db.query(
-    `INSERT INTO identity_session_tokens (
+  sessionExpiry(params.expiresAt);
+  await epochs.transaction([`session/${params.sessionId}`], (db) =>
+    db.query(
+      `INSERT INTO identity_session_tokens (
        session_id,
        token_hash,
        expires_at,
@@ -391,8 +396,10 @@ export async function upsertSessionToken(
      ON CONFLICT (session_id) DO UPDATE
      SET token_hash = $2,
          expires_at = $3,
+         revision = identity_session_tokens.revision + 1,
          updated_at = now()`,
-    [params.sessionId, params.tokenHash, params.expiresAt],
+      [params.sessionId, params.tokenHash, params.expiresAt],
+    ),
   );
 }
 

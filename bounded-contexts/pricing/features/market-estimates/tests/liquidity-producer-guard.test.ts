@@ -5,10 +5,7 @@ import { liquidityEstimatedEventType } from "../read-model/demand-curve-writes";
 describe("LiquidityEstimated producer guard", () => {
   it("has a production caller on the existing scheduled rollup ride", () => {
     const services = readFileSync(new URL("../../../support/runtime-support/services.ts", import.meta.url), "utf8");
-    const worker = readFileSync(
-      new URL("../../../../../deployables/platform-worker/src/scheduled-runners.ts", import.meta.url),
-      "utf8",
-    );
+    const worker = readFileSync(new URL("../../../support/runtime-support/worker-jobs.ts", import.meta.url), "utf8");
     expect(services).toContain("await demandCurves.runDemandCurveCloser(");
     expect(worker).toContain('"pricing.market-rollups-closer"');
   });

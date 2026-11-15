@@ -8,7 +8,8 @@ import type { IdentityServices } from "@chase-sets/identity/server";
 import type { PricingHostPorts } from "@chase-sets/pricing/server";
 import { workerContextRegistry } from "../src/context-registry";
 import { createPlatformChannelSaleRecorder } from "../src/channels-reconciliation-runners";
-import { createRegisteredScheduledRunners, createSupportEvidenceCleanupHostPort } from "../src/scheduled-runners";
+import { createSupportEvidenceCleanupHostPort } from "../src/scheduled-runners";
+import { createRegisteredScheduledRunners } from "./scheduled-job-test-support";
 import { livenessConfig } from "./channels-liveness-config";
 import {
   parseSupportEvidenceCleanupBinding,

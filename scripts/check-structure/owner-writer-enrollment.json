@@ -1,6 +1,12 @@
 {
-  "owner": "identity",
-  "keys": ["account/<accountId>", "user/<userId>", "membership/<membershipId>", "delegation/<delegationId>"],
+  "owners": ["identity", "auth"],
+  "keys": [
+    "account/<accountId>",
+    "user/<userId>",
+    "membership/<membershipId>",
+    "delegation/<delegationId>",
+    "session/<sessionId>"
+  ],
   "consumedFields": {
     "account": ["id", "status"],
     "user": ["id", "status"],
@@ -16,13 +22,281 @@
       "accessTokenExpiresAt",
       "refreshTokenExpiresAt",
       "absoluteExpiresAt"
-    ]
+    ],
+    "session": ["id", "userId", "status", "streamRevision", "tokenRevision", "expiresAt"]
   },
   "principalScope": {
     "apiKey": "Excluded: resolveActorFromRequest in bounded-contexts/auth/support/runtime-support/runtime.ts admits sessions, guest checkout and linked-platform tokens, not Identity API keys.",
     "delegation": "Included: resolveLinkedPlatformActor admits linked-platform OAuth with listings:write; canonical delegation capture and all authorization SQL writers use acknowledged class-C closure."
   },
   "writers": [
+    {
+      "file": "bounded-contexts/auth/features/invitation-acceptance/api/attempt-store.ts",
+      "symbol": "beginAttempt",
+      "sink": "store.appendToStream",
+      "ordinal": 1,
+      "keys": [],
+      "disposition": "excluded",
+      "sourceSymbol": "bounded-contexts/auth/features/invitation-acceptance/api/attempt-store.ts::beginAttempt",
+      "foldTest": "bounded-contexts/auth/features/sessions/api/owner-epochs.test.ts::excludes projections, retention after expiry and non-Session credentials from canonical authority",
+      "reason": "Not an Auth Session stream or SQL Session Token: this symbol writes a Checkout Session, invitation attempt, email challenge or HTTP cookie only."
+    },
+    {
+      "file": "bounded-contexts/auth/features/invitation-acceptance/api/attempt-store.ts",
+      "symbol": "checkpoint",
+      "sink": "store.appendToStream",
+      "ordinal": 1,
+      "keys": [],
+      "disposition": "excluded",
+      "sourceSymbol": "bounded-contexts/auth/features/invitation-acceptance/api/attempt-store.ts::checkpoint",
+      "foldTest": "bounded-contexts/auth/features/sessions/api/owner-epochs.test.ts::excludes projections, retention after expiry and non-Session credentials from canonical authority",
+      "reason": "Not an Auth Session stream or SQL Session Token: this symbol writes a Checkout Session, invitation attempt, email challenge or HTTP cookie only."
+    },
+    {
+      "file": "bounded-contexts/auth/features/sessions/api/mcp.ts",
+      "symbol": "createAuthSessionMcpHandlers > revokeSession",
+      "sink": "services.commandHandler",
+      "ordinal": 1,
+      "keys": ["session"],
+      "disposition": "enrolled",
+      "enrollment": "bounded-contexts/auth/features/sessions/api/owner-epochs.ts::createAuthSessionPersistence > append"
+    },
+    {
+      "file": "bounded-contexts/auth/features/sessions/api/mcp.ts",
+      "symbol": "createAuthSessionMcpHandlers > switchSessionAccount",
+      "sink": "services.commandHandler",
+      "ordinal": 1,
+      "keys": ["session"],
+      "disposition": "enrolled",
+      "enrollment": "bounded-contexts/auth/features/sessions/api/owner-epochs.ts::createAuthSessionPersistence > append"
+    },
+    {
+      "file": "bounded-contexts/auth/features/sessions/api/owner-epochs.ts",
+      "symbol": "createAuthSessionPersistence > append",
+      "sink": "store.appendToStreams!",
+      "ordinal": 1,
+      "keys": [],
+      "disposition": "enrolled",
+      "enrollment": "bounded-contexts/auth/features/sessions/api/owner-epochs.ts::createAuthSessionPersistence > append"
+    },
+    {
+      "file": "bounded-contexts/auth/features/sessions/api/owner-epochs.ts",
+      "symbol": "createAuthSessionPersistence > append",
+      "sink": "store.appendToStreamsInTransaction",
+      "ordinal": 1,
+      "keys": [],
+      "disposition": "enrolled",
+      "enrollment": "bounded-contexts/auth/features/sessions/api/owner-epochs.ts::createAuthSessionPersistence > append"
+    },
+    {
+      "file": "bounded-contexts/auth/features/sessions/api/owner-epochs.ts",
+      "symbol": "createAuthSessionPersistence > appendToStream",
+      "sink": "append",
+      "ordinal": 1,
+      "keys": [],
+      "disposition": "enrolled",
+      "enrollment": "bounded-contexts/auth/features/sessions/api/owner-epochs.ts::createAuthSessionPersistence > append"
+    },
+    {
+      "file": "bounded-contexts/auth/features/sessions/api/route.ts",
+      "symbol": "sessionRoutes",
+      "sink": "services.commandHandler",
+      "ordinal": 1,
+      "keys": ["session"],
+      "disposition": "enrolled",
+      "enrollment": "bounded-contexts/auth/features/sessions/api/owner-epochs.ts::createAuthSessionPersistence > append"
+    },
+    {
+      "file": "bounded-contexts/auth/features/sessions/api/route.ts",
+      "symbol": "sessionRoutes",
+      "sink": "services.commandHandler",
+      "ordinal": 2,
+      "keys": ["session"],
+      "disposition": "enrolled",
+      "enrollment": "bounded-contexts/auth/features/sessions/api/owner-epochs.ts::createAuthSessionPersistence > append"
+    },
+    {
+      "file": "bounded-contexts/auth/features/sessions/api/runtime.ts",
+      "symbol": "createSessionRuntime",
+      "sink": "createAggregateCommandHandler",
+      "ordinal": 1,
+      "keys": ["session"],
+      "disposition": "enrolled",
+      "enrollment": "bounded-contexts/auth/features/sessions/api/owner-epochs.ts::createAuthSessionPersistence > append"
+    },
+    {
+      "file": "bounded-contexts/auth/features/sessions/api/runtime.ts",
+      "symbol": "startGenerationGuardedSession",
+      "sink": "appendToStreams",
+      "ordinal": 1,
+      "keys": ["session"],
+      "disposition": "enrolled",
+      "enrollment": "bounded-contexts/auth/features/sessions/api/owner-epochs.ts::createAuthSessionPersistence > append"
+    },
+    {
+      "file": "bounded-contexts/auth/features/sessions/read-model/projection.ts",
+      "symbol": "buildSessionProjectionHandlers > \"auth.session.account-switched\"",
+      "sink": "updateRow",
+      "ordinal": 1,
+      "keys": ["session"],
+      "disposition": "excluded",
+      "sourceSymbol": "bounded-contexts/auth/features/sessions/read-model/projection.ts::buildSessionProjectionHandlers > \"auth.session.account-switched\"",
+      "foldTest": "bounded-contexts/auth/features/sessions/api/owner-epochs.test.ts::excludes projections, retention after expiry and non-Session credentials from canonical authority",
+      "reason": "Projection writes cannot change complete Session history or the canonical SQL Session Token read by capture."
+    },
+    {
+      "file": "bounded-contexts/auth/features/sessions/read-model/projection.ts",
+      "symbol": "buildSessionProjectionHandlers > \"auth.session.expired\"",
+      "sink": "transitionStatus",
+      "ordinal": 1,
+      "keys": ["session"],
+      "disposition": "excluded",
+      "sourceSymbol": "bounded-contexts/auth/features/sessions/read-model/projection.ts::buildSessionProjectionHandlers > \"auth.session.expired\"",
+      "foldTest": "bounded-contexts/auth/features/sessions/api/owner-epochs.test.ts::excludes projections, retention after expiry and non-Session credentials from canonical authority",
+      "reason": "Projection writes cannot change complete Session history or the canonical SQL Session Token read by capture."
+    },
+    {
+      "file": "bounded-contexts/auth/features/sessions/read-model/projection.ts",
+      "symbol": "buildSessionProjectionHandlers > \"auth.session.revoked\"",
+      "sink": "transitionStatus",
+      "ordinal": 1,
+      "keys": ["session"],
+      "disposition": "excluded",
+      "sourceSymbol": "bounded-contexts/auth/features/sessions/read-model/projection.ts::buildSessionProjectionHandlers > \"auth.session.revoked\"",
+      "foldTest": "bounded-contexts/auth/features/sessions/api/owner-epochs.test.ts::excludes projections, retention after expiry and non-Session credentials from canonical authority",
+      "reason": "Projection writes cannot change complete Session history or the canonical SQL Session Token read by capture."
+    },
+    {
+      "file": "bounded-contexts/auth/features/sessions/read-model/projection.ts",
+      "symbol": "buildSessionProjectionHandlers > \"auth.session.started\"",
+      "sink": "upsertRow",
+      "ordinal": 1,
+      "keys": ["session"],
+      "disposition": "excluded",
+      "sourceSymbol": "bounded-contexts/auth/features/sessions/read-model/projection.ts::buildSessionProjectionHandlers > \"auth.session.started\"",
+      "foldTest": "bounded-contexts/auth/features/sessions/api/owner-epochs.test.ts::excludes projections, retention after expiry and non-Session credentials from canonical authority",
+      "reason": "Projection writes cannot change complete Session history or the canonical SQL Session Token read by capture."
+    },
+    {
+      "file": "bounded-contexts/auth/support/api-support/magic-link-routes.ts",
+      "symbol": "registerMagicLinkRoutes",
+      "sink": "services.eventStore.appendToStream",
+      "ordinal": 1,
+      "keys": [],
+      "disposition": "excluded",
+      "sourceSymbol": "bounded-contexts/auth/support/api-support/magic-link-routes.ts::registerMagicLinkRoutes",
+      "foldTest": "bounded-contexts/auth/features/sessions/api/owner-epochs.test.ts::excludes projections, retention after expiry and non-Session credentials from canonical authority",
+      "reason": "Not an Auth Session stream or SQL Session Token: this symbol writes a Checkout Session, invitation attempt, email challenge or HTTP cookie only."
+    },
+    {
+      "file": "bounded-contexts/auth/support/auth-support/http.ts",
+      "symbol": "appendCookie",
+      "sink": "headers.append",
+      "ordinal": 1,
+      "keys": [],
+      "disposition": "excluded",
+      "sourceSymbol": "bounded-contexts/auth/support/auth-support/http.ts::appendCookie",
+      "foldTest": "bounded-contexts/auth/features/sessions/api/owner-epochs.test.ts::excludes projections, retention after expiry and non-Session credentials from canonical authority",
+      "reason": "Not an Auth Session stream or SQL Session Token: this symbol writes a Checkout Session, invitation attempt, email challenge or HTTP cookie only."
+    },
+    {
+      "file": "bounded-contexts/auth/support/auth-support/store.ts",
+      "symbol": "upsertSessionToken",
+      "sink": "session SQL",
+      "ordinal": 1,
+      "keys": ["session"],
+      "disposition": "enrolled",
+      "enrollment": "bounded-contexts/auth/support/auth-support/store.ts::upsertSessionToken"
+    },
+    {
+      "file": "bounded-contexts/auth/support/runtime-support/retention-policy.ts",
+      "symbol": "<module>",
+      "sink": "expired",
+      "ordinal": 1,
+      "keys": ["session"],
+      "disposition": "excluded",
+      "sourceSymbol": "bounded-contexts/auth/support/runtime-support/retention-policy.ts::expired",
+      "foldTest": "bounded-contexts/auth/support/runtime-support/listing-session-epoch-closure.db.test.ts::retention deletion cannot authorize an expired grant or a missing token",
+      "reason": "Only deletes SQL token locators seven days after their validity boundary; terminal store-clock expiry already refuses every affected grant. Session projection deletion changes no canonical state."
+    },
+    {
+      "file": "bounded-contexts/auth/support/runtime-support/retention-policy.ts",
+      "symbol": "<module>",
+      "sink": "expired",
+      "ordinal": 2,
+      "keys": ["session"],
+      "disposition": "excluded",
+      "sourceSymbol": "bounded-contexts/auth/support/runtime-support/retention-policy.ts::expired",
+      "foldTest": "bounded-contexts/auth/support/runtime-support/listing-session-epoch-closure.db.test.ts::retention deletion cannot authorize an expired grant or a missing token",
+      "reason": "Only deletes SQL token locators seven days after their validity boundary; terminal store-clock expiry already refuses every affected grant. Session projection deletion changes no canonical state."
+    },
+    {
+      "file": "bounded-contexts/auth/support/runtime-support/seed.ts",
+      "symbol": "ensureSessionStarted",
+      "sink": "sessions.commandHandler",
+      "ordinal": 1,
+      "keys": ["session"],
+      "disposition": "enrolled",
+      "enrollment": "bounded-contexts/auth/features/sessions/api/owner-epochs.ts::createAuthSessionPersistence > append"
+    },
+    {
+      "file": "bounded-contexts/auth/support/runtime-support/seed.ts",
+      "symbol": "seedAuthDatabase",
+      "sink": "sessions.commandHandler",
+      "ordinal": 1,
+      "keys": ["session"],
+      "disposition": "enrolled",
+      "enrollment": "bounded-contexts/auth/features/sessions/api/owner-epochs.ts::createAuthSessionPersistence > append"
+    },
+    {
+      "file": "bounded-contexts/auth/support/runtime-support/seed.ts",
+      "symbol": "seedAuthDatabase",
+      "sink": "sessions.commandHandler",
+      "ordinal": 2,
+      "keys": ["session"],
+      "disposition": "enrolled",
+      "enrollment": "bounded-contexts/auth/features/sessions/api/owner-epochs.ts::createAuthSessionPersistence > append"
+    },
+    {
+      "file": "bounded-contexts/auth/support/runtime-support/services.ts",
+      "symbol": "revokeSession",
+      "sink": "services.sessions.commandHandler",
+      "ordinal": 1,
+      "keys": ["session"],
+      "disposition": "enrolled",
+      "enrollment": "bounded-contexts/auth/features/sessions/api/owner-epochs.ts::createAuthSessionPersistence > append"
+    },
+    {
+      "file": "bounded-contexts/auth/support/runtime-support/services.ts",
+      "symbol": "startSessionForUser",
+      "sink": "services.sessions.commandHandler",
+      "ordinal": 1,
+      "keys": ["session"],
+      "disposition": "enrolled",
+      "enrollment": "bounded-contexts/auth/features/sessions/api/owner-epochs.ts::createAuthSessionPersistence > append"
+    },
+    {
+      "file": "bounded-contexts/checkout/features/sessions/api/session-entry.ts",
+      "symbol": "createCheckoutSessionEntryServices > startSessionWithEntryAttempt",
+      "sink": "deps.eventStore.appendToStreams",
+      "ordinal": 1,
+      "keys": ["session"],
+      "disposition": "excluded",
+      "sourceSymbol": "bounded-contexts/checkout/features/sessions/api/session-entry.ts::createCheckoutSessionEntryServices > startSessionWithEntryAttempt",
+      "foldTest": "bounded-contexts/auth/features/sessions/api/owner-epochs.test.ts::excludes projections, retention after expiry and non-Session credentials from canonical authority",
+      "reason": "Not an Auth Session stream or SQL Session Token: this symbol writes a Checkout Session, invitation attempt, email challenge or HTTP cookie only."
+    },
+    {
+      "file": "bounded-contexts/checkout/support/runtime-support/seed.ts",
+      "symbol": "seedCheckoutDatabase",
+      "sink": "checkout.sessions.commandHandler",
+      "ordinal": 1,
+      "keys": ["session"],
+      "disposition": "excluded",
+      "sourceSymbol": "bounded-contexts/checkout/support/runtime-support/seed.ts::seedCheckoutDatabase",
+      "foldTest": "bounded-contexts/auth/features/sessions/api/owner-epochs.test.ts::excludes projections, retention after expiry and non-Session credentials from canonical authority",
+      "reason": "Not an Auth Session stream or SQL Session Token: this symbol writes a Checkout Session, invitation attempt, email challenge or HTTP cookie only."
+    },
     {
       "file": "bounded-contexts/identity/api.ts",
       "symbol": "acceptInvitationForUserFromAuth",
