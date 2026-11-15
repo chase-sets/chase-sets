@@ -490,6 +490,7 @@ export function parsePlatformDeployIncidentOptions(argv, env = process.env) {
     deployStagingResult: readOption(argv, "--deploy-staging-result") ?? readEnv("DEPLOY_STAGING_RESULT", env),
     stagingApplied: readOption(argv, "--staging-applied") ?? readEnv("STAGING_APPLIED", env),
     stagingDeployed: readOption(argv, "--staging-deployed") ?? readEnv("STAGING_DEPLOYED", env),
+    stagingSuperseded: readOption(argv, "--staging-superseded") ?? readEnv("STAGING_SUPERSEDED", env),
     deployProductionResult: readOption(argv, "--deploy-production-result") ?? readEnv("DEPLOY_PRODUCTION_RESULT", env),
     productionSuperseded: readOption(argv, "--production-superseded") ?? readEnv("PRODUCTION_SUPERSEDED", env),
     recordStagingHealthResult:
@@ -544,15 +545,11 @@ export function classifyPlatformDeployRun(input = {}) {
   const stagingApplied = parseBoolean(input.stagingApplied);
   const stagingDeployed = parseBoolean(input.stagingDeployed);
   const stagingWasNotApplied = stagingApplied === false || (stagingApplied === null && stagingDeployed === false);
-  const legacyStagingNoOp =
-    stagingApplied === null &&
-    stagingDeployed === null &&
-    input.deployStagingResult === "success" &&
-    input.deployProductionResult === "skipped";
   const stagingSuperseded =
+    parseBoolean(input.stagingSuperseded) === true &&
     input.deployStagingResult === "success" &&
     input.deployProductionResult === "skipped" &&
-    (stagingWasNotApplied || legacyStagingNoOp);
+    stagingWasNotApplied;
   const supersededNoOp = successfulPrerequisites && (productionSuperseded || stagingSuperseded);
 
   let rootCause;
@@ -623,7 +620,7 @@ export function buildSupersededNoOpResolutionComment({
 - Superseding commit: ${supersededByCommit || "unavailable"}
 - Classification: ${reason || "superseded-pre-mutation"}
 
-This deploy run was intentionally superseded before its release was applied. The newer release owns the deploy lane, so no failed deploy action remains for this incident.`;
+The superseded candidate was not applied by this run. This is not evidence that the newer release deployed; its own staging and production gates must succeed. Automatic ancestor candidates continue deploying rather than being superseded just because main advances.`;
 }
 
 function parseBoolean(value) {
