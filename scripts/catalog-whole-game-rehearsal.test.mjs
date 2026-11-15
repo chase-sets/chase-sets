@@ -239,12 +239,12 @@ describe("reference-only settle completeness", () => {
   }
 
   it.each([
-    ["2026-11-11T12:00:00Z", 0],
+    ["2026-11-11T12:00:00Z", 1],
     ["2026-11-12T12:00:01Z", 1],
     ["invalid", 1],
     [undefined, 1],
   ])(
-    "invalidates a checkpoint for newer/unknown approved-but-unapplied candidates (%s)",
+    "invalidates a checkpoint for approved-but-unapplied candidates absent from its outcomes (%s)",
     async (updated_at, remaining) => {
       const result = await count(
         { 0: { total: 1, items: [{ candidate_id: "approved", updated_at }] } },
@@ -255,6 +255,40 @@ describe("reference-only settle completeness", () => {
       expect(new URL(result.reads[0], rehearsal.wholeGameStagingOrigin).searchParams.get("status")).toBe("promoted");
     },
   );
+
+  it.each([
+    ["2026-11-11T12:00:00Z", 0],
+    ["2026-11-12T12:00:00Z", 1],
+    ["2026-11-12T12:00:01Z", 1],
+    ["invalid", 1],
+    [undefined, 1],
+  ])(
+    "reuses a covered approved candidate only while strictly older than its checkpoint (%s)",
+    async (updated_at, remaining) => {
+      const job = convergedJob([referenceOnly("synthetic-approved")]);
+      const result = await count(
+        { 0: { total: 1, items: [{ candidate_id: "synthetic-approved", updated_at }] } },
+        [job],
+        "promoted",
+      );
+      expect(result.remaining).toBe(remaining);
+      expect(planScopePromotion("scope-1", [], [job], result.remaining).kind).toBe(
+        remaining === 0 ? "reuse-completed-job" : "submit-promote-all-ready",
+      );
+    },
+  );
+
+  it("does not borrow approved candidate coverage from an older zero checkpoint", async () => {
+    const result = await count(
+      { 0: { total: 1, items: [{ candidate_id: "synthetic-approved" }] } },
+      [
+        convergedJob([referenceOnly("synthetic-approved")], { jobId: "synthetic-older-zero" }),
+        convergedJob([], { jobId: "synthetic-latest-zero", createdAt: "2026-11-12T13:00:00Z" }),
+      ],
+      "promoted",
+    );
+    expect(result.remaining).toBe(1);
+  });
 
   it("does not leave the Time Spiral reference-only set candidate blocking settle", async () => {
     const candidateId = "cand_400f635bd596d757ecda7a4f";

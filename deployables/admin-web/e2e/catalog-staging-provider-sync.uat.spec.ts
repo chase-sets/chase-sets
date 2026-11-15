@@ -7880,7 +7880,9 @@ async function readReadyCandidateCount(
 ): Promise<number> {
   // Historical dispositions are reusable only until the candidate changes.
   // Approved candidates use the stored `promoted` status, including unapplied approvals.
-  const checkpointAt = Date.parse(scopePromotionCheckpoint(scopeRecordId, convergedJobs)?.createdAt ?? "");
+  const checkpoint = scopePromotionCheckpoint(scopeRecordId, convergedJobs);
+  const checkpointAt = Date.parse(checkpoint?.createdAt ?? "");
+  const checkpointCandidates = new Set(checkpoint?.result?.outcomes.map((outcome) => outcome.candidateId) ?? []);
   const referenceOnly = new Map(
     convergedJobs.flatMap((job) =>
       job.scopeRecordId === scopeRecordId &&
@@ -7919,7 +7921,7 @@ async function readReadyCandidateCount(
       // An edit after job creation invalidates its disposition; unknown dates fail closed.
       const unchanged =
         status === "promoted"
-          ? Date.parse(candidate.updated_at) < checkpointAt
+          ? checkpointCandidates.has(candidate.candidate_id) && Date.parse(candidate.updated_at) < checkpointAt
           : Date.parse(candidate.updated_at) <= (referenceOnly.get(candidate.candidate_id) ?? Number.NEGATIVE_INFINITY);
       if (!unchanged) remaining += 1;
     }
