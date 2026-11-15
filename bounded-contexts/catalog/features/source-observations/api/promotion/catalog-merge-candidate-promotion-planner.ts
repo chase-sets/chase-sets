@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { isDeepStrictEqual } from "node:util";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { JsonObject, JsonValue } from "@chase-sets/primitives/json";
 import type { CatalogItemCommand } from "../../../catalog-items/domain/domain";
@@ -16,6 +17,10 @@ import type {
   CatalogMergeCandidateWarning,
 } from "../../domain/catalog-merge-candidate";
 import type { CatalogMergeCandidateListRow } from "../../read-model/queries";
+import {
+  normalizeConflictResolutionValues,
+  snapshotWithConflictResolutions,
+} from "../../domain/catalog-merge-candidate";
 import type { LocalizedTextMap } from "../../../../support/runtime-support/common";
 import type { ProductAssetSet } from "../../../../support/runtime-support/product-assets";
 import {
@@ -83,6 +88,7 @@ export type CatalogMergeCandidatePromotionPlanDiagnostic = Readonly<{
   code:
     | "candidate-not-ready"
     | "candidate-has-blocking-conflicts"
+    | "ambiguous-conflict-resolution"
     | "conflicting-external-reference-level"
     | "duplicate-external-catalog-item-reference"
     | "duplicate-external-product-reference"
@@ -279,8 +285,38 @@ type ConstructedCatalogMergeCandidatePromotionCommands =
 function constructCatalogMergeCandidatePromotionCommands(
   input: CatalogMergeCandidatePromotionPlanInput,
 ): ConstructedCatalogMergeCandidatePromotionCommands {
-  const candidate = normalizeCandidate(input.candidate);
-  const diagnostics = candidatePromotionDiagnostics(candidate, input.catalog, input.createCatalogItemId ?? null);
+  const normalized = normalizeCandidate(input.candidate);
+  const resolutionValues = normalizeConflictResolutionValues(input.resolvedConflicts ?? []);
+  if (resolutionValues.status === "ambiguous") {
+    return {
+      status: "blocked",
+      plan: null,
+      diagnostics: [
+        {
+          code: "ambiguous-conflict-resolution",
+          path: resolutionValues.fieldPath,
+          diagnosticText: "Choose an explicit scalar value instead of multiple existing alternatives.",
+        },
+      ],
+    };
+  }
+  const resolvedConflicts = resolutionValues.resolutions;
+  const candidate = {
+    ...normalized,
+    snapshot: snapshotWithConflictResolutions(normalized.snapshot, resolvedConflicts),
+  };
+  const catalog = {
+    ...input.catalog,
+    fields: input.catalog.fields.filter(
+      (mapping) => !keepsExistingReference(mapping, candidate.snapshot, resolvedConflicts),
+    ),
+  };
+  const diagnostics = candidatePromotionDiagnostics(
+    candidate,
+    catalog,
+    input.createCatalogItemId ?? null,
+    resolvedConflicts,
+  );
   if (diagnostics.length > 0) {
     return { status: "blocked", plan: null, diagnostics };
   }
@@ -302,8 +338,8 @@ function constructCatalogMergeCandidatePromotionCommands(
     };
   }
 
-  const fieldChanges = fieldChangesForCandidate(candidate.snapshot, input.catalog.fields);
-  const referenceRecordLinks = referenceRecordLinksForCandidate(candidate.snapshot, input.catalog.fields);
+  const fieldChanges = fieldChangesForCandidate(candidate.snapshot, catalog.fields, resolvedConflicts);
+  const referenceRecordLinks = referenceRecordLinksForCandidate(candidate.snapshot, catalog.fields);
   const productMappings = productMappingsForCandidate(candidate.snapshot);
   const assetPlan = normalizeAssetPlan(input.assetPlan ?? null);
   const promotableChange: PromotableCatalogItemProductChange = {
@@ -317,14 +353,14 @@ function constructCatalogMergeCandidatePromotionCommands(
     productMappings,
     externalCatalogItemReferences: candidate.snapshot.proposedExternalCatalogItemReferences,
     externalProductReferences: candidate.snapshot.proposedExternalProductReferences,
-    sourceProvenance: sourceProvenanceForCandidate(candidate.snapshot, input.resolvedConflicts ?? []),
+    sourceProvenance: sourceProvenanceForCandidate(candidate.snapshot, resolvedConflicts),
     assetPlan,
   };
   const commands = catalogItemCommandsForCandidatePromotion({
     mode,
     catalogItemId,
     snapshot: candidate.snapshot,
-    catalog: input.catalog,
+    catalog,
     fieldChanges,
     assetPlan,
   });
@@ -347,10 +383,32 @@ function constructCatalogMergeCandidatePromotionCommands(
   };
 }
 
+function keepsExistingReference(
+  mapping: CatalogMergeCandidatePromotionFieldMapping,
+  snapshot: CatalogMergeCandidateReviewSnapshot,
+  resolutions: readonly CatalogMergeCandidateConflictResolution[],
+): boolean {
+  if (mapping.valueKind !== "reference-record" || snapshot.promotionIntent === "create-catalog-item") return false;
+  return snapshot.conflicts.some(
+    (conflict) =>
+      conflict.fieldPath === mapping.fieldPath &&
+      resolutions.some(
+        (resolution) =>
+          resolution.conflictCode === conflict.code &&
+          resolution.fieldPath === mapping.fieldPath &&
+          (Array.isArray(conflict.existingValue)
+            ? conflict.existingValue.some((value) => isDeepStrictEqual(resolution.chosenValue, value))
+            : isDeepStrictEqual(resolution.chosenValue, conflict.existingValue)) &&
+          !isDeepStrictEqual(resolution.chosenValue, conflict.proposedValue),
+      ),
+  );
+}
+
 function candidatePromotionDiagnostics(
   candidate: ReturnType<typeof normalizeCandidate>,
   catalog: CatalogMergeCandidatePromotionCatalogMapping,
   createCatalogItemId: CatalogItemId | null,
+  resolvedConflicts: readonly CatalogMergeCandidateConflictResolution[],
 ): CatalogMergeCandidatePromotionPlanDiagnostic[] {
   const diagnostics: CatalogMergeCandidatePromotionPlanDiagnostic[] = [];
   const snapshot = candidate.snapshot;
@@ -364,6 +422,19 @@ function candidatePromotionDiagnostics(
   }
 
   for (const conflict of snapshot.conflicts.filter((conflict) => conflict.severity === "blocking")) {
+    const mapping = catalog.fields.find((entry) => entry.fieldPath === conflict.fieldPath);
+    if (
+      conflict.fieldPath &&
+      /^catalogItem\.[^.]+$/.test(conflict.fieldPath) &&
+      resolvedConflicts.some(
+        (resolution) =>
+          resolution.conflictCode === conflict.code &&
+          resolution.fieldPath === conflict.fieldPath &&
+          (mapping?.valueKind !== "reference-record" ||
+            isDeepStrictEqual(resolution.chosenValue, conflict.proposedValue)),
+      )
+    )
+      continue;
     diagnostics.push({
       code: "candidate-has-blocking-conflicts",
       path: conflict.fieldPath ?? "candidate.conflicts",
@@ -596,10 +667,16 @@ function catalogItemCommandsForCandidatePromotion(input: {
 function fieldChangesForCandidate(
   snapshot: CatalogMergeCandidateReviewSnapshot,
   mappings: readonly CatalogMergeCandidatePromotionFieldMapping[],
+  resolvedConflicts: readonly CatalogMergeCandidateConflictResolution[],
 ): readonly CatalogMergeCandidatePromotionFieldChange[] {
   return mappings.flatMap((mapping) => {
     const value = fieldMappingValue(snapshot.proposedCatalogItemFacts, mapping);
-    if (value === null) {
+    if (
+      value === null &&
+      !resolvedConflicts.some(
+        (resolution) => resolution.fieldPath === mapping.fieldPath && resolution.chosenValue === null,
+      )
+    ) {
       return [];
     }
     return [
