@@ -262,6 +262,8 @@ describe("bounded context runtime schema", () => {
     expect(eventSubscriptionSchemaSql).toContain("CREATE TABLE IF NOT EXISTS event_projection_group_generations");
     expect(eventSubscriptionSchemaSql).toContain("active_generation bigint NOT NULL DEFAULT 1");
     expect(eventSubscriptionSchemaSql).toContain("rebuilding_generation bigint NULL");
+    expect(eventSubscriptionSchemaSql).toContain("target_projection_revision integer NULL CHECK");
+    expect(eventSubscriptionSchemaSql).toContain("ADD COLUMN IF NOT EXISTS target_projection_revision integer NULL");
   });
 
   it("moves event-store backfills, large indexes, and write-hot fillfactor changes out of boot-time schema SQL", () => {

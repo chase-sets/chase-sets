@@ -2534,6 +2534,7 @@ describe("worker runner loop", () => {
     const processedByRun = [1, 1, 0];
     const resets: string[] = [];
     let markedRevision = false;
+    let rebuilding = false;
     const subscriptionRunner = {
       targetContextName: "inventory",
       checkpointKey: "inventory-catalog-item-projection:catalog:v1",
@@ -2549,12 +2550,15 @@ describe("worker runner loop", () => {
       subscriptionRunners: [subscriptionRunner],
       refreshStatus: async () => ({
         revisionStale: !markedRevision,
+        rebuildingProjectionRevision: rebuilding ? 2 : undefined,
+        revisionSyncToken: rebuilding ? { generation: "2", startedAt: "2026-01-01T00:00:00.000Z" } : null,
       }),
       markRevisionSynced: async () => {
         markedRevision = true;
       },
       reset: async () => {
         resets.push("group");
+        rebuilding = true;
       },
     });
     const [runner] = collectWorkerRunners({
@@ -2572,6 +2576,76 @@ describe("worker runner loop", () => {
     expect(resets).toEqual(["group", "subscription"]);
     expect(markedRevision).toBe(true);
   });
+
+  it.each([false, true])(
+    "projection-group-recovery-marker resumes a durable stale rebuild after a drain error (restart=%s)",
+    async (restart) => {
+      const token = Object.freeze({ generation: "9007199254740993", startedAt: "2026-01-01T00:00:00.000Z" });
+      const reset = vi.fn(async () => undefined);
+      const markRevisionSynced = vi.fn(async () => undefined);
+      const runOnce = vi
+        .fn()
+        .mockRejectedValueOnce(new Error("injected drain failure"))
+        .mockResolvedValueOnce({ processed: 1, lastGlobalPosition: "1" })
+        .mockResolvedValue({ processed: 0, lastGlobalPosition: "1" });
+      const makeGroup = () =>
+        createProjectionGroup({
+          subscriptionRunners: [{ runOnce, reset: async () => undefined }],
+          reset,
+          markRevisionSynced,
+          refreshStatus: async () => ({
+            revisionStale: true,
+            rebuildingProjectionRevision: 2,
+            revisionSyncToken: token,
+          }),
+        });
+      const makeWorker = () =>
+        collectWorkerRunners({
+          mountedContexts: [],
+          services: {},
+          projectionGroups: [makeGroup()],
+          subscriptionRunners: [],
+        } as never)[0];
+      let worker = makeWorker();
+      await expect(worker.runOnce()).rejects.toThrow("injected drain failure");
+      if (restart) worker = makeWorker();
+      await expect(worker.runOnce()).resolves.toMatchObject({ processed: 1 });
+      expect(markRevisionSynced).not.toHaveBeenCalled();
+      await expect(worker.runOnce()).resolves.toMatchObject({ processed: 0 });
+      expect(reset).not.toHaveBeenCalled();
+      expect(markRevisionSynced).toHaveBeenCalledExactlyOnceWith(token, expect.anything());
+    },
+  );
+
+  it.each([
+    { target: 1, token: { generation: "2", startedAt: "2026-01-01T00:00:00.000Z" } },
+    { target: null, token: { generation: "2", startedAt: "2026-01-01T00:00:00.000Z" } },
+    { target: 2, token: null },
+    { target: 2, token: { activeGeneration: "2" } },
+    { target: 1, token: { generation: "2", startedAt: "2026-01-01T00:00:00.000Z" }, revisionStale: false },
+    { target: null, token: { generation: "2", startedAt: "2026-01-01T00:00:00.000Z" }, revisionStale: false },
+  ])(
+    "projection-group-revision-mismatch resets a non-resumable capture $target / $token",
+    async ({ target, token, revisionStale = true }) => {
+      const reset = vi.fn(async () => undefined);
+      const group = createProjectionGroup({
+        reset,
+        refreshStatus: async () => ({
+          revisionStale,
+          rebuildingProjectionRevision: target,
+          revisionSyncToken: token,
+        }),
+      });
+      const [worker] = collectWorkerRunners({
+        mountedContexts: [],
+        services: {},
+        projectionGroups: [group],
+        subscriptionRunners: [],
+      } as never);
+      await worker.runOnce();
+      expect(reset).toHaveBeenCalledTimes(1);
+    },
+  );
 
   it("projection-group-recovery-marker retains its captured token across busy and blocked passes", async () => {
     const passResults = [
@@ -3424,7 +3498,10 @@ function createProjectionGroup(
     refreshStatus?: (
       ...args: Parameters<ContextProjectionGroup["refreshStatus"]>
     ) => Promise<
-      Pick<Awaited<ReturnType<ContextProjectionGroup["refreshStatus"]>>, "revisionStale" | "revisionSyncToken">
+      Pick<
+        Awaited<ReturnType<ContextProjectionGroup["refreshStatus"]>>,
+        "revisionStale" | "revisionSyncToken" | "rebuildingProjectionRevision"
+      >
     >;
     recoveryRequired?: () => boolean;
     markRevisionSynced?: ContextProjectionGroup["markRevisionSynced"];

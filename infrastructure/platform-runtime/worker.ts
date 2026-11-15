@@ -1463,7 +1463,6 @@ export function createProjectionGroupWorkerRunner(
   const revisionStaleBehavior = options.revisionStaleBehavior ?? "reset";
   const idleInTransactionSessionTimeoutMs =
     options.idleInTransactionSessionTimeoutMs ?? DEFAULT_PROJECTION_TRANSACTION_IDLE_TIMEOUT_MS;
-  let rebuildingRevision: number | null = null;
   let revisionSyncToken: Parameters<ContextProjectionGroup["markRevisionSynced"]>[0];
   let hasRevisionSyncToken = false;
 
@@ -1499,10 +1498,14 @@ export function createProjectionGroupWorkerRunner(
         if (status.revisionStale && revisionStaleBehavior === "reject") {
           throw new ProjectionGroupRevisionStaleError(group);
         }
-        if (status.recoveryRequired || (status.revisionStale && rebuildingRevision !== group.projectionRevision)) {
+        const resumableRebuild =
+          refreshedStatus.rebuildingProjectionRevision === group.projectionRevision &&
+          refreshedStatus.revisionSyncToken != null &&
+          "generation" in refreshedStatus.revisionSyncToken;
+        const rebuildRequired = status.revisionStale || refreshedStatus.rebuildingProjectionRevision !== undefined;
+        if (status.recoveryRequired || (rebuildRequired && !resumableRebuild)) {
           runContext.throwIfLeaseLost?.();
           revisionSyncToken = await resetProjectionGroup(group, runContext);
-          rebuildingRevision = group.projectionRevision;
           if (options.onCheckpointsReset) {
             try {
               await options.onCheckpointsReset(group.subscriptionRunners.map((runner) => runner.checkpointKey));
@@ -1528,7 +1531,6 @@ export function createProjectionGroupWorkerRunner(
         if (processed === 0 && blockedStreams === 0) {
           runContext.throwIfLeaseLost?.();
           await group.markRevisionSynced(revisionSyncToken, runContext);
-          rebuildingRevision = null;
           revisionSyncToken = undefined;
           hasRevisionSyncToken = false;
         }
@@ -1549,7 +1551,6 @@ export function createProjectionGroupWorkerRunner(
           poisonEvents,
         };
       } catch (error) {
-        rebuildingRevision = null;
         revisionSyncToken = undefined;
         hasRevisionSyncToken = false;
         throw error;
