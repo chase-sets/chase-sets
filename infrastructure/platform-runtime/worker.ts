@@ -2322,7 +2322,9 @@ async function runSubscriptionRunnersByOrder(
     }
 
     context?.throwIfLeaseLost?.();
-    results.push(...(await Promise.all(sameOrderRunners.map((runner) => runner.runOnce(runContext)))));
+    const orderResults = await Promise.all(sameOrderRunners.map((runner) => runner.runOnce(runContext)));
+    results.push(...orderResults);
+    if (orderResults.some((result) => (result.blockedStreams ?? 0) > 0)) break;
   }
 
   return results;

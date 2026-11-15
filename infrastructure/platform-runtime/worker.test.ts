@@ -2804,6 +2804,65 @@ describe("worker runner loop", () => {
     expect(calls).toEqual(["slow-start", "same-order", "slow-end", "later-order"]);
   });
 
+  it.each([0, 1])("keeps later subscription orders behind blocked streams (processed=%s)", async (processed) => {
+    let blocked = true;
+    const runOnce = vi.fn(async () => ({
+      processed: blocked ? processed : 0,
+      lastGlobalPosition: "2" as never,
+      blockedStreams: blocked ? 1 : 0,
+      poisonEvents: blocked ? 1 : 0,
+    }));
+    const peerRun = vi.fn(async () => ({ processed: 0, lastGlobalPosition: "3" as never }));
+    const laterRun = vi.fn(async () => ({ processed: 0, lastGlobalPosition: "4" as never }));
+    const subscriptions = [
+      { order: 10, sourceContextName: "catalog", runOnce },
+      { order: 10, sourceContextName: "marketplace", runOnce: peerRun },
+      { order: 20, sourceContextName: "ordering", runOnce: laterRun },
+    ];
+    const token = { generation: "2", startedAt: "2026-01-01T00:00:00.000Z" };
+    const reset = vi.fn(async () => undefined);
+    const markRevisionSynced = vi.fn(async () => undefined);
+    const makeWorker = () =>
+      collectWorkerRunners({
+        mountedContexts: [],
+        services: {},
+        subscriptionRunners: [],
+        projectionGroups: [
+          createProjectionGroup({
+            subscriptionRunners: subscriptions,
+            reset,
+            markRevisionSynced,
+            refreshStatus: async () => ({
+              revisionStale: true,
+              rebuildingProjectionRevision: 2,
+              revisionSyncToken: token,
+            }),
+          }),
+        ],
+      } as never)[0];
+
+    const worker = makeWorker();
+    for (const runner of [worker, worker, makeWorker()]) {
+      await expect(runner.runOnce()).resolves.toMatchObject({
+        processed,
+        blockedStreams: 1,
+        poisonEvents: 1,
+        state: "degraded",
+        lastGlobalPosition: "3",
+      });
+    }
+    expect(peerRun).toHaveBeenCalledTimes(3);
+    expect(laterRun).not.toHaveBeenCalled();
+    expect(markRevisionSynced).not.toHaveBeenCalled();
+    expect(reset).not.toHaveBeenCalled();
+
+    blocked = false;
+    await expect(worker.runOnce()).resolves.toMatchObject({ processed: 0, blockedStreams: 0, state: "caught-up" });
+    expect(laterRun).toHaveBeenCalledTimes(1);
+    expect(markRevisionSynced).toHaveBeenCalledWith(token, expect.any(Object));
+    expect(reset).not.toHaveBeenCalled();
+  });
+
   it("shares source-head cache across subscription runners in one projection group pass", async () => {
     let sourceHeadReads = 0;
     const readSourceHead = (context: ProjectionRunContext | undefined, sourceContextName: string) => {
