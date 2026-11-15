@@ -3282,6 +3282,7 @@ describe("change-scope", () => {
           "@chase-sets/notifications",
           "@chase-sets/ordering",
           "@chase-sets/payments",
+          "@chase-sets/platform-operations",
           "@chase-sets/platform-runtime",
           "@chase-sets/public-presence",
           "@chase-sets/settlement",
@@ -3290,6 +3291,7 @@ describe("change-scope", () => {
           "@chase-sets/app-public-web",
           "@chase-sets/app-tcgplayer-connector-extension",
           "@chase-sets/channels",
+          "@chase-sets/marketplace",
           "@chase-sets/pricing",
         ]);
         expected.affected_workspaces = affected.join(",");
