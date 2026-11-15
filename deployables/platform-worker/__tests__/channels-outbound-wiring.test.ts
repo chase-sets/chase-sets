@@ -264,6 +264,7 @@ function validChannelsCandidate(
   > = {},
 ) {
   return {
+    ebayConnection: { callback: vi.fn<NonNullable<ChannelsServices["ebayConnection"]>["callback"]>() },
     ebayAccountDeletionReceipts: {
       recordEbayAccountDeletionReceipt:
         vi.fn<ChannelsServices["ebayAccountDeletionReceipts"]["recordEbayAccountDeletionReceipt"]>(),

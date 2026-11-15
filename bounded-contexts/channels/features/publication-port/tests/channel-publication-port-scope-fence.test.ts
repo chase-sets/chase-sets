@@ -11,6 +11,7 @@ describe("channel-publication-port-scope-fence", () => {
     const relativeFiles = listFiles(sliceRoot);
     expect([...new Set(relativeFiles.map((file) => file.split("/")[0]))].sort()).toEqual(["api", "domain", "tests"]);
     expect(manifest.slices).toEqual([
+      "ebay-connection",
       "ebay-account-deletion",
       "connector-feed",
       "connections",
@@ -29,6 +30,12 @@ describe("channel-publication-port-scope-fence", () => {
       "reconciliation",
     ]);
     expect(manifest.hostPorts).toEqual([
+      {
+        portName: "ebayOAuthConfiguration",
+        providedBy: "platform-api",
+        purpose:
+          "Supply Sandbox-only eBay OAuth application credentials and RuName; absent configuration disables connection.",
+      },
       {
         portName: "ebayAccountDeletionConfiguration",
         providedBy: "platform-api",
@@ -134,7 +141,7 @@ describe("channel-publication-port-scope-fence", () => {
     }
     expect(sliceProduction).not.toMatch(/\b(?:fetch|playwright|webdriver|oauth|credentialReference)\s*\(/i);
     expect(readFileSync(path.join(repoRoot, "bounded-contexts/channels/index.ts"), "utf8")).toContain(
-      "ports?.setupResolver ?? channelProviderRegistry.setupResolver",
+      "(ports.setupResolver ?? channelProviderRegistry.setupResolver).resolve(input)",
     );
   });
 });
