@@ -1,4 +1,4 @@
-import type { MarketplaceApiClient } from "@chase-sets/marketplace/server";
+import type { MarketplaceApiClient } from "../../../support/request-support/marketplace-listings";
 import { createHash } from "node:crypto";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
