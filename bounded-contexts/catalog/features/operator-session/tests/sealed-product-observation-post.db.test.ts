@@ -8,6 +8,10 @@ import {
   type CatalogMergeCandidateEvent,
 } from "../../source-observations/domain/catalog-merge-candidate";
 import { sourceObservationStreamId } from "../../source-observations/api/source-observation-stream-identity";
+import { createCatalogProviderIntegrationProfileVersionStore } from "../../source-observations/api/providers/provider-integration-profile-store";
+import { staticCatalogProviderIntegrationProfileVersions } from "../../source-observations/api/source-observation-runtime-contracts";
+import { requireSourceObservationMappingContract } from "../../source-observations/api/source-observation-promotion-execution";
+import { catalogProviderSourceMappingFingerprint } from "../../source-observations/api/promotion/provider-source-observation-normalizer";
 import { describeDb, useOperatorSessionDatabase } from "./db-fixture";
 import { composeSealedProducts, acceptSealedMapping } from "./sealed-product-db-fixture";
 import { salvage, sealedPost } from "./sealed-product-observation-fixture";
@@ -126,12 +130,29 @@ describeDb("sealed product observation posts", () => {
       exclusions: [{ productId: entry.detail.productId, code: "unmapped-provider-scope" }],
     });
     const loaded = await h.observations.load(sourceObservationStreamId(entry.expected.observationId));
+    const selector = { ingestionUnitKey: entry.unitKey };
+    const persistedProfile = await createCatalogProviderIntegrationProfileVersionStore(pool).getActiveProfileVersion(
+      "tcgplayer",
+      selector,
+    );
+    const retainedProfile = await staticCatalogProviderIntegrationProfileVersions.getActiveProfileVersion(
+      "tcgplayer",
+      selector,
+    );
+    expect(persistedProfile).not.toBeNull();
+    expect(retainedProfile).not.toBeNull();
+    const persistedContract = requireSourceObservationMappingContract(persistedProfile!);
+    const retainedContract = requireSourceObservationMappingContract(retainedProfile!);
+    expect(persistedContract).toEqual(retainedContract);
+    expect(catalogProviderSourceMappingFingerprint(retainedContract)).toBe(entry.expected.sourceMappingFingerprint);
+    // The retired importer also read the persisted profile. JSONB key order affects its
+    // serialization-based fingerprint, but must not change the executable contract.
     expect(loaded.state).toMatchObject({
       id: entry.expected.observationId,
       externalKey: entry.expected.externalKey,
       sourceProfileKey: entry.expected.sourceProfileKey,
       sourceProfileVersion: entry.expected.sourceProfileVersion,
-      sourceMappingFingerprint: entry.expected.sourceMappingFingerprint,
+      sourceMappingFingerprint: catalogProviderSourceMappingFingerprint(persistedContract),
       sourceRecordHash: entry.expected.sourceRecordHash,
       normalized: entry.expected.normalized,
       sourcePayload: entry.expected.sourcePayload,
