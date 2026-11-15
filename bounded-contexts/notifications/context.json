@@ -1,4 +1,20 @@
 {
+  "scheduledJobs": [
+    {
+      "id": "{contextName}.notification-dispatcher",
+      "runnerExport": "createNotificationDispatchRunners",
+      "group": "dispatch",
+      "order": 70,
+      "runtimeProfiles": [
+        "proof",
+        "public"
+      ],
+      "schedule": {
+        "kind": "dispatch"
+      },
+      "lockScope": "job:{contextName}.notification-dispatcher"
+    }
+  ],
   "contextName": "notifications",
   "packageName": "@chase-sets/notifications",
   "localeCatalogs": ["contracts/localization/locales/en/notifications.ts"],

@@ -1,3 +1,4 @@
+import { createOrderingPaymentDeadlineSweepRunners } from "./support/runtime-support/worker-jobs";
 import { defineBcProjectionGroupReset, type BcProjectionGroup } from "@chase-sets/bounded-context-module";
 import { createCheckpointKey } from "@chase-sets/bounded-context-runtime";
 import { resetProductMeasurePublicationParts, type PgQueryable } from "@chase-sets/event-core-postgres";
@@ -400,7 +401,7 @@ const baseModule = defineBoundedContextModule<OrderingServices, PgTransactionalP
   inspectSeedState: (pool) => inspectOrderingSeedState(pool),
 });
 
-export const module = {
+const contextModule = {
   ...baseModule,
   buildProjectionGroups: (): readonly BcProjectionGroup[] =>
     (baseModule.projectionGroups ?? []).map((group) =>
@@ -423,3 +424,5 @@ export const module = {
         : group,
     ),
 };
+
+export const module = { ...contextModule, workerJobFactories: { createOrderingPaymentDeadlineSweepRunners } };

@@ -1,4 +1,21 @@
 {
+  "scheduledJobs": [
+    {
+      "id": "customer-feedback.attention-digest",
+      "schedule": {
+        "kind": "configured-interval",
+        "configKey": "customerFeedbackAttentionDigestIntervalMs"
+      },
+      "runnerExport": "createCustomerFeedbackAttentionDigestRunners",
+      "group": "scheduled",
+      "order": 109,
+      "runtimeProfiles": [
+        "proof",
+        "public"
+      ],
+      "lockScope": "job:customer-feedback.attention-digest"
+    }
+  ],
   "contextName": "customer-feedback",
   "packageName": "@chase-sets/customer-feedback",
   "localeCatalogs": ["contracts/localization/locales/en/customer-feedback.ts"],

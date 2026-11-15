@@ -95,3 +95,10 @@ export type {
 } from "./features/offer-economics/api/offer-economics-contracts";
 export type { OfferEconomicsSnapshot } from "./features/offer-economics/read-model/offer-economics-policy";
 export type { ProviderConnectionsCrossContextPort } from "./features/provider-connections/api/contracts";
+
+export {
+  createPlatformOperationsSellerComplianceCohortSweepRunners,
+  createPlatformOperationsSupportRequestDeadlineSweepRunners,
+  createPlatformOperationsSupportEvidenceCleanupRunners,
+  createPlatformOperationsGmvReconciliationRunners,
+} from "./support/runtime-support/worker-jobs";

@@ -1,3 +1,7 @@
+import {
+  createCatalogProviderScopeRefreshRunners,
+  createCatalogBulkJobRunners,
+} from "./support/runtime-support/worker-jobs";
 import { catalogProductMeasureSubscription } from "./features/product-measures/api/runtime";
 import { defineBcProjectionGroupReset, type BcProjectionGroup } from "@chase-sets/bounded-context-module";
 import { createCheckpointKey } from "@chase-sets/bounded-context-runtime";
@@ -70,7 +74,7 @@ const baseModule = defineBoundedContextModule<CatalogServices, PgTransactionalPo
   inspectSeedState: (pool) => inspectCatalogSeedState(pool),
 });
 
-export const module = {
+const contextModule = {
   ...baseModule,
   buildProjectionGroups: (): readonly BcProjectionGroup[] => [
     ...(baseModule.projectionGroups ?? []),
@@ -85,4 +89,9 @@ export const module = {
       }),
     },
   ],
+};
+
+export const module = {
+  ...contextModule,
+  workerJobFactories: { createCatalogProviderScopeRefreshRunners, createCatalogBulkJobRunners },
 };

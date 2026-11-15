@@ -1,3 +1,9 @@
+import {
+  createFulfillmentPostageOperationReconciliationRunners,
+  createFulfillmentPostageLabelVoidReconciliationRunners,
+  createFulfillmentReturnShipmentDeadlineSweepRunners,
+  createFulfillmentReturnLabelPurchaseReconciliationRunners,
+} from "./support/runtime-support/worker-jobs";
 export { default as contextManifest } from "./context.json" with { type: "json" };
 
 import { buildEventSubscriptionsFromManifest, defineBoundedContextModule } from "@chase-sets/bounded-context-module";
@@ -20,7 +26,7 @@ import { createFulfillmentShipmentMcpHandlers } from "./features/shipments/api/m
 import { createFulfillmentReturnIntakeMcpHandlers } from "./features/return-shipments/api/mcp";
 import { buildFulfillmentSupportReturnSourceProjectionHandlers } from "./features/return-shipments/integrations/support/support-source-projection";
 
-export const module = defineBoundedContextModule<FulfillmentServices, PgTransactionalPool, FulfillmentHostPorts>({
+const contextModule = defineBoundedContextModule<FulfillmentServices, PgTransactionalPool, FulfillmentHostPorts>({
   manifest: contextManifest,
   schemaSql: fulfillmentSchemaSql,
   retentionSweeps: fulfillmentRetentionSweeps,
@@ -91,3 +97,13 @@ export const module = defineBoundedContextModule<FulfillmentServices, PgTransact
   seed: seedFulfillmentDatabase,
   inspectSeedState: (pool) => inspectFulfillmentSeedState(pool),
 });
+
+export const module = {
+  ...contextModule,
+  workerJobFactories: {
+    createFulfillmentPostageOperationReconciliationRunners,
+    createFulfillmentPostageLabelVoidReconciliationRunners,
+    createFulfillmentReturnShipmentDeadlineSweepRunners,
+    createFulfillmentReturnLabelPurchaseReconciliationRunners,
+  },
+};
