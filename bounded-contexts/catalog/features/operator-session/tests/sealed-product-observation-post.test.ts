@@ -51,9 +51,11 @@ describe("sealed product salvage parity", () => {
       expect(parsed.ok).toBe(true);
       if (!parsed.ok) throw new Error("fixture-invalid");
       expect(tcgplayerSealedProductUnitKeyForLine(entry.detail.productLineName)).toBe(entry.unitKey);
-      const profile = (await staticCatalogProviderIntegrationProfileVersions.getActiveProfileVersion("tcgplayer", {
-        ingestionUnitKey: entry.unitKey,
-      }))!;
+      const profile = (await staticCatalogProviderIntegrationProfileVersions.listProfileVersions("tcgplayer")).find(
+        (version) =>
+          version.profileVersion === entry.expected.sourceProfileVersion &&
+          version.profileKey === entry.expected.sourceProfileKey,
+      )!;
       const payload = buildTcgplayerAutomationSourceObservationPayload({
         detail: parsed.post.products[0]!,
         externalReferenceRules: profile.profile.externalReferenceExtractionRules.rules,

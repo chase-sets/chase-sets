@@ -361,7 +361,19 @@ async function isReferenceOnlyMember(
       sameKey(version.profileKey, revision.sourceProfileKey) &&
       version.profileVersion === revision.sourceProfileVersion,
   );
-  return reviewed.length === 1 && !reviewed[0]!.profile.capabilities.includes("catalog-item-promotion");
+  const own = reviewed.length === 1 ? reviewed[0] : undefined;
+  if (!own || own.profile.capabilities.includes("catalog-item-promotion")) return false;
+  if (
+    own.lifecycle === "deprecated" &&
+    versions.some((version) => isActivePromotionProfile(version) && catalogProviderProfileVersionsCompete(version, own))
+  ) {
+    requirePinnedProfileEligible(versions, {
+      providerKey: own.providerKey,
+      profileKey: own.profileKey,
+      profileVersion: own.profileVersion,
+    });
+  }
+  return true;
 }
 
 /**

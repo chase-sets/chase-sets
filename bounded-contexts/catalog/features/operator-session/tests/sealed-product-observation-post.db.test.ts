@@ -120,6 +120,11 @@ describeDb("sealed product observation posts", () => {
   it.each(salvage.cases)("records salvage parity for $unitKey and one admission per post", async (entry) => {
     const pool = db();
     const h = await composeSealedProducts(pool);
+    await createCatalogProviderIntegrationProfileVersionStore(pool).activateProfileVersion(
+      "tcgplayer",
+      entry.expected.sourceProfileVersion,
+      { ingestionUnitKey: entry.unitKey },
+    );
     const response = await h.post({ ...sealedPost(), products: [entry.detail] });
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({
@@ -135,9 +140,12 @@ describeDb("sealed product observation posts", () => {
       "tcgplayer",
       selector,
     );
-    const retainedProfile = await staticCatalogProviderIntegrationProfileVersions.getActiveProfileVersion(
-      "tcgplayer",
-      selector,
+    const retainedProfile = (
+      await staticCatalogProviderIntegrationProfileVersions.listProfileVersions("tcgplayer")
+    ).find(
+      (version) =>
+        version.profileKey === entry.expected.sourceProfileKey &&
+        version.profileVersion === entry.expected.sourceProfileVersion,
     );
     expect(persistedProfile).not.toBeNull();
     expect(retainedProfile).not.toBeNull();

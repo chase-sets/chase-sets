@@ -1,5 +1,6 @@
 import { catalogProviderRequiredFixtureFlows } from "./provider-integration-mapping-contract";
 import type { CatalogProviderProfileFixtureCase } from "./provider-profile-contract-harness";
+import { TCGPLAYER_LORCANA_SEALED_PRODUCT_PROFILE_VERSION } from "./tcgplayer/executable-mapping-contract";
 
 export function catalogProviderProfileFixtureCases(): readonly CatalogProviderProfileFixtureCase[] {
   return [
@@ -1749,6 +1750,31 @@ export function catalogProviderProfileFixtureCases(): readonly CatalogProviderPr
         },
       },
     ),
+    ...providerCases(
+      "tcgplayer",
+      {
+        profileKey: "lorcana-sealed-product-sku",
+        ingestionUnitKey: "tcgplayer:lorcana:sealed-product:source-observation-import",
+        profileVersion: TCGPLAYER_LORCANA_SEALED_PRODUCT_PROFILE_VERSION,
+      },
+      {},
+    ).map((fixtureCase) => ({
+      ...fixtureCase,
+      expectedObservation: {
+        externalKey: "product:1005020",
+        normalizedKind: "lorcana-sealed-product" as const,
+        normalizedFields: { tcg: "lorcana", productLineName: "Disney Lorcana", sealedProductForm: "booster-box" },
+        externalCatalogItemReferences: [{ providerKey: "tcgplayer", externalKey: "product:1005020" }],
+      },
+      expectedPromotionCommands: [
+        "CreateCatalogItem",
+        "AssignBlueprintToCatalogItem",
+        "SetCatalogItemFieldValue",
+        "AssignCatalogItemToCategory",
+        "LinkExternalCatalogItemReference",
+      ],
+      expectedDuplicatePrevention: tcgplayerDuplicatePrevention(),
+    })),
   ];
 }
 

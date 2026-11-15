@@ -53,6 +53,7 @@ describe("Catalog provider profile contract harness", () => {
       "tcgplayer@2026.06.23",
       "tcgplayer@2026.06.23",
       "tcgplayer@2026.06.23",
+      "tcgplayer@2026.11.15",
       "tcgplayer@2026.06.05",
       "tcgplayer@2026.07.13",
     ]);
@@ -83,6 +84,7 @@ describe("Catalog provider profile contract harness", () => {
       { providerKey: "tcgplayer", profileKey: "one-piece-sealed-product-sku", profileVersion: "2026.06.23" },
       { providerKey: "tcgplayer", profileKey: "lorcana-single-card-product-sku", profileVersion: "2026.06.23" },
       { providerKey: "tcgplayer", profileKey: "lorcana-sealed-product-sku", profileVersion: "2026.06.23" },
+      { providerKey: "tcgplayer", profileKey: "lorcana-sealed-product-sku", profileVersion: "2026.11.15" },
       { providerKey: "tcgplayer", profileKey: "pokemon-single-card-product-sku", profileVersion: "2026.06.05" },
       { providerKey: "tcgplayer", profileKey: "pokemon-sealed-product-sku", profileVersion: "2026.07.13" },
     ];

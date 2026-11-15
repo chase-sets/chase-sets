@@ -993,7 +993,7 @@ export const tcgplayerLorcanaSingleCardProviderProfile = {
   },
 } as const satisfies CatalogProviderIntegrationProfile;
 
-export const tcgplayerLorcanaSealedProductProviderProfile = {
+export const tcgplayerLorcanaSealedProductPriorProviderProfile = {
   ...tcgplayerAutomationClientProviderProfile,
   displayName: "TCGplayer Lorcana Sealed Products",
   status: "active",
@@ -1049,5 +1049,14 @@ export const tcgplayerLorcanaSealedProductProviderProfile = {
           }
         : rule,
     ),
+  },
+} as const satisfies CatalogProviderIntegrationProfile;
+
+export const tcgplayerLorcanaSealedProductProviderProfile = {
+  ...tcgplayerLorcanaSealedProductPriorProviderProfile,
+  capabilities: ["source-observation-import", "catalog-item-promotion", "external-reference-extraction"],
+  normalizedObservationMapping: {
+    ...tcgplayerLorcanaSealedProductPriorProviderProfile.normalizedObservationMapping,
+    kind: "lorcana-sealed-product",
   },
 } as const satisfies CatalogProviderIntegrationProfile;

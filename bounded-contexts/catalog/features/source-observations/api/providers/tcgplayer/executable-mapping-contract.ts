@@ -13,7 +13,8 @@ export const TCGPLAYER_YUGIOH_SINGLE_CARD_PROFILE_VERSION = "2026.06.20";
 export const TCGPLAYER_ONE_PIECE_SINGLE_CARD_PROFILE_VERSION = "2026.06.22";
 export const TCGPLAYER_ONE_PIECE_SEALED_PRODUCT_PROFILE_VERSION = "2026.06.23";
 export const TCGPLAYER_LORCANA_SINGLE_CARD_PROFILE_VERSION = "2026.06.23";
-export const TCGPLAYER_LORCANA_SEALED_PRODUCT_PROFILE_VERSION = "2026.06.23";
+export const TCGPLAYER_LORCANA_SEALED_PRODUCT_PRIOR_PROFILE_VERSION = "2026.06.23";
+export const TCGPLAYER_LORCANA_SEALED_PRODUCT_PROFILE_VERSION = "2026.11.15";
 export const TCGPLAYER_POKEMON_SINGLE_CARD_PROFILE_VERSION = "2026.06.05";
 export const TCGPLAYER_POKEMON_SEALED_PRODUCT_PROFILE_VERSION = "2026.07.13";
 
@@ -664,12 +665,12 @@ export const tcgplayerLorcanaSingleCardProviderProductSourceObservationMappingCo
   },
 } as const satisfies CatalogProviderExecutableMappingContract;
 
-export const tcgplayerLorcanaSealedProductProviderProductSourceObservationMappingContract = {
+export const tcgplayerLorcanaSealedProductPriorSourceObservationMappingContract = {
   ...tcgplayerProviderProductSourceObservationMappingContract,
   profileKey: "lorcana-sealed-product-sku",
   displayName: "TCGplayer Lorcana Sealed Product and SKU",
-  profileVersion: TCGPLAYER_LORCANA_SEALED_PRODUCT_PROFILE_VERSION,
-  lifecycle: "active",
+  profileVersion: TCGPLAYER_LORCANA_SEALED_PRODUCT_PRIOR_PROFILE_VERSION,
+  lifecycle: "deprecated",
   ingestionUnitIdentity: tcgplayerLorcanaSealedProductIngestionUnitIdentity,
   sourceContract: {
     ...tcgplayerProviderProductSourceObservationMappingContract.sourceContract,
@@ -680,7 +681,7 @@ export const tcgplayerLorcanaSealedProductProviderProductSourceObservationMappin
   },
   fixtures: {
     fixtureRoot:
-      "bounded-contexts/catalog/features/source-observations/api/__fixtures__/tcgplayer-lorcana-sealed-product",
+      "bounded-contexts/catalog/features/source-observations/api/__fixtures__/tcgplayer-lorcana-sealed-product/prior-2026.06.23",
     coveredFlows: tcgplayerFixtureFlows,
     liveProviderCallsAllowed: false,
   },
@@ -691,6 +692,60 @@ export const tcgplayerLorcanaSealedProductProviderProductSourceObservationMappin
       ...providerProductFields,
     },
   },
+} as const satisfies CatalogProviderExecutableMappingContract;
+
+export const tcgplayerLorcanaSealedProductProviderProductSourceObservationMappingContract = {
+  ...tcgplayerLorcanaSealedProductPriorSourceObservationMappingContract,
+  profileVersion: TCGPLAYER_LORCANA_SEALED_PRODUCT_PROFILE_VERSION,
+  lifecycle: "active",
+  sourceContract: {
+    ...tcgplayerLorcanaSealedProductPriorSourceObservationMappingContract.sourceContract,
+    fixtureSetVersion: "tcgplayer-lorcana-sealed-product-production-v2",
+  },
+  fixtures: {
+    ...tcgplayerLorcanaSealedProductPriorSourceObservationMappingContract.fixtures,
+    fixtureRoot:
+      "bounded-contexts/catalog/features/source-observations/api/__fixtures__/tcgplayer-lorcana-sealed-product",
+  },
+  normalizedObservation: {
+    ...pokemonSealedProductNormalizedObservation,
+    outputKind: "lorcana-sealed-product",
+    fields: {
+      ...pokemonSealedProductFields,
+      releaseDate: optionalPathExpression("sourceUpdatedAt", "catalog-truth", [
+        "normalized-observation",
+        "hash-material",
+      ]),
+      tcg: constantExpression("lorcana", "catalog-truth", ["normalized-observation", "hash-material"]),
+      productLineName: constantExpression("Disney Lorcana", "catalog-truth", [
+        "normalized-observation",
+        "hash-material",
+      ]),
+    },
+  },
+  promotionCommandPlan: {
+    ...pokemonSealedPromotionCommandPlan,
+    commands: pokemonSealedPromotionCommandPlan.commands.map((command) => {
+      if (command.commandName === "AssignBlueprintToCatalogItem") {
+        return {
+          ...command,
+          inputs: {
+            blueprintKey: constantExpression("lorcana-sealed-product", "catalog-truth", ["promotion-command"]),
+          },
+        };
+      }
+      if (command.commandName === "AssignCatalogItemToCategory") {
+        return {
+          ...command,
+          inputs: {
+            categoryKey: constantExpression("lorcana-sealed-products", "catalog-truth", ["promotion-command"]),
+          },
+        };
+      }
+      return command;
+    }),
+  },
+  duplicatePrevention: tcgplayerPokemonSealedProductSourceObservationMappingContract.duplicatePrevention,
 } as const satisfies CatalogProviderExecutableMappingContract;
 
 function pathExpression(
