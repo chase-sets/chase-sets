@@ -1,5 +1,9 @@
 import { randomUUID } from "node:crypto";
-import { ConfigurationEpochError, type ConfigurationConsumer } from "@chase-sets/event-core/configuration-epoch";
+import {
+  assertConfigurationText,
+  ConfigurationEpochError,
+  type ConfigurationConsumer,
+} from "@chase-sets/event-core/configuration-epoch";
 import { createEventStoreError, type EventStore } from "@chase-sets/event-core/event-store";
 import type { AppendToStreamInput } from "@chase-sets/event-core/storage";
 import {
@@ -43,8 +47,10 @@ export function createAuthSessionEpochs(pool: PgTransactionalPool, consumers: Au
         "SELECT store_id, incarnation FROM event_configuration_store_identity WHERE singleton = true",
       );
       const identity = rows.rows[0];
-      if (rows.rows.length !== 1 || identity?.store_id !== "auth")
-        throw new ConfigurationEpochError("Auth source incarnation unavailable");
+      if (rows.rows.length !== 1 || !identity) throw new ConfigurationEpochError("Auth source incarnation unavailable");
+      // Shared seed databases co-host owners under one canonical physical store identity.
+      assertConfigurationText(identity.store_id);
+      assertConfigurationText(identity.incarnation);
       const sourceIncarnation = identity.incarnation;
       return createPostgresConfigurationEpochStore({
         pool,

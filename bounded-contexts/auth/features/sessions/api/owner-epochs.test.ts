@@ -3,13 +3,14 @@ import { existsSync, readFileSync } from "node:fs";
 import { authSchemaSql, authSessionEpochSchemaMigrations } from "../../../support/runtime-support/schema";
 import {
   createAuthSessionPersistence,
+  createAuthSessionEpochs,
   sessionAuthorityEventClassification,
   sessionOwnerKey,
   type AuthSessionEpochs,
 } from "./owner-epochs";
 import { foldSessionAuthority, sessionExpiry } from "./session-authority";
 import type { AppendToStreamInput, StoredEvent } from "@chase-sets/event-core/storage";
-import type { PostgresEventStore } from "@chase-sets/event-core-postgres";
+import type { PgTransactionalPool, PostgresEventStore } from "@chase-sets/event-core-postgres";
 
 const input = { sessionId: "ses_synthetic", userId: "usr_synthetic", tenantId: "tenant_synthetic" };
 const start = {
@@ -27,6 +28,41 @@ const start = {
 } as unknown as StoredEvent;
 
 describe("Auth Session owner enrollment", () => {
+  it.each(["auth", "identity", "synthetic-cohosted-store"])(
+    "uses the canonical physical source incarnation even when its store name is %s",
+    async (storeId) => {
+      const query = vi
+        .fn()
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({ rows: [{ store_id: storeId, incarnation: "synthetic-physical-incarnation" }] });
+      const db = { query };
+      const epochs = createAuthSessionEpochs(db as unknown as PgTransactionalPool);
+      await expect(epochs.source(db)).resolves.toMatchObject({ captureGrant: expect.any(Function) });
+      expect(query).toHaveBeenCalledTimes(2);
+      expect(query.mock.calls[0][0]).toContain("ON CONFLICT DO NOTHING");
+      expect(query.mock.calls[1][0]).toBe(
+        "SELECT store_id, incarnation FROM event_configuration_store_identity WHERE singleton = true",
+      );
+    },
+  );
+  it.each([
+    { rows: [] },
+    { rows: [{ store_id: "auth", incarnation: "" }] },
+    { rows: [{ store_id: "", incarnation: "synthetic-physical-incarnation" }] },
+    { rows: [{ store_id: "auth" }] },
+    {
+      rows: [
+        { store_id: "auth", incarnation: "synthetic-first" },
+        { store_id: "auth", incarnation: "synthetic-second" },
+      ],
+    },
+  ])("refuses absent, malformed or ambiguous physical source identity $rows", async ({ rows }) => {
+    const query = vi.fn().mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({ rows });
+    const db = { query };
+    await expect(createAuthSessionEpochs(db as unknown as PgTransactionalPool).source(db)).rejects.toMatchObject({
+      code: "concurrency_conflict",
+    });
+  });
   it("enrolls the closure DB proof and ships a ledgered token revision migration", () => {
     const manifest = JSON.parse(readFileSync(new URL("../../../package.json", import.meta.url), "utf8"));
     const proof = "support/runtime-support/listing-session-epoch-closure.db.test.ts";

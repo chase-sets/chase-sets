@@ -285,6 +285,22 @@ describeDb("Listing Session acknowledged epoch closure", () => {
     await expect(commitTerminal(f.terminalStore, f.terminal)).rejects.toMatchObject({ code: "concurrency_conflict" });
   });
 
+  it("enrolls Sessions in a co-hosted physical store without replacing its canonical identity", async () => {
+    const incarnation = "synthetic-cohosted-physical-incarnation";
+    await pool.query(
+      "INSERT INTO event_configuration_store_identity (singleton, store_id, incarnation) VALUES (true, 'identity', $1)",
+      [incarnation],
+    );
+    const f = await fixture();
+    expect(f.captured.grant.sourceIncarnation).toBe(incarnation);
+    await f.write(writers[0]);
+    await expect(commitTerminal(f.terminalStore, f.terminal)).rejects.toMatchObject({ code: "concurrency_conflict" });
+    expect(
+      (await pool.query("SELECT store_id, incarnation FROM event_configuration_store_identity WHERE singleton = true"))
+        .rows,
+    ).toEqual([{ store_id: "identity", incarnation }]);
+  });
+
   it("creation cannot grant before canonical commit and no-consumer token writes install immediately", async () => {
     const raw = createPostgresEventStore({ pool });
     const epochs = createAuthSessionEpochs(pool);
