@@ -8,7 +8,7 @@
 // the runtime read the status part until it changes (a ReadAgain in the part's answer). The
 // runtime reads it, not this script: pages require Trusted Types, so a script's string of markup
 // is refused, and `patch` draws none. The form goes once the runtime can read a part for a script
-// (corten-run/corten#1492).
+// (the README's open workarounds name the Corten issue).
 import { keep } from "corten";
 import { loadStripe } from "./stripe.js";
 
