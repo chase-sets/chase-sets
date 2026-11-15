@@ -6,6 +6,7 @@ import {
   type EnvironmentDataProfile,
 } from "@chase-sets/platform-runtime/api";
 import type { ReceiptLookupActorOptions } from "@chase-sets/auth/server";
+import { parseEbayOAuthConfiguration, type EbayOAuthConfiguration } from "@chase-sets/channels/server";
 import {
   parseCapabilityAdministrationAuthority,
   type CapabilityAdministrationAuthority,
@@ -337,6 +338,7 @@ export type PlatformApiConfig = Omit<PlatformApiBaseConfig, "realtime"> &
     offerLifecycleOpen: boolean;
     channelCredentialKeyring: ChannelCredentialKeyring | null;
     ebayAccountDeletionConfiguration: EbayAccountDeletionConfiguration | null;
+    ebayOAuthConfiguration: EbayOAuthConfiguration | null;
     receiptLookupActor: Omit<ReceiptLookupActorOptions, "canonicalAdminOrigin">;
     realtime: PlatformApiRealtimeConfig;
     paymentProcessor: PlatformApiPaymentProcessorConfig;
@@ -886,6 +888,12 @@ export function loadConfig(): PlatformApiConfig {
     checkoutClosed: getBooleanEnv("CHASE_SETS_CHECKOUT_CLOSED", false),
     offerLifecycleOpen: getBooleanEnv("CHASE_SETS_OFFER_LIFECYCLE_OPEN", false),
     channelCredentialKeyring: parseChannelCredentialKeyring(process.env.CHANNELS_CREDENTIAL_KEYRING_JSON),
+    ebayOAuthConfiguration: parseEbayOAuthConfiguration(
+      observedDeploymentEnvironment === "production" ? "production" : "sandbox",
+      process.env.EBAY_APPLICATION_CLIENT_ID,
+      process.env.EBAY_APPLICATION_CLIENT_SECRET,
+      process.env.EBAY_OAUTH_RUNAME,
+    ),
     receiptLookupActor: {
       deploymentEnvironment: baseConfig.deploymentEnvironment,
       readCredential: () => process.env.EBAY_RECEIPT_LOOKUP_STAGING_ACTOR_JSON,
