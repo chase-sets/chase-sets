@@ -1677,7 +1677,7 @@ function createPricingJobRunners(
                       listingCommandInput("listing.publish", {
                         accountId,
                         listingId,
-                        idempotencyKey: body.idempotencyKey,
+                        ...body,
                       }),
                       sellerSystemContext(accountId),
                     ),

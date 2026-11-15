@@ -376,6 +376,7 @@ export const marketplaceListingCallerPartition = new Map([
   ["bounded-contexts/pricing/support/request-support/marketplace-listings.ts", "imported-client-forwarder"],
   ["contracts/catalog-seed/representative-commerce-state.ts", "authoritative-stream"],
   ["deployables/marketplace-seed-testing/tests/representative-commerce-state.test.ts", "typed-owner-fixture"],
+  ["deployables/marketplace-seed-testing/tests/marketplace-seed.test.ts", "typed-owner-fixture"],
   ["deployables/marketplace/e2e/accepted-offer-sales-handoff.spec.ts", "transport-fixture"],
   ["deployables/marketplace/e2e/channel-connection-connect.spec.ts", "transport-fixture"],
   ["deployables/marketplace/e2e/manual-sync-recovery.spec.ts", "transport-fixture"],

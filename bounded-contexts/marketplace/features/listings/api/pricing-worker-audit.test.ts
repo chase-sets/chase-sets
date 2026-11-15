@@ -48,7 +48,11 @@ describe("Pricing worker seller audit composition", () => {
         },
         publishListing: async (params) => {
           expect(params).toMatchObject(
-            listingCommandInput("listing.publish", { listingId: target.targetId, idempotencyKey: batch.batchId }),
+            listingCommandInput("listing.publish", {
+              listingId: target.targetId,
+              idempotencyKey: batch.batchId,
+              requestHash: "0".repeat(64),
+            }),
           );
           return { listingId: target.targetId, version: 1 };
         },
@@ -149,7 +153,8 @@ describe("Pricing worker seller audit composition", () => {
             idempotencyKey: batch.batchId,
             reason: "policy-input-missing",
           });
-          await gateway.publishListing(target.targetId, { idempotencyKey: batch.batchId });
+          // The owner, not the wiring, must reject a supplied mismatched hash.
+          await gateway.publishListing(target.targetId, { idempotencyKey: batch.batchId, requestHash: "0".repeat(64) });
           const body: Parameters<typeof gateway.applyBulkListingPriceUpdates>[0] = {
             batchId: batch.batchId,
             updates: [
