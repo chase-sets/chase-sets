@@ -563,9 +563,9 @@ describe("real repository execution membership", () => {
 
       expect(result.violations, result.violations.join("\n")).toEqual([]);
       expect(result.inventory.parserVersion).toBe("6.0.3");
-      expect(result.inventory.declarations).toHaveLength(139);
+      expect(result.inventory.declarations).toHaveLength(140);
       expect(result.inventory.partition).toEqual({
-        "node-enforced": 57,
+        "node-enforced": 58,
         "vite-excluded": 54,
         "vitest-excluded": 28,
         "manifest-only": 0,
@@ -596,7 +596,7 @@ describe("real repository execution membership", () => {
         },
       ]);
       expect(createHash("sha256").update(JSON.stringify(normalized)).digest("hex")).toBe(
-        "4fbb60eedeaed4bea1bc20f5f915f4359c9e79651abb5d1207273e57e8816dfb",
+        "bcd5020ae3781c1220808dbc225745a91295f07a7fad47b5f44dbc5c24de5ea8",
       );
       expect(
         normalized.filter(
@@ -653,6 +653,20 @@ describe("real repository execution membership", () => {
           (entry) => entry.relativeFile === "bounded-contexts/catalog/support/authoring-support/index.ts",
         ),
       ).toMatchObject({ disposition: "node-enforced", attributeText: 'with { type: "json" }' });
+      expect(
+        normalized.filter(
+          (entry) => entry.relativeFile === "bounded-contexts/auth/support/route-support/guest-payment-claim/route.ts",
+        ),
+      ).toEqual([
+        {
+          relativeFile: "bounded-contexts/auth/support/route-support/guest-payment-claim/route.ts",
+          form: "import",
+          specifier: "../../../context.json",
+          attributeText: 'with { type: "json" }',
+          resolved: "bounded-contexts/auth/context.json",
+          disposition: "node-enforced",
+        },
+      ]);
       expect(
         result.inventory.declarations.find(
           (entry) => entry.relativeFile === "bounded-contexts/settlement/routes/marketplace/account-desk-payout.tsx",

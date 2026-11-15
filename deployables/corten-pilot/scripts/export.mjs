@@ -171,12 +171,13 @@
 //   adjustment's account-facing status, direction and reason as adjustment_status.*, adjustment_direction.*
 //   and reason.*, and contracts/http's money status labels as status.*, their codes' dashes as underscores).
 // - marketplace/locales/payment.en.json: a buyer's payment page's English catalog
-//   (payments.routes.marketplace.accountPayment.*, at the root).
+//   (payments.routes.marketplace.accountPayment.* and auth.routes.marketplace.guestPaymentClaim.*,
+//   at the root).
 // - marketplace/locales/payment_start.en.json: starting a payment for a buyer's orders again
 //   (payments.routes.marketplace.accountPaymentNew.*, at the root).
 // - marketplace/locales/payment_methods.en.json: the saved payment methods page's English catalog
 //   (payments.routes.marketplace.accountPaymentMethods.*, at the root, and the secure step's words from
-//   payments.routes.marketplace.accountPayment.* as step.*).
+//   payments.routes.marketplace.accountPayment.* and auth.routes.marketplace.guestPaymentClaim.* as step.*).
 // - marketplace/locales/support.en.json: a Support Request participant page's English catalog
 //   (support.features.supportRequests.ui.supportRequestDetailPage.* as page.*, the route's words as route.*,
 //   the support operations page's deadline words as deadline.* and not_applicable, and
@@ -1680,11 +1681,12 @@ const outputs = [
   ],
   [
     "marketplace/locales/payment.en.json",
-    json(
-      await catalog("payments.ts", "paymentsEnglishTranslations", [
+    json({
+      ...(await catalog("payments.ts", "paymentsEnglishTranslations", [
         ["payments.routes.marketplace.accountPayment.", ""],
-      ]),
-    ),
+      ])),
+      ...(await catalog("auth.ts", "authEnglishTranslations", [["auth.routes.marketplace.guestPaymentClaim.", ""]])),
+    }),
   ],
   [
     "marketplace/locales/payment_start.en.json",
@@ -1696,12 +1698,15 @@ const outputs = [
   ],
   [
     "marketplace/locales/payment_methods.en.json",
-    json(
-      await catalog("payments.ts", "paymentsEnglishTranslations", [
+    json({
+      ...(await catalog("payments.ts", "paymentsEnglishTranslations", [
         ["payments.routes.marketplace.accountPaymentMethods.", ""],
         ["payments.routes.marketplace.accountPayment.", "step"],
-      ]),
-    ),
+      ])),
+      ...(await catalog("auth.ts", "authEnglishTranslations", [
+        ["auth.routes.marketplace.guestPaymentClaim.", "step"],
+      ])),
+    }),
   ],
   [
     "marketplace/locales/support.en.json",

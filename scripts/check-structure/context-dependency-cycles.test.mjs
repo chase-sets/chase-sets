@@ -3,6 +3,8 @@ import { execFileSync } from "node:child_process";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { findContextDependencyCycleViolations as check } from "./context-dependency-cycles.mjs";
+import { GIT_LISTING_MAX_BUFFER } from "../lib/git-listing.mjs";
+import { authEnglishTranslations } from "../../contracts/localization/locales/en/auth.ts";
 
 const root = path.resolve(import.meta.dirname, "../..");
 const vertex = (packageName, allowedContextDependencies = []) => ({ packageName, allowedContextDependencies });
@@ -74,11 +76,32 @@ describe("context dependency graph", () => {
       true,
     );
   });
+  it("exports Auth-owned guest claim text to both pilot payment catalogs", () => {
+    const payment = JSON.parse(
+      readFileSync(path.join(root, "deployables/corten-pilot/marketplace/locales/payment.en.json"), "utf8"),
+    );
+    const methods = JSON.parse(
+      readFileSync(path.join(root, "deployables/corten-pilot/marketplace/locales/payment_methods.en.json"), "utf8"),
+    );
+    const prefix = "auth.routes.marketplace.guestPaymentClaim.";
+    const claimText = Object.entries(authEnglishTranslations).filter(([key]) => key.startsWith(prefix));
+    expect(claimText.length).toBeGreaterThan(0);
+    for (const [key, text] of claimText) {
+      const exportedKey = key.slice(prefix.length);
+      expect(payment[exportedKey], key).toBe(text);
+      expect(methods[`step.${exportedKey}`], key).toBe(text);
+    }
+  });
+
   it.each([
     ["auth", "payments"],
     ["payments", "auth"],
   ])("has no production import from %s to %s", (from, to) => {
-    const files = execFileSync("git", ["ls-files", "--", `bounded-contexts/${from}`], { cwd: root, encoding: "utf8" })
+    const files = execFileSync("git", ["ls-files", "--", `bounded-contexts/${from}`], {
+      cwd: root,
+      encoding: "utf8",
+      maxBuffer: GIT_LISTING_MAX_BUFFER,
+    })
       .trim()
       .split(/\r?\n/);
     const violations = files
