@@ -588,6 +588,9 @@
       "@chase-sets/marketplace/integration/link-intents": [
         "./bounded-contexts/marketplace/support/runtime-support/link-intents.ts"
       ],
+      "@chase-sets/marketplace/integration/listing-commands": [
+        "./bounded-contexts/marketplace/features/listings/integrations/commands.ts"
+      ],
       "@chase-sets/marketplace/routes/*": [
         "./bounded-contexts/marketplace/routes/*.tsx"
       ],
