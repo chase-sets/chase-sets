@@ -391,6 +391,30 @@ export default {
       paths: ["bounded-contexts/channels/features/", "bounded-contexts/channels/routes/marketplace/"],
     },
     {
+      id: "seller-ebay-sandbox-connection",
+      version: 1,
+      startPath: "/account/channels",
+      role: "seller",
+      host: "marketplace",
+      goal: "Find the eBay Sandbox connection options. Explain what connecting would allow, whether authorization is available, and whether connecting would start syncing or publishing. Do not authorize, disconnect, or leave this site.",
+      checks: ["authorization-state", "consent-scope", "setup-boundary"],
+      oracle: {
+        "authorization-state":
+          "Compare the reported availability with the isolated fixture's API configuration and owner-scoped connection detail. No provider request or state mutation may occur.",
+        "consent-scope":
+          "The page explains the captured consent capabilities and Sandbox-only scope without promising unsupported provider operations.",
+        "setup-boundary":
+          "The participant reports that authorization leaves the connection pending setup, without starting syncing or publishing; compare against the Channels connection state machine.",
+      },
+      routes: {
+        "bounded-contexts/channels/routes/marketplace/account-channels-ebay.tsx": "authorization-state",
+      },
+      paths: [
+        "bounded-contexts/channels/features/ebay-connection/",
+        "bounded-contexts/channels/routes/marketplace/account-channels-ebay",
+      ],
+    },
+    {
       id: "seller-team-roster",
       version: 1,
       startPath: "/account/team",
@@ -431,6 +455,10 @@ export default {
     },
   ],
   excludedRoutes: [
+    {
+      path: "bounded-contexts/channels/routes/marketplace/ebay-callback.tsx",
+      reason: "provider-step-only",
+    },
     {
       path: "bounded-contexts/pricing/routes/marketplace/account-desk-pricing-health.tsx",
       reason:
